@@ -1537,6 +1537,42 @@ func (q *Queries) ListAllDeploymentConfigs(ctx context.Context) ([]ListAllDeploy
 	return items, nil
 }
 
+const listAssetDirectories = `-- name: ListAssetDirectories :many
+SELECT id, space_id, key, parent_id, created_at, created_by
+FROM asset_directories
+ORDER BY space_id, parent_id, key
+`
+
+func (q *Queries) ListAssetDirectories(ctx context.Context) ([]AssetDirectory, error) {
+	rows, err := q.db.QueryContext(ctx, listAssetDirectories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AssetDirectory
+	for rows.Next() {
+		var i AssetDirectory
+		if err := rows.Scan(
+			&i.ID,
+			&i.SpaceID,
+			&i.Key,
+			&i.ParentID,
+			&i.CreatedAt,
+			&i.CreatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAssetRows = `-- name: ListAssetRows :many
 
 SELECT id, space_id, key, asset_directory_id, created_at, created_by
@@ -2496,6 +2532,42 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 	return items, nil
 }
 
+const listValueDirectories = `-- name: ListValueDirectories :many
+SELECT id, space_id, name, parent_id, created_at, created_by
+FROM value_directories
+ORDER BY space_id, parent_id, name
+`
+
+func (q *Queries) ListValueDirectories(ctx context.Context) ([]ValueDirectory, error) {
+	rows, err := q.db.QueryContext(ctx, listValueDirectories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ValueDirectory
+	for rows.Next() {
+		var i ValueDirectory
+		if err := rows.Scan(
+			&i.ID,
+			&i.SpaceID,
+			&i.Name,
+			&i.ParentID,
+			&i.CreatedAt,
+			&i.CreatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const recordAssetMigrationError = `-- name: RecordAssetMigrationError :one
 UPDATE asset_migrations
 SET status = 'running', last_attempt_at = ?, last_error = ?
@@ -2627,6 +2699,20 @@ func (q *Queries) SetAssetDirectoryID(ctx context.Context, arg SetAssetDirectory
 	return err
 }
 
+const setAssetDirectoryKey = `-- name: SetAssetDirectoryKey :exec
+UPDATE asset_directories SET key = ? WHERE id = ?
+`
+
+type SetAssetDirectoryKeyParams struct {
+	Key string
+	ID  int64
+}
+
+func (q *Queries) SetAssetDirectoryKey(ctx context.Context, arg SetAssetDirectoryKeyParams) error {
+	_, err := q.db.ExecContext(ctx, setAssetDirectoryKey, arg.Key, arg.ID)
+	return err
+}
+
 const setAssetDirectoryParent = `-- name: SetAssetDirectoryParent :exec
 UPDATE asset_directories SET parent_id = ? WHERE id = ?
 `
@@ -2666,6 +2752,20 @@ type SetSecretValueDirectoryIDParams struct {
 
 func (q *Queries) SetSecretValueDirectoryID(ctx context.Context, arg SetSecretValueDirectoryIDParams) error {
 	_, err := q.db.ExecContext(ctx, setSecretValueDirectoryID, arg.ValueDirectoryID, arg.ID)
+	return err
+}
+
+const setValueDirectoryName = `-- name: SetValueDirectoryName :exec
+UPDATE value_directories SET name = ? WHERE id = ?
+`
+
+type SetValueDirectoryNameParams struct {
+	Name string
+	ID   int64
+}
+
+func (q *Queries) SetValueDirectoryName(ctx context.Context, arg SetValueDirectoryNameParams) error {
+	_, err := q.db.ExecContext(ctx, setValueDirectoryName, arg.Name, arg.ID)
 	return err
 }
 

@@ -77,7 +77,7 @@ func TestLargeAssetStoredLocallyWhenBackupDisabled(t *testing.T) {
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
 
-	asset, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, int64(len(blob)), bytes.NewReader(blob))
+	asset, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, 0, int64(len(blob)), bytes.NewReader(blob))
 	if err != nil {
 		t.Fatalf("CreateAssetFromReader: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestReconcileFinishesInterruptedLocalUpload(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ainit.StaticConfig.LargeAssetsDir, stagedName), []byte("data"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	asset, err := store.DB.CreateAssetWithVersion("interrupted.bin", 1, 0, pendingLocation(stagedName), 4, nil)
+	asset, err := store.DB.CreateAssetWithVersion("interrupted.bin", 1, 0, 0, pendingLocation(stagedName), 4, nil)
 	if err != nil {
 		t.Fatalf("stage pending upload: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	settings.LargeAssets.S3Path.Value = "asset-prefix"
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
-	asset, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, int64(len(blob)), bytes.NewReader(blob))
+	asset, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, 0, int64(len(blob)), bytes.NewReader(blob))
 	if err != nil {
 		t.Fatalf("local upload: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestLargeAssetSeparateS3OverridesSharedCredentials(t *testing.T) {
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
 
-	asset, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, int64(len(blob)), bytes.NewReader(blob))
+	asset, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, 0, int64(len(blob)), bytes.NewReader(blob))
 	if err != nil {
 		t.Fatalf("CreateAssetFromReader: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestLargeAssetUploadDoesNotFallBackWhenBackupS3IsInvalid(t *testing.T) {
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
 
-	_, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, int64(len(blob)), bytes.NewReader(blob))
+	_, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, 0, int64(len(blob)), bytes.NewReader(blob))
 	if err == nil || !strings.Contains(err.Error(), ErrLargeAssetS3Config.Error()) {
 		t.Fatalf("CreateAssetFromReader error = %v, want S3 configuration error", err)
 	}
@@ -314,7 +314,7 @@ func TestLargeAssetUploadDoesNotFallBackWhenBackupS3IsInvalid(t *testing.T) {
 func TestS3ConfigurationChangeRequiresAssetsToBeLocal(t *testing.T) {
 	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	store := newTestStore(t, &settings)
-	if _, err := store.DB.CreateAssetWithVersion("large.bin", 1, 0, "s3://bucket/path/1", InlineThresholdBytes+1, nil); err != nil {
+	if _, err := store.DB.CreateAssetWithVersion("large.bin", 1, 0, 0, "s3://bucket/path/1", InlineThresholdBytes+1, nil); err != nil {
 		t.Fatalf("create s3 asset: %v", err)
 	}
 	next := *settings

@@ -40,7 +40,7 @@ export const createValueEditorState = value => {
     };
 };
 
-export function valueOverlay({name = "", type, value = "", version = 0, createdAt, deploymentCount = 0, mode = "edit", onSave, onClose}) {
+export function valueOverlay({name = "", type, value = "", version = 0, createdAt, deploymentCount = 0, mode = "edit", location = "", onSave, onClose}) {
     const creating = mode === "create";
     const copied = van.state(false);
     const copyFailed = van.state(false);
@@ -144,6 +144,7 @@ export function valueOverlay({name = "", type, value = "", version = 0, createdA
                 creating ? div(
                     {class: "flex shrink-0 items-center gap-3 border-b border-gray-700 px-4 py-2"},
                     p({class: "text-xs font-medium text-gray-400"}, "Name"),
+                    location ? span({class: "shrink-0 max-w-56 truncate font-mono text-xs text-gray-500", title: location}, location) : "",
                     input({
                         class: "text-input min-w-0 flex-1 py-1 font-mono text-sm",
                         placeholder: `${type} name`,

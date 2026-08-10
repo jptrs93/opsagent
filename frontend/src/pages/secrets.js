@@ -1,482 +1,1131 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {valueOverlay} from "../components/valueOverlay.js";
 import {formatDateTime} from "../lib/date.js";
-import {checkIcon, copyIcon, editIcon, plusIcon, trashIcon} from "../lib/icons.js";
-import {deploymentUsages, deploymentUsesEnvReferences} from "../lib/referenceUsage.js";
-import {deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS, userConfigsS} from "../state/deployments.js";
 import {containerWorkload} from "../lib/deploymentConfig.js";
+import {
+    caretRightIcon, checkIcon, chevronDownIcon, closeIcon, columnsIcon, configSlidersIcon,
+    copyIcon, editIcon, eyeOpenIcon, folderIcon, plusIcon, searchIcon, secretKeyIcon,
+    sortArrowIcon,
+} from "../lib/icons.js";
+import {OPENDEPLOY_SPACE_ID} from "../lib/nodeSpaces.js";
+import {deploymentUsages, deploymentUsesEnvReferences} from "../lib/referenceUsage.js";
+import {
+    ALL_COLUMNS, DEFAULT_COLUMNS, DEFAULT_COLUMN_WIDTHS, DEFAULT_TYPES,
+    buildRows, dirsById, dirPathSegments, flexColumnKey, folderOptions, itemKey,
+    itemPathSegments, makeItems, sameSet, spaceHue,
+} from "../lib/valueExplorer.js";
+import {
+    deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS,
+    userConfigsS, valueDirectoriesS,
+} from "../state/deployments.js";
 
-const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
-const DEFAULT_SECRET_MASK = "••••••••••••••••";
+const {button, col, colgroup, dd, div, dl, dt, h2, input, p, span, table, tbody, td, th, thead, tr} = van.tags;
 
-const rawStateValue = (state) => state.rawVal ?? state.val ?? "";
+const SECRET_MASK = "••••••••••••";
+const VIEW_STORAGE_KEY = "opendeploySecretsExplorerView";
+const INSPECTOR_MIN = 220;
+const INSPECTOR_MAX = 460;
 
-const iconButton = (child, onclick, cls = "", attrs = {}) => button({
-    type: "button",
-    ...attrs,
-    class: `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-gray-400 hover:text-gray-100 ` +
-        `hover:bg-surface-hover transition-colors cursor-pointer ${cls}`,
-    onclick,
-}, child);
+const loadView = () => {
+    try {
+        return JSON.parse(localStorage.getItem(VIEW_STORAGE_KEY)) || {};
+    } catch (_) {
+        return {};
+    }
+};
 
-const smallBtn = (text, onclick, cls, disabledWhen) => button({
-    type: "button",
-    disabled: disabledWhen,
-    class: () => `text-xs px-3 py-1 rounded-md font-medium transition-colors ${cls} ${
-        disabledWhen && disabledWhen() ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`,
-    onclick: async (e) => { if (disabledWhen && disabledWhen()) return; await onclick(e); },
-}, text);
+// Settings references, labelled for the usage overlay. These mirror the typed
+// secret/config refs the primary configuration can pin.
+const settingConfigRefs = (settings) => [
+    ["Web UI HTTP enabled", settings?.httpWeb?.enabled?.configRef?.versionId],
+    ["Web UI HTTP listen", settings?.httpWeb?.listen?.configRef?.versionId],
+    ["Web UI HTTPS enabled", settings?.httpsWeb?.enabled?.configRef?.versionId],
+    ["Web UI HTTPS listen", settings?.httpsWeb?.listen?.configRef?.versionId],
+    ["Web UI use self managed TLS cert", settings?.httpsWeb?.tlsSelfManaged?.configRef?.versionId],
+    ["Web UI ACME hosts", settings?.httpsWeb?.acmeHosts?.configRef?.versionId],
+    ["Web UI ACME email", settings?.httpsWeb?.acmeEmail?.configRef?.versionId],
+    ["Cluster listen", settings?.cluster?.listen?.configRef?.versionId],
+    ["Cluster enrollment listen", settings?.cluster?.enrollmentListen?.configRef?.versionId],
+    ["Backup enabled", settings?.backup?.enabled?.configRef?.versionId],
+    ["Backup S3 access key ID", settings?.backup?.s3AccessKeyId?.configRef?.versionId],
+    ["Backup S3 bucket", settings?.backup?.s3Bucket?.configRef?.versionId],
+    ["Backup S3 path", settings?.backup?.s3Path?.configRef?.versionId],
+    ["Backup S3 region", settings?.backup?.s3Region?.configRef?.versionId],
+    ["Backup S3 endpoint", settings?.backup?.s3Endpoint?.configRef?.versionId],
+    ["Use separate large assets S3", settings?.largeAssets?.useSeparateS3?.configRef?.versionId],
+    ["Large asset S3 access key ID", settings?.largeAssets?.s3AccessKeyId?.configRef?.versionId],
+    ["Large asset S3 bucket", settings?.largeAssets?.s3Bucket?.configRef?.versionId],
+    ["Large asset S3 path", settings?.largeAssets?.s3Path?.configRef?.versionId],
+    ["Large asset S3 region", settings?.largeAssets?.s3Region?.configRef?.versionId],
+    ["Large asset S3 endpoint", settings?.largeAssets?.s3Endpoint?.configRef?.versionId],
+].map(([label, id]) => ({label, id: Number(id || 0)})).filter((ref) => ref.id);
 
-const actionButton = (text, onclick, cls = "bg-gray-700 text-gray-200 hover:bg-gray-600", disabledWhen) => button({
-    type: "button",
-    disabled: disabledWhen,
-    class: () => `flex items-center gap-1 whitespace-nowrap text-sm px-3 py-1.5 rounded-lg transition-colors ${cls} ${
-        disabledWhen && disabledWhen() ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`,
-    onclick: (e) => { if (disabledWhen && disabledWhen()) return; onclick(e); },
-}, plusIcon(), text);
+const settingSecretRefs = (settings) => [
+    ["Web UI TLS cert PEM", settings?.httpsWeb?.tlsCertPem?.versionId],
+    ["GitHub token", settings?.repo?.githubToken?.versionId],
+    ["Backup S3 secret access key", settings?.backup?.s3SecretAccessKey?.versionId],
+    ["Large asset S3 secret access key", settings?.largeAssets?.s3SecretAccessKey?.versionId],
+].map(([label, id]) => ({label, id: Number(id || 0)})).filter((ref) => ref.id);
 
 export function secretsPage() {
-    const rows = van.state(null);
-    const error = van.state(null);
+    const saved = loadView();
+
+    const hiddenSpaces = van.state(new Set(Array.isArray(saved.hiddenSpaces) ? saved.hiddenSpaces : [OPENDEPLOY_SPACE_ID]));
+    const types = van.state(new Set(Array.isArray(saved.types) ? saved.types : DEFAULT_TYPES));
+    const shownCols = van.state(new Set(Array.isArray(saved.cols) ? saved.cols : DEFAULT_COLUMNS));
+    const colWidths = van.state({...DEFAULT_COLUMN_WIDTHS, ...(saved.colWidths || {})});
+    const sort = van.state(saved.sort?.key ? saved.sort : {key: "name", dir: "asc"});
+    const expanded = van.state(new Set(Array.isArray(saved.expanded) ? saved.expanded : []));
+    const inspectorWidth = van.state(Number(saved.inspectorWidth) || 280);
+    const inspectorOpen = van.state(true);
+    const selectedKey = van.state(null);
     const search = van.state("");
-    const sort = van.state({key: "name", dir: "asc"});
-    const deleteTarget = van.state(null);
-    const deleteSaving = van.state(false);
+    const openMenu = van.state(null); // "spaces" | "types" | "cols" | null
+    const error = van.state(null);
+    const revealed = van.state(null); // {key, value}
+    // renameState marks which row is being renamed; the draft lives in its own
+    // state that no binding reads, so typing never rebuilds the input.
+    const renameState = van.state(null); // {key}
+    const renameDraft = van.state("");
+    const folderName = van.state("");
+    const copiedKey = van.state("");
+
     const usageTarget = van.state(null);
-    const valueTarget = van.state(null);
-    const createTarget = van.state(null);
-    let localRows = null;
-    let streamSignature = '';
-    let nextLocalKey = 1;
-    const pendingDeletes = new Set();
+    const valueTarget = van.state(null);   // {item, originalValue, referencingDeployments}
+    const createTarget = van.state(null);  // {type, spaceId, directoryId, location}
+    const folderDialog = van.state(null);  // {spaceId, parentId, location, name, saving}
+    const moveDialog = van.state(null);    // {label, options, currentId, apply}
+    const deleteTarget = van.state(null);  // {label, apply}
+    const dialogSaving = van.state(false);
 
-    const errorBanner = () => error.val ? p({class: "text-red-400 text-sm"}, `Error: ${error.val}`) : "";
+    let expandedTouched = Array.isArray(saved.expanded);
 
-    const makeConfigRow = (config) => {
-        const isNew = !config;
-        const latest = config?.versionRefs?.[0];
-        return {
-            localKey: `local:${nextLocalKey++}`,
-            type: "config", isNew, _saved: false,
-            stableId: config ? config.id : 0,
-            referenceId: latest ? latest.id : 0,
-            version: latest ? latest.version : 0,
-            name: van.state(config ? config.name : ""),
-            value: van.state(latest ? latest.value : ""),
-            createdAt: latest ? latest.createdAt : null,
-            copied: van.state(false),
-            saving: van.state(false),
-            nameAliases: new Set(),
-            orig: {
-                name: config ? config.name : "",
-                value: latest ? latest.value : "",
+    const persistView = () => {
+        try {
+            localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({
+                hiddenSpaces: [...hiddenSpaces.val],
+                types: [...types.val],
+                cols: [...shownCols.val],
+                colWidths: colWidths.val,
+                sort: sort.val,
+                expanded: [...expanded.val],
+                inspectorWidth: inspectorWidth.val,
+            }));
+        } catch (_) { /* view state is a convenience, never load-bearing */ }
+    };
+
+    // ---- derived data -----------------------------------------------------
+
+    const secretsUnlocked = () => secretsStatusS.val?.unlocked === true;
+    const currentItems = () => makeItems(secretMetasS.val, userConfigsS.val, secretsUnlocked());
+    const currentDirs = () => valueDirectoriesS.val || [];
+    const visibleSpaces = () => (spacesS.val || []).filter((s) => !hiddenSpaces.val.has(Number(s.id)));
+    const spaceName = (id) => (spacesS.val || []).find((s) => Number(s.id) === Number(id))?.name || `space ${id}`;
+
+    const spacesDirty = () => !sameSet(hiddenSpaces.val, new Set([OPENDEPLOY_SPACE_ID]));
+    const typesDirty = () => !sameSet(types.val, new Set(DEFAULT_TYPES));
+    const colsDirty = () => !sameSet(shownCols.val, new Set(DEFAULT_COLUMNS));
+
+    const usageForItem = (item) => {
+        const refIds = new Set((item.meta.versionRefs || []).map((ref) => Number(ref.id)));
+        const settings = (item.kind === "secret"
+            ? settingSecretRefs(primaryConfigS.val?.config?.settings)
+            : settingConfigRefs(primaryConfigS.val?.config?.settings)
+        ).filter((ref) => refIds.has(ref.id));
+        const referenceKey = item.kind === "secret" ? "secretVersionId" : "configVersionId";
+        const deployments = deploymentUsages(deploymentsS.val, spacesS.val, machinesS.val, (deployment) => {
+            const cfg = deployment?.config;
+            if (!cfg || cfg.deleted) return false;
+            const envVars = containerWorkload(cfg)?.runtime?.envVars || {};
+            return Object.values(envVars).some((value) => refIds.has(Number(value?.[referenceKey] || 0)));
+        });
+        return {deployments, settings};
+    };
+
+    const referencingDeploymentVersions = (item) => {
+        const refIds = new Set((item.meta.versionRefs || []).map((ref) => Number(ref.id)));
+        return (deploymentsS.val || []).map((deployment) => deployment?.config).filter((cfg) =>
+            cfg && !cfg.deleted && deploymentUsesEnvReferences(cfg, item.kind, refIds),
+        ).map((cfg) => ({id: cfg.id, version: cfg.version}));
+    };
+
+    const resolveSelection = () => {
+        const key = selectedKey.val;
+        if (!key) return null;
+        if (key.startsWith("space:")) {
+            const space = (spacesS.val || []).find((s) => `space:${s.id}` === key);
+            return space ? {type: "space", space} : null;
+        }
+        if (key.startsWith("dir:")) {
+            const dir = currentDirs().find((d) => `dir:${d.id}` === key);
+            return dir ? {type: "dir", dir} : null;
+        }
+        const item = currentItems().find((i) => itemKey(i) === key);
+        return item ? {type: "item", item} : null;
+    };
+
+    // First visit: open every visible space so the page reads as a populated
+    // tree, not a wall of closed roots. Stops the moment the user touches any
+    // disclosure. Also drops a selection stranded by the space or type filter —
+    // but only when the row demonstrably exists and is filtered out: a key the
+    // stream has not echoed yet (a create still in flight) must survive.
+    van.derive(() => {
+        if (!expandedTouched) {
+            const keys = new Set(visibleSpaces().map((s) => `space:${s.id}`));
+            if (!sameSet(keys, expanded.val)) expanded.val = keys;
+        }
+        const key = selectedKey.val;
+        if (!key) return;
+        if (key.startsWith("space:")) {
+            if (hiddenSpaces.val.has(Number(key.slice(6)))) selectedKey.val = null;
+            return;
+        }
+        if (key.startsWith("dir:")) {
+            const dir = currentDirs().find((d) => `dir:${d.id}` === key);
+            if (dir && hiddenSpaces.val.has(Number(dir.spaceId))) selectedKey.val = null;
+            return;
+        }
+        const item = currentItems().find((i) => itemKey(i) === key);
+        if (item && (hiddenSpaces.val.has(item.spaceId) || !types.val.has(item.kind))) selectedKey.val = null;
+    });
+
+    // ---- actions ----------------------------------------------------------
+
+    const select = (key) => {
+        selectedKey.val = key;
+        inspectorOpen.val = true;
+        revealed.val = null;
+        renameState.val = null;
+        openMenu.val = null;
+    };
+
+    const toggleExpanded = (key) => {
+        expandedTouched = true;
+        const next = new Set(expanded.val);
+        next.has(key) ? next.delete(key) : next.add(key);
+        expanded.val = next;
+        persistView();
+    };
+
+    const expandTo = (spaceId, directoryId) => {
+        expandedTouched = true;
+        const next = new Set(expanded.val);
+        next.add(`space:${spaceId}`);
+        const byId = dirsById(currentDirs());
+        const seen = new Set();
+        let current = Number(directoryId || 0);
+        while (current !== 0 && !seen.has(current)) {
+            seen.add(current);
+            next.add(`dir:${current}`);
+            current = Number(byId.get(current)?.parentId || 0);
+        }
+        expanded.val = next;
+        persistView();
+    };
+
+    const setSort = (key) => {
+        sort.val = sort.val.key === key
+            ? {key, dir: sort.val.dir === "asc" ? "desc" : "asc"}
+            : {key, dir: "asc"};
+        persistView();
+    };
+
+    const secretLatestValue = async (item) => {
+        const res = await capi.postV1SecretsReveal({id: item.meta.versionRefs[0].id});
+        return new TextDecoder().decode(res.value);
+    };
+
+    const revealItem = async (item) => {
+        select(itemKey(item));
+        try {
+            error.val = null;
+            revealed.val = {key: itemKey(item), value: item.kind === "secret" ? await secretLatestValue(item) : item.value};
+        } catch (e) {
+            error.val = e.message;
+        }
+    };
+
+    const copyItemValue = async (item) => {
+        try {
+            error.val = null;
+            const value = item.kind === "secret" ? await secretLatestValue(item) : item.value;
+            await navigator.clipboard.writeText(value);
+            copiedKey.val = itemKey(item);
+            setTimeout(() => { if (copiedKey.val === itemKey(item)) copiedKey.val = ""; }, 1500);
+        } catch (e) {
+            error.val = e.message;
+        }
+    };
+
+    const editItem = async (item) => {
+        try {
+            error.val = null;
+            const originalValue = item.kind === "secret" ? await secretLatestValue(item) : item.value;
+            valueTarget.val = {item, originalValue, referencingDeployments: referencingDeploymentVersions(item)};
+        } catch (e) {
+            error.val = e.message;
+        }
+    };
+
+    const saveItemValue = async (item, value, {updateReferencedDeployments = false, referencingDeployments = []} = {}) => {
+        if (item.kind === "secret") {
+            await capi.postV1SecretsSet({
+                secretId: item.id,
+                value: new TextEncoder().encode(value),
+                updateReferencingDeployments: updateReferencedDeployments,
+                referencingDeployments: updateReferencedDeployments ? referencingDeployments : [],
+            });
+        } else {
+            await capi.postV1ConfigsSet({
+                configId: item.id,
+                value,
+                updateReferencingDeployments: updateReferencedDeployments,
+                referencingDeployments: updateReferencedDeployments ? referencingDeployments : [],
+            });
+        }
+        revealed.val = null;
+    };
+
+    // Creating lands in the selection's folder: a selected folder itself, a
+    // selected item's folder, or a selected space's root.
+    const createContext = () => {
+        const sel = resolveSelection();
+        if (sel?.type === "space") return {spaceId: Number(sel.space.id), directoryId: 0};
+        if (sel?.type === "dir") return {spaceId: Number(sel.dir.spaceId), directoryId: Number(sel.dir.id)};
+        if (sel?.type === "item") return {spaceId: sel.item.spaceId, directoryId: sel.item.directoryId};
+        const first = visibleSpaces()[0];
+        return {spaceId: first ? Number(first.id) : 1, directoryId: 0};
+    };
+
+    const locationLabel = ({spaceId, directoryId}) => {
+        const segments = dirPathSegments(dirsById(currentDirs()), directoryId);
+        return `${spaceName(spaceId)}/${segments.length ? segments.join("/") + "/" : ""}`;
+    };
+
+    const openCreate = (type) => {
+        const context = createContext();
+        createTarget.val = {type, ...context, location: locationLabel(context)};
+    };
+
+    const createResource = async (type, value, name) => {
+        const target = createTarget.val;
+        error.val = null;
+        const meta = type === "secret"
+            ? await capi.postV1SecretsCreate({name, value: new TextEncoder().encode(value), spaceId: target.spaceId, valueDirectoryId: target.directoryId})
+            : await capi.postV1ConfigsCreate({name, value, spaceId: target.spaceId, valueDirectoryId: target.directoryId});
+        // A create while the filter hides its type would vanish on save, so the
+        // filter opens back up and the tree walks to the new row.
+        if (!types.val.has(type)) {
+            types.val = new Set([...types.val, type]);
+            persistView();
+        }
+        expandTo(target.spaceId, target.directoryId);
+        selectedKey.val = `${type}:${meta.id}`;
+    };
+
+    const openNewFolder = () => {
+        const context = createContext();
+        folderName.val = "";
+        folderDialog.val = {...context, location: locationLabel(context)};
+    };
+
+    const createFolder = async () => {
+        const dialog = folderDialog.val;
+        const name = folderName.val.trim();
+        if (!dialog || !name || dialogSaving.val) return;
+        dialogSaving.val = true;
+        try {
+            error.val = null;
+            const dir = await capi.postV1ValueDirectoriesCreate({spaceId: dialog.spaceId, parentId: dialog.directoryId, name});
+            folderDialog.val = null;
+            expandTo(dialog.spaceId, dir.id);
+            selectedKey.val = `dir:${dir.id}`;
+        } catch (e) {
+            error.val = e.message;
+        } finally {
+            dialogSaving.val = false;
+        }
+    };
+
+    const startRename = (key, current) => {
+        renameDraft.val = current;
+        renameState.val = {key};
+    };
+
+    const applyRename = async () => {
+        const state = renameState.val;
+        const sel = resolveSelection();
+        if (!state || !sel || dialogSaving.val) return;
+        const name = renameDraft.val.trim();
+        if (!name) return;
+        dialogSaving.val = true;
+        try {
+            error.val = null;
+            if (sel.type === "dir") {
+                await capi.postV1ValueDirectoriesRename({directoryId: Number(sel.dir.id), newName: name});
+            } else if (sel.type === "item" && sel.item.kind === "secret") {
+                await capi.postV1SecretsRename({secretId: sel.item.id, newName: name});
+            } else if (sel.type === "item") {
+                await capi.postV1ConfigsRename({configId: sel.item.id, newName: name});
+            }
+            renameState.val = null;
+        } catch (e) {
+            error.val = e.message;
+        } finally {
+            dialogSaving.val = false;
+        }
+    };
+
+    const openMoveDialog = (sel) => {
+        if (sel.type === "dir") {
+            const dir = sel.dir;
+            moveDialog.val = {
+                label: `Move ${dir.name}`,
+                options: folderOptions(currentDirs(), dir.spaceId, Number(dir.id)),
+                currentId: Number(dir.parentId || 0),
+                apply: async (destination) => {
+                    await capi.postV1ValueDirectoriesMove({directoryId: Number(dir.id), newParentId: destination});
+                    expandTo(Number(dir.spaceId), destination);
+                },
+            };
+            return;
+        }
+        const item = sel.item;
+        moveDialog.val = {
+            label: `Move ${item.name}`,
+            options: folderOptions(currentDirs(), item.spaceId),
+            currentId: item.directoryId,
+            apply: async (destination) => {
+                if (item.kind === "secret") await capi.postV1SecretsMove({secretId: item.id, valueDirectoryId: destination});
+                else await capi.postV1ConfigsMove({configId: item.id, valueDirectoryId: destination});
+                expandTo(item.spaceId, destination);
             },
         };
     };
 
-    const makeSecretRow = (meta) => {
-        const isNew = !meta;
-        const latest = meta?.versionRefs?.[0];
-        return {
-            localKey: `local:${nextLocalKey++}`,
-            type: "secret", meta, isNew, _saved: false,
-            stableId: meta ? meta.id : 0,
-            referenceId: latest ? latest.id : 0,
-            version: latest ? latest.version : 0,
-            name: van.state(meta ? meta.name : ""),
-            value: van.state(""),
-            createdAt: latest ? latest.createdAt : null,
-            copied: van.state(false),
-            saving: van.state(false),
-            nameAliases: new Set(),
-            orig: {name: meta ? meta.name : "", value: ""},
-        };
-    };
-
-    const nameDirty = (row) => row.name.val !== row.orig.name;
-    const isDirty = (row) => row.isNew || nameDirty(row);
-
-    const rowKey = (row) => row.orig.name ? `${row.type}:${row.orig.name}` : row.localKey;
-    const itemKey = (type, item) => `${type}:${item.name}`;
-    const latestByName = (items) => (items || []).filter(item => item?.name);
-    const settingConfigRefs = (settings) => [
-        ["Web UI HTTP enabled", settings?.httpWeb?.enabled?.configRef?.versionId],
-        ["Web UI HTTP listen", settings?.httpWeb?.listen?.configRef?.versionId],
-        ["Web UI HTTPS enabled", settings?.httpsWeb?.enabled?.configRef?.versionId],
-        ["Web UI HTTPS listen", settings?.httpsWeb?.listen?.configRef?.versionId],
-        ["Web UI use self managed TLS cert", settings?.httpsWeb?.tlsSelfManaged?.configRef?.versionId],
-        ["Web UI ACME hosts", settings?.httpsWeb?.acmeHosts?.configRef?.versionId],
-        ["Web UI ACME email", settings?.httpsWeb?.acmeEmail?.configRef?.versionId],
-        ["Cluster listen", settings?.cluster?.listen?.configRef?.versionId],
-        ["Cluster enrollment listen", settings?.cluster?.enrollmentListen?.configRef?.versionId],
-        ["Backup enabled", settings?.backup?.enabled?.configRef?.versionId],
-        ["Backup S3 access key ID", settings?.backup?.s3AccessKeyId?.configRef?.versionId],
-        ["Backup S3 bucket", settings?.backup?.s3Bucket?.configRef?.versionId],
-        ["Backup S3 path", settings?.backup?.s3Path?.configRef?.versionId],
-        ["Backup S3 region", settings?.backup?.s3Region?.configRef?.versionId],
-        ["Backup S3 endpoint", settings?.backup?.s3Endpoint?.configRef?.versionId],
-        ["Use separate large assets S3", settings?.largeAssets?.useSeparateS3?.configRef?.versionId],
-        ["Large asset S3 access key ID", settings?.largeAssets?.s3AccessKeyId?.configRef?.versionId],
-        ["Large asset S3 bucket", settings?.largeAssets?.s3Bucket?.configRef?.versionId],
-        ["Large asset S3 path", settings?.largeAssets?.s3Path?.configRef?.versionId],
-        ["Large asset S3 region", settings?.largeAssets?.s3Region?.configRef?.versionId],
-        ["Large asset S3 endpoint", settings?.largeAssets?.s3Endpoint?.configRef?.versionId],
-    ].map(([label, id]) => ({label, id: Number(id || 0)})).filter(ref => ref.id);
-    const settingSecretRefs = (settings) => [
-        ["Web UI TLS cert PEM", settings?.httpsWeb?.tlsCertPem?.versionId],
-        ["GitHub token", settings?.repo?.githubToken?.versionId],
-        ["Backup S3 secret access key", settings?.backup?.s3SecretAccessKey?.versionId],
-        ["Large asset S3 secret access key", settings?.largeAssets?.s3SecretAccessKey?.versionId],
-    ].map(([label, id]) => ({label, id: Number(id || 0)})).filter(ref => ref.id);
-    const itemReferenceIDs = (row) => {
-        const name = row.orig.name || rawStateValue(row.name).trim();
-        if (!name) return new Set();
-        const names = new Set([name, ...(row.nameAliases || [])]);
-        return new Set((row.type === "secret" ? (secretMetasS.val || []) : (userConfigsS.val || []))
-            .filter(item => names.has(item?.name))
-            .flatMap(item => (item.versionRefs || []).map(ref => Number(ref.id || 0)))
-            .filter(Boolean));
-    };
-    const deploymentUsesItem = (deployment, row, referenceIDs = itemReferenceIDs(row)) => {
-        if (!referenceIDs.size) return false;
-        const cfg = deployment?.config;
-        if (!cfg || cfg.deleted) return false;
-        const envVars = containerWorkload(cfg)?.runtime?.envVars || {};
-        return Object.values(envVars).some(value => referenceIDs.has(Number(value?.[row.type === "secret" ? "secretVersionId" : "configVersionId"] || 0)));
-    };
-    const referencingDeploymentVersions = (row) => {
-        const referenceIDs = itemReferenceIDs(row);
-        return (deploymentsS.val || []).map(deployment => deployment?.config).filter(config =>
-            config && !config.deleted && deploymentUsesEnvReferences(config, row.type, referenceIDs),
-        ).map(config => ({id: config.id, version: config.version}));
-    };
-    const usageForRow = (row) => {
-        const referenceIDs = itemReferenceIDs(row);
-        const settings = (row.type === "secret" ? settingSecretRefs(primaryConfigS.val?.config?.settings) : settingConfigRefs(primaryConfigS.val?.config?.settings))
-            .filter(ref => referenceIDs.has(ref.id));
-        const deployments = deploymentUsages(
-            deploymentsS.val,
-            spacesS.val,
-            machinesS.val,
-            deployment => deploymentUsesItem(deployment, row, referenceIDs),
-        );
-        return {deployments, settings};
-    };
-    const inUseCount = (row) => {
-        const usage = usageForRow(row);
-        return usage.deployments.length + usage.settings.length;
-    };
-
-    const sortValue = (row, key) => {
-        if (key === "type") return row.type;
-        if (key === "value") return row.type === "config" ? rawStateValue(row.value) : "";
-        if (key === "created") return String(row.createdAt?.getTime() || 0).padStart(13, "0");
-        if (key === "version") return String(row.version || 0).padStart(10, "0");
-        if (key === "inUse") return String(inUseCount(row)).padStart(10, "0");
-        return rawStateValue(row.name);
-    };
-
-    const sortRows = (items) => {
-        const {key, dir} = sort.val;
-        const direction = dir === "desc" ? -1 : 1;
-        return [...items].sort((a, b) => {
-            const av = sortValue(a, key).toLowerCase();
-            const bv = sortValue(b, key).toLowerCase();
-            const cmp = av.localeCompare(bv) || rawStateValue(a.name).localeCompare(rawStateValue(b.name)) || a.type.localeCompare(b.type);
-            return cmp * direction;
-        });
-    };
-
-    const matchesSearch = (row, query) => !query ||
-        row.type.includes(query) ||
-        rawStateValue(row.name).toLowerCase().includes(query) ||
-        (row.type === "config" && rawStateValue(row.value).toLowerCase().includes(query));
-
-    const filteredAndSortedRows = (items) => {
-        const query = search.val.trim().toLowerCase();
-        return sortRows(query ? items.filter(row => matchesSearch(row, query)) : items);
-    };
-
-    const reconcileVisibleRows = (visible, nextAll) => {
-        const query = search.val.trim().toLowerCase();
-        const nextByKey = new Map(nextAll.map(row => [rowKey(row), row]));
-        const displayed = new Set();
-        const nextVisible = [];
-        for (const row of visible || []) {
-            const key = rowKey(row);
-            if (displayed.has(key)) continue;
-            const next = nextByKey.get(key);
-            if (!next) continue;
-            displayed.add(key);
-            nextVisible.push(next);
-        }
-        for (const row of nextAll) {
-            const key = rowKey(row);
-            if (displayed.has(key)) continue;
-            if (row.isNew || matchesSearch(row, query)) {
-                displayed.add(key);
-                nextVisible.push(row);
-            }
-        }
-        return nextVisible;
-    };
-
-    const setLocalRows = (next, refreshVisible = false) => {
-        localRows = next;
-        rows.val = refreshVisible || rows.val === null
-            ? filteredAndSortedRows(next)
-            : reconcileVisibleRows(rows.val, next);
-    };
-
-    const syncRowsFromUniverse = (refreshVisible = false) => {
-        const status = secretsStatusS.val;
-        if (!status) return;
-        const currentRows = localRows || [];
-        const latestSecrets = latestByName(secretMetasS.val || []);
-        const latestConfigs = latestByName(userConfigsS.val || []);
-        const existing = new Map(currentRows
-            .filter(row => !row.isNew && row.orig.name)
-            .map(row => [rowKey(row), row]));
-        const streamKeys = new Set([
-            ...(status.unlocked ? latestSecrets.map(meta => itemKey("secret", meta)) : []),
-            ...latestConfigs.map(config => itemKey("config", config)),
-        ]);
-        for (const row of currentRows) {
-            for (const alias of row.nameAliases || []) {
-                if (!streamKeys.has(`${row.type}:${alias}`)) row.nameAliases.delete(alias);
-            }
-        }
-        for (const key of pendingDeletes) {
-            if (!streamKeys.has(key)) pendingDeletes.delete(key);
-        }
-        const preserveOrMake = (key, make, confirmsSaved = () => false) => {
-            const current = existing.get(key);
-            if (!current) return make();
-            if (current._saved && confirmsSaved(current)) current._saved = false;
-            if (isDirty(current) || current._saved || current.saving.val) return current;
-            const next = make();
-            next.nameAliases = new Set(current.nameAliases || []);
-            return next;
-        };
-        const secretRows = status.unlocked
-            ? latestSecrets
-                .filter(meta => !pendingDeletes.has(itemKey("secret", meta)))
-                .map(meta => preserveOrMake(itemKey("secret", meta), () => makeSecretRow(meta), row => row.name.val.trim() === meta.name))
-            : [];
-        const configRows = latestConfigs
-            .filter(config => !pendingDeletes.has(itemKey("config", config)))
-            .map(config => preserveOrMake(itemKey("config", config), () => makeConfigRow(config), row => row.name.val.trim() === config.name && row.value.val === (config.versionRefs?.[0]?.value ?? "")));
-        const carried = currentRows.filter(row => {
-            if (row.saving.val) return pendingDeletes.has(rowKey(row)) || !streamKeys.has(rowKey(row));
-            if (row.isNew && !row._saved) return true;
-            return row._saved && row.orig.name && !streamKeys.has(rowKey(row));
-        });
-        setLocalRows([...secretRows, ...configRows, ...carried], refreshVisible);
-    };
-
-    van.derive(() => {
-        const status = secretsStatusS.val;
-        const signature = JSON.stringify({
-            status,
-            secrets: (secretMetasS.val || []).map(item => [item.id, item.name, (item.versionRefs || []).map(ref => ref.id)]),
-            configs: (userConfigsS.val || []).map(item => [item.id, item.name, (item.versionRefs || []).map(ref => [ref.id, ref.value])]),
-            deploymentRefs: (deploymentsS.val || []).map(item => [item.config?.id, item.config?.version, item.config?.deleted, containerWorkload(item.config)?.runtime?.envVars]),
-            configVersion: primaryConfigS.val?.version,
-        });
-        if (signature === streamSignature) return;
-        streamSignature = signature;
-        syncRowsFromUniverse(sort.val.key === "inUse");
-    });
-
-    const openCreate = (type) => {
-        createTarget.val = type;
-    };
-    const closeCreate = () => {
-        createTarget.val = null;
-    };
-    const createResource = async (type, value, name) => {
+    const applyMove = async (destination) => {
+        const dialog = moveDialog.val;
+        if (!dialog || dialogSaving.val) return;
+        dialogSaving.val = true;
         try {
             error.val = null;
-            if (type === "secret") {
-                await capi.postV1SecretsCreate({name, value: new TextEncoder().encode(value)});
-            } else {
-                await capi.postV1ConfigsCreate({name, value});
-            }
+            await dialog.apply(destination);
+            moveDialog.val = null;
         } catch (e) {
             error.val = e.message;
-            throw e;
-        }
-    };
-    const setSort = (key) => {
-        const current = sort.val;
-        sort.val = current.key === key
-            ? {key, dir: current.dir === "asc" ? "desc" : "asc"}
-            : {key, dir: "asc"};
-        rows.val = filteredAndSortedRows(localRows || []);
-    };
-
-    const editRowValue = async (row) => {
-        if (row.saving.val) return;
-        try {
-            error.val = null;
-            const originalValue = row.type === "secret"
-                ? new TextDecoder().decode((await capi.postV1SecretsReveal({id: row.referenceId})).value)
-                : row.value.val;
-            valueTarget.val = {row, originalValue, referencingDeployments: referencingDeploymentVersions(row)};
-        } catch (e) {
-            error.val = e.message;
+        } finally {
+            dialogSaving.val = false;
         }
     };
 
-    const secretValueForCopy = async (row) => {
-        const res = await capi.postV1SecretsReveal({id: row.referenceId});
-        return new TextDecoder().decode(res.value);
-    };
-
-    const copyRowValue = async (row) => {
-        try {
-            error.val = null;
-            const value = row.type === "secret" ? await secretValueForCopy(row) : row.value.val;
-            await navigator.clipboard.writeText(value);
-            row.copied.val = true;
-            setTimeout(() => { row.copied.val = false; }, 1500);
-        } catch (e) {
-            error.val = e.message;
-        }
-    };
-
-    const saveName = async (row) => {
-        if (row.isNew || row.saving.val) return;
-        const name = row.name.val.trim();
-        if (!name) { error.val = `${row.type === "secret" ? "Secret" : "Config"} name is required`; return; }
-        if (name === row.orig.name) {
-            row.name.val = row.orig.name;
+    const openDelete = (sel) => {
+        if (sel.type === "dir") {
+            deleteTarget.val = {
+                label: `folder ${sel.dir.name}`,
+                apply: async () => {
+                    await capi.postV1ValueDirectoriesDelete({directoryId: Number(sel.dir.id)});
+                    selectedKey.val = null;
+                },
+            };
             return;
         }
-        const oldKey = rowKey(row);
-        const oldName = row.orig.name;
-        pendingDeletes.add(oldKey);
-        row.saving.val = true;
-        try {
-            error.val = null;
-            let saved;
-            if (row.type === "secret") {
-                saved = await capi.postV1SecretsRename({secretId: row.stableId, newName: name});
-            } else {
-                saved = await capi.postV1ConfigsRename({configId: row.stableId, newName: name});
-            }
-            row.nameAliases.add(oldName);
-            const savedRef = saved?.versionRefs?.[0];
-            row.stableId = Number(saved?.id || row.stableId || 0);
-            row.referenceId = Number(savedRef?.id || row.referenceId || 0);
-            row.version = Number(savedRef?.version || row.version || 0);
-            row.createdAt = savedRef?.createdAt || row.createdAt;
-            if (row.type === "secret" && saved) row.meta = saved;
-            row.name.val = name;
-            row._saved = true;
-            row.orig.name = name;
-            syncRowsFromUniverse();
-        } catch (e) {
-            pendingDeletes.delete(oldKey);
-            error.val = e.message;
-            syncRowsFromUniverse();
-        } finally {
-            row.saving.val = false;
-        }
-    };
-
-    const saveValue = async (row, value, {updateReferencedDeployments = false, referencingDeployments = []} = {}) => {
-        if (row.saving.val) return;
-        const wasNew = row.isNew;
-        const name = row.isNew ? row.name.val.trim() : row.orig.name;
-        if (!name) { error.val = `${row.type === "secret" ? "Secret" : "Config"} name is required`; return; }
-        row.saving.val = true;
-        try {
-            error.val = null;
-            let saved;
-            if (row.type === "config") {
-                saved = wasNew
-                    ? await capi.postV1ConfigsCreate({name, value})
-                    : await capi.postV1ConfigsSet({
-                        configId: row.stableId,
-                        value,
-                        updateReferencingDeployments: updateReferencedDeployments,
-                        referencingDeployments: updateReferencedDeployments ? referencingDeployments : [],
-                    });
-            } else {
-                saved = wasNew
-                    ? await capi.postV1SecretsCreate({name, value: new TextEncoder().encode(value)})
-                    : await capi.postV1SecretsSet({
-                        secretId: row.stableId,
-                        value: new TextEncoder().encode(value),
-                        updateReferencingDeployments: updateReferencedDeployments,
-                        referencingDeployments: updateReferencedDeployments ? referencingDeployments : [],
-                    });
-            }
-            if (row.type === "config") {
-                row.value.val = value;
-                row.orig.value = value;
-            }
-            const savedRef = saved?.versionRefs?.[0];
-            row.stableId = Number(saved?.id || row.stableId || 0);
-            row.referenceId = Number(savedRef?.id || row.referenceId || 0);
-            row.version = Number(savedRef?.version || row.version || 0);
-            row.createdAt = savedRef?.createdAt || row.createdAt;
-            if (row.type === "secret" && saved) row.meta = saved;
-            row.isNew = false;
-            if (wasNew) {
-                row.name.val = name;
-                row.orig.name = name;
-            }
-            row._saved = true;
-            syncRowsFromUniverse();
-            return true;
-        } catch (e) {
-            error.val = e.message;
-            throw e;
-        } finally {
-            row.saving.val = false;
-        }
-    };
-
-    const discardName = (row) => {
-        row.name.val = row.orig.name;
-    };
-
-    const deleteRow = async (row) => {
-        try {
-            error.val = null;
-            if (row.type === "secret") await capi.postV1SecretsDelete({secretId: row.stableId});
-            else await capi.postV1ConfigsDelete({configId: row.stableId});
-            pendingDeletes.add(rowKey(row));
-            return true;
-        } catch (e) {
-            error.val = e.message;
-            return false;
-        }
-    };
-
-    const requestDeleteRow = (row) => {
-        deleteTarget.val = row;
-    };
-
-    const cancelDelete = () => {
-        if (deleteSaving.val) return;
-        deleteTarget.val = null;
+        const item = sel.item;
+        deleteTarget.val = {
+            label: `${item.kind} ${item.name}`,
+            apply: async () => {
+                if (item.kind === "secret") await capi.postV1SecretsDelete({secretId: item.id});
+                else await capi.postV1ConfigsDelete({configId: item.id});
+                selectedKey.val = null;
+            },
+        };
     };
 
     const confirmDelete = async () => {
-        const row = deleteTarget.val;
-        if (!row || deleteSaving.val) return;
-        deleteSaving.val = true;
-        const deleted = await deleteRow(row);
-        deleteSaving.val = false;
-        if (deleted) deleteTarget.val = null;
+        const target = deleteTarget.val;
+        if (!target || dialogSaving.val) return;
+        dialogSaving.val = true;
+        try {
+            error.val = null;
+            await target.apply();
+            deleteTarget.val = null;
+        } catch (e) {
+            error.val = e.message;
+            deleteTarget.val = null;
+        } finally {
+            dialogSaving.val = false;
+        }
     };
+
+    // ---- resize wiring ----------------------------------------------------
+
+    const startColResize = (event, colKey, min) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const colEl = event.target.closest("table")?.querySelector(`col[data-col="${colKey}"]`);
+        const startX = event.clientX;
+        const startW = colWidths.val[colKey] ?? DEFAULT_COLUMN_WIDTHS[colKey];
+        let width = startW;
+        const move = (ev) => {
+            width = Math.max(min, startW + (ev.clientX - startX));
+            if (colEl) colEl.style.width = `${width}px`;
+        };
+        const up = () => {
+            document.removeEventListener("mousemove", move);
+            document.removeEventListener("mouseup", up);
+            document.body.classList.remove("resizing");
+            colWidths.val = {...colWidths.val, [colKey]: width};
+            persistView();
+        };
+        document.addEventListener("mousemove", move);
+        document.addEventListener("mouseup", up);
+        document.body.classList.add("resizing");
+    };
+
+    const nudgeColWidth = (event, colKey, min) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        const step = event.shiftKey ? 48 : 16;
+        const current = colWidths.val[colKey] ?? DEFAULT_COLUMN_WIDTHS[colKey];
+        colWidths.val = {...colWidths.val, [colKey]: Math.max(min, current + (event.key === "ArrowRight" ? step : -step))};
+        persistView();
+    };
+
+    const startInspectorResize = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const pane = event.target.parentElement;
+        const startX = event.clientX;
+        const startW = inspectorWidth.val;
+        let width = startW;
+        const move = (ev) => {
+            width = Math.min(INSPECTOR_MAX, Math.max(INSPECTOR_MIN, startW - (ev.clientX - startX)));
+            if (pane) pane.style.width = `${width}px`;
+        };
+        const up = () => {
+            document.removeEventListener("mousemove", move);
+            document.removeEventListener("mouseup", up);
+            document.body.classList.remove("resizing");
+            inspectorWidth.val = width;
+            persistView();
+        };
+        document.addEventListener("mousemove", move);
+        document.addEventListener("mouseup", up);
+        document.body.classList.add("resizing");
+    };
+
+    // ---- small building blocks --------------------------------------------
+
+    const spaceDot = (spaceId) => span({
+        class: "inline-block w-[7px] h-[7px] rounded-full flex-none",
+        style: `background:${spaceHue(spaceId)}`,
+    });
+
+    const typeIcon = (kind, extra = "") => kind === "secret"
+        ? secretKeyIcon({class: `w-[13px] h-[13px] flex-none text-purple-300 ${extra}`, role: "img", "aria-label": "Secret"})
+        : configSlidersIcon({class: `w-[13px] h-[13px] flex-none text-blue-300 ${extra}`, role: "img", "aria-label": "Config"});
+
+    const iconButton = (child, onclick, attrs = {}) => button({
+        type: "button",
+        ...attrs,
+        class: `inline-flex h-6 w-6 flex-none items-center justify-center rounded text-gray-500 hover:text-gray-100 ` +
+            `hover:bg-white/10 transition-colors cursor-pointer ${attrs.class || ""}`,
+        onclick: (e) => { e.stopPropagation(); onclick(e); },
+    }, child);
+
+    const actionButton = (text, onclick, cls = "bg-gray-700 text-gray-200 hover:bg-gray-600", attrs = {}) => button({
+        type: "button",
+        ...attrs,
+        class: () => `text-xs px-2.5 py-1.5 rounded-md font-medium transition-colors cursor-pointer whitespace-nowrap ${cls} ` +
+            `${typeof attrs.disabledWhen === "function" && attrs.disabledWhen() ? "opacity-50 cursor-not-allowed" : ""}`,
+        onclick: async (e) => {
+            if (typeof attrs.disabledWhen === "function" && attrs.disabledWhen()) return;
+            await onclick(e);
+        },
+    }, text);
+
+    // ---- toolbar ----------------------------------------------------------
+
+    // label is a function so the button face stays live (space dots, dimmed
+    // type icons) without rebuilding the toolbar and losing search focus.
+    const filterButton = ({menu, dirty, label, ariaLabel}) => button({
+        type: "button",
+        "aria-haspopup": "true",
+        "aria-expanded": () => String(openMenu.val === menu),
+        "aria-label": ariaLabel,
+        class: () => `inline-flex items-center gap-1.5 rounded px-2 py-1.5 text-xs cursor-pointer border transition-colors ` +
+            (dirty() ? "text-gray-100 border-brand" : "text-gray-400 border-gray-600 hover:bg-surface-hover hover:text-gray-100"),
+        onclick: (e) => {
+            e.stopPropagation();
+            openMenu.val = openMenu.val === menu ? null : menu;
+        },
+    }, () => span({class: "inline-flex items-center gap-1.5"}, ...label()));
+
+    const menuShell = (...children) => div({
+        class: "absolute top-full left-0 z-30 mt-1.5 min-w-52 rounded-md border border-gray-600 bg-surface p-1 shadow-2xl flex flex-col",
+        onclick: (e) => e.stopPropagation(),
+    }, ...children);
+
+    const menuRow = (onclick, ...children) => button({
+        type: "button",
+        class: "flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-gray-200 hover:bg-surface-hover cursor-pointer",
+        onclick,
+    }, ...children);
+
+    const menuCheck = (on) => checkIcon({class: `w-3.5 h-3.5 flex-none text-brand ${on ? "" : "invisible"}`});
+    const menuHeader = (text) => p({class: "px-2 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500"}, text);
+    const menuTail = (text) => span({class: "ml-auto pl-3 text-[10px] text-gray-500"}, text);
+
+    const resetRow = (onclick) => [
+        div({class: "my-1 border-t border-gray-700"}),
+        menuRow(onclick, closeIcon({class: "w-3.5 h-3.5 flex-none text-brand"}), "Reset to default"),
+    ];
+
+    const spacesMenu = () => menuShell(
+        ...(spacesS.val || []).map((space) => menuRow(() => {
+            const id = Number(space.id);
+            const next = new Set(hiddenSpaces.val);
+            if (next.has(id)) {
+                next.delete(id);
+                expandTo(id, 0);
+            } else {
+                next.add(id);
+            }
+            hiddenSpaces.val = next;
+            persistView();
+        },
+        menuCheck(!hiddenSpaces.val.has(Number(space.id))),
+        spaceDot(space.id),
+        span({class: "font-mono"}, space.name),
+        Number(space.id) === OPENDEPLOY_SPACE_ID ? menuTail("system") : "",
+        )),
+        ...(spacesDirty() ? resetRow(() => {
+            hiddenSpaces.val = new Set([OPENDEPLOY_SPACE_ID]);
+            persistView();
+        }) : []),
+    );
+
+    const typesMenu = () => {
+        const counts = new Map();
+        for (const item of currentItems()) {
+            if (!hiddenSpaces.val.has(item.spaceId)) counts.set(item.kind, (counts.get(item.kind) || 0) + 1);
+        }
+        return menuShell(
+            menuHeader("Type"),
+            ...DEFAULT_TYPES.map((kind) => menuRow(() => {
+                const next = new Set(types.val);
+                next.has(kind) ? next.delete(kind) : next.add(kind);
+                types.val = next;
+                persistView();
+            },
+            menuCheck(types.val.has(kind)),
+            typeIcon(kind),
+            kind === "secret" ? "Secrets" : "Configs",
+            menuTail(String(counts.get(kind) || 0)),
+            )),
+            ...(typesDirty() ? resetRow(() => {
+                types.val = new Set(DEFAULT_TYPES);
+                persistView();
+            }) : []),
+        );
+    };
+
+    const colsMenu = () => menuShell(
+        menuHeader("Columns"),
+        button({
+            type: "button", disabled: true,
+            class: "flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-gray-500",
+        }, menuCheck(true), "Name", menuTail("always")),
+        ...ALL_COLUMNS.filter((c) => c.key !== "name").map((c) => menuRow(() => {
+            const next = new Set(shownCols.val);
+            next.has(c.key) ? next.delete(c.key) : next.add(c.key);
+            shownCols.val = next;
+            persistView();
+        }, menuCheck(shownCols.val.has(c.key)), c.label || "Actions")),
+        ...(colsDirty() ? resetRow(() => {
+            shownCols.val = new Set(DEFAULT_COLUMNS);
+            persistView();
+        }) : []),
+    );
+
+    const typesButtonLabel = () => {
+        if (types.val.size === 0) return "No types";
+        if (types.val.size === DEFAULT_TYPES.length) return "All types";
+        return types.val.has("secret") ? "Secrets" : "Configs";
+    };
+
+    const toolbar = () => div(
+        {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
+        div({class: "relative"},
+            searchIcon({class: "pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500"}),
+            input({
+                class: "text-input search-input pl-7",
+                type: "search",
+                placeholder: "Search secrets / configs",
+                "aria-label": "Search secrets and configs",
+                value: search,
+                oninput: (e) => { search.val = e.target.value; },
+            })),
+        span({class: "relative inline-flex"},
+            filterButton({
+                menu: "spaces",
+                dirty: spacesDirty,
+                ariaLabel: "Filter spaces",
+                label: () => [
+                    span({class: "inline-flex items-center gap-1"}, ...visibleSpaces().map((s) => spaceDot(s.id))),
+                    `${visibleSpaces().length} space${visibleSpaces().length === 1 ? "" : "s"}`,
+                    chevronDownIcon({class: "w-3 h-3"}),
+                ],
+            }),
+            () => openMenu.val === "spaces" ? spacesMenu() : ""),
+        span({class: "relative inline-flex"},
+            filterButton({
+                menu: "types",
+                dirty: typesDirty,
+                ariaLabel: "Filter types",
+                label: () => [
+                    typeIcon("secret", types.val.has("secret") ? "" : "opacity-25"),
+                    typeIcon("config", types.val.has("config") ? "" : "opacity-25"),
+                    typesButtonLabel(),
+                    chevronDownIcon({class: "w-3 h-3"}),
+                ],
+            }),
+            () => openMenu.val === "types" ? typesMenu() : ""),
+        span({class: "relative inline-flex"},
+            filterButton({
+                menu: "cols",
+                dirty: colsDirty,
+                ariaLabel: "Choose columns",
+                label: () => [columnsIcon({class: "w-3.5 h-3.5"}), "Columns", chevronDownIcon({class: "w-3 h-3"})],
+            }),
+            () => openMenu.val === "cols" ? colsMenu() : ""),
+        div({class: "flex-1"}),
+        button({
+            type: "button",
+            class: "flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-gray-600 px-3 py-1.5 text-sm text-gray-300 hover:bg-surface-hover transition-colors cursor-pointer",
+            onclick: openNewFolder,
+        }, folderIcon({class: "w-4 h-4"}), "New folder"),
+        button({
+            type: "button",
+            class: "flex items-center gap-1 whitespace-nowrap rounded-lg bg-gray-700 px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer",
+            onclick: () => openCreate("config"),
+        }, plusIcon(), "New config"),
+        button({
+            type: "button",
+            disabled: () => !secretsUnlocked(),
+            class: () => `flex items-center gap-1 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm transition-colors ${secretsUnlocked()
+                ? "bg-brand text-white hover:bg-blue-600 cursor-pointer"
+                : "bg-gray-700 text-gray-400 opacity-50 cursor-not-allowed"}`,
+            onclick: () => { if (secretsUnlocked()) openCreate("secret"); },
+        }, plusIcon(), "New secret"),
+    );
+
+    // ---- table ------------------------------------------------------------
+
+    const activeColumns = () => ALL_COLUMNS.filter((c) => shownCols.val.has(c.key));
+
+    const headerCell = (column, flexKey, lastKey) => {
+        const grip = (column.key === flexKey || column.key === lastKey) ? "" : span({
+            class: "colgrip",
+            tabindex: "0",
+            role: "separator",
+            "aria-orientation": "vertical",
+            "aria-label": `Resize ${column.label || "actions"} column`,
+            onclick: (e) => e.stopPropagation(),
+            onmousedown: (e) => startColResize(e, column.key, column.min),
+            onkeydown: (e) => nudgeColWidth(e, column.key, column.min),
+        });
+        const base = "sticky top-0 z-[1] bg-gray-950 px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wider " +
+            "whitespace-nowrap shadow-[inset_0_-1px_0_#374151]";
+        if (column.noSort) {
+            return th({class: `${base} text-right text-gray-500`}, column.label, grip);
+        }
+        const active = sort.val.key === column.key;
+        return th({
+            class: `${base} group/th cursor-pointer select-none ${active ? "text-gray-100" : "text-gray-500 hover:text-gray-300"} ${column.num ? "text-right" : ""}`,
+            ...(active ? {"aria-sort": sort.val.dir === "desc" ? "descending" : "ascending"} : {}),
+            onclick: (e) => {
+                if (e.target.closest?.(".colgrip")) return;
+                setSort(column.key);
+            },
+        },
+        span({class: `inline-flex items-center gap-1 ${column.num ? "flex-row-reverse" : ""}`},
+            column.label,
+            active
+                ? sortArrowIcon({class: `w-2.5 h-2.5 text-brand ${sort.val.dir === "desc" ? "rotate-180" : ""}`})
+                : sortArrowIcon({class: "w-2.5 h-2.5 text-gray-600 opacity-0 group-hover/th:opacity-100 transition-opacity"})),
+        grip);
+    };
+
+    const namePad = (depth) => `padding-left:${0.5 + depth * 1.15}rem`;
+
+    const disclosure = (open, key) => button({
+        type: "button",
+        "aria-label": open ? "Collapse" : "Expand",
+        class: "flex h-4 w-4 flex-none items-center justify-center rounded-sm text-gray-500 hover:text-gray-100 hover:bg-white/10 cursor-pointer",
+        onclick: (e) => { e.stopPropagation(); toggleExpanded(key); },
+    }, caretRightIcon({class: `w-[11px] h-[11px] transition-transform ${open ? "rotate-90" : ""}`}));
+
+    const countTag = (count) => span({class: "font-mono text-[10.5px] text-gray-500 flex-none"}, String(count));
+    const nameText = (text, cls = "text-gray-100") => span({class: `truncate min-w-0 ${cls}`}, text);
+    const blankCells = (columns) => columns.slice(1).map(() => td({class: "border-b border-gray-800/80 px-2 py-1"}));
+
+    const rowClass = (row) => {
+        const selected = selectedKey.val === row.key;
+        return `group cursor-default ${selected ? "bg-brand/15" : "hover:bg-gray-800/40"}`;
+    };
+
+    const groupRow = (row, columns, ...inner) => tr(
+        {class: rowClass(row), onclick: () => select(row.key)},
+        td({class: "border-b border-gray-800/80 py-1 pr-2 font-mono text-[13px] whitespace-nowrap overflow-hidden", style: namePad(row.depth)},
+            span({class: "flex items-center gap-1.5 min-w-0"}, ...inner)),
+        ...blankCells(columns),
+    );
+
+    const itemActionsCell = (item) => td(
+        {class: "border-b border-gray-800/80 px-1 py-0.5 text-right whitespace-nowrap"},
+        span({class: () => `inline-flex justify-end gap-0.5 transition-opacity ${selectedKey.val === itemKey(item) ? "opacity-100" : "opacity-40 group-hover:opacity-100"}`},
+            iconButton(eyeOpenIcon({class: "w-3.5 h-3.5"}), () => { void revealItem(item); }, {
+                title: `${item.kind === "secret" ? "Reveal" : "View"} ${item.name}`,
+                "aria-label": `${item.kind === "secret" ? "Reveal" : "View"} ${item.name}`,
+            }),
+            iconButton(() => copiedKey.val === itemKey(item)
+                ? checkIcon({class: "w-3.5 h-3.5 text-green-400"})
+                : copyIcon({class: "w-3.5 h-3.5"}), () => { void copyItemValue(item); }, {
+                title: `Copy ${item.name}`,
+                "aria-label": `Copy ${item.name}`,
+            }),
+            iconButton(editIcon({class: "w-3.5 h-3.5"}), () => { void editItem(item); }, {
+                title: `Edit ${item.name}`,
+                "aria-label": `Edit ${item.name}`,
+            })),
+    );
+
+    const usesCell = (item, usesMap) => {
+        const count = usesMap.get(itemKey(item)) || 0;
+        if (!count) return "0";
+        return button({
+            type: "button",
+            class: "cursor-pointer text-brand hover:text-blue-300 hover:underline",
+            "aria-label": `Show usage for ${item.kind} ${item.name}`,
+            onclick: (e) => {
+                e.stopPropagation();
+                usageTarget.val = {resourceType: item.kind, resourceName: item.name, ...usageForItem(item)};
+            },
+        }, String(count));
+    };
+
+    const itemCell = (column, item, usesMap) => {
+        const base = "border-b border-gray-800/80 px-2 py-1 whitespace-nowrap overflow-hidden text-gray-400";
+        if (column.key === "version") return td({class: `${base} text-right tabular-nums`}, `v${item.version}`);
+        if (column.key === "created") return td({class: base}, formatDateTime(item.createdAt, "-"));
+        if (column.key === "uses") return td({class: `${base} text-right tabular-nums`}, usesCell(item, usesMap));
+        if (column.key === "value") {
+            return td({class: `${base} font-mono text-ellipsis`, title: item.kind === "config" ? item.value : "Secret value"},
+                item.kind === "secret" ? span({class: "text-gray-600 tracking-widest"}, SECRET_MASK) : item.value);
+        }
+        if (column.key === "actions") return itemActionsCell(item);
+        return td({class: base});
+    };
+
+    const itemRow = (row, columns, usesMap) => tr(
+        {class: rowClass(row), onclick: () => select(row.key)},
+        td({class: "border-b border-gray-800/80 py-1 pr-2 font-mono text-[13px] whitespace-nowrap overflow-hidden", style: namePad(row.depth)},
+            span({class: "flex items-center gap-1.5 min-w-0"},
+                span({class: "w-4 flex-none"}),
+                typeIcon(row.item.kind),
+                nameText(row.item.name))),
+        ...columns.slice(1).map((column) => itemCell(column, row.item, usesMap)),
+    );
+
+    const emptyState = (text) => div({class: "flex-1 min-h-0 p-6 text-sm text-gray-500"}, text);
+
+    const tableArea = () => {
+        if (types.val.size === 0) {
+            return emptyState("Neither secrets nor configs are shown. Turn one back on from the Type filter.");
+        }
+        const spaces = visibleSpaces();
+        if (!spaces.length) {
+            return emptyState("No spaces shown. Add one from the Spaces filter.");
+        }
+        const items = currentItems();
+        const usesMap = new Map(items.map((item) => {
+            const usage = usageForItem(item);
+            return [itemKey(item), usage.deployments.length + usage.settings.length];
+        }));
+        const {rows} = buildRows({
+            spaces: spacesS.val,
+            dirs: currentDirs(),
+            items,
+            hiddenSpaceIds: hiddenSpaces.val,
+            types: types.val,
+            query: search.val,
+            expanded: expanded.val,
+            sort: sort.val,
+            usesByKey: usesMap,
+        });
+        if (search.val.trim() && rows.every((row) => row.type === "space" && row.count === 0)) {
+            return emptyState("Nothing matches your search.");
+        }
+        const columns = activeColumns();
+        const flexKey = flexColumnKey(shownCols.val);
+        const lastKey = columns.length ? columns[columns.length - 1].key : null;
+        return div(
+            {class: "app-scroll flex-1 min-h-0 overflow-auto"},
+            table(
+                {class: "w-full table-fixed border-separate border-spacing-0 text-sm"},
+                colgroup(...columns.map((c) => c.key === flexKey
+                    ? col({"data-col": c.key})
+                    : col({"data-col": c.key, style: `width:${colWidths.val[c.key] ?? DEFAULT_COLUMN_WIDTHS[c.key]}px`}))),
+                thead(tr(...columns.map((c) => headerCell(c, flexKey, lastKey)))),
+                tbody(...rows.map((row) => {
+                    if (row.type === "space") {
+                        return groupRow(row, columns,
+                            disclosure(row.expanded, row.key),
+                            spaceDot(row.space.id),
+                            nameText(row.space.name, "text-gray-100 font-semibold"),
+                            countTag(row.count));
+                    }
+                    if (row.type === "dir") {
+                        return groupRow(row, columns,
+                            disclosure(row.expanded, row.key),
+                            folderIcon({class: "w-[13px] h-[13px] flex-none text-slate-400"}),
+                            nameText(row.dir.name),
+                            countTag(row.count));
+                    }
+                    return itemRow(row, columns, usesMap);
+                })),
+            ),
+        );
+    };
+
+    // ---- path bar ---------------------------------------------------------
+
+    const hiddenByTypeCount = () => {
+        let hidden = 0;
+        for (const item of currentItems()) {
+            if (!hiddenSpaces.val.has(item.spaceId) && !types.val.has(item.kind)) hidden += 1;
+        }
+        return hidden;
+    };
+
+    const pathbar = () => {
+        const sel = resolveSelection();
+        let parts = [];
+        if (sel?.type === "space") parts = [{text: sel.space.name, spaceId: sel.space.id}];
+        if (sel?.type === "dir") {
+            parts = [{text: spaceName(sel.dir.spaceId), spaceId: sel.dir.spaceId},
+                ...dirPathSegments(dirsById(currentDirs()), sel.dir.id).map((text) => ({text}))];
+        }
+        if (sel?.type === "item") {
+            parts = [{text: spaceName(sel.item.spaceId), spaceId: sel.item.spaceId},
+                ...itemPathSegments(dirsById(currentDirs()), sel.item).map((text) => ({text}))];
+        }
+        const hidden = hiddenByTypeCount();
+        return div(
+            {
+                class: "flex flex-none items-center gap-1.5 border-t border-gray-800 bg-gray-950/60 px-3 py-1.5 font-mono text-[11px] text-gray-500",
+                "data-testid": "explorer-pathbar",
+            },
+            parts.length
+                ? parts.flatMap((part, i) => [
+                    i === 0 ? spaceDot(part.spaceId) : span({class: "opacity-60"}, "/"),
+                    span({class: i === parts.length - 1 ? "text-gray-300 font-medium" : ""}, part.text),
+                ])
+                : span("No selection"),
+            hidden ? span({class: "ml-auto font-sans tracking-wide"}, `${hidden} hidden by type filter`) : "",
+        );
+    };
+
+    // ---- inspector --------------------------------------------------------
+
+    const kvRow = (label, value) => [
+        dt({class: "text-[10.5px] font-semibold uppercase tracking-wide text-gray-500"}, label),
+        dd({class: "m-0 min-w-0 break-all font-mono text-xs text-gray-300"}, value),
+    ];
+
+    const inspectorTitle = (sel, currentName) => {
+        const state = renameState.val;
+        if (state && state.key === selectedKey.val) {
+            return div({class: "flex items-center gap-1.5"},
+                input({
+                    // The state object, not .val: reading .val here would make
+                    // the inspector rebuild (and drop focus) on every keystroke.
+                    class: "input min-w-0 flex-1 py-0.5 font-mono text-xs",
+                    value: renameDraft,
+                    "aria-label": "New name",
+                    oninput: (e) => { renameDraft.val = e.target.value; },
+                    onkeydown: (e) => {
+                        if (e.key === "Enter") void applyRename();
+                        if (e.key === "Escape") renameState.val = null;
+                    },
+                }),
+                iconButton(checkIcon({class: "w-3.5 h-3.5 text-green-400"}), () => { void applyRename(); }, {title: "Save name", "aria-label": "Save name"}),
+                iconButton(closeIcon({class: "w-3.5 h-3.5"}), () => { renameState.val = null; }, {title: "Cancel rename", "aria-label": "Cancel rename"}));
+        }
+        const path = sel.type === "item"
+            ? itemPathSegments(dirsById(currentDirs()), sel.item).join("/")
+            : sel.type === "dir"
+                ? dirPathSegments(dirsById(currentDirs()), sel.dir.id).join("/")
+                : currentName;
+        return p({class: "break-all font-mono text-xs text-white"}, path);
+    };
+
+    const badge = (text, cls) => span({class: `inline-flex rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${cls}`}, text);
+
+    const inspectorSpaceTag = (spaceId) => span(
+        {class: "inline-flex items-center gap-1.5 font-mono text-[11px] text-gray-400"},
+        spaceDot(spaceId), spaceName(spaceId));
+
+    const versionsList = (meta) => div({class: "flex flex-col gap-1"},
+        ...(meta.versionRefs || []).map((ref, i) => div(
+            {class: "flex items-baseline gap-2 font-mono text-[11px] text-gray-400"},
+            span({class: "text-gray-200 font-medium"}, `v${ref.version}`),
+            formatDateTime(ref.createdAt, "-"),
+            i === 0 ? span({class: "text-green-400"}, "current") : "",
+        )));
+
+    const inspectorValue = (item) => {
+        const shown = revealed.val?.key === itemKey(item) ? revealed.val.value : null;
+        if (item.kind === "config") {
+            return div({class: "max-h-24 overflow-y-auto app-scroll break-all font-mono text-xs text-gray-300"}, item.value);
+        }
+        if (shown !== null) {
+            return div({class: "flex items-start gap-1.5 min-w-0"},
+                div({class: "max-h-24 overflow-y-auto app-scroll break-all font-mono text-xs text-gray-300 min-w-0"}, shown),
+                iconButton(closeIcon({class: "w-3 h-3"}), () => { revealed.val = null; }, {title: "Hide value", "aria-label": "Hide value"}));
+        }
+        return div({class: "flex items-center gap-1.5"},
+            span({class: "font-mono text-xs tracking-widest text-gray-600"}, SECRET_MASK),
+            iconButton(eyeOpenIcon({class: "w-3.5 h-3.5"}), () => { void revealItem(item); }, {
+                title: "Reveal value", "aria-label": "Reveal value",
+                class: secretsUnlocked() ? "" : "opacity-40 pointer-events-none",
+            }));
+    };
+
+    const itemInspector = (sel) => {
+        const item = sel.item;
+        const usage = usageForItem(item);
+        const usageCount = usage.deployments.length + usage.settings.length;
+        return [
+            div({class: "flex flex-none flex-col gap-2 border-b border-gray-800 py-2.5 pl-3 pr-9"},
+                inspectorTitle(sel, item.name),
+                div({class: "flex items-center gap-2"},
+                    badge(item.kind === "secret" ? "Secret" : "Config",
+                        item.kind === "secret" ? "bg-purple-500/15 text-purple-300" : "bg-blue-500/15 text-blue-300"),
+                    inspectorSpaceTag(item.spaceId))),
+            div({class: "app-scroll flex-1 min-h-0 overflow-y-auto px-3 py-2.5 flex flex-col gap-2.5"},
+                dl({class: "m-0 grid grid-cols-[76px_1fr] items-baseline gap-x-2 gap-y-1.5"},
+                    ...kvRow("Version", `v${item.version}`),
+                    ...kvRow("Created", formatDateTime(item.createdAt, "-")),
+                    ...kvRow("In use by", usageCount
+                        ? button({
+                            type: "button",
+                            class: "cursor-pointer text-brand hover:text-blue-300 hover:underline",
+                            onclick: () => { usageTarget.val = {resourceType: item.kind, resourceName: item.name, ...usage}; },
+                        }, `${usageCount} reference${usageCount === 1 ? "" : "s"}`)
+                        : "0 references"),
+                    ...kvRow("Value", inspectorValue(item))),
+                p({class: "mt-1 text-[10.5px] font-semibold uppercase tracking-wide text-gray-500"}, "Versions"),
+                versionsList(item.meta)),
+            div({class: "flex flex-none flex-wrap gap-1.5 border-t border-gray-800 px-3 py-2.5"},
+                actionButton("Edit", () => editItem(item), "bg-brand text-white hover:bg-blue-600"),
+                actionButton("Copy", () => copyItemValue(item)),
+                actionButton("Rename", () => startRename(itemKey(item), item.name)),
+                actionButton("Move", () => openMoveDialog(sel)),
+                actionButton("Delete", () => openDelete(sel), "bg-gray-700 text-gray-200 hover:bg-red-600 hover:text-white")),
+        ];
+    };
+
+    const groupStats = (sel) => {
+        const items = currentItems();
+        const inScope = sel.type === "space"
+            ? items.filter((item) => item.spaceId === Number(sel.space.id))
+            : items.filter((item) => {
+                if (item.spaceId !== Number(sel.dir.spaceId)) return false;
+                const byId = dirsById(currentDirs());
+                const seen = new Set();
+                let current = item.directoryId;
+                while (current !== 0 && !seen.has(current)) {
+                    if (current === Number(sel.dir.id)) return true;
+                    seen.add(current);
+                    current = Number(byId.get(current)?.parentId || 0);
+                }
+                return false;
+            });
+        const shown = inScope.filter((item) => types.val.has(item.kind));
+        const secrets = inScope.filter((item) => item.kind === "secret").length;
+        const newest = inScope.map((item) => item.createdAt).filter(Boolean).sort((a, b) => b - a)[0];
+        return {inScope, shown, secrets, newest};
+    };
+
+    const groupInspector = (sel) => {
+        const isSpace = sel.type === "space";
+        const spaceId = isSpace ? Number(sel.space.id) : Number(sel.dir.spaceId);
+        const stats = groupStats(sel);
+        const hidden = stats.inScope.length - stats.shown.length;
+        const folderCount = isSpace
+            ? currentDirs().filter((d) => Number(d.spaceId) === spaceId).length
+            : null;
+        return [
+            div({class: "flex flex-none flex-col gap-2 border-b border-gray-800 py-2.5 pl-3 pr-9"},
+                inspectorTitle(sel, isSpace ? sel.space.name : sel.dir.name),
+                div({class: "flex items-center gap-2"},
+                    badge(isSpace ? "Space" : "Folder", "bg-slate-500/15 text-slate-300"),
+                    isSpace ? "" : inspectorSpaceTag(spaceId))),
+            div({class: "app-scroll flex-1 min-h-0 overflow-y-auto px-3 py-2.5 flex flex-col gap-2.5"},
+                dl({class: "m-0 grid grid-cols-[76px_1fr] items-baseline gap-x-2 gap-y-1.5"},
+                    ...kvRow("Contains", `${stats.inScope.length} item${stats.inScope.length === 1 ? "" : "s"}${hidden ? ` · ${stats.shown.length} shown` : ""}`),
+                    ...kvRow("Secrets", String(stats.secrets)),
+                    ...kvRow("Configs", String(stats.inScope.length - stats.secrets)),
+                    ...(folderCount !== null ? kvRow("Folders", String(folderCount)) : []),
+                    ...kvRow("Newest", formatDateTime(stats.newest, "-")))),
+            div({class: "flex flex-none flex-wrap gap-1.5 border-t border-gray-800 px-3 py-2.5"},
+                actionButton("New secret here", () => { if (secretsUnlocked()) openCreate("secret"); }, "bg-gray-700 text-gray-200 hover:bg-gray-600", {disabledWhen: () => !secretsUnlocked()}),
+                actionButton("New config here", () => openCreate("config")),
+                ...(isSpace ? [actionButton("New folder here", openNewFolder)] : [
+                    actionButton("Rename", () => startRename(selectedKey.val, sel.dir.name)),
+                    actionButton("Move", () => openMoveDialog(sel)),
+                    actionButton("Delete", () => openDelete(sel), "bg-gray-700 text-gray-200 hover:bg-red-600 hover:text-white"),
+                ])),
+        ];
+    };
+
+    const inspector = () => {
+        const sel = resolveSelection();
+        return div(
+            {class: "relative flex flex-none flex-col border-l border-gray-700 bg-gray-950/60", style: () => `width:${inspectorWidth.val}px`},
+            span({
+                class: "vgrip",
+                tabindex: "0",
+                role: "separator",
+                "aria-orientation": "vertical",
+                "aria-label": "Resize details pane",
+                onmousedown: startInspectorResize,
+                onkeydown: (e) => {
+                    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+                    e.preventDefault();
+                    const step = e.shiftKey ? 48 : 16;
+                    inspectorWidth.val = Math.min(INSPECTOR_MAX, Math.max(INSPECTOR_MIN,
+                        inspectorWidth.val + (e.key === "ArrowLeft" ? step : -step)));
+                    persistView();
+                },
+            }),
+            button({
+                type: "button",
+                "aria-label": "Close details",
+                class: "absolute right-1.5 top-1.5 z-[6] inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 hover:text-gray-100 hover:bg-white/10 cursor-pointer",
+                onclick: () => { inspectorOpen.val = false; selectedKey.val = null; },
+            }, closeIcon({class: "w-3.5 h-3.5"})),
+            ...(sel
+                ? (sel.type === "item" ? itemInspector(sel) : groupInspector(sel))
+                : [div({class: "px-3 py-6 text-xs text-gray-500"}, "Select a row to see its details.")]),
+        );
+    };
+
+    // ---- banners and dialogs ----------------------------------------------
 
     const unlockCode = van.state("");
     const unlock = async () => {
@@ -489,237 +1138,147 @@ export function secretsPage() {
         }
     };
 
-    const lockedSection = () => secretsStatusS.val && !secretsStatusS.val.unlocked ? div(
-        {class: "rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 flex flex-col gap-3 max-w-2xl"},
-        h2({class: "text-sm font-semibold text-amber-300"}, "Secrets store is locked"),
-        p({class: "text-sm text-gray-400"},
-            "Configs remain available. Enter the recovery code to unlock secret listing, editing, and reveal."),
-        div({class: "flex flex-col sm:flex-row gap-2"},
+    const lockedBanner = () => secretsStatusS.val && !secretsStatusS.val.unlocked ? div(
+        {class: "flex flex-none flex-wrap items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2"},
+        p({class: "text-sm font-semibold text-amber-300"}, "Secrets store is locked"),
+        p({class: "text-xs text-gray-400"}, "Configs remain available. Enter the recovery code to unlock secret listing, editing, and reveal."),
+        div({class: "flex items-center gap-2"},
             input({
-                class: "text-input font-mono flex-1",
+                class: "input font-mono text-xs w-56",
                 type: "text",
                 placeholder: "recovery code",
                 value: unlockCode,
-                oninput: (e) => unlockCode.val = e.target.value,
+                oninput: (e) => { unlockCode.val = e.target.value; },
             }),
-            spinnerButton("Unlock", unlock, "btn-primary", "button",
+            spinnerButton("Unlock", unlock, "text-xs px-3 py-1 rounded-md font-medium bg-brand text-white hover:bg-blue-600", "button",
                 () => !unlockCode.val.trim())),
     ) : "";
 
-    const typeBadge = (type) => span({
-        class: `inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${type === "secret"
-            ? "bg-purple-500/15 text-purple-300"
-            : "bg-blue-500/15 text-blue-300"}`,
-    }, type === "secret" ? "Secret" : "Config");
+    const errorLine = () => error.val ? div(
+        {class: "flex flex-none items-center gap-3 border-b border-red-500/30 bg-red-500/10 px-3 py-1.5"},
+        p({class: "min-w-0 flex-1 truncate text-xs text-red-300", title: error.val}, `Error: ${error.val}`),
+        iconButton(closeIcon({class: "w-3 h-3"}), () => { error.val = null; }, {title: "Dismiss error", "aria-label": "Dismiss error"}),
+    ) : "";
 
-    const valueCell = (row) => div({
-        class: "w-full truncate rounded px-2 py-1 font-mono text-gray-300",
-        title: row.type === "config" ? () => row.value.val : "Secret value",
-    }, () => row.type === "secret" ? DEFAULT_SECRET_MASK : row.value.val);
-
-    const usageButton = (row) => {
-        const usage = usageForRow(row);
-        const count = usage.deployments.length + usage.settings.length;
-        if (!count) return "0";
-        const name = row.orig.name || rawStateValue(row.name).trim();
-        return button({
-            type: "button",
-            class: "cursor-pointer text-brand hover:text-blue-300 hover:underline",
-            "aria-label": `Show usage for ${row.type} ${name}`,
-            onclick: () => usageTarget.val = {resourceType: row.type, resourceName: name, ...usage},
-        }, String(count));
-    };
-
-    const nameInput = (row) => inlineEditableInput({
-        value: row.name,
-        dirty: () => !row.isNew && nameDirty(row),
-        valid: () => Boolean(row.name.val.trim()),
-        disabled: row.saving,
-        oninput: event => { row.name.val = event.target.value; },
-        onSave: () => saveName(row),
-        onDiscard: () => discardName(row),
-        inputClass: "w-full bg-transparent px-2 py-1 rounded border border-transparent hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
-        placeholder: "name",
-        ariaLabel: `${row.type === "secret" ? "Secret" : "Config"} name ${row.orig.name}`,
-        saveAriaLabel: `Save ${row.type} name ${row.orig.name}`,
-        discardAriaLabel: `Discard ${row.type} name change for ${row.orig.name}`,
-    });
-
-    const rowEl = (row) => tr(
-        {class: "border-b border-gray-800 last:border-0 align-middle"},
-        td({class: "py-1 pr-3 w-px whitespace-nowrap"}, typeBadge(row.type)),
-        td({class: "py-1 pr-3 min-w-0"}, nameInput(row)),
-        td({class: "py-1 pr-3 text-gray-300 whitespace-nowrap"}, `v${row.version || 0}`),
-        td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(row.createdAt, "-")),
-        td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => usageButton(row)),
-        td({class: "py-1 pr-3 min-w-0"}, valueCell(row)),
-        td({class: "py-1 pl-2 pr-1 text-right whitespace-nowrap w-px"},
-            div({class: "flex items-center justify-end gap-1"},
-                iconButton(editIcon(), () => { void editRowValue(row); },
-                    "disabled:cursor-not-allowed disabled:opacity-50", {
-                        title: `Edit ${row.type} value`,
-                        "aria-label": `Edit ${row.type} value`,
-                        disabled: row.saving,
-                    }),
-                iconButton(() => row.copied.val
-                    ? checkIcon({class: "w-4 h-4 text-green-400"})
-                    : copyIcon(), () => { void copyRowValue(row); }, "disabled:cursor-not-allowed disabled:opacity-50", {
-                    title: () => row.copied.val ? "Copied" : `Copy ${row.type} value`,
-                    "aria-label": () => row.copied.val ? "Copied" : `Copy ${row.type} value`,
-                    disabled: row.saving,
-                }),
-                iconButton(trashIcon(), () => requestDeleteRow(row),
-                    "hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50", {
-                        title: `Delete ${row.type}`,
-                        "aria-label": `Delete ${row.type}`,
-                        disabled: row.saving,
-                    }))),
+    const dialogShell = (labelledBy, ...children) => div(
+        {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", onclick: () => { if (!dialogSaving.val) { folderDialog.val = null; moveDialog.val = null; deleteTarget.val = null; } }},
+        div({
+            class: "card w-full max-w-md flex flex-col gap-3 shadow-2xl",
+            role: "dialog",
+            "aria-modal": "true",
+            "aria-labelledby": labelledBy,
+            onclick: (e) => e.stopPropagation(),
+        }, ...children),
     );
 
-    const deleteOverlay = () => {
-        const row = deleteTarget.val;
-        if (!row) return "";
-        const typeLabel = row.type === "secret" ? "secret" : "config";
-        return div(
-            {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
-            div(
-                {class: "card w-full max-w-md flex flex-col gap-4 shadow-2xl"},
-                h2({class: "text-base font-semibold"}, "Confirm delete"),
-                p({class: "text-sm text-gray-300"}, `Are you sure you want to delete ${typeLabel} ${row.orig.name}?`),
-                div({class: "flex items-center justify-end gap-2"},
-                    smallBtn("Cancel", cancelDelete, "bg-gray-700 text-gray-200 hover:bg-gray-600", () => deleteSaving.val),
-                    spinnerButton("Confirm", confirmDelete,
-                        "text-xs px-3 py-1 rounded-md font-medium bg-red-600 text-white hover:bg-red-500",
-                        "button", () => deleteSaving.val),
-                ),
-            ),
-        );
+    const folderDialogEl = () => {
+        const dialog = folderDialog.val;
+        if (!dialog) return "";
+        return dialogShell("new-folder-title",
+            h2({id: "new-folder-title", class: "text-base font-semibold"}, "New folder"),
+            p({class: "text-xs text-gray-400"}, "In ", span({class: "font-mono text-gray-300"}, dialog.location)),
+            input({
+                class: "text-input font-mono text-sm",
+                placeholder: "folder name",
+                value: folderName,
+                "aria-label": "Folder name",
+                oninput: (e) => { folderName.val = e.target.value; },
+                onkeydown: (e) => { if (e.key === "Enter") void createFolder(); },
+            }),
+            div({class: "flex items-center justify-end gap-2"},
+                actionButton("Cancel", () => { if (!dialogSaving.val) folderDialog.val = null; }),
+                spinnerButton("Create", createFolder,
+                    "text-xs px-3 py-1.5 rounded-md font-medium bg-brand text-white hover:bg-blue-600", "button",
+                    () => dialogSaving.val || !folderName.val.trim())));
     };
 
-    const usageOverlay = () => {
+    const moveDialogEl = () => {
+        const dialog = moveDialog.val;
+        if (!dialog) return "";
+        return dialogShell("move-title",
+            h2({id: "move-title", class: "text-base font-semibold"}, dialog.label),
+            div({class: "app-scroll max-h-72 overflow-y-auto flex flex-col gap-0.5"},
+                ...dialog.options.map((option) => button({
+                    type: "button",
+                    disabled: option.id === dialog.currentId,
+                    class: `flex items-center gap-2 rounded px-2 py-1.5 text-left font-mono text-xs ${option.id === dialog.currentId
+                        ? "text-gray-500"
+                        : "text-gray-200 hover:bg-surface-hover cursor-pointer"}`,
+                    onclick: () => { void applyMove(option.id); },
+                },
+                folderIcon({class: "w-3.5 h-3.5 flex-none text-slate-400"}),
+                option.label,
+                option.id === dialog.currentId ? span({class: "ml-auto font-sans text-[10px] text-gray-500"}, "current") : ""))),
+            div({class: "flex items-center justify-end"},
+                actionButton("Cancel", () => { if (!dialogSaving.val) moveDialog.val = null; })));
+    };
+
+    const deleteDialogEl = () => {
+        const target = deleteTarget.val;
+        if (!target) return "";
+        return dialogShell("delete-title",
+            h2({id: "delete-title", class: "text-base font-semibold"}, "Confirm delete"),
+            p({class: "text-sm text-gray-300"}, `Are you sure you want to delete ${target.label}?`),
+            div({class: "flex items-center justify-end gap-2"},
+                actionButton("Cancel", () => { if (!dialogSaving.val) deleteTarget.val = null; }),
+                spinnerButton("Confirm", confirmDelete,
+                    "text-xs px-3 py-1 rounded-md font-medium bg-red-600 text-white hover:bg-red-500", "button",
+                    () => dialogSaving.val)));
+    };
+
+    const usageOverlayEl = () => {
         const target = usageTarget.val;
         if (!target) return "";
-        return referenceUsageOverlay(
-            target.resourceType,
-            target.resourceName,
-            target.deployments,
-            target.settings,
-            () => usageTarget.val = null,
-        );
+        return referenceUsageOverlay(target.resourceType, target.resourceName, target.deployments, target.settings,
+            () => { usageTarget.val = null; });
     };
 
-    const valueViewerOverlay = () => {
+    const valueOverlayEl = () => {
         const target = valueTarget.val;
         if (!target) return "";
-        const {row, originalValue, referencingDeployments} = target;
+        const {item, originalValue, referencingDeployments} = target;
         return valueOverlay({
-            name: rawStateValue(row.name),
-            type: row.type,
+            name: item.name,
+            type: item.kind,
             value: originalValue,
-            version: row.version || 0,
-            createdAt: row.createdAt,
+            version: item.version,
+            createdAt: item.createdAt,
             deploymentCount: referencingDeployments.length,
-            onSave: (value, _name, options) => saveValue(row, value, {...options, referencingDeployments}),
-            onClose: () => valueTarget.val = null,
+            onSave: (value, _name, options) => saveItemValue(item, value, {...options, referencingDeployments}),
+            onClose: () => { valueTarget.val = null; },
         });
     };
 
-    const createOverlay = () => {
-        const type = createTarget.val;
-        if (!type) return "";
+    const createOverlayEl = () => {
+        const target = createTarget.val;
+        if (!target) return "";
         return valueOverlay({
             mode: "create",
-            type,
-            onSave: (value, name) => createResource(type, value, name),
-            onClose: closeCreate,
+            type: target.type,
+            location: target.location,
+            onSave: (value, name) => createResource(target.type, value, name),
+            onClose: () => { createTarget.val = null; },
         });
     };
 
-    const tableClass = "w-full min-w-[84rem] table-fixed text-sm";
-
-    const tableCols = () => colgroup(
-        col({style: "width:7rem"}),
-        col(),
-        col({style: "width:7rem"}),
-        col({style: "width:12rem"}),
-        col({style: "width:8rem"}),
-        col({style: "width:22rem"}),
-        col({style: "width:9rem"}),
-    );
-
-    const sortableHeader = (key, label, cls = "") => th({class: `pb-2 pr-3 font-medium ${cls}`},
-        button({
-            type: "button",
-            class: "inline-flex items-center gap-1 text-gray-400 hover:text-gray-100 cursor-pointer",
-            onclick: () => setSort(key),
-        }, label, () => sort.val.key === key ? (sort.val.dir === "asc" ? " ^" : " v") : ""));
-
-    const tableHeader = () => table(
-        {class: tableClass},
-        tableCols(),
-        thead(
-            tr({class: "text-left text-gray-400 border-b border-gray-700"},
-                sortableHeader("type", "Type", "w-px"),
-                sortableHeader("name", "Name"),
-                sortableHeader("version", "Version"),
-                sortableHeader("created", "Created"),
-                sortableHeader("inUse", "In use by"),
-                sortableHeader("value", "Value"),
-                th({class: "pb-2 pr-1 w-px"}, ""),
-            )),
-    );
-
-    const tableBody = (visibleRows) => table(
-        {class: tableClass},
-        tableCols(),
-        tbody(...visibleRows.map(rowEl)),
-    );
-
-    const contentTable = () => div(
-        {class: "card h-full min-h-0 flex flex-col gap-3"},
-        errorBanner,
-        lockedSection,
-        div({class: "flex flex-wrap items-center justify-between gap-3"},
-            input({
-                class: "text-input search-input",
-                type: "search",
-                placeholder: "Search secrets / configs",
-                value: search,
-                oninput: (e) => {
-                    search.val = e.target.value;
-                    rows.val = filteredAndSortedRows(localRows || []);
-                },
-            }),
-            div({class: "flex flex-wrap items-center gap-2"},
-                actionButton("Add secret", () => openCreate("secret"), "bg-gray-700 text-gray-200 hover:bg-gray-600",
-                    () => !secretsStatusS.val || !secretsStatusS.val.unlocked),
-                actionButton("Add config", () => openCreate("config")))),
-        div({class: "flex-1 min-h-0 overflow-hidden"}, () => {
-            if (rows.val === null) return p({class: "text-gray-400 text-sm"}, "Loading...");
-            if (rows.val.length === 0) {
-                return p({class: "text-gray-400 text-sm"}, "No secrets or configs yet.");
-            }
-            const visibleRows = rows.val;
-            if (visibleRows.length === 0) {
-                return p({class: "text-gray-400 text-sm"}, "No secrets or configs match your search.");
-            }
-            return div(
-                {class: "app-scroll-x h-full min-h-0 overflow-x-auto overflow-y-hidden"},
-                div(
-                    {class: "h-full min-h-0 flex flex-col"},
-                    div({class: "flex-none pr-1"}, tableHeader()),
-                    div({class: "deployment-table-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1"}, tableBody(visibleRows)),
-                ),
-            );
-        }),
-    );
+    // ---- page -------------------------------------------------------------
 
     return div(
-        {class: "h-full min-h-0 overflow-hidden p-3"},
-        contentTable,
-        deleteOverlay,
-        usageOverlay,
-        valueViewerOverlay,
-        createOverlay,
+        {class: "h-full min-h-0 flex flex-col overflow-hidden"},
+        lockedBanner,
+        toolbar(),
+        errorLine,
+        div({class: "flex flex-1 min-h-0"},
+            div({class: "flex min-w-0 flex-1 flex-col"},
+                tableArea,
+                pathbar),
+            () => inspectorOpen.val ? inspector() : ""),
+        () => openMenu.val ? div({class: "fixed inset-0 z-20", onclick: () => { openMenu.val = null; }}) : "",
+        folderDialogEl,
+        moveDialogEl,
+        deleteDialogEl,
+        usageOverlayEl,
+        valueOverlayEl,
+        createOverlayEl,
     );
 }

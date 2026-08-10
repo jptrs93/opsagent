@@ -6,6 +6,8 @@ import {
   decodeAgentSessionList,
   decodeAgentSessionPickup,
   decodeAgentSessionRequest,
+  decodeAssetDirectory,
+  decodeAssetDirectoryList,
   decodeAssetList,
   decodeAssetMeta,
   decodeAssetVersion,
@@ -40,6 +42,8 @@ import {
   decodeSecretsStatusResponse,
   decodeSpace,
   decodeState,
+  decodeValueDirectory,
+  decodeValueDirectoryList,
   decodeWebAuthNOptionsResponse,
   encodeAgentSessionApproveRequest,
   encodeAgentSessionGetRequest,
@@ -47,7 +51,12 @@ import {
   encodeAgentSessionRevokeRequest,
   encodeAssetCreateRequest,
   encodeAssetDeleteRequest,
+  encodeAssetDirectoryCreateRequest,
+  encodeAssetDirectoryDeleteRequest,
+  encodeAssetDirectoryMoveRequest,
+  encodeAssetDirectoryRenameRequest,
   encodeAssetGetRequest,
+  encodeAssetMoveRequest,
   encodeAssetRenameRequest,
   encodeAssetSetRequest,
   encodeClusterConfigsRequest,
@@ -55,6 +64,7 @@ import {
   encodeClusterSettings,
   encodeConfigCreateRequest,
   encodeConfigDeleteRequest,
+  encodeConfigMoveRequest,
   encodeConfigRenameRequest,
   encodeConfigSetRequest,
   encodeDeploymentCreateRequest,
@@ -80,12 +90,17 @@ import {
   encodeSecretCreateRequest,
   encodeSecretDeleteRequest,
   encodeSecretGenerateRequest,
+  encodeSecretMoveRequest,
   encodeSecretRenameRequest,
   encodeSecretRevealRequest,
   encodeSecretSetRequest,
   encodeSecretUnlockRequest,
   encodeSpaceDeleteRequest,
   encodeSpaceSetRequest,
+  encodeValueDirectoryCreateRequest,
+  encodeValueDirectoryDeleteRequest,
+  encodeValueDirectoryMoveRequest,
+  encodeValueDirectoryRenameRequest,
   encodeWebAuthNFinishRequest,
 } from './model.js';
 
@@ -754,6 +769,18 @@ export class Capi {
   }
 
   /**
+   * @param {SecretMoveRequest} payload
+   * @returns {Promise<SecretMeta>}
+   */
+  async postV1SecretsMove(payload) {
+    const response = await this.#request("/v1/secrets/move", { method: 'POST', body: encodeSecretMoveRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeSecretMeta(await response.arrayBuffer());
+  }
+
+  /**
    * @param {SecretRevealRequest} payload
    * @returns {Promise<SecretRevealResponse>}
    */
@@ -874,6 +901,78 @@ export class Capi {
   }
 
   /**
+   * @param {ConfigMoveRequest} payload
+   * @returns {Promise<ConfigMeta>}
+   */
+  async postV1ConfigsMove(payload) {
+    const response = await this.#request("/v1/configs/move", { method: 'POST', body: encodeConfigMoveRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeConfigMeta(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<ValueDirectoryList>}
+   */
+  async postV1ValueDirectoriesList(payload) {
+    const response = await this.#request("/v1/value-directories/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeValueDirectoryList(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {ValueDirectoryCreateRequest} payload
+   * @returns {Promise<ValueDirectory>}
+   */
+  async postV1ValueDirectoriesCreate(payload) {
+    const response = await this.#request("/v1/value-directories/create", { method: 'POST', body: encodeValueDirectoryCreateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeValueDirectory(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {ValueDirectoryMoveRequest} payload
+   * @returns {Promise<ValueDirectory>}
+   */
+  async postV1ValueDirectoriesMove(payload) {
+    const response = await this.#request("/v1/value-directories/move", { method: 'POST', body: encodeValueDirectoryMoveRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeValueDirectory(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {ValueDirectoryRenameRequest} payload
+   * @returns {Promise<ValueDirectory>}
+   */
+  async postV1ValueDirectoriesRename(payload) {
+    const response = await this.#request("/v1/value-directories/rename", { method: 'POST', body: encodeValueDirectoryRenameRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeValueDirectory(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {ValueDirectoryDeleteRequest} payload
+   * @returns {Promise<void>}
+   */
+  async postV1ValueDirectoriesDelete(payload) {
+    const response = await this.#request("/v1/value-directories/delete", { method: 'POST', body: encodeValueDirectoryDeleteRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
+  }
+
+  /**
    * @param {EmptyRequest} payload
    * @returns {Promise<AssetList>}
    */
@@ -950,6 +1049,78 @@ export class Capi {
    */
   async postV1AssetsDelete(payload) {
     const response = await this.#request("/v1/assets/delete", { method: 'POST', body: encodeAssetDeleteRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
+  }
+
+  /**
+   * @param {AssetMoveRequest} payload
+   * @returns {Promise<AssetMeta>}
+   */
+  async postV1AssetsMove(payload) {
+    const response = await this.#request("/v1/assets/move", { method: 'POST', body: encodeAssetMoveRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAssetMeta(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<AssetDirectoryList>}
+   */
+  async postV1AssetDirectoriesList(payload) {
+    const response = await this.#request("/v1/asset-directories/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAssetDirectoryList(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {AssetDirectoryCreateRequest} payload
+   * @returns {Promise<AssetDirectory>}
+   */
+  async postV1AssetDirectoriesCreate(payload) {
+    const response = await this.#request("/v1/asset-directories/create", { method: 'POST', body: encodeAssetDirectoryCreateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAssetDirectory(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {AssetDirectoryMoveRequest} payload
+   * @returns {Promise<AssetDirectory>}
+   */
+  async postV1AssetDirectoriesMove(payload) {
+    const response = await this.#request("/v1/asset-directories/move", { method: 'POST', body: encodeAssetDirectoryMoveRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAssetDirectory(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {AssetDirectoryRenameRequest} payload
+   * @returns {Promise<AssetDirectory>}
+   */
+  async postV1AssetDirectoriesRename(payload) {
+    const response = await this.#request("/v1/asset-directories/rename", { method: 'POST', body: encodeAssetDirectoryRenameRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAssetDirectory(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {AssetDirectoryDeleteRequest} payload
+   * @returns {Promise<void>}
+   */
+  async postV1AssetDirectoriesDelete(payload) {
+    const response = await this.#request("/v1/asset-directories/delete", { method: 'POST', body: encodeAssetDirectoryDeleteRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

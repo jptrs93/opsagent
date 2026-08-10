@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
@@ -56,6 +57,95 @@ func (s *Service) CreateValueDirectory(spaceID, parentID int32, name string, cre
 	if err != nil {
 		panic(fmt.Sprintf("InsertValueDirectory: %v", err))
 	}
+	return d, nil
+}
+
+// resolveValueDirectoryLocked validates a caller-supplied target directory for
+// a create (0 = the space root). A directory in another space does not exist
+// from this space's viewpoint. Caller must hold s.Mu.
+func (s *Service) resolveValueDirectoryLocked(ctx context.Context, spaceID int64, directoryID int32) (int64, error) {
+	dirID := int64(directoryID)
+	if dirID == 0 {
+		return 0, nil
+	}
+	d, err := s.q.GetValueDirectoryByID(ctx, dirID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrValueDirectoryNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetValueDirectoryByID: %v", err))
+	}
+	if d.SpaceID != spaceID {
+		return 0, ErrValueDirectoryNotFound
+	}
+	return dirID, nil
+}
+
+// valueDirectoryToProto builds the wire form of a directory row.
+func valueDirectoryToProto(d ValueDirectory) *apigen.ValueDirectory {
+	return &apigen.ValueDirectory{
+		ID:        int32(d.ID),
+		SpaceID:   int32(d.SpaceID),
+		Name:      d.Name,
+		ParentID:  int32(d.ParentID),
+		CreatedAt: time.UnixMilli(d.CreatedAt),
+		CreatedBy: int32(d.CreatedBy),
+	}
+}
+
+// ListValueDirectories returns every directory across all spaces, ordered by
+// space, parent, then name.
+func (s *Service) ListValueDirectories() []*apigen.ValueDirectory {
+	rows, err := s.q.ListValueDirectories(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("ListValueDirectories: %v", err))
+	}
+	out := make([]*apigen.ValueDirectory, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, valueDirectoryToProto(row))
+	}
+	return out
+}
+
+// GetValueDirectoryMeta returns one directory in wire form.
+func (s *Service) GetValueDirectoryMeta(directoryID int32) (*apigen.ValueDirectory, bool) {
+	row, err := s.q.GetValueDirectoryByID(context.Background(), int64(directoryID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetValueDirectoryByID: %v", err))
+	}
+	return valueDirectoryToProto(row), true
+}
+
+// RenameValueDirectory renames a directory in place. The contents keep their
+// directory id, so nothing else moves; only sibling uniqueness is at stake.
+func (s *Service) RenameValueDirectory(directoryID int32, newName string) (ValueDirectory, error) {
+	if !ValidValueName(newName) {
+		return ValueDirectory{}, ErrValueNameInvalid
+	}
+	ctx := context.Background()
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	d, err := s.q.GetValueDirectoryByID(ctx, int64(directoryID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return ValueDirectory{}, ErrValueDirectoryNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetValueDirectoryByID: %v", err))
+	}
+	if d.Name == newName {
+		return d, nil
+	}
+	if s.valueSiblingNameTakenLocked(ctx, s.q, d.SpaceID, d.ParentID, newName, 0, 0, d.ID) {
+		return ValueDirectory{}, ErrValueAlreadyExists
+	}
+	if err := s.q.SetValueDirectoryName(ctx, pq.SetValueDirectoryNameParams{Name: newName, ID: d.ID}); err != nil {
+		panic(fmt.Sprintf("SetValueDirectoryName: %v", err))
+	}
+	d.Name = newName
 	return d, nil
 }
 

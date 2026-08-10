@@ -16,7 +16,7 @@ func TestCreateAssetNotifiesSubscribers(t *testing.T) {
 	sub, unsub := store.SubscribeAssetUpdates()
 	defer unsub()
 
-	if _, err := s.CreateAsset(context.Background(), "notify-check.txt", 1, 1, []byte("hello")); err != nil {
+	if _, err := s.CreateAsset(context.Background(), "notify-check.txt", 1, 0, 1, []byte("hello")); err != nil {
 		t.Fatalf("CreateAsset: %v", err)
 	}
 

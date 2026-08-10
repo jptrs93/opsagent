@@ -157,6 +157,23 @@ func (s *Service) GetAssetInRootByKey(spaceID int32, key string) (Asset, bool) {
 	return r, true
 }
 
+// GetAssetInDirectory resolves an asset by key inside one directory of a
+// space (0 = the implicit root).
+func (s *Service) GetAssetInDirectory(spaceID, directoryID int32, key string) (Asset, bool) {
+	r, err := s.q.GetAssetInDirectoryByKey(context.Background(), pq.GetAssetInDirectoryByKeyParams{
+		SpaceID:          int64(normalizedUserSpaceID(spaceID)),
+		AssetDirectoryID: int64(directoryID),
+		Key:              key,
+	})
+	if err == sql.ErrNoRows {
+		return Asset{}, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetInDirectoryByKey: %v", err))
+	}
+	return r, true
+}
+
 // GetAssetVersion returns one published version of an asset; version 0 means
 // latest.
 func (s *Service) GetAssetVersion(assetID, version int32) (*apigen.AssetVersion, bool) {
@@ -267,9 +284,9 @@ func (s *Service) assetSiblingKeyTakenLocked(ctx context.Context, q *pq.Queries,
 	return dirs > 0
 }
 
-// CreateAssetWithVersion creates a new asset in the root directory of spaceID
-// with its first version.
-func (s *Service) CreateAssetWithVersion(key string, spaceID, createdBy int32, location string, sizeBytes int64, blob []byte) (*apigen.AssetVersion, error) {
+// CreateAssetWithVersion creates a new asset in directoryID (0 = the space
+// root) of spaceID with its first version.
+func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, createdBy int32, location string, sizeBytes int64, blob []byte) (*apigen.AssetVersion, error) {
 	if !ValidAssetKey(key) {
 		return nil, ErrAssetKeyInvalid
 	}
@@ -283,7 +300,11 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, createdBy int32, l
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	if s.assetSiblingKeyTakenLocked(ctx, s.q, space, 0, key, 0, 0) {
+	dirID, err := s.resolveAssetDirectoryLocked(ctx, space, directoryID)
+	if err != nil {
+		return nil, err
+	}
+	if s.assetSiblingKeyTakenLocked(ctx, s.q, space, dirID, key, 0, 0) {
 		return nil, ErrAssetAlreadyExists
 	}
 
@@ -294,7 +315,7 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, createdBy int32, l
 		a, err = q.InsertAssetRow(ctx, pq.InsertAssetRowParams{
 			SpaceID:          space,
 			Key:              key,
-			AssetDirectoryID: 0,
+			AssetDirectoryID: dirID,
 			CreatedAt:        now,
 			CreatedBy:        int64(createdBy),
 		})

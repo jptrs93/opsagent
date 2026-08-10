@@ -32,7 +32,7 @@ func TestGetV1GlobalStateReturnsEachSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	if _, err := h.Store.CreateConfigWithVersion("log_level", space.ID, 0, "debug"); err != nil {
+	if _, err := h.Store.CreateConfigWithVersion("log_level", space.ID, 0, 0, "debug"); err != nil {
 		t.Fatalf("CreateConfigWithVersion: %v", err)
 	}
 	cfg := createTestDeployment(h.Store, "node-a", apigen.DeploymentIdentity{Name: "api", SpaceID: space.ID}, ptr(remoteDeploymentSpec("nginx", hostNetworking())))

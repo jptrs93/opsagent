@@ -81,10 +81,10 @@ func (s *Service) ListSecretVersionRecords() []secrets.Record {
 	return out
 }
 
-// CreateSecretWithVersion creates a new secret in the root directory of
-// spaceID with its first version. seal is called with the new identity id and
-// version 1 inside the transaction, once both are known.
-func (s *Service) CreateSecretWithVersion(name string, spaceID, createdBy int32, seal secrets.SealFunc) (secrets.Record, error) {
+// CreateSecretWithVersion creates a new secret in directoryID (0 = the root)
+// of spaceID with its first version. seal is called with the new identity id
+// and version 1 inside the transaction, once both are known.
+func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, createdBy int32, seal secrets.SealFunc) (secrets.Record, error) {
 	if !ValidValueName(name) {
 		return secrets.Record{}, ErrValueNameInvalid
 	}
@@ -92,7 +92,11 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, createdBy int32,
 	defer s.Mu.Unlock()
 	ctx := context.Background()
 	space := int64(normalizedUserSpaceID(spaceID))
-	if s.valueSiblingNameTakenLocked(ctx, s.q, space, 0, name, 0, 0, 0) {
+	dirID, err := s.resolveValueDirectoryLocked(ctx, space, directoryID)
+	if err != nil {
+		return secrets.Record{}, err
+	}
+	if s.valueSiblingNameTakenLocked(ctx, s.q, space, dirID, name, 0, 0, 0) {
 		return secrets.Record{}, ErrValueAlreadyExists
 	}
 	now := time.Now().UnixMilli()
@@ -103,7 +107,7 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, createdBy int32,
 		row, err = q.InsertSecretRow(ctx, pq.InsertSecretRowParams{
 			Name:             name,
 			SpaceID:          space,
-			ValueDirectoryID: 0,
+			ValueDirectoryID: dirID,
 			CreatedAt:        now,
 			CreatedBy:        int64(createdBy),
 		})

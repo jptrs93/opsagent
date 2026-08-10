@@ -2,30 +2,47 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {handleErr} from "../capi/err.js";
 import {decodeAssetVersion} from "../capi/model.js";
-import {assetEditor, preloadAssetCodeEditor} from "../components/assetEditor.js";
-import {inlineEditableInput} from "../components/inlineEditableInput.js";
+import {assetEditorOverlay, preloadAssetCodeEditor} from "../components/assetEditor.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
-import {editIcon, trashIcon} from "../lib/icons.js";
-import {formatDateTime} from "../lib/date.js";
-import {deploymentUsages} from "../lib/referenceUsage.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
-import {assetMetasS, deploymentsS, machinesS, spacesS} from "../state/deployments.js";
-import {loginS} from "../state/login.js";
+import {formatDateTime} from "../lib/date.js";
 import {containerWorkload} from "../lib/deploymentConfig.js";
+import {
+    caretRightIcon, checkIcon, chevronDownIcon, closeIcon, columnsIcon, editIcon,
+    fileIcon, folderIcon, plusIcon, searchIcon, sortArrowIcon, uploadIcon,
+} from "../lib/icons.js";
+import {OPENDEPLOY_SPACE_ID} from "../lib/nodeSpaces.js";
+import {deploymentUsages} from "../lib/referenceUsage.js";
+import {
+    ASSET_COLUMNS, ASSET_DEFAULT_COLUMNS, ASSET_DEFAULT_COLUMN_WIDTHS,
+    assetDirsAsNamed, fmtSize, makeAssetItems,
+} from "../lib/assetExplorer.js";
+import {
+    buildRows, dirsById, dirPathSegments, flexColumnKey, folderOptions, itemKey,
+    itemPathSegments, sameSet, spaceHue,
+} from "../lib/valueExplorer.js";
+import {assetDirectoriesS, assetMetasS, deploymentsS, machinesS, spacesS} from "../state/deployments.js";
+import {loginS} from "../state/login.js";
 
-const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
+const {button, col, colgroup, dd, div, dl, dt, h2, input, p, span, table, tbody, td, th, thead, tr} = van.tags;
+
+const VIEW_STORAGE_KEY = "opendeployAssetsExplorerView";
+const INSPECTOR_MIN = 220;
+const INSPECTOR_MAX = 460;
 
 export {preloadAssetCodeEditor};
 
-const fmtSize = (n) => {
-    if (!n) return "0 B";
-    if (n < 1000) return `${n} B`;
-    if (n < 1000 * 1000) return `${(n / 1000).toFixed(1)} KB`;
-    return `${(n / 1000 / 1000).toFixed(2)} MB`;
+const loadView = () => {
+    try {
+        return JSON.parse(localStorage.getItem(VIEW_STORAGE_KEY)) || {};
+    } catch (_) {
+        return {};
+    }
 };
 
 // Deployment specs pin asset *version* row ids; an asset's meta lists every
-// published version id, so membership is the usage test.
+// published version id, so membership is the usage test. Env refs may also
+// carry a legacy display key.
 const assetRefMatches = (assetKey, versionIDs, ref) => {
     if (!ref) return false;
     const refVersionId = Number(ref.assetVersionId || 0);
@@ -35,29 +52,15 @@ const assetRefMatches = (assetKey, versionIDs, ref) => {
 
 const assetMountRefMatches = (versionIDs, ref) => versionIDs.has(Number(ref?.assetVersionId || 0));
 
-const latestRef = (asset) => asset?.versionRefs?.[0] || null;
-
-const sortedAssets = (items) => [...(items || [])].sort((a, b) =>
-    (a.key || '').localeCompare(b.key || '') || Number(a.id || 0) - Number(b.id || 0));
-
-const smallBtn = (text, onclick, cls, disabledWhen) => button({
-    type: "button",
-    disabled: disabledWhen,
-    class: () => `text-xs px-3 py-1 rounded-md font-medium transition-colors ${cls} ${
-        disabledWhen && disabledWhen() ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`,
-    onclick: async (e) => { if (disabledWhen && disabledWhen()) return; await onclick(e); },
-}, text);
-
-async function uploadAssetFile(file, name, onProgress) {
-    const params = new URLSearchParams({name});
+async function uploadAssetFile(file, params, token, onProgress) {
+    const query = new URLSearchParams(params);
     return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("POST", `/v1/assets/upload?${params}`);
+        xhr.open("POST", `/v1/assets/upload?${query}`);
         xhr.withCredentials = true;
         xhr.responseType = "arraybuffer";
         xhr.setRequestHeader("Accept", "application/x-protobuf");
         xhr.setRequestHeader("Content-Type", "application/octet-stream");
-        const token = loginS.val?.token;
         if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
 
         xhr.upload.onprogress = (event) => {
@@ -86,465 +89,1162 @@ async function uploadAssetFile(file, name, onProgress) {
 }
 
 export function assetsPage() {
-    const rows = van.state(sortedAssets(assetMetasS.val));
-    const error = van.state(null);
+    const saved = loadView();
+
+    const hiddenSpaces = van.state(new Set(Array.isArray(saved.hiddenSpaces) ? saved.hiddenSpaces : [OPENDEPLOY_SPACE_ID]));
+    const shownCols = van.state(new Set(Array.isArray(saved.cols) ? saved.cols : ASSET_DEFAULT_COLUMNS));
+    const colWidths = van.state({...ASSET_DEFAULT_COLUMN_WIDTHS, ...(saved.colWidths || {})});
+    const sort = van.state(saved.sort?.key ? saved.sort : {key: "name", dir: "asc"});
+    const expanded = van.state(new Set(Array.isArray(saved.expanded) ? saved.expanded : []));
+    const inspectorWidth = van.state(Number(saved.inspectorWidth) || 280);
+    const inspectorOpen = van.state(true);
+    const selectedKey = van.state(null);
     const search = van.state("");
-    const selected = van.state(null);
-    const uploadOverlayOpen = van.state(false);
-    const uploadFile = van.state(null);
+    const openMenu = van.state(null); // "spaces" | "cols" | null
+    const error = van.state(null);
+    // renameState marks which row is being renamed; the draft lives in its own
+    // state that no binding reads, so typing never rebuilds the input.
+    const renameState = van.state(null); // {key}
+    const renameDraft = van.state("");
+    const folderName = van.state("");
+
+    const usageTarget = van.state(null);
+    const editorTarget = van.state(null); // {mode, assetId, version, latestVersion, spaceId, directoryId, location}
+    const folderDialog = van.state(null); // {spaceId, directoryId, location}
+    const moveDialog = van.state(null);   // {label, options, currentId, apply}
+    const deleteTarget = van.state(null); // {label, apply}
+    const dialogSaving = van.state(false);
+
+    // Upload runs through a hidden file picker; the context is captured before
+    // the picker opens so the chosen file knows where it is going.
+    let uploadContext = null;             // {mode: "new", spaceId, directoryId, location} | {mode: "version", assetId, key}
+    const uploadTarget = van.state(null); // uploadContext + {file}
+    const uploadName = van.state("");
     const uploadSaving = van.state(false);
     const uploadError = van.state("");
-    const uploadProgressStatus = van.state("");
-    const uploadProgressName = van.state("");
-    const uploadProgressLoaded = van.state(0);
-    const uploadProgressTotal = van.state(0);
-    const uploadedAssetKey = van.state("");
-    const uploadedAssetName = van.state("");
-    const deleteTarget = van.state(null);
-    const deleteSaving = van.state(false);
-    const usageTarget = van.state(null);
-    const assetMutationKey = van.state("");
-    const assetNameDrafts = new Map();
+    const uploadLoaded = van.state(0);
+    const uploadTotal = van.state(0);
+    const uploadedKey = van.state("");
 
-    const reloadRows = async () => {
-        const res = await capi.postV1AssetsList({});
-        rows.val = res.items || [];
-    };
+    let expandedTouched = Array.isArray(saved.expanded);
 
-    const reload = async () => {
+    const persistView = () => {
         try {
-            error.val = null;
-            await reloadRows();
-        } catch (e) {
-            error.val = e.message;
-        }
+            localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({
+                hiddenSpaces: [...hiddenSpaces.val],
+                cols: [...shownCols.val],
+                colWidths: colWidths.val,
+                sort: sort.val,
+                expanded: [...expanded.val],
+                inspectorWidth: inspectorWidth.val,
+            }));
+        } catch (_) { /* view state is a convenience, never load-bearing */ }
     };
 
+    // ---- derived data -----------------------------------------------------
+
+    const currentItems = () => makeAssetItems(assetMetasS.val);
+    const currentDirs = () => assetDirsAsNamed(assetDirectoriesS.val);
+    const visibleSpaces = () => (spacesS.val || []).filter((s) => !hiddenSpaces.val.has(Number(s.id)));
+    const spaceName = (id) => (spacesS.val || []).find((s) => Number(s.id) === Number(id))?.name || `space ${id}`;
+
+    const spacesDirty = () => !sameSet(hiddenSpaces.val, new Set([OPENDEPLOY_SPACE_ID]));
+    const colsDirty = () => !sameSet(shownCols.val, new Set(ASSET_DEFAULT_COLUMNS));
+
+    const usageForItem = (item) => {
+        const versionIDs = new Set((item.meta.versionRefs || []).map((ref) => Number(ref?.id || 0)).filter(Boolean));
+        const deployments = deploymentUsages(deploymentsS.val, spacesS.val, machinesS.val, (deployment) => {
+            const cfg = deployment?.config;
+            if (!cfg || cfg.deleted) return false;
+            const runtime = containerWorkload(cfg)?.runtime || {};
+            return Object.values(runtime.envVars || {}).some((ref) => assetRefMatches(item.name, versionIDs, ref))
+                || (runtime.assetMounts || []).some((ref) => assetMountRefMatches(versionIDs, ref));
+        });
+        return {deployments, settings: []};
+    };
+
+    const resolveSelection = () => {
+        const key = selectedKey.val;
+        if (!key) return null;
+        if (key.startsWith("space:")) {
+            const space = (spacesS.val || []).find((s) => `space:${s.id}` === key);
+            return space ? {type: "space", space} : null;
+        }
+        if (key.startsWith("dir:")) {
+            const dir = currentDirs().find((d) => `dir:${d.id}` === key);
+            return dir ? {type: "dir", dir} : null;
+        }
+        const item = currentItems().find((i) => itemKey(i) === key);
+        return item ? {type: "item", item} : null;
+    };
+
+    // First visit: open every visible space so the page reads as a populated
+    // tree, not a wall of closed roots. Stops the moment the user touches any
+    // disclosure. Also drops a selection stranded by the space filter — but
+    // only when the row demonstrably exists and is hidden: a key the stream
+    // has not echoed yet (a create still in flight) must survive.
     van.derive(() => {
-        rows.val = sortedAssets(assetMetasS.val);
+        if (!expandedTouched) {
+            const keys = new Set(visibleSpaces().map((s) => `space:${s.id}`));
+            if (!sameSet(keys, expanded.val)) expanded.val = keys;
+        }
+        const key = selectedKey.val;
+        if (!key) return;
+        if (key.startsWith("space:")) {
+            if (hiddenSpaces.val.has(Number(key.slice(6)))) selectedKey.val = null;
+            return;
+        }
+        if (key.startsWith("dir:")) {
+            const dir = currentDirs().find((d) => `dir:${d.id}` === key);
+            if (dir && hiddenSpaces.val.has(Number(dir.spaceId))) selectedKey.val = null;
+            return;
+        }
+        const item = currentItems().find((i) => itemKey(i) === key);
+        if (item && hiddenSpaces.val.has(item.spaceId)) selectedKey.val = null;
     });
 
-    reload();
+    // ---- actions ----------------------------------------------------------
 
-    const openAsset = (asset, version = latestRef(asset)?.version || 0) => {
-        selected.val = {
+    const select = (key) => {
+        selectedKey.val = key;
+        inspectorOpen.val = true;
+        renameState.val = null;
+        openMenu.val = null;
+    };
+
+    const toggleExpanded = (key) => {
+        expandedTouched = true;
+        const next = new Set(expanded.val);
+        next.has(key) ? next.delete(key) : next.add(key);
+        expanded.val = next;
+        persistView();
+    };
+
+    const expandTo = (spaceId, directoryId) => {
+        expandedTouched = true;
+        const next = new Set(expanded.val);
+        next.add(`space:${spaceId}`);
+        const byId = dirsById(currentDirs());
+        const seen = new Set();
+        let current = Number(directoryId || 0);
+        while (current !== 0 && !seen.has(current)) {
+            seen.add(current);
+            next.add(`dir:${current}`);
+            current = Number(byId.get(current)?.parentId || 0);
+        }
+        expanded.val = next;
+        persistView();
+    };
+
+    const setSort = (key) => {
+        sort.val = sort.val.key === key
+            ? {key, dir: sort.val.dir === "asc" ? "desc" : "asc"}
+            : {key, dir: "asc"};
+        persistView();
+    };
+
+    // Creating lands in the selection's folder: a selected folder itself, a
+    // selected item's folder, or a selected space's root.
+    const createContext = () => {
+        const sel = resolveSelection();
+        if (sel?.type === "space") return {spaceId: Number(sel.space.id), directoryId: 0};
+        if (sel?.type === "dir") return {spaceId: Number(sel.dir.spaceId), directoryId: Number(sel.dir.id)};
+        if (sel?.type === "item") return {spaceId: sel.item.spaceId, directoryId: sel.item.directoryId};
+        const first = visibleSpaces()[0];
+        return {spaceId: first ? Number(first.id) : 1, directoryId: 0};
+    };
+
+    const locationLabel = ({spaceId, directoryId}) => {
+        const segments = dirPathSegments(dirsById(currentDirs()), directoryId);
+        return `${spaceName(spaceId)}/${segments.length ? segments.join("/") + "/" : ""}`;
+    };
+
+    const openEditor = (item, version = 0) => {
+        select(itemKey(item));
+        editorTarget.val = {
             mode: "edit",
-            assetId: Number(asset.id || 0),
-            key: asset.key,
-            version,
-            latestVersion: Number(latestRef(asset)?.version || version || 0),
-            spaceId: Number(asset.spaceId || 0),
+            assetId: item.id,
+            version: version || item.version,
+            latestVersion: item.version,
         };
     };
 
-    const addAsset = () => {
-        selected.val = {mode: "create", initialKey: "rename_me.yaml"};
+    const openCreate = () => {
+        const context = createContext();
+        editorTarget.val = {mode: "create", ...context, location: locationLabel(context)};
     };
 
-    const prepareAssetUpload = (file) => {
-        if (!file) { error.val = "Choose a file to upload"; return; }
-        error.val = null;
-        uploadError.val = "";
-        uploadOverlayOpen.val = true;
-        uploadFile.val = file;
-        uploadSaving.val = false;
-        uploadProgressStatus.val = "Ready";
-        uploadProgressName.val = file.name;
-        uploadProgressLoaded.val = 0;
-        uploadProgressTotal.val = file.size;
-        uploadedAssetKey.val = "";
-        uploadedAssetName.val = file.name;
+    const openNewFolder = () => {
+        const context = createContext();
+        folderName.val = "";
+        folderDialog.val = {...context, location: locationLabel(context)};
     };
 
-    const closeUploadOverlay = () => {
+    const createFolder = async () => {
+        const dialog = folderDialog.val;
+        const key = folderName.val.trim();
+        if (!dialog || !key || dialogSaving.val) return;
+        dialogSaving.val = true;
+        try {
+            error.val = null;
+            const dir = await capi.postV1AssetDirectoriesCreate({spaceId: dialog.spaceId, parentId: dialog.directoryId, key});
+            folderDialog.val = null;
+            expandTo(dialog.spaceId, dir.id);
+            selectedKey.val = `dir:${dir.id}`;
+        } catch (e) {
+            error.val = e.message;
+        } finally {
+            dialogSaving.val = false;
+        }
+    };
+
+    const startRename = (key, current) => {
+        renameDraft.val = current;
+        renameState.val = {key};
+    };
+
+    const applyRename = async () => {
+        const state = renameState.val;
+        const sel = resolveSelection();
+        if (!state || !sel || dialogSaving.val) return;
+        const name = renameDraft.val.trim();
+        if (!name) return;
+        dialogSaving.val = true;
+        try {
+            error.val = null;
+            if (sel.type === "dir") {
+                await capi.postV1AssetDirectoriesRename({directoryId: Number(sel.dir.id), newKey: name});
+            } else if (sel.type === "item") {
+                await capi.postV1AssetsRename({assetId: sel.item.id, newKey: name});
+            }
+            renameState.val = null;
+        } catch (e) {
+            error.val = e.message;
+        } finally {
+            dialogSaving.val = false;
+        }
+    };
+
+    const openMoveDialog = (sel) => {
+        if (sel.type === "dir") {
+            const dir = sel.dir;
+            moveDialog.val = {
+                label: `Move ${dir.name}`,
+                options: folderOptions(currentDirs(), dir.spaceId, Number(dir.id)),
+                currentId: Number(dir.parentId || 0),
+                apply: async (destination) => {
+                    await capi.postV1AssetDirectoriesMove({directoryId: Number(dir.id), newParentId: destination});
+                    expandTo(Number(dir.spaceId), destination);
+                },
+            };
+            return;
+        }
+        const item = sel.item;
+        moveDialog.val = {
+            label: `Move ${item.name}`,
+            options: folderOptions(currentDirs(), item.spaceId),
+            currentId: item.directoryId,
+            apply: async (destination) => {
+                await capi.postV1AssetsMove({assetId: item.id, assetDirectoryId: destination});
+                expandTo(item.spaceId, destination);
+            },
+        };
+    };
+
+    const applyMove = async (destination) => {
+        const dialog = moveDialog.val;
+        if (!dialog || dialogSaving.val) return;
+        dialogSaving.val = true;
+        try {
+            error.val = null;
+            await dialog.apply(destination);
+            moveDialog.val = null;
+        } catch (e) {
+            error.val = e.message;
+        } finally {
+            dialogSaving.val = false;
+        }
+    };
+
+    const openDelete = (sel) => {
+        if (sel.type === "dir") {
+            deleteTarget.val = {
+                label: `folder ${sel.dir.name}`,
+                apply: async () => {
+                    await capi.postV1AssetDirectoriesDelete({directoryId: Number(sel.dir.id)});
+                    selectedKey.val = null;
+                },
+            };
+            return;
+        }
+        const item = sel.item;
+        deleteTarget.val = {
+            label: `asset ${item.name}`,
+            apply: async () => {
+                await capi.postV1AssetsDelete({assetId: item.id});
+                selectedKey.val = null;
+            },
+        };
+    };
+
+    const confirmDelete = async () => {
+        const target = deleteTarget.val;
+        if (!target || dialogSaving.val) return;
+        dialogSaving.val = true;
+        try {
+            error.val = null;
+            await target.apply();
+            deleteTarget.val = null;
+        } catch (e) {
+            error.val = e.message;
+            deleteTarget.val = null;
+        } finally {
+            dialogSaving.val = false;
+        }
+    };
+
+    // ---- upload -----------------------------------------------------------
+
+    const uploadPicker = input({
+        class: "hidden",
+        type: "file",
+        onchange: (e) => {
+            const file = e.target.files?.[0] || null;
+            e.target.value = "";
+            const context = uploadContext;
+            uploadContext = null;
+            if (!file || !context) return;
+            uploadName.val = context.mode === "version" ? context.key : file.name;
+            uploadError.val = "";
+            uploadSaving.val = false;
+            uploadLoaded.val = 0;
+            uploadTotal.val = file.size;
+            uploadedKey.val = "";
+            uploadTarget.val = {...context, file};
+        },
+    });
+
+    const pickUploadNew = () => {
+        const context = createContext();
+        uploadContext = {mode: "new", ...context, location: locationLabel(context)};
+        uploadPicker.click();
+    };
+
+    const pickUploadVersion = (item) => {
+        select(itemKey(item));
+        uploadContext = {mode: "version", assetId: item.id, key: item.name, spaceId: item.spaceId, directoryId: item.directoryId};
+        uploadPicker.click();
+    };
+
+    const closeUpload = () => {
         if (uploadSaving.val) return;
-        uploadOverlayOpen.val = false;
-        uploadFile.val = null;
+        uploadTarget.val = null;
         uploadError.val = "";
     };
 
-    const uploadAsset = async () => {
-        const file = uploadFile.val;
-        const name = uploadedAssetName.val.trim();
-        if (!file) { uploadError.val = "Choose a file to upload"; return; }
-        if (!name) { uploadError.val = "Asset name is required"; return; }
+    const runUpload = async () => {
+        const target = uploadTarget.val;
+        if (!target || uploadSaving.val) return;
+        const name = uploadName.val.trim();
+        if (target.mode === "new" && !name) {
+            uploadError.val = "Asset name is required";
+            return;
+        }
         try {
             error.val = null;
             uploadError.val = "";
             uploadSaving.val = true;
-            uploadProgressStatus.val = "Uploading";
-            uploadProgressName.val = file.name;
-            uploadProgressLoaded.val = 0;
-            uploadProgressTotal.val = file.size;
-            uploadedAssetKey.val = "";
-            const asset = await uploadAssetFile(file, name, (loaded, total) => {
-                uploadProgressLoaded.val = loaded;
-                uploadProgressTotal.val = total || file.size;
+            uploadLoaded.val = 0;
+            uploadTotal.val = target.file.size;
+            uploadedKey.val = "";
+            const params = target.mode === "version"
+                ? {asset_id: String(target.assetId)}
+                : {name, space_id: String(target.spaceId), directory_id: String(target.directoryId)};
+            const version = await uploadAssetFile(target.file, params, loginS.val?.token, (loaded, total) => {
+                uploadLoaded.val = loaded;
+                uploadTotal.val = total || target.file.size;
             });
-            uploadProgressStatus.val = "Uploaded";
-            uploadedAssetKey.val = asset.key;
-            uploadedAssetName.val = asset.key;
-            try {
-                await reloadRows();
-            } catch (e) {
-                error.val = e.message;
-            }
+            uploadedKey.val = version.key;
+            uploadName.val = version.key;
+            expandTo(target.spaceId, target.directoryId);
+            selectedKey.val = `asset:${version.assetId}`;
         } catch (e) {
-            uploadProgressStatus.val = "Upload failed";
             uploadError.val = e.message;
         } finally {
             uploadSaving.val = false;
         }
     };
 
-    const runAssetMutation = async (mutationKey, mutate) => {
-        if (assetMutationKey.val) throw new Error("Another asset change is in progress");
-        assetMutationKey.val = mutationKey;
-        try {
-            error.val = null;
-            return await mutate();
-        } finally {
-            if (assetMutationKey.val === mutationKey) assetMutationKey.val = "";
-        }
+    // ---- resize wiring ----------------------------------------------------
+
+    const startColResize = (event, colKey, min) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const colEl = event.target.closest("table")?.querySelector(`col[data-col="${colKey}"]`);
+        const startX = event.clientX;
+        const startW = colWidths.val[colKey] ?? ASSET_DEFAULT_COLUMN_WIDTHS[colKey];
+        let width = startW;
+        const move = (ev) => {
+            width = Math.max(min, startW + (ev.clientX - startX));
+            if (colEl) colEl.style.width = `${width}px`;
+        };
+        const up = () => {
+            document.removeEventListener("mousemove", move);
+            document.removeEventListener("mouseup", up);
+            document.body.classList.remove("resizing");
+            colWidths.val = {...colWidths.val, [colKey]: width};
+            persistView();
+        };
+        document.addEventListener("mousemove", move);
+        document.addEventListener("mouseup", up);
+        document.body.classList.add("resizing");
     };
 
-    const renameAsset = async (asset, newKey, draft) => {
-        if (assetMutationKey.val) return null;
-        try {
-            const meta = await runAssetMutation(`rename:${asset.id}`, () =>
-                capi.postV1AssetsRename({assetId: Number(asset.id), newKey}));
-            if (selected.val?.assetId === Number(asset.id)) {
-                selected.val = {...selected.val, key: meta.key};
+    const nudgeColWidth = (event, colKey, min) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        const step = event.shiftKey ? 48 : 16;
+        const current = colWidths.val[colKey] ?? ASSET_DEFAULT_COLUMN_WIDTHS[colKey];
+        colWidths.val = {...colWidths.val, [colKey]: Math.max(min, current + (event.key === "ArrowRight" ? step : -step))};
+        persistView();
+    };
+
+    const startInspectorResize = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const pane = event.target.parentElement;
+        const startX = event.clientX;
+        const startW = inspectorWidth.val;
+        let width = startW;
+        const move = (ev) => {
+            width = Math.min(INSPECTOR_MAX, Math.max(INSPECTOR_MIN, startW - (ev.clientX - startX)));
+            if (pane) pane.style.width = `${width}px`;
+        };
+        const up = () => {
+            document.removeEventListener("mousemove", move);
+            document.removeEventListener("mouseup", up);
+            document.body.classList.remove("resizing");
+            inspectorWidth.val = width;
+            persistView();
+        };
+        document.addEventListener("mousemove", move);
+        document.addEventListener("mouseup", up);
+        document.body.classList.add("resizing");
+    };
+
+    // ---- small building blocks --------------------------------------------
+
+    const spaceDot = (spaceId) => span({
+        class: "inline-block w-[7px] h-[7px] rounded-full flex-none",
+        style: `background:${spaceHue(spaceId)}`,
+    });
+
+    const assetIcon = (extra = "") => fileIcon({
+        class: `w-[13px] h-[13px] flex-none text-asset ${extra}`, role: "img", "aria-label": "Asset",
+    });
+
+    const iconButton = (child, onclick, attrs = {}) => button({
+        type: "button",
+        ...attrs,
+        class: `inline-flex h-6 w-6 flex-none items-center justify-center rounded text-gray-500 hover:text-gray-100 ` +
+            `hover:bg-white/10 transition-colors cursor-pointer ${attrs.class || ""}`,
+        onclick: (e) => { e.stopPropagation(); onclick(e); },
+    }, child);
+
+    const actionButton = (text, onclick, cls = "bg-gray-700 text-gray-200 hover:bg-gray-600", attrs = {}) => button({
+        type: "button",
+        ...attrs,
+        class: () => `text-xs px-2.5 py-1.5 rounded-md font-medium transition-colors cursor-pointer whitespace-nowrap ${cls} ` +
+            `${typeof attrs.disabledWhen === "function" && attrs.disabledWhen() ? "opacity-50 cursor-not-allowed" : ""}`,
+        onclick: async (e) => {
+            if (typeof attrs.disabledWhen === "function" && attrs.disabledWhen()) return;
+            await onclick(e);
+        },
+    }, text);
+
+    // ---- toolbar ----------------------------------------------------------
+
+    // label is a function so the button face stays live (space dots) without
+    // rebuilding the toolbar and losing search focus.
+    const filterButton = ({menu, dirty, label, ariaLabel}) => button({
+        type: "button",
+        "aria-haspopup": "true",
+        "aria-expanded": () => String(openMenu.val === menu),
+        "aria-label": ariaLabel,
+        class: () => `inline-flex items-center gap-1.5 rounded px-2 py-1.5 text-xs cursor-pointer border transition-colors ` +
+            (dirty() ? "text-gray-100 border-brand" : "text-gray-400 border-gray-600 hover:bg-surface-hover hover:text-gray-100"),
+        onclick: (e) => {
+            e.stopPropagation();
+            openMenu.val = openMenu.val === menu ? null : menu;
+        },
+    }, () => span({class: "inline-flex items-center gap-1.5"}, ...label()));
+
+    const menuShell = (...children) => div({
+        class: "absolute top-full left-0 z-30 mt-1.5 min-w-52 rounded-md border border-gray-600 bg-surface p-1 shadow-2xl flex flex-col",
+        onclick: (e) => e.stopPropagation(),
+    }, ...children);
+
+    const menuRow = (onclick, ...children) => button({
+        type: "button",
+        class: "flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-gray-200 hover:bg-surface-hover cursor-pointer",
+        onclick,
+    }, ...children);
+
+    const menuCheck = (on) => checkIcon({class: `w-3.5 h-3.5 flex-none text-brand ${on ? "" : "invisible"}`});
+    const menuHeader = (text) => p({class: "px-2 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500"}, text);
+    const menuTail = (text) => span({class: "ml-auto pl-3 text-[10px] text-gray-500"}, text);
+
+    const resetRow = (onclick) => [
+        div({class: "my-1 border-t border-gray-700"}),
+        menuRow(onclick, closeIcon({class: "w-3.5 h-3.5 flex-none text-brand"}), "Reset to default"),
+    ];
+
+    const spacesMenu = () => menuShell(
+        ...(spacesS.val || []).map((space) => menuRow(() => {
+            const id = Number(space.id);
+            const next = new Set(hiddenSpaces.val);
+            if (next.has(id)) {
+                next.delete(id);
+                expandTo(id, 0);
+            } else {
+                next.add(id);
             }
-            draft.originalName.val = meta.key;
-            draft.name.val = meta.key;
-            rows.val = (rows.val || []).map(row => Number(row.id) === Number(asset.id) ? {...row, ...meta} : row);
-            try {
-                await reloadRows();
-            } catch (e) {
-                error.val = e.message;
-            }
-            return meta;
-        } catch (e) {
-            error.val = e.message;
-            return null;
+            hiddenSpaces.val = next;
+            persistView();
+        },
+        menuCheck(!hiddenSpaces.val.has(Number(space.id))),
+        spaceDot(space.id),
+        span({class: "font-mono"}, space.name),
+        Number(space.id) === OPENDEPLOY_SPACE_ID ? menuTail("system") : "",
+        )),
+        ...(spacesDirty() ? resetRow(() => {
+            hiddenSpaces.val = new Set([OPENDEPLOY_SPACE_ID]);
+            persistView();
+        }) : []),
+    );
+
+    const colsMenu = () => menuShell(
+        menuHeader("Columns"),
+        button({
+            type: "button", disabled: true,
+            class: "flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-gray-500",
+        }, menuCheck(true), "Name", menuTail("always")),
+        ...ASSET_COLUMNS.filter((c) => c.key !== "name").map((c) => menuRow(() => {
+            const next = new Set(shownCols.val);
+            next.has(c.key) ? next.delete(c.key) : next.add(c.key);
+            shownCols.val = next;
+            persistView();
+        }, menuCheck(shownCols.val.has(c.key)), c.label || "Actions")),
+        ...(colsDirty() ? resetRow(() => {
+            shownCols.val = new Set(ASSET_DEFAULT_COLUMNS);
+            persistView();
+        }) : []),
+    );
+
+    const toolbar = () => div(
+        {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
+        div({class: "relative"},
+            searchIcon({class: "pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500"}),
+            input({
+                class: "text-input search-input pl-7",
+                type: "search",
+                placeholder: "Search assets",
+                "aria-label": "Search assets",
+                value: search,
+                oninput: (e) => { search.val = e.target.value; },
+            })),
+        span({class: "relative inline-flex"},
+            filterButton({
+                menu: "spaces",
+                dirty: spacesDirty,
+                ariaLabel: "Filter spaces",
+                label: () => [
+                    span({class: "inline-flex items-center gap-1"}, ...visibleSpaces().map((s) => spaceDot(s.id))),
+                    `${visibleSpaces().length} space${visibleSpaces().length === 1 ? "" : "s"}`,
+                    chevronDownIcon({class: "w-3 h-3"}),
+                ],
+            }),
+            () => openMenu.val === "spaces" ? spacesMenu() : ""),
+        span({class: "relative inline-flex"},
+            filterButton({
+                menu: "cols",
+                dirty: colsDirty,
+                ariaLabel: "Choose columns",
+                label: () => [columnsIcon({class: "w-3.5 h-3.5"}), "Columns", chevronDownIcon({class: "w-3 h-3"})],
+            }),
+            () => openMenu.val === "cols" ? colsMenu() : ""),
+        div({class: "flex-1"}),
+        button({
+            type: "button",
+            class: "flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-gray-600 px-3 py-1.5 text-sm text-gray-300 hover:bg-surface-hover transition-colors cursor-pointer",
+            onclick: openNewFolder,
+        }, folderIcon({class: "w-4 h-4"}), "New folder"),
+        button({
+            type: "button",
+            class: "flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-gray-700 px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer",
+            onclick: pickUploadNew,
+        }, uploadIcon({class: "w-4 h-4"}), "Upload asset"),
+        button({
+            type: "button",
+            class: "flex items-center gap-1 whitespace-nowrap rounded-lg bg-brand px-3 py-1.5 text-sm text-white hover:bg-blue-600 transition-colors cursor-pointer",
+            onclick: openCreate,
+        }, plusIcon(), "New asset"),
+    );
+
+    // ---- table ------------------------------------------------------------
+
+    const activeColumns = () => ASSET_COLUMNS.filter((c) => shownCols.val.has(c.key));
+
+    const headerCell = (column, flexKey, lastKey) => {
+        const grip = (column.key === flexKey || column.key === lastKey) ? "" : span({
+            class: "colgrip",
+            tabindex: "0",
+            role: "separator",
+            "aria-orientation": "vertical",
+            "aria-label": `Resize ${column.label || "actions"} column`,
+            onclick: (e) => e.stopPropagation(),
+            onmousedown: (e) => startColResize(e, column.key, column.min),
+            onkeydown: (e) => nudgeColWidth(e, column.key, column.min),
+        });
+        const base = "sticky top-0 z-[1] bg-gray-950 px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wider " +
+            "whitespace-nowrap shadow-[inset_0_-1px_0_#374151]";
+        if (column.noSort) {
+            return th({class: `${base} text-right text-gray-500`}, column.label, grip);
         }
+        const active = sort.val.key === column.key;
+        return th({
+            class: `${base} group/th cursor-pointer select-none ${active ? "text-gray-100" : "text-gray-500 hover:text-gray-300"} ${column.num ? "text-right" : ""}`,
+            ...(active ? {"aria-sort": sort.val.dir === "desc" ? "descending" : "ascending"} : {}),
+            onclick: (e) => {
+                if (e.target.closest?.(".colgrip")) return;
+                setSort(column.key);
+            },
+        },
+        span({class: `inline-flex items-center gap-1 ${column.num ? "flex-row-reverse" : ""}`},
+            column.label,
+            active
+                ? sortArrowIcon({class: `w-2.5 h-2.5 text-brand ${sort.val.dir === "desc" ? "rotate-180" : ""}`})
+                : sortArrowIcon({class: "w-2.5 h-2.5 text-gray-600 opacity-0 group-hover/th:opacity-100 transition-opacity"})),
+        grip);
     };
 
-    const requestDeleteAsset = (asset) => {
-        if (assetMutationKey.val) return;
-        deleteTarget.val = asset;
+    const namePad = (depth) => `padding-left:${0.5 + depth * 1.15}rem`;
+
+    const disclosure = (open, key) => button({
+        type: "button",
+        "aria-label": open ? "Collapse" : "Expand",
+        class: "flex h-4 w-4 flex-none items-center justify-center rounded-sm text-gray-500 hover:text-gray-100 hover:bg-white/10 cursor-pointer",
+        onclick: (e) => { e.stopPropagation(); toggleExpanded(key); },
+    }, caretRightIcon({class: `w-[11px] h-[11px] transition-transform ${open ? "rotate-90" : ""}`}));
+
+    const countTag = (count) => span({class: "font-mono text-[10.5px] text-gray-500 flex-none"}, String(count));
+    const nameText = (text, cls = "text-gray-100") => span({class: `truncate min-w-0 ${cls}`}, text);
+    const blankCells = (columns) => columns.slice(1).map(() => td({class: "border-b border-gray-800/80 px-2 py-1"}));
+
+    const rowClass = (row) => {
+        const selected = selectedKey.val === row.key;
+        return `group cursor-default ${selected ? "bg-brand/15" : "hover:bg-gray-800/40"}`;
     };
 
-    const cancelDeleteAsset = () => {
-        if (deleteSaving.val) return;
-        deleteTarget.val = null;
-    };
+    const groupRow = (row, columns, ...inner) => tr(
+        {class: rowClass(row), onclick: () => select(row.key)},
+        td({class: "border-b border-gray-800/80 py-1 pr-2 font-mono text-[13px] whitespace-nowrap overflow-hidden", style: namePad(row.depth)},
+            span({class: "flex items-center gap-1.5 min-w-0"}, ...inner)),
+        ...blankCells(columns),
+    );
 
-    const confirmDeleteAsset = async () => {
-        const target = deleteTarget.val;
-        if (!target || deleteSaving.val) return;
-        try {
-            deleteSaving.val = true;
-            error.val = null;
-            await capi.postV1AssetsDelete({assetId: Number(target.id)});
-            assetNameDrafts.delete(Number(target.id));
-            if (selected.val?.assetId === Number(target.id)) selected.val = null;
-            await reloadRows();
-            deleteTarget.val = null;
-        } catch (e) {
-            error.val = e.message;
-        } finally {
-            deleteSaving.val = false;
-        }
-    };
+    const itemActionsCell = (item) => td(
+        {class: "border-b border-gray-800/80 px-1 py-0.5 text-right whitespace-nowrap"},
+        span({class: () => `inline-flex justify-end gap-0.5 transition-opacity ${selectedKey.val === itemKey(item) ? "opacity-100" : "opacity-40 group-hover:opacity-100"}`},
+            iconButton(editIcon({class: "w-3.5 h-3.5"}), () => openEditor(item), {
+                title: `Edit asset ${item.name}`,
+                "aria-label": `Edit asset ${item.name}`,
+            }),
+            iconButton(uploadIcon({class: "w-3.5 h-3.5"}), () => pickUploadVersion(item), {
+                title: `Upload new version of ${item.name}`,
+                "aria-label": `Upload new version of ${item.name}`,
+            })),
+    );
 
-    const filteredRows = () => {
-        if (!rows.val) return rows.val;
-        const query = search.val.trim().toLowerCase();
-        if (!query) return rows.val;
-        return rows.val.filter(row =>
-            row.key.toLowerCase().includes(query));
-    };
-
-    const assetVersionIDs = (asset) => new Set(
-        (asset.versionRefs || []).map(ref => Number(ref?.id || 0)).filter(Boolean));
-
-    const deploymentUsesAsset = (deployment, asset, versionIDs = assetVersionIDs(asset)) => {
-        const cfg = deployment?.config;
-        if (!cfg || cfg.deleted) return false;
-        const runtime = containerWorkload(cfg)?.runtime || {};
-        const envRefs = Object.values(runtime.envVars || {});
-        const mountRefs = runtime.assetMounts || [];
-        return envRefs.some(ref => assetRefMatches(asset.key, versionIDs, ref))
-            || mountRefs.some(ref => assetMountRefMatches(versionIDs, ref));
-    };
-
-    const usageForAsset = (asset) => {
-        const versionIDs = assetVersionIDs(asset);
-        return deploymentUsages(
-            deploymentsS.val,
-            spacesS.val,
-            machinesS.val,
-            deployment => deploymentUsesAsset(deployment, asset, versionIDs),
-        );
-    };
-
-    const usageButton = (asset) => {
-        const deployments = usageForAsset(asset);
-        if (!deployments.length) return "0";
+    const usesCell = (item, usesMap) => {
+        const count = usesMap.get(itemKey(item)) || 0;
+        if (!count) return "0";
         return button({
             type: "button",
             class: "cursor-pointer text-brand hover:text-blue-300 hover:underline",
-            "aria-label": `Show usage for asset ${asset.key}`,
+            "aria-label": `Show usage for asset ${item.name}`,
             onclick: (e) => {
                 e.stopPropagation();
-                usageTarget.val = {resourceName: asset.key, deployments};
+                usageTarget.val = {resourceName: item.name, ...usageForItem(item)};
             },
-        }, String(deployments.length));
+        }, String(count));
     };
 
-    const uploadProgressText = () => {
-        const total = uploadProgressTotal.val || 0;
-        const loaded = Math.min(uploadProgressLoaded.val, total || uploadProgressLoaded.val);
-        return `${uploadProgressStatus.val} ${uploadProgressName.val}: ${fmtSize(loaded)} / ${fmtSize(total)}`;
+    const itemCell = (column, item, usesMap) => {
+        const base = "border-b border-gray-800/80 px-2 py-1 whitespace-nowrap overflow-hidden text-gray-400";
+        if (column.key === "version") return td({class: `${base} text-right tabular-nums`}, `v${item.version}`);
+        if (column.key === "created") return td({class: base}, formatDateTime(item.createdAt, "-"));
+        if (column.key === "uses") return td({class: `${base} text-right tabular-nums`}, usesCell(item, usesMap));
+        if (column.key === "size") return td({class: `${base} text-right tabular-nums`}, fmtSize(item.sizeBytes));
+        if (column.key === "actions") return itemActionsCell(item);
+        return td({class: base});
     };
 
-    const uploadSuccessText = () => `Upload successful. Asset created. Size ${fmtSize(uploadProgressTotal.val)}.`;
-
-    const uploadProgressPct = () => {
-        const total = uploadProgressTotal.val || 0;
-        if (!total) return "0%";
-        return `${Math.min(100, Math.round((uploadProgressLoaded.val / total) * 100))}%`;
-    };
-
-    const assetNameEditor = (asset) => {
-        const draftKey = Number(asset.id);
-        let draft = assetNameDrafts.get(draftKey);
-        if (!draft) {
-            draft = {originalName: van.state(asset.key), name: van.state(asset.key)};
-            assetNameDrafts.set(draftKey, draft);
-        }
-        const {originalName, name} = draft;
-        return inlineEditableInput({
-            value: name,
-            dirty: () => name.val !== originalName.val,
-            valid: () => Boolean(name.val.trim()),
-            disabled: () => Boolean(assetMutationKey.val),
-            oninput: event => { name.val = event.target.value; },
-            onSave: async () => {
-                const nextName = name.val.trim();
-                if (nextName === originalName.val) {
-                    name.val = originalName.val;
-                    return;
-                }
-                await renameAsset(asset, nextName, draft);
-            },
-            onDiscard: () => { name.val = originalName.val; },
-            inputClass: "w-full bg-transparent px-2 py-1 rounded border border-transparent hover:border-gray-700 focus:border-brand focus:outline-none font-mono font-normal text-asset",
-            placeholder: "asset name",
-            ariaLabel: `Asset name ${asset.key}`,
-            saveAriaLabel: `Save asset name ${asset.key}`,
-            discardAriaLabel: `Discard asset name change for ${asset.key}`,
-        });
-    };
-
-    const assetActionClass = "flex items-center gap-1 whitespace-nowrap text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
-        "text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer";
-
-    const listPanel = () => div(
-        {class: "card flex-1 flex flex-col gap-3 min-w-0 min-h-0"},
-        div({class: "flex flex-wrap items-center justify-between gap-3"},
-            input({
-                class: "text-input search-input",
-                type: "search",
-                placeholder: "Search assets",
-                value: search,
-                oninput: (e) => search.val = e.target.value,
-            }),
-            div({class: "flex items-center gap-2"},
-                button({
-                    type: "button",
-                    class: assetActionClass,
-                    onclick: addAsset,
-                }, "Add asset"),
-                button({
-                    type: "button",
-                    disabled: uploadSaving,
-                    class: () => `${assetActionClass} ${uploadSaving.val ? "opacity-50 cursor-not-allowed" : ""}`,
-                    onclick: () => { if (!uploadSaving.val) uploadPicker.click(); },
-                }, "Upload asset"))),
-        div({class: "deployment-table-scroll flex-1 min-h-0 overflow-auto"}, () => {
-            if (rows.val === null) return p({class: "text-gray-400 text-sm"}, "Loading...");
-            const visibleRows = filteredRows();
-            if (rows.val.length === 0) return p({class: "text-gray-400 text-sm"}, "No assets yet. Click Add asset.");
-            if (visibleRows.length === 0) return p({class: "text-gray-400 text-sm"}, "No assets match your search.");
-            return table(
-                {class: "w-full table-fixed text-sm"},
-                colgroup(
-                    col({style: "width:32%"}),
-                    col({style: "width:24%"}),
-                    col({style: "width:11%"}),
-                    col({style: "width:10%"}),
-                    col({style: "width:12%"}),
-                    col({style: "width:11%"}),
-                ),
-                thead(tr({class: "text-left text-gray-400 border-b border-gray-700"},
-                    th({class: "pb-2 pr-3 font-medium"}, "Key"),
-                    th({class: "pb-2 pr-3 font-medium"}, "Created"),
-                    th({class: "pb-2 pr-3 font-medium"}, "In use by"),
-                    th({class: "pb-2 pr-3 font-medium"}, "Version"),
-                    th({class: "pb-2 pr-3 font-medium"}, "Size"),
-                    th({class: "pb-2 w-px"}, ""))),
-                tbody(...visibleRows.map(row => tr(
-                    {class: "border-b border-gray-800 last:border-0 align-middle"},
-                    td({class: "py-1 pr-3 min-w-0"}, assetNameEditor(row)),
-                    td({class: "py-1 pr-3 text-gray-400 truncate", title: formatDateTime(latestRef(row)?.createdAt, "-")}, formatDateTime(latestRef(row)?.createdAt, "-")),
-                    td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, () => usageButton(row)),
-                    td({class: "py-1 pr-3 text-gray-300"}, `v${latestRef(row)?.version || "?"}`),
-                    td({class: "py-1 pr-3 text-gray-400 truncate"}, fmtSize(latestRef(row)?.sizeBytes || 0)),
-                    td({class: "py-1 pl-2 text-right whitespace-nowrap w-px"},
-                        div({class: "flex items-center justify-end gap-1"},
-                            button({
-                            type: "button",
-                            title: `Edit asset ${row.key}`,
-                            "aria-label": `Edit asset ${row.key}`,
-                            disabled: () => Boolean(assetMutationKey.val),
-                            class: () => `inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 ` +
-                                `hover:bg-surface hover:text-gray-100 transition-colors ${assetMutationKey.val
-                                    ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
-                            onclick: () => openAsset(row),
-                        }, editIcon()),
-                            button({
-                            type: "button",
-                            title: `Delete asset ${row.key}`,
-                            "aria-label": `Delete asset ${row.key}`,
-                            disabled: () => Boolean(assetMutationKey.val),
-                            class: () => `inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 ` +
-                                `hover:bg-surface hover:text-red-400 transition-colors ${assetMutationKey.val
-                                    ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
-                            onclick: () => requestDeleteAsset(row),
-                        }, trashIcon()))),
-                ))),
-            );
-        }),
+    const itemRow = (row, columns, usesMap) => tr(
+        {class: rowClass(row), onclick: () => select(row.key)},
+        td({class: "border-b border-gray-800/80 py-1 pr-2 font-mono text-[13px] whitespace-nowrap overflow-hidden", style: namePad(row.depth)},
+            span({class: "flex items-center gap-1.5 min-w-0"},
+                span({class: "w-4 flex-none"}),
+                assetIcon(),
+                nameText(row.item.name))),
+        ...columns.slice(1).map((column) => itemCell(column, row.item, usesMap)),
     );
 
-    const deleteOverlay = () => {
-        const target = deleteTarget.val;
-        if (!target) return "";
+    const emptyState = (text) => div({class: "flex-1 min-h-0 p-6 text-sm text-gray-500"}, text);
+
+    const tableArea = () => {
+        const spaces = visibleSpaces();
+        if (!spaces.length) {
+            return emptyState("No spaces shown. Add one from the Spaces filter.");
+        }
+        const items = currentItems();
+        const usesMap = new Map(items.map((item) => [itemKey(item), usageForItem(item).deployments.length]));
+        const {rows} = buildRows({
+            spaces: spacesS.val,
+            dirs: currentDirs(),
+            items,
+            hiddenSpaceIds: hiddenSpaces.val,
+            query: search.val,
+            expanded: expanded.val,
+            sort: sort.val,
+            usesByKey: usesMap,
+        });
+        if (search.val.trim() && rows.every((row) => row.type === "space" && row.count === 0)) {
+            return emptyState("Nothing matches your search.");
+        }
+        const columns = activeColumns();
+        const flexKey = flexColumnKey(shownCols.val, ASSET_COLUMNS);
+        const lastKey = columns.length ? columns[columns.length - 1].key : null;
         return div(
-            {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
-            div(
-                {class: "card w-full max-w-md flex flex-col gap-4 shadow-2xl"},
-                h2({class: "text-base font-semibold"}, "Confirm delete"),
-                p({class: "text-sm text-gray-300"}, `Are you sure you want to delete asset ${target.key}?`),
-                div({class: "flex items-center justify-end gap-2"},
-                    smallBtn("Cancel", cancelDeleteAsset, "bg-gray-700 text-gray-200 hover:bg-gray-600", () => deleteSaving.val),
-                    spinnerButton("Confirm", confirmDeleteAsset,
-                        "text-xs px-3 py-1 rounded-md font-medium bg-red-600 text-white hover:bg-red-500",
-                        "button", () => deleteSaving.val),
-                ),
+            {class: "app-scroll flex-1 min-h-0 overflow-auto"},
+            table(
+                {class: "w-full table-fixed border-separate border-spacing-0 text-sm"},
+                colgroup(...columns.map((c) => c.key === flexKey
+                    ? col({"data-col": c.key})
+                    : col({"data-col": c.key, style: `width:${colWidths.val[c.key] ?? ASSET_DEFAULT_COLUMN_WIDTHS[c.key]}px`}))),
+                thead(tr(...columns.map((c) => headerCell(c, flexKey, lastKey)))),
+                tbody(...rows.map((row) => {
+                    if (row.type === "space") {
+                        return groupRow(row, columns,
+                            disclosure(row.expanded, row.key),
+                            spaceDot(row.space.id),
+                            nameText(row.space.name, "text-gray-100 font-semibold"),
+                            countTag(row.count));
+                    }
+                    if (row.type === "dir") {
+                        return groupRow(row, columns,
+                            disclosure(row.expanded, row.key),
+                            folderIcon({class: "w-[13px] h-[13px] flex-none text-slate-400"}),
+                            nameText(row.dir.name),
+                            countTag(row.count));
+                    }
+                    return itemRow(row, columns, usesMap);
+                })),
             ),
         );
     };
 
-    const editorPanel = () => {
-        const target = selected.val;
-        return assetEditor({
-            mode: target.mode,
-            assetRef: target.mode === "create" ? null : {assetId: target.assetId, version: target.version},
-            initialKey: target.initialKey || "",
-            latestVersion: target.latestVersion || 0,
-            spaceId: target.spaceId || 0,
-            loadAsset: request => capi.postV1AssetsGet(request),
-            createAsset: request => runAssetMutation(`create:${request.key}`, () => capi.postV1AssetsCreate(request)),
-            saveVersion: request => runAssetMutation(`set:${request.assetId}`, () => capi.postV1AssetsSet(request)),
-            onSaved: reloadRows,
-            onClose: () => { selected.val = null; },
-        });
-    };
+    // ---- path bar ---------------------------------------------------------
 
-    const leftPane = () => div(
-        {class: () => `flex flex-col min-w-0 min-h-0 ${selected.val === null ? "flex-1" : "lg:w-[28rem]"}`},
-        listPanel,
-    );
-
-    const uploadPicker = input({
-        class: "hidden",
-        type: "file",
-        onchange: async (e) => {
-            const file = e.target.files?.[0] || null;
-            e.target.value = "";
-            prepareAssetUpload(file);
-        },
-    });
-
-    const uploadOverlay = () => uploadOverlayOpen.val ? div(
-        {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
-        div({class: "card w-full max-w-lg flex flex-col gap-4 shadow-2xl"},
-            h2({class: "text-base font-semibold"}, "Upload asset"),
-            () => uploadedAssetKey.val && !uploadSaving.val && uploadProgressStatus.val === "Uploaded"
-                ? p({class: "text-sm font-medium text-green-300"}, uploadSuccessText)
-                : "",
-            () => uploadSaving.val ? div({class: "flex flex-col gap-2"},
-                p({class: "text-xs text-gray-400"}, uploadProgressText),
-                div({class: "h-2 overflow-hidden rounded-full bg-gray-800"},
-                    div({class: "h-full rounded-full bg-brand transition-all", style: () => `width:${uploadProgressPct()}`})),
-            ) : "",
-            () => !uploadedAssetKey.val && !uploadSaving.val ? div({class: "flex flex-col gap-3"},
-                p({class: "text-xs text-gray-400"}, () => `Selected ${uploadProgressName.val}, ${fmtSize(uploadProgressTotal.val)}.`),
-                labelField("Name", input({
-                    class: "text-input font-mono",
-                    value: uploadedAssetName,
-                    oninput: (e) => uploadedAssetName.val = e.target.value,
-                })),
-            ) : "",
-            () => uploadedAssetKey.val && !uploadSaving.val
-                ? labelField("Name", div({class: "text-input font-mono text-gray-300"}, uploadedAssetName))
-                : "",
-            () => uploadError.val ? p({class: "text-sm text-red-400"}, uploadError) : "",
-            () => !uploadedAssetKey.val && !uploadSaving.val ? div({class: "flex items-center justify-end gap-2"},
-                smallBtn("Cancel", closeUploadOverlay, "bg-gray-700 text-gray-200 hover:bg-gray-600"),
-                smallBtn(uploadProgressStatus.val === "Upload failed" ? "Retry upload" : "Upload", uploadAsset,
-                    "bg-brand text-white hover:bg-blue-600", () => !uploadedAssetName.val.trim()),
-            ) : "",
-            () => uploadedAssetKey.val && !uploadSaving.val ? div({class: "flex justify-end pt-1"},
-                button({
-                    type: "button",
-                    class: "text-sm px-3 py-1.5 rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer",
-                    onclick: closeUploadOverlay,
-                }, "Close"),
-            ) : "",
-        ),
-    ) : "";
-
-    const usageOverlay = () => {
-        const target = usageTarget.val;
-        if (!target) return "";
-        return referenceUsageOverlay(
-            "asset",
-            target.resourceName,
-            target.deployments,
-            [],
-            () => usageTarget.val = null,
+    const pathbar = () => {
+        const sel = resolveSelection();
+        let parts = [];
+        if (sel?.type === "space") parts = [{text: sel.space.name, spaceId: sel.space.id}];
+        if (sel?.type === "dir") {
+            parts = [{text: spaceName(sel.dir.spaceId), spaceId: sel.dir.spaceId},
+                ...dirPathSegments(dirsById(currentDirs()), sel.dir.id).map((text) => ({text}))];
+        }
+        if (sel?.type === "item") {
+            parts = [{text: spaceName(sel.item.spaceId), spaceId: sel.item.spaceId},
+                ...itemPathSegments(dirsById(currentDirs()), sel.item).map((text) => ({text}))];
+        }
+        return div(
+            {
+                class: "flex flex-none items-center gap-1.5 border-t border-gray-800 bg-gray-950/60 px-3 py-1.5 font-mono text-[11px] text-gray-500",
+                "data-testid": "explorer-pathbar",
+            },
+            parts.length
+                ? parts.flatMap((part, i) => [
+                    i === 0 ? spaceDot(part.spaceId) : span({class: "opacity-60"}, "/"),
+                    span({class: i === parts.length - 1 ? "text-gray-300 font-medium" : ""}, part.text),
+                ])
+                : span("No selection"),
         );
     };
 
-    return div(
-        {class: "h-full min-h-0 overflow-hidden p-3 flex flex-col gap-3"},
-        () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : "",
-        uploadPicker,
-        div({class: "flex-1 flex flex-col lg:flex-row gap-3 min-h-0"}, leftPane, () => selected.val === null ? "" : editorPanel()),
-        uploadOverlay,
-        deleteOverlay,
-        usageOverlay,
-    );
-}
+    // ---- inspector --------------------------------------------------------
 
-function labelField(label, child) {
-    return div({class: "flex flex-col gap-1"},
-        span({class: "text-xs text-gray-400"}, label),
-        child,
+    const kvRow = (label, value) => [
+        dt({class: "text-[10.5px] font-semibold uppercase tracking-wide text-gray-500"}, label),
+        dd({class: "m-0 min-w-0 break-all font-mono text-xs text-gray-300"}, value),
+    ];
+
+    const inspectorTitle = (sel, currentName) => {
+        const state = renameState.val;
+        if (state && state.key === selectedKey.val) {
+            return div({class: "flex items-center gap-1.5"},
+                input({
+                    // The state object, not .val: reading .val here would make
+                    // the inspector rebuild (and drop focus) on every keystroke.
+                    class: "input min-w-0 flex-1 py-0.5 font-mono text-xs",
+                    value: renameDraft,
+                    "aria-label": "New name",
+                    oninput: (e) => { renameDraft.val = e.target.value; },
+                    onkeydown: (e) => {
+                        if (e.key === "Enter") void applyRename();
+                        if (e.key === "Escape") renameState.val = null;
+                    },
+                }),
+                iconButton(checkIcon({class: "w-3.5 h-3.5 text-green-400"}), () => { void applyRename(); }, {title: "Save name", "aria-label": "Save name"}),
+                iconButton(closeIcon({class: "w-3.5 h-3.5"}), () => { renameState.val = null; }, {title: "Cancel rename", "aria-label": "Cancel rename"}));
+        }
+        const path = sel.type === "item"
+            ? itemPathSegments(dirsById(currentDirs()), sel.item).join("/")
+            : sel.type === "dir"
+                ? dirPathSegments(dirsById(currentDirs()), sel.dir.id).join("/")
+                : currentName;
+        return p({class: "break-all font-mono text-xs text-white"}, path);
+    };
+
+    const badge = (text, cls) => span({class: `inline-flex rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${cls}`}, text);
+
+    const inspectorSpaceTag = (spaceId) => span(
+        {class: "inline-flex items-center gap-1.5 font-mono text-[11px] text-gray-400"},
+        spaceDot(spaceId), spaceName(spaceId));
+
+    // Version rows open the editor pinned to that version, matching the old
+    // page's history browsing.
+    const versionsList = (item) => div({class: "flex flex-col gap-0.5"},
+        ...(item.meta.versionRefs || []).map((ref, i) => button(
+            {
+                type: "button",
+                class: "flex items-baseline gap-2 rounded px-1 -mx-1 py-0.5 text-left font-mono text-[11px] text-gray-400 hover:bg-white/5 cursor-pointer",
+                title: `Open v${ref.version}`,
+                onclick: () => openEditor(item, Number(ref.version)),
+            },
+            span({class: "text-gray-200 font-medium"}, `v${ref.version}`),
+            formatDateTime(ref.createdAt, "-"),
+            span({class: "text-gray-500"}, fmtSize(ref.sizeBytes)),
+            i === 0 ? span({class: "text-green-400"}, "current") : "",
+        )));
+
+    const itemInspector = (sel) => {
+        const item = sel.item;
+        const usage = usageForItem(item);
+        const usageCount = usage.deployments.length;
+        return [
+            div({class: "flex flex-none flex-col gap-2 border-b border-gray-800 py-2.5 pl-3 pr-9"},
+                inspectorTitle(sel, item.name),
+                div({class: "flex items-center gap-2"},
+                    badge("Asset", "bg-teal-500/15 text-teal-300"),
+                    inspectorSpaceTag(item.spaceId))),
+            div({class: "app-scroll flex-1 min-h-0 overflow-y-auto px-3 py-2.5 flex flex-col gap-2.5"},
+                dl({class: "m-0 grid grid-cols-[76px_1fr] items-baseline gap-x-2 gap-y-1.5"},
+                    ...kvRow("Version", `v${item.version}`),
+                    ...kvRow("Created", formatDateTime(item.createdAt, "-")),
+                    ...kvRow("Size", `${fmtSize(item.sizeBytes)}${item.large ? " · large" : ""}`),
+                    ...kvRow("In use by", usageCount
+                        ? button({
+                            type: "button",
+                            class: "cursor-pointer text-brand hover:text-blue-300 hover:underline",
+                            onclick: () => { usageTarget.val = {resourceName: item.name, ...usage}; },
+                        }, `${usageCount} deployment${usageCount === 1 ? "" : "s"}`)
+                        : "0 deployments")),
+                p({class: "mt-1 text-[10.5px] font-semibold uppercase tracking-wide text-gray-500"}, "Versions"),
+                versionsList(item)),
+            div({class: "flex flex-none flex-wrap gap-1.5 border-t border-gray-800 px-3 py-2.5"},
+                actionButton("Edit", () => openEditor(item), "bg-brand text-white hover:bg-blue-600"),
+                actionButton("Upload version", () => pickUploadVersion(item)),
+                actionButton("Rename", () => startRename(itemKey(item), item.name)),
+                actionButton("Move", () => openMoveDialog(sel)),
+                actionButton("Delete", () => openDelete(sel), "bg-gray-700 text-gray-200 hover:bg-red-600 hover:text-white")),
+        ];
+    };
+
+    const groupStats = (sel) => {
+        const items = currentItems();
+        const inScope = sel.type === "space"
+            ? items.filter((item) => item.spaceId === Number(sel.space.id))
+            : items.filter((item) => {
+                if (item.spaceId !== Number(sel.dir.spaceId)) return false;
+                const byId = dirsById(currentDirs());
+                const seen = new Set();
+                let current = item.directoryId;
+                while (current !== 0 && !seen.has(current)) {
+                    if (current === Number(sel.dir.id)) return true;
+                    seen.add(current);
+                    current = Number(byId.get(current)?.parentId || 0);
+                }
+                return false;
+            });
+        const totalSize = inScope.reduce((sum, item) => sum + (item.sizeBytes || 0), 0);
+        const newest = inScope.map((item) => item.createdAt).filter(Boolean).sort((a, b) => b - a)[0];
+        return {inScope, totalSize, newest};
+    };
+
+    const groupInspector = (sel) => {
+        const isSpace = sel.type === "space";
+        const spaceId = isSpace ? Number(sel.space.id) : Number(sel.dir.spaceId);
+        const stats = groupStats(sel);
+        const folderCount = isSpace
+            ? currentDirs().filter((d) => Number(d.spaceId) === spaceId).length
+            : null;
+        return [
+            div({class: "flex flex-none flex-col gap-2 border-b border-gray-800 py-2.5 pl-3 pr-9"},
+                inspectorTitle(sel, isSpace ? sel.space.name : sel.dir.name),
+                div({class: "flex items-center gap-2"},
+                    badge(isSpace ? "Space" : "Folder", "bg-slate-500/15 text-slate-300"),
+                    isSpace ? "" : inspectorSpaceTag(spaceId))),
+            div({class: "app-scroll flex-1 min-h-0 overflow-y-auto px-3 py-2.5 flex flex-col gap-2.5"},
+                dl({class: "m-0 grid grid-cols-[76px_1fr] items-baseline gap-x-2 gap-y-1.5"},
+                    ...kvRow("Contains", `${stats.inScope.length} asset${stats.inScope.length === 1 ? "" : "s"}`),
+                    ...(folderCount !== null ? kvRow("Folders", String(folderCount)) : []),
+                    ...kvRow("Size", fmtSize(stats.totalSize)),
+                    ...kvRow("Newest", formatDateTime(stats.newest, "-")))),
+            div({class: "flex flex-none flex-wrap gap-1.5 border-t border-gray-800 px-3 py-2.5"},
+                actionButton("New asset here", openCreate),
+                actionButton("Upload here", pickUploadNew),
+                ...(isSpace ? [actionButton("New folder here", openNewFolder)] : [
+                    actionButton("Rename", () => startRename(selectedKey.val, sel.dir.name)),
+                    actionButton("Move", () => openMoveDialog(sel)),
+                    actionButton("Delete", () => openDelete(sel), "bg-gray-700 text-gray-200 hover:bg-red-600 hover:text-white"),
+                ])),
+        ];
+    };
+
+    const inspector = () => {
+        const sel = resolveSelection();
+        return div(
+            {class: "relative flex flex-none flex-col border-l border-gray-700 bg-gray-950/60", style: () => `width:${inspectorWidth.val}px`},
+            span({
+                class: "vgrip",
+                tabindex: "0",
+                role: "separator",
+                "aria-orientation": "vertical",
+                "aria-label": "Resize details pane",
+                onmousedown: startInspectorResize,
+                onkeydown: (e) => {
+                    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+                    e.preventDefault();
+                    const step = e.shiftKey ? 48 : 16;
+                    inspectorWidth.val = Math.min(INSPECTOR_MAX, Math.max(INSPECTOR_MIN,
+                        inspectorWidth.val + (e.key === "ArrowLeft" ? step : -step)));
+                    persistView();
+                },
+            }),
+            button({
+                type: "button",
+                "aria-label": "Close details",
+                class: "absolute right-1.5 top-1.5 z-[6] inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 hover:text-gray-100 hover:bg-white/10 cursor-pointer",
+                onclick: () => { inspectorOpen.val = false; selectedKey.val = null; },
+            }, closeIcon({class: "w-3.5 h-3.5"})),
+            ...(sel
+                ? (sel.type === "item" ? itemInspector(sel) : groupInspector(sel))
+                : [div({class: "px-3 py-6 text-xs text-gray-500"}, "Select a row to see its details.")]),
+        );
+    };
+
+    // ---- banners and dialogs ----------------------------------------------
+
+    const errorLine = () => error.val ? div(
+        {class: "flex flex-none items-center gap-3 border-b border-red-500/30 bg-red-500/10 px-3 py-1.5"},
+        p({class: "min-w-0 flex-1 truncate text-xs text-red-300", title: error.val}, `Error: ${error.val}`),
+        iconButton(closeIcon({class: "w-3 h-3"}), () => { error.val = null; }, {title: "Dismiss error", "aria-label": "Dismiss error"}),
+    ) : "";
+
+    const dialogShell = (labelledBy, ...children) => div(
+        {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", onclick: () => { if (!dialogSaving.val) { folderDialog.val = null; moveDialog.val = null; deleteTarget.val = null; } }},
+        div({
+            class: "card w-full max-w-md flex flex-col gap-3 shadow-2xl",
+            role: "dialog",
+            "aria-modal": "true",
+            "aria-labelledby": labelledBy,
+            onclick: (e) => e.stopPropagation(),
+        }, ...children),
+    );
+
+    const folderDialogEl = () => {
+        const dialog = folderDialog.val;
+        if (!dialog) return "";
+        return dialogShell("new-folder-title",
+            h2({id: "new-folder-title", class: "text-base font-semibold"}, "New folder"),
+            p({class: "text-xs text-gray-400"}, "In ", span({class: "font-mono text-gray-300"}, dialog.location)),
+            input({
+                class: "text-input font-mono text-sm",
+                placeholder: "folder name",
+                value: folderName,
+                "aria-label": "Folder name",
+                oninput: (e) => { folderName.val = e.target.value; },
+                onkeydown: (e) => { if (e.key === "Enter") void createFolder(); },
+            }),
+            div({class: "flex items-center justify-end gap-2"},
+                actionButton("Cancel", () => { if (!dialogSaving.val) folderDialog.val = null; }),
+                spinnerButton("Create", createFolder,
+                    "text-xs px-3 py-1.5 rounded-md font-medium bg-brand text-white hover:bg-blue-600", "button",
+                    () => dialogSaving.val || !folderName.val.trim())));
+    };
+
+    const moveDialogEl = () => {
+        const dialog = moveDialog.val;
+        if (!dialog) return "";
+        return dialogShell("move-title",
+            h2({id: "move-title", class: "text-base font-semibold"}, dialog.label),
+            div({class: "app-scroll max-h-72 overflow-y-auto flex flex-col gap-0.5"},
+                ...dialog.options.map((option) => button({
+                    type: "button",
+                    disabled: option.id === dialog.currentId,
+                    class: `flex items-center gap-2 rounded px-2 py-1.5 text-left font-mono text-xs ${option.id === dialog.currentId
+                        ? "text-gray-500"
+                        : "text-gray-200 hover:bg-surface-hover cursor-pointer"}`,
+                    onclick: () => { void applyMove(option.id); },
+                },
+                folderIcon({class: "w-3.5 h-3.5 flex-none text-slate-400"}),
+                option.label,
+                option.id === dialog.currentId ? span({class: "ml-auto font-sans text-[10px] text-gray-500"}, "current") : ""))),
+            div({class: "flex items-center justify-end"},
+                actionButton("Cancel", () => { if (!dialogSaving.val) moveDialog.val = null; })));
+    };
+
+    const deleteDialogEl = () => {
+        const target = deleteTarget.val;
+        if (!target) return "";
+        return dialogShell("delete-title",
+            h2({id: "delete-title", class: "text-base font-semibold"}, "Confirm delete"),
+            p({class: "text-sm text-gray-300"}, `Are you sure you want to delete ${target.label}?`),
+            div({class: "flex items-center justify-end gap-2"},
+                actionButton("Cancel", () => { if (!dialogSaving.val) deleteTarget.val = null; }),
+                spinnerButton("Confirm", confirmDelete,
+                    "text-xs px-3 py-1 rounded-md font-medium bg-red-600 text-white hover:bg-red-500", "button",
+                    () => dialogSaving.val)));
+    };
+
+    const uploadDialogEl = () => {
+        const target = uploadTarget.val;
+        if (!target) return "";
+        const pct = () => {
+            const total = uploadTotal.val || 0;
+            if (!total) return "0%";
+            return `${Math.min(100, Math.round((uploadLoaded.val / total) * 100))}%`;
+        };
+        const progressText = () => {
+            const total = uploadTotal.val || 0;
+            const loaded = Math.min(uploadLoaded.val, total || uploadLoaded.val);
+            return `Uploading ${target.file.name}: ${fmtSize(loaded)} / ${fmtSize(total)}`;
+        };
+        return div(
+            {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", onclick: closeUpload},
+            div({
+                class: "card w-full max-w-lg flex flex-col gap-4 shadow-2xl",
+                role: "dialog",
+                "aria-modal": "true",
+                "aria-labelledby": "upload-asset-title",
+                onclick: (e) => e.stopPropagation(),
+            },
+            h2({id: "upload-asset-title", class: "text-base font-semibold"},
+                target.mode === "version" ? "Upload new version" : "Upload asset"),
+            target.mode === "version"
+                ? p({class: "text-xs text-gray-400"}, "Appends the next version of ",
+                    span({class: "font-mono text-gray-300"}, target.key), ".")
+                : p({class: "text-xs text-gray-400"}, "In ", span({class: "font-mono text-gray-300"}, target.location)),
+            () => uploadedKey.val && !uploadSaving.val
+                ? p({class: "text-sm font-medium text-green-300"}, `Upload successful. Size ${fmtSize(uploadTotal.val)}.`)
+                : "",
+            () => uploadSaving.val ? div({class: "flex flex-col gap-2"},
+                p({class: "text-xs text-gray-400"}, progressText),
+                div({class: "h-2 overflow-hidden rounded-full bg-gray-800"},
+                    div({class: "h-full rounded-full bg-brand transition-all", style: () => `width:${pct()}`})),
+            ) : "",
+            () => !uploadedKey.val && !uploadSaving.val ? div({class: "flex flex-col gap-3"},
+                p({class: "text-xs text-gray-400"}, `Selected ${target.file.name}, ${fmtSize(target.file.size)}.`),
+                target.mode === "new" ? div({class: "flex flex-col gap-1"},
+                    span({class: "text-xs text-gray-400"}, "Name"),
+                    input({
+                        class: "text-input font-mono",
+                        value: uploadName,
+                        "aria-label": "Uploaded asset name",
+                        oninput: (e) => { uploadName.val = e.target.value; },
+                    })) : "",
+            ) : "",
+            () => uploadedKey.val && !uploadSaving.val && target.mode === "new"
+                ? div({class: "flex flex-col gap-1"},
+                    span({class: "text-xs text-gray-400"}, "Name"),
+                    div({class: "text-input font-mono text-gray-300"}, uploadedKey))
+                : "",
+            () => uploadError.val ? p({class: "text-sm text-red-400"}, uploadError) : "",
+            () => !uploadedKey.val && !uploadSaving.val ? div({class: "flex items-center justify-end gap-2"},
+                actionButton("Cancel", closeUpload),
+                spinnerButton(uploadError.val ? "Retry upload" : "Upload", runUpload,
+                    "text-xs px-3 py-1.5 rounded-md font-medium bg-brand text-white hover:bg-blue-600", "button",
+                    () => uploadSaving.val || (target.mode === "new" && !uploadName.val.trim())),
+            ) : "",
+            () => uploadedKey.val && !uploadSaving.val ? div({class: "flex justify-end pt-1"},
+                actionButton("Close", closeUpload),
+            ) : "",
+            ),
+        );
+    };
+
+    const usageOverlayEl = () => {
+        const target = usageTarget.val;
+        if (!target) return "";
+        return referenceUsageOverlay("asset", target.resourceName, target.deployments, target.settings,
+            () => { usageTarget.val = null; });
+    };
+
+    const editorOverlayEl = () => {
+        const target = editorTarget.val;
+        if (!target) return "";
+        return assetEditorOverlay({
+            mode: target.mode,
+            assetRef: target.mode === "create" ? null : {assetId: target.assetId, version: target.version},
+            initialKey: "",
+            latestVersion: target.latestVersion || 0,
+            spaceId: target.spaceId || 0,
+            location: target.location || "",
+            loadAsset: (request) => capi.postV1AssetsGet(request),
+            createAsset: async (request) => {
+                const created = await capi.postV1AssetsCreate({...request, assetDirectoryId: target.directoryId || 0});
+                expandTo(target.spaceId, target.directoryId || 0);
+                selectedKey.val = `asset:${created.assetId}`;
+                return created;
+            },
+            saveVersion: (request) => capi.postV1AssetsSet(request),
+            // The editor is a modal here, so a successful save closes it like
+            // the secrets value overlay; the saved asset stays selected in the
+            // tree and the inspector carries the update.
+            onSaved: () => { editorTarget.val = null; },
+            onClose: () => { editorTarget.val = null; },
+        });
+    };
+
+    // ---- page -------------------------------------------------------------
+
+    return div(
+        {class: "h-full min-h-0 flex flex-col overflow-hidden"},
+        toolbar(),
+        errorLine,
+        div({class: "flex flex-1 min-h-0"},
+            div({class: "flex min-w-0 flex-1 flex-col"},
+                tableArea,
+                pathbar),
+            () => inspectorOpen.val ? inspector() : ""),
+        () => openMenu.val ? div({class: "fixed inset-0 z-20", onclick: () => { openMenu.val = null; }}) : "",
+        uploadPicker,
+        folderDialogEl,
+        moveDialogEl,
+        deleteDialogEl,
+        uploadDialogEl,
+        usageOverlayEl,
+        editorOverlayEl,
     );
 }

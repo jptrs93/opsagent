@@ -726,9 +726,10 @@ type SecretList struct {
 }
 
 type SecretCreateRequest struct {
-	Name    string `json:"name,omitempty"`
-	Value   []byte `json:"value"`
-	SpaceID int32  `json:"space_id"`
+	Name             string `json:"name,omitempty"`
+	Value            []byte `json:"value"`
+	SpaceID          int32  `json:"space_id"`
+	ValueDirectoryID int32  `json:"value_directory_id"`
 }
 
 type SecretSetRequest struct {
@@ -752,6 +753,11 @@ type SecretGenerateRequest struct {
 type SecretRenameRequest struct {
 	NewName  string `json:"new_name,omitempty"`
 	SecretID int32  `json:"secret_id"`
+}
+
+type SecretMoveRequest struct {
+	SecretID         int32 `json:"secret_id"`
+	ValueDirectoryID int32 `json:"value_directory_id"`
 }
 
 type SecretDeleteRequest struct {
@@ -803,9 +809,10 @@ type ConfigList struct {
 }
 
 type ConfigCreateRequest struct {
-	Name    string `json:"name,omitempty"`
-	Value   string `json:"value,omitempty"`
-	SpaceID int32  `json:"space_id"`
+	Name             string `json:"name,omitempty"`
+	Value            string `json:"value,omitempty"`
+	SpaceID          int32  `json:"space_id"`
+	ValueDirectoryID int32  `json:"value_directory_id"`
 }
 
 type ConfigSetRequest struct {
@@ -822,6 +829,45 @@ type ConfigRenameRequest struct {
 
 type ConfigDeleteRequest struct {
 	ConfigID int32 `json:"config_id"`
+}
+
+type ConfigMoveRequest struct {
+	ConfigID         int32 `json:"config_id"`
+	ValueDirectoryID int32 `json:"value_directory_id"`
+}
+
+type ValueDirectory struct {
+	ID        int32     `json:"id"`
+	SpaceID   int32     `json:"space_id"`
+	Name      string    `json:"name,omitempty"`
+	ParentID  int32     `json:"parent_id"`
+	CreatedAt time.Time `json:"created_at"`
+	CreatedBy int32     `json:"created_by"`
+	Deleted   bool      `json:"deleted"`
+}
+
+type ValueDirectoryList struct {
+	Items []*ValueDirectory `json:"items,omitempty"`
+}
+
+type ValueDirectoryCreateRequest struct {
+	SpaceID  int32  `json:"space_id"`
+	ParentID int32  `json:"parent_id"`
+	Name     string `json:"name,omitempty"`
+}
+
+type ValueDirectoryMoveRequest struct {
+	DirectoryID int32 `json:"directory_id"`
+	NewParentID int32 `json:"new_parent_id"`
+}
+
+type ValueDirectoryRenameRequest struct {
+	DirectoryID int32  `json:"directory_id"`
+	NewName     string `json:"new_name,omitempty"`
+}
+
+type ValueDirectoryDeleteRequest struct {
+	DirectoryID int32 `json:"directory_id"`
 }
 
 type AssetMeta struct {
@@ -867,9 +913,10 @@ type AssetGetRequest struct {
 }
 
 type AssetCreateRequest struct {
-	Key     string `json:"key,omitempty"`
-	SpaceID int32  `json:"space_id"`
-	Blob    []byte `json:"blob"`
+	Key              string `json:"key,omitempty"`
+	SpaceID          int32  `json:"space_id"`
+	Blob             []byte `json:"blob"`
+	AssetDirectoryID int32  `json:"asset_directory_id"`
 }
 
 type AssetSetRequest struct {
@@ -884,6 +931,45 @@ type AssetRenameRequest struct {
 
 type AssetDeleteRequest struct {
 	AssetID int32 `json:"asset_id"`
+}
+
+type AssetMoveRequest struct {
+	AssetID          int32 `json:"asset_id"`
+	AssetDirectoryID int32 `json:"asset_directory_id"`
+}
+
+type AssetDirectory struct {
+	ID        int32     `json:"id"`
+	SpaceID   int32     `json:"space_id"`
+	Key       string    `json:"key,omitempty"`
+	ParentID  int32     `json:"parent_id"`
+	CreatedAt time.Time `json:"created_at"`
+	CreatedBy int32     `json:"created_by"`
+	Deleted   bool      `json:"deleted"`
+}
+
+type AssetDirectoryList struct {
+	Items []*AssetDirectory `json:"items,omitempty"`
+}
+
+type AssetDirectoryCreateRequest struct {
+	SpaceID  int32  `json:"space_id"`
+	ParentID int32  `json:"parent_id"`
+	Key      string `json:"key,omitempty"`
+}
+
+type AssetDirectoryMoveRequest struct {
+	DirectoryID int32 `json:"directory_id"`
+	NewParentID int32 `json:"new_parent_id"`
+}
+
+type AssetDirectoryRenameRequest struct {
+	DirectoryID int32  `json:"directory_id"`
+	NewKey      string `json:"new_key,omitempty"`
+}
+
+type AssetDirectoryDeleteRequest struct {
+	DirectoryID int32 `json:"directory_id"`
 }
 
 type State struct {
@@ -914,6 +1000,10 @@ type State struct {
 	ScheduledInstanceUpdate    *ScheduledInstanceState    `json:"scheduled_instance_update"`
 	AgentSessionsSnapshot      *AgentSessionList          `json:"agent_sessions_snapshot"`
 	AgentSessionUpdate         *AgentSession              `json:"agent_session_update"`
+	ValueDirectoriesSnapshot   *ValueDirectoryList        `json:"value_directories_snapshot"`
+	ValueDirectoryUpdate       *ValueDirectory            `json:"value_directory_update"`
+	AssetDirectoriesSnapshot   *AssetDirectoryList        `json:"asset_directories_snapshot"`
+	AssetDirectoryUpdate       *AssetDirectory            `json:"asset_directory_update"`
 }
 
 type Space struct {
@@ -932,6 +1022,8 @@ type GlobalState struct {
 	Configs           *ConfigList               `json:"configs"`
 	Secrets           *SecretList               `json:"secrets"`
 	DeploymentConfigs *DeploymentConfigSnapshot `json:"deployment_configs"`
+	ValueDirectories  *ValueDirectoryList       `json:"value_directories"`
+	AssetDirectories  *AssetDirectoryList       `json:"asset_directories"`
 }
 
 type DeploymentGetRequest struct {

@@ -32,6 +32,8 @@ import {
   uploadAsset,
   upgradeOpenDeployAgents,
   upgradeOpenDeployNet,
+  verifyAssetDirectoryExplorer,
+  verifyValueDirectoryExplorer,
 } from '../helpers/ui.js';
 
 const PRE_MIGRATION_LARGE_ASSETS = [
@@ -230,6 +232,24 @@ export const orderedCases = [
         key: 'e2e-workload-asset.txt',
         content: 'hello-from-asset-page',
       });
+    },
+  },
+  {
+    id: 'value-directories-explorer-verified',
+    title: 'verify secrets/configs folder explorer',
+    description: 'Creates nested folders on the secrets/configs page, creates items inside them, moves items and folders in and out, renames, and deletes.',
+    requires: ['config-created', 'secret-created'],
+    async run(ctx) {
+      await verifyValueDirectoryExplorer(ctx.page);
+    },
+  },
+  {
+    id: 'asset-directories-explorer-verified',
+    title: 'verify assets folder explorer',
+    description: 'Creates nested folders on the assets page, creates an asset inside them, moves the asset and a non-empty folder, renames, and deletes.',
+    requires: ['small-asset-created'],
+    async run(ctx) {
+      await verifyAssetDirectoryExplorer(ctx.page);
     },
   },
   {

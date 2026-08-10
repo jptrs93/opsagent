@@ -150,7 +150,7 @@ type Store interface {
 	UpsertSecretKeyslot(Keyslot)
 	ListSecretVersionRecords() []Record
 	GetSecretIDByName(spaceID int32, name string) (int32, bool)
-	CreateSecretWithVersion(name string, spaceID, createdBy int32, seal SealFunc) (Record, error)
+	CreateSecretWithVersion(name string, spaceID, directoryID, createdBy int32, seal SealFunc) (Record, error)
 	AppendSecretVersionWithDeploymentUpdates(secretID, createdBy int32, seal SealFunc, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(Record)) (Record, []int32, error)
 	UpdateSecretVersionCiphertext(versionID, smkVersion int32, ciphertext, nonce []byte)
 	RenameSecret(secretID int32, newName string) error
@@ -359,10 +359,10 @@ func (m *Manager) MetaByID(id int32) (Meta, bool) {
 	return rec.meta(), true
 }
 
-// Create creates a new secret with its first version. value is encrypted
-// under the SMK before it touches disk. Returns the version's metadata (never
-// its value).
-func (m *Manager) Create(name string, value []byte, createdBy int32, spaceIDs ...int32) (Meta, error) {
+// Create creates a new secret with its first version in directoryID (0 = the
+// space root) of spaceID (0 = the default space). value is encrypted under the
+// SMK before it touches disk. Returns the version's metadata (never its value).
+func (m *Manager) Create(name string, value []byte, createdBy, spaceID, directoryID int32) (Meta, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Meta{}, errors.New("secret name is required")
@@ -370,16 +370,15 @@ func (m *Manager) Create(name string, value []byte, createdBy int32, spaceIDs ..
 	if isReservedInternalName(name) {
 		return Meta{}, ErrReservedName
 	}
-	spaceID := defaultUserSpaceID
-	if len(spaceIDs) > 0 && spaceIDs[0] > 0 {
-		spaceID = spaceIDs[0]
+	if spaceID <= 0 {
+		spaceID = defaultUserSpaceID
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.smk == nil {
 		return Meta{}, ErrLocked
 	}
-	rec, err := m.store.CreateSecretWithVersion(name, spaceID, createdBy, m.sealFuncLocked(value))
+	rec, err := m.store.CreateSecretWithVersion(name, spaceID, directoryID, createdBy, m.sealFuncLocked(value))
 	if err != nil {
 		return Meta{}, err
 	}
@@ -396,7 +395,7 @@ func (m *Manager) SetByName(name string, value []byte, createdBy int32) (Meta, e
 	if id, ok := m.store.GetSecretIDByName(defaultUserSpaceID, name); ok {
 		return m.SetWithDeploymentUpdates(id, value, createdBy, false, nil, nil)
 	}
-	return m.Create(name, value, createdBy)
+	return m.Create(name, value, createdBy, 0, 0)
 }
 
 // SetWithDeploymentUpdates appends an immutable secret version and optionally

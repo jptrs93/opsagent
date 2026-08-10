@@ -64,8 +64,9 @@ it will fail again. Retry `5xx` and connection errors.
 ## 3. Reading state
 
 `GET /v1/global/state` is the starting point for everything. It returns all
-deployments, assets, configs, secret metadata, and spaces, with the ids the
-other endpoints expect. Read it before you change anything.
+deployments, assets, configs, secret metadata, spaces, and the secret/config
+folder tree (`value_directories`), with the ids the other endpoints expect.
+Read it before you change anything.
 
 `POST /v1/deployments/get` with `{"id": <deployment id>}` returns one
 deployment's live status: whether it is running, what it is preparing, and why
@@ -73,9 +74,13 @@ it last failed.
 
 ## 4. Assets
 
-An asset is a stable identity — its `id` never changes across renames or new
-content. Content lives in immutable numbered versions; each version row has its
-own `asset_version_id`, which is what deployment specs pin.
+An asset is a stable identity — its `id` never changes across renames, moves,
+or new content. Content lives in immutable numbered versions; each version row
+has its own `asset_version_id`, which is what deployment specs pin.
+
+Assets live in a per-space folder tree (`asset_directories` in global state,
+root = directory `0`); an asset's `asset_directory_id` says which folder holds
+it, and keys are unique per folder, not globally.
 
 To update an existing asset, upload against its stable id (find it in
 `/v1/global/state`):
@@ -157,6 +162,10 @@ value at any point.
   a shell or connection string.
 - **The name must be new.** An existing name returns `400`. You cannot rotate a
   secret, only create one; ask the operator to rotate.
+- **Names are unique per folder, not globally.** Secrets and configs share one
+  folder tree per space (`value_directories` in global state, root = directory
+  `0`). Generated secrets land in the space root; a secret's
+  `value_directory_id` says which folder holds it.
 - `password` is one specification among future others. Send exactly one.
 
 ## 7. Limits

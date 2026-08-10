@@ -542,7 +542,7 @@ export async function rotateSecret(page, {name, value, referencingDeployments} =
   await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
   const row = page.getByRole('row', {name: new RegExp(escapeRegExp(name))});
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
-  await row.getByRole('button', {name: 'Edit secret value'}).click();
+  await row.getByRole('button', {name: `Edit ${name}`, exact: true}).click();
 
   const dialog = page.getByTestId('resource-value-overlay').getByRole('dialog');
   await expect(dialog).toBeVisible({timeout: LONG_UI_TIMEOUT});
@@ -564,7 +564,7 @@ export async function rotateSecret(page, {name, value, referencingDeployments} =
 
 async function createSecretOrConfig(page, {type, name, value}) {
   await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
-  await page.getByRole('button', {name: `Add ${type}`}).click();
+  await page.getByRole('button', {name: `New ${type}`, exact: true}).click();
 
   const dialog = page.getByTestId(`create-${type}-overlay`).getByRole('dialog');
   await dialog.getByPlaceholder(`${type} name`).fill(name);
@@ -762,7 +762,7 @@ export async function createContainerImageDeployment(page, {
 export async function createAsset(page, {key, content} = {}) {
   await byTestId(page, 'nav-assets', page.getByText('Assets')).click();
   await expect(page.getByPlaceholder('Search assets')).toBeVisible();
-  await page.getByRole('button', {name: 'Add asset'}).click();
+  await page.getByRole('button', {name: 'New asset', exact: true}).click();
 
   await page.getByLabel('New asset name').fill(key);
   await fillCodeEditor(page, `Content for asset ${key}`, content);
@@ -772,6 +772,8 @@ export async function createAsset(page, {key, content} = {}) {
   }, {timeout: LONG_UI_TIMEOUT});
   await page.getByRole('button', {name: 'Create asset'}).click();
   expect((await createResponse).ok()).toBe(true);
+  // The modal editor closes itself after a successful create.
+  await expect(page.getByRole('button', {name: 'Create asset'})).toBeHidden({timeout: LONG_UI_TIMEOUT});
   await expect(page.getByRole('row', {name: new RegExp(escapeRegExp(key))})).toBeVisible();
 }
 
@@ -787,6 +789,8 @@ export async function updateAsset(page, {key, content} = {}) {
   }, {timeout: LONG_UI_TIMEOUT});
   await page.getByRole('button', {name: /Save version \d+/}).click();
   expect((await response).ok()).toBe(true);
+  // The modal editor closes itself after a successful save.
+  await expect(page.getByRole('button', {name: 'Close editor'})).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
 
 export async function uploadAsset(page, {key, content, fileName = key} = {}) {
@@ -818,6 +822,205 @@ export async function uploadAsset(page, {key, content, fileName = key} = {}) {
   }
   await assetRow.getByRole('button', {name: `Edit asset ${fileName}`}).click();
   await expect(page.getByText(/[0-9.]+ (B|KB|MB|GB|TB) large asset/)).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  // The editor is a modal now; leave the page clear for the next case.
+  await page.getByRole('button', {name: 'Close editor'}).click();
+  await expect(page.getByRole('button', {name: 'Close editor'})).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
+// ---- Explorer directory helpers ----
+//
+// The secrets/configs and assets pages share one Finder-style explorer: rows
+// select, the inspector on the right carries Move/Rename/Delete, and the
+// pathbar (`explorer-pathbar`) echoes the selection's full location. These
+// helpers drive that shared surface; the caller has already navigated to the
+// right page.
+
+function explorerPathbar(page) {
+  return page.getByTestId('explorer-pathbar');
+}
+
+async function expectExplorerPath(page, pathText) {
+  await expect(explorerPathbar(page)).toContainText(pathText, {timeout: LONG_UI_TIMEOUT});
+}
+
+async function selectExplorerRow(page, name) {
+  const row = page.getByRole('row', {name: new RegExp(escapeRegExp(name))}).first();
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await row.click();
+  return row;
+}
+
+// Creates a folder under the current selection (a selected space's root, or a
+// selected folder), which is how the toolbar button targets a parent.
+async function createExplorerFolder(page, name) {
+  await page.getByRole('button', {name: 'New folder', exact: true}).click();
+  const dialog = page.getByRole('dialog').filter({hasText: 'New folder'});
+  await dialog.getByLabel('Folder name', {exact: true}).fill(name);
+  await dialog.getByRole('button', {name: 'Create', exact: true}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
+// Moves the selected row via the inspector's Move dialog. destination is the
+// option label: '/' for the space root, otherwise the folder's full path.
+async function moveExplorerSelection(page, destination) {
+  await page.getByRole('button', {name: 'Move', exact: true}).click();
+  const dialog = page.getByRole('dialog').filter({hasText: /Move /});
+  await expect(dialog).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await dialog.getByRole('button', {name: destination, exact: true}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
+async function renameExplorerSelection(page, newName) {
+  await page.getByRole('button', {name: 'Rename', exact: true}).click();
+  const nameInput = page.getByLabel('New name', {exact: true});
+  await nameInput.fill(newName);
+  await nameInput.press('Enter');
+  await expect(nameInput).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
+async function deleteExplorerSelection(page) {
+  await page.getByRole('button', {name: 'Delete', exact: true}).click();
+  const dialog = page.getByRole('dialog').filter({hasText: 'Confirm delete'});
+  await dialog.getByRole('button', {name: 'Confirm', exact: true}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
+async function closeExplorerInspector(page) {
+  await page.getByRole('button', {name: 'Close details', exact: true}).click();
+}
+
+// Creates a secret/config through the toolbar against the current selection's
+// folder, asserting the create dialog names that location.
+async function createValueInSelection(page, {type, name, value, location}) {
+  await page.getByRole('button', {name: `New ${type}`, exact: true}).click();
+  const dialog = page.getByTestId(`create-${type}-overlay`).getByRole('dialog');
+  if (location) await expect(dialog).toContainText(location);
+  await dialog.getByPlaceholder(`${type} name`).fill(name);
+  await fillCodeEditor(dialog, `Value for new ${type}`, value);
+  await dialog.getByRole('button', {name: `Add ${type}`}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
+// Walks the secrets/configs explorer through the full folder lifecycle:
+// nested folders, creating items inside them, moving items in and out, moving
+// and renaming a folder, and both the empty-delete and non-empty-rejection
+// paths.
+export async function verifyValueDirectoryExplorer(page) {
+  await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
+  await expect(page.getByPlaceholder('Search secrets / configs')).toBeVisible();
+
+  await test.step('create nested folders', async () => {
+    await selectExplorerRow(page, 'default');
+    await createExplorerFolder(page, 'e2e-folder-a');
+    await expectExplorerPath(page, 'default/e2e-folder-a');
+    await createExplorerFolder(page, 'e2e-folder-b');
+    await expectExplorerPath(page, 'default/e2e-folder-a/e2e-folder-b');
+  });
+
+  await test.step('create config and secret inside folders', async () => {
+    await createValueInSelection(page, {
+      type: 'config', name: 'e2e.dir.config', value: 'dir-config-value',
+      location: 'default/e2e-folder-a/e2e-folder-b/',
+    });
+    await expectExplorerPath(page, 'default/e2e-folder-a/e2e-folder-b/e2e.dir.config');
+    await selectExplorerRow(page, 'e2e-folder-a');
+    await createValueInSelection(page, {
+      type: 'secret', name: 'e2e.dir.secret', value: 'dir-secret-value',
+      location: 'default/e2e-folder-a/',
+    });
+    await expectExplorerPath(page, 'default/e2e-folder-a/e2e.dir.secret');
+  });
+
+  await test.step('move config out to the root and back into a folder', async () => {
+    await selectExplorerRow(page, 'e2e.dir.config');
+    await moveExplorerSelection(page, '/');
+    await expectExplorerPath(page, 'default/e2e.dir.config');
+    await expect(explorerPathbar(page)).not.toContainText('e2e-folder-b');
+    await moveExplorerSelection(page, 'e2e-folder-a');
+    await expectExplorerPath(page, 'default/e2e-folder-a/e2e.dir.config');
+  });
+
+  await test.step('move, rename, and delete a folder', async () => {
+    await selectExplorerRow(page, 'e2e-folder-b');
+    await moveExplorerSelection(page, '/');
+    await expectExplorerPath(page, 'default/e2e-folder-b');
+    await moveExplorerSelection(page, 'e2e-folder-a');
+    await expectExplorerPath(page, 'default/e2e-folder-a/e2e-folder-b');
+    await renameExplorerSelection(page, 'e2e-folder-c');
+    await expectExplorerPath(page, 'default/e2e-folder-a/e2e-folder-c');
+    await deleteExplorerSelection(page);
+    await expect(page.getByRole('row', {name: /e2e-folder-c/})).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  });
+
+  await test.step('non-empty folder delete is rejected', async () => {
+    await selectExplorerRow(page, 'e2e-folder-a');
+    await deleteExplorerSelection(page);
+    await expect(page.getByText(/Folder is not empty/)).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    await page.getByRole('button', {name: 'Dismiss error'}).click();
+    await expect(page.getByRole('row', {name: /e2e\.dir\.config/})).toBeVisible();
+    await expect(page.getByRole('row', {name: /e2e\.dir\.secret/})).toBeVisible();
+    await closeExplorerInspector(page);
+  });
+}
+
+// Walks the assets explorer through the same folder lifecycle, plus moving a
+// non-empty folder to prove the subtree travels with it.
+export async function verifyAssetDirectoryExplorer(page) {
+  await byTestId(page, 'nav-assets', page.getByText('Assets')).click();
+  await expect(page.getByPlaceholder('Search assets')).toBeVisible();
+
+  await test.step('create nested folders', async () => {
+    await selectExplorerRow(page, 'default');
+    await createExplorerFolder(page, 'e2e-asset-folder-a');
+    await expectExplorerPath(page, 'default/e2e-asset-folder-a');
+    await createExplorerFolder(page, 'e2e-asset-folder-b');
+    await expectExplorerPath(page, 'default/e2e-asset-folder-a/e2e-asset-folder-b');
+  });
+
+  await test.step('create an asset inside a nested folder', async () => {
+    await page.getByRole('button', {name: 'New asset', exact: true}).click();
+    await page.getByLabel('New asset name').fill('e2e-dir-asset.txt');
+    await fillCodeEditor(page, 'Content for asset e2e-dir-asset.txt', 'dir-asset-content');
+    const createResponse = page.waitForResponse(response => {
+      const request = response.request();
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/assets/create';
+    }, {timeout: LONG_UI_TIMEOUT});
+    await page.getByRole('button', {name: 'Create asset'}).click();
+    expect((await createResponse).ok()).toBe(true);
+    // The modal editor closes itself after a successful create.
+    await expect(page.getByRole('button', {name: 'Create asset'})).toBeHidden({timeout: LONG_UI_TIMEOUT});
+    await expectExplorerPath(page, 'default/e2e-asset-folder-a/e2e-asset-folder-b/e2e-dir-asset.txt');
+  });
+
+  await test.step('move the asset out to the root and back in by path', async () => {
+    await moveExplorerSelection(page, '/');
+    await expectExplorerPath(page, 'default/e2e-dir-asset.txt');
+    await expect(explorerPathbar(page)).not.toContainText('e2e-asset-folder-b');
+    await moveExplorerSelection(page, 'e2e-asset-folder-a/e2e-asset-folder-b');
+    await expectExplorerPath(page, 'default/e2e-asset-folder-a/e2e-asset-folder-b/e2e-dir-asset.txt');
+  });
+
+  await test.step('a moved folder takes its contents with it', async () => {
+    await selectExplorerRow(page, 'e2e-asset-folder-b');
+    await moveExplorerSelection(page, '/');
+    await expectExplorerPath(page, 'default/e2e-asset-folder-b');
+    await renameExplorerSelection(page, 'e2e-asset-folder-c');
+    await expectExplorerPath(page, 'default/e2e-asset-folder-c');
+    await selectExplorerRow(page, 'e2e-dir-asset.txt');
+    await expectExplorerPath(page, 'default/e2e-asset-folder-c/e2e-dir-asset.txt');
+  });
+
+  await test.step('delete an empty folder; a non-empty delete is rejected', async () => {
+    await selectExplorerRow(page, 'e2e-asset-folder-a');
+    await deleteExplorerSelection(page);
+    await expect(page.getByRole('row', {name: /e2e-asset-folder-a/})).toBeHidden({timeout: LONG_UI_TIMEOUT});
+    await selectExplorerRow(page, 'e2e-asset-folder-c');
+    await deleteExplorerSelection(page);
+    await expect(page.getByText(/Folder is not empty/)).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    await page.getByRole('button', {name: 'Dismiss error'}).click();
+    await expect(page.getByRole('row', {name: /e2e-dir-asset\.txt/})).toBeVisible();
+    await closeExplorerInspector(page);
+  });
 }
 
 export async function expectDeploymentOutput(page, name, expectedLines) {

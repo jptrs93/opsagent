@@ -112,3 +112,83 @@ textarea::-webkit-scrollbar-thumb {
 textarea::-webkit-scrollbar-thumb:hover {
     background: #6b7280;
 }
+
+/* Secrets/configs explorer: column and inspector resize grips. The visible
+   line is an ::after so the hit target can be wider than 1px. */
+.colgrip {
+    position: absolute;
+    top: 0;
+    right: -4px;
+    width: 9px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 3;
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+}
+
+.colgrip::after {
+    content: "";
+    position: absolute;
+    top: 22%;
+    bottom: 22%;
+    left: 4px;
+    width: 1px;
+    background: #374151;
+    transition: background 0.1s, top 0.1s, bottom 0.1s;
+}
+
+.colgrip:hover::after,
+.colgrip:focus-visible::after {
+    background: var(--color-brand);
+    top: 0;
+    bottom: 0;
+    width: 2px;
+}
+
+.colgrip:focus-visible {
+    outline: none;
+}
+
+.vgrip {
+    position: absolute;
+    left: -5px;
+    top: 0;
+    width: 11px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 5;
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+}
+
+.vgrip::after {
+    content: "";
+    position: absolute;
+    left: 5px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: transparent;
+    transition: background 0.1s, width 0.1s;
+}
+
+.vgrip:hover::after,
+.vgrip:focus-visible::after {
+    background: var(--color-brand);
+    width: 2px;
+}
+
+.vgrip:focus-visible {
+    outline: none;
+}
+
+body.resizing,
+body.resizing * {
+    cursor: col-resize !important;
+    user-select: none;
+}

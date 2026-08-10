@@ -234,6 +234,10 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
   }
 
+  rpc PostV1SecretsMove(SecretMoveRequest) returns (SecretMeta) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+  }
+
   rpc PostV1SecretsReveal(SecretRevealRequest) returns (SecretRevealResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
   }
@@ -277,6 +281,37 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1ConfigsMove(ConfigMoveRequest) returns (ConfigMeta) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Value directories (the shared secrets/configs folder tree)
+
+  rpc PostV1ValueDirectoriesList(EmptyRequest) returns (ValueDirectoryList) {
+    option (cp.url) = "/v1/value-directories/list";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1ValueDirectoriesCreate(ValueDirectoryCreateRequest) returns (ValueDirectory) {
+    option (cp.url) = "/v1/value-directories/create";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1ValueDirectoriesMove(ValueDirectoryMoveRequest) returns (ValueDirectory) {
+    option (cp.url) = "/v1/value-directories/move";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1ValueDirectoriesRename(ValueDirectoryRenameRequest) returns (ValueDirectory) {
+    option (cp.url) = "/v1/value-directories/rename";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1ValueDirectoriesDelete(ValueDirectoryDeleteRequest) returns (cp.Empty) {
+    option (cp.url) = "/v1/value-directories/delete";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   // Assets
 
   rpc PostV1AssetsList(EmptyRequest) returns (AssetList) {
@@ -306,6 +341,37 @@ service ApiServer {
   }
 
   rpc PostV1AssetsDelete(AssetDeleteRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AssetsMove(AssetMoveRequest) returns (AssetMeta) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  // Asset directories
+
+  rpc PostV1AssetDirectoriesList(EmptyRequest) returns (AssetDirectoryList) {
+    option (cp.url) = "/v1/asset-directories/list";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AssetDirectoriesCreate(AssetDirectoryCreateRequest) returns (AssetDirectory) {
+    option (cp.url) = "/v1/asset-directories/create";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AssetDirectoriesMove(AssetDirectoryMoveRequest) returns (AssetDirectory) {
+    option (cp.url) = "/v1/asset-directories/move";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AssetDirectoriesRename(AssetDirectoryRenameRequest) returns (AssetDirectory) {
+    option (cp.url) = "/v1/asset-directories/rename";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AssetDirectoriesDelete(AssetDirectoryDeleteRequest) returns (cp.Empty) {
+    option (cp.url) = "/v1/asset-directories/delete";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 }

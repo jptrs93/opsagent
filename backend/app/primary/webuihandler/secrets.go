@@ -40,6 +40,10 @@ func mapSecretErr(err error) error {
 		return SecretAlreadyExistsErr
 	case errors.Is(err, state.ErrValueNameInvalid):
 		return SecretNameInvalidErr
+	case errors.Is(err, state.ErrValueDirectoryNotFound):
+		return ValueDirectoryNotFoundErr
+	case errors.Is(err, state.ErrSpaceMoveUnsupported):
+		return ValueSpaceMoveUnsupportedErr
 	}
 	return err
 }
@@ -67,7 +71,7 @@ func (h *Handler) PostV1SecretsCreate(ctx apigen.Context, req *apigen.SecretCrea
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, SecretNameRequiredErr
 	}
-	meta, err := h.Secrets.Create(req.Name, req.Value, requestUserID(ctx), req.SpaceID)
+	meta, err := h.Secrets.Create(req.Name, req.Value, requestUserID(ctx), req.SpaceID, req.ValueDirectoryID)
 	if err != nil {
 		return nil, mapSecretErr(err)
 	}
@@ -137,7 +141,7 @@ func (h *Handler) PostV1SecretsGenerate(ctx apigen.Context, req *apigen.SecretGe
 	}
 	defer secrets.Zero(value)
 
-	meta, err := h.Secrets.Create(name, value, requestUserID(ctx), req.SpaceID)
+	meta, err := h.Secrets.Create(name, value, requestUserID(ctx), req.SpaceID, 0)
 	if err != nil {
 		return nil, mapSecretErr(err)
 	}
@@ -177,6 +181,32 @@ func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRena
 		return nil, SecretNameRequiredErr
 	}
 	if err := h.Secrets.Rename(req.SecretID, req.NewName); err != nil {
+		return nil, mapSecretErr(err)
+	}
+	proto, ok := h.Store.GetSecretMeta(req.SecretID)
+	if !ok {
+		return nil, SecretNotFoundErr
+	}
+	h.Store.NotifySecretMetaUpdate(*proto)
+	return proto, nil
+}
+
+// PostV1SecretsMove relocates a secret within its space's folder tree. Version
+// rows and every pinned reference are untouched — only the identity's
+// directory changes. Reserved opendeploy secrets stay put: install/restore
+// flows find them by name in the space root, so moving one would strand it.
+func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRequest) (*apigen.SecretMeta, error) {
+	if req.SecretID == 0 {
+		return nil, SecretIDRequiredErr
+	}
+	meta, ok := h.Store.GetSecretMeta(req.SecretID)
+	if !ok {
+		return nil, SecretNotFoundErr
+	}
+	if isReservedSecretMetaName(meta.Name) {
+		return nil, SecretReservedNameErr
+	}
+	if _, err := h.Store.MoveSecretDirectory(req.SecretID, req.ValueDirectoryID); err != nil {
 		return nil, mapSecretErr(err)
 	}
 	proto, ok := h.Store.GetSecretMeta(req.SecretID)

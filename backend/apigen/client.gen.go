@@ -1000,6 +1000,25 @@ func (c *ApiServerCapi) PostV1SecretsRename(ctx context.Context, req *SecretRena
 	return DecodeSecretMeta(body)
 }
 
+func (c *ApiServerCapi) PostV1SecretsMove(ctx context.Context, req *SecretMoveRequest) (*SecretMeta, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SecretsMove request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/secrets/move", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeSecretMeta(body)
+}
+
 func (c *ApiServerCapi) PostV1SecretsReveal(ctx context.Context, req *SecretRevealRequest) (*SecretRevealResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsReveal request is nil")
@@ -1182,6 +1201,116 @@ func (c *ApiServerCapi) PostV1ConfigsDelete(ctx context.Context, req *ConfigDele
 	return nil
 }
 
+func (c *ApiServerCapi) PostV1ConfigsMove(ctx context.Context, req *ConfigMoveRequest) (*ConfigMeta, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1ConfigsMove request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/configs/move", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeConfigMeta(body)
+}
+
+func (c *ApiServerCapi) PostV1ValueDirectoriesList(ctx context.Context, req *EmptyRequest) (*ValueDirectoryList, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1ValueDirectoriesList request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/value-directories/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeValueDirectoryList(body)
+}
+
+func (c *ApiServerCapi) PostV1ValueDirectoriesCreate(ctx context.Context, req *ValueDirectoryCreateRequest) (*ValueDirectory, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1ValueDirectoriesCreate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/value-directories/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeValueDirectory(body)
+}
+
+func (c *ApiServerCapi) PostV1ValueDirectoriesMove(ctx context.Context, req *ValueDirectoryMoveRequest) (*ValueDirectory, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1ValueDirectoriesMove request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/value-directories/move", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeValueDirectory(body)
+}
+
+func (c *ApiServerCapi) PostV1ValueDirectoriesRename(ctx context.Context, req *ValueDirectoryRenameRequest) (*ValueDirectory, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1ValueDirectoriesRename request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/value-directories/rename", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeValueDirectory(body)
+}
+
+func (c *ApiServerCapi) PostV1ValueDirectoriesDelete(ctx context.Context, req *ValueDirectoryDeleteRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1ValueDirectoriesDelete request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/value-directories/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
 func (c *ApiServerCapi) PostV1AssetsList(ctx context.Context, req *EmptyRequest) (*AssetList, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AssetsList request is nil")
@@ -1298,6 +1427,116 @@ func (c *ApiServerCapi) PostV1AssetsDelete(ctx context.Context, req *AssetDelete
 		return fmt.Errorf("PostV1AssetsDelete request is nil")
 	}
 	resp, err := c.do(ctx, "POST", "/v1/assets/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
+func (c *ApiServerCapi) PostV1AssetsMove(ctx context.Context, req *AssetMoveRequest) (*AssetMeta, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AssetsMove request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/assets/move", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAssetMeta(body)
+}
+
+func (c *ApiServerCapi) PostV1AssetDirectoriesList(ctx context.Context, req *EmptyRequest) (*AssetDirectoryList, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AssetDirectoriesList request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/asset-directories/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAssetDirectoryList(body)
+}
+
+func (c *ApiServerCapi) PostV1AssetDirectoriesCreate(ctx context.Context, req *AssetDirectoryCreateRequest) (*AssetDirectory, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AssetDirectoriesCreate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/asset-directories/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAssetDirectory(body)
+}
+
+func (c *ApiServerCapi) PostV1AssetDirectoriesMove(ctx context.Context, req *AssetDirectoryMoveRequest) (*AssetDirectory, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AssetDirectoriesMove request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/asset-directories/move", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAssetDirectory(body)
+}
+
+func (c *ApiServerCapi) PostV1AssetDirectoriesRename(ctx context.Context, req *AssetDirectoryRenameRequest) (*AssetDirectory, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AssetDirectoriesRename request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/asset-directories/rename", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAssetDirectory(body)
+}
+
+func (c *ApiServerCapi) PostV1AssetDirectoriesDelete(ctx context.Context, req *AssetDirectoryDeleteRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1AssetDirectoriesDelete request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/asset-directories/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return err
 	}

@@ -1,0 +1,222 @@
+// Pure helpers for the secrets/configs explorer: tree building, filtering,
+// sorting, and folder paths. Kept free of van and capi imports so they can be
+// unit tested outside a browser.
+
+// Column catalogue. `fixed` columns keep their width and never absorb slack;
+// everything except Name can be hidden from the column picker.
+export const ALL_COLUMNS = [
+    {key: "name", label: "Name", min: 170},
+    {key: "version", label: "Version", min: 80, num: true},
+    {key: "created", label: "Created", min: 110},
+    {key: "uses", label: "In use by", min: 90, num: true},
+    {key: "value", label: "Value", min: 120},
+    {key: "actions", label: "", min: 96, noSort: true, fixed: true},
+];
+
+export const DEFAULT_TYPES = ["secret", "config"];
+export const DEFAULT_COLUMNS = ["name", "version", "created", "uses", "actions"];
+export const DEFAULT_COLUMN_WIDTHS = {name: 340, version: 90, created: 150, uses: 100, value: 220, actions: 96};
+
+export const sameSet = (a, b) => a.size === b.size && [...a].every((v) => b.has(v));
+
+// One column absorbs the slack so the table stays flush instead of growing a
+// horizontal scrollbar. Actions is fixed, so it is never the one.
+export function flexColumnKey(shownColumns, columns = ALL_COLUMNS) {
+    const flexible = columns.filter((c) => shownColumns.has(c.key) && !c.fixed);
+    return flexible.length ? flexible[flexible.length - 1].key : "name";
+}
+
+export const itemKey = (item) => `${item.kind}:${item.id}`;
+
+// makeItems flattens secret/config metas into the one row shape the explorer
+// renders. Latest version facts come from versionRefs[0]. When the secrets
+// store is locked, secrets are left out entirely rather than shown unreadable.
+export function makeItems(secretMetas, userConfigs, secretsUnlocked) {
+    const fromMeta = (kind, meta) => {
+        const latest = meta.versionRefs?.[0];
+        if (!latest) return [];
+        return [{
+            kind,
+            id: Number(meta.id),
+            name: meta.name || "",
+            spaceId: Number(meta.spaceId || 0),
+            directoryId: Number(meta.valueDirectoryId || 0),
+            version: Number(latest.version || 0),
+            createdAt: latest.createdAt instanceof Date ? latest.createdAt : null,
+            value: kind === "config" ? String(latest.value ?? "") : "",
+            meta,
+        }];
+    };
+    return [
+        ...(secretsUnlocked ? (secretMetas || []).flatMap((meta) => fromMeta("secret", meta)) : []),
+        ...(userConfigs || []).flatMap((meta) => fromMeta("config", meta)),
+    ];
+}
+
+export const dirsById = (dirs) => new Map((dirs || []).map((d) => [Number(d.id), d]));
+
+// dirPathSegments walks a directory's ancestry to the root, returning names
+// root-first. Cycle-guarded so bad data degrades to a truncated path rather
+// than a hung page.
+export function dirPathSegments(byId, directoryId) {
+    const segments = [];
+    const seen = new Set();
+    let current = Number(directoryId || 0);
+    while (current !== 0 && !seen.has(current)) {
+        seen.add(current);
+        const dir = byId.get(current);
+        if (!dir) break;
+        segments.unshift(dir.name || "");
+        current = Number(dir.parentId || 0);
+    }
+    return segments;
+}
+
+export const itemPathSegments = (byId, item) => [...dirPathSegments(byId, item.directoryId), item.name];
+
+const compareBy = (sort, usesByKey) => {
+    const {key, dir} = sort;
+    return (a, b) => {
+        let r = 0;
+        if (key === "version") r = a.version - b.version;
+        else if (key === "created") r = (a.createdAt?.getTime() || 0) - (b.createdAt?.getTime() || 0);
+        else if (key === "uses") r = (usesByKey.get(itemKey(a)) || 0) - (usesByKey.get(itemKey(b)) || 0);
+        else if (key === "value") r = (a.value || "").localeCompare(b.value || "");
+        else if (key === "size") r = (a.sizeBytes || 0) - (b.sizeBytes || 0);
+        if (r === 0) r = a.name.localeCompare(b.name);
+        return dir === "desc" ? -r : r;
+    };
+};
+
+// buildRows produces the flat row list the table renders, walking every
+// visible space's tree depth-first. Three filters compose here:
+//
+//   - hiddenSpaceIds hides whole roots; spaces themselves never drop out for
+//     any other reason, so the two filters cannot silently hide the same row
+//     from different directions.
+//   - types drops non-matching items, and — while the filter is narrowed —
+//     folders whose subtree has no survivors: a folder that expands to nothing
+//     is worse than a folder that is not there. Unnarrowed, empty folders stay
+//     visible with a count of 0 (you just created one; it has to be reachable).
+//   - query matches item names and config values; a folder whose own name
+//     matches keeps its whole subtree. An active query force-expands whatever
+//     survives, since matches hidden inside collapsed folders read as none.
+//
+// Counts on space and folder rows follow the composed filter. hiddenByType is
+// the count of items in visible spaces removed by the type filter alone.
+//
+// `types` is optional: a page with only one item kind (assets) passes null and
+// gets no type filtering at all — the query is then the only narrowing filter.
+export function buildRows({spaces, dirs, items, hiddenSpaceIds, types = null, query, expanded, sort, usesByKey = new Map()}) {
+    const q = (query || "").trim().toLowerCase();
+    const typeSet = types == null ? null : (types instanceof Set ? types : new Set(types));
+    const narrowed = Boolean(q) || (typeSet !== null && typeSet.size < DEFAULT_TYPES.length);
+
+    const childDirs = new Map();
+    for (const d of dirs || []) {
+        const k = `${Number(d.spaceId)}:${Number(d.parentId || 0)}`;
+        if (!childDirs.has(k)) childDirs.set(k, []);
+        childDirs.get(k).push(d);
+    }
+    const childItems = new Map();
+    for (const item of items || []) {
+        const k = `${item.spaceId}:${item.directoryId}`;
+        if (!childItems.has(k)) childItems.set(k, []);
+        childItems.get(k).push(item);
+    }
+
+    const cmpItems = compareBy(sort, usesByKey);
+    const dirSign = sort.key === "name" && sort.dir === "desc" ? -1 : 1;
+    const cmpDirs = (a, b) => dirSign * (a.name || "").localeCompare(b.name || "");
+
+    const matchesQuery = (item) => !q ||
+        item.name.toLowerCase().includes(q) ||
+        (item.kind === "config" && item.value.toLowerCase().includes(q));
+
+    const visited = new Set();
+    const walk = (spaceId, parentId, depth, ancestorMatch) => {
+        const key = `${spaceId}:${parentId}`;
+        if (visited.has(key)) return {count: 0, rows: []};
+        visited.add(key);
+        const rows = [];
+        let count = 0;
+        for (const dir of [...(childDirs.get(key) || [])].sort(cmpDirs)) {
+            const dirMatch = ancestorMatch || (q !== "" && (dir.name || "").toLowerCase().includes(q));
+            const sub = walk(spaceId, Number(dir.id), depth + 1, dirMatch);
+            if (narrowed && sub.count === 0) continue;
+            count += sub.count;
+            const dirKey = `dir:${dir.id}`;
+            const open = q ? true : expanded.has(dirKey);
+            rows.push({type: "dir", dir, key: dirKey, depth, count: sub.count, expanded: open});
+            if (open) rows.push(...sub.rows);
+        }
+        for (const item of [...(childItems.get(key) || [])].sort(cmpItems)) {
+            if (typeSet !== null && !typeSet.has(item.kind)) continue;
+            if (!ancestorMatch && !matchesQuery(item)) continue;
+            count += 1;
+            rows.push({type: "item", item, key: itemKey(item), depth});
+        }
+        return {count, rows};
+    };
+
+    const rows = [];
+    let hiddenByType = 0;
+    for (const item of items || []) {
+        if (typeSet !== null && !hiddenSpaceIds.has(item.spaceId) && !typeSet.has(item.kind)) hiddenByType += 1;
+    }
+    for (const space of spaces || []) {
+        const spaceId = Number(space.id);
+        if (hiddenSpaceIds.has(spaceId)) continue;
+        const sub = walk(spaceId, 0, 1, false);
+        const spaceKey = `space:${spaceId}`;
+        const open = q ? sub.count > 0 : expanded.has(spaceKey);
+        rows.push({type: "space", space, key: spaceKey, depth: 0, count: sub.count, expanded: open});
+        if (open) rows.push(...sub.rows);
+    }
+    return {rows, hiddenByType};
+}
+
+// descendantDirIds collects a directory's whole subtree, itself included —
+// the set a folder move must exclude as destinations.
+export function descendantDirIds(dirs, rootId) {
+    const children = new Map();
+    for (const d of dirs || []) {
+        const parent = Number(d.parentId || 0);
+        if (!children.has(parent)) children.set(parent, []);
+        children.get(parent).push(Number(d.id));
+    }
+    const out = new Set();
+    const queue = [Number(rootId)];
+    while (queue.length) {
+        const id = queue.pop();
+        if (out.has(id)) continue;
+        out.add(id);
+        queue.push(...(children.get(id) || []));
+    }
+    return out;
+}
+
+// folderOptions lists move/create destinations in one space: the root first,
+// then every folder by its full path. excludeSubtreeOf (a directory id) drops
+// a moved folder's own subtree from the candidates.
+export function folderOptions(dirs, spaceId, excludeSubtreeOf = 0) {
+    const excluded = excludeSubtreeOf ? descendantDirIds(dirs, excludeSubtreeOf) : new Set();
+    const byId = dirsById(dirs);
+    return [
+        {id: 0, label: "/"},
+        ...(dirs || [])
+            .filter((d) => Number(d.spaceId) === Number(spaceId) && !excluded.has(Number(d.id)))
+            .map((d) => ({id: Number(d.id), label: dirPathSegments(byId, d.id).join("/")}))
+            .sort((a, b) => a.label.localeCompare(b.label)),
+    ];
+}
+
+// Deterministic space accents: the opendeploy space is fixed slate, user
+// spaces cycle a small palette by id so the dot stays stable across sessions.
+const SPACE_HUES = ["#f59e0b", "#2dd4bf", "#a78bfa", "#f472b6", "#4ade80", "#60a5fa", "#fb923c", "#94a3b8"];
+
+export function spaceHue(spaceId) {
+    const id = Number(spaceId);
+    if (id === 0) return "#64748b";
+    return SPACE_HUES[(id - 1) % SPACE_HUES.length];
+}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
@@ -56,6 +57,95 @@ func (s *Service) CreateDirectory(spaceID, parentID int32, key string, createdBy
 	if err != nil {
 		panic(fmt.Sprintf("InsertAssetDirectory: %v", err))
 	}
+	return d, nil
+}
+
+// resolveAssetDirectoryLocked validates a caller-supplied target directory for
+// a create (0 = the space root). A directory in another space does not exist
+// from this space's viewpoint. Caller must hold s.Mu.
+func (s *Service) resolveAssetDirectoryLocked(ctx context.Context, spaceID int64, directoryID int32) (int64, error) {
+	dirID := int64(directoryID)
+	if dirID == 0 {
+		return 0, nil
+	}
+	d, err := s.q.GetAssetDirectoryByID(ctx, dirID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrDirectoryNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetDirectoryByID: %v", err))
+	}
+	if d.SpaceID != spaceID {
+		return 0, ErrDirectoryNotFound
+	}
+	return dirID, nil
+}
+
+// assetDirectoryToProto builds the wire form of a directory row.
+func assetDirectoryToProto(d AssetDirectory) *apigen.AssetDirectory {
+	return &apigen.AssetDirectory{
+		ID:        int32(d.ID),
+		SpaceID:   int32(d.SpaceID),
+		Key:       d.Key,
+		ParentID:  int32(d.ParentID),
+		CreatedAt: time.UnixMilli(d.CreatedAt),
+		CreatedBy: int32(d.CreatedBy),
+	}
+}
+
+// ListAssetDirectories returns every directory across all spaces, ordered by
+// space, parent, then key.
+func (s *Service) ListAssetDirectories() []*apigen.AssetDirectory {
+	rows, err := s.q.ListAssetDirectories(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("ListAssetDirectories: %v", err))
+	}
+	out := make([]*apigen.AssetDirectory, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, assetDirectoryToProto(row))
+	}
+	return out
+}
+
+// GetAssetDirectoryMeta returns one directory in wire form.
+func (s *Service) GetAssetDirectoryMeta(directoryID int32) (*apigen.AssetDirectory, bool) {
+	row, err := s.q.GetAssetDirectoryByID(context.Background(), int64(directoryID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetDirectoryByID: %v", err))
+	}
+	return assetDirectoryToProto(row), true
+}
+
+// RenameDirectory renames a directory in place. The contents keep their
+// directory id, so nothing else moves; only sibling uniqueness is at stake.
+func (s *Service) RenameDirectory(directoryID int32, newKey string) (AssetDirectory, error) {
+	if !ValidAssetKey(newKey) {
+		return AssetDirectory{}, ErrAssetKeyInvalid
+	}
+	ctx := context.Background()
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	d, err := s.q.GetAssetDirectoryByID(ctx, int64(directoryID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return AssetDirectory{}, ErrDirectoryNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetDirectoryByID: %v", err))
+	}
+	if d.Key == newKey {
+		return d, nil
+	}
+	if s.assetSiblingKeyTakenLocked(ctx, s.q, d.SpaceID, d.ParentID, newKey, 0, d.ID) {
+		return AssetDirectory{}, ErrAssetAlreadyExists
+	}
+	if err := s.q.SetAssetDirectoryKey(ctx, pq.SetAssetDirectoryKeyParams{Key: newKey, ID: d.ID}); err != nil {
+		panic(fmt.Sprintf("SetAssetDirectoryKey: %v", err))
+	}
+	d.Key = newKey
 	return d, nil
 }
 

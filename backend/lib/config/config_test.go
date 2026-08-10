@@ -146,7 +146,7 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("secrets.Open: %v", err)
 	}
-	secretMeta, err := secretMgr.Create("opendeploy.config.github_token", []byte("ghp_test"), 0)
+	secretMeta, err := secretMgr.Create("opendeploy.config.github_token", []byte("ghp_test"), 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Set secret: %v", err)
 	}

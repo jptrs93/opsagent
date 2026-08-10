@@ -150,7 +150,7 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 	defer store.Close()
 	node := testNode(store, "primary")
 
-	first, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, testSealFunc(1))
+	first, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, 0, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	defer store.Close()
 	node := testNode(store, "primary")
 
-	first, err := store.CreateSecretWithVersion("pgpassword", DefaultSpaceID, 0, testSealFunc(1))
+	first, err := store.CreateSecretWithVersion("pgpassword", DefaultSpaceID, 0, 0, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
 	}

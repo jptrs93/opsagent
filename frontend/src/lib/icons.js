@@ -77,3 +77,57 @@ export const trashIcon = (attrs) => svg(iconAttrs(attrs),
 );
 
 export const xIcon = closeIcon;
+
+export const caretRightIcon = (attrs) => svg(iconAttrs(attrs),
+    polyline({points: "9 6 15 12 9 18"}),
+);
+
+export const chevronDownIcon = (attrs) => svg(iconAttrs(attrs),
+    polyline({points: "6 9 12 15 18 9"}),
+);
+
+export const sortArrowIcon = (attrs) => svg(iconAttrs(attrs),
+    polyline({points: "6 15 12 9 18 15"}),
+);
+
+export const folderIcon = (attrs) => svg(iconAttrs(attrs),
+    path({d: "M3 7a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7Z"}),
+);
+
+export const secretKeyIcon = (attrs) => svg(iconAttrs(attrs),
+    circle({cx: "8", cy: "14", r: "4"}),
+    path({d: "M11 11 20 2"}),
+    path({d: "m17 5 2 2"}),
+    path({d: "m14 8 2 2"}),
+);
+
+export const configSlidersIcon = (attrs) => svg(iconAttrs(attrs),
+    path({d: "M5 6h14"}),
+    path({d: "M5 12h14"}),
+    path({d: "M5 18h14"}),
+    circle({cx: "9", cy: "6", r: "1.6", fill: "currentColor"}),
+    circle({cx: "15", cy: "12", r: "1.6", fill: "currentColor"}),
+    circle({cx: "10", cy: "18", r: "1.6", fill: "currentColor"}),
+);
+
+export const columnsIcon = (attrs) => svg(iconAttrs(attrs),
+    path({d: "M3 5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5Z"}),
+    path({d: "M9 4v16"}),
+    path({d: "M15 4v16"}),
+);
+
+export const searchIcon = (attrs) => svg(iconAttrs(attrs),
+    circle({cx: "11", cy: "11", r: "7"}),
+    path({d: "m20 20-3.5-3.5"}),
+);
+
+export const fileIcon = (attrs) => svg(iconAttrs(attrs),
+    path({d: "M6 3a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5H6Z"}),
+    path({d: "M13 3v6h6"}),
+);
+
+export const uploadIcon = (attrs) => svg(iconAttrs(attrs),
+    path({d: "M12 15V4"}),
+    polyline({points: "7 9 12 4 17 9"}),
+    path({d: "M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"}),
+);

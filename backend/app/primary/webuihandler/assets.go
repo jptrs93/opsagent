@@ -32,14 +32,15 @@ func validateUploadAssetName(raw string) (string, error) {
 	return name, nil
 }
 
-// uniqueAssetName suffixes name until it is free in spaceID's root directory.
-func (h *Handler) uniqueAssetName(name string, spaceID int32) string {
-	if _, ok := h.Store.GetAssetInRootByKey(spaceID, name); !ok {
+// uniqueAssetName suffixes name until it is free among the assets of the
+// target directory (0 = spaceID's root).
+func (h *Handler) uniqueAssetName(name string, spaceID, directoryID int32) string {
+	if _, ok := h.Store.GetAssetInDirectory(spaceID, directoryID, name); !ok {
 		return name
 	}
 	for suffix := 1; ; suffix++ {
 		candidate := name + strconv.Itoa(suffix)
-		if _, ok := h.Store.GetAssetInRootByKey(spaceID, candidate); !ok {
+		if _, ok := h.Store.GetAssetInDirectory(spaceID, directoryID, candidate); !ok {
 			return candidate
 		}
 	}
@@ -60,6 +61,12 @@ func mapAssetStoreErr(err error) error {
 	}
 	if errors.Is(err, state.ErrAssetKeyInvalid) {
 		return AssetKeyInvalidErr
+	}
+	if errors.Is(err, state.ErrDirectoryNotFound) {
+		return AssetDirectoryNotFoundErr
+	}
+	if errors.Is(err, state.ErrSpaceMoveUnsupported) {
+		return AssetSpaceMoveUnsupportedErr
 	}
 	return err
 }
@@ -94,7 +101,7 @@ func (h *Handler) PostV1AssetsCreate(ctx apigen.Context, req *apigen.AssetCreate
 	if key == "" {
 		return nil, AssetKeyRequiredErr
 	}
-	asset, err := h.Assets.CreateAsset(ctx, key, req.SpaceID, requestUserID(ctx), req.Blob)
+	asset, err := h.Assets.CreateAsset(ctx, key, req.SpaceID, req.AssetDirectoryID, requestUserID(ctx), req.Blob)
 	if err != nil {
 		return nil, mapAssetStoreErr(err)
 	}
@@ -148,8 +155,16 @@ func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, 
 			}
 			spaceID = int32(parsed)
 		}
-		key := h.uniqueAssetName(name, spaceID)
-		asset, err = h.Assets.CreateAssetFromReader(ctx, key, spaceID, requestUserID(ctx), request.ContentLength, request.Body)
+		var directoryID int32
+		if rawDirectoryID := strings.TrimSpace(query.Get("directory_id")); rawDirectoryID != "" {
+			parsed, parseErr := strconv.ParseInt(rawDirectoryID, 10, 32)
+			if parseErr != nil || parsed < 0 {
+				return apigen.NewApiErr("Asset directory ID is invalid", "asset_directory_id_invalid", http.StatusBadRequest)
+			}
+			directoryID = int32(parsed)
+		}
+		key := h.uniqueAssetName(name, spaceID, directoryID)
+		asset, err = h.Assets.CreateAssetFromReader(ctx, key, spaceID, directoryID, requestUserID(ctx), request.ContentLength, request.Body)
 	}
 	if err != nil {
 		return mapAssetStoreErr(err)
@@ -170,6 +185,22 @@ func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRename
 	if err != nil {
 		return nil, mapAssetStoreErr(err)
 	}
+	return meta, nil
+}
+
+func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequest) (*apigen.AssetMeta, error) {
+	if req.AssetID <= 0 {
+		return nil, AssetIDRequiredErr
+	}
+	row, err := h.Store.MoveAssetDirectory(req.AssetID, req.AssetDirectoryID)
+	if err != nil {
+		return nil, mapAssetStoreErr(err)
+	}
+	meta, ok := h.Store.GetAssetMeta(int32(row.ID))
+	if !ok {
+		return nil, AssetNotFoundErr
+	}
+	h.Store.NotifyAssetUpdate(meta)
 	return meta, nil
 }
 

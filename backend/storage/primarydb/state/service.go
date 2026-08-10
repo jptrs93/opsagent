@@ -66,8 +66,10 @@ type Service struct {
 	secretStatusSubs *pubsubu.PubSub[apigen.SecretsStatusResponse]
 	secretMetaSubs   *pubsubu.PubSub[apigen.SecretMeta]
 	userConfigSubs   *pubsubu.PubSub[apigen.ConfigMeta]
+	valueDirSubs     *pubsubu.PubSub[apigen.ValueDirectory]
 	spaceSubs        *pubsubu.PubSub[apigen.Space]
 	assetSubs        *pubsubu.PubSub[apigen.AssetMeta]
+	assetDirSubs     *pubsubu.PubSub[apigen.AssetDirectory]
 	enrollmentSubs   *pubsubu.PubSub[apigen.EnrollmentRequestStatus]
 	nodeSubs         *pubsubu.PubSub[apigen.ClusterNode]
 	nodeStatusSubs   *pubsubu.PubSub[apigen.ClusterNodeStatus]
@@ -88,8 +90,10 @@ func Open(dbPath string) *Service {
 		secretStatusSubs: &pubsubu.PubSub[apigen.SecretsStatusResponse]{},
 		secretMetaSubs:   &pubsubu.PubSub[apigen.SecretMeta]{},
 		userConfigSubs:   &pubsubu.PubSub[apigen.ConfigMeta]{},
+		valueDirSubs:     &pubsubu.PubSub[apigen.ValueDirectory]{},
 		spaceSubs:        &pubsubu.PubSub[apigen.Space]{},
 		assetSubs:        &pubsubu.PubSub[apigen.AssetMeta]{},
+		assetDirSubs:     &pubsubu.PubSub[apigen.AssetDirectory]{},
 		enrollmentSubs:   &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
 		nodeSubs:         &pubsubu.PubSub[apigen.ClusterNode]{},
 		nodeStatusSubs:   &pubsubu.PubSub[apigen.ClusterNodeStatus]{},
@@ -220,6 +224,24 @@ func (s *Service) NotifyConfigMetaUpdate(meta apigen.ConfigMeta) {
 
 func (s *Service) SubscribeConfigMetaUpdates() (*pubsubu.Sub[apigen.ConfigMeta], func()) {
 	sub := s.userConfigSubs.Subscribe(nil)
+	return sub, sub.UnsubscribeFunc
+}
+
+func (s *Service) NotifyValueDirectoryUpdate(dir apigen.ValueDirectory) {
+	s.valueDirSubs.Notify(dir)
+}
+
+func (s *Service) SubscribeValueDirectoryUpdates() (*pubsubu.Sub[apigen.ValueDirectory], func()) {
+	sub := s.valueDirSubs.Subscribe(nil)
+	return sub, sub.UnsubscribeFunc
+}
+
+func (s *Service) NotifyAssetDirectoryUpdate(dir apigen.AssetDirectory) {
+	s.assetDirSubs.Notify(dir)
+}
+
+func (s *Service) SubscribeAssetDirectoryUpdates() (*pubsubu.Sub[apigen.AssetDirectory], func()) {
+	sub := s.assetDirSubs.Subscribe(nil)
 	return sub, sub.UnsubscribeFunc
 }
 

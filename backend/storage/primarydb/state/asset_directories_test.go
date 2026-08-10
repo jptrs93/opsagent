@@ -226,3 +226,75 @@ func TestMoveAssetSpace(t *testing.T) {
 		t.Fatalf("missing asset err = %v, want ErrAssetNotFound", err)
 	}
 }
+
+func TestRenameAssetDirectory(t *testing.T) {
+	store := Open(filepath.Join(t.TempDir(), "primary.db"))
+	dir, err := store.CreateDirectory(0, 0, "configs", 0)
+	if err != nil {
+		t.Fatalf("create directory: %v", err)
+	}
+
+	renamed, err := store.RenameDirectory(int32(dir.ID), "conf")
+	if err != nil {
+		t.Fatalf("RenameDirectory: %v", err)
+	}
+	if renamed.Key != "conf" || renamed.ID != dir.ID || renamed.ParentID != dir.ParentID {
+		t.Fatalf("renamed = %+v, want key conf in place", renamed)
+	}
+
+	// Renaming to the current key is a no-op, not a collision with itself.
+	if _, err := store.RenameDirectory(int32(dir.ID), "conf"); err != nil {
+		t.Fatalf("same-key rename err = %v", err)
+	}
+
+	// The sibling namespace spans assets too.
+	store.SetAssetByKey("app.conf", []byte("x"))
+	if _, err := store.RenameDirectory(int32(dir.ID), "app.conf"); !errors.Is(err, ErrAssetAlreadyExists) {
+		t.Fatalf("rename onto asset key err = %v, want ErrAssetAlreadyExists", err)
+	}
+	if _, err := store.RenameDirectory(int32(dir.ID), "bad/key"); !errors.Is(err, ErrAssetKeyInvalid) {
+		t.Fatalf("invalid key err = %v, want ErrAssetKeyInvalid", err)
+	}
+	if _, err := store.RenameDirectory(999, "x"); !errors.Is(err, ErrDirectoryNotFound) {
+		t.Fatalf("missing directory err = %v, want ErrDirectoryNotFound", err)
+	}
+}
+
+func TestListAssetDirectoriesAndCreateInDirectory(t *testing.T) {
+	store := Open(filepath.Join(t.TempDir(), "primary.db"))
+	dir, err := store.CreateDirectory(0, 0, "bundles", 3)
+	if err != nil {
+		t.Fatalf("create directory: %v", err)
+	}
+
+	listed := store.ListAssetDirectories()
+	if len(listed) != 1 || listed[0].ID != int32(dir.ID) || listed[0].Key != "bundles" || listed[0].CreatedBy != 3 {
+		t.Fatalf("ListAssetDirectories = %+v, want the one created", listed)
+	}
+	if meta, ok := store.GetAssetDirectoryMeta(int32(dir.ID)); !ok || meta.Key != "bundles" {
+		t.Fatalf("GetAssetDirectoryMeta = %+v, %v", meta, ok)
+	}
+
+	v, err := store.CreateAssetWithVersion("app.tar", DefaultSpaceID, int32(dir.ID), 0, "", 1, []byte("x"))
+	if err != nil {
+		t.Fatalf("create asset in directory: %v", err)
+	}
+	if a, ok := store.GetAssetRow(v.AssetID); !ok || a.AssetDirectoryID != dir.ID {
+		t.Fatalf("asset row = %+v, want directory %d", a, dir.ID)
+	}
+	// The sibling check happens at the target directory, not the root.
+	if _, err := store.CreateAssetWithVersion("app.tar", DefaultSpaceID, 0, 0, "", 1, []byte("x")); err != nil {
+		t.Fatalf("same key at root: %v", err)
+	}
+	if _, err := store.CreateAssetWithVersion("app.tar", DefaultSpaceID, int32(dir.ID), 0, "", 1, []byte("x")); !errors.Is(err, ErrAssetAlreadyExists) {
+		t.Fatalf("duplicate in directory err = %v, want ErrAssetAlreadyExists", err)
+	}
+	// Missing and cross-space directories do not exist for a create.
+	if _, err := store.CreateAssetWithVersion("b.txt", DefaultSpaceID, 999, 0, "", 1, []byte("x")); !errors.Is(err, ErrDirectoryNotFound) {
+		t.Fatalf("create into missing directory err = %v, want ErrDirectoryNotFound", err)
+	}
+	foreign, _ := store.CreateDirectory(2, 0, "other", 0)
+	if _, err := store.CreateAssetWithVersion("b.txt", DefaultSpaceID, int32(foreign.ID), 0, "", 1, []byte("x")); !errors.Is(err, ErrDirectoryNotFound) {
+		t.Fatalf("create into foreign directory err = %v, want ErrDirectoryNotFound", err)
+	}
+}

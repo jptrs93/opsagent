@@ -116,6 +116,7 @@ type ApiServerHandler interface {
 	PostV1SecretsSet(Context, *SecretSetRequest) (*SecretMeta, error)
 	PostV1SecretsGenerate(Context, *SecretGenerateRequest) (*SecretMeta, error)
 	PostV1SecretsRename(Context, *SecretRenameRequest) (*SecretMeta, error)
+	PostV1SecretsMove(Context, *SecretMoveRequest) (*SecretMeta, error)
 	PostV1SecretsReveal(Context, *SecretRevealRequest) (*SecretRevealResponse, error)
 	PostV1SecretsDelete(Context, *SecretDeleteRequest) error
 	PostV1SecretsStatus(Context, *EmptyRequest) (*SecretsStatusResponse, error)
@@ -126,6 +127,12 @@ type ApiServerHandler interface {
 	PostV1ConfigsSet(Context, *ConfigSetRequest) (*ConfigMeta, error)
 	PostV1ConfigsRename(Context, *ConfigRenameRequest) (*ConfigMeta, error)
 	PostV1ConfigsDelete(Context, *ConfigDeleteRequest) error
+	PostV1ConfigsMove(Context, *ConfigMoveRequest) (*ConfigMeta, error)
+	PostV1ValueDirectoriesList(Context, *EmptyRequest) (*ValueDirectoryList, error)
+	PostV1ValueDirectoriesCreate(Context, *ValueDirectoryCreateRequest) (*ValueDirectory, error)
+	PostV1ValueDirectoriesMove(Context, *ValueDirectoryMoveRequest) (*ValueDirectory, error)
+	PostV1ValueDirectoriesRename(Context, *ValueDirectoryRenameRequest) (*ValueDirectory, error)
+	PostV1ValueDirectoriesDelete(Context, *ValueDirectoryDeleteRequest) error
 	PostV1AssetsList(Context, *EmptyRequest) (*AssetList, error)
 	PostV1AssetsGet(Context, *AssetGetRequest) (*AssetVersion, error)
 	PostV1AssetsCreate(Context, *AssetCreateRequest) (*AssetVersion, error)
@@ -133,6 +140,12 @@ type ApiServerHandler interface {
 	PostV1AssetsUpload(Context, *http.Request, http.ResponseWriter) error
 	PostV1AssetsRename(Context, *AssetRenameRequest) (*AssetMeta, error)
 	PostV1AssetsDelete(Context, *AssetDeleteRequest) error
+	PostV1AssetsMove(Context, *AssetMoveRequest) (*AssetMeta, error)
+	PostV1AssetDirectoriesList(Context, *EmptyRequest) (*AssetDirectoryList, error)
+	PostV1AssetDirectoriesCreate(Context, *AssetDirectoryCreateRequest) (*AssetDirectory, error)
+	PostV1AssetDirectoriesMove(Context, *AssetDirectoryMoveRequest) (*AssetDirectory, error)
+	PostV1AssetDirectoriesRename(Context, *AssetDirectoryRenameRequest) (*AssetDirectory, error)
+	PostV1AssetDirectoriesDelete(Context, *AssetDirectoryDeleteRequest) error
 }
 
 func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
@@ -682,6 +695,17 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/secrets/rename", buildHandlerFunc(config, verifyAuth, postV1SecretsRenameAccessPolicy, postAuthHandlerPostV1SecretsRename, compressionModeAuto, false))
+	postV1SecretsMoveAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"secrets_access"}}
+	postAuthHandlerPostV1SecretsMove := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretMoveRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1SecretsMove(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/secrets/move", buildHandlerFunc(config, verifyAuth, postV1SecretsMoveAccessPolicy, postAuthHandlerPostV1SecretsMove, compressionModeAuto, false))
 	postV1SecretsRevealAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"secrets_access"}}
 	postAuthHandlerPostV1SecretsReveal := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretRevealRequest)
@@ -800,6 +824,76 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/configs/delete", buildHandlerFunc(config, verifyAuth, postV1ConfigsDeleteAccessPolicy, postAuthHandlerPostV1ConfigsDelete, compressionModeAuto, false))
+	postV1ConfigsMoveAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1ConfigsMove := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeConfigMoveRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1ConfigsMove(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/configs/move", buildHandlerFunc(config, verifyAuth, postV1ConfigsMoveAccessPolicy, postAuthHandlerPostV1ConfigsMove, compressionModeAuto, false))
+	postV1ValueDirectoriesListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1ValueDirectoriesList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1ValueDirectoriesList(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/value-directories/list", buildHandlerFunc(config, verifyAuth, postV1ValueDirectoriesListAccessPolicy, postAuthHandlerPostV1ValueDirectoriesList, compressionModeAuto, false))
+	postV1ValueDirectoriesCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1ValueDirectoriesCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeValueDirectoryCreateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1ValueDirectoriesCreate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/value-directories/create", buildHandlerFunc(config, verifyAuth, postV1ValueDirectoriesCreateAccessPolicy, postAuthHandlerPostV1ValueDirectoriesCreate, compressionModeAuto, false))
+	postV1ValueDirectoriesMoveAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1ValueDirectoriesMove := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeValueDirectoryMoveRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1ValueDirectoriesMove(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/value-directories/move", buildHandlerFunc(config, verifyAuth, postV1ValueDirectoriesMoveAccessPolicy, postAuthHandlerPostV1ValueDirectoriesMove, compressionModeAuto, false))
+	postV1ValueDirectoriesRenameAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1ValueDirectoriesRename := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeValueDirectoryRenameRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1ValueDirectoriesRename(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/value-directories/rename", buildHandlerFunc(config, verifyAuth, postV1ValueDirectoriesRenameAccessPolicy, postAuthHandlerPostV1ValueDirectoriesRename, compressionModeAuto, false))
+	postV1ValueDirectoriesDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1ValueDirectoriesDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeValueDirectoryDeleteRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1ValueDirectoriesDelete(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/value-directories/delete", buildHandlerFunc(config, verifyAuth, postV1ValueDirectoriesDeleteAccessPolicy, postAuthHandlerPostV1ValueDirectoriesDelete, compressionModeAuto, false))
 	postV1AssetsListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1AssetsList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
@@ -879,6 +973,76 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/assets/delete", buildHandlerFunc(config, verifyAuth, postV1AssetsDeleteAccessPolicy, postAuthHandlerPostV1AssetsDelete, compressionModeAuto, false))
+	postV1AssetsMoveAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AssetsMove := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetMoveRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AssetsMove(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/assets/move", buildHandlerFunc(config, verifyAuth, postV1AssetsMoveAccessPolicy, postAuthHandlerPostV1AssetsMove, compressionModeAuto, false))
+	postV1AssetDirectoriesListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AssetDirectoriesList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AssetDirectoriesList(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/asset-directories/list", buildHandlerFunc(config, verifyAuth, postV1AssetDirectoriesListAccessPolicy, postAuthHandlerPostV1AssetDirectoriesList, compressionModeAuto, false))
+	postV1AssetDirectoriesCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AssetDirectoriesCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetDirectoryCreateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AssetDirectoriesCreate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/asset-directories/create", buildHandlerFunc(config, verifyAuth, postV1AssetDirectoriesCreateAccessPolicy, postAuthHandlerPostV1AssetDirectoriesCreate, compressionModeAuto, false))
+	postV1AssetDirectoriesMoveAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AssetDirectoriesMove := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetDirectoryMoveRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AssetDirectoriesMove(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/asset-directories/move", buildHandlerFunc(config, verifyAuth, postV1AssetDirectoriesMoveAccessPolicy, postAuthHandlerPostV1AssetDirectoriesMove, compressionModeAuto, false))
+	postV1AssetDirectoriesRenameAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AssetDirectoriesRename := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetDirectoryRenameRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AssetDirectoriesRename(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/asset-directories/rename", buildHandlerFunc(config, verifyAuth, postV1AssetDirectoriesRenameAccessPolicy, postAuthHandlerPostV1AssetDirectoriesRename, compressionModeAuto, false))
+	postV1AssetDirectoriesDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AssetDirectoriesDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetDirectoryDeleteRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1AssetDirectoriesDelete(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/asset-directories/delete", buildHandlerFunc(config, verifyAuth, postV1AssetDirectoriesDeleteAccessPolicy, postAuthHandlerPostV1AssetDirectoriesDelete, compressionModeAuto, false))
 	return m
 }
 

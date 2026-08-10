@@ -28,10 +28,14 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 		defer secretMetaUnsub()
 		userConfigSub, userConfigUnsub := h.Store.SubscribeConfigMetaUpdates()
 		defer userConfigUnsub()
+		valueDirSub, valueDirUnsub := h.Store.SubscribeValueDirectoryUpdates()
+		defer valueDirUnsub()
 		spaceSub, spaceUnsub := h.Store.SubscribeSpaceUpdates()
 		defer spaceUnsub()
 		assetSub, assetUnsub := h.Store.SubscribeAssetUpdates()
 		defer assetUnsub()
+		assetDirSub, assetDirUnsub := h.Store.SubscribeAssetDirectoryUpdates()
+		defer assetDirUnsub()
 		nodeSub, nodeUnsub := h.Store.SubscribeNodeUpdates()
 		defer nodeUnsub()
 		nodeStatusSub, nodeStatusUnsub := h.Store.SubscribeNodeStatusUpdates()
@@ -78,8 +82,10 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 			SecretsStatusSnapshot:      &secretStatus,
 			SecretMetasSnapshot:        &apigen.SecretList{Items: h.Store.ListSecretMetas()},
 			UserConfigValuesSnapshot:   &apigen.ConfigList{Items: h.Store.ListConfigMetas()},
+			ValueDirectoriesSnapshot:   &apigen.ValueDirectoryList{Items: h.Store.ListValueDirectories()},
 			SpacesSnapshot:             &apigen.SpaceList{Items: h.Store.ListSpaces()},
 			AssetsSnapshot:             &apigen.AssetList{Items: h.Store.ListAssets()},
+			AssetDirectoriesSnapshot:   &apigen.AssetDirectoryList{Items: h.Store.ListAssetDirectories()},
 			NodesSnapshot:              &apigen.ClusterNodeList{Items: h.Store.ListClusterNodes()},
 			NodeStatusesSnapshot:       &apigen.ClusterNodeStatusList{Items: h.Store.ListNodeStatuses()},
 			BackupStatusSnapshot:       &backupStatus,
@@ -154,6 +160,13 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !yield(&apigen.State{UserConfigValueUpdate: &userConfig}, nil) {
 					return
 				}
+			case valueDir, ok := <-valueDirSub.Ch:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{ValueDirectoryUpdate: &valueDir}, nil) {
+					return
+				}
 			case space, ok := <-spaceSub.Ch:
 				if !ok {
 					return
@@ -166,6 +179,13 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 					return
 				}
 				if !yield(&apigen.State{AssetUpdate: &asset}, nil) {
+					return
+				}
+			case assetDir, ok := <-assetDirSub.Ch:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{AssetDirectoryUpdate: &assetDir}, nil) {
 					return
 				}
 			case node, ok := <-nodeSub.Ch:

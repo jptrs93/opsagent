@@ -57,7 +57,7 @@ func (m *memStore) GetSecretIDByName(spaceID int32, name string) (int32, bool) {
 	}
 	return 0, false
 }
-func (m *memStore) CreateSecretWithVersion(name string, spaceID, createdBy int32, seal SealFunc) (Record, error) {
+func (m *memStore) CreateSecretWithVersion(name string, spaceID, directoryID, createdBy int32, seal SealFunc) (Record, error) {
 	if _, exists := m.GetSecretIDByName(spaceID, name); exists {
 		return Record{}, fmt.Errorf("secret %q already exists", name)
 	}
@@ -179,7 +179,7 @@ func TestCreateResolveRoundTrip(t *testing.T) {
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
 
-	meta, err := mgr.Create("staging.db.password", []byte("hunter2"), 7)
+	meta, err := mgr.Create("staging.db.password", []byte("hunter2"), 7, 0, 0)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestReopenWithMachineKeyUnlocks(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	meta, err := mgr.Create("k", []byte("v"), 0)
+	meta, err := mgr.Create("k", []byte("v"), 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestCiphertextAtRestNotPlaintext(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	if _, err := mgr.Create("k", []byte("super-secret-value"), 0); err != nil {
+	if _, err := mgr.Create("k", []byte("super-secret-value"), 0, 0, 0); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	rec := store.recordByName("k")
@@ -240,11 +240,11 @@ func TestAADBindingPreventsSwap(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	metaA, err := mgr.Create("a", []byte("value-a"), 0)
+	metaA, err := mgr.Create("a", []byte("value-a"), 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create a: %v", err)
 	}
-	metaB, err := mgr.Create("b", []byte("value-b"), 0)
+	metaB, err := mgr.Create("b", []byte("value-b"), 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create b: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestAADBindingPreventsVersionSwap(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	v1, err := mgr.Create("db.password", []byte("old"), 0)
+	v1, err := mgr.Create("db.password", []byte("old"), 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestRenameIsMetadataOnly(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	first, err := mgr.Create("db.password", []byte("one"), 0)
+	first, err := mgr.Create("db.password", []byte("one"), 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestLegacyNameAADSweepAtUnlock(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	meta, err := mgr.Create("db.password", []byte("legacy-value"), 0)
+	meta, err := mgr.Create("db.password", []byte("legacy-value"), 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -393,13 +393,13 @@ func TestSystemSecretsAreSeparateFromUserSecrets(t *testing.T) {
 	if err != nil || string(got) != "ca-key" {
 		t.Fatalf("RevealInternal = %q, %v; want ca-key, nil", got, err)
 	}
-	if _, err := mgr.Create("opendeploy.cluster.ca.key", []byte("user"), 0); err != ErrReservedName {
+	if _, err := mgr.Create("opendeploy.cluster.ca.key", []byte("user"), 0, 0, 0); err != ErrReservedName {
 		t.Fatalf("Create reserved name err = %v; want ErrReservedName", err)
 	}
-	if _, err := mgr.Create("opendeploy.config.github_token", []byte("user"), 0); err != nil {
+	if _, err := mgr.Create("opendeploy.config.github_token", []byte("user"), 0, 0, 0); err != nil {
 		t.Fatalf("Create opendeploy config secret err = %v; want nil", err)
 	}
-	if _, err := mgr.Create("opendeploy.tls.pem", []byte("tls"), 0); err != nil {
+	if _, err := mgr.Create("opendeploy.tls.pem", []byte("tls"), 0, 0, 0); err != nil {
 		t.Fatalf("Create initial TLS cert secret err = %v; want nil", err)
 	}
 }
@@ -423,7 +423,7 @@ func TestRecoveryUnlockOnFreshMachine(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	meta, err := mgr.Create("k", []byte("v"), 0)
+	meta, err := mgr.Create("k", []byte("v"), 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -445,7 +445,7 @@ func TestRecoveryUnlockOnFreshMachine(t *testing.T) {
 	if _, ok := mgr2.Resolve(meta.ID); ok {
 		t.Fatal("locked store must not resolve secrets")
 	}
-	if _, err := mgr2.Create("x", []byte("y"), 0); err == nil {
+	if _, err := mgr2.Create("x", []byte("y"), 0, 0, 0); err == nil {
 		t.Fatal("locked store must reject Create")
 	}
 	if err := mgr2.Rename(meta.SecretID, "renamed"); err != ErrLocked {
@@ -478,7 +478,7 @@ func TestCodeFormattingTolerated(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()
 	mgr := mustOpen(t, dir, store)
-	_, _ = mgr.Create("k", []byte("v"), 0)
+	_, _ = mgr.Create("k", []byte("v"), 0, 0, 0)
 	code, err := mgr.GenerateRecoveryCode()
 	if err != nil {
 		t.Fatalf("GenerateRecoveryCode: %v", err)

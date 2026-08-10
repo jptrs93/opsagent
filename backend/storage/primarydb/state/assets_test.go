@@ -23,7 +23,7 @@ func (s *Service) SetAssetByKey(key string, blob []byte, spaceIDs ...int32) *api
 		}
 		return v
 	}
-	v, err := s.CreateAssetWithVersion(key, spaceID, 0, "", int64(len(blob)), blob)
+	v, err := s.CreateAssetWithVersion(key, spaceID, 0, 0, "", int64(len(blob)), blob)
 	if err != nil {
 		panic(fmt.Sprintf("SetAssetByKey create: %v", err))
 	}
@@ -159,18 +159,18 @@ func TestRenameAssetRejectsExistingKey(t *testing.T) {
 
 func TestCreateAssetRejectsDuplicateAndInvalidKeys(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
-	if _, err := store.CreateAssetWithVersion("app.yaml", DefaultSpaceID, 0, "", 1, []byte("x")); err != nil {
+	if _, err := store.CreateAssetWithVersion("app.yaml", DefaultSpaceID, 0, 0, "", 1, []byte("x")); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if _, err := store.CreateAssetWithVersion("app.yaml", DefaultSpaceID, 0, "", 1, []byte("x")); !errors.Is(err, ErrAssetAlreadyExists) {
+	if _, err := store.CreateAssetWithVersion("app.yaml", DefaultSpaceID, 0, 0, "", 1, []byte("x")); !errors.Is(err, ErrAssetAlreadyExists) {
 		t.Fatalf("duplicate create error = %v, want %v", err, ErrAssetAlreadyExists)
 	}
 	// Same key in another space is a different file system.
-	if _, err := store.CreateAssetWithVersion("app.yaml", 2, 0, "", 1, []byte("x")); err != nil {
+	if _, err := store.CreateAssetWithVersion("app.yaml", 2, 0, 0, "", 1, []byte("x")); err != nil {
 		t.Fatalf("create in second space: %v", err)
 	}
 	for _, key := range []string{"", ".", "..", "a/b", "a\\b", "a\x00b"} {
-		if _, err := store.CreateAssetWithVersion(key, DefaultSpaceID, 0, "", 1, []byte("x")); !errors.Is(err, ErrAssetKeyInvalid) {
+		if _, err := store.CreateAssetWithVersion(key, DefaultSpaceID, 0, 0, "", 1, []byte("x")); !errors.Is(err, ErrAssetKeyInvalid) {
 			t.Fatalf("key %q error = %v, want %v", key, err, ErrAssetKeyInvalid)
 		}
 	}

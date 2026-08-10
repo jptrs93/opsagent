@@ -270,6 +270,7 @@ message SecretCreateRequest {
   string name = 1;
   bytes value = 3;         // plaintext secret value; encrypted at rest, never returned
   int32 space_id = 4;
+  int32 value_directory_id = 5; // 0 = the space root; must exist in space_id
 }
 
 message SecretSetRequest {
@@ -307,6 +308,11 @@ message SecretRenameRequest {
   reserved "name";
   string new_name = 2;
   int32 secret_id = 3;
+}
+
+message SecretMoveRequest {
+  int32 secret_id = 1;
+  int32 value_directory_id = 2; // 0 = the space root; must be in the secret's space
 }
 
 message SecretDeleteRequest {
@@ -378,6 +384,7 @@ message ConfigCreateRequest {
   string name = 1;
   string value = 3;
   int32 space_id = 4;
+  int32 value_directory_id = 5; // 0 = the space root; must exist in space_id
 }
 
 message ConfigSetRequest {
@@ -402,6 +409,52 @@ message ConfigDeleteRequest {
   reserved 1;
   reserved "name";
   int32 config_id = 2;
+}
+
+message ConfigMoveRequest {
+  int32 config_id = 1;
+  int32 value_directory_id = 2; // 0 = the space root; must be in the config's space
+}
+
+// === Value directory messages ===
+//
+// Directories of the shared secrets/configs file system. One tree per space;
+// parent_id 0 is the implicit space root. Directory names share the sibling
+// namespace with secrets and configs, so a name must be free across all three
+// under the same parent.
+
+message ValueDirectory {
+  int32 id = 1;
+  int32 space_id = 2;
+  string name = 3;
+  int32 parent_id = 4;     // 0 = the implicit root
+  int64 created_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int32 created_by = 6;    // user id that created the directory; 0 = unknown/system
+  bool deleted = 7;        // set on the state-stream update channel when removed
+}
+
+message ValueDirectoryList {
+  repeated ValueDirectory items = 1;
+}
+
+message ValueDirectoryCreateRequest {
+  int32 space_id = 1;
+  int32 parent_id = 2;     // 0 = the space root; must exist in space_id
+  string name = 3;
+}
+
+message ValueDirectoryMoveRequest {
+  int32 directory_id = 1;
+  int32 new_parent_id = 2; // 0 = the space root; must be in the directory's space
+}
+
+message ValueDirectoryRenameRequest {
+  int32 directory_id = 1;
+  string new_name = 2;
+}
+
+message ValueDirectoryDeleteRequest {
+  int32 directory_id = 1;  // must be empty: contents are never cascaded
 }
 
 // === Asset messages ===
@@ -464,6 +517,7 @@ message AssetCreateRequest {
   string key = 1;
   int32 space_id = 2;
   bytes blob = 3;
+  int32 asset_directory_id = 4; // 0 = the space root; must exist in space_id
 }
 
 message AssetSetRequest {
@@ -482,6 +536,51 @@ message AssetRenameRequest {
 message AssetDeleteRequest {
   // 1 was key, dropped
   int32 asset_id = 2;
+}
+
+message AssetMoveRequest {
+  int32 asset_id = 1;
+  int32 asset_directory_id = 2; // 0 = the space root; must be in the asset's space
+}
+
+// === Asset directory messages ===
+//
+// Directories of the asset file system. One tree per space; parent_id 0 is the
+// implicit space root. Directory keys share the sibling namespace with assets,
+// so a key must be free in both under the same parent.
+
+message AssetDirectory {
+  int32 id = 1;
+  int32 space_id = 2;
+  string key = 3;
+  int32 parent_id = 4;     // 0 = the implicit root
+  int64 created_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int32 created_by = 6;    // user id that created the directory; 0 = unknown/system
+  bool deleted = 7;        // set on the state-stream update channel when removed
+}
+
+message AssetDirectoryList {
+  repeated AssetDirectory items = 1;
+}
+
+message AssetDirectoryCreateRequest {
+  int32 space_id = 1;
+  int32 parent_id = 2;     // 0 = the space root; must exist in space_id
+  string key = 3;
+}
+
+message AssetDirectoryMoveRequest {
+  int32 directory_id = 1;
+  int32 new_parent_id = 2; // 0 = the space root; must be in the directory's space
+}
+
+message AssetDirectoryRenameRequest {
+  int32 directory_id = 1;
+  string new_key = 2;
+}
+
+message AssetDirectoryDeleteRequest {
+  int32 directory_id = 1;  // must be empty: contents are never cascaded
 }
 
 // === Deployment config messages ===
@@ -528,6 +627,10 @@ message State {
   // field here: agent sessions belong to one operator.
   AgentSessionList agent_sessions_snapshot = 34;
   AgentSession agent_session_update = 35;
+  ValueDirectoryList value_directories_snapshot = 36;
+  ValueDirectory value_directory_update = 37;
+  AssetDirectoryList asset_directories_snapshot = 38;
+  AssetDirectory asset_directory_update = 39;
 }
 
 message Space {
@@ -546,6 +649,8 @@ message GlobalState {
   ConfigList configs = 3;
   SecretList secrets = 4;
   DeploymentConfigSnapshot deployment_configs = 5;
+  ValueDirectoryList value_directories = 6;
+  AssetDirectoryList asset_directories = 7;
 }
 
 message DeploymentGetRequest {

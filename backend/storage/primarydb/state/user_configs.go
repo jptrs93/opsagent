@@ -65,9 +65,9 @@ func (s *Service) GetConfigMeta(configID int32) (*apigen.ConfigMeta, bool) {
 	return configMetaFromRow(c, refs), true
 }
 
-// CreateConfigWithVersion creates a new config in the root directory of
-// spaceID with its first version.
-func (s *Service) CreateConfigWithVersion(name string, spaceID, createdBy int32, value string) (*apigen.ConfigMeta, error) {
+// CreateConfigWithVersion creates a new config in directoryID (0 = the root)
+// of spaceID with its first version.
+func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, createdBy int32, value string) (*apigen.ConfigMeta, error) {
 	if !ValidValueName(name) {
 		return nil, ErrValueNameInvalid
 	}
@@ -75,7 +75,11 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, createdBy int32,
 	defer s.Mu.Unlock()
 	ctx := context.Background()
 	space := int64(normalizedUserSpaceID(spaceID))
-	if s.valueSiblingNameTakenLocked(ctx, s.q, space, 0, name, 0, 0, 0) {
+	dirID, err := s.resolveValueDirectoryLocked(ctx, space, directoryID)
+	if err != nil {
+		return nil, err
+	}
+	if s.valueSiblingNameTakenLocked(ctx, s.q, space, dirID, name, 0, 0, 0) {
 		return nil, ErrValueAlreadyExists
 	}
 	now := time.Now().UnixMilli()
@@ -86,7 +90,7 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, createdBy int32,
 		row, err = q.InsertConfigRow(ctx, pq.InsertConfigRowParams{
 			Name:             name,
 			SpaceID:          space,
-			ValueDirectoryID: 0,
+			ValueDirectoryID: dirID,
 			CreatedAt:        now,
 			CreatedBy:        int64(createdBy),
 		})
@@ -158,7 +162,7 @@ func (s *Service) SetConfigByName(name, value string, updatedBy int32) *apigen.C
 		Name:             name,
 	})
 	if err == sql.ErrNoRows {
-		meta, createErr := s.CreateConfigWithVersion(name, DefaultSpaceID, updatedBy, value)
+		meta, createErr := s.CreateConfigWithVersion(name, DefaultSpaceID, 0, updatedBy, value)
 		if createErr != nil {
 			panic(fmt.Sprintf("SetConfigByName create: %v", createErr))
 		}

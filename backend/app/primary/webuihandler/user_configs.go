@@ -23,6 +23,10 @@ func mapConfigStoreErr(err error) error {
 		return UserConfigAlreadyExistsErr
 	case errors.Is(err, state.ErrValueNameInvalid):
 		return UserConfigNameInvalidErr
+	case errors.Is(err, state.ErrValueDirectoryNotFound):
+		return ValueDirectoryNotFoundErr
+	case errors.Is(err, state.ErrSpaceMoveUnsupported):
+		return ValueSpaceMoveUnsupportedErr
 	}
 	return err
 }
@@ -36,7 +40,7 @@ func (h *Handler) PostV1ConfigsCreate(ctx apigen.Context, req *apigen.ConfigCrea
 	if name == "" {
 		return nil, UserConfigNameRequiredErr
 	}
-	meta, err := h.Store.CreateConfigWithVersion(name, req.SpaceID, requestUserID(ctx), req.Value)
+	meta, err := h.Store.CreateConfigWithVersion(name, req.SpaceID, req.ValueDirectoryID, requestUserID(ctx), req.Value)
 	if err != nil {
 		return nil, mapConfigStoreErr(err)
 	}
@@ -81,6 +85,24 @@ func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRena
 	meta, err := h.Store.RenameConfig(req.ConfigID, strings.TrimSpace(req.NewName))
 	if err != nil {
 		return nil, mapConfigStoreErr(err)
+	}
+	h.Store.NotifyConfigMetaUpdate(*meta)
+	return meta, nil
+}
+
+// PostV1ConfigsMove relocates a config within its space's folder tree. Version
+// rows and every pinned reference are untouched — only the identity's
+// directory changes.
+func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRequest) (*apigen.ConfigMeta, error) {
+	if req.ConfigID == 0 {
+		return nil, UserConfigIDRequiredErr
+	}
+	if _, err := h.Store.MoveConfigDirectory(req.ConfigID, req.ValueDirectoryID); err != nil {
+		return nil, mapConfigStoreErr(err)
+	}
+	meta, ok := h.Store.GetConfigMeta(req.ConfigID)
+	if !ok {
+		return nil, UserConfigNotFoundErr
 	}
 	h.Store.NotifyConfigMetaUpdate(*meta)
 	return meta, nil

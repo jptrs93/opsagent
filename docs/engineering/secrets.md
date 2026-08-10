@@ -17,6 +17,17 @@ directory (0 = the implicit root). That law spans three tables, so it is
 enforced in Go behind the storage mutex (`valueSiblingNameTakenLocked`), never
 by a SQL constraint. Assets have their own independent per-space file system.
 
+The directory tree is exposed over `/v1/value-directories/*` (list, create,
+move, rename, delete — delete only when empty, contents are never cascaded),
+and items relocate with `PostV1SecretsMove` / `PostV1ConfigsMove`. Moves and
+renames touch only the identity row, so version ids — and therefore every
+pinned reference — survive unchanged. Cross-space moves are rejected
+(`value_space_move_unsupported`) until references and permissions get
+coordinated handling. Reserved `opendeploy.*` secrets cannot be moved out of
+the space root: install/restore flows find them there by name. Directories
+ride the UI state stream as `value_directories_snapshot` /
+`value_directory_update` and appear in `GET /v1/global-state`.
+
 Values are decrypted during deployment preparation, cached on the node that
 runs the deployment — in memory, and additionally encrypted at rest on a
 secondary — and expanded at process spawn time. They never appear in stored

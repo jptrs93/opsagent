@@ -299,6 +299,14 @@ SELECT id, space_id, name, parent_id, created_at, created_by
 FROM value_directories
 WHERE id = ?;
 
+-- name: ListValueDirectories :many
+SELECT id, space_id, name, parent_id, created_at, created_by
+FROM value_directories
+ORDER BY space_id, parent_id, name;
+
+-- name: SetValueDirectoryName :exec
+UPDATE value_directories SET name = ? WHERE id = ?;
+
 -- name: InsertValueDirectory :one
 INSERT INTO value_directories (space_id, name, parent_id, created_at, created_by)
 VALUES (?, ?, ?, ?, ?)
@@ -376,6 +384,14 @@ DELETE FROM assets WHERE id = ?;
 SELECT id, space_id, key, parent_id, created_at, created_by
 FROM asset_directories
 WHERE id = ?;
+
+-- name: ListAssetDirectories :many
+SELECT id, space_id, key, parent_id, created_at, created_by
+FROM asset_directories
+ORDER BY space_id, parent_id, key;
+
+-- name: SetAssetDirectoryKey :exec
+UPDATE asset_directories SET key = ? WHERE id = ?;
 
 -- name: InsertAssetDirectory :one
 INSERT INTO asset_directories (space_id, key, parent_id, created_at, created_by)

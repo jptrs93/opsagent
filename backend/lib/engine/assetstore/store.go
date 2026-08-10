@@ -109,16 +109,16 @@ func (s *Store) notifyVersionWritten(v *apigen.AssetVersion) {
 	}
 }
 
-// CreateAsset creates a new asset in spaceID's root directory with its first
-// version.
-func (s *Store) CreateAsset(ctx context.Context, key string, spaceID, createdBy int32, blob []byte) (*apigen.AssetVersion, error) {
-	return s.CreateAssetFromReader(ctx, key, spaceID, createdBy, int64(len(blob)), bytes.NewReader(blob))
+// CreateAsset creates a new asset in directoryID (0 = the space root) of
+// spaceID with its first version.
+func (s *Store) CreateAsset(ctx context.Context, key string, spaceID, directoryID, createdBy int32, blob []byte) (*apigen.AssetVersion, error) {
+	return s.CreateAssetFromReader(ctx, key, spaceID, directoryID, createdBy, int64(len(blob)), bytes.NewReader(blob))
 }
 
-func (s *Store) CreateAssetFromReader(ctx context.Context, key string, spaceID, createdBy int32, sizeBytes int64, r io.Reader) (*apigen.AssetVersion, error) {
+func (s *Store) CreateAssetFromReader(ctx context.Context, key string, spaceID, directoryID, createdBy int32, sizeBytes int64, r io.Reader) (*apigen.AssetVersion, error) {
 	return s.writeVersion(ctx, sizeBytes, r,
 		func(location string, size int64, blob []byte) (*apigen.AssetVersion, error) {
-			return s.DB.CreateAssetWithVersion(key, spaceID, createdBy, location, size, blob)
+			return s.DB.CreateAssetWithVersion(key, spaceID, directoryID, createdBy, location, size, blob)
 		})
 }
 

@@ -22,7 +22,13 @@ export const secretsStatusS = van.state(null);
 export const backupStatusS = van.state(null);
 export const secretMetasS = van.state([]);
 export const userConfigsS = van.state([]);
+// valueDirectoriesS holds the shared secrets/configs folder tree across all
+// spaces; parentId 0 is a space's implicit root.
+export const valueDirectoriesS = van.state([]);
 export const assetMetasS = van.state([]);
+// assetDirectoriesS holds the asset folder tree across all spaces; parentId 0
+// is a space's implicit root. Directories carry `key`, not `name`.
+export const assetDirectoriesS = van.state([]);
 export const primaryConfigS = van.state(null);
 const SEEDED_SPACES = [{id: 0, name: 'opendeploy'}, {id: 1, name: 'default'}];
 
@@ -99,7 +105,9 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         backupStatusS.val = null;
         secretMetasS.val = [];
         userConfigsS.val = [];
+        valueDirectoriesS.val = [];
         assetMetasS.val = [];
+        assetDirectoriesS.val = [];
         primaryConfigS.val = null;
         spacesS.val = SEEDED_SPACES;
     }
@@ -234,6 +242,14 @@ const handleStateMessage = (message) => {
         userConfigRefsS.val = expandValueVersionRefs(userConfigsS.val);
     }
 
+    if (message.valueDirectoriesSnapshot) {
+        valueDirectoriesS.val = sortByName(message.valueDirectoriesSnapshot.items || []);
+    }
+
+    if (message.valueDirectoryUpdate?.id) {
+        valueDirectoriesS.val = applyItemUpdate(valueDirectoriesS.val, message.valueDirectoryUpdate);
+    }
+
     if (message.spacesSnapshot) {
         spacesS.val = sortSpaces(message.spacesSnapshot.items || []);
     }
@@ -248,6 +264,14 @@ const handleStateMessage = (message) => {
 
     if (message.assetUpdate && (message.assetUpdate.id || message.assetUpdate.key)) {
         assetMetasS.val = applyAssetUpdate(assetMetasS.val, message.assetUpdate);
+    }
+
+    if (message.assetDirectoriesSnapshot) {
+        assetDirectoriesS.val = sortAssets(message.assetDirectoriesSnapshot.items || []);
+    }
+
+    if (message.assetDirectoryUpdate?.id) {
+        assetDirectoriesS.val = applyAssetUpdate(assetDirectoriesS.val, message.assetDirectoryUpdate);
     }
 
     if (message.configSnapshot) {

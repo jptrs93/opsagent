@@ -4478,6 +4478,7 @@ func (m *SecretCreateRequest) Encode() []byte {
 	b = AppendStringField(b, m.Name, 1)
 	b = AppendBytesField(b, m.Value, 3)
 	b = AppendInt32Field(b, m.SpaceID, 4)
+	b = AppendInt32Field(b, m.ValueDirectoryID, 5)
 	return b
 }
 
@@ -4498,6 +4499,8 @@ func DecodeSecretCreateRequest(b []byte) (*SecretCreateRequest, error) {
 			b, m.Value, err = ConsumeBytesCopy(b, typ)
 		case 4:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.ValueDirectoryID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4660,6 +4663,38 @@ func DecodeSecretRenameRequest(b []byte) (*SecretRenameRequest, error) {
 			b, m.NewName, err = ConsumeString(b, typ)
 		case 3:
 			b, m.SecretID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretMoveRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.SecretID, 1)
+	b = AppendInt32Field(b, m.ValueDirectoryID, 2)
+	return b
+}
+
+func DecodeSecretMoveRequest(b []byte) (*SecretMoveRequest, error) {
+	var m SecretMoveRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.SecretID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.ValueDirectoryID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5000,6 +5035,7 @@ func (m *ConfigCreateRequest) Encode() []byte {
 	b = AppendStringField(b, m.Name, 1)
 	b = AppendStringField(b, m.Value, 3)
 	b = AppendInt32Field(b, m.SpaceID, 4)
+	b = AppendInt32Field(b, m.ValueDirectoryID, 5)
 	return b
 }
 
@@ -5020,6 +5056,8 @@ func DecodeConfigCreateRequest(b []byte) (*ConfigCreateRequest, error) {
 			b, m.Value, err = ConsumeString(b, typ)
 		case 4:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.ValueDirectoryID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5133,6 +5171,256 @@ func DecodeConfigDeleteRequest(b []byte) (*ConfigDeleteRequest, error) {
 		switch num {
 		case 2:
 			b, m.ConfigID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ConfigMoveRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ConfigID, 1)
+	b = AppendInt32Field(b, m.ValueDirectoryID, 2)
+	return b
+}
+
+func DecodeConfigMoveRequest(b []byte) (*ConfigMoveRequest, error) {
+	var m ConfigMoveRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ConfigID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.ValueDirectoryID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ValueDirectory) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt32Field(b, m.SpaceID, 2)
+	b = AppendStringField(b, m.Name, 3)
+	b = AppendInt32Field(b, m.ParentID, 4)
+	b = AppendInt64FromTime(b, m.CreatedAt, 5)
+	b = AppendInt32Field(b, m.CreatedBy, 6)
+	b = AppendBoolField(b, m.Deleted, 7)
+	return b
+}
+
+func DecodeValueDirectory(b []byte) (*ValueDirectory, error) {
+	var m ValueDirectory
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 4:
+			b, m.ParentID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 6:
+			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ValueDirectoryList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeValueDirectoryList(b []byte) (*ValueDirectoryList, error) {
+	var m ValueDirectoryList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueDirectory
+				item, err = DecodeValueDirectory(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ValueDirectoryCreateRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.SpaceID, 1)
+	b = AppendInt32Field(b, m.ParentID, 2)
+	b = AppendStringField(b, m.Name, 3)
+	return b
+}
+
+func DecodeValueDirectoryCreateRequest(b []byte) (*ValueDirectoryCreateRequest, error) {
+	var m ValueDirectoryCreateRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.ParentID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.Name, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ValueDirectoryMoveRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DirectoryID, 1)
+	b = AppendInt32Field(b, m.NewParentID, 2)
+	return b
+}
+
+func DecodeValueDirectoryMoveRequest(b []byte) (*ValueDirectoryMoveRequest, error) {
+	var m ValueDirectoryMoveRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DirectoryID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.NewParentID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ValueDirectoryRenameRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DirectoryID, 1)
+	b = AppendStringField(b, m.NewName, 2)
+	return b
+}
+
+func DecodeValueDirectoryRenameRequest(b []byte) (*ValueDirectoryRenameRequest, error) {
+	var m ValueDirectoryRenameRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DirectoryID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.NewName, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ValueDirectoryDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DirectoryID, 1)
+	return b
+}
+
+func DecodeValueDirectoryDeleteRequest(b []byte) (*ValueDirectoryDeleteRequest, error) {
+	var m ValueDirectoryDeleteRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DirectoryID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5387,6 +5675,7 @@ func (m *AssetCreateRequest) Encode() []byte {
 	b = AppendStringField(b, m.Key, 1)
 	b = AppendInt32Field(b, m.SpaceID, 2)
 	b = AppendBytesField(b, m.Blob, 3)
+	b = AppendInt32Field(b, m.AssetDirectoryID, 4)
 	return b
 }
 
@@ -5407,6 +5696,8 @@ func DecodeAssetCreateRequest(b []byte) (*AssetCreateRequest, error) {
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		case 3:
 			b, m.Blob, err = ConsumeBytesCopy(b, typ)
+		case 4:
+			b, m.AssetDirectoryID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5500,6 +5791,256 @@ func DecodeAssetDeleteRequest(b []byte) (*AssetDeleteRequest, error) {
 		switch num {
 		case 2:
 			b, m.AssetID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetMoveRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.AssetID, 1)
+	b = AppendInt32Field(b, m.AssetDirectoryID, 2)
+	return b
+}
+
+func DecodeAssetMoveRequest(b []byte) (*AssetMoveRequest, error) {
+	var m AssetMoveRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.AssetID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.AssetDirectoryID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetDirectory) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt32Field(b, m.SpaceID, 2)
+	b = AppendStringField(b, m.Key, 3)
+	b = AppendInt32Field(b, m.ParentID, 4)
+	b = AppendInt64FromTime(b, m.CreatedAt, 5)
+	b = AppendInt32Field(b, m.CreatedBy, 6)
+	b = AppendBoolField(b, m.Deleted, 7)
+	return b
+}
+
+func DecodeAssetDirectory(b []byte) (*AssetDirectory, error) {
+	var m AssetDirectory
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 4:
+			b, m.ParentID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 6:
+			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetDirectoryList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeAssetDirectoryList(b []byte) (*AssetDirectoryList, error) {
+	var m AssetDirectoryList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AssetDirectory
+				item, err = DecodeAssetDirectory(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetDirectoryCreateRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.SpaceID, 1)
+	b = AppendInt32Field(b, m.ParentID, 2)
+	b = AppendStringField(b, m.Key, 3)
+	return b
+}
+
+func DecodeAssetDirectoryCreateRequest(b []byte) (*AssetDirectoryCreateRequest, error) {
+	var m AssetDirectoryCreateRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.ParentID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.Key, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetDirectoryMoveRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DirectoryID, 1)
+	b = AppendInt32Field(b, m.NewParentID, 2)
+	return b
+}
+
+func DecodeAssetDirectoryMoveRequest(b []byte) (*AssetDirectoryMoveRequest, error) {
+	var m AssetDirectoryMoveRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DirectoryID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.NewParentID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetDirectoryRenameRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DirectoryID, 1)
+	b = AppendStringField(b, m.NewKey, 2)
+	return b
+}
+
+func DecodeAssetDirectoryRenameRequest(b []byte) (*AssetDirectoryRenameRequest, error) {
+	var m AssetDirectoryRenameRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DirectoryID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.NewKey, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AssetDirectoryDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DirectoryID, 1)
+	return b
+}
+
+func DecodeAssetDirectoryDeleteRequest(b []byte) (*AssetDirectoryDeleteRequest, error) {
+	var m AssetDirectoryDeleteRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DirectoryID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5619,6 +6160,22 @@ func (m *State) Encode() []byte {
 	if m.AgentSessionUpdate != nil {
 		b = AppendTag(b, 35, BytesType)
 		b = AppendBytes(b, m.AgentSessionUpdate.Encode())
+	}
+	if m.ValueDirectoriesSnapshot != nil {
+		b = AppendTag(b, 36, BytesType)
+		b = AppendBytes(b, m.ValueDirectoriesSnapshot.Encode())
+	}
+	if m.ValueDirectoryUpdate != nil {
+		b = AppendTag(b, 37, BytesType)
+		b = AppendBytes(b, m.ValueDirectoryUpdate.Encode())
+	}
+	if m.AssetDirectoriesSnapshot != nil {
+		b = AppendTag(b, 38, BytesType)
+		b = AppendBytes(b, m.AssetDirectoriesSnapshot.Encode())
+	}
+	if m.AssetDirectoryUpdate != nil {
+		b = AppendTag(b, 39, BytesType)
+		b = AppendBytes(b, m.AssetDirectoryUpdate.Encode())
 	}
 	return b
 }
@@ -5871,6 +6428,42 @@ func DecodeState(b []byte) (*State, error) {
 					m.AgentSessionUpdate = item
 				}
 			}
+		case 36:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueDirectoryList
+				item, err = DecodeValueDirectoryList(msgBytes)
+				if err == nil {
+					m.ValueDirectoriesSnapshot = item
+				}
+			}
+		case 37:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueDirectory
+				item, err = DecodeValueDirectory(msgBytes)
+				if err == nil {
+					m.ValueDirectoryUpdate = item
+				}
+			}
+		case 38:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AssetDirectoryList
+				item, err = DecodeAssetDirectoryList(msgBytes)
+				if err == nil {
+					m.AssetDirectoriesSnapshot = item
+				}
+			}
+		case 39:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AssetDirectory
+				item, err = DecodeAssetDirectory(msgBytes)
+				if err == nil {
+					m.AssetDirectoryUpdate = item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5981,6 +6574,14 @@ func (m *GlobalState) Encode() []byte {
 		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, m.DeploymentConfigs.Encode())
 	}
+	if m.ValueDirectories != nil {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.ValueDirectories.Encode())
+	}
+	if m.AssetDirectories != nil {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.AssetDirectories.Encode())
+	}
 	return b
 }
 
@@ -6039,6 +6640,24 @@ func DecodeGlobalState(b []byte) (*GlobalState, error) {
 				item, err = DecodeDeploymentConfigSnapshot(msgBytes)
 				if err == nil {
 					m.DeploymentConfigs = item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueDirectoryList
+				item, err = DecodeValueDirectoryList(msgBytes)
+				if err == nil {
+					m.ValueDirectories = item
+				}
+			}
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AssetDirectoryList
+				item, err = DecodeAssetDirectoryList(msgBytes)
+				if err == nil {
+					m.AssetDirectories = item
 				}
 			}
 		default:

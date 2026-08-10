@@ -603,6 +603,7 @@
  * @property {string} name
  * @property {Uint8Array} value
  * @property {number} spaceId
+ * @property {number} valueDirectoryId
  */
 /**
  * @typedef {Object} SecretSetRequest
@@ -626,6 +627,11 @@
  * @typedef {Object} SecretRenameRequest
  * @property {string} newName
  * @property {number} secretId
+ */
+/**
+ * @typedef {Object} SecretMoveRequest
+ * @property {number} secretId
+ * @property {number} valueDirectoryId
  */
 /**
  * @typedef {Object} SecretDeleteRequest
@@ -680,6 +686,7 @@
  * @property {string} name
  * @property {string} value
  * @property {number} spaceId
+ * @property {number} valueDirectoryId
  */
 /**
  * @typedef {Object} ConfigSetRequest
@@ -696,6 +703,45 @@
 /**
  * @typedef {Object} ConfigDeleteRequest
  * @property {number} configId
+ */
+/**
+ * @typedef {Object} ConfigMoveRequest
+ * @property {number} configId
+ * @property {number} valueDirectoryId
+ */
+/**
+ * @typedef {Object} ValueDirectory
+ * @property {number} id
+ * @property {number} spaceId
+ * @property {string} name
+ * @property {number} parentId
+ * @property {Date} createdAt
+ * @property {number} createdBy
+ * @property {boolean} deleted
+ */
+/**
+ * @typedef {Object} ValueDirectoryList
+ * @property {ValueDirectory[]} items
+ */
+/**
+ * @typedef {Object} ValueDirectoryCreateRequest
+ * @property {number} spaceId
+ * @property {number} parentId
+ * @property {string} name
+ */
+/**
+ * @typedef {Object} ValueDirectoryMoveRequest
+ * @property {number} directoryId
+ * @property {number} newParentId
+ */
+/**
+ * @typedef {Object} ValueDirectoryRenameRequest
+ * @property {number} directoryId
+ * @property {string} newName
+ */
+/**
+ * @typedef {Object} ValueDirectoryDeleteRequest
+ * @property {number} directoryId
  */
 /**
  * @typedef {Object} AssetMeta
@@ -744,6 +790,7 @@
  * @property {string} key
  * @property {number} spaceId
  * @property {Uint8Array} blob
+ * @property {number} assetDirectoryId
  */
 /**
  * @typedef {Object} AssetSetRequest
@@ -758,6 +805,45 @@
 /**
  * @typedef {Object} AssetDeleteRequest
  * @property {number} assetId
+ */
+/**
+ * @typedef {Object} AssetMoveRequest
+ * @property {number} assetId
+ * @property {number} assetDirectoryId
+ */
+/**
+ * @typedef {Object} AssetDirectory
+ * @property {number} id
+ * @property {number} spaceId
+ * @property {string} key
+ * @property {number} parentId
+ * @property {Date} createdAt
+ * @property {number} createdBy
+ * @property {boolean} deleted
+ */
+/**
+ * @typedef {Object} AssetDirectoryList
+ * @property {AssetDirectory[]} items
+ */
+/**
+ * @typedef {Object} AssetDirectoryCreateRequest
+ * @property {number} spaceId
+ * @property {number} parentId
+ * @property {string} key
+ */
+/**
+ * @typedef {Object} AssetDirectoryMoveRequest
+ * @property {number} directoryId
+ * @property {number} newParentId
+ */
+/**
+ * @typedef {Object} AssetDirectoryRenameRequest
+ * @property {number} directoryId
+ * @property {string} newKey
+ */
+/**
+ * @typedef {Object} AssetDirectoryDeleteRequest
+ * @property {number} directoryId
  */
 /**
  * @typedef {Object} State
@@ -788,6 +874,10 @@
  * @property {ScheduledInstanceState} scheduledInstanceUpdate
  * @property {AgentSessionList} agentSessionsSnapshot
  * @property {AgentSession} agentSessionUpdate
+ * @property {ValueDirectoryList} valueDirectoriesSnapshot
+ * @property {ValueDirectory} valueDirectoryUpdate
+ * @property {AssetDirectoryList} assetDirectoriesSnapshot
+ * @property {AssetDirectory} assetDirectoryUpdate
  */
 /**
  * @typedef {Object} Space
@@ -806,6 +896,8 @@
  * @property {ConfigList} configs
  * @property {SecretList} secrets
  * @property {DeploymentConfigSnapshot} deploymentConfigs
+ * @property {ValueDirectoryList} valueDirectories
+ * @property {AssetDirectoryList} assetDirectories
  */
 /**
  * @typedef {Object} DeploymentGetRequest
@@ -8306,6 +8398,9 @@ export function writeSecretCreateRequest(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
     }
+    if (message.valueDirectoryId !== undefined && message.valueDirectoryId !== null && message.valueDirectoryId !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.valueDirectoryId);
+    }
 }
 
 
@@ -8327,7 +8422,7 @@ export function encodeSecretCreateRequest(message) {
  */
 function decodeSecretCreateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", value: new Uint8Array(0), spaceId: 0 };
+    const message = {name: "", value: new Uint8Array(0), spaceId: 0, valueDirectoryId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -8341,6 +8436,10 @@ function decodeSecretCreateRequestMessage(reader, length) {
             }
             case 4: {
                 message.spaceId = reader.int32();
+                break;
+            }
+            case 5: {
+                message.valueDirectoryId = reader.int32();
                 break;
             }
             default:
@@ -8637,6 +8736,69 @@ function decodeSecretRenameRequestMessage(reader, length) {
 export function decodeSecretRenameRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeSecretRenameRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretMoveRequest} message
+ * @param {Writer} writer
+ */
+export function writeSecretMoveRequest(message, writer) {
+    if (message.secretId !== undefined && message.secretId !== null && message.secretId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretId);
+    }
+    if (message.valueDirectoryId !== undefined && message.valueDirectoryId !== null && message.valueDirectoryId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.valueDirectoryId);
+    }
+}
+
+
+/**
+ * @param {SecretMoveRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretMoveRequest(message) {
+    const writer = Writer.create();
+    writeSecretMoveRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretMoveRequest}
+ */
+function decodeSecretMoveRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {secretId: 0, valueDirectoryId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.secretId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.valueDirectoryId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretMoveRequest}
+ */
+export function decodeSecretMoveRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretMoveRequestMessage(reader);
 }
 
 
@@ -9251,6 +9413,9 @@ export function writeConfigCreateRequest(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.spaceId);
     }
+    if (message.valueDirectoryId !== undefined && message.valueDirectoryId !== null && message.valueDirectoryId !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.valueDirectoryId);
+    }
 }
 
 
@@ -9272,7 +9437,7 @@ export function encodeConfigCreateRequest(message) {
  */
 function decodeConfigCreateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", value: "", spaceId: 0 };
+    const message = {name: "", value: "", spaceId: 0, valueDirectoryId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9286,6 +9451,10 @@ function decodeConfigCreateRequestMessage(reader, length) {
             }
             case 4: {
                 message.spaceId = reader.int32();
+                break;
+            }
+            case 5: {
+                message.valueDirectoryId = reader.int32();
                 break;
             }
             default:
@@ -9503,6 +9672,479 @@ function decodeConfigDeleteRequestMessage(reader, length) {
 export function decodeConfigDeleteRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeConfigDeleteRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ConfigMoveRequest} message
+ * @param {Writer} writer
+ */
+export function writeConfigMoveRequest(message, writer) {
+    if (message.configId !== undefined && message.configId !== null && message.configId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.configId);
+    }
+    if (message.valueDirectoryId !== undefined && message.valueDirectoryId !== null && message.valueDirectoryId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.valueDirectoryId);
+    }
+}
+
+
+/**
+ * @param {ConfigMoveRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeConfigMoveRequest(message) {
+    const writer = Writer.create();
+    writeConfigMoveRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ConfigMoveRequest}
+ */
+function decodeConfigMoveRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {configId: 0, valueDirectoryId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.configId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.valueDirectoryId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ConfigMoveRequest}
+ */
+export function decodeConfigMoveRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeConfigMoveRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ValueDirectory} message
+ * @param {Writer} writer
+ */
+export function writeValueDirectory(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.parentId !== undefined && message.parentId !== null && message.parentId !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.parentId);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.createdBy);
+    }
+    if (message.deleted === true) {
+        writer.uint32(tag(7, WIRE.VARINT)).bool(message.deleted);
+    }
+}
+
+
+/**
+ * @param {ValueDirectory} message
+ * @returns {Uint8Array}
+ */
+export function encodeValueDirectory(message) {
+    const writer = Writer.create();
+    writeValueDirectory(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValueDirectory}
+ */
+function decodeValueDirectoryMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, spaceId: 0, name: "", parentId: 0, createdAt: new Date(0), createdBy: 0, deleted: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.name = reader.string();
+                break;
+            }
+            case 4: {
+                message.parentId = reader.int32();
+                break;
+            }
+            case 5: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 6: {
+                message.createdBy = reader.int32();
+                break;
+            }
+            case 7: {
+                message.deleted = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValueDirectory}
+ */
+export function decodeValueDirectory(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValueDirectoryMessage(reader);
+}
+
+
+
+/**
+ * @param {ValueDirectoryList} message
+ * @param {Writer} writer
+ */
+export function writeValueDirectoryList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeValueDirectory(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ValueDirectoryList} message
+ * @returns {Uint8Array}
+ */
+export function encodeValueDirectoryList(message) {
+    const writer = Writer.create();
+    writeValueDirectoryList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValueDirectoryList}
+ */
+function decodeValueDirectoryListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeValueDirectoryMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValueDirectoryList}
+ */
+export function decodeValueDirectoryList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValueDirectoryListMessage(reader);
+}
+
+
+
+/**
+ * @param {ValueDirectoryCreateRequest} message
+ * @param {Writer} writer
+ */
+export function writeValueDirectoryCreateRequest(message, writer) {
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.parentId !== undefined && message.parentId !== null && message.parentId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.parentId);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.name);
+    }
+}
+
+
+/**
+ * @param {ValueDirectoryCreateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeValueDirectoryCreateRequest(message) {
+    const writer = Writer.create();
+    writeValueDirectoryCreateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValueDirectoryCreateRequest}
+ */
+function decodeValueDirectoryCreateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {spaceId: 0, parentId: 0, name: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.parentId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.name = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValueDirectoryCreateRequest}
+ */
+export function decodeValueDirectoryCreateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValueDirectoryCreateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ValueDirectoryMoveRequest} message
+ * @param {Writer} writer
+ */
+export function writeValueDirectoryMoveRequest(message, writer) {
+    if (message.directoryId !== undefined && message.directoryId !== null && message.directoryId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.directoryId);
+    }
+    if (message.newParentId !== undefined && message.newParentId !== null && message.newParentId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.newParentId);
+    }
+}
+
+
+/**
+ * @param {ValueDirectoryMoveRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeValueDirectoryMoveRequest(message) {
+    const writer = Writer.create();
+    writeValueDirectoryMoveRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValueDirectoryMoveRequest}
+ */
+function decodeValueDirectoryMoveRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {directoryId: 0, newParentId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.directoryId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.newParentId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValueDirectoryMoveRequest}
+ */
+export function decodeValueDirectoryMoveRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValueDirectoryMoveRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ValueDirectoryRenameRequest} message
+ * @param {Writer} writer
+ */
+export function writeValueDirectoryRenameRequest(message, writer) {
+    if (message.directoryId !== undefined && message.directoryId !== null && message.directoryId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.directoryId);
+    }
+    if (message.newName !== undefined && message.newName !== null && message.newName !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.newName);
+    }
+}
+
+
+/**
+ * @param {ValueDirectoryRenameRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeValueDirectoryRenameRequest(message) {
+    const writer = Writer.create();
+    writeValueDirectoryRenameRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValueDirectoryRenameRequest}
+ */
+function decodeValueDirectoryRenameRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {directoryId: 0, newName: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.directoryId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.newName = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValueDirectoryRenameRequest}
+ */
+export function decodeValueDirectoryRenameRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValueDirectoryRenameRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ValueDirectoryDeleteRequest} message
+ * @param {Writer} writer
+ */
+export function writeValueDirectoryDeleteRequest(message, writer) {
+    if (message.directoryId !== undefined && message.directoryId !== null && message.directoryId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.directoryId);
+    }
+}
+
+
+/**
+ * @param {ValueDirectoryDeleteRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeValueDirectoryDeleteRequest(message) {
+    const writer = Writer.create();
+    writeValueDirectoryDeleteRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValueDirectoryDeleteRequest}
+ */
+function decodeValueDirectoryDeleteRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {directoryId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.directoryId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValueDirectoryDeleteRequest}
+ */
+export function decodeValueDirectoryDeleteRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValueDirectoryDeleteRequestMessage(reader);
 }
 
 
@@ -9963,6 +10605,9 @@ export function writeAssetCreateRequest(message, writer) {
     if (message.blob && message.blob.length > 0) {
         writer.uint32(tag(3, WIRE.LDELIM)).bytes(message.blob);
     }
+    if (message.assetDirectoryId !== undefined && message.assetDirectoryId !== null && message.assetDirectoryId !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.assetDirectoryId);
+    }
 }
 
 
@@ -9984,7 +10629,7 @@ export function encodeAssetCreateRequest(message) {
  */
 function decodeAssetCreateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", spaceId: 0, blob: new Uint8Array(0) };
+    const message = {key: "", spaceId: 0, blob: new Uint8Array(0), assetDirectoryId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9998,6 +10643,10 @@ function decodeAssetCreateRequestMessage(reader, length) {
             }
             case 3: {
                 message.blob = reader.bytes();
+                break;
+            }
+            case 4: {
+                message.assetDirectoryId = reader.int32();
                 break;
             }
             default:
@@ -10202,6 +10851,479 @@ export function decodeAssetDeleteRequest(buffer) {
 
 
 /**
+ * @param {AssetMoveRequest} message
+ * @param {Writer} writer
+ */
+export function writeAssetMoveRequest(message, writer) {
+    if (message.assetId !== undefined && message.assetId !== null && message.assetId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.assetId);
+    }
+    if (message.assetDirectoryId !== undefined && message.assetDirectoryId !== null && message.assetDirectoryId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.assetDirectoryId);
+    }
+}
+
+
+/**
+ * @param {AssetMoveRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetMoveRequest(message) {
+    const writer = Writer.create();
+    writeAssetMoveRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetMoveRequest}
+ */
+function decodeAssetMoveRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {assetId: 0, assetDirectoryId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.assetId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.assetDirectoryId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetMoveRequest}
+ */
+export function decodeAssetMoveRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetMoveRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AssetDirectory} message
+ * @param {Writer} writer
+ */
+export function writeAssetDirectory(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.key);
+    }
+    if (message.parentId !== undefined && message.parentId !== null && message.parentId !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.parentId);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.createdBy);
+    }
+    if (message.deleted === true) {
+        writer.uint32(tag(7, WIRE.VARINT)).bool(message.deleted);
+    }
+}
+
+
+/**
+ * @param {AssetDirectory} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetDirectory(message) {
+    const writer = Writer.create();
+    writeAssetDirectory(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetDirectory}
+ */
+function decodeAssetDirectoryMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, spaceId: 0, key: "", parentId: 0, createdAt: new Date(0), createdBy: 0, deleted: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.key = reader.string();
+                break;
+            }
+            case 4: {
+                message.parentId = reader.int32();
+                break;
+            }
+            case 5: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 6: {
+                message.createdBy = reader.int32();
+                break;
+            }
+            case 7: {
+                message.deleted = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetDirectory}
+ */
+export function decodeAssetDirectory(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetDirectoryMessage(reader);
+}
+
+
+
+/**
+ * @param {AssetDirectoryList} message
+ * @param {Writer} writer
+ */
+export function writeAssetDirectoryList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeAssetDirectory(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {AssetDirectoryList} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetDirectoryList(message) {
+    const writer = Writer.create();
+    writeAssetDirectoryList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetDirectoryList}
+ */
+function decodeAssetDirectoryListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeAssetDirectoryMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetDirectoryList}
+ */
+export function decodeAssetDirectoryList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetDirectoryListMessage(reader);
+}
+
+
+
+/**
+ * @param {AssetDirectoryCreateRequest} message
+ * @param {Writer} writer
+ */
+export function writeAssetDirectoryCreateRequest(message, writer) {
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.parentId !== undefined && message.parentId !== null && message.parentId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.parentId);
+    }
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.key);
+    }
+}
+
+
+/**
+ * @param {AssetDirectoryCreateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetDirectoryCreateRequest(message) {
+    const writer = Writer.create();
+    writeAssetDirectoryCreateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetDirectoryCreateRequest}
+ */
+function decodeAssetDirectoryCreateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {spaceId: 0, parentId: 0, key: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.parentId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.key = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetDirectoryCreateRequest}
+ */
+export function decodeAssetDirectoryCreateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetDirectoryCreateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AssetDirectoryMoveRequest} message
+ * @param {Writer} writer
+ */
+export function writeAssetDirectoryMoveRequest(message, writer) {
+    if (message.directoryId !== undefined && message.directoryId !== null && message.directoryId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.directoryId);
+    }
+    if (message.newParentId !== undefined && message.newParentId !== null && message.newParentId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.newParentId);
+    }
+}
+
+
+/**
+ * @param {AssetDirectoryMoveRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetDirectoryMoveRequest(message) {
+    const writer = Writer.create();
+    writeAssetDirectoryMoveRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetDirectoryMoveRequest}
+ */
+function decodeAssetDirectoryMoveRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {directoryId: 0, newParentId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.directoryId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.newParentId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetDirectoryMoveRequest}
+ */
+export function decodeAssetDirectoryMoveRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetDirectoryMoveRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AssetDirectoryRenameRequest} message
+ * @param {Writer} writer
+ */
+export function writeAssetDirectoryRenameRequest(message, writer) {
+    if (message.directoryId !== undefined && message.directoryId !== null && message.directoryId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.directoryId);
+    }
+    if (message.newKey !== undefined && message.newKey !== null && message.newKey !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.newKey);
+    }
+}
+
+
+/**
+ * @param {AssetDirectoryRenameRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetDirectoryRenameRequest(message) {
+    const writer = Writer.create();
+    writeAssetDirectoryRenameRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetDirectoryRenameRequest}
+ */
+function decodeAssetDirectoryRenameRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {directoryId: 0, newKey: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.directoryId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.newKey = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetDirectoryRenameRequest}
+ */
+export function decodeAssetDirectoryRenameRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetDirectoryRenameRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AssetDirectoryDeleteRequest} message
+ * @param {Writer} writer
+ */
+export function writeAssetDirectoryDeleteRequest(message, writer) {
+    if (message.directoryId !== undefined && message.directoryId !== null && message.directoryId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.directoryId);
+    }
+}
+
+
+/**
+ * @param {AssetDirectoryDeleteRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetDirectoryDeleteRequest(message) {
+    const writer = Writer.create();
+    writeAssetDirectoryDeleteRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetDirectoryDeleteRequest}
+ */
+function decodeAssetDirectoryDeleteRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {directoryId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.directoryId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetDirectoryDeleteRequest}
+ */
+export function decodeAssetDirectoryDeleteRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetDirectoryDeleteRequestMessage(reader);
+}
+
+
+
+/**
  * @param {State} message
  * @param {Writer} writer
  */
@@ -10341,6 +11463,26 @@ export function writeState(message, writer) {
         writeAgentSession(message.agentSessionUpdate, writer);
         writer.ldelim();
     }
+    if (message.valueDirectoriesSnapshot !== undefined && message.valueDirectoriesSnapshot !== null) {
+        writer.uint32(tag(36, WIRE.LDELIM)).fork();
+        writeValueDirectoryList(message.valueDirectoriesSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.valueDirectoryUpdate !== undefined && message.valueDirectoryUpdate !== null) {
+        writer.uint32(tag(37, WIRE.LDELIM)).fork();
+        writeValueDirectory(message.valueDirectoryUpdate, writer);
+        writer.ldelim();
+    }
+    if (message.assetDirectoriesSnapshot !== undefined && message.assetDirectoriesSnapshot !== null) {
+        writer.uint32(tag(38, WIRE.LDELIM)).fork();
+        writeAssetDirectoryList(message.assetDirectoriesSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.assetDirectoryUpdate !== undefined && message.assetDirectoryUpdate !== null) {
+        writer.uint32(tag(39, WIRE.LDELIM)).fork();
+        writeAssetDirectory(message.assetDirectoryUpdate, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -10362,7 +11504,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentConfigsSnapshot: undefined, deploymentConfigUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, agentSessionsSnapshot: undefined, agentSessionUpdate: undefined };
+    const message = {heartbeat: false, deploymentConfigsSnapshot: undefined, deploymentConfigUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, agentSessionsSnapshot: undefined, agentSessionUpdate: undefined, valueDirectoriesSnapshot: undefined, valueDirectoryUpdate: undefined, assetDirectoriesSnapshot: undefined, assetDirectoryUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10472,6 +11614,22 @@ function decodeStateMessage(reader, length) {
             }
             case 35: {
                 message.agentSessionUpdate = decodeAgentSessionMessage(reader, reader.uint32());
+                break;
+            }
+            case 36: {
+                message.valueDirectoriesSnapshot = decodeValueDirectoryListMessage(reader, reader.uint32());
+                break;
+            }
+            case 37: {
+                message.valueDirectoryUpdate = decodeValueDirectoryMessage(reader, reader.uint32());
+                break;
+            }
+            case 38: {
+                message.assetDirectoriesSnapshot = decodeAssetDirectoryListMessage(reader, reader.uint32());
+                break;
+            }
+            case 39: {
+                message.assetDirectoryUpdate = decodeAssetDirectoryMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -10653,6 +11811,16 @@ export function writeGlobalState(message, writer) {
         writeDeploymentConfigSnapshot(message.deploymentConfigs, writer);
         writer.ldelim();
     }
+    if (message.valueDirectories !== undefined && message.valueDirectories !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeValueDirectoryList(message.valueDirectories, writer);
+        writer.ldelim();
+    }
+    if (message.assetDirectories !== undefined && message.assetDirectories !== null) {
+        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writeAssetDirectoryList(message.assetDirectories, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -10674,7 +11842,7 @@ export function encodeGlobalState(message) {
  */
 function decodeGlobalStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {spaces: undefined, assets: undefined, configs: undefined, secrets: undefined, deploymentConfigs: undefined };
+    const message = {spaces: undefined, assets: undefined, configs: undefined, secrets: undefined, deploymentConfigs: undefined, valueDirectories: undefined, assetDirectories: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10696,6 +11864,14 @@ function decodeGlobalStateMessage(reader, length) {
             }
             case 5: {
                 message.deploymentConfigs = decodeDeploymentConfigSnapshotMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.valueDirectories = decodeValueDirectoryListMessage(reader, reader.uint32());
+                break;
+            }
+            case 7: {
+                message.assetDirectories = decodeAssetDirectoryListMessage(reader, reader.uint32());
                 break;
             }
             default:
