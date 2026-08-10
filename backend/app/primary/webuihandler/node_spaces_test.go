@@ -2,6 +2,8 @@ package webuihandler
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -125,6 +127,38 @@ func TestSetAllowedSpacesRejectsUnknownAndMissingInput(t *testing.T) {
 	}
 	if _, err := setAllowed(t, h, node.Identifier, []int32{999}); err != UnknownSpaceErr {
 		t.Fatalf("unknown space err = %v, want UnknownSpaceErr", err)
+	}
+}
+
+// The deployment create panel loads its node list from /v1/nodes/status, so
+// the machines there must carry the allow list or the panel treats every node
+// as disallowing every space.
+func TestNodesStatusCarriesAllowedSpaces(t *testing.T) {
+	h, node := newNodeSpacesHandler(t)
+	space, err := h.Store.CreateSpace("staging")
+	if err != nil {
+		t.Fatalf("CreateSpace: %v", err)
+	}
+	if _, err := setAllowed(t, h, node.Identifier, []int32{space.ID}); err != nil {
+		t.Fatalf("narrowing: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/v1/nodes/status", nil)
+	if err := h.GetV1NodesStatus(apigen.Context{}, r, w); err != nil {
+		t.Fatalf("GetV1NodesStatus: %v", err)
+	}
+	resp, err := apigen.DecodeNodeStatusResponse(w.Body.Bytes())
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Machines) != 1 {
+		t.Fatalf("machines = %d, want 1", len(resp.Machines))
+	}
+	got := resp.Machines[0].AllowedSpaces
+	slices.Sort(got)
+	if !slices.Equal(got, []int32{sqlite.OpendeploySpaceID, space.ID}) {
+		t.Fatalf("AllowedSpaces = %v, want [%d %d]", got, sqlite.OpendeploySpaceID, space.ID)
 	}
 }
 

@@ -29,12 +29,13 @@ func (h *Handler) GetV1NodesStatus(ctx apigen.Context, r *http.Request, w http.R
 		}
 		conn := connected[node.ID]
 		machines = append(machines, &apigen.ClusterMachine{
-			ID:          node.ID,
-			Name:        node.Name,
-			Identifier:  node.Identifier,
-			IsPrimary:   nodeHasRole(node, sqlite.NodeRolePrimary),
-			Connected:   conn.connected,
-			ConnectedAt: conn.connectedAt,
+			ID:            node.ID,
+			Name:          node.Name,
+			Identifier:    node.Identifier,
+			IsPrimary:     nodeHasRole(node, sqlite.NodeRolePrimary),
+			Connected:     conn.connected,
+			ConnectedAt:   conn.connectedAt,
+			AllowedSpaces: node.AllowedSpaces,
 		})
 	}
 	respond(w, &apigen.NodeStatusResponse{Machines: machines})

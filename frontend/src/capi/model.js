@@ -868,6 +868,7 @@
  * @property {Date} connectedAt
  * @property {string} identifier
  * @property {number} id
+ * @property {number[]} allowedSpaces
  */
 /**
  * @typedef {Object} ClusterNode
@@ -11438,6 +11439,15 @@ export function writeClusterMachine(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(6, WIRE.VARINT)).int32(message.id);
     }
+    if (message.allowedSpaces) {
+        const packedWriter = Writer.create();
+        for (const item of message.allowedSpaces) {
+            packedWriter.int32(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(7, WIRE.LDELIM)).bytes(packedWriter.finish());
+        }
+    }
 }
 
 
@@ -11459,7 +11469,7 @@ export function encodeClusterMachine(message) {
  */
 function decodeClusterMachineMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", isPrimary: false, connected: false, connectedAt: new Date(0), identifier: "", id: 0 };
+    const message = {name: "", isPrimary: false, connected: false, connectedAt: new Date(0), identifier: "", id: 0, allowedSpaces: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11485,6 +11495,13 @@ function decodeClusterMachineMessage(reader, length) {
             }
             case 6: {
                 message.id = reader.int32();
+                break;
+            }
+            case 7: {
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.allowedSpaces.push(reader.int32());
+                }
                 break;
             }
             default:

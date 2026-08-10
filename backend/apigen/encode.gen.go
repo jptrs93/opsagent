@@ -6489,6 +6489,7 @@ func (m *ClusterMachine) Encode() []byte {
 	b = AppendInt64FromTime(b, m.ConnectedAt, 4)
 	b = AppendStringField(b, m.Identifier, 5)
 	b = AppendInt32Field(b, m.ID, 6)
+	b = AppendRepeatedCompact(b, m.AllowedSpaces, 7, AppendCompactDecorator(AppendInt32Compact))
 	return b
 }
 
@@ -6515,6 +6516,8 @@ func DecodeClusterMachine(b []byte) (*ClusterMachine, error) {
 			b, m.Identifier, err = ConsumeString(b, typ)
 		case 6:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.AllowedSpaces, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

@@ -988,12 +988,13 @@ type PublicKeyRecord struct {
 }
 
 type ClusterMachine struct {
-	Name        string    `json:"name,omitempty"`
-	IsPrimary   bool      `json:"is_primary"`
-	Connected   bool      `json:"connected"`
-	ConnectedAt time.Time `json:"connected_at"`
-	Identifier  string    `json:"identifier,omitempty"`
-	ID          int32     `json:"id"`
+	Name          string    `json:"name,omitempty"`
+	IsPrimary     bool      `json:"is_primary"`
+	Connected     bool      `json:"connected"`
+	ConnectedAt   time.Time `json:"connected_at"`
+	Identifier    string    `json:"identifier,omitempty"`
+	ID            int32     `json:"id"`
+	AllowedSpaces []int32   `json:"allowed_spaces,omitempty"`
 }
 
 type ClusterNode struct {

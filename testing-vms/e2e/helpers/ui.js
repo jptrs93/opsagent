@@ -228,7 +228,7 @@ export async function createNixDockerDeployment(page, {
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
     const createResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployment/create';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/create';
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await createResponse).ok()).toBe(true);
@@ -281,7 +281,7 @@ export async function updateNixDockerDeployment(page, {
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
     const updateResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployment/update';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await updateResponse).ok()).toBe(true);
@@ -437,7 +437,7 @@ export async function deleteDeployment(page, {name, machine = 'worker-1'} = {}) 
   await expect(overlay).toBeVisible();
   const response = page.waitForResponse(res => {
     const request = res.request();
-    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployment/delete';
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/delete';
   }, {timeout: LONG_UI_TIMEOUT});
   await overlay.getByRole('button', {name: 'Delete', exact: true}).click();
   expect((await response).ok()).toBe(true);
@@ -748,7 +748,7 @@ export async function createContainerImageDeployment(page, {
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
     const createResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployment/create';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/create';
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await createResponse).ok()).toBe(true);
@@ -768,7 +768,7 @@ export async function createAsset(page, {key, content} = {}) {
   await fillCodeEditor(page, `Content for asset ${key}`, content);
   const createResponse = page.waitForResponse(response => {
     const request = response.request();
-    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/assets/set';
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/assets/create';
   }, {timeout: LONG_UI_TIMEOUT});
   await page.getByRole('button', {name: 'Create asset'}).click();
   expect((await createResponse).ok()).toBe(true);
@@ -960,7 +960,7 @@ export async function expectDeploymentRestartCount(page, nameOrOpts, count) {
     return await deploymentRestartCount(page, {name, machine});
   }, {message: `expected ${name} to restart ${expectedCount} times`, timeout: RESTART_TIMEOUT}).toBe(expectedCount);
   const row = byTestId(page, `deployment-row-${name}`, deploymentRow(page, {name, machine}));
-  await expect(row.getByTitle('View run output')).toContainText('Running', {timeout: LONG_UI_TIMEOUT});
+  await expect(row.getByTitle('View run output').last()).toContainText('Running', {timeout: LONG_UI_TIMEOUT});
 }
 
 async function upgradeOpenDeployAgent(page, {machine, version}) {
@@ -983,7 +983,7 @@ async function upgradeOpenDeployDeployment(page, {name, machine, version}) {
   await releaseSelect.selectOption(version);
   const updateResponse = page.waitForResponse(response => {
     const request = response.request();
-    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployment/update';
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
   }, {timeout: LONG_UI_TIMEOUT});
   await dialog.getByRole('button', {name: 'Update deployment'}).click();
   expect((await updateResponse).ok()).toBe(true);
@@ -1003,7 +1003,7 @@ async function expectOpenDeployDeploymentVersion(page, {name, machine, version})
   await showOpendeployDeployments(page);
   const row = deploymentRow(page, {name, machine});
   await expect(row).toContainText(version, {timeout: UPGRADE_TIMEOUT});
-  await expect(row.getByTitle('View run output')).toContainText('Running', {timeout: UPGRADE_TIMEOUT});
+  await expect(row.getByTitle('View run output').last()).toContainText('Running', {timeout: UPGRADE_TIMEOUT});
 }
 
 async function expectMachineConnected(page, machine) {
@@ -1063,7 +1063,9 @@ export async function expectDeploymentStopped(page, opts = {}) {
 }
 
 async function openDeploymentLogsSearch(page, row) {
-  await row.getByTitle('View run output').click();
+  // During a rollover the row shows one status badge per scheduled instance;
+  // all of them open the same deployment's run output, so take the newest.
+  await row.getByTitle('View run output').last().click();
   await expect(byTestId(page, 'nav-logs', page.getByText('Logs'))).toBeVisible();
   await expect(page.getByTestId('logs-space-select')).toBeVisible();
   await expect(page.getByTestId('logs-deployment-select')).not.toHaveValue('');
@@ -1293,13 +1295,20 @@ async function setDeploymentAssetMount(dialog, {asset, path: mountPath}) {
   await summary.getByRole('button').click();
   await expect(dialog.getByRole('heading', {name: 'Mounted assets'})).toBeVisible();
   const pane = dialog.getByRole('heading', {name: 'Mounted assets'}).locator('xpath=ancestor::div[contains(@class, "border-l")][1]');
-  const assetSelect = field(pane, 'Asset').locator('select');
+  // Opening the pane from the summary auto-adds an empty row; only add one
+  // explicitly when none exists (e.g. reopening a pane that had its row removed).
+  // exact: the preview button's aria-label "Preview mounted asset" would
+  // otherwise substring-match "Mounted asset" too.
+  if (await pane.getByLabel('Mounted asset', {exact: true}).count() === 0) {
+    await pane.getByRole('button', {name: 'Add mount'}).click();
+  }
+  const assetSelect = pane.getByLabel('Mounted asset', {exact: true}).last();
   const assetOption = assetSelect.locator('option').filter({hasText: asset}).last();
   await expect(assetOption).toBeAttached({timeout: LONG_UI_TIMEOUT});
   const assetValue = await assetOption.getAttribute('value');
   await assetSelect.selectOption(assetValue);
   await expect(assetSelect).toHaveValue(assetValue);
-  const pathInput = field(pane, 'Container path').getByRole('textbox');
+  const pathInput = pane.getByLabel('Container path', {exact: true}).last();
   await pathInput.fill(mountPath);
   await expect(pathInput).toHaveValue(mountPath);
   await pathInput.blur();
@@ -1326,7 +1335,7 @@ function trackRepoValidateRequests(page) {
   const responses = [];
   const isValidateRequest = request => {
     const url = new URL(request.url());
-    return request.method() === 'POST' && url.pathname === '/v1/repo/validate';
+    return request.method() === 'POST' && url.pathname === '/v1/repos/validate';
   };
   const handler = request => {
     if (isValidateRequest(request)) requests.push(request);
