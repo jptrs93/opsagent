@@ -3,7 +3,7 @@ import {capi} from "../capi/index.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {valueOverlay} from "../components/valueOverlay.js";
-import {formatDateTime} from "../lib/date.js";
+import {formatDate, formatDateTime} from "../lib/date.js";
 import {containerWorkload} from "../lib/deploymentConfig.js";
 import {
     caretRightIcon, checkIcon, chevronDownIcon, closeIcon, columnsIcon, configSlidersIcon,
@@ -19,7 +19,7 @@ import {
 } from "../lib/valueExplorer.js";
 import {
     deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS,
-    userConfigsS, valueDirectoriesS,
+    userConfigsS, usersMapS, valueDirectoriesS,
 } from "../state/deployments.js";
 
 const {button, col, colgroup, dd, div, dl, dt, h2, input, p, span, table, tbody, td, th, thead, tr} = van.tags;
@@ -661,7 +661,7 @@ export function secretsPage() {
         div({class: "relative"},
             searchIcon({class: "pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500"}),
             input({
-                class: "text-input search-input pl-7",
+                class: "text-input search-input search-input-iconed",
                 type: "search",
                 placeholder: "Search secrets / configs",
                 "aria-label": "Search secrets and configs",
@@ -737,7 +737,7 @@ export function secretsPage() {
             onmousedown: (e) => startColResize(e, column.key, column.min),
             onkeydown: (e) => nudgeColWidth(e, column.key, column.min),
         });
-        const base = "sticky top-0 z-[1] bg-gray-950 px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wider " +
+        const base = "sticky top-0 z-[1] bg-surface px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wider " +
             "whitespace-nowrap shadow-[inset_0_-1px_0_#374151]";
         if (column.noSort) {
             return th({class: `${base} text-right text-gray-500`}, column.label, grip);
@@ -772,9 +772,12 @@ export function secretsPage() {
     const nameText = (text, cls = "text-gray-100") => span({class: `truncate min-w-0 ${cls}`}, text);
     const blankCells = (columns) => columns.slice(1).map(() => td({class: "border-b border-gray-800/80 px-2 py-1"}));
 
+    // Colors match the design mock: everything sits on the card surface, rows
+    // hover with the lighter surface-hover tint, and space roots are slightly
+    // recessed toward the page background.
     const rowClass = (row) => {
-        const selected = selectedKey.val === row.key;
-        return `group cursor-default ${selected ? "bg-brand/15" : "hover:bg-gray-800/40"}`;
+        if (selectedKey.val === row.key) return "group cursor-default bg-brand/15";
+        return `group cursor-default hover:bg-gray-700/35 ${row.type === "space" ? "bg-gray-950/30" : ""}`;
     };
 
     const groupRow = (row, columns, ...inner) => tr(
@@ -820,7 +823,7 @@ export function secretsPage() {
     const itemCell = (column, item, usesMap) => {
         const base = "border-b border-gray-800/80 px-2 py-1 whitespace-nowrap overflow-hidden text-gray-400";
         if (column.key === "version") return td({class: `${base} text-right tabular-nums`}, `v${item.version}`);
-        if (column.key === "created") return td({class: base}, formatDateTime(item.createdAt, "-"));
+        if (column.key === "created") return td({class: base, title: formatDateTime(item.createdAt, "")}, formatDate(item.createdAt, "-"));
         if (column.key === "uses") return td({class: `${base} text-right tabular-nums`}, usesCell(item, usesMap));
         if (column.key === "value") {
             return td({class: `${base} font-mono text-ellipsis`, title: item.kind === "config" ? item.value : "Secret value"},
@@ -926,7 +929,7 @@ export function secretsPage() {
         const hidden = hiddenByTypeCount();
         return div(
             {
-                class: "flex flex-none items-center gap-1.5 border-t border-gray-800 bg-gray-950/60 px-3 py-1.5 font-mono text-[11px] text-gray-500",
+                class: "flex flex-none items-center gap-1.5 border-t border-gray-700 bg-gray-950/40 px-3 py-1.5 font-mono text-[11px] text-gray-500",
                 "data-testid": "explorer-pathbar",
             },
             parts.length
@@ -979,11 +982,14 @@ export function secretsPage() {
         {class: "inline-flex items-center gap-1.5 font-mono text-[11px] text-gray-400"},
         spaceDot(spaceId), spaceName(spaceId));
 
+    const versionAuthor = (id) => usersMapS.val.get(Number(id)) || "";
+
     const versionsList = (meta) => div({class: "flex flex-col gap-1"},
         ...(meta.versionRefs || []).map((ref, i) => div(
-            {class: "flex items-baseline gap-2 font-mono text-[11px] text-gray-400"},
+            {class: "flex items-baseline gap-2 font-mono text-[10px] text-gray-400"},
             span({class: "text-gray-200 font-medium"}, `v${ref.version}`),
-            formatDateTime(ref.createdAt, "-"),
+            span({title: formatDateTime(ref.createdAt, "")}, formatDate(ref.createdAt, "-")),
+            versionAuthor(ref.createdBy) ? span({class: "text-gray-500 truncate"}, versionAuthor(ref.createdBy)) : "",
             i === 0 ? span({class: "text-green-400"}, "current") : "",
         )));
 
@@ -1019,7 +1025,7 @@ export function secretsPage() {
             div({class: "app-scroll flex-1 min-h-0 overflow-y-auto px-3 py-2.5 flex flex-col gap-2.5"},
                 dl({class: "m-0 grid grid-cols-[76px_1fr] items-baseline gap-x-2 gap-y-1.5"},
                     ...kvRow("Version", `v${item.version}`),
-                    ...kvRow("Created", formatDateTime(item.createdAt, "-")),
+                    ...kvRow("Created", span({title: formatDateTime(item.createdAt, "")}, formatDate(item.createdAt, "-"))),
                     ...kvRow("In use by", usageCount
                         ? button({
                             type: "button",
@@ -1081,7 +1087,7 @@ export function secretsPage() {
                     ...kvRow("Secrets", String(stats.secrets)),
                     ...kvRow("Configs", String(stats.inScope.length - stats.secrets)),
                     ...(folderCount !== null ? kvRow("Folders", String(folderCount)) : []),
-                    ...kvRow("Newest", formatDateTime(stats.newest, "-")))),
+                    ...kvRow("Newest", span({title: formatDateTime(stats.newest, "")}, formatDate(stats.newest, "-"))))),
             div({class: "flex flex-none flex-wrap gap-1.5 border-t border-gray-800 px-3 py-2.5"},
                 actionButton("New secret here", () => { if (secretsUnlocked()) openCreate("secret"); }, "bg-gray-700 text-gray-200 hover:bg-gray-600", {disabledWhen: () => !secretsUnlocked()}),
                 actionButton("New config here", () => openCreate("config")),
@@ -1096,7 +1102,7 @@ export function secretsPage() {
     const inspector = () => {
         const sel = resolveSelection();
         return div(
-            {class: "relative flex flex-none flex-col border-l border-gray-700 bg-gray-950/60", style: () => `width:${inspectorWidth.val}px`},
+            {class: "relative flex flex-none flex-col border-l border-gray-700 bg-gray-950/35", style: () => `width:${inspectorWidth.val}px`},
             span({
                 class: "vgrip",
                 tabindex: "0",
@@ -1264,7 +1270,9 @@ export function secretsPage() {
     // ---- page -------------------------------------------------------------
 
     return div(
-        {class: "h-full min-h-0 flex flex-col overflow-hidden"},
+        // bg-surface: per the design mock the explorer is one flush card
+        // surface, not content floating on the page background.
+        {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
         lockedBanner,
         toolbar(),
         errorLine,
@@ -1272,7 +1280,9 @@ export function secretsPage() {
             div({class: "flex min-w-0 flex-1 flex-col"},
                 tableArea,
                 pathbar),
-            () => inspectorOpen.val ? inspector() : ""),
+            // The inspector only exists alongside a selection: an empty page
+            // gets the full table width instead of a "select a row" stub.
+            () => inspectorOpen.val && selectedKey.val ? inspector() : ""),
         () => openMenu.val ? div({class: "fixed inset-0 z-20", onclick: () => { openMenu.val = null; }}) : "",
         folderDialogEl,
         moveDialogEl,

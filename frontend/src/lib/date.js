@@ -9,6 +9,11 @@ export function formatDateTime(value, fallback = '') {
     return `${MONTHS[value.getMonth()]} ${value.getDate()}, ${pad2(value.getHours())}:${pad2(value.getMinutes())}`;
 }
 
+export function formatDate(value, fallback = '') {
+    if (!(value instanceof Date) || value.getTime() <= 0) return fallback;
+    return `${MONTHS[value.getMonth()]} ${value.getDate()}, ${value.getFullYear()}`;
+}
+
 export function formatHistoryTime(value) {
     if (!(value instanceof Date) || value.getTime() <= 0) return '';
     return `${MONTHS[value.getMonth()]} ${value.getDate()} ${pad2(value.getHours())}:${pad2(value.getMinutes())}:${pad2(value.getSeconds())}`;

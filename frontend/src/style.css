@@ -45,6 +45,14 @@
     @apply text-xs;
 }
 
+/* Left padding for a search input with an overlaid icon. A plain rule rather
+   than a pl-* utility: .text-input's px-3 is un-layered and beats layered
+   utilities, so a utility's padding-left never applies and the icon lands on
+   top of the first character. */
+.search-input-iconed {
+    padding-left: 1.75rem;
+}
+
 .btn-primary {
     @apply px-4 py-2 rounded-lg bg-brand text-white font-medium
     hover:bg-blue-600 transition-colors cursor-pointer;
