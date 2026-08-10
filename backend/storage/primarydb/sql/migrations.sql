@@ -1,63 +1,10 @@
--- add migrations here
-
--- Drop the pre-scheduled-instance status tables. Every deployment's runtime
--- state now lives in scheduled_instances / scheduled_instance_status, and the
--- one-shot migration that read these has been removed.
-DROP TABLE IF EXISTS deployment_status;
-DROP TABLE IF EXISTS deployment_status_history;
-DELETE FROM local_kv WHERE key = 'scheduled_instance_migration_v1';
-
--- Split the single preparer status into per-stage statuses. The rollup is now
--- derived from the stages on read, so preparer_status is backfilled into them
--- and then dropped.
-ALTER TABLE scheduled_instance_status ADD COLUMN preparer_inputs_status INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE scheduled_instance_status ADD COLUMN preparer_image_status INTEGER NOT NULL DEFAULT 0;
-
--- Backfill: every legacy rollup maps to exactly one stage pair that re-derives
--- to itself. Inputs are assumed to have succeeded, since a rollup past UNKNOWN
--- means the image stage had been reached. The one thing not recoverable is
--- which stage a legacy FAILED failed in, attributed here to the image.
---   PREPARING(2)->BUILDING(1)  DOWNLOADING(3)->DOWNLOADING(3)
---   READY(4)->READY(4)  FAILED(5)->FAILED(5)  PULLING(6)->PULLING(2)
--- The WHERE keeps this off rows that already carry real stage detail.
-UPDATE scheduled_instance_status
-SET preparer_inputs_status = CASE WHEN COALESCE(preparer_status, 0) = 0 THEN 0 ELSE 2 END,
-    preparer_image_status = CASE COALESCE(preparer_status, 0)
-        WHEN 2 THEN 1
-        WHEN 3 THEN 3
-        WHEN 4 THEN 4
-        WHEN 5 THEN 5
-        WHEN 6 THEN 2
-        ELSE 0
-    END
-WHERE preparer_inputs_status = 0 AND preparer_image_status = 0;
-
-ALTER TABLE scheduled_instance_status DROP COLUMN preparer_status;
-
--- Agent sessions gain a lifecycle status, so a session can exist as a pending
--- request before any token is minted. DEFAULT 2 (APPROVED) is the right
--- backfill: every row that predates this was minted directly and is live.
-ALTER TABLE agent_sessions ADD COLUMN status INTEGER NOT NULL DEFAULT 2;
-ALTER TABLE agent_sessions ADD COLUMN requesting_address TEXT NOT NULL DEFAULT '';
-ALTER TABLE agent_sessions ADD COLUMN approval_code TEXT NOT NULL DEFAULT '';
-ALTER TABLE agent_sessions ADD COLUMN approved_at INTEGER NOT NULL DEFAULT 0;
-
--- Move the old revoked flag onto status. Converges after one pass and is a
--- no-op thereafter, since the handler now writes status alongside revoked_at.
-UPDATE agent_sessions SET status = 4 WHERE revoked_at > 0 AND status = 2;
-
--- Nodes gain a list of the spaces whose deployments may be placed on them.
--- The default is the empty string rather than a JSON array on purpose: it is a
--- sentinel meaning "never backfilled", and no valid value can collide with it.
--- Migrations re-run on every startup, so keying the backfill off the sentinel
--- is what stops it resetting an operator's narrowed list on the next restart --
--- including the legitimate case of a node narrowed to exactly the opendeploy
--- space, which a '[0]' default could not have distinguished.
-ALTER TABLE nodes ADD COLUMN allowed_spaces TEXT NOT NULL DEFAULT '';
-
--- Existing installs stay exactly as permissive as they were: every node allows
--- every space that exists. group_concat rather than json_group_array so this
--- does not depend on the JSON1 extension being compiled in.
-UPDATE nodes
-SET allowed_spaces = COALESCE((SELECT '[' || group_concat(id) || ']' FROM spaces), '[0]')
-WHERE allowed_spaces = '';
+-- Add migrations here. Statements re-run on every startup, so each must be
+-- idempotent (sqlitedb.ApplyMigrations tolerates "already applied" errors:
+-- duplicate column, no such column, no such table). Comments must not contain
+-- semicolons — statements are split on them.
+--
+-- History note: all migrations accumulated up to the 2026-08 storage split
+-- (deployment_status drops, preparer stage split, agent_sessions request/
+-- approve columns, nodes.allowed_spaces) were removed after every active
+-- cluster had been rolled forward. Upgrading a database from before then
+-- requires stepping through a release that still carried them.

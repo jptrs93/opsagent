@@ -88,17 +88,6 @@ Key files:
   the id-and-version AAD needs the identity id before the ciphertext can exist.
 - `backend/storage/primarydb/values.go` — the shared secrets/configs namespace
   law: `ValidValueName` and the three-table sibling-uniqueness check.
-- `backend/storage/primarydb/values_shape_migration.go` — the one-time
-  pre-`applySchema` transform of the legacy one-row-per-version `secrets` and
-  `configs` tables into the identity + versions split. Version row ids are
-  preserved verbatim (deployment env refs, system settings, and secondary
-  `local_runtime_inputs` pin them); identity ids are seeded above
-  `max(version id)` so the two id spaces never overlap on a migrated install;
-  ciphertext bytes are copied untouched (the SMK is not available at DB init —
-  the Manager's unlock sweep converts the AAD binding later). A name existing
-  as both a secret and a config in the same space fails the migration loudly.
-  Primary-only in effect: the cluster protocol is untouched, so no ordered
-  rollout is needed.
 - `backend/lib/engine/prepare/runtimeinputs/secrets.go` — finds typed `secretVersionId`
   / `configVersionId` refs, fetches each needed batch, validates it, and owns the
   prepared in-memory caches.

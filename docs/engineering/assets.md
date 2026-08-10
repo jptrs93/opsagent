@@ -22,14 +22,9 @@ Assets are versioned user-managed file blobs intended for config files that can 
 - `asset_migrations` records each complete local-to-S3 or S3-to-local transition with its old and new `system_config_revisions` row IDs, durable status, timestamps, and latest error. Individual asset locations are the per-asset progress markers; there is no migration-item table.
 - Primary/secondary startup creates the fixed local large-asset and materialized-asset cache roots up front. Asset operations create files inside those roots but do not recreate missing roots.
 
-## Shape migration (pre-directories → split tables)
+## Shape-migration history
 
-The pre-directories schema stored one `assets` row per version, grouped only by the `key` string. A Go startup migration (`backend/storage/primarydb/assets_shape_migration.go`) transforms it in a single transaction, running on the primary before the schema files apply (the secondary schema is independently defined and has no asset tables — legacy copies on workers are dropped by its migrations) — `CREATE TABLE IF NOT EXISTS` would otherwise silently no-op against the old-shape table. Detection is by column shape (old `assets` has `blob`), which also makes the migration idempotent.
-
-- Every old row id is preserved verbatim into `asset_versions.id`, so pinned deployment references, worker caches, and recorded S3 locations stay valid. `pending://` rows migrate too, so interrupted-upload recovery still finds its row.
-- One `assets` row is minted per key. Old rows stored `space_id` per version and a targeted upload could override it, so versions of one key could disagree; the group takes the newest version's space, matching what the latest-version list always displayed.
-- New `assets` ids start above the highest preserved version id, keeping the two id spaces disjoint.
-- The cluster protocol version was bumped (6 → 7) with this change: the cluster asset fetch renamed its query param and headers to `asset_version_id` naming.
+The pre-directories schema stored one `assets` row per version, grouped only by the `key` string. A one-time Go startup migration transformed it into the identity + versions split, preserving every old row id verbatim into `asset_versions.id` (which is why the two id spaces are disjoint on migrated installs — new `assets` ids were seeded above the highest preserved version id) and bumping the cluster protocol (6 → 7) for the `asset_version_id` fetch naming. The migration code was removed after every active cluster had been rolled forward; upgrading a pre-split database now requires stepping through a release that still carried it.
 
 ## Large-asset storage modes
 
