@@ -86,8 +86,8 @@ func resolveAddressRef(v *apigen.EnvVarValue) (string, error) {
 	return addr.String(), nil
 }
 
-func implicitAssetContainerPath(assetID int32) string {
-	return implicitAssetContainerDir + "/" + strconv.Itoa(int(assetID))
+func implicitAssetContainerPath(assetVersionID int32) string {
+	return implicitAssetContainerDir + "/" + strconv.Itoa(int(assetVersionID))
 }
 
 func resolveSecretRef(inputs *runtimeinputs.RuntimeInputs, id int32) (string, error) {

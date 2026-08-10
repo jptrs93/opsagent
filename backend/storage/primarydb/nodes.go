@@ -141,7 +141,7 @@ type nodeExecer interface {
 func insertNode(ctx context.Context, execer nodeExecer, enrollmentID any, name, identifier string, roles []int32) (*Node, error) {
 	node, err := scanNodeRows(execer.QueryRowContext(ctx, `
 		INSERT INTO nodes (enrollment_id, enrolled_at, name, identifier, roles, addresses, wg_public_key, allowed_spaces)
-		VALUES (?, ?, ?, ?, ?, '[]', '', COALESCE((SELECT '[' || group_concat(id) || ']' FROM spaces), '[0]'))
+		VALUES (?, ?, ?, ?, ?, '[]', '', `+allSpaceIDsExpr+`)
 		RETURNING id, enrollment_id, enrolled_at, name, identifier, roles, addresses, wg_public_key, allowed_spaces`, enrollmentID, time.Now().UnixMilli(), name, identifier, nodeRolesJSON(roles)))
 	if err != nil {
 		return nil, err
@@ -158,7 +158,7 @@ func insertNode(ctx context.Context, execer nodeExecer, enrollmentID any, name, 
 func upsertEnrolledNode(ctx context.Context, execer nodeExecer, enrollmentID any, name, identifier string, roles []int32, addresses []string) (*Node, error) {
 	node, err := scanNodeRows(execer.QueryRowContext(ctx, `
 		INSERT INTO nodes (enrollment_id, enrolled_at, name, identifier, roles, addresses, wg_public_key, allowed_spaces)
-		VALUES (?, ?, ?, ?, ?, ?, '', COALESCE((SELECT '[' || group_concat(id) || ']' FROM spaces), '[0]'))
+		VALUES (?, ?, ?, ?, ?, ?, '', `+allSpaceIDsExpr+`)
 		ON CONFLICT(identifier) DO UPDATE SET
 			enrollment_id = COALESCE(nodes.enrollment_id, excluded.enrollment_id),
 			name = excluded.name,
@@ -372,11 +372,6 @@ func (s *Storage) SetNodeStatusByIdentifier(identifier string, connected bool, c
 	if err != sql.ErrNoRows {
 		panic(fmt.Sprintf("set node status %q: %v", identifier, err))
 	}
-}
-
-func (s *Storage) HasNodeIdentifier(identifier string) bool {
-	_, err := s.NodeIDByIdentifier(identifier)
-	return err == nil
 }
 
 func (s *Storage) NodeIDByIdentifier(identifier string) (int32, error) {

@@ -9,7 +9,7 @@ import (
 
 type exportedConfigBundle struct {
 	Deployments []*apigen.DeploymentConfig `json:"deployments"`
-	Configs     []*apigen.ConfigMeta           `json:"configs"`
+	Configs     []*apigen.ConfigMeta       `json:"configs"`
 	Secrets     []*apigen.SecretMeta       `json:"secrets"`
 	Assets      []*apigen.AssetMeta        `json:"assets"`
 	Spaces      []*apigen.Space            `json:"spaces"`

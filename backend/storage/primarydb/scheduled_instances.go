@@ -291,19 +291,6 @@ func (s *Storage) MustWriteReplicatedScheduledInstanceStatus(st *apigen.Schedule
 	)
 }
 
-func (s *Storage) MustFetchScheduledInstanceStatusHistory(instanceID int32) []*apigen.ScheduledInstanceStatus {
-	ctx := context.Background()
-	rows, err := s.q.ListScheduledInstanceStatusHistory(ctx, int64(instanceID))
-	if err != nil {
-		panic(fmt.Sprintf("ListScheduledInstanceStatusHistory: %v", err))
-	}
-	out := make([]*apigen.ScheduledInstanceStatus, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, scheduledInstanceStatusRowToProto(r))
-	}
-	return out
-}
-
 func (s *Storage) MustFetchDeploymentStatusHistory(deploymentID int32) []*apigen.ScheduledInstanceStatus {
 	ctx := context.Background()
 	rows, err := s.q.ListScheduledInstanceStatusHistoryForDeployment(ctx, int64(deploymentID))

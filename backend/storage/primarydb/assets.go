@@ -171,7 +171,7 @@ func (s *Storage) SubscribeAssetUpdates() (*pubsubu.Sub[apigen.AssetMeta], func(
 // GetAssetRow returns the stable asset identity row.
 func (s *Storage) GetAssetRow(assetID int32) (Asset, bool) {
 	r, err := s.q.GetAssetByID(context.Background(), int64(assetID))
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return Asset{}, false
 	}
 	if err != nil {

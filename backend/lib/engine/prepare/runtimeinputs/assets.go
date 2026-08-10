@@ -15,13 +15,13 @@ import (
 )
 
 type AssetProvider interface {
-	OpenAsset(ctx context.Context, assetID int32) (*apigen.AssetVersion, io.ReadCloser, error)
+	OpenAsset(ctx context.Context, assetVersionID int32) (*apigen.AssetVersion, io.ReadCloser, error)
 }
 
 type requiredAssetRef struct {
-	Label      string
-	AssetID    int32
-	Executable bool
+	Label          string
+	AssetVersionID int32
+	Executable     bool
 }
 
 func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
@@ -30,10 +30,10 @@ func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deplo
 		return nil
 	}
 	for _, ref := range refs {
-		if ref.AssetID == 0 {
-			return fmt.Errorf("%s has unresolved asset id", ref.Label)
+		if ref.AssetVersionID == 0 {
+			return fmt.Errorf("%s has unresolved asset version id", ref.Label)
 		}
-		path := AssetCachePathWithMode(ref.AssetID, ref.Executable)
+		path := AssetCachePathWithMode(ref.AssetVersionID, ref.Executable)
 		mode := AssetCacheMode(ref.Executable)
 		if info, err := os.Stat(path); err == nil {
 			if info.Mode().Perm() != mode {
@@ -45,13 +45,13 @@ func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deplo
 		} else if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("checking asset cache %s: %w", path, err)
 		}
-		asset, body, err := r.assets.OpenAsset(ctx, ref.AssetID)
+		asset, body, err := r.assets.OpenAsset(ctx, ref.AssetVersionID)
 		if err != nil {
-			return fmt.Errorf("fetching asset %d: %w", ref.AssetID, err)
+			return fmt.Errorf("fetching asset version %d: %w", ref.AssetVersionID, err)
 		}
-		if asset.ID != ref.AssetID {
+		if asset.ID != ref.AssetVersionID {
 			_ = body.Close()
-			return fmt.Errorf("primary returned wrong asset: got %d", asset.ID)
+			return fmt.Errorf("primary returned wrong asset version: got %d", asset.ID)
 		}
 		tmp := path + ".tmp"
 		out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
@@ -68,7 +68,7 @@ func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deplo
 		if err := body.Close(); err != nil {
 			_ = out.Close()
 			_ = os.Remove(tmp)
-			return fmt.Errorf("reading asset %d: %w", ref.AssetID, err)
+			return fmt.Errorf("reading asset version %d: %w", ref.AssetVersionID, err)
 		}
 		if err := out.Close(); err != nil {
 			_ = os.Remove(tmp)
@@ -101,9 +101,9 @@ func RequiredAssetRefs(cfg *apigen.DeploymentConfig) []requiredAssetRef {
 			continue
 		}
 		refs = append(refs, requiredAssetRef{
-			Label:      fmt.Sprintf("asset mount %d", m.AssetVersionID),
-			AssetID:    m.AssetVersionID,
-			Executable: m.Permission == apigen.FilePermission_READ_EXECUTE,
+			Label:          fmt.Sprintf("asset mount %d", m.AssetVersionID),
+			AssetVersionID: m.AssetVersionID,
+			Executable:     m.Permission == apigen.FilePermission_READ_EXECUTE,
 		})
 	}
 	for key, value := range runtime.EnvVars {
@@ -111,13 +111,13 @@ func RequiredAssetRefs(cfg *apigen.DeploymentConfig) []requiredAssetRef {
 			continue
 		}
 		refs = append(refs, requiredAssetRef{
-			Label:   fmt.Sprintf("asset env var %q", key),
-			AssetID: value.AssetVersionID,
+			Label:          fmt.Sprintf("asset env var %q", key),
+			AssetVersionID: value.AssetVersionID,
 		})
 	}
 	sort.Slice(refs, func(i, j int) bool {
-		return refs[i].AssetID < refs[j].AssetID ||
-			(refs[i].AssetID == refs[j].AssetID && refs[i].Label < refs[j].Label)
+		return refs[i].AssetVersionID < refs[j].AssetVersionID ||
+			(refs[i].AssetVersionID == refs[j].AssetVersionID && refs[i].Label < refs[j].Label)
 	})
 	return refs
 }
@@ -126,12 +126,12 @@ func AssetCacheDir() string {
 	return ainit.StaticConfig.AssetCacheDir
 }
 
-func AssetCachePath(assetID int32) string {
-	return AssetCachePathWithMode(assetID, false)
+func AssetCachePath(assetVersionID int32) string {
+	return AssetCachePathWithMode(assetVersionID, false)
 }
 
-func AssetCachePathWithMode(assetID int32, executable bool) string {
-	name := strconv.Itoa(int(assetID))
+func AssetCachePathWithMode(assetVersionID int32, executable bool) string {
+	name := strconv.Itoa(int(assetVersionID))
 	if executable {
 		name += "_x"
 	}
@@ -145,12 +145,12 @@ func AssetCacheMode(executable bool) os.FileMode {
 	return 0o644
 }
 
-// RetainAssets removes cached asset files whose id is absent from keep, and
+// RetainAssets removes cached asset files whose version id is absent from keep, and
 // reports how many it deleted.
 //
 // Only names the cache itself writes are considered, so a partial download
 // (which is staged as "<name>.tmp") is never collected: its name does not parse
-// as an asset id at all.
+// as an asset version id at all.
 func RetainAssets(keep map[int32]struct{}) (int, error) {
 	entries, err := os.ReadDir(AssetCacheDir())
 	if err != nil {

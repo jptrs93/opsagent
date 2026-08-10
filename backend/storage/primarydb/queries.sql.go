@@ -459,24 +459,6 @@ func (q *Queries) GetConfigByID(ctx context.Context, id int64) (SystemConfigRevi
 	return i, err
 }
 
-const getConfigHistorySpecBlob = `-- name: GetConfigHistorySpecBlob :one
-SELECT spec_blob
-FROM deployment_config_history
-WHERE deployment_id = ? AND version = ?
-`
-
-type GetConfigHistorySpecBlobParams struct {
-	DeploymentID int64
-	Version      int64
-}
-
-func (q *Queries) GetConfigHistorySpecBlob(ctx context.Context, arg GetConfigHistorySpecBlobParams) ([]byte, error) {
-	row := q.db.QueryRowContext(ctx, getConfigHistorySpecBlob, arg.DeploymentID, arg.Version)
-	var spec_blob []byte
-	err := row.Scan(&spec_blob)
-	return spec_blob, err
-}
-
 const getConfigInDirectoryByName = `-- name: GetConfigInDirectoryByName :one
 SELECT id, name, space_id, value_directory_id, created_at, created_by
 FROM configs WHERE space_id = ? AND value_directory_id = ? AND name = ?
@@ -652,40 +634,6 @@ func (q *Queries) GetLatestConfig(ctx context.Context) (SystemConfigRevision, er
 	row := q.db.QueryRowContext(ctx, getLatestConfig)
 	var i SystemConfigRevision
 	err := row.Scan(&i.ID, &i.UpdatedAt, &i.ConfigBlob)
-	return i, err
-}
-
-const getLatestScheduledInstanceStatus = `-- name: GetLatestScheduledInstanceStatus :one
-SELECT scheduled_instance_id, updated_at, deployment_id,
-       preparer_config_version, preparer_artifact,
-       preparer_inputs_status, preparer_image_status,
-       runner_config_version, runner_pid, runner_artifact, runner_status,
-       runner_num_restarts, runner_last_restart_at, runner_extra_blob
-FROM scheduled_instance_status
-WHERE scheduled_instance_id = ?
-ORDER BY updated_at DESC
-LIMIT 1
-`
-
-func (q *Queries) GetLatestScheduledInstanceStatus(ctx context.Context, scheduledInstanceID int64) (ScheduledInstanceStatus, error) {
-	row := q.db.QueryRowContext(ctx, getLatestScheduledInstanceStatus, scheduledInstanceID)
-	var i ScheduledInstanceStatus
-	err := row.Scan(
-		&i.ScheduledInstanceID,
-		&i.UpdatedAt,
-		&i.DeploymentID,
-		&i.PreparerConfigVersion,
-		&i.PreparerArtifact,
-		&i.PreparerInputsStatus,
-		&i.PreparerImageStatus,
-		&i.RunnerConfigVersion,
-		&i.RunnerPid,
-		&i.RunnerArtifact,
-		&i.RunnerStatus,
-		&i.RunnerNumRestarts,
-		&i.RunnerLastRestartAt,
-		&i.RunnerExtraBlob,
-	)
 	return i, err
 }
 
@@ -1903,33 +1851,6 @@ func (q *Queries) ListPendingAgentSessionsForUser(ctx context.Context, userID in
 	return items, nil
 }
 
-const listPublicKeys = `-- name: ListPublicKeys :many
-SELECT kid, key_bytes FROM public_keys ORDER BY kid
-`
-
-func (q *Queries) ListPublicKeys(ctx context.Context) ([]PublicKey, error) {
-	rows, err := q.db.QueryContext(ctx, listPublicKeys)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []PublicKey
-	for rows.Next() {
-		var i PublicKey
-		if err := rows.Scan(&i.Kid, &i.KeyBytes); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listPublishedAssetVersionMetas = `-- name: ListPublishedAssetVersionMetas :many
 SELECT asset_id, id, version, created_at, created_by, size_bytes, location
 FROM asset_versions
@@ -1964,55 +1885,6 @@ func (q *Queries) ListPublishedAssetVersionMetas(ctx context.Context) ([]ListPub
 			&i.CreatedBy,
 			&i.SizeBytes,
 			&i.Location,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listScheduledInstanceStatusHistory = `-- name: ListScheduledInstanceStatusHistory :many
-SELECT scheduled_instance_id, updated_at, deployment_id,
-       preparer_config_version, preparer_artifact,
-       preparer_inputs_status, preparer_image_status,
-       runner_config_version, runner_pid, runner_artifact, runner_status,
-       runner_num_restarts, runner_last_restart_at, runner_extra_blob
-FROM scheduled_instance_status
-WHERE scheduled_instance_id = ?
-ORDER BY updated_at ASC
-`
-
-func (q *Queries) ListScheduledInstanceStatusHistory(ctx context.Context, scheduledInstanceID int64) ([]ScheduledInstanceStatus, error) {
-	rows, err := q.db.QueryContext(ctx, listScheduledInstanceStatusHistory, scheduledInstanceID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ScheduledInstanceStatus
-	for rows.Next() {
-		var i ScheduledInstanceStatus
-		if err := rows.Scan(
-			&i.ScheduledInstanceID,
-			&i.UpdatedAt,
-			&i.DeploymentID,
-			&i.PreparerConfigVersion,
-			&i.PreparerArtifact,
-			&i.PreparerInputsStatus,
-			&i.PreparerImageStatus,
-			&i.RunnerConfigVersion,
-			&i.RunnerPid,
-			&i.RunnerArtifact,
-			&i.RunnerStatus,
-			&i.RunnerNumRestarts,
-			&i.RunnerLastRestartAt,
-			&i.RunnerExtraBlob,
 		); err != nil {
 			return nil, err
 		}

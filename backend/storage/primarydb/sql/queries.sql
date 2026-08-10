@@ -65,11 +65,6 @@ FROM deployment_config_history
 WHERE deployment_id = ?
 ORDER BY version ASC;
 
--- name: GetConfigHistorySpecBlob :one
-SELECT spec_blob
-FROM deployment_config_history
-WHERE deployment_id = ? AND version = ?;
-
 -- name: GetDeploymentConfigHistoryVersion :one
 SELECT deployment_id, version, updated_at, updated_by, space_id, node_id, spec_blob, deleted
 FROM deployment_config_history
@@ -151,27 +146,6 @@ JOIN (
     FROM scheduled_instance_status
     GROUP BY scheduled_instance_id
 ) latest ON latest.scheduled_instance_id = s.scheduled_instance_id AND latest.updated_at = s.updated_at;
-
--- name: GetLatestScheduledInstanceStatus :one
-SELECT scheduled_instance_id, updated_at, deployment_id,
-       preparer_config_version, preparer_artifact,
-       preparer_inputs_status, preparer_image_status,
-       runner_config_version, runner_pid, runner_artifact, runner_status,
-       runner_num_restarts, runner_last_restart_at, runner_extra_blob
-FROM scheduled_instance_status
-WHERE scheduled_instance_id = ?
-ORDER BY updated_at DESC
-LIMIT 1;
-
--- name: ListScheduledInstanceStatusHistory :many
-SELECT scheduled_instance_id, updated_at, deployment_id,
-       preparer_config_version, preparer_artifact,
-       preparer_inputs_status, preparer_image_status,
-       runner_config_version, runner_pid, runner_artifact, runner_status,
-       runner_num_restarts, runner_last_restart_at, runner_extra_blob
-FROM scheduled_instance_status
-WHERE scheduled_instance_id = ?
-ORDER BY updated_at ASC;
 
 -- name: ListScheduledInstanceStatusHistorySince :many
 SELECT scheduled_instance_id, updated_at, deployment_id,
@@ -258,9 +232,6 @@ SELECT kid, key_bytes FROM public_keys WHERE kid = ?;
 -- name: UpsertPublicKey :exec
 INSERT INTO public_keys (kid, key_bytes) VALUES (?, ?)
 ON CONFLICT(kid) DO UPDATE SET key_bytes = excluded.key_bytes;
-
--- name: ListPublicKeys :many
-SELECT kid, key_bytes FROM public_keys ORDER BY kid;
 
 -- === configs ===
 

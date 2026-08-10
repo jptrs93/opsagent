@@ -89,10 +89,10 @@ func TestRequiredAssetRefsIncludesExplicitAndEnvAssets(t *testing.T) {
 	if len(refs) != 2 {
 		t.Fatalf("refs len = %d; want 2", len(refs))
 	}
-	if refs[0].AssetID != 8 || refs[0].Label != "asset mount 8" || !refs[0].Executable {
+	if refs[0].AssetVersionID != 8 || refs[0].Label != "asset mount 8" || !refs[0].Executable {
 		t.Fatalf("refs[0] = %+v", refs[0])
 	}
-	if refs[1].AssetID != 12 || refs[1].Label != `asset env var "APP_CONFIG"` || refs[1].Executable {
+	if refs[1].AssetVersionID != 12 || refs[1].Label != `asset env var "APP_CONFIG"` || refs[1].Executable {
 		t.Fatalf("refs[1] = %+v", refs[1])
 	}
 }

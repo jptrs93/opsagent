@@ -64,7 +64,7 @@ func sweepRuntimeInputs(ctx context.Context, store *secondarydb.Storage, inputs 
 			configs[id] = struct{}{}
 		}
 		for _, ref := range runtimeinputs.RequiredAssetRefs(cfg) {
-			assets[ref.AssetID] = struct{}{}
+			assets[ref.AssetVersionID] = struct{}{}
 		}
 	}
 
