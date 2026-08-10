@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 var InvalidSpaceErr = apigen.NewApiErr("Invalid space", "invalid_space", http.StatusBadRequest)
@@ -59,5 +59,5 @@ func (h *Handler) PostV1SpacesDelete(ctx apigen.Context, req *apigen.SpaceDelete
 }
 
 func isSeededSpace(id int32) bool {
-	return id == sqlite.OpendeploySpaceID || id == sqlite.DefaultSpaceID
+	return id == primarydb.OpendeploySpaceID || id == primarydb.DefaultSpaceID
 }

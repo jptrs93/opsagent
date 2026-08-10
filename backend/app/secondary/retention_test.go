@@ -11,13 +11,13 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/localinputs"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
 )
 
-func retentionTestStore(t *testing.T) (*sqlite.SecondaryStorage, *runtimeinputs.RuntimeInputs) {
+func retentionTestStore(t *testing.T) (*secondarydb.Storage, *runtimeinputs.RuntimeInputs) {
 	t.Helper()
 	dir := t.TempDir()
-	store := sqlite.NewSecondaryStorage(filepath.Join(dir, "secondary.db"))
+	store := secondarydb.Open(filepath.Join(dir, "secondary.db"))
 	persistence, err := localinputs.Open(store, &machinekey.File{Path: filepath.Join(dir, machinekey.FileName)})
 	if err != nil {
 		t.Fatalf("localinputs.Open: %v", err)
@@ -68,7 +68,7 @@ func referencingConfig(version int32) apigen.DeploymentConfig {
 	}
 }
 
-func writeInstance(t *testing.T, store *sqlite.SecondaryStorage, instanceID int32, cfg apigen.DeploymentConfig, target apigen.ScheduledInstanceTarget, preparerVersion, runnerVersion int32) {
+func writeInstance(t *testing.T, store *secondarydb.Storage, instanceID int32, cfg apigen.DeploymentConfig, target apigen.ScheduledInstanceTarget, preparerVersion, runnerVersion int32) {
 	t.Helper()
 	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{

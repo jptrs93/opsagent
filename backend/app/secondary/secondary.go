@@ -19,7 +19,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/repo/git"
 	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
 )
 
 type runtimeConfig struct {
@@ -42,7 +42,7 @@ type runtimeConfig struct {
 // failures should panic and let the service manager restart the process.
 func run(ctx context.Context, cfg runtimeConfig) {
 
-	store := sqlite.NewSecondaryStorage(filepath.Join(cfg.DataDir, "secondary.db"))
+	store := secondarydb.Open(filepath.Join(cfg.DataDir, "secondary.db"))
 	primaryHTTPClient := newPrimaryHTTPClient(cfg.TLS, cfg.PrimaryName)
 	primaryURL := "https://" + cfg.PrimaryClusterAddr
 	githubCredentials := NewPrimaryGithubCredentialsProvider(primaryURL, primaryHTTPClient)

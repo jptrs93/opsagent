@@ -17,7 +17,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/network"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
@@ -121,7 +121,7 @@ func TestCacheEnrollmentBootstrapStatePersistsNetworkMap(t *testing.T) {
 	if err := cacheEnrollmentBootstrapState(EnrollmentConfig{DataDir: dataDir}, accepted); err != nil {
 		t.Fatal(err)
 	}
-	store := sqlite.NewSecondaryStorage(filepath.Join(dataDir, "secondary.db"))
+	store := secondarydb.Open(filepath.Join(dataDir, "secondary.db"))
 	defer store.Close()
 	cached, _, ok, err := cachedClusterNetMap(store, 2, network.Prefix{})
 	if err != nil || !ok {
@@ -160,7 +160,7 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 			Config: apigen.DeploymentConfig{
 				ID:     10,
 				NodeID: 2,
-				Spec:   *sqlite.SystemDeploymentSpec(),
+				Spec:   *internaldeploy.SelfSpec(),
 				Identity: apigen.DeploymentIdentity{
 					SpaceID: internaldeploy.SpaceID,
 					Name:    internaldeploy.SelfName,
@@ -177,7 +177,7 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 			Config: apigen.DeploymentConfig{
 				ID:     11,
 				NodeID: 2,
-				Spec:   *sqlite.NetproxyDeploymentSpec(),
+				Spec:   *internaldeploy.NetproxySpec(),
 				Identity: apigen.DeploymentIdentity{
 					SpaceID: internaldeploy.SpaceID,
 					Name:    internaldeploy.NetproxyName,

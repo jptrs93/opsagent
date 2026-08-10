@@ -12,11 +12,11 @@ import (
 	"github.com/jptrs93/goutil/pubsubu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 type Service struct {
-	Storage                *sqlite.PrimaryStorage
+	Storage                *primarydb.Storage
 	Subs                   *pubsubu.PubSub[apigen.PrimaryConfig]
 	VersionedSubs          *pubsubu.PubSub[apigen.PrimaryConfigVersion]
 	AssetOperationMu       sync.Locker
@@ -114,7 +114,7 @@ func DefaultConfig(initial InitialConfig) *apigen.PrimaryConfig {
 	}
 }
 
-func NewService(store *sqlite.PrimaryStorage) (*Service, error) {
+func NewService(store *primarydb.Storage) (*Service, error) {
 	s := &Service{
 		Storage:       store,
 		Subs:          &pubsubu.PubSub[apigen.PrimaryConfig]{},
@@ -135,10 +135,10 @@ func NewService(store *sqlite.PrimaryStorage) (*Service, error) {
 
 // InitializeService persists the first primary config. Normal primary startup
 // uses NewService and therefore never invents missing cluster configuration.
-func InitializeService(store *sqlite.PrimaryStorage, cfg apigen.PrimaryConfig) (*Service, error) {
+func InitializeService(store *primarydb.Storage, cfg apigen.PrimaryConfig) (*Service, error) {
 	if _, err := store.FetchLatestOpenDeployConfig(); err == nil {
 		return nil, fmt.Errorf("primary config is already initialized")
-	} else if !errors.Is(err, sqlite.ErrNotFound) {
+	} else if !errors.Is(err, primarydb.ErrNotFound) {
 		return nil, fmt.Errorf("checking existing primary config: %w", err)
 	}
 	if len(cfg.NetworkUlaPrefix) == 0 {
@@ -174,19 +174,19 @@ func (s *Service) Snapshot() apigen.PrimaryConfig {
 	return s.Subs.Value()
 }
 
-func (s *Service) loadConfig() (apigen.PrimaryConfig, sqlite.SystemConfigRevision, error) {
+func (s *Service) loadConfig() (apigen.PrimaryConfig, primarydb.SystemConfigRevision, error) {
 	var res apigen.PrimaryConfig
 	r, err := s.Storage.FetchLatestOpenDeployConfig()
 	if err != nil {
-		if errors.Is(err, sqlite.ErrNotFound) {
-			return res, sqlite.SystemConfigRevision{}, fmt.Errorf("primary config is not initialized")
+		if errors.Is(err, primarydb.ErrNotFound) {
+			return res, primarydb.SystemConfigRevision{}, fmt.Errorf("primary config is not initialized")
 		} else {
-			return res, sqlite.SystemConfigRevision{}, fmt.Errorf("FetchLatestOpenDeployConfig: %w", err)
+			return res, primarydb.SystemConfigRevision{}, fmt.Errorf("FetchLatestOpenDeployConfig: %w", err)
 		}
 	}
 	cfg, err := apigen.DecodePrimaryConfig(r.ConfigBlob)
 	if err != nil {
-		return res, sqlite.SystemConfigRevision{}, fmt.Errorf("DecodeConfig: %w", err)
+		return res, primarydb.SystemConfigRevision{}, fmt.Errorf("DecodeConfig: %w", err)
 	}
 	return normalizeConfig(*cfg), r, nil
 }

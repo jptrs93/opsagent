@@ -18,7 +18,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 const InlineThresholdBytes = 10 * 1024 * 1024
@@ -27,7 +27,7 @@ var ErrLargeAssetS3Config = errors.New("large asset S3 settings are not configur
 var ErrAssetS3ConfigChangeRequiresLocal = errors.New("large asset S3 configuration cannot change while S3 assets or pending uploads exist")
 
 type Store struct {
-	DB                   *sqlite.PrimaryStorage
+	DB                   *primarydb.Storage
 	Config               func() *apigen.ClusterSettings
 	Loader               config.Loader
 	Secrets              secretStore

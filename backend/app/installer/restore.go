@@ -14,7 +14,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primarybootstrap"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
@@ -135,7 +136,7 @@ func restoredPrimaryName(opts installOptions) string {
 }
 
 func invalidateRestoredPrimaryRuntimeState(dbPath string, own owner) error {
-	store := sqlite.NewPrimaryStorage(dbPath)
+	store := primarydb.Open(dbPath)
 	nodeID, err := store.PrimaryNodeID()
 	if err == nil {
 		count, err := store.InvalidateNodeRuntimeState(nodeID)
@@ -143,7 +144,7 @@ func invalidateRestoredPrimaryRuntimeState(dbPath string, own owner) error {
 			info("invalidated runtime state for %d replacement-primary deployments", count)
 		}
 	}
-	if deleteErr := store.DeleteLocalKV(sqlite.LocalKVPrimaryClusterNetMap); deleteErr != nil && err == nil {
+	if deleteErr := store.DeleteLocalKV(storage.LocalKVPrimaryClusterNetMap); deleteErr != nil && err == nil {
 		err = fmt.Errorf("reset restored cluster network map generation: %w", deleteErr)
 	}
 	if err != nil {
@@ -205,7 +206,7 @@ func applyRestoredPrimaryConfigOverrides(dbPath string, opts installOptions, own
 	if len(overrides) == 0 {
 		return nil
 	}
-	store := sqlite.NewPrimaryStorage(dbPath)
+	store := primarydb.Open(dbPath)
 	service, err := config.NewService(store)
 	if err != nil {
 		_ = store.Close()
@@ -304,7 +305,7 @@ func sqliteArtifactPaths(dbPath string) []string {
 }
 
 func unlockRestoredSecrets(dbPath, recoveryCode string, own owner) error {
-	store := sqlite.NewPrimaryStorage(dbPath)
+	store := primarydb.Open(dbPath)
 
 	mgr, err := secrets.Open(dataDir, store)
 	if err != nil {

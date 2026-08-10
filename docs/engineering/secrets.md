@@ -81,14 +81,14 @@ Key files:
   local cache.
 - `backend/lib/localinputs/localinputs.go` — a secondary's encrypted at-rest
   copy of the runtime inputs it needs.
-- `backend/storage/sqlite/secrets_store.go` — `secrets.Store` on the primary
+- `backend/storage/primarydb/secrets_store.go` — `secrets.Store` on the primary
   `StorageAdapter` (`secret_keyslots`, `secrets`, `secret_versions`, and
   `system_secrets` tables, plus the `SecretMeta` builders). Sealing happens
   through a `secrets.SealFunc` callback inside the write transaction, because
   the id-and-version AAD needs the identity id before the ciphertext can exist.
-- `backend/storage/sqlite/values.go` — the shared secrets/configs namespace
+- `backend/storage/primarydb/values.go` — the shared secrets/configs namespace
   law: `ValidValueName` and the three-table sibling-uniqueness check.
-- `backend/storage/sqlite/values_shape_migration.go` — the one-time
+- `backend/storage/primarydb/values_shape_migration.go` — the one-time
   pre-`applySchema` transform of the legacy one-row-per-version `secrets` and
   `configs` tables into the identity + versions split. Version row ids are
   preserved verbatim (deployment env refs, system settings, and secondary

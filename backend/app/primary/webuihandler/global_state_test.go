@@ -12,13 +12,13 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 func newGlobalStateTestHandler(t *testing.T) *Handler {
 	t.Helper()
 	dir := t.TempDir()
-	store := sqlite.NewPrimaryStorage(filepath.Join(dir, "primary.db"))
+	store := primarydb.Open(filepath.Join(dir, "primary.db"))
 	secretManager, err := secrets.Initialize(dir, store)
 	if err != nil {
 		t.Fatalf("secrets.Initialize: %v", err)
@@ -230,7 +230,7 @@ func markDeleted(t *testing.T, h *Handler, cfg *apigen.DeploymentConfig) {
 	t.Helper()
 	deleted := true
 	spec := cfg.Spec
-	_, _, versionOK := h.Store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, sqlite.DeploymentConfigUpdate{
+	_, _, versionOK := h.Store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, primarydb.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
 		Spec:            &spec,
 		Deleted:         &deleted,

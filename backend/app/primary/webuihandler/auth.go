@@ -12,7 +12,7 @@ import (
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 	"github.com/jptrs93/opsagent/backend/util/jwtu"
 )
 
@@ -57,7 +57,7 @@ func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswor
 	user, err := h.Store.FetchUserMatching(func(u *apigen.InternalUser) bool {
 		return u.Name == req.Username
 	})
-	if errors.Is(err, sqlite.ErrNotFound) {
+	if errors.Is(err, primarydb.ErrNotFound) {
 		id := int32(h.Store.UserCount()) + 1
 		webAuthNID, generateErr := authu.GenerateWebAuthnID(32)
 		if generateErr != nil {
@@ -137,7 +137,7 @@ func (h *Handler) verifyAgentSession(claims map[string]any, token string) error 
 		return nil
 	}
 	rec, err := h.Store.FetchAgentSession(sessionID)
-	if errors.Is(err, sqlite.ErrNotFound) {
+	if errors.Is(err, primarydb.ErrNotFound) {
 		return InvalidAuthTokenErr
 	}
 	if err != nil {

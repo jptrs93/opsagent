@@ -8,8 +8,10 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/network"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
@@ -56,12 +58,12 @@ func Run(ctx context.Context) {
 func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyPath string) runtimeConfig {
 	tlsCfg := certu.MustLoadTLSConfig(caPath, certPath, keyPath)
 	nodeIdentifier := certu.MustCertLoadCommonName(certPath)
-	store := sqlite.NewSecondaryStorage(filepath.Join(cfg.DataDir, "secondary.db"))
+	store := secondarydb.Open(filepath.Join(cfg.DataDir, "secondary.db"))
 	defer store.Close()
 
 	var netDeploymentID, nodeID int32
 	for _, item := range store.FetchScheduledSnapshot(nil) {
-		if sqlite.IsNetproxyDeploymentConfig(&item.Config) && item.Config.ID != 0 {
+		if internaldeploy.IsNetproxyConfig(&item.Config) && item.Config.ID != 0 {
 			netDeploymentID = item.Config.ID
 			nodeID = item.Config.NodeID
 		}
@@ -76,7 +78,7 @@ func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyP
 	} else if ok {
 		prefix = mapPrefix
 	} else {
-		b, ok := store.FetchLocalKV(sqlite.LocalKVClusterNetwork)
+		b, ok := store.FetchLocalKV(storage.LocalKVClusterNetwork)
 		if !ok {
 			panic("cached cluster network is missing")
 		}

@@ -29,12 +29,12 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
 
 type runtime struct {
-	store                 *sqlite.PrimaryStorage
+	store                 *primarydb.Storage
 	assets                *assetstore.Store
 	configService         *config.Service
 	github                githubcredentials.Provider
@@ -52,7 +52,7 @@ func newRuntime() (*runtime, error) {
 		}
 		return nil, fmt.Errorf("checking primary database: %w", err)
 	}
-	store := sqlite.NewPrimaryStorage(dbPath)
+	store := primarydb.Open(dbPath)
 	secretsMgr, err := secrets.Open(ainit.StaticConfig.DataDir, store)
 	if err != nil {
 		return nil, err

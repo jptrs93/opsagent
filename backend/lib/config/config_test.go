@@ -9,12 +9,12 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 func TestMasterPasswordHashRoundTrip(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	service, err := InitializeService(sqlite.NewPrimaryStorage(dbPath), *DefaultConfig(DefaultInitialConfig()))
+	service, err := InitializeService(primarydb.Open(dbPath), *DefaultConfig(DefaultInitialConfig()))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestMasterPasswordHashRoundTrip(t *testing.T) {
 		t.Fatalf("expected hash-1, got %q", hash)
 	}
 
-	reopened, err := NewService(sqlite.NewPrimaryStorage(dbPath))
+	reopened, err := NewService(primarydb.Open(dbPath))
 	if err != nil {
 		t.Fatalf("NewService reopen: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestVersionedConfigSnapshotsRedactMasterPasswordHash(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	initial := DefaultInitialConfig()
 	initial.MasterPasswordHash = "initial-hash"
-	service, err := InitializeService(sqlite.NewPrimaryStorage(dbPath), *DefaultConfig(initial))
+	service, err := InitializeService(primarydb.Open(dbPath), *DefaultConfig(initial))
 	if err != nil {
 		t.Fatalf("InitializeService: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestVersionedConfigSnapshotsRedactMasterPasswordHash(t *testing.T) {
 }
 
 func TestNewServiceRejectsUninitializedConfig(t *testing.T) {
-	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	if _, err := NewService(store); err == nil || !strings.Contains(err.Error(), "not initialized") {
 		t.Fatalf("NewService error = %v, want not initialized", err)
@@ -110,7 +110,7 @@ func TestNewServiceRejectsUninitializedConfig(t *testing.T) {
 
 func TestEnsureInitialSettingsPersistedIncludesMasterPasswordHash(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	store := sqlite.NewPrimaryStorage(dbPath)
+	store := primarydb.Open(dbPath)
 	initial := DefaultInitialConfig()
 	initial.MasterPasswordHash = "initial-hash"
 	service, err := InitializeService(store, *DefaultConfig(initial))
@@ -141,7 +141,7 @@ func TestEnsureInitialSettingsPersistedIncludesMasterPasswordHash(t *testing.T) 
 func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "primary.db")
-	store := sqlite.NewPrimaryStorage(dbPath)
+	store := primarydb.Open(dbPath)
 	secretMgr, err := secrets.Initialize(dir, store)
 	if err != nil {
 		t.Fatalf("secrets.Open: %v", err)
@@ -169,7 +169,7 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 
 func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	store := sqlite.NewPrimaryStorage(dbPath)
+	store := primarydb.Open(dbPath)
 	service, err := InitializeService(store, *DefaultConfig(DefaultInitialConfig()))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
@@ -205,7 +205,7 @@ func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FetchLatestOpenDeployConfig before blocked save: %v", err)
 	}
-	if err := service.UpdateSettings(service.Snapshot().Settings); !errors.Is(err, sqlite.ErrAssetMigrationInProgress) {
+	if err := service.UpdateSettings(service.Snapshot().Settings); !errors.Is(err, primarydb.ErrAssetMigrationInProgress) {
 		t.Fatalf("UpdateSettings during migration error = %v, want ErrAssetMigrationInProgress", err)
 	}
 	latestAfterBlockedSave, err := store.FetchLatestOpenDeployConfig()
@@ -222,7 +222,7 @@ func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 
 func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	store := sqlite.NewPrimaryStorage(dbPath)
+	store := primarydb.Open(dbPath)
 	service, err := InitializeService(store, *DefaultConfig(DefaultInitialConfig()))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
@@ -246,7 +246,7 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 }
 
 func TestWebUIDefaultsPreserveExistingHTTPSInstall(t *testing.T) {
-	service, err := InitializeService(sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db")), *DefaultConfig(DefaultInitialConfig()))
+	service, err := InitializeService(primarydb.Open(filepath.Join(t.TempDir(), "primary.db")), *DefaultConfig(DefaultInitialConfig()))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

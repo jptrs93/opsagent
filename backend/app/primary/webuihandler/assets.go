@@ -10,7 +10,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 var (
@@ -26,7 +26,7 @@ func validateUploadAssetName(raw string) (string, error) {
 	if name == "" {
 		return "", apigen.NewApiErr("Asset name is required", "asset_name_required", http.StatusBadRequest)
 	}
-	if !sqlite.ValidAssetKey(name) {
+	if !primarydb.ValidAssetKey(name) {
 		return "", apigen.NewApiErr("Asset name is invalid", "asset_name_invalid", http.StatusBadRequest)
 	}
 	return name, nil
@@ -52,13 +52,13 @@ func mapAssetStoreErr(err error) error {
 	if errors.Is(err, assetstore.ErrLargeAssetS3Config) {
 		return apigen.NewApiErr(err.Error(), "large_asset_s3_config_required", http.StatusBadRequest)
 	}
-	if errors.Is(err, sqlite.ErrAssetNotFound) {
+	if errors.Is(err, primarydb.ErrAssetNotFound) {
 		return AssetNotFoundErr
 	}
-	if errors.Is(err, sqlite.ErrAssetAlreadyExists) {
+	if errors.Is(err, primarydb.ErrAssetAlreadyExists) {
 		return AssetAlreadyExistsErr
 	}
-	if errors.Is(err, sqlite.ErrAssetKeyInvalid) {
+	if errors.Is(err, primarydb.ErrAssetKeyInvalid) {
 		return AssetKeyInvalidErr
 	}
 	return err

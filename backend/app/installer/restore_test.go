@@ -5,13 +5,14 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 	"github.com/jptrs93/opsagent/backend/util/stringu"
 )
 
 func TestApplyRestoredPrimaryConfigOverrides(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	store := sqlite.NewPrimaryStorage(dbPath)
+	store := primarydb.Open(dbPath)
 	service, err := config.InitializeService(store, *config.DefaultConfig(config.DefaultInitialConfig()))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
@@ -41,7 +42,7 @@ func TestApplyRestoredPrimaryConfigOverrides(t *testing.T) {
 		t.Fatalf("apply overrides: %v", err)
 	}
 
-	store = sqlite.NewPrimaryStorage(dbPath)
+	store = primarydb.Open(dbPath)
 	defer store.Close()
 	service, err = config.NewService(store)
 	if err != nil {
@@ -70,18 +71,18 @@ func TestApplyRestoredPrimaryConfigOverrides(t *testing.T) {
 
 func TestInvalidateRestoredPrimaryRuntimeStateResetsNetworkMapGeneration(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	store := sqlite.NewPrimaryStorage(dbPath)
+	store := primarydb.Open(dbPath)
 	store.EnsurePrimaryNode("primary", "primary-id")
-	store.MustSetLocalKV(sqlite.LocalKVPrimaryClusterNetMap, []byte("old publication"))
+	store.MustSetLocalKV(storage.LocalKVPrimaryClusterNetMap, []byte("old publication"))
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := invalidateRestoredPrimaryRuntimeState(dbPath, noChown); err != nil {
 		t.Fatal(err)
 	}
-	store = sqlite.NewPrimaryStorage(dbPath)
+	store = primarydb.Open(dbPath)
 	defer store.Close()
-	if _, ok := store.FetchLocalKV(sqlite.LocalKVPrimaryClusterNetMap); ok {
+	if _, ok := store.FetchLocalKV(storage.LocalKVPrimaryClusterNetMap); ok {
 		t.Fatal("restored primary retained its old network map generation")
 	}
 }

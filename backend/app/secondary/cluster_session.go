@@ -11,7 +11,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
 )
 
 type outbox struct {
@@ -28,7 +28,7 @@ func (o *outbox) Send(msg *apigen.MsgToMaster) bool {
 	}
 }
 
-func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *sqlite.SecondaryStorage, primaryHTTPClient *http.Client) {
+func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *secondarydb.Storage, primaryHTTPClient *http.Client) {
 	capi := apigen.NewOpsagentClusterV1Capi(
 		"https://"+cfg.PrimaryClusterAddr,
 		apigen.WithOpsagentClusterV1CapiHTTPClient(primaryHTTPClient),
@@ -120,7 +120,7 @@ func scheduledInstancePredicateForNode(nodeID int32) storage.ScheduledInstancePr
 // the primary's messages (snapshot, assignment updates, log requests) from the
 // response stream, applying them to the local store. Returns when the stream
 // ends (error or clean EOF).
-func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *sqlite.SecondaryStorage, nodeID int32, underlayAddress string) error {
+func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *secondarydb.Storage, nodeID int32, underlayAddress string) error {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -186,7 +186,7 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 }
 
 // dispatchFromPrimary applies one MsgToWorker received from the primary.
-func dispatchFromPrimary(ctx context.Context, out *outbox, store *sqlite.SecondaryStorage, tracker *logStreamTracker, msg *apigen.MsgToWorker, nodeID int32) {
+func dispatchFromPrimary(ctx context.Context, out *outbox, store *secondarydb.Storage, tracker *logStreamTracker, msg *apigen.MsgToWorker, nodeID int32) {
 	msgType := "heartbeat"
 	switch {
 	case msg.ScheduledInstancesSnapshot != nil:
@@ -260,7 +260,7 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *sqlite.Seconda
 	}
 }
 
-func applyClusterNetwork(store *sqlite.SecondaryStorage, info *apigen.ClusterNetworkInfo) error {
+func applyClusterNetwork(store *secondarydb.Storage, info *apigen.ClusterNetworkInfo) error {
 	if info == nil {
 		return nil
 	}
@@ -269,7 +269,7 @@ func applyClusterNetwork(store *sqlite.SecondaryStorage, info *apigen.ClusterNet
 		return err
 	}
 	network.Default.SetPrefix(p)
-	store.MustSetLocalKV(sqlite.LocalKVClusterNetwork, info.Encode())
+	store.MustSetLocalKV(storage.LocalKVClusterNetwork, info.Encode())
 	return nil
 }
 
@@ -307,7 +307,7 @@ func statusPushLoop(ctx context.Context, out *outbox, ch <-chan apigen.Scheduled
 // primary's last-known UpdatedAt clock for that instance; the secondary scans its
 // local history for rows above that value and streams them back as individual
 // StatusWrites so the primary can insert each one at its canonical clock.
-func applySnapshot(out *outbox, store *sqlite.SecondaryStorage, snap *apigen.ScheduledInstanceSnapshot, nodeID int32) {
+func applySnapshot(out *outbox, store *secondarydb.Storage, snap *apigen.ScheduledInstanceSnapshot, nodeID int32) {
 	slog.Info("applying scheduled instances snapshot from primary", "count", len(snap.Items))
 	present := make(map[int32]struct{}, len(snap.Items))
 	for _, item := range snap.Items {
@@ -349,7 +349,7 @@ func applySnapshot(out *outbox, store *sqlite.SecondaryStorage, snap *apigen.Sch
 }
 
 // applyInstanceUpdate writes a single scheduled instance assignment from the primary.
-func applyInstanceUpdate(store *sqlite.SecondaryStorage, state *apigen.ScheduledInstanceState, nodeID int32) {
+func applyInstanceUpdate(store *secondarydb.Storage, state *apigen.ScheduledInstanceState, nodeID int32) {
 	if state == nil || state.Instance.ID == 0 || state.Instance.NodeID != nodeID {
 		return
 	}

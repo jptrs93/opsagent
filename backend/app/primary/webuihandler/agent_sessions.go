@@ -15,7 +15,7 @@ import (
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/clientaddr"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 	"github.com/jptrs93/opsagent/backend/util/jwtu"
 )
 
@@ -96,7 +96,7 @@ func generateApprovalCode() (string, error) {
 	return string(out), nil
 }
 
-func agentSessionToProto(rec sqlite.AgentSessionRecord) *apigen.AgentSession {
+func agentSessionToProto(rec primarydb.AgentSessionRecord) *apigen.AgentSession {
 	return &apigen.AgentSession{
 		ID:                rec.ID,
 		CreatedAt:         rec.CreatedAt,
@@ -151,7 +151,7 @@ func (h *Handler) PostV1AgentSessionsCreate(ctx apigen.Context) (*apigen.AgentSe
 	if err != nil {
 		return nil, fmt.Errorf("generating agent session token: %w", err)
 	}
-	rec := sqlite.AgentSessionRecord{
+	rec := primarydb.AgentSessionRecord{
 		ID:                sessionID,
 		UserID:            user.ID,
 		CreatedAt:         now,
@@ -183,7 +183,7 @@ func (h *Handler) PostV1AgentSessionsCreate(ctx apigen.Context) (*apigen.AgentSe
 // on the way through rather than by a sweeper.
 func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apigen.AgentSessionRequestStartRequest) (*apigen.AgentSessionRequest, error) {
 	user, err := h.Store.FetchUserMatching(func(u *apigen.InternalUser) bool { return u.ID == req.UserID })
-	if errors.Is(err, sqlite.ErrNotFound) {
+	if errors.Is(err, primarydb.ErrNotFound) {
 		return nil, AgentSessionUserNotFoundErr
 	}
 	if err != nil {
@@ -213,7 +213,7 @@ func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apige
 	if err != nil {
 		return nil, err
 	}
-	rec := sqlite.AgentSessionRecord{
+	rec := primarydb.AgentSessionRecord{
 		ID:                sessionID,
 		UserID:            user.ID,
 		CreatedAt:         now,
@@ -244,7 +244,7 @@ func (h *Handler) PostV1AgentSessionsGetSession(ctx apigen.Context, req *apigen.
 		return nil, AgentSessionNotFoundErr
 	}
 	rec, err := h.Store.FetchAgentSession(req.ID)
-	if errors.Is(err, sqlite.ErrNotFound) {
+	if errors.Is(err, primarydb.ErrNotFound) {
 		return nil, AgentSessionNotFoundErr
 	}
 	if err != nil {
@@ -272,7 +272,7 @@ func (h *Handler) PostV1AgentSessionsGetSession(ctx apigen.Context, req *apigen.
 	}
 }
 
-func (h *Handler) closeAgentSession(ctx apigen.Context, rec sqlite.AgentSessionRecord, now time.Time, msg string) (*apigen.AgentSessionPickup, error) {
+func (h *Handler) closeAgentSession(ctx apigen.Context, rec primarydb.AgentSessionRecord, now time.Time, msg string) (*apigen.AgentSessionPickup, error) {
 	if err := h.Store.SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, rec.ApprovedAt, now); err != nil {
 		return nil, fmt.Errorf("closing agent session: %w", err)
 	}
@@ -280,7 +280,7 @@ func (h *Handler) closeAgentSession(ctx apigen.Context, rec sqlite.AgentSessionR
 	return &apigen.AgentSessionPickup{Status: apigen.AgentSessionStatus_AGENT_SESSION_REJECTED}, nil
 }
 
-func (h *Handler) mintApprovedAgentSession(ctx apigen.Context, rec sqlite.AgentSessionRecord, now time.Time) (*apigen.AgentSessionPickup, error) {
+func (h *Handler) mintApprovedAgentSession(ctx apigen.Context, rec primarydb.AgentSessionRecord, now time.Time) (*apigen.AgentSessionPickup, error) {
 	expiry := now.Add(agentSessionTTL)
 	token, err := h.signAgentToken(rec.UserID, rec.ID, rec.Scopes, now, expiry)
 	if err != nil {
@@ -392,16 +392,16 @@ func (h *Handler) PostV1AgentSessionsRevoke(ctx apigen.Context, req *apigen.Agen
 // fetchOwnAgentSession resolves a session the caller owns. Someone else's id
 // and a made-up one are both reported as not found, so a guessed id reveals
 // nothing about whether it exists.
-func (h *Handler) fetchOwnAgentSession(ctx apigen.Context, id string) (sqlite.AgentSessionRecord, error) {
+func (h *Handler) fetchOwnAgentSession(ctx apigen.Context, id string) (primarydb.AgentSessionRecord, error) {
 	if strings.TrimSpace(id) == "" {
-		return sqlite.AgentSessionRecord{}, AgentSessionNotFoundErr
+		return primarydb.AgentSessionRecord{}, AgentSessionNotFoundErr
 	}
 	rec, err := h.Store.FetchAgentSession(id)
-	if errors.Is(err, sqlite.ErrNotFound) || (err == nil && rec.UserID != ctx.User.ID) {
-		return sqlite.AgentSessionRecord{}, AgentSessionNotFoundErr
+	if errors.Is(err, primarydb.ErrNotFound) || (err == nil && rec.UserID != ctx.User.ID) {
+		return primarydb.AgentSessionRecord{}, AgentSessionNotFoundErr
 	}
 	if err != nil {
-		return sqlite.AgentSessionRecord{}, fmt.Errorf("fetching agent session: %w", err)
+		return primarydb.AgentSessionRecord{}, fmt.Errorf("fetching agent session: %w", err)
 	}
 	return rec, nil
 }

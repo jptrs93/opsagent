@@ -14,7 +14,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
@@ -58,7 +58,7 @@ func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.Cl
 		return nil, apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
 	}
 	if err := h.ConfigService.UpdateSettings(*stored); err != nil {
-		if errors.Is(err, sqlite.ErrAssetMigrationInProgress) {
+		if errors.Is(err, primarydb.ErrAssetMigrationInProgress) {
 			return nil, apigen.NewApiErr(
 				"Wait for the current large asset migration to finish before changing settings",
 				"asset_migration_in_progress",

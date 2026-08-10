@@ -17,7 +17,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 const defaultInstanceOrdinal int32 = 0
@@ -44,7 +44,7 @@ type routeBarrier interface {
 }
 
 type Scheduler struct {
-	store   *sqlite.PrimaryStorage
+	store   *primarydb.Storage
 	barrier routeBarrier
 
 	// draining records what each draining placement is waiting for: the sequence
@@ -64,7 +64,7 @@ type drainWait struct {
 	adopted bool
 }
 
-func New(store *sqlite.PrimaryStorage, barrier routeBarrier) *Scheduler {
+func New(store *primarydb.Storage, barrier routeBarrier) *Scheduler {
 	return &Scheduler{store: store, barrier: barrier, draining: make(map[int32]drainWait)}
 }
 

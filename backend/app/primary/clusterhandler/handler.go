@@ -24,7 +24,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 var _ apigen.OpsagentClusterV1Handler = (*Handler)(nil)
@@ -85,7 +85,7 @@ func (p *Handler) requireScheduledInstancePredicate(ctx context.Context) (storag
 // and connected workers. It implements apigen.OpsagentClusterV1Handler; the
 // generated mux invokes PostV1ClusterConnect once per worker connection.
 type Handler struct {
-	store             *sqlite.PrimaryStorage
+	store             *primarydb.Storage
 	assets            assetProvider
 	githubCredentials githubcredentials.Provider
 	secrets           *secrets.Manager
@@ -111,7 +111,7 @@ type networkMapProvider interface {
 }
 
 // New creates a cluster handler.
-func New(store *sqlite.PrimaryStorage, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, networkMaps networkMapProvider) *Handler {
+func New(store *primarydb.Storage, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, networkMaps networkMapProvider) *Handler {
 	return &Handler{
 		store:             store,
 		assets:            assets,

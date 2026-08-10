@@ -9,12 +9,13 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
 )
 
 func TestAcceptClusterNetMapSequencing(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "secondary.db")
-	store := sqlite.NewSecondaryStorage(dbPath)
+	store := secondarydb.Open(dbPath)
 	defer store.Close()
 	prefix := network.GeneratePrefix()
 	first := testClusterNetMap(t, prefix, "generation-a", 1)
@@ -64,7 +65,7 @@ func TestAcceptClusterNetMapSequencing(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store = sqlite.NewSecondaryStorage(dbPath)
+	store = secondarydb.Open(dbPath)
 	defer store.Close()
 	retired := testClusterNetMap(t, prefix, "generation-a", 3)
 	if _, err := acceptClusterNetMap(store, retired, 1, prefix); !errors.Is(err, ErrStaleClusterNetMap) {
@@ -73,7 +74,7 @@ func TestAcceptClusterNetMapSequencing(t *testing.T) {
 }
 
 func TestRejectedInitialClusterNetMapReportsError(t *testing.T) {
-	store := sqlite.NewSecondaryStorage(filepath.Join(t.TempDir(), "secondary.db"))
+	store := secondarydb.Open(filepath.Join(t.TempDir(), "secondary.db"))
 	defer store.Close()
 	prefix := network.GeneratePrefix()
 	oldDefault := network.Default
@@ -154,7 +155,7 @@ func TestValidateClusterNetMapRejectsInvalidTopology(t *testing.T) {
 // acceptClusterNetMap would refuse the replacement map on the strength of the
 // unreadable one it is replacing.
 func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
-	store := sqlite.NewSecondaryStorage(filepath.Join(t.TempDir(), "secondary.db"))
+	store := secondarydb.Open(filepath.Join(t.TempDir(), "secondary.db"))
 	defer store.Close()
 	prefix := network.GeneratePrefix()
 
@@ -164,7 +165,7 @@ func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
 		t.Fatal(err)
 	}
 	legacy.Routes[0].LogicalPrefix = addr.String()
-	store.MustSetLocalKV(sqlite.LocalKVWorkerClusterNetMap, legacy.Encode())
+	store.MustSetLocalKV(storage.LocalKVWorkerClusterNetMap, legacy.Encode())
 
 	cached, _, ok, err := cachedClusterNetMap(store, 1, prefix)
 	if err != nil {
@@ -173,7 +174,7 @@ func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
 	if ok || cached != nil {
 		t.Fatalf("unreadable cached map was returned: ok=%v map=%+v", ok, cached)
 	}
-	if _, present := store.FetchLocalKV(sqlite.LocalKVWorkerClusterNetMap); present {
+	if _, present := store.FetchLocalKV(storage.LocalKVWorkerClusterNetMap); present {
 		t.Fatal("unreadable cached map was left in the store")
 	}
 }
@@ -182,7 +183,7 @@ func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
 // an unreadable one usually carries the same generation. Retiring that
 // generation on discard would refuse every subsequent map from that primary.
 func TestUnreadableCachedClusterNetMapDoesNotRetireItsGeneration(t *testing.T) {
-	store := sqlite.NewSecondaryStorage(filepath.Join(t.TempDir(), "secondary.db"))
+	store := secondarydb.Open(filepath.Join(t.TempDir(), "secondary.db"))
 	defer store.Close()
 	prefix := network.GeneratePrefix()
 
@@ -192,7 +193,7 @@ func TestUnreadableCachedClusterNetMapDoesNotRetireItsGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	legacy.Routes[0].LogicalPrefix = addr.String()
-	store.MustSetLocalKV(sqlite.LocalKVWorkerClusterNetMap, legacy.Encode())
+	store.MustSetLocalKV(storage.LocalKVWorkerClusterNetMap, legacy.Encode())
 
 	next := testClusterNetMap(t, prefix, "generation-a", 8)
 	status, err := acceptClusterNetMap(store, next, 1, prefix)

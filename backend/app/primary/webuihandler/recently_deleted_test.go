@@ -7,7 +7,8 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 // deleteDeployment removes a deployment through the handler so the tombstone is
@@ -56,7 +57,7 @@ func deletedNames(items []*apigen.DeploymentConfig) []string {
 
 func newRecentlyDeletedHandler(t *testing.T) (*Handler, int32) {
 	t.Helper()
-	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("primary", "primary")
 	return &Handler{Store: store, GitVersions: &fakeGitSourceProvider{}}, node.ID
 }
@@ -154,7 +155,7 @@ func TestRecentlyDeletedOmitsInternalDeployments(t *testing.T) {
 	h.Store.EnsureSystemDeployment(nodeID, "v1.0.0")
 	var internal *apigen.DeploymentConfig
 	for _, cfg := range h.Store.FetchDeploymentSnapshot(nil) {
-		if sqlite.IsInternalDeploymentConfig(&cfg) {
+		if internaldeploy.IsInternalConfig(&cfg) {
 			internal = &cfg
 			break
 		}
@@ -163,7 +164,7 @@ func TestRecentlyDeletedOmitsInternalDeployments(t *testing.T) {
 		t.Fatal("no internal deployment was created")
 	}
 	deleted := true
-	_, _, ok := h.Store.UpdateDeploymentConfig(apigen.Context{Ctx: context.Background()}, internal.ID, sqlite.DeploymentConfigUpdate{
+	_, _, ok := h.Store.UpdateDeploymentConfig(apigen.Context{Ctx: context.Background()}, internal.ID, primarydb.DeploymentConfigUpdate{
 		ExpectedVersion: internal.Version + 1,
 		Spec:            &internal.Spec,
 		Deleted:         &deleted,
@@ -177,7 +178,7 @@ func TestRecentlyDeletedOmitsInternalDeployments(t *testing.T) {
 		t.Fatalf("deleted = %v, want [web]", deletedNames(items))
 	}
 	for _, cfg := range items {
-		if sqlite.IsInternalDeploymentConfig(cfg) {
+		if internaldeploy.IsInternalConfig(cfg) {
 			t.Fatalf("internal deployment %q listed", cfg.Identity.Name)
 		}
 	}

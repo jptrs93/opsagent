@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 func (h *Handler) GetV1NodesStatus(ctx apigen.Context, r *http.Request, w http.ResponseWriter) error {
@@ -32,7 +32,7 @@ func (h *Handler) GetV1NodesStatus(ctx apigen.Context, r *http.Request, w http.R
 			ID:            node.ID,
 			Name:          node.Name,
 			Identifier:    node.Identifier,
-			IsPrimary:     nodeHasRole(node, sqlite.NodeRolePrimary),
+			IsPrimary:     nodeHasRole(node, primarydb.NodeRolePrimary),
 			Connected:     conn.connected,
 			ConnectedAt:   conn.connectedAt,
 			AllowedSpaces: node.AllowedSpaces,
@@ -101,7 +101,7 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	}
 	// The invariant, applied here too so the check below sees the same list
 	// that will be stored rather than the one the caller sent.
-	requested[sqlite.OpendeploySpaceID] = struct{}{}
+	requested[primarydb.OpendeploySpaceID] = struct{}{}
 
 	// Narrowing must not contradict what is already placed on the node. This is
 	// the same shape as refusing to delete a space with live deployments.
@@ -130,7 +130,7 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	return updated, nil
 }
 
-func (h *Handler) nodeByIdentifier(identifier string) *sqlite.Node {
+func (h *Handler) nodeByIdentifier(identifier string) *primarydb.Node {
 	for _, node := range h.Store.ListNodes() {
 		if node != nil && node.Identifier == identifier {
 			return node
@@ -166,7 +166,7 @@ type timeAndConnected struct {
 	connected   bool
 }
 
-func nodeHasRole(node *sqlite.Node, role int32) bool {
+func nodeHasRole(node *primarydb.Node, role int32) bool {
 	for _, r := range node.Roles {
 		if r == role {
 			return true

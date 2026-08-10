@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 type sessionNetMapProvider struct {
@@ -68,7 +68,7 @@ func TestSessionRecordsOnlyCleanNetMapApplies(t *testing.T) {
 }
 
 func TestSessionReconnectSendsLatestNetworkMap(t *testing.T) {
-	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	provider := &sessionNetMapProvider{current: &apigen.ClusterNetMap{Generation: "generation-a", Sequence: 1}}
 
@@ -83,7 +83,7 @@ func TestSessionReconnectSendsLatestNetworkMap(t *testing.T) {
 	}
 }
 
-func initialSessionNetMap(t *testing.T, store *sqlite.PrimaryStorage, provider networkMapProvider) *apigen.ClusterNetMap {
+func initialSessionNetMap(t *testing.T, store *primarydb.Storage, provider networkMapProvider) *apigen.ClusterNetMap {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

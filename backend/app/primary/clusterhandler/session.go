@@ -13,7 +13,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 // outboxSize bounds the buffer of pending MsgToWorker messages. It decouples
@@ -39,7 +39,7 @@ type Session struct {
 	NodeID        int32
 	identifier    string
 	predicate     storage.ScheduledInstancePredicate
-	store         *sqlite.PrimaryStorage
+	store         *primarydb.Storage
 	networkPrefix network.Prefix
 	networkMaps   networkMapProvider
 
@@ -60,7 +60,7 @@ type logChunk struct {
 	end    bool
 }
 
-func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID int32, identifier string, predicate storage.ScheduledInstancePredicate, store *sqlite.PrimaryStorage, networkMaps networkMapProvider) *Session {
+func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID int32, identifier string, predicate storage.ScheduledInstancePredicate, store *primarydb.Storage, networkMaps networkMapProvider) *Session {
 	return &Session{
 		sessCtx:     sessCtx,
 		cancel:      cancel,

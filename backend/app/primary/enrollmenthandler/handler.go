@@ -14,9 +14,10 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
+	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
@@ -38,7 +39,7 @@ type enrollmentSession struct {
 // Handler owns worker enrollment streams and the operator actions that accept
 // them. It implements apigen.EnrollmentV1Handler.
 type Handler struct {
-	store          *sqlite.PrimaryStorage
+	store          *primarydb.Storage
 	secrets        *secrets.Manager
 	configService  *config.Service
 	tlsFingerprint string
@@ -53,7 +54,7 @@ type networkMapProvider interface {
 	SnapshotForNode(nodeID int32) *apigen.ClusterNetMap
 }
 
-func New(store *sqlite.PrimaryStorage, secretsMgr *secrets.Manager, configService *config.Service, tlsFingerprint string, networkMaps networkMapProvider) *Handler {
+func New(store *primarydb.Storage, secretsMgr *secrets.Manager, configService *config.Service, tlsFingerprint string, networkMaps networkMapProvider) *Handler {
 	return &Handler{
 		store:          store,
 		secrets:        secretsMgr,
@@ -172,7 +173,7 @@ func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.E
 		return nil, fmt.Errorf("signing worker CSR: %w", err)
 	}
 	status, err := h.store.AcceptEnrollmentRequest(req.ID, workerName, sess.requestingMachineID, sess.underlayAddress, sess.requestUpdatedAt)
-	if errors.Is(err, sqlite.ErrEnrollmentRequestChanged) {
+	if errors.Is(err, primarydb.ErrEnrollmentRequestChanged) {
 		return nil, EnrollmentNotConnectedErr
 	}
 	if err != nil {
@@ -219,7 +220,7 @@ func (h *Handler) ensureEnrollmentBootstrapInstances(nodeID int32) (*apigen.Sche
 		return state.Instance.NodeID == nodeID
 	})
 	for _, cfg := range h.store.FetchDeploymentSnapshot(func(c apigen.DeploymentConfig) bool { return c.NodeID == nodeID }) {
-		if !sqlite.IsSystemDeploymentConfig(&cfg) && !sqlite.IsNetproxyDeploymentConfig(&cfg) {
+		if !internaldeploy.IsSelfConfig(&cfg) && !internaldeploy.IsNetproxyConfig(&cfg) {
 			continue
 		}
 		// A node being enrolled has no placements yet, so its system deployments
@@ -235,10 +236,10 @@ func enrollmentBootstrapInstances(snapshot []apigen.ScheduledInstanceState) (*ap
 	var nodeNetDeployment *apigen.ScheduledInstanceState
 	for i := range snapshot {
 		item := &snapshot[i]
-		if sqlite.IsSystemDeploymentConfig(&item.Config) && (nodeDeployment == nil || item.Instance.ID > nodeDeployment.Instance.ID) {
+		if internaldeploy.IsSelfConfig(&item.Config) && (nodeDeployment == nil || item.Instance.ID > nodeDeployment.Instance.ID) {
 			nodeDeployment = item
 		}
-		if sqlite.IsNetproxyDeploymentConfig(&item.Config) && (nodeNetDeployment == nil || item.Instance.ID > nodeNetDeployment.Instance.ID) {
+		if internaldeploy.IsNetproxyConfig(&item.Config) && (nodeNetDeployment == nil || item.Instance.ID > nodeNetDeployment.Instance.ID) {
 			nodeNetDeployment = item
 		}
 	}

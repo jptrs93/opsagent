@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 func TestCreateAssetNotifiesSubscribers(t *testing.T) {
-	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
 	s := &Store{DB: store}
 
 	sub, unsub := store.SubscribeAssetUpdates()

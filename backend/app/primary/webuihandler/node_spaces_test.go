@@ -10,12 +10,12 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
-func newNodeSpacesHandler(t *testing.T) (*Handler, *sqlite.Node) {
+func newNodeSpacesHandler(t *testing.T) (*Handler, *primarydb.Node) {
 	t.Helper()
-	store := sqlite.NewPrimaryStorage(filepath.Join(t.TempDir(), "primary.db"))
+	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("primary", "primary-id")
 	return &Handler{Store: store}, node
 }
@@ -49,7 +49,7 @@ func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	if _, err := setAllowed(t, h, node.Identifier, []int32{sqlite.DefaultSpaceID, space.ID}); err != nil {
+	if _, err := setAllowed(t, h, node.Identifier, []int32{primarydb.DefaultSpaceID, space.ID}); err != nil {
 		t.Fatalf("narrowing: %v", err)
 	}
 
@@ -71,14 +71,14 @@ func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 	}
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
 	cfg, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		Identity: apigen.DeploymentIdentity{SpaceID: sqlite.DefaultSpaceID, Name: "web"},
+		Identity: apigen.DeploymentIdentity{SpaceID: primarydb.DefaultSpaceID, Name: "web"},
 		NodeID:   node.ID,
 		Spec:     spec,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if _, err := setAllowed(t, h, node.Identifier, []int32{sqlite.DefaultSpaceID}); err != nil {
+	if _, err := setAllowed(t, h, node.Identifier, []int32{primarydb.DefaultSpaceID}); err != nil {
 		t.Fatalf("narrowing: %v", err)
 	}
 
@@ -99,7 +99,7 @@ func TestNarrowingIsRejectedWhileDeploymentsUseTheSpace(t *testing.T) {
 	h, node := newNodeSpacesHandler(t)
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		Identity: apigen.DeploymentIdentity{SpaceID: sqlite.DefaultSpaceID, Name: "web"},
+		Identity: apigen.DeploymentIdentity{SpaceID: primarydb.DefaultSpaceID, Name: "web"},
 		NodeID:   node.ID,
 		Spec:     spec,
 	}); err != nil {
@@ -111,7 +111,7 @@ func TestNarrowingIsRejectedWhileDeploymentsUseTheSpace(t *testing.T) {
 		t.Fatalf("err = %v, want node_space_in_use", err)
 	}
 	// And the stored list is untouched.
-	if got := h.nodeAllowsSpace(node.ID, sqlite.DefaultSpaceID); !got {
+	if got := h.nodeAllowsSpace(node.ID, primarydb.DefaultSpaceID); !got {
 		t.Fatal("a rejected narrowing still changed the stored list")
 	}
 }
@@ -157,8 +157,8 @@ func TestNodesStatusCarriesAllowedSpaces(t *testing.T) {
 	}
 	got := resp.Machines[0].AllowedSpaces
 	slices.Sort(got)
-	if !slices.Equal(got, []int32{sqlite.OpendeploySpaceID, space.ID}) {
-		t.Fatalf("AllowedSpaces = %v, want [%d %d]", got, sqlite.OpendeploySpaceID, space.ID)
+	if !slices.Equal(got, []int32{primarydb.OpendeploySpaceID, space.ID}) {
+		t.Fatalf("AllowedSpaces = %v, want [%d %d]", got, primarydb.OpendeploySpaceID, space.ID)
 	}
 }
 
@@ -169,11 +169,11 @@ func TestSetAllowedSpacesAlwaysKeepsTheOpendeploySpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetAllowedSpaces: %v", err)
 	}
-	if !slices.Equal(updated.AllowedSpaces, []int32{sqlite.OpendeploySpaceID}) {
+	if !slices.Equal(updated.AllowedSpaces, []int32{primarydb.OpendeploySpaceID}) {
 		t.Fatalf("AllowedSpaces = %v, want just the opendeploy space", updated.AllowedSpaces)
 	}
 	// Which means an internal deployment can still be placed there.
-	if !h.nodeAllowsSpace(node.ID, sqlite.OpendeploySpaceID) {
+	if !h.nodeAllowsSpace(node.ID, primarydb.OpendeploySpaceID) {
 		t.Fatal("node stopped allowing the opendeploy space")
 	}
 }

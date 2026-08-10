@@ -1,16 +1,24 @@
 version: "2"
 sql:
   - engine: "sqlite"
-    queries: "storage/sqlite/sql/queries.sql"
+    queries: "storage/primarydb/sql/queries.sql"
     schema:
-      - "storage/sqlite/sql/schema.sql"
-      - "storage/sqlite/sql/schema_deployments.sql"
-      - "storage/sqlite/sql/schema_secrets.sql"
-      - "storage/sqlite/sql/schema_configs.sql"
-      - "storage/sqlite/sql/schema_assets.sql"
+      - "storage/primarydb/sql/schema.sql"
+      - "storage/primarydb/sql/schema_deployments.sql"
+      - "storage/primarydb/sql/schema_secrets.sql"
+      - "storage/primarydb/sql/schema_configs.sql"
+      - "storage/primarydb/sql/schema_assets.sql"
     gen:
       go:
-        package: "sqlite"
-        out: "storage/sqlite"
+        package: "primarydb"
+        out: "storage/primarydb"
         rename:
           node: NodeRow
+  - engine: "sqlite"
+    queries: "storage/secondarydb/sql/queries.sql"
+    schema:
+      - "storage/secondarydb/sql/schema.sql"
+    gen:
+      go:
+        package: "secondarydb"
+        out: "storage/secondarydb"

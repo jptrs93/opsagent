@@ -24,7 +24,7 @@ Assets are versioned user-managed file blobs intended for config files that can 
 
 ## Shape migration (pre-directories → split tables)
 
-The pre-directories schema stored one `assets` row per version, grouped only by the `key` string. A Go startup migration (`backend/storage/sqlite/assets_shape_migration.go`) transforms it in a single transaction, running for both roles before the schema files apply — `CREATE TABLE IF NOT EXISTS` would otherwise silently no-op against the old-shape table. Detection is by column shape (old `assets` has `blob`), which also makes the migration idempotent.
+The pre-directories schema stored one `assets` row per version, grouped only by the `key` string. A Go startup migration (`backend/storage/primarydb/assets_shape_migration.go`) transforms it in a single transaction, running on the primary before the schema files apply (the secondary schema is independently defined and has no asset tables — legacy copies on workers are dropped by its migrations) — `CREATE TABLE IF NOT EXISTS` would otherwise silently no-op against the old-shape table. Detection is by column shape (old `assets` has `blob`), which also makes the migration idempotent.
 
 - Every old row id is preserved verbatim into `asset_versions.id`, so pinned deployment references, worker caches, and recorded S3 locations stay valid. `pending://` rows migrate too, so interrupted-upload recovery still finds its row.
 - One `assets` row is minted per key. Old rows stored `space_id` per version and a targeted upload could override it, so versions of one key could disagree; the group takes the newest version's space, matching what the latest-version list always displayed.

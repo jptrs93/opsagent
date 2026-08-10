@@ -20,7 +20,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/log/logreader"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 var InvalidRequestBodyErr = apigen.NewApiErr("Invalid request body", "invalid_request_body", http.StatusBadRequest)
@@ -98,7 +98,7 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	if req.Version != cfg.Version+1 {
 		return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
 	}
-	if (req.SpaceID != nil || !req.Spec.IsZero()) && sqlite.IsInternalDeploymentConfig(cfg) {
+	if (req.SpaceID != nil || !req.Spec.IsZero()) && internaldeploy.IsInternalConfig(cfg) {
 		return nil, invalidConfigErrf("opendeploy system deployment identity and spec are internal-only")
 	}
 
@@ -192,7 +192,7 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	}
 
 	if req.SpaceID != nil || spec != nil || stateChanged {
-		current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, sqlite.DeploymentConfigUpdate{
+		current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, primarydb.DeploymentConfigUpdate{
 			ExpectedVersion: req.Version,
 			SpaceID:         req.SpaceID,
 			Spec:            effectiveSpec,
@@ -245,7 +245,7 @@ func (h *Handler) updateInternalDeploymentVersion(ctx apigen.Context, cfg *apige
 	if err := spec.SetWorkloadState(targetVersion, true); err != nil {
 		return nil, invalidConfigErrf("spec: %v", err)
 	}
-	current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, cfg.ID, sqlite.DeploymentConfigUpdate{
+	current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, cfg.ID, primarydb.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
 		Spec:            spec,
 	})
@@ -267,7 +267,7 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
 	}
 	statuses := h.deploymentStatuses(req.DeploymentID)
-	if sqlite.IsInternalDeploymentConfig(cfg) {
+	if internaldeploy.IsInternalConfig(cfg) {
 		if !h.canDeleteStaleDisconnectedSystemDeployment(cfg) {
 			return invalidConfigErrf("opendeploy system deployment is internal-only")
 		}
@@ -285,7 +285,7 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 	if err := spec.SetWorkloadState(spec.WorkloadVersion(), false); err != nil {
 		return invalidConfigErrf("spec: %v", err)
 	}
-	_, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, sqlite.DeploymentConfigUpdate{
+	_, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, primarydb.DeploymentConfigUpdate{
 		ExpectedVersion: req.Version,
 		Spec:            spec,
 		Deleted:         &deleted,
@@ -314,7 +314,7 @@ func (h *Handler) PostV1DeploymentsRecentlyDeleted(ctx apigen.Context, req *apig
 		limit = recentlyDeletedDefaultLimit
 	}
 	configs := h.Store.FetchDeletedDeploymentSnapshot(func(cfg apigen.DeploymentConfig) bool {
-		return !sqlite.IsInternalDeploymentConfig(&cfg)
+		return !internaldeploy.IsInternalConfig(&cfg)
 	}, limit)
 	items := make([]*apigen.DeploymentConfig, 0, len(configs))
 	for i := range configs {
@@ -332,7 +332,7 @@ func (h *Handler) PostV1DeploymentsVersions(ctx apigen.Context, req *apigen.Depl
 	if cfg == nil || cfg.Spec.IsZero() {
 		return nil, DeploymentNotFoundErr
 	}
-	if sqlite.IsNetproxyDeploymentConfig(cfg) {
+	if internaldeploy.IsNetproxyConfig(cfg) {
 		if h.GithubReleaseVersions == nil {
 			return nil, githubReleaseVersionsErr(fmt.Errorf("github release version loading is not configured"))
 		}

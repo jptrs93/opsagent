@@ -16,7 +16,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb"
 )
 
 type subscriber struct {
@@ -25,7 +26,7 @@ type subscriber struct {
 }
 
 type Publisher struct {
-	store  *sqlite.PrimaryStorage
+	store  *primarydb.Storage
 	prefix network.Prefix
 
 	mu              sync.Mutex
@@ -44,7 +45,7 @@ type Publisher struct {
 	ackUpdates chan struct{}
 }
 
-func New(store *sqlite.PrimaryStorage, prefix network.Prefix) (*Publisher, error) {
+func New(store *primarydb.Storage, prefix network.Prefix) (*Publisher, error) {
 	if store == nil {
 		return nil, fmt.Errorf("network-map store is nil")
 	}
@@ -63,7 +64,7 @@ func New(store *sqlite.PrimaryStorage, prefix network.Prefix) (*Publisher, error
 		applied:         make(map[int32]int64),
 		ackUpdates:      make(chan struct{}, 1),
 	}
-	if persisted, ok := store.FetchLocalKV(sqlite.LocalKVPrimaryClusterNetMap); ok {
+	if persisted, ok := store.FetchLocalKV(storage.LocalKVPrimaryClusterNetMap); ok {
 		current, err := apigen.DecodeClusterNetMap(persisted)
 		if err != nil {
 			p.Close()
@@ -137,7 +138,7 @@ func (p *Publisher) Refresh() error {
 		next.Generation = p.current.Generation
 		next.Sequence = p.current.Sequence + 1
 	}
-	p.store.MustSetLocalKV(sqlite.LocalKVPrimaryClusterNetMap, next.Encode())
+	p.store.MustSetLocalKV(storage.LocalKVPrimaryClusterNetMap, next.Encode())
 	p.current = next
 	for sub := range p.subscribers {
 		publishLatest(sub.updates, mapForNode(next, sub.nodeID))
@@ -202,7 +203,7 @@ func canonicalContent(source *apigen.ClusterNetMap) []byte {
 	return canonical.Encode()
 }
 
-func render(prefix network.Prefix, nodes []*sqlite.Node, instances []apigen.ScheduledInstanceState) (*apigen.ClusterNetMap, error) {
+func render(prefix network.Prefix, nodes []*primarydb.Node, instances []apigen.ScheduledInstanceState) (*apigen.ClusterNetMap, error) {
 	netNodes := make([]*apigen.ClusterNetMapNode, 0, len(nodes))
 	knownNodes := make(map[int32]struct{}, len(nodes))
 	underlayBits := 0

@@ -35,14 +35,14 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
 )
 
 // DB is the storage passthrough for the local_runtime_inputs table. It only
 // ever sees sealed rows.
 type DB interface {
-	ListLocalRuntimeInputs() []sqlite.LocalRuntimeInput
-	UpsertLocalRuntimeInput(sqlite.LocalRuntimeInput)
+	ListLocalRuntimeInputs() []secondarydb.LocalRuntimeInput
+	UpsertLocalRuntimeInput(secondarydb.LocalRuntimeInput)
 	DeleteLocalRuntimeInput(kind, refID int64)
 }
 
@@ -90,9 +90,9 @@ func (s *Store) LoadRuntimeInputs() (secrets, configs map[int32]string, err erro
 			continue
 		}
 		switch row.Kind {
-		case sqlite.LocalRuntimeInputKindSecret:
+		case secondarydb.LocalRuntimeInputKindSecret:
 			secrets[int32(row.RefID)] = string(plaintext)
-		case sqlite.LocalRuntimeInputKindConfig:
+		case secondarydb.LocalRuntimeInputKindConfig:
 			configs[int32(row.RefID)] = string(plaintext)
 		default:
 			s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID)
@@ -107,10 +107,10 @@ func (s *Store) LoadRuntimeInputs() (secrets, configs map[int32]string, err erro
 
 // StoreRuntimeInputs seals and persists the given values.
 func (s *Store) StoreRuntimeInputs(secrets, configs map[int32]string) error {
-	if err := s.storeKind(sqlite.LocalRuntimeInputKindSecret, secrets); err != nil {
+	if err := s.storeKind(secondarydb.LocalRuntimeInputKindSecret, secrets); err != nil {
 		return err
 	}
-	return s.storeKind(sqlite.LocalRuntimeInputKindConfig, configs)
+	return s.storeKind(secondarydb.LocalRuntimeInputKindConfig, configs)
 }
 
 func (s *Store) storeKind(kind int64, values map[int32]string) error {
@@ -120,7 +120,7 @@ func (s *Store) storeKind(kind int64, values map[int32]string) error {
 		if err != nil {
 			return fmt.Errorf("sealing runtime input kind %d id %d: %w", kind, id, err)
 		}
-		s.db.UpsertLocalRuntimeInput(sqlite.LocalRuntimeInput{
+		s.db.UpsertLocalRuntimeInput(secondarydb.LocalRuntimeInput{
 			Kind:       kind,
 			RefID:      int64(id),
 			Ciphertext: ciphertext,
@@ -138,9 +138,9 @@ func (s *Store) RetainRuntimeInputs(secrets, configs map[int32]struct{}) (int, e
 	for _, row := range s.db.ListLocalRuntimeInputs() {
 		keep := false
 		switch row.Kind {
-		case sqlite.LocalRuntimeInputKindSecret:
+		case secondarydb.LocalRuntimeInputKindSecret:
 			_, keep = secrets[int32(row.RefID)]
-		case sqlite.LocalRuntimeInputKindConfig:
+		case secondarydb.LocalRuntimeInputKindConfig:
 			_, keep = configs[int32(row.RefID)]
 		}
 		if keep {

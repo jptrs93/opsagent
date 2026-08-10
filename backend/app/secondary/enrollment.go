@@ -16,7 +16,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
-	"github.com/jptrs93/opsagent/backend/storage/sqlite"
+	"github.com/jptrs93/opsagent/backend/storage"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
@@ -135,7 +136,7 @@ func cacheEnrollmentBootstrapState(cfg EnrollmentConfig, accepted *apigen.Enroll
 	if accepted.NodeNetDeployment == nil || accepted.NodeNetDeployment.Config.ID == 0 {
 		return fmt.Errorf("accepted enrollment response missing node net deployment")
 	}
-	store := sqlite.NewSecondaryStorage(filepath.Join(cfg.DataDir, "secondary.db"))
+	store := secondarydb.Open(filepath.Join(cfg.DataDir, "secondary.db"))
 	defer store.Close()
 	prefix, err := network.ParsePrefix(info.UlaPrefix)
 	if err != nil {
@@ -147,7 +148,7 @@ func cacheEnrollmentBootstrapState(cfg EnrollmentConfig, accepted *apigen.Enroll
 			return fmt.Errorf("validating enrollment cluster network map: %w", err)
 		}
 	}
-	store.MustSetLocalKV(sqlite.LocalKVClusterNetwork, info.Encode())
+	store.MustSetLocalKV(storage.LocalKVClusterNetwork, info.Encode())
 	cacheEnrollmentInstance(store, accepted.NodeDeployment)
 	cacheEnrollmentInstance(store, accepted.NodeNetDeployment)
 	if accepted.ClusterNetMap != nil {
@@ -159,7 +160,7 @@ func cacheEnrollmentBootstrapState(cfg EnrollmentConfig, accepted *apigen.Enroll
 	return nil
 }
 
-func cacheEnrollmentInstance(store *sqlite.SecondaryStorage, state *apigen.ScheduledInstanceState) {
+func cacheEnrollmentInstance(store *secondarydb.Storage, state *apigen.ScheduledInstanceState) {
 	if state == nil {
 		return
 	}
