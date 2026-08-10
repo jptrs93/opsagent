@@ -6,7 +6,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var InvalidReferencingDeploymentsErr = apigen.NewApiErr(
@@ -42,9 +42,9 @@ func requestedDeploymentVersions(update bool, refs []*apigen.DeploymentConfigVer
 
 func versionedValueSetError(err error) error {
 	switch {
-	case errors.Is(err, primarydb.ErrInvalidReferencingDeployments):
+	case errors.Is(err, state.ErrInvalidReferencingDeployments):
 		return InvalidReferencingDeploymentsErr
-	case errors.Is(err, primarydb.ErrReferencingDeploymentsChanged):
+	case errors.Is(err, state.ErrReferencingDeploymentsChanged):
 		return ReferencingDeploymentsChangedErr
 	default:
 		return err

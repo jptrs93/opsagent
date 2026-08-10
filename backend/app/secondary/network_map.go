@@ -15,7 +15,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
 
 var (
@@ -24,7 +24,7 @@ var (
 	clusterNetMapMu             sync.Mutex
 )
 
-func acceptClusterNetMap(store *secondarydb.Storage, candidate *apigen.ClusterNetMap, nodeID int32, expectedPrefix network.Prefix) (*apigen.NetMapStatus, error) {
+func acceptClusterNetMap(store *state.Service, candidate *apigen.ClusterNetMap, nodeID int32, expectedPrefix network.Prefix) (*apigen.NetMapStatus, error) {
 	next, prefix, err := validateClusterNetMap(candidate, nodeID, expectedPrefix)
 	if err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func acceptClusterNetMap(store *secondarydb.Storage, candidate *apigen.ClusterNe
 // persisted by the primary and survive its restarts, so the map that supersedes
 // this one almost always carries the same generation; retiring it here would
 // refuse every future map from that primary.
-func cachedClusterNetMap(store *secondarydb.Storage, nodeID int32, expectedPrefix network.Prefix) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
+func cachedClusterNetMap(store *state.Service, nodeID int32, expectedPrefix network.Prefix) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
 	encoded, ok := store.FetchLocalKV(storage.LocalKVWorkerClusterNetMap)
 	if !ok {
 		return nil, network.Prefix{}, false, nil
@@ -104,7 +104,7 @@ func cachedClusterNetMap(store *secondarydb.Storage, nodeID int32, expectedPrefi
 // discardCachedClusterNetMap drops an unusable cached map and reports it as
 // absent. Only a store failure is an error: the content is already known to be
 // worthless, so failing to delete it costs nothing but a repeat of this warning.
-func discardCachedClusterNetMap(store *secondarydb.Storage, cause error) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
+func discardCachedClusterNetMap(store *state.Service, cause error) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
 	slog.Warn("discarding unusable cached cluster network map; waiting for the primary to republish", "err", cause)
 	if err := store.DeleteLocalKV(storage.LocalKVWorkerClusterNetMap); err != nil {
 		return nil, network.Prefix{}, false, fmt.Errorf("discarding unusable cached cluster network map: %w", err)
@@ -112,7 +112,7 @@ func discardCachedClusterNetMap(store *secondarydb.Storage, cause error) (*apige
 	return nil, network.Prefix{}, false, nil
 }
 
-func cachedClusterNetMapStatus(store *secondarydb.Storage, nodeID int32, expectedPrefix network.Prefix, reconcileErr string) (*apigen.NetMapStatus, error) {
+func cachedClusterNetMapStatus(store *state.Service, nodeID int32, expectedPrefix network.Prefix, reconcileErr string) (*apigen.NetMapStatus, error) {
 	current, _, ok, err := cachedClusterNetMap(store, nodeID, expectedPrefix)
 	if err != nil || !ok {
 		return nil, err
@@ -222,7 +222,7 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 	return normalized, prefix, nil
 }
 
-func loadRetiredNetMapGenerations(store *secondarydb.Storage) (map[string]struct{}, error) {
+func loadRetiredNetMapGenerations(store *state.Service) (map[string]struct{}, error) {
 	retired := make(map[string]struct{})
 	encoded, ok := store.FetchLocalKV(storage.LocalKVWorkerRetiredNetMapGenerations)
 	if !ok {

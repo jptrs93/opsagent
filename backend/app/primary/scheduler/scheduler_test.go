@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 // fakeBarrier stands in for the applied-sequence barrier. Held blocks every
@@ -40,7 +40,7 @@ func rolloverSpec(version string) *apigen.DeploymentSpec {
 	return spec
 }
 
-func statesByID(store *primarydb.Storage, deploymentID int32) map[int32]apigen.ScheduledInstanceTarget {
+func statesByID(store *state.Service, deploymentID int32) map[int32]apigen.ScheduledInstanceTarget {
 	out := map[int32]apigen.ScheduledInstanceTarget{}
 	for _, inst := range store.ListNonFinalScheduledInstancesForDeployment(deploymentID) {
 		out[inst.ID] = inst.State
@@ -48,7 +48,7 @@ func statesByID(store *primarydb.Storage, deploymentID int32) map[int32]apigen.S
 	return out
 }
 
-func markRunning(t *testing.T, store *primarydb.Storage, instanceID, configVersion int32, status apigen.RunningStatus) {
+func markRunning(t *testing.T, store *state.Service, instanceID, configVersion int32, status apigen.RunningStatus) {
 	t.Helper()
 	store.MustWriteScheduledInstanceStatus(instanceID, func(st *apigen.ScheduledInstanceStatus) bool {
 		st.BumpUpdatedAt()
@@ -57,7 +57,7 @@ func markRunning(t *testing.T, store *primarydb.Storage, instanceID, configVersi
 	})
 }
 
-func fetchState(t *testing.T, store *primarydb.Storage, instanceID int32) apigen.ScheduledInstanceState {
+func fetchState(t *testing.T, store *state.Service, instanceID int32) apigen.ScheduledInstanceState {
 	t.Helper()
 	for _, state := range store.FetchScheduledSnapshot(nil) {
 		if state.Instance.ID == instanceID {
@@ -69,19 +69,20 @@ func fetchState(t *testing.T, store *primarydb.Storage, instanceID int32) apigen
 }
 
 func TestDrainSupersededOnlyRetiresOlderInstances(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary")
 
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: primarydb.DefaultSpaceID,
+		SpaceID: state.DefaultSpaceID,
 		Name:    "app",
 	}, node.ID, testRunningSpec("v1"))
 	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	next := *testRunningSpec("v2")
-	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, primarydb.DeploymentConfigUpdate{
+	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
+		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            &next,
 	})
 	if !versionOK {
@@ -114,20 +115,21 @@ func TestDrainSupersededOnlyRetiresOlderInstances(t *testing.T) {
 }
 
 func TestStartupReconcileDoesNotLetOlderRunningKillReplacement(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary")
 
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: primarydb.DefaultSpaceID,
+		SpaceID: state.DefaultSpaceID,
 		Name:    "app",
 	}, node.ID, testRunningSpec("v1"))
 	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	markRunning(t, store, older.ID, cfg.Version, apigen.RunningStatus_RUNNING)
 
 	next := *testRunningSpec("v2")
-	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, primarydb.DeploymentConfigUpdate{
+	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
+		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            &next,
 	})
 	if !versionOK {
@@ -163,18 +165,19 @@ func TestStartupReconcileDoesNotLetOlderRunningKillReplacement(t *testing.T) {
 // serving, because that would point the instance's inbound route at a node
 // whose container does not exist yet.
 func TestRolloverReplacementWarmsUpAsStandby(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary")
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: primarydb.DefaultSpaceID,
+		SpaceID: state.DefaultSpaceID,
 		Name:    "app",
 	}, node.ID, rolloverSpec("v1"))
 	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	next := *rolloverSpec("v2")
-	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, primarydb.DeploymentConfigUpdate{
+	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
+		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            &next,
 	})
 	if !ok {
@@ -229,11 +232,11 @@ func TestRolloverReplacementWarmsUpAsStandby(t *testing.T) {
 // this each pushed version added another live placement to the deployment, all
 // of them rendered in the UI alongside the one actually being worked on.
 func TestFailedRolloutDoesNotAccumulateStandbys(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary")
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: primarydb.DefaultSpaceID,
+		SpaceID: state.DefaultSpaceID,
 		Name:    "app",
 	}, node.ID, rolloverSpec("v1"))
 	serving := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
@@ -247,8 +250,9 @@ func TestFailedRolloutDoesNotAccumulateStandbys(t *testing.T) {
 		t.Helper()
 		next := *rolloverSpec(version)
 		current := store.FetchDeploymentConfig(cfg.ID)
-		updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, primarydb.DeploymentConfigUpdate{
+		updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 			ExpectedVersion: current.Version + 1,
+			SpaceID:         current.Identity.SpaceID,
 			Spec:            &next,
 		})
 		if !ok {
@@ -303,11 +307,11 @@ func TestFailedRolloutDoesNotAccumulateStandbys(t *testing.T) {
 // a superseded placement keeps running, and keeps its routes, until every node
 // has programmed the routing that replaced it.
 func TestDrainedInstanceWaitsForTheBarrier(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary")
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: primarydb.DefaultSpaceID,
+		SpaceID: state.DefaultSpaceID,
 		Name:    "app",
 	}, node.ID, rolloverSpec("v1"))
 	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
@@ -341,18 +345,19 @@ func TestDrainedInstanceWaitsForTheBarrier(t *testing.T) {
 // readiness signal is ever coming, and leaving the inbound address pointed at
 // it would blackhole the deployment.
 func TestStandbyPromotedWhenServingDies(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary")
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: primarydb.DefaultSpaceID,
+		SpaceID: state.DefaultSpaceID,
 		Name:    "app",
 	}, node.ID, rolloverSpec("v1"))
 	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	next := *rolloverSpec("v2")
-	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, primarydb.DeploymentConfigUpdate{
+	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
+		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            &next,
 	})
 	if !ok {
@@ -382,11 +387,11 @@ func TestStandbyPromotedWhenServingDies(t *testing.T) {
 // a stopped deployment must retire standbys and draining placements too, not
 // just the serving one.
 func TestTerminateDeploymentStopsEveryRunnableState(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary")
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: primarydb.DefaultSpaceID,
+		SpaceID: state.DefaultSpaceID,
 		Name:    "app",
 	}, node.ID, rolloverSpec("v1"))
 
@@ -408,7 +413,7 @@ func TestTerminateDeploymentStopsEveryRunnableState(t *testing.T) {
 // on process start: statuses first, then configs.
 // restartWith mirrors Run()'s startup order: sweep stopped placements, replay
 // instances, then reconcile configs.
-func restartWith(store *primarydb.Storage, barrier routeBarrier, cfg *apigen.DeploymentConfig) *Scheduler {
+func restartWith(store *state.Service, barrier routeBarrier, cfg *apigen.DeploymentConfig) *Scheduler {
 	s := New(store, barrier)
 	s.finalizeStopped()
 	for _, state := range store.FetchScheduledSnapshot(nil) {
@@ -456,11 +461,11 @@ func TestRestartHandlesEveryInstanceState(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+			store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 			t.Cleanup(func() { _ = store.Close() })
 			node := store.EnsurePrimaryNode("primary", "primary")
 			cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-				SpaceID: primarydb.DefaultSpaceID,
+				SpaceID: state.DefaultSpaceID,
 				Name:    "app",
 			}, node.ID, rolloverSpec("v1"))
 			// Instances are always born runnable; non-runnable targets are reached
@@ -489,17 +494,17 @@ func TestRestartHandlesEveryInstanceState(t *testing.T) {
 // anything already draining, so without adoption the container, and its
 // published routes, survive every subsequent reconcile.
 func TestRestartAdoptsDrainingInstances(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary")
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: primarydb.DefaultSpaceID,
+		SpaceID: state.DefaultSpaceID,
 		Name:    "app",
 	}, node.ID, rolloverSpec("v1"))
 
 	next := *rolloverSpec("v2")
-	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, primarydb.DeploymentConfigUpdate{
-		ExpectedVersion: cfg.Version + 1, Spec: &next,
+	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
+		ExpectedVersion: cfg.Version + 1, SpaceID: cfg.Identity.SpaceID, Spec: &next,
 	})
 	if !ok {
 		t.Fatal("config update failed")
@@ -551,11 +556,12 @@ func stoppedSpec(version string) *apigen.DeploymentSpec {
 	return spec
 }
 
-func updateSpec(t *testing.T, store *primarydb.Storage, cfg *apigen.DeploymentConfig, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
+func updateSpec(t *testing.T, store *state.Service, cfg *apigen.DeploymentConfig, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
 	t.Helper()
 	next := *spec
-	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, primarydb.DeploymentConfigUpdate{
+	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
+		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            &next,
 	})
 	if !ok {
@@ -570,12 +576,12 @@ func updateSpec(t *testing.T, store *primarydb.Storage, cfg *apigen.DeploymentCo
 // placement stayed live, and left it there forever — finalization is driven by an
 // instance's own status updates, and a stopped instance produces no more of them.
 func TestStoppedInstanceIsFinalized(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary")
 
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: primarydb.DefaultSpaceID,
+		SpaceID: state.DefaultSpaceID,
 		Name:    "app",
 	}, node.ID, testRunningSpec("v1"))
 	inst := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
@@ -602,12 +608,12 @@ func TestStoppedInstanceIsFinalized(t *testing.T) {
 // nothing re-examined it once something did, so the old run sat in the UI beside
 // the new one indefinitely.
 func TestRestartingAfterStopLeavesOnlyTheReplacement(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary")
 
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: primarydb.DefaultSpaceID,
+		SpaceID: state.DefaultSpaceID,
 		Name:    "app",
 	}, node.ID, testRunningSpec("v1"))
 	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
@@ -638,12 +644,12 @@ func TestRestartingAfterStopLeavesOnlyTheReplacement(t *testing.T) {
 // did not retire them, and by a crash between the node stopping and the primary
 // reacting. Nothing else will ever revisit them.
 func TestStartupFinalizesStoppedInstances(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary")
 
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: primarydb.DefaultSpaceID,
+		SpaceID: state.DefaultSpaceID,
 		Name:    "app",
 	}, node.ID, testRunningSpec("v1"))
 

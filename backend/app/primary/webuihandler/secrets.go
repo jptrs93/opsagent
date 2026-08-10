@@ -8,7 +8,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var SecretNameRequiredErr = apigen.NewApiErr("Secret name is required", "secret_name_required", http.StatusBadRequest)
@@ -34,11 +34,11 @@ func mapSecretErr(err error) error {
 		return SecretsLockedErr
 	case errors.Is(err, secrets.ErrReservedName):
 		return SecretReservedNameErr
-	case errors.Is(err, secrets.ErrNotFound), errors.Is(err, primarydb.ErrValueNotFound):
+	case errors.Is(err, secrets.ErrNotFound), errors.Is(err, state.ErrValueNotFound):
 		return SecretNotFoundErr
-	case errors.Is(err, primarydb.ErrValueAlreadyExists):
+	case errors.Is(err, state.ErrValueAlreadyExists):
 		return SecretAlreadyExistsErr
-	case errors.Is(err, primarydb.ErrValueNameInvalid):
+	case errors.Is(err, state.ErrValueNameInvalid):
 		return SecretNameInvalidErr
 	}
 	return err

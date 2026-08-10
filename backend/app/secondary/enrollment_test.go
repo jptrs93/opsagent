@@ -17,7 +17,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/network"
-	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
@@ -121,7 +121,7 @@ func TestCacheEnrollmentBootstrapStatePersistsNetworkMap(t *testing.T) {
 	if err := cacheEnrollmentBootstrapState(EnrollmentConfig{DataDir: dataDir}, accepted); err != nil {
 		t.Fatal(err)
 	}
-	store := secondarydb.Open(filepath.Join(dataDir, "secondary.db"))
+	store := state.Open(filepath.Join(dataDir, "secondary.db"))
 	defer store.Close()
 	cached, _, ok, err := cachedClusterNetMap(store, 2, network.Prefix{})
 	if err != nil || !ok {

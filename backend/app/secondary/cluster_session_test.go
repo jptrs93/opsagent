@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
 
 func testAssignment(id, deploymentID, nodeID int32) *apigen.ScheduledInstanceState {
@@ -42,7 +42,7 @@ func instanceIDs(states []apigen.ScheduledInstanceState) []int32 {
 // down: no further update naming it will ever arrive.
 func TestApplySnapshotPrunesInstancesMissingFromSnapshot(t *testing.T) {
 	const nodeID int32 = 5
-	store := secondarydb.Open(filepath.Join(t.TempDir(), "secondary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "secondary.db"))
 	defer store.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -75,7 +75,7 @@ func TestApplySnapshotPrunesInstancesMissingFromSnapshot(t *testing.T) {
 // skipped on the way in, and must not therefore count as absent.
 func TestApplySnapshotKeepsInstancesForOtherNodes(t *testing.T) {
 	const nodeID int32 = 5
-	store := secondarydb.Open(filepath.Join(t.TempDir(), "secondary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "secondary.db"))
 	defer store.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())

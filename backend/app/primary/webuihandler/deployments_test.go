@@ -18,13 +18,13 @@ import (
 	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 const testNixCommit = "0123456789abcdef0123456789abcdef01234567"
 const testNixCommit2 = "89abcdef0123456789abcdef0123456789abcdef"
 
-func findSystemDeployment(t *testing.T, store *primarydb.Storage, nodeID int32) *apigen.DeploymentConfig {
+func findSystemDeployment(t *testing.T, store *state.Service, nodeID int32) *apigen.DeploymentConfig {
 	t.Helper()
 	for _, cfg := range store.ListActiveDeploymentConfigs() {
 		if internaldeploy.IsSelfConfig(cfg) && cfg.NodeID == nodeID {
@@ -35,7 +35,7 @@ func findSystemDeployment(t *testing.T, store *primarydb.Storage, nodeID int32) 
 	return nil
 }
 
-func seedInstanceRunnerStatus(store *primarydb.Storage, deploymentID, version, nodeID int32, status apigen.RunningStatus) {
+func seedInstanceRunnerStatus(store *state.Service, deploymentID, version, nodeID int32, status apigen.RunningStatus) {
 	inst := store.CreateScheduledInstance(deploymentID, version, nodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	store.MustWriteScheduledInstanceStatus(inst.ID, func(s *apigen.ScheduledInstanceStatus) bool {
 		s.BumpUpdatedAt()
@@ -44,11 +44,11 @@ func seedInstanceRunnerStatus(store *primarydb.Storage, deploymentID, version, n
 	})
 }
 
-func seedDeploymentRunnerStatus(store *primarydb.Storage, cfg *apigen.DeploymentConfig, status apigen.RunningStatus) {
+func seedDeploymentRunnerStatus(store *state.Service, cfg *apigen.DeploymentConfig, status apigen.RunningStatus) {
 	seedInstanceRunnerStatus(store, cfg.ID, cfg.Version, cfg.NodeID, status)
 }
 
-func createTestDeployment(store *primarydb.Storage, nodeIdentifier string, identity apigen.DeploymentIdentity, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
+func createTestDeployment(store *state.Service, nodeIdentifier string, identity apigen.DeploymentIdentity, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
 	node := store.EnsurePrimaryNode(nodeIdentifier, nodeIdentifier)
 	return store.MustCreateDeploymentForNode(apigen.Context{}, &identity, node.ID, spec)
 }
@@ -131,7 +131,7 @@ func TestValidateDeploymentSpecCanonicalizesSafeFlakePath(t *testing.T) {
 
 func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 	t.Run("running verifies before persistence", func(t *testing.T) {
-		store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+		store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 		node := store.EnsurePrimaryNode("primary", "primary")
 		provider := &fakeGitSourceProvider{sourceCommitValid: true}
 		h := &Handler{Store: store, GitVersions: provider}
@@ -146,7 +146,7 @@ func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 	})
 
 	t.Run("verification failure persists nothing", func(t *testing.T) {
-		store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+		store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 		node := store.EnsurePrimaryNode("primary", "primary")
 		provider := &fakeGitSourceProvider{sourceErr: errors.New("remote unavailable")}
 		h := &Handler{Store: store, GitVersions: provider}
@@ -161,7 +161,7 @@ func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 	})
 
 	t.Run("stopped skips provider", func(t *testing.T) {
-		store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+		store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 		node := store.EnsurePrimaryNode("primary", "primary")
 		provider := &fakeGitSourceProvider{sourceErr: errors.New("must not be called")}
 		h := &Handler{Store: store, GitVersions: provider}
@@ -176,7 +176,7 @@ func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 	})
 
 	t.Run("stopped still requires immutable version syntax", func(t *testing.T) {
-		store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+		store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 		node := store.EnsurePrimaryNode("primary", "primary")
 		provider := &fakeGitSourceProvider{}
 		h := &Handler{Store: store, GitVersions: provider}
@@ -192,7 +192,7 @@ func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 	})
 
 	t.Run("stopped permits an empty desired version", func(t *testing.T) {
-		store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+		store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 		node := store.EnsurePrimaryNode("primary", "primary")
 		provider := &fakeGitSourceProvider{}
 		h := &Handler{Store: store, GitVersions: provider}
@@ -213,7 +213,7 @@ func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 }
 
 func TestDeploymentUpgradeAllUpdatesInternalDeployments(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primaryNode := store.EnsurePrimaryNode("primary", "primary")
 	secondaryNode := store.EnsurePrimaryNode("secondary", "secondary")
 	store.EnsureSystemDeployment(primaryNode.ID, "v1.0.0")
@@ -356,7 +356,7 @@ func TestDeploymentUpdateEnforcesEffectiveRunningNixTransitions(t *testing.T) {
 	})
 
 	t.Run("stopping while changing source kind clears incompatible version", func(t *testing.T) {
-		store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+		store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 		node := store.EnsurePrimaryNode("primary", "primary")
 		provider := &fakeGitSourceProvider{sourceErr: errors.New("must not be called")}
 		h := &Handler{Store: store, GitVersions: provider}
@@ -459,13 +459,13 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 	provider := versionprovider.NewGithubReleaseVersionProviderWithClient(client)
 	tests := []struct {
 		name             string
-		createDeployment func(*testing.T, *primarydb.Storage) *apigen.DeploymentConfig
+		createDeployment func(*testing.T, *state.Service) *apigen.DeploymentConfig
 		provider         *versionprovider.GithubReleaseVersionProvider
 		wantInternal     string
 	}{
 		{
 			name: "opendeploy-net special branch",
-			createDeployment: func(_ *testing.T, store *primarydb.Storage) *apigen.DeploymentConfig {
+			createDeployment: func(_ *testing.T, store *state.Service) *apigen.DeploymentConfig {
 				node := store.EnsurePrimaryNode("primary", "primary")
 				return store.EnsureNetproxyDeployment(node.ID, "v1.2.3")
 			},
@@ -474,7 +474,7 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 		},
 		{
 			name: "GitHub release config branch",
-			createDeployment: func(t *testing.T, store *primarydb.Storage) *apigen.DeploymentConfig {
+			createDeployment: func(t *testing.T, store *state.Service) *apigen.DeploymentConfig {
 				node := store.EnsurePrimaryNode("primary", "primary")
 				store.EnsureSystemDeployment(node.ID, "v1.2.3")
 				return findSystemDeployment(t, store, node.ID)
@@ -484,7 +484,7 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 		},
 		{
 			name: "unconfigured provider",
-			createDeployment: func(t *testing.T, store *primarydb.Storage) *apigen.DeploymentConfig {
+			createDeployment: func(t *testing.T, store *state.Service) *apigen.DeploymentConfig {
 				node := store.EnsurePrimaryNode("primary", "primary")
 				store.EnsureSystemDeployment(node.ID, "v1.2.3")
 				return findSystemDeployment(t, store, node.ID)
@@ -495,7 +495,7 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+			store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 			store.EnsurePrimaryNode("primary", "primary")
 			cfg := tt.createDeployment(t, store)
 			h := &Handler{Store: store, GithubReleaseVersions: tt.provider}
@@ -543,7 +543,7 @@ func nixDeploymentSpecWithState(repo, flake, version string, running bool) apige
 
 func newNixDeploymentHandler(t *testing.T, running bool) (*Handler, *apigen.DeploymentConfig, *fakeGitSourceProvider) {
 	t.Helper()
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("primary", "primary")
 	provider := &fakeGitSourceProvider{sourceCommitValid: true}
 	h := &Handler{Store: store, GitVersions: provider}
@@ -800,7 +800,7 @@ func TestValidateDeploymentSpecRejectsSystemdRunner(t *testing.T) {
 }
 
 func TestDeploymentUpdateRejectsSystemDeploymentSpecUpdate(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("primary", "primary")
 	store.EnsureSystemDeployment(node.ID, "v0.0.194")
 	var system *apigen.DeploymentConfig
@@ -1067,7 +1067,7 @@ func TestValidateDeploymentSpecRejectsIncompleteAddressRef(t *testing.T) {
 }
 
 func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	worker := store.EnsurePrimaryNode("worker", "worker")
 	secretsManager, err := secrets.Initialize(t.TempDir(), store)
@@ -1168,7 +1168,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 }
 
 func TestDeploymentCreatePersistsInitialStoppedWorkloadState(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	h := &Handler{Store: store}
 
@@ -1198,7 +1198,7 @@ func TestDeploymentCreatePersistsInitialStoppedWorkloadState(t *testing.T) {
 }
 
 func TestDeploymentCreateRejectsIngressClaimsAlreadyUsedOnNode(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	h := &Handler{Store: store, NodeID: primary.ID}
 	ingress := func(hostname string) apigen.NetworkingConfig {
@@ -1248,7 +1248,7 @@ func TestDeploymentCreateRejectsIngressClaimsAlreadyUsedOnNode(t *testing.T) {
 }
 
 func TestDeploymentCreateRejectsPrimaryIngressOnPort443(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	worker := store.EnsurePrimaryNode("worker", "worker")
 	h := &Handler{Store: store, NodeID: primary.ID}
@@ -1283,12 +1283,12 @@ func TestDeploymentCreateRejectsPrimaryIngressOnPort443(t *testing.T) {
 }
 
 func TestDeploymentCreateRejectsInternalIdentity(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	h := &Handler{Store: store}
 
 	_, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		Identity: apigen.DeploymentIdentity{SpaceID: primarydb.OpendeploySpaceID, Name: "opendeploy-net"},
+		Identity: apigen.DeploymentIdentity{SpaceID: state.OpendeploySpaceID, Name: "opendeploy-net"},
 		NodeID:   primary.ID,
 		Spec:     remoteDeploymentSpec("nginx", hostNetworking()),
 	})
@@ -1298,7 +1298,7 @@ func TestDeploymentCreateRejectsInternalIdentity(t *testing.T) {
 }
 
 func TestDeploymentIdentityIsScopedByNodeID(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	nodeA := store.EnsurePrimaryNode("node-a", "node-a-id")
 	nodeB := store.EnsurePrimaryNode("node-b", "node-b-id")
 	h := &Handler{Store: store}
@@ -1340,7 +1340,7 @@ func TestDeploymentIdentityIsScopedByNodeID(t *testing.T) {
 }
 
 func TestDeploymentUpdatePreservesLegacyHostNetworking(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
 	h := &Handler{Store: store}
@@ -1360,7 +1360,7 @@ func TestDeploymentUpdatePreservesLegacyHostNetworking(t *testing.T) {
 }
 
 func TestDeploymentUpdatePreservesExistingVirtualNetworking(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	initial := remoteDeploymentSpec("nginx", virtualNetworking())
 	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
 	h := &Handler{Store: store}
@@ -1380,7 +1380,7 @@ func TestDeploymentUpdatePreservesExistingVirtualNetworking(t *testing.T) {
 }
 
 func TestDeploymentUpdateAcceptsCrossDeploymentMount(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	secretsManager, err := secrets.Initialize(t.TempDir(), store)
 	if err != nil {
 		t.Fatalf("secrets.Initialize failed: %v", err)
@@ -1413,7 +1413,7 @@ func TestDeploymentUpdateAcceptsCrossDeploymentMount(t *testing.T) {
 }
 
 func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	initial.Container1Spec.Version = "1.25"
 	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
@@ -1439,7 +1439,7 @@ func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
 }
 
 func TestDeploymentDeleteAllowsNeverScheduledStoppedDeployment(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("primary", "primary")
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	initial.Container1Spec.Version = "1.25"
@@ -1456,7 +1456,7 @@ func TestDeploymentDeleteAllowsNeverScheduledStoppedDeployment(t *testing.T) {
 }
 
 func TestDeploymentDeleteAllowsRunningDisconnectedNodeDeployment(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	worker := store.EnsurePrimaryNode("worker", "worker-a")
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
@@ -1476,7 +1476,7 @@ func TestDeploymentDeleteAllowsRunningDisconnectedNodeDeployment(t *testing.T) {
 }
 
 func TestDeploymentDeleteAllowsStaleDisconnectedSystemDeployment(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	worker := store.EnsurePrimaryNode("worker", "worker-a")
 	store.EnsureSystemDeployment(worker.ID, "v0.0.194")
@@ -1498,7 +1498,7 @@ func TestDeploymentDeleteAllowsStaleDisconnectedSystemDeployment(t *testing.T) {
 }
 
 func TestDeploymentDeleteRejectsPrimarySystemDeployment(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	store.EnsureSystemDeployment(primary.ID, "v0.0.194")
 	system := findSystemDeployment(t, store, primary.ID)
@@ -1519,7 +1519,7 @@ func TestDeploymentDeleteRejectsPrimarySystemDeployment(t *testing.T) {
 // still serving. Deletion must consider every live assignment, not just the
 // newest.
 func TestDeploymentDeleteRejectedWhileOlderRolloverInstanceRuns(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	initial.Container1Spec.Version = "1.25"
@@ -1528,8 +1528,9 @@ func TestDeploymentDeleteRejectedWhileOlderRolloverInstanceRuns(t *testing.T) {
 
 	next := remoteDeploymentSpec("nginx", hostNetworking())
 	next.Container1Spec.Version = "1.27"
-	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, created.ID, primarydb.DeploymentConfigUpdate{
+	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, created.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: created.Version + 1,
+		SpaceID:         created.Identity.SpaceID,
 		Spec:            &next,
 	})
 	if !versionOK {
@@ -1566,7 +1567,7 @@ func TestDeploymentDeleteRejectedWhileOlderRolloverInstanceRuns(t *testing.T) {
 }
 
 func TestDeploymentDeleteSoftDeletesStoppedDeployment(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	initial.Container1Spec.Version = "1.25"
 	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
@@ -1591,7 +1592,7 @@ func TestDeploymentDeleteSoftDeletesStoppedDeployment(t *testing.T) {
 }
 
 func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	h := &Handler{Store: store}
 	create := func(version string) *apigen.DeploymentConfig {
@@ -1644,7 +1645,7 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 }
 
 func TestDeploymentUpdateCombinesSpaceAndWorkloadStateInSingleConfigVersion(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
 	h := &Handler{Store: store}
@@ -1683,7 +1684,7 @@ func TestDeploymentUpdateCombinesSpaceAndWorkloadStateInSingleConfigVersion(t *t
 }
 
 func TestDeploymentUpdateRejectsStaleExpectedVersion(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
 	h := &Handler{Store: store}
@@ -1700,7 +1701,7 @@ func TestDeploymentUpdateRejectsStaleExpectedVersion(t *testing.T) {
 }
 
 func TestDeploymentUpdateRequiresExpectedVersion(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
 	h := &Handler{Store: store}

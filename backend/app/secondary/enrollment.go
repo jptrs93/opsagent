@@ -17,7 +17,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
@@ -136,7 +136,7 @@ func cacheEnrollmentBootstrapState(cfg EnrollmentConfig, accepted *apigen.Enroll
 	if accepted.NodeNetDeployment == nil || accepted.NodeNetDeployment.Config.ID == 0 {
 		return fmt.Errorf("accepted enrollment response missing node net deployment")
 	}
-	store := secondarydb.Open(filepath.Join(cfg.DataDir, "secondary.db"))
+	store := state.Open(filepath.Join(cfg.DataDir, "secondary.db"))
 	defer store.Close()
 	prefix, err := network.ParsePrefix(info.UlaPrefix)
 	if err != nil {
@@ -160,7 +160,7 @@ func cacheEnrollmentBootstrapState(cfg EnrollmentConfig, accepted *apigen.Enroll
 	return nil
 }
 
-func cacheEnrollmentInstance(store *secondarydb.Storage, state *apigen.ScheduledInstanceState) {
+func cacheEnrollmentInstance(store *state.Service, state *apigen.ScheduledInstanceState) {
 	if state == nil {
 		return
 	}

@@ -8,14 +8,14 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
 
 func TestPublisherPersistsAndCoalescesLatestMap(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	prefix := network.GeneratePrefix()
-	store := primarydb.Open(dbPath)
+	store := state.Open(dbPath)
 	node := store.EnsurePrimaryNode("primary", "primary-id")
 	store.MustSetNodeAddresses(node.ID, []string{"192.0.2.10"})
 	store.EnsureNetproxyDeployment(node.ID, version.Version)
@@ -72,7 +72,7 @@ func TestPublisherPersistsAndCoalescesLatestMap(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store = primarydb.Open(dbPath)
+	store = state.Open(dbPath)
 	defer store.Close()
 	restarted, err := New(store, prefix)
 	if err != nil {
@@ -87,7 +87,7 @@ func TestPublisherPersistsAndCoalescesLatestMap(t *testing.T) {
 
 func TestRenderIsDeterministic(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodesA := []*primarydb.Node{
+	nodesA := []*state.Node{
 		{ID: 2, Addresses: []string{"2001:db8::2"}},
 		{ID: 1, Addresses: []string{"2001:db8::1"}},
 	}
@@ -95,7 +95,7 @@ func TestRenderIsDeterministic(t *testing.T) {
 		servingInstance(200, 20, 2, 4),
 		servingInstance(100, 10, 1, 3),
 	}
-	nodesB := []*primarydb.Node{nodesA[1], nodesA[0]}
+	nodesB := []*state.Node{nodesA[1], nodesA[0]}
 	instancesB := []apigen.ScheduledInstanceState{instancesA[1], instancesA[0]}
 	a, err := render(prefix, nodesA, instancesA)
 	if err != nil {
@@ -116,7 +116,7 @@ func TestRenderIsDeterministic(t *testing.T) {
 
 func TestRenderOmitsHostNetworkingAndNonRunnableStates(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodes := []*primarydb.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}
+	nodes := []*state.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}
 
 	host := servingInstance(101, 11, 1, 3)
 	host.Config.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
@@ -142,7 +142,7 @@ func TestRenderOmitsHostNetworkingAndNonRunnableStates(t *testing.T) {
 // new sequence.
 func TestRenderIgnoresRunnerStatus(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodes := []*primarydb.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}
+	nodes := []*state.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}
 	quiet := servingInstance(100, 10, 1, 3)
 
 	restarted := servingInstance(100, 10, 1, 3)
@@ -177,7 +177,7 @@ func TestRenderIgnoresRunnerStatus(t *testing.T) {
 // already moved to its replacement.
 func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodes := []*primarydb.Node{
+	nodes := []*state.Node{
 		{ID: 1, Addresses: []string{"192.0.2.1"}},
 		{ID: 2, Addresses: []string{"192.0.2.2"}},
 	}
@@ -241,7 +241,7 @@ func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 // is nothing for anyone to wait on.
 func TestRenderSameNodeRolloverChangesNothing(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodes := []*primarydb.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}
+	nodes := []*state.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}
 	old := servingInstance(100, 10, 1, 3)
 	replacement := servingInstance(101, 10, 1, 3)
 	replacement.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
@@ -263,7 +263,7 @@ func TestRenderSameNodeRolloverChangesNothing(t *testing.T) {
 
 func TestRenderRejectsTwoServingPlacements(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodes := []*primarydb.Node{
+	nodes := []*state.Node{
 		{ID: 1, Addresses: []string{"192.0.2.1"}},
 		{ID: 2, Addresses: []string{"192.0.2.2"}},
 	}
@@ -276,7 +276,7 @@ func TestRenderRejectsTwoServingPlacements(t *testing.T) {
 
 func TestRenderRejectsUnknownNode(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodes := []*primarydb.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}
+	nodes := []*state.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}
 	orphan := servingInstance(100, 10, 9, 3)
 	if _, err := render(prefix, nodes, []apigen.ScheduledInstanceState{orphan}); err == nil {
 		t.Fatal("placement on an unknown node accepted")

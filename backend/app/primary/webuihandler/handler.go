@@ -18,7 +18,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 type GitSourceProvider interface {
@@ -37,7 +37,7 @@ type Handler struct {
 
 	// Store is the primary-side storage adapter. Handles both deployment
 	// state and auth (users + JWT keys).
-	Store                 *primarydb.Storage
+	Store                 *state.Service
 	Assets                *assetstore.Store
 	ConfigService         *config.Service
 	Config                *apigen.ClusterSettings
@@ -62,7 +62,7 @@ type Handler struct {
 
 // Dependencies contains the shared primary services used by Web UI routes.
 type Dependencies struct {
-	Store                 *primarydb.Storage
+	Store                 *state.Service
 	Assets                *assetstore.Store
 	ConfigService         *config.Service
 	Github                githubcredentials.Provider

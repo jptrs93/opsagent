@@ -20,7 +20,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/log/logreader"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var InvalidRequestBodyErr = apigen.NewApiErr("Invalid request body", "invalid_request_body", http.StatusBadRequest)
@@ -192,10 +192,15 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	}
 
 	if req.SpaceID != nil || spec != nil || stateChanged {
-		current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, primarydb.DeploymentConfigUpdate{
+		spaceID := cfg.Identity.SpaceID
+		if req.SpaceID != nil {
+			spaceID = *req.SpaceID
+		}
+		current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, state.DeploymentConfigUpdate{
 			ExpectedVersion: req.Version,
-			SpaceID:         req.SpaceID,
+			SpaceID:         spaceID,
 			Spec:            effectiveSpec,
+			Deleted:         cfg.Deleted,
 		})
 		if !versionOK {
 			return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, current.Version+1)
@@ -245,9 +250,11 @@ func (h *Handler) updateInternalDeploymentVersion(ctx apigen.Context, cfg *apige
 	if err := spec.SetWorkloadState(targetVersion, true); err != nil {
 		return nil, invalidConfigErrf("spec: %v", err)
 	}
-	current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, cfg.ID, primarydb.DeploymentConfigUpdate{
+	current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
+		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            spec,
+		Deleted:         cfg.Deleted,
 	})
 	if !versionOK {
 		return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", cfg.Version+1, current.Version+1)
@@ -277,7 +284,6 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 	if h.deploymentUsesAddressID(int32Set([]int32{cfg.ID})) {
 		return ReferenceInUseErr
 	}
-	deleted := true
 	spec, err := cloneDeploymentSpec(&cfg.Spec)
 	if err != nil {
 		return err
@@ -285,10 +291,11 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 	if err := spec.SetWorkloadState(spec.WorkloadVersion(), false); err != nil {
 		return invalidConfigErrf("spec: %v", err)
 	}
-	_, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, primarydb.DeploymentConfigUpdate{
+	_, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, state.DeploymentConfigUpdate{
 		ExpectedVersion: req.Version,
+		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            spec,
-		Deleted:         &deleted,
+		Deleted:         true,
 	})
 	if !versionOK {
 		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)

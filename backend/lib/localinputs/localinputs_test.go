@@ -6,25 +6,25 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
-	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
 
 // memDB is an in-memory stand-in for the local_runtime_inputs table.
 type memDB struct {
-	rows map[[2]int64]secondarydb.LocalRuntimeInput
+	rows map[[2]int64]state.LocalRuntimeInput
 }
 
-func newMemDB() *memDB { return &memDB{rows: map[[2]int64]secondarydb.LocalRuntimeInput{}} }
+func newMemDB() *memDB { return &memDB{rows: map[[2]int64]state.LocalRuntimeInput{}} }
 
-func (m *memDB) ListLocalRuntimeInputs() []secondarydb.LocalRuntimeInput {
-	out := make([]secondarydb.LocalRuntimeInput, 0, len(m.rows))
+func (m *memDB) ListLocalRuntimeInputs() []state.LocalRuntimeInput {
+	out := make([]state.LocalRuntimeInput, 0, len(m.rows))
 	for _, row := range m.rows {
 		out = append(out, row)
 	}
 	return out
 }
 
-func (m *memDB) UpsertLocalRuntimeInput(row secondarydb.LocalRuntimeInput) {
+func (m *memDB) UpsertLocalRuntimeInput(row state.LocalRuntimeInput) {
 	m.rows[[2]int64{row.Kind, row.RefID}] = row
 }
 
@@ -90,13 +90,13 @@ func TestCiphertextIsBoundToItsKindAndID(t *testing.T) {
 	if err := store.StoreRuntimeInputs(map[int32]string{7: "s3cret"}, nil); err != nil {
 		t.Fatalf("StoreRuntimeInputs: %v", err)
 	}
-	row := db.rows[[2]int64{secondarydb.LocalRuntimeInputKindSecret, 7}]
+	row := db.rows[[2]int64{state.LocalRuntimeInputKindSecret, 7}]
 
 	moved := row
 	moved.RefID = 8
 	db.UpsertLocalRuntimeInput(moved)
 	reinterpreted := row
-	reinterpreted.Kind = secondarydb.LocalRuntimeInputKindConfig
+	reinterpreted.Kind = state.LocalRuntimeInputKindConfig
 	db.UpsertLocalRuntimeInput(reinterpreted)
 
 	secrets, configs, err := store.LoadRuntimeInputs()

@@ -16,7 +16,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/jwtu"
 )
 
@@ -25,7 +25,7 @@ import (
 func newAuthTestHandler(t *testing.T) (*Handler, *apigen.InternalUser) {
 	t.Helper()
 	dir := t.TempDir()
-	store := primarydb.Open(filepath.Join(dir, "primary.db"))
+	store := state.Open(filepath.Join(dir, "primary.db"))
 	secretManager, err := secrets.Initialize(dir, store)
 	if err != nil {
 		t.Fatalf("secrets.Initialize: %v", err)

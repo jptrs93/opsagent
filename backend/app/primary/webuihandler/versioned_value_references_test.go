@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 func TestRequestedDeploymentVersionsValidatesRequestShape(t *testing.T) {
@@ -26,7 +26,7 @@ func TestRequestedDeploymentVersionsValidatesRequestShape(t *testing.T) {
 }
 
 func TestVersionedValueSetErrorMapsChangedReferences(t *testing.T) {
-	err := versionedValueSetError(primarydb.ErrReferencingDeploymentsChanged)
+	err := versionedValueSetError(state.ErrReferencingDeploymentsChanged)
 	if !errors.Is(err, ReferencingDeploymentsChangedErr) {
 		t.Fatalf("mapped error = %v", err)
 	}

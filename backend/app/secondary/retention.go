@@ -9,7 +9,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
 
 // retentionInterval paces the sweep. Nothing depends on it being prompt — it
@@ -24,7 +24,7 @@ var retentionInterval = 5 * time.Minute
 // restarts is only acceptable if a node also stops holding what it no longer
 // needs, so that removing a deployment from a node eventually removes its
 // credentials from that node's disk too.
-func runRuntimeInputRetention(ctx context.Context, store *secondarydb.Storage, inputs *runtimeinputs.RuntimeInputs, predicate storage.ScheduledInstancePredicate) {
+func runRuntimeInputRetention(ctx context.Context, store *state.Service, inputs *runtimeinputs.RuntimeInputs, predicate storage.ScheduledInstancePredicate) {
 	for {
 		contextu.Sleep(ctx, retentionInterval)
 		if ctx.Err() != nil {
@@ -34,7 +34,7 @@ func runRuntimeInputRetention(ctx context.Context, store *secondarydb.Storage, i
 	}
 }
 
-func sweepRuntimeInputs(ctx context.Context, store *secondarydb.Storage, inputs *runtimeinputs.RuntimeInputs, predicate storage.ScheduledInstancePredicate) {
+func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runtimeinputs.RuntimeInputs, predicate storage.ScheduledInstancePredicate) {
 	states := store.FetchScheduledSnapshot(predicate)
 
 	// A mid-rollout instance is still running the previous config version, whose

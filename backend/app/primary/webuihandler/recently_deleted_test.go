@@ -8,7 +8,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 // deleteDeployment removes a deployment through the handler so the tombstone is
@@ -57,7 +57,7 @@ func deletedNames(items []*apigen.DeploymentConfig) []string {
 
 func newRecentlyDeletedHandler(t *testing.T) (*Handler, int32) {
 	t.Helper()
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("primary", "primary")
 	return &Handler{Store: store, GitVersions: &fakeGitSourceProvider{}}, node.ID
 }
@@ -163,11 +163,11 @@ func TestRecentlyDeletedOmitsInternalDeployments(t *testing.T) {
 	if internal == nil {
 		t.Fatal("no internal deployment was created")
 	}
-	deleted := true
-	_, _, ok := h.Store.UpdateDeploymentConfig(apigen.Context{Ctx: context.Background()}, internal.ID, primarydb.DeploymentConfigUpdate{
+	_, _, ok := h.Store.UpdateDeploymentConfig(apigen.Context{Ctx: context.Background()}, internal.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: internal.Version + 1,
+		SpaceID:         internal.Identity.SpaceID,
 		Spec:            &internal.Spec,
-		Deleted:         &deleted,
+		Deleted:         true,
 	})
 	if !ok {
 		t.Fatal("deleting the internal deployment failed")

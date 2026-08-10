@@ -4,11 +4,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 func TestNormalizeEnrollmentUnderlay(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	primary := store.EnsurePrimaryNode("primary", "primary-id")
 	store.MustSetNodeAddresses(primary.ID, []string{"192.0.2.1"})

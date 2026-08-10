@@ -9,7 +9,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
@@ -42,7 +42,7 @@ func TestInitializeCreatesCompletePrimaryState(t *testing.T) {
 		t.Fatalf("machine.key mode = %o, want 600", got)
 	}
 
-	store := primarydb.Open(filepath.Join(dir, "primary.db"))
+	store := state.Open(filepath.Join(dir, "primary.db"))
 	defer store.Close()
 	configService, err := config.NewService(store)
 	if err != nil {

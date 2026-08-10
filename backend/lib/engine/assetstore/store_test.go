@@ -17,7 +17,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 type testLoader struct{}
@@ -38,7 +38,7 @@ func (s testSecrets) RevealByID(id int32) ([]byte, error) {
 func newTestStore(t *testing.T, settings **apigen.ClusterSettings) *Store {
 	t.Helper()
 	dir := t.TempDir()
-	db := primarydb.Open(filepath.Join(dir, "primary.db"))
+	db := state.Open(filepath.Join(dir, "primary.db"))
 	t.Cleanup(func() { _ = db.Close() })
 	root := filepath.Join(dir, "large-assets")
 	if err := os.Mkdir(root, 0o750); err != nil {

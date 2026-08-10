@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var UserConfigNameRequiredErr = apigen.NewApiErr("Config name is required", "user_config_name_required", http.StatusBadRequest)
@@ -17,11 +17,11 @@ var UserConfigNotFoundErr = apigen.NewApiErr("Config not found", "user_config_no
 
 func mapConfigStoreErr(err error) error {
 	switch {
-	case errors.Is(err, primarydb.ErrValueNotFound):
+	case errors.Is(err, state.ErrValueNotFound):
 		return UserConfigNotFoundErr
-	case errors.Is(err, primarydb.ErrValueAlreadyExists):
+	case errors.Is(err, state.ErrValueAlreadyExists):
 		return UserConfigAlreadyExistsErr
-	case errors.Is(err, primarydb.ErrValueNameInvalid):
+	case errors.Is(err, state.ErrValueNameInvalid):
 		return UserConfigNameInvalidErr
 	}
 	return err
@@ -62,7 +62,7 @@ func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequ
 		expected,
 	)
 	if err != nil {
-		if errors.Is(err, primarydb.ErrValueNotFound) {
+		if errors.Is(err, state.ErrValueNotFound) {
 			return nil, UserConfigNotFoundErr
 		}
 		return nil, versionedValueSetError(err)

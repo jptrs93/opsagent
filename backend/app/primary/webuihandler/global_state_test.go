@@ -12,13 +12,13 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 func newGlobalStateTestHandler(t *testing.T) *Handler {
 	t.Helper()
 	dir := t.TempDir()
-	store := primarydb.Open(filepath.Join(dir, "primary.db"))
+	store := state.Open(filepath.Join(dir, "primary.db"))
 	secretManager, err := secrets.Initialize(dir, store)
 	if err != nil {
 		t.Fatalf("secrets.Initialize: %v", err)
@@ -228,12 +228,12 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 
 func markDeleted(t *testing.T, h *Handler, cfg *apigen.DeploymentConfig) {
 	t.Helper()
-	deleted := true
 	spec := cfg.Spec
-	_, _, versionOK := h.Store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, primarydb.DeploymentConfigUpdate{
+	_, _, versionOK := h.Store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
+		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            &spec,
-		Deleted:         &deleted,
+		Deleted:         true,
 	})
 	if !versionOK {
 		t.Fatalf("marking deployment %d deleted: version conflict", cfg.ID)

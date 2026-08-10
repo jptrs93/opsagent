@@ -10,12 +10,12 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
 
 func TestAcceptClusterNetMapSequencing(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "secondary.db")
-	store := secondarydb.Open(dbPath)
+	store := state.Open(dbPath)
 	defer store.Close()
 	prefix := network.GeneratePrefix()
 	first := testClusterNetMap(t, prefix, "generation-a", 1)
@@ -65,7 +65,7 @@ func TestAcceptClusterNetMapSequencing(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store = secondarydb.Open(dbPath)
+	store = state.Open(dbPath)
 	defer store.Close()
 	retired := testClusterNetMap(t, prefix, "generation-a", 3)
 	if _, err := acceptClusterNetMap(store, retired, 1, prefix); !errors.Is(err, ErrStaleClusterNetMap) {
@@ -74,7 +74,7 @@ func TestAcceptClusterNetMapSequencing(t *testing.T) {
 }
 
 func TestRejectedInitialClusterNetMapReportsError(t *testing.T) {
-	store := secondarydb.Open(filepath.Join(t.TempDir(), "secondary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "secondary.db"))
 	defer store.Close()
 	prefix := network.GeneratePrefix()
 	oldDefault := network.Default
@@ -155,7 +155,7 @@ func TestValidateClusterNetMapRejectsInvalidTopology(t *testing.T) {
 // acceptClusterNetMap would refuse the replacement map on the strength of the
 // unreadable one it is replacing.
 func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
-	store := secondarydb.Open(filepath.Join(t.TempDir(), "secondary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "secondary.db"))
 	defer store.Close()
 	prefix := network.GeneratePrefix()
 
@@ -183,7 +183,7 @@ func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
 // an unreadable one usually carries the same generation. Retiring that
 // generation on discard would refuse every subsequent map from that primary.
 func TestUnreadableCachedClusterNetMapDoesNotRetireItsGeneration(t *testing.T) {
-	store := secondarydb.Open(filepath.Join(t.TempDir(), "secondary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "secondary.db"))
 	defer store.Close()
 	prefix := network.GeneratePrefix()
 

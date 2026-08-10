@@ -9,7 +9,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 func TestBuildAllowedRefs(t *testing.T) {
@@ -56,7 +56,7 @@ func TestBuildAllowedRefs(t *testing.T) {
 }
 
 func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	m1Node := store.EnsurePrimaryNode("m1", "m1")
 	m2Node := store.EnsurePrimaryNode("m2", "m2")
 	spec := &apigen.DeploymentSpec{
@@ -96,7 +96,7 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 }
 
 func TestSessionRoutingUsesNodeID(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("worker", "worker-cn")
 	handler := New(store, nil, nil, nil, network.Prefix{}, nil)
 	sess := newSession(context.Background(), func() {}, node.ID, "worker-cn", scheduledInstancePredicateForNode(node.ID), store, nil)
@@ -134,7 +134,7 @@ func TestSessionRoutingUsesNodeID(t *testing.T) {
 }
 
 func TestSessionClusterHelloUpdatesAuthenticatedNodeUnderlay(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	store.MustSetNodeAddresses(primary.ID, []string{"192.0.2.1"})
@@ -157,7 +157,7 @@ func TestSessionClusterHelloUpdatesAuthenticatedNodeUnderlay(t *testing.T) {
 }
 
 func TestSessionRejectsClusterProtocolMismatch(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	worker := store.EnsurePrimaryNode("worker", "worker-cn")
 	cancelled := false
@@ -169,7 +169,7 @@ func TestSessionRejectsClusterProtocolMismatch(t *testing.T) {
 	}
 }
 
-func nodeAddresses(t *testing.T, store *primarydb.Storage, nodeID int32) []string {
+func nodeAddresses(t *testing.T, store *state.Service, nodeID int32) []string {
 	t.Helper()
 	for _, node := range store.ListNodes() {
 		if node.ID == nodeID {

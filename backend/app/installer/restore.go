@@ -15,7 +15,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
@@ -136,7 +136,7 @@ func restoredPrimaryName(opts installOptions) string {
 }
 
 func invalidateRestoredPrimaryRuntimeState(dbPath string, own owner) error {
-	store := primarydb.Open(dbPath)
+	store := state.Open(dbPath)
 	nodeID, err := store.PrimaryNodeID()
 	if err == nil {
 		count, err := store.InvalidateNodeRuntimeState(nodeID)
@@ -206,7 +206,7 @@ func applyRestoredPrimaryConfigOverrides(dbPath string, opts installOptions, own
 	if len(overrides) == 0 {
 		return nil
 	}
-	store := primarydb.Open(dbPath)
+	store := state.Open(dbPath)
 	service, err := config.NewService(store)
 	if err != nil {
 		_ = store.Close()
@@ -305,7 +305,7 @@ func sqliteArtifactPaths(dbPath string) []string {
 }
 
 func unlockRestoredSecrets(dbPath, recoveryCode string, own owner) error {
-	store := primarydb.Open(dbPath)
+	store := state.Open(dbPath)
 
 	mgr, err := secrets.Open(dataDir, store)
 	if err != nil {

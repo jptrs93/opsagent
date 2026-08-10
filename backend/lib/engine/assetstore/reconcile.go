@@ -16,7 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 type ReconcileStatus struct {
@@ -106,7 +106,7 @@ func (s *Store) Reconcile(ctx context.Context) (int, error) {
 	return pending, nil
 }
 
-func (s *Store) migrationSettings(migration primarydb.AssetMigration) (*apigen.ClusterSettings, *apigen.ClusterSettings, bool, error) {
+func (s *Store) migrationSettings(migration state.AssetMigration) (*apigen.ClusterSettings, *apigen.ClusterSettings, bool, error) {
 	oldRow, err := s.DB.FetchOpenDeployConfigByID(migration.OldConfigVersionID)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("load old asset migration config %d: %w", migration.OldConfigVersionID, err)

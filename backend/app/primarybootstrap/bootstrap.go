@@ -13,7 +13,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
@@ -42,7 +42,7 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("checking primary database: %w", err)
 	}
 
-	store := primarydb.Open(dbPath)
+	store := state.Open(dbPath)
 	complete := false
 	defer func() {
 		_ = store.Close()
@@ -96,7 +96,7 @@ func (s Service) Validate(_ context.Context) error {
 		}
 		return err
 	}
-	store := primarydb.Open(dbPath)
+	store := state.Open(dbPath)
 	defer store.Close()
 	secretsMgr, err := secrets.Open(s.DataDir, store)
 	if err != nil {

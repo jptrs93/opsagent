@@ -15,13 +15,13 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
 	"github.com/jptrs93/opsagent/backend/lib/log/logfilter"
 	"github.com/jptrs93/opsagent/backend/lib/log/logreader"
-	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
 
 // deploymentStatuses returns the observed status of every non-final scheduled
 // instance for a deployment, newest instance first. A deployment mid-rollover
 // has more than one, and the newest is not necessarily the one serving.
-func deploymentStatuses(store *secondarydb.Storage, deploymentID int32) []apigen.ScheduledInstanceStatus {
+func deploymentStatuses(store *state.Service, deploymentID int32) []apigen.ScheduledInstanceStatus {
 	states := make([]apigen.ScheduledInstanceState, 0, 2)
 	for _, state := range store.FetchScheduledSnapshot(nil) {
 		if state.Instance.DeploymentID != deploymentID ||
@@ -100,7 +100,7 @@ func preparingVersion(statuses []apigen.ScheduledInstanceStatus, version int32) 
 // streamDeploymentLog resolves seqNo=0 to latest from local status, then
 // streams the appropriate log file back to the primary. All chunks and the
 // final LogEnd are tagged with the request ID for multiplexing.
-func streamDeploymentLog(ctx context.Context, out *outbox, store *secondarydb.Storage, req *apigen.DeploymentLogRequest) {
+func streamDeploymentLog(ctx context.Context, out *outbox, store *state.Service, req *apigen.DeploymentLogRequest) {
 	requestID := req.RequestID
 	if req.RunnerOutput != nil {
 		r := req.RunnerOutput

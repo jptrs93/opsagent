@@ -17,7 +17,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
@@ -39,7 +39,7 @@ type enrollmentSession struct {
 // Handler owns worker enrollment streams and the operator actions that accept
 // them. It implements apigen.EnrollmentV1Handler.
 type Handler struct {
-	store          *primarydb.Storage
+	store          *state.Service
 	secrets        *secrets.Manager
 	configService  *config.Service
 	tlsFingerprint string
@@ -54,7 +54,7 @@ type networkMapProvider interface {
 	SnapshotForNode(nodeID int32) *apigen.ClusterNetMap
 }
 
-func New(store *primarydb.Storage, secretsMgr *secrets.Manager, configService *config.Service, tlsFingerprint string, networkMaps networkMapProvider) *Handler {
+func New(store *state.Service, secretsMgr *secrets.Manager, configService *config.Service, tlsFingerprint string, networkMaps networkMapProvider) *Handler {
 	return &Handler{
 		store:          store,
 		secrets:        secretsMgr,
@@ -173,7 +173,7 @@ func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.E
 		return nil, fmt.Errorf("signing worker CSR: %w", err)
 	}
 	status, err := h.store.AcceptEnrollmentRequest(req.ID, workerName, sess.requestingMachineID, sess.underlayAddress, sess.requestUpdatedAt)
-	if errors.Is(err, primarydb.ErrEnrollmentRequestChanged) {
+	if errors.Is(err, state.ErrEnrollmentRequestChanged) {
 		return nil, EnrollmentNotConnectedErr
 	}
 	if err != nil {

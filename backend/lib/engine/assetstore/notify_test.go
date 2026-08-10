@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 func TestCreateAssetNotifiesSubscribers(t *testing.T) {
-	store := primarydb.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	s := &Store{DB: store}
 
 	sub, unsub := store.SubscribeAssetUpdates()

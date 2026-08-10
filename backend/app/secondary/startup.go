@@ -11,7 +11,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/secondarydb"
+	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
@@ -58,7 +58,7 @@ func Run(ctx context.Context) {
 func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyPath string) runtimeConfig {
 	tlsCfg := certu.MustLoadTLSConfig(caPath, certPath, keyPath)
 	nodeIdentifier := certu.MustCertLoadCommonName(certPath)
-	store := secondarydb.Open(filepath.Join(cfg.DataDir, "secondary.db"))
+	store := state.Open(filepath.Join(cfg.DataDir, "secondary.db"))
 	defer store.Close()
 
 	var netDeploymentID, nodeID int32

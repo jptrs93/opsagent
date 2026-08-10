@@ -17,7 +17,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 type subscriber struct {
@@ -26,7 +26,7 @@ type subscriber struct {
 }
 
 type Publisher struct {
-	store  *primarydb.Storage
+	store  *state.Service
 	prefix network.Prefix
 
 	mu              sync.Mutex
@@ -45,7 +45,7 @@ type Publisher struct {
 	ackUpdates chan struct{}
 }
 
-func New(store *primarydb.Storage, prefix network.Prefix) (*Publisher, error) {
+func New(store *state.Service, prefix network.Prefix) (*Publisher, error) {
 	if store == nil {
 		return nil, fmt.Errorf("network-map store is nil")
 	}
@@ -203,7 +203,7 @@ func canonicalContent(source *apigen.ClusterNetMap) []byte {
 	return canonical.Encode()
 }
 
-func render(prefix network.Prefix, nodes []*primarydb.Node, instances []apigen.ScheduledInstanceState) (*apigen.ClusterNetMap, error) {
+func render(prefix network.Prefix, nodes []*state.Node, instances []apigen.ScheduledInstanceState) (*apigen.ClusterNetMap, error) {
 	netNodes := make([]*apigen.ClusterNetMapNode, 0, len(nodes))
 	knownNodes := make(map[int32]struct{}, len(nodes))
 	underlayBits := 0
