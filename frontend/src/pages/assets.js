@@ -871,17 +871,16 @@ export function assetsPage() {
             parts = [{text: spaceName(sel.item.spaceId), spaceId: sel.item.spaceId},
                 ...itemPathSegments(dirsById(currentDirs()), sel.item).map((text) => ({text}))];
         }
+        if (!parts.length) return "";
         return div(
             {
                 class: "flex flex-none items-center gap-1.5 border-t border-gray-700 bg-gray-950/40 px-3 py-1.5 font-mono text-[11px] text-gray-500",
                 "data-testid": "explorer-pathbar",
             },
-            parts.length
-                ? parts.flatMap((part, i) => [
-                    i === 0 ? spaceDot(part.spaceId) : span({class: "opacity-60"}, "/"),
-                    span({class: i === parts.length - 1 ? "text-gray-300 font-medium" : ""}, part.text),
-                ])
-                : span("No selection"),
+            ...parts.flatMap((part, i) => [
+                i === 0 ? spaceDot(part.spaceId) : span({class: "opacity-60"}, "/"),
+                span({class: i === parts.length - 1 ? "text-gray-300 font-medium" : ""}, part.text),
+            ]),
         );
     };
 
@@ -933,7 +932,7 @@ export function assetsPage() {
         ...(item.meta.versionRefs || []).map((ref, i) => button(
             {
                 type: "button",
-                class: "flex items-baseline gap-2 rounded px-1 -mx-1 py-0.5 text-left font-mono text-[10px] text-gray-400 hover:bg-white/5 cursor-pointer",
+                class: "flex items-baseline gap-1.5 rounded px-1 -mx-1 py-0.5 text-left font-mono text-[9px] text-gray-400 hover:bg-white/5 cursor-pointer",
                 title: `Open v${ref.version}`,
                 onclick: () => openEditor(item, Number(ref.version)),
             },
@@ -957,7 +956,11 @@ export function assetsPage() {
             div({class: "app-scroll flex-1 min-h-0 overflow-y-auto px-3 py-2.5 flex flex-col gap-2.5"},
                 dl({class: "m-0 grid grid-cols-[76px_1fr] items-baseline gap-x-2 gap-y-1.5"},
                     ...kvRow("Version", `v${item.version}`),
-                    ...kvRow("Created", span({title: formatDateTime(item.createdAt, "")}, formatDate(item.createdAt, "-"))),
+                    ...kvRow("Created", span({title: formatDateTime(item.createdAt, "")},
+                        formatDate(item.createdAt, "-"),
+                        versionAuthor(item.meta.versionRefs?.[0]?.createdBy)
+                            ? span({class: "text-gray-500"}, ` · ${versionAuthor(item.meta.versionRefs?.[0]?.createdBy)}`)
+                            : "")),
                     ...kvRow("Size", `${fmtSize(item.sizeBytes)}${item.large ? " · large" : ""}`),
                     ...kvRow("In use by", usageCount
                         ? button({

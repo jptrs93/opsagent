@@ -926,18 +926,20 @@ export function secretsPage() {
             parts = [{text: spaceName(sel.item.spaceId), spaceId: sel.item.spaceId},
                 ...itemPathSegments(dirsById(currentDirs()), sel.item).map((text) => ({text}))];
         }
+        // No selection, nothing filtered: no bar at all. The bar stays for a
+        // bare hidden-by-type count, since that is what keeps the type filter
+        // legible when rows are missing.
         const hidden = hiddenByTypeCount();
+        if (!parts.length && !hidden) return "";
         return div(
             {
                 class: "flex flex-none items-center gap-1.5 border-t border-gray-700 bg-gray-950/40 px-3 py-1.5 font-mono text-[11px] text-gray-500",
                 "data-testid": "explorer-pathbar",
             },
-            parts.length
-                ? parts.flatMap((part, i) => [
-                    i === 0 ? spaceDot(part.spaceId) : span({class: "opacity-60"}, "/"),
-                    span({class: i === parts.length - 1 ? "text-gray-300 font-medium" : ""}, part.text),
-                ])
-                : span("No selection"),
+            ...parts.flatMap((part, i) => [
+                i === 0 ? spaceDot(part.spaceId) : span({class: "opacity-60"}, "/"),
+                span({class: i === parts.length - 1 ? "text-gray-300 font-medium" : ""}, part.text),
+            ]),
             hidden ? span({class: "ml-auto font-sans tracking-wide"}, `${hidden} hidden by type filter`) : "",
         );
     };
@@ -986,7 +988,7 @@ export function secretsPage() {
 
     const versionsList = (meta) => div({class: "flex flex-col gap-1"},
         ...(meta.versionRefs || []).map((ref, i) => div(
-            {class: "flex items-baseline gap-2 font-mono text-[10px] text-gray-400"},
+            {class: "flex items-baseline gap-1.5 font-mono text-[9px] text-gray-400"},
             span({class: "text-gray-200 font-medium"}, `v${ref.version}`),
             span({title: formatDateTime(ref.createdAt, "")}, formatDate(ref.createdAt, "-")),
             versionAuthor(ref.createdBy) ? span({class: "text-gray-500 truncate"}, versionAuthor(ref.createdBy)) : "",
