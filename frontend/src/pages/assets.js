@@ -924,7 +924,9 @@ export function assetsPage() {
         {class: "inline-flex items-center gap-1.5 font-mono text-[11px] text-gray-400"},
         spaceDot(spaceId), spaceName(spaceId));
 
-    const versionAuthor = (id) => usersMapS.val.get(Number(id)) || "";
+    // "unknown" covers system-written rows and anything from before user
+    // attribution existed, so the author slot never silently vanishes.
+    const versionAuthor = (id) => usersMapS.val.get(Number(id)) || "unknown";
 
     // Version rows open the editor pinned to that version, matching the old
     // page's history browsing.
@@ -939,7 +941,7 @@ export function assetsPage() {
             span({class: "text-gray-200 font-medium"}, `v${ref.version}`),
             span({title: formatDateTime(ref.createdAt, "")}, formatDate(ref.createdAt, "-")),
             span({class: "text-gray-500"}, fmtSize(ref.sizeBytes)),
-            versionAuthor(ref.createdBy) ? span({class: "text-gray-500 truncate"}, versionAuthor(ref.createdBy)) : "",
+            span({class: "text-gray-500 truncate"}, versionAuthor(ref.createdBy)),
             i === 0 ? span({class: "text-green-400"}, "current") : "",
         )));
 
@@ -958,9 +960,7 @@ export function assetsPage() {
                     ...kvRow("Version", `v${item.version}`),
                     ...kvRow("Created", span({title: formatDateTime(item.createdAt, "")},
                         formatDate(item.createdAt, "-"),
-                        versionAuthor(item.meta.versionRefs?.[0]?.createdBy)
-                            ? span({class: "text-gray-500"}, ` · ${versionAuthor(item.meta.versionRefs?.[0]?.createdBy)}`)
-                            : "")),
+                        span({class: "text-gray-500"}, ` · ${versionAuthor(item.meta.versionRefs?.[0]?.createdBy)}`))),
                     ...kvRow("Size", `${fmtSize(item.sizeBytes)}${item.large ? " · large" : ""}`),
                     ...kvRow("In use by", usageCount
                         ? button({

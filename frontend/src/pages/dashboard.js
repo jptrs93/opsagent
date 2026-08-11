@@ -7,6 +7,7 @@ import {clusterPage} from "./cluster.js";
 import {secretsPage} from "./secrets.js";
 import {assetsPage, preloadAssetCodeEditor} from "./assets.js";
 import {spacesPage} from "./spaces.js";
+import {usersPage} from "./users.js";
 import {settingsPage} from "./settings.js";
 import {sessionsPage} from "./sessions.js";
 import {logsPage} from "./logs.js";
@@ -45,6 +46,7 @@ export function dashboard() {
                 if (activePage.val === 'configs') return secretsPage();
                 if (activePage.val === 'assets') return assetsPage();
                 if (activePage.val === 'spaces') return spacesPage();
+                if (activePage.val === 'users') return usersPage();
                 if (activePage.val === 'sessions') return sessionsPage();
                 if (activePage.val === 'cluster') return clusterPage();
                 if (activePage.val === 'settings') return settingsPage();

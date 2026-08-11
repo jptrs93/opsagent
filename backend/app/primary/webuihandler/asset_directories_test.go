@@ -49,6 +49,11 @@ func TestCreateAssetInsideDirectory(t *testing.T) {
 	if !ok || meta.AssetDirectoryID != dir.ID {
 		t.Fatalf("created asset meta = %+v, want directory %d", meta, dir.ID)
 	}
+	// The acting user is recorded on both the asset and its version row; the
+	// UI's created-by display depends on it.
+	if meta.CreatedBy != user.ID || meta.VersionRefs[0].CreatedBy != user.ID {
+		t.Fatalf("created-by = asset %d / version %d, want %d", meta.CreatedBy, meta.VersionRefs[0].CreatedBy, user.ID)
+	}
 
 	// The same key is free in the root: the sibling namespace is per directory.
 	if _, err := h.PostV1AssetsCreate(testCtx(user), &apigen.AssetCreateRequest{
@@ -104,8 +109,12 @@ func TestUploadAssetIntoDirectory(t *testing.T) {
 	}
 
 	upload("name=app.tar&space_id=1&directory_id=" + strconv.Itoa(int(dir.ID)))
-	if _, ok := h.Store.GetAssetInDirectory(1, dir.ID, "app.tar"); !ok {
+	uploaded, ok := h.Store.GetAssetInDirectory(1, dir.ID, "app.tar")
+	if !ok {
 		t.Fatalf("uploaded asset not found in directory %d", dir.ID)
+	}
+	if meta, ok := h.Store.GetAssetMeta(int32(uploaded.ID)); !ok || meta.VersionRefs[0].CreatedBy != user.ID {
+		t.Fatalf("uploaded version created-by = %+v, want user %d", meta, user.ID)
 	}
 
 	// A taken name is suffixed within the same directory, not the root.
