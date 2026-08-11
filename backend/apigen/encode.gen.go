@@ -4677,6 +4677,7 @@ func (m *SecretMoveRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.SecretID, 1)
 	b = AppendInt32Field(b, m.ValueDirectoryID, 2)
+	b = AppendInt32Field(b, m.SpaceID, 3)
 	return b
 }
 
@@ -4695,6 +4696,8 @@ func DecodeSecretMoveRequest(b []byte) (*SecretMoveRequest, error) {
 			b, m.SecretID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.ValueDirectoryID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5185,6 +5188,7 @@ func (m *ConfigMoveRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ConfigID, 1)
 	b = AppendInt32Field(b, m.ValueDirectoryID, 2)
+	b = AppendInt32Field(b, m.SpaceID, 3)
 	return b
 }
 
@@ -5203,6 +5207,8 @@ func DecodeConfigMoveRequest(b []byte) (*ConfigMoveRequest, error) {
 			b, m.ConfigID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.ValueDirectoryID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5342,6 +5348,7 @@ func (m *ValueDirectoryMoveRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DirectoryID, 1)
 	b = AppendInt32Field(b, m.NewParentID, 2)
+	b = AppendInt32Field(b, m.SpaceID, 3)
 	return b
 }
 
@@ -5360,6 +5367,8 @@ func DecodeValueDirectoryMoveRequest(b []byte) (*ValueDirectoryMoveRequest, erro
 			b, m.DirectoryID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.NewParentID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

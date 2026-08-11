@@ -149,6 +149,28 @@ func (s *Service) RenameValueDirectory(directoryID int32, newName string) (Value
 	return d, nil
 }
 
+// MoveValueDirectorySpace would move a directory and its subtree to another
+// space. Space moves are not supported yet — the secrets and configs underneath
+// carry space-scoped references, so the move needs coordinated handling. A
+// same-space target is accepted as a no-op. Mirrors MoveSecretSpace.
+func (s *Service) MoveValueDirectorySpace(directoryID, newSpaceID int32) error {
+	ctx := context.Background()
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	d, err := s.q.GetValueDirectoryByID(ctx, int64(directoryID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrValueDirectoryNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetValueDirectoryByID: %v", err))
+	}
+	if int64(normalizedUserSpaceID(newSpaceID)) == d.SpaceID {
+		return nil
+	}
+	return ErrSpaceMoveUnsupported
+}
+
 // MoveValueDirectory reparents a directory (0 = the space root). Children
 // reference their parent by id, so the whole subtree moves with it and nothing
 // else changes.

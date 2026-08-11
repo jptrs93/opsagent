@@ -632,6 +632,7 @@
  * @typedef {Object} SecretMoveRequest
  * @property {number} secretId
  * @property {number} valueDirectoryId
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} SecretDeleteRequest
@@ -708,6 +709,7 @@
  * @typedef {Object} ConfigMoveRequest
  * @property {number} configId
  * @property {number} valueDirectoryId
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} ValueDirectory
@@ -733,6 +735,7 @@
  * @typedef {Object} ValueDirectoryMoveRequest
  * @property {number} directoryId
  * @property {number} newParentId
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} ValueDirectoryRenameRequest
@@ -8753,6 +8756,9 @@ export function writeSecretMoveRequest(message, writer) {
     if (message.valueDirectoryId !== undefined && message.valueDirectoryId !== null && message.valueDirectoryId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.valueDirectoryId);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -8774,7 +8780,7 @@ export function encodeSecretMoveRequest(message) {
  */
 function decodeSecretMoveRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {secretId: 0, valueDirectoryId: 0 };
+    const message = {secretId: 0, valueDirectoryId: 0, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -8784,6 +8790,10 @@ function decodeSecretMoveRequestMessage(reader, length) {
             }
             case 2: {
                 message.valueDirectoryId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:
@@ -9689,6 +9699,9 @@ export function writeConfigMoveRequest(message, writer) {
     if (message.valueDirectoryId !== undefined && message.valueDirectoryId !== null && message.valueDirectoryId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.valueDirectoryId);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -9710,7 +9723,7 @@ export function encodeConfigMoveRequest(message) {
  */
 function decodeConfigMoveRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {configId: 0, valueDirectoryId: 0 };
+    const message = {configId: 0, valueDirectoryId: 0, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9720,6 +9733,10 @@ function decodeConfigMoveRequestMessage(reader, length) {
             }
             case 2: {
                 message.valueDirectoryId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:
@@ -9980,6 +9997,9 @@ export function writeValueDirectoryMoveRequest(message, writer) {
     if (message.newParentId !== undefined && message.newParentId !== null && message.newParentId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.newParentId);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -10001,7 +10021,7 @@ export function encodeValueDirectoryMoveRequest(message) {
  */
 function decodeValueDirectoryMoveRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {directoryId: 0, newParentId: 0 };
+    const message = {directoryId: 0, newParentId: 0, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10011,6 +10031,10 @@ function decodeValueDirectoryMoveRequestMessage(reader, length) {
             }
             case 2: {
                 message.newParentId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:

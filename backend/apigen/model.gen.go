@@ -785,6 +785,7 @@ type SecretRenameRequest struct {
 type SecretMoveRequest struct {
 	SecretID         int32 `json:"secret_id"`
 	ValueDirectoryID int32 `json:"value_directory_id"`
+	SpaceID          int32 `json:"space_id"`
 }
 
 type SecretDeleteRequest struct {
@@ -861,6 +862,7 @@ type ConfigDeleteRequest struct {
 type ConfigMoveRequest struct {
 	ConfigID         int32 `json:"config_id"`
 	ValueDirectoryID int32 `json:"value_directory_id"`
+	SpaceID          int32 `json:"space_id"`
 }
 
 type ValueDirectory struct {
@@ -886,6 +888,7 @@ type ValueDirectoryCreateRequest struct {
 type ValueDirectoryMoveRequest struct {
 	DirectoryID int32 `json:"directory_id"`
 	NewParentID int32 `json:"new_parent_id"`
+	SpaceID     int32 `json:"space_id"`
 }
 
 type ValueDirectoryRenameRequest struct {

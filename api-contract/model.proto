@@ -356,7 +356,9 @@ message SecretRenameRequest {
 
 message SecretMoveRequest {
   int32 secret_id = 1;
-  int32 value_directory_id = 2; // 0 = the space root; must be in the secret's space
+  int32 value_directory_id = 2; // 0 = the root of the target space
+  // Target space; 0 keeps the secret where it is. See AssetMoveRequest.
+  int32 space_id = 3;
 }
 
 message SecretDeleteRequest {
@@ -457,7 +459,9 @@ message ConfigDeleteRequest {
 
 message ConfigMoveRequest {
   int32 config_id = 1;
-  int32 value_directory_id = 2; // 0 = the space root; must be in the config's space
+  int32 value_directory_id = 2; // 0 = the root of the target space
+  // Target space; 0 keeps the config where it is. See AssetMoveRequest.
+  int32 space_id = 3;
 }
 
 // === Value directory messages ===
@@ -489,7 +493,9 @@ message ValueDirectoryCreateRequest {
 
 message ValueDirectoryMoveRequest {
   int32 directory_id = 1;
-  int32 new_parent_id = 2; // 0 = the space root; must be in the directory's space
+  int32 new_parent_id = 2; // 0 = the root of the target space
+  // Target space; 0 keeps the directory where it is. See AssetMoveRequest.
+  int32 space_id = 3;
 }
 
 message ValueDirectoryRenameRequest {

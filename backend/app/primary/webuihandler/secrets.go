@@ -206,6 +206,13 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 	if isReservedSecretMetaName(meta.Name) {
 		return nil, SecretReservedNameErr
 	}
+	// The space gate runs first: a rejected cross-space move must not leave the
+	// secret reparented into its own space's root as a side effect.
+	if req.SpaceID != 0 {
+		if err := h.Store.MoveSecretSpace(req.SecretID, req.SpaceID); err != nil {
+			return nil, mapSecretErr(err)
+		}
+	}
 	if _, err := h.Store.MoveSecretDirectory(req.SecretID, req.ValueDirectoryID); err != nil {
 		return nil, mapSecretErr(err)
 	}

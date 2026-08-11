@@ -14,8 +14,9 @@ import {selectableSpaces} from "../lib/nodeSpaces.js";
 import {deploymentUsages, deploymentUsesEnvReferences} from "../lib/referenceUsage.js";
 import {
     ALL_COLUMNS, DEFAULT_COLUMNS, DEFAULT_COLUMN_WIDTHS, DEFAULT_TYPES,
-    buildRows, dirsById, dirPathSegments, flexColumnKey, folderOptions, itemKey,
-    itemPathSegments, makeItems, sameSet, spaceHue,
+    buildRows, checkDrop, dirsById, dirPathSegments, dragSource, dropDestination,
+    flexColumnKey, folderOptions, itemKey, itemPathSegments, makeItems, sameSet,
+    spaceHue,
 } from "../lib/valueExplorer.js";
 import {
     deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS,
@@ -103,6 +104,7 @@ export function secretsPage() {
     // rebuilding the dialog would discard a half-typed name or value.
     const createDest = van.state({spaceId: 0, directoryId: 0});
     const moveDialog = van.state(null);    // {label, options, currentId, apply}
+    const moveError = van.state(null);     // {name, message} from a refused drop
     const deleteTarget = van.state(null);  // {label, apply}
     const dialogSaving = van.state(false);
 
@@ -786,6 +788,132 @@ export function secretsPage() {
         grip);
     };
 
+    // ---- drag and drop ----------------------------------------------------
+    //
+    // Mirrors the assets explorer. The drag bookkeeping is plain variables
+    // rather than van states on purpose: the table is one derived node, so a
+    // state read here would rebuild every row on each dragover — hundreds of
+    // times per drag. The hover affordance is written straight onto the row
+    // element for the same reason.
+    let dragging = null;   // dragSource() of the row being dragged
+    let dropRow = null;    // the <tr> currently marked as the destination
+    let springKey = null;  // row key the spring-load timer is counting for
+    let springTimer = 0;
+
+    const DROP_MARK = ["bg-brand/20", "outline-1", "-outline-offset-1", "outline-brand"];
+    const SPRING_MS = 600;
+
+    const clearSpring = () => {
+        if (springTimer) clearTimeout(springTimer);
+        springTimer = 0;
+        springKey = null;
+    };
+
+    const markDropRow = (element) => {
+        if (dropRow === element) return;
+        if (dropRow) dropRow.classList.remove(...DROP_MARK);
+        dropRow = element;
+        if (dropRow) dropRow.classList.add(...DROP_MARK);
+    };
+
+    const endDrag = () => {
+        dragging = null;
+        markDropRow(null);
+        clearSpring();
+    };
+
+    // Spring-loaded folders: hovering a closed folder or space opens it, so a
+    // drag can reach anywhere in the tree. Without it only already-expanded
+    // destinations are reachable, and the tree starts collapsed.
+    const springLoad = (row) => {
+        if (row.type === "item" || row.expanded) { clearSpring(); return; }
+        if (springKey === row.key) return;
+        clearSpring();
+        springKey = row.key;
+        springTimer = setTimeout(() => {
+            springTimer = 0;
+            springKey = null;
+            if (dragging) toggleExpanded(row.key);
+        }, SPRING_MS);
+    };
+
+    const verdictFor = (row) => checkDrop({
+        dirs: currentDirs(),
+        items: currentItems(),
+        drag: dragging,
+        destination: dropDestination(row),
+    });
+
+    const performDrop = async (drag, destination) => {
+        try {
+            if (drag.type === "dir") {
+                await capi.postV1ValueDirectoriesMove({
+                    directoryId: drag.id, newParentId: destination.directoryId, spaceId: destination.spaceId,
+                });
+            } else if (drag.kind === "secret") {
+                await capi.postV1SecretsMove({
+                    secretId: drag.id, valueDirectoryId: destination.directoryId, spaceId: destination.spaceId,
+                });
+            } else {
+                await capi.postV1ConfigsMove({
+                    configId: drag.id, valueDirectoryId: destination.directoryId, spaceId: destination.spaceId,
+                });
+            }
+            expandTo(destination.spaceId, destination.directoryId);
+            selectedKey.val = drag.key;
+        } catch (e) {
+            // Cross-space drops land here until the server supports them. The
+            // reason is whatever the server said, not a guess made up front.
+            moveError.val = {name: drag.name, message: e.message};
+        }
+    };
+
+    const dndProps = (row) => {
+        const props = {
+            ondragover: (e) => {
+                if (!dragging || !verdictFor(row).ok) { markDropRow(null); clearSpring(); return; }
+                // preventDefault is what makes this row a drop target at all;
+                // withholding it is how an invalid row refuses the drag.
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                markDropRow(e.currentTarget);
+                springLoad(row);
+            },
+            ondragleave: (e) => {
+                // dragleave bubbles from the cells, so moving between two cells
+                // of the same row would otherwise unmark and remark it.
+                if (e.currentTarget.contains(e.relatedTarget)) return;
+                if (dropRow === e.currentTarget) markDropRow(null);
+                if (springKey === row.key) clearSpring();
+            },
+            ondrop: (e) => {
+                e.preventDefault();
+                const drag = dragging;
+                const destination = dropDestination(row);
+                const allowed = Boolean(drag) && verdictFor(row).ok;
+                endDrag();
+                if (allowed) void performDrop(drag, destination);
+            },
+        };
+        const source = dragSource(row);
+        if (!source) return props; // spaces receive drops but do not move
+        props.draggable = "true";
+        props.ondragstart = (e) => {
+            dragging = source;
+            e.dataTransfer.effectAllowed = "move";
+            // Firefox refuses to start a drag with no payload.
+            e.dataTransfer.setData("text/plain", source.key);
+            // A full-width row ghost is unreadable; the name cell alone reads as
+            // the thing being dragged.
+            const cell = e.currentTarget.firstElementChild;
+            if (cell) e.dataTransfer.setDragImage(cell, 12, 12);
+            // On document, not the row: spring-loading rebuilds the table, so
+            // the row this drag started on may be gone by the time it ends.
+            document.addEventListener("dragend", endDrag, {once: true});
+        };
+        return props;
+    };
+
     const namePad = (depth) => `padding-left:${0.5 + depth * 1.15}rem`;
 
     const disclosure = (open, key) => button({
@@ -808,7 +936,7 @@ export function secretsPage() {
     };
 
     const groupRow = (row, columns, ...inner) => tr(
-        {class: rowClass(row), onclick: () => select(row.key)},
+        {class: rowClass(row), onclick: () => select(row.key), ...dndProps(row)},
         td({class: "border-b border-gray-800/80 py-1 pr-2 font-mono text-[13px] whitespace-nowrap overflow-hidden", style: namePad(row.depth)},
             span({class: "flex items-center gap-1.5 min-w-0"}, ...inner)),
         ...blankCells(columns),
@@ -861,7 +989,7 @@ export function secretsPage() {
     };
 
     const itemRow = (row, columns, usesMap) => tr(
-        {class: rowClass(row), onclick: () => select(row.key)},
+        {class: rowClass(row), onclick: () => select(row.key), ...dndProps(row)},
         td({class: "border-b border-gray-800/80 py-1 pr-2 font-mono text-[13px] whitespace-nowrap overflow-hidden", style: namePad(row.depth)},
             span({class: "flex items-center gap-1.5 min-w-0"},
                 span({class: "w-4 flex-none"}),
@@ -1015,16 +1143,26 @@ export function secretsPage() {
     // attribution existed, so the author slot never silently vanishes.
     const versionAuthor = (id) => usersMapS.val.get(Number(id)) || "unknown";
 
-    // A table (rather than per-row flex) keeps the columns aligned when dates
-    // and author names differ in width; the author cell takes the slack
-    // (max-w-0 + w-full) so it is the one that truncates.
-    const versionsList = (meta) => table({class: "w-full table-auto border-collapse font-mono text-[11px] text-gray-400"},
+    // table-fixed and the colgroup are what make the columns line up: under
+    // automatic layout a browser sizes columns from their content and ignores
+    // max-width on cells, so widths drifted with whatever name a row happened to
+    // carry, and the author cell never truncated. Fixed layout takes the widths
+    // from here instead, leaving the author column the slack. The newest version
+    // is marked by its version number rather than by a "current" column that
+    // would be empty on every other row. Matches the assets inspector.
+    const versionsList = (meta) => table({class: "w-full table-fixed font-mono text-[11px] text-gray-400"},
+        // Sized to the widest real string in each column at 11px mono, plus the
+        // pr-2 gutter: "v123", "Sep 30, 2026". The author takes the rest.
+        colgroup(col({style: "width:2.1rem"}), col({style: "width:5.7rem"}), col()),
         tbody(...(meta.versionRefs || []).map((ref, i) => tr(
-            td({class: "py-0.5 pr-2 whitespace-nowrap font-medium text-gray-200"}, `v${ref.version}`),
-            td({class: "py-0.5 pr-2 whitespace-nowrap", title: formatDateTime(ref.createdAt, "")},
+            td({
+                class: `truncate py-0.5 pr-2 font-medium ${i === 0 ? "text-green-400" : "text-gray-200"}`,
+                title: i === 0 ? "Current version" : "",
+            }, `v${ref.version}`),
+            td({class: "truncate py-0.5 pr-2", title: formatDateTime(ref.createdAt, "")},
                 formatDate(ref.createdAt, "-")),
-            td({class: "max-w-0 w-full truncate py-0.5 pr-2 text-gray-500"}, versionAuthor(ref.createdBy)),
-            td({class: "py-0.5 whitespace-nowrap text-right text-green-400"}, i === 0 ? "current" : ""),
+            td({class: "truncate py-0.5 text-gray-500", title: versionAuthor(ref.createdBy)},
+                versionAuthor(ref.createdBy)),
         ))));
 
     const inspectorValue = (item) => {
@@ -1205,7 +1343,7 @@ export function secretsPage() {
     ) : "";
 
     const dialogShell = (labelledBy, ...children) => div(
-        {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", onclick: () => { if (!dialogSaving.val) { folderDialog.val = null; moveDialog.val = null; deleteTarget.val = null; } }},
+        {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", onclick: () => { if (!dialogSaving.val) { folderDialog.val = null; moveDialog.val = null; deleteTarget.val = null; moveError.val = null; } }},
         div({
             class: "card w-full max-w-md flex flex-col gap-3 shadow-2xl",
             role: "dialog",
@@ -1271,6 +1409,20 @@ export function secretsPage() {
                     () => dialogSaving.val)));
     };
 
+    // A refused drop reports in a dialog rather than the inline error line: the
+    // drag has already ended and the pointer is mid-table, so a banner at the
+    // top of the page is easy to miss.
+    const moveErrorEl = () => {
+        const target = moveError.val;
+        if (!target) return "";
+        return dialogShell("move-error-title",
+            h2({id: "move-error-title", class: "text-base font-semibold"}, "Move failed"),
+            p({class: "text-sm text-gray-300"}, span({class: "font-mono text-gray-100"}, target.name), " was not moved."),
+            p({class: "text-sm text-red-400"}, target.message),
+            div({class: "flex items-center justify-end"},
+                actionButton("Close", () => { moveError.val = null; }, "bg-brand text-white hover:bg-blue-600")));
+    };
+
     const usageOverlayEl = () => {
         const target = usageTarget.val;
         if (!target) return "";
@@ -1326,6 +1478,7 @@ export function secretsPage() {
         folderDialogEl,
         moveDialogEl,
         deleteDialogEl,
+        moveErrorEl,
         usageOverlayEl,
         valueOverlayEl,
         createOverlayEl,

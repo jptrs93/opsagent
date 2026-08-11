@@ -1083,11 +1083,22 @@ export function assetsPage() {
     const versionAuthor = (id) => usersMapS.val.get(Number(id)) || "unknown";
 
     // Version rows open the editor pinned to that version, matching the old
-    // page's history browsing. A table (rather than per-row flex) keeps the
-    // columns aligned when dates, sizes and author names differ in width; the
-    // author cell takes the slack (max-w-0 + w-full) so it is the one that
-    // truncates.
-    const versionsList = (item) => table({class: "w-full table-auto border-collapse font-mono text-[11px] text-gray-400"},
+    // page's history browsing.
+    //
+    // table-fixed and the colgroup are what make the columns line up: under
+    // automatic layout a browser sizes columns from their content and ignores
+    // max-width on cells, so widths drifted with whatever name or size a row
+    // happened to carry, and the author cell never truncated. Fixed layout takes
+    // the widths from here instead, leaving the author column the slack.
+    //
+    // Four columns is what fits: the inspector is 220-460px wide, and a fifth
+    // "current" column — empty on every row but the first — left the author
+    // nothing. The newest version is marked by its version number instead.
+    const versionsList = (item) => table({class: "w-full table-fixed font-mono text-[11px] text-gray-400"},
+        // Sized to the widest real string in each column at 11px mono, plus the
+        // pr-2 gutter: "v123", "Sep 30, 2026", "12.34 MB". The author takes the
+        // rest — ~10 characters at the default 280px inspector, more as it widens.
+        colgroup(col({style: "width:2.1rem"}), col({style: "width:5.7rem"}), col({style: "width:3.9rem"}), col()),
         tbody(...(item.meta.versionRefs || []).map((ref, i) => tr(
             {
                 class: "cursor-pointer hover:bg-white/5",
@@ -1103,12 +1114,15 @@ export function assetsPage() {
                     openEditor(item, Number(ref.version));
                 },
             },
-            td({class: "py-0.5 pr-2 whitespace-nowrap font-medium text-gray-200"}, `v${ref.version}`),
-            td({class: "py-0.5 pr-2 whitespace-nowrap", title: formatDateTime(ref.createdAt, "")},
+            td({
+                class: `truncate py-0.5 pr-2 font-medium ${i === 0 ? "text-green-400" : "text-gray-200"}`,
+                title: i === 0 ? "Current version" : "",
+            }, `v${ref.version}`),
+            td({class: "truncate py-0.5 pr-2", title: formatDateTime(ref.createdAt, "")},
                 formatDate(ref.createdAt, "-")),
-            td({class: "py-0.5 pr-2 whitespace-nowrap text-right text-gray-500"}, fmtSize(ref.sizeBytes)),
-            td({class: "max-w-0 w-full truncate py-0.5 pr-2 text-gray-500"}, versionAuthor(ref.createdBy)),
-            td({class: "py-0.5 whitespace-nowrap text-right text-green-400"}, i === 0 ? "current" : ""),
+            td({class: "truncate py-0.5 pr-2 text-right text-gray-500"}, fmtSize(ref.sizeBytes)),
+            td({class: "truncate py-0.5 text-gray-500", title: versionAuthor(ref.createdBy)},
+                versionAuthor(ref.createdBy)),
         ))));
 
     const itemInspector = (sel) => {

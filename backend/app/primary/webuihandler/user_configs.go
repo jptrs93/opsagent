@@ -97,6 +97,13 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 	if req.ConfigID == 0 {
 		return nil, UserConfigIDRequiredErr
 	}
+	// The space gate runs first: a rejected cross-space move must not leave the
+	// config reparented into its own space's root as a side effect.
+	if req.SpaceID != 0 {
+		if err := h.Store.MoveConfigSpace(req.ConfigID, req.SpaceID); err != nil {
+			return nil, mapConfigStoreErr(err)
+		}
+	}
 	if _, err := h.Store.MoveConfigDirectory(req.ConfigID, req.ValueDirectoryID); err != nil {
 		return nil, mapConfigStoreErr(err)
 	}

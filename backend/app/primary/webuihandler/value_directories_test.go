@@ -139,6 +139,64 @@ func TestMoveSecretAndConfigBetweenDirectories(t *testing.T) {
 	}
 }
 
+// The explorer offers cross-space drops so the intent is expressible, and the
+// server answers with value_space_move_unsupported. The rejection must be total:
+// a request naming another space must not fall through to reparenting the row
+// inside its own space, which is what an unchecked directory id of 0 would do.
+func TestCrossSpaceValueMoveIsRejectedWithoutReparenting(t *testing.T) {
+	h, user := newAuthTestHandler(t)
+	dir := mustCreateDir(t, h, user, 1, 0, "app")
+	nested := mustCreateDir(t, h, user, 1, dir.ID, "conf")
+
+	secret, err := h.PostV1SecretsCreate(testCtx(user), &apigen.SecretCreateRequest{
+		Name: "token", Value: []byte("v"), SpaceID: 1, ValueDirectoryID: dir.ID,
+	})
+	if err != nil {
+		t.Fatalf("PostV1SecretsCreate: %v", err)
+	}
+	config, err := h.PostV1ConfigsCreate(testCtx(user), &apigen.ConfigCreateRequest{
+		Name: "level", Value: "info", SpaceID: 1, ValueDirectoryID: dir.ID,
+	})
+	if err != nil {
+		t.Fatalf("PostV1ConfigsCreate: %v", err)
+	}
+
+	if _, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
+		SecretID: secret.ID, ValueDirectoryID: 0, SpaceID: 2,
+	}); !errors.Is(err, ValueSpaceMoveUnsupportedErr) {
+		t.Fatalf("cross-space secret move err = %v, want ValueSpaceMoveUnsupportedErr", err)
+	}
+	if meta, ok := h.Store.GetSecretMeta(secret.ID); !ok || meta.ValueDirectoryID != dir.ID || meta.SpaceID != 1 {
+		t.Fatalf("secret = %+v after a rejected move, want space 1 dir %d", meta, dir.ID)
+	}
+
+	if _, err := h.PostV1ConfigsMove(testCtx(user), &apigen.ConfigMoveRequest{
+		ConfigID: config.ID, ValueDirectoryID: 0, SpaceID: 2,
+	}); !errors.Is(err, ValueSpaceMoveUnsupportedErr) {
+		t.Fatalf("cross-space config move err = %v, want ValueSpaceMoveUnsupportedErr", err)
+	}
+	if meta, ok := h.Store.GetConfigMeta(config.ID); !ok || meta.ValueDirectoryID != dir.ID || meta.SpaceID != 1 {
+		t.Fatalf("config = %+v after a rejected move, want space 1 dir %d", meta, dir.ID)
+	}
+
+	if _, err := h.PostV1ValueDirectoriesMove(testCtx(user), &apigen.ValueDirectoryMoveRequest{
+		DirectoryID: nested.ID, NewParentID: 0, SpaceID: 2,
+	}); !errors.Is(err, ValueSpaceMoveUnsupportedErr) {
+		t.Fatalf("cross-space directory move err = %v, want ValueSpaceMoveUnsupportedErr", err)
+	}
+	if meta, ok := h.Store.GetValueDirectoryMeta(nested.ID); !ok || meta.ParentID != dir.ID || meta.SpaceID != 1 {
+		t.Fatalf("directory = %+v after a rejected move, want space 1 parent %d", meta, dir.ID)
+	}
+
+	// Naming the row's own space is a no-op, not a rejection: the explorer sends
+	// the target space on every drop, including same-space ones.
+	if _, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
+		SecretID: secret.ID, ValueDirectoryID: 0, SpaceID: 1,
+	}); err != nil {
+		t.Fatalf("same-space move with an explicit space: %v", err)
+	}
+}
+
 func TestMoveReservedSecretIsRejected(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	dir := mustCreateDir(t, h, user, 1, 0, "misc")

@@ -234,8 +234,10 @@ export function dragSource(row) {
         };
     }
     if (row?.type === "item") {
+        // kind ("asset" | "secret" | "config") picks the move endpoint; the drop
+        // rules themselves treat every item the same.
         return {
-            type: "item", key: row.key, id: Number(row.item.id), name: row.item.name,
+            type: "item", kind: row.item.kind, key: row.key, id: Number(row.item.id), name: row.item.name,
             spaceId: Number(row.item.spaceId), parentId: Number(row.item.directoryId || 0),
         };
     }
