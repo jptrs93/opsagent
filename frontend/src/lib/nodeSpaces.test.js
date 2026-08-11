@@ -6,6 +6,7 @@ import {
     isFixedSpace,
     nodeAllowsSpace,
     nodesForSpace,
+    selectableSpaces,
 } from "./nodeSpaces.js";
 
 const node = (name, allowedSpaces) => ({id: name.length, name, identifier: `${name}-id`, allowedSpaces});
@@ -34,6 +35,13 @@ test("the opendeploy space is fixed and excluded from the editable set", () => {
     assert.equal(isFixedSpace(1), false);
     assert.deepEqual(editableSpaceIDs(node("a", [0, 1, 7])), [1, 7]);
     assert.deepEqual(editableSpaceIDs(node("a", [0])), []);
+});
+
+test("selectableSpaces drops the opendeploy space and tolerates no list", () => {
+    const spaces = [{id: 0, name: "opendeploy"}, {id: 1, name: "default"}, {id: "2", name: "staging"}];
+    assert.deepEqual(selectableSpaces(spaces).map(s => s.name), ["default", "staging"]);
+    assert.deepEqual(selectableSpaces([]), []);
+    assert.deepEqual(selectableSpaces(undefined), []);
 });
 
 test("allowedSpaceNames shows an unknown id rather than dropping it", () => {

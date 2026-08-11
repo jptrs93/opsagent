@@ -8,3 +8,8 @@
 -- approve columns, nodes.allowed_spaces) were removed after every active
 -- cluster had been rolled forward. Upgrading a database from before then
 -- requires stepping through a release that still carried them.
+
+-- Asset versions predating user attribution carry created_by = 0 and render as
+-- "unknown" in the UI. Every writer now passes the requesting user, so the only
+-- rows this can touch are those legacy ones -- attribute them to the first user.
+UPDATE asset_versions SET created_by = 1 WHERE created_by = 0;

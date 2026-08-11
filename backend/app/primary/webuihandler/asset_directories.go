@@ -67,6 +67,13 @@ func (h *Handler) PostV1AssetDirectoriesMove(ctx apigen.Context, req *apigen.Ass
 	if req.DirectoryID == 0 {
 		return nil, AssetDirectoryIDRequiredErr
 	}
+	// The space gate runs first: a rejected cross-space move must not leave the
+	// directory reparented into its own space's root as a side effect.
+	if req.SpaceID != 0 {
+		if err := h.Store.MoveDirectorySpace(req.DirectoryID, req.SpaceID); err != nil {
+			return nil, mapAssetDirectoryErr(err)
+		}
+	}
 	row, err := h.Store.MoveDirectory(req.DirectoryID, req.NewParentID)
 	if err != nil {
 		return nil, mapAssetDirectoryErr(err)

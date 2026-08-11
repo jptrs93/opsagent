@@ -11,20 +11,21 @@ import {
     caretRightIcon, checkIcon, chevronDownIcon, closeIcon, columnsIcon, editIcon,
     fileIcon, folderIcon, plusIcon, searchIcon, sortArrowIcon, uploadIcon,
 } from "../lib/icons.js";
-import {OPENDEPLOY_SPACE_ID} from "../lib/nodeSpaces.js";
+import {selectableSpaces} from "../lib/nodeSpaces.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {
     ASSET_COLUMNS, ASSET_DEFAULT_COLUMNS, ASSET_DEFAULT_COLUMN_WIDTHS,
     assetDirsAsNamed, fmtSize, makeAssetItems,
 } from "../lib/assetExplorer.js";
 import {
-    buildRows, dirsById, dirPathSegments, flexColumnKey, folderOptions, itemKey,
-    itemPathSegments, sameSet, spaceHue,
+    buildRows, checkDrop, dirsById, dirPathSegments, dragSource, dropDestination,
+    flexColumnKey, folderOptions, itemKey, itemPathSegments, sameSet, spaceHue,
 } from "../lib/valueExplorer.js";
 import {assetDirectoriesS, assetMetasS, deploymentsS, machinesS, spacesS, usersMapS} from "../state/deployments.js";
 import {loginS} from "../state/login.js";
 
-const {button, col, colgroup, dd, div, dl, dt, h2, input, p, span, table, tbody, td, th, thead, tr} = van.tags;
+// selectEl: the pages define their own row-selection helper named `select`.
+const {button, col, colgroup, dd, div, dl, dt, h2, input, option, p, select: selectEl, span, table, tbody, td, th, thead, tr} = van.tags;
 
 const VIEW_STORAGE_KEY = "opendeployAssetsExplorerView";
 const INSPECTOR_MIN = 220;
@@ -91,7 +92,7 @@ async function uploadAssetFile(file, params, token, onProgress) {
 export function assetsPage() {
     const saved = loadView();
 
-    const hiddenSpaces = van.state(new Set(Array.isArray(saved.hiddenSpaces) ? saved.hiddenSpaces : [OPENDEPLOY_SPACE_ID]));
+    const hiddenSpaces = van.state(new Set(Array.isArray(saved.hiddenSpaces) ? saved.hiddenSpaces : []));
     const shownCols = van.state(new Set(Array.isArray(saved.cols) ? saved.cols : ASSET_DEFAULT_COLUMNS));
     const colWidths = van.state({...ASSET_DEFAULT_COLUMN_WIDTHS, ...(saved.colWidths || {})});
     const sort = van.state(saved.sort?.key ? saved.sort : {key: "name", dir: "asc"});
@@ -109,9 +110,14 @@ export function assetsPage() {
     const folderName = van.state("");
 
     const usageTarget = van.state(null);
-    const editorTarget = van.state(null); // {mode, assetId, version, latestVersion, spaceId, directoryId, location}
-    const folderDialog = van.state(null); // {spaceId, directoryId, location}
+    const editorTarget = van.state(null); // {mode, assetId, version, latestVersion}
+    const folderDialog = van.state(null); // truthy while the new-folder dialog is open
+    // Destination of whichever create dialog is open. It lives outside those
+    // dialogs' own state so that changing the space re-renders only the picker:
+    // rebuilding the dialog would discard a half-typed name or asset body.
+    const createDest = van.state({spaceId: 0, directoryId: 0});
     const moveDialog = van.state(null);   // {label, options, currentId, apply}
+    const moveError = van.state(null);    // {name, message} from a refused drop
     const deleteTarget = van.state(null); // {label, apply}
     const dialogSaving = van.state(false);
 
@@ -145,10 +151,14 @@ export function assetsPage() {
 
     const currentItems = () => makeAssetItems(assetMetasS.val);
     const currentDirs = () => assetDirsAsNamed(assetDirectoriesS.val);
-    const visibleSpaces = () => (spacesS.val || []).filter((s) => !hiddenSpaces.val.has(Number(s.id)));
+    // listedSpaces is the page's whole notion of "the spaces": the opendeploy
+    // space is dropped once here so it stays out of the tree, the filter menu
+    // and every destination picker without each of them re-testing for it.
+    const listedSpaces = () => selectableSpaces(spacesS.val);
+    const visibleSpaces = () => listedSpaces().filter((s) => !hiddenSpaces.val.has(Number(s.id)));
     const spaceName = (id) => (spacesS.val || []).find((s) => Number(s.id) === Number(id))?.name || `space ${id}`;
 
-    const spacesDirty = () => !sameSet(hiddenSpaces.val, new Set([OPENDEPLOY_SPACE_ID]));
+    const spacesDirty = () => listedSpaces().some((s) => hiddenSpaces.val.has(Number(s.id)));
     const colsDirty = () => !sameSet(shownCols.val, new Set(ASSET_DEFAULT_COLUMNS));
 
     const usageForItem = (item) => {
@@ -243,14 +253,15 @@ export function assetsPage() {
         persistView();
     };
 
-    // Creating lands in the selection's folder: a selected folder itself, a
-    // selected item's folder, or a selected space's root.
+    // Creating starts in the selection's folder: a selected folder itself, a
+    // selected item's folder, or a selected space's root. The dialog's picker
+    // can move it elsewhere from there.
     const createContext = () => {
         const sel = resolveSelection();
         if (sel?.type === "space") return {spaceId: Number(sel.space.id), directoryId: 0};
         if (sel?.type === "dir") return {spaceId: Number(sel.dir.spaceId), directoryId: Number(sel.dir.id)};
         if (sel?.type === "item") return {spaceId: sel.item.spaceId, directoryId: sel.item.directoryId};
-        const first = visibleSpaces()[0];
+        const first = visibleSpaces()[0] || listedSpaces()[0];
         return {spaceId: first ? Number(first.id) : 1, directoryId: 0};
     };
 
@@ -270,26 +281,26 @@ export function assetsPage() {
     };
 
     const openCreate = () => {
-        const context = createContext();
-        editorTarget.val = {mode: "create", ...context, location: locationLabel(context)};
+        createDest.val = createContext();
+        editorTarget.val = {mode: "create"};
     };
 
     const openNewFolder = () => {
-        const context = createContext();
+        createDest.val = createContext();
         folderName.val = "";
-        folderDialog.val = {...context, location: locationLabel(context)};
+        folderDialog.val = true;
     };
 
     const createFolder = async () => {
-        const dialog = folderDialog.val;
+        const {spaceId, directoryId} = createDest.val;
         const key = folderName.val.trim();
-        if (!dialog || !key || dialogSaving.val) return;
+        if (!folderDialog.val || !key || dialogSaving.val) return;
         dialogSaving.val = true;
         try {
             error.val = null;
-            const dir = await capi.postV1AssetDirectoriesCreate({spaceId: dialog.spaceId, parentId: dialog.directoryId, key});
+            const dir = await capi.postV1AssetDirectoriesCreate({spaceId, parentId: directoryId, key});
             folderDialog.val = null;
-            expandTo(dialog.spaceId, dir.id);
+            expandTo(spaceId, dir.id);
             selectedKey.val = `dir:${dir.id}`;
         } catch (e) {
             error.val = e.message;
@@ -543,6 +554,29 @@ export function assetsPage() {
         class: `w-[13px] h-[13px] flex-none text-asset ${extra}`, role: "img", "aria-label": "Asset",
     });
 
+    const destFolderLabel = () => {
+        const segments = dirPathSegments(dirsById(currentDirs()), createDest.val.directoryId);
+        return `/${segments.length ? segments.join("/") + "/" : ""}`;
+    };
+
+    // Bound as a function so a space change re-renders the picker alone. Picking
+    // a space drops the folder back to that space's root: directory ids belong
+    // to one space, so the folder the dialog opened on cannot come along.
+    const destinationPicker = () => {
+        const spaces = selectEl({
+            class: "input py-0.5 text-xs",
+            "aria-label": "Destination space",
+            onchange: (e) => { createDest.val = {spaceId: Number(e.target.value), directoryId: 0}; },
+        }, ...listedSpaces().map((space) => option({value: String(space.id)}, space.name)));
+        // Assigned after the options exist: a value set on an empty select is
+        // discarded rather than remembered.
+        spaces.value = String(createDest.val.spaceId);
+        return div({class: "flex min-w-0 items-center gap-1.5"},
+            spaceDot(createDest.val.spaceId),
+            spaces,
+            span({class: "min-w-0 truncate font-mono text-xs text-gray-500", title: destFolderLabel()}, destFolderLabel()));
+    };
+
     const iconButton = (child, onclick, attrs = {}) => button({
         type: "button",
         ...attrs,
@@ -600,7 +634,7 @@ export function assetsPage() {
     ];
 
     const spacesMenu = () => menuShell(
-        ...(spacesS.val || []).map((space) => menuRow(() => {
+        ...listedSpaces().map((space) => menuRow(() => {
             const id = Number(space.id);
             const next = new Set(hiddenSpaces.val);
             if (next.has(id)) {
@@ -615,10 +649,9 @@ export function assetsPage() {
         menuCheck(!hiddenSpaces.val.has(Number(space.id))),
         spaceDot(space.id),
         span({class: "font-mono"}, space.name),
-        Number(space.id) === OPENDEPLOY_SPACE_ID ? menuTail("system") : "",
         )),
         ...(spacesDirty() ? resetRow(() => {
-            hiddenSpaces.val = new Set([OPENDEPLOY_SPACE_ID]);
+            hiddenSpaces.val = new Set();
             persistView();
         }) : []),
     );
@@ -728,6 +761,127 @@ export function assetsPage() {
         grip);
     };
 
+    // ---- drag and drop ----------------------------------------------------
+    //
+    // The drag bookkeeping is plain variables rather than van states on purpose.
+    // The table is one derived node, so a state read here would rebuild every
+    // row on each dragover — hundreds of times per drag. The hover affordance is
+    // written straight onto the row element for the same reason.
+    let dragging = null;   // dragSource() of the row being dragged
+    let dropRow = null;    // the <tr> currently marked as the destination
+    let springKey = null;  // row key the spring-load timer is counting for
+    let springTimer = 0;
+
+    const DROP_MARK = ["bg-brand/20", "outline-1", "-outline-offset-1", "outline-brand"];
+    const SPRING_MS = 600;
+
+    const clearSpring = () => {
+        if (springTimer) clearTimeout(springTimer);
+        springTimer = 0;
+        springKey = null;
+    };
+
+    const markDropRow = (element) => {
+        if (dropRow === element) return;
+        if (dropRow) dropRow.classList.remove(...DROP_MARK);
+        dropRow = element;
+        if (dropRow) dropRow.classList.add(...DROP_MARK);
+    };
+
+    const endDrag = () => {
+        dragging = null;
+        markDropRow(null);
+        clearSpring();
+    };
+
+    // Spring-loaded folders: hovering a closed folder or space opens it, so a
+    // drag can reach anywhere in the tree. Without it only already-expanded
+    // destinations are reachable, and the tree starts collapsed.
+    const springLoad = (row) => {
+        if (row.type === "item" || row.expanded) { clearSpring(); return; }
+        if (springKey === row.key) return;
+        clearSpring();
+        springKey = row.key;
+        springTimer = setTimeout(() => {
+            springTimer = 0;
+            springKey = null;
+            if (dragging) toggleExpanded(row.key);
+        }, SPRING_MS);
+    };
+
+    const verdictFor = (row) => checkDrop({
+        dirs: currentDirs(),
+        items: currentItems(),
+        drag: dragging,
+        destination: dropDestination(row),
+    });
+
+    const performDrop = async (drag, destination) => {
+        try {
+            if (drag.type === "dir") {
+                await capi.postV1AssetDirectoriesMove({
+                    directoryId: drag.id, newParentId: destination.directoryId, spaceId: destination.spaceId,
+                });
+            } else {
+                await capi.postV1AssetsMove({
+                    assetId: drag.id, assetDirectoryId: destination.directoryId, spaceId: destination.spaceId,
+                });
+            }
+            expandTo(destination.spaceId, destination.directoryId);
+            selectedKey.val = drag.key;
+        } catch (e) {
+            // Cross-space drops land here until the server supports them. The
+            // reason is whatever the server said, not a guess made up front.
+            moveError.val = {name: drag.name, message: e.message};
+        }
+    };
+
+    const dndProps = (row) => {
+        const props = {
+            ondragover: (e) => {
+                if (!dragging || !verdictFor(row).ok) { markDropRow(null); clearSpring(); return; }
+                // preventDefault is what makes this row a drop target at all;
+                // withholding it is how an invalid row refuses the drag.
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                markDropRow(e.currentTarget);
+                springLoad(row);
+            },
+            ondragleave: (e) => {
+                // dragleave bubbles from the cells, so moving between two cells
+                // of the same row would otherwise unmark and remark it.
+                if (e.currentTarget.contains(e.relatedTarget)) return;
+                if (dropRow === e.currentTarget) markDropRow(null);
+                if (springKey === row.key) clearSpring();
+            },
+            ondrop: (e) => {
+                e.preventDefault();
+                const drag = dragging;
+                const destination = dropDestination(row);
+                const allowed = Boolean(drag) && verdictFor(row).ok;
+                endDrag();
+                if (allowed) void performDrop(drag, destination);
+            },
+        };
+        const source = dragSource(row);
+        if (!source) return props; // spaces receive drops but do not move
+        props.draggable = "true";
+        props.ondragstart = (e) => {
+            dragging = source;
+            e.dataTransfer.effectAllowed = "move";
+            // Firefox refuses to start a drag with no payload.
+            e.dataTransfer.setData("text/plain", source.key);
+            // A full-width row ghost is unreadable; the name cell alone reads as
+            // the thing being dragged.
+            const cell = e.currentTarget.firstElementChild;
+            if (cell) e.dataTransfer.setDragImage(cell, 12, 12);
+            // On document, not the row: spring-loading rebuilds the table, so
+            // the row this drag started on may be gone by the time it ends.
+            document.addEventListener("dragend", endDrag, {once: true});
+        };
+        return props;
+    };
+
     const namePad = (depth) => `padding-left:${0.5 + depth * 1.15}rem`;
 
     const disclosure = (open, key) => button({
@@ -750,7 +904,7 @@ export function assetsPage() {
     };
 
     const groupRow = (row, columns, ...inner) => tr(
-        {class: rowClass(row), onclick: () => select(row.key)},
+        {class: rowClass(row), onclick: () => select(row.key), ...dndProps(row)},
         td({class: "border-b border-gray-800/80 py-1 pr-2 font-mono text-[13px] whitespace-nowrap overflow-hidden", style: namePad(row.depth)},
             span({class: "flex items-center gap-1.5 min-w-0"}, ...inner)),
         ...blankCells(columns),
@@ -794,7 +948,7 @@ export function assetsPage() {
     };
 
     const itemRow = (row, columns, usesMap) => tr(
-        {class: rowClass(row), onclick: () => select(row.key)},
+        {class: rowClass(row), onclick: () => select(row.key), ...dndProps(row)},
         td({class: "border-b border-gray-800/80 py-1 pr-2 font-mono text-[13px] whitespace-nowrap overflow-hidden", style: namePad(row.depth)},
             span({class: "flex items-center gap-1.5 min-w-0"},
                 span({class: "w-4 flex-none"}),
@@ -813,7 +967,7 @@ export function assetsPage() {
         const items = currentItems();
         const usesMap = new Map(items.map((item) => [itemKey(item), usageForItem(item).deployments.length]));
         const {rows} = buildRows({
-            spaces: spacesS.val,
+            spaces: listedSpaces(),
             dirs: currentDirs(),
             items,
             hiddenSpaceIds: hiddenSpaces.val,
@@ -929,21 +1083,33 @@ export function assetsPage() {
     const versionAuthor = (id) => usersMapS.val.get(Number(id)) || "unknown";
 
     // Version rows open the editor pinned to that version, matching the old
-    // page's history browsing.
-    const versionsList = (item) => div({class: "flex flex-col gap-0.5"},
-        ...(item.meta.versionRefs || []).map((ref, i) => button(
+    // page's history browsing. A table (rather than per-row flex) keeps the
+    // columns aligned when dates, sizes and author names differ in width; the
+    // author cell takes the slack (max-w-0 + w-full) so it is the one that
+    // truncates.
+    const versionsList = (item) => table({class: "w-full table-auto border-collapse font-mono text-[11px] text-gray-400"},
+        tbody(...(item.meta.versionRefs || []).map((ref, i) => tr(
             {
-                type: "button",
-                class: "flex items-baseline gap-1.5 rounded px-1 -mx-1 py-0.5 text-left font-mono text-[9px] text-gray-400 hover:bg-white/5 cursor-pointer",
+                class: "cursor-pointer hover:bg-white/5",
                 title: `Open v${ref.version}`,
+                // The row replaced a <button>, so it carries the button role and
+                // key handling itself to keep version history keyboard-reachable.
+                role: "button",
+                tabindex: "0",
                 onclick: () => openEditor(item, Number(ref.version)),
+                onkeydown: (e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    openEditor(item, Number(ref.version));
+                },
             },
-            span({class: "text-gray-200 font-medium"}, `v${ref.version}`),
-            span({title: formatDateTime(ref.createdAt, "")}, formatDate(ref.createdAt, "-")),
-            span({class: "text-gray-500"}, fmtSize(ref.sizeBytes)),
-            span({class: "text-gray-500 truncate"}, versionAuthor(ref.createdBy)),
-            i === 0 ? span({class: "text-green-400"}, "current") : "",
-        )));
+            td({class: "py-0.5 pr-2 whitespace-nowrap font-medium text-gray-200"}, `v${ref.version}`),
+            td({class: "py-0.5 pr-2 whitespace-nowrap", title: formatDateTime(ref.createdAt, "")},
+                formatDate(ref.createdAt, "-")),
+            td({class: "py-0.5 pr-2 whitespace-nowrap text-right text-gray-500"}, fmtSize(ref.sizeBytes)),
+            td({class: "max-w-0 w-full truncate py-0.5 pr-2 text-gray-500"}, versionAuthor(ref.createdBy)),
+            td({class: "py-0.5 whitespace-nowrap text-right text-green-400"}, i === 0 ? "current" : ""),
+        ))));
 
     const itemInspector = (sel) => {
         const item = sel.item;
@@ -1072,7 +1238,7 @@ export function assetsPage() {
     ) : "";
 
     const dialogShell = (labelledBy, ...children) => div(
-        {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", onclick: () => { if (!dialogSaving.val) { folderDialog.val = null; moveDialog.val = null; deleteTarget.val = null; } }},
+        {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", onclick: () => { if (!dialogSaving.val) { folderDialog.val = null; moveDialog.val = null; deleteTarget.val = null; moveError.val = null; } }},
         div({
             class: "card w-full max-w-md flex flex-col gap-3 shadow-2xl",
             role: "dialog",
@@ -1083,11 +1249,12 @@ export function assetsPage() {
     );
 
     const folderDialogEl = () => {
-        const dialog = folderDialog.val;
-        if (!dialog) return "";
+        if (!folderDialog.val) return "";
         return dialogShell("new-folder-title",
             h2({id: "new-folder-title", class: "text-base font-semibold"}, "New folder"),
-            p({class: "text-xs text-gray-400"}, "In ", span({class: "font-mono text-gray-300"}, dialog.location)),
+            div({class: "flex min-w-0 items-center gap-2"},
+                p({class: "shrink-0 text-xs text-gray-400"}, "In"),
+                destinationPicker),
             input({
                 class: "text-input font-mono text-sm",
                 placeholder: "folder name",
@@ -1135,6 +1302,20 @@ export function assetsPage() {
                 spinnerButton("Confirm", confirmDelete,
                     "text-xs px-3 py-1 rounded-md font-medium bg-red-600 text-white hover:bg-red-500", "button",
                     () => dialogSaving.val)));
+    };
+
+    // A refused drop reports in a dialog rather than the inline error line: the
+    // drag has already ended and the pointer is mid-table, so a banner at the
+    // top of the page is easy to miss.
+    const moveErrorEl = () => {
+        const target = moveError.val;
+        if (!target) return "";
+        return dialogShell("move-error-title",
+            h2({id: "move-error-title", class: "text-base font-semibold"}, "Move failed"),
+            p({class: "text-sm text-gray-300"}, span({class: "font-mono text-gray-100"}, target.name), " was not moved."),
+            p({class: "text-sm text-red-400"}, target.message),
+            div({class: "flex items-center justify-end"},
+                actionButton("Close", () => { moveError.val = null; }, "bg-brand text-white hover:bg-blue-600")));
     };
 
     const uploadDialogEl = () => {
@@ -1218,12 +1399,14 @@ export function assetsPage() {
             assetRef: target.mode === "create" ? null : {assetId: target.assetId, version: target.version},
             initialKey: "",
             latestVersion: target.latestVersion || 0,
-            spaceId: target.spaceId || 0,
-            location: target.location || "",
+            locationNode: target.mode === "create" ? destinationPicker : null,
             loadAsset: (request) => capi.postV1AssetsGet(request),
+            // The picker owns the destination, so the space in the editor's
+            // create request is overridden with whatever it is showing on save.
             createAsset: async (request) => {
-                const created = await capi.postV1AssetsCreate({...request, assetDirectoryId: target.directoryId || 0});
-                expandTo(target.spaceId, target.directoryId || 0);
+                const {spaceId, directoryId} = createDest.val;
+                const created = await capi.postV1AssetsCreate({...request, spaceId, assetDirectoryId: directoryId});
+                expandTo(spaceId, directoryId);
                 selectedKey.val = `asset:${created.assetId}`;
                 return created;
             },
@@ -1256,6 +1439,7 @@ export function assetsPage() {
         folderDialogEl,
         moveDialogEl,
         deleteDialogEl,
+        moveErrorEl,
         uploadDialogEl,
         usageOverlayEl,
         editorOverlayEl,

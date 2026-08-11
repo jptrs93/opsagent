@@ -10,7 +10,7 @@ import {
     copyIcon, editIcon, eyeOpenIcon, folderIcon, plusIcon, searchIcon, secretKeyIcon,
     sortArrowIcon,
 } from "../lib/icons.js";
-import {OPENDEPLOY_SPACE_ID} from "../lib/nodeSpaces.js";
+import {selectableSpaces} from "../lib/nodeSpaces.js";
 import {deploymentUsages, deploymentUsesEnvReferences} from "../lib/referenceUsage.js";
 import {
     ALL_COLUMNS, DEFAULT_COLUMNS, DEFAULT_COLUMN_WIDTHS, DEFAULT_TYPES,
@@ -22,7 +22,8 @@ import {
     userConfigsS, usersMapS, valueDirectoriesS,
 } from "../state/deployments.js";
 
-const {button, col, colgroup, dd, div, dl, dt, h2, input, p, span, table, tbody, td, th, thead, tr} = van.tags;
+// selectEl: the pages define their own row-selection helper named `select`.
+const {button, col, colgroup, dd, div, dl, dt, h2, input, option, p, select: selectEl, span, table, tbody, td, th, thead, tr} = van.tags;
 
 const SECRET_MASK = "••••••••••••";
 const VIEW_STORAGE_KEY = "opendeploySecretsExplorerView";
@@ -73,7 +74,7 @@ const settingSecretRefs = (settings) => [
 export function secretsPage() {
     const saved = loadView();
 
-    const hiddenSpaces = van.state(new Set(Array.isArray(saved.hiddenSpaces) ? saved.hiddenSpaces : [OPENDEPLOY_SPACE_ID]));
+    const hiddenSpaces = van.state(new Set(Array.isArray(saved.hiddenSpaces) ? saved.hiddenSpaces : []));
     const types = van.state(new Set(Array.isArray(saved.types) ? saved.types : DEFAULT_TYPES));
     const shownCols = van.state(new Set(Array.isArray(saved.cols) ? saved.cols : DEFAULT_COLUMNS));
     const colWidths = van.state({...DEFAULT_COLUMN_WIDTHS, ...(saved.colWidths || {})});
@@ -95,8 +96,12 @@ export function secretsPage() {
 
     const usageTarget = van.state(null);
     const valueTarget = van.state(null);   // {item, originalValue, referencingDeployments}
-    const createTarget = van.state(null);  // {type, spaceId, directoryId, location}
-    const folderDialog = van.state(null);  // {spaceId, parentId, location, name, saving}
+    const createTarget = van.state(null);  // {type}
+    const folderDialog = van.state(null);  // truthy while the new-folder dialog is open
+    // Destination of whichever create dialog is open. It lives outside those
+    // dialogs' own state so that changing the space re-renders only the picker:
+    // rebuilding the dialog would discard a half-typed name or value.
+    const createDest = van.state({spaceId: 0, directoryId: 0});
     const moveDialog = van.state(null);    // {label, options, currentId, apply}
     const deleteTarget = van.state(null);  // {label, apply}
     const dialogSaving = van.state(false);
@@ -122,10 +127,14 @@ export function secretsPage() {
     const secretsUnlocked = () => secretsStatusS.val?.unlocked === true;
     const currentItems = () => makeItems(secretMetasS.val, userConfigsS.val, secretsUnlocked());
     const currentDirs = () => valueDirectoriesS.val || [];
-    const visibleSpaces = () => (spacesS.val || []).filter((s) => !hiddenSpaces.val.has(Number(s.id)));
+    // listedSpaces is the page's whole notion of "the spaces": the opendeploy
+    // space is dropped once here so it stays out of the tree, the filter menu
+    // and every destination picker without each of them re-testing for it.
+    const listedSpaces = () => selectableSpaces(spacesS.val);
+    const visibleSpaces = () => listedSpaces().filter((s) => !hiddenSpaces.val.has(Number(s.id)));
     const spaceName = (id) => (spacesS.val || []).find((s) => Number(s.id) === Number(id))?.name || `space ${id}`;
 
-    const spacesDirty = () => !sameSet(hiddenSpaces.val, new Set([OPENDEPLOY_SPACE_ID]));
+    const spacesDirty = () => listedSpaces().some((s) => hiddenSpaces.val.has(Number(s.id)));
     const typesDirty = () => !sameSet(types.val, new Set(DEFAULT_TYPES));
     const colsDirty = () => !sameSet(shownCols.val, new Set(DEFAULT_COLUMNS));
 
@@ -289,59 +298,55 @@ export function secretsPage() {
         revealed.val = null;
     };
 
-    // Creating lands in the selection's folder: a selected folder itself, a
-    // selected item's folder, or a selected space's root.
+    // Creating starts in the selection's folder: a selected folder itself, a
+    // selected item's folder, or a selected space's root. The dialog's picker
+    // can move it elsewhere from there.
     const createContext = () => {
         const sel = resolveSelection();
         if (sel?.type === "space") return {spaceId: Number(sel.space.id), directoryId: 0};
         if (sel?.type === "dir") return {spaceId: Number(sel.dir.spaceId), directoryId: Number(sel.dir.id)};
         if (sel?.type === "item") return {spaceId: sel.item.spaceId, directoryId: sel.item.directoryId};
-        const first = visibleSpaces()[0];
+        const first = visibleSpaces()[0] || listedSpaces()[0];
         return {spaceId: first ? Number(first.id) : 1, directoryId: 0};
     };
 
-    const locationLabel = ({spaceId, directoryId}) => {
-        const segments = dirPathSegments(dirsById(currentDirs()), directoryId);
-        return `${spaceName(spaceId)}/${segments.length ? segments.join("/") + "/" : ""}`;
-    };
-
     const openCreate = (type) => {
-        const context = createContext();
-        createTarget.val = {type, ...context, location: locationLabel(context)};
+        createDest.val = createContext();
+        createTarget.val = {type};
     };
 
     const createResource = async (type, value, name) => {
-        const target = createTarget.val;
+        const {spaceId, directoryId} = createDest.val;
         error.val = null;
         const meta = type === "secret"
-            ? await capi.postV1SecretsCreate({name, value: new TextEncoder().encode(value), spaceId: target.spaceId, valueDirectoryId: target.directoryId})
-            : await capi.postV1ConfigsCreate({name, value, spaceId: target.spaceId, valueDirectoryId: target.directoryId});
+            ? await capi.postV1SecretsCreate({name, value: new TextEncoder().encode(value), spaceId, valueDirectoryId: directoryId})
+            : await capi.postV1ConfigsCreate({name, value, spaceId, valueDirectoryId: directoryId});
         // A create while the filter hides its type would vanish on save, so the
         // filter opens back up and the tree walks to the new row.
         if (!types.val.has(type)) {
             types.val = new Set([...types.val, type]);
             persistView();
         }
-        expandTo(target.spaceId, target.directoryId);
+        expandTo(spaceId, directoryId);
         selectedKey.val = `${type}:${meta.id}`;
     };
 
     const openNewFolder = () => {
-        const context = createContext();
+        createDest.val = createContext();
         folderName.val = "";
-        folderDialog.val = {...context, location: locationLabel(context)};
+        folderDialog.val = true;
     };
 
     const createFolder = async () => {
-        const dialog = folderDialog.val;
+        const {spaceId, directoryId} = createDest.val;
         const name = folderName.val.trim();
-        if (!dialog || !name || dialogSaving.val) return;
+        if (!folderDialog.val || !name || dialogSaving.val) return;
         dialogSaving.val = true;
         try {
             error.val = null;
-            const dir = await capi.postV1ValueDirectoriesCreate({spaceId: dialog.spaceId, parentId: dialog.directoryId, name});
+            const dir = await capi.postV1ValueDirectoriesCreate({spaceId, parentId: directoryId, name});
             folderDialog.val = null;
-            expandTo(dialog.spaceId, dir.id);
+            expandTo(spaceId, dir.id);
             selectedKey.val = `dir:${dir.id}`;
         } catch (e) {
             error.val = e.message;
@@ -527,6 +532,29 @@ export function secretsPage() {
         ? secretKeyIcon({class: `w-[13px] h-[13px] flex-none text-purple-300 ${extra}`, role: "img", "aria-label": "Secret"})
         : configSlidersIcon({class: `w-[13px] h-[13px] flex-none text-blue-300 ${extra}`, role: "img", "aria-label": "Config"});
 
+    const destFolderLabel = () => {
+        const segments = dirPathSegments(dirsById(currentDirs()), createDest.val.directoryId);
+        return `/${segments.length ? segments.join("/") + "/" : ""}`;
+    };
+
+    // Bound as a function so a space change re-renders the picker alone. Picking
+    // a space drops the folder back to that space's root: directory ids belong
+    // to one space, so the folder the dialog opened on cannot come along.
+    const destinationPicker = () => {
+        const spaces = selectEl({
+            class: "input py-0.5 text-xs",
+            "aria-label": "Destination space",
+            onchange: (e) => { createDest.val = {spaceId: Number(e.target.value), directoryId: 0}; },
+        }, ...listedSpaces().map((space) => option({value: String(space.id)}, space.name)));
+        // Assigned after the options exist: a value set on an empty select is
+        // discarded rather than remembered.
+        spaces.value = String(createDest.val.spaceId);
+        return div({class: "flex min-w-0 items-center gap-1.5"},
+            spaceDot(createDest.val.spaceId),
+            spaces,
+            span({class: "min-w-0 truncate font-mono text-xs text-gray-500", title: destFolderLabel()}, destFolderLabel()));
+    };
+
     const iconButton = (child, onclick, attrs = {}) => button({
         type: "button",
         ...attrs,
@@ -584,7 +612,7 @@ export function secretsPage() {
     ];
 
     const spacesMenu = () => menuShell(
-        ...(spacesS.val || []).map((space) => menuRow(() => {
+        ...listedSpaces().map((space) => menuRow(() => {
             const id = Number(space.id);
             const next = new Set(hiddenSpaces.val);
             if (next.has(id)) {
@@ -599,10 +627,9 @@ export function secretsPage() {
         menuCheck(!hiddenSpaces.val.has(Number(space.id))),
         spaceDot(space.id),
         span({class: "font-mono"}, space.name),
-        Number(space.id) === OPENDEPLOY_SPACE_ID ? menuTail("system") : "",
         )),
         ...(spacesDirty() ? resetRow(() => {
-            hiddenSpaces.val = new Set([OPENDEPLOY_SPACE_ID]);
+            hiddenSpaces.val = new Set();
             persistView();
         }) : []),
     );
@@ -859,7 +886,7 @@ export function secretsPage() {
             return [itemKey(item), usage.deployments.length + usage.settings.length];
         }));
         const {rows} = buildRows({
-            spaces: spacesS.val,
+            spaces: listedSpaces(),
             dirs: currentDirs(),
             items,
             hiddenSpaceIds: hiddenSpaces.val,
@@ -988,14 +1015,17 @@ export function secretsPage() {
     // attribution existed, so the author slot never silently vanishes.
     const versionAuthor = (id) => usersMapS.val.get(Number(id)) || "unknown";
 
-    const versionsList = (meta) => div({class: "flex flex-col gap-1"},
-        ...(meta.versionRefs || []).map((ref, i) => div(
-            {class: "flex items-baseline gap-1.5 font-mono text-[9px] text-gray-400"},
-            span({class: "text-gray-200 font-medium"}, `v${ref.version}`),
-            span({title: formatDateTime(ref.createdAt, "")}, formatDate(ref.createdAt, "-")),
-            span({class: "text-gray-500 truncate"}, versionAuthor(ref.createdBy)),
-            i === 0 ? span({class: "text-green-400"}, "current") : "",
-        )));
+    // A table (rather than per-row flex) keeps the columns aligned when dates
+    // and author names differ in width; the author cell takes the slack
+    // (max-w-0 + w-full) so it is the one that truncates.
+    const versionsList = (meta) => table({class: "w-full table-auto border-collapse font-mono text-[11px] text-gray-400"},
+        tbody(...(meta.versionRefs || []).map((ref, i) => tr(
+            td({class: "py-0.5 pr-2 whitespace-nowrap font-medium text-gray-200"}, `v${ref.version}`),
+            td({class: "py-0.5 pr-2 whitespace-nowrap", title: formatDateTime(ref.createdAt, "")},
+                formatDate(ref.createdAt, "-")),
+            td({class: "max-w-0 w-full truncate py-0.5 pr-2 text-gray-500"}, versionAuthor(ref.createdBy)),
+            td({class: "py-0.5 whitespace-nowrap text-right text-green-400"}, i === 0 ? "current" : ""),
+        ))));
 
     const inspectorValue = (item) => {
         const shown = revealed.val?.key === itemKey(item) ? revealed.val.value : null;
@@ -1042,7 +1072,11 @@ export function secretsPage() {
                 versionsList(item.meta)),
             div({class: "flex flex-none flex-wrap gap-1.5 border-t border-gray-800 px-3 py-2.5"},
                 actionButton("Edit", () => editItem(item), "bg-brand text-white hover:bg-blue-600"),
-                actionButton("Copy", () => copyItemValue(item)),
+                // Secret copies round-trip to the reveal endpoint, so the label
+                // acknowledges the write the same way the row's copy icon does.
+                actionButton(() => copiedKey.val === itemKey(item)
+                    ? span({class: "text-green-400"}, "Copied")
+                    : "Copy", () => copyItemValue(item)),
                 actionButton("Rename", () => startRename(itemKey(item), item.name)),
                 actionButton("Move", () => openMoveDialog(sel)),
                 actionButton("Delete", () => openDelete(sel), "bg-gray-700 text-gray-200 hover:bg-red-600 hover:text-white")),
@@ -1182,11 +1216,12 @@ export function secretsPage() {
     );
 
     const folderDialogEl = () => {
-        const dialog = folderDialog.val;
-        if (!dialog) return "";
+        if (!folderDialog.val) return "";
         return dialogShell("new-folder-title",
             h2({id: "new-folder-title", class: "text-base font-semibold"}, "New folder"),
-            p({class: "text-xs text-gray-400"}, "In ", span({class: "font-mono text-gray-300"}, dialog.location)),
+            div({class: "flex min-w-0 items-center gap-2"},
+                p({class: "shrink-0 text-xs text-gray-400"}, "In"),
+                destinationPicker),
             input({
                 class: "text-input font-mono text-sm",
                 placeholder: "folder name",
@@ -1265,7 +1300,7 @@ export function secretsPage() {
         return valueOverlay({
             mode: "create",
             type: target.type,
-            location: target.location,
+            locationNode: destinationPicker,
             onSave: (value, name) => createResource(target.type, value, name),
             onClose: () => { createTarget.val = null; },
         });

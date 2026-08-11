@@ -2,9 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
     buildRows,
+    checkDrop,
     descendantDirIds,
     dirPathSegments,
     dirsById,
+    dragSource,
+    dropDestination,
     flexColumnKey,
     folderOptions,
     itemPathSegments,
@@ -160,4 +163,65 @@ test("the last visible non-fixed column absorbs the slack", () => {
     assert.equal(flexColumnKey(new Set(["name", "version", "created", "uses", "actions"])), "uses");
     assert.equal(flexColumnKey(new Set(["name", "version", "created", "uses", "value", "actions"])), "value");
     assert.equal(flexColumnKey(new Set(["name", "actions"])), "name");
+});
+
+// ---- drag and drop ---------------------------------------------------------
+
+const DND_DIRS = [dir(10, 1, "postgres"), dir(11, 1, "stripe", 10), dir(12, 2, "postgres")];
+const DND_ITEMS = [
+    item("secret", 1, 1, "password", 10),
+    item("secret", 2, 1, "password", 0),
+    item("secret", 3, 2, "password", 12),
+];
+const drop = (drag, destination) => checkDrop({dirs: DND_DIRS, items: DND_ITEMS, drag, destination});
+const dragDir = (id) => dragSource({type: "dir", key: `dir:${id}`, dir: DND_DIRS.find((d) => d.id === id)});
+const dragItem = (id) => dragSource({type: "item", key: `secret:${id}`, item: DND_ITEMS.find((i) => i.id === id)});
+
+test("dropDestination resolves a row to the folder a drop lands in", () => {
+    assert.deepEqual(dropDestination({type: "space", space: {id: 2}}), {spaceId: 2, directoryId: 0});
+    assert.deepEqual(dropDestination({type: "dir", dir: DND_DIRS[0]}), {spaceId: 1, directoryId: 10});
+    // An item resolves to its parent, not to itself.
+    assert.deepEqual(dropDestination({type: "item", item: DND_ITEMS[0]}), {spaceId: 1, directoryId: 10});
+    assert.equal(dropDestination(null), null);
+});
+
+test("a folder cannot be dropped into itself or its own subtree", () => {
+    assert.equal(drop(dragDir(10), {spaceId: 1, directoryId: 10}).ok, false);
+    assert.equal(drop(dragDir(10), {spaceId: 1, directoryId: 11}).ok, false);
+    assert.match(drop(dragDir(10), {spaceId: 1, directoryId: 11}).reason, /inside itself/);
+    // The other direction is fine: a child can come out to the root.
+    assert.equal(drop(dragDir(11), {spaceId: 1, directoryId: 0}).ok, true);
+});
+
+test("a drop onto the row's current parent is refused without an explanation", () => {
+    const result = drop(dragItem(1), {spaceId: 1, directoryId: 10});
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "");
+});
+
+test("a name already taken at the destination blocks the drop", () => {
+    // secret 1 is "password" in dir 10; the root already holds a "password".
+    const result = drop(dragItem(1), {spaceId: 1, directoryId: 0});
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /already exists/);
+    // Folders share the sibling namespace with items, so a folder named after
+    // an existing sibling is blocked the same way.
+    assert.equal(drop(dragDir(11), {spaceId: 1, directoryId: 0}).ok, true);
+});
+
+test("cross-space drops are allowed through for the server to answer", () => {
+    // Space 2 already holds a "password" under dir 12, but the name check is
+    // skipped across the boundary so the space error is the one reported.
+    const result = drop(dragItem(1), {spaceId: 2, directoryId: 12});
+    assert.equal(result.ok, true);
+    assert.equal(result.crossSpace, true);
+    assert.equal(result.reason, "");
+    // A folder still cannot swallow itself, whichever space is targeted.
+    assert.equal(drop(dragDir(10), {spaceId: 1, directoryId: 11}).crossSpace, false);
+});
+
+test("a drag with no source or no destination never drops", () => {
+    assert.equal(drop(null, {spaceId: 1, directoryId: 0}).ok, false);
+    assert.equal(drop(dragItem(1), null).ok, false);
+    assert.equal(dragSource({type: "space", space: {id: 1}}), null);
 });

@@ -59,6 +59,8 @@ export function assetEditor({
     latestVersion = 0,
     spaceId = 0,
     location = "",            // create mode: the target folder path, display only
+    locationNode = null,      // create mode: replaces location when the caller
+                              // wants the destination to be editable
     loadAsset,
     createAsset,              // ({key, spaceId, blob}) => AssetVersion
     saveVersion,              // ({assetId, blob}) => AssetVersion
@@ -179,7 +181,11 @@ export function assetEditor({
     return div(
         {class: className},
         div({class: "flex min-w-0 items-center gap-3"},
-            creating && location ? span({class: "shrink-0 max-w-56 truncate font-mono text-xs text-gray-500", title: location}, location) : "",
+            creating && locationNode
+                ? locationNode
+                : creating && location
+                    ? span({class: "shrink-0 max-w-56 truncate font-mono text-xs text-gray-500", title: location}, location)
+                    : "",
             () => creating ? input({
                 class: "min-w-0 flex-1 rounded border border-transparent bg-transparent px-2 py-1 font-mono text-sm font-normal text-asset focus:border-brand focus:outline-none",
                 placeholder: "asset name",

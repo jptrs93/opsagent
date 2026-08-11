@@ -211,6 +211,78 @@ export function folderOptions(dirs, spaceId, excludeSubtreeOf = 0) {
     ];
 }
 
+// ---- drag and drop ---------------------------------------------------------
+
+// dropDestination maps the row under the cursor to the folder a drop would land
+// in. Dropping on a folder means "into it"; dropping on an item means "beside
+// it", i.e. into its parent; dropping on a space means that space's root.
+export function dropDestination(row) {
+    if (!row) return null;
+    if (row.type === "space") return {spaceId: Number(row.space.id), directoryId: 0};
+    if (row.type === "dir") return {spaceId: Number(row.dir.spaceId), directoryId: Number(row.dir.id)};
+    if (row.type === "item") return {spaceId: Number(row.item.spaceId), directoryId: Number(row.item.directoryId)};
+    return null;
+}
+
+// dragSource describes the row being dragged, flattened so items and folders
+// can be checked by one set of rules. key is the row key used for selection.
+export function dragSource(row) {
+    if (row?.type === "dir") {
+        return {
+            type: "dir", key: row.key, id: Number(row.dir.id), name: row.dir.name,
+            spaceId: Number(row.dir.spaceId), parentId: Number(row.dir.parentId || 0),
+        };
+    }
+    if (row?.type === "item") {
+        return {
+            type: "item", key: row.key, id: Number(row.item.id), name: row.item.name,
+            spaceId: Number(row.item.spaceId), parentId: Number(row.item.directoryId || 0),
+        };
+    }
+    return null;
+}
+
+// checkDrop decides whether a drag may land on a destination, and why not when
+// it may not.
+//
+// Cross-space drops are deliberately allowed through: the server owns that
+// answer (it currently refuses), and letting the drop happen surfaces its error
+// instead of silently doing nothing under the cursor. Everything a client can
+// know for certain — a folder swallowing itself, a name already taken, a move
+// that changes nothing — is settled here so the drag shows it live.
+//
+// Returns {ok, reason, crossSpace}. reason is "" when ok, or when the drop is a
+// no-op that needs no explanation.
+export function checkDrop({dirs, items, drag, destination}) {
+    if (!drag || !destination) return {ok: false, reason: "", crossSpace: false};
+    const crossSpace = destination.spaceId !== drag.spaceId;
+
+    if (drag.type === "dir") {
+        // Itself, or anywhere inside its own subtree: the subtree would be cut
+        // loose from the tree entirely.
+        if (descendantDirIds(dirs, drag.id).has(destination.directoryId)) {
+            return {ok: false, reason: "A folder cannot be moved inside itself.", crossSpace};
+        }
+    }
+    // Left to the server, which knows whether cross-space moves are supported
+    // yet. Checking names across the boundary would report the wrong reason.
+    if (crossSpace) return {ok: true, reason: "", crossSpace};
+
+    if (destination.directoryId === drag.parentId) return {ok: false, reason: "", crossSpace};
+
+    const taken = (dirs || []).some((d) => Number(d.spaceId) === destination.spaceId
+            && Number(d.parentId || 0) === destination.directoryId
+            && d.name === drag.name
+            && !(drag.type === "dir" && Number(d.id) === drag.id))
+        || (items || []).some((it) => Number(it.spaceId) === destination.spaceId
+            && Number(it.directoryId || 0) === destination.directoryId
+            && it.name === drag.name
+            && !(drag.type === "item" && Number(it.id) === drag.id));
+    if (taken) return {ok: false, reason: `"${drag.name}" already exists there.`, crossSpace};
+
+    return {ok: true, reason: "", crossSpace};
+}
+
 // Deterministic space accents: the opendeploy space is fixed slate, user
 // spaces cycle a small palette by id so the dot stays stable across sessions.
 const SPACE_HUES = ["#f59e0b", "#2dd4bf", "#a78bfa", "#f472b6", "#4ade80", "#60a5fa", "#fb923c", "#94a3b8"];

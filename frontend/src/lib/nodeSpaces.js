@@ -8,6 +8,14 @@ export const OPENDEPLOY_SPACE_ID = 0;
 
 export const isFixedSpace = (spaceID) => Number(spaceID) === OPENDEPLOY_SPACE_ID;
 
+// Spaces a person can browse, filter on, or create into. The opendeploy space
+// holds the tool's own internal secrets, configs and assets, which are managed
+// by the installer and settings pages rather than the explorers, so it is left
+// out of every space list rather than offered and then filtered away.
+export function selectableSpaces(spaces) {
+    return (spaces || []).filter((space) => !isFixedSpace(space.id));
+}
+
 export function nodeAllowsSpace(node, spaceID) {
     return (node?.allowedSpaces || []).some((id) => Number(id) === Number(spaceID));
 }

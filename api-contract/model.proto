@@ -227,6 +227,50 @@ message WebAuthNFinishRequest {
   bytes credential_json = 2;
 }
 
+// === Authorization vocabulary ===
+//
+// The fixed vocabulary of the permissions model: verbs and entities. These
+// generated values are the source of truth — storage and enforcement use the
+// integer values directly, so numbers are permanent once assigned.
+//
+// Permissions are assigned as rules of the shape
+//   permission(s) : space(s) : entity type(s) : entity ref(s) : agent delegation (bool)
+// where each position is a wildcard or a list — `*:*:*:*:true` is the super
+// user rule. Roles are not part of this vocabulary: a role is a user-defined
+// (or built-in) template that expands to rules, e.g.
+// space_owner(id) -> ["*:${id}:*:*:true"]. Nothing is wired up yet.
+
+// AuthzVerb is an action a subject can attempt. Not every verb applies to
+// every entity (REVEAL is secrets-only, VIEW_LOGS is deployments-only); the
+// applicability matrix lives with the enforcement mapping, not here.
+enum AuthzVerb {
+  AUTHZ_VERB_UNKNOWN = 0;
+  AUTHZ_VERB_VIEW = 1;      // see the entity and its metadata
+  AUTHZ_VERB_VIEW_LOGS = 2; // read runtime log output
+  AUTHZ_VERB_REVEAL = 3;    // read plaintext secret values; distinct from VIEW
+  AUTHZ_VERB_EDIT = 4;      // modify, including operating a deployment
+  AUTHZ_VERB_CREATE = 5;
+  AUTHZ_VERB_DELETE = 6;
+}
+
+// AuthzEntity is the kind of thing a verb acts on. SPACE is special: it is
+// both an entity and the scoping position of every rule. CLUSTER lives inside
+// the opendeploy space (space 0). Directories under assets and secrets/configs
+// are deliberately absent: they are organisational only and carry no
+// permissions of their own.
+enum AuthzEntity {
+  AUTHZ_ENTITY_UNKNOWN = 0;
+  AUTHZ_ENTITY_SPACE = 1;
+  AUTHZ_ENTITY_DEPLOYMENT = 2;
+  AUTHZ_ENTITY_SECRET = 3;
+  AUTHZ_ENTITY_CONFIG = 4;
+  AUTHZ_ENTITY_ASSET = 5;
+  AUTHZ_ENTITY_NODE = 6;
+  AUTHZ_ENTITY_CLUSTER = 7;
+  AUTHZ_ENTITY_USER = 8;
+  AUTHZ_ENTITY_ACCESS = 9; // permission rules and role templates themselves
+}
+
 // === Secrets messages ===
 //
 // A secret is a stable identity (space, directory, name) whose encrypted
@@ -540,7 +584,12 @@ message AssetDeleteRequest {
 
 message AssetMoveRequest {
   int32 asset_id = 1;
-  int32 asset_directory_id = 2; // 0 = the space root; must be in the asset's space
+  int32 asset_directory_id = 2; // 0 = the root of the target space
+  // Target space; 0 keeps the asset where it is. A different space is rejected
+  // with asset_space_move_unsupported until cross-space moves are implemented.
+  // The field exists so callers can express the intent and get that answer
+  // rather than silently landing the asset at its own space's root.
+  int32 space_id = 3;
 }
 
 // === Asset directory messages ===
@@ -571,7 +620,9 @@ message AssetDirectoryCreateRequest {
 
 message AssetDirectoryMoveRequest {
   int32 directory_id = 1;
-  int32 new_parent_id = 2; // 0 = the space root; must be in the directory's space
+  int32 new_parent_id = 2; // 0 = the root of the target space
+  // Target space; 0 keeps the directory where it is. See AssetMoveRequest.
+  int32 space_id = 3;
 }
 
 message AssetDirectoryRenameRequest {

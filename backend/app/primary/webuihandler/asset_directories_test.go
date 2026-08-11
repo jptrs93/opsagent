@@ -165,6 +165,59 @@ func TestMoveAssetBetweenDirectories(t *testing.T) {
 	}
 }
 
+// The explorer offers cross-space drops so the intent is expressible, and the
+// server answers with asset_space_move_unsupported. The rejection must be total:
+// a request naming another space must not fall through to reparenting the row
+// inside its own space, which is what an unchecked directory id of 0 would do.
+func TestCrossSpaceMoveIsRejectedWithoutReparenting(t *testing.T) {
+	h, user := newAssetTestHandler(t)
+	dir := mustCreateAssetDir(t, h, user, 1, 0, "app")
+	nested := mustCreateAssetDir(t, h, user, 1, dir.ID, "conf")
+
+	asset, err := h.PostV1AssetsCreate(testCtx(user), &apigen.AssetCreateRequest{
+		Key: "config.yaml", SpaceID: 1, Blob: []byte("a: 1"), AssetDirectoryID: dir.ID,
+	})
+	if err != nil {
+		t.Fatalf("PostV1AssetsCreate: %v", err)
+	}
+
+	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
+		AssetID: asset.AssetID, AssetDirectoryID: 0, SpaceID: 2,
+	}); !errors.Is(err, AssetSpaceMoveUnsupportedErr) {
+		t.Fatalf("cross-space asset move err = %v, want AssetSpaceMoveUnsupportedErr", err)
+	}
+	meta, ok := h.Store.GetAssetMeta(asset.AssetID)
+	if !ok {
+		t.Fatal("asset vanished after a rejected move")
+	}
+	if meta.AssetDirectoryID != dir.ID || meta.SpaceID != 1 {
+		t.Fatalf("asset = space %d dir %d after a rejected move, want space 1 dir %d",
+			meta.SpaceID, meta.AssetDirectoryID, dir.ID)
+	}
+
+	if _, err := h.PostV1AssetDirectoriesMove(testCtx(user), &apigen.AssetDirectoryMoveRequest{
+		DirectoryID: nested.ID, NewParentID: 0, SpaceID: 2,
+	}); !errors.Is(err, AssetSpaceMoveUnsupportedErr) {
+		t.Fatalf("cross-space directory move err = %v, want AssetSpaceMoveUnsupportedErr", err)
+	}
+	stayed, ok := h.Store.GetAssetDirectoryMeta(nested.ID)
+	if !ok {
+		t.Fatal("directory vanished after a rejected move")
+	}
+	if stayed.ParentID != dir.ID || stayed.SpaceID != 1 {
+		t.Fatalf("directory = space %d parent %d after a rejected move, want space 1 parent %d",
+			stayed.SpaceID, stayed.ParentID, dir.ID)
+	}
+
+	// Naming the row's own space is a no-op, not a rejection: the explorer sends
+	// the target space on every drop, including same-space ones.
+	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
+		AssetID: asset.AssetID, AssetDirectoryID: 0, SpaceID: 1,
+	}); err != nil {
+		t.Fatalf("same-space move with an explicit space: %v", err)
+	}
+}
+
 func TestRenameAndMoveAssetDirectories(t *testing.T) {
 	h, user := newAssetTestHandler(t)
 	parent := mustCreateAssetDir(t, h, user, 1, 0, "a")

@@ -117,6 +117,33 @@ const (
 	AgentSessionStatus_AGENT_SESSION_REVOKED        AgentSessionStatus = 4
 )
 
+type AuthzVerb int32
+
+const (
+	AuthzVerb_AUTHZ_VERB_UNKNOWN   AuthzVerb = 0
+	AuthzVerb_AUTHZ_VERB_VIEW      AuthzVerb = 1
+	AuthzVerb_AUTHZ_VERB_VIEW_LOGS AuthzVerb = 2
+	AuthzVerb_AUTHZ_VERB_REVEAL    AuthzVerb = 3
+	AuthzVerb_AUTHZ_VERB_EDIT      AuthzVerb = 4
+	AuthzVerb_AUTHZ_VERB_CREATE    AuthzVerb = 5
+	AuthzVerb_AUTHZ_VERB_DELETE    AuthzVerb = 6
+)
+
+type AuthzEntity int32
+
+const (
+	AuthzEntity_AUTHZ_ENTITY_UNKNOWN    AuthzEntity = 0
+	AuthzEntity_AUTHZ_ENTITY_SPACE      AuthzEntity = 1
+	AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT AuthzEntity = 2
+	AuthzEntity_AUTHZ_ENTITY_SECRET     AuthzEntity = 3
+	AuthzEntity_AUTHZ_ENTITY_CONFIG     AuthzEntity = 4
+	AuthzEntity_AUTHZ_ENTITY_ASSET      AuthzEntity = 5
+	AuthzEntity_AUTHZ_ENTITY_NODE       AuthzEntity = 6
+	AuthzEntity_AUTHZ_ENTITY_CLUSTER    AuthzEntity = 7
+	AuthzEntity_AUTHZ_ENTITY_USER       AuthzEntity = 8
+	AuthzEntity_AUTHZ_ENTITY_ACCESS     AuthzEntity = 9
+)
+
 type AccessPolicyType int32
 
 const (
@@ -936,6 +963,7 @@ type AssetDeleteRequest struct {
 type AssetMoveRequest struct {
 	AssetID          int32 `json:"asset_id"`
 	AssetDirectoryID int32 `json:"asset_directory_id"`
+	SpaceID          int32 `json:"space_id"`
 }
 
 type AssetDirectory struct {
@@ -961,6 +989,7 @@ type AssetDirectoryCreateRequest struct {
 type AssetDirectoryMoveRequest struct {
 	DirectoryID int32 `json:"directory_id"`
 	NewParentID int32 `json:"new_parent_id"`
+	SpaceID     int32 `json:"space_id"`
 }
 
 type AssetDirectoryRenameRequest struct {

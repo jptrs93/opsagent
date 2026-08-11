@@ -149,6 +149,28 @@ func (s *Service) RenameDirectory(directoryID int32, newKey string) (AssetDirect
 	return d, nil
 }
 
+// MoveDirectorySpace would move a directory and its subtree to another space.
+// Space moves are not supported yet — the assets underneath carry space-scoped
+// mounts and references, so the move needs coordinated handling. A same-space
+// target is accepted as a no-op. Mirrors MoveAssetSpace.
+func (s *Service) MoveDirectorySpace(directoryID, newSpaceID int32) error {
+	ctx := context.Background()
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	d, err := s.q.GetAssetDirectoryByID(ctx, int64(directoryID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrDirectoryNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetDirectoryByID: %v", err))
+	}
+	if int64(normalizedUserSpaceID(newSpaceID)) == d.SpaceID {
+		return nil
+	}
+	return ErrSpaceMoveUnsupported
+}
+
 // MoveDirectory reparents a directory (0 = the space root). Children reference
 // their parent by id, so the whole subtree moves with it and nothing else
 // changes.

@@ -5805,6 +5805,7 @@ func (m *AssetMoveRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.AssetID, 1)
 	b = AppendInt32Field(b, m.AssetDirectoryID, 2)
+	b = AppendInt32Field(b, m.SpaceID, 3)
 	return b
 }
 
@@ -5823,6 +5824,8 @@ func DecodeAssetMoveRequest(b []byte) (*AssetMoveRequest, error) {
 			b, m.AssetID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.AssetDirectoryID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5962,6 +5965,7 @@ func (m *AssetDirectoryMoveRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DirectoryID, 1)
 	b = AppendInt32Field(b, m.NewParentID, 2)
+	b = AppendInt32Field(b, m.SpaceID, 3)
 	return b
 }
 
@@ -5980,6 +5984,8 @@ func DecodeAssetDirectoryMoveRequest(b []byte) (*AssetDirectoryMoveRequest, erro
 			b, m.DirectoryID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.NewParentID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

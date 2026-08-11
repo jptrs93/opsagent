@@ -810,6 +810,7 @@
  * @typedef {Object} AssetMoveRequest
  * @property {number} assetId
  * @property {number} assetDirectoryId
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} AssetDirectory
@@ -835,6 +836,7 @@
  * @typedef {Object} AssetDirectoryMoveRequest
  * @property {number} directoryId
  * @property {number} newParentId
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} AssetDirectoryRenameRequest
@@ -10861,6 +10863,9 @@ export function writeAssetMoveRequest(message, writer) {
     if (message.assetDirectoryId !== undefined && message.assetDirectoryId !== null && message.assetDirectoryId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.assetDirectoryId);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -10882,7 +10887,7 @@ export function encodeAssetMoveRequest(message) {
  */
 function decodeAssetMoveRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {assetId: 0, assetDirectoryId: 0 };
+    const message = {assetId: 0, assetDirectoryId: 0, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10892,6 +10897,10 @@ function decodeAssetMoveRequestMessage(reader, length) {
             }
             case 2: {
                 message.assetDirectoryId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:
@@ -11152,6 +11161,9 @@ export function writeAssetDirectoryMoveRequest(message, writer) {
     if (message.newParentId !== undefined && message.newParentId !== null && message.newParentId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.newParentId);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -11173,7 +11185,7 @@ export function encodeAssetDirectoryMoveRequest(message) {
  */
 function decodeAssetDirectoryMoveRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {directoryId: 0, newParentId: 0 };
+    const message = {directoryId: 0, newParentId: 0, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11183,6 +11195,10 @@ function decodeAssetDirectoryMoveRequestMessage(reader, length) {
             }
             case 2: {
                 message.newParentId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:
