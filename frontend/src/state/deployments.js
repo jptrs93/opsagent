@@ -7,7 +7,8 @@ import {applyScheduledInstanceUpdate, mergeDeploymentState} from "./deploymentMe
 // the latest desired config with all non-final scheduled instances and keeps
 // newest-instance aliases for consumers that only need one runtime.
 export const deploymentsS = van.state([]);
-// usersMapS holds a Map<userId, userName> for resolving display names.
+// usersMapS holds a Map<userId, {name, createdAt}> for resolving display
+// names and join dates. createdAt is unix millis, 0 when unknown.
 export const usersMapS = van.state(new Map());
 export const machinesS = van.state([]);
 export const nodesS = van.state([]);
@@ -35,7 +36,7 @@ export const primaryConfigS = van.state(null);
 export const authzTemplatesS = van.state([]);
 export const authzGrantsS = van.state([]);
 export const authzGlobalRulesS = van.state([]);
-const SEEDED_SPACES = [{id: 0, name: 'opendeploy'}, {id: 1, name: 'default'}];
+const SEEDED_SPACES = [{id: 0, name: '_system'}, {id: 1, name: 'global'}];
 
 export const spacesS = van.state(SEEDED_SPACES);
 export const deploymentsStreamS = van.state({
@@ -161,14 +162,14 @@ const handleStateMessage = (message) => {
     if (message.usersSnapshot && message.usersSnapshot.length > 0) {
         const next = new Map();
         for (const u of message.usersSnapshot) {
-            next.set(u.id, u.name);
+            next.set(u.id, {name: u.name, createdAt: Number(u.createdAt || 0)});
         }
         usersMapS.val = next;
     }
 
     if (message.userUpdate?.id) {
         const next = new Map(usersMapS.val);
-        next.set(message.userUpdate.id, message.userUpdate.name);
+        next.set(message.userUpdate.id, {name: message.userUpdate.name, createdAt: Number(message.userUpdate.createdAt || 0)});
         usersMapS.val = next;
     }
 

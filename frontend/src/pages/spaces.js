@@ -6,12 +6,10 @@ import {trashIcon} from "../lib/icons.js";
 import {
     assetMetasS,
     deploymentsS,
-    machinesS,
     secretMetasS,
     spacesS,
     userConfigsS,
 } from "../state/deployments.js";
-import {nodesForSpace} from "../lib/nodeSpaces.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 
@@ -190,22 +188,6 @@ export function spacesPage() {
         String(value),
     );
 
-    // The reverse of the node allow list: which nodes will accept a deployment
-    // in this space. "all nodes" is the normal answer, since a space is opened
-    // everywhere when it is created and only narrows if an operator says so.
-    const accessibleBy = (spaceID) => {
-        const nodes = machinesS.val || [];
-        const allowed = nodesForSpace(nodes, spaceID);
-        if (!nodes.length) return "-";
-        if (allowed.length === nodes.length) return "all nodes";
-        if (!allowed.length) return span({class: "text-amber-400"}, "no nodes");
-        return allowed.map((node) => node.name || node.identifier).join(", ");
-    };
-
-    const accessibleByTitle = (spaceID) => nodesForSpace(machinesS.val, spaceID)
-        .map((node) => node.name || node.identifier)
-        .join(", ");
-
     const spaceRow = (space) => {
         const id = Number(space.id);
         const deletable = !isDefaultSpace(space);
@@ -216,8 +198,6 @@ export function spacesPage() {
             countCell(countDistinct(secretMetasS.val, id, (item) => item.name)),
             countCell(countDistinct(userConfigsS.val, id, (item) => item.name)),
             countCell(countDistinct(assetMetasS.val, id, (item) => item.key)),
-            td({class: "py-1 pr-3 truncate text-gray-400", title: () => accessibleByTitle(id)},
-                () => accessibleBy(id)),
             td({class: "py-1 pl-2 text-right whitespace-nowrap w-px"},
                 div({class: "flex items-center justify-end gap-1"},
                     button({
@@ -287,12 +267,11 @@ export function spacesPage() {
             return table(
                 {class: "w-full table-fixed text-sm"},
                 colgroup(
-                    col({style: "width:28%"}),
-                    col({style: "width:11%"}),
-                    col({style: "width:10%"}),
-                    col({style: "width:10%"}),
-                    col({style: "width:10%"}),
-                    col({style: "width:20%"}),
+                    col({style: "width:40%"}),
+                    col({style: "width:13%"}),
+                    col({style: "width:12%"}),
+                    col({style: "width:12%"}),
+                    col({style: "width:12%"}),
                     col({style: "width:11%"}),
                 ),
                 thead(tr({class: "text-left text-gray-400 border-b border-gray-700"},
@@ -301,7 +280,6 @@ export function spacesPage() {
                     th({class: "pb-2 pr-3 font-medium"}, "Secrets"),
                     th({class: "pb-2 pr-3 font-medium"}, "Configs"),
                     th({class: "pb-2 pr-3 font-medium"}, "Assets"),
-                    th({class: "pb-2 pr-3 font-medium"}, "Accessible by"),
                     th({class: "pb-2 w-px"}, ""))),
                 tbody(...visible.map(spaceRow)),
             );

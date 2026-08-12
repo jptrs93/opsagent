@@ -7,13 +7,17 @@ CREATE TABLE IF NOT EXISTS spaces (
     name TEXT    NOT NULL DEFAULT ''
 );
 
-INSERT INTO spaces (id, name) VALUES (0, 'opendeploy'), (1, 'default') ON CONFLICT(id) DO UPDATE SET name = excluded.name;
+-- The DO UPDATE arm doubles as the rename migration for existing clusters:
+-- seeded space names are API-immutable, so re-asserting them is always safe.
+INSERT INTO spaces (id, name) VALUES (0, '_system'), (1, 'global') ON CONFLICT(id) DO UPDATE SET name = excluded.name;
 
--- Auth: passkey users.
+-- Auth: passkey users. created_at is unix millis; 0 marks users that predate
+-- the column.
 CREATE TABLE IF NOT EXISTS users (
-    id        INTEGER PRIMARY KEY,
-    name      TEXT    NOT NULL,
-    data_blob BLOB   NOT NULL
+    id         INTEGER PRIMARY KEY,
+    name       TEXT    NOT NULL,
+    data_blob  BLOB    NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS authz_rule_templates (

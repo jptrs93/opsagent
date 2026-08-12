@@ -163,13 +163,20 @@ var ErrNotFound = fmt.Errorf("not found")
 func (s *Service) WriteUser(user *apigen.InternalUser) {
 	ctx := context.Background()
 	if err := s.q.UpsertUser(ctx, pq.UpsertUserParams{
-		ID:       int64(user.ID),
-		Name:     user.Name,
-		DataBlob: user.Encode(),
+		ID:        int64(user.ID),
+		Name:      user.Name,
+		DataBlob:  user.Encode(),
+		CreatedAt: time.Now().UnixMilli(),
 	}); err != nil {
 		panic(fmt.Sprintf("UpsertUser: %v", err))
 	}
-	s.userSubs.Notify(apigen.User{ID: user.ID, Name: user.Name})
+	// The upsert keeps the original created_at on credential rewrites, so read
+	// the effective value back for the notification.
+	row, err := s.q.GetUser(ctx, int64(user.ID))
+	if err != nil {
+		panic(fmt.Sprintf("GetUser after upsert: %v", err))
+	}
+	s.userSubs.Notify(apigen.User{ID: user.ID, Name: user.Name, CreatedAt: row.CreatedAt})
 }
 
 func (s *Service) ListUsersPublic() []*apigen.User {
@@ -179,7 +186,7 @@ func (s *Service) ListUsersPublic() []*apigen.User {
 	}
 	out := make([]*apigen.User, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, &apigen.User{ID: int32(row.ID), Name: row.Name})
+		out = append(out, &apigen.User{ID: int32(row.ID), Name: row.Name, CreatedAt: row.CreatedAt})
 	}
 	return out
 }

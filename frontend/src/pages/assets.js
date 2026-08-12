@@ -1080,7 +1080,7 @@ export function assetsPage() {
 
     // "unknown" covers system-written rows and anything from before user
     // attribution existed, so the author slot never silently vanishes.
-    const versionAuthor = (id) => usersMapS.val.get(Number(id)) || "unknown";
+    const versionAuthor = (id) => usersMapS.val.get(Number(id))?.name || "unknown";
 
     // Version rows open the editor pinned to that version, matching the old
     // page's history browsing.

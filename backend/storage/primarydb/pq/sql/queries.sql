@@ -170,14 +170,16 @@ ORDER BY updated_at ASC;
 -- === users ===
 
 -- name: GetUser :one
-SELECT id, name, data_blob FROM users WHERE id = ?;
+SELECT id, name, data_blob, created_at FROM users WHERE id = ?;
 
+-- UpsertUser deliberately leaves created_at alone on conflict: the same call
+-- both creates users and rewrites their credential blob later.
 -- name: UpsertUser :exec
-INSERT INTO users (id, name, data_blob) VALUES (?, ?, ?)
+INSERT INTO users (id, name, data_blob, created_at) VALUES (?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET name = excluded.name, data_blob = excluded.data_blob;
 
 -- name: ListUsers :many
-SELECT id, name, data_blob FROM users ORDER BY id;
+SELECT id, name, data_blob, created_at FROM users ORDER BY id;
 
 -- === agent_sessions ===
 

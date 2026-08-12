@@ -1141,7 +1141,7 @@ export function secretsPage() {
 
     // "unknown" covers system-written rows and anything from before user
     // attribution existed, so the author slot never silently vanishes.
-    const versionAuthor = (id) => usersMapS.val.get(Number(id)) || "unknown";
+    const versionAuthor = (id) => usersMapS.val.get(Number(id))?.name || "unknown";
 
     // table-fixed and the colgroup are what make the columns line up: under
     // automatic layout a browser sizes columns from their content and ignores

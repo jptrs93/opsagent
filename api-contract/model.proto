@@ -849,6 +849,8 @@ message DeploymentHistory {
 message User {
   int32 id = 1;
   string name = 2;
+  // Unix millis; 0 for users created before the column existed.
+  int64 created_at = 3;
 }
 
 
