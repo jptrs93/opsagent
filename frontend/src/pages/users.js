@@ -14,7 +14,7 @@ import {
     templateArguments,
 } from "../lib/authz.js";
 import {globalRuleOverlay, grantOverlay, ruleTemplateOverlay} from "../components/accessEditors.js";
-import {ruleDisplay} from "../components/ruleDisplay.js";
+import {globalRuleDisplay, ruleDisplay} from "../components/ruleDisplay.js";
 import {chevronDownIcon, closeIcon, editIcon, plusIcon, trashIcon} from "../lib/icons.js";
 
 const {div, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col, h2} = van.tags;
@@ -250,12 +250,8 @@ export function usersPage() {
         {class: "border-b border-gray-800 last:border-0 align-middle", "data-testid": `global-rule-row-${record.id}`},
         td({class: "py-1.5 pr-3 min-w-0"},
             span({class: "truncate text-gray-200"}, record.name || `rule ${record.id}`)),
-        td({class: "py-1.5 pr-3"},
-            record.rule?.delegatedOnly
-                ? span({class: "rounded border border-teal-700/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-teal-400 whitespace-nowrap"}, "agents only")
-                : span({class: "text-gray-500 text-[11px]"}, "everyone")),
         td({class: "py-1.5 pr-3 min-w-0"},
-            ruleDisplay(record.rule, {spaceNames: spaceNameMap(), showDelegation: false})),
+            globalRuleDisplay(record.rule, {spaceNames: spaceNameMap()})),
         td({class: "py-1.5 pl-2 text-right whitespace-nowrap w-px"},
             iconButton(trashIcon({class: "w-3.5 h-3.5"}), `Delete global rule ${record.name || record.id}`,
                 () => {
@@ -277,8 +273,8 @@ export function usersPage() {
         }
         return div({class: "pl-4 pr-2"},
             table({class: "w-full table-fixed text-[13px]"},
-                colgroup(col({style: "width:20%"}), col({style: "width:12%"}), col({style: "width:60%"}), col({style: "width:8%"})),
-                headerRow(["Name"], ["Applies to"], ["Denies"], ["", "w-px"]),
+                colgroup(col({style: "width:20%"}), col({style: "width:72%"}), col({style: "width:8%"})),
+                headerRow(["Name"], ["Denies"], ["", "w-px"]),
                 tbody(...rules.map(globalRuleRow))));
     };
 

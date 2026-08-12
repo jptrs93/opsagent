@@ -168,20 +168,47 @@ export const delegationChip = (delegationAllowed) => responsiveChip(
     },
 );
 
+// On a global deny rule the flag means something different: it narrows when
+// the rule fires (delegated agent sessions only) rather than what a grant
+// allows, so it gets its own chip with "applies to" phrasing.
+export const delegatedOnlyChip = (delegatedOnly) => responsiveChip(
+    delegatedOnly
+        ? ["delegated agent sessions only", "delegated agents only", "agents only"]
+        : ["everyone"],
+    {
+        title: delegatedOnly ? "denies delegated agent sessions only" : "denies everyone",
+        chipClass: delegatedOnly
+            ? "border-teal-800 bg-teal-950/40 text-teal-300"
+            : "border-gray-700 bg-gray-950/40 text-gray-500",
+    },
+);
+
+const chipRow = (title, ...chips) => div({class: "flex min-w-0 items-center gap-1.5", title}, ...chips);
+
+const selectorChips = (rule, opts) => [
+    spacesChip(rule.spaces, opts),
+    entityTypesChip(rule.entityTypes, opts),
+    entityRefsChip(rule.entityRefs, opts),
+    permissionsChip(rule.permissions, opts),
+];
+
 // ruleDisplay renders one authz rule as a row of human-readable chips in
 // grammar order. The row never wraps; each chip independently steps down to
 // a shorter phrasing as the row narrows. Hovering shows the raw grammar.
-export const ruleDisplay = (rule, {spaceNames, argNames, showDelegation = true} = {}) => {
+export const ruleDisplay = (rule, {spaceNames, argNames} = {}) => {
     if (!rule) return "";
     const opts = {spaceNames, argNames};
-    return div({
-        class: "flex min-w-0 items-center gap-1.5",
-        title: showDelegation ? formatRule(rule, opts) : formatGlobalRule(rule, opts),
-    },
-        spacesChip(rule.spaces, opts),
-        entityTypesChip(rule.entityTypes, opts),
-        entityRefsChip(rule.entityRefs, opts),
-        permissionsChip(rule.permissions, opts),
-        showDelegation ? delegationChip(rule.delegationAllowed) : "",
-    );
+    return chipRow(formatRule(rule, opts),
+        ...selectorChips(rule, opts),
+        delegationChip(rule.delegationAllowed));
+};
+
+// globalRuleDisplay is the deny-rule variant: same selector chips, but the
+// trailing chip states who the deny applies to instead of delegability.
+export const globalRuleDisplay = (rule, {spaceNames, argNames} = {}) => {
+    if (!rule) return "";
+    const opts = {spaceNames, argNames};
+    return chipRow(formatGlobalRule(rule, opts),
+        ...selectorChips(rule, opts),
+        delegatedOnlyChip(rule.delegatedOnly));
 };
