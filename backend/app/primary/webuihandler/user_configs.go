@@ -32,13 +32,16 @@ func mapConfigStoreErr(err error) error {
 }
 
 func (h *Handler) PostV1ConfigsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ConfigList, error) {
-	return &apigen.ConfigList{Items: h.Store.ListConfigMetas()}, nil
+	return &apigen.ConfigList{Items: h.filterConfigMetas(ctx, h.Store.ListConfigMetas())}, nil
 }
 
 func (h *Handler) PostV1ConfigsCreate(ctx apigen.Context, req *apigen.ConfigCreateRequest) (*apigen.ConfigMeta, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, UserConfigNameRequiredErr
+	}
+	if err := h.requireAccess(ctx, vCreate, eConfig, valueSpace(req.SpaceID), 0); err != nil {
+		return nil, err
 	}
 	meta, err := h.Store.CreateConfigWithVersion(name, req.SpaceID, req.ValueDirectoryID, requestUserID(ctx), req.Value)
 	if err != nil {
@@ -51,6 +54,11 @@ func (h *Handler) PostV1ConfigsCreate(ctx apigen.Context, req *apigen.ConfigCrea
 func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequest) (*apigen.ConfigMeta, error) {
 	if req.ConfigID == 0 {
 		return nil, UserConfigIDRequiredErr
+	}
+	if existing, ok := h.Store.GetConfigMeta(req.ConfigID); !ok {
+		return nil, UserConfigNotFoundErr
+	} else if err := h.requireEntityAccess(ctx, vEdit, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+		return nil, err
 	}
 	unlockReferences := h.ConfigService.LockReferences()
 	defer unlockReferences()
@@ -82,6 +90,11 @@ func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRena
 	if strings.TrimSpace(req.NewName) == "" {
 		return nil, UserConfigNameRequiredErr
 	}
+	if existing, ok := h.Store.GetConfigMeta(req.ConfigID); !ok {
+		return nil, UserConfigNotFoundErr
+	} else if err := h.requireEntityAccess(ctx, vEdit, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+		return nil, err
+	}
 	meta, err := h.Store.RenameConfig(req.ConfigID, strings.TrimSpace(req.NewName))
 	if err != nil {
 		return nil, mapConfigStoreErr(err)
@@ -96,6 +109,19 @@ func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRena
 func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRequest) (*apigen.ConfigMeta, error) {
 	if req.ConfigID == 0 {
 		return nil, UserConfigIDRequiredErr
+	}
+	existing, ok := h.Store.GetConfigMeta(req.ConfigID)
+	if !ok {
+		return nil, UserConfigNotFoundErr
+	}
+	if err := h.requireEntityAccess(ctx, vEdit, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+		return nil, err
+	}
+	// Moving into another space also needs the right to create a config there.
+	if req.SpaceID != 0 && req.SpaceID != existing.SpaceID {
+		if err := h.requireAccess(ctx, vCreate, eConfig, valueSpace(req.SpaceID), 0); err != nil {
+			return nil, err
+		}
 	}
 	// The space gate runs first: a rejected cross-space move must not leave the
 	// config reparented into its own space's root as a side effect.
@@ -120,6 +146,11 @@ func (h *Handler) PostV1ConfigsDelete(ctx apigen.Context, req *apigen.ConfigDele
 	defer unlockReferences()
 	if req.ConfigID == 0 {
 		return UserConfigIDRequiredErr
+	}
+	if existing, ok := h.Store.GetConfigMeta(req.ConfigID); !ok {
+		return UserConfigNotFoundErr
+	} else if err := h.requireEntityAccess(ctx, vDelete, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+		return err
 	}
 	ids := int32Set(h.Store.ConfigVersionIDs(req.ConfigID))
 	if len(ids) == 0 {

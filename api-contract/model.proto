@@ -862,6 +862,9 @@ message InternalUser {
   bytes web_auth_n_id = 2;
   string name = 3;
   repeated WebAuthnCredential credentials = 4;
+  // Runtime-only: set during request verification for agent-session tokens.
+  // Never persisted; stored user blobs always carry false.
+  bool delegated = 5;
 }
 
 message PublicKeyRecord {

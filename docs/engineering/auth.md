@@ -2,18 +2,21 @@
 
 ## Overview
 
-Authentication uses passkeys for normal operator login. A master password can issue a short-lived token for passkey registration, including bootstrap and recovery when an operator needs to enroll a replacement authenticator. Both flows produce a JWT token used for subsequent requests. Access control is enforced per-route via policies defined in the protobuf API contract.
+Authentication uses passkeys for normal operator login. A master password can issue a short-lived token for passkey registration, including bootstrap and recovery when an operator needs to enroll a replacement authenticator. Both flows produce a JWT token used for subsequent requests. Access control is enforced in two layers: per-route scope policies defined in the protobuf API contract, and per-user authz grants evaluated by `lib/authz` inside the handlers.
 
 Key files:
 - `backend/app/primary/webuihandler/auth.go` — master password handler, JWT verification, and `VerifyAuth`.
+- `backend/lib/authz/` — grant, rule-template, and global-rule evaluation and storage.
+- `backend/app/primary/webuihandler/access_enforce.go` — handler-side authz checks and per-user visibility filters.
+- `backend/app/primary/webuihandler/access.go` — the `/v1/access/` CRUD surface for templates, grants, and global rules.
 - `backend/app/primary/webuihandler/agent_sessions.go` — agent session request, approve, pickup, create, list, and revoke.
 - `backend/app/primary/webuihandler/agent_instructions.go` / `.md` — the unauthenticated instructions page an operator hands to an agent.
 - `backend/app/primary/webuihandler/passkey.go` — passkey registration and login handlers, credential persistence, and WebAuthn user adapter.
 - `backend/apigen/policy_ext.go` — access control policy enforcement.
 
-## Single-user model
+## User model
 
-OpenDeploy is a single-admin tool. The `User` proto exposes `{id, name}` to the UI for audit display. The full `InternalUser` record (with WebAuthn ID and credentials) is stored in the SQLite `users` table keyed by integer id. The first user is created automatically when the master password is used for the first time.
+The `User` proto exposes `{id, name}` to the UI for audit display. The full `InternalUser` record (with WebAuthn ID and credentials) is stored in the SQLite `users` table keyed by integer id. The first user is created automatically when the master password is used for the first time; every new user starts with a `cluster_admin` grant, which can then be narrowed or replaced through the access-control layer below.
 
 ## Master password bootstrap
 
@@ -86,7 +89,7 @@ Each session gets a row in `agent_sessions` (`id`, `user_id`, `created_at`, `exp
 
 `POST /v1/agent-sessions/revoke` (`default`) stops a session: a pending row becomes `REJECTED`, anything else `REVOKED`. This is real revocation, not a display change: `VerifyAuth` calls `verifyAgentSession`, which for any token carrying a `jti` loads the row and rejects the request unless the status is `APPROVED` and the token's hash matches the stored one. Bootstrap and browser session tokens carry no `jti` and keep the stateless fast path, so the extra indexed read applies only to agent-token traffic.
 
-`POST /v1/agent-sessions/list` returns the caller's own sessions, newest first, and never returns a token. The web UI does not call it: sessions reach the browser through `PostV1GlobalStateStream`, which is the one field in `State` filtered to the connected user rather than broadcast. List, approve, and revoke are all scoped by `ctx.User.ID`, so one operator cannot act on another's session by guessing its id — but note this is scoping rather than isolation: every user holds the same scopes and there is no admin role.
+`POST /v1/agent-sessions/list` returns the caller's own sessions, newest first, and never returns a token. The web UI does not call it: sessions reach the browser through `PostV1GlobalStateStream`, which is the one field in `State` filtered to the connected user rather than broadcast. List, approve, and revoke are all scoped by `ctx.User.ID`, so one operator cannot act on another's session by guessing its id. What the resulting token can *do* is bounded twice: by the approver's scopes frozen onto the row, and by the authz layer, which sees any token carrying a `jti` as delegated and only matches rules with `delegation_allowed`.
 
 Rows are not garbage collected; finished sessions accumulate as a record of what was issued and from where. Rotating the signing key still invalidates all outstanding tokens, sessions included.
 
@@ -123,7 +126,11 @@ Credentials are persisted inside each user's `data_blob` column in the SQLite `u
 
 ## Access control
 
-Each route in the `api-contract/*_service.proto` files declares an `AccessPolicy`:
+Two layers gate every request. The **scope layer** is coarse and token-level: each route in the `api-contract/*_service.proto` files declares an `AccessPolicy` checked by `VerifyAuth` before the handler runs. The **authz layer** is fine-grained and per-user: handlers ask `lib/authz` whether this user may perform this verb on this entity in this space. Both must pass.
+
+### Scope layer
+
+Route policies:
 - `NO_AUTH`: no token required.
 - `ANY_OF`: requires a valid JWT with at least one of the listed scopes.
 
@@ -136,10 +143,23 @@ Scopes in use:
 
 Because `ANY_OF` is a disjunction, a secrets-gated route lists `secrets_access` alone — adding `default` beside it would defeat the split.
 
-Enforcement happens in `VerifyAuth` before the handler runs:
-1. Read the route's policy from the generated mux.
-2. If `NO_AUTH`, skip validation.
-3. Extract the JWT from the `Authorization: Bearer <token>` header.
-4. Verify the token signature and expiration.
-5. Check that the token's scopes satisfy the policy.
-6. Populate the request context with the authenticated user ID.
+`VerifyAuth` reads the route's policy from the generated mux, skips validation for `NO_AUTH`, verifies the bearer JWT's signature and expiry, checks its scopes against the policy, and populates the request context with the resolved user. Tokens carrying a `jti` (agent sessions) additionally mark the user **delegated** (`InternalUser.Delegated`, a runtime-only field never persisted) — the authz layer uses this below.
+
+### Authz layer (`backend/lib/authz`)
+
+Access is purely additive **grants** evaluated against a `RequestedAccess{verb, space, entity type, entity id, delegated}`; everything not granted is denied. A grant carries either a direct rule or a reference to a **rule template** with bound arguments. A rule is five positions — `spaces : entity types : entity refs : permissions : delegation` — where each of the first four is a selector (wildcard, value list, or template argument, with exclusions applied first) and `delegation_allowed` controls whether the rule matches delegated (agent-token) requests. **Global rules** are deny rules checked before any grant; `delegated_only` narrows one to agents. Global rules can never target the `access` entity, so an admin cannot deny themselves out of repairing a bad rule.
+
+Two builtin templates are seeded (and re-asserted) at startup: `cluster_admin` (everything, plus a delegable everything-except-reveal-and-space-0 rule) and `space_admin(spaces)` (the same shape scoped to bound spaces). Both also carry a narrow delegable rule granting `view` on `node` and `user` entities in space 0 — without it, a space-limited operator or agent could not list nodes to place a deployment or resolve user names for audit display.
+
+Entity-to-space mapping: deployments, secrets, configs, assets, and folders live in their record's space (values normalize a requested space `<= 0` to the default space — `state.NormalizedUserSpaceID` — and checks gate on the effective space). Spaces are their own entity with the space's id. Nodes, users, cluster settings, the config export, enrollment, secrets-store recovery/unlock, and access management itself are cluster-level: checked in space 0 against the `node`, `user`, `cluster`, and `access` entity types. Space *creation* is also cluster-level (the new space has no id yet).
+
+Handler enforcement lives in `webuihandler/access_enforce.go` (`requireAccess`, `requireEntityAccess`) and follows one convention: an entity the caller cannot `view` reads as **404** (its existence is not leaked); a viewable entity without the requested verb reads as **403** `access_denied`. Moving an entity between spaces needs `edit` in the source and `create` in the destination. List endpoints filter to viewable items instead of erroring. Enforcement is active whenever `Handler.Authz` is wired, which `webuihandler.New` always does; handler tests that construct a bare `Handler` without it run unenforced.
+
+The state stream (`PostV1GlobalStateStream`) applies the same `view` filters per connected user: space-scoped collections filter per item, cluster-scoped fields (nodes, users, enrollments, backup status, cluster config) are all-or-nothing on the space-0 check, and a space row is visible if the user holds *any* grant touching that space (`SpaceVisible`), not only explicit `space:view`. Authz collections are all-or-nothing on `access:view`, except every user always receives the template catalogue and their own grants so the UI can describe what they hold. Because snapshot fields replace wholesale on the client, a grant or rule change simply re-emits the full filtered state on every open stream — previously hidden items have no pending updates that could reveal them, so diffing is not attempted.
+
+Lifecycle guarantees:
+- Every newly created user is granted `cluster_admin`; a run-once migration (`migration.authz-cluster-admin-grants`) did the same for users predating the authz tables, so enforcement never locked out an existing install.
+- `DeleteGrant` refuses (`409 access_last_admin`) to remove the last grant in the system conferring `create` on the `access` entity — self-lockout needs master-password recovery otherwise, and that is a recovery path, not a UX.
+- Anyone holding `access:create` can grant any access, including more than they hold themselves. There is no attenuation; access management is full trust.
+
+Deliberately unenforced: `PostV1ReposValidate` (a stateless validation helper touching no entity), `PostV1SecretsStatus` and the secrets-status stream field (two booleans every secret-capable page needs), and the personal auth/passkey/agent-session routes, which stay scoped to `ctx.User.ID` as before.

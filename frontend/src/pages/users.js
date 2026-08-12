@@ -98,7 +98,9 @@ export function usersPage() {
     // ---- section band ------------------------------------------------------
 
     const sectionBand = (openState, title, count, ...actions) => div(
-        {class: "flex flex-none flex-wrap items-center gap-2 border-y border-gray-700 bg-gray-950/40 px-2 py-1"},
+        // first:border-t-0 keeps the top band flush with the window edge now
+        // that the page has no surrounding card.
+        {class: "flex flex-none flex-wrap items-center gap-2 border-y border-gray-700 first:border-t-0 bg-gray-950/40 px-2 py-1"},
         button({
             type: "button",
             "aria-expanded": () => String(openState.val),
@@ -128,7 +130,7 @@ export function usersPage() {
 
     const headerRow = (...labels) => thead(tr(
         {class: "text-left text-gray-500 border-b border-gray-800"},
-        ...labels.map(([text, cls]) => th({class: `py-1 pr-3 text-[10px] font-semibold uppercase tracking-wider ${cls || ""}`}, text)),
+        ...labels.map(([text, cls]) => th({class: `py-1.5 pr-3 text-[10px] font-semibold uppercase tracking-wider ${cls || ""}`}, text)),
     ));
 
     // ---- users section -----------------------------------------------------
@@ -161,14 +163,14 @@ export function usersPage() {
         const grants = grantsByUser.get(user.id) || [];
         return tr(
             {class: "border-b border-gray-800 last:border-0 align-middle", "data-testid": `user-row-${user.id}`},
-            td({class: "py-0.5 pr-3 min-w-0"},
+            td({class: "py-1.5 pr-3 min-w-0"},
                 div({class: "flex items-center gap-2 min-w-0"},
                     span({class: "truncate text-gray-200"}, user.name || `user ${user.id}`),
                     isSelf ? span(
                         {class: "shrink-0 rounded bg-gray-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500"},
                         "you") : "")),
-            td({class: "py-0.5 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, String(user.id)),
-            td({class: "py-0.5 pr-3"},
+            td({class: "py-1.5 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, String(user.id)),
+            td({class: "py-1.5 pr-3"},
                 div({class: "flex flex-wrap items-center gap-1"},
                     ...grants.map((grant) => grantChip(user, grant)),
                     button({
@@ -185,11 +187,11 @@ export function usersPage() {
         if (!open.users.val) return "";
         const visible = filteredUsers();
         if (!visible.length) {
-            return p({class: "px-2 py-2 text-gray-400 text-sm"},
+            return p({class: "pl-4 pr-2 py-2 text-gray-400 text-sm"},
                 search.val.trim() ? "No users match your search." : "No users yet.");
         }
         const grantsByUser = groupGrantsByUser(authzGrantsS.val);
-        return div({class: "px-2"},
+        return div({class: "pl-4 pr-2"},
             table({class: "w-full table-fixed text-[13px]"},
                 colgroup(col({style: "width:24%"}), col({style: "width:8%"}), col({style: "width:68%"})),
                 headerRow(["Name"], ["ID"], ["Permissions"]),
@@ -203,20 +205,20 @@ export function usersPage() {
         const argNames = ARG_PREVIEW_NAMES(record.template);
         return tr(
             {class: "border-b border-gray-800 last:border-0 align-top", "data-testid": `template-row-${record.id}`},
-            td({class: "py-0.5 pr-3 min-w-0"},
+            td({class: "py-1.5 pr-3 min-w-0"},
                 div({class: "flex items-center gap-2 min-w-0"},
                     span({class: "truncate text-gray-200"}, record.name),
                     record.builtin ? span(
                         {class: "shrink-0 rounded bg-gray-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500"},
                         "built in") : "")),
-            td({class: "py-0.5 pr-3 font-mono text-[11px] text-amber-300"},
+            td({class: "py-1.5 pr-3 font-mono text-[11px] text-amber-300"},
                 args.length ? args.map((a) => "${" + a.name + "}").join(", ") : span({class: "text-gray-600"}, "—")),
-            td({class: "py-0.5 pr-3"},
+            td({class: "py-1.5 pr-3"},
                 div({class: "flex flex-col"},
                     ...(record.template?.rules || []).map((rule) => span(
                         {class: "font-mono text-[11px] text-gray-300 whitespace-nowrap"},
                         formatRule(rule, {spaceNames: spaceNameMap(), argNames}))))),
-            td({class: "py-0.5 pl-2 text-right whitespace-nowrap w-px"},
+            td({class: "py-1.5 pl-2 text-right whitespace-nowrap w-px"},
                 record.builtin ? "" : div({class: "flex items-center justify-end gap-0.5"},
                     iconButton(editIcon({class: "w-3.5 h-3.5"}), `Edit template ${record.name}`,
                         () => { overlayS.val = {type: "template", record}; }),
@@ -236,9 +238,9 @@ export function usersPage() {
         if (!open.templates.val) return "";
         const templates = authzTemplatesS.val || [];
         if (!templates.length) {
-            return p({class: "px-2 py-2 text-gray-400 text-sm"}, "No templates yet.");
+            return p({class: "pl-4 pr-2 py-2 text-gray-400 text-sm"}, "No templates yet.");
         }
-        return div({class: "px-2"},
+        return div({class: "pl-4 pr-2"},
             table({class: "w-full table-fixed text-[13px]"},
                 colgroup(col({style: "width:20%"}), col({style: "width:14%"}), col({style: "width:58%"}), col({style: "width:8%"})),
                 headerRow(["Name"], ["Arguments"], ["Rules"], ["", "w-px"]),
@@ -249,16 +251,16 @@ export function usersPage() {
 
     const globalRuleRow = (record) => tr(
         {class: "border-b border-gray-800 last:border-0 align-middle", "data-testid": `global-rule-row-${record.id}`},
-        td({class: "py-0.5 pr-3 min-w-0"},
+        td({class: "py-1.5 pr-3 min-w-0"},
             span({class: "truncate text-gray-200"}, record.name || `rule ${record.id}`)),
-        td({class: "py-0.5 pr-3"},
+        td({class: "py-1.5 pr-3"},
             record.rule?.delegatedOnly
                 ? span({class: "rounded border border-teal-700/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-teal-400 whitespace-nowrap"}, "agents only")
                 : span({class: "text-gray-500 text-[11px]"}, "everyone")),
-        td({class: "py-0.5 pr-3"},
+        td({class: "py-1.5 pr-3"},
             span({class: "font-mono text-[11px] text-gray-300 whitespace-nowrap"},
                 formatGlobalRule(record.rule, {spaceNames: spaceNameMap()}))),
-        td({class: "py-0.5 pl-2 text-right whitespace-nowrap w-px"},
+        td({class: "py-1.5 pl-2 text-right whitespace-nowrap w-px"},
             iconButton(trashIcon({class: "w-3.5 h-3.5"}), `Delete global rule ${record.name || record.id}`,
                 () => {
                     overlayS.val = {
@@ -274,10 +276,10 @@ export function usersPage() {
         if (!open.global.val) return "";
         const rules = authzGlobalRulesS.val || [];
         if (!rules.length) {
-            return p({class: "px-2 py-2 text-gray-400 text-sm"},
+            return p({class: "pl-4 pr-2 py-2 text-gray-400 text-sm"},
                 "No global rules. Global rules deny matching requests for everyone, before any grant applies.");
         }
-        return div({class: "px-2"},
+        return div({class: "pl-4 pr-2"},
             table({class: "w-full table-fixed text-[13px]"},
                 colgroup(col({style: "width:20%"}), col({style: "width:12%"}), col({style: "width:60%"}), col({style: "width:8%"})),
                 headerRow(["Name"], ["Applies to"], ["Denies"], ["", "w-px"]),
@@ -302,9 +304,13 @@ export function usersPage() {
     };
 
     return div(
-        {class: "h-full min-h-0 overflow-hidden p-3 flex flex-col gap-3"},
-        () => error.val ? p({class: "text-red-400 text-sm"}, `Error: ${error.val}`) : "",
-        div({class: "rounded-[0.3rem] bg-surface border border-gray-700 flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto"},
+        // bg-surface: like the assets and secrets explorers, the page is one
+        // flush surface running to the window and sidebar edges.
+        {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
+        () => error.val ? p(
+            {class: "flex-none border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300"},
+            `Error: ${error.val}`) : "",
+        div({class: "flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto"},
             sectionBand(open.users, "Users", () => String(sortedUsers().length),
                 input({
                     class: "text-input search-input py-1! text-xs",

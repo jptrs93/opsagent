@@ -1,6 +1,7 @@
 package state
 
 import (
+	"errors"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -49,6 +50,18 @@ func TestAuthzClusterAdminMigration(t *testing.T) {
 	grants := svc.GrantsForUser(1)
 	if len(grants) != 1 || grants[0].TemplateID != authz.ClusterAdminTemplateID {
 		t.Fatalf("unexpected grants after migration: %+v", grants)
+	}
+	// The last access-managing grant cannot be deleted, so hand a second user
+	// admin capability before revoking user 1's.
+	if err := svc.DeleteGrant(1, grants[0].ID); !errors.Is(err, authz.ErrLastAdmin) {
+		t.Fatalf("DeleteGrant on the last admin grant: got %v, want ErrLastAdmin", err)
+	}
+	if _, err := svc.CreateGrant(&apigen.AuthzGrantRecord{
+		UserID:     2,
+		TemplateID: authz.ClusterAdminTemplateID,
+		Grant:      &apigen.AuthzGrant{},
+	}); err != nil {
+		t.Fatalf("CreateGrant for second admin: %v", err)
 	}
 	if err := svc.DeleteGrant(1, grants[0].ID); err != nil {
 		t.Fatalf("DeleteGrant: %v", err)

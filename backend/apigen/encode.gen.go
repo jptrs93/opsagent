@@ -8025,6 +8025,7 @@ func (m *InternalUser) Encode() []byte {
 		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
+	b = AppendBoolField(b, m.Delegated, 5)
 	return b
 }
 
@@ -8055,6 +8056,8 @@ func DecodeInternalUser(b []byte) (*InternalUser, error) {
 					m.Credentials = append(m.Credentials, item)
 				}
 			}
+		case 5:
+			b, m.Delegated, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

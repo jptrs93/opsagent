@@ -50,6 +50,9 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 	if identity.SpaceID < 0 || identity.SpaceID > network.MaxSpaceID {
 		return nil, invalidConfigErrf("spaceId must be between 0 and %d", network.MaxSpaceID)
 	}
+	if err := h.requireAccess(ctx, vCreate, eDeployment, int64(identity.SpaceID), 0); err != nil {
+		return nil, err
+	}
 	if err := h.validateNodeAllowsSpace(req.NodeID, identity.SpaceID); err != nil {
 		return nil, err
 	}
@@ -94,6 +97,15 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	cfg := h.findConfigByID(req.DeploymentID)
 	if cfg == nil || cfg.Deleted {
 		return nil, DeploymentNotFoundErr
+	}
+	if err := h.requireEntityAccess(ctx, vEdit, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+		return nil, err
+	}
+	// Moving a deployment also needs the right to create one in the target space.
+	if req.SpaceID != nil && *req.SpaceID != cfg.Identity.SpaceID {
+		if err := h.requireAccess(ctx, vCreate, eDeployment, int64(*req.SpaceID), 0); err != nil {
+			return nil, err
+		}
 	}
 	if req.Version != cfg.Version+1 {
 		return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
@@ -216,6 +228,10 @@ func (h *Handler) PostV1DeploymentsUpgradeAll(ctx apigen.Context, req *apigen.De
 	if targetVersion == "" {
 		return nil, invalidConfigErrf("targetVersion is required")
 	}
+	// Upgrades touch the internal opendeploy deployments, which live in space 0.
+	if err := h.requireAccess(ctx, vEdit, eDeployment, int64(state.OpendeploySpaceID), 0); err != nil {
+		return nil, err
+	}
 
 	var primary *apigen.DeploymentConfig
 	var secondaryAndNetproxy []*apigen.DeploymentConfig
@@ -270,6 +286,9 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 	if cfg == nil || cfg.Deleted {
 		return DeploymentNotFoundErr
 	}
+	if err := h.requireEntityAccess(ctx, vDelete, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+		return err
+	}
 	if req.Version != cfg.Version+1 {
 		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
 	}
@@ -321,7 +340,8 @@ func (h *Handler) PostV1DeploymentsRecentlyDeleted(ctx apigen.Context, req *apig
 		limit = recentlyDeletedDefaultLimit
 	}
 	configs := h.Store.FetchDeletedDeploymentSnapshot(func(cfg apigen.DeploymentConfig) bool {
-		return !internaldeploy.IsInternalConfig(&cfg)
+		return !internaldeploy.IsInternalConfig(&cfg) &&
+			h.canAccess(ctx, vView, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID))
 	}, limit)
 	items := make([]*apigen.DeploymentConfig, 0, len(configs))
 	for i := range configs {
@@ -338,6 +358,9 @@ func (h *Handler) PostV1DeploymentsVersions(ctx apigen.Context, req *apigen.Depl
 	cfg := h.findConfigByID(req.DeploymentID)
 	if cfg == nil || cfg.Spec.IsZero() {
 		return nil, DeploymentNotFoundErr
+	}
+	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+		return nil, err
 	}
 	if internaldeploy.IsNetproxyConfig(cfg) {
 		if h.GithubReleaseVersions == nil {
@@ -421,6 +444,12 @@ func (h *Handler) PostV1DeploymentsLogSearch(ctx apigen.Context, req *apigen.Log
 				yield(nil, MissingKeyErr)
 				return
 			}
+			// Node-level log search reads raw node logs, including system logs, so
+			// it is gated on the node rather than any one deployment.
+			if err := h.requireAccess(ctx, vViewLogs, eNode, 0, int64(req.TargetNodeID)); err != nil {
+				yield(nil, err)
+				return
+			}
 			if req.TargetNodeID != h.NodeID && h.Cluster != nil {
 				stream, err := h.Cluster.RequestLogSearch(req.TargetNodeID, &apigen.MsgToWorker{LogSearchRequest: req})
 				if err != nil {
@@ -442,6 +471,10 @@ func (h *Handler) PostV1DeploymentsLogSearch(ctx apigen.Context, req *apigen.Log
 		cfg := h.findConfigByID(req.DeploymentID)
 		if cfg == nil {
 			yield(nil, DeploymentNotFoundErr)
+			return
+		}
+		if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+			yield(nil, err)
 			return
 		}
 		if cfg.NodeID > 0 && cfg.NodeID != h.NodeID && h.Cluster != nil {
@@ -570,6 +603,10 @@ func (h *Handler) PostV1DeploymentsPrepareOutput(ctx apigen.Context, req *apigen
 		cfg := h.findConfigByID(req.DeploymentID)
 		if cfg == nil {
 			yield(nil, DeploymentNotFoundErr)
+			return
+		}
+		if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+			yield(nil, err)
 			return
 		}
 		if cfg.NodeID > 0 && cfg.NodeID != h.NodeID && h.Cluster != nil {

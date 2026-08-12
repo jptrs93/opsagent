@@ -726,3 +726,68 @@ func TestReloadPreservesState(t *testing.T) {
 		t.Fatalf("unexpected grants after reload: %+v", grants)
 	}
 }
+
+func TestSpaceVisible(t *testing.T) {
+	s := mustOpen(t, newMemStore())
+	binding := &apigen.AuthzArgumentBinding{ArgumentID: 1, Values: []int64{3}}
+	if _, err := s.CreateGrant(templateGrant(1, SpaceAdminTemplateID, binding)); err != nil {
+		t.Fatalf("CreateGrant: %v", err)
+	}
+	if !s.SpaceVisible(1, 3, false) {
+		t.Fatal("granted space should be visible")
+	}
+	if !s.SpaceVisible(1, 0, false) {
+		t.Fatal("space touched by the builtin directory rule should be visible")
+	}
+	if s.SpaceVisible(1, 4, false) {
+		t.Fatal("untouched space must not be visible")
+	}
+	if s.SpaceVisible(2, 3, false) {
+		t.Fatal("visibility must not leak to another user")
+	}
+	if !s.SpaceVisible(1, 3, true) {
+		t.Fatal("space_admin delegable rule should keep the space visible to agents")
+	}
+	if _, err := s.CreateGrant(ruleGrant(5, &apigen.AuthzRule{
+		Permissions: all(),
+		Spaces:      &apigen.AuthzSelector{Include: []int64{6}},
+		EntityTypes: all(),
+		EntityRefs:  all(),
+	})); err != nil {
+		t.Fatalf("CreateGrant: %v", err)
+	}
+	if !s.SpaceVisible(5, 6, false) {
+		t.Fatal("direct grant should make its space visible")
+	}
+	if s.SpaceVisible(5, 6, true) {
+		t.Fatal("non-delegable grant must not make the space visible to agents")
+	}
+}
+
+func TestLastAdminGrantGuard(t *testing.T) {
+	s := mustOpen(t, newMemStore())
+	admin, err := s.CreateGrant(templateGrant(1, ClusterAdminTemplateID))
+	if err != nil {
+		t.Fatalf("CreateGrant: %v", err)
+	}
+	limited, err := s.CreateGrant(templateGrant(2, SpaceAdminTemplateID, &apigen.AuthzArgumentBinding{ArgumentID: 1, Values: []int64{3}}))
+	if err != nil {
+		t.Fatalf("CreateGrant: %v", err)
+	}
+	if err := s.DeleteGrant(1, admin.ID); !errors.Is(err, ErrLastAdmin) {
+		t.Fatalf("deleting the only admin grant: got %v, want ErrLastAdmin", err)
+	}
+	if err := s.DeleteGrant(2, limited.ID); err != nil {
+		t.Fatalf("deleting a non-admin grant should be allowed: %v", err)
+	}
+	second, err := s.CreateGrant(templateGrant(2, ClusterAdminTemplateID))
+	if err != nil {
+		t.Fatalf("CreateGrant: %v", err)
+	}
+	if err := s.DeleteGrant(1, admin.ID); err != nil {
+		t.Fatalf("deleting an admin grant with another admin present: %v", err)
+	}
+	if err := s.DeleteGrant(2, second.ID); !errors.Is(err, ErrLastAdmin) {
+		t.Fatalf("the remaining admin grant must be protected: got %v, want ErrLastAdmin", err)
+	}
+}

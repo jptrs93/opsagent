@@ -5,17 +5,20 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/authz"
 )
 
 // PostV1GlobalStateStream delivers the current scheduled instance snapshot to the UI,
 // then forwards per-instance updates as they happen, with periodic heartbeats to
 // keep the HTTP connection alive.
+//
+// Everything sent is filtered to what the connected user may view. Snapshot
+// fields are full replacements on the client, so when the user's grants change
+// the whole filtered state is simply re-emitted rather than diffed.
 func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.State, error] {
 	return func(yield func(*apigen.State, error) bool) {
-		configs, configUpdatesCh, configUpdatesUnsub := h.Store.MustFetchDeploymentConfigSnapshotAndSubscribe(nil)
+		_, configUpdatesCh, configUpdatesUnsub := h.Store.MustFetchDeploymentConfigSnapshotAndSubscribe(nil)
 		defer configUpdatesUnsub()
-		snapshot, updatesCh, updatesUnsub := h.Store.MustFetchScheduledSnapshotWithLatestFinalAndSubscribe(nil)
+		_, updatesCh, updatesUnsub := h.Store.MustFetchScheduledSnapshotWithLatestFinalAndSubscribe(nil)
 		defer updatesUnsub()
 		userSub, userUnsub := h.Store.SubscribeUserUpdates()
 		defer userUnsub()
@@ -52,51 +55,105 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 		authzSub, authzUnsub := h.Authz.SubscribeChanges()
 		defer authzUnsub()
 
-		// Agent sessions are the one thing here that belongs to a single
-		// operator, so they are filtered to the connected user rather than
-		// broadcast like everything else.
-		agentSessions := &apigen.AgentSessionList{}
-		if ctx.User != nil {
-			records, err := h.Store.ListAgentSessionsForUser(ctx.User.ID)
-			if err != nil {
-				yield(nil, err)
-				return
+		latestConfig := configSub.InitialValue
+
+		// depSpace maps deployment id -> space id so scheduled-instance updates
+		// (which do not carry a space) can be filtered.
+		depSpace := map[int32]int32{}
+		spaceOfDeployment := func(deploymentID int32) (int32, bool) {
+			if spaceID, ok := depSpace[deploymentID]; ok {
+				return spaceID, true
 			}
-			for _, rec := range records {
-				agentSessions.Items = append(agentSessions.Items, agentSessionToProto(rec))
+			if cfg := h.findConfigByID(deploymentID); cfg != nil {
+				depSpace[deploymentID] = cfg.Identity.SpaceID
+				return cfg.Identity.SpaceID, true
 			}
+			return 0, false
 		}
 
-		configItems := make([]*apigen.DeploymentConfig, 0, len(configs))
-		for i := range configs {
-			configItems = append(configItems, redactDeploymentConfig(&configs[i]))
+		seesCluster := func() bool { return h.canAccess(ctx, vView, eCluster, 0, 0) }
+		seesNodes := func() bool { return h.canAccess(ctx, vView, eNode, 0, 0) }
+
+		// Authz collections are all-or-nothing on access:view, except that every
+		// user always receives the template catalogue and their own grants so the
+		// UI can describe what they hold.
+		applyAuthzState := func(state *apigen.State) {
+			state.AuthzRuleTemplatesSnapshot = &apigen.AuthzRuleTemplateList{Items: h.Authz.RuleTemplates()}
+			if h.canAccess(ctx, vView, eAccess, 0, 0) {
+				state.AuthzGrantsSnapshot = &apigen.AuthzGrantList{Items: h.Authz.Grants()}
+				state.AuthzGlobalRulesSnapshot = &apigen.AuthzGlobalRuleList{Items: h.Authz.GlobalRules()}
+				return
+			}
+			var own []*apigen.AuthzGrantRecord
+			if ctx.User != nil {
+				own = h.Authz.GrantsForUser(int64(ctx.User.ID))
+			}
+			state.AuthzGrantsSnapshot = &apigen.AuthzGrantList{Items: own}
+			state.AuthzGlobalRulesSnapshot = &apigen.AuthzGlobalRuleList{Items: []*apigen.AuthzGlobalRuleRecord{}}
 		}
-		items := make([]*apigen.ScheduledInstanceState, 0, len(snapshot))
-		for i := range snapshot {
-			items = append(items, redactScheduledInstanceState(&snapshot[i]))
+
+		buildState := func() (*apigen.State, error) {
+			for _, cfg := range h.Store.FetchDeploymentSnapshot(nil) {
+				depSpace[cfg.ID] = cfg.Identity.SpaceID
+			}
+			configs := h.filterDeploymentConfigs(ctx, h.Store.ListActiveDeploymentConfigs())
+			configItems := make([]*apigen.DeploymentConfig, 0, len(configs))
+			for _, cfg := range configs {
+				configItems = append(configItems, redactDeploymentConfig(cfg))
+			}
+			snapshot := h.Store.FetchScheduledSnapshotWithLatestFinal(nil)
+			items := make([]*apigen.ScheduledInstanceState, 0, len(snapshot))
+			for i := range snapshot {
+				spaceID, ok := spaceOfDeployment(snapshot[i].Instance.DeploymentID)
+				if !ok || !h.canAccess(ctx, vView, eDeployment, int64(spaceID), int64(snapshot[i].Instance.DeploymentID)) {
+					continue
+				}
+				items = append(items, redactScheduledInstanceState(&snapshot[i]))
+			}
+			agentSessions := &apigen.AgentSessionList{}
+			if ctx.User != nil {
+				records, err := h.Store.ListAgentSessionsForUser(ctx.User.ID)
+				if err != nil {
+					return nil, err
+				}
+				for _, rec := range records {
+					agentSessions.Items = append(agentSessions.Items, agentSessionToProto(rec))
+				}
+			}
+			visibleEnrollments := &apigen.EnrollmentRequestList{Items: []*apigen.EnrollmentRequestStatus{}}
+			if seesNodes() {
+				visibleEnrollments.Items = enrollments
+			}
+			secretStatus := h.secretsStatus()
+			state := &apigen.State{
+				DeploymentConfigsSnapshot:  &apigen.DeploymentConfigSnapshot{Items: configItems},
+				ScheduledInstancesSnapshot: &apigen.ScheduledInstanceSnapshot{Items: items},
+				UsersSnapshot:              h.filterUsers(ctx, h.Store.ListUsersPublic()),
+				EnrollmentsSnapshot:        visibleEnrollments,
+				SecretsStatusSnapshot:      &secretStatus,
+				SecretMetasSnapshot:        &apigen.SecretList{Items: h.filterSecretMetas(ctx, h.Store.ListSecretMetas())},
+				UserConfigValuesSnapshot:   &apigen.ConfigList{Items: h.filterConfigMetas(ctx, h.Store.ListConfigMetas())},
+				ValueDirectoriesSnapshot:   &apigen.ValueDirectoryList{Items: h.filterValueDirectories(ctx, h.Store.ListValueDirectories())},
+				SpacesSnapshot:             &apigen.SpaceList{Items: h.filterSpaces(ctx, h.Store.ListSpaces())},
+				AssetsSnapshot:             &apigen.AssetList{Items: h.filterAssetMetas(ctx, h.Store.ListAssets())},
+				AssetDirectoriesSnapshot:   &apigen.AssetDirectoryList{Items: h.filterAssetDirectories(ctx, h.Store.ListAssetDirectories())},
+				NodesSnapshot:              &apigen.ClusterNodeList{Items: h.filterNodes(ctx, h.Store.ListClusterNodes())},
+				NodeStatusesSnapshot:       &apigen.ClusterNodeStatusList{Items: h.filterNodeStatuses(ctx, h.Store.ListNodeStatuses())},
+				AgentSessionsSnapshot:      agentSessions,
+			}
+			if seesCluster() {
+				backupStatus := h.Store.CurrentBackupStatus()
+				state.BackupStatusSnapshot = &backupStatus
+				state.ConfigSnapshot = latestConfig
+			}
+			applyAuthzState(state)
+			return state, nil
 		}
-		secretStatus := h.secretsStatus()
-		backupStatus := h.Store.CurrentBackupStatus()
-		initial := &apigen.State{
-			DeploymentConfigsSnapshot:  &apigen.DeploymentConfigSnapshot{Items: configItems},
-			ScheduledInstancesSnapshot: &apigen.ScheduledInstanceSnapshot{Items: items},
-			UsersSnapshot:              h.Store.ListUsersPublic(),
-			EnrollmentsSnapshot:        &apigen.EnrollmentRequestList{Items: enrollments},
-			SecretsStatusSnapshot:      &secretStatus,
-			SecretMetasSnapshot:        &apigen.SecretList{Items: h.Store.ListSecretMetas()},
-			UserConfigValuesSnapshot:   &apigen.ConfigList{Items: h.Store.ListConfigMetas()},
-			ValueDirectoriesSnapshot:   &apigen.ValueDirectoryList{Items: h.Store.ListValueDirectories()},
-			SpacesSnapshot:             &apigen.SpaceList{Items: h.Store.ListSpaces()},
-			AssetsSnapshot:             &apigen.AssetList{Items: h.Store.ListAssets()},
-			AssetDirectoriesSnapshot:   &apigen.AssetDirectoryList{Items: h.Store.ListAssetDirectories()},
-			NodesSnapshot:              &apigen.ClusterNodeList{Items: h.Store.ListClusterNodes()},
-			NodeStatusesSnapshot:       &apigen.ClusterNodeStatusList{Items: h.Store.ListNodeStatuses()},
-			BackupStatusSnapshot:       &backupStatus,
-			ConfigSnapshot:             configSub.InitialValue,
-			AgentSessionsSnapshot:      agentSessions,
-			AuthzRuleTemplatesSnapshot: &apigen.AuthzRuleTemplateList{Items: h.Authz.RuleTemplates()},
-			AuthzGrantsSnapshot:        &apigen.AuthzGrantList{Items: h.Authz.Grants()},
-			AuthzGlobalRulesSnapshot:   &apigen.AuthzGlobalRuleList{Items: h.Authz.GlobalRules()},
+
+		initial, err := buildState()
+		if err != nil {
+			yield(nil, err)
+			return
 		}
 		if !yield(initial, nil) {
 			return
@@ -113,6 +170,10 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
+				spaceID, known := spaceOfDeployment(state.Instance.DeploymentID)
+				if !known || !h.canAccess(ctx, vView, eDeployment, int64(spaceID), int64(state.Instance.DeploymentID)) {
+					continue
+				}
 				update := redactScheduledInstanceState(&state)
 				if !yield(&apigen.State{ScheduledInstanceUpdate: update}, nil) {
 					return
@@ -121,6 +182,10 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
+				depSpace[cfg.ID] = cfg.Identity.SpaceID
+				if !h.canAccess(ctx, vView, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID)) {
+					continue
+				}
 				if !yield(&apigen.State{DeploymentConfigUpdate: redactDeploymentConfig(&cfg)}, nil) {
 					return
 				}
@@ -128,12 +193,19 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
+				self := ctx.User != nil && u.ID == ctx.User.ID
+				if !self && !h.canAccess(ctx, vView, eUser, 0, int64(u.ID)) {
+					continue
+				}
 				if !yield(&apigen.State{UserUpdate: &u}, nil) {
 					return
 				}
 			case backupStatus, ok := <-backupStatusSub.Ch:
 				if !ok {
 					return
+				}
+				if !seesCluster() {
+					continue
 				}
 				if !yield(&apigen.State{BackupStatusUpdate: &backupStatus}, nil) {
 					return
@@ -149,12 +221,19 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
+				latestConfig = config
+				if !seesCluster() {
+					continue
+				}
 				if !yield(&apigen.State{ConfigSnapshot: config}, nil) {
 					return
 				}
 			case secretMeta, ok := <-secretMetaSub.Ch:
 				if !ok {
 					return
+				}
+				if !h.canAccess(ctx, vView, eSecret, int64(secretMeta.SpaceID), int64(secretMeta.ID)) {
+					continue
 				}
 				if !yield(&apigen.State{SecretMetaUpdate: &secretMeta}, nil) {
 					return
@@ -163,12 +242,20 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
+				if !h.canAccess(ctx, vView, eConfig, int64(userConfig.SpaceID), int64(userConfig.ID)) {
+					continue
+				}
 				if !yield(&apigen.State{UserConfigValueUpdate: &userConfig}, nil) {
 					return
 				}
 			case valueDir, ok := <-valueDirSub.Ch:
 				if !ok {
 					return
+				}
+				// Deletion tombstones carry only {id, deleted} and pass through so
+				// the folder disappears for everyone who could see it.
+				if !valueDir.Deleted && !h.canAccessAny(ctx, vView, eValues, int64(valueDir.SpaceID), 0) {
+					continue
 				}
 				if !yield(&apigen.State{ValueDirectoryUpdate: &valueDir}, nil) {
 					return
@@ -177,12 +264,18 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
+				if !space.Deleted && !h.spaceVisible(ctx, int64(space.ID)) {
+					continue
+				}
 				if !yield(&apigen.State{SpaceUpdate: &space}, nil) {
 					return
 				}
 			case asset, ok := <-assetSub.Ch:
 				if !ok {
 					return
+				}
+				if !h.canAccess(ctx, vView, eAsset, int64(asset.SpaceID), int64(asset.ID)) {
+					continue
 				}
 				if !yield(&apigen.State{AssetUpdate: &asset}, nil) {
 					return
@@ -191,12 +284,18 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
+				if !assetDir.Deleted && !h.canAccess(ctx, vView, eAsset, int64(assetDir.SpaceID), 0) {
+					continue
+				}
 				if !yield(&apigen.State{AssetDirectoryUpdate: &assetDir}, nil) {
 					return
 				}
 			case node, ok := <-nodeSub.Ch:
 				if !ok {
 					return
+				}
+				if !h.canAccess(ctx, vView, eNode, 0, int64(node.ID)) {
+					continue
 				}
 				if !yield(&apigen.State{NodeUpdate: &node}, nil) {
 					return
@@ -205,12 +304,19 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
+				if !h.canAccess(ctx, vView, eNode, 0, int64(nodeStatus.NodeID)) {
+					continue
+				}
 				if !yield(&apigen.State{NodeStatusUpdate: &nodeStatus}, nil) {
 					return
 				}
 			case enrollment, ok := <-enrollmentCh:
 				if !ok {
 					return
+				}
+				enrollments = applyEnrollmentUpdate(enrollments, &enrollment)
+				if !seesNodes() {
+					continue
 				}
 				if !yield(&apigen.State{EnrollmentUpdate: &enrollment}, nil) {
 					return
@@ -228,20 +334,20 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !yield(&apigen.State{AgentSessionUpdate: agentSessionToProto(rec)}, nil) {
 					return
 				}
-			case kind, ok := <-authzSub.Ch:
+			case _, ok := <-authzSub.Ch:
 				if !ok {
 					return
 				}
-				update := &apigen.State{}
-				switch kind {
-				case authz.ChangeRuleTemplates:
-					update.AuthzRuleTemplatesSnapshot = &apigen.AuthzRuleTemplateList{Items: h.Authz.RuleTemplates()}
-				case authz.ChangeGrants:
-					update.AuthzGrantsSnapshot = &apigen.AuthzGrantList{Items: h.Authz.Grants()}
-				case authz.ChangeGlobalRules:
-					update.AuthzGlobalRulesSnapshot = &apigen.AuthzGlobalRuleList{Items: h.Authz.GlobalRules()}
+				// A grant, template, or global-rule change can alter what this
+				// user may see, and previously hidden items have no pending
+				// updates to reveal them. Snapshot fields replace wholesale on
+				// the client, so re-emit the full filtered state.
+				state, err := buildState()
+				if err != nil {
+					yield(nil, err)
+					return
 				}
-				if !yield(update, nil) {
+				if !yield(state, nil) {
 					return
 				}
 			case <-heartbeatTicker.C:
@@ -251,4 +357,14 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 			}
 		}
 	}
+}
+
+func applyEnrollmentUpdate(enrollments []*apigen.EnrollmentRequestStatus, update *apigen.EnrollmentRequestStatus) []*apigen.EnrollmentRequestStatus {
+	for i, e := range enrollments {
+		if e != nil && e.ID == update.ID {
+			enrollments[i] = update
+			return enrollments
+		}
+	}
+	return append(enrollments, update)
 }

@@ -19,10 +19,16 @@ import (
 )
 
 func (h *Handler) PostV1ClusterSettingsGet(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ClusterSettings, error) {
+	if err := h.requireAccess(ctx, vView, eCluster, 0, 0); err != nil {
+		return nil, err
+	}
 	return ptru.To(h.ConfigService.Snapshot().Settings), nil
 }
 
 func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.ClusterSettings) (*apigen.ClusterSettings, error) {
+	if err := h.requireAccess(ctx, vEdit, eCluster, 0, 0); err != nil {
+		return nil, err
+	}
 	unlockReferences := h.ConfigService.LockReferences()
 	defer unlockReferences()
 	stored, resolved, err := validateSettings(req, func(ref *apigen.ConfigRef) (string, bool, error) {

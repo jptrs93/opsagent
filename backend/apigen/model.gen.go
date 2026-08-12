@@ -1224,6 +1224,7 @@ type InternalUser struct {
 	WebAuthNID  []byte                `json:"web_auth_n_id"`
 	Name        string                `json:"name,omitempty"`
 	Credentials []*WebAuthnCredential `json:"credentials,omitempty"`
+	Delegated   bool                  `json:"delegated"`
 }
 
 type PublicKeyRecord struct {

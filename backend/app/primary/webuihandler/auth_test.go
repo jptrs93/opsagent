@@ -216,6 +216,20 @@ func TestGeneratedTokenAuthenticatesRequests(t *testing.T) {
 	if authCtx.User == nil || authCtx.User.ID != user.ID {
 		t.Fatalf("resolved user = %#v, want id %d", authCtx.User, user.ID)
 	}
+	// Agent tokens carry a jti, so the resolved user must be marked delegated;
+	// the plain browser session must not be.
+	if !authCtx.User.Delegated {
+		t.Fatal("agent-session token should resolve a delegated user")
+	}
+	r = httptest.NewRequest(http.MethodGet, "/v1/anything", nil)
+	r.Header.Set("Authorization", "Bearer "+session)
+	sessionCtx, err := h.VerifyAuth(context.Background(), httptest.NewRecorder(), r, policy)
+	if err != nil {
+		t.Fatalf("session token failed VerifyAuth: %v", err)
+	}
+	if sessionCtx.User == nil || sessionCtx.User.Delegated {
+		t.Fatalf("browser session token must not resolve a delegated user: %#v", sessionCtx.User)
+	}
 }
 
 // The plaintext token must not be recoverable from storage. Only its hash is

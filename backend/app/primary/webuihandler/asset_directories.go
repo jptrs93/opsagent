@@ -43,13 +43,16 @@ func (h *Handler) notifyAssetDirectory(directoryID int32) {
 }
 
 func (h *Handler) PostV1AssetDirectoriesList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.AssetDirectoryList, error) {
-	return &apigen.AssetDirectoryList{Items: h.Store.ListAssetDirectories()}, nil
+	return &apigen.AssetDirectoryList{Items: h.filterAssetDirectories(ctx, h.Store.ListAssetDirectories())}, nil
 }
 
 func (h *Handler) PostV1AssetDirectoriesCreate(ctx apigen.Context, req *apigen.AssetDirectoryCreateRequest) (*apigen.AssetDirectory, error) {
 	key := strings.TrimSpace(req.Key)
 	if key == "" {
 		return nil, AssetDirectoryKeyRequiredErr
+	}
+	if err := h.requireAccess(ctx, vCreate, eAsset, valueSpace(req.SpaceID), 0); err != nil {
+		return nil, err
 	}
 	row, err := h.Store.CreateDirectory(req.SpaceID, req.ParentID, key, requestUserID(ctx))
 	if err != nil {
@@ -66,6 +69,18 @@ func (h *Handler) PostV1AssetDirectoriesCreate(ctx apigen.Context, req *apigen.A
 func (h *Handler) PostV1AssetDirectoriesMove(ctx apigen.Context, req *apigen.AssetDirectoryMoveRequest) (*apigen.AssetDirectory, error) {
 	if req.DirectoryID == 0 {
 		return nil, AssetDirectoryIDRequiredErr
+	}
+	existing, ok := h.Store.GetAssetDirectoryMeta(req.DirectoryID)
+	if !ok {
+		return nil, AssetDirectoryNotFoundErr
+	}
+	if err := h.requireEntityAccess(ctx, vEdit, eAsset, int64(existing.SpaceID), 0, AssetDirectoryNotFoundErr); err != nil {
+		return nil, err
+	}
+	if req.SpaceID != 0 && req.SpaceID != existing.SpaceID {
+		if err := h.requireAccess(ctx, vCreate, eAsset, valueSpace(req.SpaceID), 0); err != nil {
+			return nil, err
+		}
 	}
 	// The space gate runs first: a rejected cross-space move must not leave the
 	// directory reparented into its own space's root as a side effect.
@@ -93,6 +108,11 @@ func (h *Handler) PostV1AssetDirectoriesRename(ctx apigen.Context, req *apigen.A
 	if strings.TrimSpace(req.NewKey) == "" {
 		return nil, AssetDirectoryKeyRequiredErr
 	}
+	if existing, ok := h.Store.GetAssetDirectoryMeta(req.DirectoryID); !ok {
+		return nil, AssetDirectoryNotFoundErr
+	} else if err := h.requireEntityAccess(ctx, vEdit, eAsset, int64(existing.SpaceID), 0, AssetDirectoryNotFoundErr); err != nil {
+		return nil, err
+	}
 	row, err := h.Store.RenameDirectory(req.DirectoryID, strings.TrimSpace(req.NewKey))
 	if err != nil {
 		return nil, mapAssetDirectoryErr(err)
@@ -108,6 +128,11 @@ func (h *Handler) PostV1AssetDirectoriesRename(ctx apigen.Context, req *apigen.A
 func (h *Handler) PostV1AssetDirectoriesDelete(ctx apigen.Context, req *apigen.AssetDirectoryDeleteRequest) error {
 	if req.DirectoryID == 0 {
 		return AssetDirectoryIDRequiredErr
+	}
+	if existing, ok := h.Store.GetAssetDirectoryMeta(req.DirectoryID); !ok {
+		return AssetDirectoryNotFoundErr
+	} else if err := h.requireEntityAccess(ctx, vDelete, eAsset, int64(existing.SpaceID), 0, AssetDirectoryNotFoundErr); err != nil {
+		return err
 	}
 	if err := h.Store.DeleteDirectory(req.DirectoryID); err != nil {
 		return mapAssetDirectoryErr(err)

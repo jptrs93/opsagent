@@ -17,7 +17,14 @@ var (
 	ErrNameTaken     = errors.New("authz: rule template name already in use")
 	ErrTemplateInUse = errors.New("authz: rule template is referenced by grants")
 	ErrInvalid       = errors.New("authz: invalid")
+	ErrLastAdmin     = errors.New("authz: cannot delete the last access-managing grant")
 )
+
+var adminAccess = RequestedAccess{
+	Verb:       apigen.AuthzVerb_AUTHZ_VERB_CREATE,
+	SpaceID:    0,
+	EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS,
+}
 
 type ChangeKind int
 
@@ -180,6 +187,26 @@ func (s *Service) HasAccess(userID int64, req RequestedAccess) bool {
 	}
 	for _, g := range s.grantsByUser[userID] {
 		if s.grantMatchesLocked(g, req) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) SpaceVisible(userID int64, spaceID int64, delegated bool) bool {
+	if s.HasAccess(userID, RequestedAccess{
+		Verb:       apigen.AuthzVerb_AUTHZ_VERB_VIEW,
+		SpaceID:    spaceID,
+		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_SPACE,
+		EntityID:   spaceID,
+		Delegated:  delegated,
+	}) {
+		return true
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, g := range s.grantsByUser[userID] {
+		if s.grantTouchesSpaceLocked(g, spaceID, delegated) {
 			return true
 		}
 	}
@@ -380,6 +407,9 @@ func (s *Service) DeleteGrant(userID, id int64) error {
 	}
 	if idx < 0 {
 		return ErrNotFound
+	}
+	if s.grantMatchesLocked(grants[idx], adminAccess) && !s.otherAdminGrantExistsLocked(id) {
+		return ErrLastAdmin
 	}
 	if err := s.store.DeleteAuthzGrant(id); err != nil {
 		return err

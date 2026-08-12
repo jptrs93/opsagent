@@ -11,6 +11,18 @@ const spaceAdminSpacesArgID int64 = 1
 
 func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 	all := func() *apigen.AuthzSelector { return &apigen.AuthzSelector{Wildcard: true} }
+	directoryRule := func() *apigen.AuthzRule {
+		return &apigen.AuthzRule{
+			Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
+			Spaces:      &apigen.AuthzSelector{Include: []int64{0}},
+			EntityTypes: &apigen.AuthzSelector{Include: []int64{
+				int64(apigen.AuthzEntity_AUTHZ_ENTITY_NODE),
+				int64(apigen.AuthzEntity_AUTHZ_ENTITY_USER),
+			}},
+			EntityRefs:        all(),
+			DelegationAllowed: true,
+		}
+	}
 	return []*apigen.AuthzRuleTemplateRecord{
 		{
 			ID:      ClusterAdminTemplateID,
@@ -30,6 +42,7 @@ func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 					EntityRefs:        all(),
 					DelegationAllowed: true,
 				},
+				directoryRule(),
 			}},
 		},
 		{
@@ -52,6 +65,7 @@ func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 						EntityRefs:        all(),
 						DelegationAllowed: true,
 					},
+					directoryRule(),
 				},
 			},
 		},
