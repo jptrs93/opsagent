@@ -8,6 +8,7 @@ import {
     dirsById,
     dragSource,
     dropDestination,
+    emptySpaceIds,
     flexColumnKey,
     folderOptions,
     itemPathSegments,
@@ -138,6 +139,23 @@ test("makeItems takes latest version facts and drops secrets while locked", () =
     assert.equal(unlocked[1].value, "debug");
     const locked = makeItems(secretMetas, configMetas, false);
     assert.deepEqual(locked.map((i) => i.kind), ["config"]);
+});
+
+test("a space is empty only when it holds neither a folder nor an item", () => {
+    const spaces = [...SPACES, {id: 3, name: "empty"}, {id: 4, name: "folders-only"}];
+    const dirs = [...DIRS, dir(13, 4, "unused")];
+    assert.deepEqual([...emptySpaceIds(spaces, dirs, ITEMS)], [3]);
+    // An item in a space nothing else references still counts as content.
+    assert.deepEqual([...emptySpaceIds(spaces, dirs, [...ITEMS, item("secret", 9, 3, "lone")])], []);
+});
+
+test("nothing anywhere hides nothing: an unloaded tree must not filter itself away", () => {
+    assert.deepEqual([...emptySpaceIds(SPACES, [], [])], []);
+    assert.deepEqual([...emptySpaceIds([], [], [])], []);
+    // Content only in the opendeploy space, which the pages never list: every
+    // listed space is still empty, so the rule stands down rather than blanking
+    // the tree.
+    assert.deepEqual([...emptySpaceIds(SPACES, [], [item("secret", 1, 0, "internal")])], []);
 });
 
 test("dir paths survive cycles and dangling parents", () => {

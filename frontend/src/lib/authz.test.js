@@ -138,7 +138,7 @@ test("describeGrant renders a direct rule naturally", () => {
 
 test("describeGrant survives a missing template", () => {
     const chip = describeGrant({id: 12, userId: 7, templateId: 99, grant: {args: [], rule: null}}, new Map(), SPACES);
-    assert.equal(chip.label, "template 99");
+    assert.equal(chip.label, "role 99");
 });
 
 test("groupGrantsByUser partitions by userId", () => {

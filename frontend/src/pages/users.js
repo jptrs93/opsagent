@@ -14,6 +14,7 @@ import {
     templateArguments,
 } from "../lib/authz.js";
 import {globalRuleOverlay, grantOverlay, ruleTemplateOverlay} from "../components/accessEditors.js";
+import {formatDate, formatDateTime} from "../lib/date.js";
 import {globalRuleDisplay, ruleDisplay} from "../components/ruleDisplay.js";
 import {chevronDownIcon, closeIcon, editIcon, plusIcon, trashIcon} from "../lib/icons.js";
 
@@ -22,7 +23,12 @@ const {div, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, c
 // Users come into existence through passkey registration during bootstrap or
 // recovery; this page manages what they are allowed to do, not who they are.
 const sortedUsers = () => [...usersMapS.val.entries()]
-    .map(([id, name]) => ({id: Number(id), name: name || ""}))
+    .map(([id, user]) => ({
+        id: Number(id),
+        name: user?.name || "",
+        createdAt: Number(user?.createdAt || 0),
+        lastLoginAt: Number(user?.lastLoginAt || 0),
+    }))
     .sort((a, b) => a.id - b.id);
 
 const liveSpaces = () => (spacesS.val || []).filter((space) => space && !space.deleted);
@@ -64,7 +70,7 @@ export function usersPage() {
             h2({class: "text-base font-semibold"}, "New user"),
             p({class: "text-sm text-gray-300"},
                 "Users are created at the login screen: sign in with the setup password and a new username, " +
-                "then register a passkey. New users automatically receive the cluster_admin template."),
+                "then register a passkey. New users automatically receive the cluster_admin role."),
             div({class: "flex items-center justify-end"},
                 button({
                     type: "button",
@@ -168,6 +174,10 @@ export function usersPage() {
                         {class: "shrink-0 rounded bg-gray-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500"},
                         "you") : "")),
             td({class: "py-1.5 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, String(user.id)),
+            td({class: "py-1.5 pr-3 text-gray-400 whitespace-nowrap"},
+                formatDate(new Date(user.createdAt), "—")),
+            td({class: "py-1.5 pr-3 text-gray-400 whitespace-nowrap"},
+                formatDateTime(new Date(user.lastLoginAt), "—")),
             td({class: "py-1.5 pr-3"},
                 div({class: "flex flex-wrap items-center gap-1"},
                     ...grants.map((grant) => grantChip(user, grant)),
@@ -191,8 +201,8 @@ export function usersPage() {
         const grantsByUser = groupGrantsByUser(authzGrantsS.val);
         return div({class: "pl-4 pr-2"},
             table({class: "w-full table-fixed text-[13px]"},
-                colgroup(col({style: "width:24%"}), col({style: "width:8%"}), col({style: "width:68%"})),
-                headerRow(["Name"], ["ID"], ["Permissions"]),
+                colgroup(col({style: "width:20%"}), col({style: "width:6%"}), col({style: "width:11%"}), col({style: "width:11%"}), col({style: "width:52%"})),
+                headerRow(["Name"], ["ID"], ["Joined"], ["Last login"], ["Permissions"]),
                 tbody(...visible.map((user) => userRow(user, grantsByUser)))));
     };
 
@@ -217,14 +227,14 @@ export function usersPage() {
                         ruleDisplay(rule, {spaceNames: spaceNameMap(), argNames})))),
             td({class: "py-1.5 pl-2 text-right whitespace-nowrap w-px"},
                 record.builtin ? "" : div({class: "flex items-center justify-end gap-0.5"},
-                    iconButton(editIcon({class: "w-3.5 h-3.5"}), `Edit template ${record.name}`,
+                    iconButton(editIcon({class: "w-3.5 h-3.5"}), `Edit role ${record.name}`,
                         () => { overlayS.val = {type: "template", record}; }),
-                    iconButton(trashIcon({class: "w-3.5 h-3.5"}), `Delete template ${record.name}`,
+                    iconButton(trashIcon({class: "w-3.5 h-3.5"}), `Delete role ${record.name}`,
                         () => {
                             overlayS.val = {
                                 type: "confirm",
-                                title: "Delete template",
-                                body: `Delete the rule template ${record.name}? Templates referenced by grants cannot be deleted.`,
+                                title: "Delete role",
+                                body: `Delete the role ${record.name}? Roles referenced by grants cannot be deleted.`,
                                 onConfirm: () => capi.postV1AccessRuleTemplatesDelete({id: record.id}),
                             };
                         }, "hover:text-red-400"))),
@@ -235,7 +245,7 @@ export function usersPage() {
         if (!open.templates.val) return "";
         const templates = authzTemplatesS.val || [];
         if (!templates.length) {
-            return p({class: "pl-4 pr-2 py-2 text-gray-400 text-sm"}, "No templates yet.");
+            return p({class: "pl-4 pr-2 py-2 text-gray-400 text-sm"}, "No roles yet.");
         }
         return div({class: "pl-4 pr-2"},
             table({class: "w-full table-fixed text-[13px]"},
@@ -314,8 +324,8 @@ export function usersPage() {
                 }),
                 bandButton("New user", () => { overlayS.val = {type: "newUser"}; })),
             usersSection,
-            sectionBand(open.templates, "Templates", () => String((authzTemplatesS.val || []).length),
-                bandButton("New template", () => { overlayS.val = {type: "template", record: null}; })),
+            sectionBand(open.templates, "Roles", () => String((authzTemplatesS.val || []).length),
+                bandButton("New role", () => { overlayS.val = {type: "template", record: null}; })),
             templatesSection,
             sectionBand(open.global, "Global rules", () => String((authzGlobalRulesS.val || []).length),
                 bandButton("New rule", () => { overlayS.val = {type: "globalRule"}; })),

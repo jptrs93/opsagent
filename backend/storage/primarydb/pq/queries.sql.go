@@ -942,14 +942,20 @@ func (q *Queries) GetUnfinishedAssetMigration(ctx context.Context) (AssetMigrati
 
 const getUser = `-- name: GetUser :one
 
-SELECT id, name, data_blob FROM users WHERE id = ?
+SELECT id, name, data_blob, created_at, last_login_at FROM users WHERE id = ?
 `
 
 // === users ===
 func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
 	row := q.db.QueryRowContext(ctx, getUser, id)
 	var i User
-	err := row.Scan(&i.ID, &i.Name, &i.DataBlob)
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.DataBlob,
+		&i.CreatedAt,
+		&i.LastLoginAt,
+	)
 	return i, err
 }
 
@@ -2702,7 +2708,7 @@ func (q *Queries) ListSpaces(ctx context.Context) ([]Space, error) {
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, name, data_blob FROM users ORDER BY id
+SELECT id, name, data_blob, created_at, last_login_at FROM users ORDER BY id
 `
 
 func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
@@ -2714,7 +2720,13 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 	var items []User
 	for rows.Next() {
 		var i User
-		if err := rows.Scan(&i.ID, &i.Name, &i.DataBlob); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.DataBlob,
+			&i.CreatedAt,
+			&i.LastLoginAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -3011,6 +3023,20 @@ func (q *Queries) StartAssetMigration(ctx context.Context, arg StartAssetMigrati
 	return i, err
 }
 
+const touchUserLastLogin = `-- name: TouchUserLastLogin :exec
+UPDATE users SET last_login_at = ? WHERE id = ?
+`
+
+type TouchUserLastLoginParams struct {
+	LastLoginAt int64
+	ID          int64
+}
+
+func (q *Queries) TouchUserLastLogin(ctx context.Context, arg TouchUserLastLoginParams) error {
+	_, err := q.db.ExecContext(ctx, touchUserLastLogin, arg.LastLoginAt, arg.ID)
+	return err
+}
+
 const updateAssetVersionLocation = `-- name: UpdateAssetVersionLocation :one
 UPDATE asset_versions
 SET location = ?
@@ -3271,17 +3297,26 @@ func (q *Queries) UpsertSystemSecret(ctx context.Context, arg UpsertSystemSecret
 }
 
 const upsertUser = `-- name: UpsertUser :exec
-INSERT INTO users (id, name, data_blob) VALUES (?, ?, ?)
+INSERT INTO users (id, name, data_blob, created_at) VALUES (?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET name = excluded.name, data_blob = excluded.data_blob
 `
 
 type UpsertUserParams struct {
-	ID       int64
-	Name     string
-	DataBlob []byte
+	ID        int64
+	Name      string
+	DataBlob  []byte
+	CreatedAt int64
 }
 
+// UpsertUser deliberately leaves created_at and last_login_at alone on
+// conflict: the same call both creates users and rewrites their credential
+// blob later.
 func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) error {
-	_, err := q.db.ExecContext(ctx, upsertUser, arg.ID, arg.Name, arg.DataBlob)
+	_, err := q.db.ExecContext(ctx, upsertUser,
+		arg.ID,
+		arg.Name,
+		arg.DataBlob,
+		arg.CreatedAt,
+	)
 	return err
 }

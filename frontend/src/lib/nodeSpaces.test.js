@@ -37,17 +37,17 @@ test("the opendeploy space is fixed and excluded from the editable set", () => {
     assert.deepEqual(editableSpaceIDs(node("a", [0])), []);
 });
 
-test("selectableSpaces drops the opendeploy space and tolerates no list", () => {
-    const spaces = [{id: 0, name: "opendeploy"}, {id: 1, name: "default"}, {id: "2", name: "staging"}];
-    assert.deepEqual(selectableSpaces(spaces).map(s => s.name), ["default", "staging"]);
+test("selectableSpaces drops the system space and tolerates no list", () => {
+    const spaces = [{id: 0, name: "_system"}, {id: 1, name: "global"}, {id: "2", name: "staging"}];
+    assert.deepEqual(selectableSpaces(spaces).map(s => s.name), ["global", "staging"]);
     assert.deepEqual(selectableSpaces([]), []);
     assert.deepEqual(selectableSpaces(undefined), []);
 });
 
 test("allowedSpaceNames shows an unknown id rather than dropping it", () => {
-    const spaces = [{id: 0, name: "opendeploy"}, {id: 1, name: "default"}];
+    const spaces = [{id: 0, name: "_system"}, {id: 1, name: "global"}];
     assert.deepEqual(
         allowedSpaceNames(node("a", [0, 1, 7]), spaces),
-        ["opendeploy", "default", "space 7"],
+        ["_system", "global", "space 7"],
     );
 });

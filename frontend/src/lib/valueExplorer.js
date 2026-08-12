@@ -55,6 +55,23 @@ export function makeItems(secretMetas, userConfigs, secretsUnlocked) {
 
 export const dirsById = (dirs) => new Map((dirs || []).map((d) => [Number(d.id), d]));
 
+// emptySpaceIds returns the spaces holding neither a folder nor an item, which
+// the explorers hide by default: an empty space contributes a closed root and
+// nothing else to the tree. A folder counts as content even when it holds
+// nothing, so a space someone has started organising does not vanish.
+//
+// When every space is empty the rule is dropped and nothing is hidden: that is
+// either a tree still streaming in or an install with nothing in it yet, and in
+// both cases a blank page under a "0 spaces" filter reads as a fault.
+export function emptySpaceIds(spaces, dirs, items) {
+    const occupied = new Set();
+    for (const dir of dirs || []) occupied.add(Number(dir.spaceId));
+    for (const item of items || []) occupied.add(Number(item.spaceId));
+    const listed = (spaces || []).map((space) => Number(space.id));
+    const empty = new Set(listed.filter((id) => !occupied.has(id)));
+    return empty.size === listed.length ? new Set() : empty;
+}
+
 // dirPathSegments walks a directory's ancestry to the root, returning names
 // root-first. Cycle-guarded so bad data degrades to a truncated path rather
 // than a hung page.

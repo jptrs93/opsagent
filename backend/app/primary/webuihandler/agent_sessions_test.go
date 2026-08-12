@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -19,7 +20,7 @@ func bg() apigen.Context { return apigen.Context{Ctx: context.Background()} }
 func (h *Handler) operatorCtx(t *testing.T, user *apigen.InternalUser, scopes ...string) apigen.Context {
 	t.Helper()
 	if len(scopes) == 0 {
-		scopes = []string{"default", "secrets_access"}
+		scopes = []string{"default"}
 	}
 	return apigen.Context{
 		Ctx:   context.Background(),
@@ -227,25 +228,21 @@ func TestApproveTwiceIsRejected(t *testing.T) {
 	}
 }
 
-// An approved session must carry the approver's scopes minus secrets_access,
-// exactly as a directly created one does.
-func TestApprovedSessionDropsSecretsAccess(t *testing.T) {
+// An approved session carries the approver's scopes and no more. Nothing is
+// withheld at this layer any more: what an agent token may do is decided by the
+// authz rules that carry delegation_allowed.
+func TestApprovedSessionCarriesApproverScopes(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	req := h.mustRequestStart(t, user.ID)
 	session, err := h.PostV1AgentSessionsApprove(
-		h.operatorCtx(t, user, "default", "secrets_access"),
+		h.operatorCtx(t, user, ScopeDefault),
 		&apigen.AgentSessionApproveRequest{ID: req.ID},
 	)
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsApprove: %v", err)
 	}
-	for _, scope := range session.Scopes {
-		if scope == ScopeSecretsAccess {
-			t.Fatalf("scopes = %v, want secrets_access withheld", session.Scopes)
-		}
-	}
-	if len(session.Scopes) == 0 {
-		t.Fatal("expected the session to keep the approver's other scopes")
+	if !reflect.DeepEqual(session.Scopes, []string{ScopeDefault}) {
+		t.Fatalf("scopes = %v, want %v", session.Scopes, []string{ScopeDefault})
 	}
 }
 

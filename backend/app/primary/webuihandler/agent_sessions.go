@@ -54,21 +54,6 @@ var (
 	AgentSessionNotPendingErr     = apigen.NewApiErr("Session is not awaiting approval", "agent_session_not_pending", http.StatusConflict)
 )
 
-// agentSessionScopes narrows a session's scopes to what an agent token may
-// carry. Secret values are the one thing withheld: these tokens live for hours
-// in shell history, environment files, and CI logs, which is a much wider blast
-// radius than the browser session they were minted from.
-func agentSessionScopes(sessionScopes []string) []string {
-	out := make([]string, 0, len(sessionScopes))
-	for _, scope := range sessionScopes {
-		if scope == ScopeSecretsAccess {
-			continue
-		}
-		out = append(out, scope)
-	}
-	return out
-}
-
 func hashAgentToken(token string) []byte {
 	sum := sha256.Sum256([]byte(token))
 	return sum[:]
@@ -126,8 +111,9 @@ func (h *Handler) signAgentToken(userID int32, sessionID string, scopes []string
 
 // PostV1AgentSessionsCreate starts an agent session and returns its bearer
 // token immediately, for non-interactive callers with no agent waiting on an
-// approval. The token carries the caller's own scopes minus the withheld ones,
-// so it can never grant more than the session that requested it.
+// approval. The token carries the caller's own scopes, so it can never grant
+// more than the session that requested it; what it may do with them is bounded
+// by the authz layer, which treats any token carrying a jti as delegated.
 //
 // Only the token's SHA-256 is stored. The plaintext is returned here and never
 // again, so a copy of primary.db — including an off-box backup — carries no
@@ -137,7 +123,7 @@ func (h *Handler) PostV1AgentSessionsCreate(ctx apigen.Context) (*apigen.AgentSe
 	if err != nil {
 		return nil, InvalidAuthTokenErr
 	}
-	scopes := agentSessionScopes(jwtu.ScopesFromClaims(claims))
+	scopes := jwtu.ScopesFromClaims(claims)
 	if len(scopes) == 0 {
 		return nil, InvalidAuthTokenErr
 	}
@@ -305,9 +291,8 @@ func (h *Handler) mintApprovedAgentSession(ctx apigen.Context, rec state.AgentSe
 }
 
 // PostV1AgentSessionsApprove turns one of the caller's own pending requests
-// into an approved session. The scopes recorded here are the approver's own,
-// narrowed by agentSessionScopes, so approving can never grant more than the
-// approver holds.
+// into an approved session. The scopes recorded here are the approver's own, so
+// approving can never grant more than the approver holds.
 func (h *Handler) PostV1AgentSessionsApprove(ctx apigen.Context, req *apigen.AgentSessionApproveRequest) (*apigen.AgentSession, error) {
 	if ctx.User == nil {
 		return nil, InvalidAuthTokenErr
@@ -316,7 +301,7 @@ func (h *Handler) PostV1AgentSessionsApprove(ctx apigen.Context, req *apigen.Age
 	if err != nil {
 		return nil, InvalidAuthTokenErr
 	}
-	scopes := agentSessionScopes(jwtu.ScopesFromClaims(claims))
+	scopes := jwtu.ScopesFromClaims(claims)
 	if len(scopes) == 0 {
 		return nil, InvalidAuthTokenErr
 	}

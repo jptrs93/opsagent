@@ -156,8 +156,9 @@ func TestEnforcementDelegated(t *testing.T) {
 		t.Fatalf("delegated create in default space: %v", err)
 	}
 
-	// The reveal verb is excluded from every delegable builtin rule: the agent
-	// can see the secret exists but never read it.
+	// Secrets sit in their own delegable rule that grants create and nothing
+	// else. An operator's secret is therefore invisible to the agent — reads of
+	// it come back as absent rather than forbidden, like any unviewable entity.
 	meta, err := h.Secrets.Create("db_password", []byte("hunter2"), 1, state.DefaultSpaceID, 0)
 	if err != nil {
 		t.Fatalf("Secrets.Create: %v", err)
@@ -167,8 +168,14 @@ func TestEnforcementDelegated(t *testing.T) {
 		t.Fatalf("secret meta missing after create: %+v", stored)
 	}
 	versionID := stored.VersionRefs[len(stored.VersionRefs)-1].ID
-	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: versionID}); !errors.Is(err, AccessDeniedErr) {
-		t.Fatalf("delegated reveal: got %v, want AccessDeniedErr", err)
+	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: versionID}); !errors.Is(err, SecretNotFoundErr) {
+		t.Fatalf("delegated reveal: got %v, want SecretNotFoundErr", err)
+	}
+	if _, err := h.PostV1SecretsSet(agent, &apigen.SecretSetRequest{SecretID: meta.SecretID, Value: []byte("x")}); !errors.Is(err, SecretNotFoundErr) {
+		t.Fatalf("delegated set: got %v, want SecretNotFoundErr", err)
+	}
+	if err := h.PostV1SecretsDelete(agent, &apigen.SecretDeleteRequest{SecretID: meta.SecretID}); !errors.Is(err, SecretNotFoundErr) {
+		t.Fatalf("delegated delete: got %v, want SecretNotFoundErr", err)
 	}
 	revealed, err := h.PostV1SecretsReveal(admin, &apigen.SecretRevealRequest{ID: versionID})
 	if err != nil {
@@ -176,6 +183,22 @@ func TestEnforcementDelegated(t *testing.T) {
 	}
 	if string(revealed.Value) != "hunter2" {
 		t.Fatalf("revealed value = %q", revealed.Value)
+	}
+
+	// What the agent can do is mint one, which is a value it never sees either.
+	minted, err := h.PostV1SecretsGenerate(agent, &apigen.SecretGenerateRequest{
+		Name:     "agent_minted",
+		SpaceID:  state.DefaultSpaceID,
+		Password: &apigen.SecretPasswordSpec{Length: 32},
+	})
+	if err != nil {
+		t.Fatalf("delegated generate: %v", err)
+	}
+	if len(minted.VersionRefs) != 1 {
+		t.Fatalf("generate returned %d version refs, want 1", len(minted.VersionRefs))
+	}
+	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: minted.VersionRefs[0].ID}); !errors.Is(err, SecretNotFoundErr) {
+		t.Fatalf("delegated reveal of its own secret: got %v, want SecretNotFoundErr", err)
 	}
 }
 

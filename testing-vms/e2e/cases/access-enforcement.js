@@ -74,21 +74,21 @@ async function grantSpaceAdmin(page, userName, spaceName) {
 }
 
 async function expectHiddenAdminContent(page) {
-  await test.step('default-space deployments are hidden', async () => {
+  await test.step('global-space deployments are hidden', async () => {
     await page.getByTestId('nav-status').click();
     await expect(page.getByRole('button', {name: 'Add deployment'})).toBeVisible({timeout: LONG_UI_TIMEOUT});
     await expect(page.locator('tr').filter({hasText: 'nixdockerbuild1'})).toHaveCount(0, {timeout: LONG_UI_TIMEOUT});
   });
 
-  await test.step('default-space secrets and configs are hidden', async () => {
+  await test.step('global-space secrets and configs are hidden', async () => {
     await page.getByTestId('nav-secrets').click();
     await expect(page.getByPlaceholder('Search secrets / configs')).toBeVisible({timeout: LONG_UI_TIMEOUT});
     await expect(page.getByRole('row', {name: /e2e\.secret\.message/})).toHaveCount(0);
     await expect(page.getByRole('row', {name: /e2e\.config\.message/})).toHaveCount(0);
-    await expect(page.getByRole('row', {name: /default/})).toHaveCount(0);
+    await expect(page.getByRole('row', {name: /global/})).toHaveCount(0);
   });
 
-  await test.step('default-space assets are hidden', async () => {
+  await test.step('global-space assets are hidden', async () => {
     await page.getByTestId('nav-assets').click();
     await expect(page.getByPlaceholder('Search assets')).toBeVisible({timeout: LONG_UI_TIMEOUT});
     await expect(page.getByRole('row', {name: /e2e-workload-asset\.txt/})).toHaveCount(0);
@@ -190,16 +190,16 @@ export const accessEnforcementCases = [
   {
     id: 'access-restricted-space-visible',
     title: 'verify the space admin sees exactly its scope',
-    description: 'The restricted session now sees the granted space, the node directory, and all users, while default-space content stays hidden.',
+    description: 'The restricted session now sees the granted space, the node directory, and all users, while global-space content stays hidden.',
     requires: ['access-restricted-space-granted'],
     async run(ctx) {
       const page = restrictedPage(ctx);
 
-      await test.step('granted space appears, default space stays hidden', async () => {
+      await test.step('granted space appears, global space stays hidden', async () => {
         await page.getByTestId('nav-spaces').click();
         await expect(spaceRow(page, RESTRICTED_SPACE)).toBeVisible({timeout: LONG_UI_TIMEOUT});
-        await expect(spaceRow(page, 'opendeploy')).toBeVisible();
-        await expect(spaceRow(page, 'default')).toHaveCount(0);
+        await expect(spaceRow(page, '_system')).toBeVisible();
+        await expect(spaceRow(page, 'global')).toHaveCount(0);
       });
 
       await test.step('nodes become visible through the builtin directory rule', async () => {
@@ -274,7 +274,7 @@ export const accessEnforcementCases = [
         await expect(dialog).toBeVisible({timeout: LONG_UI_TIMEOUT});
         const spaceOptions = dialog.getByTestId('deployment-space-select').locator('option');
         await expect(spaceOptions.filter({hasText: RESTRICTED_SPACE})).toHaveCount(1, {timeout: LONG_UI_TIMEOUT});
-        await expect(spaceOptions.filter({hasText: 'default'})).toHaveCount(0);
+        await expect(spaceOptions.filter({hasText: 'global'})).toHaveCount(0);
         await dialog.getByRole('button', {name: 'Cancel', exact: true}).click();
         await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
       });
@@ -314,7 +314,7 @@ export const accessEnforcementCases = [
       await expect(ctx.page.getByRole('row', {name: new RegExp(RESTRICTED_SPACE)}).first()).toBeVisible({timeout: LONG_UI_TIMEOUT});
       await ctx.page.getByTestId('nav-spaces').click();
       await expect(spaceRow(ctx.page, RESTRICTED_SPACE)).toBeVisible({timeout: LONG_UI_TIMEOUT});
-      await expect(spaceRow(ctx.page, 'default')).toBeVisible();
+      await expect(spaceRow(ctx.page, 'global')).toBeVisible();
     },
   },
   {
@@ -419,7 +419,7 @@ export const accessEnforcementCases = [
   {
     id: 'access-restricted-session-closed',
     title: 'close the restricted session and verify the admin view',
-    description: 'Closes the restricted browser context and confirms the admin session still sees the full default-space state.',
+    description: 'Closes the restricted browser context and confirms the admin session still sees the full global-space state.',
     requires: ['access-restricted-denied-actions', 'access-restricted-values-managed'],
     async run(ctx) {
       await ctx.restricted.context.close();

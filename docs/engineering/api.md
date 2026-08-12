@@ -142,14 +142,14 @@ Workers use `EnrollmentV1` only when local cluster CA/cert/key material is missi
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/secrets/list` | — | `SecretList` | ANY_OF default |
-| POST | `/v1/secrets/set` | `SecretSetRequest` | `SecretMeta` | ANY_OF secrets_access |
+| POST | `/v1/secrets/set` | `SecretSetRequest` | `SecretMeta` | ANY_OF default |
 | POST | `/v1/secrets/generate` | `SecretGenerateRequest` | `SecretMeta` | ANY_OF default |
-| POST | `/v1/secrets/rename` | `SecretRenameRequest` | `SecretMeta` | ANY_OF secrets_access |
-| POST | `/v1/secrets/reveal` | `SecretRevealRequest` | `SecretRevealResponse` | ANY_OF secrets_access |
-| POST | `/v1/secrets/delete` | `SecretDeleteRequest` | — | ANY_OF secrets_access |
+| POST | `/v1/secrets/rename` | `SecretRenameRequest` | `SecretMeta` | ANY_OF default |
+| POST | `/v1/secrets/reveal` | `SecretRevealRequest` | `SecretRevealResponse` | ANY_OF default |
+| POST | `/v1/secrets/delete` | `SecretDeleteRequest` | — | ANY_OF default |
 | POST | `/v1/secrets/status` | — | `SecretsStatusResponse` | ANY_OF default |
-| POST | `/v1/secrets/rotate-recovery-code` | — | `SecretRecoveryCodeResponse` | ANY_OF secrets_access |
-| POST | `/v1/secrets/unlock` | `SecretUnlockRequest` | `SecretsStatusResponse` | ANY_OF secrets_access |
+| POST | `/v1/secrets/rotate-recovery-code` | — | `SecretRecoveryCodeResponse` | ANY_OF default |
+| POST | `/v1/secrets/unlock` | `SecretUnlockRequest` | `SecretsStatusResponse` | ANY_OF default |
 
 User-managed configs and encrypted secrets are immutable versioned rows. Saving an existing name appends version `vN` with a new numeric row ID; settings refs and deployment env refs pin exact rows with `ConfigRef.id`, `SecretRef.id`, `EnvVarValue.configId`, and `EnvVarValue.secretId`. Rename changes the display name for all versions of a secret/config group without creating a new version. Delete hard-deletes the whole group and is rejected while any settings or deployment config still references one of its row IDs.
 
@@ -157,7 +157,7 @@ User-managed configs and encrypted secrets are immutable versioned rows. Saving 
 
 `POST /v1/secrets/reveal` is the only user-facing API that returns decrypted secret plaintext. It accepts `SecretRevealRequest.id` for exact-version reveal; list/state APIs return metadata only.
 
-`POST /v1/secrets/generate` is the one route that writes a secret value without `secrets_access`. The caller supplies a name and a generator specification, never a value, and receives only metadata, so an agent can wire a fresh credential into a deployment without the plaintext reaching anywhere it can observe. It is create-only: an existing name is rejected, so it can never bury a value the caller cannot read back.
+`POST /v1/secrets/generate` writes a secret value the caller never sees. It supplies a name and a generator specification, never a value, and receives only metadata, so a caller holding `secret : create` and nothing more — an agent session, under the builtin templates — can wire a fresh credential into a deployment without the plaintext reaching anywhere it can observe. It is create-only: an existing name is rejected, so it can never bury a value the caller cannot read back.
 
 ### Configs
 | Method | Path | Request | Response | Policy |

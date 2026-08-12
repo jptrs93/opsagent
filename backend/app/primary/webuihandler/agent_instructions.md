@@ -63,10 +63,12 @@ it will fail again. Retry `5xx` and connection errors.
 
 ## 3. Reading state
 
-`GET /v1/global/state` is the starting point for everything. It returns all
-deployments, assets, configs, secret metadata, spaces, and the secret/config
-folder tree (`value_directories`), with the ids the other endpoints expect.
-Read it before you change anything.
+`GET /v1/global/state` is the starting point for everything. It returns the
+deployments, assets, configs, spaces, and secret/config folder tree
+(`value_directories`) your session may see, with the ids the other endpoints
+expect. Read it before you change anything. It is filtered to your access, so
+what is absent is either absent or not yours — secret metadata is normally not
+included (see section 6).
 
 `POST /v1/deployments/get` with `{"id": <deployment id>}` returns one
 deployment's live status: whether it is running, what it is preparing, and why
@@ -126,12 +128,15 @@ workload is running.
 
 ## 6. Secrets
 
-**You cannot read a secret value.** Revealing, setting, renaming, or deleting
-one returns `403`. That is intentional and there is no way around it — ask the
-operator to do those in the browser.
+**By default you cannot read a secret value.** Under the standard access rules a
+secret you did not create is simply not visible to you: revealing, setting,
+renaming, or deleting one returns `404`, and secrets do not appear in global
+state. Do not treat that as a bug or work around it — ask the operator to do
+those in the browser, or to grant your session more if they mean to.
 
 You *can* create one, because creating it does not require seeing it. The server
-generates the value, stores it encrypted, and returns only metadata:
+generates the value, stores it encrypted, and returns only metadata — which is
+also the one time you see the ids belonging to it, so keep them:
 
 ```sh
 curl -sS -X POST '{{.BaseURL}}/v1/secrets/generate' \

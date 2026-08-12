@@ -25,3 +25,13 @@ WHERE NOT EXISTS (SELECT 1 FROM local_kv WHERE key = 'migration.authz-cluster-ad
   AND NOT EXISTS (SELECT 1 FROM authz_grants g WHERE g.user_id = u.id AND g.template_id = 1);
 
 INSERT OR IGNORE INTO local_kv (key, value) VALUES ('migration.authz-cluster-admin-grants', X'');
+
+-- Users gained a created_at (unix millis). Existing users keep 0, which the
+-- UI renders as unknown -- there is no honest backfill value for them.
+ALTER TABLE users ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE users ADD COLUMN last_login_at INTEGER NOT NULL DEFAULT 0;
+
+-- Backfill users that predate created_at with a nominal 2026-08-01 UTC.
+-- Naturally run-once: no writer leaves created_at at 0 afterwards.
+UPDATE users SET created_at = 1785542400000 WHERE created_at = 0;

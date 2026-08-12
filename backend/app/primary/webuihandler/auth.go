@@ -20,17 +20,14 @@ import (
 const (
 	// ScopePasskeyCreate is the bootstrap scope, good only for enrolling a passkey.
 	ScopePasskeyCreate = "passkey:create"
-	// ScopeDefault covers ordinary operator access: deployments, assets, configs,
-	// and secret metadata.
+	// ScopeDefault covers all operator access. What a session may actually do is
+	// decided by the authz layer per user, entity, and space; scopes only
+	// separate a bootstrap token from a real one.
 	ScopeDefault = "default"
-	// ScopeSecretsAccess additionally permits revealing and changing secret
-	// values. Held separately so it can be withheld from generated API tokens.
-	ScopeSecretsAccess = "secrets_access"
 )
 
-// defaultUserScopes is what a passkey login grants. Operators get full access in
-// the browser, where the session is bound to a physical authenticator.
-var defaultUserScopes = []string{ScopeDefault, ScopeSecretsAccess}
+// defaultUserScopes is what a passkey login grants.
+var defaultUserScopes = []string{ScopeDefault}
 
 var InvalidAuthTokenErr = apigen.NewApiErr("Unauthorized", "auth_invalid_token", http.StatusUnauthorized)
 var InvalidMasterPasswordErr = apigen.NewApiErr("", "invalid_master_password", http.StatusUnauthorized)

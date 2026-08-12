@@ -1,13 +1,12 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {spinnerButton} from "./spinnerbutton.js";
+import {globalRuleDisplay, ruleDisplay} from "./ruleDisplay.js";
 import {checkIcon, chevronDownIcon, closeIcon, plusIcon} from "../lib/icons.js";
 import {
     ENTITY_TYPES,
     POSITIONS,
     VERBS,
-    formatGlobalRule,
-    formatRule,
     positionValueName,
     templateArguments,
 } from "../lib/authz.js";
@@ -88,10 +87,34 @@ const positionFace = (st, spaceNames) => {
     return values.map((v) => positionValueName(st.kind, v, spaceNames)).join(", ");
 };
 
-const menuShell = (...children) => div({
-    class: "absolute top-full left-0 z-[60] mt-1.5 min-w-44 rounded-md border border-gray-600 bg-surface p-1 shadow-2xl flex flex-col",
-    onclick: (e) => e.stopPropagation(),
-}, ...children);
+// Room a menu wants below its trigger before it drops downward — a little more
+// than the tallest menu (every entity type, plus "Any" and "Argument"). With
+// less than this below and more above, it flips up, so a full list of options
+// is reachable without scrolling anything.
+const MENU_DROP_SPACE = 330;
+
+// The menus are fixed rather than absolutely positioned: the dialog body
+// scrolls, and an absolute menu inside it is clipped by that scroll container,
+// which is what forced scrolling to reach the lower options.
+const menuShell = (trigger, ...children) => {
+    const el = div({
+        class: "app-scroll fixed z-[60] flex w-max min-w-48 max-w-80 flex-col overflow-y-auto " +
+            "rounded-md border border-gray-600 bg-surface p-1 shadow-2xl",
+        onclick: (e) => e.stopPropagation(),
+    }, ...children);
+    const rect = trigger.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom - 12;
+    const above = rect.top - 12;
+    if (below < MENU_DROP_SPACE && above > below) {
+        el.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+        el.style.maxHeight = `${above}px`;
+    } else {
+        el.style.top = `${rect.bottom + 6}px`;
+        el.style.maxHeight = `${below}px`;
+    }
+    el.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 320))}px`;
+    return el;
+};
 
 const menuRow = (onclick, ...children) => button({
     type: "button",
@@ -102,6 +125,8 @@ const menuRow = (onclick, ...children) => button({
 const menuCheck = (on) => checkIcon({class: `w-3.5 h-3.5 flex-none text-brand ${on ? "" : "invisible"}`});
 const menuDivider = () => div({class: "my-1 border-t border-gray-700"});
 
+const fieldLabel = (text) => span({class: "text-[10px] uppercase tracking-wider text-gray-500"}, text);
+
 const positionEditor = ({st, label, allowArgument, spaces, spaceNames, openMenu, menuKey}) => {
     const options = () => positionOptions(st.kind, spaces());
     const toggleValue = (id) => {
@@ -110,9 +135,24 @@ const positionEditor = ({st, label, allowArgument, spaces, spaceNames, openMenu,
         st.values.val = [...next];
         st.mode.val = next.size ? "list" : "any";
     };
+    const trigger = button({
+        type: "button",
+        "aria-haspopup": "true",
+        "aria-expanded": () => String(openMenu.val === menuKey),
+        "aria-label": label,
+        class: () => `flex w-full items-center justify-between gap-1.5 rounded px-2 py-1.5 text-xs cursor-pointer border transition-colors ` +
+            (st.mode.val !== "any" ? "text-gray-100 border-brand" : "text-gray-300 border-gray-600 hover:bg-surface-hover"),
+        onclick: (e) => {
+            e.stopPropagation();
+            openMenu.val = openMenu.val === menuKey ? null : menuKey;
+        },
+    },
+    () => span({class: `truncate ${st.mode.val === "arg" ? "font-mono text-amber-300" : ""}`}, positionFace(st, spaceNames())),
+    chevronDownIcon({class: "w-3 h-3 flex-none"}));
+
     const menu = () => {
         if (openMenu.val !== menuKey) return "";
-        return menuShell(
+        return menuShell(trigger,
             menuRow(() => {
                 st.mode.val = "any";
                 st.values.val = [];
@@ -148,57 +188,76 @@ const positionEditor = ({st, label, allowArgument, spaces, spaceNames, openMenu,
             ] : []),
         );
     };
-    return div({class: "flex flex-col gap-1"},
-        span({class: "text-[10px] uppercase tracking-wider text-gray-500"}, label),
-        span({class: "relative inline-flex"},
-            button({
-                type: "button",
-                "aria-haspopup": "true",
-                "aria-expanded": () => String(openMenu.val === menuKey),
-                "aria-label": label,
-                class: () => `inline-flex items-center gap-1.5 rounded px-2 py-1.5 text-xs cursor-pointer border transition-colors max-w-56 ` +
-                    (st.mode.val !== "any" ? "text-gray-100 border-brand" : "text-gray-300 border-gray-600 hover:bg-surface-hover"),
-                onclick: (e) => {
-                    e.stopPropagation();
-                    openMenu.val = openMenu.val === menuKey ? null : menuKey;
-                },
-            },
-            () => span({class: `truncate ${st.mode.val === "arg" ? "font-mono text-amber-300" : ""}`}, positionFace(st, spaceNames())),
-            chevronDownIcon({class: "w-3 h-3 flex-none"})),
-            menu),
-    );
+    return div({class: "flex min-w-40 flex-1 flex-col gap-1"}, fieldLabel(label), trigger, menu);
 };
 
-const delegationToggle = (rs) => button({
-    type: "button",
-    class: () => `mt-5 inline-flex items-center gap-1.5 rounded px-2 py-1.5 text-xs cursor-pointer border transition-colors ` +
-        (rs.delegation.val ? "text-teal-300 border-teal-700" : "text-gray-400 border-gray-600 hover:bg-surface-hover"),
-    onclick: () => { rs.delegation.val = !rs.delegation.val; },
-}, () => rs.delegation.val ? "agents ✓" : "agents ✗");
-
-const ruleEditorRow = ({rs, index, allowArgument, spaces, spaceNames, openMenu, onRemove}) => div(
-    {class: "flex flex-wrap items-start gap-2 rounded-md border border-gray-700/60 bg-gray-950/30 p-2"},
-    ...POSITIONS.flatMap(({key, label}, i) => [
-        ...(i ? [span({class: "mt-6 font-mono text-gray-500"}, ":")] : []),
-        positionEditor({st: rs.positions[key], label, allowArgument, spaces, spaceNames, openMenu, menuKey: `rule${index}:${key}`}),
-    ]),
-    span({class: "mt-6 font-mono text-gray-500"}, ":"),
-    delegationToggle(rs),
-    div({class: "flex-1"}),
-    onRemove ? button({
+// A labelled on/off control sitting in the same row as the position editors:
+// grant rules use it for delegability, global rules for who the deny hits.
+const toggleEditor = ({label, state, onText, offText, title}) => div({class: "flex w-36 flex-none flex-col gap-1"},
+    fieldLabel(label),
+    button({
         type: "button",
-        title: "Remove rule",
-        "aria-label": `Remove rule ${index + 1}`,
-        class: "mt-5 inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-surface hover:text-red-400 cursor-pointer",
-        onclick: onRemove,
-    }, closeIcon({class: "w-3.5 h-3.5"})) : "",
+        title,
+        class: () => `flex w-full items-center justify-center rounded px-2 py-1.5 text-xs cursor-pointer border transition-colors ` +
+            (state.val ? "text-teal-300 border-teal-700" : "text-gray-400 border-gray-600 hover:bg-surface-hover"),
+        onclick: () => { state.val = !state.val; },
+    }, () => state.val ? onText : offText));
+
+// One rule editor: the four selector positions, its toggle, and a live reading
+// of the rule underneath in the same chip form the tables use, so what the
+// dialog shows while editing matches what the page shows afterwards.
+const ruleEditorCard = ({heading, positions, toggle, preview, onRemove, removeLabel}) => div(
+    {class: "flex flex-col gap-3 rounded-md border border-gray-700/60 bg-gray-950/30 p-3"},
+    div({class: "flex items-center gap-2"},
+        span({class: "text-[10px] font-semibold uppercase tracking-wider text-gray-500"}, heading),
+        div({class: "flex-1"}),
+        onRemove ? button({
+            type: "button",
+            title: "Remove rule",
+            "aria-label": removeLabel,
+            class: "inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 hover:bg-surface hover:text-red-400 cursor-pointer",
+            onclick: onRemove,
+        }, closeIcon({class: "w-3.5 h-3.5"})) : ""),
+    div({class: "flex flex-wrap items-end gap-2"}, ...positions, toggle),
+    div({class: "border-t border-gray-800 pt-2"}, preview),
 );
 
-const overlayShell = (title, ...children) => div(
+const ruleEditorRow = ({rs, index, heading, menuPrefix, allowArgument, spaces, spaceNames, openMenu, onRemove}) => ruleEditorCard({
+    heading: heading || `Rule ${index + 1}`,
+    positions: POSITIONS.map(({key, label}) => positionEditor({
+        st: rs.positions[key],
+        label,
+        allowArgument,
+        spaces,
+        spaceNames,
+        openMenu,
+        menuKey: `${menuPrefix || "rule"}${index}:${key}`,
+    })),
+    toggle: toggleEditor({
+        label: "Agents",
+        state: rs.delegation,
+        onText: "agents ✓",
+        offText: "agents ✗",
+        title: "Whether an agent session inherits this rule",
+    }),
+    preview: () => ruleDisplay(ruleFromState(rs), {spaceNames: spaceNames(), argNames: ARG_NAMES}),
+    onRemove,
+    removeLabel: `Remove rule ${index + 1}`,
+});
+
+// The dialog keeps a fixed frame — header, scrolling body, footer — and a floor
+// under its height so the rule editors always have room to breathe and their
+// menus have somewhere to drop.
+const overlayShell = ({title, subtitle, body, actions, backdrop}) => div(
     {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
-    div({class: "card w-full max-w-4xl max-h-full overflow-y-auto flex flex-col gap-4 shadow-2xl"},
-        h2({class: "text-base font-semibold"}, title),
-        ...children),
+    div({class: "flex w-full max-w-5xl max-h-[88vh] min-h-[min(88vh,34rem)] flex-col overflow-hidden " +
+            "rounded-[0.3rem] border border-gray-700 bg-surface shadow-2xl"},
+        div({class: "flex-none border-b border-gray-800 px-4 py-3"},
+            h2({class: "text-base font-semibold"}, title),
+            subtitle ? p({class: "mt-1 text-sm text-gray-400"}, subtitle) : ""),
+        div({class: "app-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4"}, ...body),
+        div({class: "flex flex-none flex-col gap-2 border-t border-gray-800 px-4 py-3"}, ...actions),
+        backdrop || ""),
 );
 
 const overlayActions = ({error, saveLabel, onSave, onClose, saving, disabled}) => [
@@ -219,7 +278,14 @@ const menuBackdrop = (openMenu) => () => openMenu.val
     ? div({class: "fixed inset-0 z-[55]", onclick: () => { openMenu.val = null; }})
     : "";
 
-const fieldLabel = (text) => span({class: "text-[10px] uppercase tracking-wider text-gray-500"}, text);
+const nameField = (name, placeholder) => div({class: "flex items-center gap-3"},
+    fieldLabel("Name"),
+    input({
+        class: "text-input max-w-xs",
+        placeholder,
+        value: name,
+        oninput: (e) => { name.val = e.target.value; },
+    }));
 
 // ruleTemplateOverlay creates a template, or edits `record` when given.
 export function ruleTemplateOverlay({record, spaces, spaceNames, onClose}) {
@@ -263,47 +329,40 @@ export function ruleTemplateOverlay({record, spaces, spaceNames, onClose}) {
         }
     };
 
-    return overlayShell(editing ? `Edit template ${record.name}` : "New template",
-        div({class: "flex items-center gap-3"},
-            fieldLabel("Name"),
-            input({
-                class: "text-input max-w-xs",
-                placeholder: "template_name",
-                value: name,
-                oninput: (e) => { name.val = e.target.value; },
-            })),
-        () => div({class: "flex flex-col gap-2"},
-            ...ruleStates.val.map((rs, i) => ruleEditorRow({
-                rs,
-                index: i,
-                allowArgument: true,
-                spaces,
-                spaceNames,
-                openMenu,
-                onRemove: ruleStates.val.length > 1
-                    ? () => { ruleStates.val = ruleStates.val.filter((r) => r !== rs); }
-                    : null,
-            }))),
-        div({class: "flex items-center gap-2"},
-            button({
-                type: "button",
-                class: "inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border border-gray-600 text-gray-300 hover:bg-surface-hover cursor-pointer",
-                onclick: () => { ruleStates.val = [...ruleStates.val, newRuleState(null)]; },
-            }, plusIcon({class: "w-3 h-3"}), "Add rule")),
-        div({class: "flex flex-col gap-1 rounded-md border border-gray-800 bg-gray-950/40 px-3 py-2"},
-            fieldLabel("Rules"),
-            () => div({class: "flex flex-col gap-0.5 font-mono text-[11px] text-gray-300"},
-                ...ruleStates.val.map((rs) => span(formatRule(ruleFromState(rs), {spaceNames: spaceNames(), argNames: ARG_NAMES}))))),
-        ...overlayActions({
+    return overlayShell({
+        title: editing ? `Edit role ${record.name}` : "New role",
+        subtitle: "A role is a named set of rules. Positions set to an argument are filled in when the role is granted.",
+        body: [
+            nameField(name, "role_name"),
+            () => div({class: "flex flex-col gap-3"},
+                ...ruleStates.val.map((rs, i) => ruleEditorRow({
+                    rs,
+                    index: i,
+                    allowArgument: true,
+                    spaces,
+                    spaceNames,
+                    openMenu,
+                    onRemove: ruleStates.val.length > 1
+                        ? () => { ruleStates.val = ruleStates.val.filter((r) => r !== rs); }
+                        : null,
+                }))),
+            div({class: "flex items-center gap-2"},
+                button({
+                    type: "button",
+                    class: "inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border border-gray-600 text-gray-300 hover:bg-surface-hover cursor-pointer",
+                    onclick: () => { ruleStates.val = [...ruleStates.val, newRuleState(null)]; },
+                }, plusIcon({class: "w-3 h-3"}), "Add rule")),
+        ],
+        actions: overlayActions({
             error,
-            saveLabel: editing ? "Save template" : "Create template",
+            saveLabel: editing ? "Save role" : "Create role",
             onSave: save,
             onClose,
             saving,
             disabled: () => !name.val.trim(),
         }),
-        menuBackdrop(openMenu),
-    );
+        backdrop: menuBackdrop(openMenu),
+    });
 }
 
 const bindingValueChips = (kind, valuesState, spaces, spaceNames) => {
@@ -330,6 +389,12 @@ const bindingValueChips = (kind, valuesState, spaces, spaceNames) => {
         })] : []),
     );
 };
+
+const previewPanel = (label, ...children) => div(
+    {class: "flex flex-col gap-1.5 rounded-md border border-gray-800 bg-gray-950/40 px-3 py-2"},
+    fieldLabel(label),
+    ...children,
+);
 
 // grantOverlay assigns a template (with argument bindings) or a direct rule
 // to one user.
@@ -361,7 +426,7 @@ export function grantOverlay({user, templates, spaces, spaceNames, onClose}) {
             const request = {userId: Number(user.id), templateId: 0, grant: {args: [], rule: null}};
             if (mode.val === "template") {
                 const template = selectedTemplate();
-                if (!template) throw new Error("Choose a template");
+                if (!template) throw new Error("Choose a role");
                 request.templateId = Number(template.id);
                 request.grant.args = templateArguments(template.template).map((arg) => {
                     const st = bindingState(arg);
@@ -387,35 +452,56 @@ export function grantOverlay({user, templates, spaces, spaceNames, onClose}) {
         onclick: () => { mode.val = value; },
     }, text);
 
-    return overlayShell(`Grant access to ${user.name || `user ${user.id}`}`,
-        div({class: "flex items-center gap-2"}, modeButton("template", "From template"), modeButton("direct", "Direct rule")),
-        () => mode.val === "template"
-            ? div({class: "flex flex-col gap-3"},
-                div({class: "flex items-center gap-3"},
-                    fieldLabel("Template"),
-                    select({
-                        class: "input min-w-56",
-                        onchange: (e) => { templateId.val = Number(e.target.value); },
-                    }, ...usable().map((t) => option({value: t.id, selected: Number(t.id) === Number(templateId.val)}, t.name)))),
-                () => {
-                    const template = selectedTemplate();
-                    if (!template) return p({class: "text-sm text-gray-400"}, "No templates available.");
-                    const args = templateArguments(template.template);
-                    if (!args.length) return p({class: "text-sm text-gray-400"}, "This template takes no arguments.");
-                    return div({class: "flex flex-col gap-2"},
-                        ...args.map((arg) => div({class: "flex flex-col gap-1"},
-                            fieldLabel("${" + arg.name + "}"),
-                            bindingValueChips(arg.kind, bindingState(arg), spaces, spaceNames))));
-                })
-            : div({class: "flex flex-col gap-2"},
-                ruleEditorRow({rs: directRule, index: 0, allowArgument: false, spaces, spaceNames, openMenu, onRemove: null}),
-                div({class: "flex flex-col gap-1 rounded-md border border-gray-800 bg-gray-950/40 px-3 py-2"},
-                    fieldLabel("Rule"),
-                    () => span({class: "font-mono text-[11px] text-gray-300"},
-                        formatRule(ruleFromState(directRule), {spaceNames: spaceNames()})))),
-        ...overlayActions({error, saveLabel: "Grant", onSave: save, onClose, saving}),
-        menuBackdrop(openMenu),
-    );
+    // The rules of the chosen role, so a grant is never made blind: bound
+    // arguments still read as ${name} here since the binding applies per user.
+    const templateRules = (template) => {
+        const argNames = new Map(templateArguments(template.template).map((a) => [a.id, a.name]));
+        const rules = template.template?.rules || [];
+        if (!rules.length) return "";
+        return previewPanel("Rules",
+            ...rules.map((rule) => ruleDisplay(rule, {spaceNames: spaceNames(), argNames})));
+    };
+
+    return overlayShell({
+        title: `Grant access to ${user.name || `user ${user.id}`}`,
+        body: [
+            div({class: "flex items-center gap-2"}, modeButton("template", "From role"), modeButton("direct", "Direct rule")),
+            () => mode.val === "template"
+                ? div({class: "flex flex-col gap-3"},
+                    div({class: "flex items-center gap-3"},
+                        fieldLabel("Role"),
+                        select({
+                            class: "input min-w-56",
+                            onchange: (e) => { templateId.val = Number(e.target.value); },
+                        }, ...usable().map((t) => option({value: t.id, selected: Number(t.id) === Number(templateId.val)}, t.name)))),
+                    () => {
+                        const template = selectedTemplate();
+                        if (!template) return p({class: "text-sm text-gray-400"}, "No roles available.");
+                        const args = templateArguments(template.template);
+                        return div({class: "flex flex-col gap-3"},
+                            args.length
+                                ? div({class: "flex flex-col gap-2"},
+                                    ...args.map((arg) => div({class: "flex flex-col gap-1"},
+                                        fieldLabel("${" + arg.name + "}"),
+                                        bindingValueChips(arg.kind, bindingState(arg), spaces, spaceNames))))
+                                : p({class: "text-sm text-gray-400"}, "This role takes no arguments."),
+                            templateRules(template));
+                    })
+                : ruleEditorRow({
+                    rs: directRule,
+                    index: 0,
+                    heading: "Rule",
+                    menuPrefix: "direct",
+                    allowArgument: false,
+                    spaces,
+                    spaceNames,
+                    openMenu,
+                    onRemove: null,
+                }),
+        ],
+        actions: overlayActions({error, saveLabel: "Grant", onSave: save, onClose, saving}),
+        backdrop: menuBackdrop(openMenu),
+    });
 }
 
 // globalRuleOverlay creates a deny rule evaluated before every grant.
@@ -452,35 +538,34 @@ export function globalRuleOverlay({spaces, spaceNames, onClose}) {
         }
     };
 
-    return overlayShell("New global rule",
-        p({class: "text-sm text-gray-400"},
-            "Global rules deny matching requests before any user grant is considered."),
-        div({class: "flex items-center gap-3"},
-            fieldLabel("Name"),
-            input({
-                class: "text-input max-w-xs",
-                placeholder: "rule_name",
-                value: name,
-                oninput: (e) => { name.val = e.target.value; },
-            })),
-        div({class: "flex flex-wrap items-start gap-2 rounded-md border border-gray-700/60 bg-gray-950/30 p-2"},
-            ...POSITIONS.flatMap(({key, label}, i) => [
-                ...(i ? [span({class: "mt-6 font-mono text-gray-500"}, ":")] : []),
-                positionEditor({st: rs.positions[key], label, allowArgument: false, spaces, spaceNames, openMenu, menuKey: `global:${key}`}),
-            ]),
-            div({class: "flex-1"}),
-            button({
-                type: "button",
-                title: "Only deny delegated agent sessions",
-                class: () => `mt-5 inline-flex items-center gap-1.5 rounded px-2 py-1.5 text-xs cursor-pointer border transition-colors ` +
-                    (delegatedOnly.val ? "text-teal-300 border-teal-700" : "text-gray-400 border-gray-600 hover:bg-surface-hover"),
-                onclick: () => { delegatedOnly.val = !delegatedOnly.val; },
-            }, () => delegatedOnly.val ? "agents only ✓" : "agents only ✗")),
-        div({class: "flex flex-col gap-1 rounded-md border border-gray-800 bg-gray-950/40 px-3 py-2"},
-            fieldLabel("Denies"),
-            () => span({class: "font-mono text-[11px] text-gray-300"},
-                formatGlobalRule(buildRule(), {spaceNames: spaceNames()}))),
-        ...overlayActions({
+    return overlayShell({
+        title: "New global rule",
+        subtitle: "Global rules deny matching requests before any user grant is considered.",
+        body: [
+            nameField(name, "rule_name"),
+            ruleEditorCard({
+                heading: "Denies",
+                positions: POSITIONS.map(({key, label}) => positionEditor({
+                    st: rs.positions[key],
+                    label,
+                    allowArgument: false,
+                    spaces,
+                    spaceNames,
+                    openMenu,
+                    menuKey: `global:${key}`,
+                })),
+                toggle: toggleEditor({
+                    label: "Applies to",
+                    state: delegatedOnly,
+                    onText: "agents only ✓",
+                    offText: "agents only ✗",
+                    title: "Only deny delegated agent sessions",
+                }),
+                preview: () => globalRuleDisplay(buildRule(), {spaceNames: spaceNames()}),
+                onRemove: null,
+            }),
+        ],
+        actions: overlayActions({
             error,
             saveLabel: "Create rule",
             onSave: save,
@@ -488,6 +573,6 @@ export function globalRuleOverlay({spaces, spaceNames, onClose}) {
             saving,
             disabled: () => !name.val.trim(),
         }),
-        menuBackdrop(openMenu),
-    );
+        backdrop: menuBackdrop(openMenu),
+    });
 }

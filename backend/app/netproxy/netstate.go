@@ -204,14 +204,7 @@ func dnsLabel(s string) string {
 }
 
 func spaceDNSName(id int32) string {
-	switch id {
-	case 0:
-		return "opendeploy"
-	case 1:
-		return "default"
-	default:
-		return "space-" + strconv.Itoa(int(id))
-	}
+	return "space-" + strconv.Itoa(int(id))
 }
 
 func hostResolvers() []string {

@@ -118,7 +118,7 @@ export function describeGrant(record, templatesById, spaceNames) {
     const template = templateId ? templatesById?.get?.(templateId) : null;
     if (templateId) {
         if (!template) {
-            return {template: true, label: `template ${templateId}`, detail: "", title: "", delegable: false};
+            return {template: true, label: `role ${templateId}`, detail: "", title: "", delegable: false};
         }
         const args = templateArguments(template.template);
         const bindings = new Map((record?.grant?.args || []).map((b) => [Number(b.argumentId), b.values || []]));

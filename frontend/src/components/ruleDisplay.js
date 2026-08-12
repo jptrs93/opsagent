@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import {formatGlobalRule, formatRule, formatSelector, positionValueName} from "../lib/authz.js";
 
-const {div} = van.tags;
+const {div, span} = van.tags;
 
 // Never spell out more than this many specific values, even when there is
 // room — "staging, prod, default, dev" always renders as "4 spaces".
@@ -14,33 +14,72 @@ const textWidth = (font, text) => {
     return measureCtx.measureText(text).width;
 };
 
-// responsiveChip shows the longest variant that fits its flex slot. Variants
-// are ordered longest-first and end with a form that is acceptable at any
-// width. The chip advertises the longest variant as its flex basis and the
-// shortest as its min width, so flexbox squeezes it between the two and a
-// ResizeObserver picks the phrasing for whatever width was granted.
-const responsiveChip = (variants, {title, chipClass} = {}) => {
-    const tiers = variants.filter((v, i) => v && v !== variants[i - 1]);
+// A tier is either a plain string or {text, nodes} built by tier(): text for
+// width measurement, nodes (strings and coloured spans) for rendering. The
+// accent spans keep the chip's font so measuring the plain text stays exact.
+const tier = (...parts) => ({
+    text: parts.map((p) => typeof p === "string" ? p : p.textContent).join(""),
+    nodes: parts,
+});
+const tierText = (t) => typeof t === "string" ? t : t.text;
+const tierNodes = (t) => typeof t === "string" ? [t] : t.nodes;
+
+// Specific item names (space names, type names, verbs, resource ids) are
+// accented so they stand out from the surrounding phrasing.
+const nameSpan = (text) => span({class: "text-blue-300"}, text);
+const nameList = (names) => names.flatMap((n, i) => i ? [", ", nameSpan(n)] : [nameSpan(n)]);
+const argSpan = (argName) => span({class: "text-amber-300"}, "${" + argName + "}");
+
+// chip builds one segment of a rule row. Variants are ordered longest-first
+// and end with a form acceptable at any width; which one shows is decided for
+// the row as a whole by fitRow(), not by the segment itself.
+const chip = (variants, {title, chipClass} = {}) => {
+    const tiers = variants.filter(Boolean).filter((v, i, all) => !i || tierText(v) !== tierText(all[i - 1]));
     const shown = van.state(tiers[0]);
     const el = div({
-        class: "min-w-0 overflow-hidden whitespace-nowrap rounded border px-2 py-0.5 text-xs " +
-            (chipClass || "border-gray-700 bg-gray-950/40 text-gray-300"),
+        class: "min-w-0 overflow-hidden whitespace-nowrap px-1.5 py-0.5 text-xs " +
+            (chipClass || "text-gray-300"),
         title: title || "",
-    }, () => shown.val);
-    el.style.flex = "0 1 auto";
-    const observer = new ResizeObserver(() => {
-        const style = getComputedStyle(el);
-        const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-        const chrome = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) +
-            parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
-        const widths = tiers.map((t) => Math.ceil(textWidth(font, t)) + chrome);
-        el.style.flexBasis = `${widths[0]}px`;
-        el.style.minWidth = `${widths[widths.length - 1]}px`;
-        const available = el.getBoundingClientRect().width + 0.5;
-        shown.val = tiers.find((t, i) => widths[i] <= available) ?? tiers[tiers.length - 1];
+    }, () => span(...tierNodes(shown.val)));
+    // Segments take exactly the width of the phrasing they show; fitRow only
+    // lets them shrink when even the shortest phrasing overflows.
+    el.style.flex = "0 0 auto";
+    return {el, tiers, shown, widths: null};
+};
+
+const chipWidths = (c) => {
+    const style = getComputedStyle(c.el);
+    const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const chrome = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) +
+        parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+    return c.tiers.map((t) => Math.ceil(textWidth(font, tierText(t))) + chrome + 1);
+};
+
+// fitRow chooses phrasings for the whole row at once: everything starts at its
+// longest form and the segment currently occupying the most width steps down,
+// repeatedly, until the row fits. Letting each segment decide alone (sized to
+// its longest tier and shrunk by flexbox) abbreviated every segment as soon as
+// the row was one pixel too wide, and left the abbreviated text sitting in an
+// over-wide slot — "1 space" with room to spare for "default space".
+const fitRow = (chips, chrome, available) => {
+    const widths = chips.map((c) => (c.widths ||= chipWidths(c)));
+    const pick = chips.map(() => 0);
+    let total = chrome + widths.reduce((sum, w) => sum + w[0], 0);
+    while (total > available) {
+        let worst = -1;
+        for (let i = 0; i < chips.length; i++) {
+            if (pick[i] + 1 >= widths[i].length) continue;
+            if (worst < 0 || widths[i][pick[i]] > widths[worst][pick[worst]]) worst = i;
+        }
+        if (worst < 0) break;
+        total -= widths[worst][pick[worst]] - widths[worst][pick[worst] + 1];
+        pick[worst]++;
+    }
+    const overflowing = total > available;
+    chips.forEach((c, i) => {
+        c.shown.val = c.tiers[pick[i]];
+        c.el.style.flex = overflowing ? "0 1 auto" : "0 0 auto";
     });
-    observer.observe(el);
-    return el;
 };
 
 const listable = (values) => values.length <= MAX_LISTED;
@@ -48,142 +87,164 @@ const listable = (values) => values.length <= MAX_LISTED;
 // Each selector kind gets its own component: the noun, pluralisation, and
 // tier ladder differ enough that sharing one generic builder obscures them.
 
-export const spacesChip = (sel, {spaceNames, argNames} = {}) => {
+const spacesChip = (sel, {spaceNames, argNames} = {}) => {
     const name = (v) => positionValueName("spaces", v, spaceNames);
     const title = formatSelector(sel, "spaces", {spaceNames, argNames});
     let tiers;
     if (sel?.argumentId) {
         const arg = argNames?.get?.(Number(sel.argumentId)) || `arg_${sel.argumentId}`;
-        tiers = ["${" + arg + "} spaces", "templated spaces", "limited spaces"];
+        tiers = [tier(argSpan(arg))];
     } else if (sel?.wildcard) {
         const excluded = sel.exclude || [];
         tiers = !excluded.length ? ["all spaces"] : [
-            listable(excluded) && `all spaces except ${excluded.map(name).join(", ")}`,
+            listable(excluded) && tier("all spaces except ", ...nameList(excluded.map(name))),
             `all spaces except ${excluded.length}`,
-            "most spaces",
         ];
     } else if ((sel?.include || []).length) {
         const included = sel.include;
         tiers = [
-            listable(included) && `${included.map(name).join(", ")} ${included.length === 1 ? "space" : "spaces"}`,
+            listable(included) && tier(...nameList(included.map(name)), included.length === 1 ? " space" : " spaces"),
             `${included.length} ${included.length === 1 ? "space" : "spaces"}`,
-            "limited spaces",
         ];
     } else {
         tiers = ["no spaces"];
     }
-    return responsiveChip(tiers.filter(Boolean), {title});
+    return chip(tiers.filter(Boolean), {title});
 };
 
-export const entityTypesChip = (sel, {spaceNames, argNames} = {}) => {
+const entityTypesChip = (sel, {spaceNames, argNames} = {}) => {
     const name = (v) => positionValueName("entityTypes", v, spaceNames);
     const title = formatSelector(sel, "entityTypes", {spaceNames, argNames});
     let tiers;
     if (sel?.argumentId) {
         const arg = argNames?.get?.(Number(sel.argumentId)) || `arg_${sel.argumentId}`;
-        tiers = ["${" + arg + "} types", "templated types", "limited types"];
+        tiers = [tier(argSpan(arg))];
     } else if (sel?.wildcard) {
         const excluded = sel.exclude || [];
         tiers = !excluded.length ? ["all resource types", "all types"] : [
-            listable(excluded) && `all types except ${excluded.map(name).join(", ")}`,
+            listable(excluded) && tier("all types except ", ...nameList(excluded.map(name))),
             `all types except ${excluded.length}`,
-            "most types",
         ];
     } else if ((sel?.include || []).length) {
         const included = sel.include;
         tiers = [
-            listable(included) && `${included.map(name).join(", ")} ${included.length === 1 ? "type" : "types"}`,
+            listable(included) && tier(...nameList(included.map(name)), included.length === 1 ? " type" : " types"),
             `${included.length} resource ${included.length === 1 ? "type" : "types"}`,
-            "limited types",
+            `${included.length} ${included.length === 1 ? "type" : "types"}`,
         ];
     } else {
         tiers = ["no types"];
     }
-    return responsiveChip(tiers.filter(Boolean), {title});
+    return chip(tiers.filter(Boolean), {title});
 };
 
-export const entityRefsChip = (sel, {argNames} = {}) => {
+const entityRefsChip = (sel, {argNames} = {}) => {
     const ref = (v) => `#${v}`;
     const title = formatSelector(sel, "entityRefs", {argNames});
     let tiers;
     if (sel?.argumentId) {
         const arg = argNames?.get?.(Number(sel.argumentId)) || `arg_${sel.argumentId}`;
-        tiers = ["${" + arg + "} resources", "templated resources", "limited resources"];
+        tiers = [tier(argSpan(arg))];
     } else if (sel?.wildcard) {
         const excluded = sel.exclude || [];
-        tiers = !excluded.length ? ["all resources"] : [
-            listable(excluded) && `all resources except ${excluded.map(ref).join(", ")}`,
-            `all resources except ${excluded.length}`,
-            "most resources",
+        tiers = !excluded.length ? ["all instances"] : [
+            listable(excluded) && tier("all instances except ", ...nameList(excluded.map(ref))),
+            `all instances except ${excluded.length}`,
         ];
     } else if ((sel?.include || []).length) {
         const included = sel.include;
         tiers = [
-            listable(included) && `${included.length === 1 ? "resource" : "resources"} ${included.map(ref).join(", ")}`,
-            `${included.length} ${included.length === 1 ? "resource" : "resources"}`,
-            "limited resources",
+            listable(included) && tier(included.length === 1 ? "instance " : "instances ", ...nameList(included.map(ref))),
+            `${included.length} ${included.length === 1 ? "instance" : "instances"}`,
         ];
     } else {
-        tiers = ["no resources"];
+        tiers = ["no instances"];
     }
-    return responsiveChip(tiers.filter(Boolean), {title});
+    return chip(tiers.filter(Boolean), {title});
 };
 
-export const permissionsChip = (sel, {argNames} = {}) => {
+const permissionsChip = (sel, {argNames} = {}) => {
     const name = (v) => positionValueName("permissions", v);
     const title = formatSelector(sel, "permissions", {argNames});
     let tiers;
     if (sel?.argumentId) {
         const arg = argNames?.get?.(Number(sel.argumentId)) || `arg_${sel.argumentId}`;
-        tiers = ["${" + arg + "} actions", "templated actions", "limited actions"];
+        tiers = [tier(argSpan(arg))];
     } else if (sel?.wildcard) {
         const excluded = sel.exclude || [];
         tiers = !excluded.length ? ["all actions"] : [
-            listable(excluded) && `all actions except ${excluded.map(name).join(", ")}`,
+            listable(excluded) && tier("all actions except ", ...nameList(excluded.map(name))),
             `all actions except ${excluded.length}`,
-            "most actions",
         ];
     } else if ((sel?.include || []).length) {
         const included = sel.include;
         tiers = [
-            listable(included) && included.map(name).join(", "),
+            listable(included) && tier(...nameList(included.map(name))),
             `${included.length} ${included.length === 1 ? "action" : "actions"}`,
-            "limited actions",
         ];
     } else {
         tiers = ["no actions"];
     }
-    return responsiveChip(tiers.filter(Boolean), {title});
+    return chip(tiers.filter(Boolean), {title});
 };
 
-export const delegationChip = (delegationAllowed) => responsiveChip(
-    delegationAllowed
-        ? ["agent delegable", "delegable", "agents ✓"]
-        : ["not agent delegable", "not delegable", "agents ✗"],
+const delegationChip = (delegationAllowed) => chip(
+    delegationAllowed ? ["agents ✓"] : ["agents ✗"],
     {
         title: `delegation ${delegationAllowed ? "allowed" : "not allowed"}`,
-        chipClass: delegationAllowed
-            ? "border-teal-800 bg-teal-950/40 text-teal-300"
-            : "border-gray-700 bg-gray-950/40 text-gray-500",
+        chipClass: delegationAllowed ? "bg-teal-950/40 text-teal-300" : "text-gray-500",
     },
 );
 
 // On a global deny rule the flag means something different: it narrows when
 // the rule fires (delegated agent sessions only) rather than what a grant
 // allows, so it gets its own chip with "applies to" phrasing.
-export const delegatedOnlyChip = (delegatedOnly) => responsiveChip(
+const delegatedOnlyChip = (delegatedOnly) => chip(
     delegatedOnly
         ? ["delegated agent sessions only", "delegated agents only", "agents only"]
         : ["everyone"],
     {
         title: delegatedOnly ? "denies delegated agent sessions only" : "denies everyone",
-        chipClass: delegatedOnly
-            ? "border-teal-800 bg-teal-950/40 text-teal-300"
-            : "border-gray-700 bg-gray-950/40 text-gray-500",
+        chipClass: delegatedOnly ? "bg-teal-950/40 text-teal-300" : "text-gray-500",
     },
 );
 
-const chipRow = (title, ...chips) => div({class: "flex min-w-0 items-center gap-1.5", title}, ...chips);
+// Segments are joined by a small centred arrow rather than a divider line, so
+// the row reads as one connected phrase flowing left to right. The arrow never
+// shrinks, so narrowing the row squeezes the chips instead.
+const chipArrow = () => div({
+    class: "flex shrink-0 items-center px-0.5 text-[10px] leading-none text-gray-600 select-none",
+}, "→");
+
+// The segments of one rule form a single unioned pill: one rounded border and
+// background around the row, no per-chip chrome. w-fit keeps the pill hugging
+// its content while max-w-full still lets the segments shrink inside a narrow
+// cell.
+const chipRow = (title, ...chips) => {
+    const arrows = [];
+    const pill = div({
+        class: "flex w-fit max-w-full min-w-0 items-stretch overflow-hidden rounded-md " +
+            "border border-gray-700 bg-gray-950/40",
+        title,
+    }, ...chips.flatMap((c, i) => {
+        if (!i) return [c.el];
+        const arrow = chipArrow();
+        arrows.push(arrow);
+        return [arrow, c.el];
+    }));
+    // The available width is read from a full-width wrapper, not from the pill:
+    // the pill hugs its content, so observing it would feed every relayout back
+    // into the next measurement.
+    const wrap = div({class: "w-full min-w-0"}, pill);
+    const observer = new ResizeObserver(() => {
+        const style = getComputedStyle(pill);
+        const chrome = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth) +
+            arrows.reduce((sum, a) => sum + a.getBoundingClientRect().width, 0);
+        fitRow(chips, chrome, wrap.getBoundingClientRect().width);
+    });
+    observer.observe(wrap);
+    return wrap;
+};
 
 const selectorChips = (rule, opts) => [
     spacesChip(rule.spaces, opts),
@@ -193,8 +254,8 @@ const selectorChips = (rule, opts) => [
 ];
 
 // ruleDisplay renders one authz rule as a row of human-readable chips in
-// grammar order. The row never wraps; each chip independently steps down to
-// a shorter phrasing as the row narrows. Hovering shows the raw grammar.
+// grammar order. The row never wraps; the phrasings step down together as the
+// row narrows. Hovering shows the raw grammar.
 export const ruleDisplay = (rule, {spaceNames, argNames} = {}) => {
     if (!rule) return "";
     const opts = {spaceNames, argNames};

@@ -126,10 +126,12 @@ func TestGenerateSecretRejectsBadRequests(t *testing.T) {
 	}
 }
 
-// The point of the whole route: a token that cannot read secret values can
-// still mint one. Driven through the real mux because the scope split lives in
-// the generated policy, not in the handler.
-func TestGenerateSecretIsReachableWithoutSecretsAccess(t *testing.T) {
+// The point of the whole route: what it mints never comes back over the wire,
+// only its metadata. Driven through the real mux so the response body is the
+// encoded one a caller actually receives, not the handler's return value.
+// Whether a given caller may reach the route at all is an authz question and is
+// covered in TestEnforcementDelegated.
+func TestGenerateSecretNeverEchoesTheValue(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	server := httptest.NewServer(apigen.CreateApiServerMux(h, &apigen.MuxConfig{
 		VerifyAuth:         h.VerifyAuth,
@@ -137,8 +139,7 @@ func TestGenerateSecretIsReachableWithoutSecretsAccess(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	agentToken := h.mustToken(t, user.ID, agentSessionScopes([]string{ScopeDefault, ScopeSecretsAccess}), time.Hour)
-	browserToken := h.mustToken(t, user.ID, []string{ScopeDefault, ScopeSecretsAccess}, time.Hour)
+	token := h.mustToken(t, user.ID, []string{ScopeDefault}, time.Hour)
 
 	post := func(t *testing.T, path, token, body string) (int, map[string]any) {
 		t.Helper()
@@ -159,10 +160,10 @@ func TestGenerateSecretIsReachableWithoutSecretsAccess(t *testing.T) {
 		return res.StatusCode, out
 	}
 
-	status, generated := post(t, "/v1/secrets/generate", agentToken,
+	status, generated := post(t, "/v1/secrets/generate", token,
 		`{"name": "db-password", "password": {"length": 32}}`)
 	if status != http.StatusOK {
-		t.Fatalf("generate with an agent token: status %d, want 200", status)
+		t.Fatalf("generate: status %d, want 200", status)
 	}
 	id, _ := generated["id"].(float64)
 	if id == 0 {
@@ -181,20 +182,16 @@ func TestGenerateSecretIsReachableWithoutSecretsAccess(t *testing.T) {
 	}
 	revealBody := fmt.Sprintf(`{"id": %d}`, int(versionID))
 
-	// ...but reading it back is still refused.
-	if status, _ := post(t, "/v1/secrets/reveal", agentToken, revealBody); status != http.StatusForbidden {
-		t.Fatalf("reveal with an agent token: status %d, want 403", status)
-	}
-
-	status, revealed := post(t, "/v1/secrets/reveal", browserToken, revealBody)
+	// The value exists and is intact — it was simply never returned by generate.
+	status, revealed := post(t, "/v1/secrets/reveal", token, revealBody)
 	if status != http.StatusOK {
-		t.Fatalf("reveal with a browser token: status %d, want 200", status)
+		t.Fatalf("reveal: status %d, want 200", status)
 	}
 	value, err := base64.StdEncoding.DecodeString(revealed["value"].(string))
 	if err != nil {
 		t.Fatalf("decoding revealed value: %v", err)
 	}
 	if len(value) != 32 {
-		t.Fatalf("operator revealed %d bytes, want the 32 the agent asked for", len(value))
+		t.Fatalf("revealed %d bytes, want the 32 that were requested", len(value))
 	}
 }

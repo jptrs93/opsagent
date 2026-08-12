@@ -162,11 +162,11 @@ Each node carries an `allowed_spaces` list, and a deployment cannot be placed on
 
 **The policy defaults fully open and only ever narrows deliberately.** A new node is inserted allowing every space that exists at the time, and creating a space opens it on every existing node (`AllowSpaceOnAllNodes`). Without that second half the list would be a snapshot taken at enrolment, and the first deployment into a newly created space would fail on every node with nothing to explain why. Deleting a space strips it from every list, so ids of spaces that no longer exist do not accumulate.
 
-**The opendeploy space is always allowed.** `normalizeAllowedSpaces` unions it back in on every read and every write, so a bad migration, a hand-edited database, or a future writer cannot produce a node that refuses internal deployments — and no caller has to remember to include it. The UI shows it ticked and locked rather than as a choice that silently would not take.
+**The _system space (space 0) is always allowed.** `normalizeAllowedSpaces` unions it back in on every read and every write, so a bad migration, a hand-edited database, or a future writer cannot produce a node that refuses internal deployments — and no caller has to remember to include it. The UI shows it ticked and locked rather than as a choice that silently would not take.
 
 `POST /v1/nodes/allowed-spaces` replaces a node's list, keyed by node identifier to match `POST /v1/nodes/rename`. It rejects a list naming a space that does not exist, and rejects a narrowing that would strip a space out from under deployments already on that node — the same shape as refusing to delete a space with live deployments. So the stored policy can never contradict what is running.
 
-Existing installs are unaffected by the upgrade: the migration backfills every node with every space that exists. It keys that backfill off an empty-string sentinel rather than a `'[0]'` default, because migrations re-run on every startup and a `'[0]'` default could not be told apart from a node an operator had legitimately narrowed to exactly the opendeploy space — which would have silently reset it on the next restart.
+Existing installs are unaffected by the upgrade: the migration backfills every node with every space that exists. It keys that backfill off an empty-string sentinel rather than a `'[0]'` default, because migrations re-run on every startup and a `'[0]'` default could not be told apart from a node an operator had legitimately narrowed to exactly the _system space — which would have silently reset it on the next restart.
 
 ### Recovering a deleted deployment
 

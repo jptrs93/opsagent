@@ -250,9 +250,11 @@ type SystemSecret struct {
 }
 
 type User struct {
-	ID       int64
-	Name     string
-	DataBlob []byte
+	ID          int64
+	Name        string
+	DataBlob    []byte
+	CreatedAt   int64
+	LastLoginAt int64
 }
 
 type ValueDirectory struct {

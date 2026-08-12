@@ -19,7 +19,8 @@ import {
 } from "../lib/assetExplorer.js";
 import {
     buildRows, checkDrop, dirsById, dirPathSegments, dragSource, dropDestination,
-    flexColumnKey, folderOptions, itemKey, itemPathSegments, sameSet, spaceHue,
+    emptySpaceIds, flexColumnKey, folderOptions, itemKey, itemPathSegments, sameSet,
+    spaceHue,
 } from "../lib/valueExplorer.js";
 import {assetDirectoriesS, assetMetasS, deploymentsS, machinesS, spacesS, usersMapS} from "../state/deployments.js";
 import {loginS} from "../state/login.js";
@@ -92,7 +93,12 @@ async function uploadAssetFile(file, params, token, onProgress) {
 export function assetsPage() {
     const saved = loadView();
 
+    // The two halves of the space filter. hiddenSpaces is what was hidden by
+    // hand and persists; shownEmptySpaces re-admits a space the empty-space
+    // default hid, and is deliberately per-visit — landing on the page starts
+    // from the default again.
     const hiddenSpaces = van.state(new Set(Array.isArray(saved.hiddenSpaces) ? saved.hiddenSpaces : []));
+    const shownEmptySpaces = van.state(new Set());
     const shownCols = van.state(new Set(Array.isArray(saved.cols) ? saved.cols : ASSET_DEFAULT_COLUMNS));
     const colWidths = van.state({...ASSET_DEFAULT_COLUMN_WIDTHS, ...(saved.colWidths || {})});
     const sort = van.state(saved.sort?.key ? saved.sort : {key: "name", dir: "asc"});
@@ -155,10 +161,22 @@ export function assetsPage() {
     // space is dropped once here so it stays out of the tree, the filter menu
     // and every destination picker without each of them re-testing for it.
     const listedSpaces = () => selectableSpaces(spacesS.val);
-    const visibleSpaces = () => listedSpaces().filter((s) => !hiddenSpaces.val.has(Number(s.id)));
     const spaceName = (id) => (spacesS.val || []).find((s) => Number(s.id) === Number(id))?.name || `space ${id}`;
 
-    const spacesDirty = () => listedSpaces().some((s) => hiddenSpaces.val.has(Number(s.id)));
+    // Derived, not latched at mount: a space that gains its first asset — or
+    // whose contents only arrive later on the state stream — leaves the empty
+    // set on its own, without the filter having to be touched.
+    const emptySpaces = van.derive(() => emptySpaceIds(listedSpaces(), currentDirs(), currentItems()));
+    // filteredSpaces is what the rest of the page filters on: hand-hidden
+    // spaces, plus the empty ones not re-admitted this visit.
+    const filteredSpaces = van.derive(() => new Set(listedSpaces().map((s) => Number(s.id)).filter((id) =>
+        hiddenSpaces.val.has(id) || (emptySpaces.val.has(id) && !shownEmptySpaces.val.has(id)),
+    )));
+    const visibleSpaces = () => listedSpaces().filter((s) => !filteredSpaces.val.has(Number(s.id)));
+
+    // Dirty against the landing default — empty spaces hidden — so the reset
+    // row offers itself only for choices actually made here.
+    const spacesDirty = () => !sameSet(filteredSpaces.val, emptySpaces.val);
     const colsDirty = () => !sameSet(shownCols.val, new Set(ASSET_DEFAULT_COLUMNS));
 
     const usageForItem = (item) => {
@@ -201,16 +219,16 @@ export function assetsPage() {
         const key = selectedKey.val;
         if (!key) return;
         if (key.startsWith("space:")) {
-            if (hiddenSpaces.val.has(Number(key.slice(6)))) selectedKey.val = null;
+            if (filteredSpaces.val.has(Number(key.slice(6)))) selectedKey.val = null;
             return;
         }
         if (key.startsWith("dir:")) {
             const dir = currentDirs().find((d) => `dir:${d.id}` === key);
-            if (dir && hiddenSpaces.val.has(Number(dir.spaceId))) selectedKey.val = null;
+            if (dir && filteredSpaces.val.has(Number(dir.spaceId))) selectedKey.val = null;
             return;
         }
         const item = currentItems().find((i) => itemKey(i) === key);
-        if (item && hiddenSpaces.val.has(item.spaceId)) selectedKey.val = null;
+        if (item && filteredSpaces.val.has(item.spaceId)) selectedKey.val = null;
     });
 
     // ---- actions ----------------------------------------------------------
@@ -633,25 +651,36 @@ export function assetsPage() {
         menuRow(onclick, closeIcon({class: "w-3.5 h-3.5 flex-none text-brand"}), "Reset to default"),
     ];
 
+    // A row ticks and unticks against the effective filter, so an empty space
+    // hidden by default takes one click to bring back — the tick just has to
+    // write to whichever half of the filter is holding it out.
+    const toggleSpace = (id) => {
+        const hidden = new Set(hiddenSpaces.val);
+        const shownEmpty = new Set(shownEmptySpaces.val);
+        if (filteredSpaces.val.has(id)) {
+            hidden.delete(id);
+            shownEmpty.add(id);
+            expandTo(id, 0);
+        } else {
+            hidden.add(id);
+            shownEmpty.delete(id);
+        }
+        hiddenSpaces.val = hidden;
+        shownEmptySpaces.val = shownEmpty;
+        persistView();
+    };
+
     const spacesMenu = () => menuShell(
-        ...listedSpaces().map((space) => menuRow(() => {
-            const id = Number(space.id);
-            const next = new Set(hiddenSpaces.val);
-            if (next.has(id)) {
-                next.delete(id);
-                expandTo(id, 0);
-            } else {
-                next.add(id);
-            }
-            hiddenSpaces.val = next;
-            persistView();
-        },
-        menuCheck(!hiddenSpaces.val.has(Number(space.id))),
-        spaceDot(space.id),
-        span({class: "font-mono"}, space.name),
+        ...listedSpaces().map((space) => menuRow(
+            () => toggleSpace(Number(space.id)),
+            menuCheck(!filteredSpaces.val.has(Number(space.id))),
+            spaceDot(space.id),
+            span({class: "font-mono"}, space.name),
+            ...(emptySpaces.val.has(Number(space.id)) ? [menuTail("empty")] : []),
         )),
         ...(spacesDirty() ? resetRow(() => {
             hiddenSpaces.val = new Set();
+            shownEmptySpaces.val = new Set();
             persistView();
         }) : []),
     );
@@ -970,7 +999,7 @@ export function assetsPage() {
             spaces: listedSpaces(),
             dirs: currentDirs(),
             items,
-            hiddenSpaceIds: hiddenSpaces.val,
+            hiddenSpaceIds: filteredSpaces.val,
             query: search.val,
             expanded: expanded.val,
             sort: sort.val,
@@ -1080,7 +1109,7 @@ export function assetsPage() {
 
     // "unknown" covers system-written rows and anything from before user
     // attribution existed, so the author slot never silently vanishes.
-    const versionAuthor = (id) => usersMapS.val.get(Number(id)) || "unknown";
+    const versionAuthor = (id) => usersMapS.val.get(Number(id))?.name || "unknown";
 
     // Version rows open the editor pinned to that version, matching the old
     // page's history browsing.

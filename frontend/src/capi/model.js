@@ -1059,6 +1059,8 @@
  * @typedef {Object} User
  * @property {number} id
  * @property {string} name
+ * @property {number} createdAt
+ * @property {number} lastLoginAt
  */
 /**
  * @typedef {Object} WebAuthnCredential
@@ -13983,6 +13985,12 @@ export function writeUser(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
     }
+    if (message.createdAt !== undefined && message.createdAt !== null && message.createdAt !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(message.createdAt);
+    }
+    if (message.lastLoginAt !== undefined && message.lastLoginAt !== null && message.lastLoginAt !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(message.lastLoginAt);
+    }
 }
 
 
@@ -14004,7 +14012,7 @@ export function encodeUser(message) {
  */
 function decodeUserMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "" };
+    const message = {id: 0, name: "", createdAt: 0, lastLoginAt: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -14014,6 +14022,14 @@ function decodeUserMessage(reader, length) {
             }
             case 2: {
                 message.name = reader.string();
+                break;
+            }
+            case 3: {
+                message.createdAt = readInt64(reader, "int64");
+                break;
+            }
+            case 4: {
+                message.lastLoginAt = readInt64(reader, "int64");
                 break;
             }
             default:
