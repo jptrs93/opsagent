@@ -27,6 +27,9 @@ func (h *Handler) GetV1NodesStatus(ctx apigen.Context, r *http.Request, w http.R
 		if node == nil || node.Name == "" || node.Identifier == "" {
 			continue
 		}
+		if !h.canAccess(ctx, vView, eNode, 0, int64(node.ID)) {
+			continue
+		}
 		conn := connected[node.ID]
 		machines = append(machines, &apigen.ClusterMachine{
 			ID:            node.ID,
@@ -54,6 +57,13 @@ func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRe
 	name := strings.TrimSpace(req.Name)
 	if identifier == "" || name == "" {
 		return nil, InvalidNodeRenameErr
+	}
+	existing := h.nodeByIdentifier(identifier)
+	if existing == nil {
+		return nil, NodeNotFoundErr
+	}
+	if err := h.requireEntityAccess(ctx, vEdit, eNode, 0, int64(existing.ID), NodeNotFoundErr); err != nil {
+		return nil, err
 	}
 	node, err := h.Store.RenameNode(identifier, name)
 	if err == nil {
@@ -84,6 +94,9 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	node := h.nodeByIdentifier(identifier)
 	if node == nil {
 		return nil, NodeNotFoundErr
+	}
+	if err := h.requireEntityAccess(ctx, vEdit, eNode, 0, int64(node.ID), NodeNotFoundErr); err != nil {
+		return nil, err
 	}
 
 	// A list naming a space that does not exist is a caller mistake, not a

@@ -19,6 +19,13 @@ func newAccessTestHandler(t *testing.T) (*Handler, apigen.Context) {
 	if err != nil {
 		t.Fatalf("authz.Open: %v", err)
 	}
+	if _, err := authzService.CreateGrant(&apigen.AuthzGrantRecord{
+		UserID:     1,
+		TemplateID: authz.ClusterAdminTemplateID,
+		Grant:      &apigen.AuthzGrant{},
+	}); err != nil {
+		t.Fatalf("seed admin grant: %v", err)
+	}
 	h := &Handler{Store: store, Authz: authzService}
 	ctx := apigen.Context{Ctx: context.Background(), User: &apigen.InternalUser{ID: 1, Name: "operator"}}
 	return h, ctx
@@ -158,8 +165,8 @@ func TestAccessGrantCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(listed.Items) != 2 {
-		t.Fatalf("expected 2 grants, got %d", len(listed.Items))
+	if len(listed.Items) != 3 {
+		t.Fatalf("expected the seeded admin grant plus 2 created, got %d", len(listed.Items))
 	}
 
 	if err := h.PostV1AccessGrantsDelete(ctx, &apigen.AuthzGrantDeleteRequest{UserID: 8, ID: direct.ID}); !errors.Is(err, AccessNotFoundErr) {

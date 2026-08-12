@@ -11,6 +11,13 @@ func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.Deplo
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
 	}
+	cfg := h.findConfigByID(req.DeploymentID)
+	if cfg == nil {
+		return nil, DeploymentNotFoundErr
+	}
+	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+		return nil, err
+	}
 
 	configs := h.Store.MustFetchDeploymentHistory(req.DeploymentID)
 	statuses := h.Store.MustFetchDeploymentStatusHistory(req.DeploymentID)

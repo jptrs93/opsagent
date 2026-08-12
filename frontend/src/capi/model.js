@@ -1071,6 +1071,7 @@
  * @property {Uint8Array} webAuthNId
  * @property {string} name
  * @property {WebAuthnCredential[]} credentials
+ * @property {boolean} delegated
  */
 /**
  * @typedef {Object} PublicKeyRecord
@@ -14118,6 +14119,9 @@ export function writeInternalUser(message, writer) {
             writer.ldelim();
         }
     }
+    if (message.delegated === true) {
+        writer.uint32(tag(5, WIRE.VARINT)).bool(message.delegated);
+    }
 }
 
 
@@ -14139,7 +14143,7 @@ export function encodeInternalUser(message) {
  */
 function decodeInternalUserMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, webAuthNId: new Uint8Array(0), name: "", credentials: [] };
+    const message = {id: 0, webAuthNId: new Uint8Array(0), name: "", credentials: [], delegated: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -14157,6 +14161,10 @@ function decodeInternalUserMessage(reader, length) {
             }
             case 4: {
                 message.credentials.push(decodeWebAuthnCredentialMessage(reader, reader.uint32()));
+                break;
+            }
+            case 5: {
+                message.delegated = reader.bool();
                 break;
             }
             default:

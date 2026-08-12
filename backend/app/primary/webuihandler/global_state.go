@@ -8,7 +8,7 @@ import (
 )
 
 func (h *Handler) GetV1GlobalState(ctx apigen.Context) (*apigen.GlobalState, error) {
-	configs := h.Store.ListActiveDeploymentConfigs()
+	configs := h.filterDeploymentConfigs(ctx, h.Store.ListActiveDeploymentConfigs())
 	configItems := make([]*apigen.DeploymentConfig, 0, len(configs))
 	for _, cfg := range configs {
 		configItems = append(configItems, redactDeploymentConfig(cfg))
@@ -17,13 +17,13 @@ func (h *Handler) GetV1GlobalState(ctx apigen.Context) (*apigen.GlobalState, err
 		return cmp.Compare(a.ID, b.ID)
 	})
 	return &apigen.GlobalState{
-		Spaces:            &apigen.SpaceList{Items: h.Store.ListSpaces()},
-		Assets:            &apigen.AssetList{Items: h.Store.ListAssets()},
-		Configs:           &apigen.ConfigList{Items: h.Store.ListConfigMetas()},
-		Secrets:           &apigen.SecretList{Items: h.Store.ListSecretMetas()},
+		Spaces:            &apigen.SpaceList{Items: h.filterSpaces(ctx, h.Store.ListSpaces())},
+		Assets:            &apigen.AssetList{Items: h.filterAssetMetas(ctx, h.Store.ListAssets())},
+		Configs:           &apigen.ConfigList{Items: h.filterConfigMetas(ctx, h.Store.ListConfigMetas())},
+		Secrets:           &apigen.SecretList{Items: h.filterSecretMetas(ctx, h.Store.ListSecretMetas())},
 		DeploymentConfigs: &apigen.DeploymentConfigSnapshot{Items: configItems},
-		ValueDirectories:  &apigen.ValueDirectoryList{Items: h.Store.ListValueDirectories()},
-		AssetDirectories:  &apigen.AssetDirectoryList{Items: h.Store.ListAssetDirectories()},
+		ValueDirectories:  &apigen.ValueDirectoryList{Items: h.filterValueDirectories(ctx, h.Store.ListValueDirectories())},
+		AssetDirectories:  &apigen.AssetDirectoryList{Items: h.filterAssetDirectories(ctx, h.Store.ListAssetDirectories())},
 	}, nil
 }
 
@@ -34,6 +34,9 @@ func (h *Handler) PostV1DeploymentsGet(ctx apigen.Context, req *apigen.Deploymen
 	cfg := h.findConfigByID(req.ID)
 	if cfg == nil || cfg.Deleted {
 		return nil, DeploymentNotFoundErr
+	}
+	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+		return nil, err
 	}
 	states := make([]apigen.ScheduledInstanceState, 0, 2)
 	for _, state := range h.Store.FetchScheduledSnapshotWithLatestFinal(nil) {

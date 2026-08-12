@@ -98,7 +98,9 @@ export function usersPage() {
     // ---- section band ------------------------------------------------------
 
     const sectionBand = (openState, title, count, ...actions) => div(
-        {class: "flex flex-none flex-wrap items-center gap-2 border-y border-gray-700 bg-gray-950/40 px-2 py-1"},
+        // first:border-t-0 keeps the top band flush with the window edge now
+        // that the page has no surrounding card.
+        {class: "flex flex-none flex-wrap items-center gap-2 border-y border-gray-700 first:border-t-0 bg-gray-950/40 px-2 py-1"},
         button({
             type: "button",
             "aria-expanded": () => String(openState.val),
@@ -302,9 +304,13 @@ export function usersPage() {
     };
 
     return div(
-        {class: "h-full min-h-0 overflow-hidden p-3 flex flex-col gap-3"},
-        () => error.val ? p({class: "text-red-400 text-sm"}, `Error: ${error.val}`) : "",
-        div({class: "rounded-[0.3rem] bg-surface border border-gray-700 flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto"},
+        // bg-surface: like the assets and secrets explorers, the page is one
+        // flush surface running to the window and sidebar edges.
+        {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
+        () => error.val ? p(
+            {class: "flex-none border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300"},
+            `Error: ${error.val}`) : "",
+        div({class: "flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto"},
             sectionBand(open.users, "Users", () => String(sortedUsers().length),
                 input({
                     class: "text-input search-input py-1! text-xs",

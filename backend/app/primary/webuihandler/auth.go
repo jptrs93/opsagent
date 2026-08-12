@@ -181,6 +181,14 @@ func (h *Handler) VerifyAuth(ctx context.Context, _ http.ResponseWriter, r *http
 	if err := h.verifyAgentSession(claims, tokenString); err != nil {
 		return res, err
 	}
+	// Agent-session tokens act with delegated authority: authz rules without
+	// DelegationAllowed will not match them. Set on a copy — FetchUserByID
+	// decodes fresh, but that is its contract, not this call site's to assume.
+	if jti, _ := claims["jti"].(string); jti != "" {
+		delegated := *user
+		delegated.Delegated = true
+		user = &delegated
+	}
 	sub, _ := claims["sub"].(string)
 	res.Ctx = logu.ExtendLogContext(res.Ctx, "user", sub)
 	scopes := jwtu.ScopesFromClaims(claims)

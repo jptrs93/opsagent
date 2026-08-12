@@ -64,6 +64,47 @@ func globalRuleMatches(r *apigen.AuthzGlobalRule, req RequestedAccess) bool {
 		selectorMatches(r.EntityRefs, nil, req.EntityID)
 }
 
+func ruleTouchesSpace(rule *apigen.AuthzRule, bindings []*apigen.AuthzArgumentBinding, spaceID int64, delegated bool) bool {
+	if rule == nil || (delegated && !rule.DelegationAllowed) {
+		return false
+	}
+	return selectorMatches(rule.Spaces, bindings, spaceID)
+}
+
+func (s *Service) grantTouchesSpaceLocked(g *apigen.AuthzGrantRecord, spaceID int64, delegated bool) bool {
+	content := g.Grant
+	if content == nil {
+		return false
+	}
+	if content.Rule != nil {
+		return ruleTouchesSpace(content.Rule, nil, spaceID, delegated)
+	}
+	t := s.templates[g.TemplateID]
+	if t == nil || t.Deleted || t.Template == nil {
+		return false
+	}
+	for _, rule := range t.Template.Rules {
+		if ruleTouchesSpace(rule, content.Args, spaceID, delegated) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) otherAdminGrantExistsLocked(excludeGrantID int64) bool {
+	for _, grants := range s.grantsByUser {
+		for _, g := range grants {
+			if g.ID == excludeGrantID {
+				continue
+			}
+			if s.grantMatchesLocked(g, adminAccess) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (s *Service) grantMatchesLocked(g *apigen.AuthzGrantRecord, req RequestedAccess) bool {
 	content := g.Grant
 	if content == nil {

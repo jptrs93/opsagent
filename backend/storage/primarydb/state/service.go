@@ -27,6 +27,13 @@ func normalizedUserSpaceID(spaceID int32) int32 {
 	return spaceID
 }
 
+// NormalizedUserSpaceID exposes the store's user-value space normalization:
+// values (secrets, configs, assets, and their folders) never live in space 0,
+// so callers gating on a requested space must gate on the effective one.
+func NormalizedUserSpaceID(spaceID int32) int32 {
+	return normalizedUserSpaceID(spaceID)
+}
+
 // Service is the primary's state store. Two mechanisms coordinate access:
 //
 //   - Mu is the writer freeze: every method that writes the database holds it,

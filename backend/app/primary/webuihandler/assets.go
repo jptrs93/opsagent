@@ -79,12 +79,23 @@ func requestUserID(ctx apigen.Context) int32 {
 }
 
 func (h *Handler) PostV1AssetsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.AssetList, error) {
-	return &apigen.AssetList{Items: h.Store.ListAssets()}, nil
+	return &apigen.AssetList{Items: h.filterAssetMetas(ctx, h.Store.ListAssets())}, nil
+}
+
+func (h *Handler) requireAssetAccess(ctx apigen.Context, verb apigen.AuthzVerb, assetID int32) error {
+	meta, ok := h.Store.GetAssetMeta(assetID)
+	if !ok {
+		return AssetNotFoundErr
+	}
+	return h.requireEntityAccess(ctx, verb, eAsset, int64(meta.SpaceID), int64(meta.ID), AssetNotFoundErr)
 }
 
 func (h *Handler) PostV1AssetsGet(ctx apigen.Context, req *apigen.AssetGetRequest) (*apigen.AssetVersion, error) {
 	if req.AssetID <= 0 {
 		return nil, AssetIDRequiredErr
+	}
+	if err := h.requireAssetAccess(ctx, vView, req.AssetID); err != nil {
+		return nil, err
 	}
 	asset, ok, err := h.Assets.GetAssetForPreview(req.AssetID, req.Version)
 	if err != nil {
@@ -101,6 +112,9 @@ func (h *Handler) PostV1AssetsCreate(ctx apigen.Context, req *apigen.AssetCreate
 	if key == "" {
 		return nil, AssetKeyRequiredErr
 	}
+	if err := h.requireAccess(ctx, vCreate, eAsset, valueSpace(req.SpaceID), 0); err != nil {
+		return nil, err
+	}
 	asset, err := h.Assets.CreateAsset(ctx, key, req.SpaceID, req.AssetDirectoryID, requestUserID(ctx), req.Blob)
 	if err != nil {
 		return nil, mapAssetStoreErr(err)
@@ -111,6 +125,9 @@ func (h *Handler) PostV1AssetsCreate(ctx apigen.Context, req *apigen.AssetCreate
 func (h *Handler) PostV1AssetsSet(ctx apigen.Context, req *apigen.AssetSetRequest) (*apigen.AssetVersion, error) {
 	if req.AssetID <= 0 {
 		return nil, AssetIDRequiredErr
+	}
+	if err := h.requireAssetAccess(ctx, vEdit, req.AssetID); err != nil {
+		return nil, err
 	}
 	asset, err := h.Assets.AppendAssetVersion(ctx, req.AssetID, requestUserID(ctx), req.Blob)
 	if err != nil {
@@ -141,6 +158,9 @@ func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, 
 		if parseErr != nil || parsed <= 0 {
 			return apigen.NewApiErr("Asset id is invalid", "asset_id_invalid", http.StatusBadRequest)
 		}
+		if accessErr := h.requireAssetAccess(ctx, vEdit, int32(parsed)); accessErr != nil {
+			return accessErr
+		}
 		asset, err = h.Assets.AppendAssetVersionFromReader(ctx, int32(parsed), requestUserID(ctx), request.ContentLength, request.Body)
 	} else {
 		name, nameErr := validateUploadAssetName(query.Get("name"))
@@ -163,6 +183,9 @@ func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, 
 			}
 			directoryID = int32(parsed)
 		}
+		if accessErr := h.requireAccess(ctx, vCreate, eAsset, valueSpace(spaceID), 0); accessErr != nil {
+			return accessErr
+		}
 		key := h.uniqueAssetName(name, spaceID, directoryID)
 		asset, err = h.Assets.CreateAssetFromReader(ctx, key, spaceID, directoryID, requestUserID(ctx), request.ContentLength, request.Body)
 	}
@@ -181,6 +204,9 @@ func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRename
 	if newKey == "" {
 		return nil, AssetKeyRequiredErr
 	}
+	if err := h.requireAssetAccess(ctx, vEdit, req.AssetID); err != nil {
+		return nil, err
+	}
 	meta, err := h.Assets.RenameAsset(ctx, req.AssetID, newKey)
 	if err != nil {
 		return nil, mapAssetStoreErr(err)
@@ -191,6 +217,19 @@ func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRename
 func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequest) (*apigen.AssetMeta, error) {
 	if req.AssetID <= 0 {
 		return nil, AssetIDRequiredErr
+	}
+	existing, ok := h.Store.GetAssetMeta(req.AssetID)
+	if !ok {
+		return nil, AssetNotFoundErr
+	}
+	if err := h.requireEntityAccess(ctx, vEdit, eAsset, int64(existing.SpaceID), int64(existing.ID), AssetNotFoundErr); err != nil {
+		return nil, err
+	}
+	// Moving into another space also needs the right to create an asset there.
+	if req.SpaceID != 0 && req.SpaceID != existing.SpaceID {
+		if err := h.requireAccess(ctx, vCreate, eAsset, valueSpace(req.SpaceID), 0); err != nil {
+			return nil, err
+		}
 	}
 	// The space gate runs first: a rejected cross-space move must not leave the
 	// asset reparented into its own space's root as a side effect.
@@ -214,6 +253,9 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 func (h *Handler) PostV1AssetsDelete(ctx apigen.Context, req *apigen.AssetDeleteRequest) error {
 	if req.AssetID <= 0 {
 		return AssetIDRequiredErr
+	}
+	if err := h.requireAssetAccess(ctx, vDelete, req.AssetID); err != nil {
+		return err
 	}
 	if err := h.Assets.DeleteAsset(ctx, req.AssetID); err != nil {
 		return mapAssetStoreErr(err)

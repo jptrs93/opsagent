@@ -17,6 +17,11 @@ type exportedConfigBundle struct {
 }
 
 func (h *Handler) PostV1GlobalExportedConfig(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ExportedConfigBlob, error) {
+	// The export bundles every space's metadata plus cluster settings, so it is
+	// gated on cluster-level view rather than filtered per space.
+	if err := h.requireAccess(ctx, vView, eCluster, 0, 0); err != nil {
+		return nil, err
+	}
 	deployments := h.Store.ListActiveDeploymentConfigs()
 	exportedDeployments := make([]*apigen.DeploymentConfig, 0, len(deployments))
 	for _, deployment := range deployments {
