@@ -142,6 +142,7 @@ export async function acceptWaitingWorker(page, {machineID, workerName, expectNo
 export async function createNixDockerDeployment(page, {
   name = 'nixdockerbuild1',
   machine = 'worker-1',
+  space,
   repo = 'github.com/jptrs93/opsagent',
   flake = 'testexamples/nixdockerbuild1/flake.nix',
   env = {
@@ -168,6 +169,12 @@ export async function createNixDockerDeployment(page, {
 
   await step(`fill deployment identity ${name}`, async () => {
     await byTestId(dialog, 'deployment-name-input', textField(dialog, 'Name')).fill(name);
+    if (space) {
+      const spaceSelect = byTestId(dialog, 'deployment-space-select', selectField(dialog, 'Space'));
+      const spaceOption = spaceSelect.locator('option').filter({hasText: space});
+      await expect(spaceOption).toHaveCount(1, {timeout: LONG_UI_TIMEOUT});
+      await spaceSelect.selectOption(await spaceOption.getAttribute('value'));
+    }
     await selectDeploymentNode(dialog, machine);
   });
   const sourceTypeSelect = byTestId(dialog, 'deployment-source-type-select', selectField(dialog, 'Source type'));
@@ -835,15 +842,15 @@ export async function uploadAsset(page, {key, content, fileName = key} = {}) {
 // helpers drive that shared surface; the caller has already navigated to the
 // right page.
 
-function explorerPathbar(page) {
+export function explorerPathbar(page) {
   return page.getByTestId('explorer-pathbar');
 }
 
-async function expectExplorerPath(page, pathText) {
+export async function expectExplorerPath(page, pathText) {
   await expect(explorerPathbar(page)).toContainText(pathText, {timeout: LONG_UI_TIMEOUT});
 }
 
-async function selectExplorerRow(page, name) {
+export async function selectExplorerRow(page, name) {
   const row = page.getByRole('row', {name: new RegExp(escapeRegExp(name))}).first();
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await row.click();
@@ -852,7 +859,7 @@ async function selectExplorerRow(page, name) {
 
 // Creates a folder under the current selection (a selected space's root, or a
 // selected folder), which is how the toolbar button targets a parent.
-async function createExplorerFolder(page, name) {
+export async function createExplorerFolder(page, name) {
   await page.getByRole('button', {name: 'New folder', exact: true}).click();
   const dialog = page.getByRole('dialog').filter({hasText: 'New folder'});
   await dialog.getByLabel('Folder name', {exact: true}).fill(name);
@@ -862,7 +869,7 @@ async function createExplorerFolder(page, name) {
 
 // Moves the selected row via the inspector's Move dialog. destination is the
 // option label: '/' for the space root, otherwise the folder's full path.
-async function moveExplorerSelection(page, destination) {
+export async function moveExplorerSelection(page, destination) {
   await page.getByRole('button', {name: 'Move', exact: true}).click();
   const dialog = page.getByRole('dialog').filter({hasText: /Move /});
   await expect(dialog).toBeVisible({timeout: LONG_UI_TIMEOUT});
@@ -870,7 +877,7 @@ async function moveExplorerSelection(page, destination) {
   await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
 
-async function renameExplorerSelection(page, newName) {
+export async function renameExplorerSelection(page, newName) {
   await page.getByRole('button', {name: 'Rename', exact: true}).click();
   const nameInput = page.getByLabel('New name', {exact: true});
   await nameInput.fill(newName);
@@ -878,20 +885,20 @@ async function renameExplorerSelection(page, newName) {
   await expect(nameInput).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
 
-async function deleteExplorerSelection(page) {
+export async function deleteExplorerSelection(page) {
   await page.getByRole('button', {name: 'Delete', exact: true}).click();
   const dialog = page.getByRole('dialog').filter({hasText: 'Confirm delete'});
   await dialog.getByRole('button', {name: 'Confirm', exact: true}).click();
   await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
 
-async function closeExplorerInspector(page) {
+export async function closeExplorerInspector(page) {
   await page.getByRole('button', {name: 'Close details', exact: true}).click();
 }
 
 // Creates a secret/config through the toolbar against the current selection's
 // folder, asserting the create dialog names that location.
-async function createValueInSelection(page, {type, name, value, location}) {
+export async function createValueInSelection(page, {type, name, value, location}) {
   await page.getByRole('button', {name: `New ${type}`, exact: true}).click();
   const dialog = page.getByTestId(`create-${type}-overlay`).getByRole('dialog');
   if (location) await expect(dialog).toContainText(location);

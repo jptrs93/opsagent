@@ -1,5 +1,6 @@
 import {Buffer} from 'node:buffer';
 import crypto from 'node:crypto';
+import {accessEnforcementCases} from './access-enforcement.js';
 import {caseDef as nixDockerBaselineCase} from './nix-docker-baseline.js';
 import {caseDef as nixDockerVirtualNetworkCase} from './nix-docker-virtual-network.js';
 import {hostRolloverCase, virtualPortForwardingCase, virtualRolloverCase} from './rollover-networking.js';
@@ -301,6 +302,7 @@ export const orderedCases = [
       ]);
     },
   },
+  ...accessEnforcementCases,
   {
     id: 'backup-storage-disabled',
     title: 'verify backup storage disabled',

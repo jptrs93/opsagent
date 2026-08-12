@@ -10,12 +10,11 @@ import {
 } from "../state/deployments.js";
 import {
     describeGrant,
-    formatGlobalRule,
-    formatRule,
     groupGrantsByUser,
     templateArguments,
 } from "../lib/authz.js";
 import {globalRuleOverlay, grantOverlay, ruleTemplateOverlay} from "../components/accessEditors.js";
+import {ruleDisplay} from "../components/ruleDisplay.js";
 import {chevronDownIcon, closeIcon, editIcon, plusIcon, trashIcon} from "../lib/icons.js";
 
 const {div, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col, h2} = van.tags;
@@ -147,7 +146,6 @@ export function usersPage() {
             },
             span({class: `font-medium ${chip.template ? "text-blue-300" : "text-gray-200"}`}, chip.label),
             chip.detail ? span({class: "text-gray-400"}, chip.template ? `(${chip.detail})` : chip.detail) : "",
-            chip.delegable ? span({class: "text-teal-400 whitespace-nowrap"}, "agents ✓") : "",
             button({
                 type: "button",
                 title: "Revoke grant",
@@ -213,11 +211,10 @@ export function usersPage() {
                         "built in") : "")),
             td({class: "py-1.5 pr-3 font-mono text-[11px] text-amber-300"},
                 args.length ? args.map((a) => "${" + a.name + "}").join(", ") : span({class: "text-gray-600"}, "—")),
-            td({class: "py-1.5 pr-3"},
-                div({class: "flex flex-col"},
-                    ...(record.template?.rules || []).map((rule) => span(
-                        {class: "font-mono text-[11px] text-gray-300 whitespace-nowrap"},
-                        formatRule(rule, {spaceNames: spaceNameMap(), argNames}))))),
+            td({class: "py-1.5 pr-3 min-w-0"},
+                div({class: "flex flex-col gap-1"},
+                    ...(record.template?.rules || []).map((rule) =>
+                        ruleDisplay(rule, {spaceNames: spaceNameMap(), argNames})))),
             td({class: "py-1.5 pl-2 text-right whitespace-nowrap w-px"},
                 record.builtin ? "" : div({class: "flex items-center justify-end gap-0.5"},
                     iconButton(editIcon({class: "w-3.5 h-3.5"}), `Edit template ${record.name}`,
@@ -257,9 +254,8 @@ export function usersPage() {
             record.rule?.delegatedOnly
                 ? span({class: "rounded border border-teal-700/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-teal-400 whitespace-nowrap"}, "agents only")
                 : span({class: "text-gray-500 text-[11px]"}, "everyone")),
-        td({class: "py-1.5 pr-3"},
-            span({class: "font-mono text-[11px] text-gray-300 whitespace-nowrap"},
-                formatGlobalRule(record.rule, {spaceNames: spaceNameMap()}))),
+        td({class: "py-1.5 pr-3 min-w-0"},
+            ruleDisplay(record.rule, {spaceNames: spaceNameMap(), showDelegation: false})),
         td({class: "py-1.5 pl-2 text-right whitespace-nowrap w-px"},
             iconButton(trashIcon({class: "w-3.5 h-3.5"}), `Delete global rule ${record.name || record.id}`,
                 () => {
