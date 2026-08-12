@@ -730,6 +730,123 @@ type WebAuthNFinishRequest struct {
 	CredentialJson []byte `json:"credential_json"`
 }
 
+type AuthzSelector struct {
+	Wildcard   bool    `json:"wildcard"`
+	ArgumentID int64   `json:"argument_id"`
+	Include    []int64 `json:"include,omitempty"`
+	Exclude    []int64 `json:"exclude,omitempty"`
+}
+
+type AuthzRule struct {
+	Permissions       *AuthzSelector `json:"permissions"`
+	Spaces            *AuthzSelector `json:"spaces"`
+	EntityTypes       *AuthzSelector `json:"entity_types"`
+	EntityRefs        *AuthzSelector `json:"entity_refs"`
+	DelegationAllowed bool           `json:"delegation_allowed"`
+}
+
+type AuthzTemplateArgument struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
+type AuthzRuleTemplate struct {
+	Arguments []*AuthzTemplateArgument `json:"arguments,omitempty"`
+	Rules     []*AuthzRule             `json:"rules,omitempty"`
+}
+
+type AuthzRuleTemplateRecord struct {
+	ID        int64              `json:"id"`
+	Name      string             `json:"name,omitempty"`
+	Builtin   bool               `json:"builtin"`
+	Deleted   bool               `json:"deleted"`
+	CreatedBy int64              `json:"created_by"`
+	CreatedAt int64              `json:"created_at"`
+	Template  *AuthzRuleTemplate `json:"template"`
+}
+
+type AuthzArgumentBinding struct {
+	ArgumentID int64   `json:"argument_id"`
+	Values     []int64 `json:"values,omitempty"`
+}
+
+type AuthzGrant struct {
+	Args []*AuthzArgumentBinding `json:"args,omitempty"`
+	Rule *AuthzRule              `json:"rule"`
+}
+
+type AuthzGrantRecord struct {
+	ID         int64       `json:"id"`
+	UserID     int64       `json:"user_id"`
+	TemplateID int64       `json:"template_id"`
+	CreatedBy  int64       `json:"created_by"`
+	CreatedAt  int64       `json:"created_at"`
+	Grant      *AuthzGrant `json:"grant"`
+}
+
+type AuthzGlobalRule struct {
+	Permissions   *AuthzSelector `json:"permissions"`
+	Spaces        *AuthzSelector `json:"spaces"`
+	EntityTypes   *AuthzSelector `json:"entity_types"`
+	EntityRefs    *AuthzSelector `json:"entity_refs"`
+	DelegatedOnly bool           `json:"delegated_only"`
+}
+
+type AuthzGlobalRuleRecord struct {
+	ID        int64            `json:"id"`
+	Name      string           `json:"name,omitempty"`
+	CreatedBy int64            `json:"created_by"`
+	CreatedAt int64            `json:"created_at"`
+	Rule      *AuthzGlobalRule `json:"rule"`
+}
+
+type AuthzRuleTemplateList struct {
+	Items []*AuthzRuleTemplateRecord `json:"items,omitempty"`
+}
+
+type AuthzRuleTemplateCreateRequest struct {
+	Name     string             `json:"name,omitempty"`
+	Template *AuthzRuleTemplate `json:"template"`
+}
+
+type AuthzRuleTemplateUpdateRequest struct {
+	ID       int64              `json:"id"`
+	Name     string             `json:"name,omitempty"`
+	Template *AuthzRuleTemplate `json:"template"`
+}
+
+type AuthzRuleTemplateDeleteRequest struct {
+	ID int64 `json:"id"`
+}
+
+type AuthzGrantList struct {
+	Items []*AuthzGrantRecord `json:"items,omitempty"`
+}
+
+type AuthzGrantCreateRequest struct {
+	UserID     int64       `json:"user_id"`
+	TemplateID int64       `json:"template_id"`
+	Grant      *AuthzGrant `json:"grant"`
+}
+
+type AuthzGrantDeleteRequest struct {
+	UserID int64 `json:"user_id"`
+	ID     int64 `json:"id"`
+}
+
+type AuthzGlobalRuleList struct {
+	Items []*AuthzGlobalRuleRecord `json:"items,omitempty"`
+}
+
+type AuthzGlobalRuleCreateRequest struct {
+	Name string           `json:"name,omitempty"`
+	Rule *AuthzGlobalRule `json:"rule"`
+}
+
+type AuthzGlobalRuleDeleteRequest struct {
+	ID int64 `json:"id"`
+}
+
 type SecretMeta struct {
 	Name             string               `json:"name,omitempty"`
 	CreatedAt        time.Time            `json:"created_at"`
@@ -1036,6 +1153,9 @@ type State struct {
 	ValueDirectoryUpdate       *ValueDirectory            `json:"value_directory_update"`
 	AssetDirectoriesSnapshot   *AssetDirectoryList        `json:"asset_directories_snapshot"`
 	AssetDirectoryUpdate       *AssetDirectory            `json:"asset_directory_update"`
+	AuthzRuleTemplatesSnapshot *AuthzRuleTemplateList     `json:"authz_rule_templates_snapshot"`
+	AuthzGrantsSnapshot        *AuthzGrantList            `json:"authz_grants_snapshot"`
+	AuthzGlobalRulesSnapshot   *AuthzGlobalRuleList       `json:"authz_global_rules_snapshot"`
 }
 
 type Space struct {

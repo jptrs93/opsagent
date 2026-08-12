@@ -13,6 +13,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
 	"github.com/jptrs93/opsagent/backend/app/primary/enrollmenthandler"
+	"github.com/jptrs93/opsagent/backend/lib/authz"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
@@ -38,6 +39,7 @@ type Handler struct {
 	// Store is the primary-side storage adapter. Handles both deployment
 	// state and auth (users + JWT keys).
 	Store                 *state.Service
+	Authz                 *authz.Service
 	Assets                *assetstore.Store
 	ConfigService         *config.Service
 	Config                *apigen.ClusterSettings
@@ -119,9 +121,14 @@ func (h *Handler) GetV1Healthz(ctx apigen.Context, request *http.Request, writer
 // New constructs the Web UI handler without starting application services.
 func New(staticFS fs.FS, nodeID int32, deps Dependencies) (*Handler, error) {
 	snapshot := deps.ConfigService.Snapshot()
+	authzService, err := authz.Open(deps.Store)
+	if err != nil {
+		return nil, err
+	}
 	h := &Handler{
 		staticFS:              staticFS,
 		Store:                 deps.Store,
+		Authz:                 authzService,
 		Assets:                deps.Assets,
 		ConfigService:         deps.ConfigService,
 		Config:                &snapshot.Settings,

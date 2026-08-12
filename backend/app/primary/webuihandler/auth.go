@@ -12,6 +12,7 @@ import (
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/authz"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/jwtu"
 )
@@ -69,6 +70,13 @@ func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswor
 			Name:       req.Username,
 		}
 		h.Store.WriteUser(user)
+		if _, grantErr := h.Authz.CreateGrant(&apigen.AuthzGrantRecord{
+			UserID:     int64(user.ID),
+			TemplateID: authz.ClusterAdminTemplateID,
+			Grant:      &apigen.AuthzGrant{},
+		}); grantErr != nil {
+			return nil, grantErr
+		}
 	} else if err != nil {
 		return nil, err
 	}

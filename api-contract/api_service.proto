@@ -104,6 +104,58 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  // Access control
+
+  rpc PostV1AccessRuleTemplatesList(EmptyRequest) returns (AuthzRuleTemplateList) {
+    option (cp.url) = "/v1/access/rule-templates/list";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AccessRuleTemplatesCreate(AuthzRuleTemplateCreateRequest) returns (AuthzRuleTemplateRecord) {
+    option (cp.url) = "/v1/access/rule-templates/create";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AccessRuleTemplatesUpdate(AuthzRuleTemplateUpdateRequest) returns (AuthzRuleTemplateRecord) {
+    option (cp.url) = "/v1/access/rule-templates/update";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AccessRuleTemplatesDelete(AuthzRuleTemplateDeleteRequest) returns (cp.Empty) {
+    option (cp.url) = "/v1/access/rule-templates/delete";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AccessGrantsList(EmptyRequest) returns (AuthzGrantList) {
+    option (cp.url) = "/v1/access/grants/list";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AccessGrantsCreate(AuthzGrantCreateRequest) returns (AuthzGrantRecord) {
+    option (cp.url) = "/v1/access/grants/create";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AccessGrantsDelete(AuthzGrantDeleteRequest) returns (cp.Empty) {
+    option (cp.url) = "/v1/access/grants/delete";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AccessGlobalRulesList(EmptyRequest) returns (AuthzGlobalRuleList) {
+    option (cp.url) = "/v1/access/global-rules/list";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AccessGlobalRulesCreate(AuthzGlobalRuleCreateRequest) returns (AuthzGlobalRuleRecord) {
+    option (cp.url) = "/v1/access/global-rules/create";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1AccessGlobalRulesDelete(AuthzGlobalRuleDeleteRequest) returns (cp.Empty) {
+    option (cp.url) = "/v1/access/global-rules/delete";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   // Global state
 
   rpc GetV1GlobalState(cp.Empty) returns (GlobalState) {

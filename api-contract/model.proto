@@ -228,36 +228,17 @@ message WebAuthNFinishRequest {
 }
 
 // === Authorization vocabulary ===
-//
-// The fixed vocabulary of the permissions model: verbs and entities. These
-// generated values are the source of truth — storage and enforcement use the
-// integer values directly, so numbers are permanent once assigned.
-//
-// Permissions are assigned as rules of the shape
-//   permission(s) : space(s) : entity type(s) : entity ref(s) : agent delegation (bool)
-// where each position is a wildcard or a list — `*:*:*:*:true` is the super
-// user rule. Roles are not part of this vocabulary: a role is a user-defined
-// (or built-in) template that expands to rules, e.g.
-// space_owner(id) -> ["*:${id}:*:*:true"]. Nothing is wired up yet.
 
-// AuthzVerb is an action a subject can attempt. Not every verb applies to
-// every entity (REVEAL is secrets-only, VIEW_LOGS is deployments-only); the
-// applicability matrix lives with the enforcement mapping, not here.
 enum AuthzVerb {
   AUTHZ_VERB_UNKNOWN = 0;
-  AUTHZ_VERB_VIEW = 1;      // see the entity and its metadata
-  AUTHZ_VERB_VIEW_LOGS = 2; // read runtime log output
-  AUTHZ_VERB_REVEAL = 3;    // read plaintext secret values; distinct from VIEW
-  AUTHZ_VERB_EDIT = 4;      // modify, including operating a deployment
+  AUTHZ_VERB_VIEW = 1;
+  AUTHZ_VERB_VIEW_LOGS = 2;
+  AUTHZ_VERB_REVEAL = 3;
+  AUTHZ_VERB_EDIT = 4;
   AUTHZ_VERB_CREATE = 5;
   AUTHZ_VERB_DELETE = 6;
 }
 
-// AuthzEntity is the kind of thing a verb acts on. SPACE is special: it is
-// both an entity and the scoping position of every rule. CLUSTER lives inside
-// the opendeploy space (space 0). Directories under assets and secrets/configs
-// are deliberately absent: they are organisational only and carry no
-// permissions of their own.
 enum AuthzEntity {
   AUTHZ_ENTITY_UNKNOWN = 0;
   AUTHZ_ENTITY_SPACE = 1;
@@ -268,7 +249,124 @@ enum AuthzEntity {
   AUTHZ_ENTITY_NODE = 6;
   AUTHZ_ENTITY_CLUSTER = 7;
   AUTHZ_ENTITY_USER = 8;
-  AUTHZ_ENTITY_ACCESS = 9; // permission rules and role templates themselves
+  AUTHZ_ENTITY_ACCESS = 9;
+}
+
+message AuthzSelector {
+  bool wildcard = 1;
+  int64 argument_id = 2;
+  repeated int64 include = 3;
+  repeated int64 exclude = 4;
+}
+
+message AuthzRule {
+  AuthzSelector permissions = 1;
+  AuthzSelector spaces = 2;
+  AuthzSelector entity_types = 3;
+  AuthzSelector entity_refs = 4;
+  bool delegation_allowed = 5;
+}
+
+message AuthzTemplateArgument {
+  int64 id = 1;
+  string name = 2;
+}
+
+message AuthzRuleTemplate {
+  repeated AuthzTemplateArgument arguments = 1;
+  repeated AuthzRule rules = 2;
+}
+
+message AuthzRuleTemplateRecord {
+  int64 id = 1;
+  string name = 2;
+  bool builtin = 3;
+  bool deleted = 4;
+  int64 created_by = 5;
+  int64 created_at = 6;
+  AuthzRuleTemplate template = 7;
+}
+
+message AuthzArgumentBinding {
+  int64 argument_id = 1;
+  repeated int64 values = 2;
+}
+
+message AuthzGrant {
+  repeated AuthzArgumentBinding args = 1;
+  AuthzRule rule = 2;
+}
+
+message AuthzGrantRecord {
+  int64 id = 1;
+  int64 user_id = 2;
+  int64 template_id = 3;
+  int64 created_by = 4;
+  int64 created_at = 5;
+  AuthzGrant grant = 6;
+}
+
+message AuthzGlobalRule {
+  AuthzSelector permissions = 1;
+  AuthzSelector spaces = 2;
+  AuthzSelector entity_types = 3;
+  AuthzSelector entity_refs = 4;
+  bool delegated_only = 5;
+}
+
+message AuthzGlobalRuleRecord {
+  int64 id = 1;
+  string name = 2;
+  int64 created_by = 3;
+  int64 created_at = 4;
+  AuthzGlobalRule rule = 5;
+}
+
+message AuthzRuleTemplateList {
+  repeated AuthzRuleTemplateRecord items = 1;
+}
+
+message AuthzRuleTemplateCreateRequest {
+  string name = 1;
+  AuthzRuleTemplate template = 2;
+}
+
+message AuthzRuleTemplateUpdateRequest {
+  int64 id = 1;
+  string name = 2;
+  AuthzRuleTemplate template = 3;
+}
+
+message AuthzRuleTemplateDeleteRequest {
+  int64 id = 1;
+}
+
+message AuthzGrantList {
+  repeated AuthzGrantRecord items = 1;
+}
+
+message AuthzGrantCreateRequest {
+  int64 user_id = 1;
+  int64 template_id = 2;
+  AuthzGrant grant = 3;
+}
+
+message AuthzGrantDeleteRequest {
+  int64 user_id = 1;
+  int64 id = 2;
+}
+
+message AuthzGlobalRuleList {
+  repeated AuthzGlobalRuleRecord items = 1;
+}
+
+message AuthzGlobalRuleCreateRequest {
+  string name = 1;
+  AuthzGlobalRule rule = 2;
+}
+
+message AuthzGlobalRuleDeleteRequest {
+  int64 id = 1;
 }
 
 // === Secrets messages ===
@@ -688,6 +786,11 @@ message State {
   ValueDirectory value_directory_update = 37;
   AssetDirectoryList asset_directories_snapshot = 38;
   AssetDirectory asset_directory_update = 39;
+  // Authz collections are small and mutate rarely, so each change re-emits the
+  // full snapshot instead of tombstoning hard-deleted grants and rules.
+  AuthzRuleTemplateList authz_rule_templates_snapshot = 40;
+  AuthzGrantList authz_grants_snapshot = 41;
+  AuthzGlobalRuleList authz_global_rules_snapshot = 42;
 }
 
 message Space {

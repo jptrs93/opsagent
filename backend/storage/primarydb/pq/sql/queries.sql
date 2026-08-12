@@ -614,3 +614,44 @@ SELECT value FROM local_kv WHERE key = ?;
 INSERT INTO local_kv (key, value) VALUES (?, ?)
 ON CONFLICT(key) DO UPDATE SET value = excluded.value;
 
+
+-- === authz ===
+
+-- name: ListAuthzRuleTemplateRows :many
+SELECT id, name, builtin, deleted, created_by, created_at, data_blob FROM authz_rule_templates;
+
+-- name: InsertAuthzRuleTemplateRow :one
+INSERT INTO authz_rule_templates (name, builtin, deleted, created_by, created_at, data_blob)
+VALUES (?, 0, 0, ?, ?, ?) RETURNING id;
+
+-- name: UpdateAuthzRuleTemplateRow :exec
+UPDATE authz_rule_templates SET name = ?, deleted = ?, data_blob = ? WHERE id = ?;
+
+-- name: UpsertAuthzRuleTemplateRow :exec
+INSERT INTO authz_rule_templates (id, name, builtin, deleted, created_by, created_at, data_blob)
+VALUES (?, ?, 1, 0, 0, 0, ?)
+ON CONFLICT(id) DO UPDATE SET
+    name = excluded.name,
+    builtin = 1,
+    deleted = 0,
+    data_blob = excluded.data_blob;
+
+-- name: ListAuthzGrantRows :many
+SELECT id, user_id, template_id, created_by, created_at, data_blob FROM authz_grants;
+
+-- name: InsertAuthzGrantRow :one
+INSERT INTO authz_grants (user_id, template_id, created_by, created_at, data_blob)
+VALUES (?, ?, ?, ?, ?) RETURNING id;
+
+-- name: DeleteAuthzGrantRow :exec
+DELETE FROM authz_grants WHERE id = ?;
+
+-- name: ListGlobalAccessRuleRows :many
+SELECT id, name, created_by, created_at, data_blob FROM global_access_rules;
+
+-- name: InsertGlobalAccessRuleRow :one
+INSERT INTO global_access_rules (name, created_by, created_at, data_blob)
+VALUES (?, ?, ?, ?) RETURNING id;
+
+-- name: DeleteGlobalAccessRuleRow :exec
+DELETE FROM global_access_rules WHERE id = ?;

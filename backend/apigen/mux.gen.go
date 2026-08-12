@@ -88,6 +88,16 @@ type ApiServerHandler interface {
 	PostV1AgentSessionsCreate(Context) (*AgentSessionCreated, error)
 	PostV1AgentSessionsList(Context, *EmptyRequest) (*AgentSessionList, error)
 	PostV1AgentSessionsRevoke(Context, *AgentSessionRevokeRequest) error
+	PostV1AccessRuleTemplatesList(Context, *EmptyRequest) (*AuthzRuleTemplateList, error)
+	PostV1AccessRuleTemplatesCreate(Context, *AuthzRuleTemplateCreateRequest) (*AuthzRuleTemplateRecord, error)
+	PostV1AccessRuleTemplatesUpdate(Context, *AuthzRuleTemplateUpdateRequest) (*AuthzRuleTemplateRecord, error)
+	PostV1AccessRuleTemplatesDelete(Context, *AuthzRuleTemplateDeleteRequest) error
+	PostV1AccessGrantsList(Context, *EmptyRequest) (*AuthzGrantList, error)
+	PostV1AccessGrantsCreate(Context, *AuthzGrantCreateRequest) (*AuthzGrantRecord, error)
+	PostV1AccessGrantsDelete(Context, *AuthzGrantDeleteRequest) error
+	PostV1AccessGlobalRulesList(Context, *EmptyRequest) (*AuthzGlobalRuleList, error)
+	PostV1AccessGlobalRulesCreate(Context, *AuthzGlobalRuleCreateRequest) (*AuthzGlobalRuleRecord, error)
+	PostV1AccessGlobalRulesDelete(Context, *AuthzGlobalRuleDeleteRequest) error
 	GetV1GlobalState(Context) (*GlobalState, error)
 	PostV1GlobalStateStream(Context) iter.Seq2[*State, error]
 	PostV1GlobalExportedConfig(Context, *EmptyRequest) (*ExportedConfigBlob, error)
@@ -365,6 +375,128 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/agent-sessions/revoke", buildHandlerFunc(config, verifyAuth, postV1AgentSessionsRevokeAccessPolicy, postAuthHandlerPostV1AgentSessionsRevoke, compressionModeAuto, false))
+	postV1AccessRuleTemplatesListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AccessRuleTemplatesList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AccessRuleTemplatesList(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/access/rule-templates/list", buildHandlerFunc(config, verifyAuth, postV1AccessRuleTemplatesListAccessPolicy, postAuthHandlerPostV1AccessRuleTemplatesList, compressionModeAuto, false))
+	postV1AccessRuleTemplatesCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AccessRuleTemplatesCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzRuleTemplateCreateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AccessRuleTemplatesCreate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/access/rule-templates/create", buildHandlerFunc(config, verifyAuth, postV1AccessRuleTemplatesCreateAccessPolicy, postAuthHandlerPostV1AccessRuleTemplatesCreate, compressionModeAuto, false))
+	postV1AccessRuleTemplatesUpdateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AccessRuleTemplatesUpdate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzRuleTemplateUpdateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AccessRuleTemplatesUpdate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/access/rule-templates/update", buildHandlerFunc(config, verifyAuth, postV1AccessRuleTemplatesUpdateAccessPolicy, postAuthHandlerPostV1AccessRuleTemplatesUpdate, compressionModeAuto, false))
+	postV1AccessRuleTemplatesDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AccessRuleTemplatesDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzRuleTemplateDeleteRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1AccessRuleTemplatesDelete(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/access/rule-templates/delete", buildHandlerFunc(config, verifyAuth, postV1AccessRuleTemplatesDeleteAccessPolicy, postAuthHandlerPostV1AccessRuleTemplatesDelete, compressionModeAuto, false))
+	postV1AccessGrantsListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AccessGrantsList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AccessGrantsList(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/access/grants/list", buildHandlerFunc(config, verifyAuth, postV1AccessGrantsListAccessPolicy, postAuthHandlerPostV1AccessGrantsList, compressionModeAuto, false))
+	postV1AccessGrantsCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AccessGrantsCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzGrantCreateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AccessGrantsCreate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/access/grants/create", buildHandlerFunc(config, verifyAuth, postV1AccessGrantsCreateAccessPolicy, postAuthHandlerPostV1AccessGrantsCreate, compressionModeAuto, false))
+	postV1AccessGrantsDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AccessGrantsDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzGrantDeleteRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1AccessGrantsDelete(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/access/grants/delete", buildHandlerFunc(config, verifyAuth, postV1AccessGrantsDeleteAccessPolicy, postAuthHandlerPostV1AccessGrantsDelete, compressionModeAuto, false))
+	postV1AccessGlobalRulesListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AccessGlobalRulesList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AccessGlobalRulesList(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/access/global-rules/list", buildHandlerFunc(config, verifyAuth, postV1AccessGlobalRulesListAccessPolicy, postAuthHandlerPostV1AccessGlobalRulesList, compressionModeAuto, false))
+	postV1AccessGlobalRulesCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AccessGlobalRulesCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzGlobalRuleCreateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AccessGlobalRulesCreate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/access/global-rules/create", buildHandlerFunc(config, verifyAuth, postV1AccessGlobalRulesCreateAccessPolicy, postAuthHandlerPostV1AccessGlobalRulesCreate, compressionModeAuto, false))
+	postV1AccessGlobalRulesDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1AccessGlobalRulesDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzGlobalRuleDeleteRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1AccessGlobalRulesDelete(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/access/global-rules/delete", buildHandlerFunc(config, verifyAuth, postV1AccessGlobalRulesDeleteAccessPolicy, postAuthHandlerPostV1AccessGlobalRulesDelete, compressionModeAuto, false))
 	getV1GlobalStateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerGetV1GlobalState := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		res, err := h.GetV1GlobalState(authCtx)

@@ -11,7 +11,7 @@
     "dev:secret-editor": "vite --open /fixtures/secret-editor/",
     "check:secret-editor": "node fixtures/secret-editor/stateCheck.js",
     "check:deployment-editor": "node fixtures/deployment-editor/deploymentSourceCheck.js && node fixtures/deployment-editor/roundTripCheck.js",
-    "test": "node --test src/state/deploymentMerge.test.js src/lib/agentSessions.test.js src/lib/nodeSpaces.test.js src/lib/valueExplorer.test.js src/lib/assetExplorer.test.js",
+    "test": "node --test src/state/deploymentMerge.test.js src/lib/agentSessions.test.js src/lib/nodeSpaces.test.js src/lib/valueExplorer.test.js src/lib/assetExplorer.test.js src/lib/authz.test.js",
     "build": "vite build",
     "preview": "vite preview"
   },

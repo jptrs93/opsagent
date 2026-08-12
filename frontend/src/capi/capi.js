@@ -11,6 +11,12 @@ import {
   decodeAssetList,
   decodeAssetMeta,
   decodeAssetVersion,
+  decodeAuthzGlobalRuleList,
+  decodeAuthzGlobalRuleRecord,
+  decodeAuthzGrantList,
+  decodeAuthzGrantRecord,
+  decodeAuthzRuleTemplateList,
+  decodeAuthzRuleTemplateRecord,
   decodeClusterConfigsResponse,
   decodeClusterNode,
   decodeClusterSecretsResponse,
@@ -59,6 +65,13 @@ import {
   encodeAssetMoveRequest,
   encodeAssetRenameRequest,
   encodeAssetSetRequest,
+  encodeAuthzGlobalRuleCreateRequest,
+  encodeAuthzGlobalRuleDeleteRequest,
+  encodeAuthzGrantCreateRequest,
+  encodeAuthzGrantDeleteRequest,
+  encodeAuthzRuleTemplateCreateRequest,
+  encodeAuthzRuleTemplateDeleteRequest,
+  encodeAuthzRuleTemplateUpdateRequest,
   encodeClusterConfigsRequest,
   encodeClusterSecretsRequest,
   encodeClusterSettings,
@@ -413,6 +426,126 @@ export class Capi {
    */
   async postV1AgentSessionsRevoke(payload) {
     const response = await this.#request("/v1/agent-sessions/revoke", { method: 'POST', body: encodeAgentSessionRevokeRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
+  }
+
+  /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<AuthzRuleTemplateList>}
+   */
+  async postV1AccessRuleTemplatesList(payload) {
+    const response = await this.#request("/v1/access/rule-templates/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAuthzRuleTemplateList(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {AuthzRuleTemplateCreateRequest} payload
+   * @returns {Promise<AuthzRuleTemplateRecord>}
+   */
+  async postV1AccessRuleTemplatesCreate(payload) {
+    const response = await this.#request("/v1/access/rule-templates/create", { method: 'POST', body: encodeAuthzRuleTemplateCreateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAuthzRuleTemplateRecord(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {AuthzRuleTemplateUpdateRequest} payload
+   * @returns {Promise<AuthzRuleTemplateRecord>}
+   */
+  async postV1AccessRuleTemplatesUpdate(payload) {
+    const response = await this.#request("/v1/access/rule-templates/update", { method: 'POST', body: encodeAuthzRuleTemplateUpdateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAuthzRuleTemplateRecord(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {AuthzRuleTemplateDeleteRequest} payload
+   * @returns {Promise<void>}
+   */
+  async postV1AccessRuleTemplatesDelete(payload) {
+    const response = await this.#request("/v1/access/rule-templates/delete", { method: 'POST', body: encodeAuthzRuleTemplateDeleteRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
+  }
+
+  /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<AuthzGrantList>}
+   */
+  async postV1AccessGrantsList(payload) {
+    const response = await this.#request("/v1/access/grants/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAuthzGrantList(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {AuthzGrantCreateRequest} payload
+   * @returns {Promise<AuthzGrantRecord>}
+   */
+  async postV1AccessGrantsCreate(payload) {
+    const response = await this.#request("/v1/access/grants/create", { method: 'POST', body: encodeAuthzGrantCreateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAuthzGrantRecord(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {AuthzGrantDeleteRequest} payload
+   * @returns {Promise<void>}
+   */
+  async postV1AccessGrantsDelete(payload) {
+    const response = await this.#request("/v1/access/grants/delete", { method: 'POST', body: encodeAuthzGrantDeleteRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
+  }
+
+  /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<AuthzGlobalRuleList>}
+   */
+  async postV1AccessGlobalRulesList(payload) {
+    const response = await this.#request("/v1/access/global-rules/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAuthzGlobalRuleList(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {AuthzGlobalRuleCreateRequest} payload
+   * @returns {Promise<AuthzGlobalRuleRecord>}
+   */
+  async postV1AccessGlobalRulesCreate(payload) {
+    const response = await this.#request("/v1/access/global-rules/create", { method: 'POST', body: encodeAuthzGlobalRuleCreateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAuthzGlobalRuleRecord(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {AuthzGlobalRuleDeleteRequest} payload
+   * @returns {Promise<void>}
+   */
+  async postV1AccessGlobalRulesDelete(payload) {
+    const response = await this.#request("/v1/access/global-rules/delete", { method: 'POST', body: encodeAuthzGlobalRuleDeleteRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

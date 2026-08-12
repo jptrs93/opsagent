@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/authz"
 )
 
 // PostV1GlobalStateStream delivers the current scheduled instance snapshot to the UI,
@@ -48,6 +49,8 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 		defer enrollmentUnsub()
 		agentSessionSub, agentSessionUnsub := h.Store.SubscribeAgentSessionUpdates()
 		defer agentSessionUnsub()
+		authzSub, authzUnsub := h.Authz.SubscribeChanges()
+		defer authzUnsub()
 
 		// Agent sessions are the one thing here that belongs to a single
 		// operator, so they are filtered to the connected user rather than
@@ -91,6 +94,9 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 			BackupStatusSnapshot:       &backupStatus,
 			ConfigSnapshot:             configSub.InitialValue,
 			AgentSessionsSnapshot:      agentSessions,
+			AuthzRuleTemplatesSnapshot: &apigen.AuthzRuleTemplateList{Items: h.Authz.RuleTemplates()},
+			AuthzGrantsSnapshot:        &apigen.AuthzGrantList{Items: h.Authz.Grants()},
+			AuthzGlobalRulesSnapshot:   &apigen.AuthzGlobalRuleList{Items: h.Authz.GlobalRules()},
 		}
 		if !yield(initial, nil) {
 			return
@@ -220,6 +226,22 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 					continue
 				}
 				if !yield(&apigen.State{AgentSessionUpdate: agentSessionToProto(rec)}, nil) {
+					return
+				}
+			case kind, ok := <-authzSub.Ch:
+				if !ok {
+					return
+				}
+				update := &apigen.State{}
+				switch kind {
+				case authz.ChangeRuleTemplates:
+					update.AuthzRuleTemplatesSnapshot = &apigen.AuthzRuleTemplateList{Items: h.Authz.RuleTemplates()}
+				case authz.ChangeGrants:
+					update.AuthzGrantsSnapshot = &apigen.AuthzGrantList{Items: h.Authz.Grants()}
+				case authz.ChangeGlobalRules:
+					update.AuthzGlobalRulesSnapshot = &apigen.AuthzGlobalRuleList{Items: h.Authz.GlobalRules()}
+				}
+				if !yield(update, nil) {
 					return
 				}
 			case <-heartbeatTicker.C:

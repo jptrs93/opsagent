@@ -4328,6 +4328,949 @@ func DecodeWebAuthNFinishRequest(b []byte) (*WebAuthNFinishRequest, error) {
 	return &m, nil
 }
 
+func (m *AuthzSelector) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Wildcard, 1)
+	b = AppendInt64Field(b, m.ArgumentID, 2)
+	b = AppendRepeatedCompact(b, m.Include, 3, AppendCompactDecorator(AppendInt64Compact))
+	b = AppendRepeatedCompact(b, m.Exclude, 4, AppendCompactDecorator(AppendInt64Compact))
+	return b
+}
+
+func DecodeAuthzSelector(b []byte) (*AuthzSelector, error) {
+	var m AuthzSelector
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Wildcard, err = ConsumeBool(b, typ)
+		case 2:
+			b, m.ArgumentID, err = ConsumeVarInt64(b, typ)
+		case 3:
+			b, m.Include, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt64)
+		case 4:
+			b, m.Exclude, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt64)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzRule) Encode() []byte {
+	var b []byte
+	if m.Permissions != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Permissions.Encode())
+	}
+	if m.Spaces != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Spaces.Encode())
+	}
+	if m.EntityTypes != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.EntityTypes.Encode())
+	}
+	if m.EntityRefs != nil {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.EntityRefs.Encode())
+	}
+	b = AppendBoolField(b, m.DelegationAllowed, 5)
+	return b
+}
+
+func DecodeAuthzRule(b []byte) (*AuthzRule, error) {
+	var m AuthzRule
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzSelector
+				item, err = DecodeAuthzSelector(msgBytes)
+				if err == nil {
+					m.Permissions = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzSelector
+				item, err = DecodeAuthzSelector(msgBytes)
+				if err == nil {
+					m.Spaces = item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzSelector
+				item, err = DecodeAuthzSelector(msgBytes)
+				if err == nil {
+					m.EntityTypes = item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzSelector
+				item, err = DecodeAuthzSelector(msgBytes)
+				if err == nil {
+					m.EntityRefs = item
+				}
+			}
+		case 5:
+			b, m.DelegationAllowed, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzTemplateArgument) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	return b
+}
+
+func DecodeAuthzTemplateArgument(b []byte) (*AuthzTemplateArgument, error) {
+	var m AuthzTemplateArgument
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzRuleTemplate) Encode() []byte {
+	var b []byte
+	for _, item := range m.Arguments {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	for _, item := range m.Rules {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeAuthzRuleTemplate(b []byte) (*AuthzRuleTemplate, error) {
+	var m AuthzRuleTemplate
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzTemplateArgument
+				item, err = DecodeAuthzTemplateArgument(msgBytes)
+				if err == nil {
+					m.Arguments = append(m.Arguments, item)
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzRule
+				item, err = DecodeAuthzRule(msgBytes)
+				if err == nil {
+					m.Rules = append(m.Rules, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzRuleTemplateRecord) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	b = AppendBoolField(b, m.Builtin, 3)
+	b = AppendBoolField(b, m.Deleted, 4)
+	b = AppendInt64Field(b, m.CreatedBy, 5)
+	b = AppendInt64Field(b, m.CreatedAt, 6)
+	if m.Template != nil {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.Template.Encode())
+	}
+	return b
+}
+
+func DecodeAuthzRuleTemplateRecord(b []byte) (*AuthzRuleTemplateRecord, error) {
+	var m AuthzRuleTemplateRecord
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Builtin, err = ConsumeBool(b, typ)
+		case 4:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		case 5:
+			b, m.CreatedBy, err = ConsumeVarInt64(b, typ)
+		case 6:
+			b, m.CreatedAt, err = ConsumeVarInt64(b, typ)
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzRuleTemplate
+				item, err = DecodeAuthzRuleTemplate(msgBytes)
+				if err == nil {
+					m.Template = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzArgumentBinding) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.ArgumentID, 1)
+	b = AppendRepeatedCompact(b, m.Values, 2, AppendCompactDecorator(AppendInt64Compact))
+	return b
+}
+
+func DecodeAuthzArgumentBinding(b []byte) (*AuthzArgumentBinding, error) {
+	var m AuthzArgumentBinding
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ArgumentID, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.Values, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt64)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzGrant) Encode() []byte {
+	var b []byte
+	for _, item := range m.Args {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	if m.Rule != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Rule.Encode())
+	}
+	return b
+}
+
+func DecodeAuthzGrant(b []byte) (*AuthzGrant, error) {
+	var m AuthzGrant
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzArgumentBinding
+				item, err = DecodeAuthzArgumentBinding(msgBytes)
+				if err == nil {
+					m.Args = append(m.Args, item)
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzRule
+				item, err = DecodeAuthzRule(msgBytes)
+				if err == nil {
+					m.Rule = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzGrantRecord) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.ID, 1)
+	b = AppendInt64Field(b, m.UserID, 2)
+	b = AppendInt64Field(b, m.TemplateID, 3)
+	b = AppendInt64Field(b, m.CreatedBy, 4)
+	b = AppendInt64Field(b, m.CreatedAt, 5)
+	if m.Grant != nil {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.Grant.Encode())
+	}
+	return b
+}
+
+func DecodeAuthzGrantRecord(b []byte) (*AuthzGrantRecord, error) {
+	var m AuthzGrantRecord
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.UserID, err = ConsumeVarInt64(b, typ)
+		case 3:
+			b, m.TemplateID, err = ConsumeVarInt64(b, typ)
+		case 4:
+			b, m.CreatedBy, err = ConsumeVarInt64(b, typ)
+		case 5:
+			b, m.CreatedAt, err = ConsumeVarInt64(b, typ)
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzGrant
+				item, err = DecodeAuthzGrant(msgBytes)
+				if err == nil {
+					m.Grant = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzGlobalRule) Encode() []byte {
+	var b []byte
+	if m.Permissions != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Permissions.Encode())
+	}
+	if m.Spaces != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Spaces.Encode())
+	}
+	if m.EntityTypes != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.EntityTypes.Encode())
+	}
+	if m.EntityRefs != nil {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.EntityRefs.Encode())
+	}
+	b = AppendBoolField(b, m.DelegatedOnly, 5)
+	return b
+}
+
+func DecodeAuthzGlobalRule(b []byte) (*AuthzGlobalRule, error) {
+	var m AuthzGlobalRule
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzSelector
+				item, err = DecodeAuthzSelector(msgBytes)
+				if err == nil {
+					m.Permissions = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzSelector
+				item, err = DecodeAuthzSelector(msgBytes)
+				if err == nil {
+					m.Spaces = item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzSelector
+				item, err = DecodeAuthzSelector(msgBytes)
+				if err == nil {
+					m.EntityTypes = item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzSelector
+				item, err = DecodeAuthzSelector(msgBytes)
+				if err == nil {
+					m.EntityRefs = item
+				}
+			}
+		case 5:
+			b, m.DelegatedOnly, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzGlobalRuleRecord) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	b = AppendInt64Field(b, m.CreatedBy, 3)
+	b = AppendInt64Field(b, m.CreatedAt, 4)
+	if m.Rule != nil {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.Rule.Encode())
+	}
+	return b
+}
+
+func DecodeAuthzGlobalRuleRecord(b []byte) (*AuthzGlobalRuleRecord, error) {
+	var m AuthzGlobalRuleRecord
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.CreatedBy, err = ConsumeVarInt64(b, typ)
+		case 4:
+			b, m.CreatedAt, err = ConsumeVarInt64(b, typ)
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzGlobalRule
+				item, err = DecodeAuthzGlobalRule(msgBytes)
+				if err == nil {
+					m.Rule = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzRuleTemplateList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeAuthzRuleTemplateList(b []byte) (*AuthzRuleTemplateList, error) {
+	var m AuthzRuleTemplateList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzRuleTemplateRecord
+				item, err = DecodeAuthzRuleTemplateRecord(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzRuleTemplateCreateRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	if m.Template != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Template.Encode())
+	}
+	return b
+}
+
+func DecodeAuthzRuleTemplateCreateRequest(b []byte) (*AuthzRuleTemplateCreateRequest, error) {
+	var m AuthzRuleTemplateCreateRequest
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzRuleTemplate
+				item, err = DecodeAuthzRuleTemplate(msgBytes)
+				if err == nil {
+					m.Template = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzRuleTemplateUpdateRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	if m.Template != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Template.Encode())
+	}
+	return b
+}
+
+func DecodeAuthzRuleTemplateUpdateRequest(b []byte) (*AuthzRuleTemplateUpdateRequest, error) {
+	var m AuthzRuleTemplateUpdateRequest
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzRuleTemplate
+				item, err = DecodeAuthzRuleTemplate(msgBytes)
+				if err == nil {
+					m.Template = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzRuleTemplateDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.ID, 1)
+	return b
+}
+
+func DecodeAuthzRuleTemplateDeleteRequest(b []byte) (*AuthzRuleTemplateDeleteRequest, error) {
+	var m AuthzRuleTemplateDeleteRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzGrantList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeAuthzGrantList(b []byte) (*AuthzGrantList, error) {
+	var m AuthzGrantList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzGrantRecord
+				item, err = DecodeAuthzGrantRecord(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzGrantCreateRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.UserID, 1)
+	b = AppendInt64Field(b, m.TemplateID, 2)
+	if m.Grant != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Grant.Encode())
+	}
+	return b
+}
+
+func DecodeAuthzGrantCreateRequest(b []byte) (*AuthzGrantCreateRequest, error) {
+	var m AuthzGrantCreateRequest
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.UserID, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.TemplateID, err = ConsumeVarInt64(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzGrant
+				item, err = DecodeAuthzGrant(msgBytes)
+				if err == nil {
+					m.Grant = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzGrantDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.UserID, 1)
+	b = AppendInt64Field(b, m.ID, 2)
+	return b
+}
+
+func DecodeAuthzGrantDeleteRequest(b []byte) (*AuthzGrantDeleteRequest, error) {
+	var m AuthzGrantDeleteRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.UserID, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.ID, err = ConsumeVarInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzGlobalRuleList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeAuthzGlobalRuleList(b []byte) (*AuthzGlobalRuleList, error) {
+	var m AuthzGlobalRuleList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzGlobalRuleRecord
+				item, err = DecodeAuthzGlobalRuleRecord(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzGlobalRuleCreateRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	if m.Rule != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Rule.Encode())
+	}
+	return b
+}
+
+func DecodeAuthzGlobalRuleCreateRequest(b []byte) (*AuthzGlobalRuleCreateRequest, error) {
+	var m AuthzGlobalRuleCreateRequest
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzGlobalRule
+				item, err = DecodeAuthzGlobalRule(msgBytes)
+				if err == nil {
+					m.Rule = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthzGlobalRuleDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.ID, 1)
+	return b
+}
+
+func DecodeAuthzGlobalRuleDeleteRequest(b []byte) (*AuthzGlobalRuleDeleteRequest, error) {
+	var m AuthzGlobalRuleDeleteRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *SecretMeta) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Name, 1)
@@ -6192,6 +7135,18 @@ func (m *State) Encode() []byte {
 		b = AppendTag(b, 39, BytesType)
 		b = AppendBytes(b, m.AssetDirectoryUpdate.Encode())
 	}
+	if m.AuthzRuleTemplatesSnapshot != nil {
+		b = AppendTag(b, 40, BytesType)
+		b = AppendBytes(b, m.AuthzRuleTemplatesSnapshot.Encode())
+	}
+	if m.AuthzGrantsSnapshot != nil {
+		b = AppendTag(b, 41, BytesType)
+		b = AppendBytes(b, m.AuthzGrantsSnapshot.Encode())
+	}
+	if m.AuthzGlobalRulesSnapshot != nil {
+		b = AppendTag(b, 42, BytesType)
+		b = AppendBytes(b, m.AuthzGlobalRulesSnapshot.Encode())
+	}
 	return b
 }
 
@@ -6477,6 +7432,33 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeAssetDirectory(msgBytes)
 				if err == nil {
 					m.AssetDirectoryUpdate = item
+				}
+			}
+		case 40:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzRuleTemplateList
+				item, err = DecodeAuthzRuleTemplateList(msgBytes)
+				if err == nil {
+					m.AuthzRuleTemplatesSnapshot = item
+				}
+			}
+		case 41:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzGrantList
+				item, err = DecodeAuthzGrantList(msgBytes)
+				if err == nil {
+					m.AuthzGrantsSnapshot = item
+				}
+			}
+		case 42:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzGlobalRuleList
+				item, err = DecodeAuthzGlobalRuleList(msgBytes)
+				if err == nil {
+					m.AuthzGlobalRulesSnapshot = item
 				}
 			}
 		default:

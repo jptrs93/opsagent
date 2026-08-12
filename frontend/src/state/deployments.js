@@ -30,6 +30,11 @@ export const assetMetasS = van.state([]);
 // is a space's implicit root. Directories carry `key`, not `name`.
 export const assetDirectoriesS = van.state([]);
 export const primaryConfigS = van.state(null);
+// Authz collections arrive as full snapshots on every change rather than
+// per-item updates, so applying them is a straight replacement.
+export const authzTemplatesS = van.state([]);
+export const authzGrantsS = van.state([]);
+export const authzGlobalRulesS = van.state([]);
 const SEEDED_SPACES = [{id: 0, name: 'opendeploy'}, {id: 1, name: 'default'}];
 
 export const spacesS = van.state(SEEDED_SPACES);
@@ -109,6 +114,9 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         assetMetasS.val = [];
         assetDirectoriesS.val = [];
         primaryConfigS.val = null;
+        authzTemplatesS.val = [];
+        authzGrantsS.val = [];
+        authzGlobalRulesS.val = [];
         spacesS.val = SEEDED_SPACES;
     }
     setStreamState('offline', 'offline');
@@ -276,6 +284,18 @@ const handleStateMessage = (message) => {
 
     if (message.configSnapshot) {
         primaryConfigS.val = message.configSnapshot;
+    }
+
+    if (message.authzRuleTemplatesSnapshot) {
+        authzTemplatesS.val = message.authzRuleTemplatesSnapshot.items || [];
+    }
+
+    if (message.authzGrantsSnapshot) {
+        authzGrantsS.val = message.authzGrantsSnapshot.items || [];
+    }
+
+    if (message.authzGlobalRulesSnapshot) {
+        authzGlobalRulesS.val = message.authzGlobalRulesSnapshot.items || [];
     }
 };
 

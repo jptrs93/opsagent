@@ -435,6 +435,184 @@ func (c *ApiServerCapi) PostV1AgentSessionsRevoke(ctx context.Context, req *Agen
 	return nil
 }
 
+func (c *ApiServerCapi) PostV1AccessRuleTemplatesList(ctx context.Context, req *EmptyRequest) (*AuthzRuleTemplateList, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AccessRuleTemplatesList request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/access/rule-templates/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAuthzRuleTemplateList(body)
+}
+
+func (c *ApiServerCapi) PostV1AccessRuleTemplatesCreate(ctx context.Context, req *AuthzRuleTemplateCreateRequest) (*AuthzRuleTemplateRecord, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AccessRuleTemplatesCreate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/access/rule-templates/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAuthzRuleTemplateRecord(body)
+}
+
+func (c *ApiServerCapi) PostV1AccessRuleTemplatesUpdate(ctx context.Context, req *AuthzRuleTemplateUpdateRequest) (*AuthzRuleTemplateRecord, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AccessRuleTemplatesUpdate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/access/rule-templates/update", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAuthzRuleTemplateRecord(body)
+}
+
+func (c *ApiServerCapi) PostV1AccessRuleTemplatesDelete(ctx context.Context, req *AuthzRuleTemplateDeleteRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1AccessRuleTemplatesDelete request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/access/rule-templates/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
+func (c *ApiServerCapi) PostV1AccessGrantsList(ctx context.Context, req *EmptyRequest) (*AuthzGrantList, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AccessGrantsList request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/access/grants/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAuthzGrantList(body)
+}
+
+func (c *ApiServerCapi) PostV1AccessGrantsCreate(ctx context.Context, req *AuthzGrantCreateRequest) (*AuthzGrantRecord, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AccessGrantsCreate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/access/grants/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAuthzGrantRecord(body)
+}
+
+func (c *ApiServerCapi) PostV1AccessGrantsDelete(ctx context.Context, req *AuthzGrantDeleteRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1AccessGrantsDelete request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/access/grants/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
+func (c *ApiServerCapi) PostV1AccessGlobalRulesList(ctx context.Context, req *EmptyRequest) (*AuthzGlobalRuleList, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AccessGlobalRulesList request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/access/global-rules/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAuthzGlobalRuleList(body)
+}
+
+func (c *ApiServerCapi) PostV1AccessGlobalRulesCreate(ctx context.Context, req *AuthzGlobalRuleCreateRequest) (*AuthzGlobalRuleRecord, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AccessGlobalRulesCreate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/access/global-rules/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAuthzGlobalRuleRecord(body)
+}
+
+func (c *ApiServerCapi) PostV1AccessGlobalRulesDelete(ctx context.Context, req *AuthzGlobalRuleDeleteRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1AccessGlobalRulesDelete request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/access/global-rules/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
 func (c *ApiServerCapi) GetV1GlobalState(ctx context.Context) (*GlobalState, error) {
 	resp, err := c.do(ctx, "GET", "/v1/global/state", nil, "application/protobuf", "application/protobuf")
 	if err != nil {

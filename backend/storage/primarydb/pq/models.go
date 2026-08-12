@@ -64,6 +64,25 @@ type AssetVersion struct {
 	Blob      []byte
 }
 
+type AuthzGrant struct {
+	ID         int64
+	UserID     int64
+	TemplateID int64
+	CreatedBy  int64
+	CreatedAt  int64
+	DataBlob   []byte
+}
+
+type AuthzRuleTemplate struct {
+	ID        int64
+	Name      string
+	Builtin   int64
+	Deleted   int64
+	CreatedBy int64
+	CreatedAt int64
+	DataBlob  []byte
+}
+
 type Config struct {
 	ID               int64
 	Name             string
@@ -115,6 +134,14 @@ type EnrollmentRequest struct {
 	OpendeployVersion   string
 	UnderlayAddress     string
 	Status              string
+}
+
+type GlobalAccessRule struct {
+	ID        int64
+	Name      string
+	CreatedBy int64
+	CreatedAt int64
+	DataBlob  []byte
 }
 
 type LocalKv struct {

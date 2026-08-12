@@ -577,6 +577,123 @@
  * @property {Uint8Array} credentialJson
  */
 /**
+ * @typedef {Object} AuthzSelector
+ * @property {boolean} wildcard
+ * @property {number} argumentId
+ * @property {number[]} include
+ * @property {number[]} exclude
+ */
+/**
+ * @typedef {Object} AuthzRule
+ * @property {AuthzSelector} permissions
+ * @property {AuthzSelector} spaces
+ * @property {AuthzSelector} entityTypes
+ * @property {AuthzSelector} entityRefs
+ * @property {boolean} delegationAllowed
+ */
+/**
+ * @typedef {Object} AuthzTemplateArgument
+ * @property {number} id
+ * @property {string} name
+ */
+/**
+ * @typedef {Object} AuthzRuleTemplate
+ * @property {AuthzTemplateArgument[]} arguments
+ * @property {AuthzRule[]} rules
+ */
+/**
+ * @typedef {Object} AuthzRuleTemplateRecord
+ * @property {number} id
+ * @property {string} name
+ * @property {boolean} builtin
+ * @property {boolean} deleted
+ * @property {number} createdBy
+ * @property {number} createdAt
+ * @property {AuthzRuleTemplate} template
+ */
+/**
+ * @typedef {Object} AuthzArgumentBinding
+ * @property {number} argumentId
+ * @property {number[]} values
+ */
+/**
+ * @typedef {Object} AuthzGrant
+ * @property {AuthzArgumentBinding[]} args
+ * @property {AuthzRule} rule
+ */
+/**
+ * @typedef {Object} AuthzGrantRecord
+ * @property {number} id
+ * @property {number} userId
+ * @property {number} templateId
+ * @property {number} createdBy
+ * @property {number} createdAt
+ * @property {AuthzGrant} grant
+ */
+/**
+ * @typedef {Object} AuthzGlobalRule
+ * @property {AuthzSelector} permissions
+ * @property {AuthzSelector} spaces
+ * @property {AuthzSelector} entityTypes
+ * @property {AuthzSelector} entityRefs
+ * @property {boolean} delegatedOnly
+ */
+/**
+ * @typedef {Object} AuthzGlobalRuleRecord
+ * @property {number} id
+ * @property {string} name
+ * @property {number} createdBy
+ * @property {number} createdAt
+ * @property {AuthzGlobalRule} rule
+ */
+/**
+ * @typedef {Object} AuthzRuleTemplateList
+ * @property {AuthzRuleTemplateRecord[]} items
+ */
+/**
+ * @typedef {Object} AuthzRuleTemplateCreateRequest
+ * @property {string} name
+ * @property {AuthzRuleTemplate} template
+ */
+/**
+ * @typedef {Object} AuthzRuleTemplateUpdateRequest
+ * @property {number} id
+ * @property {string} name
+ * @property {AuthzRuleTemplate} template
+ */
+/**
+ * @typedef {Object} AuthzRuleTemplateDeleteRequest
+ * @property {number} id
+ */
+/**
+ * @typedef {Object} AuthzGrantList
+ * @property {AuthzGrantRecord[]} items
+ */
+/**
+ * @typedef {Object} AuthzGrantCreateRequest
+ * @property {number} userId
+ * @property {number} templateId
+ * @property {AuthzGrant} grant
+ */
+/**
+ * @typedef {Object} AuthzGrantDeleteRequest
+ * @property {number} userId
+ * @property {number} id
+ */
+/**
+ * @typedef {Object} AuthzGlobalRuleList
+ * @property {AuthzGlobalRuleRecord[]} items
+ */
+/**
+ * @typedef {Object} AuthzGlobalRuleCreateRequest
+ * @property {string} name
+ * @property {AuthzGlobalRule} rule
+ */
+/**
+ * @typedef {Object} AuthzGlobalRuleDeleteRequest
+ * @property {number} id
+ */
+/**
  * @typedef {Object} SecretMeta
  * @property {string} name
  * @property {Date} createdAt
@@ -883,6 +1000,9 @@
  * @property {ValueDirectory} valueDirectoryUpdate
  * @property {AssetDirectoryList} assetDirectoriesSnapshot
  * @property {AssetDirectory} assetDirectoryUpdate
+ * @property {AuthzRuleTemplateList} authzRuleTemplatesSnapshot
+ * @property {AuthzGrantList} authzGrantsSnapshot
+ * @property {AuthzGlobalRuleList} authzGlobalRulesSnapshot
  */
 /**
  * @typedef {Object} Space
@@ -8144,6 +8264,1468 @@ export function decodeWebAuthNFinishRequest(buffer) {
 
 
 /**
+ * @param {AuthzSelector} message
+ * @param {Writer} writer
+ */
+export function writeAuthzSelector(message, writer) {
+    if (message.wildcard === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.wildcard);
+    }
+    if (message.argumentId !== undefined && message.argumentId !== null && message.argumentId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.argumentId);
+    }
+    if (message.include) {
+        const packedWriter = Writer.create();
+        for (const item of message.include) {
+            packedWriter.int64(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(3, WIRE.LDELIM)).bytes(packedWriter.finish());
+        }
+    }
+    if (message.exclude) {
+        const packedWriter = Writer.create();
+        for (const item of message.exclude) {
+            packedWriter.int64(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(4, WIRE.LDELIM)).bytes(packedWriter.finish());
+        }
+    }
+}
+
+
+/**
+ * @param {AuthzSelector} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzSelector(message) {
+    const writer = Writer.create();
+    writeAuthzSelector(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzSelector}
+ */
+function decodeAuthzSelectorMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {wildcard: false, argumentId: 0, include: [], exclude: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.wildcard = reader.bool();
+                break;
+            }
+            case 2: {
+                message.argumentId = readInt64(reader, "int64");
+                break;
+            }
+            case 3: {
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.include.push(readInt64(reader, "int64"));
+                }
+                break;
+            }
+            case 4: {
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.exclude.push(readInt64(reader, "int64"));
+                }
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzSelector}
+ */
+export function decodeAuthzSelector(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzSelectorMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzRule} message
+ * @param {Writer} writer
+ */
+export function writeAuthzRule(message, writer) {
+    if (message.permissions !== undefined && message.permissions !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeAuthzSelector(message.permissions, writer);
+        writer.ldelim();
+    }
+    if (message.spaces !== undefined && message.spaces !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeAuthzSelector(message.spaces, writer);
+        writer.ldelim();
+    }
+    if (message.entityTypes !== undefined && message.entityTypes !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeAuthzSelector(message.entityTypes, writer);
+        writer.ldelim();
+    }
+    if (message.entityRefs !== undefined && message.entityRefs !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeAuthzSelector(message.entityRefs, writer);
+        writer.ldelim();
+    }
+    if (message.delegationAllowed === true) {
+        writer.uint32(tag(5, WIRE.VARINT)).bool(message.delegationAllowed);
+    }
+}
+
+
+/**
+ * @param {AuthzRule} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzRule(message) {
+    const writer = Writer.create();
+    writeAuthzRule(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzRule}
+ */
+function decodeAuthzRuleMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {permissions: undefined, spaces: undefined, entityTypes: undefined, entityRefs: undefined, delegationAllowed: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.permissions = decodeAuthzSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.spaces = decodeAuthzSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.entityTypes = decodeAuthzSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.entityRefs = decodeAuthzSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.delegationAllowed = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzRule}
+ */
+export function decodeAuthzRule(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzRuleMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzTemplateArgument} message
+ * @param {Writer} writer
+ */
+export function writeAuthzTemplateArgument(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.id);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
+    }
+}
+
+
+/**
+ * @param {AuthzTemplateArgument} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzTemplateArgument(message) {
+    const writer = Writer.create();
+    writeAuthzTemplateArgument(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzTemplateArgument}
+ */
+function decodeAuthzTemplateArgumentMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, name: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.name = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzTemplateArgument}
+ */
+export function decodeAuthzTemplateArgument(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzTemplateArgumentMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzRuleTemplate} message
+ * @param {Writer} writer
+ */
+export function writeAuthzRuleTemplate(message, writer) {
+    if (message.arguments && message.arguments.length > 0) {
+        for (const item of message.arguments) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeAuthzTemplateArgument(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.rules && message.rules.length > 0) {
+        for (const item of message.rules) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeAuthzRule(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {AuthzRuleTemplate} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzRuleTemplate(message) {
+    const writer = Writer.create();
+    writeAuthzRuleTemplate(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzRuleTemplate}
+ */
+function decodeAuthzRuleTemplateMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {arguments: [], rules: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.arguments.push(decodeAuthzTemplateArgumentMessage(reader, reader.uint32()));
+                break;
+            }
+            case 2: {
+                message.rules.push(decodeAuthzRuleMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzRuleTemplate}
+ */
+export function decodeAuthzRuleTemplate(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzRuleTemplateMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzRuleTemplateRecord} message
+ * @param {Writer} writer
+ */
+export function writeAuthzRuleTemplateRecord(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.id);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.builtin === true) {
+        writer.uint32(tag(3, WIRE.VARINT)).bool(message.builtin);
+    }
+    if (message.deleted === true) {
+        writer.uint32(tag(4, WIRE.VARINT)).bool(message.deleted);
+    }
+    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(message.createdBy);
+    }
+    if (message.createdAt !== undefined && message.createdAt !== null && message.createdAt !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int64(message.createdAt);
+    }
+    if (message.template !== undefined && message.template !== null) {
+        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writeAuthzRuleTemplate(message.template, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {AuthzRuleTemplateRecord} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzRuleTemplateRecord(message) {
+    const writer = Writer.create();
+    writeAuthzRuleTemplateRecord(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzRuleTemplateRecord}
+ */
+function decodeAuthzRuleTemplateRecordMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, name: "", builtin: false, deleted: false, createdBy: 0, createdAt: 0, template: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.name = reader.string();
+                break;
+            }
+            case 3: {
+                message.builtin = reader.bool();
+                break;
+            }
+            case 4: {
+                message.deleted = reader.bool();
+                break;
+            }
+            case 5: {
+                message.createdBy = readInt64(reader, "int64");
+                break;
+            }
+            case 6: {
+                message.createdAt = readInt64(reader, "int64");
+                break;
+            }
+            case 7: {
+                message.template = decodeAuthzRuleTemplateMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzRuleTemplateRecord}
+ */
+export function decodeAuthzRuleTemplateRecord(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzRuleTemplateRecordMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzArgumentBinding} message
+ * @param {Writer} writer
+ */
+export function writeAuthzArgumentBinding(message, writer) {
+    if (message.argumentId !== undefined && message.argumentId !== null && message.argumentId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.argumentId);
+    }
+    if (message.values) {
+        const packedWriter = Writer.create();
+        for (const item of message.values) {
+            packedWriter.int64(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(2, WIRE.LDELIM)).bytes(packedWriter.finish());
+        }
+    }
+}
+
+
+/**
+ * @param {AuthzArgumentBinding} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzArgumentBinding(message) {
+    const writer = Writer.create();
+    writeAuthzArgumentBinding(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzArgumentBinding}
+ */
+function decodeAuthzArgumentBindingMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {argumentId: 0, values: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.argumentId = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.values.push(readInt64(reader, "int64"));
+                }
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzArgumentBinding}
+ */
+export function decodeAuthzArgumentBinding(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzArgumentBindingMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzGrant} message
+ * @param {Writer} writer
+ */
+export function writeAuthzGrant(message, writer) {
+    if (message.args && message.args.length > 0) {
+        for (const item of message.args) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeAuthzArgumentBinding(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.rule !== undefined && message.rule !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeAuthzRule(message.rule, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {AuthzGrant} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzGrant(message) {
+    const writer = Writer.create();
+    writeAuthzGrant(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzGrant}
+ */
+function decodeAuthzGrantMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {args: [], rule: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.args.push(decodeAuthzArgumentBindingMessage(reader, reader.uint32()));
+                break;
+            }
+            case 2: {
+                message.rule = decodeAuthzRuleMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzGrant}
+ */
+export function decodeAuthzGrant(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzGrantMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzGrantRecord} message
+ * @param {Writer} writer
+ */
+export function writeAuthzGrantRecord(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.id);
+    }
+    if (message.userId !== undefined && message.userId !== null && message.userId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.userId);
+    }
+    if (message.templateId !== undefined && message.templateId !== null && message.templateId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(message.templateId);
+    }
+    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(message.createdBy);
+    }
+    if (message.createdAt !== undefined && message.createdAt !== null && message.createdAt !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(message.createdAt);
+    }
+    if (message.grant !== undefined && message.grant !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeAuthzGrant(message.grant, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {AuthzGrantRecord} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzGrantRecord(message) {
+    const writer = Writer.create();
+    writeAuthzGrantRecord(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzGrantRecord}
+ */
+function decodeAuthzGrantRecordMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, userId: 0, templateId: 0, createdBy: 0, createdAt: 0, grant: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.userId = readInt64(reader, "int64");
+                break;
+            }
+            case 3: {
+                message.templateId = readInt64(reader, "int64");
+                break;
+            }
+            case 4: {
+                message.createdBy = readInt64(reader, "int64");
+                break;
+            }
+            case 5: {
+                message.createdAt = readInt64(reader, "int64");
+                break;
+            }
+            case 6: {
+                message.grant = decodeAuthzGrantMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzGrantRecord}
+ */
+export function decodeAuthzGrantRecord(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzGrantRecordMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzGlobalRule} message
+ * @param {Writer} writer
+ */
+export function writeAuthzGlobalRule(message, writer) {
+    if (message.permissions !== undefined && message.permissions !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeAuthzSelector(message.permissions, writer);
+        writer.ldelim();
+    }
+    if (message.spaces !== undefined && message.spaces !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeAuthzSelector(message.spaces, writer);
+        writer.ldelim();
+    }
+    if (message.entityTypes !== undefined && message.entityTypes !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeAuthzSelector(message.entityTypes, writer);
+        writer.ldelim();
+    }
+    if (message.entityRefs !== undefined && message.entityRefs !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeAuthzSelector(message.entityRefs, writer);
+        writer.ldelim();
+    }
+    if (message.delegatedOnly === true) {
+        writer.uint32(tag(5, WIRE.VARINT)).bool(message.delegatedOnly);
+    }
+}
+
+
+/**
+ * @param {AuthzGlobalRule} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzGlobalRule(message) {
+    const writer = Writer.create();
+    writeAuthzGlobalRule(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzGlobalRule}
+ */
+function decodeAuthzGlobalRuleMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {permissions: undefined, spaces: undefined, entityTypes: undefined, entityRefs: undefined, delegatedOnly: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.permissions = decodeAuthzSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.spaces = decodeAuthzSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.entityTypes = decodeAuthzSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.entityRefs = decodeAuthzSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.delegatedOnly = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzGlobalRule}
+ */
+export function decodeAuthzGlobalRule(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzGlobalRuleMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzGlobalRuleRecord} message
+ * @param {Writer} writer
+ */
+export function writeAuthzGlobalRuleRecord(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.id);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(message.createdBy);
+    }
+    if (message.createdAt !== undefined && message.createdAt !== null && message.createdAt !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(message.createdAt);
+    }
+    if (message.rule !== undefined && message.rule !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeAuthzGlobalRule(message.rule, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {AuthzGlobalRuleRecord} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzGlobalRuleRecord(message) {
+    const writer = Writer.create();
+    writeAuthzGlobalRuleRecord(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzGlobalRuleRecord}
+ */
+function decodeAuthzGlobalRuleRecordMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, name: "", createdBy: 0, createdAt: 0, rule: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.name = reader.string();
+                break;
+            }
+            case 3: {
+                message.createdBy = readInt64(reader, "int64");
+                break;
+            }
+            case 4: {
+                message.createdAt = readInt64(reader, "int64");
+                break;
+            }
+            case 5: {
+                message.rule = decodeAuthzGlobalRuleMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzGlobalRuleRecord}
+ */
+export function decodeAuthzGlobalRuleRecord(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzGlobalRuleRecordMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzRuleTemplateList} message
+ * @param {Writer} writer
+ */
+export function writeAuthzRuleTemplateList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeAuthzRuleTemplateRecord(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {AuthzRuleTemplateList} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzRuleTemplateList(message) {
+    const writer = Writer.create();
+    writeAuthzRuleTemplateList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzRuleTemplateList}
+ */
+function decodeAuthzRuleTemplateListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeAuthzRuleTemplateRecordMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzRuleTemplateList}
+ */
+export function decodeAuthzRuleTemplateList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzRuleTemplateListMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzRuleTemplateCreateRequest} message
+ * @param {Writer} writer
+ */
+export function writeAuthzRuleTemplateCreateRequest(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.template !== undefined && message.template !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeAuthzRuleTemplate(message.template, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {AuthzRuleTemplateCreateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzRuleTemplateCreateRequest(message) {
+    const writer = Writer.create();
+    writeAuthzRuleTemplateCreateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzRuleTemplateCreateRequest}
+ */
+function decodeAuthzRuleTemplateCreateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", template: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.template = decodeAuthzRuleTemplateMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzRuleTemplateCreateRequest}
+ */
+export function decodeAuthzRuleTemplateCreateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzRuleTemplateCreateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzRuleTemplateUpdateRequest} message
+ * @param {Writer} writer
+ */
+export function writeAuthzRuleTemplateUpdateRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.id);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.template !== undefined && message.template !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeAuthzRuleTemplate(message.template, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {AuthzRuleTemplateUpdateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzRuleTemplateUpdateRequest(message) {
+    const writer = Writer.create();
+    writeAuthzRuleTemplateUpdateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzRuleTemplateUpdateRequest}
+ */
+function decodeAuthzRuleTemplateUpdateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, name: "", template: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.name = reader.string();
+                break;
+            }
+            case 3: {
+                message.template = decodeAuthzRuleTemplateMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzRuleTemplateUpdateRequest}
+ */
+export function decodeAuthzRuleTemplateUpdateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzRuleTemplateUpdateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzRuleTemplateDeleteRequest} message
+ * @param {Writer} writer
+ */
+export function writeAuthzRuleTemplateDeleteRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.id);
+    }
+}
+
+
+/**
+ * @param {AuthzRuleTemplateDeleteRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzRuleTemplateDeleteRequest(message) {
+    const writer = Writer.create();
+    writeAuthzRuleTemplateDeleteRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzRuleTemplateDeleteRequest}
+ */
+function decodeAuthzRuleTemplateDeleteRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "int64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzRuleTemplateDeleteRequest}
+ */
+export function decodeAuthzRuleTemplateDeleteRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzRuleTemplateDeleteRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzGrantList} message
+ * @param {Writer} writer
+ */
+export function writeAuthzGrantList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeAuthzGrantRecord(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {AuthzGrantList} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzGrantList(message) {
+    const writer = Writer.create();
+    writeAuthzGrantList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzGrantList}
+ */
+function decodeAuthzGrantListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeAuthzGrantRecordMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzGrantList}
+ */
+export function decodeAuthzGrantList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzGrantListMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzGrantCreateRequest} message
+ * @param {Writer} writer
+ */
+export function writeAuthzGrantCreateRequest(message, writer) {
+    if (message.userId !== undefined && message.userId !== null && message.userId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.userId);
+    }
+    if (message.templateId !== undefined && message.templateId !== null && message.templateId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.templateId);
+    }
+    if (message.grant !== undefined && message.grant !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeAuthzGrant(message.grant, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {AuthzGrantCreateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzGrantCreateRequest(message) {
+    const writer = Writer.create();
+    writeAuthzGrantCreateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzGrantCreateRequest}
+ */
+function decodeAuthzGrantCreateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {userId: 0, templateId: 0, grant: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.userId = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.templateId = readInt64(reader, "int64");
+                break;
+            }
+            case 3: {
+                message.grant = decodeAuthzGrantMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzGrantCreateRequest}
+ */
+export function decodeAuthzGrantCreateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzGrantCreateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzGrantDeleteRequest} message
+ * @param {Writer} writer
+ */
+export function writeAuthzGrantDeleteRequest(message, writer) {
+    if (message.userId !== undefined && message.userId !== null && message.userId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.userId);
+    }
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.id);
+    }
+}
+
+
+/**
+ * @param {AuthzGrantDeleteRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzGrantDeleteRequest(message) {
+    const writer = Writer.create();
+    writeAuthzGrantDeleteRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzGrantDeleteRequest}
+ */
+function decodeAuthzGrantDeleteRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {userId: 0, id: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.userId = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.id = readInt64(reader, "int64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzGrantDeleteRequest}
+ */
+export function decodeAuthzGrantDeleteRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzGrantDeleteRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzGlobalRuleList} message
+ * @param {Writer} writer
+ */
+export function writeAuthzGlobalRuleList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeAuthzGlobalRuleRecord(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {AuthzGlobalRuleList} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzGlobalRuleList(message) {
+    const writer = Writer.create();
+    writeAuthzGlobalRuleList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzGlobalRuleList}
+ */
+function decodeAuthzGlobalRuleListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeAuthzGlobalRuleRecordMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzGlobalRuleList}
+ */
+export function decodeAuthzGlobalRuleList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzGlobalRuleListMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzGlobalRuleCreateRequest} message
+ * @param {Writer} writer
+ */
+export function writeAuthzGlobalRuleCreateRequest(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.rule !== undefined && message.rule !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeAuthzGlobalRule(message.rule, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {AuthzGlobalRuleCreateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzGlobalRuleCreateRequest(message) {
+    const writer = Writer.create();
+    writeAuthzGlobalRuleCreateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzGlobalRuleCreateRequest}
+ */
+function decodeAuthzGlobalRuleCreateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", rule: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.rule = decodeAuthzGlobalRuleMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzGlobalRuleCreateRequest}
+ */
+export function decodeAuthzGlobalRuleCreateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzGlobalRuleCreateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AuthzGlobalRuleDeleteRequest} message
+ * @param {Writer} writer
+ */
+export function writeAuthzGlobalRuleDeleteRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.id);
+    }
+}
+
+
+/**
+ * @param {AuthzGlobalRuleDeleteRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAuthzGlobalRuleDeleteRequest(message) {
+    const writer = Writer.create();
+    writeAuthzGlobalRuleDeleteRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AuthzGlobalRuleDeleteRequest}
+ */
+function decodeAuthzGlobalRuleDeleteRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "int64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AuthzGlobalRuleDeleteRequest}
+ */
+export function decodeAuthzGlobalRuleDeleteRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAuthzGlobalRuleDeleteRequestMessage(reader);
+}
+
+
+
+/**
  * @param {SecretMeta} message
  * @param {Writer} writer
  */
@@ -11523,6 +13105,21 @@ export function writeState(message, writer) {
         writeAssetDirectory(message.assetDirectoryUpdate, writer);
         writer.ldelim();
     }
+    if (message.authzRuleTemplatesSnapshot !== undefined && message.authzRuleTemplatesSnapshot !== null) {
+        writer.uint32(tag(40, WIRE.LDELIM)).fork();
+        writeAuthzRuleTemplateList(message.authzRuleTemplatesSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.authzGrantsSnapshot !== undefined && message.authzGrantsSnapshot !== null) {
+        writer.uint32(tag(41, WIRE.LDELIM)).fork();
+        writeAuthzGrantList(message.authzGrantsSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.authzGlobalRulesSnapshot !== undefined && message.authzGlobalRulesSnapshot !== null) {
+        writer.uint32(tag(42, WIRE.LDELIM)).fork();
+        writeAuthzGlobalRuleList(message.authzGlobalRulesSnapshot, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -11544,7 +13141,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentConfigsSnapshot: undefined, deploymentConfigUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, agentSessionsSnapshot: undefined, agentSessionUpdate: undefined, valueDirectoriesSnapshot: undefined, valueDirectoryUpdate: undefined, assetDirectoriesSnapshot: undefined, assetDirectoryUpdate: undefined };
+    const message = {heartbeat: false, deploymentConfigsSnapshot: undefined, deploymentConfigUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, agentSessionsSnapshot: undefined, agentSessionUpdate: undefined, valueDirectoriesSnapshot: undefined, valueDirectoryUpdate: undefined, assetDirectoriesSnapshot: undefined, assetDirectoryUpdate: undefined, authzRuleTemplatesSnapshot: undefined, authzGrantsSnapshot: undefined, authzGlobalRulesSnapshot: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11670,6 +13267,18 @@ function decodeStateMessage(reader, length) {
             }
             case 39: {
                 message.assetDirectoryUpdate = decodeAssetDirectoryMessage(reader, reader.uint32());
+                break;
+            }
+            case 40: {
+                message.authzRuleTemplatesSnapshot = decodeAuthzRuleTemplateListMessage(reader, reader.uint32());
+                break;
+            }
+            case 41: {
+                message.authzGrantsSnapshot = decodeAuthzGrantListMessage(reader, reader.uint32());
+                break;
+            }
+            case 42: {
+                message.authzGlobalRulesSnapshot = decodeAuthzGlobalRuleListMessage(reader, reader.uint32());
                 break;
             }
             default:

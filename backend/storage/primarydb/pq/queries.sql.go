@@ -350,6 +350,15 @@ func (q *Queries) DeleteAssetVersionsByAssetID(ctx context.Context, assetID int6
 	return err
 }
 
+const deleteAuthzGrantRow = `-- name: DeleteAuthzGrantRow :exec
+DELETE FROM authz_grants WHERE id = ?
+`
+
+func (q *Queries) DeleteAuthzGrantRow(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteAuthzGrantRow, id)
+	return err
+}
+
 const deleteConfigRow = `-- name: DeleteConfigRow :exec
 DELETE FROM configs WHERE id = ?
 `
@@ -365,6 +374,15 @@ DELETE FROM config_versions WHERE config_id = ?
 
 func (q *Queries) DeleteConfigVersionsByConfigID(ctx context.Context, configID int64) error {
 	_, err := q.db.ExecContext(ctx, deleteConfigVersionsByConfigID, configID)
+	return err
+}
+
+const deleteGlobalAccessRuleRow = `-- name: DeleteGlobalAccessRuleRow :exec
+DELETE FROM global_access_rules WHERE id = ?
+`
+
+func (q *Queries) DeleteGlobalAccessRuleRow(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteGlobalAccessRuleRow, id)
 	return err
 }
 
@@ -1133,6 +1151,56 @@ func (q *Queries) InsertAssetVersion(ctx context.Context, arg InsertAssetVersion
 	return i, err
 }
 
+const insertAuthzGrantRow = `-- name: InsertAuthzGrantRow :one
+INSERT INTO authz_grants (user_id, template_id, created_by, created_at, data_blob)
+VALUES (?, ?, ?, ?, ?) RETURNING id
+`
+
+type InsertAuthzGrantRowParams struct {
+	UserID     int64
+	TemplateID int64
+	CreatedBy  int64
+	CreatedAt  int64
+	DataBlob   []byte
+}
+
+func (q *Queries) InsertAuthzGrantRow(ctx context.Context, arg InsertAuthzGrantRowParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertAuthzGrantRow,
+		arg.UserID,
+		arg.TemplateID,
+		arg.CreatedBy,
+		arg.CreatedAt,
+		arg.DataBlob,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertAuthzRuleTemplateRow = `-- name: InsertAuthzRuleTemplateRow :one
+INSERT INTO authz_rule_templates (name, builtin, deleted, created_by, created_at, data_blob)
+VALUES (?, 0, 0, ?, ?, ?) RETURNING id
+`
+
+type InsertAuthzRuleTemplateRowParams struct {
+	Name      string
+	CreatedBy int64
+	CreatedAt int64
+	DataBlob  []byte
+}
+
+func (q *Queries) InsertAuthzRuleTemplateRow(ctx context.Context, arg InsertAuthzRuleTemplateRowParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertAuthzRuleTemplateRow,
+		arg.Name,
+		arg.CreatedBy,
+		arg.CreatedAt,
+		arg.DataBlob,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertConfigRow = `-- name: InsertConfigRow :one
 INSERT INTO configs (name, space_id, value_directory_id, created_at, created_by)
 VALUES (?, ?, ?, ?, ?)
@@ -1231,6 +1299,30 @@ func (q *Queries) InsertDeploymentConfigHistory(ctx context.Context, arg InsertD
 		arg.Deleted,
 	)
 	return err
+}
+
+const insertGlobalAccessRuleRow = `-- name: InsertGlobalAccessRuleRow :one
+INSERT INTO global_access_rules (name, created_by, created_at, data_blob)
+VALUES (?, ?, ?, ?) RETURNING id
+`
+
+type InsertGlobalAccessRuleRowParams struct {
+	Name      string
+	CreatedBy int64
+	CreatedAt int64
+	DataBlob  []byte
+}
+
+func (q *Queries) InsertGlobalAccessRuleRow(ctx context.Context, arg InsertGlobalAccessRuleRowParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertGlobalAccessRuleRow,
+		arg.Name,
+		arg.CreatedBy,
+		arg.CreatedAt,
+		arg.DataBlob,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertScheduledInstance = `-- name: InsertScheduledInstance :one
@@ -1689,6 +1781,77 @@ func (q *Queries) ListAssetVersionsIncludingPending(ctx context.Context, assetID
 	return items, nil
 }
 
+const listAuthzGrantRows = `-- name: ListAuthzGrantRows :many
+SELECT id, user_id, template_id, created_by, created_at, data_blob FROM authz_grants
+`
+
+func (q *Queries) ListAuthzGrantRows(ctx context.Context) ([]AuthzGrant, error) {
+	rows, err := q.db.QueryContext(ctx, listAuthzGrantRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuthzGrant
+	for rows.Next() {
+		var i AuthzGrant
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.TemplateID,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.DataBlob,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAuthzRuleTemplateRows = `-- name: ListAuthzRuleTemplateRows :many
+
+SELECT id, name, builtin, deleted, created_by, created_at, data_blob FROM authz_rule_templates
+`
+
+// === authz ===
+func (q *Queries) ListAuthzRuleTemplateRows(ctx context.Context) ([]AuthzRuleTemplate, error) {
+	rows, err := q.db.QueryContext(ctx, listAuthzRuleTemplateRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuthzRuleTemplate
+	for rows.Next() {
+		var i AuthzRuleTemplate
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Builtin,
+			&i.Deleted,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.DataBlob,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConfigRows = `-- name: ListConfigRows :many
 
 SELECT id, name, space_id, value_directory_id, created_at, created_by
@@ -1851,6 +2014,39 @@ func (q *Queries) ListDeploymentConfigHistory(ctx context.Context, deploymentID 
 			&i.NodeID,
 			&i.SpecBlob,
 			&i.Deleted,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGlobalAccessRuleRows = `-- name: ListGlobalAccessRuleRows :many
+SELECT id, name, created_by, created_at, data_blob FROM global_access_rules
+`
+
+func (q *Queries) ListGlobalAccessRuleRows(ctx context.Context) ([]GlobalAccessRule, error) {
+	rows, err := q.db.QueryContext(ctx, listGlobalAccessRuleRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GlobalAccessRule
+	for rows.Next() {
+		var i GlobalAccessRule
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.DataBlob,
 		); err != nil {
 			return nil, err
 		}
@@ -2843,6 +3039,27 @@ func (q *Queries) UpdateAssetVersionLocation(ctx context.Context, arg UpdateAsse
 	return i, err
 }
 
+const updateAuthzRuleTemplateRow = `-- name: UpdateAuthzRuleTemplateRow :exec
+UPDATE authz_rule_templates SET name = ?, deleted = ?, data_blob = ? WHERE id = ?
+`
+
+type UpdateAuthzRuleTemplateRowParams struct {
+	Name     string
+	Deleted  int64
+	DataBlob []byte
+	ID       int64
+}
+
+func (q *Queries) UpdateAuthzRuleTemplateRow(ctx context.Context, arg UpdateAuthzRuleTemplateRowParams) error {
+	_, err := q.db.ExecContext(ctx, updateAuthzRuleTemplateRow,
+		arg.Name,
+		arg.Deleted,
+		arg.DataBlob,
+		arg.ID,
+	)
+	return err
+}
+
 const updateScheduledInstanceState = `-- name: UpdateScheduledInstanceState :exec
 UPDATE scheduled_instances SET state = ? WHERE id = ?
 `
@@ -2893,6 +3110,27 @@ func (q *Queries) UpdateSpace(ctx context.Context, arg UpdateSpaceParams) (Space
 	var i Space
 	err := row.Scan(&i.ID, &i.Name)
 	return i, err
+}
+
+const upsertAuthzRuleTemplateRow = `-- name: UpsertAuthzRuleTemplateRow :exec
+INSERT INTO authz_rule_templates (id, name, builtin, deleted, created_by, created_at, data_blob)
+VALUES (?, ?, 1, 0, 0, 0, ?)
+ON CONFLICT(id) DO UPDATE SET
+    name = excluded.name,
+    builtin = 1,
+    deleted = 0,
+    data_blob = excluded.data_blob
+`
+
+type UpsertAuthzRuleTemplateRowParams struct {
+	ID       int64
+	Name     string
+	DataBlob []byte
+}
+
+func (q *Queries) UpsertAuthzRuleTemplateRow(ctx context.Context, arg UpsertAuthzRuleTemplateRowParams) error {
+	_, err := q.db.ExecContext(ctx, upsertAuthzRuleTemplateRow, arg.ID, arg.Name, arg.DataBlob)
+	return err
 }
 
 const upsertDeploymentConfig = `-- name: UpsertDeploymentConfig :exec
