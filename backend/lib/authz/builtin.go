@@ -11,6 +11,33 @@ const spaceAdminSpacesArgID int64 = 1
 
 func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 	all := func() *apigen.AuthzSelector { return &apigen.AuthzSelector{Wildcard: true} }
+	// delegableRules is what an agent session inherits from the grant. Secrets
+	// are split out of the general rule and handed back create-only: an agent
+	// can mint a credential and wire it into a deployment, but cannot read,
+	// change, or destroy one an operator owns. Nothing outside these rules
+	// narrows a delegated token, so this is the whole of what agents may do.
+	delegableRules := func(spaces func() *apigen.AuthzSelector) []*apigen.AuthzRule {
+		return []*apigen.AuthzRule{
+			{
+				Permissions: all(),
+				Spaces:      spaces(),
+				EntityTypes: &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{
+					int64(apigen.AuthzEntity_AUTHZ_ENTITY_SECRET),
+				}},
+				EntityRefs:        all(),
+				DelegationAllowed: true,
+			},
+			{
+				Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_CREATE)}},
+				Spaces:      spaces(),
+				EntityTypes: &apigen.AuthzSelector{Include: []int64{
+					int64(apigen.AuthzEntity_AUTHZ_ENTITY_SECRET),
+				}},
+				EntityRefs:        all(),
+				DelegationAllowed: true,
+			},
+		}
+	}
 	directoryRule := func() *apigen.AuthzRule {
 		return &apigen.AuthzRule{
 			Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
@@ -23,27 +50,33 @@ func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 			DelegationAllowed: true,
 		}
 	}
+	// clusterAdminSpaces is every space but 0: cluster-level entities stay
+	// human-only even for a fully privileged agent.
+	clusterAdminSpaces := func() *apigen.AuthzSelector {
+		return &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{0}}
+	}
+	spaceAdminSpaces := func() *apigen.AuthzSelector {
+		return &apigen.AuthzSelector{ArgumentID: spaceAdminSpacesArgID}
+	}
+	// Both builtins have the same shape: everything in the operator's own spaces
+	// for the human holding the grant, then the delegable subset for their
+	// agents. They differ only in which spaces "their own" means.
+	templateRules := func(operatorSpaces, delegableSpaces func() *apigen.AuthzSelector) []*apigen.AuthzRule {
+		rules := []*apigen.AuthzRule{{
+			Permissions: all(),
+			Spaces:      operatorSpaces(),
+			EntityTypes: all(),
+			EntityRefs:  all(),
+		}}
+		rules = append(rules, delegableRules(delegableSpaces)...)
+		return append(rules, directoryRule())
+	}
 	return []*apigen.AuthzRuleTemplateRecord{
 		{
-			ID:      ClusterAdminTemplateID,
-			Name:    "cluster_admin",
-			Builtin: true,
-			Template: &apigen.AuthzRuleTemplate{Rules: []*apigen.AuthzRule{
-				{
-					Permissions: all(),
-					Spaces:      all(),
-					EntityTypes: all(),
-					EntityRefs:  all(),
-				},
-				{
-					Permissions:       &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_REVEAL)}},
-					Spaces:            &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{0}},
-					EntityTypes:       all(),
-					EntityRefs:        all(),
-					DelegationAllowed: true,
-				},
-				directoryRule(),
-			}},
+			ID:       ClusterAdminTemplateID,
+			Name:     "cluster_admin",
+			Builtin:  true,
+			Template: &apigen.AuthzRuleTemplate{Rules: templateRules(all, clusterAdminSpaces)},
 		},
 		{
 			ID:      SpaceAdminTemplateID,
@@ -51,22 +84,7 @@ func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 			Builtin: true,
 			Template: &apigen.AuthzRuleTemplate{
 				Arguments: []*apigen.AuthzTemplateArgument{{ID: spaceAdminSpacesArgID, Name: "spaces"}},
-				Rules: []*apigen.AuthzRule{
-					{
-						Permissions: all(),
-						Spaces:      &apigen.AuthzSelector{ArgumentID: spaceAdminSpacesArgID},
-						EntityTypes: all(),
-						EntityRefs:  all(),
-					},
-					{
-						Permissions:       &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_REVEAL)}},
-						Spaces:            &apigen.AuthzSelector{ArgumentID: spaceAdminSpacesArgID},
-						EntityTypes:       all(),
-						EntityRefs:        all(),
-						DelegationAllowed: true,
-					},
-					directoryRule(),
-				},
+				Rules:     templateRules(spaceAdminSpaces, spaceAdminSpaces),
 			},
 		},
 	}

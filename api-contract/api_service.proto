@@ -271,11 +271,11 @@ service ApiServer {
   }
 
   rpc PostV1SecretsCreate(SecretCreateRequest) returns (SecretMeta) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
   rpc PostV1SecretsSet(SecretSetRequest) returns (SecretMeta) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
   rpc PostV1SecretsGenerate(SecretGenerateRequest) returns (SecretMeta) {
@@ -283,19 +283,19 @@ service ApiServer {
   }
 
   rpc PostV1SecretsRename(SecretRenameRequest) returns (SecretMeta) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
   rpc PostV1SecretsMove(SecretMoveRequest) returns (SecretMeta) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
   rpc PostV1SecretsReveal(SecretRevealRequest) returns (SecretRevealResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
   rpc PostV1SecretsDelete(SecretDeleteRequest) returns (cp.Empty) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
   rpc PostV1SecretsStatus(EmptyRequest) returns (SecretsStatusResponse) {
@@ -304,11 +304,11 @@ service ApiServer {
 
   rpc PostV1SecretsRotateRecoveryCode(EmptyRequest) returns (SecretRecoveryCodeResponse) {
     option (cp.url) = "/v1/secrets/rotate-recovery-code";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
   rpc PostV1SecretsUnlock(SecretUnlockRequest) returns (SecretsStatusResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "secrets_access" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
   // Configs

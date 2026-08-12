@@ -57,17 +57,18 @@ persisted outside the encrypted store.
 `PostV1SecretsGenerate` creates a secret from a specification instead of a
 supplied value: the caller names it, says what kind of value it wants, and gets
 back metadata. The plaintext is produced inside the process, sealed, and never
-returned. That inversion is what lets it sit on the `default` scope while every
-other value-writing route requires `secrets_access` — a caller who cannot read
-secrets can still mint one and reference it from deployment env, which is how an
-agent wires a fresh credential into a deployment end to end without the value
-ever reaching anywhere it can observe.
+returned. That inversion is what makes `secret : create` a safe permission to
+delegate on its own — a caller who cannot reveal, edit, or delete a secret can
+still mint one and reference it from deployment env, which is how an agent wires
+a fresh credential into a deployment end to end without the value ever reaching
+anywhere it can observe. The builtin authz templates grant agents exactly that
+and nothing more; see [auth.md](auth.md#authz-layer-backendlibauthz).
 
 The request nests its specification (`SecretGenerateRequest.password`) rather
 than hanging fields off the request, so further generators — SSH keypairs, API
 tokens, certificates — become sibling fields on the same route.
 
-Two properties make the weaker scope safe:
+Two properties make that narrow permission safe:
 
 - **Create-only.** An existing name is rejected. `Set` appends an immutable
   version rather than replacing one, so without this guard a caller could bury

@@ -7953,6 +7953,8 @@ func (m *User) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendStringField(b, m.Name, 2)
+	b = AppendInt64Field(b, m.CreatedAt, 3)
+	b = AppendInt64Field(b, m.LastLoginAt, 4)
 	return b
 }
 
@@ -7971,6 +7973,10 @@ func DecodeUser(b []byte) (*User, error) {
 			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.CreatedAt, err = ConsumeVarInt64(b, typ)
+		case 4:
+			b, m.LastLoginAt, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

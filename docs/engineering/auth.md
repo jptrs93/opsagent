@@ -2,7 +2,7 @@
 
 ## Overview
 
-Authentication uses passkeys for normal operator login. A master password can issue a short-lived token for passkey registration, including bootstrap and recovery when an operator needs to enroll a replacement authenticator. Both flows produce a JWT token used for subsequent requests. Access control is enforced in two layers: per-route scope policies defined in the protobuf API contract, and per-user authz grants evaluated by `lib/authz` inside the handlers.
+Authentication uses passkeys for normal operator login. A master password can issue a short-lived token for passkey registration, including bootstrap and recovery when an operator needs to enroll a replacement authenticator. Both flows produce a JWT token used for subsequent requests. What a token may *do* is decided in one place: per-user authz grants evaluated by `lib/authz` inside the handlers. Scopes remain on each route in the protobuf API contract, but only to separate a bootstrap token from a real session — they no longer carve up what a real session can reach.
 
 Key files:
 - `backend/app/primary/webuihandler/auth.go` — master password handler, JWT verification, and `VerifyAuth`.
@@ -49,8 +49,8 @@ Tokens are signed with RSA-256 (RS256) via `github.com/jptrs93/goutil/authu`. Ea
 
 Three token types exist:
 - **Bootstrap token**: scopes `["passkey:create"]`, 10-minute expiry. Issued by master password exchange.
-- **Session token**: scopes `["default", "secrets_access"]`, 2-day expiry. Issued by passkey registration or login.
-- **Agent session token**: the caller's scopes minus `secrets_access`, 6-hour expiry. Issued under `/v1/agent-sessions/` for command-line, script, and agent use.
+- **Session token**: scopes `["default"]`, 2-day expiry. Issued by passkey registration or login.
+- **Agent session token**: the caller's own scopes, 6-hour expiry. Issued under `/v1/agent-sessions/` for command-line, script, and agent use.
 
 `GET /v1/auth/current/session` is an authenticated validation endpoint that echoes the caller's current bearer token without minting a new one. The frontend uses it on app startup to confirm persisted auth state and to force re-login on `401`.
 
@@ -58,7 +58,7 @@ Three token types exist:
 
 An agent session is a 6-hour bearer token for command-line, script, and agent use. The lifetime is deliberately shorter than the 2-day browser session because these tokens get pasted into shells and end up in history files and CI logs.
 
-Whichever route mints one, `secrets_access` is dropped on the way through (`agentSessionScopes`), so an agent token can list secret metadata and reference secrets by id from deployment env, but cannot reveal, set, rename, or delete a secret value. Those calls return `403`. It *can* call `PostV1SecretsGenerate`, which creates a value it is then unable to read. This is the one place where an agent token is strictly weaker than its parent session, and it is deliberate: the token's longer reach into shell history and CI logs is a poor place to carry the right to read plaintext secrets. An operator who needs to change a secret does it in the browser.
+An agent token carries its parent session's scopes unchanged. Nothing is withheld at the token layer: the only thing that narrows an agent is the authz layer, which sees any token carrying a `jti` as **delegated** and matches only rules with `delegation_allowed`. Under the builtin templates that means an agent can create a secret but not read, change, or destroy one — see [the authz layer](#authz-layer-backendlibauthz) — and an operator writing custom rules is free to decide otherwise. There is no separate list of things agents may not do.
 
 All routes live under `/v1/agent-sessions/`, which is also the rate-limit prefix.
 
@@ -89,7 +89,7 @@ Each session gets a row in `agent_sessions` (`id`, `user_id`, `created_at`, `exp
 
 `POST /v1/agent-sessions/revoke` (`default`) stops a session: a pending row becomes `REJECTED`, anything else `REVOKED`. This is real revocation, not a display change: `VerifyAuth` calls `verifyAgentSession`, which for any token carrying a `jti` loads the row and rejects the request unless the status is `APPROVED` and the token's hash matches the stored one. Bootstrap and browser session tokens carry no `jti` and keep the stateless fast path, so the extra indexed read applies only to agent-token traffic.
 
-`POST /v1/agent-sessions/list` returns the caller's own sessions, newest first, and never returns a token. The web UI does not call it: sessions reach the browser through `PostV1GlobalStateStream`, which is the one field in `State` filtered to the connected user rather than broadcast. List, approve, and revoke are all scoped by `ctx.User.ID`, so one operator cannot act on another's session by guessing its id. What the resulting token can *do* is bounded twice: by the approver's scopes frozen onto the row, and by the authz layer, which sees any token carrying a `jti` as delegated and only matches rules with `delegation_allowed`.
+`POST /v1/agent-sessions/list` returns the caller's own sessions, newest first, and never returns a token. The web UI does not call it: sessions reach the browser through `PostV1GlobalStateStream`, which is the one field in `State` filtered to the connected user rather than broadcast. List, approve, and revoke are all scoped by `ctx.User.ID`, so one operator cannot act on another's session by guessing its id. What the resulting token can *do* is decided by the authz layer, which sees any token carrying a `jti` as delegated and only matches rules with `delegation_allowed`; the scopes frozen onto the row only fix which token *type* it is.
 
 Rows are not garbage collected; finished sessions accumulate as a record of what was issued and from where. Rotating the signing key still invalidates all outstanding tokens, sessions included.
 
@@ -126,7 +126,9 @@ Credentials are persisted inside each user's `data_blob` column in the SQLite `u
 
 ## Access control
 
-Two layers gate every request. The **scope layer** is coarse and token-level: each route in the `api-contract/*_service.proto` files declares an `AccessPolicy` checked by `VerifyAuth` before the handler runs. The **authz layer** is fine-grained and per-user: handlers ask `lib/authz` whether this user may perform this verb on this entity in this space. Both must pass.
+Two layers gate every request, but only one of them carries policy. The **scope layer** is token-level and now answers a single question — is this a real session or a bootstrap token: each route in the `api-contract/*_service.proto` files declares an `AccessPolicy` checked by `VerifyAuth` before the handler runs. The **authz layer** is where access is actually decided, per user, entity, and space: handlers ask `lib/authz` whether this user may perform this verb on this entity in this space. Both must pass.
+
+There is deliberately no third layer. Route-level special cases for delegated tokens (an agent token used to have `secrets_access` stripped from it) have been removed: if agents should not do something, that belongs in a rule, where an admin can see it and change it.
 
 ### Scope layer
 
@@ -136,12 +138,7 @@ Route policies:
 
 Scopes in use:
 - `passkey:create` — enroll a passkey, nothing else.
-- `default` — ordinary operator access: deployments, assets, configs, spaces, and secret *metadata*.
-- `secrets_access` — additionally reveal and change secret values. Gates `PostV1SecretsSet`, `Rename`, `Reveal`, `Delete`, `GenerateRecoveryCode`, and `Unlock`. `PostV1SecretsList` and `PostV1SecretsStatus` stay on `default` so metadata reads survive without it.
-
-`PostV1SecretsGenerate` is the one deliberate exception: it writes a secret value from a `default`-scope call. The scope split is about *seeing* values, not about the store being read-only, and generation is the one write where the caller supplies a name and a specification rather than a value and gets back nothing but metadata. It is create-only and never echoes what it made — see [secrets.md](secrets.md#server-side-generation).
-
-Because `ANY_OF` is a disjunction, a secrets-gated route lists `secrets_access` alone — adding `default` beside it would defeat the split.
+- `default` — a real session. Every authenticated route carries it, including the secrets routes; what the caller may do with any of them is the authz layer's decision.
 
 `VerifyAuth` reads the route's policy from the generated mux, skips validation for `NO_AUTH`, verifies the bearer JWT's signature and expiry, checks its scopes against the policy, and populates the request context with the resolved user. Tokens carrying a `jti` (agent sessions) additionally mark the user **delegated** (`InternalUser.Delegated`, a runtime-only field never persisted) — the authz layer uses this below.
 
@@ -149,9 +146,16 @@ Because `ANY_OF` is a disjunction, a secrets-gated route lists `secrets_access` 
 
 Access is purely additive **grants** evaluated against a `RequestedAccess{verb, space, entity type, entity id, delegated}`; everything not granted is denied. A grant carries either a direct rule or a reference to a **rule template** with bound arguments. A rule is five positions — `spaces : entity types : entity refs : permissions : delegation` — where each of the first four is a selector (wildcard, value list, or template argument, with exclusions applied first) and `delegation_allowed` controls whether the rule matches delegated (agent-token) requests. **Global rules** are deny rules checked before any grant; `delegated_only` narrows one to agents. Global rules can never target the `access` entity, so an admin cannot deny themselves out of repairing a bad rule.
 
-Two builtin templates are seeded (and re-asserted) at startup: `cluster_admin` (everything, plus a delegable everything-except-reveal-and-space-0 rule) and `space_admin(spaces)` (the same shape scoped to bound spaces). Both also carry a narrow delegable rule granting `view` on `node` and `user` entities in space 0 — without it, a space-limited operator or agent could not list nodes to place a deployment or resolve user names for audit display.
+Two builtin templates are seeded (and re-asserted) at startup: `cluster_admin` (everything) and `space_admin(spaces)` (the same scoped to bound spaces). Each then carries two delegable rules that together define what an agent session inherits:
 
-Entity-to-space mapping: deployments, secrets, configs, assets, and folders live in their record's space (values normalize a requested space `<= 0` to the default space — `state.NormalizedUserSpaceID` — and checks gate on the effective space). Spaces are their own entity with the space's id. Nodes, users, cluster settings, the config export, enrollment, secrets-store recovery/unlock, and access management itself are cluster-level: checked in space 0 against the `node`, `user`, `cluster`, and `access` entity types. Space *creation* is also cluster-level (the new space has no id yet).
+- everything **except the `secret` entity type**, in every space except 0 (or the bound spaces) — so cluster-level entities stay human-only even for a fully privileged agent;
+- `create` on `secret` in the same spaces — an agent can mint a credential and wire it into a deployment, but cannot reveal, edit, or delete one, and a secret it does not own is not even visible to it.
+
+Both templates also carry a narrow delegable rule granting `view` on `node` and `user` entities in space 0 — without it, a space-limited operator or agent could not list nodes to place a deployment or resolve user names for audit display.
+
+These are defaults, not guarantees. An admin who writes a rule with `delegation_allowed` covering `secret : reveal` gets exactly that; nothing outside the rules second-guesses it. `PostV1SecretsGenerate` is what makes `secret : create` a safe verb to hand an agent: it takes a name and a specification, seals the value it produces, and returns only metadata — see [secrets.md](secrets.md#server-side-generation).
+
+Entity-to-space mapping: deployments, secrets, configs, assets, and folders live in their record's space (values normalize a requested space `<= 0` to the global space (space 1) — `state.NormalizedUserSpaceID` — and checks gate on the effective space). Spaces are their own entity with the space's id. Nodes, users, cluster settings, the config export, enrollment, secrets-store recovery/unlock, and access management itself are cluster-level: checked in space 0 against the `node`, `user`, `cluster`, and `access` entity types. Space *creation* is also cluster-level (the new space has no id yet).
 
 Handler enforcement lives in `webuihandler/access_enforce.go` (`requireAccess`, `requireEntityAccess`) and follows one convention: an entity the caller cannot `view` reads as **404** (its existence is not leaked); a viewable entity without the requested verb reads as **403** `access_denied`. Moving an entity between spaces needs `edit` in the source and `create` in the destination. List endpoints filter to viewable items instead of erroring. Enforcement is active whenever `Handler.Authz` is wired, which `webuihandler.New` always does; handler tests that construct a bare `Handler` without it run unenforced.
 

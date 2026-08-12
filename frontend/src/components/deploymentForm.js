@@ -2264,12 +2264,12 @@ function selectClass() {
 
 function publicSpaceOptions(spaces, currentSpaceID) {
     const current = Number(currentSpaceID ?? DEFAULT_SPACE_ID);
-    const publicSpaces = (spaces || [{id: DEFAULT_SPACE_ID, name: 'default'}])
+    const publicSpaces = (spaces || [{id: DEFAULT_SPACE_ID, name: 'global'}])
         .filter(space => Number(space.id) !== INTERNAL_SPACE_ID);
     if (current !== INTERNAL_SPACE_ID && !publicSpaces.some(space => Number(space.id) === current)) {
         publicSpaces.push({id: current, name: `space ${current}`});
     }
-    if (publicSpaces.length === 0) return [{id: DEFAULT_SPACE_ID, name: 'default'}];
+    if (publicSpaces.length === 0) return [{id: DEFAULT_SPACE_ID, name: 'global'}];
     return publicSpaces;
 }
 

@@ -138,11 +138,11 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 	return proto, nil
 }
 
-// PostV1SecretsGenerate creates a secret the caller never sees. It is the only
-// route that writes a secret value without "secrets_access": the value is
-// produced inside this process, sealed, and only its metadata is returned, so
-// an agent token can mint a credential and reference it from deployment env
-// without ever being able to read it.
+// PostV1SecretsGenerate creates a secret the caller never sees: the value is
+// produced inside this process, sealed, and only its metadata is returned. It
+// is what makes secret:create a safe verb to delegate — an agent holding it can
+// mint a credential and reference it from deployment env without ever being
+// able to read one back.
 func (h *Handler) PostV1SecretsGenerate(ctx apigen.Context, req *apigen.SecretGenerateRequest) (*apigen.SecretMeta, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {

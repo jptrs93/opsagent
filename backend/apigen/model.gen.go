@@ -1210,8 +1210,10 @@ type DeploymentHistory struct {
 }
 
 type User struct {
-	ID   int32  `json:"id"`
-	Name string `json:"name,omitempty"`
+	ID          int32  `json:"id"`
+	Name        string `json:"name,omitempty"`
+	CreatedAt   int64  `json:"created_at"`
+	LastLoginAt int64  `json:"last_login_at"`
 }
 
 type WebAuthnCredential struct {

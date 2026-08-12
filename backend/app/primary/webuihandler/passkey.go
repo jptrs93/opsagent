@@ -141,6 +141,8 @@ func (h *Handler) PostV1AuthPasskeyRegisterFinish(ctx apigen.Context, req *apige
 	if err != nil {
 		return nil, err
 	}
+	// Registration ends with a full session, so it counts as a login too.
+	h.Store.TouchUserLastLogin(ctx.User.ID)
 	return newLoginResponse(ctx.User, token, defaultUserScopes, expiry), nil
 }
 
@@ -162,5 +164,6 @@ func (h *Handler) PostV1AuthPasskeyLoginFinish(ctx apigen.Context, req *apigen.W
 	if err != nil {
 		return nil, err
 	}
+	h.Store.TouchUserLastLogin(user.ID)
 	return newLoginResponse(user, token, defaultUserScopes, expiry), nil
 }
