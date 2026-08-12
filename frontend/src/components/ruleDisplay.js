@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import {formatGlobalRule, formatRule, formatSelector, positionValueName} from "../lib/authz.js";
 
-const {div} = van.tags;
+const {div, span} = van.tags;
 
 // Never spell out more than this many specific values, even when there is
 // room — "staging, prod, default, dev" always renders as "4 spaces".
@@ -14,26 +14,42 @@ const textWidth = (font, text) => {
     return measureCtx.measureText(text).width;
 };
 
+// A tier is either a plain string or {text, nodes} built by tier(): text for
+// width measurement, nodes (strings and coloured spans) for rendering. The
+// accent spans keep the chip's font so measuring the plain text stays exact.
+const tier = (...parts) => ({
+    text: parts.map((p) => typeof p === "string" ? p : p.textContent).join(""),
+    nodes: parts,
+});
+const tierText = (t) => typeof t === "string" ? t : t.text;
+const tierNodes = (t) => typeof t === "string" ? [t] : t.nodes;
+
+// Specific item names (space names, type names, verbs, resource ids) are
+// accented so they stand out from the surrounding phrasing.
+const nameSpan = (text) => span({class: "text-blue-300"}, text);
+const nameList = (names) => names.flatMap((n, i) => i ? [", ", nameSpan(n)] : [nameSpan(n)]);
+const argSpan = (argName) => span({class: "text-amber-300"}, "${" + argName + "}");
+
 // responsiveChip shows the longest variant that fits its flex slot. Variants
 // are ordered longest-first and end with a form that is acceptable at any
 // width. The chip advertises the longest variant as its flex basis and the
 // shortest as its min width, so flexbox squeezes it between the two and a
 // ResizeObserver picks the phrasing for whatever width was granted.
 const responsiveChip = (variants, {title, chipClass} = {}) => {
-    const tiers = variants.filter((v, i) => v && v !== variants[i - 1]);
+    const tiers = variants.filter((v, i) => v && tierText(v) !== (variants[i - 1] && tierText(variants[i - 1])));
     const shown = van.state(tiers[0]);
     const el = div({
-        class: "min-w-0 overflow-hidden whitespace-nowrap rounded border px-2 py-0.5 text-xs " +
-            (chipClass || "border-gray-700 bg-gray-950/40 text-gray-300"),
+        class: "min-w-0 overflow-hidden whitespace-nowrap px-2 py-0.5 text-xs " +
+            (chipClass || "text-gray-300"),
         title: title || "",
-    }, () => shown.val);
+    }, () => span(...tierNodes(shown.val)));
     el.style.flex = "0 1 auto";
     const observer = new ResizeObserver(() => {
         const style = getComputedStyle(el);
         const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
         const chrome = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) +
             parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
-        const widths = tiers.map((t) => Math.ceil(textWidth(font, t)) + chrome);
+        const widths = tiers.map((t) => Math.ceil(textWidth(font, tierText(t))) + chrome);
         el.style.flexBasis = `${widths[0]}px`;
         el.style.minWidth = `${widths[widths.length - 1]}px`;
         const available = el.getBoundingClientRect().width + 0.5;
@@ -54,18 +70,18 @@ export const spacesChip = (sel, {spaceNames, argNames} = {}) => {
     let tiers;
     if (sel?.argumentId) {
         const arg = argNames?.get?.(Number(sel.argumentId)) || `arg_${sel.argumentId}`;
-        tiers = ["${" + arg + "} spaces", "templated spaces", "limited spaces"];
+        tiers = [tier(argSpan(arg), " spaces"), "templated spaces", "limited spaces"];
     } else if (sel?.wildcard) {
         const excluded = sel.exclude || [];
         tiers = !excluded.length ? ["all spaces"] : [
-            listable(excluded) && `all spaces except ${excluded.map(name).join(", ")}`,
+            listable(excluded) && tier("all spaces except ", ...nameList(excluded.map(name))),
             `all spaces except ${excluded.length}`,
             "most spaces",
         ];
     } else if ((sel?.include || []).length) {
         const included = sel.include;
         tiers = [
-            listable(included) && `${included.map(name).join(", ")} ${included.length === 1 ? "space" : "spaces"}`,
+            listable(included) && tier(...nameList(included.map(name)), included.length === 1 ? " space" : " spaces"),
             `${included.length} ${included.length === 1 ? "space" : "spaces"}`,
             "limited spaces",
         ];
@@ -81,18 +97,18 @@ export const entityTypesChip = (sel, {spaceNames, argNames} = {}) => {
     let tiers;
     if (sel?.argumentId) {
         const arg = argNames?.get?.(Number(sel.argumentId)) || `arg_${sel.argumentId}`;
-        tiers = ["${" + arg + "} types", "templated types", "limited types"];
+        tiers = [tier(argSpan(arg), " types"), "templated types", "limited types"];
     } else if (sel?.wildcard) {
         const excluded = sel.exclude || [];
         tiers = !excluded.length ? ["all resource types", "all types"] : [
-            listable(excluded) && `all types except ${excluded.map(name).join(", ")}`,
+            listable(excluded) && tier("all types except ", ...nameList(excluded.map(name))),
             `all types except ${excluded.length}`,
             "most types",
         ];
     } else if ((sel?.include || []).length) {
         const included = sel.include;
         tiers = [
-            listable(included) && `${included.map(name).join(", ")} ${included.length === 1 ? "type" : "types"}`,
+            listable(included) && tier(...nameList(included.map(name)), included.length === 1 ? " type" : " types"),
             `${included.length} resource ${included.length === 1 ? "type" : "types"}`,
             "limited types",
         ];
@@ -108,23 +124,23 @@ export const entityRefsChip = (sel, {argNames} = {}) => {
     let tiers;
     if (sel?.argumentId) {
         const arg = argNames?.get?.(Number(sel.argumentId)) || `arg_${sel.argumentId}`;
-        tiers = ["${" + arg + "} resources", "templated resources", "limited resources"];
+        tiers = [tier(argSpan(arg), " instances"), "templated instances", "limited instances"];
     } else if (sel?.wildcard) {
         const excluded = sel.exclude || [];
-        tiers = !excluded.length ? ["all resources"] : [
-            listable(excluded) && `all resources except ${excluded.map(ref).join(", ")}`,
-            `all resources except ${excluded.length}`,
-            "most resources",
+        tiers = !excluded.length ? ["all instances"] : [
+            listable(excluded) && tier("all instances except ", ...nameList(excluded.map(ref))),
+            `all instances except ${excluded.length}`,
+            "most instances",
         ];
     } else if ((sel?.include || []).length) {
         const included = sel.include;
         tiers = [
-            listable(included) && `${included.length === 1 ? "resource" : "resources"} ${included.map(ref).join(", ")}`,
-            `${included.length} ${included.length === 1 ? "resource" : "resources"}`,
-            "limited resources",
+            listable(included) && tier(included.length === 1 ? "instance " : "instances ", ...nameList(included.map(ref))),
+            `${included.length} ${included.length === 1 ? "instance" : "instances"}`,
+            "limited instances",
         ];
     } else {
-        tiers = ["no resources"];
+        tiers = ["no instances"];
     }
     return responsiveChip(tiers.filter(Boolean), {title});
 };
@@ -135,18 +151,18 @@ export const permissionsChip = (sel, {argNames} = {}) => {
     let tiers;
     if (sel?.argumentId) {
         const arg = argNames?.get?.(Number(sel.argumentId)) || `arg_${sel.argumentId}`;
-        tiers = ["${" + arg + "} actions", "templated actions", "limited actions"];
+        tiers = [tier(argSpan(arg), " actions"), "templated actions", "limited actions"];
     } else if (sel?.wildcard) {
         const excluded = sel.exclude || [];
         tiers = !excluded.length ? ["all actions"] : [
-            listable(excluded) && `all actions except ${excluded.map(name).join(", ")}`,
+            listable(excluded) && tier("all actions except ", ...nameList(excluded.map(name))),
             `all actions except ${excluded.length}`,
             "most actions",
         ];
     } else if ((sel?.include || []).length) {
         const included = sel.include;
         tiers = [
-            listable(included) && included.map(name).join(", "),
+            listable(included) && tier(...nameList(included.map(name))),
             `${included.length} ${included.length === 1 ? "action" : "actions"}`,
             "limited actions",
         ];
@@ -159,12 +175,10 @@ export const permissionsChip = (sel, {argNames} = {}) => {
 export const delegationChip = (delegationAllowed) => responsiveChip(
     delegationAllowed
         ? ["agent delegable", "delegable", "agents ✓"]
-        : ["not agent delegable", "not delegable", "agents ✗"],
+        : ["not delegable", "agents ✗"],
     {
         title: `delegation ${delegationAllowed ? "allowed" : "not allowed"}`,
-        chipClass: delegationAllowed
-            ? "border-teal-800 bg-teal-950/40 text-teal-300"
-            : "border-gray-700 bg-gray-950/40 text-gray-500",
+        chipClass: delegationAllowed ? "bg-teal-950/40 text-teal-300" : "text-gray-500",
     },
 );
 
@@ -177,13 +191,19 @@ export const delegatedOnlyChip = (delegatedOnly) => responsiveChip(
         : ["everyone"],
     {
         title: delegatedOnly ? "denies delegated agent sessions only" : "denies everyone",
-        chipClass: delegatedOnly
-            ? "border-teal-800 bg-teal-950/40 text-teal-300"
-            : "border-gray-700 bg-gray-950/40 text-gray-500",
+        chipClass: delegatedOnly ? "bg-teal-950/40 text-teal-300" : "text-gray-500",
     },
 );
 
-const chipRow = (title, ...chips) => div({class: "flex min-w-0 items-center gap-1.5", title}, ...chips);
+// The segments of one rule form a single unioned pill: one rounded border and
+// background around the row, thin dividers between segments, no per-chip
+// chrome. w-fit keeps the pill hugging its content while max-w-full still
+// lets the segments shrink inside a narrow cell.
+const chipRow = (title, ...chips) => div({
+    class: "flex w-fit max-w-full min-w-0 items-stretch overflow-hidden rounded-md " +
+        "border border-gray-700 bg-gray-950/40 divide-x divide-gray-700/60",
+    title,
+}, ...chips);
 
 const selectorChips = (rule, opts) => [
     spacesChip(rule.spaces, opts),
