@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
@@ -28,7 +29,7 @@ func (o *outbox) Send(msg *apigen.MsgToMaster) bool {
 	}
 }
 
-func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Service, primaryHTTPClient *http.Client) {
+func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Service, primaryHTTPClient *http.Client, acme *acmestate.Holder) {
 	capi := apigen.NewOpsagentClusterV1Capi(
 		"https://"+cfg.PrimaryClusterAddr,
 		apigen.WithOpsagentClusterV1CapiHTTPClient(primaryHTTPClient),
@@ -44,7 +45,7 @@ func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Ser
 			underlayAddress, err = resolveDefaultUnderlayAddress(cfg.PrimaryClusterAddr)
 		}
 		if err == nil {
-			err = runSession(ctx, capi, store, cfg.NodeID, underlayAddress)
+			err = runSession(ctx, capi, store, cfg.NodeID, underlayAddress, acme)
 		}
 		if ctx.Err() != nil {
 			return
@@ -120,7 +121,7 @@ func scheduledInstancePredicateForNode(nodeID int32) storage.ScheduledInstancePr
 // the primary's messages (snapshot, assignment updates, log requests) from the
 // response stream, applying them to the local store. Returns when the stream
 // ends (error or clean EOF).
-func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID int32, underlayAddress string) error {
+func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID int32, underlayAddress string, acme *acmestate.Holder) error {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -180,13 +181,13 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 			connected = true
 			slog.Info("slave connected to primary", "peer", capi.BaseURL)
 		}
-		dispatchFromPrimary(sessCtx, out, store, tracker, msg, nodeID)
+		dispatchFromPrimary(sessCtx, out, store, tracker, msg, nodeID, acme)
 	}
 	return sessErr
 }
 
 // dispatchFromPrimary applies one MsgToWorker received from the primary.
-func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, msg *apigen.MsgToWorker, nodeID int32) {
+func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, msg *apigen.MsgToWorker, nodeID int32, acme *acmestate.Holder) {
 	msgType := "heartbeat"
 	switch {
 	case msg.ScheduledInstancesSnapshot != nil:
@@ -207,6 +208,8 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 		msgType = "cluster_network"
 	case msg.ClusterNetMap != nil:
 		msgType = "cluster_net_map"
+	case msg.AcmeState != nil:
+		msgType = "acme_state"
 	}
 	slog.Info("received message from primary", "type", msgType)
 
@@ -218,6 +221,11 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 	case msg.ClusterNetwork != nil:
 		if err := applyClusterNetwork(store, msg.ClusterNetwork); err != nil {
 			slog.Warn("installing cluster network failed", "err", err)
+		}
+	case msg.AcmeState != nil:
+		store.MustSetLocalKV(storage.LocalKVAcmeState, msg.AcmeState.Encode())
+		if acme != nil {
+			acme.Set(msg.AcmeState)
 		}
 	case msg.ClusterNetMap != nil:
 		expectedPrefix, _ := network.Default.PrefixValue()

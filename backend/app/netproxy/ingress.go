@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -32,16 +33,24 @@ type netStateSubscriber interface {
 	SnapshotAndSubscribe() (*apigen.NetState, <-chan *apigen.NetState, func())
 }
 
-// RunTLSIngress serves TLS passthrough routes from full NetState snapshots.
-// It reads the ClientHello only to select a backend and forwards the TLS stream
-// unchanged, including the bytes inspected while finding SNI.
-func RunTLSIngress(ctx context.Context, states netStateSubscriber) error {
+// RunTLSIngress serves TLS passthrough and terminated HTTPS routes from full
+// NetState snapshots. It reads the ClientHello to select a route by SNI, then
+// either forwards the TLS stream unchanged or terminates it locally.
+func RunTLSIngress(ctx context.Context, states netStateSubscriber, certs *certStore) error {
 	s := &ingressServer{
 		ctx:            ctx,
 		listeners:      make(map[uint16]net.Listener),
 		errs:           make(chan error, 1),
 		warningLimiter: newOperationalWarningLimiter(),
 	}
+	s.https = newHTTPSServer(ctx, certs, func() *httpsState {
+		state := s.state.Load()
+		if state == nil {
+			return nil
+		}
+		return state.https
+	}, s.warningLimiter)
+	go s.https.run()
 	snapshot, updates, unsubscribe := states.SnapshotAndSubscribe()
 	defer unsubscribe()
 	if err := s.setState(snapshot); err != nil {
@@ -63,13 +72,15 @@ func RunTLSIngress(ctx context.Context, states netStateSubscriber) error {
 }
 
 type ingressServer struct {
-	ctx context.Context
+	ctx   context.Context
+	https *httpsServer
 
 	state atomic.Pointer[ingressState]
 
-	mu        sync.Mutex
-	listeners map[uint16]net.Listener
-	errs      chan error
+	mu           sync.Mutex
+	listeners    map[uint16]net.Listener
+	httpListener net.Listener
+	errs         chan error
 
 	warningLimiter    *rate.Limiter
 	activeConnections atomic.Int64
@@ -78,6 +89,18 @@ type ingressServer struct {
 type ingressState struct {
 	seq    int64
 	routes map[uint16]map[string]*ingressRoute
+	https  *httpsState
+}
+
+func (s *ingressState) wantedTLSPorts() map[uint16]struct{} {
+	ports := make(map[uint16]struct{}, len(s.routes)+1)
+	for port := range s.routes {
+		ports[port] = struct{}{}
+	}
+	if s.https != nil && len(s.https.hosts) > 0 {
+		ports[443] = struct{}{}
+	}
+	return ports
 }
 
 type ingressRoute struct {
@@ -99,6 +122,7 @@ func (s *ingressServer) setState(snapshot *apigen.NetState) error {
 		return nil
 	}
 	next := ingressStateFromSnapshot(snapshot)
+	next.https = s.https.buildState(snapshot)
 	return s.install(next)
 }
 
@@ -143,8 +167,9 @@ func (s *ingressServer) install(next *ingressState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	wanted := next.wantedTLSPorts()
 	opened := make(map[uint16]net.Listener)
-	for port := range next.routes {
+	for port := range wanted {
 		if _, exists := s.listeners[port]; exists {
 			continue
 		}
@@ -157,6 +182,19 @@ func (s *ingressServer) install(next *ingressState) error {
 		}
 		opened[port] = listener
 	}
+	wantHTTP := next.https != nil
+	if wantHTTP && s.httpListener == nil {
+		listener, err := net.Listen("tcp", ":80")
+		if err != nil {
+			for _, openedListener := range opened {
+				_ = openedListener.Close()
+			}
+			return fmt.Errorf("listening for HTTP ingress redirects on port 80: %w", err)
+		}
+		s.httpListener = listener
+		go s.serveHTTPRedirect(listener)
+		slog.Info("HTTP ingress redirect listener started")
+	}
 
 	s.state.Store(next)
 	for port, listener := range opened {
@@ -165,14 +203,41 @@ func (s *ingressServer) install(next *ingressState) error {
 		slog.Info("TLS ingress listener started", "port", port)
 	}
 	for port, listener := range s.listeners {
-		if _, wanted := next.routes[port]; wanted {
+		if _, ok := wanted[port]; ok {
 			continue
 		}
 		delete(s.listeners, port)
 		_ = listener.Close()
 		slog.Info("TLS ingress listener stopped", "port", port)
 	}
+	if !wantHTTP && s.httpListener != nil {
+		_ = s.httpListener.Close()
+		s.httpListener = nil
+		slog.Info("HTTP ingress redirect listener stopped")
+	}
 	return nil
+}
+
+func (s *ingressServer) serveHTTPRedirect(listener net.Listener) {
+	server := &http.Server{
+		Handler: &httpRedirectServer{currentState: func() *httpsState {
+			state := s.state.Load()
+			if state == nil {
+				return nil
+			}
+			return state.https
+		}},
+		ReadHeaderTimeout: httpsReadHeaderTimeout,
+		IdleTimeout:       httpsIdleTimeout,
+	}
+	go func() {
+		<-s.ctx.Done()
+		_ = server.Close()
+	}()
+	err := server.Serve(listener)
+	if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) && s.ctx.Err() == nil {
+		slog.Warn("HTTP ingress redirect server stopped", "err", err)
+	}
 }
 
 func (s *ingressServer) serve(port uint16, listener net.Listener) {
@@ -198,7 +263,12 @@ func (s *ingressServer) serve(port uint16, listener net.Listener) {
 }
 
 func (s *ingressServer) handle(port uint16, client net.Conn) {
-	defer client.Close()
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			_ = client.Close()
+		}
+	}()
 	_ = client.SetReadDeadline(time.Now().Add(clientHelloTimeout))
 	preface, hostname, err := readTLSClientHello(client)
 	if err != nil {
@@ -212,7 +282,16 @@ func (s *ingressServer) handle(port uint16, client net.Conn) {
 		return
 	}
 	route := state.routes[port][hostname]
-	if route == nil || len(route.backends) == 0 {
+	if route == nil {
+		if port == 443 && state.https != nil && state.https.hosts[hostname] != nil {
+			handedOff = true
+			s.https.terminate(client, preface)
+			return
+		}
+		slog.Debug("TLS ingress route has no ready backends", "port", port, "hostname", hostname)
+		return
+	}
+	if len(route.backends) == 0 {
 		slog.Debug("TLS ingress route has no ready backends", "port", port, "hostname", hostname)
 		return
 	}
@@ -295,6 +374,10 @@ func (s *ingressServer) closeListeners() {
 	for port, listener := range s.listeners {
 		delete(s.listeners, port)
 		_ = listener.Close()
+	}
+	if s.httpListener != nil {
+		_ = s.httpListener.Close()
+		s.httpListener = nil
 	}
 }
 

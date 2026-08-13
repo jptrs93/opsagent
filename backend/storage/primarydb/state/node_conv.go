@@ -99,8 +99,8 @@ func parseNodeAddresses(s string) []string {
 func parseAllowedSpaces(s string) []int32 {
 	var spaces []int32
 	if err := json.Unmarshal([]byte(s), &spaces); err != nil {
-		// Includes the pre-backfill sentinel. Normalizing an empty list still
-		// yields the opendeploy space, so a node is never left allowing nothing.
+		// Normalizing an empty list still yields the opendeploy space, so a
+		// node is never left allowing nothing.
 		return normalizeAllowedSpaces(nil)
 	}
 	return normalizeAllowedSpaces(spaces)

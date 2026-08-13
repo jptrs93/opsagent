@@ -13,6 +13,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/netmappublisher"
 	"github.com/jptrs93/opsagent/backend/app/primary/scheduler"
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
+	"github.com/jptrs93/opsagent/backend/lib/acmeissue"
+	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/engine"
 	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
@@ -42,6 +44,8 @@ type runtime struct {
 	githubReleaseVersions *versionprovider.GithubReleaseVersionProvider
 	secrets               *secrets.Manager
 	operator              engine.DeploymentOperator
+	acmeHolder            *acmestate.Holder
+	acmeIssuer            *acmeissue.Manager
 }
 
 func newRuntime() (*runtime, error) {
@@ -86,6 +90,10 @@ func newRuntime() (*runtime, error) {
 	runtimeInputs := runtimeinputs.New(assetStore, secretProvider, configProvider)
 	gitManager := repogit.NewManager(ainit.StaticConfig.GitCacheDir, githubCredentials)
 	githubClient := githubrepo.NewClient(githubCredentials)
+	acmeHolder := acmestate.NewHolder()
+	acmeIssuer := acmeissue.New(secretsMgr, func() []apigen.DeploymentConfig {
+		return store.FetchDeploymentSnapshot(nil)
+	}, acmeHolder)
 
 	return &runtime{
 		store:                 store,
@@ -102,6 +110,8 @@ func newRuntime() (*runtime, error) {
 			GithubReleaseImage: githubreleaseimage.New(ainit.StaticConfig.ReleasesDir, githubClient),
 			RuntimeInputs:      runtimeInputs,
 		},
+		acmeHolder: acmeHolder,
+		acmeIssuer: acmeIssuer,
 	}, nil
 }
 
@@ -114,6 +124,7 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 		GitVersions:           r.gitVersions,
 		GithubReleaseVersions: r.githubReleaseVersions,
 		Secrets:               r.secrets,
+		AcmeWake:              r.acmeIssuer.Wake,
 	}
 }
 
@@ -132,6 +143,7 @@ func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string
 		return state.Instance.NodeID == nodeID
 	})
 	go scheduler.New(r.store, networkMaps).Run()
-	go netproxy.RunNetStateWriter(ctx, r.store, predicate, nodeIdentifier, ainit.StaticConfig.NetproxyStatePath)
+	go r.acmeIssuer.Run(ctx)
+	go netproxy.RunNetStateWriter(ctx, r.store, predicate, nodeIdentifier, ainit.StaticConfig.NetproxyStatePath, netproxy.CertSecretResolverFunc(r.secrets.Resolve), r.acmeHolder, nil)
 	go r.operator.RunAll(predicate)
 }

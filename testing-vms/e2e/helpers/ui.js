@@ -296,6 +296,101 @@ export async function updateNixDockerDeployment(page, {
   });
 }
 
+export async function setDeploymentHttpsRoutes(page, {name, machine = 'worker-2', routes = [], expectError} = {}) {
+  await step(`open update dialog ${name}`, async () => {
+    await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+    const row = deploymentRow(page, {name, machine});
+    await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    await row.getByRole('button', {name: 'Update'}).click();
+  });
+
+  const dialog = page.getByTestId('update-deployment-dialog');
+  await expect(dialog).toBeVisible();
+
+  const editor = dialog.getByTestId('deployment-hcl-editor').locator('.cm-content');
+  await step(`open code editor ${name}`, async () => {
+    await dialog.getByTestId('deployment-editor-mode-code').click();
+    await expect(editor).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  });
+
+  await step(`set HTTPS routes ${name}`, async () => {
+    // Read/write through the CodeMirror view: innerText is layout-dependent
+    // (soft-wrapped lines gain newlines) and long https(...) lines wrap.
+    const text = await editor.evaluate(el => {
+      const view = el.cmTile?.root?.view || el.cmView?.view;
+      return view.state.doc.toString();
+    });
+    await editor.evaluate((el, next) => {
+      const view = el.cmTile?.root?.view || el.cmView?.view;
+      view.dispatch({changes: {from: 0, to: view.state.doc.length, insert: next}});
+    }, withHttpsRoutes(text, routes));
+    await expect(dialog.getByText('HCL valid', {exact: true})).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  });
+
+  const submit = dialog.getByRole('button', {name: 'Update deployment'});
+  if (expectError) {
+    await step(`expect rejected update ${name}`, async () => {
+      await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
+      const updateResponse = page.waitForResponse(response => {
+        const request = response.request();
+        return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
+      }, {timeout: LONG_UI_TIMEOUT});
+      await submit.click();
+      expect((await updateResponse).ok()).toBe(false);
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByText(expectError)).toBeVisible({timeout: LONG_UI_TIMEOUT});
+      await dialog.getByRole('button', {name: 'Cancel'}).click();
+      await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+    });
+    return;
+  }
+
+  await step(`submit HTTPS routes ${name}`, async () => {
+    await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
+    const updateResponse = page.waitForResponse(response => {
+      const request = response.request();
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
+    }, {timeout: LONG_UI_TIMEOUT});
+    await submit.click();
+    expect((await updateResponse).ok()).toBe(true);
+    await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  });
+}
+
+export function withHttpsRoutes(text, routes) {
+  const lines = text.split('\n').filter(line => !/^\s*https\(/.test(line));
+  const routeLines = routes.map(route => `      ${route},`);
+  const openIndex = lines.findIndex(line => line.trim() === 'ingress = [');
+  if (openIndex >= 0) {
+    if (routes.length) {
+      lines.splice(openIndex + 1, 0, ...routeLines);
+    } else if (lines[openIndex + 1]?.trim() === ']') {
+      const start = lines[openIndex - 1]?.trim() === '' ? openIndex - 1 : openIndex;
+      lines.splice(start, openIndex + 2 - start);
+    }
+    return lines.join('\n');
+  }
+  if (!routes.length) return lines.join('\n');
+  const modeIndex = lines.findIndex(line => /^\s*mode = /.test(line));
+  if (modeIndex < 0) throw new Error('network mode attribute not found in deployment HCL');
+  lines.splice(modeIndex + 1, 0, '', '    ingress = [', ...routeLines, '    ]');
+  return lines.join('\n');
+}
+
+export async function expectDeploymentHttpsIngressRows(page, {name, machine = 'worker-2', count} = {}) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = deploymentRow(page, {name, machine});
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await row.getByRole('button', {name: 'Update'}).click();
+  const dialog = page.getByTestId('update-deployment-dialog');
+  await expect(dialog).toBeVisible();
+  const pane = await openDeploymentNetworkingPane(dialog);
+  await expect(pane.getByTestId('deployment-https-ingress-row')).toHaveCount(count, {timeout: LONG_UI_TIMEOUT});
+  await pane.getByTitle('Close').click();
+  await dialog.getByRole('button', {name: 'Cancel'}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
 export async function createNixDockerCrasherDeployment(page, {
   name = 'nixdockercrasher',
   machine = 'worker-1',

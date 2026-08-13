@@ -205,6 +205,19 @@ func TestSpaceAdminArgumentBinding(t *testing.T) {
 	if s.HasAccess(1, reveal) {
 		t.Fatal("delegated reveal must be denied")
 	}
+	logs := RequestedAccess{
+		Verb:       apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS,
+		SpaceID:    2,
+		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT,
+		EntityID:   7,
+	}
+	if !s.HasAccess(1, logs) {
+		t.Fatal("direct view_logs in a bound space should be allowed")
+	}
+	logs.Delegated = true
+	if s.HasAccess(1, logs) {
+		t.Fatal("delegated view_logs must be denied")
+	}
 }
 
 func TestDirectRuleWithExclusion(t *testing.T) {
@@ -558,6 +571,19 @@ func TestClusterAdminDelegationLimits(t *testing.T) {
 	reveal.Delegated = true
 	if s.HasAccess(1, reveal) {
 		t.Fatal("delegated access must not reveal secrets")
+	}
+	logs := RequestedAccess{
+		Verb:       apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS,
+		SpaceID:    2,
+		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT,
+		EntityID:   7,
+	}
+	if !s.HasAccess(1, logs) {
+		t.Fatal("direct access should cover view_logs")
+	}
+	logs.Delegated = true
+	if s.HasAccess(1, logs) {
+		t.Fatal("delegated access must not view logs")
 	}
 }
 

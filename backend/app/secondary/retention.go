@@ -7,6 +7,7 @@ import (
 
 	"github.com/jptrs93/goutil/contextu"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
@@ -24,17 +25,17 @@ var retentionInterval = 5 * time.Minute
 // restarts is only acceptable if a node also stops holding what it no longer
 // needs, so that removing a deployment from a node eventually removes its
 // credentials from that node's disk too.
-func runRuntimeInputRetention(ctx context.Context, store *state.Service, inputs *runtimeinputs.RuntimeInputs, predicate storage.ScheduledInstancePredicate) {
+func runRuntimeInputRetention(ctx context.Context, store *state.Service, inputs *runtimeinputs.RuntimeInputs, predicate storage.ScheduledInstancePredicate, acme *acmestate.Holder) {
 	for {
 		contextu.Sleep(ctx, retentionInterval)
 		if ctx.Err() != nil {
 			return
 		}
-		sweepRuntimeInputs(ctx, store, inputs, predicate)
+		sweepRuntimeInputs(ctx, store, inputs, predicate, acme)
 	}
 }
 
-func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runtimeinputs.RuntimeInputs, predicate storage.ScheduledInstancePredicate) {
+func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runtimeinputs.RuntimeInputs, predicate storage.ScheduledInstancePredicate, acme *acmestate.Holder) {
 	states := store.FetchScheduledSnapshot(predicate)
 
 	// A mid-rollout instance is still running the previous config version, whose
@@ -65,6 +66,11 @@ func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runti
 		}
 		for _, ref := range runtimeinputs.RequiredAssetRefs(cfg) {
 			assets[ref.AssetVersionID] = struct{}{}
+		}
+	}
+	if acme != nil {
+		for _, id := range acmestate.Bindings(acme.Get()) {
+			secrets[id] = struct{}{}
 		}
 	}
 

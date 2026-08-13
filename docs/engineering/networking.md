@@ -255,8 +255,9 @@ that run ends.
 
 ## Ingress Shape
 
-The proxy-backed ingress config is separate from raw `portForwarding`. Only the
-TLS-passthrough configuration and node-local rendering exist today:
+The proxy-backed ingress config is separate from raw `portForwarding`. Each
+kind owns its configuration message; the envelope carries the kind-independent
+claim fields (kind, hostname):
 
 ```js
 ingress: [
@@ -265,8 +266,49 @@ ingress: [
     hostname: "db.example.com",
     tlsPassthroughConfig: {hostPort: 443, containerPort: 5432},
   },
+  {
+    kind: "HTTPS",
+    hostname: "app.example.com",
+    httpsConfig: {
+      containerPort: 8080,
+      pathPrefix: "/api",       // "" ≡ "/"; segment-boundary prefix match
+      stripPrefix: true,        // sets X-Forwarded-Prefix; no response rewriting
+      backendProtocol: "H2C",   // default HTTP/1.1
+      maxRequestBodyBytes: 0,   // 0 = unlimited
+      flushIntervalMs: 0,       // 0 = auto; < 0 = flush every write
+      certSource: {acme: {}},   // or {secret: {secretVersionId}}; unset = acme
+    },
+  },
 ]
 ```
 
-Future kinds will receive their own kind-specific configuration message rather
-than extending `TlsPassthroughConfig` with unrelated fields.
+### HTTPS termination
+
+HTTPS routes are terminated by netproxy and claim TCP 443 plus 80 (HTTP→HTTPS
+redirect and ACME HTTP-01 answers). The 443 listener is shared with TLS
+passthrough: the ClientHello is peeked once, the SNI hostname selects the kind,
+and terminated connections replay the peeked bytes into the local TLS server.
+Requests are routed per request on `Host`/`:authority` with
+longest-prefix-match — deterministic, no priorities, no regex. Overlapping
+prefixes are composition, not collision; exact `(hostname, pathPrefix)`
+duplicates and cross-kind hostname claims are rejected at config save, and
+`certSource` must match across all routes sharing a hostname on a node. A
+known-SNI connection carrying an unknown `:authority` receives 421, which also
+defuses HTTP/2 connection coalescing across terminated hostnames. Requests are
+proxied with `X-Forwarded-For/Proto/Host` (and `X-Forwarded-Prefix` when
+stripping); WebSocket upgrades pass through; SSE and unknown-length responses
+flush immediately. Only non-happy responses (status >= 400, backend dial/proxy
+errors) are logged.
+
+Certificate private keys never enter `netstate.pb`. The agent renders a
+separate `certbundle.pb` (0600, atomic write-rename) beside it, resolving
+secret-arm refs and ACME bindings from locally persisted secrets; netproxy
+watches and serves from the last loaded bundle, so TLS survives agent restarts.
+ACME issuance runs on the primary only (`lib/acmeissue`): eager issuance on
+config save plus a 12-hour renewal loop (30 days before expiry), storing issued
+certs as versioned secrets named `acme.cert.<hostname>`. Hostname→secret
+bindings and pending HTTP-01 tokens are distributed to workers over the cluster
+stream (`AcmeState`), persisted in the worker's local KV, and rendered into
+netstate — netproxy answers `/.well-known/acme-challenge/` on port 80 without
+the worker ever holding ACME account credentials. `OPENDEPLOY_ACME_DIRECTORY`
+overrides the directory endpoint (e.g. pebble in tests).

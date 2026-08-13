@@ -86,7 +86,7 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		return fmt.Errorf("computing enrollment TLS fingerprint: %w", err)
 	}
 	// Primary cluster and enrollment listeners start for every primary.
-	clusterHandler := clusterhandler.New(primaryRuntime.store, primaryRuntime.assets, primaryRuntime.github, primaryRuntime.secrets, primaryRuntime.configService.NetworkPrefix(), networkMaps)
+	clusterHandler := clusterhandler.New(primaryRuntime.store, primaryRuntime.assets, primaryRuntime.github, primaryRuntime.secrets, primaryRuntime.configService.NetworkPrefix(), networkMaps, primaryRuntime.acmeHolder)
 	enrollmentHandler := enrollmenthandler.New(primaryRuntime.store, primaryRuntime.secrets, primaryRuntime.configService, enrollmentFingerprint, networkMaps)
 	webUIHandler.Cluster = clusterHandler
 	webUIHandler.Enrollment = enrollmentHandler

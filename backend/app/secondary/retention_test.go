@@ -93,7 +93,7 @@ func TestSweepDropsOnlyUnreferencedInputsAndAssets(t *testing.T) {
 	assetDir := withRetentionAssetDir(t, "4", "9")
 	writeInstance(t, store, 11, referencingConfig(3), apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, 3, 3)
 
-	sweepRuntimeInputs(context.Background(), store, inputs, nil)
+	sweepRuntimeInputs(context.Background(), store, inputs, nil, nil)
 
 	if _, ok := inputs.ResolveSecret(1); !ok {
 		t.Fatal("referenced secret 1 was dropped")
@@ -127,7 +127,7 @@ func TestSweepSkipsEntirelyWhileAnyInstanceIsMidRollout(t *testing.T) {
 	other.Identity.Name = "worker"
 	writeInstance(t, store, 12, other, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, 4, 3)
 
-	sweepRuntimeInputs(context.Background(), store, inputs, nil)
+	sweepRuntimeInputs(context.Background(), store, inputs, nil, nil)
 
 	if _, ok := inputs.ResolveSecret(2); !ok {
 		t.Fatal("swept while an instance was mid-rollout")
@@ -146,7 +146,7 @@ func TestSweepTreatsTerminatingInstancesAsSettled(t *testing.T) {
 	// Deliberately trailing versions: for a terminating instance they say nothing.
 	writeInstance(t, store, 11, referencingConfig(3), apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE, 1, 1)
 
-	sweepRuntimeInputs(context.Background(), store, inputs, nil)
+	sweepRuntimeInputs(context.Background(), store, inputs, nil, nil)
 
 	if _, ok := inputs.ResolveSecret(2); ok {
 		t.Fatal("stopped instance blocked the sweep")

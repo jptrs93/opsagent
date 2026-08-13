@@ -351,7 +351,7 @@ function referenceDecorations(view) {
     const decorations = [];
     for (const range of view.visibleRanges) {
         const text = view.state.sliceDoc(range.from, range.to);
-        const functionPattern = /\b(?:secret|config|asset|address|deployment|space|node|mount|default_volume|host_path|port_forward|tls_passthrough)(?=\s*\()/g;
+        const functionPattern = /\b(?:secret|config|asset|address|deployment|space|node|mount|default_volume|host_path|port_forward|tls_passthrough|https|acme)(?=\s*\()/g;
         const symbolPattern = /\b(?:secret|config|asset|address|deployment|space|node)\(\s*("(?:\\.|[^"\\])*")/g;
         let match;
         while ((match = functionPattern.exec(text))) {
@@ -387,6 +387,7 @@ function nativeReferenceRanges(text) {
     const patterns = [
         /\b(?:secret|config|asset)\(\s*"(?:\\.|[^"\\\n])+"\s*,\s*\{\s*version\s*=\s*\d+\s*\}\s*\)/g,
         /\b(?:address|deployment)\(\s*"(?:\\.|[^"\\\n])+"\s*,\s*"(?:\\.|[^"\\\n])+"\s*,?\s*\)/g,
+        /\bacme\(\s*\)/g,
     ];
     for (const pattern of patterns) {
         let match;
@@ -405,7 +406,12 @@ export function syntaxDiagnostics(state) {
         if (nativeReferences.some(range => cursor.from >= range.from && cursor.to <= range.to)) continue;
         const before = state.sliceDoc(Math.max(0, cursor.from - 120), cursor.from);
         const functionObjectBoundary = cursor.from === cursor.to
-            && /(?:(?:secret|config|asset)\(\s*"[^"\n]+"(?:\s*,\s*\{\s*version\s*=\s*\d+\s*\})?\s*\)|(?:address|deployment)\(\s*"[^"\n]+"\s*,\s*"[^"\n]+"\s*\)|(?:space|node)\(\s*"[^"\n]+"\s*\)),?\s*$/.test(before);
+            && (/(?:(?:secret|config|asset)\(\s*"[^"\n]+"(?:\s*,\s*\{\s*version\s*=\s*\d+\s*\})?\s*\)|(?:address|deployment)\(\s*"[^"\n]+"\s*,\s*"[^"\n]+"\s*\)|(?:space|node)\(\s*"[^"\n]+"\s*\)),?\s*$/.test(before)
+                // The grammar cannot parse zero-argument calls; after acme()
+                // it derails and emits zero-width errors past the enclosing
+                // closers, so anything up to the error that is only closers
+                // and separators is part of the same cascade.
+                || /acme\(\s*\)[\s)}\],]*$/.test(before));
         if (functionObjectBoundary) continue;
         const from = Math.max(0, Math.min(state.doc.length, cursor.from));
         const to = Math.max(from, Math.min(state.doc.length, cursor.to || from + 1));

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/ainit"
@@ -26,10 +27,12 @@ func Run(ctx context.Context) error {
 	}
 	slog.Info("starting opendeploy-net", "state_path", statePath, "dns_listen", listen)
 	states := netstatewatch.New(statePath)
+	certs := newCertStore(filepath.Join(filepath.Dir(statePath), CertBundleFileName))
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return states.Run(ctx) })
+	g.Go(func() error { return certs.Run(ctx) })
 	g.Go(func() error { return RunDNS(ctx, states, listen) })
-	g.Go(func() error { return RunTLSIngress(ctx, states) })
+	g.Go(func() error { return RunTLSIngress(ctx, states, certs) })
 	return g.Wait()
 }
 

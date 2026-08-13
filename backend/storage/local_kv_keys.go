@@ -15,4 +15,7 @@ const (
 	// LocalKVWorkerRetiredNetMapGenerations prevents returning to a superseded
 	// control-plane history after accepting a new generation.
 	LocalKVWorkerRetiredNetMapGenerations = "worker_retired_net_map_generations"
+	// LocalKVAcmeState stores the worker's last received ACME cert bindings and
+	// pending HTTP-01 challenges.
+	LocalKVAcmeState = "acme_state"
 )

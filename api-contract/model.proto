@@ -958,6 +958,18 @@ message MsgToWorker {
   ClusterNetworkInfo cluster_network = 8;
   ClusterNetMap cluster_net_map = 9;
   int32 cluster_protocol_version = 10;
+  AcmeState acme_state = 11;
+}
+
+message AcmeState {
+  int64 seq = 1;
+  repeated AcmeCertBinding cert_bindings = 2;
+  repeated AcmeHttpChallenge challenges = 3;
+}
+
+message AcmeCertBinding {
+  string hostname = 1;
+  int32 secret_version_id = 2;
 }
 
 // ClusterNetworkInfo carries the cluster-wide virtual network parameters.
@@ -1044,6 +1056,12 @@ message NetState {
   repeated DnsService dns_services = 4;
   repeated string upstream_resolvers = 5; // host's upstream DNS servers, "ip" or "ip:port"
   repeated NetIngress ingress = 6;
+  repeated AcmeHttpChallenge acme_challenges = 7;
+}
+
+message AcmeHttpChallenge {
+  string token = 1;
+  string key_authorization = 2;
 }
 
 // DnsService is one deployment's discovery record set:
@@ -1060,6 +1078,27 @@ message NetIngress {
   IngressKind kind = 1;
   string hostname = 2;
   TlsPassthroughNetIngress tls_passthrough = 3;
+  HttpsNetIngress https = 4;
+}
+
+message HttpsNetIngress {
+  string path_prefix = 1;
+  bool strip_prefix = 2;
+  HttpBackendProtocol backend_protocol = 3;
+  int64 max_request_body_bytes = 4;
+  int32 flush_interval_ms = 5;
+  string cert_id = 6;
+  repeated IngressBackend backends = 7;
+}
+
+message CertBundle {
+  int64 seq = 1;
+  repeated CertBundleEntry certs = 2;
+}
+
+message CertBundleEntry {
+  string cert_id = 1;
+  bytes pem = 2;
 }
 
 message TlsPassthroughNetIngress {

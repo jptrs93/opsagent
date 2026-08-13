@@ -5,6 +5,7 @@ import {caseDef as nixDockerBaselineCase} from './nix-docker-baseline.js';
 import {caseDef as nixDockerVirtualNetworkCase} from './nix-docker-virtual-network.js';
 import {hostRolloverCase, virtualPortForwardingCase, virtualRolloverCase} from './rollover-networking.js';
 import {expectTLSPassthroughRoutes, tlsPassthroughCases} from './tls-passthrough.js';
+import {expectHTTPSIngressRoutes, httpsIngressCases} from './https-ingress.js';
 import {pgBackRestCases} from './postgres-pgbackrest.js';
 import {installVirtualAuthenticator} from '../helpers/webauthn.js';
 import {
@@ -176,6 +177,7 @@ export const orderedCases = [
   virtualRolloverCase,
   virtualPortForwardingCase,
   ...tlsPassthroughCases,
+  ...httpsIngressCases,
   {
     id: 'private-github-deployment',
     title: 'create private github deployment',
@@ -468,7 +470,7 @@ export const orderedCases = [
     id: 'opendeploy-agents-upgraded',
     title: 'upgrade opendeploy agents',
     description: 'Upgrades worker and primary OpenDeploy agents to the expected upgrade version.',
-    requires: ['nix-docker-virtual-network', 'virtual-network-rollover', 'virtual-port-forwarding', 'tls-ingress-route-restored'],
+    requires: ['nix-docker-virtual-network', 'virtual-network-rollover', 'virtual-port-forwarding', 'tls-ingress-route-restored', 'https-routes-restored'],
     async run(ctx) {
       const virtualWorkloads = [
         {name: 'nixdockerbuild-virtual', machine: 'worker-1'},
@@ -477,6 +479,8 @@ export const orderedCases = [
         {name: 'tls-ingress-one', machine: 'worker-2'},
         {name: 'tls-ingress-two', machine: 'worker-2'},
         {name: 'tls-ingress-three', machine: 'worker-2'},
+        {name: 'https-echo-root', machine: 'worker-2'},
+        {name: 'https-echo-api', machine: 'worker-2'},
       ];
       const restartCounts = new Map();
       for (const workload of virtualWorkloads) {
@@ -489,13 +493,17 @@ export const orderedCases = [
             await expectDeploymentRunning(ctx.page, workload);
             await expectDeploymentRestartCount(ctx.page, {...workload, count: restartCounts.get(workload.name)});
           }
-          if (workerName === 'worker-2') await expectTLSPassthroughRoutes();
+          if (workerName === 'worker-2') {
+            await expectTLSPassthroughRoutes();
+            await expectHTTPSIngressRoutes();
+          }
         },
         afterUpgrade: async () => {
           for (const machine of ['primary', 'worker-1', 'worker-2']) {
             await expectOpenDeployNetVersion(ctx.page, {machine, version: requiredEnv('OPD_UPGRADE_VERSION')});
           }
           await expectTLSPassthroughRoutes();
+          await expectHTTPSIngressRoutes();
         },
       });
     },

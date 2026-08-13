@@ -83,7 +83,7 @@ func TestRejectedInitialClusterNetMapReportsError(t *testing.T) {
 	out := &outbox{ch: make(chan *apigen.MsgToMaster, 1), ctx: context.Background()}
 	invalid := testClusterNetMap(t, prefix, "generation-a", 1)
 	invalid.TargetNodeID = 2
-	dispatchFromPrimary(context.Background(), out, store, newLogStreamTracker(), &apigen.MsgToWorker{ClusterNetMap: invalid}, 1)
+	dispatchFromPrimary(context.Background(), out, store, newLogStreamTracker(), &apigen.MsgToWorker{ClusterNetMap: invalid}, 1, nil)
 	status := (<-out.ch).NetMapStatus
 	if status == nil || status.ReconciliationError == "" || status.PersistedSequence != 0 {
 		t.Fatalf("rejection status = %+v", status)

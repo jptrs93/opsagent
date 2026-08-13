@@ -60,6 +60,9 @@ type Handler struct {
 
 	// Enrollment owns the enrollment stream and operator enrollment actions.
 	Enrollment *enrollmenthandler.Handler
+
+	// AcmeWake nudges the ACME issuance manager after deployment config writes.
+	AcmeWake func()
 }
 
 // Dependencies contains the shared primary services used by Web UI routes.
@@ -71,6 +74,7 @@ type Dependencies struct {
 	GitVersions           GitSourceProvider
 	GithubReleaseVersions *versionprovider.GithubReleaseVersionProvider
 	Secrets               *secrets.Manager
+	AcmeWake              func()
 }
 
 func (h *Handler) Get(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {
@@ -137,6 +141,7 @@ func New(staticFS fs.FS, nodeID int32, deps Dependencies) (*Handler, error) {
 		GithubReleaseVersions: deps.GithubReleaseVersions,
 		Secrets:               deps.Secrets,
 		NodeID:                nodeID,
+		AcmeWake:              deps.AcmeWake,
 	}
 	h.jwtAuth = authu.NewJWTAuth[*apigen.InternalUser, int32](
 		func(kid string, key []byte) error {

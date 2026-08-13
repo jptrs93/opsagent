@@ -132,7 +132,12 @@ func (r *RuntimeInputs) persist(ctx context.Context, secrets, configs map[int32]
 // lets a restarted worker start its workloads without reaching the primary at
 // all.
 func (r *RuntimeInputs) EnsureSecretsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
-	ids := SecretRefs(cfg)
+	return r.EnsureSecretIDs(ctx, SecretRefs(cfg))
+}
+
+// EnsureSecretIDs makes the given secret version ids resolvable on this node,
+// fetching only the ids not already held.
+func (r *RuntimeInputs) EnsureSecretIDs(ctx context.Context, ids []int32) error {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -219,16 +224,22 @@ func SecretRefs(cfg *apigen.DeploymentConfig) []int32 {
 	if cfg == nil {
 		return nil
 	}
-	container := cfg.Spec.Container()
-	if container == nil {
-		return nil
-	}
 	seen := map[int32]bool{}
-	for _, item := range container.Runtime.EnvVars {
-		if item == nil || item.SecretVersionID == nil || *item.SecretVersionID == 0 {
+	if container := cfg.Spec.Container(); container != nil {
+		for _, item := range container.Runtime.EnvVars {
+			if item == nil || item.SecretVersionID == nil || *item.SecretVersionID == 0 {
+				continue
+			}
+			seen[*item.SecretVersionID] = true
+		}
+	}
+	for _, route := range cfg.Spec.Networking.Ingress {
+		if route == nil || route.HttpsConfig == nil || route.HttpsConfig.CertSource == nil {
 			continue
 		}
-		seen[*item.SecretVersionID] = true
+		if secret := route.HttpsConfig.CertSource.Secret; secret != nil && secret.SecretVersionID > 0 {
+			seen[secret.SecretVersionID] = true
+		}
 	}
 	ids := make([]int32, 0, len(seen))
 	for id := range seen {

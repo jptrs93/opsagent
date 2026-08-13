@@ -70,12 +70,24 @@ func (m *Manager) SetNetproxyIngress(ingress []*apigen.NetIngress) error {
 func netproxyIngressPorts(ingress []*apigen.NetIngress) map[uint16]struct{} {
 	ports := make(map[uint16]struct{})
 	for _, route := range ingress {
-		if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH || route.TlsPassthrough == nil {
+		if route == nil {
 			continue
 		}
-		port := route.TlsPassthrough.HostPort
-		if port >= 1 && port <= 65535 {
-			ports[uint16(port)] = struct{}{}
+		switch route.Kind {
+		case apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH:
+			if route.TlsPassthrough == nil {
+				continue
+			}
+			port := route.TlsPassthrough.HostPort
+			if port >= 1 && port <= 65535 {
+				ports[uint16(port)] = struct{}{}
+			}
+		case apigen.IngressKind_INGRESS_KIND_HTTPS:
+			if route.Https == nil {
+				continue
+			}
+			ports[443] = struct{}{}
+			ports[80] = struct{}{}
 		}
 	}
 	return ports

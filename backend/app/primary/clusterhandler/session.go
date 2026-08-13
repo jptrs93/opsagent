@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -42,6 +43,7 @@ type Session struct {
 	store         *state.Service
 	networkPrefix network.Prefix
 	networkMaps   networkMapProvider
+	acme          *acmestate.Holder
 
 	// outbox carries frames destined for the worker. It is never closed;
 	// senders fall through on sessCtx.Done so they never block past teardown.
@@ -106,6 +108,13 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 		// routing it never applied.
 		defer s.networkMaps.ForgetNode(s.NodeID)
 	}
+	var acmeState *apigen.AcmeState
+	var acmeUpdates <-chan *apigen.AcmeState
+	if s.acme != nil {
+		var unsubscribeAcme func()
+		acmeState, acmeUpdates, unsubscribeAcme = s.acme.SnapshotAndSubscribe()
+		defer unsubscribeAcme()
+	}
 	items := make([]*apigen.ScheduledInstanceState, 0, len(snapshot))
 	for i := range snapshot {
 		items = append(items, &snapshot[i])
@@ -167,6 +176,11 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 			return
 		}
 	}
+	if acmeState != nil {
+		if !yield(&apigen.MsgToWorker{AcmeState: acmeState}, nil) {
+			return
+		}
+	}
 	// Send the snapshot first so the worker's stream call returns promptly.
 	if !yield(initial, nil) {
 		return
@@ -187,6 +201,14 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 				continue
 			}
 			if next != nil && !yield(&apigen.MsgToWorker{ClusterNetMap: next}, nil) {
+				return
+			}
+		case next, ok := <-acmeUpdates:
+			if !ok {
+				acmeUpdates = nil
+				continue
+			}
+			if next != nil && !yield(&apigen.MsgToWorker{AcmeState: next}, nil) {
 				return
 			}
 		}

@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
+	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/engine"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubrelease"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubreleaseimage"
@@ -19,6 +21,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/repo/git"
 	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
+	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
 
@@ -81,8 +84,16 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	nixDockerPreparer := nixdocker.New(gitManager)
 	githubReleaseImagePreparer := githubreleaseimage.New(cfg.ReleasesDir, githubClient)
 
-	go netproxy.RunNetStateWriter(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID), cfg.NodeIdentifier, cfg.NetproxyStatePath)
-	go runRuntimeInputRetention(ctx, store, runtimeInputs, scheduledInstancePredicateForNode(cfg.NodeID))
+	acmeHolder := acmestate.NewHolder()
+	if b, ok := store.FetchLocalKV(storage.LocalKVAcmeState); ok {
+		if persisted, err := apigen.DecodeAcmeState(b); err != nil {
+			slog.Warn("decoding persisted ACME state failed", "err", err)
+		} else {
+			acmeHolder.Set(persisted)
+		}
+	}
+	go netproxy.RunNetStateWriter(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID), cfg.NodeIdentifier, cfg.NetproxyStatePath, runtimeInputs, acmeHolder, runtimeInputs.EnsureSecretIDs)
+	go runRuntimeInputRetention(ctx, store, runtimeInputs, scheduledInstancePredicateForNode(cfg.NodeID), acmeHolder)
 	go engine.DeploymentOperator{
 		Store:              store,
 		GithubRelease:      githubReleasePreparer,
@@ -91,7 +102,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 		RuntimeInputs:      runtimeInputs,
 	}.RunAll(scheduledInstancePredicateForNode(cfg.NodeID))
 
-	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient)
+	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient, acmeHolder)
 }
 
 // newPrimaryHTTPClient builds the HTTP/2-only client a worker uses to dial the

@@ -10,6 +10,29 @@
  * @property {number} containerPort
  */
 /**
+ * @typedef {Object} AcmeCertSource
+ * @property {number} challenge
+ */
+/**
+ * @typedef {Object} SecretCertSource
+ * @property {number} secretVersionId
+ */
+/**
+ * @typedef {Object} CertSource
+ * @property {AcmeCertSource} acme
+ * @property {SecretCertSource} secret
+ */
+/**
+ * @typedef {Object} HttpsConfig
+ * @property {number} containerPort
+ * @property {string} pathPrefix
+ * @property {boolean} stripPrefix
+ * @property {number} backendProtocol
+ * @property {number} maxRequestBodyBytes
+ * @property {number} flushIntervalMs
+ * @property {CertSource} certSource
+ */
+/**
  * @typedef {Object} TlsPassthroughConfig
  * @property {number} hostPort
  * @property {number} containerPort
@@ -19,6 +42,7 @@
  * @property {number} kind
  * @property {string} hostname
  * @property {TlsPassthroughConfig} tlsPassthroughConfig
+ * @property {HttpsConfig} httpsConfig
  */
 /**
  * @typedef {Object} NetworkingConfig
@@ -1143,6 +1167,18 @@
  * @property {ClusterNetworkInfo} clusterNetwork
  * @property {ClusterNetMap} clusterNetMap
  * @property {number} clusterProtocolVersion
+ * @property {AcmeState} acmeState
+ */
+/**
+ * @typedef {Object} AcmeState
+ * @property {number} seq
+ * @property {AcmeCertBinding[]} certBindings
+ * @property {AcmeHttpChallenge[]} challenges
+ */
+/**
+ * @typedef {Object} AcmeCertBinding
+ * @property {string} hostname
+ * @property {number} secretVersionId
  */
 /**
  * @typedef {Object} ClusterNetworkInfo
@@ -1203,6 +1239,12 @@
  * @property {DnsService[]} dnsServices
  * @property {string[]} upstreamResolvers
  * @property {NetIngress[]} ingress
+ * @property {AcmeHttpChallenge[]} acmeChallenges
+ */
+/**
+ * @typedef {Object} AcmeHttpChallenge
+ * @property {string} token
+ * @property {string} keyAuthorization
  */
 /**
  * @typedef {Object} DnsService
@@ -1215,6 +1257,27 @@
  * @property {number} kind
  * @property {string} hostname
  * @property {TlsPassthroughNetIngress} tlsPassthrough
+ * @property {HttpsNetIngress} https
+ */
+/**
+ * @typedef {Object} HttpsNetIngress
+ * @property {string} pathPrefix
+ * @property {boolean} stripPrefix
+ * @property {number} backendProtocol
+ * @property {number} maxRequestBodyBytes
+ * @property {number} flushIntervalMs
+ * @property {string} certId
+ * @property {IngressBackend[]} backends
+ */
+/**
+ * @typedef {Object} CertBundle
+ * @property {number} seq
+ * @property {CertBundleEntry[]} certs
+ */
+/**
+ * @typedef {Object} CertBundleEntry
+ * @property {string} certId
+ * @property {Uint8Array} pem
  */
 /**
  * @typedef {Object} TlsPassthroughNetIngress
@@ -1462,6 +1525,285 @@ export function decodePortForward(buffer) {
 
 
 /**
+ * @param {AcmeCertSource} message
+ * @param {Writer} writer
+ */
+export function writeAcmeCertSource(message, writer) {
+    if (message.challenge !== undefined && message.challenge !== null && message.challenge !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.challenge);
+    }
+}
+
+
+/**
+ * @param {AcmeCertSource} message
+ * @returns {Uint8Array}
+ */
+export function encodeAcmeCertSource(message) {
+    const writer = Writer.create();
+    writeAcmeCertSource(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AcmeCertSource}
+ */
+function decodeAcmeCertSourceMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {challenge: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.challenge = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AcmeCertSource}
+ */
+export function decodeAcmeCertSource(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAcmeCertSourceMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretCertSource} message
+ * @param {Writer} writer
+ */
+export function writeSecretCertSource(message, writer) {
+    if (message.secretVersionId !== undefined && message.secretVersionId !== null && message.secretVersionId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretVersionId);
+    }
+}
+
+
+/**
+ * @param {SecretCertSource} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretCertSource(message) {
+    const writer = Writer.create();
+    writeSecretCertSource(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretCertSource}
+ */
+function decodeSecretCertSourceMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {secretVersionId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.secretVersionId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretCertSource}
+ */
+export function decodeSecretCertSource(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretCertSourceMessage(reader);
+}
+
+
+
+/**
+ * @param {CertSource} message
+ * @param {Writer} writer
+ */
+export function writeCertSource(message, writer) {
+    if (message.acme !== undefined && message.acme !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeAcmeCertSource(message.acme, writer);
+        writer.ldelim();
+    }
+    if (message.secret !== undefined && message.secret !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeSecretCertSource(message.secret, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {CertSource} message
+ * @returns {Uint8Array}
+ */
+export function encodeCertSource(message) {
+    const writer = Writer.create();
+    writeCertSource(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {CertSource}
+ */
+function decodeCertSourceMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {acme: undefined, secret: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.acme = decodeAcmeCertSourceMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.secret = decodeSecretCertSourceMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {CertSource}
+ */
+export function decodeCertSource(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeCertSourceMessage(reader);
+}
+
+
+
+/**
+ * @param {HttpsConfig} message
+ * @param {Writer} writer
+ */
+export function writeHttpsConfig(message, writer) {
+    if (message.containerPort !== undefined && message.containerPort !== null && message.containerPort !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.containerPort);
+    }
+    if (message.pathPrefix !== undefined && message.pathPrefix !== null && message.pathPrefix !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.pathPrefix);
+    }
+    if (message.stripPrefix === true) {
+        writer.uint32(tag(3, WIRE.VARINT)).bool(message.stripPrefix);
+    }
+    if (message.backendProtocol !== undefined && message.backendProtocol !== null && message.backendProtocol !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.backendProtocol);
+    }
+    if (message.maxRequestBodyBytes !== undefined && message.maxRequestBodyBytes !== null && message.maxRequestBodyBytes !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(message.maxRequestBodyBytes);
+    }
+    if (message.flushIntervalMs !== undefined && message.flushIntervalMs !== null && message.flushIntervalMs !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.flushIntervalMs);
+    }
+    if (message.certSource !== undefined && message.certSource !== null) {
+        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writeCertSource(message.certSource, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {HttpsConfig} message
+ * @returns {Uint8Array}
+ */
+export function encodeHttpsConfig(message) {
+    const writer = Writer.create();
+    writeHttpsConfig(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {HttpsConfig}
+ */
+function decodeHttpsConfigMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {containerPort: 0, pathPrefix: "", stripPrefix: false, backendProtocol: 0, maxRequestBodyBytes: 0, flushIntervalMs: 0, certSource: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.containerPort = reader.int32();
+                break;
+            }
+            case 2: {
+                message.pathPrefix = reader.string();
+                break;
+            }
+            case 3: {
+                message.stripPrefix = reader.bool();
+                break;
+            }
+            case 4: {
+                message.backendProtocol = reader.int32();
+                break;
+            }
+            case 5: {
+                message.maxRequestBodyBytes = readInt64(reader, "int64");
+                break;
+            }
+            case 6: {
+                message.flushIntervalMs = reader.int32();
+                break;
+            }
+            case 7: {
+                message.certSource = decodeCertSourceMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {HttpsConfig}
+ */
+export function decodeHttpsConfig(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeHttpsConfigMessage(reader);
+}
+
+
+
+/**
  * @param {TlsPassthroughConfig} message
  * @param {Writer} writer
  */
@@ -1540,6 +1882,11 @@ export function writeIngress(message, writer) {
         writeTlsPassthroughConfig(message.tlsPassthroughConfig, writer);
         writer.ldelim();
     }
+    if (message.httpsConfig !== undefined && message.httpsConfig !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeHttpsConfig(message.httpsConfig, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -1561,7 +1908,7 @@ export function encodeIngress(message) {
  */
 function decodeIngressMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {kind: 0, hostname: "", tlsPassthroughConfig: undefined };
+    const message = {kind: 0, hostname: "", tlsPassthroughConfig: undefined, httpsConfig: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1575,6 +1922,10 @@ function decodeIngressMessage(reader, length) {
             }
             case 3: {
                 message.tlsPassthroughConfig = decodeTlsPassthroughConfigMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.httpsConfig = decodeHttpsConfigMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -14947,6 +15298,11 @@ export function writeMsgToWorker(message, writer) {
     if (message.clusterProtocolVersion !== undefined && message.clusterProtocolVersion !== null && message.clusterProtocolVersion !== 0) {
         writer.uint32(tag(10, WIRE.VARINT)).int32(message.clusterProtocolVersion);
     }
+    if (message.acmeState !== undefined && message.acmeState !== null) {
+        writer.uint32(tag(11, WIRE.LDELIM)).fork();
+        writeAcmeState(message.acmeState, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -14968,7 +15324,7 @@ export function encodeMsgToWorker(message) {
  */
 function decodeMsgToWorkerMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", logSearchRequest: undefined, clusterNetwork: undefined, clusterNetMap: undefined, clusterProtocolVersion: 0 };
+    const message = {scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", logSearchRequest: undefined, clusterNetwork: undefined, clusterNetMap: undefined, clusterProtocolVersion: 0, acmeState: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15012,6 +15368,10 @@ function decodeMsgToWorkerMessage(reader, length) {
                 message.clusterProtocolVersion = reader.int32();
                 break;
             }
+            case 11: {
+                message.acmeState = decodeAcmeStateMessage(reader, reader.uint32());
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -15027,6 +15387,147 @@ function decodeMsgToWorkerMessage(reader, length) {
 export function decodeMsgToWorker(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeMsgToWorkerMessage(reader);
+}
+
+
+
+/**
+ * @param {AcmeState} message
+ * @param {Writer} writer
+ */
+export function writeAcmeState(message, writer) {
+    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.seq);
+    }
+    if (message.certBindings && message.certBindings.length > 0) {
+        for (const item of message.certBindings) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeAcmeCertBinding(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.challenges && message.challenges.length > 0) {
+        for (const item of message.challenges) {
+            writer.uint32(tag(3, WIRE.LDELIM)).fork();
+            writeAcmeHttpChallenge(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {AcmeState} message
+ * @returns {Uint8Array}
+ */
+export function encodeAcmeState(message) {
+    const writer = Writer.create();
+    writeAcmeState(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AcmeState}
+ */
+function decodeAcmeStateMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {seq: 0, certBindings: [], challenges: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.seq = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.certBindings.push(decodeAcmeCertBindingMessage(reader, reader.uint32()));
+                break;
+            }
+            case 3: {
+                message.challenges.push(decodeAcmeHttpChallengeMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AcmeState}
+ */
+export function decodeAcmeState(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAcmeStateMessage(reader);
+}
+
+
+
+/**
+ * @param {AcmeCertBinding} message
+ * @param {Writer} writer
+ */
+export function writeAcmeCertBinding(message, writer) {
+    if (message.hostname !== undefined && message.hostname !== null && message.hostname !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.hostname);
+    }
+    if (message.secretVersionId !== undefined && message.secretVersionId !== null && message.secretVersionId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.secretVersionId);
+    }
+}
+
+
+/**
+ * @param {AcmeCertBinding} message
+ * @returns {Uint8Array}
+ */
+export function encodeAcmeCertBinding(message) {
+    const writer = Writer.create();
+    writeAcmeCertBinding(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AcmeCertBinding}
+ */
+function decodeAcmeCertBindingMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {hostname: "", secretVersionId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.hostname = reader.string();
+                break;
+            }
+            case 2: {
+                message.secretVersionId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AcmeCertBinding}
+ */
+export function decodeAcmeCertBinding(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAcmeCertBindingMessage(reader);
 }
 
 
@@ -15665,6 +16166,13 @@ export function writeNetState(message, writer) {
             writer.ldelim();
         }
     }
+    if (message.acmeChallenges && message.acmeChallenges.length > 0) {
+        for (const item of message.acmeChallenges) {
+            writer.uint32(tag(7, WIRE.LDELIM)).fork();
+            writeAcmeHttpChallenge(item, writer);
+            writer.ldelim();
+        }
+    }
 }
 
 
@@ -15686,7 +16194,7 @@ export function encodeNetState(message) {
  */
 function decodeNetStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {seq: 0, ulaPrefix: new Uint8Array(0), nodeIdentifier: "", dnsServices: [], upstreamResolvers: [], ingress: [] };
+    const message = {seq: 0, ulaPrefix: new Uint8Array(0), nodeIdentifier: "", dnsServices: [], upstreamResolvers: [], ingress: [], acmeChallenges: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15714,6 +16222,10 @@ function decodeNetStateMessage(reader, length) {
                 message.ingress.push(decodeNetIngressMessage(reader, reader.uint32()));
                 break;
             }
+            case 7: {
+                message.acmeChallenges.push(decodeAcmeHttpChallengeMessage(reader, reader.uint32()));
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -15729,6 +16241,69 @@ function decodeNetStateMessage(reader, length) {
 export function decodeNetState(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeNetStateMessage(reader);
+}
+
+
+
+/**
+ * @param {AcmeHttpChallenge} message
+ * @param {Writer} writer
+ */
+export function writeAcmeHttpChallenge(message, writer) {
+    if (message.token !== undefined && message.token !== null && message.token !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.token);
+    }
+    if (message.keyAuthorization !== undefined && message.keyAuthorization !== null && message.keyAuthorization !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.keyAuthorization);
+    }
+}
+
+
+/**
+ * @param {AcmeHttpChallenge} message
+ * @returns {Uint8Array}
+ */
+export function encodeAcmeHttpChallenge(message) {
+    const writer = Writer.create();
+    writeAcmeHttpChallenge(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AcmeHttpChallenge}
+ */
+function decodeAcmeHttpChallengeMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {token: "", keyAuthorization: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.token = reader.string();
+                break;
+            }
+            case 2: {
+                message.keyAuthorization = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AcmeHttpChallenge}
+ */
+export function decodeAcmeHttpChallenge(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAcmeHttpChallengeMessage(reader);
 }
 
 
@@ -15823,6 +16398,11 @@ export function writeNetIngress(message, writer) {
         writeTlsPassthroughNetIngress(message.tlsPassthrough, writer);
         writer.ldelim();
     }
+    if (message.https !== undefined && message.https !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeHttpsNetIngress(message.https, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -15844,7 +16424,7 @@ export function encodeNetIngress(message) {
  */
 function decodeNetIngressMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {kind: 0, hostname: "", tlsPassthrough: undefined };
+    const message = {kind: 0, hostname: "", tlsPassthrough: undefined, https: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15858,6 +16438,10 @@ function decodeNetIngressMessage(reader, length) {
             }
             case 3: {
                 message.tlsPassthrough = decodeTlsPassthroughNetIngressMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.https = decodeHttpsNetIngressMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -15875,6 +16459,238 @@ function decodeNetIngressMessage(reader, length) {
 export function decodeNetIngress(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeNetIngressMessage(reader);
+}
+
+
+
+/**
+ * @param {HttpsNetIngress} message
+ * @param {Writer} writer
+ */
+export function writeHttpsNetIngress(message, writer) {
+    if (message.pathPrefix !== undefined && message.pathPrefix !== null && message.pathPrefix !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.pathPrefix);
+    }
+    if (message.stripPrefix === true) {
+        writer.uint32(tag(2, WIRE.VARINT)).bool(message.stripPrefix);
+    }
+    if (message.backendProtocol !== undefined && message.backendProtocol !== null && message.backendProtocol !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.backendProtocol);
+    }
+    if (message.maxRequestBodyBytes !== undefined && message.maxRequestBodyBytes !== null && message.maxRequestBodyBytes !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(message.maxRequestBodyBytes);
+    }
+    if (message.flushIntervalMs !== undefined && message.flushIntervalMs !== null && message.flushIntervalMs !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.flushIntervalMs);
+    }
+    if (message.certId !== undefined && message.certId !== null && message.certId !== "") {
+        writer.uint32(tag(6, WIRE.LDELIM)).string(message.certId);
+    }
+    if (message.backends && message.backends.length > 0) {
+        for (const item of message.backends) {
+            writer.uint32(tag(7, WIRE.LDELIM)).fork();
+            writeIngressBackend(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {HttpsNetIngress} message
+ * @returns {Uint8Array}
+ */
+export function encodeHttpsNetIngress(message) {
+    const writer = Writer.create();
+    writeHttpsNetIngress(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {HttpsNetIngress}
+ */
+function decodeHttpsNetIngressMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {pathPrefix: "", stripPrefix: false, backendProtocol: 0, maxRequestBodyBytes: 0, flushIntervalMs: 0, certId: "", backends: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.pathPrefix = reader.string();
+                break;
+            }
+            case 2: {
+                message.stripPrefix = reader.bool();
+                break;
+            }
+            case 3: {
+                message.backendProtocol = reader.int32();
+                break;
+            }
+            case 4: {
+                message.maxRequestBodyBytes = readInt64(reader, "int64");
+                break;
+            }
+            case 5: {
+                message.flushIntervalMs = reader.int32();
+                break;
+            }
+            case 6: {
+                message.certId = reader.string();
+                break;
+            }
+            case 7: {
+                message.backends.push(decodeIngressBackendMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {HttpsNetIngress}
+ */
+export function decodeHttpsNetIngress(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeHttpsNetIngressMessage(reader);
+}
+
+
+
+/**
+ * @param {CertBundle} message
+ * @param {Writer} writer
+ */
+export function writeCertBundle(message, writer) {
+    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.seq);
+    }
+    if (message.certs && message.certs.length > 0) {
+        for (const item of message.certs) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeCertBundleEntry(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {CertBundle} message
+ * @returns {Uint8Array}
+ */
+export function encodeCertBundle(message) {
+    const writer = Writer.create();
+    writeCertBundle(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {CertBundle}
+ */
+function decodeCertBundleMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {seq: 0, certs: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.seq = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.certs.push(decodeCertBundleEntryMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {CertBundle}
+ */
+export function decodeCertBundle(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeCertBundleMessage(reader);
+}
+
+
+
+/**
+ * @param {CertBundleEntry} message
+ * @param {Writer} writer
+ */
+export function writeCertBundleEntry(message, writer) {
+    if (message.certId !== undefined && message.certId !== null && message.certId !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.certId);
+    }
+    if (message.pem && message.pem.length > 0) {
+        writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.pem);
+    }
+}
+
+
+/**
+ * @param {CertBundleEntry} message
+ * @returns {Uint8Array}
+ */
+export function encodeCertBundleEntry(message) {
+    const writer = Writer.create();
+    writeCertBundleEntry(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {CertBundleEntry}
+ */
+function decodeCertBundleEntryMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {certId: "", pem: new Uint8Array(0) };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.certId = reader.string();
+                break;
+            }
+            case 2: {
+                message.pem = reader.bytes();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {CertBundleEntry}
+ */
+export function decodeCertBundleEntry(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeCertBundleEntryMessage(reader);
 }
 
 

@@ -87,7 +87,14 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 	}
 
 	cfg := h.Store.MustCreateDeploymentForNode(ctx, &identity, req.NodeID, spec)
+	h.wakeAcme()
 	return cfg, nil
+}
+
+func (h *Handler) wakeAcme() {
+	if h.AcmeWake != nil {
+		h.AcmeWake()
+	}
 }
 
 func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequest) (*apigen.DeploymentConfig, error) {
@@ -217,6 +224,7 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		if !versionOK {
 			return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, current.Version+1)
 		}
+		h.wakeAcme()
 		return current, nil
 	}
 

@@ -328,50 +328,6 @@ func TestRenameIsMetadataOnly(t *testing.T) {
 	}
 }
 
-func TestLegacyNameAADSweepAtUnlock(t *testing.T) {
-	dir := t.TempDir()
-	store := newMemStore()
-	mgr := mustOpen(t, dir, store)
-	meta, err := mgr.Create("db.password", []byte("legacy-value"), 0, 0, 0)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	// Rewind the row to the pre-split binding: sealed under the name AAD, as
-	// the shape migration leaves rows (it copies ciphertext bytes untouched).
-	rec := store.records[meta.ID]
-	ct, nonce, err := aeadSeal(mgr.smk, []byte("legacy-value"), legacyUserSecretAAD(rec.Name))
-	if err != nil {
-		t.Fatalf("seal legacy: %v", err)
-	}
-	rec.Ciphertext = ct
-	rec.Nonce = nonce
-	store.records[rec.ID] = rec
-
-	// Reopen: the unlock sweep must re-seal it under the id-bound AAD.
-	mgr2 := mustOpen(t, dir, store)
-	if got, ok := mgr2.Resolve(meta.ID); !ok || got != "legacy-value" {
-		t.Fatalf("Resolve after sweep = %q, %v", got, ok)
-	}
-	swept := store.records[meta.ID]
-	if _, err := aeadOpen(mgr2.smk, swept.Ciphertext, swept.Nonce, userSecretAAD(meta.SecretID, meta.Version)); err != nil {
-		t.Fatalf("row not re-sealed under id-bound AAD: %v", err)
-	}
-	if _, err := aeadOpen(mgr2.smk, swept.Ciphertext, swept.Nonce, legacyUserSecretAAD("db.password")); err == nil {
-		t.Fatal("row still opens under the legacy name AAD after sweep")
-	}
-
-	// Idempotence: another reopen converts nothing and still resolves.
-	sweptCiphertext := string(swept.Ciphertext)
-	mgr3 := mustOpen(t, dir, store)
-	if got, ok := mgr3.Resolve(meta.ID); !ok || got != "legacy-value" {
-		t.Fatalf("Resolve after second sweep = %q, %v", got, ok)
-	}
-	if string(store.records[meta.ID].Ciphertext) != sweptCiphertext {
-		t.Fatal("second sweep rewrote an already-converted row")
-	}
-}
-
 func TestSystemSecretsAreSeparateFromUserSecrets(t *testing.T) {
 	dir := t.TempDir()
 	store := newMemStore()

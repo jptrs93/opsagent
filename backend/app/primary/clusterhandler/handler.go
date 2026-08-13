@@ -15,9 +15,11 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -91,6 +93,7 @@ type Handler struct {
 	secrets           *secrets.Manager
 	networkPrefix     network.Prefix
 	networkMaps       networkMapProvider
+	acme              *acmestate.Holder
 
 	mu          sync.RWMutex
 	sessions    map[int32]*Session  // node ID → session
@@ -111,7 +114,7 @@ type networkMapProvider interface {
 }
 
 // New creates a cluster handler.
-func New(store *state.Service, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, networkMaps networkMapProvider) *Handler {
+func New(store *state.Service, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, networkMaps networkMapProvider, acme *acmestate.Holder) *Handler {
 	return &Handler{
 		store:             store,
 		assets:            assets,
@@ -119,6 +122,7 @@ func New(store *state.Service, assets assetProvider, githubCredentials githubcre
 		secrets:           secretsMgr,
 		networkPrefix:     networkPrefix,
 		networkMaps:       networkMaps,
+		acme:              acme,
 		sessions:          make(map[int32]*Session),
 		connectedAt:       make(map[int32]time.Time),
 	}
@@ -190,7 +194,35 @@ type clusterAllowedRefs struct {
 }
 
 func (p *Handler) allowedRefs(predicate storage.ScheduledInstancePredicate) clusterAllowedRefs {
-	return buildAllowedRefs(p.store.FetchScheduledSnapshot(predicate))
+	snapshot := p.store.FetchScheduledSnapshot(predicate)
+	refs := buildAllowedRefs(snapshot)
+	var bindings map[string]int32
+	if p.acme != nil {
+		bindings = acmestate.Bindings(p.acme.Get())
+	}
+	addIngressCertRefs(refs, snapshot, bindings)
+	return refs
+}
+
+func addIngressCertRefs(refs clusterAllowedRefs, snapshot []apigen.ScheduledInstanceState, bindings map[string]int32) {
+	for _, state := range snapshot {
+		for _, route := range state.Config.Spec.Networking.Ingress {
+			if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || route.HttpsConfig == nil {
+				continue
+			}
+			source := route.HttpsConfig.CertSource
+			if source != nil && source.Secret != nil {
+				if source.Secret.SecretVersionID > 0 {
+					refs.secretIDs[source.Secret.SecretVersionID] = struct{}{}
+				}
+				continue
+			}
+			hostname := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(route.Hostname)), ".")
+			if id, ok := bindings[hostname]; ok {
+				refs.secretIDs[id] = struct{}{}
+			}
+		}
+	}
 }
 
 func buildAllowedRefs(snapshot []apigen.ScheduledInstanceState) clusterAllowedRefs {
@@ -345,6 +377,7 @@ func (p *Handler) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*a
 		defer cancel()
 
 		sess := newSession(sessCtx, cancel, nodeID, machine, predicate, p.store, p.networkMaps)
+		sess.acme = p.acme
 		sess.networkPrefix = p.networkPrefix
 		p.registerSession(nodeID, machine, sess)
 		defer p.unregisterSession(nodeID, machine, sess)

@@ -189,7 +189,7 @@ const permissionsChip = (sel, {argNames} = {}) => {
 };
 
 const delegationChip = (delegationAllowed) => chip(
-    delegationAllowed ? ["agents ✓"] : ["agents ✗"],
+    delegationAllowed ? ["user + agents"] : ["user only"],
     {
         title: `delegation ${delegationAllowed ? "allowed" : "not allowed"}`,
         chipClass: delegationAllowed ? "bg-teal-950/40 text-teal-300" : "text-gray-500",
@@ -209,29 +209,32 @@ const delegatedOnlyChip = (delegatedOnly) => chip(
     },
 );
 
-// Segments are joined by a small centred arrow rather than a divider line, so
-// the row reads as one connected phrase flowing left to right. The arrow never
-// shrinks, so narrowing the row squeezes the chips instead.
-const chipArrow = () => div({
+// The selector chips in the middle of a rule are joined by a small centred
+// intersection symbol — a rule matches where all of its selectors overlap. It
+// never shrinks, so narrowing the row squeezes the chips instead.
+const chipIntersect = () => div({
     class: "flex shrink-0 items-center px-0.5 text-[10px] leading-none text-gray-600 select-none",
-}, "→");
+}, "∩");
+
+// Connector words ("allow", "on", "by") are fixed phrasing between chips: like
+// arrows they never shrink or change tier.
+const chipWord = (text, wordClass) => div({
+    class: "flex shrink-0 items-center px-1 text-xs select-none " + (wordClass || "text-gray-500"),
+}, text);
 
 // The segments of one rule form a single unioned pill: one rounded border and
 // background around the row, no per-chip chrome. w-fit keeps the pill hugging
 // its content while max-w-full still lets the segments shrink inside a narrow
-// cell.
-const chipRow = (title, ...chips) => {
-    const arrows = [];
+// cell. Items are chips or fixed separators (connector words, ∩); separators
+// are laid out as-is and their width counts as chrome when fitting the chips.
+const chipRow = (title, ...items) => {
+    const chips = items.filter((it) => it.el);
+    const separators = items.filter((it) => !it.el);
     const pill = div({
         class: "flex w-fit max-w-full min-w-0 items-stretch overflow-hidden rounded-md " +
             "border border-gray-700 bg-gray-950/40",
         title,
-    }, ...chips.flatMap((c, i) => {
-        if (!i) return [c.el];
-        const arrow = chipArrow();
-        arrows.push(arrow);
-        return [arrow, c.el];
-    }));
+    }, ...items.map((it) => it.el || it));
     // The available width is read from a full-width wrapper, not from the pill:
     // the pill hugs its content, so observing it would feed every relayout back
     // into the next measurement.
@@ -239,7 +242,7 @@ const chipRow = (title, ...chips) => {
     const observer = new ResizeObserver(() => {
         const style = getComputedStyle(pill);
         const chrome = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth) +
-            arrows.reduce((sum, a) => sum + a.getBoundingClientRect().width, 0);
+            separators.reduce((sum, s) => sum + s.getBoundingClientRect().width, 0);
         fitRow(chips, chrome, wrap.getBoundingClientRect().width);
     });
     observer.observe(wrap);
@@ -248,28 +251,39 @@ const chipRow = (title, ...chips) => {
 
 const selectorChips = (rule, opts) => [
     spacesChip(rule.spaces, opts),
+    chipIntersect(),
     entityTypesChip(rule.entityTypes, opts),
+    chipIntersect(),
     entityRefsChip(rule.entityRefs, opts),
-    permissionsChip(rule.permissions, opts),
 ];
 
-// ruleDisplay renders one authz rule as a row of human-readable chips in
-// grammar order. The row never wraps; the phrasings step down together as the
-// row narrows. Hovering shows the raw grammar.
+// ruleDisplay renders one authz rule as a sentence of human-readable chips:
+// "allow <actions> on <spaces> ∩ <types> ∩ <instances> by <user + agents|user
+// only>". The row never wraps; the phrasings step down together as the row
+// narrows. Hovering shows the raw grammar.
 export const ruleDisplay = (rule, {spaceNames, argNames} = {}) => {
     if (!rule) return "";
     const opts = {spaceNames, argNames};
     return chipRow(formatRule(rule, opts),
+        chipWord("allow", "text-green-400"),
+        permissionsChip(rule.permissions, opts),
+        chipWord("on"),
         ...selectorChips(rule, opts),
+        chipWord("by"),
         delegationChip(rule.delegationAllowed));
 };
 
-// globalRuleDisplay is the deny-rule variant: same selector chips, but the
-// trailing chip states who the deny applies to instead of delegability.
+// globalRuleDisplay is the deny-rule variant: same sentence shape with a red
+// "deny", and the trailing chip states who the deny applies to instead of
+// delegability.
 export const globalRuleDisplay = (rule, {spaceNames, argNames} = {}) => {
     if (!rule) return "";
     const opts = {spaceNames, argNames};
     return chipRow(formatGlobalRule(rule, opts),
+        chipWord("deny", "text-red-400"),
+        permissionsChip(rule.permissions, opts),
+        chipWord("on"),
         ...selectorChips(rule, opts),
+        chipWord("by"),
         delegatedOnlyChip(rule.delegatedOnly));
 };

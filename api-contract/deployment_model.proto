@@ -45,6 +45,40 @@ message PortForward {
 enum IngressKind {
   INGRESS_KIND_UNSPECIFIED = 0;
   INGRESS_KIND_TLS_PASSTHROUGH = 1;
+  INGRESS_KIND_HTTPS = 2;
+}
+
+enum HttpBackendProtocol {
+  HTTP_BACKEND_PROTOCOL_UNSPECIFIED = 0;
+  HTTP_BACKEND_PROTOCOL_H2C = 1;
+}
+
+enum AcmeChallenge {
+  ACME_CHALLENGE_UNSPECIFIED = 0;
+  ACME_CHALLENGE_HTTP_01 = 1;
+}
+
+message AcmeCertSource {
+  AcmeChallenge challenge = 1;
+}
+
+message SecretCertSource {
+  int32 secret_version_id = 1;
+}
+
+message CertSource {
+  AcmeCertSource acme = 1;
+  SecretCertSource secret = 2;
+}
+
+message HttpsConfig {
+  int32 container_port = 1;
+  string path_prefix = 2;
+  bool strip_prefix = 3;
+  HttpBackendProtocol backend_protocol = 4;
+  int64 max_request_body_bytes = 5;
+  int32 flush_interval_ms = 6;
+  CertSource cert_source = 7;
 }
 
 // TlsPassthroughConfig configures a TLS connection forwarded by SNI without
@@ -60,6 +94,7 @@ message Ingress {
   IngressKind kind = 1;
   string hostname = 2;
   TlsPassthroughConfig tls_passthrough_config = 3;
+  HttpsConfig https_config = 4;
 }
 
 message NetworkingConfig {

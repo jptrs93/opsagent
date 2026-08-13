@@ -70,6 +70,183 @@ func DecodePortForward(b []byte) (*PortForward, error) {
 	return &m, nil
 }
 
+func (m *AcmeCertSource) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, int32(m.Challenge), 1)
+	return b
+}
+
+func DecodeAcmeCertSource(b []byte) (*AcmeCertSource, error) {
+	var m AcmeCertSource
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Challenge = AcmeChallenge(raw)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretCertSource) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.SecretVersionID, 1)
+	return b
+}
+
+func DecodeSecretCertSource(b []byte) (*SecretCertSource, error) {
+	var m SecretCertSource
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.SecretVersionID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *CertSource) Encode() []byte {
+	var b []byte
+	if m.Acme != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Acme.Encode())
+	}
+	if m.Secret != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Secret.Encode())
+	}
+	return b
+}
+
+func DecodeCertSource(b []byte) (*CertSource, error) {
+	var m CertSource
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AcmeCertSource
+				item, err = DecodeAcmeCertSource(msgBytes)
+				if err == nil {
+					m.Acme = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretCertSource
+				item, err = DecodeSecretCertSource(msgBytes)
+				if err == nil {
+					m.Secret = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *HttpsConfig) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ContainerPort, 1)
+	b = AppendStringField(b, m.PathPrefix, 2)
+	b = AppendBoolField(b, m.StripPrefix, 3)
+	b = AppendInt32Field(b, int32(m.BackendProtocol), 4)
+	b = AppendInt64Field(b, m.MaxRequestBodyBytes, 5)
+	b = AppendInt32Field(b, m.FlushIntervalMs, 6)
+	if m.CertSource != nil {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.CertSource.Encode())
+	}
+	return b
+}
+
+func DecodeHttpsConfig(b []byte) (*HttpsConfig, error) {
+	var m HttpsConfig
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ContainerPort, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.PathPrefix, err = ConsumeString(b, typ)
+		case 3:
+			b, m.StripPrefix, err = ConsumeBool(b, typ)
+		case 4:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.BackendProtocol = HttpBackendProtocol(raw)
+			}
+		case 5:
+			b, m.MaxRequestBodyBytes, err = ConsumeVarInt64(b, typ)
+		case 6:
+			b, m.FlushIntervalMs, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *CertSource
+				item, err = DecodeCertSource(msgBytes)
+				if err == nil {
+					m.CertSource = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *TlsPassthroughConfig) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.HostPort, 1)
@@ -110,6 +287,10 @@ func (m *Ingress) Encode() []byte {
 		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, m.TlsPassthroughConfig.Encode())
 	}
+	if m.HttpsConfig != nil {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.HttpsConfig.Encode())
+	}
 	return b
 }
 
@@ -140,6 +321,15 @@ func DecodeIngress(b []byte) (*Ingress, error) {
 				item, err = DecodeTlsPassthroughConfig(msgBytes)
 				if err == nil {
 					m.TlsPassthroughConfig = item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *HttpsConfig
+				item, err = DecodeHttpsConfig(msgBytes)
+				if err == nil {
+					m.HttpsConfig = item
 				}
 			}
 		default:
@@ -8477,6 +8667,10 @@ func (m *MsgToWorker) Encode() []byte {
 		b = AppendBytes(b, m.ClusterNetMap.Encode())
 	}
 	b = AppendInt32Field(b, m.ClusterProtocolVersion, 10)
+	if m.AcmeState != nil {
+		b = AppendTag(b, 11, BytesType)
+		b = AppendBytes(b, m.AcmeState.Encode())
+	}
 	return b
 }
 
@@ -8568,6 +8762,109 @@ func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
 			}
 		case 10:
 			b, m.ClusterProtocolVersion, err = ConsumeVarInt32(b, typ)
+		case 11:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AcmeState
+				item, err = DecodeAcmeState(msgBytes)
+				if err == nil {
+					m.AcmeState = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AcmeState) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.Seq, 1)
+	for _, item := range m.CertBindings {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	for _, item := range m.Challenges {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeAcmeState(b []byte) (*AcmeState, error) {
+	var m AcmeState
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Seq, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AcmeCertBinding
+				item, err = DecodeAcmeCertBinding(msgBytes)
+				if err == nil {
+					m.CertBindings = append(m.CertBindings, item)
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AcmeHttpChallenge
+				item, err = DecodeAcmeHttpChallenge(msgBytes)
+				if err == nil {
+					m.Challenges = append(m.Challenges, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AcmeCertBinding) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Hostname, 1)
+	b = AppendInt32Field(b, m.SecretVersionID, 2)
+	return b
+}
+
+func DecodeAcmeCertBinding(b []byte) (*AcmeCertBinding, error) {
+	var m AcmeCertBinding
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Hostname, err = ConsumeString(b, typ)
+		case 2:
+			b, m.SecretVersionID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -8969,6 +9266,13 @@ func (m *NetState) Encode() []byte {
 		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
+	for _, item := range m.AcmeChallenges {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
 	return b
 }
 
@@ -9014,6 +9318,47 @@ func DecodeNetState(b []byte) (*NetState, error) {
 					m.Ingress = append(m.Ingress, item)
 				}
 			}
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AcmeHttpChallenge
+				item, err = DecodeAcmeHttpChallenge(msgBytes)
+				if err == nil {
+					m.AcmeChallenges = append(m.AcmeChallenges, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AcmeHttpChallenge) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Token, 1)
+	b = AppendStringField(b, m.KeyAuthorization, 2)
+	return b
+}
+
+func DecodeAcmeHttpChallenge(b []byte) (*AcmeHttpChallenge, error) {
+	var m AcmeHttpChallenge
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Token, err = ConsumeString(b, typ)
+		case 2:
+			b, m.KeyAuthorization, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -9081,6 +9426,10 @@ func (m *NetIngress) Encode() []byte {
 		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, m.TlsPassthrough.Encode())
 	}
+	if m.Https != nil {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.Https.Encode())
+	}
 	return b
 }
 
@@ -9113,6 +9462,158 @@ func DecodeNetIngress(b []byte) (*NetIngress, error) {
 					m.TlsPassthrough = item
 				}
 			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *HttpsNetIngress
+				item, err = DecodeHttpsNetIngress(msgBytes)
+				if err == nil {
+					m.Https = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *HttpsNetIngress) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.PathPrefix, 1)
+	b = AppendBoolField(b, m.StripPrefix, 2)
+	b = AppendInt32Field(b, int32(m.BackendProtocol), 3)
+	b = AppendInt64Field(b, m.MaxRequestBodyBytes, 4)
+	b = AppendInt32Field(b, m.FlushIntervalMs, 5)
+	b = AppendStringField(b, m.CertID, 6)
+	for _, item := range m.Backends {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeHttpsNetIngress(b []byte) (*HttpsNetIngress, error) {
+	var m HttpsNetIngress
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.PathPrefix, err = ConsumeString(b, typ)
+		case 2:
+			b, m.StripPrefix, err = ConsumeBool(b, typ)
+		case 3:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.BackendProtocol = HttpBackendProtocol(raw)
+			}
+		case 4:
+			b, m.MaxRequestBodyBytes, err = ConsumeVarInt64(b, typ)
+		case 5:
+			b, m.FlushIntervalMs, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.CertID, err = ConsumeString(b, typ)
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *IngressBackend
+				item, err = DecodeIngressBackend(msgBytes)
+				if err == nil {
+					m.Backends = append(m.Backends, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *CertBundle) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.Seq, 1)
+	for _, item := range m.Certs {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeCertBundle(b []byte) (*CertBundle, error) {
+	var m CertBundle
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Seq, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *CertBundleEntry
+				item, err = DecodeCertBundleEntry(msgBytes)
+				if err == nil {
+					m.Certs = append(m.Certs, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *CertBundleEntry) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.CertID, 1)
+	b = AppendBytesField(b, m.Pem, 2)
+	return b
+}
+
+func DecodeCertBundleEntry(b []byte) (*CertBundleEntry, error) {
+	var m CertBundleEntry
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.CertID, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Pem, err = ConsumeBytesCopy(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

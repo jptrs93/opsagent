@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -30,6 +31,8 @@ var tlsIngressHosts = []string{
 	"one.ingress.opendeploy.test",
 	"two.ingress.opendeploy.test",
 	"three.ingress.opendeploy.test",
+	"web.ingress.opendeploy.test",
+	"api.ingress.opendeploy.test",
 }
 
 type config struct {
@@ -90,24 +93,25 @@ type config struct {
 	Goarch   string
 	LimaArch string
 
-	SelfBin                  string
-	RepoMirrorBin            string
-	MockReleaseBinDir        string
-	RepoMirrorRefresh        bool
-	PrepareArtifacts         bool
-	RepoProxyUnknown         string
-	NixCacheMode             string
-	LimaArm64URL             string
-	LimaAmd64URL             string
-	LimaArm64Image           string
-	LimaAmd64Image           string
-	PlaywrightDockerImage    string
-	PlaywrightBaseURL        string
-	PlaywrightBaseURLSet     bool
-	PlaywrightHostPort       string
-	PlaywrightSecondaryPorts string
-	PlaywrightTLSIngressPort string
-	PlaywrightTunnelCmds     []*exec.Cmd
+	SelfBin                   string
+	RepoMirrorBin             string
+	MockReleaseBinDir         string
+	RepoMirrorRefresh         bool
+	PrepareArtifacts          bool
+	RepoProxyUnknown          string
+	NixCacheMode              string
+	LimaArm64URL              string
+	LimaAmd64URL              string
+	LimaArm64Image            string
+	LimaAmd64Image            string
+	PlaywrightDockerImage     string
+	PlaywrightBaseURL         string
+	PlaywrightBaseURLSet      bool
+	PlaywrightHostPort        string
+	PlaywrightSecondaryPorts  string
+	PlaywrightTLSIngressPort  string
+	PlaywrightHTTPIngressPort string
+	PlaywrightTunnelCmds      []*exec.Cmd
 
 	OpenDeployGitHubToken string
 }
@@ -297,6 +301,9 @@ func loadConfig(resolveLatestRelease bool) (*config, error) {
 	c.PlaywrightHostPort = env("OPD_PLAYWRIGHT_HOST_PORT", "8443")
 	c.PlaywrightSecondaryPorts = env("OPD_PLAYWRIGHT_SECONDARY_PORTS", "18181 18182")
 	c.PlaywrightTLSIngressPort = env("OPD_PLAYWRIGHT_TLS_INGRESS_PORT", "18443")
+	// Not 18080: the ipv4 egress listener binds that port inside worker-2 and
+	// Lima auto-forwards guest listeners to the same host port.
+	c.PlaywrightHTTPIngressPort = env("OPD_PLAYWRIGHT_HTTP_INGRESS_PORT", "18980")
 	c.PlaywrightBaseURLSet = os.Getenv("OPD_PLAYWRIGHT_BASE_URL") != ""
 	c.PlaywrightBaseURL = env("OPD_PLAYWRIGHT_BASE_URL", c.WebBaseURL)
 	c.OpenDeployGitHubToken = os.Getenv("OPENDEPLOY_GITHUB_TOKEN")
@@ -2192,7 +2199,35 @@ func (c *config) ensurePlaywrightTLSIngressTunnel() error {
 		return err
 	}
 	c.PlaywrightTunnelCmds = append(c.PlaywrightTunnelCmds, cmd)
+	if err := waitForLocalTunnelListener(c.PlaywrightTLSIngressPort); err != nil {
+		return fmt.Errorf("TLS ingress tunnel on 127.0.0.1:%s: %w", c.PlaywrightTLSIngressPort, err)
+	}
+	httpCmd, err := c.startSSHTunnel(c.Secondary2Name, c.PlaywrightHTTPIngressPort, secondaryIP, "80")
+	if err != nil {
+		return err
+	}
+	c.PlaywrightTunnelCmds = append(c.PlaywrightTunnelCmds, httpCmd)
+	if err := waitForLocalTunnelListener(c.PlaywrightHTTPIngressPort); err != nil {
+		return fmt.Errorf("HTTP ingress tunnel on 127.0.0.1:%s: %w", c.PlaywrightHTTPIngressPort, err)
+	}
 	return nil
+}
+
+// waitForLocalTunnelListener confirms the ssh -L listener accepts connections,
+// so a bind conflict (ExitOnForwardFailure exits ssh silently) fails the run
+// here rather than as an opaque test timeout later.
+func waitForLocalTunnelListener(port string) error {
+	var lastErr error
+	for i := 0; i < 15; i++ {
+		conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, time.Second)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		lastErr = err
+		time.Sleep(time.Second)
+	}
+	return fmt.Errorf("listener never became reachable: %w", lastErr)
 }
 
 func (c *config) startSSHTunnel(vm, localPort, remoteHost, remotePort string) (*exec.Cmd, error) {
@@ -2339,11 +2374,13 @@ func (c *config) runPlaywrightFlows() error {
 	secondaryHost := c.SecondaryName
 	tlsIngressHost := c.Secondary2Name
 	tlsIngressPort := c.PlaywrightTLSIngressPort
+	httpIngressPort := c.PlaywrightHTTPIngressPort
 	if !c.PlaywrightBaseURLSet {
 		secondaryHost = "host.docker.internal"
 		tlsIngressHost = "host.docker.internal"
 	} else {
 		tlsIngressPort = "443"
+		httpIngressPort = "80"
 		if ip, err := c.vmIPv4(c.SecondaryName); err == nil && ip != "" {
 			secondaryHost = ip
 		}
@@ -2359,6 +2396,7 @@ func (c *config) runPlaywrightFlows() error {
 		"OPD_SECONDARY_HOST":              secondaryHost,
 		"OPD_TLS_INGRESS_HOST":            tlsIngressHost,
 		"OPD_TLS_INGRESS_PORT":            tlsIngressPort,
+		"OPD_HTTP_INGRESS_PORT":           httpIngressPort,
 		"OPD_WORKER_1_MACHINE_ID":         worker1MachineID,
 		"OPD_WORKER_2_MACHINE_ID":         worker2MachineID,
 		"OPD_IPV4_EGRESS_URL":             fmt.Sprintf("http://%s:%d/", worker2IPv4, ipv4EgressListenerPort),

@@ -58,7 +58,7 @@ Three token types exist:
 
 An agent session is a 6-hour bearer token for command-line, script, and agent use. The lifetime is deliberately shorter than the 2-day browser session because these tokens get pasted into shells and end up in history files and CI logs.
 
-An agent token carries its parent session's scopes unchanged. Nothing is withheld at the token layer: the only thing that narrows an agent is the authz layer, which sees any token carrying a `jti` as **delegated** and matches only rules with `delegation_allowed`. Under the builtin templates that means an agent can create a secret but not read, change, or destroy one — see [the authz layer](#authz-layer-backendlibauthz) — and an operator writing custom rules is free to decide otherwise. There is no separate list of things agents may not do.
+An agent token carries its parent session's scopes unchanged. Nothing is withheld at the token layer: the only thing that narrows an agent is the authz layer, which sees any token carrying a `jti` as **delegated** and matches only rules with `delegation_allowed`. Under the builtin templates that means an agent can create a secret but not read, change, or destroy one, and cannot view logs (which can echo secret values) — see [the authz layer](#authz-layer-backendlibauthz) — and an operator writing custom rules is free to decide otherwise. There is no separate list of things agents may not do.
 
 All routes live under `/v1/agent-sessions/`, which is also the rate-limit prefix.
 
@@ -148,7 +148,7 @@ Access is purely additive **grants** evaluated against a `RequestedAccess{verb, 
 
 Two builtin templates are seeded (and re-asserted) at startup: `cluster_admin` (everything) and `space_admin(spaces)` (the same scoped to bound spaces). Each then carries two delegable rules that together define what an agent session inherits:
 
-- everything **except the `secret` entity type**, in every space except 0 (or the bound spaces) — so cluster-level entities stay human-only even for a fully privileged agent;
+- everything **except the `secret` entity type and the `view_logs` verb**, in every space except 0 (or the bound spaces) — cluster-level entities stay human-only even for a fully privileged agent, and logs stay off-limits because a deployment can echo secret values into them, which would sidestep the secret rule below;
 - `create` on `secret` in the same spaces — an agent can mint a credential and wire it into a deployment, but cannot reveal, edit, or delete one, and a secret it does not own is not even visible to it.
 
 Both templates also carry a narrow delegable rule granting `view` on `node` and `user` entities in space 0 — without it, a space-limited operator or agent could not list nodes to place a deployment or resolve user names for audit display.
@@ -162,7 +162,7 @@ Handler enforcement lives in `webuihandler/access_enforce.go` (`requireAccess`, 
 The state stream (`PostV1GlobalStateStream`) applies the same `view` filters per connected user: space-scoped collections filter per item, cluster-scoped fields (nodes, users, enrollments, backup status, cluster config) are all-or-nothing on the space-0 check, and a space row is visible if the user holds *any* grant touching that space (`SpaceVisible`), not only explicit `space:view`. Authz collections are all-or-nothing on `access:view`, except every user always receives the template catalogue and their own grants so the UI can describe what they hold. Because snapshot fields replace wholesale on the client, a grant or rule change simply re-emits the full filtered state on every open stream — previously hidden items have no pending updates that could reveal them, so diffing is not attempted.
 
 Lifecycle guarantees:
-- Every newly created user is granted `cluster_admin`; a run-once migration (`migration.authz-cluster-admin-grants`) did the same for users predating the authz tables, so enforcement never locked out an existing install.
+- Every newly created user is granted `cluster_admin`; a run-once migration (since removed, marker `migration.authz-cluster-admin-grants`) did the same for users predating the authz tables, so enforcement never locked out an existing install.
 - `DeleteGrant` refuses (`409 access_last_admin`) to remove the last grant in the system conferring `create` on the `access` entity — self-lockout needs master-password recovery otherwise, and that is a recovery path, not a UX.
 - The Users page adds its own rails ahead of that error (`grantRevokeBlock` in `frontend/src/lib/authz.js`): a `cluster_admin` grant shows a padlock instead of a revoke × when it is the holder's own or the last `cluster_admin` in the cluster, and any other `cluster_admin` revoke asks for confirmation first. These are narrower than the backend guard — they watch the one role rather than every access-managing grant — so the 409 remains the real backstop.
 - Anyone holding `access:create` can grant any access, including more than they hold themselves. There is no attenuation; access management is full trust.

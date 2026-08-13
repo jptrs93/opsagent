@@ -6,32 +6,9 @@
 -- History note: all migrations accumulated up to the 2026-08 storage split
 -- (deployment_status drops, preparer stage split, agent_sessions request/
 -- approve columns, nodes.allowed_spaces) were removed after every active
--- cluster had been rolled forward. Upgrading a database from before then
--- requires stepping through a release that still carried them.
-
--- Asset versions predating user attribution carry created_by = 0 and render as
--- "unknown" in the UI. Every writer now passes the requesting user, so the only
--- rows this can touch are those legacy ones -- attribute them to the first user.
-UPDATE asset_versions SET created_by = 1 WHERE created_by = 0;
-
--- Grant every user that predates the authz layer the builtin cluster_admin
--- template (id 1). The local_kv marker makes this run-once rather than merely
--- idempotent -- without it, a deliberately revoked cluster_admin grant would
--- be silently re-created on the next restart.
-INSERT INTO authz_grants (user_id, template_id, created_by, created_at, data_blob)
-SELECT u.id, 1, 0, CAST(strftime('%s','now') AS INTEGER) * 1000, X''
-FROM users u
-WHERE NOT EXISTS (SELECT 1 FROM local_kv WHERE key = 'migration.authz-cluster-admin-grants')
-  AND NOT EXISTS (SELECT 1 FROM authz_grants g WHERE g.user_id = u.id AND g.template_id = 1);
-
-INSERT OR IGNORE INTO local_kv (key, value) VALUES ('migration.authz-cluster-admin-grants', X'');
-
--- Users gained a created_at (unix millis). Existing users keep 0, which the
--- UI renders as unknown -- there is no honest backfill value for them.
-ALTER TABLE users ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0;
-
-ALTER TABLE users ADD COLUMN last_login_at INTEGER NOT NULL DEFAULT 0;
-
--- Backfill users that predate created_at with a nominal 2026-08-01 UTC.
--- Naturally run-once: no writer leaves created_at at 0 afterwards.
-UPDATE users SET created_at = 1785542400000 WHERE created_at = 0;
+-- cluster had been rolled forward. A second sweep (2026-08-13) removed the
+-- asset_versions created_by attribution, the run-once authz cluster_admin
+-- grant backfill (its local_kv marker 'migration.authz-cluster-admin-grants'
+-- may linger in older databases and is harmless), and the users created_at /
+-- last_login_at column adds and backfill. Upgrading a database from before
+-- then requires stepping through a release that still carried them.

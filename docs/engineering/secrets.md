@@ -165,16 +165,12 @@ machine KEK (provider-supplied) ────────────────
   System secrets stay name-bound (`opendeploy-secret:system:<name>`); they are
   name-keyed, unversioned, and outside the file system.
 
-  Rows written before the identity split are sealed under the legacy name AAD
-  (`opendeploy-secret:user:<name>`). A **re-seal sweep** runs inside every
-  successful unlock, before the store serves reads: each row is tried under the
-  id AAD, and one that only opens under the legacy name AAD is re-sealed and
-  rewritten. Detection is by derived trial decryption — nothing in the DB
-  describes its own binding, so the swap-protection property holds throughout.
-  The sweep is idempotent and crash-safe (a half-finished sweep resumes at the
-  next unlock), and a store that stays locked simply keeps legacy rows until
-  the recovery unlock. Rename requires an unlocked store for exactly this
-  reason: unlocked implies swept, and only swept rows are rename-proof.
+  History note: rows written before the identity split were sealed under a
+  legacy name-bound AAD (`opendeploy-secret:user:<name>`); a re-seal sweep at
+  every successful unlock rewrote them under the id AAD. The sweep and its
+  read fallback were removed in 2026-08 once every active cluster had rolled
+  forward, so restoring a database (or backup) that still carries name-bound
+  rows requires stepping through a release that still carried the sweep.
 - The SMK is never stored in the clear. It is stored wrapped, once per
   **keyslot** (`secret_keyslots` table):
   - **machine slot** — `AEAD(SMK, machineKEK)`, for unattended boot.

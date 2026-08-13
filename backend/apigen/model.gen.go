@@ -35,6 +35,21 @@ type IngressKind int32
 const (
 	IngressKind_INGRESS_KIND_UNSPECIFIED     IngressKind = 0
 	IngressKind_INGRESS_KIND_TLS_PASSTHROUGH IngressKind = 1
+	IngressKind_INGRESS_KIND_HTTPS           IngressKind = 2
+)
+
+type HttpBackendProtocol int32
+
+const (
+	HttpBackendProtocol_HTTP_BACKEND_PROTOCOL_UNSPECIFIED HttpBackendProtocol = 0
+	HttpBackendProtocol_HTTP_BACKEND_PROTOCOL_H2C         HttpBackendProtocol = 1
+)
+
+type AcmeChallenge int32
+
+const (
+	AcmeChallenge_ACME_CHALLENGE_UNSPECIFIED AcmeChallenge = 0
+	AcmeChallenge_ACME_CHALLENGE_HTTP_01     AcmeChallenge = 1
 )
 
 type RunningStatus int32
@@ -163,6 +178,29 @@ type PortForward struct {
 	ContainerPort int32               `json:"container_port"`
 }
 
+type AcmeCertSource struct {
+	Challenge AcmeChallenge `json:"challenge"`
+}
+
+type SecretCertSource struct {
+	SecretVersionID int32 `json:"secret_version_id"`
+}
+
+type CertSource struct {
+	Acme   *AcmeCertSource   `json:"acme"`
+	Secret *SecretCertSource `json:"secret"`
+}
+
+type HttpsConfig struct {
+	ContainerPort       int32               `json:"container_port"`
+	PathPrefix          string              `json:"path_prefix,omitempty"`
+	StripPrefix         bool                `json:"strip_prefix"`
+	BackendProtocol     HttpBackendProtocol `json:"backend_protocol"`
+	MaxRequestBodyBytes int64               `json:"max_request_body_bytes"`
+	FlushIntervalMs     int32               `json:"flush_interval_ms"`
+	CertSource          *CertSource         `json:"cert_source"`
+}
+
 type TlsPassthroughConfig struct {
 	HostPort      int32 `json:"host_port"`
 	ContainerPort int32 `json:"container_port"`
@@ -172,6 +210,7 @@ type Ingress struct {
 	Kind                 IngressKind           `json:"kind"`
 	Hostname             string                `json:"hostname,omitempty"`
 	TlsPassthroughConfig *TlsPassthroughConfig `json:"tls_passthrough_config"`
+	HttpsConfig          *HttpsConfig          `json:"https_config"`
 }
 
 type NetworkingConfig struct {
@@ -1296,6 +1335,18 @@ type MsgToWorker struct {
 	ClusterNetwork             *ClusterNetworkInfo        `json:"cluster_network"`
 	ClusterNetMap              *ClusterNetMap             `json:"cluster_net_map"`
 	ClusterProtocolVersion     int32                      `json:"cluster_protocol_version"`
+	AcmeState                  *AcmeState                 `json:"acme_state"`
+}
+
+type AcmeState struct {
+	Seq          int64                `json:"seq"`
+	CertBindings []*AcmeCertBinding   `json:"cert_bindings,omitempty"`
+	Challenges   []*AcmeHttpChallenge `json:"challenges,omitempty"`
+}
+
+type AcmeCertBinding struct {
+	Hostname        string `json:"hostname,omitempty"`
+	SecretVersionID int32  `json:"secret_version_id"`
 }
 
 type ClusterNetworkInfo struct {
@@ -1350,12 +1401,18 @@ type MsgToMaster struct {
 }
 
 type NetState struct {
-	Seq               int64         `json:"seq"`
-	UlaPrefix         []byte        `json:"ula_prefix"`
-	NodeIdentifier    string        `json:"node_identifier,omitempty"`
-	DnsServices       []*DnsService `json:"dns_services,omitempty"`
-	UpstreamResolvers []string      `json:"upstream_resolvers,omitempty"`
-	Ingress           []*NetIngress `json:"ingress,omitempty"`
+	Seq               int64                `json:"seq"`
+	UlaPrefix         []byte               `json:"ula_prefix"`
+	NodeIdentifier    string               `json:"node_identifier,omitempty"`
+	DnsServices       []*DnsService        `json:"dns_services,omitempty"`
+	UpstreamResolvers []string             `json:"upstream_resolvers,omitempty"`
+	Ingress           []*NetIngress        `json:"ingress,omitempty"`
+	AcmeChallenges    []*AcmeHttpChallenge `json:"acme_challenges,omitempty"`
+}
+
+type AcmeHttpChallenge struct {
+	Token            string `json:"token,omitempty"`
+	KeyAuthorization string `json:"key_authorization,omitempty"`
 }
 
 type DnsService struct {
@@ -1368,6 +1425,27 @@ type NetIngress struct {
 	Kind           IngressKind               `json:"kind"`
 	Hostname       string                    `json:"hostname,omitempty"`
 	TlsPassthrough *TlsPassthroughNetIngress `json:"tls_passthrough"`
+	Https          *HttpsNetIngress          `json:"https"`
+}
+
+type HttpsNetIngress struct {
+	PathPrefix          string              `json:"path_prefix,omitempty"`
+	StripPrefix         bool                `json:"strip_prefix"`
+	BackendProtocol     HttpBackendProtocol `json:"backend_protocol"`
+	MaxRequestBodyBytes int64               `json:"max_request_body_bytes"`
+	FlushIntervalMs     int32               `json:"flush_interval_ms"`
+	CertID              string              `json:"cert_id,omitempty"`
+	Backends            []*IngressBackend   `json:"backends,omitempty"`
+}
+
+type CertBundle struct {
+	Seq   int64              `json:"seq"`
+	Certs []*CertBundleEntry `json:"certs,omitempty"`
+}
+
+type CertBundleEntry struct {
+	CertID string `json:"cert_id,omitempty"`
+	Pem    []byte `json:"pem"`
 }
 
 type TlsPassthroughNetIngress struct {

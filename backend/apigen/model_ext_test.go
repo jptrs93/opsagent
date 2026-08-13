@@ -50,21 +50,3 @@ func TestPreparerStatusRollup(t *testing.T) {
 		})
 	}
 }
-
-// Every legacy PreparationStatus the backfill migration maps into stage pairs
-// must re-derive to itself, or upgraded rows would change meaning.
-func TestRollupRoundTripsMigrationBackfill(t *testing.T) {
-	backfill := map[PreparationStatus]PreparerStatus{
-		PreparationStatus_PREPARATION_STATUS_UNKNOWN: {Inputs: InputsStatus_INPUTS_STATUS_UNKNOWN, Image: ImageStatus_IMAGE_STATUS_UNKNOWN},
-		PreparationStatus_PREPARING:                  {Inputs: InputsStatus_INPUTS_READY, Image: ImageStatus_IMAGE_BUILDING},
-		PreparationStatus_DOWNLOADING:                {Inputs: InputsStatus_INPUTS_READY, Image: ImageStatus_IMAGE_DOWNLOADING},
-		PreparationStatus_READY:                      {Inputs: InputsStatus_INPUTS_READY, Image: ImageStatus_IMAGE_READY},
-		PreparationStatus_FAILED:                     {Inputs: InputsStatus_INPUTS_READY, Image: ImageStatus_IMAGE_FAILED},
-		PreparationStatus_PULLING:                    {Inputs: InputsStatus_INPUTS_READY, Image: ImageStatus_IMAGE_PULLING},
-	}
-	for legacy, staged := range backfill {
-		if got := staged.Rollup(); got != legacy {
-			t.Errorf("legacy %v backfilled to inputs=%v image=%v, which re-derives to %v", legacy, staged.Inputs, staged.Image, got)
-		}
-	}
-}

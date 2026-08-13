@@ -440,8 +440,8 @@ func (op DeploymentOperator) retryRuntimeInputs(instanceID int32, dep *apigen.De
 	ctx = logu.ExtendLogContext(ctx, "scheduled_instance", instanceID)
 	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
 	// Callers reach here only for an instance whose rollup is READY and whose
-	// artifact is present, so the image stage is asserted rather than copied from
-	// prev — that also backfills statuses persisted before the stages existed.
+	// artifact is present, so the image stage is asserted rather than copied
+	// from prev.
 	inputsStage := func(inputs apigen.InputsStatus) prepare.StatusUpdate {
 		return prepare.StatusUpdate{
 			Artifact: prev.Artifact,

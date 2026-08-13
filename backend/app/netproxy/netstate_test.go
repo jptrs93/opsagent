@@ -69,7 +69,7 @@ func TestRunNetStateWriterProcessesUpdateQueuedWithInitialSnapshot(t *testing.T)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		RunNetStateWriter(ctx, store, nil, "node-a", path)
+		RunNetStateWriter(ctx, store, nil, "node-a", path, nil, nil, nil)
 		close(done)
 	}()
 
@@ -120,7 +120,7 @@ func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 		Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{
 			Status: apigen.RunningStatus_RUNNING,
 		}},
-	}})
+	}}, nil)
 
 	backendAddr, err := prefix.InboundAddr(1, 42, 0)
 	if err != nil {
@@ -175,7 +175,7 @@ func TestRenderNetStateDerivesEndpointsFromPlacement(t *testing.T) {
 
 	serving := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{
 		item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_RUNNING),
-	})
+	}, nil)
 	if len(serving.DnsServices) != 1 || len(serving.DnsServices[0].Endpoints) != 1 {
 		t.Fatalf("dns services = %+v, want one endpoint", serving.DnsServices)
 	}
@@ -191,7 +191,7 @@ func TestRenderNetStateDerivesEndpointsFromPlacement(t *testing.T) {
 		"crashed":  item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_CRASHED),
 		"starting": item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_STARTING),
 	} {
-		got := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{absent})
+		got := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{absent}, nil)
 		if len(got.DnsServices) != 0 {
 			t.Errorf("%s: dns services = %+v, want none", name, got.DnsServices)
 		}
@@ -213,7 +213,7 @@ func TestRenderNetStateKeepsIngressWithoutReadyBackend(t *testing.T) {
 				}},
 			}},
 		},
-	}})
+	}}, nil)
 
 	if got := len(state.Ingress); got != 1 {
 		t.Fatalf("ingress count = %d, want 1", got)
@@ -236,7 +236,7 @@ func TestRenderNetStateOmitsIngressOnDNSPort(t *testing.T) {
 				},
 			}},
 		}}},
-	}})
+	}}, nil)
 
 	if len(state.Ingress) != 0 {
 		t.Fatalf("ingress = %+v, want DNS port route omitted", state.Ingress)

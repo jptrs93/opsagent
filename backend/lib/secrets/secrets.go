@@ -12,11 +12,6 @@
 //     RECOVERY slot (the SMK sealed under an Argon2id-derived key from a
 //     break-glass recovery code).
 //
-// Rows written before the identity split are sealed under the legacy
-// name-bound AAD; a sweep at every successful unlock re-seals them under the
-// id-bound AAD before the store serves reads, so an unlocked store only ever
-// carries the current binding (plus any row that is genuinely corrupt).
-//
 // The machine key lives outside the database and outside backups, so a leaked
 // DB/backup is useless without either the on-box machine.key or the recovery
 // code. Recovery on a fresh machine: restore the DB backup, then Unlock with
@@ -90,8 +85,7 @@ type Keyslot struct {
 }
 
 // Record is an encrypted secret version row as persisted in secret_versions,
-// joined with its owning identity's name and space for metadata and the
-// legacy-AAD path.
+// joined with its owning identity's name and space for metadata.
 type Record struct {
 	ID         int32 // version row id
 	SecretID   int32 // stable identity id
@@ -212,7 +206,6 @@ func Open(dataDir string, store Store) (*Manager, error) {
 		slog.Warn("secrets store locked: could not unlock with machine key; use the recovery code to unlock", "err", err)
 		return m, nil
 	}
-	m.sweepLegacyAADLocked()
 	slog.Info("secrets store unlocked")
 	if _, ok := findSlot(slots, slotRecovery); !ok {
 		slog.Warn("secrets recovery code not configured — generate one so secrets can be recovered if this machine is lost")
@@ -229,51 +222,10 @@ func newManager(dataDir string, store Store) *Manager {
 	}
 }
 
-// sweepLegacyAADLocked re-seals every version row still bound to the legacy
-// name AAD under the id-and-version AAD. Caller must hold m.mu with m.smk set.
-// It runs before the unlocked store serves anything, is idempotent, and
-// resumes after a crash: detection is by derived trial decryption, never by
-// stored state. A row that opens under neither binding is genuinely corrupt
-// and is left untouched (it was already unreadable).
-func (m *Manager) sweepLegacyAADLocked() {
-	converted := 0
-	for id, rec := range m.cache {
-		aad := userSecretAAD(rec.SecretID, rec.Version)
-		if _, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, aad); err == nil {
-			continue
-		}
-		pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, legacyUserSecretAAD(rec.Name))
-		if err != nil {
-			slog.Error("secret version opens under neither AAD binding; leaving as is", "id", id, "name", rec.Name, "version", rec.Version)
-			continue
-		}
-		ct, nonce, err := aeadSeal(m.smk, pt, aad)
-		Zero(pt)
-		if err != nil {
-			slog.Error("re-sealing secret version failed", "id", id, "err", err)
-			continue
-		}
-		rec.SMKVersion = m.version
-		rec.Ciphertext = ct
-		rec.Nonce = nonce
-		m.store.UpdateSecretVersionCiphertext(id, m.version, ct, nonce)
-		m.cache[id] = rec
-		converted++
-	}
-	if converted > 0 {
-		slog.Info("re-sealed secret versions under id-bound AAD", "count", converted)
-	}
-}
-
 // openRecordLocked decrypts one cached version row. Caller must hold m.mu
-// (read) with m.smk set. The legacy fallback covers only the window where the
-// sweep could not run; after any unlock it is dead code for healthy rows.
+// (read) with m.smk set.
 func (m *Manager) openRecordLocked(rec Record) ([]byte, error) {
-	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, userSecretAAD(rec.SecretID, rec.Version))
-	if err == nil {
-		return pt, nil
-	}
-	return aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, legacyUserSecretAAD(rec.Name))
+	return aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, userSecretAAD(rec.SecretID, rec.Version))
 }
 
 // Resolve returns the plaintext value for a secret version row id. It
@@ -357,6 +309,28 @@ func (m *Manager) MetaByID(id int32) (Meta, bool) {
 		return Meta{}, false
 	}
 	return rec.meta(), true
+}
+
+// LatestMetaByName returns the newest version's metadata for the named secret
+// in the root of the default space.
+func (m *Manager) LatestMetaByName(name string) (Meta, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var best Record
+	found := false
+	for _, rec := range m.cache {
+		if rec.Name != name || rec.SpaceID != defaultUserSpaceID {
+			continue
+		}
+		if !found || rec.Version > best.Version {
+			best = rec
+			found = true
+		}
+	}
+	if !found {
+		return Meta{}, false
+	}
+	return best.meta(), true
 }
 
 // Create creates a new secret with its first version in directoryID (0 = the
@@ -473,9 +447,7 @@ func (m *Manager) SetInternal(name string, value []byte) error {
 }
 
 // Rename renames the stable secret identity. The AAD binds the identity id,
-// not the name, so no re-encryption happens — but the store must be unlocked:
-// an unlocked store has completed the legacy-AAD sweep, and only then is every
-// row's binding rename-proof.
+// not the name, so no re-encryption happens.
 func (m *Manager) Rename(secretID int32, newName string) error {
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
@@ -602,7 +574,6 @@ func (m *Manager) Unlock(code string) error {
 	}
 	m.smk = smk
 	m.version = rec.SMKVersion
-	m.sweepLegacyAADLocked()
 	slog.Info("secrets store unlocked via recovery code; machine key re-established")
 	return nil
 }
@@ -679,12 +650,6 @@ func slotAAD(slot string) []byte { return []byte("opendeploy-keyslot:" + slot) }
 // cannot be moved to another secret or another version of the same secret.
 func userSecretAAD(secretID, version int32) []byte {
 	return []byte(fmt.Sprintf("opendeploy-secret:user:s%d:v%d", secretID, version))
-}
-
-// legacyUserSecretAAD is the pre-identity-split binding: the owning secret's
-// name. Only the unlock sweep and its fallback path use it.
-func legacyUserSecretAAD(name string) []byte {
-	return []byte("opendeploy-secret:user:" + name)
 }
 
 func systemSecretAAD(name string) []byte {

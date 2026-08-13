@@ -17,6 +17,7 @@ const NETWORKING_MODE_HOST = 2;
 const PORT_FORWARD_PROTOCOL_TCP = 1;
 const PORT_FORWARD_PROTOCOL_UDP = 2;
 const INGRESS_KIND_TLS_PASSTHROUGH = 1;
+const INGRESS_KIND_HTTPS = 2;
 const CONTAINER_UPGRADE_RECREATE = 1;
 const CONTAINER_UPGRADE_ROLLOVER = 2;
 const FILE_PERMISSION_READ_WRITE = 1;
@@ -71,6 +72,7 @@ export function emptyDeploymentForm() {
         networkingMode: String(NETWORKING_MODE_VIRTUAL),
         portForwarding: [],
         ingress: [],
+        httpsIngress: [],
         runnerType: RUNNER_CONTAINER,
         containerUser: '',
         containerCommand: '',
@@ -114,6 +116,7 @@ export function deploymentConfigToForm(cfg) {
         networkingMode: String(networking.mode || NETWORKING_MODE_HOST),
         portForwarding: portForwardingToFormRows(networking.portForwarding),
         ingress: ingressToFormRows(networking.ingress),
+        httpsIngress: (networking.ingress || []).filter(route => Number(route?.kind) === INGRESS_KIND_HTTPS && route.httpsConfig),
         runnerType: RUNNER_CONTAINER,
         containerUser: runtime.user || '',
         containerCommand: (runtime.overrideCommand || []).join('\n'),
@@ -257,6 +260,7 @@ const DEPLOYMENT_FORM_DOCUMENT_FIELDS = [
     'networkingMode',
     'portForwarding',
     'ingress',
+    'httpsIngress',
     'runnerType',
     'containerUser',
     'containerCommand',
@@ -394,6 +398,7 @@ function makeFormState(values) {
         networkingMode: van.state(String(values.networkingMode || NETWORKING_MODE_VIRTUAL)),
         portForwarding: van.state(values.portForwarding || []),
         ingress: van.state(values.ingress || []),
+        httpsIngress: van.state(values.httpsIngress || []),
         runnerType: van.state(values.runnerType),
         containerUser: van.state(values.containerUser || ''),
         containerCommand: van.state(values.containerCommand || ''),
@@ -785,6 +790,24 @@ function ingressSection(form) {
     const remove = (row) => {
         form.ingress.val = rows().filter(route => route.id !== row.id);
     };
+    const httpsRoutes = () => form.httpsIngress.val || [];
+    const removeHTTPS = (index) => {
+        form.httpsIngress.val = httpsRoutes().filter((_, i) => i !== index);
+    };
+    const httpsRowsBody = () => tbody(httpsRoutes().map((route, index) => tr(
+        {"data-testid": "deployment-https-ingress-row"},
+        td({class: "pr-2 py-1 text-gray-300 whitespace-nowrap"}, "HTTPS"),
+        td({class: "pr-2 py-1 text-gray-400"}, `${route.hostname || ''}${route.httpsConfig?.pathPrefix && route.httpsConfig.pathPrefix !== "/" ? route.httpsConfig.pathPrefix : ''}`),
+        td({class: "pr-2 py-1 text-gray-500"}, "443"),
+        td({class: "pr-2 py-1 text-gray-400"}, String(route.httpsConfig?.containerPort || '')),
+        td({class: "py-1 text-right"}, button({
+            type: "button",
+            class: "text-gray-500 hover:text-red-300 cursor-pointer",
+            title: "Remove HTTPS route",
+            "data-testid": "deployment-remove-https-ingress-route",
+            onclick: () => removeHTTPS(index),
+        }, xIcon({class: "w-4 h-4"}))),
+    )));
     const rowsBody = stableRowsBody(rows, row => tr(
         {"data-testid": "deployment-ingress-row"},
         td({class: "pr-2 py-1 text-gray-300 whitespace-nowrap"}, "TLS passthrough"),
@@ -830,7 +853,7 @@ function ingressSection(form) {
             {class: "flex items-center justify-between gap-3"},
             div(
                 span({class: "text-xs text-gray-300"}, "Ingress"),
-                p({class: "text-[11px] leading-tight text-gray-500 mt-0.5"}, "TLS passthrough routes by SNI to this virtual container without TLS termination. The primary node reserves host port 443 for the Web UI."),
+                p({class: "text-[11px] leading-tight text-gray-500 mt-0.5"}, "TLS passthrough routes by SNI without termination; HTTPS routes terminate TLS and route by hostname and path prefix. HTTPS routes are edited in the HCL editor. The primary node reserves host port 443 for the Web UI."),
             ),
             button({
                 type: "button",
@@ -839,9 +862,9 @@ function ingressSection(form) {
                 onclick: () => { form.ingress.val = [...rows(), newIngressRow()]; },
             }, "Add route"),
         ),
-        p({class: () => rows().length === 0 ? "text-[11px] text-gray-500" : "hidden"}, "No ingress routes configured."),
+        p({class: () => rows().length === 0 && httpsRoutes().length === 0 ? "text-[11px] text-gray-500" : "hidden"}, "No ingress routes configured."),
         table(
-            {class: () => rows().length === 0 ? "hidden" : "w-full text-xs"},
+            {class: () => rows().length === 0 && httpsRoutes().length === 0 ? "hidden" : "w-full text-xs"},
             thead(tr(
                 th({class: "text-left font-normal text-gray-500 pb-1"}, "Kind"),
                 th({class: "text-left font-normal text-gray-500 pb-1"}, "Hostname"),
@@ -849,6 +872,7 @@ function ingressSection(form) {
                 th({class: "text-left font-normal text-gray-500 pb-1"}, "Container port"),
                 th({class: "w-8"}),
             )),
+            httpsRowsBody,
             rowsBody,
         ),
     );
@@ -1748,6 +1772,10 @@ function formPortForwarding(form) {
 
 function formIngress(form) {
     if (Number(form.networkingMode.val) !== NETWORKING_MODE_VIRTUAL) return [];
+    return [...(form.httpsIngress.val || []), ...formTlsPassthroughIngress(form)];
+}
+
+function formTlsPassthroughIngress(form) {
     return (form.ingress.val || [])
         .map(route => ({
             kind: INGRESS_KIND_TLS_PASSTHROUGH,
@@ -1763,7 +1791,7 @@ function formIngress(form) {
 function invalidIngressReason(form) {
     if (Number(form.networkingMode.val) !== NETWORKING_MODE_VIRTUAL) return '';
     const seen = new Set();
-    for (const route of formIngress(form)) {
+    for (const route of formTlsPassthroughIngress(form)) {
         const hostname = route.hostname.toLowerCase().replace(/\.$/, '');
         const {hostPort, containerPort} = route.tlsPassthroughConfig;
         if (!hostname) return 'Ingress hostname is required.';

@@ -14,12 +14,7 @@ import (
 type fakeRouteOperations struct {
 	routes       []netlink.Route
 	replaced     []netlink.Route
-	deleted      []netlink.Route
-	listFamily   int
-	listFilter   netlink.Route
-	listMask     uint64
 	listErr      error
-	deleteErr    error
 	replaceError error
 }
 
@@ -29,15 +24,7 @@ func (f *fakeRouteOperations) RouteReplace(route *netlink.Route) error {
 }
 
 func (f *fakeRouteOperations) RouteListFiltered(family int, filter *netlink.Route, filterMask uint64) ([]netlink.Route, error) {
-	f.listFamily = family
-	f.listFilter = *filter
-	f.listMask = filterMask
 	return f.routes, f.listErr
-}
-
-func (f *fakeRouteOperations) RouteDel(route *netlink.Route) error {
-	f.deleted = append(f.deleted, *route)
-	return f.deleteErr
 }
 
 func TestWorkloadRouteConstructors(t *testing.T) {
@@ -49,7 +36,7 @@ func TestWorkloadRouteConstructors(t *testing.T) {
 
 	for name, route := range map[string]netlink.Route{
 		"local":  localWorkloadRoute(addr, 10),
-		"remote": remoteWorkloadRoute(addr, 11),
+		"remote": remoteWorkloadRoute(netip.PrefixFrom(addr, 128), 11),
 	} {
 		t.Run(name, func(t *testing.T) {
 			destination, ok := netlinkRoutePrefix(route)
@@ -101,7 +88,7 @@ func TestTunnelIdentityAndTopologyValidation(t *testing.T) {
 			Local:  netip.MustParseAddr("192.0.2.1"),
 			Remote: netip.MustParseAddr("192.0.2.2"),
 		}},
-		Routes: []RemoteRoute{{Addr: addr, NodeID: 2}},
+		Routes: []RemoteRoute{{Prefix: netip.PrefixFrom(addr, 128), NodeID: 2}},
 	}
 	if err := validateTopology(topology); err != nil {
 		t.Fatal(err)
@@ -112,64 +99,19 @@ func TestTunnelIdentityAndTopologyValidation(t *testing.T) {
 	}
 }
 
-func TestReconcileLocalWorkloadRouteDeletesOnlyExactLegacyRoute(t *testing.T) {
+func TestReconcileLocalWorkloadRouteInstallsOwnedRoute(t *testing.T) {
 	prefix := GeneratePrefix()
 	addr, err := prefix.InboundAddr(12, 34, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherAddr, err := prefix.InboundAddr(12, 35, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	exact := localWorkloadRoute(addr, 10)
-	exact.Protocol = legacyRouteProtocolOpenDeploy
-	wrongProtocol := exact
-	wrongProtocol.Protocol = routeProtocolOpenDeploy
-	wrongTable := exact
-	wrongTable.Table = 100
-	wrongType := exact
-	wrongType.Type = unix.RTN_UNREACHABLE
-	wrongLink := exact
-	wrongLink.LinkIndex = 11
-	wrongDestination := exact
-	wrongDestination.Dst = netipPrefixToIPNet(netip.PrefixFrom(otherAddr, 128))
-
-	ops := &fakeRouteOperations{routes: []netlink.Route{
-		exact, wrongProtocol, wrongTable, wrongType, wrongLink, wrongDestination,
-	}}
+	ops := &fakeRouteOperations{}
 	if err := reconcileLocalWorkloadRouteWithOps(ops, prefix, addr, 10); err != nil {
 		t.Fatal(err)
 	}
 	if len(ops.replaced) != 1 || ops.replaced[0].Protocol != routeProtocolOpenDeploy {
 		t.Fatalf("replacement routes = %+v", ops.replaced)
 	}
-	if len(ops.deleted) != 1 || !ops.deleted[0].Equal(exact) {
-		t.Fatalf("deleted routes = %+v, want exact legacy route", ops.deleted)
-	}
-	assertLegacyRouteListFilter(t, ops)
-}
-
-func TestReconcileClusterFallbackDeletesOnlyExactLegacyRoute(t *testing.T) {
-	prefix := GeneratePrefix()
-	exact := clusterFallbackRoute(prefix)
-	exact.Protocol = legacyRouteProtocolOpenDeploy
-	// Linux reports IPv6 unreachable routes with the loopback ifindex even
-	// when the route was installed without an explicit output interface.
-	exact.LinkIndex = 1
-	wrongProtocol := exact
-	wrongProtocol.Protocol = routeProtocolOpenDeploy
-	wrongType := exact
-	wrongType.Type = unix.RTN_UNICAST
-
-	ops := &fakeRouteOperations{routes: []netlink.Route{exact, wrongProtocol, wrongType}}
-	if err := reconcileClusterFallbackRouteWithOps(ops, prefix); err != nil {
-		t.Fatal(err)
-	}
-	if len(ops.deleted) != 1 || !ops.deleted[0].Equal(exact) {
-		t.Fatalf("deleted routes = %+v, want exact legacy fallback", ops.deleted)
-	}
-	assertLegacyRouteListFilter(t, ops)
 }
 
 func TestReconcileLocalWorkloadRouteRejectsAddressOutsideCluster(t *testing.T) {
@@ -196,42 +138,8 @@ func TestRouteReconciliationPropagatesOperationErrors(t *testing.T) {
 	}
 	wantErr := errors.New("netlink failed")
 
-	t.Run("replace", func(t *testing.T) {
-		ops := &fakeRouteOperations{replaceError: wantErr}
-		if err := reconcileLocalWorkloadRouteWithOps(ops, prefix, addr, 10); !errors.Is(err, wantErr) {
-			t.Fatalf("error = %v, want %v", err, wantErr)
-		}
-	})
-	t.Run("list", func(t *testing.T) {
-		ops := &fakeRouteOperations{listErr: wantErr}
-		if err := reconcileLocalWorkloadRouteWithOps(ops, prefix, addr, 10); !errors.Is(err, wantErr) {
-			t.Fatalf("error = %v, want %v", err, wantErr)
-		}
-	})
-	t.Run("delete", func(t *testing.T) {
-		legacy := localWorkloadRoute(addr, 10)
-		legacy.Protocol = legacyRouteProtocolOpenDeploy
-		ops := &fakeRouteOperations{routes: []netlink.Route{legacy}, deleteErr: wantErr}
-		if err := reconcileLocalWorkloadRouteWithOps(ops, prefix, addr, 10); !errors.Is(err, wantErr) {
-			t.Fatalf("error = %v, want %v", err, wantErr)
-		}
-	})
-	t.Run("already deleted", func(t *testing.T) {
-		legacy := localWorkloadRoute(addr, 10)
-		legacy.Protocol = legacyRouteProtocolOpenDeploy
-		ops := &fakeRouteOperations{routes: []netlink.Route{legacy}, deleteErr: unix.ESRCH}
-		if err := reconcileLocalWorkloadRouteWithOps(ops, prefix, addr, 10); err != nil {
-			t.Fatalf("error = %v, want successful convergence", err)
-		}
-	})
-}
-
-func assertLegacyRouteListFilter(t *testing.T, ops *fakeRouteOperations) {
-	t.Helper()
-	if ops.listFamily != netlink.FAMILY_V6 ||
-		ops.listFilter.Protocol != legacyRouteProtocolOpenDeploy ||
-		ops.listFilter.Table != unix.RT_TABLE_MAIN ||
-		ops.listMask != netlink.RT_FILTER_PROTOCOL|netlink.RT_FILTER_TABLE {
-		t.Fatalf("unexpected route list filter: family=%d filter=%+v mask=%d", ops.listFamily, ops.listFilter, ops.listMask)
+	ops := &fakeRouteOperations{replaceError: wantErr}
+	if err := reconcileLocalWorkloadRouteWithOps(ops, prefix, addr, 10); !errors.Is(err, wantErr) {
+		t.Fatalf("error = %v, want %v", err, wantErr)
 	}
 }

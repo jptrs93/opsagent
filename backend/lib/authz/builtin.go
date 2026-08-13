@@ -16,10 +16,18 @@ func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 	// can mint a credential and wire it into a deployment, but cannot read,
 	// change, or destroy one an operator owns. Nothing outside these rules
 	// narrows a delegated token, so this is the whole of what agents may do.
+	// Agent sessions also lose view_logs: deployment logs can echo secret
+	// values at runtime, which would sidestep the create-only secret boundary
+	// below.
+	agentPerms := func() *apigen.AuthzSelector {
+		return &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{
+			int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS),
+		}}
+	}
 	delegableRules := func(spaces func() *apigen.AuthzSelector) []*apigen.AuthzRule {
 		return []*apigen.AuthzRule{
 			{
-				Permissions: all(),
+				Permissions: agentPerms(),
 				Spaces:      spaces(),
 				EntityTypes: &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{
 					int64(apigen.AuthzEntity_AUTHZ_ENTITY_SECRET),

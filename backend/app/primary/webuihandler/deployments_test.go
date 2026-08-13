@@ -1485,7 +1485,7 @@ func TestDeploymentDeleteAllowsStaleDisconnectedSystemDeployment(t *testing.T) {
 	h := &Handler{
 		Store:   store,
 		NodeID:  primary.ID,
-		Cluster: clusterhandler.New(store, nil, nil, nil, network.Prefix{}, nil),
+		Cluster: clusterhandler.New(store, nil, nil, nil, network.Prefix{}, nil, nil),
 	}
 
 	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: system.ID, Version: system.Version + 1})
@@ -1506,7 +1506,7 @@ func TestDeploymentDeleteRejectsPrimarySystemDeployment(t *testing.T) {
 	h := &Handler{
 		Store:   store,
 		NodeID:  primary.ID,
-		Cluster: clusterhandler.New(store, nil, nil, nil, network.Prefix{}, nil),
+		Cluster: clusterhandler.New(store, nil, nil, nil, network.Prefix{}, nil, nil),
 	}
 
 	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: system.ID, Version: system.Version + 1})

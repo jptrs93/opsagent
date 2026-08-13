@@ -1,88 +1,12 @@
 package state
 
 import (
-	"errors"
-	"database/sql"
 	"path/filepath"
 	"testing"
 
-	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/authz"
 )
-
-func TestAuthzClusterAdminMigration(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	store := Open(dbPath)
-	webAuthNID, err := authu.GenerateWebAuthnID(32)
-	if err != nil {
-		t.Fatalf("GenerateWebAuthnID: %v", err)
-	}
-	store.WriteUser(&apigen.InternalUser{ID: 1, WebAuthNID: webAuthNID, Name: "operator"})
-	if err := store.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	db, err := sql.Open("sqlite", "file:"+dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM local_kv WHERE key = 'migration.authz-cluster-admin-grants'`); err != nil {
-		t.Fatalf("clear migration marker: %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	store = Open(dbPath)
-	svc, err := authz.Open(store)
-	if err != nil {
-		t.Fatalf("authz.Open: %v", err)
-	}
-	req := authz.RequestedAccess{
-		Verb:       apigen.AuthzVerb_AUTHZ_VERB_EDIT,
-		SpaceID:    0,
-		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_CLUSTER,
-	}
-	if !svc.HasAccess(1, req) {
-		t.Fatal("migration should grant existing users cluster_admin")
-	}
-	grants := svc.GrantsForUser(1)
-	if len(grants) != 1 || grants[0].TemplateID != authz.ClusterAdminTemplateID {
-		t.Fatalf("unexpected grants after migration: %+v", grants)
-	}
-	// The last access-managing grant cannot be deleted, so hand a second user
-	// admin capability before revoking user 1's.
-	if err := svc.DeleteGrant(1, grants[0].ID); !errors.Is(err, authz.ErrLastAdmin) {
-		t.Fatalf("DeleteGrant on the last admin grant: got %v, want ErrLastAdmin", err)
-	}
-	if _, err := svc.CreateGrant(&apigen.AuthzGrantRecord{
-		UserID:     2,
-		TemplateID: authz.ClusterAdminTemplateID,
-		Grant:      &apigen.AuthzGrant{},
-	}); err != nil {
-		t.Fatalf("CreateGrant for second admin: %v", err)
-	}
-	if err := svc.DeleteGrant(1, grants[0].ID); err != nil {
-		t.Fatalf("DeleteGrant: %v", err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	store = Open(dbPath)
-	defer store.Close()
-	svc, err = authz.Open(store)
-	if err != nil {
-		t.Fatalf("authz.Open after revoke: %v", err)
-	}
-	if svc.HasAccess(1, req) {
-		t.Fatal("a revoked cluster_admin grant must not be re-created on restart")
-	}
-	if len(svc.GrantsForUser(1)) != 0 {
-		t.Fatalf("expected no grants after revoke, got %+v", svc.GrantsForUser(1))
-	}
-}
 
 func TestAuthzStoreRoundTrip(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")

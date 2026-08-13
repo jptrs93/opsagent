@@ -1,10 +1,14 @@
 package webuihandler
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net/http"
+	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
@@ -101,7 +105,7 @@ func validateDeploymentSpecWithResolvers(spec *apigen.DeploymentSpec, assets dep
 	if err := validateContainerSpec(container, assets); err != nil {
 		return nil, err
 	}
-	if err := validateNetworkingConfig(&out.Networking); err != nil {
+	if err := validateNetworkingConfig(&out.Networking, secretStore); err != nil {
 		return nil, err
 	}
 	if err := validateRuntimeEnvRefs(out, secretStore, configs); err != nil {
@@ -117,7 +121,7 @@ func cloneDeploymentSpec(spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, e
 	return apigen.DecodeDeploymentSpec(spec.Encode())
 }
 
-func validateNetworkingConfig(cfg *apigen.NetworkingConfig) error {
+func validateNetworkingConfig(cfg *apigen.NetworkingConfig, secretStore deploymentSecretResolver) error {
 	if cfg == nil {
 		return nil
 	}
@@ -132,7 +136,7 @@ func validateNetworkingConfig(cfg *apigen.NetworkingConfig) error {
 		if err := validatePortForwarding(cfg.PortForwarding); err != nil {
 			return err
 		}
-		return validateIngress(cfg.Ingress)
+		return validateIngress(cfg.Ingress, secretStore)
 	case apigen.NetworkingMode_NETWORKING_MODE_HOST:
 		if len(cfg.PortForwarding) > 0 {
 			return invalidConfigErrf("networking.portForwarding requires virtual mode")
@@ -175,10 +179,12 @@ func validatePortForwarding(portForwarding []*apigen.PortForward) error {
 const (
 	defaultIngressHostPort = int32(443)
 	netproxyDNSPort        = int32(53)
+	httpsRedirectHostPort  = int32(80)
 )
 
-func validateIngress(ingress []*apigen.Ingress) error {
+func validateIngress(ingress []*apigen.Ingress, secretStore deploymentSecretResolver) error {
 	seen := map[ingressRouteKey]bool{}
+	seenHTTPS := map[httpsRouteKey]bool{}
 	for _, route := range ingress {
 		if route == nil {
 			return invalidConfigErrf("networking.ingress: entry is required")
@@ -187,30 +193,172 @@ func validateIngress(ingress []*apigen.Ingress) error {
 		if !ok {
 			return invalidConfigErrf("networking.ingress.hostname must be a valid DNS hostname")
 		}
-		if route.Kind != apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH {
+		switch route.Kind {
+		case apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH:
+			if route.HttpsConfig != nil {
+				return invalidConfigErrf("networking.ingress.httpsConfig is only valid for HTTPS")
+			}
+			if route.TlsPassthroughConfig == nil {
+				return invalidConfigErrf("networking.ingress.tlsPassthroughConfig is required for TLS_PASSTHROUGH")
+			}
+			cfg := route.TlsPassthroughConfig
+			if cfg.HostPort < 0 || cfg.HostPort > 65535 {
+				return invalidConfigErrf("networking.ingress.tlsPassthroughConfig.hostPort must be between 1 and 65535, or zero for the default")
+			}
+			if cfg.ContainerPort < 1 || cfg.ContainerPort > 65535 {
+				return invalidConfigErrf("networking.ingress.tlsPassthroughConfig.containerPort must be between 1 and 65535")
+			}
+			hostPort := ingressHostPort(cfg.HostPort)
+			if hostPort == netproxyDNSPort {
+				return invalidConfigErrf("networking.ingress.tlsPassthroughConfig.hostPort %d is reserved for opendeploy-net DNS", hostPort)
+			}
+			if hostPort == httpsRedirectHostPort {
+				return invalidConfigErrf("networking.ingress.tlsPassthroughConfig.hostPort %d is reserved for HTTPS ingress redirects", hostPort)
+			}
+			key := ingressRouteKey{hostPort: hostPort, hostname: hostname}
+			if seen[key] {
+				return invalidConfigErrf("networking.ingress: duplicate TLS_PASSTHROUGH route for %s on host port %d", hostname, key.hostPort)
+			}
+			seen[key] = true
+		case apigen.IngressKind_INGRESS_KIND_HTTPS:
+			if route.TlsPassthroughConfig != nil {
+				return invalidConfigErrf("networking.ingress.tlsPassthroughConfig is only valid for TLS_PASSTHROUGH")
+			}
+			if route.HttpsConfig == nil {
+				return invalidConfigErrf("networking.ingress.httpsConfig is required for HTTPS")
+			}
+			if err := validateHTTPSConfig(route.HttpsConfig, hostname, secretStore); err != nil {
+				return err
+			}
+			key := httpsRouteKey{hostname: hostname, pathPrefix: route.HttpsConfig.PathPrefix}
+			if seenHTTPS[key] {
+				return invalidConfigErrf("networking.ingress: duplicate HTTPS route for %s%s", hostname, key.pathPrefix)
+			}
+			seenHTTPS[key] = true
+		default:
 			return invalidConfigErrf("networking.ingress.kind: unsupported value %d", route.Kind)
 		}
-		if route.TlsPassthroughConfig == nil {
-			return invalidConfigErrf("networking.ingress.tlsPassthroughConfig is required for TLS_PASSTHROUGH")
+	}
+	for key := range seenHTTPS {
+		if seen[ingressRouteKey{hostPort: defaultIngressHostPort, hostname: key.hostname}] {
+			return invalidConfigErrf("networking.ingress: %s cannot use both HTTPS and TLS_PASSTHROUGH on host port %d", key.hostname, defaultIngressHostPort)
 		}
-		cfg := route.TlsPassthroughConfig
-		if cfg.HostPort < 0 || cfg.HostPort > 65535 {
-			return invalidConfigErrf("networking.ingress.tlsPassthroughConfig.hostPort must be between 1 and 65535, or zero for the default")
-		}
-		if cfg.ContainerPort < 1 || cfg.ContainerPort > 65535 {
-			return invalidConfigErrf("networking.ingress.tlsPassthroughConfig.containerPort must be between 1 and 65535")
-		}
-		hostPort := ingressHostPort(cfg.HostPort)
-		if hostPort == netproxyDNSPort {
-			return invalidConfigErrf("networking.ingress.tlsPassthroughConfig.hostPort %d is reserved for opendeploy-net DNS", hostPort)
-		}
-		key := ingressRouteKey{hostPort: hostPort, hostname: hostname}
-		if seen[key] {
-			return invalidConfigErrf("networking.ingress: duplicate TLS_PASSTHROUGH route for %s on host port %d", hostname, key.hostPort)
-		}
-		seen[key] = true
 	}
 	return nil
+}
+
+type certSecretRevealer interface {
+	RevealByID(id int32) ([]byte, error)
+}
+
+func validateHTTPSConfig(cfg *apigen.HttpsConfig, hostname string, secretStore deploymentSecretResolver) error {
+	if cfg.ContainerPort < 1 || cfg.ContainerPort > 65535 {
+		return invalidConfigErrf("networking.ingress.httpsConfig.containerPort must be between 1 and 65535")
+	}
+	prefix, ok := normalizeHTTPSPathPrefix(cfg.PathPrefix)
+	if !ok {
+		return invalidConfigErrf("networking.ingress.httpsConfig.pathPrefix must be a clean absolute path")
+	}
+	cfg.PathPrefix = prefix
+	switch cfg.BackendProtocol {
+	case apigen.HttpBackendProtocol_HTTP_BACKEND_PROTOCOL_UNSPECIFIED, apigen.HttpBackendProtocol_HTTP_BACKEND_PROTOCOL_H2C:
+	default:
+		return invalidConfigErrf("networking.ingress.httpsConfig.backendProtocol: unsupported value %d", cfg.BackendProtocol)
+	}
+	if cfg.MaxRequestBodyBytes < 0 {
+		return invalidConfigErrf("networking.ingress.httpsConfig.maxRequestBodyBytes must be non-negative")
+	}
+	source := cfg.CertSource
+	if source == nil {
+		return nil
+	}
+	hasAcme := source.Acme != nil
+	hasSecret := source.Secret != nil
+	if hasAcme == hasSecret {
+		return invalidConfigErrf("networking.ingress.httpsConfig.certSource: exactly one of acme or secret must be set")
+	}
+	if hasAcme {
+		switch source.Acme.Challenge {
+		case apigen.AcmeChallenge_ACME_CHALLENGE_UNSPECIFIED, apigen.AcmeChallenge_ACME_CHALLENGE_HTTP_01:
+		default:
+			return invalidConfigErrf("networking.ingress.httpsConfig.certSource.acme.challenge: unsupported value %d", source.Acme.Challenge)
+		}
+	}
+	if hasSecret {
+		id := source.Secret.SecretVersionID
+		if id <= 0 {
+			return invalidConfigErrf("networking.ingress.httpsConfig.certSource.secret.secretVersionId must be positive")
+		}
+		if secretStore == nil {
+			return invalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: secrets cannot be resolved here")
+		}
+		if _, ok := secretStore.MetaByID(id); !ok {
+			return invalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: unknown secret id %d", id)
+		}
+		if revealer, ok := secretStore.(certSecretRevealer); ok {
+			if err := validateCertSecret(revealer, id, hostname); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateCertSecret(revealer certSecretRevealer, id int32, hostname string) error {
+	value, err := revealer.RevealByID(id)
+	if err != nil {
+		return invalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: reading secret id %d failed", id)
+	}
+	pair, err := tls.X509KeyPair(value, value)
+	if err != nil {
+		return invalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: secret id %d must hold a combined PEM certificate and private key: %v", id, err)
+	}
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		return invalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: parsing certificate in secret id %d failed: %v", id, err)
+	}
+	if err := leaf.VerifyHostname(hostname); err != nil {
+		return invalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: certificate in secret id %d does not cover %s", id, hostname)
+	}
+	if time.Now().After(leaf.NotAfter) {
+		return invalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: certificate in secret id %d expired on %s", id, leaf.NotAfter.Format(time.RFC3339))
+	}
+	return nil
+}
+
+func normalizeHTTPSPathPrefix(prefix string) (string, bool) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" || prefix == "/" {
+		return "/", true
+	}
+	if !strings.HasPrefix(prefix, "/") || strings.ContainsAny(prefix, "?#\\ \t") {
+		return "", false
+	}
+	prefix = strings.TrimSuffix(prefix, "/")
+	if path.Clean(prefix) != prefix {
+		return "", false
+	}
+	for _, char := range prefix {
+		if char <= 0x20 || char == 0x7f {
+			return "", false
+		}
+	}
+	return prefix, true
+}
+
+type httpsRouteKey struct {
+	hostname   string
+	pathPrefix string
+}
+
+func certSourceClaim(source *apigen.CertSource) string {
+	if source == nil || source.Acme != nil {
+		return "acme"
+	}
+	if source.Secret != nil {
+		return fmt.Sprintf("secret:%d", source.Secret.SecretVersionID)
+	}
+	return "acme"
 }
 
 type ingressRouteKey struct {
@@ -248,6 +396,9 @@ func (h *Handler) validateNodeNetworkingClaims(nodeID, deploymentID int32, candi
 		return nil
 	}
 	routes := map[ingressRouteKey]int32{}
+	httpsRoutes := map[httpsRouteKey]int32{}
+	httpsHosts := map[string]int32{}
+	httpsHostCerts := map[string]string{}
 	tcpPorts := map[int32]int32{}
 	add := func(id int32, spec apigen.DeploymentSpec) error {
 		if spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
@@ -261,22 +412,44 @@ func (h *Handler) validateNodeNetworkingClaims(nodeID, deploymentID int32, candi
 			}
 		}
 		for _, route := range spec.Networking.Ingress {
-			if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH || route.TlsPassthroughConfig == nil {
+			if route == nil {
 				continue
 			}
 			hostname, ok := ingressHostname(route.Hostname)
 			if !ok {
 				continue
 			}
-			key := ingressRouteKey{hostPort: ingressHostPort(route.TlsPassthroughConfig.HostPort), hostname: hostname}
-			// The primary Web UI owns :443 until it and ingress share one listener.
-			if id == deploymentID && nodeID == h.NodeID && key.hostPort == defaultIngressHostPort {
-				return invalidConfigErrf("networking.ingress: host port %d is reserved for the primary Web UI", key.hostPort)
+			switch {
+			case route.Kind == apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH && route.TlsPassthroughConfig != nil:
+				key := ingressRouteKey{hostPort: ingressHostPort(route.TlsPassthroughConfig.HostPort), hostname: hostname}
+				// The primary Web UI owns :443 until it and ingress share one listener.
+				if id == deploymentID && nodeID == h.NodeID && key.hostPort == defaultIngressHostPort {
+					return invalidConfigErrf("networking.ingress: host port %d is reserved for the primary Web UI", key.hostPort)
+				}
+				if owner, claimed := routes[key]; claimed && owner != id {
+					return invalidConfigErrf("networking.ingress: %s on host port %d is already claimed by another deployment on this node", hostname, key.hostPort)
+				}
+				routes[key] = id
+			case route.Kind == apigen.IngressKind_INGRESS_KIND_HTTPS && route.HttpsConfig != nil:
+				prefix, ok := normalizeHTTPSPathPrefix(route.HttpsConfig.PathPrefix)
+				if !ok {
+					continue
+				}
+				if id == deploymentID && nodeID == h.NodeID {
+					return invalidConfigErrf("networking.ingress: host port %d is reserved for the primary Web UI", defaultIngressHostPort)
+				}
+				key := httpsRouteKey{hostname: hostname, pathPrefix: prefix}
+				if owner, claimed := httpsRoutes[key]; claimed && owner != id {
+					return invalidConfigErrf("networking.ingress: HTTPS route %s%s is already claimed by another deployment on this node", hostname, prefix)
+				}
+				httpsRoutes[key] = id
+				httpsHosts[hostname] = id
+				claim := certSourceClaim(route.HttpsConfig.CertSource)
+				if existing, ok := httpsHostCerts[hostname]; ok && existing != claim {
+					return invalidConfigErrf("networking.ingress: certSource for %s must match across all HTTPS routes on this node", hostname)
+				}
+				httpsHostCerts[hostname] = claim
 			}
-			if owner, claimed := routes[key]; claimed && owner != id {
-				return invalidConfigErrf("networking.ingress: %s on host port %d is already claimed by another deployment on this node", hostname, key.hostPort)
-			}
-			routes[key] = id
 		}
 		return nil
 	}
@@ -295,6 +468,21 @@ func (h *Handler) validateNodeNetworkingClaims(nodeID, deploymentID int32, candi
 	for key := range routes {
 		if _, claimed := tcpPorts[key.hostPort]; claimed {
 			return invalidConfigErrf("networking: TCP host port %d conflicts with ingress on this node", key.hostPort)
+		}
+		if key.hostPort == defaultIngressHostPort {
+			if _, claimed := httpsHosts[key.hostname]; claimed {
+				return invalidConfigErrf("networking.ingress: %s cannot use both HTTPS and TLS_PASSTHROUGH on host port %d on this node", key.hostname, key.hostPort)
+			}
+		}
+		if key.hostPort == httpsRedirectHostPort && len(httpsRoutes) > 0 {
+			return invalidConfigErrf("networking.ingress: host port %d conflicts with HTTPS ingress redirects on this node", key.hostPort)
+		}
+	}
+	if len(httpsRoutes) > 0 {
+		for _, port := range []int32{defaultIngressHostPort, httpsRedirectHostPort} {
+			if _, claimed := tcpPorts[port]; claimed {
+				return invalidConfigErrf("networking: TCP host port %d conflicts with HTTPS ingress on this node", port)
+			}
 		}
 	}
 	return nil

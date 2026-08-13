@@ -5,6 +5,8 @@ const NETWORK_HOST = 2;
 const PROTOCOL_TCP = 1;
 const PROTOCOL_UDP = 2;
 const INGRESS_TLS_PASSTHROUGH = 1;
+const INGRESS_HTTPS = 2;
+const HTTP_BACKEND_H2C = 1;
 const UPGRADE_RECREATE = 1;
 const UPGRADE_ROLLOVER = 2;
 const PERMISSION_READ_WRITE = 1;
@@ -36,6 +38,8 @@ export const deploymentHclCompletionOptions = [
     {label: "host_path", type: "function", info: "A host bind-mount path"},
     {label: "port_forward", type: "function", info: "Publish a TCP or UDP port"},
     {label: "tls_passthrough", type: "function", info: "Route TLS by SNI"},
+    {label: "https", type: "function", info: "Terminate HTTPS and route by hostname and path prefix"},
+    {label: "acme", type: "function", info: "Obtain the route certificate via ACME HTTP-01"},
 ];
 
 class ParseFailure extends Error {
@@ -521,6 +525,23 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
         ingress.push(`port_forward(${quote(protocol)}, ${containerPort}${options})`);
     }
     for (const route of networking.ingress || []) {
+        if (route?.kind === INGRESS_HTTPS || route?.httpsConfig) {
+            const config = route?.httpsConfig || {};
+            const parts = [];
+            if (config.pathPrefix && config.pathPrefix !== "/") parts.push(`path_prefix = ${quote(config.pathPrefix)}`);
+            if (config.stripPrefix) parts.push("strip_prefix = true");
+            if (config.backendProtocol === HTTP_BACKEND_H2C) parts.push('backend = "h2c"');
+            if (config.maxRequestBodyBytes) parts.push(`max_request_body_bytes = ${Number(config.maxRequestBodyBytes)}`);
+            if (config.flushIntervalMs) parts.push(`flush_interval_ms = ${Number(config.flushIntervalMs)}`);
+            if (config.certSource?.secret) {
+                parts.push(`cert = ${versionedReferenceForID(refs, "secret", config.certSource.secret.secretVersionId, pinVersions)}`);
+            } else if (config.certSource?.acme) {
+                parts.push("cert = acme()");
+            }
+            const options = parts.length ? `, { ${parts.join(", ")} }` : "";
+            ingress.push(`https(${quote(route?.hostname)}, ${Number(config.containerPort || 0)}${options})`);
+            continue;
+        }
         const config = route?.tlsPassthroughConfig || {};
         const options = config.hostPort ? `, { host_port = ${Number(config.hostPort)} }` : "";
         ingress.push(`tls_passthrough(${quote(route?.hostname)}, ${Number(config.containerPort || 0)}${options})`);
@@ -831,7 +852,7 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
     container.envVars = envVars;
 }
 
-function parseIngress(text, diagnostics, attr, networking) {
+function parseIngress(text, diagnostics, attr, networking, catalogs, spaceId) {
     if (!attr) return 0;
     if (attr.value.kind !== "list") {
         diagnostics.push(diagnostic(text, attr.value, "ingress must be a list of route function calls."));
@@ -878,7 +899,67 @@ function parseIngress(text, diagnostics, attr, networking) {
             ingress.push({kind: INGRESS_TLS_PASSTHROUGH, hostname: hostname.value, tlsPassthroughConfig: {hostPort: hostPort ?? 0, containerPort: containerPort.value}});
             continue;
         }
-        diagnostics.push(diagnostic(text, route, "Ingress routes must use port_forward(...) or tls_passthrough(...)."));
+        if (route.kind === "call" && route.name === "https" && route.args.length >= 2 && route.args.length <= 3) {
+            const [hostname, containerPort, optionsExpression] = route.args;
+            if (hostname.kind !== "string" || !hostname.value) {
+                diagnostics.push(diagnostic(text, hostname, "HTTPS hostname must be a non-empty quoted string."));
+                continue;
+            }
+            if (containerPort.kind !== "number" || containerPort.value < 1 || containerPort.value > 65535) {
+                diagnostics.push(diagnostic(text, containerPort, "HTTPS container port must be an integer from 1 to 65535."));
+                continue;
+            }
+            const options = optionsExpression
+                ? validateObject(text, diagnostics, optionsExpression, new Set(["path_prefix", "strip_prefix", "backend", "max_request_body_bytes", "flush_interval_ms", "cert"]))
+                : new Map();
+            const httpsConfig = {containerPort: containerPort.value};
+            const pathPrefixEntry = options.get("path_prefix");
+            if (pathPrefixEntry) {
+                const prefix = stringValue(text, diagnostics, pathPrefixEntry, "HTTPS path_prefix", {nonempty: true});
+                if (prefix !== null && !prefix.startsWith("/")) {
+                    diagnostics.push(diagnostic(text, pathPrefixEntry.value, "HTTPS path_prefix must start with /."));
+                } else if (prefix !== null) {
+                    httpsConfig.pathPrefix = prefix;
+                }
+            }
+            if (optionBoolean(text, diagnostics, options, "strip_prefix")) httpsConfig.stripPrefix = true;
+            const backendEntry = options.get("backend");
+            if (backendEntry) {
+                const backend = stringValue(text, diagnostics, backendEntry, "HTTPS backend");
+                if (backend !== null && backend !== "h2c" && backend !== "http1") {
+                    diagnostics.push(diagnostic(text, backendEntry.value, 'HTTPS backend must be "http1" or "h2c".'));
+                } else if (backend === "h2c") {
+                    httpsConfig.backendProtocol = HTTP_BACKEND_H2C;
+                }
+            }
+            const maxBodyEntry = options.get("max_request_body_bytes");
+            if (maxBodyEntry) {
+                const maxBody = integerValue(text, diagnostics, maxBodyEntry, "HTTPS max_request_body_bytes");
+                if (maxBody) httpsConfig.maxRequestBodyBytes = maxBody;
+            }
+            const flushEntry = options.get("flush_interval_ms");
+            if (flushEntry) {
+                const flush = integerValue(text, diagnostics, flushEntry, "HTTPS flush_interval_ms", -1, 60000);
+                if (flush !== null && flush !== 0) httpsConfig.flushIntervalMs = flush;
+            }
+            const certEntry = options.get("cert");
+            if (certEntry) {
+                const value = certEntry.value;
+                if (value.kind === "call" && value.name === "acme" && value.args.length === 0) {
+                    httpsConfig.certSource = {acme: {}};
+                } else if (value.kind === "call" && value.name === "secret" && value.args.length >= 1 && value.args.length <= 2
+                    && value.args[0].kind === "string" && value.args[0].value) {
+                    const version = referenceVersion(text, diagnostics, value.args[1], "Secret reference");
+                    const item = resolveNamed(text, diagnostics, value, "secret", value.args[0].value, catalogs, spaceId, {version});
+                    if (item) httpsConfig.certSource = {secret: {secretVersionId: Number(item.id)}};
+                } else {
+                    diagnostics.push(diagnostic(text, value, 'HTTPS cert must be acme() or secret("name", { version = 1 }).'));
+                }
+            }
+            ingress.push({kind: INGRESS_HTTPS, hostname: hostname.value, httpsConfig});
+            continue;
+        }
+        diagnostics.push(diagnostic(text, route, "Ingress routes must use port_forward(...), tls_passthrough(...), or https(...)."));
     }
     if (portForwarding.length) networking.portForwarding = portForwarding;
     if (ingress.length) networking.ingress = ingress;
@@ -1017,7 +1098,7 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
         } else {
             networking.mode = mode === "virtual" ? NETWORK_VIRTUAL : NETWORK_HOST;
         }
-        const routeCount = parseIngress(text, diagnostics, firstAttribute(network, "ingress"), networking);
+        const routeCount = parseIngress(text, diagnostics, firstAttribute(network, "ingress"), networking, catalogs, spaceId);
         if (mode === "host" && routeCount) diagnostics.push(diagnostic(text, network, "Host networking cannot contain ingress routes."));
     }
 
