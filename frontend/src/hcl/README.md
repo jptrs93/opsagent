@@ -1,14 +1,14 @@
 # Deployment HCL language
 
 A self-contained CodeMirror language package for the deployment config dialect
-of HCL, intended to replace the third-party `codemirror-lang-hcl` dependency.
-That grammar cannot parse function calls in object-value position
-(`env_vars = { "KEY" = secret("x") }`, `cert = acme()`), which forced the
-editor widget to suppress its error nodes with regexes. This grammar is
-hardcoded to the dialect defined by `src/components/deploymentHcl.js` and
-parses all generated configs without error nodes.
-
-Not yet wired into the editor widget.
+of HCL, used by `src/components/deploymentConfigCodeWidget.js`. It replaced
+the third-party `codemirror-lang-hcl` dependency, whose grammar could not
+parse function calls in object-value position
+(`env_vars = { "KEY" = secret("x") }`, `cert = acme()`) and forced the editor
+widget to suppress its error nodes with regexes. This grammar is hardcoded to
+the dialect defined by `src/components/deploymentHcl.js` and parses all
+generated configs without error nodes, so the widget reports error nodes as
+syntax diagnostics directly.
 
 ## Files
 

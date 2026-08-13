@@ -339,6 +339,12 @@ UPDATE secrets SET value_directory_id = ? WHERE id = ?;
 -- name: SetConfigValueDirectoryID :exec
 UPDATE configs SET value_directory_id = ? WHERE id = ?;
 
+-- name: SetSecretSpace :exec
+UPDATE secrets SET space_id = ?, value_directory_id = ? WHERE id = ?;
+
+-- name: SetConfigSpace :exec
+UPDATE configs SET space_id = ?, value_directory_id = ? WHERE id = ?;
+
 -- name: CountConfigSiblingsWithName :one
 SELECT COUNT(*) FROM configs
 WHERE space_id = ? AND value_directory_id = ? AND name = ? AND id != ?;
@@ -382,6 +388,9 @@ UPDATE assets SET key = ? WHERE id = ?;
 
 -- name: SetAssetDirectoryID :exec
 UPDATE assets SET asset_directory_id = ? WHERE id = ?;
+
+-- name: SetAssetSpace :exec
+UPDATE assets SET space_id = ?, asset_directory_id = ? WHERE id = ?;
 
 -- name: DeleteAssetRow :exec
 DELETE FROM assets WHERE id = ?;

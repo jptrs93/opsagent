@@ -474,10 +474,12 @@ func (s *Service) MoveAssetDirectory(assetID, newDirectoryID int32) (Asset, erro
 	return a, nil
 }
 
-// MoveAssetSpace would move an asset to another space. Space moves are not
-// supported yet — mounts and references are space-scoped, so the move needs
-// coordinated handling. A same-space target is accepted as a no-op.
-func (s *Service) MoveAssetSpace(assetID, newSpaceID int32) error {
+// MoveAssetSpace moves an asset to another space, landing it in
+// newDirectoryID there (0 = the destination space's root). Version rows, ids,
+// and content are untouched, so every pinned mount and reference survives.
+// Reference locality is the caller's law — the handler refuses the move while
+// anything outside the destination space references the asset.
+func (s *Service) MoveAssetSpace(assetID, newSpaceID, newDirectoryID int32) error {
 	ctx := context.Background()
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -489,10 +491,32 @@ func (s *Service) MoveAssetSpace(assetID, newSpaceID int32) error {
 	if err != nil {
 		panic(fmt.Sprintf("GetAssetByID: %v", err))
 	}
-	if int64(normalizedUserSpaceID(newSpaceID)) == a.SpaceID {
+	spaceID := int64(normalizedUserSpaceID(newSpaceID))
+	dirID := int64(newDirectoryID)
+	if spaceID == a.SpaceID && dirID == a.AssetDirectoryID {
 		return nil
 	}
-	return ErrSpaceMoveUnsupported
+	if dirID != 0 {
+		dir, err := s.q.GetAssetDirectoryByID(ctx, dirID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrDirectoryNotFound
+		}
+		if err != nil {
+			panic(fmt.Sprintf("GetAssetDirectoryByID: %v", err))
+		}
+		// A directory in any space but the destination reads as absent, matching
+		// the create path's treatment of foreign-space directories.
+		if dir.SpaceID != spaceID {
+			return ErrDirectoryNotFound
+		}
+	}
+	if s.assetSiblingKeyTakenLocked(ctx, s.q, spaceID, dirID, a.Key, a.ID, 0) {
+		return ErrAssetAlreadyExists
+	}
+	if err := s.q.SetAssetSpace(ctx, pq.SetAssetSpaceParams{SpaceID: spaceID, AssetDirectoryID: dirID, ID: a.ID}); err != nil {
+		panic(fmt.Sprintf("SetAssetSpace: %v", err))
+	}
+	return nil
 }
 
 func (s *Service) DeleteAssetVersionByID(assetVersionID int32) {

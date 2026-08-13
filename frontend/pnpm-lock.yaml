@@ -44,9 +44,6 @@ importers:
       codemirror:
         specifier: ^6.0.2
         version: 6.0.2
-      codemirror-lang-hcl:
-        specifier: ^0.1.0
-        version: 0.1.0
       tailwindcss:
         specifier: ^4.1.17
         version: 4.2.2
@@ -511,9 +508,6 @@ packages:
 
   '@types/node@25.5.2':
     resolution: {integrity: sha512-tO4ZIRKNC+MDWV4qKVZe3Ql/woTnmHDr5JD8UI5hn2pwBrHEwOEMZK7WlNb5RKB6EoJ02gwmQS9OrjuFnZYdpg==}
-
-  codemirror-lang-hcl@0.1.0:
-    resolution: {integrity: sha512-duwKEaQDhkJWad4YQ9pv4282BS6hCdR+gS/qTAj3f9bypXNNZ42bIN43h9WK3DjyZRENtVlUQdrQM1sA44wHmA==}
 
   codemirror@6.0.2:
     resolution: {integrity: sha512-VhydHotNW5w1UGK0Qj96BwSk/Zqbp9WbnyK2W/eVMv4QyF41INRGpjUhFJY7/uDNuudSc33a/PKr4iDqRduvHw==}
@@ -1080,12 +1074,6 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
     optional: true
-
-  codemirror-lang-hcl@0.1.0:
-    dependencies:
-      '@codemirror/language': 6.12.4
-      '@lezer/highlight': 1.2.3
-      '@lezer/lr': 1.4.10
 
   codemirror@6.0.2:
     dependencies:

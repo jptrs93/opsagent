@@ -122,7 +122,7 @@ export function assetsPage() {
     // dialogs' own state so that changing the space re-renders only the picker:
     // rebuilding the dialog would discard a half-typed name or asset body.
     const createDest = van.state({spaceId: 0, directoryId: 0});
-    const moveDialog = van.state(null);   // {label, options, currentId, apply}
+    const moveDialog = van.state(null);   // {label, options(), currentId(), apply, spaceId?: van.state}
     const moveError = van.state(null);    // {name, message} from a refused drop
     const deleteTarget = van.state(null); // {label, apply}
     const dialogSaving = van.state(false);
@@ -356,11 +356,13 @@ export function assetsPage() {
 
     const openMoveDialog = (sel) => {
         if (sel.type === "dir") {
+            // Folders never offer a space picker: a subtree move stays
+            // unsupported on the server.
             const dir = sel.dir;
             moveDialog.val = {
                 label: `Move ${dir.name}`,
-                options: folderOptions(currentDirs(), dir.spaceId, Number(dir.id)),
-                currentId: Number(dir.parentId || 0),
+                options: () => folderOptions(currentDirs(), dir.spaceId, Number(dir.id)),
+                currentId: () => Number(dir.parentId || 0),
                 apply: async (destination) => {
                     await capi.postV1AssetDirectoriesMove({directoryId: Number(dir.id), newParentId: destination});
                     expandTo(Number(dir.spaceId), destination);
@@ -368,14 +370,21 @@ export function assetsPage() {
             };
             return;
         }
+        // Assets can change space: the picker swaps the folder list to the chosen
+        // space's tree, and a changed space rides the move request. The server
+        // refuses if a deployment outside the destination still pins a version.
         const item = sel.item;
+        const spaceId = van.state(Number(item.spaceId));
         moveDialog.val = {
             label: `Move ${item.name}`,
-            options: folderOptions(currentDirs(), item.spaceId),
-            currentId: item.directoryId,
+            spaceId,
+            options: () => folderOptions(currentDirs(), spaceId.val),
+            currentId: () => (spaceId.val === Number(item.spaceId) ? item.directoryId : null),
             apply: async (destination) => {
-                await capi.postV1AssetsMove({assetId: item.id, assetDirectoryId: destination});
-                expandTo(item.spaceId, destination);
+                const request = {assetId: item.id, assetDirectoryId: destination};
+                if (spaceId.val !== Number(item.spaceId)) request.spaceId = spaceId.val;
+                await capi.postV1AssetsMove(request);
+                expandTo(spaceId.val, destination);
             },
         };
     };
@@ -1316,20 +1325,37 @@ export function assetsPage() {
     const moveDialogEl = () => {
         const dialog = moveDialog.val;
         if (!dialog) return "";
+        const currentId = dialog.currentId();
+        const spacePicker = () => {
+            if (!dialog.spaceId) return "";
+            const spaces = selectEl({
+                class: "input py-0.5 text-xs",
+                "aria-label": "Destination space",
+                onchange: (e) => { dialog.spaceId.val = Number(e.target.value); },
+            }, ...listedSpaces().map((space) => option({value: String(space.id)}, space.name)));
+            // Assigned after the options exist: a value set on an empty select is
+            // discarded rather than remembered.
+            spaces.value = String(dialog.spaceId.val);
+            return div({class: "flex min-w-0 items-center gap-1.5"},
+                p({class: "shrink-0 text-xs text-gray-400"}, "Space"),
+                spaceDot(dialog.spaceId.val),
+                spaces);
+        };
         return dialogShell("move-title",
             h2({id: "move-title", class: "text-base font-semibold"}, dialog.label),
+            spacePicker(),
             div({class: "app-scroll max-h-72 overflow-y-auto flex flex-col gap-0.5"},
-                ...dialog.options.map((option) => button({
+                ...dialog.options().map((option) => button({
                     type: "button",
-                    disabled: option.id === dialog.currentId,
-                    class: `flex items-center gap-2 rounded px-2 py-1.5 text-left font-mono text-xs ${option.id === dialog.currentId
+                    disabled: option.id === currentId,
+                    class: `flex items-center gap-2 rounded px-2 py-1.5 text-left font-mono text-xs ${option.id === currentId
                         ? "text-gray-500"
                         : "text-gray-200 hover:bg-surface-hover cursor-pointer"}`,
                     onclick: () => { void applyMove(option.id); },
                 },
                 folderIcon({class: "w-3.5 h-3.5 flex-none text-slate-400"}),
                 option.label,
-                option.id === dialog.currentId ? span({class: "ml-auto font-sans text-[10px] text-gray-500"}, "current") : ""))),
+                option.id === currentId ? span({class: "ml-auto font-sans text-[10px] text-gray-500"}, "current") : ""))),
             div({class: "flex items-center justify-end"},
                 actionButton("Cancel", () => { if (!dialogSaving.val) moveDialog.val = null; })));
     };

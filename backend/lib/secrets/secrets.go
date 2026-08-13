@@ -148,6 +148,7 @@ type Store interface {
 	AppendSecretVersionWithDeploymentUpdates(secretID, createdBy int32, seal SealFunc, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(Record)) (Record, []int32, error)
 	UpdateSecretVersionCiphertext(versionID, smkVersion int32, ciphertext, nonce []byte)
 	RenameSecret(secretID int32, newName string) error
+	MoveSecretSpace(secretID, newSpaceID, newDirectoryID int32) error
 	DeleteSecret(secretID int32) error
 	GetSystemSecret(name string) (SystemRecord, bool)
 	UpsertSystemSecret(SystemRecord)
@@ -471,6 +472,30 @@ func (m *Manager) Rename(secretID int32, newName string) error {
 		}
 	}
 	slog.Info("renamed secret", "id", secretID, "newName", newName)
+	return nil
+}
+
+// MoveSpace moves the stable secret identity to another space, landing it in
+// directoryID there (0 = the destination space's root). The AAD binds the
+// identity id, not the space, so no re-encryption happens — but cached version
+// records denormalize the space, and authz decisions read it, so the cache is
+// fixed up here. Safe to call while locked (no decryption needed).
+func (m *Manager) MoveSpace(secretID, newSpaceID, directoryID int32) error {
+	if newSpaceID <= 0 {
+		newSpaceID = defaultUserSpaceID
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.store.MoveSecretSpace(secretID, newSpaceID, directoryID); err != nil {
+		return err
+	}
+	for id, rec := range m.cache {
+		if rec.SecretID == secretID {
+			rec.SpaceID = newSpaceID
+			m.cache[id] = rec
+		}
+	}
+	slog.Info("moved secret to space", "id", secretID, "spaceID", newSpaceID)
 	return nil
 }
 

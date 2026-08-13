@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {EditorState} from "@codemirror/state";
-import {hcl} from "codemirror-lang-hcl";
+import {deploymentHcl} from "../../src/hcl/index.js";
 import {DeploymentCreationUpdate} from "../../src/components/deploymentCreationUpdate.js";
 import {syntaxDiagnostics} from "../../src/components/deploymentConfigCodeWidget.js";
 import {deploymentDocumentToHcl, parseDeploymentHcl} from "../../src/components/deploymentHcl.js";
@@ -74,7 +74,7 @@ assert.match(canonicalHcl, /secret\("database-password", \{ version = 4 \}\)/);
 assert.match(canonicalHcl, /config\("database-host", \{ version = 2 \}\)/);
 assert.match(canonicalHcl, /asset\("nginx\.conf", \{ version = 3 \}\)/);
 assert.match(canonicalHcl, /port_forward\("tcp", 8080, \{ host_port = 8443 \}\)/);
-const canonicalEditorState = EditorState.create({doc: canonicalHcl, extensions: [hcl()]});
+const canonicalEditorState = EditorState.create({doc: canonicalHcl, extensions: [deploymentHcl()]});
 assert.deepEqual(syntaxDiagnostics(canonicalEditorState), []);
 
 const latestHcl = deploymentDocumentToHcl(canonicalDocument, catalogs);
@@ -196,7 +196,7 @@ assert.match(qualifiedHcl, /address\("production", "api"\)/);
 const qualifiedParsed = parseDeploymentHcl(qualifiedHcl, collisionCatalogs);
 assert.equal(qualifiedParsed.document.spec.container1Spec.runtime.envVars.API_ADDRESS.addressDeploymentId, 101);
 assert.equal(qualifiedParsed.document.spec.container1Spec.runtime.envVars.API_ADDRESS.addressSpaceId, 1);
-const qualifiedEditorState = EditorState.create({doc: qualifiedHcl, extensions: [hcl()]});
+const qualifiedEditorState = EditorState.create({doc: qualifiedHcl, extensions: [deploymentHcl()]});
 assert.deepEqual(syntaxDiagnostics(qualifiedEditorState), []);
 
 const multilineAddressHcl = qualifiedHcl.replace(
@@ -204,14 +204,14 @@ const multilineAddressHcl = qualifiedHcl.replace(
     'address(\n        "production",\n        "api",\n      )',
 );
 assert.ok(parseDeploymentHcl(multilineAddressHcl, collisionCatalogs).document);
-assert.deepEqual(syntaxDiagnostics(EditorState.create({doc: multilineAddressHcl, extensions: [hcl()]})), []);
+assert.deepEqual(syntaxDiagnostics(EditorState.create({doc: multilineAddressHcl, extensions: [deploymentHcl()]})), []);
 
 const malformedAddressHcl = qualifiedHcl.replace(
     'address("production", "api")',
     'address("production", "api"',
 );
 assert.equal(parseDeploymentHcl(malformedAddressHcl, collisionCatalogs).document, null);
-assert.ok(syntaxDiagnostics(EditorState.create({doc: malformedAddressHcl, extensions: [hcl()]})).length > 0);
+assert.ok(syntaxDiagnostics(EditorState.create({doc: malformedAddressHcl, extensions: [deploymentHcl()]})).length > 0);
 
 const deploymentMountDocument = structuredClone(qualifiedModel.toDocument());
 deploymentMountDocument.spec.container1Spec.runtime.crossDeploymentMounts = [{
@@ -223,7 +223,7 @@ const deploymentMountHcl = deploymentDocumentToHcl(deploymentMountDocument, coll
 assert.match(deploymentMountHcl, /deployment\("production", "database"\)/);
 const deploymentMountParsed = parseDeploymentHcl(deploymentMountHcl, collisionCatalogs);
 assert.equal(deploymentMountParsed.document.spec.container1Spec.runtime.crossDeploymentMounts[0].deploymentId, 103);
-assert.deepEqual(syntaxDiagnostics(EditorState.create({doc: deploymentMountHcl, extensions: [hcl()]})), []);
+assert.deepEqual(syntaxDiagnostics(EditorState.create({doc: deploymentMountHcl, extensions: [deploymentHcl()]})), []);
 
 const oldDeploymentReference = parseDeploymentHcl(qualifiedHcl.replace(
     'address("production", "api")',

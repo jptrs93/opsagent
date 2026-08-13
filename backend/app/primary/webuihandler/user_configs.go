@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
@@ -103,9 +104,12 @@ func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRena
 	return meta, nil
 }
 
-// PostV1ConfigsMove relocates a config within its space's folder tree. Version
-// rows and every pinned reference are untouched — only the identity's
-// directory changes.
+// PostV1ConfigsMove relocates a config within its space's folder tree, or —
+// when space_id names another space — moves it there. Version rows and every
+// pinned reference are untouched either way. A cross-space move is allowed
+// only while nothing outside the destination space references the config:
+// deployments must be able to keep their pins within their own space, and a
+// settings reference pins the value to the global space.
 func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRequest) (*apigen.ConfigMeta, error) {
 	if req.ConfigID == 0 {
 		return nil, UserConfigIDRequiredErr
@@ -117,20 +121,37 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 	if err := h.requireEntityAccess(ctx, vEdit, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
 		return nil, err
 	}
+	destSpace := state.NormalizedUserSpaceID(req.SpaceID)
+	spaceChanging := req.SpaceID != 0 && destSpace != existing.SpaceID
 	// Moving into another space also needs the right to create a config there.
-	if req.SpaceID != 0 && req.SpaceID != existing.SpaceID {
+	if spaceChanging {
 		if err := h.requireAccess(ctx, vCreate, eConfig, valueSpace(req.SpaceID), 0); err != nil {
 			return nil, err
 		}
 	}
-	// The space gate runs first: a rejected cross-space move must not leave the
-	// config reparented into its own space's root as a side effect.
-	if req.SpaceID != 0 {
-		if err := h.Store.MoveConfigSpace(req.ConfigID, req.SpaceID); err != nil {
+	if spaceChanging {
+		// Deployment writes hold the same lock, so no new reference can appear
+		// between the locality check and the move.
+		unlockReferences := h.ConfigService.LockReferences()
+		defer unlockReferences()
+		ids := int32Set(h.Store.ConfigVersionIDs(req.ConfigID))
+		if h.settingsUseConfigID(ids) && destSpace != state.DefaultSpaceID {
+			return nil, MoveReferencesOutsideSpaceErr
+		}
+		if h.referencesOutsideSpace(ids, runtimeinputs.ConfigRefs, destSpace) {
+			return nil, MoveReferencesOutsideSpaceErr
+		}
+		if err := h.Store.MoveConfigSpace(req.ConfigID, req.SpaceID, req.ValueDirectoryID); err != nil {
 			return nil, mapConfigStoreErr(err)
 		}
-	}
-	if _, err := h.Store.MoveConfigDirectory(req.ConfigID, req.ValueDirectoryID); err != nil {
+		// Tombstone for clients that saw the old space but cannot see the new
+		// one — updates a user cannot view are dropped, and nothing else says
+		// "gone". The update below re-adds the row where the destination is
+		// visible.
+		tombstone := *existing
+		tombstone.Deleted = true
+		h.Store.NotifyConfigMetaUpdate(tombstone)
+	} else if _, err := h.Store.MoveConfigDirectory(req.ConfigID, req.ValueDirectoryID); err != nil {
 		return nil, mapConfigStoreErr(err)
 	}
 	meta, ok := h.Store.GetConfigMeta(req.ConfigID)

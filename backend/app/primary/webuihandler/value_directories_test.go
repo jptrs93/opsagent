@@ -139,11 +139,10 @@ func TestMoveSecretAndConfigBetweenDirectories(t *testing.T) {
 	}
 }
 
-// The explorer offers cross-space drops so the intent is expressible, and the
-// server answers with value_space_move_unsupported. The rejection must be total:
-// a request naming another space must not fall through to reparenting the row
-// inside its own space, which is what an unchecked directory id of 0 would do.
-func TestCrossSpaceValueMoveIsRejectedWithoutReparenting(t *testing.T) {
+// Items move across spaces when nothing outside the destination references
+// them (an unreferenced item trivially qualifies). Directories still refuse:
+// a subtree move needs per-item reference checks and stays unsupported.
+func TestCrossSpaceValueMove(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	dir := mustCreateDir(t, h, user, 1, 0, "app")
 	nested := mustCreateDir(t, h, user, 1, dir.ID, "conf")
@@ -161,22 +160,29 @@ func TestCrossSpaceValueMoveIsRejectedWithoutReparenting(t *testing.T) {
 		t.Fatalf("PostV1ConfigsCreate: %v", err)
 	}
 
-	if _, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
+	movedSecret, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
 		SecretID: secret.ID, ValueDirectoryID: 0, SpaceID: 2,
-	}); !errors.Is(err, ValueSpaceMoveUnsupportedErr) {
-		t.Fatalf("cross-space secret move err = %v, want ValueSpaceMoveUnsupportedErr", err)
+	})
+	if err != nil {
+		t.Fatalf("cross-space secret move: %v", err)
 	}
-	if meta, ok := h.Store.GetSecretMeta(secret.ID); !ok || meta.ValueDirectoryID != dir.ID || meta.SpaceID != 1 {
-		t.Fatalf("secret = %+v after a rejected move, want space 1 dir %d", meta, dir.ID)
+	if movedSecret.SpaceID != 2 || movedSecret.ValueDirectoryID != 0 {
+		t.Fatalf("moved secret = space %d dir %d, want space 2 dir 0", movedSecret.SpaceID, movedSecret.ValueDirectoryID)
+	}
+	// The version index survives the move untouched: deployment specs pin
+	// version row ids.
+	if len(movedSecret.VersionRefs) != 1 || movedSecret.VersionRefs[0].ID != secret.VersionRefs[0].ID {
+		t.Fatalf("version refs changed across the move: %+v vs %+v", movedSecret.VersionRefs, secret.VersionRefs)
 	}
 
-	if _, err := h.PostV1ConfigsMove(testCtx(user), &apigen.ConfigMoveRequest{
+	movedCfg, err := h.PostV1ConfigsMove(testCtx(user), &apigen.ConfigMoveRequest{
 		ConfigID: config.ID, ValueDirectoryID: 0, SpaceID: 2,
-	}); !errors.Is(err, ValueSpaceMoveUnsupportedErr) {
-		t.Fatalf("cross-space config move err = %v, want ValueSpaceMoveUnsupportedErr", err)
+	})
+	if err != nil {
+		t.Fatalf("cross-space config move: %v", err)
 	}
-	if meta, ok := h.Store.GetConfigMeta(config.ID); !ok || meta.ValueDirectoryID != dir.ID || meta.SpaceID != 1 {
-		t.Fatalf("config = %+v after a rejected move, want space 1 dir %d", meta, dir.ID)
+	if movedCfg.SpaceID != 2 || movedCfg.ValueDirectoryID != 0 {
+		t.Fatalf("moved config = space %d dir %d, want space 2 dir 0", movedCfg.SpaceID, movedCfg.ValueDirectoryID)
 	}
 
 	if _, err := h.PostV1ValueDirectoriesMove(testCtx(user), &apigen.ValueDirectoryMoveRequest{
@@ -191,9 +197,126 @@ func TestCrossSpaceValueMoveIsRejectedWithoutReparenting(t *testing.T) {
 	// Naming the row's own space is a no-op, not a rejection: the explorer sends
 	// the target space on every drop, including same-space ones.
 	if _, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
-		SecretID: secret.ID, ValueDirectoryID: 0, SpaceID: 1,
+		SecretID: secret.ID, ValueDirectoryID: 0, SpaceID: 2,
 	}); err != nil {
 		t.Fatalf("same-space move with an explicit space: %v", err)
+	}
+
+	// The moved secret's value is still reachable through its new space —
+	// the Manager's denormalized space follows the identity row.
+	if revealed, err := h.PostV1SecretsReveal(testCtx(user), &apigen.SecretRevealRequest{
+		ID: secret.VersionRefs[0].ID,
+	}); err != nil || string(revealed.Value) != "v" {
+		t.Fatalf("reveal after move = %v, %v", revealed, err)
+	}
+	if meta, ok := h.Secrets.MetaByID(secret.VersionRefs[0].ID); !ok || meta.SpaceID != 2 {
+		t.Fatalf("manager meta after move = %+v ok=%v, want space 2", meta, ok)
+	}
+}
+
+// A cross-space move is refused while anything outside the destination space
+// pins the value: deployments elsewhere, or cluster settings (which pin the
+// value to the global space).
+func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
+	h, user := newAuthTestHandler(t)
+
+	secret, err := h.PostV1SecretsCreate(testCtx(user), &apigen.SecretCreateRequest{
+		Name: "token", Value: []byte("v"), SpaceID: 1,
+	})
+	if err != nil {
+		t.Fatalf("PostV1SecretsCreate: %v", err)
+	}
+	config, err := h.PostV1ConfigsCreate(testCtx(user), &apigen.ConfigCreateRequest{
+		Name: "level", Value: "info", SpaceID: 1,
+	})
+	if err != nil {
+		t.Fatalf("PostV1ConfigsCreate: %v", err)
+	}
+	certSecret, err := h.PostV1SecretsCreate(testCtx(user), &apigen.SecretCreateRequest{
+		Name: "cert", Value: []byte("pem"), SpaceID: 1,
+	})
+	if err != nil {
+		t.Fatalf("PostV1SecretsCreate: %v", err)
+	}
+
+	spec := remoteDeploymentSpec("registry/web", virtualNetworking())
+	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
+		"TOKEN": {SecretVersionID: ptrInt32(secret.VersionRefs[0].ID)},
+		"LEVEL": {ConfigVersionID: ptrInt32(config.VersionRefs[0].ID)},
+	}
+	spec.Networking.Ingress = []*apigen.Ingress{{
+		Kind:     apigen.IngressKind_INGRESS_KIND_HTTPS,
+		Hostname: "web.test",
+		HttpsConfig: &apigen.HttpsConfig{
+			ContainerPort: 8080,
+			CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{SecretVersionID: certSecret.VersionRefs[0].ID}},
+		},
+	}}
+	createTestDeployment(h.Store, "node1", apigen.DeploymentIdentity{Name: "web", SpaceID: 1}, &spec)
+
+	// All three pins live in space 1, so nothing may leave it.
+	if _, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
+		SecretID: secret.ID, SpaceID: 2,
+	}); !errors.Is(err, MoveReferencesOutsideSpaceErr) {
+		t.Fatalf("referenced secret move err = %v, want MoveReferencesOutsideSpaceErr", err)
+	}
+	if _, err := h.PostV1ConfigsMove(testCtx(user), &apigen.ConfigMoveRequest{
+		ConfigID: config.ID, SpaceID: 2,
+	}); !errors.Is(err, MoveReferencesOutsideSpaceErr) {
+		t.Fatalf("referenced config move err = %v, want MoveReferencesOutsideSpaceErr", err)
+	}
+	// The ingress cert pin counts even though no env var names the secret.
+	if _, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
+		SecretID: certSecret.ID, SpaceID: 2,
+	}); !errors.Is(err, MoveReferencesOutsideSpaceErr) {
+		t.Fatalf("cert-referenced secret move err = %v, want MoveReferencesOutsideSpaceErr", err)
+	}
+	// It blocks deletion too, exactly like an env pin.
+	if err := h.PostV1SecretsDelete(testCtx(user), &apigen.SecretDeleteRequest{
+		SecretID: certSecret.ID,
+	}); !errors.Is(err, ReferenceInUseErr) {
+		t.Fatalf("cert-referenced secret delete err = %v, want ReferenceInUseErr", err)
+	}
+
+	// A value whose only references live in the destination space may move
+	// there: this secret sits in space 2 but is pinned from space 1.
+	stray, err := h.PostV1SecretsCreate(testCtx(user), &apigen.SecretCreateRequest{
+		Name: "stray", Value: []byte("s"), SpaceID: 2,
+	})
+	if err != nil {
+		t.Fatalf("PostV1SecretsCreate: %v", err)
+	}
+	straySpec := remoteDeploymentSpec("registry/worker", virtualNetworking())
+	straySpec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
+		"STRAY": {SecretVersionID: ptrInt32(stray.VersionRefs[0].ID)},
+	}
+	createTestDeployment(h.Store, "node1", apigen.DeploymentIdentity{Name: "worker", SpaceID: 1}, &straySpec)
+	moved, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
+		SecretID: stray.ID, SpaceID: 1,
+	})
+	if err != nil {
+		t.Fatalf("move toward the referencing space: %v", err)
+	}
+	if moved.SpaceID != 1 {
+		t.Fatalf("moved secret space = %d, want 1", moved.SpaceID)
+	}
+
+	// A settings reference pins the value to the global space.
+	pinned, err := h.PostV1SecretsCreate(testCtx(user), &apigen.SecretCreateRequest{
+		Name: "gh-token", Value: []byte("t"), SpaceID: 1,
+	})
+	if err != nil {
+		t.Fatalf("PostV1SecretsCreate: %v", err)
+	}
+	settings := h.ConfigService.Snapshot().Settings
+	settings.Repo.GithubToken.VersionID = pinned.VersionRefs[0].ID
+	if err := h.ConfigService.UpdateSettingsInternal(settings); err != nil {
+		t.Fatalf("UpdateSettingsInternal: %v", err)
+	}
+	if _, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
+		SecretID: pinned.ID, SpaceID: 2,
+	}); !errors.Is(err, MoveReferencesOutsideSpaceErr) {
+		t.Fatalf("settings-referenced secret move err = %v, want MoveReferencesOutsideSpaceErr", err)
 	}
 }
 

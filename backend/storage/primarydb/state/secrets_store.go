@@ -272,10 +272,13 @@ func (s *Service) MoveSecretDirectory(secretID, newDirectoryID int32) (Secret, e
 	return row, nil
 }
 
-// MoveSecretSpace would move a secret to another space. Space moves are not
-// supported yet — references and permissions are space-scoped, so the move
-// needs coordinated handling. A same-space target is accepted as a no-op.
-func (s *Service) MoveSecretSpace(secretID, newSpaceID int32) error {
+// MoveSecretSpace moves a secret to another space, landing it in
+// newDirectoryID there (0 = the destination space's root). Version rows and
+// their sealed bytes are untouched: the AAD binds the identity id, not the
+// location, so every pinned reference survives. Reference locality is the
+// caller's law — the handler refuses the move while anything outside the
+// destination space references the secret.
+func (s *Service) MoveSecretSpace(secretID, newSpaceID, newDirectoryID int32) error {
 	ctx := context.Background()
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -287,10 +290,32 @@ func (s *Service) MoveSecretSpace(secretID, newSpaceID int32) error {
 	if err != nil {
 		panic(fmt.Sprintf("GetSecretRowByID: %v", err))
 	}
-	if int64(normalizedUserSpaceID(newSpaceID)) == row.SpaceID {
+	spaceID := int64(normalizedUserSpaceID(newSpaceID))
+	dirID := int64(newDirectoryID)
+	if spaceID == row.SpaceID && dirID == row.ValueDirectoryID {
 		return nil
 	}
-	return ErrSpaceMoveUnsupported
+	if dirID != 0 {
+		dir, err := s.q.GetValueDirectoryByID(ctx, dirID)
+		if err == sql.ErrNoRows {
+			return ErrValueDirectoryNotFound
+		}
+		if err != nil {
+			panic(fmt.Sprintf("GetValueDirectoryByID: %v", err))
+		}
+		// A directory in any space but the destination reads as absent, matching
+		// the create path's treatment of foreign-space directories.
+		if dir.SpaceID != spaceID {
+			return ErrValueDirectoryNotFound
+		}
+	}
+	if s.valueSiblingNameTakenLocked(ctx, s.q, spaceID, dirID, row.Name, row.ID, 0, 0) {
+		return ErrValueAlreadyExists
+	}
+	if err := s.q.SetSecretSpace(ctx, pq.SetSecretSpaceParams{SpaceID: spaceID, ValueDirectoryID: dirID, ID: row.ID}); err != nil {
+		panic(fmt.Sprintf("SetSecretSpace: %v", err))
+	}
+	return nil
 }
 
 // DeleteSecret removes the secret identity and all its versions.

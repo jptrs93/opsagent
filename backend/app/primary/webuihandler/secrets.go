@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
@@ -220,10 +221,14 @@ func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRena
 	return proto, nil
 }
 
-// PostV1SecretsMove relocates a secret within its space's folder tree. Version
-// rows and every pinned reference are untouched — only the identity's
-// directory changes. Reserved opendeploy secrets stay put: install/restore
-// flows find them by name in the space root, so moving one would strand it.
+// PostV1SecretsMove relocates a secret within its space's folder tree, or —
+// when space_id names another space — moves it there. Version rows and every
+// pinned reference are untouched either way. A cross-space move is allowed
+// only while nothing outside the destination space references the secret:
+// deployments must be able to keep their pins within their own space, and a
+// settings reference pins the value to the global space. Reserved opendeploy
+// secrets stay put: install/restore flows find them by name in the space
+// root, so moving one would strand it.
 func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRequest) (*apigen.SecretMeta, error) {
 	if req.SecretID == 0 {
 		return nil, SecretIDRequiredErr
@@ -235,8 +240,10 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 	if err := h.requireEntityAccess(ctx, vEdit, eSecret, int64(meta.SpaceID), int64(meta.ID), SecretNotFoundErr); err != nil {
 		return nil, err
 	}
+	destSpace := state.NormalizedUserSpaceID(req.SpaceID)
+	spaceChanging := req.SpaceID != 0 && destSpace != meta.SpaceID
 	// Moving into another space also needs the right to create a secret there.
-	if req.SpaceID != 0 && req.SpaceID != meta.SpaceID {
+	if spaceChanging {
 		if err := h.requireAccess(ctx, vCreate, eSecret, valueSpace(req.SpaceID), 0); err != nil {
 			return nil, err
 		}
@@ -244,14 +251,31 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 	if isReservedSecretMetaName(meta.Name) {
 		return nil, SecretReservedNameErr
 	}
-	// The space gate runs first: a rejected cross-space move must not leave the
-	// secret reparented into its own space's root as a side effect.
-	if req.SpaceID != 0 {
-		if err := h.Store.MoveSecretSpace(req.SecretID, req.SpaceID); err != nil {
+	if spaceChanging {
+		// Deployment writes hold the same lock, so no new reference can appear
+		// between the locality check and the move.
+		unlockReferences := h.ConfigService.LockReferences()
+		defer unlockReferences()
+		ids := int32Set(h.Store.SecretVersionIDs(req.SecretID))
+		if h.settingsUseSecretID(ids) && destSpace != state.DefaultSpaceID {
+			return nil, MoveReferencesOutsideSpaceErr
+		}
+		if h.referencesOutsideSpace(ids, runtimeinputs.SecretRefs, destSpace) {
+			return nil, MoveReferencesOutsideSpaceErr
+		}
+		// Through the Manager, not the store: cached version records denormalize
+		// the space, and reveal/edit authz reads it.
+		if err := h.Secrets.MoveSpace(req.SecretID, req.SpaceID, req.ValueDirectoryID); err != nil {
 			return nil, mapSecretErr(err)
 		}
-	}
-	if _, err := h.Store.MoveSecretDirectory(req.SecretID, req.ValueDirectoryID); err != nil {
+		// Clients that saw the old space but cannot see the new one would
+		// otherwise keep a stale row forever — updates a user cannot view are
+		// dropped, and nothing else says "gone". The tombstone speaks to them;
+		// the update below re-adds the row for everyone who sees the destination.
+		tombstone := *meta
+		tombstone.Deleted = true
+		h.Store.NotifySecretMetaUpdate(tombstone)
+	} else if _, err := h.Store.MoveSecretDirectory(req.SecretID, req.ValueDirectoryID); err != nil {
 		return nil, mapSecretErr(err)
 	}
 	proto, ok := h.Store.GetSecretMeta(req.SecretID)

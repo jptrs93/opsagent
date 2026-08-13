@@ -22,17 +22,28 @@ move, rename, delete — delete only when empty, contents are never cascaded),
 and items relocate with `PostV1SecretsMove` / `PostV1ConfigsMove`. Moves and
 renames touch only the identity row, so version ids — and therefore every
 pinned reference — survive unchanged. All three move requests carry a
-`space_id`: `0` keeps the row where it is, and naming a different space is
-rejected with `value_space_move_unsupported` (`MoveSecretSpace` /
-`MoveConfigSpace` / `MoveValueDirectorySpace` are the gates) until references
-and permissions get coordinated handling. The field exists so callers can state
-the intent and get that answer — without it, `value_directory_id: 0` against
-another space would silently land the row at *its own* space's root — so the
-gate runs before any reparenting, and the explorer's drag-and-drop offers
-cross-space drops and surfaces the server's refusal. Reserved `opendeploy.*`
-secrets cannot be moved out of
-the space root: install/restore flows find them there by name. Directories
-ride the UI state stream as `value_directories_snapshot` /
+`space_id` (`0` keeps the row where it is). For items, naming another space
+moves them there under a **reference-locality rule**: the handler collects
+every deployment pinning one of the item's version ids (env refs and, for
+secrets, ingress cert refs — via the same `runtimeinputs` collectors the
+engine fetches by) and refuses with `move_references_outside_space` unless
+they all live in the destination space; a cluster-settings reference pins the
+value to the global space. The check-and-move runs under
+`ConfigService.LockReferences()` so no new pin can appear in between.
+`MoveSecretSpace` / `MoveConfigSpace` rewrite `space_id` +
+`value_directory_id` in one locked store op (the destination directory must
+belong to the destination space, and sibling-name uniqueness holds there).
+Secret space moves go through `Manager.MoveSpace`, which also fixes the
+denormalized `SpaceID` on cached version records — reveal/edit authz reads
+it. On the state stream a delete-tombstone precedes the update so clients
+that cannot see the destination drop the row. Directory space moves are still
+rejected with `value_space_move_unsupported` (`MoveValueDirectorySpace`): a
+subtree move needs per-item reference checks. The gates run before any
+reparenting — a refused cross-space move never lands the row at *its own*
+space's root — and the explorer's drag-and-drop and Move dialog surface the
+refusal. Reserved `opendeploy.*` secrets cannot be moved at all:
+install/restore flows find them by name in the space root. Directories ride
+the UI state stream as `value_directories_snapshot` /
 `value_directory_update` and appear in `GET /v1/global-state`.
 
 Values are decrypted during deployment preparation, cached on the node that

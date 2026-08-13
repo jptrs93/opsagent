@@ -22,7 +22,7 @@ import {
     lineNumbers,
     ViewPlugin,
 } from "@codemirror/view";
-import {hcl} from "codemirror-lang-hcl";
+import {deploymentHcl} from "../hcl/index.js";
 import {
     deploymentDocumentToHcl,
     deploymentHclCompletionOptions,
@@ -382,37 +382,12 @@ const referenceHighlighting = ViewPlugin.fromClass(class {
     }
 }, {decorations: plugin => plugin.decorations});
 
-function nativeReferenceRanges(text) {
-    const ranges = [];
-    const patterns = [
-        /\b(?:secret|config|asset)\(\s*"(?:\\.|[^"\\\n])+"\s*,\s*\{\s*version\s*=\s*\d+\s*\}\s*\)/g,
-        /\b(?:address|deployment)\(\s*"(?:\\.|[^"\\\n])+"\s*,\s*"(?:\\.|[^"\\\n])+"\s*,?\s*\)/g,
-        /\bacme\(\s*\)/g,
-    ];
-    for (const pattern of patterns) {
-        let match;
-        while ((match = pattern.exec(text))) ranges.push({from: match.index, to: match.index + match[0].length});
-    }
-    return ranges;
-}
-
 export function syntaxDiagnostics(state) {
     const diagnostics = [];
     const seen = new Set();
-    const nativeReferences = nativeReferenceRanges(state.doc.toString());
     const cursor = syntaxTree(state).cursor();
     do {
         if (!cursor.type.isError) continue;
-        if (nativeReferences.some(range => cursor.from >= range.from && cursor.to <= range.to)) continue;
-        const before = state.sliceDoc(Math.max(0, cursor.from - 120), cursor.from);
-        const functionObjectBoundary = cursor.from === cursor.to
-            && (/(?:(?:secret|config|asset)\(\s*"[^"\n]+"(?:\s*,\s*\{\s*version\s*=\s*\d+\s*\})?\s*\)|(?:address|deployment)\(\s*"[^"\n]+"\s*,\s*"[^"\n]+"\s*\)|(?:space|node)\(\s*"[^"\n]+"\s*\)),?\s*$/.test(before)
-                // The grammar cannot parse zero-argument calls; after acme()
-                // it derails and emits zero-width errors past the enclosing
-                // closers, so anything up to the error that is only closers
-                // and separators is part of the same cascade.
-                || /acme\(\s*\)[\s)}\],]*$/.test(before));
-        if (functionObjectBoundary) continue;
         const from = Math.max(0, Math.min(state.doc.length, cursor.from));
         const to = Math.max(from, Math.min(state.doc.length, cursor.to || from + 1));
         const key = `${from}:${to}`;
@@ -503,9 +478,7 @@ export function deploymentConfigCodeWidget(args) {
         const text = state.doc.toString();
         const parsed = parseDeploymentHcl(text, catalogs, constraints);
         // The hand-written parser is authoritative for the deployment dialect;
-        // the lezer grammar is a highlighting aid that cannot parse some valid
-        // constructs (e.g. zero-argument calls derail it document-wide). When
-        // the authoritative parse fully succeeds, its verdict wins.
+        // when it fully succeeds there is nothing for the syntax pass to add.
         const parsedClean = Boolean(parsed.document) && !parsed.diagnostics.some(item => item.severity === "error");
         const syntax = parsedClean ? [] : syntaxDiagnostics(state);
         const sharedDocumentChanged = Boolean(invalidBaseKey && invalidBaseKey !== documentKey());
@@ -570,7 +543,7 @@ export function deploymentConfigCodeWidget(args) {
                 bracketMatching(),
                 closeBrackets(),
                 syntaxHighlighting(defaultHighlightStyle, {fallback: true}),
-                hcl(),
+                deploymentHcl(),
                 referenceHighlighting,
                 autocompletion({override: [schemaCompletion(catalogs)]}),
                 linter(editorView => {

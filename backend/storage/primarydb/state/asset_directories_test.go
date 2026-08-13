@@ -216,14 +216,45 @@ func TestMoveAssetSpace(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	v := store.SetAssetByKey("a.txt", []byte("x"))
 
-	if err := store.MoveAssetSpace(v.AssetID, DefaultSpaceID); err != nil {
+	if err := store.MoveAssetSpace(v.AssetID, DefaultSpaceID, 0); err != nil {
 		t.Fatalf("same-space no-op err = %v", err)
 	}
-	if err := store.MoveAssetSpace(v.AssetID, 2); !errors.Is(err, ErrSpaceMoveUnsupported) {
-		t.Fatalf("space move err = %v, want ErrSpaceMoveUnsupported", err)
-	}
-	if err := store.MoveAssetSpace(999, 2); !errors.Is(err, ErrAssetNotFound) {
+	if err := store.MoveAssetSpace(999, 2, 0); !errors.Is(err, ErrAssetNotFound) {
 		t.Fatalf("missing asset err = %v, want ErrAssetNotFound", err)
+	}
+
+	if err := store.MoveAssetSpace(v.AssetID, 2, 0); err != nil {
+		t.Fatalf("space move: %v", err)
+	}
+	meta, ok := store.GetAssetMeta(v.AssetID)
+	if !ok || meta.SpaceID != 2 || meta.AssetDirectoryID != 0 {
+		t.Fatalf("meta after move = %+v ok=%v", meta, ok)
+	}
+	// Version rows are untouched: the pinned version id still resolves.
+	if _, ok := store.GetAssetVersionByID(v.ID); !ok {
+		t.Fatalf("version %d missing after move", v.ID)
+	}
+
+	// The vacated key is reusable at the origin, and the occupied one blocks a
+	// move back.
+	dup := store.SetAssetByKey("a.txt", []byte("y"))
+	if err := store.MoveAssetSpace(v.AssetID, DefaultSpaceID, 0); !errors.Is(err, ErrAssetAlreadyExists) {
+		t.Fatalf("move onto taken key err = %v, want ErrAssetAlreadyExists", err)
+	}
+
+	// A destination directory must live in the destination space; the origin's
+	// directory reads as absent there.
+	originDir, _ := store.CreateDirectory(int32(DefaultSpaceID), 0, "app", 0)
+	if err := store.MoveAssetSpace(dup.AssetID, 2, int32(originDir.ID)); !errors.Is(err, ErrDirectoryNotFound) {
+		t.Fatalf("foreign destination dir err = %v, want ErrDirectoryNotFound", err)
+	}
+	destDir, _ := store.CreateDirectory(2, 0, "app", 0)
+	if err := store.MoveAssetSpace(dup.AssetID, 2, int32(destDir.ID)); err != nil {
+		t.Fatalf("space move into directory: %v", err)
+	}
+	meta, ok = store.GetAssetMeta(dup.AssetID)
+	if !ok || meta.SpaceID != 2 || meta.AssetDirectoryID != int32(destDir.ID) {
+		t.Fatalf("meta after directory move = %+v ok=%v", meta, ok)
 	}
 }
 

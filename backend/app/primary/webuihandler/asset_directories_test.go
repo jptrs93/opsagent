@@ -165,11 +165,10 @@ func TestMoveAssetBetweenDirectories(t *testing.T) {
 	}
 }
 
-// The explorer offers cross-space drops so the intent is expressible, and the
-// server answers with asset_space_move_unsupported. The rejection must be total:
-// a request naming another space must not fall through to reparenting the row
-// inside its own space, which is what an unchecked directory id of 0 would do.
-func TestCrossSpaceMoveIsRejectedWithoutReparenting(t *testing.T) {
+// Assets move across spaces when no deployment outside the destination pins
+// one of their versions. Directories still refuse: a subtree move needs
+// per-item reference checks and stays unsupported.
+func TestCrossSpaceAssetMove(t *testing.T) {
 	h, user := newAssetTestHandler(t)
 	dir := mustCreateAssetDir(t, h, user, 1, 0, "app")
 	nested := mustCreateAssetDir(t, h, user, 1, dir.ID, "conf")
@@ -181,18 +180,37 @@ func TestCrossSpaceMoveIsRejectedWithoutReparenting(t *testing.T) {
 		t.Fatalf("PostV1AssetsCreate: %v", err)
 	}
 
-	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
+	moved, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
 		AssetID: asset.AssetID, AssetDirectoryID: 0, SpaceID: 2,
-	}); !errors.Is(err, AssetSpaceMoveUnsupportedErr) {
-		t.Fatalf("cross-space asset move err = %v, want AssetSpaceMoveUnsupportedErr", err)
+	})
+	if err != nil {
+		t.Fatalf("cross-space asset move: %v", err)
 	}
-	meta, ok := h.Store.GetAssetMeta(asset.AssetID)
-	if !ok {
-		t.Fatal("asset vanished after a rejected move")
+	if moved.SpaceID != 2 || moved.AssetDirectoryID != 0 {
+		t.Fatalf("moved asset = space %d dir %d, want space 2 dir 0", moved.SpaceID, moved.AssetDirectoryID)
 	}
-	if meta.AssetDirectoryID != dir.ID || meta.SpaceID != 1 {
-		t.Fatalf("asset = space %d dir %d after a rejected move, want space 1 dir %d",
-			meta.SpaceID, meta.AssetDirectoryID, dir.ID)
+	// The version index survives the move untouched: deployment specs pin
+	// version row ids.
+	if len(moved.VersionRefs) != 1 || moved.VersionRefs[0].ID != asset.ID {
+		t.Fatalf("version refs changed across the move: %+v, want version id %d", moved.VersionRefs, asset.ID)
+	}
+
+	// A mounted asset cannot leave the mounting deployment's space.
+	spec := remoteDeploymentSpec("registry/web", virtualNetworking())
+	spec.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount{{
+		AssetVersionID: asset.ID, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY,
+	}}
+	createTestDeployment(h.Store, "node1", apigen.DeploymentIdentity{Name: "web", SpaceID: 2}, &spec)
+	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
+		AssetID: asset.AssetID, SpaceID: 1,
+	}); !errors.Is(err, MoveReferencesOutsideSpaceErr) {
+		t.Fatalf("mounted asset move err = %v, want MoveReferencesOutsideSpaceErr", err)
+	}
+	// And a pinned version blocks deletion of the whole asset.
+	if err := h.PostV1AssetsDelete(testCtx(user), &apigen.AssetDeleteRequest{
+		AssetID: asset.AssetID,
+	}); !errors.Is(err, ReferenceInUseErr) {
+		t.Fatalf("mounted asset delete err = %v, want ReferenceInUseErr", err)
 	}
 
 	if _, err := h.PostV1AssetDirectoriesMove(testCtx(user), &apigen.AssetDirectoryMoveRequest{
@@ -210,9 +228,10 @@ func TestCrossSpaceMoveIsRejectedWithoutReparenting(t *testing.T) {
 	}
 
 	// Naming the row's own space is a no-op, not a rejection: the explorer sends
-	// the target space on every drop, including same-space ones.
+	// the target space on every drop, including same-space ones — and it must
+	// not trip the reference check even though the asset is mounted.
 	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
-		AssetID: asset.AssetID, AssetDirectoryID: 0, SpaceID: 1,
+		AssetID: asset.AssetID, AssetDirectoryID: 0, SpaceID: 2,
 	}); err != nil {
 		t.Fatalf("same-space move with an explicit space: %v", err)
 	}

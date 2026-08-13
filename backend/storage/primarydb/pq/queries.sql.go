@@ -2935,6 +2935,36 @@ func (q *Queries) SetAssetDirectoryParent(ctx context.Context, arg SetAssetDirec
 	return err
 }
 
+const setAssetSpace = `-- name: SetAssetSpace :exec
+UPDATE assets SET space_id = ?, asset_directory_id = ? WHERE id = ?
+`
+
+type SetAssetSpaceParams struct {
+	SpaceID          int64
+	AssetDirectoryID int64
+	ID               int64
+}
+
+func (q *Queries) SetAssetSpace(ctx context.Context, arg SetAssetSpaceParams) error {
+	_, err := q.db.ExecContext(ctx, setAssetSpace, arg.SpaceID, arg.AssetDirectoryID, arg.ID)
+	return err
+}
+
+const setConfigSpace = `-- name: SetConfigSpace :exec
+UPDATE configs SET space_id = ?, value_directory_id = ? WHERE id = ?
+`
+
+type SetConfigSpaceParams struct {
+	SpaceID          int64
+	ValueDirectoryID int64
+	ID               int64
+}
+
+func (q *Queries) SetConfigSpace(ctx context.Context, arg SetConfigSpaceParams) error {
+	_, err := q.db.ExecContext(ctx, setConfigSpace, arg.SpaceID, arg.ValueDirectoryID, arg.ID)
+	return err
+}
+
 const setConfigValueDirectoryID = `-- name: SetConfigValueDirectoryID :exec
 UPDATE configs SET value_directory_id = ? WHERE id = ?
 `
@@ -2946,6 +2976,21 @@ type SetConfigValueDirectoryIDParams struct {
 
 func (q *Queries) SetConfigValueDirectoryID(ctx context.Context, arg SetConfigValueDirectoryIDParams) error {
 	_, err := q.db.ExecContext(ctx, setConfigValueDirectoryID, arg.ValueDirectoryID, arg.ID)
+	return err
+}
+
+const setSecretSpace = `-- name: SetSecretSpace :exec
+UPDATE secrets SET space_id = ?, value_directory_id = ? WHERE id = ?
+`
+
+type SetSecretSpaceParams struct {
+	SpaceID          int64
+	ValueDirectoryID int64
+	ID               int64
+}
+
+func (q *Queries) SetSecretSpace(ctx context.Context, arg SetSecretSpaceParams) error {
+	_, err := q.db.ExecContext(ctx, setSecretSpace, arg.SpaceID, arg.ValueDirectoryID, arg.ID)
 	return err
 }
 

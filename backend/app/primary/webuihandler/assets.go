@@ -214,6 +214,11 @@ func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRename
 	return meta, nil
 }
 
+// PostV1AssetsMove relocates an asset within its space's folder tree, or —
+// when space_id names another space — moves it there. Version rows and every
+// pinned mount and reference are untouched either way. A cross-space move is
+// allowed only while no deployment outside the destination space references
+// the asset.
 func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequest) (*apigen.AssetMeta, error) {
 	if req.AssetID <= 0 {
 		return nil, AssetIDRequiredErr
@@ -225,24 +230,34 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 	if err := h.requireEntityAccess(ctx, vEdit, eAsset, int64(existing.SpaceID), int64(existing.ID), AssetNotFoundErr); err != nil {
 		return nil, err
 	}
+	destSpace := state.NormalizedUserSpaceID(req.SpaceID)
+	spaceChanging := req.SpaceID != 0 && destSpace != existing.SpaceID
 	// Moving into another space also needs the right to create an asset there.
-	if req.SpaceID != 0 && req.SpaceID != existing.SpaceID {
+	if spaceChanging {
 		if err := h.requireAccess(ctx, vCreate, eAsset, valueSpace(req.SpaceID), 0); err != nil {
 			return nil, err
 		}
 	}
-	// The space gate runs first: a rejected cross-space move must not leave the
-	// asset reparented into its own space's root as a side effect.
-	if req.SpaceID != 0 {
-		if err := h.Store.MoveAssetSpace(req.AssetID, req.SpaceID); err != nil {
+	if spaceChanging {
+		// Deployment writes hold the same lock, so no new reference can appear
+		// between the locality check and the move.
+		unlockReferences := h.ConfigService.LockReferences()
+		defer unlockReferences()
+		if h.referencesOutsideSpace(h.assetVersionIDSet(req.AssetID), assetRefIDs, destSpace) {
+			return nil, MoveReferencesOutsideSpaceErr
+		}
+		if err := h.Store.MoveAssetSpace(req.AssetID, req.SpaceID, req.AssetDirectoryID); err != nil {
 			return nil, mapAssetStoreErr(err)
 		}
-	}
-	row, err := h.Store.MoveAssetDirectory(req.AssetID, req.AssetDirectoryID)
-	if err != nil {
+		// Tombstone for clients that saw the old space but cannot see the new
+		// one — updates a user cannot view are dropped, and nothing else says
+		// "gone". The update below re-adds the row where the destination is
+		// visible.
+		h.Store.NotifyAssetDeleted(existing)
+	} else if _, err := h.Store.MoveAssetDirectory(req.AssetID, req.AssetDirectoryID); err != nil {
 		return nil, mapAssetStoreErr(err)
 	}
-	meta, ok := h.Store.GetAssetMeta(int32(row.ID))
+	meta, ok := h.Store.GetAssetMeta(req.AssetID)
 	if !ok {
 		return nil, AssetNotFoundErr
 	}
@@ -250,12 +265,30 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 	return meta, nil
 }
 
+func (h *Handler) assetVersionIDSet(assetID int32) map[int32]struct{} {
+	versions := h.Store.ListAssetVersionsIncludingPending(assetID)
+	ids := make([]int32, 0, len(versions))
+	for _, v := range versions {
+		ids = append(ids, v.ID)
+	}
+	return int32Set(ids)
+}
+
 func (h *Handler) PostV1AssetsDelete(ctx apigen.Context, req *apigen.AssetDeleteRequest) error {
+	// Held across the reference check and the delete so a deployment cannot pin
+	// a version of this asset in between. Secrets and configs have refused
+	// referenced deletes this way all along; assets simply lacked the reverse
+	// lookup until the space-move work added one.
+	unlockReferences := h.ConfigService.LockReferences()
+	defer unlockReferences()
 	if req.AssetID <= 0 {
 		return AssetIDRequiredErr
 	}
 	if err := h.requireAssetAccess(ctx, vDelete, req.AssetID); err != nil {
 		return err
+	}
+	if h.deploymentUsesAssetID(h.assetVersionIDSet(req.AssetID)) {
+		return ReferenceInUseErr
 	}
 	if err := h.Assets.DeleteAsset(ctx, req.AssetID); err != nil {
 		return mapAssetStoreErr(err)
