@@ -12,9 +12,10 @@ const spaceAdminSpacesArgID int64 = 1
 func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 	all := func() *apigen.AuthzSelector { return &apigen.AuthzSelector{Wildcard: true} }
 	// delegableRules is what an agent session inherits from the grant. Secrets
-	// are split out of the general rule and handed back create-only: an agent
-	// can mint a credential and wire it into a deployment, but cannot read,
-	// change, or destroy one an operator owns. Nothing outside these rules
+	// are split out of the general rule and handed back view+create: an agent
+	// can see that a secret exists, mint one, and wire it into a deployment,
+	// but cannot read back, change, or destroy a value an operator owns —
+	// reveal, edit, and delete stay human-only. Nothing outside these rules
 	// narrows a delegated token, so this is the whole of what agents may do.
 	// Agent sessions also lose view_logs: deployment logs can echo secret
 	// values at runtime, which would sidestep the create-only secret boundary
@@ -36,8 +37,11 @@ func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 				DelegationAllowed: true,
 			},
 			{
-				Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_CREATE)}},
-				Spaces:      spaces(),
+				Permissions: &apigen.AuthzSelector{Include: []int64{
+					int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW),
+					int64(apigen.AuthzVerb_AUTHZ_VERB_CREATE),
+				}},
+				Spaces: spaces(),
 				EntityTypes: &apigen.AuthzSelector{Include: []int64{
 					int64(apigen.AuthzEntity_AUTHZ_ENTITY_SECRET),
 				}},

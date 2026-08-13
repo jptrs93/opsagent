@@ -972,6 +972,58 @@ export async function moveExplorerSelection(page, destination) {
   await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
 
+// Moves the selected item into another space through the Move dialog's
+// destination space picker. destination names the folder option inside that
+// space ('/' for the space root — a fresh space pick always resets to it).
+// Only item dialogs offer the picker; folder moves stay within their space.
+export async function moveExplorerSelectionToSpace(page, {space, destination = '/'}) {
+  await page.getByRole('button', {name: 'Move', exact: true}).click();
+  const dialog = page.getByRole('dialog').filter({hasText: /Move /});
+  await expect(dialog).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await dialog.getByLabel('Destination space', {exact: true}).selectOption({label: space});
+  await dialog.getByRole('button', {name: destination, exact: true}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
+// Attempts a cross-space move the server must refuse. The dialog stays open on
+// failure and the page error line carries the refusal; the error is dismissed
+// after the dialog is cancelled because the modal overlay covers the banner.
+export async function expectMoveToSpaceBlocked(page, {space, destination = '/', message}) {
+  await page.getByRole('button', {name: 'Move', exact: true}).click();
+  const dialog = page.getByRole('dialog').filter({hasText: /Move /});
+  await expect(dialog).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await dialog.getByLabel('Destination space', {exact: true}).selectOption({label: space});
+  await dialog.getByRole('button', {name: destination, exact: true}).click();
+  await expect(page.getByText(message)).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await dialog.getByRole('button', {name: 'Cancel', exact: true}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  await page.getByRole('button', {name: 'Dismiss error'}).click();
+}
+
+// Deletes the selection expecting the server to refuse (e.g. a mounted
+// asset): the confirm dialog closes itself, the error line reports, and the
+// caller asserts the row survived.
+export async function expectDeleteSelectionBlocked(page, {message}) {
+  await page.getByRole('button', {name: 'Delete', exact: true}).click();
+  const dialog = page.getByRole('dialog').filter({hasText: 'Confirm delete'});
+  await dialog.getByRole('button', {name: 'Confirm', exact: true}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  await expect(page.getByText(message)).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await page.getByRole('button', {name: 'Dismiss error'}).click();
+}
+
+// Filters the explorer to name and selects its row. An active query
+// force-expands whatever matches, so this reaches rows whose space or folder
+// is collapsed in the caller's persisted view.
+export async function searchExplorerAndSelect(page, placeholder, name) {
+  await page.getByPlaceholder(placeholder).fill(name);
+  await selectExplorerRow(page, name);
+}
+
+export async function clearExplorerSearch(page, placeholder) {
+  await page.getByPlaceholder(placeholder).fill('');
+}
+
 export async function renameExplorerSelection(page, newName) {
   await page.getByRole('button', {name: 'Rename', exact: true}).click();
   const nameInput = page.getByLabel('New name', {exact: true});
@@ -996,7 +1048,15 @@ export async function closeExplorerInspector(page) {
 export async function createValueInSelection(page, {type, name, value, location}) {
   await page.getByRole('button', {name: `New ${type}`, exact: true}).click();
   const dialog = page.getByTestId(`create-${type}-overlay`).getByRole('dialog');
-  if (location) await expect(dialog).toContainText(location);
+  if (location) {
+    // location reads `<space>/<folders...>/`. The dialog renders the space as
+    // a select whose text contains every visible space, so assert the chosen
+    // option and the folder-path label separately.
+    const [space, ...folders] = location.split('/').filter(Boolean);
+    await expect(dialog.getByLabel('Destination space', {exact: true}).locator('option:checked'))
+      .toHaveText(space, {timeout: LONG_UI_TIMEOUT});
+    if (folders.length) await expect(dialog).toContainText(`/${folders.join('/')}/`);
+  }
   await dialog.getByPlaceholder(`${type} name`).fill(name);
   await fillCodeEditor(dialog, `Value for new ${type}`, value);
   await dialog.getByRole('button', {name: `Add ${type}`}).click();

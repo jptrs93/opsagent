@@ -1,5 +1,6 @@
 import {expect, test} from '@playwright/test';
 import {installVirtualAuthenticator} from '../helpers/webauthn.js';
+import {spaceMoveCases} from './space-moves.js';
 import {
   bootstrapFirstUser,
   createAsset,
@@ -327,6 +328,10 @@ export const accessEnforcementCases = [
       await expect(spaceRow(ctx.page, 'global')).toBeVisible();
     },
   },
+  // Cross-space move coverage runs here on purpose: the restricted deployment
+  // and values still exist to act as reference pins, and the restricted
+  // session is a live observer for stream tombstones.
+  ...spaceMoveCases,
   {
     id: 'access-restricted-deployment-managed',
     title: 'update, stop, and delete the restricted deployment',

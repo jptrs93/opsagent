@@ -30,6 +30,12 @@ const nameSpan = (text) => span({class: "text-blue-300"}, text);
 const nameList = (names) => names.flatMap((n, i) => i ? [", ", nameSpan(n)] : [nameSpan(n)]);
 const argSpan = (argName) => span({class: "text-amber-300"}, "${" + argName + "}");
 
+// The intersected selector chips read as set expressions: an explicit list of
+// two or more values is braced and union-joined ("{ nodes ∪ users }"), a
+// single value stands bare.
+const unionList = (names) => names.length === 1 ? [nameSpan(names[0])] :
+    ["{ ", ...names.flatMap((n, i) => i ? [" ∪ ", nameSpan(n)] : [nameSpan(n)]), " }"];
+
 // chip builds one segment of a rule row. Variants are ordered longest-first
 // and end with a form acceptable at any width; which one shows is decided for
 // the row as a whole by fitRow(), not by the segment itself.
@@ -97,13 +103,13 @@ const spacesChip = (sel, {spaceNames, argNames} = {}) => {
     } else if (sel?.wildcard) {
         const excluded = sel.exclude || [];
         tiers = !excluded.length ? ["all spaces"] : [
-            listable(excluded) && tier("all spaces except ", ...nameList(excluded.map(name))),
+            listable(excluded) && tier("all spaces except ", ...unionList(excluded.map(name))),
             `all spaces except ${excluded.length}`,
         ];
     } else if ((sel?.include || []).length) {
         const included = sel.include;
         tiers = [
-            listable(included) && tier(...nameList(included.map(name)), included.length === 1 ? " space" : " spaces"),
+            listable(included) && tier(...unionList(included.map(name)), included.length === 1 ? " space" : " spaces"),
             `${included.length} ${included.length === 1 ? "space" : "spaces"}`,
         ];
     } else {
@@ -113,7 +119,12 @@ const spacesChip = (sel, {spaceNames, argNames} = {}) => {
 };
 
 const entityTypesChip = (sel, {spaceNames, argNames} = {}) => {
-    const name = (v) => positionValueName("entityTypes", v, spaceNames);
+    // Resource types render as their plural noun alone — "secrets", never
+    // "secret type" — so the chip reads as the set of things the rule touches.
+    const name = (v) => {
+        const singular = positionValueName("entityTypes", v, spaceNames);
+        return singular === "access" ? singular : `${singular}s`;
+    };
     const title = formatSelector(sel, "entityTypes", {spaceNames, argNames});
     let tiers;
     if (sel?.argumentId) {
@@ -121,19 +132,18 @@ const entityTypesChip = (sel, {spaceNames, argNames} = {}) => {
         tiers = [tier(argSpan(arg))];
     } else if (sel?.wildcard) {
         const excluded = sel.exclude || [];
-        tiers = !excluded.length ? ["all resource types", "all types"] : [
-            listable(excluded) && tier("all types except ", ...nameList(excluded.map(name))),
-            `all types except ${excluded.length}`,
+        tiers = !excluded.length ? ["all resources"] : [
+            listable(excluded) && tier("all resources except ", ...unionList(excluded.map(name))),
+            `all resources except ${excluded.length}`,
         ];
     } else if ((sel?.include || []).length) {
         const included = sel.include;
         tiers = [
-            listable(included) && tier(...nameList(included.map(name)), included.length === 1 ? " type" : " types"),
-            `${included.length} resource ${included.length === 1 ? "type" : "types"}`,
-            `${included.length} ${included.length === 1 ? "type" : "types"}`,
+            listable(included) && tier(...unionList(included.map(name))),
+            `${included.length} ${included.length === 1 ? "resource" : "resources"}`,
         ];
     } else {
-        tiers = ["no types"];
+        tiers = ["no resources"];
     }
     return chip(tiers.filter(Boolean), {title});
 };
@@ -148,13 +158,13 @@ const entityRefsChip = (sel, {argNames} = {}) => {
     } else if (sel?.wildcard) {
         const excluded = sel.exclude || [];
         tiers = !excluded.length ? ["all instances"] : [
-            listable(excluded) && tier("all instances except ", ...nameList(excluded.map(ref))),
+            listable(excluded) && tier("all instances except ", ...unionList(excluded.map(ref))),
             `all instances except ${excluded.length}`,
         ];
     } else if ((sel?.include || []).length) {
         const included = sel.include;
         tiers = [
-            listable(included) && tier(included.length === 1 ? "instance " : "instances ", ...nameList(included.map(ref))),
+            listable(included) && tier(included.length === 1 ? "instance " : "instances ", ...unionList(included.map(ref))),
             `${included.length} ${included.length === 1 ? "instance" : "instances"}`,
         ];
     } else {
@@ -209,13 +219,6 @@ const delegatedOnlyChip = (delegatedOnly) => chip(
     },
 );
 
-// The selector chips in the middle of a rule are joined by a small centred
-// intersection symbol — a rule matches where all of its selectors overlap. It
-// never shrinks, so narrowing the row squeezes the chips instead.
-const chipIntersect = () => div({
-    class: "flex shrink-0 items-center px-0.5 text-[10px] leading-none text-gray-600 select-none",
-}, "∩");
-
 // Connector words ("allow", "on", "by") are fixed phrasing between chips: like
 // arrows they never shrink or change tier.
 const chipWord = (text, wordClass) => div({
@@ -225,7 +228,7 @@ const chipWord = (text, wordClass) => div({
 // The segments of one rule form a single unioned pill: one rounded border and
 // background around the row, no per-chip chrome. w-fit keeps the pill hugging
 // its content while max-w-full still lets the segments shrink inside a narrow
-// cell. Items are chips or fixed separators (connector words, ∩); separators
+// cell. Items are chips or fixed separators (connector words); separators
 // are laid out as-is and their width counts as chrome when fitting the chips.
 const chipRow = (title, ...items) => {
     const chips = items.filter((it) => it.el);
@@ -249,18 +252,20 @@ const chipRow = (title, ...items) => {
     return wrap;
 };
 
+// The selectors read as one prepositional chain — a rule matches where all of
+// them overlap: "on <instances> of <resources> in <spaces>".
 const selectorChips = (rule, opts) => [
-    spacesChip(rule.spaces, opts),
-    chipIntersect(),
-    entityTypesChip(rule.entityTypes, opts),
-    chipIntersect(),
     entityRefsChip(rule.entityRefs, opts),
+    chipWord("of"),
+    entityTypesChip(rule.entityTypes, opts),
+    chipWord("in"),
+    spacesChip(rule.spaces, opts),
 ];
 
 // ruleDisplay renders one authz rule as a sentence of human-readable chips:
-// "allow <actions> on <spaces> ∩ <types> ∩ <instances> by <user + agents|user
-// only>". The row never wraps; the phrasings step down together as the row
-// narrows. Hovering shows the raw grammar.
+// "allow <actions> on <instances> of <resources> in <spaces> by <user +
+// agents|user only>". The row never wraps; the phrasings step down together as
+// the row narrows. Hovering shows the raw grammar.
 export const ruleDisplay = (rule, {spaceNames, argNames} = {}) => {
     if (!rule) return "";
     const opts = {spaceNames, argNames};
