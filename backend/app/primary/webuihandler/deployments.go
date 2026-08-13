@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -229,61 +228,6 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	}
 
 	return cfg, nil
-}
-
-func (h *Handler) PostV1DeploymentsUpgradeAll(ctx apigen.Context, req *apigen.DeploymentUpgradeAllRequest) (*apigen.DeploymentConfig, error) {
-	targetVersion := strings.TrimSpace(req.TargetVersion)
-	if targetVersion == "" {
-		return nil, invalidConfigErrf("targetVersion is required")
-	}
-	// Upgrades touch the internal opendeploy deployments, which live in space 0.
-	if err := h.requireAccess(ctx, vEdit, eDeployment, int64(state.OpendeploySpaceID), 0); err != nil {
-		return nil, err
-	}
-
-	var primary *apigen.DeploymentConfig
-	var secondaryAndNetproxy []*apigen.DeploymentConfig
-	for _, cfg := range h.Store.ListActiveDeploymentConfigs() {
-		if internaldeploy.IsSelfIdentity(cfg.Identity) && cfg.NodeID == h.NodeID {
-			primary = cfg
-			continue
-		}
-		if internaldeploy.IsSelfIdentity(cfg.Identity) || internaldeploy.IsNetproxyIdentity(cfg.Identity) {
-			secondaryAndNetproxy = append(secondaryAndNetproxy, cfg)
-		}
-	}
-	if primary == nil {
-		return nil, DeploymentNotFoundErr
-	}
-
-	for _, cfg := range secondaryAndNetproxy {
-		if _, err := h.updateInternalDeploymentVersion(ctx, cfg, targetVersion); err != nil {
-			return nil, err
-		}
-	}
-
-	// todo: wait for others to fully rollout
-	return h.updateInternalDeploymentVersion(ctx, primary, targetVersion)
-}
-
-func (h *Handler) updateInternalDeploymentVersion(ctx apigen.Context, cfg *apigen.DeploymentConfig, targetVersion string) (*apigen.DeploymentConfig, error) {
-	spec, err := cloneDeploymentSpec(&cfg.Spec)
-	if err != nil {
-		return nil, err
-	}
-	if err := spec.SetWorkloadState(targetVersion, true); err != nil {
-		return nil, invalidConfigErrf("spec: %v", err)
-	}
-	current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, cfg.ID, state.DeploymentConfigUpdate{
-		ExpectedVersion: cfg.Version + 1,
-		SpaceID:         cfg.Identity.SpaceID,
-		Spec:            spec,
-		Deleted:         cfg.Deleted,
-	})
-	if !versionOK {
-		return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", cfg.Version+1, current.Version+1)
-	}
-	return current, nil
 }
 
 func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.DeploymentDeleteRequest) error {

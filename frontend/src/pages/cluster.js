@@ -1,11 +1,12 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {inlineEditableInput} from "../components/inlineEditableInput.js";
+import {sectionBand} from "../components/sectionBand.js";
 import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, primaryConfigS, spacesS, userConfigRefsS} from "../state/deployments.js";
 import {deploymentWorkload} from "../lib/deploymentConfig.js";
 import {allowedSpaceNames, editableSpaceIDs, isFixedSpace} from "../lib/nodeSpaces.js";
 
-const { button, code, div, h2, input, label, p, span, table, tbody, td, th, thead, tr } = van.tags;
+const { button, code, div, input, label, p, span, table, tbody, td, th, thead, tr } = van.tags;
 
 const formatTime = (t) => {
     if (!t) return '-';
@@ -14,11 +15,15 @@ const formatTime = (t) => {
     return d.toLocaleString();
 };
 
+const headerCell = (text, cls = "pr-3") => th(
+    {class: `py-1.5 ${cls} text-[10px] font-semibold uppercase tracking-wider`}, text);
+
 export function clusterPage() {
     const config = primaryConfigS;
     const enrollmentInfo = van.state(null);
     const configError = van.state(null);
     const copied = van.state(false);
+    const open = {nodes: van.state(true), backup: van.state(true), enrollments: van.state(true), install: van.state(true)};
 
     const loadEnrollmentInfo = async () => {
         try {
@@ -30,78 +35,93 @@ export function clusterPage() {
     };
     loadEnrollmentInfo();
 
+    const installCommand = () => secondaryInstallCommand(config.val?.config?.settings, enrollmentInfo.val, primaryOpenDeployVersion());
+
     const copyInstallCommand = async () => {
-        const command = secondaryInstallCommand(config.val?.config?.settings, enrollmentInfo.val, primaryOpenDeployVersion());
+        const command = installCommand();
         if (!command) return;
         await navigator.clipboard.writeText(command);
         copied.val = true;
         setTimeout(() => copied.val = false, 2000);
     };
 
+    const copyButton = button({
+        type: "button",
+        class: "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-gray-600 text-gray-300 " +
+            "hover:bg-surface-hover cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
+        disabled: () => !installCommand(),
+        onclick: copyInstallCommand,
+    }, () => copied.val ? "Copied" : "Copy");
+
+    const nodesSection = (sorted) => sorted.length === 0
+        ? p({class: "px-4 py-2 text-gray-400 text-sm"}, "No nodes found.")
+        : div({class: "pl-4 pr-2"}, table(
+            {class: "w-full text-sm"},
+            thead(tr({class: "text-left text-gray-500 border-b border-gray-800"},
+                headerCell("Node", "pr-3 w-[24rem]"),
+                headerCell("Role"),
+                headerCell("Address"),
+                headerCell("Spaces"),
+                headerCell("Status"),
+                headerCell("Connected since", ""))),
+            tbody(...sorted.map(machineRow))));
+
+    const backupSection = () => div(
+        {class: "px-4 py-2.5 flex flex-col gap-3", "data-testid": "backup-replication-card"},
+        () => backupStatusDetails(backupStatusS.val));
+
+    const enrollmentsSection = (pending) => div(
+        {class: "pl-4 pr-2 flex flex-col gap-1"},
+        p({class: "pt-1.5 text-sm text-gray-400"}, "Accept a waiting worker to issue its cluster client certificate."),
+        pending.length === 0
+            ? p({class: "pb-2 text-gray-400 text-sm"}, "No pending enrollment requests.")
+            : table(
+                {class: "w-full text-sm"},
+                thead(tr({class: "text-left text-gray-500 border-b border-gray-800"},
+                    headerCell("Request", "pr-6"),
+                    headerCell("Remote IP", "pr-6"),
+                    headerCell("Updated", "pr-6"),
+                    headerCell("Accept as", ""))),
+                tbody(...pending.map(req => enrollmentRow(req)))));
+
+    const installSection = () => div(
+        {class: "px-4 py-2.5"},
+        () => configError.val
+            ? p({class: "text-xs text-red-400"}, configError.val)
+            : installCommandBlock(installCommand()));
+
     return div(
-        {class: "app-scroll flex-1 min-h-0 overflow-auto p-3 flex flex-col gap-3"},
-        () => {
-            if (deploymentsStreamS.val.status !== "connected" && machinesS.val.length === 0) {
-                return p({class: "text-gray-400"}, "Loading...");
-            }
+        // bg-surface: like the assets and secrets explorers, the page is one
+        // flush surface running to the window and sidebar edges.
+        {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
+        div(
+            {class: "app-scroll flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto"},
+            () => {
+                if (deploymentsStreamS.val.status !== "connected" && machinesS.val.length === 0) {
+                    return p({class: "px-4 py-3 text-gray-400"}, "Loading...");
+                }
 
-            const sorted = [...machinesS.val].sort((a, b) => {
-                if (a.isPrimary && !b.isPrimary) return -1;
-                if (!a.isPrimary && b.isPrimary) return 1;
-                return a.name.localeCompare(b.name);
-            });
-            const pending = enrollmentsS.val.filter(e => e.status === "waiting");
+                const sorted = [...machinesS.val].sort((a, b) => {
+                    if (a.isPrimary && !b.isPrimary) return -1;
+                    if (!a.isPrimary && b.isPrimary) return 1;
+                    return a.name.localeCompare(b.name);
+                });
+                const pending = enrollmentsS.val.filter(e => e.status === "waiting");
 
-            return div(
-                {class: "flex flex-col gap-3"},
-                div(
-                    {class: "card"},
-                    h2({class: "font-semibold mb-4"}, "Connected nodes"),
-                    sorted.length === 0
-                        ? p({class: "text-gray-400 text-sm"}, "No nodes found.")
-                        : table(
-                            {class: "w-full text-sm"},
-                            thead(
-                                tr({class: "text-left text-gray-400 border-b border-gray-700"},
-                                    th({class: "pb-2 pr-3 w-[24rem]"}, "Node"),
-                                    th({class: "pb-2 pr-3"}, "Role"),
-                                    th({class: "pb-2 pr-3"}, "Address"),
-                                    th({class: "pb-2 pr-3"}, "Spaces"),
-                                    th({class: "pb-2 pr-3"}, "Status"),
-                                    th({class: "pb-2"}, "Connected since"),
-                                )
-                            ),
-                            tbody(
-                                ...sorted.map(machineRow)
-                            )
-                        )
-                ),
-                backupReplicationCard(backupStatusS),
-                div(
-                    {class: "card"},
-                    div(
-                        {class: "mb-4"},
-                        h2({class: "font-semibold mb-2"}, "Enrollment requests"),
-                        p({class: "text-sm text-gray-400"}, "Accept a waiting worker to issue its cluster client certificate."),
-                    ),
-                    pending.length === 0
-                        ? p({class: "text-gray-400 text-sm"}, "No pending enrollment requests.")
-                        : table(
-                            {class: "w-full text-sm"},
-                            thead(
-                                tr({class: "text-left text-gray-400 border-b border-gray-700"},
-                                    th({class: "pb-2 pr-6"}, "Request"),
-                                    th({class: "pb-2 pr-6"}, "Remote IP"),
-                                    th({class: "pb-2 pr-6"}, "Updated"),
-                                    th({class: "pb-2"}, "Accept as"),
-                                )
-                            ),
-                            tbody(...pending.map(req => enrollmentRow(req)))
-                        ),
-                    secondaryInstallPanel(config, enrollmentInfo, configError, copied, copyInstallCommand),
-                )
-            );
-        }
+                return div(
+                    {class: "flex flex-col"},
+                    sectionBand(open.nodes, "Connected nodes", String(sorted.length)),
+                    !open.nodes.val ? "" : nodesSection(sorted),
+                    sectionBand(open.backup, "Backup replication", null,
+                        () => backupStatusBadge(backupStatusS.val)),
+                    !open.backup.val ? "" : backupSection(),
+                    sectionBand(open.enrollments, "Enrollment requests", String(pending.length)),
+                    !open.enrollments.val ? "" : enrollmentsSection(pending),
+                    sectionBand(open.install, "Install secondary command", null, copyButton),
+                    !open.install.val ? "" : installSection(),
+                );
+            },
+        ),
     );
 }
 
@@ -258,21 +278,6 @@ function machineRow(machine) {
     );
 }
 
-function backupReplicationCard(statusS) {
-    return div(
-        {class: "card", "data-testid": "backup-replication-card"},
-        div(
-            {class: "flex items-start justify-between gap-3 mb-3"},
-            div(
-                h2({class: "font-semibold mb-1"}, "Backup replication"),
-                p({class: "text-sm text-gray-400"}, "Primary database and large asset backup state."),
-            ),
-            () => backupStatusBadge(statusS.val),
-        ),
-        () => backupStatusDetails(statusS.val),
-    );
-}
-
 function backupStatusBadge(status) {
     const label = backupStatusLabel(status);
     const klass = status?.error || status?.assetError
@@ -317,28 +322,6 @@ function detailCell(label, value, testId) {
         {class: "rounded border border-gray-800 bg-black/20 p-3"},
         div({class: "text-xs text-gray-500 mb-1"}, label),
         div({class: "text-gray-200 font-mono break-all", "data-testid": testId}, value),
-    );
-}
-
-function secondaryInstallPanel(config, enrollmentInfo, configError, copied, onCopy) {
-    return div(
-        {class: "mt-4 pt-4 border-t border-gray-700"},
-        div(
-            {class: "flex items-center justify-between gap-3 mb-2"},
-            div({class: "text-sm font-medium text-gray-200"}, "Install secondary command"),
-            button(
-                {
-                    type: "button",
-                    class: "btn-secondary text-sm py-1.5 px-3 shrink-0",
-                    disabled: () => !secondaryInstallCommand(config.val?.config?.settings, enrollmentInfo.val, primaryOpenDeployVersion()),
-                    onclick: onCopy,
-                },
-                () => copied.val ? "Copied" : "Copy",
-            ),
-        ),
-        () => configError.val
-            ? p({class: "text-xs text-red-400"}, configError.val)
-            : installCommandBlock(secondaryInstallCommand(config.val?.config?.settings, enrollmentInfo.val, primaryOpenDeployVersion())),
     );
 }
 

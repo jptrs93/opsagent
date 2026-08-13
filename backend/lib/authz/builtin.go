@@ -9,12 +9,32 @@ const (
 
 const spaceAdminSpacesArgID int64 = 1
 
+// DefaultUserVisibilityRuleName names the seeded allow-mode global rule that
+// makes the user roster visible to everyone, so a space-limited operator can
+// resolve names for audit display. It is seeded exactly once (run-once marker,
+// not re-asserted at startup): an admin who deletes it has opted out, and a
+// restart must not resurrect that decision.
+const DefaultUserVisibilityRuleName = "default_user_visibility"
+
+const defaultUserVisibilityMarker = "migration.authz-default-user-visibility"
+
+func defaultUserVisibilityRule() *apigen.AuthzGlobalRule {
+	return &apigen.AuthzGlobalRule{
+		DelegationAllowed: true,
+		Permissions:       &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
+		Spaces:            &apigen.AuthzSelector{Include: []int64{0}},
+		EntityTypes:       &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_USER)}},
+		EntityRefs:        &apigen.AuthzSelector{Wildcard: true},
+	}
+}
+
 func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 	all := func() *apigen.AuthzSelector { return &apigen.AuthzSelector{Wildcard: true} }
 	// delegableRules is what an agent session inherits from the grant. Secrets
-	// are split out of the general rule and handed back create-only: an agent
-	// can mint a credential and wire it into a deployment, but cannot read,
-	// change, or destroy one an operator owns. Nothing outside these rules
+	// are split out of the general rule and handed back view+create: an agent
+	// can see that a secret exists, mint one, and wire it into a deployment,
+	// but cannot read back, change, or destroy a value an operator owns —
+	// reveal, edit, and delete stay human-only. Nothing outside these rules
 	// narrows a delegated token, so this is the whole of what agents may do.
 	// Agent sessions also lose view_logs: deployment logs can echo secret
 	// values at runtime, which would sidestep the create-only secret boundary
@@ -36,26 +56,17 @@ func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 				DelegationAllowed: true,
 			},
 			{
-				Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_CREATE)}},
-				Spaces:      spaces(),
+				Permissions: &apigen.AuthzSelector{Include: []int64{
+					int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW),
+					int64(apigen.AuthzVerb_AUTHZ_VERB_CREATE),
+				}},
+				Spaces: spaces(),
 				EntityTypes: &apigen.AuthzSelector{Include: []int64{
 					int64(apigen.AuthzEntity_AUTHZ_ENTITY_SECRET),
 				}},
 				EntityRefs:        all(),
 				DelegationAllowed: true,
 			},
-		}
-	}
-	directoryRule := func() *apigen.AuthzRule {
-		return &apigen.AuthzRule{
-			Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
-			Spaces:      &apigen.AuthzSelector{Include: []int64{0}},
-			EntityTypes: &apigen.AuthzSelector{Include: []int64{
-				int64(apigen.AuthzEntity_AUTHZ_ENTITY_NODE),
-				int64(apigen.AuthzEntity_AUTHZ_ENTITY_USER),
-			}},
-			EntityRefs:        all(),
-			DelegationAllowed: true,
 		}
 	}
 	// clusterAdminSpaces is every space but 0: cluster-level entities stay
@@ -76,8 +87,7 @@ func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 			EntityTypes: all(),
 			EntityRefs:  all(),
 		}}
-		rules = append(rules, delegableRules(delegableSpaces)...)
-		return append(rules, directoryRule())
+		return append(rules, delegableRules(delegableSpaces)...)
 	}
 	return []*apigen.AuthzRuleTemplateRecord{
 		{

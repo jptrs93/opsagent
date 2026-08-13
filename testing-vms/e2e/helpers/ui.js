@@ -972,6 +972,58 @@ export async function moveExplorerSelection(page, destination) {
   await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
 
+// Moves the selected item into another space through the Move dialog's
+// destination space picker. destination names the folder option inside that
+// space ('/' for the space root — a fresh space pick always resets to it).
+// Only item dialogs offer the picker; folder moves stay within their space.
+export async function moveExplorerSelectionToSpace(page, {space, destination = '/'}) {
+  await page.getByRole('button', {name: 'Move', exact: true}).click();
+  const dialog = page.getByRole('dialog').filter({hasText: /Move /});
+  await expect(dialog).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await dialog.getByLabel('Destination space', {exact: true}).selectOption({label: space});
+  await dialog.getByRole('button', {name: destination, exact: true}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
+// Attempts a cross-space move the server must refuse. The dialog stays open on
+// failure and the page error line carries the refusal; the error is dismissed
+// after the dialog is cancelled because the modal overlay covers the banner.
+export async function expectMoveToSpaceBlocked(page, {space, destination = '/', message}) {
+  await page.getByRole('button', {name: 'Move', exact: true}).click();
+  const dialog = page.getByRole('dialog').filter({hasText: /Move /});
+  await expect(dialog).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await dialog.getByLabel('Destination space', {exact: true}).selectOption({label: space});
+  await dialog.getByRole('button', {name: destination, exact: true}).click();
+  await expect(page.getByText(message)).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await dialog.getByRole('button', {name: 'Cancel', exact: true}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  await page.getByRole('button', {name: 'Dismiss error'}).click();
+}
+
+// Deletes the selection expecting the server to refuse (e.g. a mounted
+// asset): the confirm dialog closes itself, the error line reports, and the
+// caller asserts the row survived.
+export async function expectDeleteSelectionBlocked(page, {message}) {
+  await page.getByRole('button', {name: 'Delete', exact: true}).click();
+  const dialog = page.getByRole('dialog').filter({hasText: 'Confirm delete'});
+  await dialog.getByRole('button', {name: 'Confirm', exact: true}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  await expect(page.getByText(message)).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await page.getByRole('button', {name: 'Dismiss error'}).click();
+}
+
+// Filters the explorer to name and selects its row. An active query
+// force-expands whatever matches, so this reaches rows whose space or folder
+// is collapsed in the caller's persisted view.
+export async function searchExplorerAndSelect(page, placeholder, name) {
+  await page.getByPlaceholder(placeholder).fill(name);
+  await selectExplorerRow(page, name);
+}
+
+export async function clearExplorerSearch(page, placeholder) {
+  await page.getByPlaceholder(placeholder).fill('');
+}
+
 export async function renameExplorerSelection(page, newName) {
   await page.getByRole('button', {name: 'Rename', exact: true}).click();
   const nameInput = page.getByLabel('New name', {exact: true});
@@ -996,7 +1048,15 @@ export async function closeExplorerInspector(page) {
 export async function createValueInSelection(page, {type, name, value, location}) {
   await page.getByRole('button', {name: `New ${type}`, exact: true}).click();
   const dialog = page.getByTestId(`create-${type}-overlay`).getByRole('dialog');
-  if (location) await expect(dialog).toContainText(location);
+  if (location) {
+    // location reads `<space>/<folders...>/`. The dialog renders the space as
+    // a select whose text contains every visible space, so assert the chosen
+    // option and the folder-path label separately.
+    const [space, ...folders] = location.split('/').filter(Boolean);
+    await expect(dialog.getByLabel('Destination space', {exact: true}).locator('option:checked'))
+      .toHaveText(space, {timeout: LONG_UI_TIMEOUT});
+    if (folders.length) await expect(dialog).toContainText(`/${folders.join('/')}/`);
+  }
   await dialog.getByPlaceholder(`${type} name`).fill(name);
   await fillCodeEditor(dialog, `Value for new ${type}`, value);
   await dialog.getByRole('button', {name: `Add ${type}`}).click();
@@ -1272,26 +1332,34 @@ async function upgradeOpenDeployAgent(page, {machine, version}) {
   return upgradeOpenDeployDeployment(page, {name: 'opendeploy', machine, version});
 }
 
+// upgradeOpenDeployDeployment upgrades one node of a system deployment group
+// through the merged-row group overlay: Align versions is switched off so only
+// the requested node's target changes; unchanged members are skipped by the
+// overlay's rollout. The overlay itself waits for the node to report the new
+// version, so "done" in its status cell is the convergence signal.
 async function upgradeOpenDeployDeployment(page, {name, machine, version}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   await showOpendeployDeployments(page);
-  const row = deploymentRow(page, {name, machine});
+  const row = page.getByTestId(`deployment-row-${name}`);
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await row.getByRole('button', {name: 'Update'}).click();
 
   const dialog = page.getByTestId('update-deployment-dialog');
   await expect(dialog).toBeVisible();
-  const releaseSelect = field(dialog, 'Release').locator('select');
+  const targetSelect = dialog.getByTestId(`deployment-target-version-${name}-${machine}`);
   await expect.poll(async () => {
-    return await releaseSelect.locator('option').evaluateAll(options => options.map(o => o.value));
+    return await targetSelect.locator('option').evaluateAll(options => options.map(o => o.value));
   }, {message: `expected ${version} release option`, timeout: RELEASE_OPTIONS_TIMEOUT}).toContain(version);
-  await releaseSelect.selectOption(version);
-  const updateResponse = page.waitForResponse(response => {
-    const request = response.request();
-    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
-  }, {timeout: LONG_UI_TIMEOUT});
-  await dialog.getByRole('button', {name: 'Update deployment'}).click();
-  expect((await updateResponse).ok()).toBe(true);
+  const alignToggle = dialog.getByTestId('align-versions-toggle');
+  if (await alignToggle.isChecked()) await alignToggle.uncheck();
+  await targetSelect.selectOption(version);
+  await dialog.getByRole('button', {name: 'Upgrade'}).click();
+  await expect(dialog.getByTestId(`deployment-upgrade-status-${name}-${machine}`))
+    .toHaveText('done', {timeout: UPGRADE_TIMEOUT});
+  // Wait for the whole rollout to finish before closing: a bare 'Close' name
+  // would also match the mid-run 'Stop and close' button and abort the rollout.
+  await expect(dialog.getByTestId('deployment-upgrade-complete')).toBeVisible({timeout: UPGRADE_TIMEOUT});
+  await dialog.getByRole('button', {name: 'Close', exact: true}).click();
   await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
 
@@ -1306,9 +1374,13 @@ export async function expectOpenDeployNetVersion(page, {machine, version}) {
 async function expectOpenDeployDeploymentVersion(page, {name, machine, version}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   await showOpendeployDeployments(page);
-  const row = deploymentRow(page, {name, machine});
-  await expect(row).toContainText(version, {timeout: UPGRADE_TIMEOUT});
-  await expect(row.getByTitle('View run output').last()).toContainText('Running', {timeout: UPGRADE_TIMEOUT});
+  const row = page.getByTestId(`deployment-row-${name}`);
+  // Sublines are keyed by node; the attribute-prefix match also covers a
+  // transient rollover subline that carries an instance-ordinal suffix.
+  await expect(row.locator(`[data-testid^="deployment-version-${name}-${machine}"]`).last())
+    .toContainText(version, {timeout: UPGRADE_TIMEOUT});
+  await expect(row.locator(`[data-testid^="deployment-runner-status-${name}-${machine}"]`).last())
+    .toHaveText('Running', {timeout: UPGRADE_TIMEOUT});
 }
 
 async function expectMachineConnected(page, machine) {

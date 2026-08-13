@@ -51,13 +51,30 @@ func ruleMatches(rule *apigen.AuthzRule, bindings []*apigen.AuthzArgumentBinding
 		selectorMatches(rule.EntityRefs, bindings, req.EntityID)
 }
 
-func globalRuleMatches(r *apigen.AuthzGlobalRule, req RequestedAccess) bool {
-	if r == nil {
+func globalDenyMatches(r *apigen.AuthzGlobalRule, req RequestedAccess) bool {
+	if r == nil || !r.Deny {
 		return false
 	}
 	if r.DelegatedOnly && !req.Delegated {
 		return false
 	}
+	return globalSelectorsMatch(r, req)
+}
+
+// globalAllowMatches evaluates an allow-mode global rule exactly as if every
+// user held it as a grant: delegated requests need delegation_allowed, same as
+// an ordinary rule.
+func globalAllowMatches(r *apigen.AuthzGlobalRule, req RequestedAccess) bool {
+	if r == nil || r.Deny {
+		return false
+	}
+	if req.Delegated && !r.DelegationAllowed {
+		return false
+	}
+	return globalSelectorsMatch(r, req)
+}
+
+func globalSelectorsMatch(r *apigen.AuthzGlobalRule, req RequestedAccess) bool {
 	return selectorMatches(r.Permissions, nil, int64(req.Verb)) &&
 		selectorMatches(r.Spaces, nil, req.SpaceID) &&
 		selectorMatches(r.EntityTypes, nil, int64(req.EntityType)) &&

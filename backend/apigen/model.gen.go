@@ -233,10 +233,6 @@ type DeploymentUpdateRequest struct {
 	SpaceID       *int32         `json:"space_id,omitempty"`
 }
 
-type DeploymentUpgradeAllRequest struct {
-	TargetVersion string `json:"target_version,omitempty"`
-}
-
 type DeploymentCreateRequest struct {
 	Identity DeploymentIdentity `json:"identity"`
 	Spec     DeploymentSpec     `json:"spec"`
@@ -824,11 +820,13 @@ type AuthzGrantRecord struct {
 }
 
 type AuthzGlobalRule struct {
-	Permissions   *AuthzSelector `json:"permissions"`
-	Spaces        *AuthzSelector `json:"spaces"`
-	EntityTypes   *AuthzSelector `json:"entity_types"`
-	EntityRefs    *AuthzSelector `json:"entity_refs"`
-	DelegatedOnly bool           `json:"delegated_only"`
+	Permissions       *AuthzSelector `json:"permissions"`
+	Spaces            *AuthzSelector `json:"spaces"`
+	EntityTypes       *AuthzSelector `json:"entity_types"`
+	EntityRefs        *AuthzSelector `json:"entity_refs"`
+	DelegatedOnly     bool           `json:"delegated_only"`
+	DelegationAllowed bool           `json:"delegation_allowed"`
+	Deny              bool           `json:"deny"`
 }
 
 type AuthzGlobalRuleRecord struct {

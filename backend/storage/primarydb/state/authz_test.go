@@ -52,6 +52,7 @@ func TestAuthzStoreRoundTrip(t *testing.T) {
 		Spaces:      &apigen.AuthzSelector{Include: []int64{2}},
 		EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_SECRET)}},
 		EntityRefs:  &apigen.AuthzSelector{Wildcard: true},
+		Deny:        true,
 	}, 1)
 	if err != nil {
 		t.Fatalf("CreateGlobalRule: %v", err)

@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS asset_directories (
     key         TEXT    NOT NULL,
     parent_id   INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
     created_at  INTEGER NOT NULL,            -- epoch ms
-    created_by  INTEGER NOT NULL DEFAULT 0   -- user id; 0 = unknown/system
+    created_by  INTEGER NOT NULL DEFAULT 0   -- user id; 0 = unknown/system, negative = agent of user -created_by
 );
 
 CREATE TABLE IF NOT EXISTS assets (
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS assets (
     key                 TEXT    NOT NULL,
     asset_directory_id  INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
     created_at          INTEGER NOT NULL,            -- epoch ms
-    created_by          INTEGER NOT NULL DEFAULT 0   -- user id; 0 = unknown/system
+    created_by          INTEGER NOT NULL DEFAULT 0   -- user id; 0 = unknown/system, negative = agent of user -created_by
 );
 
 -- Version rows are immutable: editing an asset appends the next version. Small
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS asset_versions (
     asset_id    INTEGER NOT NULL,
     version     INTEGER NOT NULL,
     created_at  INTEGER NOT NULL,            -- epoch ms; creation time of this version
-    created_by  INTEGER NOT NULL DEFAULT 0,  -- user id; 0 = unknown/system
+    created_by  INTEGER NOT NULL DEFAULT 0,  -- user id; 0 = unknown/system, negative = agent of user -created_by
     location    TEXT    NOT NULL DEFAULT '',
     size_bytes  INTEGER NOT NULL DEFAULT 0,
     blob        BLOB    NOT NULL,

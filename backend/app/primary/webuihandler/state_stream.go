@@ -294,7 +294,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
-				if !h.canAccess(ctx, vView, eNode, 0, int64(node.ID)) {
+				if !h.nodeVisible(ctx, int64(node.ID), node.AllowedSpaces) {
 					continue
 				}
 				if !yield(&apigen.State{NodeUpdate: &node}, nil) {
@@ -304,7 +304,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
-				if !h.canAccess(ctx, vView, eNode, 0, int64(nodeStatus.NodeID)) {
+				if !h.nodeVisible(ctx, int64(nodeStatus.NodeID), h.nodeAllowedSpaces()[nodeStatus.NodeID]) {
 					continue
 				}
 				if !yield(&apigen.State{NodeStatusUpdate: &nodeStatus}, nil) {

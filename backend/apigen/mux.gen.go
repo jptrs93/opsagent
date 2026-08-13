@@ -105,7 +105,6 @@ type ApiServerHandler interface {
 	PostV1DeploymentsCreate(Context, *DeploymentCreateRequest) (*DeploymentConfig, error)
 	PostV1DeploymentsUpdate(Context, *DeploymentUpdateRequest) (*DeploymentConfig, error)
 	PostV1DeploymentsDelete(Context, *DeploymentDeleteRequest) error
-	PostV1DeploymentsUpgradeAll(Context, *DeploymentUpgradeAllRequest) (*DeploymentConfig, error)
 	PostV1DeploymentsRecentlyDeleted(Context, *RecentlyDeletedDeploymentsRequest) (*RecentlyDeletedDeployments, error)
 	PostV1DeploymentsHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
 	PostV1DeploymentsVersions(Context, *DeploymentVersionsRequest) (*DeploymentVersions, error)
@@ -580,17 +579,6 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/deployments/delete", buildHandlerFunc(config, verifyAuth, postV1DeploymentsDeleteAccessPolicy, postAuthHandlerPostV1DeploymentsDelete, compressionModeAuto, false))
-	postV1DeploymentsUpgradeAllAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
-	postAuthHandlerPostV1DeploymentsUpgradeAll := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentUpgradeAllRequest)
-		if err != nil {
-			HandleReqErr(authCtx, err, r, w)
-			return
-		}
-		res, err := h.PostV1DeploymentsUpgradeAll(authCtx, req)
-		Respond(authCtx, r, w, res, err)
-	}
-	m.HandleFunc("POST /v1/deployments/upgrade-all", buildHandlerFunc(config, verifyAuth, postV1DeploymentsUpgradeAllAccessPolicy, postAuthHandlerPostV1DeploymentsUpgradeAll, compressionModeAuto, false))
 	postV1DeploymentsRecentlyDeletedAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1DeploymentsRecentlyDeleted := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeRecentlyDeletedDeploymentsRequest)

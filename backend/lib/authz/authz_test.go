@@ -11,6 +11,7 @@ type memStore struct {
 	templates map[int64]RuleTemplateRow
 	grants    map[int64]GrantRow
 	rules     map[int64]GlobalRuleRow
+	kv        map[string][]byte
 	nextID    int64
 }
 
@@ -19,6 +20,7 @@ func newMemStore() *memStore {
 		templates: make(map[int64]RuleTemplateRow),
 		grants:    make(map[int64]GrantRow),
 		rules:     make(map[int64]GlobalRuleRow),
+		kv:        make(map[string][]byte),
 	}
 }
 
@@ -92,6 +94,15 @@ func (m *memStore) InsertAuthzGlobalRule(row GlobalRuleRow) (int64, error) {
 func (m *memStore) DeleteAuthzGlobalRule(id int64) error {
 	delete(m.rules, id)
 	return nil
+}
+
+func (m *memStore) FetchLocalKV(key string) ([]byte, bool) {
+	v, ok := m.kv[key]
+	return v, ok
+}
+
+func (m *memStore) MustSetLocalKV(key string, value []byte) {
+	m.kv[key] = value
 }
 
 func mustOpen(t *testing.T, store Store) *Service {
@@ -504,6 +515,7 @@ func TestGlobalRuleOverridesAllow(t *testing.T) {
 		t.Fatalf("CreateGrant: %v", err)
 	}
 	rule, err := s.CreateGlobalRule("no_prod_reveal", &apigen.AuthzGlobalRule{
+		Deny:        true,
 		Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_REVEAL)}},
 		Spaces:      &apigen.AuthzSelector{Include: []int64{3}},
 		EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_SECRET)}},
@@ -572,6 +584,17 @@ func TestClusterAdminDelegationLimits(t *testing.T) {
 	if s.HasAccess(1, reveal) {
 		t.Fatal("delegated access must not reveal secrets")
 	}
+	secretView := reveal
+	secretView.Verb = apigen.AuthzVerb_AUTHZ_VERB_VIEW
+	if !s.HasAccess(1, secretView) {
+		t.Fatal("delegated access should view secret metadata")
+	}
+	secretCreate := reveal
+	secretCreate.Verb = apigen.AuthzVerb_AUTHZ_VERB_CREATE
+	secretCreate.EntityID = 0
+	if !s.HasAccess(1, secretCreate) {
+		t.Fatal("delegated access should create secrets")
+	}
 	logs := RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS,
 		SpaceID:    2,
@@ -596,6 +619,7 @@ func TestGlobalRuleDelegatedOnly(t *testing.T) {
 		t.Fatalf("CreateGrant: %v", err)
 	}
 	if _, err := s.CreateGlobalRule("no_agent_reveal", &apigen.AuthzGlobalRule{
+		Deny:          true,
 		Permissions:   &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_REVEAL)}},
 		Spaces:        all(),
 		EntityTypes:   &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_SECRET)}},
@@ -649,6 +673,7 @@ func TestGlobalRuleAccessCarveOut(t *testing.T) {
 		t.Fatalf("CreateGrant: %v", err)
 	}
 	if _, err := s.CreateGlobalRule("deny_everything", &apigen.AuthzGlobalRule{
+		Deny:        true,
 		Permissions: all(),
 		Spaces:      all(),
 		EntityTypes: all(),
@@ -685,20 +710,35 @@ func TestGlobalRuleValidation(t *testing.T) {
 			Permissions: all(), Spaces: &apigen.AuthzSelector{ArgumentID: 1}, EntityTypes: all(), EntityRefs: all()}},
 		{"matches nothing", "p", &apigen.AuthzGlobalRule{
 			Permissions: all(), Spaces: &apigen.AuthzSelector{}, EntityTypes: all(), EntityRefs: all()}},
-		{"targets access entity", "p", &apigen.AuthzGlobalRule{
+		{"denies access entity", "p", &apigen.AuthzGlobalRule{
 			Permissions: all(), Spaces: all(),
 			EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS)}},
-			EntityRefs:  all()}},
+			EntityRefs:  all(), Deny: true}},
 		{"invalid space", "p", &apigen.AuthzGlobalRule{
 			Permissions: all(), Spaces: &apigen.AuthzSelector{Include: []int64{70000}}, EntityTypes: all(), EntityRefs: all()}},
+		{"delegated_only on allow", "p", &apigen.AuthzGlobalRule{
+			Permissions: all(), Spaces: all(), EntityTypes: all(), EntityRefs: all(),
+			DelegatedOnly: true}},
+		{"delegation_allowed on deny", "p", &apigen.AuthzGlobalRule{
+			Permissions: all(), Spaces: all(), EntityTypes: all(), EntityRefs: all(),
+			Deny: true, DelegationAllowed: true}},
 	}
 	for _, tc := range cases {
 		if _, err := s.CreateGlobalRule(tc.ruleName, tc.rule, 1); err == nil {
 			t.Errorf("%s: expected error", tc.name)
 		}
 	}
-	if len(s.GlobalRules()) != 0 {
-		t.Fatal("no global rules should have been stored")
+	if rules := s.GlobalRules(); len(rules) != 1 || rules[0].Name != DefaultUserVisibilityRuleName {
+		t.Fatalf("only the seeded default rule should be stored, got %+v", rules)
+	}
+	// An allow rule targeting access is only additive, so the deny carve-out
+	// does not apply to it.
+	if _, err := s.CreateGlobalRule("access_allow", &apigen.AuthzGlobalRule{
+		Permissions: all(), Spaces: all(),
+		EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS)}},
+		EntityRefs:  all(),
+	}, 1); err != nil {
+		t.Fatalf("allow rule targeting access: %v", err)
 	}
 }
 
@@ -721,6 +761,7 @@ func TestReloadPreservesState(t *testing.T) {
 		t.Fatalf("CreateGrant: %v", err)
 	}
 	if _, err := s.CreateGlobalRule("no_deletes", &apigen.AuthzGlobalRule{
+		Deny:        true,
 		Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE)}},
 		Spaces:      all(),
 		EntityTypes: all(),
@@ -741,8 +782,8 @@ func TestReloadPreservesState(t *testing.T) {
 	if reloaded.HasAccess(1, del) {
 		t.Fatal("global rule should survive a reload")
 	}
-	if len(reloaded.GlobalRules()) != 1 {
-		t.Fatalf("expected 1 global rule after reload, got %d", len(reloaded.GlobalRules()))
+	if len(reloaded.GlobalRules()) != 2 {
+		t.Fatalf("expected the seeded default plus 1 created global rule after reload, got %d", len(reloaded.GlobalRules()))
 	}
 	if len(reloaded.RuleTemplates()) != 3 {
 		t.Fatalf("expected 3 templates after reload, got %d", len(reloaded.RuleTemplates()))
@@ -763,7 +804,7 @@ func TestSpaceVisible(t *testing.T) {
 		t.Fatal("granted space should be visible")
 	}
 	if !s.SpaceVisible(1, 0, false) {
-		t.Fatal("space touched by the builtin directory rule should be visible")
+		t.Fatal("space touched by the seeded default_user_visibility rule should be visible")
 	}
 	if s.SpaceVisible(1, 4, false) {
 		t.Fatal("untouched space must not be visible")
@@ -815,5 +856,107 @@ func TestLastAdminGrantGuard(t *testing.T) {
 	}
 	if err := s.DeleteGrant(2, second.ID); !errors.Is(err, ErrLastAdmin) {
 		t.Fatalf("the remaining admin grant must be protected: got %v, want ErrLastAdmin", err)
+	}
+}
+
+func viewUser(userID int64) RequestedAccess {
+	return RequestedAccess{
+		Verb:       apigen.AuthzVerb_AUTHZ_VERB_VIEW,
+		SpaceID:    0,
+		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_USER,
+		EntityID:   userID,
+	}
+}
+
+func TestSeededDefaultUserVisibility(t *testing.T) {
+	s := mustOpen(t, newMemStore())
+	roster := viewUser(3)
+	if !s.HasAccess(9, roster) {
+		t.Fatal("a user with no grants should view the user roster")
+	}
+	delegated := roster
+	delegated.Delegated = true
+	if !s.HasAccess(9, delegated) {
+		t.Fatal("the seeded rule extends to delegated sessions")
+	}
+	edit := roster
+	edit.Verb = apigen.AuthzVerb_AUTHZ_VERB_EDIT
+	if s.HasAccess(9, edit) {
+		t.Fatal("the seeded rule grants view only")
+	}
+	if s.HasAccess(9, viewDeployment(1)) {
+		t.Fatal("the seeded rule must not grant anything beyond the roster")
+	}
+}
+
+func TestGlobalDenyBeatsAllow(t *testing.T) {
+	s := mustOpen(t, newMemStore())
+	if _, err := s.CreateGlobalRule("no_roster", &apigen.AuthzGlobalRule{
+		Deny:        true,
+		Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
+		Spaces:      all(),
+		EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_USER)}},
+		EntityRefs:  all(),
+	}, 1); err != nil {
+		t.Fatalf("CreateGlobalRule: %v", err)
+	}
+	if s.HasAccess(9, viewUser(3)) {
+		t.Fatal("a global deny must beat the seeded allow rule")
+	}
+	// A grant does not survive the deny either: denies stay first.
+	if _, err := s.CreateGrant(templateGrant(1, ClusterAdminTemplateID)); err != nil {
+		t.Fatalf("CreateGrant: %v", err)
+	}
+	if s.HasAccess(1, viewUser(3)) {
+		t.Fatal("a global deny must beat grants")
+	}
+}
+
+func TestGlobalAllowDelegationFlag(t *testing.T) {
+	s := mustOpen(t, newMemStore())
+	if _, err := s.CreateGlobalRule("humans_view_deployments", &apigen.AuthzGlobalRule{
+		Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
+		Spaces:      &apigen.AuthzSelector{Include: []int64{2}},
+		EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT)}},
+		EntityRefs:  all(),
+	}, 1); err != nil {
+		t.Fatalf("CreateGlobalRule: %v", err)
+	}
+	direct := viewDeployment(2)
+	if !s.HasAccess(9, direct) {
+		t.Fatal("allow rule should grant direct access to everyone")
+	}
+	delegated := direct
+	delegated.Delegated = true
+	if s.HasAccess(9, delegated) {
+		t.Fatal("allow rule without delegation_allowed must not reach agents")
+	}
+	if !s.SpaceVisible(9, 2, false) {
+		t.Fatal("a space an allow rule touches should be visible")
+	}
+	if s.SpaceVisible(9, 2, true) {
+		t.Fatal("space visibility through a non-delegable allow rule must not reach agents")
+	}
+}
+
+func TestDefaultUserVisibilityDeleteIsFinal(t *testing.T) {
+	store := newMemStore()
+	s := mustOpen(t, store)
+	rules := s.GlobalRules()
+	if len(rules) != 1 || rules[0].Name != DefaultUserVisibilityRuleName {
+		t.Fatalf("expected only the seeded rule, got %+v", rules)
+	}
+	if err := s.DeleteGlobalRule(rules[0].ID); err != nil {
+		t.Fatalf("DeleteGlobalRule: %v", err)
+	}
+	if s.HasAccess(9, viewUser(3)) {
+		t.Fatal("roster access should end with the rule")
+	}
+	reloaded := mustOpen(t, store)
+	if len(reloaded.GlobalRules()) != 0 {
+		t.Fatal("a deleted seeded rule must not be re-asserted on reload")
+	}
+	if reloaded.HasAccess(9, viewUser(3)) {
+		t.Fatal("roster access must stay revoked after reload")
 	}
 }

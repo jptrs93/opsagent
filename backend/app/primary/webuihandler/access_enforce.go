@@ -106,3 +106,37 @@ func (h *Handler) spaceVisible(ctx apigen.Context, spaceID int64) bool {
 	return h.Authz.SpaceVisible(int64(ctx.User.ID), spaceID, ctx.User.Delegated)
 }
 
+// nodeVisible reports whether the caller may see a node: an explicit node:view
+// grant, or — derived — the node hosts any space the caller can see, so a
+// space-limited operator can pick placement targets without a cluster-level
+// grant. Space 0 is skipped: every node allows it as an invariant, so counting
+// it would not narrow anything.
+func (h *Handler) nodeVisible(ctx apigen.Context, nodeID int64, allowedSpaces []int32) bool {
+	if h.canAccess(ctx, vView, eNode, 0, nodeID) {
+		return true
+	}
+	if h.Authz == nil {
+		return true
+	}
+	for _, spaceID := range allowedSpaces {
+		if spaceID == state.OpendeploySpaceID {
+			continue
+		}
+		if h.spaceVisible(ctx, int64(spaceID)) {
+			return true
+		}
+	}
+	return false
+}
+
+// nodeAllowedSpaces snapshots each node's allow list for visibility checks on
+// records that carry only a node id.
+func (h *Handler) nodeAllowedSpaces() map[int32][]int32 {
+	out := map[int32][]int32{}
+	for _, node := range h.Store.ListClusterNodes() {
+		if node != nil {
+			out[node.ID] = node.AllowedSpaces
+		}
+	}
+	return out
+}

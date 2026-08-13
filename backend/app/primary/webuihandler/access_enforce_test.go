@@ -156,9 +156,9 @@ func TestEnforcementDelegated(t *testing.T) {
 		t.Fatalf("delegated create in default space: %v", err)
 	}
 
-	// Secrets sit in their own delegable rule that grants create and nothing
-	// else. An operator's secret is therefore invisible to the agent — reads of
-	// it come back as absent rather than forbidden, like any unviewable entity.
+	// Secrets sit in their own delegable rule that grants view and create and
+	// nothing else. An operator's secret is therefore visible to the agent, but
+	// touching its value comes back forbidden.
 	meta, err := h.Secrets.Create("db_password", []byte("hunter2"), 1, state.DefaultSpaceID, 0)
 	if err != nil {
 		t.Fatalf("Secrets.Create: %v", err)
@@ -167,15 +167,30 @@ func TestEnforcementDelegated(t *testing.T) {
 	if !ok || len(stored.VersionRefs) == 0 {
 		t.Fatalf("secret meta missing after create: %+v", stored)
 	}
+	agentList, err := h.PostV1SecretsList(agent, &apigen.EmptyRequest{})
+	if err != nil {
+		t.Fatalf("delegated list: %v", err)
+	}
+	if len(agentList.Items) != 1 || agentList.Items[0].ID != meta.SecretID {
+		t.Fatalf("delegated list should show the operator's secret meta, got %+v", agentList.Items)
+	}
 	versionID := stored.VersionRefs[len(stored.VersionRefs)-1].ID
-	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: versionID}); !errors.Is(err, SecretNotFoundErr) {
-		t.Fatalf("delegated reveal: got %v, want SecretNotFoundErr", err)
+	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: versionID}); !errors.Is(err, AccessDeniedErr) {
+		t.Fatalf("delegated reveal: got %v, want AccessDeniedErr", err)
 	}
-	if _, err := h.PostV1SecretsSet(agent, &apigen.SecretSetRequest{SecretID: meta.SecretID, Value: []byte("x")}); !errors.Is(err, SecretNotFoundErr) {
-		t.Fatalf("delegated set: got %v, want SecretNotFoundErr", err)
+	if _, err := h.PostV1SecretsSet(agent, &apigen.SecretSetRequest{SecretID: meta.SecretID, Value: []byte("x")}); !errors.Is(err, AccessDeniedErr) {
+		t.Fatalf("delegated set: got %v, want AccessDeniedErr", err)
 	}
-	if err := h.PostV1SecretsDelete(agent, &apigen.SecretDeleteRequest{SecretID: meta.SecretID}); !errors.Is(err, SecretNotFoundErr) {
-		t.Fatalf("delegated delete: got %v, want SecretNotFoundErr", err)
+	if err := h.PostV1SecretsDelete(agent, &apigen.SecretDeleteRequest{SecretID: meta.SecretID}); !errors.Is(err, AccessDeniedErr) {
+		t.Fatalf("delegated delete: got %v, want AccessDeniedErr", err)
+	}
+	// Supplying the value on create is a read in disguise — it needs reveal on
+	// top of create, which the delegable rule withholds.
+	if _, err := h.PostV1SecretsCreate(agent, &apigen.SecretCreateRequest{Name: "agent_supplied", SpaceID: state.DefaultSpaceID, Value: []byte("known")}); !errors.Is(err, AccessDeniedErr) {
+		t.Fatalf("delegated value-supplied create: got %v, want AccessDeniedErr", err)
+	}
+	if _, err := h.PostV1SecretsCreate(admin, &apigen.SecretCreateRequest{Name: "admin_supplied", SpaceID: state.DefaultSpaceID, Value: []byte("known")}); err != nil {
+		t.Fatalf("admin value-supplied create: %v", err)
 	}
 	revealed, err := h.PostV1SecretsReveal(admin, &apigen.SecretRevealRequest{ID: versionID})
 	if err != nil {
@@ -197,8 +212,8 @@ func TestEnforcementDelegated(t *testing.T) {
 	if len(minted.VersionRefs) != 1 {
 		t.Fatalf("generate returned %d version refs, want 1", len(minted.VersionRefs))
 	}
-	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: minted.VersionRefs[0].ID}); !errors.Is(err, SecretNotFoundErr) {
-		t.Fatalf("delegated reveal of its own secret: got %v, want SecretNotFoundErr", err)
+	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: minted.VersionRefs[0].ID}); !errors.Is(err, AccessDeniedErr) {
+		t.Fatalf("delegated reveal of its own secret: got %v, want AccessDeniedErr", err)
 	}
 }
 
@@ -299,5 +314,72 @@ func TestEnforcementStreamFiltering(t *testing.T) {
 	}
 	if len(reEmit.UserConfigValuesSnapshot.Items) != 2 {
 		t.Fatalf("re-emitted config snapshot has %d items, want 2", len(reEmit.UserConfigValuesSnapshot.Items))
+	}
+}
+
+func TestEnforcementDerivedNodeVisibility(t *testing.T) {
+	h, staging := newEnforcementTestHandler(t)
+	admin, spaceop := enforceCtx(1, false), enforceCtx(2, false)
+
+	node := h.Store.EnsurePrimaryNode("worker", "worker-id")
+
+	// A new node allows every space, so the space-limited operator sees it
+	// through the derived path — no node:view grant exists below cluster_admin.
+	if nodes := h.filterNodes(spaceop, h.Store.ListClusterNodes()); len(nodes) != 1 || nodes[0].ID != node.ID {
+		t.Fatalf("space-limited operator should see the node via its allowed spaces, got %+v", nodes)
+	}
+	agent := enforceCtx(2, true)
+	if nodes := h.filterNodes(agent, h.Store.ListClusterNodes()); len(nodes) != 1 {
+		t.Fatalf("the delegated session should inherit derived node visibility, got %+v", nodes)
+	}
+
+	// Seeing a node is not editing it: a visible node without node:edit reads
+	// as forbidden, not absent.
+	if _, err := h.PostV1NodesRename(spaceop, &apigen.NodeRenameRequest{Identifier: "worker-id", Name: "sneaky"}); !errors.Is(err, AccessDeniedErr) {
+		t.Fatalf("derived-visible rename: got %v, want AccessDeniedErr", err)
+	}
+
+	// Narrowing the node to staging removes it from the operator's world.
+	if _, err := h.PostV1NodesAllowedSpaces(admin, &apigen.NodeAllowedSpacesRequest{Identifier: "worker-id", SpaceIds: []int32{staging.ID}}); err != nil {
+		t.Fatalf("narrow allowed spaces: %v", err)
+	}
+	if nodes := h.filterNodes(spaceop, h.Store.ListClusterNodes()); len(nodes) != 0 {
+		t.Fatalf("node narrowed to staging should be hidden, got %+v", nodes)
+	}
+	if statuses := h.filterNodeStatuses(spaceop, h.Store.ListNodeStatuses()); len(statuses) != 0 {
+		t.Fatalf("node statuses should filter with the node, got %+v", statuses)
+	}
+	if _, err := h.PostV1NodesRename(spaceop, &apigen.NodeRenameRequest{Identifier: "worker-id", Name: "sneaky"}); !errors.Is(err, NodeNotFoundErr) {
+		t.Fatalf("hidden-node rename: got %v, want NodeNotFoundErr", err)
+	}
+	if nodes := h.filterNodes(admin, h.Store.ListClusterNodes()); len(nodes) != 1 {
+		t.Fatalf("cluster_admin keeps explicit node visibility, got %+v", nodes)
+	}
+}
+
+func TestEnforcementUserRoster(t *testing.T) {
+	h, _ := newEnforcementTestHandler(t)
+
+	// The seeded default_user_visibility rule shows the roster to everyone,
+	// including agents and users with no grants at all.
+	for _, ctx := range []apigen.Context{enforceCtx(3, false), enforceCtx(3, true), enforceCtx(9, false)} {
+		if users := h.filterUsers(ctx, h.Store.ListUsersPublic()); len(users) != 3 {
+			t.Fatalf("expected the full 3-user roster, got %+v", users)
+		}
+	}
+
+	// Deleting the seeded rule closes the roster to everyone but admins.
+	for _, rule := range h.Authz.GlobalRules() {
+		if rule.Name == authz.DefaultUserVisibilityRuleName {
+			if err := h.Authz.DeleteGlobalRule(rule.ID); err != nil {
+				t.Fatalf("DeleteGlobalRule: %v", err)
+			}
+		}
+	}
+	if users := h.filterUsers(enforceCtx(3, false), h.Store.ListUsersPublic()); len(users) != 1 || users[0].ID != 3 {
+		t.Fatalf("without the rule a viewer should see only themself, got %+v", users)
+	}
+	if users := h.filterUsers(enforceCtx(1, false), h.Store.ListUsersPublic()); len(users) != 3 {
+		t.Fatalf("cluster_admin should keep the roster, got %+v", users)
 	}
 }

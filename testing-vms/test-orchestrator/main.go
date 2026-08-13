@@ -1935,10 +1935,25 @@ printf "%s  opendeploy-linux-%s\n" "$OPD_SHA256" "$OPD_ARCH" > "$OPD_RELEASE_DIR
 	}, script); err != nil {
 		return err
 	}
-	if err := run("limactl", "copy", bin, c.RepoMirrorName+":/tmp/opendeploy-release"); err != nil {
+	// Use a per-version staging path and verify the installed hash: reusing one
+	// /tmp path for every version has raced limactl copy against install and
+	// published the previous version's bytes under the new version's URL.
+	tmp := "/tmp/opendeploy-release-" + version
+	if err := run("limactl", "copy", bin, c.RepoMirrorName+":"+tmp); err != nil {
 		return err
 	}
-	return c.vmRun(c.RepoMirrorName, "sudo", "install", "-m", "0755", "/tmp/opendeploy-release", "/srv/releases/"+c.ReleaseRepo+"/"+version+"/opendeploy-linux-"+c.Goarch)
+	dst := "/srv/releases/" + c.ReleaseRepo + "/" + version + "/opendeploy-linux-" + c.Goarch
+	if err := c.vmRun(c.RepoMirrorName, "sudo", "install", "-m", "0755", tmp, dst); err != nil {
+		return err
+	}
+	out, err := c.vmOutput(c.RepoMirrorName, "sha256sum", dst)
+	if err != nil {
+		return err
+	}
+	if got := strings.Fields(strings.TrimSpace(out))[0]; got != sum {
+		return fmt.Errorf("published %s has sha256 %s, want %s", dst, got, sum)
+	}
+	return nil
 }
 
 func (c *config) configureGithubToken(name string) error {

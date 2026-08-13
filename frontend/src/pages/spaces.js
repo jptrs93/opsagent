@@ -218,7 +218,7 @@ export function spacesPage() {
         "text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer";
 
     const addSpaceRow = () => addingSpace.val ? div(
-        {class: "flex flex-col gap-2 border-t border-gray-800 pt-3 sm:flex-row sm:items-center"},
+        {class: "flex flex-none flex-col gap-2 border-b border-gray-700 px-3 py-2 sm:flex-row sm:items-center"},
         input({
             class: "text-input max-w-md",
             placeholder: "New space name",
@@ -238,34 +238,41 @@ export function spacesPage() {
         ),
     ) : "";
 
-    const listPanel = () => div(
-        {class: "card flex-1 flex flex-col gap-3 min-w-0 min-h-0"},
-        div({class: "flex flex-wrap items-center justify-between gap-3"},
-            input({
-                class: "text-input search-input",
-                type: "search",
-                placeholder: "Search spaces",
-                value: search,
-                oninput: (e) => search.val = e.target.value,
-            }),
-            button({
-                type: "button",
-                disabled: () => addingSpace.val,
-                class: () => `${spaceActionClass} ${addingSpace.val ? "opacity-50 cursor-not-allowed" : ""}`,
-                onclick: () => {
-                    if (addingSpace.val) return;
-                    newSpaceName.val = "";
-                    addingSpace.val = true;
-                },
-            }, "Add space")),
-        div({class: "deployment-table-scroll flex-1 min-h-0 overflow-auto"}, () => {
+    const headerCell = (text, cls = "pr-3") => th(
+        {class: `py-1.5 ${cls} text-[10px] font-semibold uppercase tracking-wider`}, text);
+
+    const toolbar = () => div(
+        {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
+        input({
+            class: "text-input search-input",
+            type: "search",
+            placeholder: "Search spaces",
+            "aria-label": "Search spaces",
+            value: search,
+            oninput: (e) => search.val = e.target.value,
+        }),
+        div({class: "flex-1"}),
+        button({
+            type: "button",
+            disabled: () => addingSpace.val,
+            class: () => `${spaceActionClass} ${addingSpace.val ? "opacity-50 cursor-not-allowed" : ""}`,
+            onclick: () => {
+                if (addingSpace.val) return;
+                newSpaceName.val = "";
+                addingSpace.val = true;
+            },
+        }, "Add space"),
+    );
+
+    const tableArea = () => div(
+        {class: "app-scroll flex-1 min-h-0 overflow-auto"}, () => {
             const visible = filteredSpaces();
             if (!visible.length) {
-                return p({class: "text-gray-400 text-sm"},
+                return p({class: "px-4 py-3 text-gray-400 text-sm"},
                     search.val.trim() ? "No spaces match your search." : "No spaces yet. Click Add space.");
             }
-            return table(
-                {class: "w-full table-fixed text-sm"},
+            return div({class: "pl-4 pr-2"}, table(
+                {class: "w-full table-fixed text-[13px]"},
                 colgroup(
                     col({style: "width:40%"}),
                     col({style: "width:13%"}),
@@ -274,18 +281,16 @@ export function spacesPage() {
                     col({style: "width:12%"}),
                     col({style: "width:11%"}),
                 ),
-                thead(tr({class: "text-left text-gray-400 border-b border-gray-700"},
-                    th({class: "pb-2 pr-3 font-medium"}, "Name"),
-                    th({class: "pb-2 pr-3 font-medium"}, "Deployments"),
-                    th({class: "pb-2 pr-3 font-medium"}, "Secrets"),
-                    th({class: "pb-2 pr-3 font-medium"}, "Configs"),
-                    th({class: "pb-2 pr-3 font-medium"}, "Assets"),
-                    th({class: "pb-2 w-px"}, ""))),
+                thead(tr({class: "text-left text-gray-500 border-b border-gray-800"},
+                    headerCell("Name"),
+                    headerCell("Deployments"),
+                    headerCell("Secrets"),
+                    headerCell("Configs"),
+                    headerCell("Assets"),
+                    headerCell("", "w-px"))),
                 tbody(...visible.map(spaceRow)),
-            );
-        }),
-        addSpaceRow,
-    );
+            ));
+        });
 
     const deleteOverlay = () => {
         const target = deleteTarget.val;
@@ -308,9 +313,15 @@ export function spacesPage() {
     };
 
     return div(
-        {class: "h-full min-h-0 overflow-hidden p-3 flex flex-col gap-3"},
-        () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : "",
-        div({class: "flex-1 flex flex-col min-h-0"}, listPanel),
+        // bg-surface: like the assets and secrets explorers, the page is one
+        // flush surface running to the window and sidebar edges.
+        {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
+        toolbar(),
+        addSpaceRow,
+        () => error.val ? p(
+            {class: "flex-none border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300"},
+            `Error: ${error.val}`) : "",
+        tableArea,
         deleteOverlay,
     );
 }

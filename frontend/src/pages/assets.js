@@ -22,7 +22,8 @@ import {
     emptySpaceIds, flexColumnKey, folderOptions, itemKey, itemPathSegments, sameSet,
     spaceHue,
 } from "../lib/valueExplorer.js";
-import {assetDirectoriesS, assetMetasS, deploymentsS, machinesS, spacesS, usersMapS} from "../state/deployments.js";
+import {assetDirectoriesS, assetMetasS, deploymentsS, machinesS, spacesS} from "../state/deployments.js";
+import {resolveUserDisplayName} from "../lib/users.js";
 import {loginS} from "../state/login.js";
 
 // selectEl: the pages define their own row-selection helper named `select`.
@@ -1118,7 +1119,7 @@ export function assetsPage() {
 
     // "unknown" covers system-written rows and anything from before user
     // attribution existed, so the author slot never silently vanishes.
-    const versionAuthor = (id) => usersMapS.val.get(Number(id))?.name || "unknown";
+    const versionAuthor = (id) => resolveUserDisplayName(Number(id)) || "unknown";
 
     // Version rows open the editor pinned to that version, matching the old
     // page's history browsing.

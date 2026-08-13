@@ -501,35 +501,6 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 	return &m, nil
 }
 
-func (m *DeploymentUpgradeAllRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.TargetVersion, 1)
-	return b
-}
-
-func DecodeDeploymentUpgradeAllRequest(b []byte) (*DeploymentUpgradeAllRequest, error) {
-	var m DeploymentUpgradeAllRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.TargetVersion, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 func (m *DeploymentCreateRequest) Encode() []byte {
 	var b []byte
 	if !m.Identity.IsZero() {
@@ -4949,6 +4920,8 @@ func (m *AuthzGlobalRule) Encode() []byte {
 		b = AppendBytes(b, m.EntityRefs.Encode())
 	}
 	b = AppendBoolField(b, m.DelegatedOnly, 5)
+	b = AppendBoolField(b, m.DelegationAllowed, 7)
+	b = AppendBoolField(b, m.Deny, 8)
 	return b
 }
 
@@ -5002,6 +4975,10 @@ func DecodeAuthzGlobalRule(b []byte) (*AuthzGlobalRule, error) {
 			}
 		case 5:
 			b, m.DelegatedOnly, err = ConsumeBool(b, typ)
+		case 7:
+			b, m.DelegationAllowed, err = ConsumeBool(b, typ)
+		case 8:
+			b, m.Deny, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

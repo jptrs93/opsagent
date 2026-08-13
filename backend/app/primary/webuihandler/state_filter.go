@@ -58,13 +58,14 @@ func (h *Handler) filterDeploymentConfigs(ctx apigen.Context, items []*apigen.De
 
 func (h *Handler) filterNodes(ctx apigen.Context, items []*apigen.ClusterNode) []*apigen.ClusterNode {
 	return filterVisible(items, func(n *apigen.ClusterNode) bool {
-		return h.canAccess(ctx, vView, eNode, 0, int64(n.ID))
+		return h.nodeVisible(ctx, int64(n.ID), n.AllowedSpaces)
 	})
 }
 
 func (h *Handler) filterNodeStatuses(ctx apigen.Context, items []*apigen.ClusterNodeStatus) []*apigen.ClusterNodeStatus {
+	allowed := h.nodeAllowedSpaces()
 	return filterVisible(items, func(n *apigen.ClusterNodeStatus) bool {
-		return h.canAccess(ctx, vView, eNode, 0, int64(n.NodeID))
+		return h.nodeVisible(ctx, int64(n.NodeID), allowed[n.NodeID])
 	})
 }
 

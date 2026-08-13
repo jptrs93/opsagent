@@ -190,9 +190,19 @@ func validateGlobalRule(name string, r *apigen.AuthzGlobalRule) error {
 			return fmt.Errorf("authz: global rule %s: %w", item.name, err)
 		}
 	}
-	for _, v := range r.EntityTypes.Include {
-		if v == int64(apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS) {
-			return invalidf("authz: global rules cannot target the access entity")
+	if !r.Deny && r.DelegatedOnly {
+		return invalidf("authz: delegated_only applies only to deny rules")
+	}
+	if r.Deny && r.DelegationAllowed {
+		return invalidf("authz: delegation_allowed applies only to allow rules")
+	}
+	// The access carve-out protects the repair path from denies; an allow that
+	// targets access only adds, so it is not restricted.
+	if r.Deny {
+		for _, v := range r.EntityTypes.Include {
+			if v == int64(apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS) {
+				return invalidf("authz: global rules cannot deny the access entity")
+			}
 		}
 	}
 	return nil

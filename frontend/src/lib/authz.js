@@ -93,11 +93,15 @@ export function formatRule(rule, opts = {}) {
     return parts.join(":");
 }
 
-// Global rules have no delegation position: delegatedOnly narrows when the
-// rule fires rather than what it matches, so callers render it separately.
+// Deny-mode global rules have no delegation position: delegatedOnly narrows
+// when the rule fires rather than what it matches, so callers render it
+// separately. Allow-mode rules behave like grants everyone holds, so their
+// grammar carries the delegation position like an ordinary rule.
 export function formatGlobalRule(rule, opts = {}) {
     if (!rule) return "";
-    return POSITIONS.map(({key}) => formatSelector(rule[key], key, opts)).join(":");
+    const parts = POSITIONS.map(({key}) => formatSelector(rule[key], key, opts));
+    if (!rule.deny) parts.push(rule.delegationAllowed ? "true" : "false");
+    return parts.join(":");
 }
 
 export function describeSelector(sel, kind, spaceNames) {

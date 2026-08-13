@@ -311,7 +311,15 @@ message AuthzGlobalRule {
   AuthzSelector spaces = 2;
   AuthzSelector entity_types = 3;
   AuthzSelector entity_refs = 4;
+  // Deny rules only: fire only for delegated (agent) sessions.
   bool delegated_only = 5;
+  // Field 6 briefly held an inverted `allow` flag and stays unused.
+  // Allow rules only: whether delegated (agent) sessions also receive it.
+  bool delegation_allowed = 7;
+  // Deny mode: the rule blocks matching requests before any grant is
+  // considered. Unset, the rule is an allow: it grants matching requests to
+  // every user, evaluated alongside their grants, and denies still beat it.
+  bool deny = 8;
 }
 
 message AuthzGlobalRuleRecord {
@@ -390,7 +398,7 @@ message SecretMeta {
   bool deleted = 7;
   int32 space_id = 8;
   int32 value_directory_id = 10; // 0 = the implicit root directory
-  int32 created_by = 11;         // user id that created the secret; 0 = unknown/system
+  int32 created_by = 11;         // user id that created the secret; 0 = unknown/system, negative = agent of user -created_by
   // Every version, NEWEST FIRST — version_refs[0] is the latest. Deployment
   // env refs pin the row ids, so this is what usage matching and
   // version-pinned references join against.
@@ -401,7 +409,7 @@ message SecretVersionMeta {
   int32 id = 1;            // version row id — what env refs and settings pin
   int32 version = 2;       // version number
   int64 created_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int32 created_by = 4;    // user id that created this version; 0 = unknown/system
+  int32 created_by = 4;    // user id that created this version; 0 = unknown/system, negative = agent of user -created_by
 }
 
 message SecretList {
@@ -507,7 +515,7 @@ message ConfigMeta {
   bool deleted = 8;
   int32 space_id = 9;
   int32 value_directory_id = 11; // 0 = the implicit root directory
-  int32 created_by = 12;         // user id that created the config; 0 = unknown/system
+  int32 created_by = 12;         // user id that created the config; 0 = unknown/system, negative = agent of user -created_by
   // Every version, NEWEST FIRST — version_refs[0] is the latest.
   repeated ConfigVersionMeta version_refs = 13;
 }
@@ -517,7 +525,7 @@ message ConfigVersionMeta {
   int32 version = 2;       // version number
   string value = 3;        // plaintext value; not encrypted at rest
   int64 created_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int32 created_by = 5;    // user id that created this version; 0 = unknown/system
+  int32 created_by = 5;    // user id that created this version; 0 = unknown/system, negative = agent of user -created_by
 }
 
 message ConfigList {
@@ -575,7 +583,7 @@ message ValueDirectory {
   string name = 3;
   int32 parent_id = 4;     // 0 = the implicit root
   int64 created_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int32 created_by = 6;    // user id that created the directory; 0 = unknown/system
+  int32 created_by = 6;    // user id that created the directory; 0 = unknown/system, negative = agent of user -created_by
   bool deleted = 7;        // set on the state-stream update channel when removed
 }
 
@@ -620,7 +628,7 @@ message AssetMeta {
   int32 space_id = 8;
   bool deleted = 9;
   int32 asset_directory_id = 11; // 0 = the implicit root directory
-  int32 created_by = 12;         // user id that created the asset; 0 = unknown/system
+  int32 created_by = 12;         // user id that created the asset; 0 = unknown/system, negative = agent of user -created_by
   // Every published version, NEWEST FIRST — version_refs[0] is the latest.
   // Deployment specs pin the row ids, so this is what usage matching and
   // version-pinned references join against. Always non-empty in lists: an
@@ -632,7 +640,7 @@ message AssetVersionMeta {
   int32 id = 1;            // version row id — what deployment specs pin
   int32 version = 2;       // version number
   int64 created_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int32 created_by = 4;    // user id that created this version; 0 = unknown/system
+  int32 created_by = 4;    // user id that created this version; 0 = unknown/system, negative = agent of user -created_by
   int32 size_bytes = 5;
   string location = 6;     // empty for inline blob-backed versions
 }
@@ -648,7 +656,7 @@ message AssetVersion {
   int32 space_id = 8;      // owning asset's space
   int32 size_bytes = 9;
   int32 asset_id = 10;     // owning stable asset id
-  int32 created_by = 11;   // user id that created this version; 0 = unknown/system
+  int32 created_by = 11;   // user id that created this version; 0 = unknown/system, negative = agent of user -created_by
 }
 
 message AssetList {
@@ -708,7 +716,7 @@ message AssetDirectory {
   string key = 3;
   int32 parent_id = 4;     // 0 = the implicit root
   int64 created_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int32 created_by = 6;    // user id that created the directory; 0 = unknown/system
+  int32 created_by = 6;    // user id that created the directory; 0 = unknown/system, negative = agent of user -created_by
   bool deleted = 7;        // set on the state-stream update channel when removed
 }
 
