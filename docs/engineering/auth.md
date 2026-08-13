@@ -58,7 +58,7 @@ Three token types exist:
 
 An agent session is a 6-hour bearer token for command-line, script, and agent use. The lifetime is deliberately shorter than the 2-day browser session because these tokens get pasted into shells and end up in history files and CI logs.
 
-An agent token carries its parent session's scopes unchanged. Nothing is withheld at the token layer: the only thing that narrows an agent is the authz layer, which sees any token carrying a `jti` as **delegated** and matches only rules with `delegation_allowed`. Under the builtin templates that means an agent can create a secret but not read, change, or destroy one, and cannot view logs (which can echo secret values) — see [the authz layer](#authz-layer-backendlibauthz) — and an operator writing custom rules is free to decide otherwise. There is no separate list of things agents may not do.
+An agent token carries its parent session's scopes unchanged. Nothing is withheld at the token layer: the only thing that narrows an agent is the authz layer, which sees any token carrying a `jti` as **delegated** and matches only rules with `delegation_allowed`. Under the builtin templates that means an agent can see and create secrets but not reveal, change, or destroy one, and cannot view logs (which can echo secret values) — see [the authz layer](#authz-layer-backendlibauthz) — and an operator writing custom rules is free to decide otherwise. There is no separate list of things agents may not do.
 
 All routes live under `/v1/agent-sessions/`, which is also the rate-limit prefix.
 
@@ -149,11 +149,11 @@ Access is purely additive **grants** evaluated against a `RequestedAccess{verb, 
 Two builtin templates are seeded (and re-asserted) at startup: `cluster_admin` (everything) and `space_admin(spaces)` (the same scoped to bound spaces). Each then carries two delegable rules that together define what an agent session inherits:
 
 - everything **except the `secret` entity type and the `view_logs` verb**, in every space except 0 (or the bound spaces) — cluster-level entities stay human-only even for a fully privileged agent, and logs stay off-limits because a deployment can echo secret values into them, which would sidestep the secret rule below;
-- `create` on `secret` in the same spaces — an agent can mint a credential and wire it into a deployment, but cannot reveal, edit, or delete one, and a secret it does not own is not even visible to it.
+- `view` and `create` on `secret` in the same spaces — an agent can see which secrets exist, mint a credential, and wire it into a deployment, but cannot reveal, edit, or delete one.
 
 Both templates also carry a narrow delegable rule granting `view` on `node` and `user` entities in space 0 — without it, a space-limited operator or agent could not list nodes to place a deployment or resolve user names for audit display.
 
-These are defaults, not guarantees. An admin who writes a rule with `delegation_allowed` covering `secret : reveal` gets exactly that; nothing outside the rules second-guesses it. `PostV1SecretsGenerate` is what makes `secret : create` a safe verb to hand an agent: it takes a name and a specification, seals the value it produces, and returns only metadata — see [secrets.md](secrets.md#server-side-generation).
+These are defaults, not guarantees. An admin who writes a rule with `delegation_allowed` covering `secret : reveal` gets exactly that; nothing outside the rules second-guesses it. `PostV1SecretsGenerate` is what makes `secret : create` a safe verb to hand an agent: it takes a name and a specification, seals the value it produces, and returns only metadata — see [secrets.md](secrets.md#server-side-generation). `PostV1SecretsCreate`, where the caller supplies the value, additionally requires `secret : reveal` in the target space: a caller that chose the value knows it, so a value-supplying create is treated as a read.
 
 Entity-to-space mapping: deployments, secrets, configs, assets, and folders live in their record's space (values normalize a requested space `<= 0` to the global space (space 1) — `state.NormalizedUserSpaceID` — and checks gate on the effective space). Spaces are their own entity with the space's id. Nodes, users, cluster settings, the config export, enrollment, secrets-store recovery/unlock, and access management itself are cluster-level: checked in space 0 against the `node`, `user`, `cluster`, and `access` entity types. Space *creation* is also cluster-level (the new space has no id yet).
 

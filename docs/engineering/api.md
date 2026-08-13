@@ -101,7 +101,6 @@ Every route below is generated from `api-contract/*_service.proto`; the group he
 | POST | `/v1/deployments/create` | `DeploymentCreateRequest` | `DeploymentConfig` | ANY_OF default |
 | POST | `/v1/deployments/update` | `DeploymentUpdateRequest` | `DeploymentConfig` | ANY_OF default |
 | POST | `/v1/deployments/delete` | `DeploymentDeleteRequest` | — | ANY_OF default |
-| POST | `/v1/deployments/upgrade-all` | `DeploymentUpgradeAllRequest` | `DeploymentConfig` | ANY_OF default |
 | POST | `/v1/deployments/recently-deleted` | `RecentlyDeletedDeploymentsRequest` | `RecentlyDeletedDeployments` | ANY_OF default |
 | POST | `/v1/deployments/history` | `DeploymentHistoryRequest` | `DeploymentHistory` | ANY_OF default |
 | POST | `/v1/deployments/versions` | `DeploymentVersionsRequest` | `DeploymentVersions` | ANY_OF default |
@@ -115,7 +114,7 @@ Every route below is generated from `api-contract/*_service.proto`; the group he
 
 `/v1/deployments/recently-deleted` lists the tombstone config of the most recently deleted deployments, newest deletion first, so the UI can seed a new deployment from one. Deletion writes a config version rather than removing the row, so these are served from the in-memory config cache that every other snapshot filters. `limit` defaults to 25 and is clamped to 200 — deleted configs are never pruned, so the listing must stay bounded. Internal `opendeploy` deployments are omitted because they are recreated by the primary rather than through `/v1/deployments/create`.
 
-`/v1/deployments/upgrade-all` is the primary OpenDeploy self-update path. It applies the requested release to every active `opendeploy-net` deployment and secondary-node `opendeploy` deployment before updating and returning the primary-node `opendeploy` config. Rollout readiness waiting between those phases is not yet implemented.
+OpenDeploy self-updates go through plain `/v1/deployments/update` calls, one per node. The Web UI's system-deployment upgrade overlay orchestrates the rollout client-side: it updates secondaries one at a time, waits for each node's runner to report the new version, upgrades the primary last, and halts on the first failure. There is no server-side bulk-upgrade endpoint.
 
 ### Nodes
 | Method | Path | Request | Response | Policy |

@@ -65,10 +65,6 @@
  * @property {number} spaceId
  */
 /**
- * @typedef {Object} DeploymentUpgradeAllRequest
- * @property {string} targetVersion
- */
-/**
  * @typedef {Object} DeploymentCreateRequest
  * @property {DeploymentIdentity} identity
  * @property {DeploymentSpec} spec
@@ -2177,62 +2173,6 @@ function decodeDeploymentUpdateRequestMessage(reader, length) {
 export function decodeDeploymentUpdateRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeDeploymentUpdateRequestMessage(reader);
-}
-
-
-
-/**
- * @param {DeploymentUpgradeAllRequest} message
- * @param {Writer} writer
- */
-export function writeDeploymentUpgradeAllRequest(message, writer) {
-    if (message.targetVersion !== undefined && message.targetVersion !== null && message.targetVersion !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.targetVersion);
-    }
-}
-
-
-/**
- * @param {DeploymentUpgradeAllRequest} message
- * @returns {Uint8Array}
- */
-export function encodeDeploymentUpgradeAllRequest(message) {
-    const writer = Writer.create();
-    writeDeploymentUpgradeAllRequest(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {DeploymentUpgradeAllRequest}
- */
-function decodeDeploymentUpgradeAllRequestMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {targetVersion: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.targetVersion = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {DeploymentUpgradeAllRequest}
- */
-export function decodeDeploymentUpgradeAllRequest(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentUpgradeAllRequestMessage(reader);
 }
 
 

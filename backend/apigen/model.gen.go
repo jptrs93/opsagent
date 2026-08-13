@@ -233,10 +233,6 @@ type DeploymentUpdateRequest struct {
 	SpaceID       *int32         `json:"space_id,omitempty"`
 }
 
-type DeploymentUpgradeAllRequest struct {
-	TargetVersion string `json:"target_version,omitempty"`
-}
-
 type DeploymentCreateRequest struct {
 	Identity DeploymentIdentity `json:"identity"`
 	Spec     DeploymentSpec     `json:"spec"`

@@ -754,25 +754,6 @@ func (c *ApiServerCapi) PostV1DeploymentsDelete(ctx context.Context, req *Deploy
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1DeploymentsUpgradeAll(ctx context.Context, req *DeploymentUpgradeAllRequest) (*DeploymentConfig, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1DeploymentsUpgradeAll request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/deployments/upgrade-all", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeDeploymentConfig(body)
-}
-
 func (c *ApiServerCapi) PostV1DeploymentsRecentlyDeleted(ctx context.Context, req *RecentlyDeletedDeploymentsRequest) (*RecentlyDeletedDeployments, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1DeploymentsRecentlyDeleted request is nil")

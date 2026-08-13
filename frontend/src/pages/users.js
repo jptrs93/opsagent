@@ -16,9 +16,10 @@ import {
     templateArguments,
 } from "../lib/authz.js";
 import {globalRuleOverlay, grantOverlay, ruleTemplateOverlay} from "../components/accessEditors.js";
+import {bandButton, sectionBand} from "../components/sectionBand.js";
 import {formatDate, formatDateTime} from "../lib/date.js";
 import {globalRuleDisplay, ruleDisplay} from "../components/ruleDisplay.js";
-import {chevronDownIcon, closeIcon, editIcon, lockIcon, plusIcon, trashIcon} from "../lib/icons.js";
+import {closeIcon, editIcon, lockIcon, plusIcon, trashIcon} from "../lib/icons.js";
 
 const {div, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col, h2} = van.tags;
 
@@ -101,31 +102,6 @@ export function usersPage() {
                     }),
                 }, confirmLabel || "Delete"))),
     );
-
-    // ---- section band ------------------------------------------------------
-
-    const sectionBand = (openState, title, count, ...actions) => div(
-        // first:border-t-0 keeps the top band flush with the window edge now
-        // that the page has no surrounding card.
-        {class: "flex flex-none flex-wrap items-center gap-2 border-y border-gray-700 first:border-t-0 bg-gray-950/40 px-2 py-1"},
-        button({
-            type: "button",
-            "aria-expanded": () => String(openState.val),
-            class: "inline-flex items-center gap-1.5 rounded px-1 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 hover:text-gray-200 cursor-pointer",
-            onclick: () => { openState.val = !openState.val; },
-        },
-        chevronDownIcon({class: () => `w-3 h-3 transition-transform ${openState.val ? "" : "-rotate-90"}`}),
-        title),
-        span({class: "text-[11px] text-gray-500 tabular-nums"}, count),
-        div({class: "flex-1"}),
-        ...actions,
-    );
-
-    const bandButton = (text, onclick) => button({
-        type: "button",
-        class: "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-gray-600 text-gray-300 hover:bg-surface-hover cursor-pointer",
-        onclick,
-    }, plusIcon({class: "w-3 h-3"}), text);
 
     const iconButton = (icon, title, onclick, hoverClass = "hover:text-gray-100") => button({
         type: "button",

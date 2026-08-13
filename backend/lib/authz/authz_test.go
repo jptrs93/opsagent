@@ -572,6 +572,17 @@ func TestClusterAdminDelegationLimits(t *testing.T) {
 	if s.HasAccess(1, reveal) {
 		t.Fatal("delegated access must not reveal secrets")
 	}
+	secretView := reveal
+	secretView.Verb = apigen.AuthzVerb_AUTHZ_VERB_VIEW
+	if !s.HasAccess(1, secretView) {
+		t.Fatal("delegated access should view secret metadata")
+	}
+	secretCreate := reveal
+	secretCreate.Verb = apigen.AuthzVerb_AUTHZ_VERB_CREATE
+	secretCreate.EntityID = 0
+	if !s.HasAccess(1, secretCreate) {
+		t.Fatal("delegated access should create secrets")
+	}
 	logs := RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS,
 		SpaceID:    2,

@@ -190,11 +190,6 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1DeploymentsUpgradeAll(DeploymentUpgradeAllRequest) returns (DeploymentConfig) {
-    option (cp.url) = "/v1/deployments/upgrade-all";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
-  }
-
   rpc PostV1DeploymentsRecentlyDeleted(RecentlyDeletedDeploymentsRequest) returns (RecentlyDeletedDeployments) {
     option (cp.url) = "/v1/deployments/recently-deleted";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };

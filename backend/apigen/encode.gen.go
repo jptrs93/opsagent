@@ -501,35 +501,6 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 	return &m, nil
 }
 
-func (m *DeploymentUpgradeAllRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.TargetVersion, 1)
-	return b
-}
-
-func DecodeDeploymentUpgradeAllRequest(b []byte) (*DeploymentUpgradeAllRequest, error) {
-	var m DeploymentUpgradeAllRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.TargetVersion, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 func (m *DeploymentCreateRequest) Encode() []byte {
 	var b []byte
 	if !m.Identity.IsZero() {

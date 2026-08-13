@@ -42,3 +42,15 @@ full create/manage lifecycle for deployments, secrets, configs, folders, and
 assets inside its space, and access-denied errors on cluster-level actions
 (space creation, grant management, node rename). The restricted deployment and
 values are deleted before the flow continues; the extra user and space remain.
+
+`cases/space-moves.js` runs inside that window, while the restricted
+deployment and values still pin references and the restricted session is a
+live second observer. It moves an unreferenced secret and asset between
+global and the restricted space through the Move dialog's space picker,
+verifying the restricted session sees rows appear and vanish live (the
+tombstone path) and can reveal a secret just moved into its space; verifies
+referenced values refuse to move away from their referencing space in both
+directions, and that a value referenced only from another space may move
+toward it; verifies a mounted asset also refuses delete; and checks the
+restricted user's Move dialog offers only its visible spaces while folder
+moves offer no space picker at all.

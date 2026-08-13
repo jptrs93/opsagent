@@ -193,7 +193,15 @@ meantime, create rejects it with the usual duplicate-identity error.
 
 The status page shows one table row per deployment, sorted with
 OPENDEPLOY last, then by space, name, node, and id. Deployments can also be
-grouped by space. The toolbar above the table holds the deployment search box
+grouped by space. The per-node internal `opendeploy` and `opendeploy-net`
+deployments are the exception: each is presented as a single merged row whose
+cells split vertically into one subline per node (secondaries first, primary
+last). Their Update action opens a group upgrade overlay listing every node
+with its current version and a target-release dropdown; an "Align versions"
+toggle (on by default) locks all dropdowns to the primary's selection. The
+browser then performs the rollout itself — one node at a time, waiting for
+each node to report the new version, primary last, stopping at the first
+failure. The toolbar above the table holds the deployment search box
 and "See recently deleted" on the left, and the grouping and opendeploy toggles
 plus "Add deployment" and "Export" on the right. Each row displays:
 
