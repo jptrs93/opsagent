@@ -493,7 +493,7 @@ export async function createPostgresDeployment(page, {
 export async function createPostgresClientDeployment(page, {
   name = 'postgresclient',
   machine = 'worker-1',
-  postgresHost = 'postgres18.default.internal',
+  postgresHost = 'postgres18.space-1.internal',
 } = {}) {
   await createNixDockerDeployment(page, {
     name,
@@ -680,7 +680,7 @@ export async function expectReferenceUsage(page, {
   resourceType,
   resourceName,
   deploymentName,
-  space = 'default',
+  space = 'global',
   machine = 'worker-1',
 } = {}) {
   const navKey = resourceType === 'asset' ? 'assets' : 'secrets';
@@ -1012,44 +1012,44 @@ export async function verifyValueDirectoryExplorer(page) {
   await expect(page.getByPlaceholder('Search secrets / configs')).toBeVisible();
 
   await test.step('create nested folders', async () => {
-    await selectExplorerRow(page, 'default');
+    await selectExplorerRow(page, 'global');
     await createExplorerFolder(page, 'e2e-folder-a');
-    await expectExplorerPath(page, 'default/e2e-folder-a');
+    await expectExplorerPath(page, 'global/e2e-folder-a');
     await createExplorerFolder(page, 'e2e-folder-b');
-    await expectExplorerPath(page, 'default/e2e-folder-a/e2e-folder-b');
+    await expectExplorerPath(page, 'global/e2e-folder-a/e2e-folder-b');
   });
 
   await test.step('create config and secret inside folders', async () => {
     await createValueInSelection(page, {
       type: 'config', name: 'e2e.dir.config', value: 'dir-config-value',
-      location: 'default/e2e-folder-a/e2e-folder-b/',
+      location: 'global/e2e-folder-a/e2e-folder-b/',
     });
-    await expectExplorerPath(page, 'default/e2e-folder-a/e2e-folder-b/e2e.dir.config');
+    await expectExplorerPath(page, 'global/e2e-folder-a/e2e-folder-b/e2e.dir.config');
     await selectExplorerRow(page, 'e2e-folder-a');
     await createValueInSelection(page, {
       type: 'secret', name: 'e2e.dir.secret', value: 'dir-secret-value',
-      location: 'default/e2e-folder-a/',
+      location: 'global/e2e-folder-a/',
     });
-    await expectExplorerPath(page, 'default/e2e-folder-a/e2e.dir.secret');
+    await expectExplorerPath(page, 'global/e2e-folder-a/e2e.dir.secret');
   });
 
   await test.step('move config out to the root and back into a folder', async () => {
     await selectExplorerRow(page, 'e2e.dir.config');
     await moveExplorerSelection(page, '/');
-    await expectExplorerPath(page, 'default/e2e.dir.config');
+    await expectExplorerPath(page, 'global/e2e.dir.config');
     await expect(explorerPathbar(page)).not.toContainText('e2e-folder-b');
     await moveExplorerSelection(page, 'e2e-folder-a');
-    await expectExplorerPath(page, 'default/e2e-folder-a/e2e.dir.config');
+    await expectExplorerPath(page, 'global/e2e-folder-a/e2e.dir.config');
   });
 
   await test.step('move, rename, and delete a folder', async () => {
     await selectExplorerRow(page, 'e2e-folder-b');
     await moveExplorerSelection(page, '/');
-    await expectExplorerPath(page, 'default/e2e-folder-b');
+    await expectExplorerPath(page, 'global/e2e-folder-b');
     await moveExplorerSelection(page, 'e2e-folder-a');
-    await expectExplorerPath(page, 'default/e2e-folder-a/e2e-folder-b');
+    await expectExplorerPath(page, 'global/e2e-folder-a/e2e-folder-b');
     await renameExplorerSelection(page, 'e2e-folder-c');
-    await expectExplorerPath(page, 'default/e2e-folder-a/e2e-folder-c');
+    await expectExplorerPath(page, 'global/e2e-folder-a/e2e-folder-c');
     await deleteExplorerSelection(page);
     await expect(page.getByRole('row', {name: /e2e-folder-c/})).toBeHidden({timeout: LONG_UI_TIMEOUT});
   });
@@ -1072,11 +1072,11 @@ export async function verifyAssetDirectoryExplorer(page) {
   await expect(page.getByPlaceholder('Search assets')).toBeVisible();
 
   await test.step('create nested folders', async () => {
-    await selectExplorerRow(page, 'default');
+    await selectExplorerRow(page, 'global');
     await createExplorerFolder(page, 'e2e-asset-folder-a');
-    await expectExplorerPath(page, 'default/e2e-asset-folder-a');
+    await expectExplorerPath(page, 'global/e2e-asset-folder-a');
     await createExplorerFolder(page, 'e2e-asset-folder-b');
-    await expectExplorerPath(page, 'default/e2e-asset-folder-a/e2e-asset-folder-b');
+    await expectExplorerPath(page, 'global/e2e-asset-folder-a/e2e-asset-folder-b');
   });
 
   await test.step('create an asset inside a nested folder', async () => {
@@ -1091,25 +1091,25 @@ export async function verifyAssetDirectoryExplorer(page) {
     expect((await createResponse).ok()).toBe(true);
     // The modal editor closes itself after a successful create.
     await expect(page.getByRole('button', {name: 'Create asset'})).toBeHidden({timeout: LONG_UI_TIMEOUT});
-    await expectExplorerPath(page, 'default/e2e-asset-folder-a/e2e-asset-folder-b/e2e-dir-asset.txt');
+    await expectExplorerPath(page, 'global/e2e-asset-folder-a/e2e-asset-folder-b/e2e-dir-asset.txt');
   });
 
   await test.step('move the asset out to the root and back in by path', async () => {
     await moveExplorerSelection(page, '/');
-    await expectExplorerPath(page, 'default/e2e-dir-asset.txt');
+    await expectExplorerPath(page, 'global/e2e-dir-asset.txt');
     await expect(explorerPathbar(page)).not.toContainText('e2e-asset-folder-b');
     await moveExplorerSelection(page, 'e2e-asset-folder-a/e2e-asset-folder-b');
-    await expectExplorerPath(page, 'default/e2e-asset-folder-a/e2e-asset-folder-b/e2e-dir-asset.txt');
+    await expectExplorerPath(page, 'global/e2e-asset-folder-a/e2e-asset-folder-b/e2e-dir-asset.txt');
   });
 
   await test.step('a moved folder takes its contents with it', async () => {
     await selectExplorerRow(page, 'e2e-asset-folder-b');
     await moveExplorerSelection(page, '/');
-    await expectExplorerPath(page, 'default/e2e-asset-folder-b');
+    await expectExplorerPath(page, 'global/e2e-asset-folder-b');
     await renameExplorerSelection(page, 'e2e-asset-folder-c');
-    await expectExplorerPath(page, 'default/e2e-asset-folder-c');
+    await expectExplorerPath(page, 'global/e2e-asset-folder-c');
     await selectExplorerRow(page, 'e2e-dir-asset.txt');
-    await expectExplorerPath(page, 'default/e2e-asset-folder-c/e2e-dir-asset.txt');
+    await expectExplorerPath(page, 'global/e2e-asset-folder-c/e2e-dir-asset.txt');
   });
 
   await test.step('delete an empty folder; a non-empty delete is rejected', async () => {

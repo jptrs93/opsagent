@@ -1,0 +1,61 @@
+// Lezer grammar for the deployment config dialect of HCL, matching the
+// hand-written parser in src/components/deploymentHcl.js:
+//   - attributes (name = expression) and unlabeled blocks (name { ... })
+//   - expressions: single-line JSON-escaped strings, integers, booleans,
+//     lists, objects, and function calls (any arity, nestable)
+//   - object entries use identifier or quoted-string keys with optional commas
+//   - comments: #, //, and /* */
+// Regenerate parser.js / parser.terms.js with: node src/hcl/generate.js
+
+@top ConfigFile { statement* }
+
+statement { Attribute | Block }
+
+Attribute { Identifier "=" expression }
+
+Block { Identifier BlockBody }
+
+BlockBody { "{" statement* "}" }
+
+expression {
+  StringLit |
+  NumberLit |
+  BoolLit |
+  FunctionCall |
+  ListValue |
+  ObjectValue
+}
+
+FunctionCall { Identifier "(" commaSep<expression> ")" }
+
+ListValue { "[" commaSep<expression> "]" }
+
+ObjectValue { "{" ObjectAttribute* "}" }
+
+ObjectAttribute { (Identifier | StringLit) "=" expression ","? }
+
+commaSep<content> { "" | content ("," content)* ","? }
+
+BoolLit { @specialize<Identifier, "true" | "false"> }
+
+@skip { space | LineComment | BlockComment }
+
+@tokens {
+  space { @whitespace+ }
+
+  LineComment { ("#" | "//") ![\n]* }
+
+  BlockComment { "/*" blockCommentRest }
+  blockCommentRest { ![*] blockCommentRest | "*" blockCommentAfterStar }
+  blockCommentAfterStar { "/" | "*" blockCommentAfterStar | ![/*] blockCommentRest }
+
+  Identifier { $[A-Za-z_] $[A-Za-z0-9_\-]* }
+
+  NumberLit { "-"? @digit+ }
+
+  StringLit { '"' (!["\\\n] | "\\" _)* '"' }
+
+  "(" ")" "[" "]" "{" "}" "=" ","
+}
+
+@detectDelim

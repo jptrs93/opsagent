@@ -51,7 +51,7 @@ const backupConfig = `${initialConfig}pgbackrest:
   stanza: opendeploy-e2e
   repository_cipher_pass: \${PGBACKREST_REPOSITORY_CIPHER_PASS}
   s3:
-    host: ${names.minio}.default.internal
+    host: ${names.minio}.space-1.internal
     port: '9000'
     bucket: ${bucket}
     region: us-east-1
@@ -83,7 +83,7 @@ const postgresEnv = (restore = false) => ({
 });
 
 const clientEnv = ({host, write, expected}) => ({
-  PGHOST: `${host}.default.internal`,
+  PGHOST: `${host}.space-1.internal`,
   PGPORT: '5432',
   PGUSER: postgresUser,
   PGPASSWORD: {type: 'secret', name: names.passwordSecret},
@@ -231,7 +231,7 @@ export const pgBackRestCases = [
       });
       await expectDeploymentRunning(ctx.page, names.client);
       await expectDeploymentOutput(ctx.page, names.client, [
-        `msg="postgresclient starting" host=${names.restoredPostgres}.default.internal`,
+        `msg="postgresclient starting" host=${names.restoredPostgres}.space-1.internal`,
         'msg="postgresclient persistent row" value=before-backup',
         'msg="postgresclient persistent row" value=after-backup',
         'msg="postgresclient verified persistent rows" count=2',

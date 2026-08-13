@@ -501,8 +501,13 @@ export function deploymentConfigCodeWidget(args) {
 
     const evaluate = (state, commit) => {
         const text = state.doc.toString();
-        const syntax = syntaxDiagnostics(state);
         const parsed = parseDeploymentHcl(text, catalogs, constraints);
+        // The hand-written parser is authoritative for the deployment dialect;
+        // the lezer grammar is a highlighting aid that cannot parse some valid
+        // constructs (e.g. zero-argument calls derail it document-wide). When
+        // the authoritative parse fully succeeds, its verdict wins.
+        const parsedClean = Boolean(parsed.document) && !parsed.diagnostics.some(item => item.severity === "error");
+        const syntax = parsedClean ? [] : syntaxDiagnostics(state);
         const sharedDocumentChanged = Boolean(invalidBaseKey && invalidBaseKey !== documentKey());
         const conflict = commit && Boolean(parsed.document) && !syntax.some(item => item.severity === "error")
             && !parsed.diagnostics.some(item => item.severity === "error") && sharedDocumentChanged;
@@ -569,8 +574,9 @@ export function deploymentConfigCodeWidget(args) {
                 referenceHighlighting,
                 autocompletion({override: [schemaCompletion(catalogs)]}),
                 linter(editorView => {
-                    const syntax = syntaxDiagnostics(editorView.state);
                     const parsed = parseDeploymentHcl(editorView.state.doc.toString(), catalogs, constraints);
+                    const parsedClean = Boolean(parsed.document) && !parsed.diagnostics.some(item => item.severity === "error");
+                    const syntax = parsedClean ? [] : syntaxDiagnostics(editorView.state);
                     return [...syntax, ...parsed.diagnostics];
                 }, {delay: 250}),
                 lintGutter(),
