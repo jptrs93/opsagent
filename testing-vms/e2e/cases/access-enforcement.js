@@ -129,14 +129,24 @@ export const accessEnforcementCases = [
   {
     id: 'access-restricted-user-reduced',
     title: 'revoke the restricted user cluster_admin grant',
-    description: 'The admin revokes the automatic cluster_admin grant from the new user on the Users page.',
+    description: 'The admin revokes the automatic cluster_admin grant from the new user on the Users page, confirming the prompt that guards it.',
     requires: ['access-restricted-user-created'],
     async run(ctx) {
       await ctx.page.getByTestId('nav-users').click();
       const row = userRow(ctx.page, RESTRICTED_USER);
       await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
       await row.getByRole('button', {name: `Revoke cluster_admin from ${RESTRICTED_USER}`, exact: true}).click();
+
+      // Revoking cluster_admin asks first; the admin's own grant, and the last
+      // one in the cluster, are not offered at all.
+      const confirm = overlayCard(ctx.page, 'Revoke cluster_admin');
+      await expect(confirm).toBeVisible();
+      await confirm.getByRole('button', {name: 'Revoke', exact: true}).click();
       await expect(row.getByText('cluster_admin')).toBeHidden({timeout: LONG_UI_TIMEOUT});
+
+      const ownRow = userRow(ctx.page, ADMIN_USER);
+      await expect(ownRow.getByRole('button', {name: `Revoke cluster_admin from ${ADMIN_USER}`, exact: true}))
+        .toHaveCount(0);
     },
   },
   {

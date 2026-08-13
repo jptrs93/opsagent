@@ -6,7 +6,9 @@ import {
     formatGlobalRule,
     formatRule,
     formatSelector,
+    grantRevokeBlock,
     groupGrantsByUser,
+    isClusterAdminGrant,
     positionValueName,
     templateArguments,
 } from "./authz.js";
@@ -139,6 +141,31 @@ test("describeGrant renders a direct rule naturally", () => {
 test("describeGrant survives a missing template", () => {
     const chip = describeGrant({id: 12, userId: 7, templateId: 99, grant: {args: [], rule: null}}, new Map(), SPACES);
     assert.equal(chip.label, "role 99");
+});
+
+const clusterAdminTemplate = {id: 1, name: "cluster_admin", builtin: true, template: {rules: []}};
+const TEMPLATES = new Map([[1, clusterAdminTemplate], [2, spaceAdminTemplate]]);
+const adminGrant = (id, userId) => ({id, userId, templateId: 1, grant: {args: [], rule: null}});
+
+test("isClusterAdminGrant identifies the builtin role, id-only when unresolved", () => {
+    assert.equal(isClusterAdminGrant(adminGrant(1, 7), TEMPLATES), true);
+    assert.equal(isClusterAdminGrant({id: 2, userId: 7, templateId: 2}, TEMPLATES), false);
+    assert.equal(isClusterAdminGrant({id: 3, userId: 7, templateId: 0}, TEMPLATES), false);
+    assert.equal(isClusterAdminGrant(adminGrant(4, 7), new Map()), true);
+    // A non-builtin role that merely borrows the name is not the real thing.
+    const impostor = new Map([[5, {id: 5, name: "cluster_admin", builtin: false}]]);
+    assert.equal(isClusterAdminGrant({id: 6, userId: 7, templateId: 5}, impostor), false);
+});
+
+test("grantRevokeBlock protects your own and the last cluster_admin", () => {
+    const grants = [adminGrant(1, 7), adminGrant(2, 8)];
+    const opts = {grants, templatesById: TEMPLATES, selfUserId: 7};
+    assert.match(grantRevokeBlock(grants[0], opts), /your own/);
+    assert.equal(grantRevokeBlock(grants[1], opts), null);
+    assert.match(grantRevokeBlock(grants[1], {...opts, grants: [grants[1]]}), /last cluster_admin/);
+    // Other roles are never blocked, even as the only grant a user holds.
+    const other = {id: 3, userId: 8, templateId: 2, grant: {args: [], rule: null}};
+    assert.equal(grantRevokeBlock(other, {grants: [other], templatesById: TEMPLATES, selfUserId: 8}), null);
 });
 
 test("groupGrantsByUser partitions by userId", () => {

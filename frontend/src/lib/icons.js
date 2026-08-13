@@ -78,6 +78,11 @@ export const trashIcon = (attrs) => svg(iconAttrs(attrs),
 
 export const xIcon = closeIcon;
 
+export const lockIcon = (attrs) => svg(iconAttrs(attrs),
+    path({d: "M5 11h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z"}),
+    path({d: "M8 11V7a4 4 0 0 1 8 0v4"}),
+);
+
 export const caretRightIcon = (attrs) => svg(iconAttrs(attrs),
     polyline({points: "9 6 15 12 9 18"}),
 );

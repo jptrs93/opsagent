@@ -164,6 +164,7 @@ The state stream (`PostV1GlobalStateStream`) applies the same `view` filters per
 Lifecycle guarantees:
 - Every newly created user is granted `cluster_admin`; a run-once migration (`migration.authz-cluster-admin-grants`) did the same for users predating the authz tables, so enforcement never locked out an existing install.
 - `DeleteGrant` refuses (`409 access_last_admin`) to remove the last grant in the system conferring `create` on the `access` entity — self-lockout needs master-password recovery otherwise, and that is a recovery path, not a UX.
+- The Users page adds its own rails ahead of that error (`grantRevokeBlock` in `frontend/src/lib/authz.js`): a `cluster_admin` grant shows a padlock instead of a revoke × when it is the holder's own or the last `cluster_admin` in the cluster, and any other `cluster_admin` revoke asks for confirmation first. These are narrower than the backend guard — they watch the one role rather than every access-managing grant — so the 409 remains the real backstop.
 - Anyone holding `access:create` can grant any access, including more than they hold themselves. There is no attenuation; access management is full trust.
 
 Deliberately unenforced: `PostV1ReposValidate` (a stateless validation helper touching no entity), `PostV1SecretsStatus` and the secrets-status stream field (two booleans every secret-capable page needs), and the personal auth/passkey/agent-session routes, which stay scoped to `ctx.User.ID` as before.

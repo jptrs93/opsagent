@@ -145,6 +145,37 @@ export function describeGrant(record, templatesById, spaceNames) {
     };
 }
 
+// The builtin role every user starts with. Its id is fixed by the backend
+// (authz.ClusterAdminTemplateID); the name is the identity the UI trusts, with
+// the id only as a fallback when the template record itself is not to hand.
+export const CLUSTER_ADMIN_TEMPLATE_ID = 1;
+const CLUSTER_ADMIN_NAME = "cluster_admin";
+
+export function isClusterAdminGrant(grant, templatesById) {
+    const templateId = Number(grant?.templateId || 0);
+    if (!templateId) return false;
+    const template = templatesById?.get?.(templateId);
+    if (!template) return templateId === CLUSTER_ADMIN_TEMPLATE_ID;
+    return Boolean(template.builtin) && template.name === CLUSTER_ADMIN_NAME;
+}
+
+// grantRevokeBlock returns why a grant may not be revoked, or null when it may.
+// Only cluster_admin is protected, in the two cases that lock somebody out:
+// taking it off yourself, and taking the last one off the cluster. The backend
+// guard behind this is broader — it refuses to delete the last grant that can
+// manage access, whatever role it came from — so a custom access-managing role
+// does not unlock the last cluster_admin here.
+export function grantRevokeBlock(grant, {grants, templatesById, selfUserId} = {}) {
+    if (!isClusterAdminGrant(grant, templatesById)) return null;
+    if (selfUserId && Number(grant?.userId || 0) === Number(selfUserId)) {
+        return "You cannot remove your own cluster_admin role.";
+    }
+    const others = (grants || []).filter((g) =>
+        Number(g?.id || 0) !== Number(grant?.id || 0) && isClusterAdminGrant(g, templatesById));
+    if (!others.length) return "This is the last cluster_admin role and cannot be removed.";
+    return null;
+}
+
 export function groupGrantsByUser(grants) {
     const byUser = new Map();
     for (const grant of grants || []) {

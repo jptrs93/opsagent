@@ -10,13 +10,15 @@ import {
 } from "../state/deployments.js";
 import {
     describeGrant,
+    grantRevokeBlock,
     groupGrantsByUser,
+    isClusterAdminGrant,
     templateArguments,
 } from "../lib/authz.js";
 import {globalRuleOverlay, grantOverlay, ruleTemplateOverlay} from "../components/accessEditors.js";
 import {formatDate, formatDateTime} from "../lib/date.js";
 import {globalRuleDisplay, ruleDisplay} from "../components/ruleDisplay.js";
-import {chevronDownIcon, closeIcon, editIcon, plusIcon, trashIcon} from "../lib/icons.js";
+import {chevronDownIcon, closeIcon, editIcon, lockIcon, plusIcon, trashIcon} from "../lib/icons.js";
 
 const {div, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col, h2} = van.tags;
 
@@ -79,7 +81,7 @@ export function usersPage() {
                 }, "Close"))),
     );
 
-    const confirmOverlay = ({title, body, onConfirm}) => div(
+    const confirmOverlay = ({title, body, confirmLabel, onConfirm}) => div(
         {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
         div({class: "card w-full max-w-md flex flex-col gap-4 shadow-2xl"},
             h2({class: "text-base font-semibold"}, title),
@@ -97,7 +99,7 @@ export function usersPage() {
                         await onConfirm();
                         overlayS.val = null;
                     }),
-                }, "Delete"))),
+                }, confirmLabel || "Delete"))),
     );
 
     // ---- section band ------------------------------------------------------
@@ -140,6 +142,47 @@ export function usersPage() {
 
     // ---- users section -----------------------------------------------------
 
+    // Revoking a grant is one click, except for cluster_admin: losing it takes
+    // a user's whole cluster with it, so it asks first — and when it is the
+    // holder's own or the last one left, the × becomes a locked marker
+    // explaining why rather than a click that the backend would reject.
+    const revokeControl = (user, grant, chip) => {
+        const templates = templatesById();
+        const blocked = grantRevokeBlock(grant, {
+            grants: authzGrantsS.val,
+            templatesById: templates,
+            selfUserId: Number(loginS.val?.userId || 0),
+        });
+        const who = user.name || `user ${user.id}`;
+        if (blocked) {
+            // A padlock rather than a greyed ×: a cross that does nothing when
+            // clicked reads as a broken button.
+            return span({
+                title: blocked,
+                "aria-label": `${chip.label} cannot be revoked from ${who}`,
+                class: "inline-flex h-3.5 w-3.5 items-center justify-center rounded text-gray-600 cursor-not-allowed",
+            }, lockIcon({class: "w-2.5 h-2.5"}));
+        }
+        const revoke = () => capi.postV1AccessGrantsDelete({userId: user.id, id: grant.id});
+        return button({
+            type: "button",
+            title: "Revoke grant",
+            "aria-label": `Revoke ${chip.label} from ${who}`,
+            class: "inline-flex h-3.5 w-3.5 items-center justify-center rounded text-gray-500 hover:text-red-400 cursor-pointer",
+            onclick: () => {
+                if (!isClusterAdminGrant(grant, templates)) return run(revoke);
+                overlayS.val = {
+                    type: "confirm",
+                    title: "Revoke cluster_admin",
+                    body: `Remove the cluster_admin role from ${who}? They keep only their remaining grants, ` +
+                        "which may leave them with no access at all.",
+                    confirmLabel: "Revoke",
+                    onConfirm: revoke,
+                };
+            },
+        }, closeIcon({class: "w-3 h-3"}));
+    };
+
     const grantChip = (user, grant) => {
         const chip = describeGrant(grant, templatesById(), spaceNameMap());
         return span(
@@ -152,13 +195,7 @@ export function usersPage() {
             },
             span({class: `font-medium ${chip.template ? "text-blue-300" : "text-gray-200"}`}, chip.label),
             chip.detail ? span({class: "text-gray-400"}, chip.template ? `(${chip.detail})` : chip.detail) : "",
-            button({
-                type: "button",
-                title: "Revoke grant",
-                "aria-label": `Revoke ${chip.label} from ${user.name || user.id}`,
-                class: "inline-flex h-3.5 w-3.5 items-center justify-center rounded text-gray-500 hover:text-red-400 cursor-pointer",
-                onclick: () => run(() => capi.postV1AccessGrantsDelete({userId: user.id, id: grant.id})),
-            }, closeIcon({class: "w-3 h-3"})),
+            revokeControl(user, grant, chip),
         );
     };
 
