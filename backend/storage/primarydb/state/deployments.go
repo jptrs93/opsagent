@@ -75,10 +75,7 @@ func (s *Service) UpdateDeploymentConfig(ctx apigen.Context, deploymentID int32,
 	dbID := int64(deploymentID)
 	now := time.Now().UnixMilli()
 
-	userID := int64(0)
-	if ctx.User != nil {
-		userID = int64(ctx.User.ID)
-	}
+	userID := int64(ctx.AttributionUserID())
 
 	specBlob := update.Spec.Encode()
 
@@ -155,10 +152,7 @@ func (s *Service) mustSetDeploymentWorkloadStateLocked(ctx apigen.Context, deplo
 	bgCtx := context.Background()
 	dbID := int64(deploymentID)
 
-	userID := int64(0)
-	if ctx.User != nil {
-		userID = int64(ctx.User.ID)
-	}
+	userID := int64(ctx.AttributionUserID())
 
 	existing, err := s.q.GetDeploymentConfig(bgCtx, dbID)
 	if err != nil {
@@ -192,10 +186,7 @@ func (s *Service) MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int3
 	dbID := int64(deploymentID)
 	now := time.Now().UnixMilli()
 
-	userID := int64(0)
-	if ctx.User != nil {
-		userID = int64(ctx.User.ID)
-	}
+	userID := int64(ctx.AttributionUserID())
 
 	if spec == nil {
 		panic("deployment spec must not be nil")
@@ -247,10 +238,7 @@ func (s *Service) mustCreateDeploymentForNode(ctx apigen.Context, cid *apigen.De
 	bgCtx := context.Background()
 	now := time.Now().UnixMilli()
 
-	userID := int64(0)
-	if ctx.User != nil {
-		userID = int64(ctx.User.ID)
-	}
+	userID := int64(ctx.AttributionUserID())
 
 	if spec == nil {
 		panic("deployment spec must not be nil")

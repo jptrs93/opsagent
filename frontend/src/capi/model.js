@@ -65,10 +65,6 @@
  * @property {number} spaceId
  */
 /**
- * @typedef {Object} DeploymentUpgradeAllRequest
- * @property {string} targetVersion
- */
-/**
  * @typedef {Object} DeploymentCreateRequest
  * @property {DeploymentIdentity} identity
  * @property {DeploymentSpec} spec
@@ -661,6 +657,8 @@
  * @property {AuthzSelector} entityTypes
  * @property {AuthzSelector} entityRefs
  * @property {boolean} delegatedOnly
+ * @property {boolean} delegationAllowed
+ * @property {boolean} deny
  */
 /**
  * @typedef {Object} AuthzGlobalRuleRecord
@@ -2177,62 +2175,6 @@ function decodeDeploymentUpdateRequestMessage(reader, length) {
 export function decodeDeploymentUpdateRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeDeploymentUpdateRequestMessage(reader);
-}
-
-
-
-/**
- * @param {DeploymentUpgradeAllRequest} message
- * @param {Writer} writer
- */
-export function writeDeploymentUpgradeAllRequest(message, writer) {
-    if (message.targetVersion !== undefined && message.targetVersion !== null && message.targetVersion !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.targetVersion);
-    }
-}
-
-
-/**
- * @param {DeploymentUpgradeAllRequest} message
- * @returns {Uint8Array}
- */
-export function encodeDeploymentUpgradeAllRequest(message) {
-    const writer = Writer.create();
-    writeDeploymentUpgradeAllRequest(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {DeploymentUpgradeAllRequest}
- */
-function decodeDeploymentUpgradeAllRequestMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {targetVersion: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.targetVersion = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {DeploymentUpgradeAllRequest}
- */
-export function decodeDeploymentUpgradeAllRequest(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentUpgradeAllRequestMessage(reader);
 }
 
 
@@ -9300,6 +9242,12 @@ export function writeAuthzGlobalRule(message, writer) {
     if (message.delegatedOnly === true) {
         writer.uint32(tag(5, WIRE.VARINT)).bool(message.delegatedOnly);
     }
+    if (message.delegationAllowed === true) {
+        writer.uint32(tag(7, WIRE.VARINT)).bool(message.delegationAllowed);
+    }
+    if (message.deny === true) {
+        writer.uint32(tag(8, WIRE.VARINT)).bool(message.deny);
+    }
 }
 
 
@@ -9321,7 +9269,7 @@ export function encodeAuthzGlobalRule(message) {
  */
 function decodeAuthzGlobalRuleMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {permissions: undefined, spaces: undefined, entityTypes: undefined, entityRefs: undefined, delegatedOnly: false };
+    const message = {permissions: undefined, spaces: undefined, entityTypes: undefined, entityRefs: undefined, delegatedOnly: false, delegationAllowed: false, deny: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9343,6 +9291,14 @@ function decodeAuthzGlobalRuleMessage(reader, length) {
             }
             case 5: {
                 message.delegatedOnly = reader.bool();
+                break;
+            }
+            case 7: {
+                message.delegationAllowed = reader.bool();
+                break;
+            }
+            case 8: {
+                message.deny = reader.bool();
                 break;
             }
             default:

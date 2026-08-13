@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS value_directories (
     name        TEXT    NOT NULL,
     parent_id   INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
     created_at  INTEGER NOT NULL,            -- epoch ms
-    created_by  INTEGER NOT NULL DEFAULT 0   -- user id; 0 = unknown/system
+    created_by  INTEGER NOT NULL DEFAULT 0   -- user id; 0 = unknown/system, negative = agent of user -created_by
 );
 
 -- Stable config identities. configs.id survives renames, moves, and new
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS configs (
     space_id           INTEGER NOT NULL DEFAULT 1,
     value_directory_id INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
     created_at         INTEGER NOT NULL,            -- epoch ms
-    created_by         INTEGER NOT NULL DEFAULT 0   -- user id; 0 = unknown/system
+    created_by         INTEGER NOT NULL DEFAULT 0   -- user id; 0 = unknown/system, negative = agent of user -created_by
 );
 
 -- Immutable versions. Deployment env refs and system settings pin
@@ -34,6 +34,6 @@ CREATE TABLE IF NOT EXISTS config_versions (
     version     INTEGER NOT NULL,
     value       TEXT    NOT NULL DEFAULT '',
     created_at  INTEGER NOT NULL,            -- epoch ms
-    created_by  INTEGER NOT NULL DEFAULT 0,  -- user id; 0 = unknown/system
+    created_by  INTEGER NOT NULL DEFAULT 0,  -- user id; 0 = unknown/system, negative = agent of user -created_by
     UNIQUE (config_id, version)
 );

@@ -187,6 +187,7 @@ func TestAccessGlobalRuleCRUD(t *testing.T) {
 			Spaces:      wildcardSelector(),
 			EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_SECRET)}},
 			EntityRefs:  wildcardSelector(),
+			Deny:        true,
 		},
 	})
 	if err != nil {
@@ -203,9 +204,10 @@ func TestAccessGlobalRuleCRUD(t *testing.T) {
 			Spaces:      wildcardSelector(),
 			EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS)}},
 			EntityRefs:  wildcardSelector(),
+			Deny:        true,
 		},
 	}); err == nil {
-		t.Fatal("access-entity global rule should be rejected")
+		t.Fatal("access-entity global deny rule should be rejected")
 	} else if apiErr, ok := err.(apigen.ApiErr); !ok || apiErr.Code != 400 {
 		t.Fatalf("validation failure should map to a 400 ApiErr, got %v", err)
 	}
@@ -214,8 +216,8 @@ func TestAccessGlobalRuleCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(listed.Items) != 1 {
-		t.Fatalf("expected 1 global rule, got %d", len(listed.Items))
+	if len(listed.Items) != 2 {
+		t.Fatalf("expected the seeded default rule plus 1 created, got %d", len(listed.Items))
 	}
 
 	if err := h.PostV1AccessGlobalRulesDelete(ctx, &apigen.AuthzGlobalRuleDeleteRequest{ID: rule.ID}); err != nil {

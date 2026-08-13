@@ -88,6 +88,11 @@ func (h *Handler) PostV1SecretsCreate(ctx apigen.Context, req *apigen.SecretCrea
 	if err := h.requireAccess(ctx, vCreate, eSecret, valueSpace(req.SpaceID), 0); err != nil {
 		return nil, err
 	}
+	// A caller supplying the value knows it, so this path also demands reveal;
+	// create alone only covers Generate, where the value never leaves the server.
+	if err := h.requireAccess(ctx, vReveal, eSecret, valueSpace(req.SpaceID), 0); err != nil {
+		return nil, err
+	}
 	meta, err := h.Secrets.Create(req.Name, req.Value, requestUserID(ctx), req.SpaceID, req.ValueDirectoryID)
 	if err != nil {
 		return nil, mapSecretErr(err)

@@ -71,15 +71,27 @@ test("formatRule renders the five-position grammar", () => {
     assert.equal(formatRule(rule, {spaceNames: SPACES}), "*-opendeploy:*:*:*-reveal:true");
 });
 
-test("formatGlobalRule omits the delegation position", () => {
+test("formatGlobalRule omits the delegation position on denies", () => {
     const rule = {
         permissions: include(3),
         spaces: include(0),
         entityTypes: include(3),
         entityRefs: wildcard(),
+        deny: true,
         delegatedOnly: true,
     };
     assert.equal(formatGlobalRule(rule, {spaceNames: SPACES}), "opendeploy:secret:*:reveal");
+});
+
+test("formatGlobalRule keeps the delegation position on allows", () => {
+    const rule = {
+        permissions: include(1),
+        spaces: include(0),
+        entityTypes: include(8),
+        entityRefs: wildcard(),
+        delegationAllowed: true,
+    };
+    assert.equal(formatGlobalRule(rule, {spaceNames: SPACES}), "opendeploy:user:*:view:true");
 });
 
 test("describeSelector reads naturally", () => {

@@ -350,9 +350,11 @@ export function logsPage(selectedDeploymentId) {
     };
 
     return div(
-        {class: "h-full min-h-0 overflow-hidden p-3 flex flex-col gap-2"},
+        // bg-surface: like the assets and secrets explorers, the page is one
+        // flush surface running to the window and sidebar edges.
+        {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
         div(
-            {class: "card p-2 flex flex-wrap items-stretch gap-2"},
+            {class: "flex flex-none flex-wrap items-stretch gap-2 border-b border-gray-700 px-2 py-2"},
             div(
                 {class: "flex flex-col gap-1"},
                 field("space", spaceSelect),
@@ -410,7 +412,7 @@ export function logsPage(selectedDeploymentId) {
             }, () => loading.val ? 'Searching...' : 'Search'),
         ),
         div(
-            {class: "px-1 grid grid-cols-1 items-center gap-x-4 gap-y-1 text-xs md:grid-cols-[auto_minmax(0,1fr)_auto]"},
+            {class: "flex-none px-3 py-1.5 grid grid-cols-1 items-center gap-x-4 gap-y-1 text-xs md:grid-cols-[auto_minmax(0,1fr)_auto]"},
             input({
                 "data-testid": "logs-result-filter-input",
                 class: "input h-7 w-full px-2 py-1 text-xs md:w-64",
@@ -423,7 +425,9 @@ export function logsPage(selectedDeploymentId) {
         ),
         p({class: "sr-only", "aria-live": "polite"}, () => status.val),
         outputPre = pre(
-            {"data-testid": "logs-output", class: "app-scroll rounded-lg bg-gray-950 border border-gray-800 p-3 overflow-auto flex-1 min-h-0 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
+            // Full-bleed on the recessed gray-950: the darker surface is the
+            // output area's whole separation, matching the flush explorer pages.
+            {"data-testid": "logs-output", class: "app-scroll bg-gray-950 p-3 overflow-auto flex-1 min-h-0 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
             filteredOutput,
         ),
     );

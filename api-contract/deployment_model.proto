@@ -170,10 +170,6 @@ message DeploymentUpdateRequest {
   optional int32 space_id = 7;                     // optional: move deployment to another space
 }
 
-message DeploymentUpgradeAllRequest {
-  string target_version = 1;
-}
-
 message DeploymentCreateRequest {
   DeploymentIdentity identity = 1 [(cp.go_value) = true];
   DeploymentSpec spec = 2 [(cp.go_value) = true];
@@ -489,6 +485,7 @@ message DeploymentConfig {
   DeploymentIdentity identity = 3 [(cp.go_value) = true];
   int64 created_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int64 updated_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  // user id; 0 = unknown/system, negative = agent of user -updated_by
   int32 updated_by = 6;
   int32 version = 7;  // per-deployment monotonically increasing config version
   DeploymentSpec spec = 8 [(cp.go_value) = true];

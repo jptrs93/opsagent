@@ -72,10 +72,7 @@ func mapAssetStoreErr(err error) error {
 }
 
 func requestUserID(ctx apigen.Context) int32 {
-	if ctx.User == nil {
-		return 0
-	}
-	return ctx.User.ID
+	return ctx.AttributionUserID()
 }
 
 func (h *Handler) PostV1AssetsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.AssetList, error) {

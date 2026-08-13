@@ -30,6 +30,12 @@ const nameSpan = (text) => span({class: "text-blue-300"}, text);
 const nameList = (names) => names.flatMap((n, i) => i ? [", ", nameSpan(n)] : [nameSpan(n)]);
 const argSpan = (argName) => span({class: "text-amber-300"}, "${" + argName + "}");
 
+// The intersected selector chips read as set expressions: an explicit list of
+// two or more values is braced and union-joined ("{ nodes ∪ users }"), a
+// single value stands bare.
+const unionList = (names) => names.length === 1 ? [nameSpan(names[0])] :
+    ["{ ", ...names.flatMap((n, i) => i ? [" ∪ ", nameSpan(n)] : [nameSpan(n)]), " }"];
+
 // chip builds one segment of a rule row. Variants are ordered longest-first
 // and end with a form acceptable at any width; which one shows is decided for
 // the row as a whole by fitRow(), not by the segment itself.
@@ -97,13 +103,13 @@ const spacesChip = (sel, {spaceNames, argNames} = {}) => {
     } else if (sel?.wildcard) {
         const excluded = sel.exclude || [];
         tiers = !excluded.length ? ["all spaces"] : [
-            listable(excluded) && tier("all spaces except ", ...nameList(excluded.map(name))),
+            listable(excluded) && tier("all spaces except ", ...unionList(excluded.map(name))),
             `all spaces except ${excluded.length}`,
         ];
     } else if ((sel?.include || []).length) {
         const included = sel.include;
         tiers = [
-            listable(included) && tier(...nameList(included.map(name)), included.length === 1 ? " space" : " spaces"),
+            listable(included) && tier(...unionList(included.map(name)), included.length === 1 ? " space" : " spaces"),
             `${included.length} ${included.length === 1 ? "space" : "spaces"}`,
         ];
     } else {
@@ -112,53 +118,127 @@ const spacesChip = (sel, {spaceNames, argNames} = {}) => {
     return chip(tiers.filter(Boolean), {title});
 };
 
-const entityTypesChip = (sel, {spaceNames, argNames} = {}) => {
-    const name = (v) => positionValueName("entityTypes", v, spaceNames);
-    const title = formatSelector(sel, "entityTypes", {spaceNames, argNames});
-    let tiers;
-    if (sel?.argumentId) {
-        const arg = argNames?.get?.(Number(sel.argumentId)) || `arg_${sel.argumentId}`;
-        tiers = [tier(argSpan(arg))];
-    } else if (sel?.wildcard) {
-        const excluded = sel.exclude || [];
-        tiers = !excluded.length ? ["all resource types", "all types"] : [
-            listable(excluded) && tier("all types except ", ...nameList(excluded.map(name))),
-            `all types except ${excluded.length}`,
-        ];
-    } else if ((sel?.include || []).length) {
-        const included = sel.include;
-        tiers = [
-            listable(included) && tier(...nameList(included.map(name)), included.length === 1 ? " type" : " types"),
-            `${included.length} resource ${included.length === 1 ? "type" : "types"}`,
-            `${included.length} ${included.length === 1 ? "type" : "types"}`,
-        ];
-    } else {
-        tiers = ["no types"];
-    }
-    return chip(tiers.filter(Boolean), {title});
+// Resource types render as their plural noun alone — "secrets", never
+// "secret type" — so the phrase reads as the set of things the rule touches.
+const typeSingular = (v, spaceNames) => positionValueName("entityTypes", v, spaceNames);
+const typePlural = (v, spaceNames) => {
+    const singular = typeSingular(v, spaceNames);
+    return singular === "access" ? singular : `${singular}s`;
 };
 
-const entityRefsChip = (sel, {argNames} = {}) => {
-    const ref = (v) => `#${v}`;
-    const title = formatSelector(sel, "entityRefs", {argNames});
-    let tiers;
+const selKind = (sel) => sel?.argumentId ? "arg" :
+    sel?.wildcard ? ((sel.exclude || []).length ? "allExcept" : "all") :
+    (sel?.include || []).length ? "list" : "empty";
+
+// Uncollapsed per-selector ladders, used only when the instances × resources
+// pair cannot be collapsed (see entitiesChip).
+const typesTierList = (sel, spaceNames, argNames) => {
+    const name = (v) => typePlural(v, spaceNames);
     if (sel?.argumentId) {
         const arg = argNames?.get?.(Number(sel.argumentId)) || `arg_${sel.argumentId}`;
-        tiers = [tier(argSpan(arg))];
-    } else if (sel?.wildcard) {
+        return [tier(argSpan(arg))];
+    }
+    if (sel?.wildcard) {
         const excluded = sel.exclude || [];
-        tiers = !excluded.length ? ["all instances"] : [
-            listable(excluded) && tier("all instances except ", ...nameList(excluded.map(ref))),
-            `all instances except ${excluded.length}`,
-        ];
-    } else if ((sel?.include || []).length) {
+        return !excluded.length ? ["all resources"] : [
+            listable(excluded) && tier("all resources except ", ...unionList(excluded.map(name))),
+            `all resources except ${excluded.length}`,
+        ].filter(Boolean);
+    }
+    if ((sel?.include || []).length) {
         const included = sel.include;
-        tiers = [
-            listable(included) && tier(included.length === 1 ? "instance " : "instances ", ...nameList(included.map(ref))),
+        return [
+            listable(included) && tier(...unionList(included.map(name))),
+            `${included.length} ${included.length === 1 ? "resource" : "resources"}`,
+        ].filter(Boolean);
+    }
+    return ["no resources"];
+};
+
+const refsTierList = (sel, argNames) => {
+    const ref = (v) => `#${v}`;
+    if (sel?.argumentId) {
+        const arg = argNames?.get?.(Number(sel.argumentId)) || `arg_${sel.argumentId}`;
+        return [tier(argSpan(arg))];
+    }
+    if (sel?.wildcard) {
+        const excluded = sel.exclude || [];
+        return !excluded.length ? ["all instances"] : [
+            listable(excluded) && tier("all instances except ", ...unionList(excluded.map(ref))),
+            `all instances except ${excluded.length}`,
+        ].filter(Boolean);
+    }
+    if ((sel?.include || []).length) {
+        const included = sel.include;
+        return [
+            listable(included) && tier(included.length === 1 ? "instance " : "instances ", ...unionList(included.map(ref))),
             `${included.length} ${included.length === 1 ? "instance" : "instances"}`,
+        ].filter(Boolean);
+    }
+    return ["no instances"];
+};
+
+// entitiesChip renders the <instances> of <resources> pair as one noun phrase,
+// collapsing "of" away whenever one side is trivial:
+//   1. either side empty                → "nothing"
+//   2. all instances of all resources   → "everything"
+//   3. all instances, all types except  → "everything except { secrets ∪ users }"
+//   4. all instances of listed types    → "all secrets" / "{ all nodes ∪ all users }"
+//   5. listed ids of one type           → "secret #4" / "secrets { #4 ∪ #7 }"
+//   6. all-except ids of one type       → "all secrets except { #4 ∪ #7 }"
+//   7. anything else stays uncollapsed  → "instances { #4 ∪ #7 } of { nodes ∪ users }"
+// Ids against multiple or wildcard types (rule 7) are semantically murky — id
+// spaces are per-type — so the verbose form is deliberate.
+const entitiesChip = (refsSel, typesSel, {spaceNames, argNames} = {}) => {
+    const title = formatSelector(typesSel, "entityTypes", {spaceNames, argNames}) + " : " +
+        formatSelector(refsSel, "entityRefs", {argNames});
+    const nKind = selKind(refsSel), tKind = selKind(typesSel);
+    const types = typesSel?.include || [];
+    const ids = (refsSel?.include || []).map((v) => `#${v}`);
+    const exIds = (refsSel?.exclude || []).map((v) => `#${v}`);
+    let tiers = null;
+    if (nKind === "empty" || tKind === "empty") {
+        tiers = ["nothing"];
+    } else if (nKind === "all" && tKind === "all") {
+        tiers = ["everything"];
+    } else if (nKind === "all" && tKind === "allExcept") {
+        const excluded = typesSel.exclude.map((v) => typePlural(v, spaceNames));
+        tiers = [
+            listable(excluded) && tier("everything except ", ...unionList(excluded)),
+            `everything except ${excluded.length}`,
         ];
-    } else {
-        tiers = ["no instances"];
+    } else if (nKind === "all" && tKind === "list") {
+        const named = types.map((v) => typePlural(v, spaceNames));
+        tiers = [
+            listable(named) && (named.length === 1
+                ? tier("all ", nameSpan(named[0]))
+                : tier("{ ", ...named.flatMap((n, i) => i ? [" ∪ ", "all ", nameSpan(n)] : ["all ", nameSpan(n)]), " }")),
+            `all of ${named.length} ${named.length === 1 ? "resource" : "resources"}`,
+        ];
+    } else if (nKind === "all" && tKind === "arg") {
+        const arg = argNames?.get?.(Number(typesSel.argumentId)) || `arg_${typesSel.argumentId}`;
+        tiers = [tier("all ", argSpan(arg))];
+    } else if (nKind === "list" && tKind === "list" && types.length === 1) {
+        const noun = ids.length === 1 ? typeSingular(types[0], spaceNames) : typePlural(types[0], spaceNames);
+        tiers = [
+            listable(ids) && tier(nameSpan(noun), " ", ...unionList(ids)),
+            `${ids.length} ${noun}`,
+        ];
+    } else if (nKind === "allExcept" && tKind === "list" && types.length === 1) {
+        const noun = typePlural(types[0], spaceNames);
+        tiers = [
+            listable(exIds) && tier("all ", nameSpan(noun), " except ", ...unionList(exIds)),
+            `all ${noun} except ${exIds.length}`,
+        ];
+    }
+    if (!tiers) {
+        const refs = refsTierList(refsSel, argNames);
+        const typeTiers = typesTierList(typesSel, spaceNames, argNames);
+        const levels = Math.max(refs.length, typeTiers.length);
+        tiers = Array.from({length: levels}, (_, i) => tier(
+            ...tierNodes(refs[Math.min(i, refs.length - 1)]),
+            " of ",
+            ...tierNodes(typeTiers[Math.min(i, typeTiers.length - 1)])));
     }
     return chip(tiers.filter(Boolean), {title});
 };
@@ -209,13 +289,6 @@ const delegatedOnlyChip = (delegatedOnly) => chip(
     },
 );
 
-// The selector chips in the middle of a rule are joined by a small centred
-// intersection symbol — a rule matches where all of its selectors overlap. It
-// never shrinks, so narrowing the row squeezes the chips instead.
-const chipIntersect = () => div({
-    class: "flex shrink-0 items-center px-0.5 text-[10px] leading-none text-gray-600 select-none",
-}, "∩");
-
 // Connector words ("allow", "on", "by") are fixed phrasing between chips: like
 // arrows they never shrink or change tier.
 const chipWord = (text, wordClass) => div({
@@ -225,7 +298,7 @@ const chipWord = (text, wordClass) => div({
 // The segments of one rule form a single unioned pill: one rounded border and
 // background around the row, no per-chip chrome. w-fit keeps the pill hugging
 // its content while max-w-full still lets the segments shrink inside a narrow
-// cell. Items are chips or fixed separators (connector words, ∩); separators
+// cell. Items are chips or fixed separators (connector words); separators
 // are laid out as-is and their width counts as chrome when fitting the chips.
 const chipRow = (title, ...items) => {
     const chips = items.filter((it) => it.el);
@@ -249,18 +322,18 @@ const chipRow = (title, ...items) => {
     return wrap;
 };
 
+// The selectors read as one prepositional chain — a rule matches where all of
+// them overlap: "on <instances of resources> in <spaces>".
 const selectorChips = (rule, opts) => [
+    entitiesChip(rule.entityRefs, rule.entityTypes, opts),
+    chipWord("in"),
     spacesChip(rule.spaces, opts),
-    chipIntersect(),
-    entityTypesChip(rule.entityTypes, opts),
-    chipIntersect(),
-    entityRefsChip(rule.entityRefs, opts),
 ];
 
 // ruleDisplay renders one authz rule as a sentence of human-readable chips:
-// "allow <actions> on <spaces> ∩ <types> ∩ <instances> by <user + agents|user
-// only>". The row never wraps; the phrasings step down together as the row
-// narrows. Hovering shows the raw grammar.
+// "allow <actions> on <instances> of <resources> in <spaces> by <user +
+// agents|user only>". The row never wraps; the phrasings step down together as
+// the row narrows. Hovering shows the raw grammar.
 export const ruleDisplay = (rule, {spaceNames, argNames} = {}) => {
     if (!rule) return "";
     const opts = {spaceNames, argNames};
@@ -273,12 +346,22 @@ export const ruleDisplay = (rule, {spaceNames, argNames} = {}) => {
         delegationChip(rule.delegationAllowed));
 };
 
-// globalRuleDisplay is the deny-rule variant: same sentence shape with a red
-// "deny", and the trailing chip states who the deny applies to instead of
-// delegability.
+// globalRuleDisplay renders a global rule in either mode: an allow-mode rule
+// reads exactly like a grant everyone holds (green "allow", delegation chip),
+// a deny-mode rule keeps the red "deny" with a trailing chip stating who the
+// deny applies to instead of delegability.
 export const globalRuleDisplay = (rule, {spaceNames, argNames} = {}) => {
     if (!rule) return "";
     const opts = {spaceNames, argNames};
+    if (!rule.deny) {
+        return chipRow(formatGlobalRule(rule, opts),
+            chipWord("allow", "text-green-400"),
+            permissionsChip(rule.permissions, opts),
+            chipWord("on"),
+            ...selectorChips(rule, opts),
+            chipWord("by"),
+            delegationChip(rule.delegationAllowed));
+    }
     return chipRow(formatGlobalRule(rule, opts),
         chipWord("deny", "text-red-400"),
         permissionsChip(rule.permissions, opts),

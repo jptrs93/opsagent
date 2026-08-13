@@ -1,5 +1,6 @@
 import {expect, test} from '@playwright/test';
 import {installVirtualAuthenticator} from '../helpers/webauthn.js';
+import {spaceMoveCases} from './space-moves.js';
 import {
   bootstrapFirstUser,
   createAsset,
@@ -151,29 +152,33 @@ export const accessEnforcementCases = [
   },
   {
     id: 'access-restricted-blank-slate',
-    title: 'verify a user without grants sees nothing',
-    description: 'With every grant revoked, the live state stream empties the restricted session: no deployments, spaces, secrets, assets, nodes, other users, or cluster settings.',
+    title: 'verify a user without grants sees only the defaults',
+    description: 'With every grant revoked, the live state stream empties the restricted session — no deployments, secrets, assets, nodes, or cluster settings — while the seeded default_user_visibility rule keeps the user roster visible.',
     requires: ['access-restricted-user-reduced'],
     async run(ctx) {
       const page = restrictedPage(ctx);
 
       await expectHiddenAdminContent(page);
 
-      await test.step('no spaces are visible', async () => {
+      await test.step('only the _system space row is visible', async () => {
+        // The seeded roster rule touches space 0, and any rule a user holds
+        // makes its spaces' rows visible, so _system shows even here.
         await page.getByTestId('nav-spaces').click();
-        await expect(page.getByText('No spaces yet. Click Add space.')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+        await expect(spaceRow(page, '_system')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+        await expect(spaceRow(page, 'global')).toHaveCount(0);
+        await expect(spaceRow(page, RESTRICTED_SPACE)).toHaveCount(0);
       });
 
-      await test.step('no nodes are visible', async () => {
+      await test.step('no nodes are visible without a grant touching their spaces', async () => {
         await page.getByTestId('nav-cluster').click();
         await expect(page.getByText('No nodes found.')).toBeVisible({timeout: LONG_UI_TIMEOUT});
         await expect(page.locator('[data-testid^="machine-row-"]')).toHaveCount(0);
       });
 
-      await test.step('users page shows only self, templates, and no global rules', async () => {
+      await test.step('users page shows the full roster, templates, and no global rules', async () => {
         await page.getByTestId('nav-users').click();
         await expect(userRow(page, RESTRICTED_USER)).toBeVisible({timeout: LONG_UI_TIMEOUT});
-        await expect(userRow(page, ADMIN_USER)).toHaveCount(0);
+        await expect(userRow(page, ADMIN_USER)).toBeVisible();
         await expect(templateRow(page, 'cluster_admin')).toBeVisible();
         await expect(templateRow(page, 'space_admin')).toBeVisible();
         await expect(page.getByText(/No global rules/)).toBeVisible();
@@ -200,7 +205,7 @@ export const accessEnforcementCases = [
   {
     id: 'access-restricted-space-visible',
     title: 'verify the space admin sees exactly its scope',
-    description: 'The restricted session now sees the granted space, the node directory, and all users, while global-space content stays hidden.',
+    description: 'The restricted session now sees the granted space, the nodes that allow it, and all users, while global-space content stays hidden.',
     requires: ['access-restricted-space-granted'],
     async run(ctx) {
       const page = restrictedPage(ctx);
@@ -212,7 +217,7 @@ export const accessEnforcementCases = [
         await expect(spaceRow(page, 'global')).toHaveCount(0);
       });
 
-      await test.step('nodes become visible through the builtin directory rule', async () => {
+      await test.step('nodes become visible through their allowed spaces', async () => {
         await page.getByTestId('nav-cluster').click();
         const workerRow = page.getByTestId(`machine-row-${requiredEnv('OPD_WORKER_1_MACHINE_ID')}`);
         await expect(workerRow).toBeVisible({timeout: LONG_UI_TIMEOUT});
@@ -327,6 +332,10 @@ export const accessEnforcementCases = [
       await expect(spaceRow(ctx.page, 'global')).toBeVisible();
     },
   },
+  // Cross-space move coverage runs here on purpose: the restricted deployment
+  // and values still exist to act as reference pins, and the restricted
+  // session is a live observer for stream tombstones.
+  ...spaceMoveCases,
   {
     id: 'access-restricted-deployment-managed',
     title: 'update, stop, and delete the restricted deployment',

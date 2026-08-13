@@ -504,10 +504,12 @@ export function grantOverlay({user, templates, spaces, spaceNames, onClose}) {
     });
 }
 
-// globalRuleOverlay creates a deny rule evaluated before every grant.
+// globalRuleOverlay creates a global rule: a deny evaluated before every
+// grant, or an allow evaluated alongside grants as if every user held it.
 export function globalRuleOverlay({spaces, spaceNames, onClose}) {
     const name = van.state("");
     const rs = newRuleState(null);
+    const mode = van.state("deny");
     const delegatedOnly = van.state(false);
     const error = van.state(null);
     const saving = van.state(false);
@@ -515,12 +517,15 @@ export function globalRuleOverlay({spaces, spaceNames, onClose}) {
 
     const buildRule = () => {
         const rule = ruleFromState(rs);
+        const deny = mode.val === "deny";
         return {
             permissions: rule.permissions,
             spaces: rule.spaces,
             entityTypes: rule.entityTypes,
             entityRefs: rule.entityRefs,
-            delegatedOnly: delegatedOnly.val,
+            deny,
+            delegatedOnly: deny && delegatedOnly.val,
+            delegationAllowed: !deny && rs.delegation.val,
         };
     };
 
@@ -538,13 +543,22 @@ export function globalRuleOverlay({spaces, spaceNames, onClose}) {
         }
     };
 
+    const modeButton = (value, text) => button({
+        type: "button",
+        class: () => `rounded px-2.5 py-1 text-xs border cursor-pointer transition-colors ` +
+            (mode.val === value ? "border-brand text-gray-100 bg-brand/15" : "border-gray-600 text-gray-400 hover:bg-surface-hover"),
+        onclick: () => { mode.val = value; },
+    }, text);
+
     return overlayShell({
         title: "New global rule",
-        subtitle: "Global rules deny matching requests before any user grant is considered.",
+        subtitle: "A deny rule blocks matching requests before any user grant is considered; " +
+            "an allow rule grants matching requests to every user, though denies still beat it.",
         body: [
             nameField(name, "rule_name"),
-            ruleEditorCard({
-                heading: "Denies",
+            div({class: "flex items-center gap-2"}, modeButton("deny", "Deny"), modeButton("allow", "Allow")),
+            () => ruleEditorCard({
+                heading: mode.val === "allow" ? "Allows" : "Denies",
                 positions: POSITIONS.map(({key, label}) => positionEditor({
                     st: rs.positions[key],
                     label,
@@ -554,13 +568,21 @@ export function globalRuleOverlay({spaces, spaceNames, onClose}) {
                     openMenu,
                     menuKey: `global:${key}`,
                 })),
-                toggle: toggleEditor({
-                    label: "Applies to",
-                    state: delegatedOnly,
-                    onText: "agents only ✓",
-                    offText: "agents only ✗",
-                    title: "Only deny delegated agent sessions",
-                }),
+                toggle: mode.val === "allow"
+                    ? toggleEditor({
+                        label: "Agents",
+                        state: rs.delegation,
+                        onText: "agents ✓",
+                        offText: "agents ✗",
+                        title: "Whether delegated agent sessions also receive this rule",
+                    })
+                    : toggleEditor({
+                        label: "Applies to",
+                        state: delegatedOnly,
+                        onText: "agents only ✓",
+                        offText: "agents only ✗",
+                        title: "Only deny delegated agent sessions",
+                    }),
                 preview: () => globalRuleDisplay(buildRule(), {spaceNames: spaceNames()}),
                 onRemove: null,
             }),

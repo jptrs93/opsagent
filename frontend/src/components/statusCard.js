@@ -60,24 +60,18 @@ const prepareStatusCopy = (preparer, prepareVersion) => {
 const instanceTestID = (prefix, statusKey, instance, index, count) =>
     `${prefix}-${statusKey}${count > 1 ? `-${instance.instanceId || index + 1}` : ''}`;
 
-export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, onFork, opts = {}) {
-    const showSpace = opts.showSpace !== false;
-    const onViewConfig = opts.onViewConfig || (() => {});
-    const onDelete = opts.onDelete || (() => {});
-    const canDelete = deployment.canDelete ?? deployment.existingStatus === STATUS_STOPPED;
-    const statusKey = deployment.name || deployment.id;
-    const scheduledInstances = deployment.scheduledInstances?.length > 0
-        ? deployment.scheduledInstances
-        : [deployment];
-    const scheduledInstanceCellClass = scheduledInstances.length > 1 ? 'h-7' : 'h-10';
-    const menuOpen = van.state(false);
-    const actionButtonClass = "rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-xs leading-none px-2 py-1.5 cursor-pointer";
+const actionButtonClass = "rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-xs leading-none px-2 py-1.5 cursor-pointer";
+
+// rowActionsMenu owns one floating ".." menu: appended to document.body so
+// overflow containers cannot clip it, positioned against the toggle anchor, and
+// closed on outside click, scroll, or resize. buildItems receives a menuAction
+// factory and returns the menu's child nodes. Returns the toggle handler.
+function rowActionsMenu(buildItems) {
     let menuEl = null;
     let offMenuClick = null;
     let offViewportHandlers = null;
 
     const closeMenu = () => {
-        menuOpen.val = false;
         if (offMenuClick) {
             document.removeEventListener('mousedown', offMenuClick);
             offMenuClick = null;
@@ -122,16 +116,13 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
     }, label);
 
     const openMenu = (anchor) => {
-        menuOpen.val = true;
         menuEl = div(
             {
                 class: "fixed z-50 min-w-28 overflow-hidden rounded-lg border border-gray-700 bg-gray-900 py-1 text-left shadow-xl",
                 onmousedown: (e) => e.stopPropagation(),
                 style: "visibility:hidden",
             },
-            menuAction("View config", () => onViewConfig(deployment)),
-            menuAction("Fork", () => onFork(deployment)),
-            canDelete ? menuAction("Delete", () => onDelete(deployment)) : '',
+            ...buildItems(menuAction),
         );
         document.body.appendChild(menuEl);
         positionMenu(anchor);
@@ -148,14 +139,31 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
         };
     };
 
-    const toggleMenu = (e) => {
+    return (e) => {
         e.stopPropagation();
-        if (menuOpen.val) {
+        if (menuEl) {
             closeMenu();
             return;
         }
         openMenu(e.currentTarget);
     };
+}
+
+export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, onFork, opts = {}) {
+    const showSpace = opts.showSpace !== false;
+    const onViewConfig = opts.onViewConfig || (() => {});
+    const onDelete = opts.onDelete || (() => {});
+    const canDelete = deployment.canDelete ?? deployment.existingStatus === STATUS_STOPPED;
+    const statusKey = deployment.name || deployment.id;
+    const scheduledInstances = deployment.scheduledInstances?.length > 0
+        ? deployment.scheduledInstances
+        : [deployment];
+    const scheduledInstanceCellClass = scheduledInstances.length > 1 ? 'h-7' : 'h-10';
+    const toggleMenu = rowActionsMenu((menuAction) => [
+        menuAction("View config", () => onViewConfig(deployment)),
+        menuAction("Fork", () => onFork(deployment)),
+        canDelete ? menuAction("Delete", () => onDelete(deployment)) : '',
+    ]);
 
     return tr(
         {class: "border-b border-gray-800 last:border-0 hover:bg-gray-800/60 transition-colors", "data-testid": `deployment-row-${deployment.name || deployment.id}`},
@@ -238,6 +246,130 @@ export function statusRow(deployment, onShowHistory, onShowRunOutput, onShowPrep
                 button({
                     class: actionButtonClass,
                     onclick: () => onUpdate(deployment),
+                    type: "button",
+                }, "Update"),
+                button({
+                    class: actionButtonClass,
+                    onmousedown: (e) => e.stopPropagation(),
+                    onclick: toggleMenu,
+                    type: "button",
+                    title: "More actions",
+                }, ".."),
+            ),
+        ),
+    );
+}
+
+// systemGroupStatusRow renders the single merged row for one internal system
+// deployment (opendeploy or opendeploy-net). Every member is the same logical
+// deployment on one node, so Node, Status, Version, Prepare, Restarts, and the
+// audit cells split into one subline per member scheduled instance, aligned
+// across columns. Subline clicks (run output, prepare output) target that
+// member's deployment; the row-level Update action receives the whole group.
+export function systemGroupStatusRow(group, handlers, opts = {}) {
+    const showSpace = opts.showSpace !== false;
+    const {onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, onViewConfig, onDelete} = handlers;
+    const members = group.members || [];
+    const sublines = members.flatMap(member => {
+        const instances = member.scheduledInstances?.length > 0 ? member.scheduledInstances : [member];
+        return instances.map((instance, index) => ({
+            member,
+            instance,
+            // Node-keyed testids; the ordinal disambiguates a member's transient
+            // second instance during rollover.
+            testSuffix: `${group.name}-${member.node}${instances.length > 1 ? `-${instance.instanceId || index + 1}` : ''}`,
+        }));
+    });
+    const cellClass = sublines.length > 1 ? 'h-7' : 'h-10';
+    const toggleMenu = rowActionsMenu((menuAction) => members.flatMap(member => [
+        menuAction(`History — ${member.node}`, () => onShowHistory(member)),
+        menuAction(`View config — ${member.node}`, () => onViewConfig(member)),
+        member.canDelete ? menuAction(`Delete — ${member.node}`, () => onDelete(member)) : '',
+    ]));
+
+    return tr(
+        {class: "border-b border-gray-800 last:border-0 hover:bg-gray-800/60 transition-colors", "data-testid": `deployment-row-${group.name}`},
+        td(
+            {class: "py-2 pl-4 pr-3 align-middle min-w-32"},
+            span({class: "font-medium text-sm text-white break-words"}, group.name),
+        ),
+        showSpace ? td({class: "py-2 px-3 align-middle text-sm text-gray-300 whitespace-nowrap"}, group.spaceName || '-') : '',
+        td(
+            {class: "align-middle text-sm text-gray-300 whitespace-nowrap"},
+            ...sublines.map(({member}) => div(
+                {class: `${cellClass} flex items-center gap-1.5 px-3`},
+                span({class: "truncate min-w-0"}, member.node || '-'),
+                member.isPrimaryNode ? span({class: "text-[10px] uppercase tracking-wide text-gray-500"}, 'primary') : '',
+            )),
+        ),
+        td(
+            {class: "align-middle whitespace-nowrap"},
+            ...sublines.map(({member, instance, testSuffix}) => {
+                const {hasRunOutput, colors} = instanceStatusDisplay(member, instance);
+                return div(
+                    {class: `${cellClass} flex items-center px-3`},
+                    statusBadge(hasRunOutput, colors, () => onShowRunOutput(member), `deployment-runner-status-${testSuffix}`),
+                );
+            }),
+        ),
+        td(
+            {class: "align-middle text-sm whitespace-nowrap"},
+            ...sublines.map(({member, instance, testSuffix}) => div(
+                {class: `${cellClass} flex items-center px-3`, "data-testid": `deployment-version-${testSuffix}`},
+                versionLink(member, instance),
+            )),
+        ),
+        td(
+            {class: "align-middle text-sm"},
+            ...sublines.map(({member, instance, testSuffix}) => {
+                const copy = prepareStatusCopy(instance.preparer, instance.prepareVersion);
+                const testID = `deployment-prepare-status-${testSuffix}`;
+                return div(
+                    {class: `${cellClass} flex items-center px-3`},
+                    copy
+                        ? button({
+                            class: `${copy.class} hover:brightness-125 underline cursor-pointer p-0 truncate text-left min-w-0`,
+                            "data-testid": testID,
+                            onclick: () => onShowPrepareOutput(member),
+                            title: copy.title,
+                            type: "button",
+                        }, copy.text)
+                        : span({class: "text-gray-500", "data-testid": testID}, '-'),
+                );
+            }),
+        ),
+        td(
+            {class: "align-middle text-sm text-gray-300 whitespace-nowrap"},
+            ...sublines.map(({member, testSuffix}) => div(
+                {
+                    class: `${cellClass} flex items-center gap-2 px-3`,
+                    "data-testid": `deployment-restarts-${testSuffix}`,
+                },
+                span(member.numberOfRestarts),
+                span({class: "text-xs text-gray-500"}, formatMaybeDate(member.lastRestartAt, 'n/a')),
+            )),
+        ),
+        td(
+            {class: "align-middle text-sm text-gray-300 break-words"},
+            ...sublines.map(({member}) => div(
+                {class: `${cellClass} flex items-center px-3`},
+                () => resolveUserDisplayName(member.deployedBy) || 'unknown',
+            )),
+        ),
+        td(
+            {class: "align-middle text-sm text-gray-500 whitespace-nowrap"},
+            ...sublines.map(({member}) => div(
+                {class: `${cellClass} flex items-center px-3`},
+                formatMaybeDate(member.deployedAt, 'unknown'),
+            )),
+        ),
+        td(
+            {class: "py-2 pl-3 pr-1 align-middle text-right whitespace-nowrap"},
+            div(
+                {class: "inline-flex items-center justify-end gap-1"},
+                button({
+                    class: actionButtonClass,
+                    onclick: () => onUpdate(group),
                     type: "button",
                 }, "Update"),
                 button({

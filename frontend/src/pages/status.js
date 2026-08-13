@@ -1,11 +1,10 @@
 import van from "vanjs-core";
 import {infoIcon} from "../lib/icons.js";
 import {deploymentsS, deploymentsStreamS, machinesS, spacesS} from "../state/deployments.js";
-import {statusRow} from "../components/statusCard.js";
+import {statusRow, systemGroupStatusRow} from "../components/statusCard.js";
 import {deploymentHistory} from "../components/deploymentHistory.js";
 import {deployOverlay} from "../components/deployOverlay.js";
-import {openDeployUpdateOverlay} from "../components/openDeployUpdateOverlay.js";
-import {openDeployPrimaryUpdateOverlay} from "../components/openDeployPrimaryUpdateOverlay.js";
+import {openDeployGroupUpdateOverlay} from "../components/openDeployGroupUpdateOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
 import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
 import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
@@ -32,11 +31,42 @@ const isOpenDeployDeployment = deployment => {
     return spaceId === OPENDEPLOY_SPACE_ID && (name === 'opendeploy' || name === 'opendeploy-net');
 };
 
-const isPrimaryOpenDeployDeployment = deployment => (
-    Number(deployment?.spaceId ?? -1) === OPENDEPLOY_SPACE_ID
-    && deployment?.name === 'opendeploy'
-    && (machinesS.val || []).some(machine => machine.isPrimary && Number(machine.id) === Number(deployment?.nodeId))
-);
+// makeSystemGroups collapses the per-node system deployment rows into one
+// merged group row per name. Members are ordered secondaries first (by node
+// name), primary last — the same order the group upgrade overlay walks.
+const makeSystemGroups = (rows, machines) => {
+    const byName = new Map();
+    const rest = [];
+    for (const row of rows) {
+        if (isOpenDeployDeployment(row)) {
+            if (!byName.has(row.name)) byName.set(row.name, []);
+            byName.get(row.name).push(row);
+        } else {
+            rest.push(row);
+        }
+    }
+    const isPrimaryNode = (nodeId) => (machines || []).some(machine => machine.isPrimary && Number(machine.id) === Number(nodeId));
+    // opendeploy-net first, opendeploy last, matching the pre-group sort that
+    // kept the agent's own deployment at the bottom of the table.
+    const groups = ['opendeploy-net', 'opendeploy'].flatMap(name => {
+        const members = byName.get(name);
+        if (!members?.length) return [];
+        const sorted = [...members]
+            .map(member => ({...member, isPrimaryNode: isPrimaryNode(member.nodeId)}))
+            .sort((a, b) => (a.isPrimaryNode - b.isPrimaryNode)
+                || (a.node || '').localeCompare(b.node || '')
+                || (a.id - b.id));
+        return [{
+            isSystemGroup: true,
+            id: sorted[0].id,
+            name,
+            spaceId: OPENDEPLOY_SPACE_ID,
+            spaceName: sorted[0].spaceName,
+            members: sorted,
+        }];
+    });
+    return {rest, groups};
+};
 
 function loadSidebarWidth() {
     try {
@@ -385,12 +415,8 @@ export function statusPage(onOpenLogs = () => {}) {
     };
 
     const onUpdate = (deployment) => {
-        if (isPrimaryOpenDeployDeployment(deployment)) {
-            overlayNode.val = openDeployPrimaryUpdateOverlay(deployment, closeOverlay);
-            return;
-        }
-        if (isOpenDeployDeployment(deployment)) {
-            overlayNode.val = openDeployUpdateOverlay(deployment, closeOverlay);
+        if (deployment.isSystemGroup) {
+            overlayNode.val = openDeployGroupUpdateOverlay(deployment, closeOverlay);
             return;
         }
         const rawConfig = findRawConfig(deployment.id);
@@ -453,29 +479,42 @@ export function statusPage(onOpenLogs = () => {}) {
         );
     };
 
-    const statusRowNode = (deployment, showSpaceColumn) => statusRow(
-        deployment,
-        onShowHistory,
-        onShowRunOutput,
-        onShowPrepareOutput,
-        onUpdate,
-        onFork,
-        {showSpace: showSpaceColumn, onViewConfig, onDelete},
-    );
+    const statusRowNode = (deployment, showSpaceColumn) => deployment.isSystemGroup
+        ? systemGroupStatusRow(
+            deployment,
+            {onShowHistory, onShowRunOutput, onShowPrepareOutput, onUpdate, onViewConfig, onDelete},
+            {showSpace: showSpaceColumn},
+        )
+        : statusRow(
+            deployment,
+            onShowHistory,
+            onShowRunOutput,
+            onShowPrepareOutput,
+            onUpdate,
+            onFork,
+            {showSpace: showSpaceColumn, onViewConfig, onDelete},
+        );
+
+    const rowSearchValues = (row) => [
+        row.name,
+        row.node,
+        row.spaceName,
+        row.repo,
+        row.runnerType,
+        row.existingVersion,
+        row.deployedVersion,
+        ...(row.scheduledInstances || []).map(instance => instance.existingVersion),
+    ];
 
     const filterDeployments = (rows) => {
         const query = search.val.trim().toLowerCase();
         if (!query) return rows;
-        return rows.filter(row => [
-            row.name,
-            row.node,
-            row.spaceName,
-            row.repo,
-            row.runnerType,
-            row.existingVersion,
-            row.deployedVersion,
-            ...(row.scheduledInstances || []).map(instance => instance.existingVersion),
-        ].some(value => String(value || '').toLowerCase().includes(query)));
+        return rows.filter(row => {
+            const values = row.isSystemGroup
+                ? [row.name, row.spaceName, ...row.members.flatMap(rowSearchValues)]
+                : rowSearchValues(row);
+            return values.some(value => String(value || '').toLowerCase().includes(query));
+        });
     };
 
     const filterOpendeployDeployments = (rows) => showOpendeploy.val
@@ -647,7 +686,10 @@ export function statusPage(onOpenLogs = () => {}) {
     const deploymentViewS = van.derive(() => {
         const allRows = mapDeploymentsToView(deploymentsS.val, spacesS.val, machinesS.val);
         const visibleRows = filterOpendeployDeployments(allRows);
-        const filtered = filterDeployments(visibleRows);
+        // The per-node system deployment rows collapse into one merged row per
+        // name before search and sort, so a group matches when any member does.
+        const {rest, groups} = makeSystemGroups(visibleRows, machinesS.val);
+        const filtered = filterDeployments([...rest, ...groups]);
 
         if (deploymentsStreamS.val.status !== 'connected' && allRows.length === 0) {
             return {message: deploymentsStreamS.val.sentence, messageCard: false, rows: []};
@@ -662,18 +704,16 @@ export function statusPage(onOpenLogs = () => {}) {
             return {message: 'No deployments match your search.', messageCard: true, rows: []};
         }
 
-        // Sort: system deployment last, then by space, name, node,
-        // and finally id so the order is fully deterministic across
-        // stream snapshots and reconnects.
-        const rows = [...filtered].sort((a, b) => {
-            const aSystem = a.runnerType === 'systemd' && a.name === 'opendeploy' ? 1 : 0;
-            const bSystem = b.runnerType === 'systemd' && b.name === 'opendeploy' ? 1 : 0;
-            return aSystem - bSystem
-                || (a.spaceId - b.spaceId)
-                || (a.name || '').localeCompare(b.name || '')
-                || (a.node || '').localeCompare(b.node || '')
-                || (a.id - b.id);
-        });
+        // Sort: system group rows last (opendeploy-net then opendeploy, as
+        // ordered by makeSystemGroups), then by space, name, node, and finally
+        // id so the order is fully deterministic across stream snapshots and
+        // reconnects.
+        const groupRank = (row) => row.isSystemGroup ? (row.name === 'opendeploy' ? 2 : 1) : 0;
+        const rows = [...filtered].sort((a, b) => (groupRank(a) - groupRank(b))
+            || (a.spaceId - b.spaceId)
+            || (a.name || '').localeCompare(b.name || '')
+            || (a.node || '').localeCompare(b.node || '')
+            || (a.id - b.id));
         return {message: '', messageCard: false, rows};
     });
 

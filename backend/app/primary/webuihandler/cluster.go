@@ -27,7 +27,7 @@ func (h *Handler) GetV1NodesStatus(ctx apigen.Context, r *http.Request, w http.R
 		if node == nil || node.Name == "" || node.Identifier == "" {
 			continue
 		}
-		if !h.canAccess(ctx, vView, eNode, 0, int64(node.ID)) {
+		if !h.nodeVisible(ctx, int64(node.ID), node.AllowedSpaces) {
 			continue
 		}
 		conn := connected[node.ID]
@@ -62,7 +62,12 @@ func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRe
 	if existing == nil {
 		return nil, NodeNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vEdit, eNode, 0, int64(existing.ID), NodeNotFoundErr); err != nil {
+	// Derived visibility counts as viewable: a space operator who can see the
+	// node gets a 403 here, not a 404.
+	if !h.nodeVisible(ctx, int64(existing.ID), existing.AllowedSpaces) {
+		return nil, NodeNotFoundErr
+	}
+	if err := h.requireAccess(ctx, vEdit, eNode, 0, int64(existing.ID)); err != nil {
 		return nil, err
 	}
 	node, err := h.Store.RenameNode(identifier, name)
@@ -95,7 +100,10 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	if node == nil {
 		return nil, NodeNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vEdit, eNode, 0, int64(node.ID), NodeNotFoundErr); err != nil {
+	if !h.nodeVisible(ctx, int64(node.ID), node.AllowedSpaces) {
+		return nil, NodeNotFoundErr
+	}
+	if err := h.requireAccess(ctx, vEdit, eNode, 0, int64(node.ID)); err != nil {
 		return nil, err
 	}
 
@@ -139,6 +147,12 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	}
 	if err != nil {
 		return nil, err
+	}
+	// The allow list feeds derived node visibility, and a viewer who just lost
+	// a node has no pending update to take it away — only a full re-filter of
+	// each open stream removes (or reveals) the row.
+	if h.Authz != nil {
+		h.Authz.NotifyVisibilityInputsChanged()
 	}
 	return updated, nil
 }

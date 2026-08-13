@@ -20,8 +20,9 @@ import {
 } from "../lib/valueExplorer.js";
 import {
     deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS,
-    userConfigsS, usersMapS, valueDirectoriesS,
+    userConfigsS, valueDirectoriesS,
 } from "../state/deployments.js";
+import {resolveUserDisplayName} from "../lib/users.js";
 
 // selectEl: the pages define their own row-selection helper named `select`.
 const {button, col, colgroup, dd, div, dl, dt, h2, input, option, p, select: selectEl, span, table, tbody, td, th, thead, tr} = van.tags;
@@ -1178,7 +1179,7 @@ export function secretsPage() {
 
     // "unknown" covers system-written rows and anything from before user
     // attribution existed, so the author slot never silently vanishes.
-    const versionAuthor = (id) => usersMapS.val.get(Number(id))?.name || "unknown";
+    const versionAuthor = (id) => resolveUserDisplayName(Number(id)) || "unknown";
 
     // table-fixed and the colgroup are what make the columns line up: under
     // automatic layout a browser sizes columns from their content and ignores

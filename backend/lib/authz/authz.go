@@ -32,6 +32,10 @@ const (
 	ChangeRuleTemplates ChangeKind = iota + 1
 	ChangeGrants
 	ChangeGlobalRules
+	// ChangeVisibilityInputs marks a change to state outside the authz tables
+	// that feeds visibility decisions (node allow lists), so subscribed streams
+	// re-filter what each user sees.
+	ChangeVisibilityInputs
 )
 
 type RequestedAccess struct {
@@ -80,6 +84,8 @@ type Store interface {
 	ListAuthzGlobalRules() ([]GlobalRuleRow, error)
 	InsertAuthzGlobalRule(row GlobalRuleRow) (int64, error)
 	DeleteAuthzGlobalRule(id int64) error
+	FetchLocalKV(key string) ([]byte, bool)
+	MustSetLocalKV(key string, value []byte)
 }
 
 type Service struct {
@@ -146,6 +152,16 @@ func Open(store Store) (*Service, error) {
 	for _, grants := range s.grantsByUser {
 		sortByID(grants, func(g *apigen.AuthzGrantRecord) int64 { return g.ID })
 	}
+	if _, done := store.FetchLocalKV(defaultUserVisibilityMarker); !done {
+		rule := defaultUserVisibilityRule()
+		if _, err := store.InsertAuthzGlobalRule(GlobalRuleRow{
+			Name: DefaultUserVisibilityRuleName,
+			Blob: rule.Encode(),
+		}); err != nil {
+			return nil, fmt.Errorf("authz: seed %s: %w", DefaultUserVisibilityRuleName, err)
+		}
+		store.MustSetLocalKV(defaultUserVisibilityMarker, []byte("1"))
+	}
 	globalRuleRows, err := store.ListAuthzGlobalRules()
 	if err != nil {
 		return nil, err
@@ -172,6 +188,10 @@ func (s *Service) SubscribeChanges() (*pubsubu.Sub[ChangeKind], func()) {
 	return sub, sub.UnsubscribeFunc
 }
 
+func (s *Service) NotifyVisibilityInputsChanged() {
+	s.subs.Notify(ChangeVisibilityInputs)
+}
+
 func (s *Service) HasAccess(userID int64, req RequestedAccess) bool {
 	if req.Verb == apigen.AuthzVerb_AUTHZ_VERB_UNKNOWN || req.EntityType == apigen.AuthzEntity_AUTHZ_ENTITY_UNKNOWN {
 		return false
@@ -180,13 +200,20 @@ func (s *Service) HasAccess(userID int64, req RequestedAccess) bool {
 	defer s.mu.RUnlock()
 	if req.EntityType != apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS {
 		for _, r := range s.globalRules {
-			if globalRuleMatches(r.Rule, req) {
+			if globalDenyMatches(r.Rule, req) {
 				return false
 			}
 		}
 	}
 	for _, g := range s.grantsByUser[userID] {
 		if s.grantMatchesLocked(g, req) {
+			return true
+		}
+	}
+	// Allow-mode global rules are grants everyone holds; denies above still
+	// beat them.
+	for _, r := range s.globalRules {
+		if globalAllowMatches(r.Rule, req) {
 			return true
 		}
 	}
@@ -207,6 +234,14 @@ func (s *Service) SpaceVisible(userID int64, spaceID int64, delegated bool) bool
 	defer s.mu.RUnlock()
 	for _, g := range s.grantsByUser[userID] {
 		if s.grantTouchesSpaceLocked(g, spaceID, delegated) {
+			return true
+		}
+	}
+	for _, r := range s.globalRules {
+		if r.Rule == nil || r.Rule.Deny || (delegated && !r.Rule.DelegationAllowed) {
+			continue
+		}
+		if selectorMatches(r.Rule.Spaces, nil, spaceID) {
 			return true
 		}
 	}

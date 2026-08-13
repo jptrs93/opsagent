@@ -85,7 +85,6 @@ import {
   encodeDeploymentGetRequest,
   encodeDeploymentHistoryRequest,
   encodeDeploymentUpdateRequest,
-  encodeDeploymentUpgradeAllRequest,
   encodeDeploymentVersionsRequest,
   encodeEmptyRequest,
   encodeEnrollmentAcceptRequest,
@@ -638,18 +637,6 @@ export class Capi {
       return this.errorHandler(response);
     }
     await response.arrayBuffer();
-  }
-
-  /**
-   * @param {DeploymentUpgradeAllRequest} payload
-   * @returns {Promise<DeploymentConfig>}
-   */
-  async postV1DeploymentsUpgradeAll(payload) {
-    const response = await this.#request("/v1/deployments/upgrade-all", { method: 'POST', body: encodeDeploymentUpgradeAllRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeDeploymentConfig(await response.arrayBuffer());
   }
 
   /**
