@@ -273,7 +273,7 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
             role: 'dialog',
             'aria-modal': 'true',
             'aria-label': `Upgrade ${group.name}`,
-            style: 'width: 760px; max-width: 100%; max-height: 88vh;',
+            style: 'width: 960px; max-width: 100%; max-height: 88vh;',
         },
         div(
             {class: 'app-scroll min-w-0 overflow-auto px-3 py-3.5'},
@@ -318,10 +318,10 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
                     thead(
                         tr(
                             {class: 'border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500'},
-                            th({class: 'py-2 pl-3 pr-2 font-medium', style: 'width:11rem'}, 'Node'),
-                            th({class: 'py-2 px-2 font-medium', style: 'width:8rem'}, 'Current'),
-                            th({class: 'py-2 px-2 font-medium'}, 'Target version'),
-                            th({class: 'py-2 pl-2 pr-3 font-medium', style: 'width:13rem'}, 'Status'),
+                            th({class: 'py-2 pl-3 pr-2 font-medium', style: 'width:10rem'}, 'Node'),
+                            th({class: 'py-2 px-2 font-medium', style: 'width:7rem'}, 'Current'),
+                            th({class: 'py-2 px-2 font-medium', style: 'width:50%'}, 'Target version'),
+                            th({class: 'py-2 pl-2 pr-3 font-medium', style: 'width:12rem'}, 'Status'),
                         ),
                     ),
                     tbody(...members.map(memberRow)),
