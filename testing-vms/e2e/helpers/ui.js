@@ -443,6 +443,33 @@ export async function upgradeOpenDeployNet(page, {machine, version} = {}) {
   await expectOpenDeployDeploymentVersion(page, {name: 'opendeploy-net', machine, version});
 }
 
+// upgradeOpenDeployNetGroup upgrades every node's opendeploy-net deployment in
+// a single overlay run with "Align versions" left on: the primary's dropdown
+// drives all rows and the overlay rolls the whole group itself, secondaries
+// first, primary last. The opendeploy agent group is deliberately untouched.
+export async function upgradeOpenDeployNetGroup(page, {version} = {}) {
+  if (!version) throw new Error('upgrade version is required');
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  await showOpendeployDeployments(page);
+  const row = page.getByTestId('deployment-row-opendeploy-net');
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await row.getByRole('button', {name: 'Update'}).click();
+
+  const dialog = page.getByTestId('update-deployment-dialog');
+  await expect(dialog).toBeVisible();
+  const primarySelect = dialog.getByTestId('deployment-target-version-opendeploy-net-primary');
+  await expect.poll(async () => {
+    return await primarySelect.locator('option').evaluateAll(options => options.map(o => o.value));
+  }, {message: `expected ${version} release option`, timeout: RELEASE_OPTIONS_TIMEOUT}).toContain(version);
+  const alignToggle = dialog.getByTestId('align-versions-toggle');
+  if (!await alignToggle.isChecked()) await alignToggle.check();
+  await primarySelect.selectOption(version);
+  await dialog.getByRole('button', {name: 'Upgrade'}).click();
+  await expect(dialog.getByTestId('deployment-upgrade-complete')).toBeVisible({timeout: UPGRADE_TIMEOUT});
+  await dialog.getByRole('button', {name: 'Close', exact: true}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
 async function waitForLoadableApp(page) {
   const appReady = byTestId(page, 'nav-status', page.getByText('Deployments'))
     .or(byTestId(page, 'login-passkey-button', page.getByRole('button', {name: 'Sign in with passkey'})))

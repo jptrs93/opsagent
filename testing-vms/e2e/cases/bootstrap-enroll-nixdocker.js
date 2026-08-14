@@ -34,6 +34,7 @@ import {
   uploadAsset,
   upgradeOpenDeployAgents,
   upgradeOpenDeployNet,
+  upgradeOpenDeployNetGroup,
   verifyAssetDirectoryExplorer,
   verifyValueDirectoryExplorer,
 } from '../helpers/ui.js';
@@ -499,6 +500,14 @@ export const orderedCases = [
           }
         },
         afterUpgrade: async () => {
+          // The opendeploy and opendeploy-net groups are deliberately
+          // uncoupled: the agent rollout must leave every node's net
+          // deployment untouched, and the net group is then upgraded as its
+          // own aligned group rollout.
+          for (const machine of ['primary', 'worker-1', 'worker-2']) {
+            await expectOpenDeployNetVersion(ctx.page, {machine, version: requiredEnv('OPD_INSTALL_VERSION')});
+          }
+          await upgradeOpenDeployNetGroup(ctx.page, {version: requiredEnv('OPD_UPGRADE_VERSION')});
           for (const machine of ['primary', 'worker-1', 'worker-2']) {
             await expectOpenDeployNetVersion(ctx.page, {machine, version: requiredEnv('OPD_UPGRADE_VERSION')});
           }

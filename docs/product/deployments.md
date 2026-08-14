@@ -202,7 +202,9 @@ toggle (on by default) locks all dropdowns to the primary's selection. The
 browser then performs the rollout itself — one node at a time, waiting for
 each node to report the new version, primary last, stopping at the first
 failure. With the toggle off, only nodes whose dropdown was explicitly
-changed are upgraded; untouched nodes are skipped. The toolbar above the table holds the deployment search box
+changed are upgraded; untouched nodes are skipped. The `opendeploy` and
+`opendeploy-net` groups are deliberately uncoupled: upgrading one group never
+touches the other. The toolbar above the table holds the deployment search box
 and "See recently deleted" on the left, and the grouping and opendeploy toggles
 plus "Add deployment" and "Export" on the right. Each row displays:
 
