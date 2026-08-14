@@ -607,6 +607,7 @@ message AssetMount {
 message IssuedTLSMount {
   string container_path = 1;
   repeated string extra_names = 2;
+  bool ca_only = 3; // mount only the workload CA certificate; no leaf cert/key is issued
 }
 
 enum FilePermission {

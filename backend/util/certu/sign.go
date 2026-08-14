@@ -345,6 +345,15 @@ func signWorkerCertificate(caCert *x509.Certificate, caKey any, identifier strin
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}), tmpl.NotAfter, nil
 }
 
+// CertificateNotAfter returns the NotAfter time of the first certificate in certPEM.
+func CertificateNotAfter(certPEM []byte) (time.Time, error) {
+	_, cert, err := parseCertificate(certPEM, "certificate")
+	if err != nil {
+		return time.Time{}, err
+	}
+	return cert.NotAfter, nil
+}
+
 func parseCertificate(certPEM []byte, label string) ([]byte, *x509.Certificate, error) {
 	block, _ := pem.Decode(certPEM)
 	if block == nil || block.Type != "CERTIFICATE" {

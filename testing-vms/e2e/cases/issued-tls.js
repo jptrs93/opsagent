@@ -15,7 +15,6 @@ const MOUNT_PATH = '/opendeploy-tls';
 // Issued certificates always use the space-id based internal name, so the
 // default space (id 1) yields <name>.space-1.internal.
 const SERVER_DNS = `${SERVER}.space-1.internal`;
-const CLIENT_DNS = `${CLIENT}.space-1.internal`;
 const EXTRA_NAME = 'issued-tls-extra.test';
 const ROTATED_NAME = 'issued-tls-rotated.test';
 const SERVE_PORT = '8443';
@@ -69,8 +68,8 @@ export const issuedTLSCases = [
   },
   {
     id: 'issued-tls-handshake-verified',
-    title: 'verify cross-node TLS handshake with issued certs',
-    description: 'Creates a worker-2 client with its own issued_tls mount that dials the worker-1 server over the virtual network and verifies the server certificate against the mounted workload CA.',
+    title: 'verify cross-node TLS handshake with a ca_only client',
+    description: 'Creates a worker-2 client with a ca_only issued_tls mount (workload CA only, no leaf cert/key) that dials the worker-1 server over the virtual network and verifies the server certificate against the mounted workload CA.',
     requires: ['issued-tls-server-created', 'worker-2-enrolled'],
     async run(ctx) {
       await createNixDockerDeployment(ctx.page, {
@@ -88,10 +87,14 @@ export const issuedTLSCases = [
       await setDeploymentIssuedTLSMount(ctx.page, {
         name: CLIENT,
         machine: 'worker-2',
-        mount: {containerPath: MOUNT_PATH},
+        mount: {containerPath: MOUNT_PATH, caOnly: true},
       });
       await expectDeploymentOutput(ctx.page, CLIENT, [
-        `issuedtls chain verified=true name=${CLIENT_DNS}`,
+        'issuedtls file ca.crt ok=true',
+        // ca_only mounts must not contain leaf material.
+        'issuedtls file public.crt present=false',
+        'issuedtls file private.key present=false',
+        'issuedtls mode=ca-only',
         'issuedtls client verified=true status=200 body=issued-tls-server ok',
       ]);
     },
@@ -116,6 +119,10 @@ export const issuedTLSCases = [
           {
             mounts: [`mount(issued_tls({ extra_names = "${EXTRA_NAME}" }), "${MOUNT_PATH}")`],
             diagnostic: 'extra_names must be a list of quoted strings.',
+          },
+          {
+            mounts: [`mount(issued_tls({ extra_names = ["${EXTRA_NAME}"], ca_only = true }), "${MOUNT_PATH}")`],
+            diagnostic: 'extra_names are not allowed with ca_only.',
           },
         ],
       });
@@ -171,6 +178,30 @@ export const issuedTLSCases = [
       });
       await expectDeploymentOutputOccurrences(ctx.page, SERVER, 'issuedtls keypair=ok', 3);
       await expectDeploymentOutputDistinctMatches(ctx.page, SERVER, FINGERPRINT_PATTERN, 3);
+      await expectDeploymentRunning(ctx.page, {name: SERVER, machine: 'worker-1'});
+    },
+  },
+  {
+    id: 'issued-tls-ca-only-downgrade',
+    title: 'downgrade the server mount to ca_only and restore',
+    description: 'Switches the full issued_tls mount to ca_only, verifies the leaf cert and key are removed from the mount while ca.crt remains, then restores the full mount and verifies a fresh certificate is issued.',
+    requires: ['issued-tls-mount-removed-and-restored'],
+    async run(ctx) {
+      await setDeploymentIssuedTLSMount(ctx.page, {
+        name: SERVER,
+        mount: {containerPath: MOUNT_PATH, caOnly: true},
+      });
+      await expectDeploymentOutput(ctx.page, SERVER, [
+        'issuedtls file public.crt present=false',
+        'issuedtls file private.key present=false',
+        'issuedtls mode=ca-only',
+      ]);
+      await setDeploymentIssuedTLSMount(ctx.page, {
+        name: SERVER,
+        mount: {containerPath: MOUNT_PATH, extraNames: [EXTRA_NAME, ROTATED_NAME]},
+      });
+      await expectDeploymentOutputOccurrences(ctx.page, SERVER, 'issuedtls keypair=ok', 4);
+      await expectDeploymentOutputDistinctMatches(ctx.page, SERVER, FINGERPRINT_PATTERN, 4);
       await expectDeploymentRunning(ctx.page, {name: SERVER, machine: 'worker-1'});
     },
   },

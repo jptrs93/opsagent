@@ -421,6 +421,7 @@
  * @typedef {Object} IssuedTLSMount
  * @property {string} containerPath
  * @property {string[]} extraNames
+ * @property {boolean} caOnly
  */
 /**
  * @typedef {Object} EnrollmentWorkerMsg
@@ -6396,6 +6397,9 @@ export function writeIssuedTLSMount(message, writer) {
             writer.uint32(tag(2, WIRE.LDELIM)).string(item);
         }
     }
+    if (message.caOnly === true) {
+        writer.uint32(tag(3, WIRE.VARINT)).bool(message.caOnly);
+    }
 }
 
 
@@ -6417,7 +6421,7 @@ export function encodeIssuedTLSMount(message) {
  */
 function decodeIssuedTLSMountMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {containerPath: "", extraNames: [] };
+    const message = {containerPath: "", extraNames: [], caOnly: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6427,6 +6431,10 @@ function decodeIssuedTLSMountMessage(reader, length) {
             }
             case 2: {
                 message.extraNames.push(reader.string());
+                break;
+            }
+            case 3: {
+                message.caOnly = reader.bool();
                 break;
             }
             default:

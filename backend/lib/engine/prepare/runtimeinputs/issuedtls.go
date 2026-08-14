@@ -48,7 +48,8 @@ func (r *RuntimeInputs) SetIssuedTLSProvider(p IssuedTLSProvider) {
 }
 
 func (r *RuntimeInputs) EnsureIssuedTLSReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
-	if IssuedTLSMountOf(cfg) == nil {
+	mount := IssuedTLSMountOf(cfg)
+	if mount == nil {
 		return nil
 	}
 	r.mu.RLock()
@@ -70,7 +71,10 @@ func (r *RuntimeInputs) EnsureIssuedTLSReady(ctx context.Context, cfg *apigen.De
 		}
 		return fmt.Errorf("fetching issued TLS: %w", err)
 	}
-	if len(value.CertPEM) == 0 || len(value.KeyPEM) == 0 {
+	if len(value.CACertPEM) == 0 {
+		return fmt.Errorf("issued TLS provider returned empty CA material")
+	}
+	if !mount.CaOnly && (len(value.CertPEM) == 0 || len(value.KeyPEM) == 0) {
 		return fmt.Errorf("issued TLS provider returned empty material")
 	}
 	r.mu.Lock()

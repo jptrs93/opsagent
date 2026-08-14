@@ -37,7 +37,7 @@ export const deploymentHclCompletionOptions = [
     {label: "default_volume", type: "function", info: "The deployment default volume"},
     {label: "deployment", type: "function", info: "Resolve a default volume by space and deployment name"},
     {label: "host_path", type: "function", info: "A host bind-mount path"},
-    {label: "issued_tls", type: "function", info: "Platform-issued TLS cert/key files for this deployment"},
+    {label: "issued_tls", type: "function", info: "Platform-issued TLS cert/key files for this deployment; ca_only = true mounts only the workload CA certificate"},
     {label: "port_forward", type: "function", info: "Publish a TCP or UDP port"},
     {label: "tls_passthrough", type: "function", info: "Route TLS by SNI"},
     {label: "https", type: "function", info: "Terminate HTTPS and route by hostname and path prefix"},
@@ -487,8 +487,11 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     }
     if (runtime.issuedTlsMount) {
         const extraNames = runtime.issuedTlsMount.extraNames || [];
-        const mountSource = extraNames.length
-            ? `issued_tls({ extra_names = [${extraNames.map(quote).join(", ")}] })`
+        const issuedOptions = [];
+        if (extraNames.length) issuedOptions.push(`extra_names = [${extraNames.map(quote).join(", ")}]`);
+        if (runtime.issuedTlsMount.caOnly) issuedOptions.push("ca_only = true");
+        const mountSource = issuedOptions.length
+            ? `issued_tls({ ${issuedOptions.join(", ")} })`
             : "issued_tls()";
         mounts.push(`mount(${mountSource}, ${quote(runtime.issuedTlsMount.containerPath)})`);
     }
@@ -812,8 +815,9 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime
             }
             if (optionsExpression) diagnostics.push(diagnostic(text, optionsExpression, "issued_tls mounts do not accept mount options."));
             let extraNames = [];
+            let caOnly = false;
             if (source.args.length === 1) {
-                const issuedOptions = validateObject(text, diagnostics, source.args[0], new Set(["extra_names"]));
+                const issuedOptions = validateObject(text, diagnostics, source.args[0], new Set(["extra_names", "ca_only"]));
                 const namesAttr = issuedOptions.get("extra_names");
                 if (namesAttr) {
                     const namesExpression = namesAttr.value;
@@ -823,10 +827,15 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime
                         extraNames = namesExpression.items.map(item => item.value);
                     }
                 }
+                caOnly = optionBoolean(text, diagnostics, issuedOptions, "ca_only");
+                if (caOnly && extraNames.length) {
+                    diagnostics.push(diagnostic(text, source.args[0], "extra_names are not allowed with ca_only."));
+                }
             }
             runtime.issuedTlsMount = {
                 containerPath: pathExpression.value,
                 ...(extraNames.length ? {extraNames} : {}),
+                ...(caOnly ? {caOnly} : {}),
             };
             continue;
         }

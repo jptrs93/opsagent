@@ -943,14 +943,25 @@ func (r *containerRunner) ensureIssuedTLS() error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating issued TLS dir %s: %w", dir, err)
 	}
-	files := []struct {
+	type tlsFile struct {
 		name string
 		data []byte
 		mode os.FileMode
-	}{
-		{"public.crt", value.CertPEM, 0o644},
-		{"private.key", value.KeyPEM, 0o600},
-		{"ca.crt", value.CACertPEM, 0o644},
+	}
+	files := []tlsFile{{"ca.crt", value.CACertPEM, 0o644}}
+	if r.issuedTLSMount.CaOnly {
+		// Downgrading from a full bundle must remove the leaf material from
+		// the mount, not just stop refreshing it.
+		for _, stale := range []string{"public.crt", "private.key"} {
+			if err := os.Remove(filepath.Join(dir, stale)); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("removing stale issued TLS file %s: %w", stale, err)
+			}
+		}
+	} else {
+		files = append(files,
+			tlsFile{"public.crt", value.CertPEM, 0o644},
+			tlsFile{"private.key", value.KeyPEM, 0o600},
+		)
 	}
 	for _, f := range files {
 		// Write to a temp file and rename over the old one: after the first

@@ -64,15 +64,35 @@ func printIssuedTLS() {
 	if dir == "" {
 		return
 	}
-	files := map[string][]byte{}
-	for _, name := range []string{"public.crt", "private.key", "ca.crt"} {
+	caPEM, err := os.ReadFile(filepath.Join(dir, "ca.crt"))
+	if err != nil {
+		fmt.Printf("nixdockerbuild1 issuedtls dir error=%v\n", err)
+		return
+	}
+	files := map[string][]byte{"ca.crt": caPEM}
+	fmt.Printf("nixdockerbuild1 issuedtls file ca.crt ok=true bytes=%d\n", len(caPEM))
+	leafMissing := 0
+	for _, name := range []string{"public.crt", "private.key"} {
 		content, err := os.ReadFile(filepath.Join(dir, name))
+		if os.IsNotExist(err) {
+			fmt.Printf("nixdockerbuild1 issuedtls file %s present=false\n", name)
+			leafMissing++
+			continue
+		}
 		if err != nil {
 			fmt.Printf("nixdockerbuild1 issuedtls dir error=%v\n", err)
 			return
 		}
 		files[name] = content
 		fmt.Printf("nixdockerbuild1 issuedtls file %s ok=true bytes=%d\n", name, len(content))
+	}
+	if leafMissing == 2 {
+		fmt.Printf("nixdockerbuild1 issuedtls mode=ca-only\n")
+		return
+	}
+	if leafMissing != 0 {
+		fmt.Printf("nixdockerbuild1 issuedtls error=partial leaf material\n")
+		return
 	}
 	if _, err := tls.X509KeyPair(files["public.crt"], files["private.key"]); err != nil {
 		fmt.Printf("nixdockerbuild1 issuedtls keypair error=%v\n", err)

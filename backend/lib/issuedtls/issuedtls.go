@@ -27,6 +27,17 @@ func (i *Issuer) Issue(cfg *apigen.DeploymentConfig) (*apigen.ClusterIssuedTLSRe
 	if err != nil {
 		return nil, fmt.Errorf("loading workload CA: %w", err)
 	}
+	if mount.CaOnly {
+		notAfter, err := certu.CertificateNotAfter(caCert)
+		if err != nil {
+			return nil, fmt.Errorf("reading workload CA expiry: %w", err)
+		}
+		return &apigen.ClusterIssuedTLSResponse{
+			CaCertPem: caCert,
+			IssuedAt:  time.Now().UnixMilli(),
+			NotAfter:  notAfter.UnixMilli(),
+		}, nil
+	}
 	dnsName := network.DeploymentDNSName(cfg.Identity.Name, cfg.Identity.SpaceID)
 	names := []string{dnsName}
 	if cfg.Spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {

@@ -755,6 +755,9 @@ func validateIssuedTLSMount(mount *apigen.IssuedTLSMount) error {
 		return invalidConfigErrf("container1Spec.runtime.issuedTlsMount: containerPath must be an absolute directory path")
 	}
 	mount.ContainerPath = cleanPath
+	if mount.CaOnly && len(mount.ExtraNames) > 0 {
+		return invalidConfigErrf("container1Spec.runtime.issuedTlsMount: extraNames are not allowed with caOnly")
+	}
 	if len(mount.ExtraNames) > 16 {
 		return invalidConfigErrf("container1Spec.runtime.issuedTlsMount: at most 16 extra names are allowed")
 	}

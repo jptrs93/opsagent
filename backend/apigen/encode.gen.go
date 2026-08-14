@@ -3263,6 +3263,7 @@ func (m *IssuedTLSMount) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.ContainerPath, 1)
 	b = AppendRepeated(b, m.ExtraNames, AppendFieldDecorator(AppendStringField, 2))
+	b = AppendBoolField(b, m.CaOnly, 3)
 	return b
 }
 
@@ -3285,6 +3286,8 @@ func DecodeIssuedTLSMount(b []byte) (*IssuedTLSMount, error) {
 			if err == nil {
 				m.ExtraNames = append(m.ExtraNames, item)
 			}
+		case 3:
+			b, m.CaOnly, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

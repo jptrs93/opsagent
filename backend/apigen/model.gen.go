@@ -589,6 +589,7 @@ type AssetMount struct {
 type IssuedTLSMount struct {
 	ContainerPath string   `json:"container_path,omitempty"`
 	ExtraNames    []string `json:"extra_names,omitempty"`
+	CaOnly        bool     `json:"ca_only"`
 }
 
 type EnrollmentWorkerMsg struct {

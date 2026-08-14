@@ -377,10 +377,11 @@ export function withHttpsRoutes(text, routes) {
   return lines.join('\n');
 }
 
-export function issuedTLSMountLine({containerPath, extraNames = []} = {}) {
-  const source = extraNames.length
-    ? `issued_tls({ extra_names = [${extraNames.map(name => JSON.stringify(name)).join(', ')}] })`
-    : 'issued_tls()';
+export function issuedTLSMountLine({containerPath, extraNames = [], caOnly = false} = {}) {
+  const options = [];
+  if (extraNames.length) options.push(`extra_names = [${extraNames.map(name => JSON.stringify(name)).join(', ')}]`);
+  if (caOnly) options.push('ca_only = true');
+  const source = options.length ? `issued_tls({ ${options.join(', ')} })` : 'issued_tls()';
   return `mount(${source}, ${JSON.stringify(containerPath)})`;
 }
 
