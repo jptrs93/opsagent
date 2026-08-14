@@ -1477,7 +1477,7 @@ async function openDeploymentLogsSearch(page, row) {
 }
 
 async function showOpendeployDeployments(page) {
-  const toggle = page.getByRole('button', {name: 'Show opendeploy'});
+  const toggle = page.getByRole('button', {name: 'Show _system'});
   if (await toggle.count() === 0) return;
   if (await toggle.getAttribute('aria-pressed') !== 'true') {
     await toggle.click();
