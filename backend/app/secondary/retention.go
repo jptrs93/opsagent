@@ -56,6 +56,7 @@ func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runti
 	secrets := map[int32]struct{}{}
 	configs := map[int32]struct{}{}
 	assets := map[int32]struct{}{}
+	issued := map[int32]struct{}{}
 	for i := range states {
 		cfg := &states[i].Config
 		for _, id := range runtimeinputs.SecretRefs(cfg) {
@@ -66,6 +67,9 @@ func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runti
 		}
 		for _, ref := range runtimeinputs.RequiredAssetRefs(cfg) {
 			assets[ref.AssetVersionID] = struct{}{}
+		}
+		if runtimeinputs.IssuedTLSMountOf(cfg) != nil {
+			issued[cfg.ID] = struct{}{}
 		}
 	}
 	if acme != nil {
@@ -84,6 +88,18 @@ func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runti
 		slog.WarnContext(ctx, "retention: dropping unreferenced cached assets failed", "err", err)
 	} else if removed > 0 {
 		slog.InfoContext(ctx, "retention: dropped unreferenced cached assets", "count", removed)
+	}
+
+	if removed, err := inputs.RetainIssuedTLS(issued); err != nil {
+		slog.WarnContext(ctx, "retention: dropping unreferenced issued TLS failed", "err", err)
+	} else if removed > 0 {
+		slog.InfoContext(ctx, "retention: dropped unreferenced issued TLS", "count", removed)
+	}
+
+	if removed, err := runtimeinputs.RetainIssuedTLSDirs(issued); err != nil {
+		slog.WarnContext(ctx, "retention: dropping unreferenced issued TLS files failed", "err", err)
+	} else if removed > 0 {
+		slog.InfoContext(ctx, "retention: dropped unreferenced issued TLS files", "count", removed)
 	}
 }
 

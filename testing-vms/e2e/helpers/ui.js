@@ -377,6 +377,117 @@ export function withHttpsRoutes(text, routes) {
   return lines.join('\n');
 }
 
+export function issuedTLSMountLine({containerPath, extraNames = []} = {}) {
+  const source = extraNames.length
+    ? `issued_tls({ extra_names = [${extraNames.map(name => JSON.stringify(name)).join(', ')}] })`
+    : 'issued_tls()';
+  return `mount(${source}, ${JSON.stringify(containerPath)})`;
+}
+
+export function withIssuedTLSMounts(text, mountLines) {
+  const lines = text.split('\n').filter(line => !/^\s*mount\(issued_tls/.test(line));
+  if (!mountLines.length) return lines.join('\n');
+  const openIndex = lines.findIndex(line => line.trim() === 'mounts = [');
+  if (openIndex < 0) throw new Error('mounts block not found in deployment HCL');
+  lines.splice(openIndex + 1, 0, ...mountLines.map(line => `      ${line},`));
+  return lines.join('\n');
+}
+
+async function openDeploymentHclEditor(page, {name, machine}) {
+  await step(`open update dialog ${name}`, async () => {
+    await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+    const row = deploymentRow(page, {name, machine});
+    await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    await row.getByRole('button', {name: 'Update'}).click();
+  });
+
+  const dialog = page.getByTestId('update-deployment-dialog');
+  await expect(dialog).toBeVisible();
+
+  const editor = dialog.getByTestId('deployment-hcl-editor').locator('.cm-content');
+  await step(`open code editor ${name}`, async () => {
+    await dialog.getByTestId('deployment-editor-mode-code').click();
+    await expect(editor).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  });
+  return {dialog, editor};
+}
+
+async function readDeploymentHcl(editor) {
+  // Read/write through the CodeMirror view: innerText is layout-dependent
+  // (soft-wrapped lines gain newlines) and long mount(...) lines wrap.
+  return editor.evaluate(el => {
+    const view = el.cmTile?.root?.view || el.cmView?.view;
+    return view.state.doc.toString();
+  });
+}
+
+async function writeDeploymentHcl(editor, next) {
+  await editor.evaluate((el, text) => {
+    const view = el.cmTile?.root?.view || el.cmView?.view;
+    view.dispatch({changes: {from: 0, to: view.state.doc.length, insert: text}});
+  }, next);
+}
+
+export async function setDeploymentIssuedTLSMount(page, {name, machine = 'worker-1', mount, expectError} = {}) {
+  const {dialog, editor} = await openDeploymentHclEditor(page, {name, machine});
+
+  await step(`set issued TLS mount ${name}`, async () => {
+    const text = await readDeploymentHcl(editor);
+    await writeDeploymentHcl(editor, withIssuedTLSMounts(text, mount ? [issuedTLSMountLine(mount)] : []));
+    await expect(dialog.getByText('HCL valid', {exact: true})).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  });
+
+  const submit = dialog.getByRole('button', {name: 'Update deployment'});
+  if (expectError) {
+    await step(`expect rejected update ${name}`, async () => {
+      await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
+      const updateResponse = page.waitForResponse(response => {
+        const request = response.request();
+        return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
+      }, {timeout: LONG_UI_TIMEOUT});
+      await submit.click();
+      expect((await updateResponse).ok()).toBe(false);
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByText(expectError).first()).toBeVisible({timeout: LONG_UI_TIMEOUT});
+      await dialog.getByRole('button', {name: 'Cancel'}).click();
+      await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+    });
+    return;
+  }
+
+  await step(`submit issued TLS mount ${name}`, async () => {
+    await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
+    const updateResponse = page.waitForResponse(response => {
+      const request = response.request();
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
+    }, {timeout: LONG_UI_TIMEOUT});
+    await submit.click();
+    expect((await updateResponse).ok()).toBe(true);
+    await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  });
+}
+
+export async function expectIssuedTLSHclDiagnostics(page, {name, machine = 'worker-1', checks = []} = {}) {
+  const {dialog, editor} = await openDeploymentHclEditor(page, {name, machine});
+  const original = await readDeploymentHcl(editor);
+
+  for (const {mounts, diagnostic} of checks) {
+    await step(`expect diagnostic: ${diagnostic}`, async () => {
+      await writeDeploymentHcl(editor, withIssuedTLSMounts(original, mounts));
+      // The message renders both in the diagnostics list and as the submit
+      // blocker paragraph, so assert on the first match.
+      await expect(dialog.getByText(diagnostic).first()).toBeVisible({timeout: LONG_UI_TIMEOUT});
+      await writeDeploymentHcl(editor, original);
+      await expect(dialog.getByText(diagnostic)).toHaveCount(0, {timeout: LONG_UI_TIMEOUT});
+    });
+  }
+
+  await step(`cancel update dialog ${name}`, async () => {
+    await dialog.getByRole('button', {name: 'Cancel'}).click();
+    await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  });
+}
+
 export async function expectDeploymentHttpsIngressRows(page, {name, machine = 'worker-2', count} = {}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   const row = deploymentRow(page, {name, machine});
@@ -1231,6 +1342,16 @@ export async function expectDeploymentOutputOccurrences(page, name, text, count)
   }, {message: `expected ${name} output to contain ${count} occurrences of ${text}`, timeout: PGBACKREST_TIMEOUT}).toBeGreaterThanOrEqual(count);
 }
 
+export async function expectDeploymentOutputDistinctMatches(page, name, pattern, count) {
+  await openDeploymentOutput(page, name);
+  await expect.poll(async () => {
+    const output = await page.getByTestId('logs-output').textContent() || '';
+    const distinct = new Set([...output.matchAll(pattern)].map(match => match[1] ?? match[0]));
+    if (distinct.size < count) await page.getByTestId('logs-search-button').click();
+    return distinct.size;
+  }, {message: `expected ${name} output to contain ${count} distinct matches of ${pattern}`, timeout: LOG_OUTPUT_TIMEOUT}).toBeGreaterThanOrEqual(count);
+}
+
 export async function deploymentOutputOccurrenceCount(page, name, text) {
   await openDeploymentOutput(page, name);
   return outputOccurrenceCount(page, text);
@@ -1477,7 +1598,7 @@ async function openDeploymentLogsSearch(page, row) {
 }
 
 async function showOpendeployDeployments(page) {
-  const toggle = page.getByRole('button', {name: 'Show opendeploy'});
+  const toggle = page.getByRole('button', {name: 'Show _system'});
   if (await toggle.count() === 0) return;
   if (await toggle.getAttribute('aria-pressed') !== 'true') {
     await toggle.click();

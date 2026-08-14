@@ -98,7 +98,7 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 func TestSessionRoutingUsesNodeID(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("worker", "worker-cn")
-	handler := New(store, nil, nil, nil, network.Prefix{}, nil, nil)
+	handler := New(store, nil, nil, nil, network.Prefix{}, nil, nil, nil)
 	sess := newSession(context.Background(), func() {}, node.ID, "worker-cn", scheduledInstancePredicateForNode(node.ID), store, nil)
 	handler.registerSession(node.ID, "worker-cn", sess)
 	t.Cleanup(func() { handler.unregisterSession(node.ID, "worker-cn", sess) })

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 )
@@ -14,6 +15,8 @@ import (
 const (
 	secretCACert      = "opendeploy.cluster.ca.cert"
 	secretCAKey       = "opendeploy.cluster.ca.key"
+	secretWorkloadCACert = "opendeploy.workload.ca.cert"
+	secretWorkloadCAKey  = "opendeploy.workload.ca.key"
 	secretPrimaryCert = "opendeploy.cluster.primary.cert"
 	secretPrimaryKey  = "opendeploy.cluster.primary.key"
 	secretWebUITLS    = "opendeploy.webui.self_signed_tls_bundle"
@@ -47,6 +50,28 @@ func BootstrapWebUISelfSigned(store *secrets.Manager, names []string) ([]byte, e
 
 func LoadWebUISelfSigned(store *secrets.Manager) ([]byte, error) {
 	return store.RevealInternal(secretWebUITLS)
+}
+
+func BootstrapWorkloadCA(store *secrets.Manager) (certPEM, keyPEM []byte, err error) {
+	certPEM, certErr := store.RevealInternal(secretWorkloadCACert)
+	keyPEM, keyErr := store.RevealInternal(secretWorkloadCAKey)
+	if certErr == nil && keyErr == nil {
+		return certPEM, keyPEM, nil
+	}
+	if (certErr != nil && !errors.Is(certErr, secrets.ErrNotFound)) || (keyErr != nil && !errors.Is(keyErr, secrets.ErrNotFound)) {
+		return nil, nil, errors.Join(certErr, keyErr)
+	}
+	certPEM, keyPEM, err = GenerateWorkloadCA("opendeploy-workload-ca")
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := store.SetInternal(secretWorkloadCAKey, keyPEM); err != nil {
+		return nil, nil, err
+	}
+	if err := store.SetInternal(secretWorkloadCACert, certPEM); err != nil {
+		return nil, nil, err
+	}
+	return certPEM, keyPEM, nil
 }
 
 func WebUISelfSignedNames(acmeHosts, listen string) []string {
@@ -122,6 +147,18 @@ func SignWorkerCertificateRequest(store *secrets.Manager, csrPEM []byte, identif
 		return nil, nil, fmt.Errorf("loading cluster signing material: %w", err)
 	}
 	return SignWorkerCertificateRequestFromPEM(mat.CACert, mat.CAKey, csrPEM, identifier)
+}
+
+func RenewWorkerCertificate(store *secrets.Manager, identifier string, publicKey any) (caCert, workerCert []byte, notAfter time.Time, err error) {
+	mat, err := LoadPrimary(store)
+	if err != nil {
+		return nil, nil, time.Time{}, fmt.Errorf("loading cluster signing material: %w", err)
+	}
+	workerCert, notAfter, err = SignWorkerCertificateFromPublicKey(mat.CACert, mat.CAKey, identifier, publicKey)
+	if err != nil {
+		return nil, nil, time.Time{}, err
+	}
+	return mat.CACert, workerCert, notAfter, nil
 }
 
 func WorkerTLSPaths(tlsDir string) (caPath, certPath, keyPath string) {

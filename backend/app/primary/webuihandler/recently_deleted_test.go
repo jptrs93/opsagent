@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
@@ -59,7 +60,7 @@ func newRecentlyDeletedHandler(t *testing.T) (*Handler, int32) {
 	t.Helper()
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("primary", "primary")
-	return &Handler{Store: store, GitVersions: &fakeGitSourceProvider{}}, node.ID
+	return &Handler{ConfigService: &config.Service{}, Store: store, GitVersions: &fakeGitSourceProvider{}}, node.ID
 }
 
 func TestRecentlyDeletedListsOnlyDeletedNewestFirst(t *testing.T) {

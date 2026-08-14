@@ -230,7 +230,8 @@ func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRena
 // when space_id names another space — moves it there. Version rows and every
 // pinned reference are untouched either way. A cross-space move is allowed
 // only while nothing outside the destination space references the secret:
-// deployments must be able to keep their pins within their own space, and a
+// deployments must be able to keep their pins within their own or the global
+// space, so a move *to* the global space is always reference-safe, and a
 // settings reference pins the value to the global space. Reserved opendeploy
 // secrets stay put: install/restore flows find them by name in the space
 // root, so moving one would strand it.
@@ -265,7 +266,10 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 		if h.settingsUseSecretID(ids) && destSpace != state.DefaultSpaceID {
 			return nil, MoveReferencesOutsideSpaceErr
 		}
-		if h.referencesOutsideSpace(ids, runtimeinputs.SecretRefs, destSpace) {
+		// A global secret is referenceable from every space (see
+		// validateSecretRefSpaces), so no deployment pin can veto a move to
+		// the global space.
+		if destSpace != state.DefaultSpaceID && h.referencesOutsideSpace(ids, runtimeinputs.SecretRefs, destSpace) {
 			return nil, MoveReferencesOutsideSpaceErr
 		}
 		// Through the Manager, not the store: cached version records denormalize

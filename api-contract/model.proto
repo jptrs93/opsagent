@@ -109,6 +109,25 @@ message ClusterConfigsResponse {
   repeated ClusterConfigValue items = 1;
 }
 
+message ClusterIssuedTLSRequest {
+  int32 deployment_id = 1;
+  int32 deployment_config_version = 2;
+}
+
+message ClusterIssuedTLSResponse {
+  bytes cert_pem = 1;
+  bytes key_pem = 2;
+  bytes ca_cert_pem = 3;
+  int64 issued_at = 4;
+  int64 not_after = 5;
+}
+
+message ClusterRenewCertificateResponse {
+  bytes cert_pem = 1;
+  bytes ca_cert_pem = 2;
+  int64 not_after = 3;
+}
+
 
 // === Auth messages ===
 

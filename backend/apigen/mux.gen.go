@@ -1171,6 +1171,8 @@ type OpsagentClusterV1Handler interface {
 	GetV1ClusterAsset(Context, *http.Request, http.ResponseWriter) error
 	GetV1ClusterSecrets(Context, *ClusterSecretsRequest) (*ClusterSecretsResponse, error)
 	GetV1ClusterConfigs(Context, *ClusterConfigsRequest) (*ClusterConfigsResponse, error)
+	GetV1ClusterIssuedTls(Context, *ClusterIssuedTLSRequest) (*ClusterIssuedTLSResponse, error)
+	GetV1ClusterRenewCertificate(Context) (*ClusterRenewCertificateResponse, error)
 	PostV1ClusterConnect(Context, iter.Seq2[*MsgToMaster, error]) iter.Seq2[*MsgToWorker, error]
 }
 
@@ -1223,6 +1225,23 @@ func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("GET /v1/cluster/configs", buildHandlerFunc(config, verifyAuth, getV1ClusterConfigsAccessPolicy, postAuthHandlerGetV1ClusterConfigs, compressionModeAuto, false))
+	getV1ClusterIssuedTlsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerGetV1ClusterIssuedTls := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeClusterIssuedTLSRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.GetV1ClusterIssuedTls(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("GET /v1/cluster/issued-tls", buildHandlerFunc(config, verifyAuth, getV1ClusterIssuedTlsAccessPolicy, postAuthHandlerGetV1ClusterIssuedTls, compressionModeAuto, false))
+	getV1ClusterRenewCertificateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerGetV1ClusterRenewCertificate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		res, err := h.GetV1ClusterRenewCertificate(authCtx)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("GET /v1/cluster/renew-certificate", buildHandlerFunc(config, verifyAuth, getV1ClusterRenewCertificateAccessPolicy, postAuthHandlerGetV1ClusterRenewCertificate, compressionModeAuto, false))
 	postV1ClusterConnectAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
 	postAuthHandlerPostV1ClusterConnect := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		sr := NewStreamReader(r.Body, config.MaxRequestBodySize)

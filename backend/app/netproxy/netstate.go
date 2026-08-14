@@ -122,8 +122,8 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 			continue
 		}
 		services = append(services, &apigen.DnsService{
-			Name:        dnsLabel(item.Config.Identity.Name),
-			Environment: spaceDNSName(item.Config.Identity.SpaceID),
+			Name:        network.DNSLabel(item.Config.Identity.Name),
+			Environment: network.SpaceDNSName(item.Config.Identity.SpaceID),
 			Endpoints:   ready,
 		})
 	}
@@ -323,34 +323,6 @@ func readyEndpoints(prefix network.Prefix, item apigen.ScheduledInstanceState) [
 		NodeID:  item.Instance.NodeID,
 		State:   apigen.EndpointState_ENDPOINT_READY,
 	}}
-}
-
-func dnsLabel(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	s = strings.ReplaceAll(s, "_", "-")
-	var b strings.Builder
-	lastDash := false
-	for _, r := range s {
-		valid := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
-		if valid {
-			b.WriteRune(r)
-			lastDash = false
-			continue
-		}
-		if r == '-' && !lastDash && b.Len() > 0 {
-			b.WriteByte('-')
-			lastDash = true
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		return "deployment"
-	}
-	return out
-}
-
-func spaceDNSName(id int32) string {
-	return "space-" + strconv.Itoa(int(id))
 }
 
 func hostResolvers() []string {

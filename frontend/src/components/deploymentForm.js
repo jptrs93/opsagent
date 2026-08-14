@@ -88,6 +88,7 @@ export function emptyDeploymentForm() {
         containerReadinessTimeoutSeconds: DEFAULT_READINESS_TIMEOUT_SECONDS,
         assetMounts: [],
         volumeMounts: [],
+        issuedTlsMount: null,
     });
 }
 
@@ -139,6 +140,7 @@ export function deploymentConfigToForm(cfg) {
             ...(runtime.crossDeploymentMounts || []).map(m => crossDeploymentMountToFormRow(m)),
             ...(runtime.mounts || []).map(m => mountToFormRow(m)),
         ],
+        issuedTlsMount: runtime.issuedTlsMount || null,
     });
 }
 
@@ -277,6 +279,7 @@ const DEPLOYMENT_FORM_DOCUMENT_FIELDS = [
     'envVars',
     'assetMounts',
     'volumeMounts',
+    'issuedTlsMount',
 ];
 
 export function replaceDeploymentFormFromConfig(form, config) {
@@ -342,6 +345,7 @@ export function formToSpec(form, workloadState = {}) {
     if (mounts.length) runtime.mounts = mounts;
     const assetMounts = formAssetMounts(form);
     if (assetMounts.length) runtime.assetMounts = assetMounts;
+    if (form.issuedTlsMount.val) runtime.issuedTlsMount = form.issuedTlsMount.val;
 
     return spec;
 }
@@ -415,6 +419,7 @@ function makeFormState(values) {
         envVars: van.state(values.envVars || []),
         assetMounts: van.state(values.assetMounts || []),
         volumeMounts: van.state(values.volumeMounts || []),
+        issuedTlsMount: van.state(values.issuedTlsMount || null),
         identityLockNotice: van.state(''),
         identityLockNoticeTimer: null,
         // Whether the environment-variables editor pane is open in the overlay.
@@ -1645,11 +1650,23 @@ function updateEnvAssetRow(form, row, option) {
     updateEnvRow(form, row.id, {asset: option?.key || '', assetVersionId: option?.assetVersionId || 0, version: option?.version || 0});
 }
 
+// localSecretRefs applies reference locality: a deployment may pin secrets
+// only from its own space or the global space (DEFAULT_SPACE_ID), and an
+// own-space secret shadows a same-named global one.
+function localSecretRefs(refs, spaceId) {
+    const space = Number(spaceId || DEFAULT_SPACE_ID);
+    const scoped = (refs || []).filter(ref => Number(ref?.spaceId) === space || Number(ref?.spaceId) === DEFAULT_SPACE_ID);
+    const ownNames = new Set(scoped.filter(ref => Number(ref.spaceId) === space).map(ref => ref.name || ''));
+    return scoped.filter(ref => Number(ref.spaceId) === space || !ownNames.has(ref.name || ''));
+}
+
 function envReferenceAutocomplete(form, row, catalogs) {
     const isSecret = row.type === 'secret';
     const selectedID = isSecret ? Number(row.secretId || 0) : Number(row.configId || 0);
     const selectedKey = van.state(selectedID || '');
-    const options = () => versionedRefOptions(isSecret ? catalogs.secretRefs : catalogs.configRefs, selectedKey.val);
+    const options = () => versionedRefOptions(isSecret
+        ? localSecretRefs(stateValue(catalogs.secretRefs), form.spaceId.val)
+        : catalogs.configRefs, selectedKey.val);
     return referencePicker({
         refs: options,
         selectedKey,

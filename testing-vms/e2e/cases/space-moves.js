@@ -103,7 +103,7 @@ export const spaceMoveCases = [
   {
     id: 'space-move-blocked-by-references',
     title: 'cross-space moves refuse while references live elsewhere',
-    description: 'Moving the globally referenced secret into the restricted space, and the restricted-referenced secret into global, both refuse with the locality error and leave the rows in place.',
+    description: 'Moving the globally referenced secret into the restricted space refuses with the locality error, while the restricted-referenced secret may move into global (and back) because global secrets are referenceable from every space.',
     requires: ['asset-backed-nix-docker-deployment', 'access-restricted-deployment-created'],
     async run(ctx) {
       const admin = ctx.page;
@@ -116,10 +116,15 @@ export const spaceMoveCases = [
         await expectExplorerPath(admin, 'global/e2e.secret.message');
       });
 
-      await test.step('a secret pinned by the restricted deployment cannot leave its space', async () => {
+      await test.step('a secret pinned by the restricted deployment may move to global', async () => {
         await searchExplorerAndSelect(admin, VALUES_SEARCH, RESTRICTED_SECRET);
         await expectExplorerPath(admin, `${RESTRICTED_SPACE}/${RESTRICTED_FOLDER}/${RESTRICTED_SECRET}`);
-        await expectMoveToSpaceBlocked(admin, {space: 'global', message: MOVE_BLOCKED_MESSAGE});
+        // A global secret is referenceable from every space, so a deployment
+        // pin cannot veto a move to global; moving it home again is equally
+        // reference-safe because its only pin lives there.
+        await moveExplorerSelectionToSpace(admin, {space: 'global'});
+        await expectExplorerPath(admin, `global/${RESTRICTED_SECRET}`);
+        await moveExplorerSelectionToSpace(admin, {space: RESTRICTED_SPACE, destination: RESTRICTED_FOLDER});
         await expectExplorerPath(admin, `${RESTRICTED_SPACE}/${RESTRICTED_FOLDER}/${RESTRICTED_SECRET}`);
         await clearExplorerSearch(admin, VALUES_SEARCH);
         await closeExplorerInspector(admin);

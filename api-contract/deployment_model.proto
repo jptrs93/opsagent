@@ -563,6 +563,8 @@ message ContainerRuntime {
 
   int32 dev_shm_size_kb = 13;                     // optional /dev/shm tmpfs size override in KiB
   int32 file_descriptor_limit = 14;               // optional RLIMIT_NOFILE override; unset uses the OpenDeploy default
+
+  IssuedTLSMount issued_tls_mount = 15;
 }
 
 message DefaultVolumeMount {
@@ -600,6 +602,11 @@ message AssetMount {
   int32 asset_version_id = 1; // immutable asset version row id
   string container_path = 2;
   FilePermission permission = 3;
+}
+
+message IssuedTLSMount {
+  string container_path = 1;
+  repeated string extra_names = 2;
 }
 
 enum FilePermission {

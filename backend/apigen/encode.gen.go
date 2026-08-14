@@ -2928,7 +2928,8 @@ func (m ContainerRuntime) IsZero() bool {
 		len(m.AssetMounts) == 0 &&
 		len(m.Mounts) == 0 &&
 		m.DevShmSizeKb == 0 &&
-		m.FileDescriptorLimit == 0
+		m.FileDescriptorLimit == 0 &&
+		m.IssuedTlsMount == nil
 }
 
 func (m *ContainerRuntime) Encode() []byte {
@@ -2964,6 +2965,10 @@ func (m *ContainerRuntime) Encode() []byte {
 	}
 	b = AppendInt32Field(b, m.DevShmSizeKb, 13)
 	b = AppendInt32Field(b, m.FileDescriptorLimit, 14)
+	if m.IssuedTlsMount != nil {
+		b = AppendTag(b, 15, BytesType)
+		b = AppendBytes(b, m.IssuedTlsMount.Encode())
+	}
 	return b
 }
 
@@ -3034,6 +3039,15 @@ func DecodeContainerRuntime(b []byte) (*ContainerRuntime, error) {
 			b, m.DevShmSizeKb, err = ConsumeVarInt32(b, typ)
 		case 14:
 			b, m.FileDescriptorLimit, err = ConsumeVarInt32(b, typ)
+		case 15:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *IssuedTLSMount
+				item, err = DecodeIssuedTLSMount(msgBytes)
+				if err == nil {
+					m.IssuedTlsMount = item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3234,6 +3248,42 @@ func DecodeAssetMount(b []byte) (*AssetMount, error) {
 			b, raw, err = ConsumeVarInt32(b, typ)
 			if err == nil {
 				m.Permission = FilePermission(raw)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *IssuedTLSMount) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.ContainerPath, 1)
+	b = AppendRepeated(b, m.ExtraNames, AppendFieldDecorator(AppendStringField, 2))
+	return b
+}
+
+func DecodeIssuedTLSMount(b []byte) (*IssuedTLSMount, error) {
+	var m IssuedTLSMount
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ContainerPath, err = ConsumeString(b, typ)
+		case 2:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.ExtraNames = append(m.ExtraNames, item)
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -3910,6 +3960,114 @@ func DecodeClusterConfigsResponse(b []byte) (*ClusterConfigsResponse, error) {
 					m.Items = append(m.Items, item)
 				}
 			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterIssuedTLSRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DeploymentID, 1)
+	b = AppendInt32Field(b, m.DeploymentConfigVersion, 2)
+	return b
+}
+
+func DecodeClusterIssuedTLSRequest(b []byte) (*ClusterIssuedTLSRequest, error) {
+	var m ClusterIssuedTLSRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.DeploymentConfigVersion, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterIssuedTLSResponse) Encode() []byte {
+	var b []byte
+	b = AppendBytesField(b, m.CertPem, 1)
+	b = AppendBytesField(b, m.KeyPem, 2)
+	b = AppendBytesField(b, m.CaCertPem, 3)
+	b = AppendInt64Field(b, m.IssuedAt, 4)
+	b = AppendInt64Field(b, m.NotAfter, 5)
+	return b
+}
+
+func DecodeClusterIssuedTLSResponse(b []byte) (*ClusterIssuedTLSResponse, error) {
+	var m ClusterIssuedTLSResponse
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.CertPem, err = ConsumeBytesCopy(b, typ)
+		case 2:
+			b, m.KeyPem, err = ConsumeBytesCopy(b, typ)
+		case 3:
+			b, m.CaCertPem, err = ConsumeBytesCopy(b, typ)
+		case 4:
+			b, m.IssuedAt, err = ConsumeVarInt64(b, typ)
+		case 5:
+			b, m.NotAfter, err = ConsumeVarInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterRenewCertificateResponse) Encode() []byte {
+	var b []byte
+	b = AppendBytesField(b, m.CertPem, 1)
+	b = AppendBytesField(b, m.CaCertPem, 2)
+	b = AppendInt64Field(b, m.NotAfter, 3)
+	return b
+}
+
+func DecodeClusterRenewCertificateResponse(b []byte) (*ClusterRenewCertificateResponse, error) {
+	var m ClusterRenewCertificateResponse
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.CertPem, err = ConsumeBytesCopy(b, typ)
+		case 2:
+			b, m.CaCertPem, err = ConsumeBytesCopy(b, typ)
+		case 3:
+			b, m.NotAfter, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

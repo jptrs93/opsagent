@@ -12,8 +12,9 @@ import (
 // Runtime input kinds as persisted in local_runtime_inputs.kind. The numeric
 // values are on disk, so they are fixed.
 const (
-	LocalRuntimeInputKindSecret int64 = 1
-	LocalRuntimeInputKindConfig int64 = 2
+	LocalRuntimeInputKindSecret    int64 = 1
+	LocalRuntimeInputKindConfig    int64 = 2
+	LocalRuntimeInputKindIssuedTLS int64 = 3
 )
 
 // LocalRuntimeInput is the sealed runtime-input row; see the passthrough note

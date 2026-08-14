@@ -12,12 +12,18 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	gitrepo "github.com/jptrs93/opsagent/backend/lib/repo/git"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var InvalidConfigErr = apigen.NewApiErr("", "invalid_config", http.StatusBadRequest)
+
+// SecretRefOutsideSpaceErr refuses a deployment write pinning a secret version
+// outside the deployment's own space and the global space.
+var SecretRefOutsideSpaceErr = apigen.NewApiErr("Deployment references a secret outside its own or the global space", "secret_reference_outside_space", http.StatusBadRequest)
 
 func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.DeploymentConfig) bool {
 	if cfg.NodeID <= 0 || cfg.NodeID == h.NodeID || h.Cluster == nil {
@@ -529,6 +535,35 @@ func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentS
 	return nil
 }
 
+// validateSecretRefSpaces enforces reference locality: a deployment may pin
+// secret versions only from its own space or the global space. It runs over
+// the same collector the engine fetches by (env refs plus ingress cert
+// secrets), so it cannot lag what a runner would resolve. Callers must hold
+// ConfigService.LockReferences() so a concurrent secret space move cannot
+// invalidate the check before the config write lands.
+func (h *Handler) validateSecretRefSpaces(spec *apigen.DeploymentSpec, spaceID int32) error {
+	if spec == nil {
+		return nil
+	}
+	cfg := apigen.DeploymentConfig{Spec: *spec}
+	ids := runtimeinputs.SecretRefs(&cfg)
+	if len(ids) > 0 && h.Secrets == nil {
+		return invalidConfigErrf("secrets cannot be resolved here")
+	}
+	for _, id := range ids {
+		meta, ok := h.Secrets.MetaByID(id)
+		if !ok {
+			return invalidConfigErrf("unknown secret id %d", id)
+		}
+		if meta.SpaceID != spaceID && meta.SpaceID != state.DefaultSpaceID {
+			e := SecretRefOutsideSpaceErr
+			e.DisplayErr = fmt.Sprintf("Secret %q lives in space %d and cannot be referenced from a deployment in space %d", meta.Name, meta.SpaceID, spaceID)
+			return e
+		}
+	}
+	return nil
+}
+
 func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID int32, spec *apigen.DeploymentSpec, snapshot []apigen.DeploymentConfig) error {
 	if spec == nil || spec.Container() == nil {
 		return nil
@@ -698,6 +733,38 @@ func validateContainerSpec(container *apigen.ContainerSpec, assets deploymentAss
 		return err
 	}
 	container.Runtime.AssetMounts = assetMounts
+	if err := validateIssuedTLSMount(container.Runtime.IssuedTlsMount); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateIssuedTLSMount(mount *apigen.IssuedTLSMount) error {
+	if mount == nil {
+		return nil
+	}
+	path := strings.TrimSpace(mount.ContainerPath)
+	if path == "" {
+		return invalidConfigErrf("container1Spec.runtime.issuedTlsMount: containerPath is required")
+	}
+	if !filepath.IsAbs(path) {
+		return invalidConfigErrf("container1Spec.runtime.issuedTlsMount: containerPath must be absolute")
+	}
+	cleanPath := filepath.Clean(path)
+	if cleanPath != path || cleanPath == "/" || strings.HasSuffix(path, "/") {
+		return invalidConfigErrf("container1Spec.runtime.issuedTlsMount: containerPath must be an absolute directory path")
+	}
+	mount.ContainerPath = cleanPath
+	if len(mount.ExtraNames) > 16 {
+		return invalidConfigErrf("container1Spec.runtime.issuedTlsMount: at most 16 extra names are allowed")
+	}
+	for i, name := range mount.ExtraNames {
+		name = strings.TrimSpace(name)
+		if name == "" || len(name) > 253 || strings.ContainsAny(name, " \t\n,*") {
+			return invalidConfigErrf("container1Spec.runtime.issuedTlsMount: extraNames[%d] is not a valid host name or IP address", i)
+		}
+		mount.ExtraNames[i] = name
+	}
 	return nil
 }
 

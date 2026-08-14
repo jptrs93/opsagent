@@ -6,6 +6,7 @@ import {caseDef as nixDockerVirtualNetworkCase} from './nix-docker-virtual-netwo
 import {hostRolloverCase, virtualPortForwardingCase, virtualRolloverCase} from './rollover-networking.js';
 import {expectTLSPassthroughRoutes, tlsPassthroughCases} from './tls-passthrough.js';
 import {expectHTTPSIngressRoutes, httpsIngressCases} from './https-ingress.js';
+import {issuedTLSCases} from './issued-tls.js';
 import {pgBackRestCases} from './postgres-pgbackrest.js';
 import {installVirtualAuthenticator} from '../helpers/webauthn.js';
 import {
@@ -179,6 +180,7 @@ export const orderedCases = [
   virtualPortForwardingCase,
   ...tlsPassthroughCases,
   ...httpsIngressCases,
+  ...issuedTLSCases,
   {
     id: 'private-github-deployment',
     title: 'create private github deployment',

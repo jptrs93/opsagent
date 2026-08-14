@@ -94,6 +94,8 @@ func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyP
 
 	return runtimeConfig{
 		TLS:                tlsCfg,
+		ClusterCertPath:    certPath,
+		ClusterKeyPath:     keyPath,
 		PrimaryClusterAddr: cfg.PrimaryClusterAddr,
 		PrimaryName:        cfg.PrimaryName,
 		UnderlayAddress:    cfg.UnderlayAddress,

@@ -30,6 +30,16 @@ service OpsagentClusterV1 {
     option (cp.policy) = { policy_type: NO_AUTH };
   }
 
+  rpc GetV1ClusterIssuedTls(ClusterIssuedTLSRequest) returns (ClusterIssuedTLSResponse) {
+    option (cp.url) = "/v1/cluster/issued-tls";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc GetV1ClusterRenewCertificate(cp.Empty) returns (ClusterRenewCertificateResponse) {
+    option (cp.url) = "/v1/cluster/renew-certificate";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
   rpc PostV1ClusterConnect(stream MsgToMaster) returns (stream MsgToWorker) {
     option (cp.policy) = { policy_type: NO_AUTH };
   }

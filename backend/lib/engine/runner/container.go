@@ -63,6 +63,7 @@ type containerRunner struct {
 	command        []string                       // argv override; empty = image default
 	cwd            string                         // process cwd; empty = image default
 	mounts         []ctrd.Mount
+	issuedTLSMount *apigen.IssuedTLSMount
 	devShmSizeKB   int64
 	fileDescLimit  int64
 	configVersion  int32
@@ -205,6 +206,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		latestVersion:       dep.Version,
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
+	r.issuedTLSMount = cfg.IssuedTlsMount
 	r.devShmSizeKB = int64(cfg.DevShmSizeKb)
 	r.fileDescLimit = int64(cfg.FileDescriptorLimit)
 	r.dataVolumeUser = cfg.User
@@ -418,6 +420,16 @@ func (r *containerRunner) run() {
 			continue
 		}
 		r.ensureDataVolume()
+		if err := r.ensureIssuedTLS(); err != nil {
+			slog.ErrorContext(r.ctx, "materializing issued TLS failed", "err", err)
+			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+			crashCount++
+			if !r.sleepBackoff(crashCount) {
+				r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+				return
+			}
+			continue
+		}
 		runNumber := r.status.NumberOfRestarts + 1
 		outputDir := apigen.RunOutputDeploymentDir(r.deploymentID)
 		if mkdirErr := os.MkdirAll(outputDir, 0o750); mkdirErr != nil {
@@ -919,6 +931,55 @@ func (r *containerRunner) ensureDataVolume() {
 	}
 }
 
+func (r *containerRunner) ensureIssuedTLS() error {
+	if r.issuedTLSMount == nil {
+		return nil
+	}
+	value, ok := r.runtimeInputs.ResolveIssuedTLS(r.deploymentID)
+	if !ok {
+		return fmt.Errorf("issued TLS for deployment %d is not resolvable on this node", r.deploymentID)
+	}
+	dir := runtimeinputs.IssuedTLSHostDir(r.deploymentID)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("creating issued TLS dir %s: %w", dir, err)
+	}
+	files := []struct {
+		name string
+		data []byte
+		mode os.FileMode
+	}{
+		{"public.crt", value.CertPEM, 0o644},
+		{"private.key", value.KeyPEM, 0o600},
+		{"ca.crt", value.CACertPEM, 0o644},
+	}
+	for _, f := range files {
+		// Write to a temp file and rename over the old one: after the first
+		// materialization the files are owned by the container user, and the
+		// agent (no CAP_FOWNER) cannot chmod files it does not own.
+		path := filepath.Join(dir, f.name)
+		tmp := path + ".tmp"
+		_ = os.Remove(tmp)
+		if err := os.WriteFile(tmp, f.data, f.mode); err != nil {
+			return fmt.Errorf("writing %s: %w", tmp, err)
+		}
+		if err := os.Chmod(tmp, f.mode); err != nil {
+			return fmt.Errorf("chmod %s: %w", tmp, err)
+		}
+		if err := chownToUser(tmp, r.user); err != nil {
+			slog.WarnContext(r.ctx, "chowning issued TLS file failed (non-root container users may be unable to read)",
+				"path", tmp, "user", r.user, "err", err)
+		}
+		if err := os.Rename(tmp, path); err != nil {
+			return fmt.Errorf("replacing %s: %w", path, err)
+		}
+	}
+	if err := chownToUser(dir, r.user); err != nil {
+		slog.WarnContext(r.ctx, "chowning issued TLS dir failed (non-root container users may be unable to read)",
+			"path", dir, "user", r.user, "err", err)
+	}
+	return nil
+}
+
 func (r *containerRunner) deleteTask(task *ctrd.Task) {
 	if task == nil {
 		return
@@ -1226,6 +1287,13 @@ func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd.Mount, string) {
 		}
 		hostPath := runtimeinputs.AssetCachePathWithMode(m.AssetVersionID, m.Permission == apigen.FilePermission_READ_EXECUTE)
 		mounts = append(mounts, ctrd.Mount{Source: hostPath, Dest: m.ContainerPath, ReadOnly: true})
+	}
+	if cfg.IssuedTlsMount != nil {
+		mounts = append(mounts, ctrd.Mount{
+			Source:   runtimeinputs.IssuedTLSHostDir(dep.ID),
+			Dest:     cfg.IssuedTlsMount.ContainerPath,
+			ReadOnly: true,
+		})
 	}
 	implicitMounted := map[string]bool{}
 	envKeys := make([]string, 0, len(cfg.EnvVars))

@@ -23,13 +23,22 @@ and items relocate with `PostV1SecretsMove` / `PostV1ConfigsMove`. Moves and
 renames touch only the identity row, so version ids — and therefore every
 pinned reference — survive unchanged. All three move requests carry a
 `space_id` (`0` keeps the row where it is). For items, naming another space
-moves them there under a **reference-locality rule**: the handler collects
-every deployment pinning one of the item's version ids (env refs and, for
-secrets, ingress cert refs — via the same `runtimeinputs` collectors the
-engine fetches by) and refuses with `move_references_outside_space` unless
-they all live in the destination space; a cluster-settings reference pins the
-value to the global space. The check-and-move runs under
-`ConfigService.LockReferences()` so no new pin can appear in between.
+moves them there under a **reference-locality rule**: a deployment may pin
+secret versions only from its own space or the global space (space 1). Both
+sides enforce it. Deployment creates and updates run
+`validateSecretRefSpaces` over the effective spec and effective space (so
+spec changes, space moves, and combined writes are all covered), using the
+same `runtimeinputs.SecretRefs` collector the engine fetches by (env refs
+plus ingress cert refs), and refuse violations with
+`secret_reference_outside_space`. Item moves collect every deployment
+pinning one of the item's version ids and refuse with
+`move_references_outside_space` unless the pins stay legal from the
+destination: for secrets a move *to* the global space is always
+reference-safe, any other destination requires every referencing deployment
+to live there (configs keep the strict same-space rule), and a
+cluster-settings reference pins the value to the global space. Both the
+deployment-write check and the check-and-move run under
+`ConfigService.LockReferences()` so neither side can race the other.
 `MoveSecretSpace` / `MoveConfigSpace` rewrite `space_id` +
 `value_directory_id` in one locked store op (the destination directory must
 belong to the destination space, and sibling-name uniqueness holds there).

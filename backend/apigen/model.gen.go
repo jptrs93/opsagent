@@ -550,6 +550,7 @@ type ContainerRuntime struct {
 	Mounts                []*CustomHostMount      `json:"mounts,omitempty"`
 	DevShmSizeKb          int32                   `json:"dev_shm_size_kb"`
 	FileDescriptorLimit   int32                   `json:"file_descriptor_limit"`
+	IssuedTlsMount        *IssuedTLSMount         `json:"issued_tls_mount"`
 }
 
 type DefaultVolumeMount struct {
@@ -583,6 +584,11 @@ type AssetMount struct {
 	AssetVersionID int32          `json:"asset_version_id"`
 	ContainerPath  string         `json:"container_path,omitempty"`
 	Permission     FilePermission `json:"permission"`
+}
+
+type IssuedTLSMount struct {
+	ContainerPath string   `json:"container_path,omitempty"`
+	ExtraNames    []string `json:"extra_names,omitempty"`
 }
 
 type EnrollmentWorkerMsg struct {
@@ -679,6 +685,25 @@ type ClusterConfigValue struct {
 
 type ClusterConfigsResponse struct {
 	Items []*ClusterConfigValue `json:"items,omitempty"`
+}
+
+type ClusterIssuedTLSRequest struct {
+	DeploymentID            int32 `json:"deployment_id"`
+	DeploymentConfigVersion int32 `json:"deployment_config_version"`
+}
+
+type ClusterIssuedTLSResponse struct {
+	CertPem   []byte `json:"cert_pem"`
+	KeyPem    []byte `json:"key_pem"`
+	CaCertPem []byte `json:"ca_cert_pem"`
+	IssuedAt  int64  `json:"issued_at"`
+	NotAfter  int64  `json:"not_after"`
+}
+
+type ClusterRenewCertificateResponse struct {
+	CertPem   []byte `json:"cert_pem"`
+	CaCertPem []byte `json:"ca_cert_pem"`
+	NotAfter  int64  `json:"not_after"`
 }
 
 type EmptyRequest struct {

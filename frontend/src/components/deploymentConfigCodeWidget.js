@@ -31,6 +31,8 @@ import {
 
 const {button, div, span} = van.tags;
 
+const GLOBAL_SPACE_ID = 1;
+
 const schemaProperties = [
     "name", "space", "node", "image", "repo", "flake", "target", "user", "command",
     "working_dir", "data_mount_path", "mounts", "dev_shm_size_kb", "file_descriptor_limit", "strategy",
@@ -194,6 +196,11 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
         if (type === "deployment" && spaceID !== null
             && itemSpaceID !== undefined && itemSpaceID !== null
             && Number(itemSpaceID) !== Number(spaceID)) continue;
+        // Reference locality: only own-space and global secrets are valid refs.
+        if (type === "secret" && spaceID !== null
+            && itemSpaceID !== undefined && itemSpaceID !== null
+            && Number(itemSpaceID) !== Number(spaceID)
+            && Number(itemSpaceID) !== GLOBAL_SPACE_ID) continue;
         if (type === "deployment" && nodeID !== null
             && Number(deploymentConfig(item)?.nodeId) !== Number(nodeID)) continue;
         const name = catalogName(item, type);
@@ -212,8 +219,20 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
 
 function catalogVersionCompletionOptions(namespace, catalogs, text, name) {
     const refs = catalogArrays(catalogs);
-    const collection = namespace === "asset" ? refs.assets
+    let collection = namespace === "asset" ? refs.assets
         : namespace === "secret" ? refs.secretRefs : refs.configRefs;
+    if (namespace === "secret") {
+        const spaceID = selectedSpaceID(text, refs);
+        if (spaceID !== null) {
+            // Same own-or-global scoping as name completion, with the
+            // deployment's own space shadowing a same-named global secret.
+            collection = collection.filter(item => Number(item?.spaceId) === Number(spaceID)
+                || Number(item?.spaceId) === GLOBAL_SPACE_ID);
+            const ownSpace = collection.filter(item => Number(item?.spaceId) === Number(spaceID)
+                && catalogName(item, namespace) === name);
+            if (ownSpace.length > 0) collection = ownSpace;
+        }
+    }
     const versions = new Map();
     for (const item of collection) {
         if (item?.deleted || catalogName(item, namespace) !== name) continue;

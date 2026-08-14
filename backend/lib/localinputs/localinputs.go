@@ -29,11 +29,13 @@
 package localinputs
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
@@ -94,6 +96,8 @@ func (s *Store) LoadRuntimeInputs() (secrets, configs map[int32]string, err erro
 			secrets[int32(row.RefID)] = string(plaintext)
 		case state.LocalRuntimeInputKindConfig:
 			configs[int32(row.RefID)] = string(plaintext)
+		case state.LocalRuntimeInputKindIssuedTLS:
+			continue
 		default:
 			s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID)
 			dropped++
@@ -142,8 +146,74 @@ func (s *Store) RetainRuntimeInputs(secrets, configs map[int32]struct{}) (int, e
 			_, keep = secrets[int32(row.RefID)]
 		case state.LocalRuntimeInputKindConfig:
 			_, keep = configs[int32(row.RefID)]
+		case state.LocalRuntimeInputKindIssuedTLS:
+			continue
 		}
 		if keep {
+			continue
+		}
+		s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID)
+		removed++
+	}
+	return removed, nil
+}
+
+func (s *Store) LoadIssuedTLS() (map[int32]*runtimeinputs.IssuedTLSValue, error) {
+	out := map[int32]*runtimeinputs.IssuedTLSValue{}
+	dropped := 0
+	for _, row := range s.db.ListLocalRuntimeInputs() {
+		if row.Kind != state.LocalRuntimeInputKindIssuedTLS {
+			continue
+		}
+		plaintext, openErr := machinekey.Open(s.key, row.Ciphertext, row.Nonce, aad(row.Kind, row.RefID))
+		if openErr != nil {
+			s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID)
+			dropped++
+			continue
+		}
+		var value runtimeinputs.IssuedTLSValue
+		if err := json.Unmarshal(plaintext, &value); err != nil {
+			s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID)
+			dropped++
+			continue
+		}
+		out[int32(row.RefID)] = &value
+	}
+	if dropped > 0 {
+		slog.Warn("localinputs: dropped unreadable local issued TLS entries; they will be refetched from the primary", "count", dropped)
+	}
+	return out, nil
+}
+
+func (s *Store) StoreIssuedTLS(values map[int32]*runtimeinputs.IssuedTLSValue) error {
+	now := time.Now().UnixMilli()
+	for id, value := range values {
+		plaintext, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("encoding issued TLS for deployment %d: %w", id, err)
+		}
+		ciphertext, nonce, err := machinekey.Seal(s.key, plaintext, aad(state.LocalRuntimeInputKindIssuedTLS, int64(id)))
+		if err != nil {
+			return fmt.Errorf("sealing issued TLS for deployment %d: %w", id, err)
+		}
+		s.db.UpsertLocalRuntimeInput(state.LocalRuntimeInput{
+			Kind:       state.LocalRuntimeInputKindIssuedTLS,
+			RefID:      int64(id),
+			Ciphertext: ciphertext,
+			Nonce:      nonce,
+			FetchedAt:  now,
+		})
+	}
+	return nil
+}
+
+func (s *Store) RetainIssuedTLS(keep map[int32]struct{}) (int, error) {
+	removed := 0
+	for _, row := range s.db.ListLocalRuntimeInputs() {
+		if row.Kind != state.LocalRuntimeInputKindIssuedTLS {
+			continue
+		}
+		if _, ok := keep[int32(row.RefID)]; ok {
 			continue
 		}
 		s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID)

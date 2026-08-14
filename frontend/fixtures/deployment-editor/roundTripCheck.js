@@ -154,7 +154,10 @@ const latestParsed = parseDeploymentHcl(pinnedHcl
     .replace('config("database-host", { version = 2 })', 'config("database-host")')
     .replace('asset("nginx.conf", { version = 3 })', 'asset("nginx.conf")'), collisionCatalogs);
 assert.ok(latestParsed.document);
-assert.equal(latestParsed.document.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretId, 399);
+// Secret refs are scoped to the deployment's own space plus the global space,
+// so the space-2 database-password (399, v5) is not a candidate for this
+// space-1 deployment. Configs and assets stay unscoped.
+assert.equal(latestParsed.document.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretId, 301);
 assert.equal(latestParsed.document.spec.container1Spec.runtime.envVars.DATABASE_HOST.configId, 499);
 assert.equal(latestParsed.document.spec.container1Spec.runtime.assetMounts[0].assetId, 299);
 

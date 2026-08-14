@@ -7,6 +7,7 @@
 - Optimize internal asset storage. Consider content hashes and compression.
 - Add a log housekeeper that compresses and backs up workload logs. Show total log space used.
 - Define the behavior for auto-upgrading deployments that depend on changed assets, configs, or secrets.
+- Decide whether configs and assets get the same own-or-global reference-locality rule now enforced for secrets, and whether deployment writes should additionally require view access on referenced secrets (a pin by guessed id in an invisible space still works within the own-or-global bound).
 - Add "used by" information for assets, configs, secrets, and spaces. Show how many deployments use each item and which deployments use it.
 - Expand the machines page to show more machine details, including network interfaces, IP addresses, CPU cores, architecture, RAM, and disk space.
 - Continue the built-in networking layer. Machine-local virtual networking and port forwarding exist; remaining work includes fixed IP-in-IP cross-machine routing, network policy, ingress, and service load balancing. Design in [future-work/networking.md](../future-work/networking.md).

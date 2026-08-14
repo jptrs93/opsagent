@@ -382,6 +382,7 @@
  * @property {CustomHostMount[]} mounts
  * @property {number} devShmSizeKb
  * @property {number} fileDescriptorLimit
+ * @property {IssuedTLSMount} issuedTlsMount
  */
 /**
  * @typedef {Object} DefaultVolumeMount
@@ -415,6 +416,11 @@
  * @property {number} assetVersionId
  * @property {string} containerPath
  * @property {number} permission
+ */
+/**
+ * @typedef {Object} IssuedTLSMount
+ * @property {string} containerPath
+ * @property {string[]} extraNames
  */
 /**
  * @typedef {Object} EnrollmentWorkerMsg
@@ -511,6 +517,25 @@
 /**
  * @typedef {Object} ClusterConfigsResponse
  * @property {ClusterConfigValue[]} items
+ */
+/**
+ * @typedef {Object} ClusterIssuedTLSRequest
+ * @property {number} deploymentId
+ * @property {number} deploymentConfigVersion
+ */
+/**
+ * @typedef {Object} ClusterIssuedTLSResponse
+ * @property {Uint8Array} certPem
+ * @property {Uint8Array} keyPem
+ * @property {Uint8Array} caCertPem
+ * @property {number} issuedAt
+ * @property {number} notAfter
+ */
+/**
+ * @typedef {Object} ClusterRenewCertificateResponse
+ * @property {Uint8Array} certPem
+ * @property {Uint8Array} caCertPem
+ * @property {number} notAfter
  */
 /**
  * @typedef {Object} EmptyRequest
@@ -5877,6 +5902,11 @@ export function writeContainerRuntime(message, writer) {
     if (message.fileDescriptorLimit !== undefined && message.fileDescriptorLimit !== null && message.fileDescriptorLimit !== 0) {
         writer.uint32(tag(14, WIRE.VARINT)).int32(message.fileDescriptorLimit);
     }
+    if (message.issuedTlsMount !== undefined && message.issuedTlsMount !== null) {
+        writer.uint32(tag(15, WIRE.LDELIM)).fork();
+        writeIssuedTLSMount(message.issuedTlsMount, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -5898,7 +5928,7 @@ export function encodeContainerRuntime(message) {
  */
 function decodeContainerRuntimeMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {user: "", envVars: {}, overrideCommand: [], overrideWorkingDir: "", defaultVolume: undefined, crossDeploymentMounts: [], assetMounts: [], mounts: [], devShmSizeKb: 0, fileDescriptorLimit: 0 };
+    const message = {user: "", envVars: {}, overrideCommand: [], overrideWorkingDir: "", defaultVolume: undefined, crossDeploymentMounts: [], assetMounts: [], mounts: [], devShmSizeKb: 0, fileDescriptorLimit: 0, issuedTlsMount: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5957,6 +5987,10 @@ function decodeContainerRuntimeMessage(reader, length) {
             }
             case 14: {
                 message.fileDescriptorLimit = reader.int32();
+                break;
+            }
+            case 15: {
+                message.issuedTlsMount = decodeIssuedTLSMountMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -6345,6 +6379,71 @@ function decodeAssetMountMessage(reader, length) {
 export function decodeAssetMount(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeAssetMountMessage(reader);
+}
+
+
+
+/**
+ * @param {IssuedTLSMount} message
+ * @param {Writer} writer
+ */
+export function writeIssuedTLSMount(message, writer) {
+    if (message.containerPath !== undefined && message.containerPath !== null && message.containerPath !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.containerPath);
+    }
+    if (message.extraNames && message.extraNames.length > 0) {
+        for (const item of message.extraNames) {
+            writer.uint32(tag(2, WIRE.LDELIM)).string(item);
+        }
+    }
+}
+
+
+/**
+ * @param {IssuedTLSMount} message
+ * @returns {Uint8Array}
+ */
+export function encodeIssuedTLSMount(message) {
+    const writer = Writer.create();
+    writeIssuedTLSMount(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {IssuedTLSMount}
+ */
+function decodeIssuedTLSMountMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {containerPath: "", extraNames: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.containerPath = reader.string();
+                break;
+            }
+            case 2: {
+                message.extraNames.push(reader.string());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {IssuedTLSMount}
+ */
+export function decodeIssuedTLSMount(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeIssuedTLSMountMessage(reader);
 }
 
 
@@ -7509,6 +7608,223 @@ function decodeClusterConfigsResponseMessage(reader, length) {
 export function decodeClusterConfigsResponse(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeClusterConfigsResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterIssuedTLSRequest} message
+ * @param {Writer} writer
+ */
+export function writeClusterIssuedTLSRequest(message, writer) {
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
+    }
+    if (message.deploymentConfigVersion !== undefined && message.deploymentConfigVersion !== null && message.deploymentConfigVersion !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.deploymentConfigVersion);
+    }
+}
+
+
+/**
+ * @param {ClusterIssuedTLSRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterIssuedTLSRequest(message) {
+    const writer = Writer.create();
+    writeClusterIssuedTLSRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterIssuedTLSRequest}
+ */
+function decodeClusterIssuedTLSRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {deploymentId: 0, deploymentConfigVersion: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.deploymentId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.deploymentConfigVersion = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterIssuedTLSRequest}
+ */
+export function decodeClusterIssuedTLSRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterIssuedTLSRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterIssuedTLSResponse} message
+ * @param {Writer} writer
+ */
+export function writeClusterIssuedTLSResponse(message, writer) {
+    if (message.certPem && message.certPem.length > 0) {
+        writer.uint32(tag(1, WIRE.LDELIM)).bytes(message.certPem);
+    }
+    if (message.keyPem && message.keyPem.length > 0) {
+        writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.keyPem);
+    }
+    if (message.caCertPem && message.caCertPem.length > 0) {
+        writer.uint32(tag(3, WIRE.LDELIM)).bytes(message.caCertPem);
+    }
+    if (message.issuedAt !== undefined && message.issuedAt !== null && message.issuedAt !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(message.issuedAt);
+    }
+    if (message.notAfter !== undefined && message.notAfter !== null && message.notAfter !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(message.notAfter);
+    }
+}
+
+
+/**
+ * @param {ClusterIssuedTLSResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterIssuedTLSResponse(message) {
+    const writer = Writer.create();
+    writeClusterIssuedTLSResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterIssuedTLSResponse}
+ */
+function decodeClusterIssuedTLSResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {certPem: new Uint8Array(0), keyPem: new Uint8Array(0), caCertPem: new Uint8Array(0), issuedAt: 0, notAfter: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.certPem = reader.bytes();
+                break;
+            }
+            case 2: {
+                message.keyPem = reader.bytes();
+                break;
+            }
+            case 3: {
+                message.caCertPem = reader.bytes();
+                break;
+            }
+            case 4: {
+                message.issuedAt = readInt64(reader, "int64");
+                break;
+            }
+            case 5: {
+                message.notAfter = readInt64(reader, "int64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterIssuedTLSResponse}
+ */
+export function decodeClusterIssuedTLSResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterIssuedTLSResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterRenewCertificateResponse} message
+ * @param {Writer} writer
+ */
+export function writeClusterRenewCertificateResponse(message, writer) {
+    if (message.certPem && message.certPem.length > 0) {
+        writer.uint32(tag(1, WIRE.LDELIM)).bytes(message.certPem);
+    }
+    if (message.caCertPem && message.caCertPem.length > 0) {
+        writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.caCertPem);
+    }
+    if (message.notAfter !== undefined && message.notAfter !== null && message.notAfter !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(message.notAfter);
+    }
+}
+
+
+/**
+ * @param {ClusterRenewCertificateResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterRenewCertificateResponse(message) {
+    const writer = Writer.create();
+    writeClusterRenewCertificateResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterRenewCertificateResponse}
+ */
+function decodeClusterRenewCertificateResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {certPem: new Uint8Array(0), caCertPem: new Uint8Array(0), notAfter: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.certPem = reader.bytes();
+                break;
+            }
+            case 2: {
+                message.caCertPem = reader.bytes();
+                break;
+            }
+            case 3: {
+                message.notAfter = readInt64(reader, "int64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterRenewCertificateResponse}
+ */
+export function decodeClusterRenewCertificateResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterRenewCertificateResponseMessage(reader);
 }
 
 

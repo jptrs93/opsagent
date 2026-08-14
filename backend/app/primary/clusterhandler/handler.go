@@ -8,6 +8,7 @@ package clusterhandler
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"iter"
@@ -20,9 +21,11 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
+	"github.com/jptrs93/opsagent/backend/lib/issuedtls"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/util/certu"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
@@ -34,6 +37,8 @@ var _ apigen.OpsagentClusterV1Handler = (*Handler)(nil)
 // machineCtxKey keys the worker's node identifier from its certificate CN.
 type machineCtxKey struct{}
 
+type peerCertCtxKey struct{}
+
 var clusterForbiddenErr = apigen.NewApiErr("Forbidden", "cluster_request_not_authorized", http.StatusForbidden)
 
 // VerifyClusterPeer is the MuxConfig.VerifyAuth hook for the cluster mux. The
@@ -44,11 +49,19 @@ func VerifyClusterPeer(ctx context.Context, _ http.ResponseWriter, r *http.Reque
 	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
 		return apigen.Context{}, fmt.Errorf("cluster peer presented no certificate")
 	}
-	machine := r.TLS.PeerCertificates[0].Subject.CommonName
+	peerCert := r.TLS.PeerCertificates[0]
+	machine := peerCert.Subject.CommonName
 	if machine == "" {
 		return apigen.Context{}, fmt.Errorf("cluster peer certificate has no CN")
 	}
-	return apigen.Context{Ctx: context.WithValue(ctx, machineCtxKey{}, machine)}, nil
+	ctx = context.WithValue(ctx, machineCtxKey{}, machine)
+	ctx = context.WithValue(ctx, peerCertCtxKey{}, peerCert)
+	return apigen.Context{Ctx: ctx}, nil
+}
+
+func peerCertFromContext(ctx context.Context) *x509.Certificate {
+	cert, _ := ctx.Value(peerCertCtxKey{}).(*x509.Certificate)
+	return cert
 }
 
 // machineFromContext returns the worker machine name stashed by VerifyClusterPeer.
@@ -94,6 +107,7 @@ type Handler struct {
 	networkPrefix     network.Prefix
 	networkMaps       networkMapProvider
 	acme              *acmestate.Holder
+	issuedTLS         *issuedtls.Issuer
 
 	mu          sync.RWMutex
 	sessions    map[int32]*Session  // node ID → session
@@ -114,7 +128,7 @@ type networkMapProvider interface {
 }
 
 // New creates a cluster handler.
-func New(store *state.Service, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, networkMaps networkMapProvider, acme *acmestate.Holder) *Handler {
+func New(store *state.Service, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, networkMaps networkMapProvider, acme *acmestate.Holder, issuedTLS *issuedtls.Issuer) *Handler {
 	return &Handler{
 		store:             store,
 		assets:            assets,
@@ -123,6 +137,7 @@ func New(store *state.Service, assets assetProvider, githubCredentials githubcre
 		networkPrefix:     networkPrefix,
 		networkMaps:       networkMaps,
 		acme:              acme,
+		issuedTLS:         issuedTLS,
 		sessions:          make(map[int32]*Session),
 		connectedAt:       make(map[int32]time.Time),
 	}
@@ -352,6 +367,56 @@ func (p *Handler) GetV1ClusterConfigs(authCtx apigen.Context, req *apigen.Cluste
 		items = append(items, &apigen.ClusterConfigValue{ID: id, Value: value})
 	}
 	return &apigen.ClusterConfigsResponse{Items: items}, nil
+}
+
+func (p *Handler) GetV1ClusterIssuedTls(authCtx apigen.Context, req *apigen.ClusterIssuedTLSRequest) (*apigen.ClusterIssuedTLSResponse, error) {
+	if p.issuedTLS == nil {
+		return nil, fmt.Errorf("issued TLS is not configured")
+	}
+	if req == nil || req.DeploymentID <= 0 {
+		return nil, fmt.Errorf("deployment_id is required")
+	}
+	predicate, err := p.requireScheduledInstancePredicate(authCtx)
+	if err != nil {
+		return nil, err
+	}
+	for _, instance := range p.store.FetchScheduledSnapshot(predicate) {
+		if instance.Config.ID != req.DeploymentID {
+			continue
+		}
+		if instance.Config.Spec.Container() == nil || instance.Config.Spec.Container().Runtime.IssuedTlsMount == nil {
+			return nil, clusterForbiddenErr
+		}
+		return p.issuedTLS.Issue(&instance.Config)
+	}
+	return nil, clusterForbiddenErr
+}
+
+func (p *Handler) GetV1ClusterRenewCertificate(authCtx apigen.Context) (*apigen.ClusterRenewCertificateResponse, error) {
+	if p.secrets == nil {
+		return nil, fmt.Errorf("secrets manager is not configured")
+	}
+	machine, err := requireMachine(authCtx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.store.NodeIDByIdentifier(machine); err != nil {
+		return nil, clusterForbiddenErr
+	}
+	peerCert := peerCertFromContext(authCtx)
+	if peerCert == nil {
+		return nil, fmt.Errorf("cluster request missing peer certificate")
+	}
+	caCert, workerCert, notAfter, err := certu.RenewWorkerCertificate(p.secrets, machine, peerCert.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	slog.InfoContext(authCtx, "renewed worker cluster certificate", "machine", machine, "notAfter", notAfter)
+	return &apigen.ClusterRenewCertificateResponse{
+		CertPem:   workerCert,
+		CaCertPem: caCert,
+		NotAfter:  notAfter.UnixMilli(),
+	}, nil
 }
 
 // PostV1ClusterConnect handles one worker's bidirectional stream for its full

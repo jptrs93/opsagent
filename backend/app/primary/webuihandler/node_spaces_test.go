@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
@@ -17,7 +18,7 @@ func newNodeSpacesHandler(t *testing.T) (*Handler, *state.Node) {
 	t.Helper()
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("primary", "primary-id")
-	return &Handler{Store: store}, node
+	return &Handler{ConfigService: &config.Service{}, Store: store}, node
 }
 
 func setAllowed(t *testing.T, h *Handler, identifier string, spaces []int32) (*apigen.ClusterNode, error) {

@@ -27,6 +27,8 @@ import (
 
 type runtimeConfig struct {
 	TLS                *tls.Config
+	ClusterCertPath    string
+	ClusterKeyPath     string
 	PrimaryClusterAddr string
 	PrimaryName        string // primary certificate DNS/IP SAN for TLS server name verification
 	UnderlayAddress    string // explicit tunnel endpoint; otherwise resolved for every reconnect
@@ -46,8 +48,17 @@ type runtimeConfig struct {
 func run(ctx context.Context, cfg runtimeConfig) {
 
 	store := state.Open(filepath.Join(cfg.DataDir, "secondary.db"))
+	certManager, err := newClusterCertManager(cfg.ClusterCertPath, cfg.ClusterKeyPath)
+	if err != nil {
+		slog.Warn("loading cluster cert for renewal failed; certificate renewal is disabled", "err", err)
+	} else {
+		cfg.TLS.GetClientCertificate = certManager.getClientCertificate
+	}
 	primaryHTTPClient := newPrimaryHTTPClient(cfg.TLS, cfg.PrimaryName)
 	primaryURL := "https://" + cfg.PrimaryClusterAddr
+	if certManager != nil {
+		go runClusterCertRenewal(ctx, certManager, primaryURL, primaryHTTPClient)
+	}
 	githubCredentials := NewPrimaryGithubCredentialsProvider(primaryURL, primaryHTTPClient)
 	network.SetDefault(network.New(cfg.ClusterPrefix, cfg.NetDeploymentID))
 	if clusterMap, _, ok, err := cachedClusterNetMap(store, cfg.NodeID, cfg.ClusterPrefix); err != nil {
@@ -78,6 +89,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	if err != nil {
 		slog.Warn("loading persisted runtime inputs failed; they will be refetched from the primary", "err", err)
 	}
+	runtimeInputs.SetIssuedTLSProvider(NewPrimaryIssuedTLSProvider(primaryURL, primaryHTTPClient))
 	gitManager := git.NewManager(cfg.GitCacheDir, githubCredentials)
 	githubClient := githubrepo.NewClient(githubCredentials)
 	githubReleasePreparer := githubrelease.New(cfg.ReleasesDir, githubClient)

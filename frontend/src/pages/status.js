@@ -698,7 +698,7 @@ export function statusPage(onOpenLogs = () => {}) {
             return {message: 'No deployments configured. Create a deployment config first.', messageCard: true, rows: []};
         }
         if (visibleRows.length === 0) {
-            return {message: 'Only opendeploy deployments are configured. Enable Show opendeploy to display them.', messageCard: true, rows: []};
+            return {message: 'Only _system deployments are configured. Enable Show _system to display them.', messageCard: true, rows: []};
         }
         if (filtered.length === 0) {
             return {message: 'No deployments match your search.', messageCard: true, rows: []};
@@ -763,12 +763,12 @@ export function statusPage(onOpenLogs = () => {}) {
                     },
                     type: "button",
                     "aria-pressed": () => showOpendeploy.val ? "true" : "false",
-                    title: "Toggle opendeploy internal deployments",
+                    title: "Toggle _system internal deployments",
                 },
                     span({class: () => `h-4 w-7 rounded-full relative transition-colors ${showOpendeploy.val ? 'bg-brand' : 'bg-gray-600'}`},
                         span({class: () => `absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${showOpendeploy.val ? 'left-3.5' : 'left-0.5'}`}),
                     ),
-                    span("Show opendeploy"),
+                    span("Show _system"),
                 ),
                 button({
                     "data-testid": "add-deployment-button",

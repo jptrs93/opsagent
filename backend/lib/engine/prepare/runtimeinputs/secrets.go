@@ -32,20 +32,23 @@ type RuntimeInputs struct {
 	assets      AssetProvider
 	secrets     SecretProvider
 	configs     ConfigProvider
+	issuedTLS   IssuedTLSProvider
 	persistence Persistence
 
-	mu           sync.RWMutex
-	secretValues map[int32]string
-	configValues map[int32]string
+	mu              sync.RWMutex
+	secretValues    map[int32]string
+	configValues    map[int32]string
+	issuedTLSValues map[int32]*IssuedTLSValue
 }
 
 func New(assets AssetProvider, secrets SecretProvider, configs ConfigProvider) *RuntimeInputs {
 	return &RuntimeInputs{
-		assets:       assets,
-		secrets:      secrets,
-		configs:      configs,
-		secretValues: make(map[int32]string),
-		configValues: make(map[int32]string),
+		assets:          assets,
+		secrets:         secrets,
+		configs:         configs,
+		secretValues:    make(map[int32]string),
+		configValues:    make(map[int32]string),
+		issuedTLSValues: make(map[int32]*IssuedTLSValue),
 	}
 }
 
@@ -65,12 +68,23 @@ func NewPersistent(assets AssetProvider, secrets SecretProvider, configs ConfigP
 		return r, fmt.Errorf("loading persisted runtime inputs: %w", err)
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	for id, value := range secretValues {
 		r.secretValues[id] = value
 	}
 	for id, value := range configValues {
 		r.configValues[id] = value
+	}
+	r.mu.Unlock()
+	if tp, ok := p.(IssuedTLSPersistence); ok {
+		issued, err := tp.LoadIssuedTLS()
+		if err != nil {
+			return r, fmt.Errorf("loading persisted issued TLS: %w", err)
+		}
+		r.mu.Lock()
+		for id, value := range issued {
+			r.issuedTLSValues[id] = value
+		}
+		r.mu.Unlock()
 	}
 	return r, nil
 }
@@ -172,7 +186,10 @@ func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.DeploymentC
 	if err := r.EnsureSecretsReady(ctx, cfg); err != nil {
 		return err
 	}
-	return r.EnsureConfigsReady(ctx, cfg)
+	if err := r.EnsureConfigsReady(ctx, cfg); err != nil {
+		return err
+	}
+	return r.EnsureIssuedTLSReady(ctx, cfg)
 }
 
 // EnsureConfigsReady is EnsureSecretsReady for plain config values, which share

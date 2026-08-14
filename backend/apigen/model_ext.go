@@ -10,7 +10,9 @@ import (
 
 // Bumped to 7 when assets split into assets + asset_versions: the cluster
 // asset fetch renamed its query param and headers to asset_version_id naming.
-const ClusterProtocolVersion int32 = 7
+// Bumped to 8 when issued TLS mounts were added: an older worker would run an
+// issued-TLS deployment without its cert material.
+const ClusterProtocolVersion int32 = 8
 
 // WantsRunning reports whether a node should be running this placement. The
 // three RUN_* states are deliberately indistinguishable here: they differ only

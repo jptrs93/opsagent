@@ -85,6 +85,14 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 		}
 	}
 
+	// Locality check and write under the reference lock: PostV1SecretsMove
+	// scans referencing deployments under the same lock before moving, so a
+	// ref accepted here cannot be stranded by a concurrent secret space move.
+	unlockReferences := h.ConfigService.LockReferences()
+	defer unlockReferences()
+	if err := h.validateSecretRefSpaces(spec, identity.SpaceID); err != nil {
+		return nil, err
+	}
 	cfg := h.Store.MustCreateDeploymentForNode(ctx, &identity, req.NodeID, spec)
 	h.wakeAcme()
 	return cfg, nil
@@ -213,6 +221,14 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		spaceID := cfg.Identity.SpaceID
 		if req.SpaceID != nil {
 			spaceID = *req.SpaceID
+		}
+		// Checked against the effective spec and space so spec-only changes,
+		// space-only moves, and combined writes all pass through the guard.
+		// Same lock discipline as create: see PostV1DeploymentsCreate.
+		unlockReferences := h.ConfigService.LockReferences()
+		defer unlockReferences()
+		if err := h.validateSecretRefSpaces(effectiveSpec, spaceID); err != nil {
+			return nil, err
 		}
 		current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, state.DeploymentConfigUpdate{
 			ExpectedVersion: req.Version,

@@ -25,6 +25,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/engine/secretdist"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
+	"github.com/jptrs93/opsagent/backend/lib/issuedtls"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	repogit "github.com/jptrs93/opsagent/backend/lib/repo/git"
 	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
@@ -46,6 +47,7 @@ type runtime struct {
 	operator              engine.DeploymentOperator
 	acmeHolder            *acmestate.Holder
 	acmeIssuer            *acmeissue.Manager
+	issuedTLS             *issuedtls.Issuer
 }
 
 func newRuntime() (*runtime, error) {
@@ -88,6 +90,13 @@ func newRuntime() (*runtime, error) {
 	secretProvider := secretdist.NewPrimaryProvider(secretsMgr)
 	configProvider := configdist.NewPrimaryProvider(store)
 	runtimeInputs := runtimeinputs.New(assetStore, secretProvider, configProvider)
+	tlsIssuer := &issuedtls.Issuer{Secrets: secretsMgr}
+	runtimeInputs.SetIssuedTLSProvider(&issuedtls.PrimaryProvider{
+		Issuer: tlsIssuer,
+		Snapshot: func() []apigen.DeploymentConfig {
+			return store.FetchDeploymentSnapshot(nil)
+		},
+	})
 	gitManager := repogit.NewManager(ainit.StaticConfig.GitCacheDir, githubCredentials)
 	githubClient := githubrepo.NewClient(githubCredentials)
 	acmeHolder := acmestate.NewHolder()
@@ -112,6 +121,7 @@ func newRuntime() (*runtime, error) {
 		},
 		acmeHolder: acmeHolder,
 		acmeIssuer: acmeIssuer,
+		issuedTLS:  tlsIssuer,
 	}, nil
 }
 

@@ -18,7 +18,9 @@ import {
   decodeAuthzRuleTemplateList,
   decodeAuthzRuleTemplateRecord,
   decodeClusterConfigsResponse,
+  decodeClusterIssuedTLSResponse,
   decodeClusterNode,
+  decodeClusterRenewCertificateResponse,
   decodeClusterSecretsResponse,
   decodeClusterSettings,
   decodeConfigList,
@@ -73,6 +75,7 @@ import {
   encodeAuthzRuleTemplateDeleteRequest,
   encodeAuthzRuleTemplateUpdateRequest,
   encodeClusterConfigsRequest,
+  encodeClusterIssuedTLSRequest,
   encodeClusterSecretsRequest,
   encodeClusterSettings,
   encodeConfigCreateRequest,
@@ -1291,6 +1294,29 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeClusterConfigsResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {ClusterIssuedTLSRequest} payload
+   * @returns {Promise<ClusterIssuedTLSResponse>}
+   */
+  async getV1ClusterIssuedTls(payload) {
+    const response = await this.#request("/v1/cluster/issued-tls", { method: 'GET', body: encodeClusterIssuedTLSRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeClusterIssuedTLSResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @returns {Promise<ClusterRenewCertificateResponse>}
+   */
+  async getV1ClusterRenewCertificate() {
+    const response = await this.#request("/v1/cluster/renew-certificate", { method: 'GET' });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeClusterRenewCertificateResponse(await response.arrayBuffer());
   }
 
   /**

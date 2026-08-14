@@ -13,6 +13,7 @@ const PERMISSION_READ_WRITE = 1;
 const PERMISSION_READ_ONLY = 2;
 const PERMISSION_READ_EXECUTE = 3;
 const DEFAULT_DATA_PATH = "/data";
+const GLOBAL_SPACE_ID = 1;
 
 export const deploymentHclCompletionOptions = [
     {label: "deployment", type: "keyword", info: "Root deployment block"},
@@ -36,6 +37,7 @@ export const deploymentHclCompletionOptions = [
     {label: "default_volume", type: "function", info: "The deployment default volume"},
     {label: "deployment", type: "function", info: "Resolve a default volume by space and deployment name"},
     {label: "host_path", type: "function", info: "A host bind-mount path"},
+    {label: "issued_tls", type: "function", info: "Platform-issued TLS cert/key files for this deployment"},
     {label: "port_forward", type: "function", info: "Publish a TCP or UDP port"},
     {label: "tls_passthrough", type: "function", info: "Route TLS by SNI"},
     {label: "https", type: "function", info: "Terminate HTTPS and route by hostname and path prefix"},
@@ -483,6 +485,13 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
         const mountSource = versionedReferenceForID(refs, "asset", mount?.assetVersionId, pinVersions);
         mounts.push(`mount(${mountSource}, ${quote(mount?.containerPath)}${mountOption("executable", mount?.permission === PERMISSION_READ_EXECUTE)})`);
     }
+    if (runtime.issuedTlsMount) {
+        const extraNames = runtime.issuedTlsMount.extraNames || [];
+        const mountSource = extraNames.length
+            ? `issued_tls({ extra_names = [${extraNames.map(quote).join(", ")}] })`
+            : "issued_tls()";
+        mounts.push(`mount(${mountSource}, ${quote(runtime.issuedTlsMount.containerPath)})`);
+    }
     if (mounts.length) {
         add(0);
         add(2, "mounts = [");
@@ -638,8 +647,22 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
                         : catalogs.deployments;
     let matches = scopedItems(collection, type, type === "deployment" ? spaceId : undefined)
         .filter(item => itemName(item, type) === name);
+    if (type === "secret" && spaceId !== undefined && spaceId !== null) {
+        // Reference locality: a deployment may pin secrets only from its own
+        // space or the global space, and its own space shadows a global name.
+        matches = matches.filter(item => Number(itemSpace(item, type)) === Number(spaceId)
+            || Number(itemSpace(item, type)) === GLOBAL_SPACE_ID);
+        const ownSpace = matches.filter(item => Number(itemSpace(item, type)) === Number(spaceId));
+        if (ownSpace.length > 0) matches = ownSpace;
+    }
     if (type === "deployment" && options.nodeId !== undefined && options.nodeId !== null) {
         matches = matches.filter(item => Number(deploymentConfig(item)?.nodeId) === Number(options.nodeId));
+    }
+    if (type === "deployment" && options.preferNodeId !== undefined && options.preferNodeId !== null) {
+        // Same name may exist on several nodes; the local node shadows the
+        // others, but a name unique to another node still resolves.
+        const ownNode = matches.filter(item => Number(deploymentConfig(item)?.nodeId) === Number(options.preferNodeId));
+        if (ownNode.length > 0) matches = ownNode;
     }
     if (isVersionedResource(type)) {
         if (options.version !== undefined && options.version !== null) {
@@ -651,7 +674,9 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
     }
     matches = uniqueByID(matches, type);
     if (matches.length === 0) {
-        const scope = type === "node" ? " in the cluster" : type === "deployment" ? " in the selected space" : "";
+        const scope = type === "node" ? " in the cluster"
+            : type === "deployment" ? " in the selected space"
+                : type === "secret" ? " in the deployment's space or the global space" : "";
         diagnostics.push(diagnostic(text, expression, `No ${type} named ${quote(name)} exists${scope}.`));
         return null;
     }
@@ -662,7 +687,7 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
     return matches[0];
 }
 
-function deploymentReference(text, diagnostics, expression, catalogs, nodeId) {
+function deploymentReference(text, diagnostics, expression, catalogs, nodeId, {anyNode = false} = {}) {
     if (expression.kind !== "call" || !["address", "deployment"].includes(expression.name)
         || expression.args.length !== 2
         || expression.args.some(argument => argument.kind !== "string" || !argument.value)) {
@@ -671,7 +696,8 @@ function deploymentReference(text, diagnostics, expression, catalogs, nodeId) {
     }
     const space = resolveNamed(text, diagnostics, expression.args[0], "space", expression.args[0].value, catalogs);
     if (!space) return null;
-    return resolveNamed(text, diagnostics, expression, "deployment", expression.args[1].value, catalogs, Number(space.id), {nodeId});
+    return resolveNamed(text, diagnostics, expression, "deployment", expression.args[1].value, catalogs, Number(space.id),
+        anyNode ? {preferNodeId: nodeId} : {nodeId});
 }
 
 function typedReference(text, diagnostics, attr, functionName, type, catalogs, spaceId) {
@@ -779,6 +805,31 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime
             });
             continue;
         }
+        if (source.name === "issued_tls" && source.args.length <= 1) {
+            if (runtime.issuedTlsMount) {
+                diagnostics.push(diagnostic(text, source, "Only one issued_tls mount is allowed."));
+                continue;
+            }
+            if (optionsExpression) diagnostics.push(diagnostic(text, optionsExpression, "issued_tls mounts do not accept mount options."));
+            let extraNames = [];
+            if (source.args.length === 1) {
+                const issuedOptions = validateObject(text, diagnostics, source.args[0], new Set(["extra_names"]));
+                const namesAttr = issuedOptions.get("extra_names");
+                if (namesAttr) {
+                    const namesExpression = namesAttr.value;
+                    if (namesExpression.kind !== "list" || namesExpression.items.some(item => item.kind !== "string")) {
+                        diagnostics.push(diagnostic(text, namesExpression, "extra_names must be a list of quoted strings."));
+                    } else {
+                        extraNames = namesExpression.items.map(item => item.value);
+                    }
+                }
+            }
+            runtime.issuedTlsMount = {
+                containerPath: pathExpression.value,
+                ...(extraNames.length ? {extraNames} : {}),
+            };
+            continue;
+        }
         if (source.name === "host_path" && source.args.length === 1 && source.args[0].kind === "string") {
             const options = optionsExpression ? validateObject(text, diagnostics, optionsExpression, new Set(["read_only"])) : new Map();
             mounts.push({
@@ -790,7 +841,7 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime
             });
             continue;
         }
-        diagnostics.push(diagnostic(text, source, 'Mount source must be default_volume(), asset("key"[, { version = number }]), deployment("space", "deployment"), or host_path("/host").'));
+        diagnostics.push(diagnostic(text, source, 'Mount source must be default_volume(), asset("key"[, { version = number }]), deployment("space", "deployment"), host_path("/host"), or issued_tls([{ extra_names = [...] }]).'));
     }
     const crossDeploymentMounts = mounts.filter(mount => mount.deploymentId);
     const customMounts = mounts.filter(mount => mount.hostPath);
@@ -833,7 +884,9 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
         const type = value.name === "address" ? "deployment" : value.name;
         let item;
         if (value.name === "address") {
-            item = deploymentReference(text, diagnostics, value, catalogs, nodeId);
+            // Address references may target deployments on any node, unlike
+            // cross-deployment mounts which are node-local.
+            item = deploymentReference(text, diagnostics, value, catalogs, nodeId, {anyNode: true});
         } else {
             const version = referenceVersion(text, diagnostics, value.args[1], `${value.name[0].toUpperCase()}${value.name.slice(1)} reference`);
             item = resolveNamed(text, diagnostics, value, type, value.args[0].value, catalogs, spaceId, {

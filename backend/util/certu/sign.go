@@ -31,7 +31,46 @@ func GenerateClusterCA(name string) (certPEM, keyPEM []byte, err error) {
 			CommonName: name,
 		},
 		NotBefore:             time.Now().Add(-time.Minute),
-		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
+		NotAfter:              time.Now().Add(caValidity),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
+	if err != nil {
+		return nil, nil, fmt.Errorf("signing CA certificate: %w", err)
+	}
+	keyPEM, err = marshalPrivateKey(priv)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}), keyPEM, nil
+}
+
+const (
+	caValidity         = 100 * 365 * 24 * time.Hour
+	workerCertValidity = 365 * 24 * time.Hour
+)
+
+func GenerateWorkloadCA(name string) (certPEM, keyPEM []byte, err error) {
+	if name == "" {
+		return nil, nil, fmt.Errorf("CA name is empty")
+	}
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating CA key: %w", err)
+	}
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, nil, err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName: name,
+		},
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(caValidity),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
@@ -91,6 +130,50 @@ func GenerateNodeCertificateWithServerName(caCertPEM, caKeyPEM []byte, commonNam
 	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, pub, caKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("signing node certificate: %w", err)
+	}
+	keyPEM, err = marshalPrivateKey(priv)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}), keyPEM, nil
+}
+
+func SignWorkloadCertificate(caCertPEM, caKeyPEM []byte, commonName string, names []string, validity time.Duration) (certPEM, keyPEM []byte, err error) {
+	if commonName == "" {
+		return nil, nil, fmt.Errorf("workload certificate common name is empty")
+	}
+	_, caCert, err := parseCertificate(caCertPEM, "workload CA cert")
+	if err != nil {
+		return nil, nil, err
+	}
+	caKey, err := parsePrivateKey(caKeyPEM, "workload CA key")
+	if err != nil {
+		return nil, nil, err
+	}
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating workload key: %w", err)
+	}
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, nil, err
+	}
+	dnsNames, ipAddresses := serverCertificateNames(names)
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName: commonName,
+		},
+		DNSNames:    dnsNames,
+		IPAddresses: ipAddresses,
+		NotBefore:   time.Now().Add(-time.Minute),
+		NotAfter:    time.Now().Add(validity),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, pub, caKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("signing workload certificate: %w", err)
 	}
 	keyPEM, err = marshalPrivateKey(priv)
 	if err != nil {
@@ -218,9 +301,32 @@ func SignWorkerCertificateRequestFromPEM(caCertPEM, caKeyPEM, csrPEM []byte, ide
 	if csr.Subject.CommonName != identifier {
 		return nil, nil, fmt.Errorf("worker CSR common name does not match identifier")
 	}
-	serial, err := randomSerial()
+	certPEM, _, err := signWorkerCertificate(caCert, caKey, identifier, csr.PublicKey)
 	if err != nil {
 		return nil, nil, err
+	}
+	return caCertPEM, certPEM, nil
+}
+
+func SignWorkerCertificateFromPublicKey(caCertPEM, caKeyPEM []byte, identifier string, publicKey any) (certPEM []byte, notAfter time.Time, err error) {
+	if identifier == "" {
+		return nil, time.Time{}, fmt.Errorf("worker identifier is empty")
+	}
+	_, caCert, err := parseCertificate(caCertPEM, "CA cert")
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	caKey, err := parsePrivateKey(caKeyPEM, "CA key")
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return signWorkerCertificate(caCert, caKey, identifier, publicKey)
+}
+
+func signWorkerCertificate(caCert *x509.Certificate, caKey any, identifier string, publicKey any) (certPEM []byte, notAfter time.Time, err error) {
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, time.Time{}, err
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
@@ -228,16 +334,15 @@ func SignWorkerCertificateRequestFromPEM(caCertPEM, caKeyPEM, csrPEM []byte, ide
 			CommonName: identifier,
 		},
 		NotBefore:   time.Now().Add(-time.Minute),
-		NotAfter:    time.Now().Add(90 * 24 * time.Hour),
+		NotAfter:    time.Now().Add(workerCertValidity),
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
-	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, csr.PublicKey, caKey)
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, publicKey, caKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("signing worker certificate: %w", err)
+		return nil, time.Time{}, fmt.Errorf("signing worker certificate: %w", err)
 	}
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	return caCertPEM, certPEM, nil
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}), tmpl.NotAfter, nil
 }
 
 func parseCertificate(certPEM []byte, label string) ([]byte, *x509.Certificate, error) {

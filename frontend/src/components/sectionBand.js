@@ -8,8 +8,10 @@ const {button, div, h2, span} = van.tags;
 // flush with the window edge now that these pages have no surrounding card.
 // The toggle sits inside a real h2 so the section still reads (and tests) as
 // a heading.
+// min-h keeps every band the same height whether or not it carries actions,
+// matching the height a bandButton would give it.
 export const sectionBand = (openState, title, count, ...actions) => div(
-    {class: "flex flex-none flex-wrap items-center gap-2 border-y border-gray-700 first:border-t-0 bg-gray-950/40 px-2 py-1"},
+    {class: "flex flex-none flex-wrap items-center gap-2 border-y border-gray-700 first:border-t-0 bg-gray-950/40 px-2 py-1 min-h-[30px]"},
     h2({class: "text-[11px] font-semibold leading-none"},
         button({
             type: "button",
