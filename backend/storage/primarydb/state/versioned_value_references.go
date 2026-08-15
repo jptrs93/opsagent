@@ -172,26 +172,19 @@ func prepareDeploymentReferenceUpdates(
 	return updates, referenceIDs, nil
 }
 
-// versionedValueIDs returns every version row id of the stable identity —
+// versionedValueIDs returns every version event id of the stable identity —
 // exactly the set a deployment env ref could pin.
 func versionedValueIDs(ctx context.Context, q *pq.Queries, referenceType versionedValueReferenceType, stableID int32) (map[int32]struct{}, error) {
-	ids := make(map[int32]struct{})
+	entityType := eventTypeConfig
 	if referenceType == secretValueReference {
-		rows, err := q.ListSecretVersionIDsBySecretID(ctx, int64(stableID))
-		if err != nil {
-			return nil, fmt.Errorf("list secret versions: %w", err)
-		}
-		for _, id := range rows {
-			ids[int32(id)] = struct{}{}
-		}
-		return ids, nil
+		entityType = eventTypeSecret
 	}
-
-	events, err := q.ListEventsByEntity(ctx, pq.ListEventsByEntityParams{EntityType: eventTypeConfig, EntityID: int64(stableID)})
+	events, err := q.ListEventsByEntity(ctx, pq.ListEventsByEntityParams{EntityType: entityType, EntityID: int64(stableID)})
 	if err != nil {
-		return nil, fmt.Errorf("list config events: %w", err)
+		return nil, fmt.Errorf("list value events: %w", err)
 	}
-	for _, e := range configValueEvents(events) {
+	ids := make(map[int32]struct{})
+	for _, e := range valueEvents(events) {
 		ids[int32(e.ID)] = struct{}{}
 	}
 	return ids, nil
@@ -220,7 +213,7 @@ func replaceDeploymentReferences(spec *apigen.DeploymentSpec, referenceType vers
 			continue
 		}
 		if referenceType == secretValueReference {
-			value.SecretVersionID = &replacementID
+			value.SecretRefID = &replacementID
 		} else {
 			value.ConfigRefID = &replacementID
 		}
@@ -232,8 +225,8 @@ func referencedValueID(value *apigen.EnvVarValue, referenceType versionedValueRe
 		return 0
 	}
 	if referenceType == secretValueReference {
-		if value.SecretVersionID != nil {
-			return *value.SecretVersionID
+		if value.SecretRefID != nil {
+			return *value.SecretRefID
 		}
 		return 0
 	}

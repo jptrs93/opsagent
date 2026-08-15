@@ -1788,7 +1788,7 @@ function formEnvVars(form) {
         .map(v => {
             const key = (v.key || '').trim();
             if (!key) return null;
-            if (v.type === 'secret') return Number(v.secretId || 0) ? [key, {secretVersionId: Number(v.secretId)}] : null;
+            if (v.type === 'secret') return Number(v.secretId || 0) ? [key, {secretRefId: Number(v.secretId)}] : null;
             if (v.type === 'config') return Number(v.configId || 0) ? [key, {configRefId: Number(v.configId)}] : null;
             if (v.type === 'address') return Number(v.addressDeploymentId || 0) ? [key, {addressDeploymentId: Number(v.addressDeploymentId), addressSpaceId: Number(v.addressSpaceId || 0)}] : null;
             if (v.type === 'asset') return Number(v.assetVersionId || 0) ? [key, {asset: (v.asset || '').trim(), assetVersionId: Number(v.assetVersionId || 0)}] : null;
@@ -1999,7 +1999,7 @@ function envVarsToFormRows(envVars) {
         .map(([key, value], index) => ({key, value, index}))
         .sort((a, b) => a.key.localeCompare(b.key) || a.index - b.index)
         .map(({key, value}) => {
-        const secretId = Number(value?.secretVersionId || 0);
+        const secretId = Number(value?.secretRefId || 0);
         const configId = Number(value?.configRefId || 0);
         const assetVersionId = Number(value?.assetVersionId || 0);
         const addressDeploymentId = Number(value?.addressDeploymentId || 0);

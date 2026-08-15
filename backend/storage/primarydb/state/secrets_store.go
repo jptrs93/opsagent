@@ -12,17 +12,16 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-// This file implements secrets.Store on the primary Service. The
-// secret_keyslots, secrets, secret_versions, and system_secrets tables are
-// primary-only and are never replicated to secondaries (the cluster feeder
-// ships only deployment configs/status).
+// This file implements secrets.Store on the primary Service. Secret versions
+// live in the global events table (blob = SecretEnvelope); secret_displays
+// owns the mutable name/directory/space labels. All secret tables are
+// primary-only and are never replicated to secondaries.
 //
 // The Manager owns the SMK and all crypto; this layer owns the identities,
 // versions, and the shared secrets/configs namespace law. Sealing happens
 // through a caller-supplied secrets.SealFunc inside the write transaction,
-// because the id-and-version-bound AAD needs the identity id before the
-// ciphertext can exist. Writes follow the store-wide panic-on-failure
-// convention.
+// after the version's event row is pre-allocated, because the AAD binds the
+// event id.
 
 func (s *Service) ListSecretKeyslots() []secrets.Keyslot {
 	rows, err := s.q.ListSecretKeyslots(context.Background())
@@ -59,31 +58,33 @@ func (s *Service) UpsertSecretKeyslot(k secrets.Keyslot) {
 }
 
 func (s *Service) ListSecretVersionRecords() []secrets.Record {
-	rows, err := s.q.ListSecretVersionRecords(context.Background())
+	ctx := context.Background()
+	displays, err := s.q.ListSecretDisplays(ctx)
 	if err != nil {
-		panic(fmt.Sprintf("ListSecretVersionRecords: %v", err))
+		panic(fmt.Sprintf("ListSecretDisplays: %v", err))
 	}
-	out := make([]secrets.Record, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, secrets.Record{
-			ID:         int32(r.ID),
-			SecretID:   int32(r.SecretID),
-			Name:       r.Name,
-			Version:    int32(r.Version),
-			SpaceID:    int32(r.SpaceID),
-			SMKVersion: int32(r.SmkVersion),
-			Ciphertext: r.Ciphertext,
-			Nonce:      r.Nonce,
-			CreatedAt:  r.CreatedAt,
-			CreatedBy:  int32(r.CreatedBy),
-		})
+	events, err := s.q.ListEventsByType(ctx, eventTypeSecret)
+	if err != nil {
+		panic(fmt.Sprintf("ListEventsByType: %v", err))
+	}
+	byEntity := make(map[int64][]pq.Event)
+	for _, e := range events {
+		if e.Action != eventActionDelete {
+			byEntity[e.EntityID] = append(byEntity[e.EntityID], e)
+		}
+	}
+	var out []secrets.Record
+	for _, d := range displays {
+		for i, e := range byEntity[d.ID] {
+			out = append(out, secretRecordFromEvent(d, e, i+1))
+		}
 	}
 	return out
 }
 
 // CreateSecretWithVersion creates a new secret in directoryID (0 = the root)
-// of spaceID with its first version. seal is called with the new identity id
-// and version 1 inside the transaction, once both are known.
+// of spaceID with its first version. seal is called with the pre-allocated
+// version event id inside the transaction.
 func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, createdBy int32, seal secrets.SealFunc) (secrets.Record, error) {
 	if !ValidValueName(name) {
 		return secrets.Record{}, ErrValueNameInvalid
@@ -100,79 +101,111 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, cre
 		return secrets.Record{}, ErrValueAlreadyExists
 	}
 	now := time.Now().UnixMilli()
-	var row Secret
-	var version pq.SecretVersion
+	var record secrets.Record
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		var err error
-		row, err = q.InsertSecretRow(ctx, pq.InsertSecretRowParams{
-			Name:             name,
-			SpaceID:          space,
-			ValueDirectoryID: dirID,
-			CreatedAt:        now,
-			CreatedBy:        int64(createdBy),
-		})
+		maxID, err := q.MaxEventEntityID(ctx, eventTypeSecret)
 		if err != nil {
-			panic(fmt.Sprintf("InsertSecretRow: %v", err))
+			panic(fmt.Sprintf("MaxEventEntityID: %v", err))
 		}
-		sealed, err := seal(int32(row.ID), 1)
+		id := maxID + 1
+		eventID, sealed, err := insertSealedSecretEvent(ctx, q, id, eventActionCreate, now, createdBy, seal)
 		if err != nil {
 			return err
 		}
-		version, err = q.InsertSecretVersion(ctx, pq.InsertSecretVersionParams{
-			SecretID:   row.ID,
+		if err := q.InsertSecretDisplay(ctx, pq.InsertSecretDisplayParams{
+			ID:          id,
+			SpaceID:     space,
+			Name:        name,
+			DirectoryID: dirID,
+			UpdatedAt:   now,
+			UpdatedBy:   int64(createdBy),
+		}); err != nil {
+			panic(fmt.Sprintf("InsertSecretDisplay: %v", err))
+		}
+		record = secrets.Record{
+			ID:         int32(eventID),
+			SecretID:   int32(id),
+			Name:       name,
 			Version:    1,
-			SmkVersion: int64(sealed.SMKVersion),
+			SpaceID:    int32(space),
+			SMKVersion: sealed.SMKVersion,
 			Ciphertext: sealed.Ciphertext,
 			Nonce:      sealed.Nonce,
 			CreatedAt:  now,
-			CreatedBy:  int64(createdBy),
-		})
-		if err != nil {
-			panic(fmt.Sprintf("InsertSecretVersion: %v", err))
+			CreatedBy:  createdBy,
 		}
 		return nil
 	}); err != nil {
 		return secrets.Record{}, err
 	}
-	return secretVersionRecord(row, version), nil
+	return record, nil
+}
+
+// insertSealedSecretEvent pre-allocates the version's event row so seal can
+// bind the event id, then writes the envelope blob back onto it.
+func insertSealedSecretEvent(ctx context.Context, q *pq.Queries, entityID int64, action int64, ts int64, createdBy int32, seal secrets.SealFunc) (int64, secrets.SealedValue, error) {
+	eventID, err := q.InsertEvent(ctx, pq.InsertEventParams{
+		Ts:         ts,
+		AuthorID:   int64(createdBy),
+		EntityType: eventTypeSecret,
+		EntityID:   entityID,
+		Action:     action,
+		Blob:       []byte{},
+	})
+	if err != nil {
+		return 0, secrets.SealedValue{}, fmt.Errorf("insert secret event: %w", err)
+	}
+	sealed, err := seal(int32(eventID))
+	if err != nil {
+		return 0, secrets.SealedValue{}, err
+	}
+	env := &apigen.SecretEnvelope{
+		SmkVersion: sealed.SMKVersion,
+		Nonce:      sealed.Nonce,
+		Ciphertext: sealed.Ciphertext,
+	}
+	if err := q.UpdateEventBlob(ctx, pq.UpdateEventBlobParams{Blob: env.Encode(), ID: eventID}); err != nil {
+		return 0, secrets.SealedValue{}, fmt.Errorf("write secret envelope: %w", err)
+	}
+	return eventID, sealed, nil
 }
 
 // AppendSecretVersionWithDeploymentUpdates appends an immutable secret version
 // and optionally rolls the caller-asserted deployment references to the new
-// row atomically. seal is called with the identity id and the next version
-// number inside the transaction.
+// event atomically. seal is called with the pre-allocated event id inside the
+// transaction.
 func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, createdBy int32, seal secrets.SealFunc, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(secrets.Record)) (secrets.Record, []int32, error) {
 	ctx := context.Background()
 	var record secrets.Record
 	insert := func(q *pq.Queries) (int32, error) {
-		identity, err := q.GetSecretRowByID(ctx, int64(secretID))
+		d, err := q.GetSecretDisplayByID(ctx, int64(secretID))
 		if err == sql.ErrNoRows {
 			return 0, ErrValueNotFound
 		} else if err != nil {
-			return 0, fmt.Errorf("get secret row: %w", err)
+			return 0, fmt.Errorf("get secret display: %w", err)
 		}
-		version, err := q.GetNextSecretVersionNumber(ctx, int64(secretID))
+		events, err := q.ListEventsByEntity(ctx, pq.ListEventsByEntityParams{EntityType: eventTypeSecret, EntityID: d.ID})
 		if err != nil {
-			return 0, fmt.Errorf("get next secret version: %w", err)
+			return 0, fmt.Errorf("list secret events: %w", err)
 		}
-		sealed, err := seal(secretID, int32(version))
+		now := time.Now().UnixMilli()
+		eventID, sealed, err := insertSealedSecretEvent(ctx, q, d.ID, eventActionUpdate, now, createdBy, seal)
 		if err != nil {
 			return 0, err
 		}
-		row, err := q.InsertSecretVersion(ctx, pq.InsertSecretVersionParams{
-			SecretID:   int64(secretID),
-			Version:    version,
-			SmkVersion: int64(sealed.SMKVersion),
+		record = secrets.Record{
+			ID:         int32(eventID),
+			SecretID:   secretID,
+			Name:       d.Name,
+			Version:    int32(len(valueEvents(events)) + 1),
+			SpaceID:    int32(d.SpaceID),
+			SMKVersion: sealed.SMKVersion,
 			Ciphertext: sealed.Ciphertext,
 			Nonce:      sealed.Nonce,
-			CreatedAt:  time.Now().UnixMilli(),
-			CreatedBy:  int64(createdBy),
-		})
-		if err != nil {
-			return 0, fmt.Errorf("insert secret version: %w", err)
+			CreatedAt:  now,
+			CreatedBy:  createdBy,
 		}
-		record = secretVersionRecord(identity, row)
-		return int32(row.ID), nil
+		return int32(eventID), nil
 	}
 	updatedDeployments, err := s.setVersionedValueWithDeploymentUpdates(
 		secretValueReference, secretID, updateDeployments, expected, createdBy, insert,
@@ -187,24 +220,8 @@ func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, createdBy i
 	return record, updatedDeployments, nil
 }
 
-// UpdateSecretVersionCiphertext rewrites one version row's sealed bytes. Used
-// by the Manager's AAD re-seal sweep; the row id, version, and plaintext are
-// unchanged.
-func (s *Service) UpdateSecretVersionCiphertext(versionID, smkVersion int32, ciphertext, nonce []byte) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
-	if err := s.q.UpdateSecretVersionCiphertext(context.Background(), pq.UpdateSecretVersionCiphertextParams{
-		SmkVersion: int64(smkVersion),
-		Ciphertext: ciphertext,
-		Nonce:      nonce,
-		ID:         int64(versionID),
-	}); err != nil {
-		panic(fmt.Sprintf("UpdateSecretVersionCiphertext: %v", err))
-	}
-}
-
 // RenameSecret renames the stable secret identity. Versions and their sealed
-// bytes are untouched: the AAD binds the identity id, not the name.
+// bytes are untouched: the AAD binds ids, not the name.
 func (s *Service) RenameSecret(secretID int32, newName string) error {
 	if !ValidValueName(newName) {
 		return ErrValueNameInvalid
@@ -212,87 +229,41 @@ func (s *Service) RenameSecret(secretID int32, newName string) error {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	ctx := context.Background()
-	row, err := s.q.GetSecretRowByID(ctx, int64(secretID))
+	d, err := s.q.GetSecretDisplayByID(ctx, int64(secretID))
 	if err == sql.ErrNoRows {
 		return ErrValueNotFound
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetSecretRowByID: %v", err))
+		panic(fmt.Sprintf("GetSecretDisplayByID: %v", err))
 	}
-	if row.Name == newName {
+	if d.Name == newName {
 		return nil
 	}
-	if s.valueSiblingNameTakenLocked(ctx, s.q, row.SpaceID, row.ValueDirectoryID, newName, row.ID, 0, 0) {
+	if s.valueSiblingNameTakenLocked(ctx, s.q, d.SpaceID, d.DirectoryID, newName, d.ID, 0, 0) {
 		return ErrValueAlreadyExists
 	}
-	if err := s.q.RenameSecretRow(ctx, pq.RenameSecretRowParams{Name: newName, ID: row.ID}); err != nil {
-		panic(fmt.Sprintf("RenameSecretRow: %v", err))
+	if err := s.q.RenameSecretDisplay(ctx, pq.RenameSecretDisplayParams{Name: newName, UpdatedAt: time.Now().UnixMilli(), UpdatedBy: d.UpdatedBy, ID: d.ID}); err != nil {
+		panic(fmt.Sprintf("RenameSecretDisplay: %v", err))
 	}
 	return nil
 }
 
 // MoveSecretDirectory moves a secret to another value directory (0 = the space
-// root) in its own space. Version rows and their sealed bytes are untouched:
-// the AAD binds the identity id, not the location.
-func (s *Service) MoveSecretDirectory(secretID, newDirectoryID int32) (Secret, error) {
+// root) in its own space. Version events and their sealed bytes are untouched.
+func (s *Service) MoveSecretDirectory(secretID, newDirectoryID int32) error {
 	ctx := context.Background()
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	row, err := s.q.GetSecretRowByID(ctx, int64(secretID))
-	if err == sql.ErrNoRows {
-		return Secret{}, ErrValueNotFound
-	}
-	if err != nil {
-		panic(fmt.Sprintf("GetSecretRowByID: %v", err))
-	}
-	dirID := int64(newDirectoryID)
-	if row.ValueDirectoryID == dirID {
-		return row, nil
-	}
-	if dirID != 0 {
-		dir, err := s.q.GetValueDirectoryByID(ctx, dirID)
-		if err == sql.ErrNoRows {
-			return Secret{}, ErrValueDirectoryNotFound
-		}
-		if err != nil {
-			panic(fmt.Sprintf("GetValueDirectoryByID: %v", err))
-		}
-		if dir.SpaceID != row.SpaceID {
-			return Secret{}, ErrSpaceMoveUnsupported
-		}
-	}
-	if s.valueSiblingNameTakenLocked(ctx, s.q, row.SpaceID, dirID, row.Name, row.ID, 0, 0) {
-		return Secret{}, ErrValueAlreadyExists
-	}
-	if err := s.q.SetSecretValueDirectoryID(ctx, pq.SetSecretValueDirectoryIDParams{ValueDirectoryID: dirID, ID: row.ID}); err != nil {
-		panic(fmt.Sprintf("SetSecretValueDirectoryID: %v", err))
-	}
-	row.ValueDirectoryID = dirID
-	return row, nil
-}
-
-// MoveSecretSpace moves a secret to another space, landing it in
-// newDirectoryID there (0 = the destination space's root). Version rows and
-// their sealed bytes are untouched: the AAD binds the identity id, not the
-// location, so every pinned reference survives. Reference locality is the
-// caller's law — the handler refuses the move while anything outside the
-// destination space references the secret.
-func (s *Service) MoveSecretSpace(secretID, newSpaceID, newDirectoryID int32) error {
-	ctx := context.Background()
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
-
-	row, err := s.q.GetSecretRowByID(ctx, int64(secretID))
+	d, err := s.q.GetSecretDisplayByID(ctx, int64(secretID))
 	if err == sql.ErrNoRows {
 		return ErrValueNotFound
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetSecretRowByID: %v", err))
+		panic(fmt.Sprintf("GetSecretDisplayByID: %v", err))
 	}
-	spaceID := int64(normalizedUserSpaceID(newSpaceID))
 	dirID := int64(newDirectoryID)
-	if spaceID == row.SpaceID && dirID == row.ValueDirectoryID {
+	if d.DirectoryID == dirID {
 		return nil
 	}
 	if dirID != 0 {
@@ -303,37 +274,89 @@ func (s *Service) MoveSecretSpace(secretID, newSpaceID, newDirectoryID int32) er
 		if err != nil {
 			panic(fmt.Sprintf("GetValueDirectoryByID: %v", err))
 		}
-		// A directory in any space but the destination reads as absent, matching
-		// the create path's treatment of foreign-space directories.
-		if dir.SpaceID != spaceID {
-			return ErrValueDirectoryNotFound
+		if dir.SpaceID != d.SpaceID {
+			return ErrSpaceMoveUnsupported
 		}
 	}
-	if s.valueSiblingNameTakenLocked(ctx, s.q, spaceID, dirID, row.Name, row.ID, 0, 0) {
+	if s.valueSiblingNameTakenLocked(ctx, s.q, d.SpaceID, dirID, d.Name, d.ID, 0, 0) {
 		return ErrValueAlreadyExists
 	}
-	if err := s.q.SetSecretSpace(ctx, pq.SetSecretSpaceParams{SpaceID: spaceID, ValueDirectoryID: dirID, ID: row.ID}); err != nil {
-		panic(fmt.Sprintf("SetSecretSpace: %v", err))
+	if err := s.q.SetSecretDisplayDirectory(ctx, pq.SetSecretDisplayDirectoryParams{DirectoryID: dirID, UpdatedAt: time.Now().UnixMilli(), UpdatedBy: d.UpdatedBy, ID: d.ID}); err != nil {
+		panic(fmt.Sprintf("SetSecretDisplayDirectory: %v", err))
 	}
 	return nil
 }
 
-// DeleteSecret removes the secret identity and all its versions.
+// MoveSecretSpace moves a secret to another space, landing it in
+// newDirectoryID there (0 = the destination space's root). Reference locality
+// is the caller's law — the handler refuses the move while anything outside
+// the destination space references the secret.
+func (s *Service) MoveSecretSpace(secretID, newSpaceID, newDirectoryID int32) error {
+	ctx := context.Background()
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	d, err := s.q.GetSecretDisplayByID(ctx, int64(secretID))
+	if err == sql.ErrNoRows {
+		return ErrValueNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetSecretDisplayByID: %v", err))
+	}
+	spaceID := int64(normalizedUserSpaceID(newSpaceID))
+	dirID := int64(newDirectoryID)
+	if spaceID == d.SpaceID && dirID == d.DirectoryID {
+		return nil
+	}
+	if dirID != 0 {
+		dir, err := s.q.GetValueDirectoryByID(ctx, dirID)
+		if err == sql.ErrNoRows {
+			return ErrValueDirectoryNotFound
+		}
+		if err != nil {
+			panic(fmt.Sprintf("GetValueDirectoryByID: %v", err))
+		}
+		if dir.SpaceID != spaceID {
+			return ErrValueDirectoryNotFound
+		}
+	}
+	if s.valueSiblingNameTakenLocked(ctx, s.q, spaceID, dirID, d.Name, d.ID, 0, 0) {
+		return ErrValueAlreadyExists
+	}
+	if err := s.q.SetSecretDisplaySpace(ctx, pq.SetSecretDisplaySpaceParams{SpaceID: spaceID, DirectoryID: dirID, UpdatedAt: time.Now().UnixMilli(), UpdatedBy: d.UpdatedBy, ID: d.ID}); err != nil {
+		panic(fmt.Sprintf("SetSecretDisplaySpace: %v", err))
+	}
+	return nil
+}
+
+// DeleteSecret excises every version's sealed bytes from the log, records a
+// tombstone event, and removes the display row. Excision is what makes delete
+// a real cryptographic erasure despite the append-only log.
 func (s *Service) DeleteSecret(secretID int32) error {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	ctx := context.Background()
-	if _, err := s.q.GetSecretRowByID(ctx, int64(secretID)); err == sql.ErrNoRows {
+	if _, err := s.q.GetSecretDisplayByID(ctx, int64(secretID)); err == sql.ErrNoRows {
 		return ErrValueNotFound
 	} else if err != nil {
-		panic(fmt.Sprintf("GetSecretRowByID: %v", err))
+		panic(fmt.Sprintf("GetSecretDisplayByID: %v", err))
 	}
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		if err := q.DeleteSecretVersionsBySecretID(ctx, int64(secretID)); err != nil {
-			panic(fmt.Sprintf("DeleteSecretVersionsBySecretID: %v", err))
+		if err := q.ClearEventBlobsByEntity(ctx, pq.ClearEventBlobsByEntityParams{EntityType: eventTypeSecret, EntityID: int64(secretID)}); err != nil {
+			panic(fmt.Sprintf("ClearEventBlobsByEntity: %v", err))
 		}
-		if err := q.DeleteSecretRow(ctx, int64(secretID)); err != nil {
-			panic(fmt.Sprintf("DeleteSecretRow: %v", err))
+		if _, err := q.InsertEvent(ctx, pq.InsertEventParams{
+			Ts:         time.Now().UnixMilli(),
+			AuthorID:   0,
+			EntityType: eventTypeSecret,
+			EntityID:   int64(secretID),
+			Action:     eventActionDelete,
+			Blob:       []byte{},
+		}); err != nil {
+			panic(fmt.Sprintf("InsertEvent: %v", err))
+		}
+		if err := q.DeleteSecretDisplay(ctx, int64(secretID)); err != nil {
+			panic(fmt.Sprintf("DeleteSecretDisplay: %v", err))
 		}
 		return nil
 	}); err != nil {
@@ -348,26 +371,27 @@ func (s *Service) DeleteSecret(secretID int32) error {
 // version first, ordered by name. Never returns values or ciphertext.
 func (s *Service) ListSecretMetas() []*apigen.SecretMeta {
 	ctx := context.Background()
-	rows, err := s.q.ListSecretRows(ctx)
+	displays, err := s.q.ListSecretDisplays(ctx)
 	if err != nil {
-		panic(fmt.Sprintf("ListSecretRows: %v", err))
+		panic(fmt.Sprintf("ListSecretDisplays: %v", err))
 	}
-	versions, err := s.q.ListSecretVersionMetas(ctx)
+	events, err := s.q.ListEventsByType(ctx, eventTypeSecret)
 	if err != nil {
-		panic(fmt.Sprintf("ListSecretVersionMetas: %v", err))
+		panic(fmt.Sprintf("ListEventsByType: %v", err))
 	}
-	refsBySecret := make(map[int64][]*apigen.SecretVersionMeta)
-	for _, v := range versions {
-		// ListSecretVersionMetas is version ASC; prepend to end up newest first.
-		refsBySecret[v.SecretID] = append([]*apigen.SecretVersionMeta{secretVersionMetaFromRow(v)}, refsBySecret[v.SecretID]...)
+	byEntity := make(map[int64][]pq.Event)
+	for _, e := range events {
+		if e.Action != eventActionDelete {
+			byEntity[e.EntityID] = append(byEntity[e.EntityID], e)
+		}
 	}
-	out := make([]*apigen.SecretMeta, 0, len(rows))
-	for _, sec := range rows {
-		refs := refsBySecret[sec.ID]
-		if len(refs) == 0 {
+	out := make([]*apigen.SecretMeta, 0, len(displays))
+	for _, d := range displays {
+		evs := byEntity[d.ID]
+		if len(evs) == 0 {
 			continue
 		}
-		out = append(out, secretMetaFromRow(sec, refs))
+		out = append(out, secretMetaFromDisplay(d, evs))
 	}
 	return out
 }
@@ -375,30 +399,22 @@ func (s *Service) ListSecretMetas() []*apigen.SecretMeta {
 // GetSecretMeta returns one secret with its full version index, newest first.
 func (s *Service) GetSecretMeta(secretID int32) (*apigen.SecretMeta, bool) {
 	ctx := context.Background()
-	sec, err := s.q.GetSecretRowByID(ctx, int64(secretID))
+	d, err := s.q.GetSecretDisplayByID(ctx, int64(secretID))
 	if err == sql.ErrNoRows {
 		return nil, false
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetSecretRowByID: %v", err))
+		panic(fmt.Sprintf("GetSecretDisplayByID: %v", err))
 	}
-	ids, err := s.q.ListSecretVersionsBySecretID(ctx, sec.ID)
+	events, err := s.q.ListEventsByEntity(ctx, pq.ListEventsByEntityParams{EntityType: eventTypeSecret, EntityID: d.ID})
 	if err != nil {
-		panic(fmt.Sprintf("ListSecretVersionsBySecretID: %v", err))
+		panic(fmt.Sprintf("ListEventsByEntity: %v", err))
 	}
-	if len(ids) == 0 {
+	evs := valueEvents(events)
+	if len(evs) == 0 {
 		return nil, false
 	}
-	refs := make([]*apigen.SecretVersionMeta, 0, len(ids))
-	for i := len(ids) - 1; i >= 0; i-- {
-		refs = append(refs, &apigen.SecretVersionMeta{
-			ID:        int32(ids[i].ID),
-			Version:   int32(ids[i].Version),
-			CreatedAt: time.UnixMilli(ids[i].CreatedAt),
-			CreatedBy: int32(ids[i].CreatedBy),
-		})
-	}
-	return secretMetaFromRow(sec, refs), true
+	return secretMetaFromDisplay(d, evs), true
 }
 
 // GetSecretIDByName implements the Manager's name lookup for install/restore
@@ -414,30 +430,31 @@ func (s *Service) GetSecretIDByName(spaceID int32, name string) (int32, bool) {
 // GetSecretInRootByName finds a secret identity by name in the root directory
 // of spaceID.
 func (s *Service) GetSecretInRootByName(spaceID int32, name string) (Secret, bool) {
-	row, err := s.q.GetSecretInDirectoryByName(context.Background(), pq.GetSecretInDirectoryByNameParams{
-		SpaceID:          int64(normalizedUserSpaceID(spaceID)),
-		ValueDirectoryID: 0,
-		Name:             name,
+	row, err := s.q.GetSecretDisplayByName(context.Background(), pq.GetSecretDisplayByNameParams{
+		SpaceID:     int64(normalizedUserSpaceID(spaceID)),
+		DirectoryID: 0,
+		Name:        name,
 	})
 	if err == sql.ErrNoRows {
 		return Secret{}, false
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetSecretInDirectoryByName: %v", err))
+		panic(fmt.Sprintf("GetSecretDisplayByName: %v", err))
 	}
 	return row, true
 }
 
-// SecretVersionIDs returns every version row id of the secret — the set a
+// SecretVersionIDs returns every version event id of the secret — the set a
 // deployment env ref or setting could pin.
 func (s *Service) SecretVersionIDs(secretID int32) []int32 {
-	rows, err := s.q.ListSecretVersionIDsBySecretID(context.Background(), int64(secretID))
+	events, err := s.q.ListEventsByEntity(context.Background(), pq.ListEventsByEntityParams{EntityType: eventTypeSecret, EntityID: int64(secretID)})
 	if err != nil {
-		panic(fmt.Sprintf("ListSecretVersionIDsBySecretID: %v", err))
+		panic(fmt.Sprintf("ListEventsByEntity: %v", err))
 	}
-	ids := make([]int32, 0, len(rows))
-	for _, id := range rows {
-		ids = append(ids, int32(id))
+	evs := valueEvents(events)
+	ids := make([]int32, 0, len(evs))
+	for _, e := range evs {
+		ids = append(ids, int32(e.ID))
 	}
 	return ids
 }

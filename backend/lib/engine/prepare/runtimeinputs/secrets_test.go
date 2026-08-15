@@ -45,10 +45,10 @@ func (f *fakeConfigProvider) FetchConfigs(ctx context.Context, ids []int32) (map
 func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 		Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{
-			"DB":    {SecretVersionID: ptrInt32(6)},
+			"DB":    {SecretRefID: ptrInt32(6)},
 			"MIX":   {ConfigRefID: ptrInt32(3)},
-			"TOKEN": {SecretVersionID: ptrInt32(2)},
-			"DUP":   {SecretVersionID: ptrInt32(6)},
+			"TOKEN": {SecretRefID: ptrInt32(2)},
+			"DUP":   {SecretRefID: ptrInt32(6)},
 		}},
 	}}}
 
@@ -64,7 +64,7 @@ func TestConfigRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 			"URL":    {ConfigRefID: ptrInt32(18)},
 			"DUP":    {ConfigRefID: ptrInt32(18)},
 			"OTHER":  {ConfigRefID: ptrInt32(2)},
-			"SECRET": {SecretVersionID: ptrInt32(9)},
+			"SECRET": {SecretRefID: ptrInt32(9)},
 		}},
 	}}}
 
@@ -117,8 +117,8 @@ func TestEnsureSecretsReadyFetchesBatch(t *testing.T) {
 
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 		Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{
-			"A": {SecretVersionID: ptrInt32(1)},
-			"B": {SecretVersionID: ptrInt32(2)},
+			"A": {SecretRefID: ptrInt32(1)},
+			"B": {SecretRefID: ptrInt32(2)},
 		}},
 	}}}
 
@@ -162,8 +162,8 @@ func TestEnsureSecretsReadyDoesNotCacheIncompleteBatch(t *testing.T) {
 	inputs := New(nil, fake, nil)
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 		Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{
-			"A": {SecretVersionID: ptrInt32(1)},
-			"B": {SecretVersionID: ptrInt32(2)},
+			"A": {SecretRefID: ptrInt32(1)},
+			"B": {SecretRefID: ptrInt32(2)},
 		}},
 	}}}
 
@@ -232,7 +232,7 @@ func (f *fakePersistence) RetainRuntimeInputs(secrets, configs map[int32]struct{
 func secretRefDeployment(ids ...int32) *apigen.DeploymentConfig {
 	env := map[string]*apigen.EnvVarValue{}
 	for i, id := range ids {
-		env[string(rune('A'+i))] = &apigen.EnvVarValue{SecretVersionID: ptrInt32(id)}
+		env[string(rune('A'+i))] = &apigen.EnvVarValue{SecretRefID: ptrInt32(id)}
 	}
 	return &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 		Runtime: apigen.ContainerRuntime{EnvVars: env},

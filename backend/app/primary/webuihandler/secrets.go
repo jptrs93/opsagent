@@ -284,7 +284,7 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 		tombstone := *meta
 		tombstone.Deleted = true
 		h.Store.NotifySecretMetaUpdate(tombstone)
-	} else if _, err := h.Store.MoveSecretDirectory(req.SecretID, req.ValueDirectoryID); err != nil {
+	} else if err := h.Store.MoveSecretDirectory(req.SecretID, req.ValueDirectoryID); err != nil {
 		return nil, mapSecretErr(err)
 	}
 	proto, ok := h.Store.GetSecretMeta(req.SecretID)

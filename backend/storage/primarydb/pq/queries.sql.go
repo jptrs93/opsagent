@@ -69,6 +69,20 @@ func (q *Queries) ClaimAgentSessionToken(ctx context.Context, arg ClaimAgentSess
 	return result.RowsAffected()
 }
 
+const clearEventBlobsByEntity = `-- name: ClearEventBlobsByEntity :exec
+UPDATE events SET blob = x'' WHERE entity_type = ? AND entity_id = ?
+`
+
+type ClearEventBlobsByEntityParams struct {
+	EntityType int64
+	EntityID   int64
+}
+
+func (q *Queries) ClearEventBlobsByEntity(ctx context.Context, arg ClearEventBlobsByEntityParams) error {
+	_, err := q.db.ExecContext(ctx, clearEventBlobsByEntity, arg.EntityType, arg.EntityID)
+	return err
+}
+
 const countAssetSiblingsWithKey = `-- name: CountAssetSiblingsWithKey :one
 SELECT COUNT(*) FROM assets
 WHERE space_id = ? AND asset_directory_id = ? AND key = ? AND id != ?
@@ -121,30 +135,6 @@ SELECT COUNT(*) FROM value_directories WHERE parent_id = ?
 
 func (q *Queries) CountChildValueDirectories(ctx context.Context, parentID int64) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countChildValueDirectories, parentID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const countConfigDisplaySiblingsWithName = `-- name: CountConfigDisplaySiblingsWithName :one
-SELECT COUNT(*) FROM config_displays
-WHERE space_id = ? AND directory_id = ? AND name = ? AND id != ?
-`
-
-type CountConfigDisplaySiblingsWithNameParams struct {
-	SpaceID     int64
-	DirectoryID int64
-	Name        string
-	ID          int64
-}
-
-func (q *Queries) CountConfigDisplaySiblingsWithName(ctx context.Context, arg CountConfigDisplaySiblingsWithNameParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countConfigDisplaySiblingsWithName,
-		arg.SpaceID,
-		arg.DirectoryID,
-		arg.Name,
-		arg.ID,
-	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -226,6 +216,17 @@ func (q *Queries) CountDirectorySiblingsWithKey(ctx context.Context, arg CountDi
 		arg.Key,
 		arg.ID,
 	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countSecretDisplaysInDirectory = `-- name: CountSecretDisplaysInDirectory :one
+SELECT COUNT(*) FROM secret_displays WHERE directory_id = ?
+`
+
+func (q *Queries) CountSecretDisplaysInDirectory(ctx context.Context, directoryID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countSecretDisplaysInDirectory, directoryID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -430,6 +431,15 @@ func (q *Queries) DeleteGlobalAccessRuleRow(ctx context.Context, id int64) error
 	return err
 }
 
+const deleteSecretDisplay = `-- name: DeleteSecretDisplay :exec
+DELETE FROM secret_displays WHERE id = ?
+`
+
+func (q *Queries) DeleteSecretDisplay(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteSecretDisplay, id)
+	return err
+}
+
 const deleteSecretRow = `-- name: DeleteSecretRow :exec
 DELETE FROM secrets WHERE id = ?
 `
@@ -627,7 +637,7 @@ func (q *Queries) GetConfigByID(ctx context.Context, id int64) (SystemConfigRevi
 }
 
 const getConfigDisplayByID = `-- name: GetConfigDisplayByID :one
-SELECT id, space_id, name, directory_id, updated_at, updated_by
+SELECT id, name, directory_id, updated_at, updated_by
 FROM config_displays WHERE id = ?
 `
 
@@ -636,32 +646,6 @@ func (q *Queries) GetConfigDisplayByID(ctx context.Context, id int64) (ConfigDis
 	var i ConfigDisplay
 	err := row.Scan(
 		&i.ID,
-		&i.SpaceID,
-		&i.Name,
-		&i.DirectoryID,
-		&i.UpdatedAt,
-		&i.UpdatedBy,
-	)
-	return i, err
-}
-
-const getConfigDisplayByName = `-- name: GetConfigDisplayByName :one
-SELECT id, space_id, name, directory_id, updated_at, updated_by
-FROM config_displays WHERE space_id = ? AND directory_id = ? AND name = ?
-`
-
-type GetConfigDisplayByNameParams struct {
-	SpaceID     int64
-	DirectoryID int64
-	Name        string
-}
-
-func (q *Queries) GetConfigDisplayByName(ctx context.Context, arg GetConfigDisplayByNameParams) (ConfigDisplay, error) {
-	row := q.db.QueryRowContext(ctx, getConfigDisplayByName, arg.SpaceID, arg.DirectoryID, arg.Name)
-	var i ConfigDisplay
-	err := row.Scan(
-		&i.ID,
-		&i.SpaceID,
 		&i.Name,
 		&i.DirectoryID,
 		&i.UpdatedAt,
@@ -950,6 +934,24 @@ func (q *Queries) GetScheduledInstance(ctx context.Context, id int64) (Scheduled
 		&i.NodeID,
 		&i.InstanceOrdinal,
 		&i.State,
+	)
+	return i, err
+}
+
+const getSecretDisplayByID = `-- name: GetSecretDisplayByID :one
+SELECT id, name, directory_id, updated_at, updated_by
+FROM secret_displays WHERE id = ?
+`
+
+func (q *Queries) GetSecretDisplayByID(ctx context.Context, id int64) (SecretDisplay, error) {
+	row := q.db.QueryRowContext(ctx, getSecretDisplayByID, id)
+	var i SecretDisplay
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.DirectoryID,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
 	)
 	return i, err
 }
@@ -1316,13 +1318,12 @@ func (q *Queries) InsertAuthzRuleTemplateRow(ctx context.Context, arg InsertAuth
 }
 
 const insertConfigDisplay = `-- name: InsertConfigDisplay :exec
-INSERT INTO config_displays (id, space_id, name, directory_id, updated_at, updated_by)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO config_displays (id, name, directory_id, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?)
 `
 
 type InsertConfigDisplayParams struct {
 	ID          int64
-	SpaceID     int64
 	Name        string
 	DirectoryID int64
 	UpdatedAt   int64
@@ -1332,7 +1333,6 @@ type InsertConfigDisplayParams struct {
 func (q *Queries) InsertConfigDisplay(ctx context.Context, arg InsertConfigDisplayParams) error {
 	_, err := q.db.ExecContext(ctx, insertConfigDisplay,
 		arg.ID,
-		arg.SpaceID,
 		arg.Name,
 		arg.DirectoryID,
 		arg.UpdatedAt,
@@ -1592,6 +1592,30 @@ func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, arg InsertS
 		arg.RunnerNumRestarts,
 		arg.RunnerLastRestartAt,
 		arg.RunnerExtraBlob,
+	)
+	return err
+}
+
+const insertSecretDisplay = `-- name: InsertSecretDisplay :exec
+INSERT INTO secret_displays (id, name, directory_id, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertSecretDisplayParams struct {
+	ID          int64
+	Name        string
+	DirectoryID int64
+	UpdatedAt   int64
+	UpdatedBy   int64
+}
+
+func (q *Queries) InsertSecretDisplay(ctx context.Context, arg InsertSecretDisplayParams) error {
+	_, err := q.db.ExecContext(ctx, insertSecretDisplay,
+		arg.ID,
+		arg.Name,
+		arg.DirectoryID,
+		arg.UpdatedAt,
+		arg.UpdatedBy,
 	)
 	return err
 }
@@ -2022,9 +2046,41 @@ func (q *Queries) ListAuthzRuleTemplateRows(ctx context.Context) ([]AuthzRuleTem
 	return items, nil
 }
 
+const listConfigDisplayIDsInDirectoryByName = `-- name: ListConfigDisplayIDsInDirectoryByName :many
+SELECT id FROM config_displays WHERE directory_id = ? AND name = ?
+`
+
+type ListConfigDisplayIDsInDirectoryByNameParams struct {
+	DirectoryID int64
+	Name        string
+}
+
+func (q *Queries) ListConfigDisplayIDsInDirectoryByName(ctx context.Context, arg ListConfigDisplayIDsInDirectoryByNameParams) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listConfigDisplayIDsInDirectoryByName, arg.DirectoryID, arg.Name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConfigDisplays = `-- name: ListConfigDisplays :many
 
-SELECT id, space_id, name, directory_id, updated_at, updated_by
+SELECT id, name, directory_id, updated_at, updated_by
 FROM config_displays ORDER BY name
 `
 
@@ -2040,7 +2096,6 @@ func (q *Queries) ListConfigDisplays(ctx context.Context) ([]ConfigDisplay, erro
 		var i ConfigDisplay
 		if err := rows.Scan(
 			&i.ID,
-			&i.SpaceID,
 			&i.Name,
 			&i.DirectoryID,
 			&i.UpdatedAt,
@@ -2713,6 +2768,74 @@ func (q *Queries) ListScheduledInstanceStatusHistorySince(ctx context.Context, a
 	return items, nil
 }
 
+const listSecretDisplayIDsInDirectoryByName = `-- name: ListSecretDisplayIDsInDirectoryByName :many
+SELECT id FROM secret_displays WHERE directory_id = ? AND name = ?
+`
+
+type ListSecretDisplayIDsInDirectoryByNameParams struct {
+	DirectoryID int64
+	Name        string
+}
+
+func (q *Queries) ListSecretDisplayIDsInDirectoryByName(ctx context.Context, arg ListSecretDisplayIDsInDirectoryByNameParams) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listSecretDisplayIDsInDirectoryByName, arg.DirectoryID, arg.Name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSecretDisplays = `-- name: ListSecretDisplays :many
+
+SELECT id, name, directory_id, updated_at, updated_by
+FROM secret_displays ORDER BY name
+`
+
+// === secret displays ===
+func (q *Queries) ListSecretDisplays(ctx context.Context) ([]SecretDisplay, error) {
+	rows, err := q.db.QueryContext(ctx, listSecretDisplays)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SecretDisplay
+	for rows.Next() {
+		var i SecretDisplay
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.DirectoryID,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSecretKeyslots = `-- name: ListSecretKeyslots :many
 
 SELECT slot, smk_version, wrapped_smk, nonce, kdf_salt, created_at
@@ -3147,6 +3270,27 @@ func (q *Queries) RenameConfigRow(ctx context.Context, arg RenameConfigRowParams
 	return err
 }
 
+const renameSecretDisplay = `-- name: RenameSecretDisplay :exec
+UPDATE secret_displays SET name = ?, updated_at = ?, updated_by = ? WHERE id = ?
+`
+
+type RenameSecretDisplayParams struct {
+	Name      string
+	UpdatedAt int64
+	UpdatedBy int64
+	ID        int64
+}
+
+func (q *Queries) RenameSecretDisplay(ctx context.Context, arg RenameSecretDisplayParams) error {
+	_, err := q.db.ExecContext(ctx, renameSecretDisplay,
+		arg.Name,
+		arg.UpdatedAt,
+		arg.UpdatedBy,
+		arg.ID,
+	)
+	return err
+}
+
 const renameSecretRow = `-- name: RenameSecretRow :exec
 UPDATE secrets SET name = ? WHERE id = ?
 `
@@ -3283,29 +3427,6 @@ func (q *Queries) SetConfigDisplayDirectory(ctx context.Context, arg SetConfigDi
 	return err
 }
 
-const setConfigDisplaySpace = `-- name: SetConfigDisplaySpace :exec
-UPDATE config_displays SET space_id = ?, directory_id = ?, updated_at = ?, updated_by = ? WHERE id = ?
-`
-
-type SetConfigDisplaySpaceParams struct {
-	SpaceID     int64
-	DirectoryID int64
-	UpdatedAt   int64
-	UpdatedBy   int64
-	ID          int64
-}
-
-func (q *Queries) SetConfigDisplaySpace(ctx context.Context, arg SetConfigDisplaySpaceParams) error {
-	_, err := q.db.ExecContext(ctx, setConfigDisplaySpace,
-		arg.SpaceID,
-		arg.DirectoryID,
-		arg.UpdatedAt,
-		arg.UpdatedBy,
-		arg.ID,
-	)
-	return err
-}
-
 const setConfigSpace = `-- name: SetConfigSpace :exec
 UPDATE configs SET space_id = ?, value_directory_id = ? WHERE id = ?
 `
@@ -3332,6 +3453,27 @@ type SetConfigValueDirectoryIDParams struct {
 
 func (q *Queries) SetConfigValueDirectoryID(ctx context.Context, arg SetConfigValueDirectoryIDParams) error {
 	_, err := q.db.ExecContext(ctx, setConfigValueDirectoryID, arg.ValueDirectoryID, arg.ID)
+	return err
+}
+
+const setSecretDisplayDirectory = `-- name: SetSecretDisplayDirectory :exec
+UPDATE secret_displays SET directory_id = ?, updated_at = ?, updated_by = ? WHERE id = ?
+`
+
+type SetSecretDisplayDirectoryParams struct {
+	DirectoryID int64
+	UpdatedAt   int64
+	UpdatedBy   int64
+	ID          int64
+}
+
+func (q *Queries) SetSecretDisplayDirectory(ctx context.Context, arg SetSecretDisplayDirectoryParams) error {
+	_, err := q.db.ExecContext(ctx, setSecretDisplayDirectory,
+		arg.DirectoryID,
+		arg.UpdatedAt,
+		arg.UpdatedBy,
+		arg.ID,
+	)
 	return err
 }
 
@@ -3501,6 +3643,20 @@ func (q *Queries) UpdateDeploymentSpecBlobInPlace(ctx context.Context, arg Updat
 	return err
 }
 
+const updateEventBlob = `-- name: UpdateEventBlob :exec
+UPDATE events SET blob = ? WHERE id = ?
+`
+
+type UpdateEventBlobParams struct {
+	Blob []byte
+	ID   int64
+}
+
+func (q *Queries) UpdateEventBlob(ctx context.Context, arg UpdateEventBlobParams) error {
+	_, err := q.db.ExecContext(ctx, updateEventBlob, arg.Blob, arg.ID)
+	return err
+}
+
 const updateScheduledInstanceState = `-- name: UpdateScheduledInstanceState :exec
 UPDATE scheduled_instances SET state = ? WHERE id = ?
 `
@@ -3512,27 +3668,6 @@ type UpdateScheduledInstanceStateParams struct {
 
 func (q *Queries) UpdateScheduledInstanceState(ctx context.Context, arg UpdateScheduledInstanceStateParams) error {
 	_, err := q.db.ExecContext(ctx, updateScheduledInstanceState, arg.State, arg.ID)
-	return err
-}
-
-const updateSecretVersionCiphertext = `-- name: UpdateSecretVersionCiphertext :exec
-UPDATE secret_versions SET smk_version = ?, ciphertext = ?, nonce = ? WHERE id = ?
-`
-
-type UpdateSecretVersionCiphertextParams struct {
-	SmkVersion int64
-	Ciphertext []byte
-	Nonce      []byte
-	ID         int64
-}
-
-func (q *Queries) UpdateSecretVersionCiphertext(ctx context.Context, arg UpdateSecretVersionCiphertextParams) error {
-	_, err := q.db.ExecContext(ctx, updateSecretVersionCiphertext,
-		arg.SmkVersion,
-		arg.Ciphertext,
-		arg.Nonce,
-		arg.ID,
-	)
 	return err
 }
 

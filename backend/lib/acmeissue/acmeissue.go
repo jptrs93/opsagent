@@ -185,7 +185,7 @@ func (m *Manager) publish(bindings map[string]int32) {
 	}
 	sort.Strings(hostnames)
 	for _, hostname := range hostnames {
-		state.CertBindings = append(state.CertBindings, &apigen.AcmeCertBinding{Hostname: hostname, SecretVersionID: bindings[hostname]})
+		state.CertBindings = append(state.CertBindings, &apigen.AcmeCertBinding{Hostname: hostname, SecretRefID: bindings[hostname]})
 	}
 	tokens := make([]string, 0, len(m.challenges))
 	for token := range m.challenges {

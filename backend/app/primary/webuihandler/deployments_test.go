@@ -799,7 +799,7 @@ func TestDeploymentUpdateRejectsSystemDeploymentSpecUpdate(t *testing.T) {
 func TestValidateDeploymentSpecAcceptsKnownEnvRefs(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
 	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"PGUSER": {SecretVersionID: ptrInt32(6)}, "PGDATABASE": {ConfigRefID: ptrInt32(18)},
+		"PGUSER": {SecretRefID: ptrInt32(6)}, "PGDATABASE": {ConfigRefID: ptrInt32(18)},
 	}
 	_, err := validateDeploymentSpecWithResolvers(&input, nil, fakeSecretResolver{6: "postgres"}, fakeConfigResolver{18: "postgres"})
 	if err != nil {
@@ -1000,7 +1000,7 @@ func TestValidateDeploymentSpecRejectsNetproxyImage(t *testing.T) {
 
 func TestValidateDeploymentSpecRejectsUnknownSecretRef(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"PGPASSWORD": {SecretVersionID: ptrInt32(99)}}
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"PGPASSWORD": {SecretRefID: ptrInt32(99)}}
 	_, err := validateDeploymentSpecWithResolvers(&input, nil, fakeSecretResolver{}, fakeConfigResolver{})
 	if err == nil || !strings.Contains(err.Error(), "unknown secret id 99") {
 		t.Fatalf("err = %v, want unknown secret", err)

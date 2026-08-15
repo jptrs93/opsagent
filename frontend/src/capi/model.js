@@ -15,7 +15,7 @@
  */
 /**
  * @typedef {Object} SecretCertSource
- * @property {number} secretVersionId
+ * @property {number} secretRefId
  */
 /**
  * @typedef {Object} CertSource
@@ -397,7 +397,7 @@
  */
 /**
  * @typedef {Object} EnvVarValue
- * @property {number} secretVersionId
+ * @property {number} secretRefId
  * @property {number} configRefId
  * @property {string} value
  * @property {string} asset
@@ -762,6 +762,23 @@
 /**
  * @typedef {Object} SecretList
  * @property {SecretMeta[]} items
+ */
+/**
+ * @typedef {Object} SecretEnvelope
+ * @property {number} smkVersion
+ * @property {Uint8Array} nonce
+ * @property {Uint8Array} ciphertext
+ * @property {number} legacyVersion
+ */
+/**
+ * @typedef {Object} ConfigBlob
+ * @property {number} spaceId
+ * @property {Uint8Array} value
+ */
+/**
+ * @typedef {Object} SecretBlob
+ * @property {number} spaceId
+ * @property {SecretEnvelope} envelope
  */
 /**
  * @typedef {Object} SecretCreateRequest
@@ -1202,7 +1219,7 @@
 /**
  * @typedef {Object} AcmeCertBinding
  * @property {string} hostname
- * @property {number} secretVersionId
+ * @property {number} secretRefId
  */
 /**
  * @typedef {Object} ClusterNetworkInfo
@@ -1609,8 +1626,8 @@ export function decodeAcmeCertSource(buffer) {
  * @param {Writer} writer
  */
 export function writeSecretCertSource(message, writer) {
-    if (message.secretVersionId !== undefined && message.secretVersionId !== null && message.secretVersionId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretVersionId);
+    if (message.secretRefId !== undefined && message.secretRefId !== null && message.secretRefId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretRefId);
     }
 }
 
@@ -1633,12 +1650,12 @@ export function encodeSecretCertSource(message) {
  */
 function decodeSecretCertSourceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {secretVersionId: 0 };
+    const message = {secretRefId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.secretVersionId = reader.int32();
+                message.secretRefId = reader.int32();
                 break;
             }
             default:
@@ -6151,8 +6168,8 @@ export function decodeCrossDeploymentMount(buffer) {
  * @param {Writer} writer
  */
 export function writeEnvVarValue(message, writer) {
-    if (message.secretVersionId !== undefined && message.secretVersionId !== null) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretVersionId);
+    if (message.secretRefId !== undefined && message.secretRefId !== null) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretRefId);
     }
     if (message.configRefId !== undefined && message.configRefId !== null) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.configRefId);
@@ -6193,12 +6210,12 @@ export function encodeEnvVarValue(message) {
  */
 function decodeEnvVarValueMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {secretVersionId: undefined, configRefId: undefined, value: undefined, asset: "", assetVersionId: 0, addressDeploymentId: undefined, addressSpaceId: undefined };
+    const message = {secretRefId: undefined, configRefId: undefined, value: undefined, asset: "", assetVersionId: 0, addressDeploymentId: undefined, addressSpaceId: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.secretVersionId = reader.int32();
+                message.secretRefId = reader.int32();
                 break;
             }
             case 2: {
@@ -10601,6 +10618,211 @@ function decodeSecretListMessage(reader, length) {
 export function decodeSecretList(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeSecretListMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretEnvelope} message
+ * @param {Writer} writer
+ */
+export function writeSecretEnvelope(message, writer) {
+    if (message.smkVersion !== undefined && message.smkVersion !== null && message.smkVersion !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.smkVersion);
+    }
+    if (message.nonce && message.nonce.length > 0) {
+        writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.nonce);
+    }
+    if (message.ciphertext && message.ciphertext.length > 0) {
+        writer.uint32(tag(3, WIRE.LDELIM)).bytes(message.ciphertext);
+    }
+    if (message.legacyVersion !== undefined && message.legacyVersion !== null && message.legacyVersion !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.legacyVersion);
+    }
+}
+
+
+/**
+ * @param {SecretEnvelope} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretEnvelope(message) {
+    const writer = Writer.create();
+    writeSecretEnvelope(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretEnvelope}
+ */
+function decodeSecretEnvelopeMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {smkVersion: 0, nonce: new Uint8Array(0), ciphertext: new Uint8Array(0), legacyVersion: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.smkVersion = reader.int32();
+                break;
+            }
+            case 2: {
+                message.nonce = reader.bytes();
+                break;
+            }
+            case 3: {
+                message.ciphertext = reader.bytes();
+                break;
+            }
+            case 4: {
+                message.legacyVersion = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretEnvelope}
+ */
+export function decodeSecretEnvelope(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretEnvelopeMessage(reader);
+}
+
+
+
+/**
+ * @param {ConfigBlob} message
+ * @param {Writer} writer
+ */
+export function writeConfigBlob(message, writer) {
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.value && message.value.length > 0) {
+        writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.value);
+    }
+}
+
+
+/**
+ * @param {ConfigBlob} message
+ * @returns {Uint8Array}
+ */
+export function encodeConfigBlob(message) {
+    const writer = Writer.create();
+    writeConfigBlob(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ConfigBlob}
+ */
+function decodeConfigBlobMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {spaceId: 0, value: new Uint8Array(0) };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.value = reader.bytes();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ConfigBlob}
+ */
+export function decodeConfigBlob(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeConfigBlobMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretBlob} message
+ * @param {Writer} writer
+ */
+export function writeSecretBlob(message, writer) {
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.envelope !== undefined && message.envelope !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeSecretEnvelope(message.envelope, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {SecretBlob} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretBlob(message) {
+    const writer = Writer.create();
+    writeSecretBlob(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretBlob}
+ */
+function decodeSecretBlobMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {spaceId: 0, envelope: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.envelope = decodeSecretEnvelopeMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretBlob}
+ */
+export function decodeSecretBlob(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretBlobMessage(reader);
 }
 
 
@@ -15757,8 +15979,8 @@ export function writeAcmeCertBinding(message, writer) {
     if (message.hostname !== undefined && message.hostname !== null && message.hostname !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.hostname);
     }
-    if (message.secretVersionId !== undefined && message.secretVersionId !== null && message.secretVersionId !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.secretVersionId);
+    if (message.secretRefId !== undefined && message.secretRefId !== null && message.secretRefId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.secretRefId);
     }
 }
 
@@ -15781,7 +16003,7 @@ export function encodeAcmeCertBinding(message) {
  */
 function decodeAcmeCertBindingMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {hostname: "", secretVersionId: 0 };
+    const message = {hostname: "", secretRefId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15790,7 +16012,7 @@ function decodeAcmeCertBindingMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.secretVersionId = reader.int32();
+                message.secretRefId = reader.int32();
                 break;
             }
             default:

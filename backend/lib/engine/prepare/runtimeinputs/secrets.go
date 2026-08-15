@@ -244,18 +244,18 @@ func SecretRefs(cfg *apigen.DeploymentConfig) []int32 {
 	seen := map[int32]bool{}
 	if container := cfg.Spec.Container(); container != nil {
 		for _, item := range container.Runtime.EnvVars {
-			if item == nil || item.SecretVersionID == nil || *item.SecretVersionID == 0 {
+			if item == nil || item.SecretRefID == nil || *item.SecretRefID == 0 {
 				continue
 			}
-			seen[*item.SecretVersionID] = true
+			seen[*item.SecretRefID] = true
 		}
 	}
 	for _, route := range cfg.Spec.Networking.Ingress {
 		if route == nil || route.HttpsConfig == nil || route.HttpsConfig.CertSource == nil {
 			continue
 		}
-		if secret := route.HttpsConfig.CertSource.Secret; secret != nil && secret.SecretVersionID > 0 {
-			seen[secret.SecretVersionID] = true
+		if secret := route.HttpsConfig.CertSource.Secret; secret != nil && secret.SecretRefID > 0 {
+			seen[secret.SecretRefID] = true
 		}
 	}
 	ids := make([]int32, 0, len(seen))

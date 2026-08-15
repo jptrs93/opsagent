@@ -37,14 +37,14 @@ func ValidValueName(name string) bool {
 // check-and-write atomic. excludeSecretID/excludeConfigID/excludeDirectoryID
 // exempt the row being renamed or moved (0 = exempt nothing).
 func (s *Service) valueSiblingNameTakenLocked(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, name string, excludeSecretID, excludeConfigID, excludeDirectoryID int64) bool {
-	secretCount, err := q.CountSecretSiblingsWithName(ctx, pq.CountSecretSiblingsWithNameParams{
-		SpaceID:          spaceID,
-		ValueDirectoryID: directoryID,
-		Name:             name,
-		ID:               excludeSecretID,
+	secretCount, err := q.CountSecretDisplaySiblingsWithName(ctx, pq.CountSecretDisplaySiblingsWithNameParams{
+		SpaceID:     spaceID,
+		DirectoryID: directoryID,
+		Name:        name,
+		ID:          excludeSecretID,
 	})
 	if err != nil {
-		panic(fmt.Sprintf("CountSecretSiblingsWithName: %v", err))
+		panic(fmt.Sprintf("CountSecretDisplaySiblingsWithName: %v", err))
 	}
 	if secretCount > 0 {
 		return true

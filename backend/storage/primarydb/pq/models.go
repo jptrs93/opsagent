@@ -94,7 +94,6 @@ type Config struct {
 
 type ConfigDisplay struct {
 	ID          int64
-	SpaceID     int64
 	Name        string
 	DirectoryID int64
 	UpdatedAt   int64
@@ -226,6 +225,14 @@ type Secret struct {
 	ValueDirectoryID int64
 	CreatedAt        int64
 	CreatedBy        int64
+}
+
+type SecretDisplay struct {
+	ID          int64
+	Name        string
+	DirectoryID int64
+	UpdatedAt   int64
+	UpdatedBy   int64
 }
 
 type SecretKeyslot struct {

@@ -26,8 +26,8 @@ func (f fakeRuntimeInputProvider) FetchConfigs(context.Context, []int32) (map[in
 func TestResolveEnv(t *testing.T) {
 	in := map[string]*apigen.EnvVarValue{
 		"PLAIN":   {Value: ptrString("value")},
-		"DB_PASS": {SecretVersionID: ptrInt32(1)},
-		"TOKEN":   {SecretVersionID: ptrInt32(2)},
+		"DB_PASS": {SecretRefID: ptrInt32(1)},
+		"TOKEN":   {SecretRefID: ptrInt32(2)},
 		"HOST":    {ConfigRefID: ptrInt32(3)},
 		"CONFIG":  {Asset: "app.conf", AssetVersionID: 12},
 	}
@@ -63,7 +63,7 @@ func TestResolveEnv(t *testing.T) {
 
 func TestResolveEnvUnknownSecretFailsClosed(t *testing.T) {
 	inputs := runtimeinputs.New(nil, nil, nil)
-	if _, err := resolveEnv(inputs, map[string]*apigen.EnvVarValue{"X": {SecretVersionID: ptrInt32(1)}}); err == nil {
+	if _, err := resolveEnv(inputs, map[string]*apigen.EnvVarValue{"X": {SecretRefID: ptrInt32(1)}}); err == nil {
 		t.Fatal("expected error for unknown secret")
 	}
 }
@@ -76,7 +76,7 @@ func TestResolveEnvUnknownConfigFailsClosed(t *testing.T) {
 }
 
 func TestResolveEnvRejectsAmbiguousValue(t *testing.T) {
-	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{"X": {Value: ptrString("plain"), SecretVersionID: ptrInt32(1)}}); err == nil {
+	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{"X": {Value: ptrString("plain"), SecretRefID: ptrInt32(1)}}); err == nil {
 		t.Fatal("expected error for ambiguous env value")
 	}
 }

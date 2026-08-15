@@ -227,8 +227,8 @@ func addIngressCertRefs(refs clusterAllowedRefs, snapshot []apigen.ScheduledInst
 			}
 			source := route.HttpsConfig.CertSource
 			if source != nil && source.Secret != nil {
-				if source.Secret.SecretVersionID > 0 {
-					refs.secretIDs[source.Secret.SecretVersionID] = struct{}{}
+				if source.Secret.SecretRefID > 0 {
+					refs.secretIDs[source.Secret.SecretRefID] = struct{}{}
 				}
 				continue
 			}
@@ -267,8 +267,8 @@ func buildAllowedRefs(snapshot []apigen.ScheduledInstanceState) clusterAllowedRe
 			if value == nil {
 				continue
 			}
-			if value.SecretVersionID != nil && *value.SecretVersionID > 0 {
-				refs.secretIDs[*value.SecretVersionID] = struct{}{}
+			if value.SecretRefID != nil && *value.SecretRefID > 0 {
+				refs.secretIDs[*value.SecretRefID] = struct{}{}
 			}
 			if value.ConfigRefID != nil && *value.ConfigRefID > 0 {
 				refs.configIDs[*value.ConfigRefID] = struct{}{}

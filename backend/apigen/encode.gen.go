@@ -105,7 +105,7 @@ func DecodeAcmeCertSource(b []byte) (*AcmeCertSource, error) {
 
 func (m *SecretCertSource) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.SecretVersionID, 1)
+	b = AppendInt32Field(b, m.SecretRefID, 1)
 	return b
 }
 
@@ -121,7 +121,7 @@ func DecodeSecretCertSource(b []byte) (*SecretCertSource, error) {
 		}
 		switch num {
 		case 1:
-			b, m.SecretVersionID, err = ConsumeVarInt32(b, typ)
+			b, m.SecretRefID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3136,7 +3136,7 @@ func DecodeCrossDeploymentMount(b []byte) (*CrossDeploymentMount, error) {
 
 func (m *EnvVarValue) Encode() []byte {
 	var b []byte
-	b = AppendInt32FieldOpt(b, m.SecretVersionID, 1)
+	b = AppendInt32FieldOpt(b, m.SecretRefID, 1)
 	b = AppendInt32FieldOpt(b, m.ConfigRefID, 2)
 	b = AppendStringFieldOpt(b, m.Value, 3)
 	b = AppendStringField(b, m.Asset, 4)
@@ -3158,7 +3158,7 @@ func DecodeEnvVarValue(b []byte) (*EnvVarValue, error) {
 		}
 		switch num {
 		case 1:
-			b, m.SecretVersionID, err = ConsumeVarInt32Opt(b, typ)
+			b, m.SecretRefID, err = ConsumeVarInt32Opt(b, typ)
 		case 2:
 			b, m.ConfigRefID, err = ConsumeVarInt32Opt(b, typ)
 		case 3:
@@ -5732,6 +5732,119 @@ func DecodeSecretList(b []byte) (*SecretList, error) {
 				item, err = DecodeSecretMeta(msgBytes)
 				if err == nil {
 					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretEnvelope) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.SmkVersion, 1)
+	b = AppendBytesField(b, m.Nonce, 2)
+	b = AppendBytesField(b, m.Ciphertext, 3)
+	b = AppendInt32Field(b, m.LegacyVersion, 4)
+	return b
+}
+
+func DecodeSecretEnvelope(b []byte) (*SecretEnvelope, error) {
+	var m SecretEnvelope
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.SmkVersion, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Nonce, err = ConsumeBytesCopy(b, typ)
+		case 3:
+			b, m.Ciphertext, err = ConsumeBytesCopy(b, typ)
+		case 4:
+			b, m.LegacyVersion, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ConfigBlob) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.SpaceID, 1)
+	b = AppendBytesField(b, m.Value, 2)
+	return b
+}
+
+func DecodeConfigBlob(b []byte) (*ConfigBlob, error) {
+	var m ConfigBlob
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Value, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretBlob) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.SpaceID, 1)
+	if m.Envelope != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Envelope.Encode())
+	}
+	return b
+}
+
+func DecodeSecretBlob(b []byte) (*SecretBlob, error) {
+	var m SecretBlob
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretEnvelope
+				item, err = DecodeSecretEnvelope(msgBytes)
+				if err == nil {
+					m.Envelope = item
 				}
 			}
 		default:
@@ -8984,7 +9097,7 @@ func DecodeAcmeState(b []byte) (*AcmeState, error) {
 func (m *AcmeCertBinding) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Hostname, 1)
-	b = AppendInt32Field(b, m.SecretVersionID, 2)
+	b = AppendInt32Field(b, m.SecretRefID, 2)
 	return b
 }
 
@@ -9002,7 +9115,7 @@ func DecodeAcmeCertBinding(b []byte) (*AcmeCertBinding, error) {
 		case 1:
 			b, m.Hostname, err = ConsumeString(b, typ)
 		case 2:
-			b, m.SecretVersionID, err = ConsumeVarInt32(b, typ)
+			b, m.SecretRefID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

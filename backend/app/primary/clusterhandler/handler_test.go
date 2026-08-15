@@ -24,7 +24,7 @@ func TestBuildAllowedRefs(t *testing.T) {
 					Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/app", Flake: "flake.nix"}},
 					Runtime: apigen.ContainerRuntime{
 						EnvVars: map[string]*apigen.EnvVarValue{
-							"SECRET": {SecretVersionID: &secretID},
+							"SECRET": {SecretRefID: &secretID},
 							"CONFIG": {ConfigRefID: &configID},
 							"ASSET":  {Asset: "app.env", AssetVersionID: 3},
 						},

@@ -20,7 +20,7 @@ func envRefSpec(configIDs map[string]int32, secretIDs map[string]int32) *apigen.
 	}
 	for key, id := range secretIDs {
 		id := id
-		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{SecretVersionID: &id}
+		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{SecretRefID: &id}
 	}
 	return spec
 }
@@ -32,10 +32,10 @@ func deploymentEnvRefID(t *testing.T, cfg *apigen.DeploymentConfig, key string, 
 		t.Fatalf("deployment %d env %s is missing", cfg.ID, key)
 	}
 	if secret {
-		if value.SecretVersionID == nil {
+		if value.SecretRefID == nil {
 			t.Fatalf("deployment %d env %s has no secret ref", cfg.ID, key)
 		}
-		return *value.SecretVersionID
+		return *value.SecretRefID
 	}
 	if value.ConfigRefID == nil {
 		t.Fatalf("deployment %d env %s has no config ref", cfg.ID, key)
@@ -55,7 +55,7 @@ func latestConfigRef(t *testing.T, meta *apigen.ConfigMeta) *apigen.ConfigVersio
 // testSealFunc fabricates sealed bytes without a real SMK: reference-update
 // mechanics do not care about the crypto.
 func testSealFunc(value byte) secrets.SealFunc {
-	return func(secretID, version int32) (secrets.SealedValue, error) {
+	return func(eventID int32) (secrets.SealedValue, error) {
 		return secrets.SealedValue{SMKVersion: 1, Ciphertext: []byte{value}, Nonce: []byte{value}}, nil
 	}
 }

@@ -435,6 +435,16 @@ message SecretList {
   repeated SecretMeta items = 1;
 }
 
+// SecretEnvelope is the event blob for a secret version. legacy_version > 0
+// marks a row imported from secret_versions whose AAD still binds
+// (secret id, legacy_version); new rows bind the event id.
+message SecretEnvelope {
+  int32 smk_version = 1;
+  bytes nonce = 2;
+  bytes ciphertext = 3;
+  int32 legacy_version = 4;
+}
+
 message SecretCreateRequest {
   string name = 1;
   bytes value = 3;         // plaintext secret value; encrypted at rest, never returned
@@ -996,7 +1006,7 @@ message AcmeState {
 
 message AcmeCertBinding {
   string hostname = 1;
-  int32 secret_version_id = 2;
+  int32 secret_ref_id = 2;
 }
 
 // ClusterNetworkInfo carries the cluster-wide virtual network parameters.

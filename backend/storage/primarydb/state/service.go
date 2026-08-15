@@ -108,6 +108,7 @@ func Open(dbPath string) *Service {
 	}
 	s.Cache = instancecache.New(s.persistStatus)
 	s.migrateConfigsToEventLog()
+	s.migrateSecretsToEventLog()
 	s.loadCache()
 	return s
 }

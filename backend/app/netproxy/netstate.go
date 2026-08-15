@@ -220,7 +220,7 @@ func ingressBackends(endpoints []*apigen.Endpoint, containerPort int32) []*apige
 
 func HTTPSCertID(cfg *apigen.HttpsConfig, hostname string) string {
 	if cfg != nil && cfg.CertSource != nil && cfg.CertSource.Secret != nil {
-		return "secret:" + strconv.Itoa(int(cfg.CertSource.Secret.SecretVersionID))
+		return "secret:" + strconv.Itoa(int(cfg.CertSource.Secret.SecretRefID))
 	}
 	return "acme:" + hostname
 }
@@ -244,8 +244,8 @@ func RenderCertBundle(ctx context.Context, seq int64, items []apigen.ScheduledIn
 			}
 			source := route.HttpsConfig.CertSource
 			if source != nil && source.Secret != nil {
-				if source.Secret.SecretVersionID > 0 {
-					wanted[id] = source.Secret.SecretVersionID
+				if source.Secret.SecretRefID > 0 {
+					wanted[id] = source.Secret.SecretRefID
 				}
 				continue
 			}

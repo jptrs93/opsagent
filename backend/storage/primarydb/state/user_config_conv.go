@@ -14,7 +14,7 @@ const (
 	eventActionDelete = int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE)
 )
 
-func configValueEvents(events []pq.Event) []pq.Event {
+func valueEvents(events []pq.Event) []pq.Event {
 	out := make([]pq.Event, 0, len(events))
 	for _, e := range events {
 		if e.Action != eventActionDelete {

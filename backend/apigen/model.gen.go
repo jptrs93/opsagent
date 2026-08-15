@@ -183,7 +183,7 @@ type AcmeCertSource struct {
 }
 
 type SecretCertSource struct {
-	SecretVersionID int32 `json:"secret_version_id"`
+	SecretRefID int32 `json:"secret_ref_id"`
 }
 
 type CertSource struct {
@@ -565,7 +565,7 @@ type CrossDeploymentMount struct {
 }
 
 type EnvVarValue struct {
-	SecretVersionID     *int32  `json:"secret_version_id,omitempty"`
+	SecretRefID         *int32  `json:"secret_ref_id,omitempty"`
 	ConfigRefID         *int32  `json:"config_ref_id,omitempty"`
 	Value               *string `json:"value,omitempty"`
 	Asset               string  `json:"asset,omitempty"`
@@ -930,6 +930,23 @@ type SecretVersionMeta struct {
 
 type SecretList struct {
 	Items []*SecretMeta `json:"items,omitempty"`
+}
+
+type SecretEnvelope struct {
+	SmkVersion    int32  `json:"smk_version"`
+	Nonce         []byte `json:"nonce"`
+	Ciphertext    []byte `json:"ciphertext"`
+	LegacyVersion int32  `json:"legacy_version"`
+}
+
+type ConfigBlob struct {
+	SpaceID int32  `json:"space_id"`
+	Value   []byte `json:"value"`
+}
+
+type SecretBlob struct {
+	SpaceID  int32           `json:"space_id"`
+	Envelope *SecretEnvelope `json:"envelope"`
 }
 
 type SecretCreateRequest struct {
@@ -1369,8 +1386,8 @@ type AcmeState struct {
 }
 
 type AcmeCertBinding struct {
-	Hostname        string `json:"hostname,omitempty"`
-	SecretVersionID int32  `json:"secret_version_id"`
+	Hostname    string `json:"hostname,omitempty"`
+	SecretRefID int32  `json:"secret_ref_id"`
 }
 
 type ClusterNetworkInfo struct {

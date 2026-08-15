@@ -53,7 +53,7 @@ func (s *Service) GetConfigMeta(configID int32) (*apigen.ConfigMeta, bool) {
 	if err != nil {
 		panic(fmt.Sprintf("ListEventsByEntity: %v", err))
 	}
-	evs := configValueEvents(events)
+	evs := valueEvents(events)
 	if len(evs) == 0 {
 		return nil, false
 	}
@@ -310,7 +310,7 @@ func (s *Service) ConfigVersionIDs(configID int32) []int32 {
 	if err != nil {
 		panic(fmt.Sprintf("ListEventsByEntity: %v", err))
 	}
-	evs := configValueEvents(events)
+	evs := valueEvents(events)
 	ids := make([]int32, 0, len(evs))
 	for _, e := range evs {
 		ids = append(ids, int32(e.ID))
@@ -353,7 +353,7 @@ func (s *Service) GetConfigVersionByID(id int32) (ConfigVersionRef, bool) {
 		panic(fmt.Sprintf("ListEventsByEntity: %v", err))
 	}
 	version := 0
-	for _, ev := range configValueEvents(events) {
+	for _, ev := range valueEvents(events) {
 		version++
 		if ev.ID == e.ID {
 			break

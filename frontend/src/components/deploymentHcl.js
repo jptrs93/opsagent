@@ -393,8 +393,8 @@ function deploymentReferenceForID(catalogs, functionName, id) {
 }
 
 function envValueToHcl(value, catalogs, spaceId, pinVersions) {
-    if (value?.secretVersionId !== undefined && value.secretVersionId !== null) {
-        return versionedReferenceForID(catalogs, "secret", value.secretVersionId, pinVersions, spaceId);
+    if (value?.secretRefId !== undefined && value.secretRefId !== null) {
+        return versionedReferenceForID(catalogs, "secret", value.secretRefId, pinVersions, spaceId);
     }
     if (value?.configRefId !== undefined && value.configRefId !== null) {
         return versionedReferenceForID(catalogs, "config", value.configRefId, pinVersions, spaceId);
@@ -559,7 +559,7 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
             if (config.maxRequestBodyBytes) parts.push(`max_request_body_bytes = ${Number(config.maxRequestBodyBytes)}`);
             if (config.flushIntervalMs) parts.push(`flush_interval_ms = ${Number(config.flushIntervalMs)}`);
             if (config.certSource?.secret) {
-                parts.push(`cert = ${versionedReferenceForID(refs, "secret", config.certSource.secret.secretVersionId, pinVersions, spaceId)}`);
+                parts.push(`cert = ${versionedReferenceForID(refs, "secret", config.certSource.secret.secretRefId, pinVersions, spaceId)}`);
             } else if (config.certSource?.acme) {
                 parts.push("cert = acme()");
             }
@@ -945,7 +945,7 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
             item = resolveNamed(text, diagnostics, value, type, value.args[0].value, catalogs, spaceId, referenceOpts);
         }
         if (!item) continue;
-        if (value.name === "secret") setEnv(entry.name, {secretVersionId: Number(item.id)});
+        if (value.name === "secret") setEnv(entry.name, {secretRefId: Number(item.id)});
         if (value.name === "config") setEnv(entry.name, {configRefId: Number(item.id)});
         if (value.name === "asset") setEnv(entry.name, {asset: item.key, assetVersionId: Number(item.id)});
         if (value.name === "address") {
@@ -1055,7 +1055,7 @@ function parseIngress(text, diagnostics, attr, networking, catalogs, spaceId) {
                     && value.args[0].kind === "string" && value.args[0].value) {
                     const referenceOpts = referenceOptions(text, diagnostics, value.args[1], "Secret reference", catalogs, spaceId);
                     const item = resolveNamed(text, diagnostics, value, "secret", value.args[0].value, catalogs, spaceId, referenceOpts);
-                    if (item) httpsConfig.certSource = {secret: {secretVersionId: Number(item.id)}};
+                    if (item) httpsConfig.certSource = {secret: {secretRefId: Number(item.id)}};
                 } else {
                     diagnostics.push(diagnostic(text, value, 'HTTPS cert must be acme() or secret("name", { version = 1 }).'));
                 }

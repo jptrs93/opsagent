@@ -87,14 +87,15 @@ func (m *memStore) insertVersion(secretID, createdBy int32, seal SealFunc) (Reco
 		}
 	}
 	version := maxVersion + 1
-	sealed, err := seal(secretID, version)
+	m.nextID++
+	id := m.nextID
+	sealed, err := seal(id)
 	if err != nil {
 		return Record{}, err
 	}
-	m.nextID++
 	identity := m.identities[secretID]
 	rec := Record{
-		ID:         m.nextID,
+		ID:         id,
 		SecretID:   secretID,
 		Name:       identity.name,
 		Version:    version,
@@ -106,13 +107,6 @@ func (m *memStore) insertVersion(secretID, createdBy int32, seal SealFunc) (Reco
 	}
 	m.records[rec.ID] = rec
 	return rec, nil
-}
-func (m *memStore) UpdateSecretVersionCiphertext(versionID, smkVersion int32, ciphertext, nonce []byte) {
-	rec := m.records[versionID]
-	rec.SMKVersion = smkVersion
-	rec.Ciphertext = ciphertext
-	rec.Nonce = nonce
-	m.records[versionID] = rec
 }
 func (m *memStore) RenameSecret(secretID int32, newName string) error {
 	identity, ok := m.identities[secretID]
@@ -478,4 +472,22 @@ func toLower(s string) string {
 		}
 	}
 	return string(b)
+}
+
+func TestResolveLegacyAADRecord(t *testing.T) {
+	dir := t.TempDir()
+	store := newMemStore()
+	mgr := mustOpen(t, dir, store)
+
+	ct, nonce, err := aeadSeal(mgr.smk, []byte("legacy-value"), userSecretAAD(42, 3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr.cache[900] = Record{
+		ID: 900, SecretID: 42, Name: "old", Version: 1, SpaceID: 1,
+		SMKVersion: mgr.version, Ciphertext: ct, Nonce: nonce, LegacyVersion: 3,
+	}
+	if got, ok := mgr.Resolve(900); !ok || got != "legacy-value" {
+		t.Fatalf("legacy resolve = %q ok=%v", got, ok)
+	}
 }

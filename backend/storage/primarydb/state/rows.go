@@ -8,7 +8,7 @@ type (
 	Asset                = pq.Asset
 	AssetDirectory       = pq.AssetDirectory
 	ValueDirectory       = pq.ValueDirectory
-	Secret               = pq.Secret
+	Secret               = pq.SecretDisplay
 	Config               = pq.Config
 	AssetMigration       = pq.AssetMigration
 	SystemConfigRevision = pq.SystemConfigRevision

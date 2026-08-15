@@ -291,7 +291,7 @@ func validateHTTPSConfig(cfg *apigen.HttpsConfig, hostname string, secretStore d
 		}
 	}
 	if hasSecret {
-		id := source.Secret.SecretVersionID
+		id := source.Secret.SecretRefID
 		if id <= 0 {
 			return invalidConfigErrf("networking.ingress.httpsConfig.certSource.secret.secretVersionId must be positive")
 		}
@@ -362,7 +362,7 @@ func certSourceClaim(source *apigen.CertSource) string {
 		return "acme"
 	}
 	if source.Secret != nil {
-		return fmt.Sprintf("secret:%d", source.Secret.SecretVersionID)
+		return fmt.Sprintf("secret:%d", source.Secret.SecretRefID)
 	}
 	return "acme"
 }
@@ -515,12 +515,12 @@ func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentS
 		return nil
 	}
 	for _, value := range spec.Container().Runtime.EnvVars {
-		if value.SecretVersionID != nil {
+		if value.SecretRefID != nil {
 			if secretStore == nil {
 				return invalidConfigErrf("container1Spec.runtime.envVars: secrets cannot be resolved here")
 			}
-			if _, ok := secretStore.MetaByID(*value.SecretVersionID); !ok {
-				return invalidConfigErrf("container1Spec.runtime.envVars: unknown secret id %d", *value.SecretVersionID)
+			if _, ok := secretStore.MetaByID(*value.SecretRefID); !ok {
+				return invalidConfigErrf("container1Spec.runtime.envVars: unknown secret id %d", *value.SecretRefID)
 			}
 		}
 		if value.ConfigRefID != nil {
@@ -1037,9 +1037,9 @@ func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue) error {
 		if value.Value != nil {
 			set++
 		}
-		if value.SecretVersionID != nil {
+		if value.SecretRefID != nil {
 			set++
-			if *value.SecretVersionID <= 0 {
+			if *value.SecretRefID <= 0 {
 				return invalidConfigErrf("%s.%s: secretId must be positive", scope, key)
 			}
 		}

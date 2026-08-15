@@ -84,19 +84,22 @@ type Keyslot struct {
 	CreatedAt  int64  // epoch ms
 }
 
-// Record is an encrypted secret version row as persisted in secret_versions,
-// joined with its owning identity's name and space for metadata.
+// Record is an encrypted secret version as persisted in the event log, joined
+// with its owning identity's name and space for metadata. LegacyVersion > 0
+// marks a row imported from the pre-event-log secret_versions table whose AAD
+// still binds (SecretID, LegacyVersion); otherwise the AAD binds ID.
 type Record struct {
-	ID         int32 // version row id
-	SecretID   int32 // stable identity id
-	Name       string
-	Version    int32
-	SpaceID    int32
-	SMKVersion int32
-	Ciphertext []byte
-	Nonce      []byte
-	CreatedAt  int64 // epoch ms
-	CreatedBy  int32
+	ID            int32 // version event id
+	SecretID      int32 // stable identity id
+	Name          string
+	Version       int32 // display ordinal
+	SpaceID       int32
+	SMKVersion    int32
+	Ciphertext    []byte
+	Nonce         []byte
+	LegacyVersion int32
+	CreatedAt     int64 // epoch ms
+	CreatedBy     int32
 }
 
 // SystemRecord is an encrypted OpenDeploy-managed secret as persisted in the
@@ -128,10 +131,10 @@ type SealedValue struct {
 	Nonce      []byte
 }
 
-// SealFunc seals a plaintext for the given identity id and version number.
-// The store calls it inside the write transaction, once both are known —
-// the AAD binds them, so the ciphertext cannot exist earlier.
-type SealFunc func(secretID, version int32) (SealedValue, error)
+// SealFunc seals a plaintext for the given version event id. The store calls
+// it inside the write transaction, after pre-allocating the event row — the
+// AAD binds the event id, so the ciphertext cannot exist earlier.
+type SealFunc func(eventID int32) (SealedValue, error)
 
 const defaultUserSpaceID int32 = 1
 
@@ -146,7 +149,6 @@ type Store interface {
 	GetSecretIDByName(spaceID int32, name string) (int32, bool)
 	CreateSecretWithVersion(name string, spaceID, directoryID, createdBy int32, seal SealFunc) (Record, error)
 	AppendSecretVersionWithDeploymentUpdates(secretID, createdBy int32, seal SealFunc, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(Record)) (Record, []int32, error)
-	UpdateSecretVersionCiphertext(versionID, smkVersion int32, ciphertext, nonce []byte)
 	RenameSecret(secretID int32, newName string) error
 	MoveSecretSpace(secretID, newSpaceID, newDirectoryID int32) error
 	DeleteSecret(secretID int32) error
@@ -226,7 +228,11 @@ func newManager(dataDir string, store Store) *Manager {
 // openRecordLocked decrypts one cached version row. Caller must hold m.mu
 // (read) with m.smk set.
 func (m *Manager) openRecordLocked(rec Record) ([]byte, error) {
-	return aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, userSecretAAD(rec.SecretID, rec.Version))
+	aad := userSecretEventAAD(rec.ID)
+	if rec.LegacyVersion > 0 {
+		aad = userSecretAAD(rec.SecretID, rec.LegacyVersion)
+	}
+	return aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, aad)
 }
 
 // Resolve returns the plaintext value for a secret version row id. It
@@ -400,8 +406,8 @@ func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, updated
 // Caller must hold m.mu with m.smk set; the store invokes the callback inside
 // its write transaction while that lock is still held.
 func (m *Manager) sealFuncLocked(value []byte) SealFunc {
-	return func(secretID, version int32) (SealedValue, error) {
-		ct, nonce, err := aeadSeal(m.smk, value, userSecretAAD(secretID, version))
+	return func(eventID int32) (SealedValue, error) {
+		ct, nonce, err := aeadSeal(m.smk, value, userSecretEventAAD(eventID))
 		if err != nil {
 			return SealedValue{}, err
 		}
@@ -669,12 +675,17 @@ func aeadOpen(key, ciphertext, nonce, aad []byte) ([]byte, error) {
 
 func slotAAD(slot string) []byte { return []byte("opendeploy-keyslot:" + slot) }
 
-// userSecretAAD binds a user secret's ciphertext to its stable identity id and
-// version number. Both are immutable and known before the row is inserted, so
-// renames and directory moves never re-encrypt, while a ciphertext still
-// cannot be moved to another secret or another version of the same secret.
+// userSecretAAD is the pre-event-log AAD: it binds the stable identity id and
+// version number. Only rows imported by the event-log migration still use it.
 func userSecretAAD(secretID, version int32) []byte {
 	return []byte(fmt.Sprintf("opendeploy-secret:user:s%d:v%d", secretID, version))
+}
+
+// userSecretEventAAD binds a user secret's ciphertext to its version event id,
+// which is globally unique and immutable, so renames and moves never
+// re-encrypt while a ciphertext still cannot be moved to another version.
+func userSecretEventAAD(eventID int32) []byte {
+	return []byte(fmt.Sprintf("opendeploy-secret:user:e%d", eventID))
 }
 
 func systemSecretAAD(name string) []byte {

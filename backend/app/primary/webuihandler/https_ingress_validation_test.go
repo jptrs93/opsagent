@@ -58,7 +58,7 @@ func TestHTTPSIngressUpdateOnWorkerWithPassthrough(t *testing.T) {
 			Hostname: "web.ingress.opendeploy.test",
 			HttpsConfig: &apigen.HttpsConfig{
 				ContainerPort: 8080,
-				CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{SecretVersionID: certSecret.ID}},
+				CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{SecretRefID: certSecret.ID}},
 			},
 		}},
 	})

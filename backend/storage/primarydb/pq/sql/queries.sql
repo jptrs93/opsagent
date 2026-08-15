@@ -580,9 +580,6 @@ INSERT INTO secret_versions (secret_id, version, smk_version, ciphertext, nonce,
 VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING id, secret_id, version, smk_version, ciphertext, nonce, created_at, created_by;
 
--- name: UpdateSecretVersionCiphertext :exec
-UPDATE secret_versions SET smk_version = ?, ciphertext = ?, nonce = ? WHERE id = ?;
-
 -- name: DeleteSecretVersionsBySecretID :exec
 DELETE FROM secret_versions WHERE secret_id = ?;
 
@@ -733,3 +730,46 @@ WHERE space_id = ? AND directory_id = ? AND name = ? AND id != ?;
 
 -- name: UpdateDeploymentSpecBlobInPlace :exec
 UPDATE deployment_configs SET spec_blob = ? WHERE deployment_id = ?;
+
+-- name: UpdateEventBlob :exec
+UPDATE events SET blob = ? WHERE id = ?;
+
+-- name: ClearEventBlobsByEntity :exec
+UPDATE events SET blob = x'' WHERE entity_type = ? AND entity_id = ?;
+
+-- === secret displays ===
+
+-- name: ListSecretDisplays :many
+SELECT id, space_id, name, directory_id, updated_at, updated_by
+FROM secret_displays ORDER BY name;
+
+-- name: GetSecretDisplayByID :one
+SELECT id, space_id, name, directory_id, updated_at, updated_by
+FROM secret_displays WHERE id = ?;
+
+-- name: GetSecretDisplayByName :one
+SELECT id, space_id, name, directory_id, updated_at, updated_by
+FROM secret_displays WHERE space_id = ? AND directory_id = ? AND name = ?;
+
+-- name: InsertSecretDisplay :exec
+INSERT INTO secret_displays (id, space_id, name, directory_id, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: RenameSecretDisplay :exec
+UPDATE secret_displays SET name = ?, updated_at = ?, updated_by = ? WHERE id = ?;
+
+-- name: SetSecretDisplayDirectory :exec
+UPDATE secret_displays SET directory_id = ?, updated_at = ?, updated_by = ? WHERE id = ?;
+
+-- name: SetSecretDisplaySpace :exec
+UPDATE secret_displays SET space_id = ?, directory_id = ?, updated_at = ?, updated_by = ? WHERE id = ?;
+
+-- name: DeleteSecretDisplay :exec
+DELETE FROM secret_displays WHERE id = ?;
+
+-- name: CountSecretDisplaysInDirectory :one
+SELECT COUNT(*) FROM secret_displays WHERE directory_id = ?;
+
+-- name: CountSecretDisplaySiblingsWithName :one
+SELECT COUNT(*) FROM secret_displays
+WHERE space_id = ? AND directory_id = ? AND name = ? AND id != ?;

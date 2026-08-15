@@ -241,7 +241,7 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 
 	spec := remoteDeploymentSpec("registry/web", virtualNetworking())
 	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"TOKEN": {SecretVersionID: ptrInt32(secret.VersionRefs[0].ID)},
+		"TOKEN": {SecretRefID: ptrInt32(secret.VersionRefs[0].ID)},
 		"LEVEL": {ConfigRefID: ptrInt32(config.VersionRefs[0].ID)},
 	}
 	spec.Networking.Ingress = []*apigen.Ingress{{
@@ -249,7 +249,7 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 		Hostname: "web.test",
 		HttpsConfig: &apigen.HttpsConfig{
 			ContainerPort: 8080,
-			CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{SecretVersionID: certSecret.VersionRefs[0].ID}},
+			CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{SecretRefID: certSecret.VersionRefs[0].ID}},
 		},
 	}}
 	createTestDeployment(h.Store, "node1", apigen.DeploymentIdentity{Name: "web", SpaceID: 1}, &spec)
@@ -288,7 +288,7 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 	}
 	straySpec := remoteDeploymentSpec("registry/worker", virtualNetworking())
 	straySpec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"STRAY": {SecretVersionID: ptrInt32(stray.VersionRefs[0].ID)},
+		"STRAY": {SecretRefID: ptrInt32(stray.VersionRefs[0].ID)},
 	}
 	createTestDeployment(h.Store, "node1", apigen.DeploymentIdentity{Name: "worker", SpaceID: 1}, &straySpec)
 	moved, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
@@ -327,7 +327,7 @@ func TestMoveReservedSecretIsRejected(t *testing.T) {
 	// Reserved names cannot be created through the Manager at all, so seed one
 	// directly at the storage layer the way install/restore-era rows exist.
 	rec, err := h.Store.CreateSecretWithVersion("opendeploy.cluster-ca", 1, 0, 0,
-		func(secretID, version int32) (secrets.SealedValue, error) {
+		func(eventID int32) (secrets.SealedValue, error) {
 			return secrets.SealedValue{SMKVersion: 1, Ciphertext: []byte{1}, Nonce: []byte{2}}, nil
 		})
 	if err != nil {
