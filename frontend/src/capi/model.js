@@ -396,10 +396,16 @@
  * @property {number} permission
  */
 /**
+ * @typedef {Object} ValueRef
+ * @property {number} id
+ * @property {number} version
+ */
+/**
  * @typedef {Object} EnvVarValue
  * @property {number} secretVersionId
  * @property {number} configVersionId
  * @property {string} value
+ * @property {ValueRef} configRef
  * @property {string} asset
  * @property {number} assetVersionId
  * @property {number} addressDeploymentId
@@ -6147,6 +6153,69 @@ export function decodeCrossDeploymentMount(buffer) {
 
 
 /**
+ * @param {ValueRef} message
+ * @param {Writer} writer
+ */
+export function writeValueRef(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.version);
+    }
+}
+
+
+/**
+ * @param {ValueRef} message
+ * @returns {Uint8Array}
+ */
+export function encodeValueRef(message) {
+    const writer = Writer.create();
+    writeValueRef(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValueRef}
+ */
+function decodeValueRefMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, version: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.version = readInt64(reader, "int64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValueRef}
+ */
+export function decodeValueRef(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValueRefMessage(reader);
+}
+
+
+
+/**
  * @param {EnvVarValue} message
  * @param {Writer} writer
  */
@@ -6159,6 +6228,11 @@ export function writeEnvVarValue(message, writer) {
     }
     if (message.value !== undefined && message.value !== null) {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
+    }
+    if (message.configRef !== undefined && message.configRef !== null) {
+        writer.uint32(tag(8, WIRE.LDELIM)).fork();
+        writeValueRef(message.configRef, writer);
+        writer.ldelim();
     }
     if (message.asset !== undefined && message.asset !== null && message.asset !== "") {
         writer.uint32(tag(4, WIRE.LDELIM)).string(message.asset);
@@ -6193,7 +6267,7 @@ export function encodeEnvVarValue(message) {
  */
 function decodeEnvVarValueMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {secretVersionId: undefined, configVersionId: undefined, value: undefined, asset: "", assetVersionId: 0, addressDeploymentId: undefined, addressSpaceId: undefined };
+    const message = {secretVersionId: undefined, configVersionId: undefined, value: undefined, configRef: undefined, asset: "", assetVersionId: 0, addressDeploymentId: undefined, addressSpaceId: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6207,6 +6281,10 @@ function decodeEnvVarValueMessage(reader, length) {
             }
             case 3: {
                 message.value = reader.string();
+                break;
+            }
+            case 8: {
+                message.configRef = decodeValueRefMessage(reader, reader.uint32());
                 break;
             }
             case 4: {

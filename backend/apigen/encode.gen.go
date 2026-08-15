@@ -3134,11 +3134,47 @@ func DecodeCrossDeploymentMount(b []byte) (*CrossDeploymentMount, error) {
 	return &m, nil
 }
 
+func (m *ValueRef) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt64Field(b, m.Version, 2)
+	return b
+}
+
+func DecodeValueRef(b []byte) (*ValueRef, error) {
+	var m ValueRef
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Version, err = ConsumeVarInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *EnvVarValue) Encode() []byte {
 	var b []byte
 	b = AppendInt32FieldOpt(b, m.SecretVersionID, 1)
 	b = AppendInt32FieldOpt(b, m.ConfigVersionID, 2)
 	b = AppendStringFieldOpt(b, m.Value, 3)
+	if m.ConfigRef != nil {
+		b = AppendTag(b, 8, BytesType)
+		b = AppendBytes(b, m.ConfigRef.Encode())
+	}
 	b = AppendStringField(b, m.Asset, 4)
 	b = AppendInt32Field(b, m.AssetVersionID, 5)
 	b = AppendInt32FieldOpt(b, m.AddressDeploymentID, 6)
@@ -3151,6 +3187,7 @@ func DecodeEnvVarValue(b []byte) (*EnvVarValue, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -3163,6 +3200,15 @@ func DecodeEnvVarValue(b []byte) (*EnvVarValue, error) {
 			b, m.ConfigVersionID, err = ConsumeVarInt32Opt(b, typ)
 		case 3:
 			b, m.Value, err = ConsumeStringOpt(b, typ)
+		case 8:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueRef
+				item, err = DecodeValueRef(msgBytes)
+				if err == nil {
+					m.ConfigRef = item
+				}
+			}
 		case 4:
 			b, m.Asset, err = ConsumeString(b, typ)
 		case 5:

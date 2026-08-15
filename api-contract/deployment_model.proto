@@ -578,10 +578,16 @@ message CrossDeploymentMount {
   FilePermission permission = 3;
 }
 
+message ValueRef {
+  int32 id = 1;       // stable entity id
+  int64 version = 2;  // event seq of the pinned version
+}
+
 message EnvVarValue {
   optional int32 secret_version_id = 1; // immutable secret version row id
-  optional int32 config_version_id = 2; // immutable config version row id
+  optional int32 config_version_id = 2; // deprecated: superseded by config_ref (value now holds the event seq)
   optional string value = 3;
+  optional ValueRef config_ref = 8;
   string asset = 4;             // display asset key copied from the resolved asset
   int32 asset_version_id = 5;   // immutable asset version row id, used for local cache/downloads
 

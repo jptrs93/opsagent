@@ -564,14 +564,20 @@ type CrossDeploymentMount struct {
 	Permission    FilePermission `json:"permission"`
 }
 
+type ValueRef struct {
+	ID      int32 `json:"id"`
+	Version int64 `json:"version"`
+}
+
 type EnvVarValue struct {
-	SecretVersionID     *int32  `json:"secret_version_id,omitempty"`
-	ConfigVersionID     *int32  `json:"config_version_id,omitempty"`
-	Value               *string `json:"value,omitempty"`
-	Asset               string  `json:"asset,omitempty"`
-	AssetVersionID      int32   `json:"asset_version_id"`
-	AddressDeploymentID *int32  `json:"address_deployment_id,omitempty"`
-	AddressSpaceID      *int32  `json:"address_space_id,omitempty"`
+	SecretVersionID     *int32    `json:"secret_version_id,omitempty"`
+	ConfigVersionID     *int32    `json:"config_version_id,omitempty"`
+	Value               *string   `json:"value,omitempty"`
+	ConfigRef           *ValueRef `json:"config_ref"`
+	Asset               string    `json:"asset,omitempty"`
+	AssetVersionID      int32     `json:"asset_version_id"`
+	AddressDeploymentID *int32    `json:"address_deployment_id,omitempty"`
+	AddressSpaceID      *int32    `json:"address_space_id,omitempty"`
 }
 
 type CustomHostMount struct {

@@ -57,7 +57,7 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 
 		updatedConfigs = make([]*apigen.DeploymentConfig, 0, len(updates))
 		for _, update := range updates {
-			replaceDeploymentReferences(update.spec, referenceType, referenceIDs, newID)
+			replaceDeploymentReferences(update.spec, referenceType, referenceIDs, stableID, newID)
 			params := pq.UpsertDeploymentConfigParams{
 				DeploymentID: update.row.DeploymentID,
 				NodeID:       update.row.NodeID,
@@ -187,12 +187,12 @@ func versionedValueIDs(ctx context.Context, q *pq.Queries, referenceType version
 		return ids, nil
 	}
 
-	rows, err := q.ListConfigVersionIDsByConfigID(ctx, int64(stableID))
+	events, err := q.ListEventsByEntity(ctx, pq.ListEventsByEntityParams{EntityType: eventTypeConfig, EntityID: int64(stableID)})
 	if err != nil {
-		return nil, fmt.Errorf("list config versions: %w", err)
+		return nil, fmt.Errorf("list config events: %w", err)
 	}
-	for _, id := range rows {
-		ids[int32(id)] = struct{}{}
+	for _, e := range configValueEvents(events) {
+		ids[int32(e.Seq)] = struct{}{}
 	}
 	return ids, nil
 }
@@ -210,7 +210,7 @@ func deploymentUsesReferences(spec *apigen.DeploymentSpec, referenceType version
 	return false
 }
 
-func replaceDeploymentReferences(spec *apigen.DeploymentSpec, referenceType versionedValueReferenceType, referenceIDs map[int32]struct{}, replacementID int32) {
+func replaceDeploymentReferences(spec *apigen.DeploymentSpec, referenceType versionedValueReferenceType, referenceIDs map[int32]struct{}, stableID, replacementID int32) {
 	container := spec.Container()
 	if container == nil {
 		return
@@ -223,6 +223,7 @@ func replaceDeploymentReferences(spec *apigen.DeploymentSpec, referenceType vers
 			value.SecretVersionID = &replacementID
 		} else {
 			value.ConfigVersionID = &replacementID
+			value.ConfigRef = &apigen.ValueRef{ID: stableID, Version: int64(replacementID)}
 		}
 	}
 }
@@ -236,6 +237,9 @@ func referencedValueID(value *apigen.EnvVarValue, referenceType versionedValueRe
 			return *value.SecretVersionID
 		}
 		return 0
+	}
+	if value.ConfigRef != nil && value.ConfigRef.Version != 0 {
+		return int32(value.ConfigRef.Version)
 	}
 	if value.ConfigVersionID != nil {
 		return *value.ConfigVersionID

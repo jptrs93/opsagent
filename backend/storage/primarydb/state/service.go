@@ -107,6 +107,7 @@ func Open(dbPath string) *Service {
 		agentSessionSubs: &pubsubu.PubSub[AgentSessionRecord]{},
 	}
 	s.Cache = instancecache.New(s.persistStatus)
+	s.migrateConfigsToEventLog()
 	s.loadCache()
 	return s
 }

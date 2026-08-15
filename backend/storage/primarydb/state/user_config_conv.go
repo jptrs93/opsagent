@@ -7,27 +7,42 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-// configMetaFromRow builds the wire meta: identity at the root, version facts
-// only in VersionRefs (newest first). refs must be non-empty — every config
-// has at least one version by construction.
-func configMetaFromRow(c Config, refs []*apigen.ConfigVersionMeta) *apigen.ConfigMeta {
-	return &apigen.ConfigMeta{
-		ID:               int32(c.ID),
-		Name:             c.Name,
-		SpaceID:          int32(c.SpaceID),
-		ValueDirectoryID: int32(c.ValueDirectoryID),
-		CreatedAt:        time.UnixMilli(c.CreatedAt),
-		CreatedBy:        int32(c.CreatedBy),
-		VersionRefs:      refs,
+const (
+	eventTypeConfig   = int64(apigen.AuthzEntity_AUTHZ_ENTITY_CONFIG)
+	eventActionCreate = int64(apigen.AuthzVerb_AUTHZ_VERB_CREATE)
+	eventActionUpdate = int64(apigen.AuthzVerb_AUTHZ_VERB_UPDATE)
+	eventActionDelete = int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE)
+)
+
+func configValueEvents(events []pq.Event) []pq.Event {
+	out := make([]pq.Event, 0, len(events))
+	for _, e := range events {
+		if e.Action != eventActionDelete {
+			out = append(out, e)
+		}
 	}
+	return out
 }
 
-func configVersionMetaFromRow(v pq.ConfigVersion) *apigen.ConfigVersionMeta {
-	return &apigen.ConfigVersionMeta{
-		ID:        int32(v.ID),
-		Version:   int32(v.Version),
-		Value:     v.Value,
-		CreatedAt: time.UnixMilli(v.CreatedAt),
-		CreatedBy: int32(v.CreatedBy),
+func configMetaFromDisplay(d pq.ConfigDisplay, valueEvents []pq.Event) *apigen.ConfigMeta {
+	refs := make([]*apigen.ConfigVersionMeta, 0, len(valueEvents))
+	for i, e := range valueEvents {
+		refs = append([]*apigen.ConfigVersionMeta{{
+			ID:        int32(e.Seq),
+			Version:   int32(i + 1),
+			Value:     string(e.Blob),
+			CreatedAt: time.UnixMilli(e.Ts),
+			CreatedBy: int32(e.AuthorID),
+		}}, refs...)
+	}
+	first := valueEvents[0]
+	return &apigen.ConfigMeta{
+		ID:               int32(d.ID),
+		Name:             d.Name,
+		SpaceID:          int32(d.SpaceID),
+		ValueDirectoryID: int32(d.DirectoryID),
+		CreatedAt:        time.UnixMilli(first.Ts),
+		CreatedBy:        int32(first.AuthorID),
+		VersionRefs:      refs,
 	}
 }
