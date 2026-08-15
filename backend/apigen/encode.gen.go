@@ -3137,7 +3137,7 @@ func DecodeCrossDeploymentMount(b []byte) (*CrossDeploymentMount, error) {
 func (m *EnvVarValue) Encode() []byte {
 	var b []byte
 	b = AppendInt32FieldOpt(b, m.SecretVersionID, 1)
-	b = AppendInt32FieldOpt(b, m.ConfigVersionID, 2)
+	b = AppendInt32FieldOpt(b, m.ConfigRefID, 2)
 	b = AppendStringFieldOpt(b, m.Value, 3)
 	b = AppendStringField(b, m.Asset, 4)
 	b = AppendInt32Field(b, m.AssetVersionID, 5)
@@ -3160,7 +3160,7 @@ func DecodeEnvVarValue(b []byte) (*EnvVarValue, error) {
 		case 1:
 			b, m.SecretVersionID, err = ConsumeVarInt32Opt(b, typ)
 		case 2:
-			b, m.ConfigVersionID, err = ConsumeVarInt32Opt(b, typ)
+			b, m.ConfigRefID, err = ConsumeVarInt32Opt(b, typ)
 		case 3:
 			b, m.Value, err = ConsumeStringOpt(b, typ)
 		case 4:

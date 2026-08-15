@@ -566,7 +566,7 @@ type CrossDeploymentMount struct {
 
 type EnvVarValue struct {
 	SecretVersionID     *int32  `json:"secret_version_id,omitempty"`
-	ConfigVersionID     *int32  `json:"config_version_id,omitempty"`
+	ConfigRefID         *int32  `json:"config_ref_id,omitempty"`
 	Value               *string `json:"value,omitempty"`
 	Asset               string  `json:"asset,omitempty"`
 	AssetVersionID      int32   `json:"asset_version_id"`

@@ -40,7 +40,7 @@ func resolveEnvValue(inputs *runtimeinputs.RuntimeInputs, key string, v *apigen.
 	if v.SecretVersionID != nil {
 		set++
 	}
-	if v.ConfigVersionID != nil {
+	if v.ConfigRefID != nil {
 		set++
 	}
 	if v.AssetVersionID > 0 {
@@ -64,7 +64,7 @@ func resolveEnvValue(inputs *runtimeinputs.RuntimeInputs, key string, v *apigen.
 	if v.AddressDeploymentID != nil || v.AddressSpaceID != nil {
 		return resolveAddressRef(v)
 	}
-	return resolveConfigRef(inputs, *v.ConfigVersionID)
+	return resolveConfigRef(inputs, *v.ConfigRefID)
 }
 
 func resolveAddressRef(v *apigen.EnvVarValue) (string, error) {

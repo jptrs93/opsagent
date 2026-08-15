@@ -13,60 +13,53 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-// ListConfigMetas returns every config with its full version index, newest
-// version first, ordered by name.
 func (s *Service) ListConfigMetas() []*apigen.ConfigMeta {
 	ctx := context.Background()
-	rows, err := s.q.ListConfigRows(ctx)
+	displays, err := s.q.ListConfigDisplays(ctx)
 	if err != nil {
-		panic(fmt.Sprintf("ListConfigRows: %v", err))
+		panic(fmt.Sprintf("ListConfigDisplays: %v", err))
 	}
-	versions, err := s.q.ListConfigVersionRows(ctx)
+	events, err := s.q.ListEventsByType(ctx, eventTypeConfig)
 	if err != nil {
-		panic(fmt.Sprintf("ListConfigVersionRows: %v", err))
+		panic(fmt.Sprintf("ListEventsByType: %v", err))
 	}
-	refsByConfig := make(map[int64][]*apigen.ConfigVersionMeta)
-	for _, v := range versions {
-		// ListConfigVersionRows is version ASC; prepend to end up newest first.
-		refsByConfig[v.ConfigID] = append([]*apigen.ConfigVersionMeta{configVersionMetaFromRow(v)}, refsByConfig[v.ConfigID]...)
+	byEntity := make(map[int64][]pq.Event)
+	for _, e := range events {
+		if e.Action != eventActionDelete {
+			byEntity[e.EntityID] = append(byEntity[e.EntityID], e)
+		}
 	}
-	out := make([]*apigen.ConfigMeta, 0, len(rows))
-	for _, c := range rows {
-		refs := refsByConfig[c.ID]
-		if len(refs) == 0 {
+	out := make([]*apigen.ConfigMeta, 0, len(displays))
+	for _, d := range displays {
+		evs := byEntity[d.ID]
+		if len(evs) == 0 {
 			continue
 		}
-		out = append(out, configMetaFromRow(c, refs))
+		out = append(out, configMetaFromDisplay(d, evs))
 	}
 	return out
 }
 
-// GetConfigMeta returns one config with its full version index, newest first.
 func (s *Service) GetConfigMeta(configID int32) (*apigen.ConfigMeta, bool) {
 	ctx := context.Background()
-	c, err := s.q.GetConfigRowByID(ctx, int64(configID))
+	d, err := s.q.GetConfigDisplayByID(ctx, int64(configID))
 	if err == sql.ErrNoRows {
 		return nil, false
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetConfigRowByID: %v", err))
+		panic(fmt.Sprintf("GetConfigDisplayByID: %v", err))
 	}
-	versions, err := s.q.ListConfigVersionsByConfigID(ctx, c.ID)
+	events, err := s.q.ListEventsByEntity(ctx, pq.ListEventsByEntityParams{EntityType: eventTypeConfig, EntityID: d.ID})
 	if err != nil {
-		panic(fmt.Sprintf("ListConfigVersionsByConfigID: %v", err))
+		panic(fmt.Sprintf("ListEventsByEntity: %v", err))
 	}
-	if len(versions) == 0 {
+	evs := configValueEvents(events)
+	if len(evs) == 0 {
 		return nil, false
 	}
-	refs := make([]*apigen.ConfigVersionMeta, 0, len(versions))
-	for i := len(versions) - 1; i >= 0; i-- {
-		refs = append(refs, configVersionMetaFromRow(versions[i]))
-	}
-	return configMetaFromRow(c, refs), true
+	return configMetaFromDisplay(d, evs), true
 }
 
-// CreateConfigWithVersion creates a new config in directoryID (0 = the root)
-// of spaceID with its first version.
 func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, createdBy int32, value string) (*apigen.ConfigMeta, error) {
 	if !ValidValueName(name) {
 		return nil, ErrValueNameInvalid
@@ -83,63 +76,64 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, cre
 		return nil, ErrValueAlreadyExists
 	}
 	now := time.Now().UnixMilli()
-	var row Config
-	var version pq.ConfigVersion
+	var display pq.ConfigDisplay
+	var event pq.Event
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		var err error
-		row, err = q.InsertConfigRow(ctx, pq.InsertConfigRowParams{
-			Name:             name,
-			SpaceID:          space,
-			ValueDirectoryID: dirID,
-			CreatedAt:        now,
-			CreatedBy:        int64(createdBy),
+		maxID, err := q.MaxEventEntityID(ctx, eventTypeConfig)
+		if err != nil {
+			panic(fmt.Sprintf("MaxEventEntityID: %v", err))
+		}
+		id := maxID + 1
+		seq, err := q.InsertEvent(ctx, pq.InsertEventParams{
+			Ts:         now,
+			AuthorID:   int64(createdBy),
+			EntityType: eventTypeConfig,
+			EntityID:   id,
+			Action:     eventActionCreate,
+			Blob:       []byte(value),
 		})
 		if err != nil {
-			panic(fmt.Sprintf("InsertConfigRow: %v", err))
+			panic(fmt.Sprintf("InsertEvent: %v", err))
 		}
-		version, err = q.InsertConfigVersion(ctx, pq.InsertConfigVersionParams{
-			ConfigID:  row.ID,
-			Version:   1,
-			Value:     value,
-			CreatedAt: now,
-			CreatedBy: int64(createdBy),
-		})
-		if err != nil {
-			panic(fmt.Sprintf("InsertConfigVersion: %v", err))
+		if err := q.InsertConfigDisplay(ctx, pq.InsertConfigDisplayParams{
+			ID:          id,
+			SpaceID:     space,
+			Name:        name,
+			DirectoryID: dirID,
+			UpdatedAt:   now,
+			UpdatedBy:   int64(createdBy),
+		}); err != nil {
+			panic(fmt.Sprintf("InsertConfigDisplay: %v", err))
 		}
+		display = pq.ConfigDisplay{ID: id, SpaceID: space, Name: name, DirectoryID: dirID, UpdatedAt: now, UpdatedBy: int64(createdBy)}
+		event = pq.Event{ID: seq, Ts: now, AuthorID: int64(createdBy), EntityType: eventTypeConfig, EntityID: id, Action: eventActionCreate, Blob: []byte(value)}
 		return nil
 	}); err != nil {
 		panic(fmt.Sprintf("create config tx: %v", err))
 	}
-	return configMetaFromRow(row, []*apigen.ConfigVersionMeta{configVersionMetaFromRow(version)}), nil
+	return configMetaFromDisplay(display, []pq.Event{event}), nil
 }
 
-// AppendConfigVersionWithDeploymentUpdates appends an immutable config version
-// and optionally rolls the caller-asserted deployment references to the new
-// row atomically.
 func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value string, updatedBy int32, updateDeployments bool, expected []storage.DeploymentConfigVersion) (*apigen.ConfigMeta, []int32, error) {
 	ctx := context.Background()
 	insert := func(q *pq.Queries) (int32, error) {
-		if _, err := q.GetConfigRowByID(ctx, int64(configID)); err == sql.ErrNoRows {
+		if _, err := q.GetConfigDisplayByID(ctx, int64(configID)); err == sql.ErrNoRows {
 			return 0, ErrValueNotFound
 		} else if err != nil {
-			return 0, fmt.Errorf("get config row: %w", err)
+			return 0, fmt.Errorf("get config display: %w", err)
 		}
-		version, err := q.GetNextConfigVersionNumber(ctx, int64(configID))
-		if err != nil {
-			return 0, fmt.Errorf("get next config version: %w", err)
-		}
-		row, err := q.InsertConfigVersion(ctx, pq.InsertConfigVersionParams{
-			ConfigID:  int64(configID),
-			Version:   version,
-			Value:     value,
-			CreatedAt: time.Now().UnixMilli(),
-			CreatedBy: int64(updatedBy),
+		seq, err := q.InsertEvent(ctx, pq.InsertEventParams{
+			Ts:         time.Now().UnixMilli(),
+			AuthorID:   int64(updatedBy),
+			EntityType: eventTypeConfig,
+			EntityID:   int64(configID),
+			Action:     eventActionUpdate,
+			Blob:       []byte(value),
 		})
 		if err != nil {
-			return 0, fmt.Errorf("insert config version: %w", err)
+			return 0, fmt.Errorf("insert config event: %w", err)
 		}
-		return int32(row.ID), nil
+		return int32(seq), nil
 	}
 	updatedDeployments, err := s.setVersionedValueWithDeploymentUpdates(
 		configValueReference, configID, updateDeployments, expected, updatedBy, insert, nil)
@@ -153,13 +147,11 @@ func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value
 	return meta, updatedDeployments, nil
 }
 
-// SetConfigByName is a create-or-append convenience for tests and seeding: it
-// targets the root directory of the default space by name.
 func (s *Service) SetConfigByName(name, value string, updatedBy int32) *apigen.ConfigMeta {
-	row, err := s.q.GetConfigInDirectoryByName(context.Background(), pq.GetConfigInDirectoryByNameParams{
-		SpaceID:          int64(DefaultSpaceID),
-		ValueDirectoryID: 0,
-		Name:             name,
+	d, err := s.q.GetConfigDisplayByName(context.Background(), pq.GetConfigDisplayByNameParams{
+		SpaceID:     int64(DefaultSpaceID),
+		DirectoryID: 0,
+		Name:        name,
 	})
 	if err == sql.ErrNoRows {
 		meta, createErr := s.CreateConfigWithVersion(name, DefaultSpaceID, 0, updatedBy, value)
@@ -169,16 +161,15 @@ func (s *Service) SetConfigByName(name, value string, updatedBy int32) *apigen.C
 		return meta
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetConfigInDirectoryByName: %v", err))
+		panic(fmt.Sprintf("GetConfigDisplayByName: %v", err))
 	}
-	meta, _, appendErr := s.AppendConfigVersionWithDeploymentUpdates(int32(row.ID), value, updatedBy, false, nil)
+	meta, _, appendErr := s.AppendConfigVersionWithDeploymentUpdates(int32(d.ID), value, updatedBy, false, nil)
 	if appendErr != nil {
 		panic(fmt.Sprintf("SetConfigByName append: %v", appendErr))
 	}
 	return meta
 }
 
-// RenameConfig renames the stable config identity. Versions are untouched.
 func (s *Service) RenameConfig(configID int32, newName string) (*apigen.ConfigMeta, error) {
 	if !ValidValueName(newName) {
 		return nil, ErrValueNameInvalid
@@ -186,21 +177,21 @@ func (s *Service) RenameConfig(configID int32, newName string) (*apigen.ConfigMe
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	ctx := context.Background()
-	row, err := s.q.GetConfigRowByID(ctx, int64(configID))
+	d, err := s.q.GetConfigDisplayByID(ctx, int64(configID))
 	if err == sql.ErrNoRows {
 		return nil, ErrValueNotFound
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetConfigRowByID: %v", err))
+		panic(fmt.Sprintf("GetConfigDisplayByID: %v", err))
 	}
-	if row.Name != newName {
-		if s.valueSiblingNameTakenLocked(ctx, s.q, row.SpaceID, row.ValueDirectoryID, newName, 0, row.ID, 0) {
+	if d.Name != newName {
+		if s.valueSiblingNameTakenLocked(ctx, s.q, d.SpaceID, d.DirectoryID, newName, 0, d.ID, 0) {
 			return nil, ErrValueAlreadyExists
 		}
-		if err := s.q.RenameConfigRow(ctx, pq.RenameConfigRowParams{Name: newName, ID: row.ID}); err != nil {
-			panic(fmt.Sprintf("RenameConfigRow: %v", err))
+		if err := s.q.RenameConfigDisplay(ctx, pq.RenameConfigDisplayParams{Name: newName, UpdatedAt: time.Now().UnixMilli(), UpdatedBy: d.UpdatedBy, ID: d.ID}); err != nil {
+			panic(fmt.Sprintf("RenameConfigDisplay: %v", err))
 		}
-		slog.Info("renamed config", "id", configID, "name", row.Name, "newName", newName)
+		slog.Info("renamed config", "id", configID, "name", d.Name, "newName", newName)
 	}
 	meta, ok := s.GetConfigMeta(configID)
 	if !ok {
@@ -209,66 +200,20 @@ func (s *Service) RenameConfig(configID int32, newName string) (*apigen.ConfigMe
 	return meta, nil
 }
 
-// MoveConfigDirectory moves a config to another value directory (0 = the space
-// root) in its own space. Version rows are untouched.
-func (s *Service) MoveConfigDirectory(configID, newDirectoryID int32) (Config, error) {
+func (s *Service) MoveConfigDirectory(configID, newDirectoryID int32) error {
 	ctx := context.Background()
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	row, err := s.q.GetConfigRowByID(ctx, int64(configID))
-	if err == sql.ErrNoRows {
-		return Config{}, ErrValueNotFound
-	}
-	if err != nil {
-		panic(fmt.Sprintf("GetConfigRowByID: %v", err))
-	}
-	dirID := int64(newDirectoryID)
-	if row.ValueDirectoryID == dirID {
-		return row, nil
-	}
-	if dirID != 0 {
-		dir, err := s.q.GetValueDirectoryByID(ctx, dirID)
-		if err == sql.ErrNoRows {
-			return Config{}, ErrValueDirectoryNotFound
-		}
-		if err != nil {
-			panic(fmt.Sprintf("GetValueDirectoryByID: %v", err))
-		}
-		if dir.SpaceID != row.SpaceID {
-			return Config{}, ErrSpaceMoveUnsupported
-		}
-	}
-	if s.valueSiblingNameTakenLocked(ctx, s.q, row.SpaceID, dirID, row.Name, 0, row.ID, 0) {
-		return Config{}, ErrValueAlreadyExists
-	}
-	if err := s.q.SetConfigValueDirectoryID(ctx, pq.SetConfigValueDirectoryIDParams{ValueDirectoryID: dirID, ID: row.ID}); err != nil {
-		panic(fmt.Sprintf("SetConfigValueDirectoryID: %v", err))
-	}
-	row.ValueDirectoryID = dirID
-	return row, nil
-}
-
-// MoveConfigSpace moves a config to another space, landing it in
-// newDirectoryID there (0 = the destination space's root). Version rows are
-// untouched, so every pinned reference survives. Reference locality is the
-// caller's law — the handler refuses the move while anything outside the
-// destination space references the config.
-func (s *Service) MoveConfigSpace(configID, newSpaceID, newDirectoryID int32) error {
-	ctx := context.Background()
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
-
-	row, err := s.q.GetConfigRowByID(ctx, int64(configID))
+	d, err := s.q.GetConfigDisplayByID(ctx, int64(configID))
 	if err == sql.ErrNoRows {
 		return ErrValueNotFound
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetConfigRowByID: %v", err))
+		panic(fmt.Sprintf("GetConfigDisplayByID: %v", err))
 	}
-	spaceID := int64(normalizedUserSpaceID(newSpaceID))
 	dirID := int64(newDirectoryID)
-	if spaceID == row.SpaceID && dirID == row.ValueDirectoryID {
+	if d.DirectoryID == dirID {
 		return nil
 	}
 	if dirID != 0 {
@@ -279,23 +224,57 @@ func (s *Service) MoveConfigSpace(configID, newSpaceID, newDirectoryID int32) er
 		if err != nil {
 			panic(fmt.Sprintf("GetValueDirectoryByID: %v", err))
 		}
-		// A directory in any space but the destination reads as absent, matching
-		// the create path's treatment of foreign-space directories.
-		if dir.SpaceID != spaceID {
-			return ErrValueDirectoryNotFound
+		if dir.SpaceID != d.SpaceID {
+			return ErrSpaceMoveUnsupported
 		}
 	}
-	if s.valueSiblingNameTakenLocked(ctx, s.q, spaceID, dirID, row.Name, 0, row.ID, 0) {
+	if s.valueSiblingNameTakenLocked(ctx, s.q, d.SpaceID, dirID, d.Name, 0, d.ID, 0) {
 		return ErrValueAlreadyExists
 	}
-	if err := s.q.SetConfigSpace(ctx, pq.SetConfigSpaceParams{SpaceID: spaceID, ValueDirectoryID: dirID, ID: row.ID}); err != nil {
-		panic(fmt.Sprintf("SetConfigSpace: %v", err))
+	if err := s.q.SetConfigDisplayDirectory(ctx, pq.SetConfigDisplayDirectoryParams{DirectoryID: dirID, UpdatedAt: time.Now().UnixMilli(), UpdatedBy: d.UpdatedBy, ID: d.ID}); err != nil {
+		panic(fmt.Sprintf("SetConfigDisplayDirectory: %v", err))
 	}
 	return nil
 }
 
-// DeleteConfig removes the config identity and all its versions. Returns the
-// deleted meta (marked Deleted) for notification, or false if absent.
+func (s *Service) MoveConfigSpace(configID, newSpaceID, newDirectoryID int32) error {
+	ctx := context.Background()
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	d, err := s.q.GetConfigDisplayByID(ctx, int64(configID))
+	if err == sql.ErrNoRows {
+		return ErrValueNotFound
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetConfigDisplayByID: %v", err))
+	}
+	spaceID := int64(normalizedUserSpaceID(newSpaceID))
+	dirID := int64(newDirectoryID)
+	if spaceID == d.SpaceID && dirID == d.DirectoryID {
+		return nil
+	}
+	if dirID != 0 {
+		dir, err := s.q.GetValueDirectoryByID(ctx, dirID)
+		if err == sql.ErrNoRows {
+			return ErrValueDirectoryNotFound
+		}
+		if err != nil {
+			panic(fmt.Sprintf("GetValueDirectoryByID: %v", err))
+		}
+		if dir.SpaceID != spaceID {
+			return ErrValueDirectoryNotFound
+		}
+	}
+	if s.valueSiblingNameTakenLocked(ctx, s.q, spaceID, dirID, d.Name, 0, d.ID, 0) {
+		return ErrValueAlreadyExists
+	}
+	if err := s.q.SetConfigDisplaySpace(ctx, pq.SetConfigDisplaySpaceParams{SpaceID: spaceID, DirectoryID: dirID, UpdatedAt: time.Now().UnixMilli(), UpdatedBy: d.UpdatedBy, ID: d.ID}); err != nil {
+		panic(fmt.Sprintf("SetConfigDisplaySpace: %v", err))
+	}
+	return nil
+}
+
 func (s *Service) DeleteConfig(configID int32) (*apigen.ConfigMeta, bool) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -305,11 +284,18 @@ func (s *Service) DeleteConfig(configID int32) (*apigen.ConfigMeta, bool) {
 	}
 	ctx := context.Background()
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		if err := q.DeleteConfigVersionsByConfigID(ctx, int64(configID)); err != nil {
-			panic(fmt.Sprintf("DeleteConfigVersionsByConfigID: %v", err))
+		if _, err := q.InsertEvent(ctx, pq.InsertEventParams{
+			Ts:         time.Now().UnixMilli(),
+			AuthorID:   0,
+			EntityType: eventTypeConfig,
+			EntityID:   int64(configID),
+			Action:     eventActionDelete,
+			Blob:       []byte{},
+		}); err != nil {
+			panic(fmt.Sprintf("InsertEvent: %v", err))
 		}
-		if err := q.DeleteConfigRow(ctx, int64(configID)); err != nil {
-			panic(fmt.Sprintf("DeleteConfigRow: %v", err))
+		if err := q.DeleteConfigDisplay(ctx, int64(configID)); err != nil {
+			panic(fmt.Sprintf("DeleteConfigDisplay: %v", err))
 		}
 		return nil
 	}); err != nil {
@@ -319,23 +305,21 @@ func (s *Service) DeleteConfig(configID int32) (*apigen.ConfigMeta, bool) {
 	return meta, true
 }
 
-// ConfigVersionIDs returns every version row id of the config — the set a
-// deployment env ref or setting could pin.
 func (s *Service) ConfigVersionIDs(configID int32) []int32 {
-	rows, err := s.q.ListConfigVersionIDsByConfigID(context.Background(), int64(configID))
+	events, err := s.q.ListEventsByEntity(context.Background(), pq.ListEventsByEntityParams{EntityType: eventTypeConfig, EntityID: int64(configID)})
 	if err != nil {
-		panic(fmt.Sprintf("ListConfigVersionIDsByConfigID: %v", err))
+		panic(fmt.Sprintf("ListEventsByEntity: %v", err))
 	}
-	ids := make([]int32, 0, len(rows))
-	for _, id := range rows {
-		ids = append(ids, int32(id))
+	evs := configValueEvents(events)
+	ids := make([]int32, 0, len(evs))
+	for _, e := range evs {
+		ids = append(ids, int32(e.ID))
 	}
 	return ids
 }
 
-// ConfigVersionRef is one config version row joined with its identity.
 type ConfigVersionRef struct {
-	ID        int32 // version row id
+	ID        int32
 	ConfigID  int32
 	Name      string
 	SpaceID   int32
@@ -345,24 +329,45 @@ type ConfigVersionRef struct {
 	CreatedBy int32
 }
 
-// GetConfigVersionByID resolves a pinned config version row id.
 func (s *Service) GetConfigVersionByID(id int32) (ConfigVersionRef, bool) {
-	r, err := s.q.GetConfigVersionByID(context.Background(), int64(id))
+	ctx := context.Background()
+	e, err := s.q.GetEventByID(ctx, int64(id))
 	if err == sql.ErrNoRows {
 		return ConfigVersionRef{}, false
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetConfigVersionByID: %v", err))
+		panic(fmt.Sprintf("GetEventByID: %v", err))
+	}
+	if e.EntityType != eventTypeConfig || e.Action == eventActionDelete {
+		return ConfigVersionRef{}, false
+	}
+	d, err := s.q.GetConfigDisplayByID(ctx, e.EntityID)
+	if err == sql.ErrNoRows {
+		return ConfigVersionRef{}, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetConfigDisplayByID: %v", err))
+	}
+	events, err := s.q.ListEventsByEntity(ctx, pq.ListEventsByEntityParams{EntityType: eventTypeConfig, EntityID: e.EntityID})
+	if err != nil {
+		panic(fmt.Sprintf("ListEventsByEntity: %v", err))
+	}
+	version := 0
+	for _, ev := range configValueEvents(events) {
+		version++
+		if ev.ID == e.ID {
+			break
+		}
 	}
 	return ConfigVersionRef{
-		ID:        int32(r.ID),
-		ConfigID:  int32(r.ConfigID),
-		Name:      r.Name,
-		SpaceID:   int32(r.SpaceID),
-		Version:   int32(r.Version),
-		Value:     r.Value,
-		CreatedAt: r.CreatedAt,
-		CreatedBy: int32(r.CreatedBy),
+		ID:        id,
+		ConfigID:  int32(e.EntityID),
+		Name:      d.Name,
+		SpaceID:   int32(d.SpaceID),
+		Version:   int32(version),
+		Value:     string(e.Blob),
+		CreatedAt: e.Ts,
+		CreatedBy: int32(e.AuthorID),
 	}, true
 }
 

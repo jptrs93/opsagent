@@ -92,6 +92,15 @@ type Config struct {
 	CreatedBy        int64
 }
 
+type ConfigDisplay struct {
+	ID          int64
+	SpaceID     int64
+	Name        string
+	DirectoryID int64
+	UpdatedAt   int64
+	UpdatedBy   int64
+}
+
 type ConfigVersion struct {
 	ID        int64
 	ConfigID  int64
@@ -134,6 +143,16 @@ type EnrollmentRequest struct {
 	OpendeployVersion   string
 	UnderlayAddress     string
 	Status              string
+}
+
+type Event struct {
+	ID         int64
+	Ts         int64
+	AuthorID   int64
+	EntityType int64
+	EntityID   int64
+	Action     int64
+	Blob       []byte
 }
 
 type GlobalAccessRule struct {

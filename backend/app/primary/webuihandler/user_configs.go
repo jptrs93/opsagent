@@ -151,7 +151,7 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 		tombstone := *existing
 		tombstone.Deleted = true
 		h.Store.NotifyConfigMetaUpdate(tombstone)
-	} else if _, err := h.Store.MoveConfigDirectory(req.ConfigID, req.ValueDirectoryID); err != nil {
+	} else if err := h.Store.MoveConfigDirectory(req.ConfigID, req.ValueDirectoryID); err != nil {
 		return nil, mapConfigStoreErr(err)
 	}
 	meta, ok := h.Store.GetConfigMeta(req.ConfigID)

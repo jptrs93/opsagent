@@ -121,7 +121,7 @@ func TestMoveValueDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.MoveConfigDirectory(cfg.ID, int32(b.ID)); err != nil {
+	if err := store.MoveConfigDirectory(cfg.ID, int32(b.ID)); err != nil {
 		t.Fatal(err)
 	}
 	dirK, _ := store.CreateValueDirectory(0, 0, "k", 0)
@@ -181,7 +181,7 @@ func TestDeleteValueDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.MoveConfigDirectory(cfg.ID, int32(child.ID)); err != nil {
+	if err := store.MoveConfigDirectory(cfg.ID, int32(child.ID)); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.DeleteValueDirectory(int32(child.ID)); !errors.Is(err, ErrValueDirectoryNotEmpty) {
@@ -189,7 +189,7 @@ func TestDeleteValueDirectory(t *testing.T) {
 	}
 
 	// Empty it out and both deletes succeed, bottom up.
-	if _, err := store.MoveConfigDirectory(cfg.ID, 0); err != nil {
+	if err := store.MoveConfigDirectory(cfg.ID, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.DeleteValueDirectory(int32(child.ID)); err != nil {
@@ -244,7 +244,7 @@ func TestMoveSecretDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.MoveConfigDirectory(cfg.ID, int32(dir.ID)); err != nil {
+	if err := store.MoveConfigDirectory(cfg.ID, int32(dir.ID)); err != nil {
 		t.Fatal(err)
 	}
 	sec3, err := store.CreateSecretWithVersion("mode", DefaultSpaceID, 0, 0, testSealFunc(3))
@@ -277,12 +277,11 @@ func TestMoveConfigDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	moved, err := store.MoveConfigDirectory(cfg.ID, int32(dir.ID))
-	if err != nil {
+	if err := store.MoveConfigDirectory(cfg.ID, int32(dir.ID)); err != nil {
 		t.Fatalf("move config: %v", err)
 	}
-	if moved.ValueDirectoryID != dir.ID || moved.Name != "level" {
-		t.Fatalf("moved config = %+v", moved)
+	if meta, ok := store.GetConfigMeta(cfg.ID); !ok || meta.ValueDirectoryID != int32(dir.ID) || meta.Name != "level" {
+		t.Fatalf("moved config = %+v", meta)
 	}
 
 	// Version rows are untouched: the pinned version id still resolves.
@@ -294,14 +293,14 @@ func TestMoveConfigDirectory(t *testing.T) {
 
 	// No-op move, then conflicts against a config and a secret at the
 	// destination.
-	if again, err := store.MoveConfigDirectory(cfg.ID, int32(dir.ID)); err != nil || again.ValueDirectoryID != dir.ID {
-		t.Fatalf("no-op move = %+v, %v", again, err)
+	if err := store.MoveConfigDirectory(cfg.ID, int32(dir.ID)); err != nil {
+		t.Fatalf("no-op move: %v", err)
 	}
 	cfg2, err := store.CreateConfigWithVersion("level", DefaultSpaceID, 0, 0, "debug")
 	if err != nil {
 		t.Fatalf("recreate at vacated name: %v", err)
 	}
-	if _, err := store.MoveConfigDirectory(cfg2.ID, int32(dir.ID)); !errors.Is(err, ErrValueAlreadyExists) {
+	if err := store.MoveConfigDirectory(cfg2.ID, int32(dir.ID)); !errors.Is(err, ErrValueAlreadyExists) {
 		t.Fatalf("move onto taken name err = %v, want ErrValueAlreadyExists", err)
 	}
 	sec, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, 0, testSealFunc(1))
@@ -315,19 +314,19 @@ func TestMoveConfigDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.MoveConfigDirectory(cfg3.ID, int32(dir.ID)); !errors.Is(err, ErrValueAlreadyExists) {
+	if err := store.MoveConfigDirectory(cfg3.ID, int32(dir.ID)); !errors.Is(err, ErrValueAlreadyExists) {
 		t.Fatalf("move onto secret name err = %v, want ErrValueAlreadyExists", err)
 	}
 
-	if _, err := store.MoveConfigDirectory(cfg2.ID, 999); !errors.Is(err, ErrValueDirectoryNotFound) {
+	if err := store.MoveConfigDirectory(cfg2.ID, 999); !errors.Is(err, ErrValueDirectoryNotFound) {
 		t.Fatalf("move to missing directory err = %v, want ErrValueDirectoryNotFound", err)
 	}
-	if _, err := store.MoveConfigDirectory(999, int32(dir.ID)); !errors.Is(err, ErrValueNotFound) {
+	if err := store.MoveConfigDirectory(999, int32(dir.ID)); !errors.Is(err, ErrValueNotFound) {
 		t.Fatalf("move missing config err = %v, want ErrValueNotFound", err)
 	}
 
 	foreign, _ := store.CreateValueDirectory(2, 0, "other", 0)
-	if _, err := store.MoveConfigDirectory(cfg2.ID, int32(foreign.ID)); !errors.Is(err, ErrSpaceMoveUnsupported) {
+	if err := store.MoveConfigDirectory(cfg2.ID, int32(foreign.ID)); !errors.Is(err, ErrSpaceMoveUnsupported) {
 		t.Fatalf("cross-space move err = %v, want ErrSpaceMoveUnsupported", err)
 	}
 }

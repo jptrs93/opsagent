@@ -730,7 +730,7 @@ func countEnvVars(env map[string]*apigen.EnvVarValue) envVarCounts {
 		if value.Value != nil {
 			counts.plain++
 		}
-		if value.ConfigVersionID != nil {
+		if value.ConfigRefID != nil {
 			counts.config++
 		}
 		if value.SecretVersionID != nil {

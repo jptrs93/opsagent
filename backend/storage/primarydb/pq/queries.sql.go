@@ -126,6 +126,41 @@ func (q *Queries) CountChildValueDirectories(ctx context.Context, parentID int64
 	return count, err
 }
 
+const countConfigDisplaySiblingsWithName = `-- name: CountConfigDisplaySiblingsWithName :one
+SELECT COUNT(*) FROM config_displays
+WHERE space_id = ? AND directory_id = ? AND name = ? AND id != ?
+`
+
+type CountConfigDisplaySiblingsWithNameParams struct {
+	SpaceID     int64
+	DirectoryID int64
+	Name        string
+	ID          int64
+}
+
+func (q *Queries) CountConfigDisplaySiblingsWithName(ctx context.Context, arg CountConfigDisplaySiblingsWithNameParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countConfigDisplaySiblingsWithName,
+		arg.SpaceID,
+		arg.DirectoryID,
+		arg.Name,
+		arg.ID,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countConfigDisplaysInDirectory = `-- name: CountConfigDisplaysInDirectory :one
+SELECT COUNT(*) FROM config_displays WHERE directory_id = ?
+`
+
+func (q *Queries) CountConfigDisplaysInDirectory(ctx context.Context, directoryID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countConfigDisplaysInDirectory, directoryID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countConfigSiblingsWithName = `-- name: CountConfigSiblingsWithName :one
 SELECT COUNT(*) FROM configs
 WHERE space_id = ? AND value_directory_id = ? AND name = ? AND id != ?
@@ -359,6 +394,15 @@ func (q *Queries) DeleteAuthzGrantRow(ctx context.Context, id int64) error {
 	return err
 }
 
+const deleteConfigDisplay = `-- name: DeleteConfigDisplay :exec
+DELETE FROM config_displays WHERE id = ?
+`
+
+func (q *Queries) DeleteConfigDisplay(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteConfigDisplay, id)
+	return err
+}
+
 const deleteConfigRow = `-- name: DeleteConfigRow :exec
 DELETE FROM configs WHERE id = ?
 `
@@ -582,6 +626,50 @@ func (q *Queries) GetConfigByID(ctx context.Context, id int64) (SystemConfigRevi
 	return i, err
 }
 
+const getConfigDisplayByID = `-- name: GetConfigDisplayByID :one
+SELECT id, space_id, name, directory_id, updated_at, updated_by
+FROM config_displays WHERE id = ?
+`
+
+func (q *Queries) GetConfigDisplayByID(ctx context.Context, id int64) (ConfigDisplay, error) {
+	row := q.db.QueryRowContext(ctx, getConfigDisplayByID, id)
+	var i ConfigDisplay
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.Name,
+		&i.DirectoryID,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
+	)
+	return i, err
+}
+
+const getConfigDisplayByName = `-- name: GetConfigDisplayByName :one
+SELECT id, space_id, name, directory_id, updated_at, updated_by
+FROM config_displays WHERE space_id = ? AND directory_id = ? AND name = ?
+`
+
+type GetConfigDisplayByNameParams struct {
+	SpaceID     int64
+	DirectoryID int64
+	Name        string
+}
+
+func (q *Queries) GetConfigDisplayByName(ctx context.Context, arg GetConfigDisplayByNameParams) (ConfigDisplay, error) {
+	row := q.db.QueryRowContext(ctx, getConfigDisplayByName, arg.SpaceID, arg.DirectoryID, arg.Name)
+	var i ConfigDisplay
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.Name,
+		&i.DirectoryID,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
+	)
+	return i, err
+}
+
 const getConfigInDirectoryByName = `-- name: GetConfigInDirectoryByName :one
 SELECT id, name, space_id, value_directory_id, created_at, created_by
 FROM configs WHERE space_id = ? AND value_directory_id = ? AND name = ?
@@ -721,6 +809,26 @@ func (q *Queries) GetDeploymentConfigHistoryVersion(ctx context.Context, arg Get
 		&i.NodeID,
 		&i.SpecBlob,
 		&i.Deleted,
+	)
+	return i, err
+}
+
+const getEventByID = `-- name: GetEventByID :one
+SELECT id, ts, author_id, entity_type, entity_id, action, blob
+FROM events WHERE id = ?
+`
+
+func (q *Queries) GetEventByID(ctx context.Context, id int64) (Event, error) {
+	row := q.db.QueryRowContext(ctx, getEventByID, id)
+	var i Event
+	err := row.Scan(
+		&i.ID,
+		&i.Ts,
+		&i.AuthorID,
+		&i.EntityType,
+		&i.EntityID,
+		&i.Action,
+		&i.Blob,
 	)
 	return i, err
 }
@@ -1207,6 +1315,32 @@ func (q *Queries) InsertAuthzRuleTemplateRow(ctx context.Context, arg InsertAuth
 	return id, err
 }
 
+const insertConfigDisplay = `-- name: InsertConfigDisplay :exec
+INSERT INTO config_displays (id, space_id, name, directory_id, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type InsertConfigDisplayParams struct {
+	ID          int64
+	SpaceID     int64
+	Name        string
+	DirectoryID int64
+	UpdatedAt   int64
+	UpdatedBy   int64
+}
+
+func (q *Queries) InsertConfigDisplay(ctx context.Context, arg InsertConfigDisplayParams) error {
+	_, err := q.db.ExecContext(ctx, insertConfigDisplay,
+		arg.ID,
+		arg.SpaceID,
+		arg.Name,
+		arg.DirectoryID,
+		arg.UpdatedAt,
+		arg.UpdatedBy,
+	)
+	return err
+}
+
 const insertConfigRow = `-- name: InsertConfigRow :one
 INSERT INTO configs (name, space_id, value_directory_id, created_at, created_by)
 VALUES (?, ?, ?, ?, ?)
@@ -1305,6 +1439,36 @@ func (q *Queries) InsertDeploymentConfigHistory(ctx context.Context, arg InsertD
 		arg.Deleted,
 	)
 	return err
+}
+
+const insertEvent = `-- name: InsertEvent :one
+
+INSERT INTO events (ts, author_id, entity_type, entity_id, action, blob)
+VALUES (?, ?, ?, ?, ?, ?) RETURNING id
+`
+
+type InsertEventParams struct {
+	Ts         int64
+	AuthorID   int64
+	EntityType int64
+	EntityID   int64
+	Action     int64
+	Blob       []byte
+}
+
+// === events ===
+func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertEvent,
+		arg.Ts,
+		arg.AuthorID,
+		arg.EntityType,
+		arg.EntityID,
+		arg.Action,
+		arg.Blob,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertGlobalAccessRuleRow = `-- name: InsertGlobalAccessRuleRow :one
@@ -1858,6 +2022,43 @@ func (q *Queries) ListAuthzRuleTemplateRows(ctx context.Context) ([]AuthzRuleTem
 	return items, nil
 }
 
+const listConfigDisplays = `-- name: ListConfigDisplays :many
+
+SELECT id, space_id, name, directory_id, updated_at, updated_by
+FROM config_displays ORDER BY name
+`
+
+// === config displays ===
+func (q *Queries) ListConfigDisplays(ctx context.Context) ([]ConfigDisplay, error) {
+	rows, err := q.db.QueryContext(ctx, listConfigDisplays)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ConfigDisplay
+	for rows.Next() {
+		var i ConfigDisplay
+		if err := rows.Scan(
+			&i.ID,
+			&i.SpaceID,
+			&i.Name,
+			&i.DirectoryID,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConfigRows = `-- name: ListConfigRows :many
 
 SELECT id, name, space_id, value_directory_id, created_at, created_by
@@ -2020,6 +2221,85 @@ func (q *Queries) ListDeploymentConfigHistory(ctx context.Context, deploymentID 
 			&i.NodeID,
 			&i.SpecBlob,
 			&i.Deleted,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEventsByEntity = `-- name: ListEventsByEntity :many
+SELECT id, ts, author_id, entity_type, entity_id, action, blob
+FROM events WHERE entity_type = ? AND entity_id = ?
+ORDER BY id ASC
+`
+
+type ListEventsByEntityParams struct {
+	EntityType int64
+	EntityID   int64
+}
+
+func (q *Queries) ListEventsByEntity(ctx context.Context, arg ListEventsByEntityParams) ([]Event, error) {
+	rows, err := q.db.QueryContext(ctx, listEventsByEntity, arg.EntityType, arg.EntityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Event
+	for rows.Next() {
+		var i Event
+		if err := rows.Scan(
+			&i.ID,
+			&i.Ts,
+			&i.AuthorID,
+			&i.EntityType,
+			&i.EntityID,
+			&i.Action,
+			&i.Blob,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEventsByType = `-- name: ListEventsByType :many
+SELECT id, ts, author_id, entity_type, entity_id, action, blob
+FROM events WHERE entity_type = ?
+ORDER BY entity_id, id ASC
+`
+
+func (q *Queries) ListEventsByType(ctx context.Context, entityType int64) ([]Event, error) {
+	rows, err := q.db.QueryContext(ctx, listEventsByType, entityType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Event
+	for rows.Next() {
+		var i Event
+		if err := rows.Scan(
+			&i.ID,
+			&i.Ts,
+			&i.AuthorID,
+			&i.EntityType,
+			&i.EntityID,
+			&i.Action,
+			&i.Blob,
 		); err != nil {
 			return nil, err
 		}
@@ -2776,6 +3056,17 @@ func (q *Queries) ListValueDirectories(ctx context.Context) ([]ValueDirectory, e
 	return items, nil
 }
 
+const maxEventEntityID = `-- name: MaxEventEntityID :one
+SELECT CAST(COALESCE(MAX(entity_id), 0) AS INTEGER) FROM events WHERE entity_type = ?
+`
+
+func (q *Queries) MaxEventEntityID(ctx context.Context, entityType int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxEventEntityID, entityType)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const recordAssetMigrationError = `-- name: RecordAssetMigrationError :one
 UPDATE asset_migrations
 SET status = 'running', last_attempt_at = ?, last_error = ?
@@ -2818,6 +3109,27 @@ type RenameAssetKeyParams struct {
 
 func (q *Queries) RenameAssetKey(ctx context.Context, arg RenameAssetKeyParams) error {
 	_, err := q.db.ExecContext(ctx, renameAssetKey, arg.Key, arg.ID)
+	return err
+}
+
+const renameConfigDisplay = `-- name: RenameConfigDisplay :exec
+UPDATE config_displays SET name = ?, updated_at = ?, updated_by = ? WHERE id = ?
+`
+
+type RenameConfigDisplayParams struct {
+	Name      string
+	UpdatedAt int64
+	UpdatedBy int64
+	ID        int64
+}
+
+func (q *Queries) RenameConfigDisplay(ctx context.Context, arg RenameConfigDisplayParams) error {
+	_, err := q.db.ExecContext(ctx, renameConfigDisplay,
+		arg.Name,
+		arg.UpdatedAt,
+		arg.UpdatedBy,
+		arg.ID,
+	)
 	return err
 }
 
@@ -2947,6 +3259,50 @@ type SetAssetSpaceParams struct {
 
 func (q *Queries) SetAssetSpace(ctx context.Context, arg SetAssetSpaceParams) error {
 	_, err := q.db.ExecContext(ctx, setAssetSpace, arg.SpaceID, arg.AssetDirectoryID, arg.ID)
+	return err
+}
+
+const setConfigDisplayDirectory = `-- name: SetConfigDisplayDirectory :exec
+UPDATE config_displays SET directory_id = ?, updated_at = ?, updated_by = ? WHERE id = ?
+`
+
+type SetConfigDisplayDirectoryParams struct {
+	DirectoryID int64
+	UpdatedAt   int64
+	UpdatedBy   int64
+	ID          int64
+}
+
+func (q *Queries) SetConfigDisplayDirectory(ctx context.Context, arg SetConfigDisplayDirectoryParams) error {
+	_, err := q.db.ExecContext(ctx, setConfigDisplayDirectory,
+		arg.DirectoryID,
+		arg.UpdatedAt,
+		arg.UpdatedBy,
+		arg.ID,
+	)
+	return err
+}
+
+const setConfigDisplaySpace = `-- name: SetConfigDisplaySpace :exec
+UPDATE config_displays SET space_id = ?, directory_id = ?, updated_at = ?, updated_by = ? WHERE id = ?
+`
+
+type SetConfigDisplaySpaceParams struct {
+	SpaceID     int64
+	DirectoryID int64
+	UpdatedAt   int64
+	UpdatedBy   int64
+	ID          int64
+}
+
+func (q *Queries) SetConfigDisplaySpace(ctx context.Context, arg SetConfigDisplaySpaceParams) error {
+	_, err := q.db.ExecContext(ctx, setConfigDisplaySpace,
+		arg.SpaceID,
+		arg.DirectoryID,
+		arg.UpdatedAt,
+		arg.UpdatedBy,
+		arg.ID,
+	)
 	return err
 }
 
@@ -3128,6 +3484,20 @@ func (q *Queries) UpdateAuthzRuleTemplateRow(ctx context.Context, arg UpdateAuth
 		arg.DataBlob,
 		arg.ID,
 	)
+	return err
+}
+
+const updateDeploymentSpecBlobInPlace = `-- name: UpdateDeploymentSpecBlobInPlace :exec
+UPDATE deployment_configs SET spec_blob = ? WHERE deployment_id = ?
+`
+
+type UpdateDeploymentSpecBlobInPlaceParams struct {
+	SpecBlob     []byte
+	DeploymentID int64
+}
+
+func (q *Queries) UpdateDeploymentSpecBlobInPlace(ctx context.Context, arg UpdateDeploymentSpecBlobInPlaceParams) error {
+	_, err := q.db.ExecContext(ctx, updateDeploymentSpecBlobInPlace, arg.SpecBlob, arg.DeploymentID)
 	return err
 }
 
