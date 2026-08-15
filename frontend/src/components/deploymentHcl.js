@@ -29,9 +29,9 @@ export const deploymentHclCompletionOptions = [
     {label: "network", type: "keyword", info: "Deployment networking"},
     {label: "space", type: "function", info: "Resolve a space by name"},
     {label: "node", type: "function", info: "Resolve a node by name"},
-    {label: "secret", type: "function", info: "Resolve a secret by name and optional version options"},
-    {label: "config", type: "function", info: "Resolve a config by name and optional version options"},
-    {label: "asset", type: "function", info: "Resolve an asset by key and optional version options"},
+    {label: "secret", type: "function", info: "Resolve a secret by name and optional version/space options"},
+    {label: "config", type: "function", info: "Resolve a config by name and optional version/space options"},
+    {label: "asset", type: "function", info: "Resolve an asset by key and optional version/space options"},
     {label: "address", type: "function", info: "Resolve an address by space and deployment name"},
     {label: "mount", type: "function", info: "Mount a typed source"},
     {label: "default_volume", type: "function", info: "The deployment default volume"},
@@ -356,19 +356,32 @@ function nameForID(catalogs, type, id, spaceId) {
     return itemName(item, type) || placeholder(type, id);
 }
 
-function versionedReferenceForID(catalogs, type, id, pinVersions) {
+function versionedReferenceForID(catalogs, type, id, pinVersions, spaceId) {
     const collection = type === "asset" ? catalogs.assets
         : type === "secret" ? catalogs.secretRefs : catalogs.configRefs;
     const item = findByID(collection, type, id);
     const name = itemName(item, type) || placeholder(type, id);
+    const referenceSpaceId = itemSpace(item, type);
     const version = Number(item?.version || 0);
+    // Names are only unique within a space, so "latest" must compare against
+    // versions of the same-space item, not a same-named one elsewhere.
     const latestVersion = scopedItems(collection, type)
-        .filter(candidate => itemName(candidate, type) === name)
+        .filter(candidate => itemName(candidate, type) === name
+            && (referenceSpaceId === undefined || referenceSpaceId === null
+                || Number(itemSpace(candidate, type)) === Number(referenceSpaceId)))
         .reduce((latest, candidate) => Math.max(latest, Number(candidate?.version || 0)), 0);
-    const pinnedVersion = version > 0 && (pinVersions || version < latestVersion)
-        ? `, { version = ${version} }`
-        : "";
-    return `${type}(${quote(name)}${pinnedVersion})`;
+    const options = [];
+    // An unqualified name resolves in the deployment's space (shadowing the
+    // global space), so cross-space references must carry the space explicitly
+    // or a later same-named item in the deployment's space would capture them.
+    if (item && referenceSpaceId !== undefined && referenceSpaceId !== null
+        && spaceId !== undefined && spaceId !== null
+        && Number(referenceSpaceId) !== Number(spaceId)) {
+        options.push(`space = ${quote(nameForID(catalogs, "space", referenceSpaceId))}`);
+    }
+    if (version > 0 && (pinVersions || version < latestVersion)) options.push(`version = ${version}`);
+    const suffix = options.length ? `, { ${options.join(", ")} }` : "";
+    return `${type}(${quote(name)}${suffix})`;
 }
 
 function deploymentReferenceForID(catalogs, functionName, id) {
@@ -381,16 +394,16 @@ function deploymentReferenceForID(catalogs, functionName, id) {
 
 function envValueToHcl(value, catalogs, spaceId, pinVersions) {
     if (value?.secretVersionId !== undefined && value.secretVersionId !== null) {
-        return versionedReferenceForID(catalogs, "secret", value.secretVersionId, pinVersions);
+        return versionedReferenceForID(catalogs, "secret", value.secretVersionId, pinVersions, spaceId);
     }
     if (value?.configVersionId !== undefined && value.configVersionId !== null) {
-        return versionedReferenceForID(catalogs, "config", value.configVersionId, pinVersions);
+        return versionedReferenceForID(catalogs, "config", value.configVersionId, pinVersions, spaceId);
     }
     if (value?.addressDeploymentId !== undefined && value.addressDeploymentId !== null) {
         return deploymentReferenceForID(catalogs, "address", value.addressDeploymentId);
     }
     if (value?.assetVersionId || value?.asset) {
-        return versionedReferenceForID(catalogs, "asset", value.assetVersionId, pinVersions);
+        return versionedReferenceForID(catalogs, "asset", value.assetVersionId, pinVersions, spaceId);
     }
     return quote(value?.value ?? "");
 }
@@ -482,7 +495,7 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
         mounts.push(`mount(${mountSource}, ${quote(mount?.containerPath)}${mountOption("read_only", mount?.permission === PERMISSION_READ_ONLY)})`);
     }
     for (const mount of runtime.assetMounts || []) {
-        const mountSource = versionedReferenceForID(refs, "asset", mount?.assetVersionId, pinVersions);
+        const mountSource = versionedReferenceForID(refs, "asset", mount?.assetVersionId, pinVersions, spaceId);
         mounts.push(`mount(${mountSource}, ${quote(mount?.containerPath)}${mountOption("executable", mount?.permission === PERMISSION_READ_EXECUTE)})`);
     }
     if (runtime.issuedTlsMount) {
@@ -546,7 +559,7 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
             if (config.maxRequestBodyBytes) parts.push(`max_request_body_bytes = ${Number(config.maxRequestBodyBytes)}`);
             if (config.flushIntervalMs) parts.push(`flush_interval_ms = ${Number(config.flushIntervalMs)}`);
             if (config.certSource?.secret) {
-                parts.push(`cert = ${versionedReferenceForID(refs, "secret", config.certSource.secret.secretVersionId, pinVersions)}`);
+                parts.push(`cert = ${versionedReferenceForID(refs, "secret", config.certSource.secret.secretVersionId, pinVersions, spaceId)}`);
             } else if (config.certSource?.acme) {
                 parts.push("cert = acme()");
             }
@@ -650,9 +663,14 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
                         : catalogs.deployments;
     let matches = scopedItems(collection, type, type === "deployment" ? spaceId : undefined)
         .filter(item => itemName(item, type) === name);
-    if (type === "secret" && spaceId !== undefined && spaceId !== null) {
-        // Reference locality: a deployment may pin secrets only from its own
-        // space or the global space, and its own space shadows a global name.
+    if (isVersionedResource(type) && options.spaceId !== undefined && options.spaceId !== null) {
+        // Explicit space qualifier: resolve in exactly that space, bypassing
+        // the own-space-shadows-global rule.
+        matches = matches.filter(item => Number(itemSpace(item, type)) === Number(options.spaceId));
+    } else if (isVersionedResource(type) && spaceId !== undefined && spaceId !== null) {
+        // Reference locality: a deployment may pin secrets, configs, and
+        // assets only from its own space or the global space, and its own
+        // space shadows a global name.
         matches = matches.filter(item => Number(itemSpace(item, type)) === Number(spaceId)
             || Number(itemSpace(item, type)) === GLOBAL_SPACE_ID);
         const ownSpace = matches.filter(item => Number(itemSpace(item, type)) === Number(spaceId));
@@ -679,7 +697,11 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
     if (matches.length === 0) {
         const scope = type === "node" ? " in the cluster"
             : type === "deployment" ? " in the selected space"
-                : type === "secret" ? " in the deployment's space or the global space" : "";
+                : isVersionedResource(type)
+                    ? (options.spaceName !== undefined && options.spaceName !== null
+                        ? ` in space ${quote(options.spaceName)}`
+                        : " in the deployment's space or the global space")
+                    : "";
         diagnostics.push(diagnostic(text, expression, `No ${type} named ${quote(name)} exists${scope}.`));
         return null;
     }
@@ -733,15 +755,38 @@ function optionBoolean(text, diagnostics, options, name) {
     return booleanValue(text, diagnostics, option, `Option ${name}`) ?? false;
 }
 
-function referenceVersion(text, diagnostics, expression, description) {
-    if (!expression) return undefined;
-    const options = validateObject(text, diagnostics, expression, new Set(["version"]));
-    const version = options.get("version");
-    if (!version) {
-        diagnostics.push(diagnostic(text, expression, `${description} options must contain version.`));
-        return undefined;
+// referenceOptions parses the optional {version, space} object on secret,
+// config, and asset references. An explicit space names the space the item
+// lives in — required for cross-space (global) references because bare names
+// resolve own-space-first — and must still satisfy reference locality.
+function referenceOptions(text, diagnostics, expression, description, catalogs, deploymentSpaceId) {
+    if (!expression) return {};
+    const options = validateObject(text, diagnostics, expression, new Set(["version", "space"]));
+    if (!options.get("version") && !options.get("space")) {
+        diagnostics.push(diagnostic(text, expression, `${description} options must contain version or space.`));
+        return {};
     }
-    return integerValue(text, diagnostics, version, `${description} version`, 1) ?? undefined;
+    const result = {};
+    const versionAttr = options.get("version");
+    if (versionAttr) {
+        result.version = integerValue(text, diagnostics, versionAttr, `${description} version`, 1) ?? undefined;
+    }
+    const spaceAttr = options.get("space");
+    if (spaceAttr) {
+        const spaceName = stringValue(text, diagnostics, spaceAttr, `${description} space`, {nonempty: true});
+        if (spaceName !== null) {
+            const space = resolveNamed(text, diagnostics, spaceAttr.value, "space", spaceName, catalogs);
+            if (space) {
+                if (deploymentSpaceId !== undefined && deploymentSpaceId !== null
+                    && Number(space.id) !== Number(deploymentSpaceId) && Number(space.id) !== GLOBAL_SPACE_ID) {
+                    diagnostics.push(diagnostic(text, spaceAttr.value, `${description}s may only use the deployment's space or the global space.`));
+                }
+                result.spaceId = Number(space.id);
+                result.spaceName = spaceName;
+            }
+        }
+    }
+    return result;
 }
 
 function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime) {
@@ -779,10 +824,8 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime
         }
         if (source.name === "asset" && source.args.length >= 1 && source.args.length <= 2
             && source.args[0].kind === "string" && source.args[0].value) {
-            const version = referenceVersion(text, diagnostics, source.args[1], "Asset reference");
-            const asset = resolveNamed(text, diagnostics, source, "asset", source.args[0].value, catalogs, spaceId, {
-                version,
-            });
+            const referenceOpts = referenceOptions(text, diagnostics, source.args[1], "Asset reference", catalogs, spaceId);
+            const asset = resolveNamed(text, diagnostics, source, "asset", source.args[0].value, catalogs, spaceId, referenceOpts);
             const options = optionsExpression ? validateObject(text, diagnostics, optionsExpression, new Set(["executable"])) : new Map();
             if (asset) {
                 assetMounts.push({
@@ -897,10 +940,9 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
             // cross-deployment mounts which are node-local.
             item = deploymentReference(text, diagnostics, value, catalogs, nodeId, {anyNode: true});
         } else {
-            const version = referenceVersion(text, diagnostics, value.args[1], `${value.name[0].toUpperCase()}${value.name.slice(1)} reference`);
-            item = resolveNamed(text, diagnostics, value, type, value.args[0].value, catalogs, spaceId, {
-                version,
-            });
+            const referenceOpts = referenceOptions(text, diagnostics, value.args[1],
+                `${value.name[0].toUpperCase()}${value.name.slice(1)} reference`, catalogs, spaceId);
+            item = resolveNamed(text, diagnostics, value, type, value.args[0].value, catalogs, spaceId, referenceOpts);
         }
         if (!item) continue;
         if (value.name === "secret") setEnv(entry.name, {secretVersionId: Number(item.id)});
@@ -1011,8 +1053,8 @@ function parseIngress(text, diagnostics, attr, networking, catalogs, spaceId) {
                     httpsConfig.certSource = {acme: {}};
                 } else if (value.kind === "call" && value.name === "secret" && value.args.length >= 1 && value.args.length <= 2
                     && value.args[0].kind === "string" && value.args[0].value) {
-                    const version = referenceVersion(text, diagnostics, value.args[1], "Secret reference");
-                    const item = resolveNamed(text, diagnostics, value, "secret", value.args[0].value, catalogs, spaceId, {version});
+                    const referenceOpts = referenceOptions(text, diagnostics, value.args[1], "Secret reference", catalogs, spaceId);
+                    const item = resolveNamed(text, diagnostics, value, "secret", value.args[0].value, catalogs, spaceId, referenceOpts);
                     if (item) httpsConfig.certSource = {secret: {secretVersionId: Number(item.id)}};
                 } else {
                     diagnostics.push(diagnostic(text, value, 'HTTPS cert must be acme() or secret("name", { version = 1 }).'));

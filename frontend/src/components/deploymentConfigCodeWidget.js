@@ -196,8 +196,9 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
         if (type === "deployment" && spaceID !== null
             && itemSpaceID !== undefined && itemSpaceID !== null
             && Number(itemSpaceID) !== Number(spaceID)) continue;
-        // Reference locality: only own-space and global secrets are valid refs.
-        if (type === "secret" && spaceID !== null
+        // Reference locality: only own-space and global secrets, configs, and
+        // assets are valid refs.
+        if ((type === "secret" || type === "config" || type === "asset") && spaceID !== null
             && itemSpaceID !== undefined && itemSpaceID !== null
             && Number(itemSpaceID) !== Number(spaceID)
             && Number(itemSpaceID) !== GLOBAL_SPACE_ID) continue;
@@ -217,15 +218,20 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
     return [...options.values()].sort((left, right) => left.label.localeCompare(right.label));
 }
 
-function catalogVersionCompletionOptions(namespace, catalogs, text, name) {
+function catalogVersionCompletionOptions(namespace, catalogs, text, name, spaceName) {
     const refs = catalogArrays(catalogs);
     let collection = namespace === "asset" ? refs.assets
         : namespace === "secret" ? refs.secretRefs : refs.configRefs;
-    if (namespace === "secret") {
+    if (spaceName !== undefined && spaceName !== null) {
+        // An explicit space qualifier scopes versions to exactly that space.
+        const explicitID = refs.spaces.find(item => !item?.deleted && item?.name === spaceName)?.id;
+        if (explicitID === undefined) return [];
+        collection = collection.filter(item => Number(item?.spaceId) === Number(explicitID));
+    } else {
         const spaceID = selectedSpaceID(text, refs);
         if (spaceID !== null) {
             // Same own-or-global scoping as name completion, with the
-            // deployment's own space shadowing a same-named global secret.
+            // deployment's own space shadowing a same-named global item.
             collection = collection.filter(item => Number(item?.spaceId) === Number(spaceID)
                 || Number(item?.spaceId) === GLOBAL_SPACE_ID);
             const ownSpace = collection.filter(item => Number(item?.spaceId) === Number(spaceID)
@@ -234,14 +240,22 @@ function catalogVersionCompletionOptions(namespace, catalogs, text, name) {
         }
     }
     const versions = new Map();
-    for (const item of collection) {
-        if (item?.deleted || catalogName(item, namespace) !== name) continue;
-        const version = Number(item?.version || 0);
+    const addVersion = (version, id) => {
         if (version > 0) versions.set(version, {
             label: String(version),
             type: "constant",
-            detail: `ID ${catalogID(item, namespace) ?? "unknown"}`,
+            detail: `ID ${id ?? "unknown"}`,
         });
+    };
+    for (const item of collection) {
+        if (item?.deleted || catalogName(item, namespace) !== name) continue;
+        if (namespace === "asset") {
+            // Asset catalogs are metas whose pinnable versions live in
+            // version_refs, not at the root.
+            for (const ref of item?.versionRefs || []) addVersion(Number(ref?.version || 0), ref?.id);
+        } else {
+            addVersion(Number(item?.version || 0), catalogID(item, namespace));
+        }
     }
     return [...versions.values()].sort((left, right) => Number(right.label) - Number(left.label));
 }
@@ -250,23 +264,49 @@ function schemaCompletion(catalogs) {
     return context => {
         const prefixStart = Math.max(0, context.pos - 160);
         const prefix = context.state.sliceDoc(prefixStart, context.pos);
-        const versionReference = /(secret|config|asset)\(\s*"((?:\\.|[^"\\])*)"\s*,\s*\{\s*version\s*=\s*([0-9]*)$/.exec(prefix);
+        const versionReference = /(secret|config|asset)\(\s*"((?:\\.|[^"\\])*)"\s*,\s*\{\s*(?:space\s*=\s*"((?:\\.|[^"\\])*)"\s*,\s*)?version\s*=\s*([0-9]*)$/.exec(prefix);
         if (versionReference) {
             let name;
+            let spaceName;
             try {
                 name = JSON.parse(`"${versionReference[2]}"`);
+                spaceName = versionReference[3] === undefined ? undefined : JSON.parse(`"${versionReference[3]}"`);
             } catch {
                 return null;
             }
             return {
-                from: context.pos - versionReference[3].length,
+                from: context.pos - versionReference[4].length,
                 options: catalogVersionCompletionOptions(
                     versionReference[1],
                     catalogs,
                     context.state.doc.toString(),
                     name,
+                    spaceName,
                 ),
                 validFor: /^[0-9]*$/,
+            };
+        }
+
+        const spaceOption = /(?:secret|config|asset)\(\s*"(?:\\.|[^"\\])*"\s*,\s*\{\s*(?:version\s*=\s*[0-9]+\s*,\s*)?space\s*=\s*"([^"\n]*)$/.exec(prefix);
+        if (spaceOption) {
+            const refs = catalogArrays(catalogs);
+            const spaceID = selectedSpaceID(context.state.doc.toString(), refs);
+            // Reference locality: only the deployment's own space and the
+            // global space are valid qualifiers.
+            const options = refs.spaces
+                .filter(item => !item?.deleted && item?.name
+                    && (spaceID === null || Number(item.id) === Number(spaceID) || Number(item.id) === GLOBAL_SPACE_ID))
+                .map(item => ({
+                    label: String(item.name),
+                    apply: String(item.name),
+                    type: "variable",
+                    detail: `ID ${item.id ?? "unknown"}`,
+                }))
+                .sort((left, right) => left.label.localeCompare(right.label));
+            return {
+                from: context.pos - spaceOption[1].length,
+                options,
+                validFor: /^[^"\n]*$/,
             };
         }
 

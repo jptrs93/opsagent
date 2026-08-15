@@ -14,7 +14,7 @@ const (
 	vView     = apigen.AuthzVerb_AUTHZ_VERB_VIEW
 	vViewLogs = apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS
 	vReveal   = apigen.AuthzVerb_AUTHZ_VERB_REVEAL
-	vEdit     = apigen.AuthzVerb_AUTHZ_VERB_EDIT
+	vUpdate   = apigen.AuthzVerb_AUTHZ_VERB_UPDATE
 	vCreate   = apigen.AuthzVerb_AUTHZ_VERB_CREATE
 	vDelete   = apigen.AuthzVerb_AUTHZ_VERB_DELETE
 )

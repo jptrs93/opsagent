@@ -28,7 +28,7 @@ const spaceAdminTemplate = {
         rules: [
             {permissions: wildcard(), spaces: argument(1), entityTypes: wildcard(), entityRefs: wildcard(), delegationAllowed: false},
             {
-                permissions: {wildcard: true, argumentId: 0, include: [], exclude: [3]},
+                permissions: {wildcard: true, argumentId: 0, include: [], exclude: [6]},
                 spaces: argument(1),
                 entityTypes: wildcard(),
                 entityRefs: wildcard(),
@@ -39,7 +39,7 @@ const spaceAdminTemplate = {
 };
 
 test("positionValueName resolves each vocabulary", () => {
-    assert.equal(positionValueName("permissions", 3, SPACES), "reveal");
+    assert.equal(positionValueName("permissions", 6, SPACES), "reveal");
     assert.equal(positionValueName("entityTypes", 2, SPACES), "deployment");
     assert.equal(positionValueName("spaces", 3, SPACES), "staging");
     assert.equal(positionValueName("spaces", 9, SPACES), "9");
@@ -48,9 +48,9 @@ test("positionValueName resolves each vocabulary", () => {
 
 test("formatSelector covers wildcard, lists, arguments, and exclusions", () => {
     assert.equal(formatSelector(wildcard(), "spaces", {spaceNames: SPACES}), "*");
-    assert.equal(formatSelector(include(1, 4), "permissions", {}), "view,edit");
+    assert.equal(formatSelector(include(4, 2), "permissions", {}), "view,update");
     assert.equal(
-        formatSelector({wildcard: true, argumentId: 0, include: [], exclude: [3]}, "permissions", {}),
+        formatSelector({wildcard: true, argumentId: 0, include: [], exclude: [6]}, "permissions", {}),
         "*-reveal");
     assert.equal(
         formatSelector(argument(1), "spaces", {argNames: new Map([[1, "spaces"]])}),
@@ -62,7 +62,7 @@ test("formatSelector covers wildcard, lists, arguments, and exclusions", () => {
 
 test("formatRule renders the five-position grammar", () => {
     const rule = {
-        permissions: {wildcard: true, argumentId: 0, include: [], exclude: [3]},
+        permissions: {wildcard: true, argumentId: 0, include: [], exclude: [6]},
         spaces: {wildcard: true, argumentId: 0, include: [], exclude: [0]},
         entityTypes: wildcard(),
         entityRefs: wildcard(),
@@ -73,7 +73,7 @@ test("formatRule renders the five-position grammar", () => {
 
 test("formatGlobalRule omits the delegation position on denies", () => {
     const rule = {
-        permissions: include(3),
+        permissions: include(6),
         spaces: include(0),
         entityTypes: include(3),
         entityRefs: wildcard(),
@@ -85,7 +85,7 @@ test("formatGlobalRule omits the delegation position on denies", () => {
 
 test("formatGlobalRule keeps the delegation position on allows", () => {
     const rule = {
-        permissions: include(1),
+        permissions: include(4),
         spaces: include(0),
         entityTypes: include(8),
         entityRefs: wildcard(),
@@ -98,7 +98,7 @@ test("describeSelector reads naturally", () => {
     assert.equal(describeSelector(wildcard(), "permissions", SPACES), "everything");
     assert.equal(describeSelector(wildcard(), "spaces", SPACES), "everywhere");
     assert.equal(
-        describeSelector({wildcard: true, argumentId: 0, include: [], exclude: [3]}, "permissions", SPACES),
+        describeSelector({wildcard: true, argumentId: 0, include: [], exclude: [6]}, "permissions", SPACES),
         "everything except reveal");
     assert.equal(describeSelector(include(2, 3), "spaces", SPACES), "default, staging");
     assert.equal(describeSelector(null, "spaces", SPACES), "nothing");
@@ -135,7 +135,7 @@ test("describeGrant renders a direct rule naturally", () => {
         grant: {
             args: [],
             rule: {
-                permissions: include(1),
+                permissions: include(4),
                 spaces: include(3),
                 entityTypes: wildcard(),
                 entityRefs: wildcard(),

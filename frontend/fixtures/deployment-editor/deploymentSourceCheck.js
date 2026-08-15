@@ -115,7 +115,7 @@ assert.equal(exactModel.hasCurrentExactNixValidation(), true);
 
 // Stopped Nix is structural-only; Running requires current exact validation.
 const stoppedModel = configuredNixModel(async () => exactResponse(REPO, COMMIT_A, FLAKE), false);
-assert.equal(formInvalidReason(stoppedModel.form, {nodeOptions: [{id: 1}]}), '');
+assert.equal(formInvalidReason(stoppedModel.form, {nodeOptions: [{id: 1, allowedSpaces: [0, 1, 2, 3]}]}), '');
 assert.equal(stoppedModel.runningNixInvalidReason(), '');
 stoppedModel.desiredRunning.val = true;
 assert.match(stoppedModel.runningNixInvalidReason(), /Validate/);

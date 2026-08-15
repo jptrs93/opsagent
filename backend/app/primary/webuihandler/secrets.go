@@ -111,7 +111,7 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 	}
 	if existing, ok := h.Store.GetSecretMeta(req.SecretID); !ok {
 		return nil, SecretNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vEdit, eSecret, int64(existing.SpaceID), int64(existing.ID), SecretNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eSecret, int64(existing.SpaceID), int64(existing.ID), SecretNotFoundErr); err != nil {
 		return nil, err
 	}
 	unlockReferences := h.ConfigService.LockReferences()
@@ -212,7 +212,7 @@ func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRena
 	}
 	if existing, ok := h.Store.GetSecretMeta(req.SecretID); !ok {
 		return nil, SecretNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vEdit, eSecret, int64(existing.SpaceID), int64(existing.ID), SecretNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eSecret, int64(existing.SpaceID), int64(existing.ID), SecretNotFoundErr); err != nil {
 		return nil, err
 	}
 	if err := h.Secrets.Rename(req.SecretID, req.NewName); err != nil {
@@ -243,7 +243,7 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 	if !ok {
 		return nil, SecretNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vEdit, eSecret, int64(meta.SpaceID), int64(meta.ID), SecretNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eSecret, int64(meta.SpaceID), int64(meta.ID), SecretNotFoundErr); err != nil {
 		return nil, err
 	}
 	destSpace := state.NormalizedUserSpaceID(req.SpaceID)
@@ -359,7 +359,7 @@ func (h *Handler) PostV1SecretsStatus(ctx apigen.Context, req *apigen.EmptyReque
 func (h *Handler) PostV1SecretsRotateRecoveryCode(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.SecretRecoveryCodeResponse, error) {
 	// Recovery-code rotation and unlock act on the whole secrets store, so they
 	// are cluster-level operations rather than any one secret's.
-	if err := h.requireAccess(ctx, vEdit, eCluster, 0, 0); err != nil {
+	if err := h.requireAccess(ctx, vUpdate, eCluster, 0, 0); err != nil {
 		return nil, err
 	}
 	code, err := h.Secrets.GenerateRecoveryCode()
@@ -372,7 +372,7 @@ func (h *Handler) PostV1SecretsRotateRecoveryCode(ctx apigen.Context, req *apige
 }
 
 func (h *Handler) PostV1SecretsUnlock(ctx apigen.Context, req *apigen.SecretUnlockRequest) (*apigen.SecretsStatusResponse, error) {
-	if err := h.requireAccess(ctx, vEdit, eCluster, 0, 0); err != nil {
+	if err := h.requireAccess(ctx, vUpdate, eCluster, 0, 0); err != nil {
 		return nil, err
 	}
 	if err := h.Secrets.Unlock(req.Code); err != nil {

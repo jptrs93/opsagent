@@ -28,7 +28,7 @@ const catalogs = {
 
 const collisionCatalogs = {
     ...catalogs,
-    assets: [...mockAssets, {id: 299, key: 'nginx.conf', version: 4, format: 'text', spaceId: 2}],
+    assets: [...mockAssets, {id: 298, key: 'nginx.conf', format: 'text', spaceId: 2, versionRefs: [{id: 299, version: 4}]}],
     secretRefs: [...mockSecretRefs, {id: 399, name: 'database-password', version: 5, spaceId: 2}],
     configRefs: [...mockConfigRefs, {id: 499, name: 'database-host', version: 3, spaceId: 2}],
     deployments: [...mockDeployments, {
@@ -64,7 +64,7 @@ for (const presetName of ['updateContainer', 'updateNixStopped']) {
 const canonicalDocument = modelFor(fixturePresets.updateContainer).toDocument();
 assert.equal(Object.hasOwn(canonicalDocument, 'desiredState'), false);
 assert.deepEqual(canonicalDocument.spec.container1Spec.runtime.assetMounts[0], {
-    assetId: 201,
+    assetVersionId: 213,
     containerPath: '/etc/api/nginx.conf',
     permission: 2,
 });
@@ -83,21 +83,24 @@ assert.match(latestHcl, /config\("database-host"\)/);
 assert.match(latestHcl, /asset\("nginx\.conf"\)/);
 assert.doesNotMatch(latestHcl, /(?:secret|config|asset)\("[^"]+", \{ version = \d+ \}\)/);
 
+// A deployment outside the global space referencing global items must carry
+// the space explicitly — a bare name would resolve own-space-first and could
+// be captured by a later same-named local item.
 const crossSpaceDocument = structuredClone(canonicalDocument);
 crossSpaceDocument.identity.spaceId = 2;
 const crossSpaceHcl = deploymentDocumentToHcl(crossSpaceDocument, catalogs, {pinVersions: true});
 assert.doesNotMatch(crossSpaceHcl, /__unresolved/);
-assert.match(crossSpaceHcl, /secret\("database-password", \{ version = 4 \}\)/);
-assert.match(crossSpaceHcl, /config\("database-host", \{ version = 2 \}\)/);
-assert.match(crossSpaceHcl, /asset\("nginx\.conf", \{ version = 3 \}\)/);
+assert.match(crossSpaceHcl, /secret\("database-password", \{ space = "production", version = 4 \}\)/);
+assert.match(crossSpaceHcl, /config\("database-host", \{ space = "production", version = 2 \}\)/);
+assert.match(crossSpaceHcl, /asset\("nginx\.conf", \{ space = "production", version = 3 \}\)/);
 const crossSpaceParsed = parseDeploymentHcl(crossSpaceHcl, catalogs);
 assert.ok(crossSpaceParsed.document);
-assert.equal(crossSpaceParsed.document.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretId, 301);
-assert.equal(crossSpaceParsed.document.spec.container1Spec.runtime.envVars.DATABASE_HOST.configId, 401);
-assert.equal(crossSpaceParsed.document.spec.container1Spec.runtime.assetMounts[0].assetId, 201);
+assert.equal(crossSpaceParsed.document.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretVersionId, 301);
+assert.equal(crossSpaceParsed.document.spec.container1Spec.runtime.envVars.DATABASE_HOST.configVersionId, 401);
+assert.equal(crossSpaceParsed.document.spec.container1Spec.runtime.assetMounts[0].assetVersionId, 213);
 
 const missingReferenceDocument = structuredClone(canonicalDocument);
-missingReferenceDocument.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretId = 9999;
+missingReferenceDocument.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretVersionId = 9999;
 assert.match(deploymentDocumentToHcl(missingReferenceDocument, catalogs), /secret\("__unresolved_secret_9999"\)/);
 
 const updateModel = modelFor(fixturePresets.updateContainer);
@@ -145,21 +148,61 @@ assert.match(pinnedHcl, /secret\("database-password", \{ version = 4 \}\)/);
 assert.match(pinnedHcl, /config\("database-host", \{ version = 2 \}\)/);
 assert.match(pinnedHcl, /asset\("nginx\.conf", \{ version = 3 \}\)/);
 const pinnedParsed = parseDeploymentHcl(pinnedHcl, collisionCatalogs);
-assert.equal(pinnedParsed.document.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretId, 301);
-assert.equal(pinnedParsed.document.spec.container1Spec.runtime.envVars.DATABASE_HOST.configId, 401);
-assert.equal(pinnedParsed.document.spec.container1Spec.runtime.assetMounts[0].assetId, 201);
+assert.equal(pinnedParsed.document.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretVersionId, 301);
+assert.equal(pinnedParsed.document.spec.container1Spec.runtime.envVars.DATABASE_HOST.configVersionId, 401);
+assert.equal(pinnedParsed.document.spec.container1Spec.runtime.assetMounts[0].assetVersionId, 213);
 
 const latestParsed = parseDeploymentHcl(pinnedHcl
     .replace('secret("database-password", { version = 4 })', 'secret("database-password")')
     .replace('config("database-host", { version = 2 })', 'config("database-host")')
     .replace('asset("nginx.conf", { version = 3 })', 'asset("nginx.conf")'), collisionCatalogs);
 assert.ok(latestParsed.document);
-// Secret refs are scoped to the deployment's own space plus the global space,
-// so the space-2 database-password (399, v5) is not a candidate for this
-// space-1 deployment. Configs and assets stay unscoped.
-assert.equal(latestParsed.document.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretId, 301);
-assert.equal(latestParsed.document.spec.container1Spec.runtime.envVars.DATABASE_HOST.configId, 499);
-assert.equal(latestParsed.document.spec.container1Spec.runtime.assetMounts[0].assetId, 299);
+// Secret, config, and asset refs are scoped to the deployment's own space plus
+// the global space, so the space-2 collisions (399/499/299) are not candidates
+// for this space-1 deployment.
+assert.equal(latestParsed.document.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretVersionId, 301);
+assert.equal(latestParsed.document.spec.container1Spec.runtime.envVars.DATABASE_HOST.configVersionId, 401);
+assert.equal(latestParsed.document.spec.container1Spec.runtime.assetMounts[0].assetVersionId, 213);
+
+// Latest-version comparison is per-space: the space-2 database-password v5
+// must not force a version pin on the space-1 item whose latest is v4.
+const collisionLatestHcl = deploymentDocumentToHcl(canonicalDocument, collisionCatalogs);
+assert.match(collisionLatestHcl, /secret\("database-password"\)/);
+assert.doesNotMatch(collisionLatestHcl, /\{ space = /);
+
+// Explicit space qualifiers bypass own-space shadowing: the space-2
+// deployment's own database-password (399) shadows the bare name, so the
+// global pin serializes with its space and still round-trips to 301.
+const stagingDocument = structuredClone(canonicalDocument);
+stagingDocument.identity.spaceId = 2;
+const stagingHcl = deploymentDocumentToHcl(stagingDocument, collisionCatalogs, {pinVersions: true});
+assert.match(stagingHcl, /secret\("database-password", \{ space = "production", version = 4 \}\)/);
+const stagingParsed = parseDeploymentHcl(stagingHcl, collisionCatalogs);
+assert.ok(stagingParsed.document);
+assert.equal(stagingParsed.document.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretVersionId, 301);
+
+const shadowParsed = parseDeploymentHcl(stagingHcl.replace(
+    'secret("database-password", { space = "production", version = 4 })',
+    'secret("database-password")',
+), collisionCatalogs);
+assert.ok(shadowParsed.document);
+assert.equal(shadowParsed.document.spec.container1Spec.runtime.envVars.DATABASE_PASSWORD.secretVersionId, 399);
+
+// Reference locality also applies to explicit qualifiers: only the
+// deployment's own space and the global space are allowed.
+const localityParsed = parseDeploymentHcl(canonicalHcl.replace(
+    'secret("database-password", { version = 4 })',
+    'secret("database-password", { space = "staging" })',
+), collisionCatalogs);
+assert.equal(localityParsed.document, null);
+assert.ok(localityParsed.diagnostics.some(item => /may only use the deployment's space or the global space/.test(item.message)));
+
+const unknownSpaceParsed = parseDeploymentHcl(canonicalHcl.replace(
+    'secret("database-password", { version = 4 })',
+    'secret("database-password", { space = "nope" })',
+), catalogs);
+assert.equal(unknownSpaceParsed.document, null);
+assert.ok(unknownSpaceParsed.diagnostics.some(item => /No space named "nope" exists/.test(item.message)));
 
 const oldNumericVersion = parseDeploymentHcl(latestHcl.replace(
     'config("database-host")',

@@ -36,7 +36,7 @@ func (h *Handler) PostV1SpacesUpdate(ctx apigen.Context, req *apigen.SpaceSetReq
 	if isSeededSpace(req.ID) || req.ID < 0 || name == "" {
 		return nil, InvalidSpaceErr
 	}
-	if err := h.requireEntityAccess(ctx, vEdit, eSpace, int64(req.ID), int64(req.ID), SpaceNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eSpace, int64(req.ID), int64(req.ID), SpaceNotFoundErr); err != nil {
 		return nil, err
 	}
 	space, err := h.Store.UpdateSpace(req.ID, name)

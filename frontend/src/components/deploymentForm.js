@@ -1103,11 +1103,12 @@ function rowAssetOptionValue(row) {
 
 function assetOptionLabel(option) {
     const suffix = option.selectedOnly ? ' (older)' : '';
-    return `${option.key} v${option.version || '?'}${suffix}`;
+    const prefix = option.spaceName ? `${option.spaceName} / ` : '';
+    return `${prefix}${option.key} v${option.version || '?'}${suffix}`;
 }
 
-function assetOptionsForRow(assets, row) {
-    return versionedAssetOptions(assets, row?.assetVersionId);
+function assetOptionsForRow(assets, row, spaceId, spaces) {
+    return versionedAssetOptions(assets, row?.assetVersionId, spaceId, spaces);
 }
 
 function assetPreviewButton(assetValue, onPreview, positionClass = 'right-1') {
@@ -1140,7 +1141,7 @@ function latestAssetVersionForKey(assets, key) {
 // Options carry both ids: assetVersionId is what the spec pins, assetVersionId
 // of the latest published version for normal options; assetId is the stable
 // identity the editor and preview need.
-function assetOptionFromMeta(meta) {
+function assetOptionFromMeta(meta, spaces) {
     const latest = meta.versionRefs?.[0];
     return {
         assetId: Number(meta.id || 0),
@@ -1148,18 +1149,19 @@ function assetOptionFromMeta(meta) {
         key: meta.key || '',
         version: Number(latest?.version || 0),
         spaceId: Number(meta.spaceId || 0),
+        spaceName: spaceNameForID(spaces, Number(meta.spaceId || 0)),
     };
 }
 
-function versionedAssetOptions(assets, selectedID) {
-    const options = (assets || [])
+function versionedAssetOptions(assets, selectedID, spaceId, spaces) {
+    const options = localValueRefs(assets, spaceId)
         .filter(meta => meta && meta.versionRefs?.[0]?.id)
-        .map(assetOptionFromMeta);
+        .map(meta => assetOptionFromMeta(meta, spaces));
     const sel = Number(selectedID || 0);
     if (sel && !options.some(option => option.assetVersionId === sel)) {
-        // A pinned version that is no asset's latest. The owning asset's meta
-        // lists every published version, so the label keeps the key and the
-        // real version number.
+        // A pinned version that is no asset's latest (or one outside the local
+        // scope). The owning asset's meta lists every published version, so
+        // the label keeps the key and the real version number.
         const owner = (assets || []).find(meta => (meta?.versionRefs || []).some(ref => Number(ref?.id || 0) === sel));
         const ref = (owner?.versionRefs || []).find(ref => Number(ref?.id || 0) === sel);
         options.push({
@@ -1168,14 +1170,18 @@ function versionedAssetOptions(assets, selectedID) {
             key: owner?.key || `version #${sel}`,
             version: Number(ref?.version || 0),
             spaceId: Number(owner?.spaceId || 0),
+            spaceName: owner ? spaceNameForID(spaces, Number(owner.spaceId || 0)) : '',
             selectedOnly: true,
         });
     }
-    return options.sort((a, b) => (a.key || '').localeCompare(b.key || '') || a.version - b.version);
+    return options.sort((a, b) => (a.key || '').localeCompare(b.key || '')
+        || Number(a.spaceId || 0) - Number(b.spaceId || 0)
+        || a.version - b.version);
 }
 
 export function assetMountsPane(form, opts = {}) {
     const assets = () => stateValue(opts.assets) || [];
+    const spaces = () => stateValue(opts.spaces) || [];
     const enableAssetEditor = Boolean(opts.enableAssetEditor);
     const addMount = () => {
         const row = {id: nextAssetMountID++, assetVersionId: 0, path: '', executable: false};
@@ -1202,13 +1208,13 @@ export function assetMountsPane(form, opts = {}) {
         if (typeof opts.editAsset === 'function') opts.editAsset({mountID, asset: asset || null});
     };
     const onAssetSelect = (row, value) => {
-        const match = assetOptionsForRow(assets(), row).find(a => assetOptionValue(a) === value);
+        const match = assetOptionsForRow(assets(), row, form.spaceId.val, spaces()).find(a => assetOptionValue(a) === value);
         updateMount(row, {assetVersionId: match?.assetVersionId || 0});
     };
 
     const rows = () => form.assetMounts.val || [];
     const rowEl = (row) => {
-        const assetOptions = assetOptionsForRow(assets(), row);
+        const assetOptions = assetOptionsForRow(assets(), row, form.spaceId.val, spaces());
         const selectedValue = rowAssetOptionValue(row);
         const selectedAsset = assetOptions.find(asset => assetOptionValue(asset) === selectedValue);
         const missing = newInvalidAssetMount(row, assets());
@@ -1513,6 +1519,7 @@ export function envVarsPane(form, opts = {}) {
     const secretRefs = () => stateValue(opts.secretRefs) || [];
     const configRefs = () => stateValue(opts.configRefs) || [];
     const deployments = () => stateValue(opts.deployments) || [];
+    const spaces = () => stateValue(opts.spaces) || [];
     const envRows = tbody();
     let envRowsSignature = '';
     van.derive(() => {
@@ -1523,6 +1530,7 @@ export function envVarsPane(form, opts = {}) {
             configRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
             `${form.nodeId.val}:${deployments().map(item => `${item.config?.id || 0}:${item.config?.nodeId || 0}:${item.config?.identity?.spaceId ?? 0}:${item.config?.identity?.name || ''}:${item.config?.spec?.networking?.mode || 0}:${item.config?.deleted ? 1 : 0}`).join('|')}`,
             assets().map(asset => `${asset.id}:${asset.key}:${asset.version}`).join('|'),
+            `${form.spaceId.val}:${spaces().map(space => `${space.id}:${space.name || ''}`).join('|')}`,
         ].join('::');
         if (signature === envRowsSignature) return;
         envRowsSignature = signature;
@@ -1531,6 +1539,7 @@ export function envVarsPane(form, opts = {}) {
             secretRefs: secretRefs(),
             configRefs: configRefs(),
             deployments: deployments(),
+            spaces: spaces(),
             previewAsset: opts.previewAsset,
         };
         envRows.replaceChildren(...rows.map(row => envVarRow(form, row, catalogs)));
@@ -1620,7 +1629,7 @@ function envValueInput(form, row, catalogs) {
         });
     }
     if (row.type === 'asset') {
-        const assetOptions = assetOptionsForRow(catalogs.assets, row);
+        const assetOptions = assetOptionsForRow(catalogs.assets, row, form.spaceId.val, stateValue(catalogs.spaces));
         const selectedKey = van.state(rowAssetOptionValue(row));
         const selectedAsset = () => assetOptions.find(asset => assetOptionValue(asset) === selectedKey.val);
         return div(
@@ -1650,30 +1659,33 @@ function updateEnvAssetRow(form, row, option) {
     updateEnvRow(form, row.id, {asset: option?.key || '', assetVersionId: option?.assetVersionId || 0, version: option?.version || 0});
 }
 
-// localSecretRefs applies reference locality: a deployment may pin secrets
-// only from its own space or the global space (DEFAULT_SPACE_ID), and an
-// own-space secret shadows a same-named global one.
-function localSecretRefs(refs, spaceId) {
+// localValueRefs applies reference locality: a deployment may pin secrets,
+// configs, and assets only from its own space or the global space
+// (DEFAULT_SPACE_ID). Same-named items in both spaces stay listed — the
+// space-prefixed option label disambiguates them.
+function localValueRefs(refs, spaceId) {
     const space = Number(spaceId || DEFAULT_SPACE_ID);
-    const scoped = (refs || []).filter(ref => Number(ref?.spaceId) === space || Number(ref?.spaceId) === DEFAULT_SPACE_ID);
-    const ownNames = new Set(scoped.filter(ref => Number(ref.spaceId) === space).map(ref => ref.name || ''));
-    return scoped.filter(ref => Number(ref.spaceId) === space || !ownNames.has(ref.name || ''));
+    return (refs || []).filter(ref => Number(ref?.spaceId) === space || Number(ref?.spaceId) === DEFAULT_SPACE_ID);
+}
+
+function spaceNameForID(spaces, spaceId) {
+    const space = (spaces || []).find(item => Number(item?.id) === Number(spaceId));
+    return space?.name || `space ${spaceId ?? 0}`;
 }
 
 function envReferenceAutocomplete(form, row, catalogs) {
     const isSecret = row.type === 'secret';
     const selectedID = isSecret ? Number(row.secretId || 0) : Number(row.configId || 0);
     const selectedKey = van.state(selectedID || '');
-    const options = () => versionedRefOptions(isSecret
-        ? localSecretRefs(stateValue(catalogs.secretRefs), form.spaceId.val)
-        : catalogs.configRefs, selectedKey.val);
+    const allRefs = () => stateValue(isSecret ? catalogs.secretRefs : catalogs.configRefs);
+    const options = () => versionedRefOptions(localValueRefs(allRefs(), form.spaceId.val), selectedKey.val, allRefs());
     return referencePicker({
         refs: options,
         selectedKey,
         placeholder: isSecret ? "Search secrets" : "Search configs",
         noMatchesLabel: `No matching ${isSecret ? 'secrets' : 'configs'}`,
         emptyLabel: `No ${isSecret ? 'secrets' : 'configs'} available`,
-        getLabel: ref => `${ref.name} v${ref.version || 0}`,
+        getLabel: ref => `${spaceNameForID(stateValue(catalogs.spaces), ref.spaceId)} / ${ref.name} v${ref.version || 0}`,
         onSelect: ref => {
             selectedKey.val = ref.id;
             updateEnvRow(form, row.id, isSecret
@@ -1723,15 +1735,22 @@ function addressOptionLabel(item) {
     return `${id.name || 'deployment'} (space ${id.spaceId ?? 0}, #${config.id || 0})`;
 }
 
-function versionedRefOptions(refs, selectedID) {
+function versionedRefOptions(refs, selectedID, allRefs = refs) {
+    // Names are only unique per space, so latest-version collapsing must key
+    // on both — a global item and a same-named own-space item are distinct
+    // options. The selected fallback searches allRefs so a legacy pin outside
+    // the local scope still labels correctly.
     const latestByName = new Map();
     const byID = new Map();
+    for (const ref of allRefs || []) {
+        if (ref?.id) byID.set(Number(ref.id), ref);
+    }
     for (const ref of refs || []) {
         if (!ref || !ref.id) continue;
-        byID.set(Number(ref.id), ref);
-        const current = latestByName.get(ref.name || '');
+        const key = `${Number(ref.spaceId || 0)}:${ref.name || ''}`;
+        const current = latestByName.get(key);
         if (!current || Number(ref.version || 0) > Number(current.version || 0)) {
-            latestByName.set(ref.name || '', ref);
+            latestByName.set(key, ref);
         }
     }
     const options = Array.from(latestByName.values());
@@ -1739,7 +1758,9 @@ function versionedRefOptions(refs, selectedID) {
     if (selected && !options.some(ref => Number(ref.id) === Number(selected.id))) {
         options.push(selected);
     }
-    return options.sort((a, b) => (a.name || '').localeCompare(b.name || '') || Number(a.version || 0) - Number(b.version || 0));
+    return options.sort((a, b) => (a.name || '').localeCompare(b.name || '')
+        || Number(a.spaceId || 0) - Number(b.spaceId || 0)
+        || Number(a.version || 0) - Number(b.version || 0));
 }
 
 function newEnvRow(values = {}) {

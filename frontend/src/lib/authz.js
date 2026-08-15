@@ -5,12 +5,12 @@
 // generated capi module reaches for `window`.
 
 export const VERBS = [
-    {id: 1, name: "view"},
-    {id: 2, name: "view_logs"},
-    {id: 3, name: "reveal"},
-    {id: 4, name: "edit"},
-    {id: 5, name: "create"},
-    {id: 6, name: "delete"},
+    {id: 1, name: "create"},
+    {id: 2, name: "update"},
+    {id: 3, name: "delete"},
+    {id: 4, name: "view"},
+    {id: 5, name: "view_logs"},
+    {id: 6, name: "reveal"},
 ];
 
 export const ENTITY_TYPES = [

@@ -54,7 +54,7 @@ func (h *Handler) PostV1AccessRuleTemplatesCreate(ctx apigen.Context, req *apige
 }
 
 func (h *Handler) PostV1AccessRuleTemplatesUpdate(ctx apigen.Context, req *apigen.AuthzRuleTemplateUpdateRequest) (*apigen.AuthzRuleTemplateRecord, error) {
-	if err := h.requireAccess(ctx, vEdit, eAccess, 0, req.ID); err != nil {
+	if err := h.requireAccess(ctx, vUpdate, eAccess, 0, req.ID); err != nil {
 		return nil, err
 	}
 	rec, err := h.Authz.UpdateRuleTemplate(req.ID, req.Name, req.Template)

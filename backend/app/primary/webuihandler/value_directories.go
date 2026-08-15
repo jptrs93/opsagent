@@ -76,7 +76,7 @@ func (h *Handler) PostV1ValueDirectoriesMove(ctx apigen.Context, req *apigen.Val
 	if !ok {
 		return nil, ValueDirectoryNotFoundErr
 	}
-	if err := h.requireAnyEntityAccess(ctx, vEdit, eValues, int64(existing.SpaceID), 0, ValueDirectoryNotFoundErr); err != nil {
+	if err := h.requireAnyEntityAccess(ctx, vUpdate, eValues, int64(existing.SpaceID), 0, ValueDirectoryNotFoundErr); err != nil {
 		return nil, err
 	}
 	if req.SpaceID != 0 && req.SpaceID != existing.SpaceID {
@@ -112,7 +112,7 @@ func (h *Handler) PostV1ValueDirectoriesRename(ctx apigen.Context, req *apigen.V
 	}
 	if existing, ok := h.Store.GetValueDirectoryMeta(req.DirectoryID); !ok {
 		return nil, ValueDirectoryNotFoundErr
-	} else if err := h.requireAnyEntityAccess(ctx, vEdit, eValues, int64(existing.SpaceID), 0, ValueDirectoryNotFoundErr); err != nil {
+	} else if err := h.requireAnyEntityAccess(ctx, vUpdate, eValues, int64(existing.SpaceID), 0, ValueDirectoryNotFoundErr); err != nil {
 		return nil, err
 	}
 	row, err := h.Store.RenameValueDirectory(req.DirectoryID, strings.TrimSpace(req.NewName))

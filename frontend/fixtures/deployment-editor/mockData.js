@@ -17,9 +17,17 @@ export const mockSpaces = [
     {id: 3, name: 'development'},
 ];
 
+// Asset metas mirror the API shape: pinnable version rows live in versionRefs,
+// NEWEST FIRST, never at the root.
 export const mockAssets = [
-    {id: 201, key: 'nginx.conf', version: 3, format: 'text', spaceId: 1},
-    {id: 202, key: 'branding/logo.svg', version: 1, format: 'binary', spaceId: 1},
+    {id: 201, key: 'nginx.conf', format: 'text', spaceId: 1, versionRefs: [
+        {id: 213, version: 3},
+        {id: 212, version: 2},
+        {id: 211, version: 1},
+    ]},
+    {id: 202, key: 'branding/logo.svg', format: 'binary', spaceId: 1, versionRefs: [
+        {id: 221, version: 1},
+    ]},
 ];
 
 export const mockSecretRefs = [
@@ -46,10 +54,10 @@ const apiConfig = {
                 defaultVolume: {containerPath: '/var/lib/api', disabled: false},
                 envVars: {
                     APP_ENV: {value: 'production'},
-                    DATABASE_PASSWORD: {secretId: 301},
-                    DATABASE_HOST: {configId: 401},
+                    DATABASE_PASSWORD: {secretVersionId: 301},
+                    DATABASE_HOST: {configVersionId: 401},
                 },
-                assetMounts: [{assetId: 201, containerPath: '/etc/api/nginx.conf', permission: 2}],
+                assetMounts: [{assetVersionId: 213, containerPath: '/etc/api/nginx.conf', permission: 2}],
                 devShmSizeKb: 131072,
                 fileDescriptorLimit: 4096,
             },

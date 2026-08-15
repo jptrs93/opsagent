@@ -112,7 +112,7 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	if cfg == nil || cfg.Deleted {
 		return nil, DeploymentNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vEdit, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return nil, err
 	}
 	// Moving a deployment also needs the right to create one in the target space.

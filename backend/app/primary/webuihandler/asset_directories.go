@@ -74,7 +74,7 @@ func (h *Handler) PostV1AssetDirectoriesMove(ctx apigen.Context, req *apigen.Ass
 	if !ok {
 		return nil, AssetDirectoryNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vEdit, eAsset, int64(existing.SpaceID), 0, AssetDirectoryNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eAsset, int64(existing.SpaceID), 0, AssetDirectoryNotFoundErr); err != nil {
 		return nil, err
 	}
 	if req.SpaceID != 0 && req.SpaceID != existing.SpaceID {
@@ -110,7 +110,7 @@ func (h *Handler) PostV1AssetDirectoriesRename(ctx apigen.Context, req *apigen.A
 	}
 	if existing, ok := h.Store.GetAssetDirectoryMeta(req.DirectoryID); !ok {
 		return nil, AssetDirectoryNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vEdit, eAsset, int64(existing.SpaceID), 0, AssetDirectoryNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eAsset, int64(existing.SpaceID), 0, AssetDirectoryNotFoundErr); err != nil {
 		return nil, err
 	}
 	row, err := h.Store.RenameDirectory(req.DirectoryID, strings.TrimSpace(req.NewKey))

@@ -26,7 +26,7 @@ func (h *Handler) PostV1ClusterSettingsGet(ctx apigen.Context, req *apigen.Empty
 }
 
 func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.ClusterSettings) (*apigen.ClusterSettings, error) {
-	if err := h.requireAccess(ctx, vEdit, eCluster, 0, 0); err != nil {
+	if err := h.requireAccess(ctx, vUpdate, eCluster, 0, 0); err != nil {
 		return nil, err
 	}
 	unlockReferences := h.ConfigService.LockReferences()

@@ -67,7 +67,7 @@ func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRe
 	if !h.nodeVisible(ctx, int64(existing.ID), existing.AllowedSpaces) {
 		return nil, NodeNotFoundErr
 	}
-	if err := h.requireAccess(ctx, vEdit, eNode, 0, int64(existing.ID)); err != nil {
+	if err := h.requireAccess(ctx, vUpdate, eNode, 0, int64(existing.ID)); err != nil {
 		return nil, err
 	}
 	node, err := h.Store.RenameNode(identifier, name)
@@ -103,7 +103,7 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	if !h.nodeVisible(ctx, int64(node.ID), node.AllowedSpaces) {
 		return nil, NodeNotFoundErr
 	}
-	if err := h.requireAccess(ctx, vEdit, eNode, 0, int64(node.ID)); err != nil {
+	if err := h.requireAccess(ctx, vUpdate, eNode, 0, int64(node.ID)); err != nil {
 		return nil, err
 	}
 

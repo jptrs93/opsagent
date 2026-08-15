@@ -906,7 +906,9 @@ function settingRow(page, label) {
 
 function versionedReferenceValue(name) {
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^${escapedName}( v\\d+)?$`);
+  // Deployment env pickers label references as "<space> / <name> vN"; settings
+  // pickers keep the bare "<name> vN" form.
+  return new RegExp(`^(.+ / )?${escapedName}( v\\d+)?$`);
 }
 
 async function waitForHTTPReady(url, label) {

@@ -58,7 +58,7 @@ func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequ
 	}
 	if existing, ok := h.Store.GetConfigMeta(req.ConfigID); !ok {
 		return nil, UserConfigNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vEdit, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
 		return nil, err
 	}
 	unlockReferences := h.ConfigService.LockReferences()
@@ -93,7 +93,7 @@ func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRena
 	}
 	if existing, ok := h.Store.GetConfigMeta(req.ConfigID); !ok {
 		return nil, UserConfigNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vEdit, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
 		return nil, err
 	}
 	meta, err := h.Store.RenameConfig(req.ConfigID, strings.TrimSpace(req.NewName))
@@ -118,7 +118,7 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 	if !ok {
 		return nil, UserConfigNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vEdit, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
 		return nil, err
 	}
 	destSpace := state.NormalizedUserSpaceID(req.SpaceID)

@@ -136,12 +136,12 @@ type AuthzVerb int32
 
 const (
 	AuthzVerb_AUTHZ_VERB_UNKNOWN   AuthzVerb = 0
-	AuthzVerb_AUTHZ_VERB_VIEW      AuthzVerb = 1
-	AuthzVerb_AUTHZ_VERB_VIEW_LOGS AuthzVerb = 2
-	AuthzVerb_AUTHZ_VERB_REVEAL    AuthzVerb = 3
-	AuthzVerb_AUTHZ_VERB_EDIT      AuthzVerb = 4
-	AuthzVerb_AUTHZ_VERB_CREATE    AuthzVerb = 5
-	AuthzVerb_AUTHZ_VERB_DELETE    AuthzVerb = 6
+	AuthzVerb_AUTHZ_VERB_CREATE    AuthzVerb = 1
+	AuthzVerb_AUTHZ_VERB_UPDATE    AuthzVerb = 2
+	AuthzVerb_AUTHZ_VERB_DELETE    AuthzVerb = 3
+	AuthzVerb_AUTHZ_VERB_VIEW      AuthzVerb = 4
+	AuthzVerb_AUTHZ_VERB_VIEW_LOGS AuthzVerb = 5
+	AuthzVerb_AUTHZ_VERB_REVEAL    AuthzVerb = 6
 )
 
 type AuthzEntity int32

@@ -275,7 +275,7 @@ func TestEntityRefSelector(t *testing.T) {
 		t.Fatal("untargeted request should not match a ref-restricted rule")
 	}
 	edit := viewDeployment(5)
-	edit.Verb = apigen.AuthzVerb_AUTHZ_VERB_EDIT
+	edit.Verb = apigen.AuthzVerb_AUTHZ_VERB_UPDATE
 	if s.HasAccess(1, edit) {
 		t.Fatal("verbs outside the include list should be denied")
 	}
@@ -378,7 +378,7 @@ func TestRuleTemplateCRUD(t *testing.T) {
 		t.Fatalf("unexpected updated template: %+v", updated)
 	}
 	edit := viewDeployment(2)
-	edit.Verb = apigen.AuthzVerb_AUTHZ_VERB_EDIT
+	edit.Verb = apigen.AuthzVerb_AUTHZ_VERB_UPDATE
 	if !s.HasAccess(1, edit) {
 		t.Fatal("template edits should apply to existing grants immediately")
 	}
@@ -685,7 +685,7 @@ func TestGlobalRuleAccessCarveOut(t *testing.T) {
 		t.Fatal("deny-everything rule should deny deployments")
 	}
 	access := RequestedAccess{
-		Verb:       apigen.AuthzVerb_AUTHZ_VERB_EDIT,
+		Verb:       apigen.AuthzVerb_AUTHZ_VERB_UPDATE,
 		SpaceID:    0,
 		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS,
 	}
@@ -880,7 +880,7 @@ func TestSeededDefaultUserVisibility(t *testing.T) {
 		t.Fatal("the seeded rule extends to delegated sessions")
 	}
 	edit := roster
-	edit.Verb = apigen.AuthzVerb_AUTHZ_VERB_EDIT
+	edit.Verb = apigen.AuthzVerb_AUTHZ_VERB_UPDATE
 	if s.HasAccess(9, edit) {
 		t.Fatal("the seeded rule grants view only")
 	}

@@ -123,7 +123,7 @@ func (h *Handler) PostV1AssetsSet(ctx apigen.Context, req *apigen.AssetSetReques
 	if req.AssetID <= 0 {
 		return nil, AssetIDRequiredErr
 	}
-	if err := h.requireAssetAccess(ctx, vEdit, req.AssetID); err != nil {
+	if err := h.requireAssetAccess(ctx, vUpdate, req.AssetID); err != nil {
 		return nil, err
 	}
 	asset, err := h.Assets.AppendAssetVersion(ctx, req.AssetID, requestUserID(ctx), req.Blob)
@@ -155,7 +155,7 @@ func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, 
 		if parseErr != nil || parsed <= 0 {
 			return apigen.NewApiErr("Asset id is invalid", "asset_id_invalid", http.StatusBadRequest)
 		}
-		if accessErr := h.requireAssetAccess(ctx, vEdit, int32(parsed)); accessErr != nil {
+		if accessErr := h.requireAssetAccess(ctx, vUpdate, int32(parsed)); accessErr != nil {
 			return accessErr
 		}
 		asset, err = h.Assets.AppendAssetVersionFromReader(ctx, int32(parsed), requestUserID(ctx), request.ContentLength, request.Body)
@@ -201,7 +201,7 @@ func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRename
 	if newKey == "" {
 		return nil, AssetKeyRequiredErr
 	}
-	if err := h.requireAssetAccess(ctx, vEdit, req.AssetID); err != nil {
+	if err := h.requireAssetAccess(ctx, vUpdate, req.AssetID); err != nil {
 		return nil, err
 	}
 	meta, err := h.Assets.RenameAsset(ctx, req.AssetID, newKey)
@@ -224,7 +224,7 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 	if !ok {
 		return nil, AssetNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vEdit, eAsset, int64(existing.SpaceID), int64(existing.ID), AssetNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eAsset, int64(existing.SpaceID), int64(existing.ID), AssetNotFoundErr); err != nil {
 		return nil, err
 	}
 	destSpace := state.NormalizedUserSpaceID(req.SpaceID)
