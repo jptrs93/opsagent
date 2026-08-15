@@ -28,7 +28,7 @@ func TestResolveEnv(t *testing.T) {
 		"PLAIN":   {Value: ptrString("value")},
 		"DB_PASS": {SecretVersionID: ptrInt32(1)},
 		"TOKEN":   {SecretVersionID: ptrInt32(2)},
-		"HOST":    {ConfigVersionID: ptrInt32(3)},
+		"HOST":    {ConfigRefID: ptrInt32(3)},
 		"CONFIG":  {Asset: "app.conf", AssetVersionID: 12},
 	}
 	provider := fakeRuntimeInputProvider{
@@ -70,7 +70,7 @@ func TestResolveEnvUnknownSecretFailsClosed(t *testing.T) {
 
 func TestResolveEnvUnknownConfigFailsClosed(t *testing.T) {
 	inputs := runtimeinputs.New(nil, nil, nil)
-	if _, err := resolveEnv(inputs, map[string]*apigen.EnvVarValue{"X": {ConfigVersionID: ptrInt32(1)}}); err == nil {
+	if _, err := resolveEnv(inputs, map[string]*apigen.EnvVarValue{"X": {ConfigRefID: ptrInt32(1)}}); err == nil {
 		t.Fatal("expected error for unknown config")
 	}
 }

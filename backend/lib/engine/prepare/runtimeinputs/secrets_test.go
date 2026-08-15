@@ -46,7 +46,7 @@ func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 		Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{
 			"DB":    {SecretVersionID: ptrInt32(6)},
-			"MIX":   {ConfigVersionID: ptrInt32(3)},
+			"MIX":   {ConfigRefID: ptrInt32(3)},
 			"TOKEN": {SecretVersionID: ptrInt32(2)},
 			"DUP":   {SecretVersionID: ptrInt32(6)},
 		}},
@@ -61,9 +61,9 @@ func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 func TestConfigRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 		Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{
-			"URL":    {ConfigVersionID: ptrInt32(18)},
-			"DUP":    {ConfigVersionID: ptrInt32(18)},
-			"OTHER":  {ConfigVersionID: ptrInt32(2)},
+			"URL":    {ConfigRefID: ptrInt32(18)},
+			"DUP":    {ConfigRefID: ptrInt32(18)},
+			"OTHER":  {ConfigRefID: ptrInt32(2)},
 			"SECRET": {SecretVersionID: ptrInt32(9)},
 		}},
 	}}}
@@ -140,8 +140,8 @@ func TestEnsureConfigsReadyFetchesBatch(t *testing.T) {
 
 	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 		Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{
-			"A": {ConfigVersionID: ptrInt32(1)},
-			"B": {ConfigVersionID: ptrInt32(2)},
+			"A": {ConfigRefID: ptrInt32(1)},
+			"B": {ConfigRefID: ptrInt32(2)},
 		}},
 	}}}
 

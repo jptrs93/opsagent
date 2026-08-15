@@ -9,6 +9,8 @@ sql:
       - "storage/primarydb/pq/sql/schema_secrets.sql"
       - "storage/primarydb/pq/sql/schema_configs.sql"
       - "storage/primarydb/pq/sql/schema_assets.sql"
+      - "storage/primarydb/pq/sql/schema_events.sql"
+      - "storage/primarydb/pq/sql/schema_configs2.sql"
     gen:
       go:
         package: "pq"

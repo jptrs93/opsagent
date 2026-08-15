@@ -16,7 +16,7 @@ func envRefSpec(configIDs map[string]int32, secretIDs map[string]int32) *apigen.
 	spec.Container1Spec.Runtime.EnvVars = make(map[string]*apigen.EnvVarValue, len(configIDs)+len(secretIDs))
 	for key, id := range configIDs {
 		id := id
-		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{ConfigVersionID: &id}
+		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{ConfigRefID: &id}
 	}
 	for key, id := range secretIDs {
 		id := id
@@ -37,10 +37,10 @@ func deploymentEnvRefID(t *testing.T, cfg *apigen.DeploymentConfig, key string, 
 		}
 		return *value.SecretVersionID
 	}
-	if value.ConfigVersionID == nil {
+	if value.ConfigRefID == nil {
 		t.Fatalf("deployment %d env %s has no config ref", cfg.ID, key)
 	}
-	return *value.ConfigVersionID
+	return *value.ConfigRefID
 }
 
 // latestVersionRef returns the newest version row (version_refs[0]).

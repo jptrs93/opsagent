@@ -670,3 +670,66 @@ VALUES (?, ?, ?, ?) RETURNING id;
 
 -- name: DeleteGlobalAccessRuleRow :exec
 DELETE FROM global_access_rules WHERE id = ?;
+
+-- === events ===
+
+-- name: InsertEvent :one
+INSERT INTO events (ts, author_id, entity_type, entity_id, action, blob)
+VALUES (?, ?, ?, ?, ?, ?) RETURNING id;
+
+-- name: MaxEventEntityID :one
+SELECT CAST(COALESCE(MAX(entity_id), 0) AS INTEGER) FROM events WHERE entity_type = ?;
+
+-- name: GetEventByID :one
+SELECT id, ts, author_id, entity_type, entity_id, action, blob
+FROM events WHERE id = ?;
+
+-- name: ListEventsByEntity :many
+SELECT id, ts, author_id, entity_type, entity_id, action, blob
+FROM events WHERE entity_type = ? AND entity_id = ?
+ORDER BY id ASC;
+
+-- name: ListEventsByType :many
+SELECT id, ts, author_id, entity_type, entity_id, action, blob
+FROM events WHERE entity_type = ?
+ORDER BY entity_id, id ASC;
+
+-- === config displays ===
+
+-- name: ListConfigDisplays :many
+SELECT id, space_id, name, directory_id, updated_at, updated_by
+FROM config_displays ORDER BY name;
+
+-- name: GetConfigDisplayByID :one
+SELECT id, space_id, name, directory_id, updated_at, updated_by
+FROM config_displays WHERE id = ?;
+
+-- name: GetConfigDisplayByName :one
+SELECT id, space_id, name, directory_id, updated_at, updated_by
+FROM config_displays WHERE space_id = ? AND directory_id = ? AND name = ?;
+
+-- name: InsertConfigDisplay :exec
+INSERT INTO config_displays (id, space_id, name, directory_id, updated_at, updated_by)
+VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: RenameConfigDisplay :exec
+UPDATE config_displays SET name = ?, updated_at = ?, updated_by = ? WHERE id = ?;
+
+-- name: SetConfigDisplayDirectory :exec
+UPDATE config_displays SET directory_id = ?, updated_at = ?, updated_by = ? WHERE id = ?;
+
+-- name: SetConfigDisplaySpace :exec
+UPDATE config_displays SET space_id = ?, directory_id = ?, updated_at = ?, updated_by = ? WHERE id = ?;
+
+-- name: DeleteConfigDisplay :exec
+DELETE FROM config_displays WHERE id = ?;
+
+-- name: CountConfigDisplaysInDirectory :one
+SELECT COUNT(*) FROM config_displays WHERE directory_id = ?;
+
+-- name: CountConfigDisplaySiblingsWithName :one
+SELECT COUNT(*) FROM config_displays
+WHERE space_id = ? AND directory_id = ? AND name = ? AND id != ?;
+
+-- name: UpdateDeploymentSpecBlobInPlace :exec
+UPDATE deployment_configs SET spec_blob = ? WHERE deployment_id = ?;

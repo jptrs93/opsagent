@@ -164,7 +164,7 @@ export function secretsPage() {
             ? settingSecretRefs(primaryConfigS.val?.config?.settings)
             : settingConfigRefs(primaryConfigS.val?.config?.settings)
         ).filter((ref) => refIds.has(ref.id));
-        const referenceKey = item.kind === "secret" ? "secretVersionId" : "configVersionId";
+        const referenceKey = item.kind === "secret" ? "secretVersionId" : "configRefId";
         const deployments = deploymentUsages(deploymentsS.val, spacesS.val, machinesS.val, (deployment) => {
             const cfg = deployment?.config;
             if (!cfg || cfg.deleted) return false;

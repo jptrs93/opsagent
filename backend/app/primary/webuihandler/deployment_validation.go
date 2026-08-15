@@ -523,12 +523,12 @@ func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentS
 				return invalidConfigErrf("container1Spec.runtime.envVars: unknown secret id %d", *value.SecretVersionID)
 			}
 		}
-		if value.ConfigVersionID != nil {
+		if value.ConfigRefID != nil {
 			if configs == nil {
 				return invalidConfigErrf("container1Spec.runtime.envVars: configs cannot be resolved here")
 			}
-			if _, ok := configs.ResolveConfig(*value.ConfigVersionID); !ok {
-				return invalidConfigErrf("container1Spec.runtime.envVars: unknown config id %d", *value.ConfigVersionID)
+			if _, ok := configs.ResolveConfig(*value.ConfigRefID); !ok {
+				return invalidConfigErrf("container1Spec.runtime.envVars: unknown config id %d", *value.ConfigRefID)
 			}
 		}
 	}
@@ -1043,9 +1043,9 @@ func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue) error {
 				return invalidConfigErrf("%s.%s: secretId must be positive", scope, key)
 			}
 		}
-		if value.ConfigVersionID != nil {
+		if value.ConfigRefID != nil {
 			set++
-			if *value.ConfigVersionID <= 0 {
+			if *value.ConfigRefID <= 0 {
 				return invalidConfigErrf("%s.%s: configId must be positive", scope, key)
 			}
 		}

@@ -187,12 +187,12 @@ func versionedValueIDs(ctx context.Context, q *pq.Queries, referenceType version
 		return ids, nil
 	}
 
-	rows, err := q.ListConfigVersionIDsByConfigID(ctx, int64(stableID))
+	events, err := q.ListEventsByEntity(ctx, pq.ListEventsByEntityParams{EntityType: eventTypeConfig, EntityID: int64(stableID)})
 	if err != nil {
-		return nil, fmt.Errorf("list config versions: %w", err)
+		return nil, fmt.Errorf("list config events: %w", err)
 	}
-	for _, id := range rows {
-		ids[int32(id)] = struct{}{}
+	for _, e := range configValueEvents(events) {
+		ids[int32(e.ID)] = struct{}{}
 	}
 	return ids, nil
 }
@@ -222,7 +222,7 @@ func replaceDeploymentReferences(spec *apigen.DeploymentSpec, referenceType vers
 		if referenceType == secretValueReference {
 			value.SecretVersionID = &replacementID
 		} else {
-			value.ConfigVersionID = &replacementID
+			value.ConfigRefID = &replacementID
 		}
 	}
 }
@@ -237,8 +237,8 @@ func referencedValueID(value *apigen.EnvVarValue, referenceType versionedValueRe
 		}
 		return 0
 	}
-	if value.ConfigVersionID != nil {
-		return *value.ConfigVersionID
+	if value.ConfigRefID != nil {
+		return *value.ConfigRefID
 	}
 	return 0
 }

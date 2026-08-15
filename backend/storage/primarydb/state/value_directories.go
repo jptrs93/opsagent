@@ -238,9 +238,9 @@ func (s *Service) DeleteValueDirectory(directoryID int32) error {
 	if err != nil {
 		panic(fmt.Sprintf("CountSecretsInDirectory: %v", err))
 	}
-	configCount, err := s.q.CountConfigsInDirectory(ctx, d.ID)
+	configCount, err := s.q.CountConfigDisplaysInDirectory(ctx, d.ID)
 	if err != nil {
-		panic(fmt.Sprintf("CountConfigsInDirectory: %v", err))
+		panic(fmt.Sprintf("CountConfigDisplaysInDirectory: %v", err))
 	}
 	children, err := s.q.CountChildValueDirectories(ctx, d.ID)
 	if err != nil {

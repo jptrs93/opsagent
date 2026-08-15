@@ -398,7 +398,7 @@
 /**
  * @typedef {Object} EnvVarValue
  * @property {number} secretVersionId
- * @property {number} configVersionId
+ * @property {number} configRefId
  * @property {string} value
  * @property {string} asset
  * @property {number} assetVersionId
@@ -6154,8 +6154,8 @@ export function writeEnvVarValue(message, writer) {
     if (message.secretVersionId !== undefined && message.secretVersionId !== null) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretVersionId);
     }
-    if (message.configVersionId !== undefined && message.configVersionId !== null) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.configVersionId);
+    if (message.configRefId !== undefined && message.configRefId !== null) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.configRefId);
     }
     if (message.value !== undefined && message.value !== null) {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
@@ -6193,7 +6193,7 @@ export function encodeEnvVarValue(message) {
  */
 function decodeEnvVarValueMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {secretVersionId: undefined, configVersionId: undefined, value: undefined, asset: "", assetVersionId: 0, addressDeploymentId: undefined, addressSpaceId: undefined };
+    const message = {secretVersionId: undefined, configRefId: undefined, value: undefined, asset: "", assetVersionId: 0, addressDeploymentId: undefined, addressSpaceId: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6202,7 +6202,7 @@ function decodeEnvVarValueMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.configVersionId = reader.int32();
+                message.configRefId = reader.int32();
                 break;
             }
             case 3: {

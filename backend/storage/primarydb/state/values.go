@@ -49,14 +49,14 @@ func (s *Service) valueSiblingNameTakenLocked(ctx context.Context, q *pq.Queries
 	if secretCount > 0 {
 		return true
 	}
-	configCount, err := q.CountConfigSiblingsWithName(ctx, pq.CountConfigSiblingsWithNameParams{
-		SpaceID:          spaceID,
-		ValueDirectoryID: directoryID,
-		Name:             name,
-		ID:               excludeConfigID,
+	configCount, err := q.CountConfigDisplaySiblingsWithName(ctx, pq.CountConfigDisplaySiblingsWithNameParams{
+		SpaceID:     spaceID,
+		DirectoryID: directoryID,
+		Name:        name,
+		ID:          excludeConfigID,
 	})
 	if err != nil {
-		panic(fmt.Sprintf("CountConfigSiblingsWithName: %v", err))
+		panic(fmt.Sprintf("CountConfigDisplaySiblingsWithName: %v", err))
 	}
 	if configCount > 0 {
 		return true

@@ -276,10 +276,10 @@ func ConfigRefs(cfg *apigen.DeploymentConfig) []int32 {
 	}
 	seen := map[int32]bool{}
 	for _, item := range container.Runtime.EnvVars {
-		if item == nil || item.ConfigVersionID == nil || *item.ConfigVersionID == 0 {
+		if item == nil || item.ConfigRefID == nil || *item.ConfigRefID == 0 {
 			continue
 		}
-		seen[*item.ConfigVersionID] = true
+		seen[*item.ConfigRefID] = true
 	}
 	ids := make([]int32, 0, len(seen))
 	for id := range seen {

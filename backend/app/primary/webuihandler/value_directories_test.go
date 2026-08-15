@@ -242,7 +242,7 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 	spec := remoteDeploymentSpec("registry/web", virtualNetworking())
 	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
 		"TOKEN": {SecretVersionID: ptrInt32(secret.VersionRefs[0].ID)},
-		"LEVEL": {ConfigVersionID: ptrInt32(config.VersionRefs[0].ID)},
+		"LEVEL": {ConfigRefID: ptrInt32(config.VersionRefs[0].ID)},
 	}
 	spec.Networking.Ingress = []*apigen.Ingress{{
 		Kind:     apigen.IngressKind_INGRESS_KIND_HTTPS,

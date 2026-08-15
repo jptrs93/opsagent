@@ -15,3 +15,5 @@
 -- renumber fixup (its local_kv marker 'migration.authz-verb-renumber' may
 -- linger and is harmless). Upgrading a database from before
 -- then requires stepping through a release that still carried them.
+
+ALTER TABLE events RENAME COLUMN seq TO id;
