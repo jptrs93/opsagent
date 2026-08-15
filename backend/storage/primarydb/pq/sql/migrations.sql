@@ -10,5 +10,8 @@
 -- asset_versions created_by attribution, the run-once authz cluster_admin
 -- grant backfill (its local_kv marker 'migration.authz-cluster-admin-grants'
 -- may linger in older databases and is harmless), and the users created_at /
--- last_login_at column adds and backfill. Upgrading a database from before
+-- last_login_at column adds and backfill. A third sweep (2026-08-15, after
+-- every active cluster reached v0.0.426) removed the run-once authz verb
+-- renumber fixup (its local_kv marker 'migration.authz-verb-renumber' may
+-- linger and is harmless). Upgrading a database from before
 -- then requires stepping through a release that still carried them.

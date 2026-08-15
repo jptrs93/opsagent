@@ -1,10 +1,6 @@
 package authz
 
-import (
-	"fmt"
-
-	"github.com/jptrs93/opsagent/backend/apigen"
-)
+import "github.com/jptrs93/opsagent/backend/apigen"
 
 const (
 	ClusterAdminTemplateID int64 = 1
@@ -21,44 +17,6 @@ const spaceAdminSpacesArgID int64 = 1
 const DefaultUserVisibilityRuleName = "default_user_visibility"
 
 const defaultUserVisibilityMarker = "migration.authz-default-user-visibility"
-
-const verbRenumberMarker = "migration.authz-verb-renumber"
-
-func migrateVerbRenumber(store Store) error {
-	if _, done := store.FetchLocalKV(verbRenumberMarker); done {
-		return nil
-	}
-	rows, err := store.ListAuthzGlobalRules()
-	if err != nil {
-		return fmt.Errorf("authz: verb renumber: %w", err)
-	}
-	for _, row := range rows {
-		if row.Name != DefaultUserVisibilityRuleName {
-			continue
-		}
-		rule, err := apigen.DecodeAuthzGlobalRule(row.Blob)
-		if err != nil {
-			return fmt.Errorf("authz: verb renumber: decode %s: %w", row.Name, err)
-		}
-		perms := rule.Permissions
-		if perms == nil || len(perms.Include) != 1 || perms.Include[0] != 1 {
-			continue
-		}
-		if err := store.DeleteAuthzGlobalRule(row.ID); err != nil {
-			return fmt.Errorf("authz: verb renumber: %w", err)
-		}
-		if _, err := store.InsertAuthzGlobalRule(GlobalRuleRow{
-			Name:      row.Name,
-			CreatedBy: row.CreatedBy,
-			CreatedAt: row.CreatedAt,
-			Blob:      defaultUserVisibilityRule().Encode(),
-		}); err != nil {
-			return fmt.Errorf("authz: verb renumber: %w", err)
-		}
-	}
-	store.MustSetLocalKV(verbRenumberMarker, []byte("1"))
-	return nil
-}
 
 func defaultUserVisibilityRule() *apigen.AuthzGlobalRule {
 	return &apigen.AuthzGlobalRule{

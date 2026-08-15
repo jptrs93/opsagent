@@ -152,9 +152,6 @@ func Open(store Store) (*Service, error) {
 	for _, grants := range s.grantsByUser {
 		sortByID(grants, func(g *apigen.AuthzGrantRecord) int64 { return g.ID })
 	}
-	if err := migrateVerbRenumber(store); err != nil {
-		return nil, err
-	}
 	if _, done := store.FetchLocalKV(defaultUserVisibilityMarker); !done {
 		rule := defaultUserVisibilityRule()
 		if _, err := store.InsertAuthzGlobalRule(GlobalRuleRow{
