@@ -89,19 +89,28 @@ responses redact its runtime details.
 - `portForwarding` publishes host-interface TCP or UDP ports to container ports through nftables DNAT and requires `VIRTUAL`, e.g. `{protocol: TCP, hostPort: 443, containerPort: 443}`.
 - `ingress` currently accepts `TLS_PASSTHROUGH` routes in virtual mode. Each route has a hostname and `tlsPassthroughConfig: {hostPort, containerPort}`; `hostPort: 0` defaults to `443`. Routes are rendered into local netproxy state, which selects by TLS SNI and relays the original TCP stream to a READY backend without TLS termination. The primary node reserves `:443` for the Web UI until both share one listener.
 - Virtual-mode deployments publish endpoint status for `.internal` DNS discovery through the per-machine netproxy deployment.
-- An environment variable of type `Address` selects a same-node virtual deployment and stores its deployment and space IDs. The consuming container receives that target's stable inbound IPv6 address `I` when it starts; run-scoped `O` is never exposed through Address refs. A target cannot be deleted, moved to another space, or changed out of virtual networking while Address references remain. For a space move, remove the references, move the target, then add them back so they capture its new space ID.
+- An environment variable of type `Address` selects a same-node virtual deployment and stores its deployment and space IDs. The consuming container receives that target's stable inbound IPv6 address `I` when it starts; run-scoped `O` is never exposed through Address refs. A target cannot be deleted or changed out of virtual networking while Address references remain (deployment space moves are rejected outright — see Config versioning).
 - Workers reconcile cross-machine fixed tunnels and workload routes. Equivalent primary-node remote routing, unpublished candidate `O` distribution, policy, and public ingress remain incomplete.
 
 ### Config versioning
 
 Each deployment's `DeploymentConfig.Version` is a per-deployment
 monotonically increasing integer that bumps on any spec or desired-state
-change. Every bump is persisted to `deployment_config_history` so the UI
-can reconstruct the sequence of changes.
+change. Storage follows the secrets/configs identity + versions split: the
+stable identity (node, space, name, tombstone) lives in `deployment_configs`,
+and every spec revision is an immutable append-only row in
+`deployment_config_versions`, so the UI can reconstruct the sequence of
+changes. The current desired state is the latest version row; deleting appends
+a final workload-stopped version before tombstoning the identity.
 
-SQLite persists `DeploymentSpec` in both the current-config and config-history
-rows. The selected workload's `version` and `running` fields are the only
-authoritative desired state.
+Space moves are rejected (`deployment_space_move_unsupported`), and the UI
+locks the space alongside name and node after creation: the space feeds the
+workload's derived inbound address, DNS name, and issued TLS identity, so a
+move requires a coordinated re-placement. The target design is a separate
+`deployment_spaces` entity with its own versioning capturing space placements.
+
+The selected workload's `version` and `running` fields inside the persisted
+`DeploymentSpec` are the only authoritative desired state.
 
 ## Deployment state
 
@@ -247,7 +256,7 @@ counter is reset.
 
 ## Deployment history
 
-The history sidebar shows a chronological log of all deployment config and status changes. Config entries show the version number and what changed (version deployed, running toggled, deleted). Status entries show preparer and runner state transitions (diff-rendered against the previous entry so unchanged sections aren't repeated). All entries are fetched via `POST /v1/deployments/history` with the integer deployment ID. History is stored in `deployment_config_history` (PK `deployment_id, version`) and `scheduled_instance_status` (PK `scheduled_instance_id, updated_at`), the append-only status log covering every scheduled instance of the deployment; `idx_scheduled_instance_status_deployment` covers the `deployment_id`-leading lookup.
+The history sidebar shows a chronological log of all deployment config and status changes. Config entries show the version number and what changed (version deployed, running toggled, deleted). Status entries show preparer and runner state transitions (diff-rendered against the previous entry so unchanged sections aren't repeated). All entries are fetched via `POST /v1/deployments/history` with the integer deployment ID. History is stored in `deployment_config_versions` (PK `deployment_id, version`) and `scheduled_instance_status` (PK `scheduled_instance_id, updated_at`), the append-only status log covering every scheduled instance of the deployment; `idx_scheduled_instance_status_deployment` covers the `deployment_id`-leading lookup.
 
 ## Empty state
 

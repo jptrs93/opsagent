@@ -103,26 +103,18 @@ type ConfigVersion struct {
 
 type DeploymentConfig struct {
 	DeploymentID int64
-	Version      int64
 	NodeID       int64
 	SpaceID      int64
 	Name         string
-	CreatedAt    int64
-	UpdatedAt    int64
-	UpdatedBy    int64
-	SpecBlob     []byte
 	Deleted      int64
 }
 
-type DeploymentConfigHistory struct {
+type DeploymentConfigVersion struct {
 	DeploymentID int64
 	Version      int64
-	UpdatedAt    int64
-	UpdatedBy    int64
-	SpaceID      int64
-	NodeID       int64
+	CreatedAt    int64
+	CreatedBy    int64
 	SpecBlob     []byte
-	Deleted      int64
 }
 
 type EnrollmentRequest struct {

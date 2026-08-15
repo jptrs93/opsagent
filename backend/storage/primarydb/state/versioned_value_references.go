@@ -22,7 +22,7 @@ const (
 )
 
 type deploymentReferenceUpdate struct {
-	row  pq.ListAllDeploymentConfigsRow
+	row  pq.DeploymentConfigRow
 	spec *apigen.DeploymentSpec
 }
 
@@ -58,34 +58,21 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 		updatedConfigs = make([]*apigen.DeploymentConfig, 0, len(updates))
 		for _, update := range updates {
 			replaceDeploymentReferences(update.spec, referenceType, referenceIDs, newID)
-			params := pq.UpsertDeploymentConfigParams{
-				DeploymentID: update.row.DeploymentID,
-				NodeID:       update.row.NodeID,
-				SpaceID:      update.row.SpaceID,
-				Name:         update.row.Name,
-				CreatedAt:    update.row.CreatedAt,
-				Version:      update.row.Version + 1,
-				UpdatedAt:    now,
-				UpdatedBy:    int64(updatedBy),
-				SpecBlob:     update.spec.Encode(),
-				Deleted:      update.row.Deleted,
-			}
-			if err := q.UpsertDeploymentConfig(ctx, params); err != nil {
+			next := update.row
+			next.Version = update.row.Version + 1
+			next.UpdatedAt = now
+			next.UpdatedBy = int64(updatedBy)
+			next.SpecBlob = update.spec.Encode()
+			if err := q.InsertDeploymentConfigVersion(ctx, pq.InsertDeploymentConfigVersionParams{
+				DeploymentID: next.DeploymentID,
+				Version:      next.Version,
+				CreatedAt:    next.UpdatedAt,
+				CreatedBy:    next.UpdatedBy,
+				SpecBlob:     next.SpecBlob,
+			}); err != nil {
 				return fmt.Errorf("update deployment %d reference: %w", update.row.DeploymentID, err)
 			}
-			if err := q.InsertDeploymentConfigHistory(ctx, pq.InsertDeploymentConfigHistoryParams{
-				DeploymentID: params.DeploymentID,
-				Version:      params.Version,
-				UpdatedAt:    params.UpdatedAt,
-				UpdatedBy:    params.UpdatedBy,
-				SpaceID:      params.SpaceID,
-				NodeID:       params.NodeID,
-				SpecBlob:     params.SpecBlob,
-				Deleted:      params.Deleted,
-			}); err != nil {
-				return fmt.Errorf("record deployment %d reference update: %w", update.row.DeploymentID, err)
-			}
-			updatedConfigs = append(updatedConfigs, upsertParamsToProto(params))
+			updatedConfigs = append(updatedConfigs, configRowToProto(next))
 		}
 		return nil
 	}); err != nil {

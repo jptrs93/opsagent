@@ -26,8 +26,9 @@ pinned reference — survive unchanged. All three move requests carry a
 moves them there under a **reference-locality rule**: a deployment may pin
 secret versions only from its own space or the global space (space 1). Both
 sides enforce it. Deployment creates and updates run
-`validateSecretRefSpaces` over the effective spec and effective space (so
-spec changes, space moves, and combined writes are all covered), using the
+`validateSecretRefSpaces` over the effective spec and the deployment's space
+(deployment space moves themselves are rejected with
+`deployment_space_move_unsupported`), using the
 same `runtimeinputs.SecretRefs` collector the engine fetches by (env refs
 plus ingress cert refs), and refuse violations with
 `secret_reference_outside_space`. Item moves collect every deployment

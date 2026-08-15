@@ -186,10 +186,11 @@ export function deploymentForm(form, opts = {}) {
                         return select({
                             "data-testid": "deployment-space-select",
                             value: String(form.spaceId.val ?? DEFAULT_SPACE_ID),
-                            class: textInputClass(false, false),
+                            disabled: identityLocked,
+                            class: textInputClass(false, identityLocked),
                             onchange: e => { form.spaceId.val = Number(e.target.value || 0); },
                         }, ...spaceOptions.map(space => option({value: String(space.id), selected: Number(space.id) === Number(form.spaceId.val)}, space.name || `space ${space.id}`)));
-                    }, false),
+                    }, identityLocked, () => showIdentityLockedNotice("Space is not currently changeable after creation.")),
                     identityField("Node", () => nodeSelect(form, {
                         identityLocked,
                         nodeOptionsLoaded: stateValue(opts.nodeOptionsLoaded) !== false,

@@ -82,7 +82,6 @@ func TestDrainSupersededOnlyRetiresOlderInstances(t *testing.T) {
 	next := *testRunningSpec("v2")
 	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
-		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            &next,
 	})
 	if !versionOK {
@@ -129,7 +128,6 @@ func TestStartupReconcileDoesNotLetOlderRunningKillReplacement(t *testing.T) {
 	next := *testRunningSpec("v2")
 	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
-		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            &next,
 	})
 	if !versionOK {
@@ -177,7 +175,6 @@ func TestRolloverReplacementWarmsUpAsStandby(t *testing.T) {
 	next := *rolloverSpec("v2")
 	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
-		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            &next,
 	})
 	if !ok {
@@ -252,7 +249,6 @@ func TestFailedRolloutDoesNotAccumulateStandbys(t *testing.T) {
 		current := store.FetchDeploymentConfig(cfg.ID)
 		updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 			ExpectedVersion: current.Version + 1,
-			SpaceID:         current.Identity.SpaceID,
 			Spec:            &next,
 		})
 		if !ok {
@@ -357,7 +353,6 @@ func TestStandbyPromotedWhenServingDies(t *testing.T) {
 	next := *rolloverSpec("v2")
 	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
-		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            &next,
 	})
 	if !ok {
@@ -504,7 +499,7 @@ func TestRestartAdoptsDrainingInstances(t *testing.T) {
 
 	next := *rolloverSpec("v2")
 	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
-		ExpectedVersion: cfg.Version + 1, SpaceID: cfg.Identity.SpaceID, Spec: &next,
+		ExpectedVersion: cfg.Version + 1, Spec: &next,
 	})
 	if !ok {
 		t.Fatal("config update failed")
@@ -561,7 +556,6 @@ func updateSpec(t *testing.T, store *state.Service, cfg *apigen.DeploymentConfig
 	next := *spec
 	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
-		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            &next,
 	})
 	if !ok {

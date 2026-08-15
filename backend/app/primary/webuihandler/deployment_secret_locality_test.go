@@ -105,58 +105,6 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	}
 }
 
-func TestDeploymentSpaceMoveRechecksSecretRefs(t *testing.T) {
-	h, node := newSecretLocalityHandler(t)
-	prod, err := h.Store.CreateSpace("prod")
-	if err != nil {
-		t.Fatalf("CreateSpace: %v", err)
-	}
-	staging, err := h.Store.CreateSpace("staging")
-	if err != nil {
-		t.Fatalf("CreateSpace: %v", err)
-	}
-	globalSecret, err := h.Secrets.Create("global-token", []byte("g"), 0, state.DefaultSpaceID, 0)
-	if err != nil {
-		t.Fatalf("creating global secret: %v", err)
-	}
-	prodSecret, err := h.Secrets.Create("prod-token", []byte("p"), 0, prod.ID, 0)
-	if err != nil {
-		t.Fatalf("creating prod secret: %v", err)
-	}
-
-	pinned, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		Identity: apigen.DeploymentIdentity{SpaceID: prod.ID, Name: "pinned"},
-		NodeID:   node.ID,
-		Spec:     secretEnvSpec("nginx", prodSecret.ID),
-	})
-	if err != nil {
-		t.Fatalf("creating pinned deployment: %v", err)
-	}
-	if _, err := h.PostV1DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
-		DeploymentID: pinned.ID,
-		Version:      pinned.Version + 1,
-		SpaceID:      &staging.ID,
-	}); !isSecretRefOutsideSpaceErr(err) {
-		t.Fatalf("space move with own-space pin err = %v, want %v", err, SecretRefOutsideSpaceErr)
-	}
-
-	portable, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		Identity: apigen.DeploymentIdentity{SpaceID: prod.ID, Name: "portable"},
-		NodeID:   node.ID,
-		Spec:     secretEnvSpec("nginx", globalSecret.ID),
-	})
-	if err != nil {
-		t.Fatalf("creating portable deployment: %v", err)
-	}
-	if _, err := h.PostV1DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
-		DeploymentID: portable.ID,
-		Version:      portable.Version + 1,
-		SpaceID:      &staging.ID,
-	}); err != nil {
-		t.Fatalf("space move with only global pins: %v", err)
-	}
-}
-
 func TestIngressCertSecretRefScopedToSpace(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
 	prod, err := h.Store.CreateSpace("prod")

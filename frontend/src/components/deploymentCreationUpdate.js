@@ -49,7 +49,6 @@ export class DeploymentCreationUpdate {
         this.desiredRunning = van.state(initialRunning);
         this.documentRevision = van.state(0);
         this.initialSpecKey = JSON.stringify(formToSpec(this.form));
-        this.initialSpaceId = Number(this.form.spaceId.val || 0);
         this.initialSource = this.persistedSource();
 
         const configuredVersion = workload?.version || deployment?.deployedVersion || '';
@@ -701,8 +700,6 @@ export class DeploymentCreationUpdate {
                 running: Boolean(this.desiredRunning.val),
             });
         }
-        const nextSpaceId = Number(this.form.spaceId.val || 0);
-        if (nextSpaceId !== this.initialSpaceId) payload.spaceId = nextSpaceId;
         const targetVersion = this.selectedTargetVersion();
         if (!this.desiredRunning.val && this.existingState.desiredRunning) {
             payload.stop = true;

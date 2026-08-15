@@ -89,8 +89,8 @@ func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 		Version:      cfg.Version + 1,
 		SpaceID:      &target,
 	})
-	if err == nil || !strings.Contains(err.Error(), "node_space_not_allowed") {
-		t.Fatalf("err = %v, want node_space_not_allowed", err)
+	if err != DeploymentSpaceMoveUnsupportedErr {
+		t.Fatalf("err = %v, want %v", err, DeploymentSpaceMoveUnsupportedErr)
 	}
 }
 

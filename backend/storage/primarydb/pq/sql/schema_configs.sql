@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS configs (
 CREATE TABLE IF NOT EXISTS config_versions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     config_id   INTEGER NOT NULL,
-    version     INTEGER NOT NULL,
+    version     INTEGER NOT NULL,  -- version could be implicit but is kept to make pruning possible.
     value       TEXT    NOT NULL DEFAULT '',
     created_at  INTEGER NOT NULL,            -- epoch ms
     created_by  INTEGER NOT NULL DEFAULT 0,  -- user id; 0 = unknown/system, negative = agent of user -created_by

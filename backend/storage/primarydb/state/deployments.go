@@ -31,21 +31,14 @@ func (s *Service) ListActiveDeploymentConfigs() []*apigen.DeploymentConfig {
 
 func (s *Service) MustFetchDeploymentHistory(deploymentID int32) []*apigen.DeploymentConfig {
 	ctx := context.Background()
-	dbID := int64(deploymentID)
-	rows, err := s.q.ListDeploymentConfigHistory(ctx, dbID)
+	rows, err := s.q.ListDeploymentConfigVersions(ctx, int64(deploymentID))
 	if err != nil {
-		panic(fmt.Sprintf("ListDeploymentConfigHistory: %v", err))
+		panic(fmt.Sprintf("ListDeploymentConfigVersions: %v", err))
 	}
-	// Get the identity and created_at from cache for display.
-	var identity apigen.DeploymentIdentity
-	var createdAt time.Time
-	if cfg, ok := s.configCache[deploymentID]; ok {
-		identity = cfg.Identity
-		createdAt = cfg.CreatedAt
-	}
+	base := s.configCache[deploymentID]
 	out := make([]*apigen.DeploymentConfig, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, configHistoryRowToFullProto(r, identity, createdAt))
+		out = append(out, configVersionRowToProto(r, base))
 	}
 	return out
 }
@@ -56,9 +49,10 @@ func (s *Service) MustFetchDeploymentHistory(deploymentID int32) []*apigen.Deplo
 // applied only when ExpectedVersion matches the next version of the stored row.
 // Callers always hold the current row (they need it for ExpectedVersion), so
 // unchanged fields are passed through as-is rather than merged from storage.
+// Space is not updatable: moves are rejected at the API until the planned
+// deployment_spaces entity captures space placements with its own versioning.
 type DeploymentConfigUpdate struct {
 	ExpectedVersion int32
-	SpaceID         int32
 	Spec            *apigen.DeploymentSpec
 	Deleted         bool
 }
@@ -84,62 +78,74 @@ func (s *Service) UpdateDeploymentConfig(ctx apigen.Context, deploymentID int32,
 		panic(fmt.Sprintf("GetDeploymentConfig: %v", err))
 	}
 	if update.ExpectedVersion != int32(existing.Version+1) {
-		return getConfigRowToProto(existing), false, false
+		return configRowToProto(existing), false, false
 	}
 
-	spaceID := int64(update.SpaceID)
-	deleted := boolToInt(update.Deleted)
-	if spaceID == existing.SpaceID &&
-		bytes.Equal(specBlob, existing.SpecBlob) &&
-		deleted == existing.Deleted {
-		return getConfigRowToProto(existing), false, true
+	next := existing
+	next.Deleted = boolToInt(update.Deleted)
+	if bytes.Equal(specBlob, existing.SpecBlob) &&
+		next.Deleted == existing.Deleted {
+		return configRowToProto(existing), false, true
 	}
 
-	cfg := s.mustCommitDeploymentConfigLocked(pq.UpsertDeploymentConfigParams{
-		DeploymentID: dbID,
-		NodeID:       existing.NodeID,
-		SpaceID:      spaceID,
-		Name:         existing.Name,
-		CreatedAt:    existing.CreatedAt,
-		Version:      existing.Version + 1,
-		UpdatedAt:    now,
-		UpdatedBy:    userID,
-		SpecBlob:     specBlob,
-		Deleted:      deleted,
-	}, "deployment config update")
+	// A delete appends a final version row even when the spec bytes are
+	// unchanged — the tombstone's deletion time is its latest version's
+	// created_at, and the bump keeps the optimistic version guard covering
+	// deletes.
+	next.Version = existing.Version + 1
+	next.UpdatedAt = now
+	next.UpdatedBy = userID
+	next.SpecBlob = specBlob
+	cfg := s.mustCommitDeploymentConfigLocked(existing, next, "deployment config update")
 	return cfg, true, true
 }
 
-// mustCommitDeploymentConfigLocked writes a new config version and its history
-// row in one tx — the pair must never be observed half-applied — then refreshes
-// the cache and notifies subscribers. Caller must hold s.Mu.
-func (s *Service) mustCommitDeploymentConfigLocked(params pq.UpsertDeploymentConfigParams, label string) *apigen.DeploymentConfig {
+// mustCommitDeploymentConfigLocked writes the version append and any identity
+// changes between prev and next in one tx — the pair must never be observed
+// half-applied — then refreshes the cache and notifies subscribers. Caller
+// must hold s.Mu.
+func (s *Service) mustCommitDeploymentConfigLocked(prev, next pq.DeploymentConfigRow, label string) *apigen.DeploymentConfig {
 	bgCtx := context.Background()
 	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
-		if err := q.UpsertDeploymentConfig(bgCtx, params); err != nil {
-			panic(fmt.Sprintf("UpsertDeploymentConfig (%s): %v", label, err))
+		if next.Version != prev.Version {
+			if err := q.InsertDeploymentConfigVersion(bgCtx, pq.InsertDeploymentConfigVersionParams{
+				DeploymentID: next.DeploymentID,
+				Version:      next.Version,
+				CreatedAt:    next.UpdatedAt,
+				CreatedBy:    next.UpdatedBy,
+				SpecBlob:     next.SpecBlob,
+			}); err != nil {
+				panic(fmt.Sprintf("InsertDeploymentConfigVersion (%s): %v", label, err))
+			}
 		}
-		if err := q.InsertDeploymentConfigHistory(bgCtx, pq.InsertDeploymentConfigHistoryParams{
-			DeploymentID: params.DeploymentID,
-			Version:      params.Version,
-			UpdatedAt:    params.UpdatedAt,
-			UpdatedBy:    params.UpdatedBy,
-			SpaceID:      params.SpaceID,
-			NodeID:       params.NodeID,
-			SpecBlob:     params.SpecBlob,
-			Deleted:      params.Deleted,
-		}); err != nil {
-			panic(fmt.Sprintf("InsertDeploymentConfigHistory (%s): %v", label, err))
+		if next.Deleted != prev.Deleted {
+			if err := q.UpdateDeploymentConfigDeleted(bgCtx, pq.UpdateDeploymentConfigDeletedParams{
+				Deleted:      next.Deleted,
+				DeploymentID: next.DeploymentID,
+			}); err != nil {
+				panic(fmt.Sprintf("UpdateDeploymentConfigDeleted (%s): %v", label, err))
+			}
 		}
 		return nil
 	}); err != nil {
 		panic(fmt.Sprintf("%s tx: %v", label, err))
 	}
-	cfg := upsertParamsToProto(params)
-	id := int32(params.DeploymentID)
+	cfg := configRowToProto(next)
+	id := int32(next.DeploymentID)
 	s.configCache[id] = cfg
 	s.notifyConfigLocked(id)
 	return cfg
+}
+
+// mustAppendConfigVersionLocked appends the next spec version for an existing
+// deployment, leaving identity fields untouched. Caller must hold s.Mu.
+func (s *Service) mustAppendConfigVersionLocked(existing pq.DeploymentConfigRow, specBlob []byte, updatedBy int64, label string) *apigen.DeploymentConfig {
+	next := existing
+	next.Version = existing.Version + 1
+	next.UpdatedAt = time.Now().UnixMilli()
+	next.UpdatedBy = updatedBy
+	next.SpecBlob = specBlob
+	return s.mustCommitDeploymentConfigLocked(existing, next, label)
 }
 
 func (s *Service) MustSetDeploymentWorkloadState(ctx apigen.Context, deploymentID int32, version string, running bool) {
@@ -162,18 +168,7 @@ func (s *Service) mustSetDeploymentWorkloadStateLocked(ctx apigen.Context, deplo
 	if err := spec.SetWorkloadState(version, running); err != nil {
 		panic(fmt.Sprintf("update deployment workload state: %v", err))
 	}
-	s.mustCommitDeploymentConfigLocked(pq.UpsertDeploymentConfigParams{
-		DeploymentID: dbID,
-		NodeID:       existing.NodeID,
-		SpaceID:      existing.SpaceID,
-		Name:         existing.Name,
-		CreatedAt:    existing.CreatedAt,
-		Version:      existing.Version + 1,
-		UpdatedAt:    time.Now().UnixMilli(),
-		UpdatedBy:    userID,
-		SpecBlob:     spec.Encode(),
-		Deleted:      existing.Deleted,
-	}, "deployment workload state")
+	s.mustAppendConfigVersionLocked(existing, spec.Encode(), userID, "deployment workload state")
 }
 
 // --- deployment spec update ---
@@ -184,7 +179,6 @@ func (s *Service) MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int3
 
 	bgCtx := context.Background()
 	dbID := int64(deploymentID)
-	now := time.Now().UnixMilli()
 
 	userID := int64(ctx.AttributionUserID())
 
@@ -201,18 +195,54 @@ func (s *Service) MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int3
 	if err := storedSpec.SetWorkloadState(existingSpec.WorkloadVersion(), existingSpec.WorkloadRunning()); err != nil {
 		panic(fmt.Sprintf("preserve deployment workload state: %v", err))
 	}
-	s.mustCommitDeploymentConfigLocked(pq.UpsertDeploymentConfigParams{
+	s.mustAppendConfigVersionLocked(existing, storedSpec.Encode(), userID, "deployment spec update")
+}
+
+// mustCreateDeploymentLocked inserts a stable identity row and its v1 version
+// row in one tx, then caches and notifies. Caller must hold s.Mu.
+func (s *Service) mustCreateDeploymentLocked(cid *apigen.DeploymentIdentity, nodeID int32, specBlob []byte, createdBy int64, label string) *apigen.DeploymentConfig {
+	bgCtx := context.Background()
+	now := time.Now().UnixMilli()
+	var dbID int64
+	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
+		var err error
+		dbID, err = q.CreateDeploymentConfig(bgCtx, pq.CreateDeploymentConfigParams{
+			NodeID:  int64(nodeID),
+			SpaceID: int64(cid.SpaceID),
+			Name:    cid.Name,
+		})
+		if err != nil {
+			panic(fmt.Sprintf("CreateDeploymentConfig (%s): %v", label, err))
+		}
+		if err := q.InsertDeploymentConfigVersion(bgCtx, pq.InsertDeploymentConfigVersionParams{
+			DeploymentID: dbID,
+			Version:      1,
+			CreatedAt:    now,
+			CreatedBy:    createdBy,
+			SpecBlob:     specBlob,
+		}); err != nil {
+			panic(fmt.Sprintf("InsertDeploymentConfigVersion (%s): %v", label, err))
+		}
+		return nil
+	}); err != nil {
+		panic(fmt.Sprintf("%s create tx: %v", label, err))
+	}
+
+	cfg := configRowToProto(pq.DeploymentConfigRow{
 		DeploymentID: dbID,
-		NodeID:       existing.NodeID,
-		SpaceID:      existing.SpaceID,
-		Name:         existing.Name,
-		CreatedAt:    existing.CreatedAt,
-		Version:      existing.Version + 1,
+		NodeID:       int64(nodeID),
+		SpaceID:      int64(cid.SpaceID),
+		Name:         cid.Name,
+		Version:      1,
+		CreatedAt:    now,
 		UpdatedAt:    now,
-		UpdatedBy:    userID,
-		SpecBlob:     storedSpec.Encode(),
-		Deleted:      existing.Deleted,
-	}, "deployment spec update")
+		UpdatedBy:    createdBy,
+		SpecBlob:     specBlob,
+	})
+	id := int32(dbID)
+	s.configCache[id] = cfg
+	s.notifyConfigLocked(id)
+	return cfg
 }
 
 // MustCreateDeploymentForNode creates a deployment with an explicit canonical
@@ -235,69 +265,11 @@ func (s *Service) mustCreateDeploymentForNode(ctx apigen.Context, cid *apigen.De
 		}
 	}
 
-	bgCtx := context.Background()
-	now := time.Now().UnixMilli()
-
-	userID := int64(ctx.AttributionUserID())
-
 	if spec == nil {
 		panic("deployment spec must not be nil")
 	}
-	specBlob := spec.Encode()
-
-	var dbID int64
-	var row pq.CreateDeploymentConfigRow
-	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
-		var err error
-		row, err = q.CreateDeploymentConfig(bgCtx, pq.CreateDeploymentConfigParams{
-			NodeID:    int64(nodeID),
-			SpaceID:   int64(cid.SpaceID),
-			Name:      cid.Name,
-			CreatedAt: now,
-			Version:   1,
-			UpdatedAt: now,
-			UpdatedBy: userID,
-			SpecBlob:  specBlob,
-			Deleted:   0,
-		})
-		if err != nil {
-			panic(fmt.Sprintf("CreateDeploymentConfig: %v", err))
-		}
-		dbID = row.DeploymentID
-
-		if err := q.InsertDeploymentConfigHistory(bgCtx, pq.InsertDeploymentConfigHistoryParams{
-			DeploymentID: dbID,
-			Version:      1,
-			UpdatedAt:    now,
-			UpdatedBy:    userID,
-			SpaceID:      int64(cid.SpaceID),
-			NodeID:       int64(nodeID),
-			SpecBlob:     specBlob,
-			Deleted:      0,
-		}); err != nil {
-			panic(fmt.Sprintf("InsertDeploymentConfigHistory (create): %v", err))
-		}
-		return nil
-	}); err != nil {
-		panic(fmt.Sprintf("deployment create tx: %v", err))
-	}
-
-	cfg := upsertParamsToProto(pq.UpsertDeploymentConfigParams{
-		DeploymentID: dbID,
-		NodeID:       int64(nodeID),
-		SpaceID:      int64(cid.SpaceID),
-		Name:         cid.Name,
-		CreatedAt:    row.CreatedAt,
-		Version:      1,
-		UpdatedAt:    now,
-		UpdatedBy:    userID,
-		SpecBlob:     specBlob,
-		Deleted:      0,
-	})
-	id := int32(dbID)
-	s.configCache[id] = cfg
-	s.notifyConfigLocked(id)
-	return cfg
+	userID := int64(ctx.AttributionUserID())
+	return s.mustCreateDeploymentLocked(cid, nodeID, spec.Encode(), userID, "deployment")
 }
 
 // EnsureSystemDeployment creates the OPENDEPLOY opendeploy deployment for
@@ -332,58 +304,7 @@ func (s *Service) EnsureSystemDeployment(nodeID int32, opendeployVersion string)
 	if err := spec.SetWorkloadState(opendeployVersion, opendeployVersion != ""); err != nil {
 		panic(fmt.Sprintf("initialize system deployment state: %v", err))
 	}
-	specBlob := spec.Encode()
-
-	bgCtx := context.Background()
-	now := time.Now().UnixMilli()
-	var dbID int64
-	var row pq.CreateDeploymentConfigRow
-	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
-		var err error
-		row, err = q.CreateDeploymentConfig(bgCtx, pq.CreateDeploymentConfigParams{
-			NodeID:    int64(nodeID),
-			SpaceID:   int64(cid.SpaceID),
-			Name:      cid.Name,
-			CreatedAt: now,
-			Version:   1,
-			UpdatedAt: now,
-			SpecBlob:  specBlob,
-			Deleted:   0,
-		})
-		if err != nil {
-			panic(fmt.Sprintf("CreateDeploymentConfig (system): %v", err))
-		}
-		dbID = row.DeploymentID
-
-		if err := q.InsertDeploymentConfigHistory(bgCtx, pq.InsertDeploymentConfigHistoryParams{
-			DeploymentID: dbID,
-			Version:      1,
-			UpdatedAt:    now,
-			SpaceID:      int64(cid.SpaceID),
-			NodeID:       int64(nodeID),
-			SpecBlob:     specBlob,
-			Deleted:      0,
-		}); err != nil {
-			panic(fmt.Sprintf("InsertDeploymentConfigHistory (system): %v", err))
-		}
-		return nil
-	}); err != nil {
-		panic(fmt.Sprintf("system deployment create tx: %v", err))
-	}
-
-	id := int32(dbID)
-	s.configCache[id] = upsertParamsToProto(pq.UpsertDeploymentConfigParams{
-		DeploymentID: dbID,
-		NodeID:       int64(nodeID),
-		SpaceID:      int64(cid.SpaceID),
-		Name:         cid.Name,
-		CreatedAt:    row.CreatedAt,
-		Version:      1,
-		UpdatedAt:    now,
-		SpecBlob:     specBlob,
-		Deleted:      0,
-	})
-	s.notifyConfigLocked(id)
+	s.mustCreateDeploymentLocked(&cid, nodeID, spec.Encode(), 0, "system deployment")
 	slog.Info("created system deployment", "nodeID", nodeID, "version", opendeployVersion)
 }
 
@@ -404,6 +325,7 @@ func (s *Service) EnsureNetproxyDeployment(nodeID int32, initialVersion string) 
 	desiredSpec := internaldeploy.NetproxySpec()
 
 	s.Mu.Lock()
+	defer s.Mu.Unlock()
 	for _, cfg := range s.configCache {
 		if storage.DeploymentKeyMatches(*cfg, nodeID, cid) && !cfg.Deleted {
 			if err := desiredSpec.SetWorkloadState(cfg.WorkloadVersion(), cfg.WorkloadRunning()); err != nil {
@@ -414,70 +336,17 @@ func (s *Service) EnsureNetproxyDeployment(nodeID int32, initialVersion string) 
 				s.repairDeploymentSpecLocked(cfg.ID, desiredSpec, "netproxy")
 				cfg = s.configCache[cfg.ID]
 			}
-			s.Mu.Unlock()
 			return cfg
 		}
 	}
-	defer s.Mu.Unlock()
 
 	spec := desiredSpec
 	if err := spec.SetWorkloadState(desiredVersion, true); err != nil {
 		panic(fmt.Sprintf("initialize netproxy deployment state: %v", err))
 	}
-	specBlob := spec.Encode()
-
-	bgCtx := context.Background()
-	now := time.Now().UnixMilli()
-	var dbID int64
-	var row pq.CreateDeploymentConfigRow
-	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
-		var err error
-		row, err = q.CreateDeploymentConfig(bgCtx, pq.CreateDeploymentConfigParams{
-			NodeID:    int64(nodeID),
-			SpaceID:   int64(cid.SpaceID),
-			Name:      cid.Name,
-			CreatedAt: now,
-			Version:   1,
-			UpdatedAt: now,
-			SpecBlob:  specBlob,
-			Deleted:   0,
-		})
-		if err != nil {
-			panic(fmt.Sprintf("CreateDeploymentConfig (netproxy): %v", err))
-		}
-		dbID = row.DeploymentID
-
-		if err := q.InsertDeploymentConfigHistory(bgCtx, pq.InsertDeploymentConfigHistoryParams{
-			DeploymentID: dbID,
-			Version:      1,
-			UpdatedAt:    now,
-			SpaceID:      int64(cid.SpaceID),
-			NodeID:       int64(nodeID),
-			SpecBlob:     specBlob,
-			Deleted:      0,
-		}); err != nil {
-			panic(fmt.Sprintf("InsertDeploymentConfigHistory (netproxy): %v", err))
-		}
-		return nil
-	}); err != nil {
-		panic(fmt.Sprintf("netproxy deployment create tx: %v", err))
-	}
-
-	id := int32(dbID)
-	s.configCache[id] = upsertParamsToProto(pq.UpsertDeploymentConfigParams{
-		DeploymentID: dbID,
-		NodeID:       int64(nodeID),
-		SpaceID:      int64(cid.SpaceID),
-		Name:         cid.Name,
-		CreatedAt:    row.CreatedAt,
-		Version:      1,
-		UpdatedAt:    now,
-		SpecBlob:     specBlob,
-		Deleted:      0,
-	})
-	s.notifyConfigLocked(id)
+	cfg := s.mustCreateDeploymentLocked(&cid, nodeID, spec.Encode(), 0, "netproxy deployment")
 	slog.Info("created netproxy deployment", "nodeID", nodeID, "version", desiredVersion)
-	return s.configCache[id]
+	return cfg
 }
 
 func (s *Service) repairDeploymentSpecLocked(deploymentID int32, spec *apigen.DeploymentSpec, label string) {
@@ -493,16 +362,5 @@ func (s *Service) repairDeploymentSpecLocked(deploymentID int32, spec *apigen.De
 	if err := storedSpec.SetWorkloadState(existingSpec.WorkloadVersion(), existingSpec.WorkloadRunning()); err != nil {
 		panic(fmt.Sprintf("preserve %s deployment workload state: %v", label, err))
 	}
-	s.mustCommitDeploymentConfigLocked(pq.UpsertDeploymentConfigParams{
-		DeploymentID: dbID,
-		NodeID:       existing.NodeID,
-		SpaceID:      existing.SpaceID,
-		Name:         existing.Name,
-		CreatedAt:    existing.CreatedAt,
-		Version:      existing.Version + 1,
-		UpdatedAt:    time.Now().UnixMilli(),
-		UpdatedBy:    0,
-		SpecBlob:     storedSpec.Encode(),
-		Deleted:      existing.Deleted,
-	}, label+" deployment repair")
+	s.mustAppendConfigVersionLocked(existing, storedSpec.Encode(), 0, label+" deployment repair")
 }

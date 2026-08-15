@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
-	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -222,23 +221,17 @@ func (s *Service) configForInstanceLocked(inst *apigen.ScheduledInstance) *apige
 }
 
 func (s *Service) loadConfigVersionLocked(deploymentID, version int32) *apigen.DeploymentConfig {
-	row, err := s.q.GetDeploymentConfigHistoryVersion(context.Background(), pq.GetDeploymentConfigHistoryVersionParams{
+	row, err := s.q.GetDeploymentConfigVersion(context.Background(), pq.GetDeploymentConfigVersionParams{
 		DeploymentID: int64(deploymentID),
 		Version:      int64(version),
 	})
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			slog.Warn("load config history version", "deployment_id", deploymentID, "version", version, "err", err)
+			slog.Warn("load config version", "deployment_id", deploymentID, "version", version, "err", err)
 		}
 		return nil
 	}
-	var identity apigen.DeploymentIdentity
-	var createdAt time.Time
-	if cfg := s.configCache[deploymentID]; cfg != nil {
-		identity = cfg.Identity
-		createdAt = cfg.CreatedAt
-	}
-	return configHistoryRowToFullProto(row, identity, createdAt)
+	return configVersionRowToProto(row, s.configCache[deploymentID])
 }
 
 func (s *Service) notifyConfigLocked(id int32) {

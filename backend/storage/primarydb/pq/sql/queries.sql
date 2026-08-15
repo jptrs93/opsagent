@@ -1,38 +1,15 @@
 -- === deployment_configs ===
 
--- CreateDeploymentConfig inserts a new independent deployment and
+-- CreateDeploymentConfig inserts a new stable deployment identity and
 -- auto-allocates its deployment_id. Deleted deployments do not reserve their
--- former identity tuple.
+-- former identity tuple. The caller inserts the v1 version row in the same tx.
 -- name: CreateDeploymentConfig :one
-INSERT INTO deployment_configs (node_id, space_id, name, created_at, version, updated_at, updated_by, spec_blob, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING deployment_id, created_at;
+INSERT INTO deployment_configs (node_id, space_id, name, deleted)
+VALUES (?, ?, ?, 0)
+RETURNING deployment_id;
 
--- name: GetDeploymentConfig :one
-SELECT deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by,
-       spec_blob, deleted
-FROM deployment_configs
-WHERE deployment_id = ?;
-
--- name: UpsertDeploymentConfig :exec
-INSERT INTO deployment_configs (deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by, spec_blob, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(deployment_id) DO UPDATE SET
-    node_id = excluded.node_id,
-    space_id = excluded.space_id,
-    name = excluded.name,
-    created_at = excluded.created_at,
-    version = excluded.version,
-    updated_at = excluded.updated_at,
-    updated_by = excluded.updated_by,
-    spec_blob = excluded.spec_blob,
-    deleted = excluded.deleted;
-
--- name: ListAllDeploymentConfigs :many
-SELECT deployment_id, node_id, space_id, name, created_at, version, updated_at, updated_by,
-       spec_blob, deleted
-FROM deployment_configs
-;
+-- name: UpdateDeploymentConfigDeleted :exec
+UPDATE deployment_configs SET deleted = ? WHERE deployment_id = ?;
 
 -- === spaces ===
 
@@ -53,21 +30,21 @@ DELETE FROM spaces WHERE id = ?;
 -- name: CountDeploymentsForSpace :one
 SELECT COUNT(*) FROM deployment_configs WHERE space_id = ? AND deleted = 0;
 
--- === deployment_config_history ===
+-- === deployment_config_versions ===
 
--- name: InsertDeploymentConfigHistory :exec
-INSERT INTO deployment_config_history (deployment_id, version, updated_at, updated_by, space_id, node_id, spec_blob, deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+-- name: InsertDeploymentConfigVersion :exec
+INSERT INTO deployment_config_versions (deployment_id, version, created_at, created_by, spec_blob)
+VALUES (?, ?, ?, ?, ?);
 
--- name: ListDeploymentConfigHistory :many
-SELECT deployment_id, version, updated_at, updated_by, space_id, node_id, spec_blob, deleted
-FROM deployment_config_history
+-- name: ListDeploymentConfigVersions :many
+SELECT deployment_id, version, created_at, created_by, spec_blob
+FROM deployment_config_versions
 WHERE deployment_id = ?
 ORDER BY version ASC;
 
--- name: GetDeploymentConfigHistoryVersion :one
-SELECT deployment_id, version, updated_at, updated_by, space_id, node_id, spec_blob, deleted
-FROM deployment_config_history
+-- name: GetDeploymentConfigVersion :one
+SELECT deployment_id, version, created_at, created_by, spec_blob
+FROM deployment_config_versions
 WHERE deployment_id = ? AND version = ?;
 
 -- === scheduled_instances ===

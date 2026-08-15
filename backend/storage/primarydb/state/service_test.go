@@ -25,8 +25,8 @@ func TestPrimaryStorageIgnoresRetiredDesiredStateColumns(t *testing.T) {
 	for _, statement := range []string{
 		`ALTER TABLE deployment_configs ADD COLUMN desired_version TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE deployment_configs ADD COLUMN desired_running INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE deployment_config_history ADD COLUMN desired_version TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE deployment_config_history ADD COLUMN desired_running INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE deployment_config_versions ADD COLUMN desired_version TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE deployment_config_versions ADD COLUMN desired_running INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
@@ -411,7 +411,6 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 	}
 	updated, changed, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, DeploymentConfigUpdate{
 		ExpectedVersion: 2,
-		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            &nextSpec,
 	})
 	if !changed || !versionOK || updated.NodeID != node.ID {
@@ -445,7 +444,7 @@ func TestSetDeploymentWorkloadStateReencodesSpec(t *testing.T) {
 		t.Fatalf("read updated deployment: %v", err)
 	}
 	assertPersistedWorkloadState(t, row.SpecBlob, "v2", false)
-	history, err := store.q.ListDeploymentConfigHistory(context.Background(), int64(cfg.ID))
+	history, err := store.q.ListDeploymentConfigVersions(context.Background(), int64(cfg.ID))
 	if err != nil {
 		t.Fatalf("read updated deployment history: %v", err)
 	}

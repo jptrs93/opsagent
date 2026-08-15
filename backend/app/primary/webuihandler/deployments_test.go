@@ -1118,8 +1118,8 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 		Version:      target.Version + 1,
 		SpaceID:      &nextSpaceID,
 	})
-	if err == nil || !strings.Contains(err.Error(), "address references exist") {
-		t.Fatalf("err = %v, want address-dependent space move rejection", err)
+	if err != DeploymentSpaceMoveUnsupportedErr {
+		t.Fatalf("err = %v, want %v", err, DeploymentSpaceMoveUnsupportedErr)
 	}
 
 	_, err = h.PostV1DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
@@ -1305,8 +1305,50 @@ func TestDeploymentIdentityIsScopedByNodeID(t *testing.T) {
 		DeploymentID: otherSpace.ID,
 		Version:      otherSpace.Version + 1,
 		SpaceID:      &spaceID,
-	}); err != DuplicateDeploymentErr {
-		t.Fatalf("space move duplicate err = %v, want %v", err, DuplicateDeploymentErr)
+	}); err != DeploymentSpaceMoveUnsupportedErr {
+		t.Fatalf("space move err = %v, want %v", err, DeploymentSpaceMoveUnsupportedErr)
+	}
+}
+
+// Space moves are rejected until the planned deployment_spaces entity lands:
+// a deployment's space feeds its derived inbound address, DNS name, and issued
+// TLS identity, so silently accepting a move would leave published network
+// state stale. Naming the current space stays a no-op rather than an error so
+// full-document update payloads keep working.
+func TestDeploymentSpaceMoveRejected(t *testing.T) {
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
+	node := store.EnsurePrimaryNode("primary", "primary-id")
+	h := &Handler{ConfigService: &config.Service{}, Store: store}
+	cfg, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "web"},
+		NodeID:   node.ID,
+		Spec:     remoteDeploymentSpec("nginx", hostNetworking()),
+	})
+	if err != nil {
+		t.Fatalf("create deployment: %v", err)
+	}
+	extraSpace, err := store.CreateSpace("other")
+	if err != nil {
+		t.Fatalf("CreateSpace: %v", err)
+	}
+	if _, err := h.PostV1DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID: cfg.ID,
+		Version:      cfg.Version + 1,
+		SpaceID:      &extraSpace.ID,
+	}); err != DeploymentSpaceMoveUnsupportedErr {
+		t.Fatalf("space move err = %v, want %v", err, DeploymentSpaceMoveUnsupportedErr)
+	}
+	sameSpace := cfg.Identity.SpaceID
+	if _, err := h.PostV1DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID: cfg.ID,
+		Version:      cfg.Version + 1,
+		SpaceID:      &sameSpace,
+	}); err != nil {
+		t.Fatalf("same-space no-op update: %v", err)
+	}
+	if current := h.findConfigByID(cfg.ID); current.Version != cfg.Version || current.Identity.SpaceID != cfg.Identity.SpaceID {
+		t.Fatalf("config after rejected move = v%d space %d, want unchanged v%d space %d",
+			current.Version, current.Identity.SpaceID, cfg.Version, cfg.Identity.SpaceID)
 	}
 }
 
@@ -1501,7 +1543,6 @@ func TestDeploymentDeleteRejectedWhileOlderRolloverInstanceRuns(t *testing.T) {
 	next.Container1Spec.Version = "1.27"
 	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, created.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: created.Version + 1,
-		SpaceID:         created.Identity.SpaceID,
 		Spec:            &next,
 	})
 	if !versionOK {
@@ -1612,45 +1653,6 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 	active := store.ListActiveDeploymentConfigs()
 	if len(active) != 1 || active[0].ID != second.ID {
 		t.Fatalf("active deployments = %+v, want only new deployment %d", active, second.ID)
-	}
-}
-
-func TestDeploymentUpdateCombinesSpaceAndWorkloadStateInSingleConfigVersion(t *testing.T) {
-	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	initial := remoteDeploymentSpec("nginx", hostNetworking())
-	created := createTestDeployment(store, "primary", apigen.DeploymentIdentity{SpaceID: 1, Name: "web"}, &initial)
-	h := &Handler{ConfigService: &config.Service{}, Store: store}
-
-	target, err := store.CreateSpace("other")
-	if err != nil {
-		t.Fatalf("CreateSpace: %v", err)
-	}
-	spaceID := target.ID
-	_, err = h.PostV1DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
-		DeploymentID:  created.ID,
-		Version:       created.Version + 1,
-		SpaceID:       &spaceID,
-		TargetVersion: "1.25",
-	})
-	if err != nil {
-		t.Fatalf("PostV1DeploymentsUpdate failed: %v", err)
-	}
-
-	cfg := h.findConfigByID(created.ID)
-	if cfg == nil {
-		t.Fatal("updated deployment not found")
-	}
-	if cfg.Version != created.Version+1 {
-		t.Fatalf("version = %d, want %d", cfg.Version, created.Version+1)
-	}
-	if cfg.Identity.SpaceID != spaceID {
-		t.Fatalf("space = %d, want %d", cfg.Identity.SpaceID, spaceID)
-	}
-	if cfg.WorkloadVersion() != "1.25" || !cfg.WorkloadRunning() {
-		t.Fatalf("workload state = %+v, want running 1.25", cfg.Spec.Container1Spec)
-	}
-	if history := store.MustFetchDeploymentHistory(created.ID); len(history) != 2 {
-		t.Fatalf("history len = %d, want create + one combined update", len(history))
 	}
 }
 

@@ -244,7 +244,6 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 
 	_, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, original.ID, DeploymentConfigUpdate{
 		ExpectedVersion: original.Version + 1,
-		SpaceID:         original.Identity.SpaceID,
 		Spec:            &original.Spec,
 		Deleted:         true,
 	})

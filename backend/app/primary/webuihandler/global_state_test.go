@@ -231,7 +231,6 @@ func markDeleted(t *testing.T, h *Handler, cfg *apigen.DeploymentConfig) {
 	spec := cfg.Spec
 	_, _, versionOK := h.Store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
-		SpaceID:         cfg.Identity.SpaceID,
 		Spec:            &spec,
 		Deleted:         true,
 	})

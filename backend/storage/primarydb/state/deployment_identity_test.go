@@ -47,8 +47,8 @@ func assertNodeDeploymentIdentitySchema(t *testing.T, db *sql.DB) {
 func assertNodeDeploymentIdentityConstraint(t *testing.T, db *sql.DB) {
 	t.Helper()
 	if _, err := db.Exec(`INSERT INTO deployment_configs
-		(deployment_id, node_id, space_id, name, updated_at, spec_blob)
-		VALUES (2, 1, 1, 'app', 2, x'')`); err == nil {
+		(deployment_id, node_id, space_id, name)
+		VALUES (2, 1, 1, 'app')`); err == nil {
 		t.Fatal("second active deployment with the same node identity was accepted")
 	}
 	insertDeploymentIdentityRow(t, db, 3, 2, 0)
@@ -62,8 +62,8 @@ func assertNodeDeploymentIdentityConstraint(t *testing.T, db *sql.DB) {
 func insertDeploymentIdentityRow(t *testing.T, db *sql.DB, id, nodeID, deleted int) {
 	t.Helper()
 	if _, err := db.Exec(`INSERT INTO deployment_configs
-		(deployment_id, node_id, space_id, name, updated_at, spec_blob, deleted)
-		VALUES (?, ?, 1, 'app', ?, x'', ?)`, id, nodeID, id, deleted); err != nil {
+		(deployment_id, node_id, space_id, name, deleted)
+		VALUES (?, ?, 1, 'app', ?)`, id, nodeID, deleted); err != nil {
 		t.Fatalf("insert deployment %d: %v", id, err)
 	}
 }

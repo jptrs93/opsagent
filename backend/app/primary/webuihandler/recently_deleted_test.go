@@ -166,7 +166,6 @@ func TestRecentlyDeletedOmitsInternalDeployments(t *testing.T) {
 	}
 	_, _, ok := h.Store.UpdateDeploymentConfig(apigen.Context{Ctx: context.Background()}, internal.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: internal.Version + 1,
-		SpaceID:         internal.Identity.SpaceID,
 		Spec:            &internal.Spec,
 		Deleted:         true,
 	})

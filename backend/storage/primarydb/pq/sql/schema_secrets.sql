@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS secrets (
 CREATE TABLE IF NOT EXISTS secret_versions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     secret_id   INTEGER NOT NULL,
-    version     INTEGER NOT NULL,
+    version     INTEGER NOT NULL, -- version could be implicit but is kept to make pruning possible.
     smk_version INTEGER NOT NULL,
     ciphertext  BLOB    NOT NULL,
     nonce       BLOB    NOT NULL,
