@@ -30,21 +30,21 @@ DELETE FROM spaces WHERE id = ?;
 -- name: CountDeploymentsForSpace :one
 SELECT COUNT(*) FROM deployment_configs WHERE space_id = ? AND deleted = 0;
 
--- === deployment_config_versions ===
+-- === deployment_versions ===
 
--- name: InsertDeploymentConfigVersion :exec
-INSERT INTO deployment_config_versions (deployment_id, version, created_at, created_by, spec_blob)
+-- name: InsertDeploymentVersion :exec
+INSERT INTO deployment_versions (deployment_id, version, created_at, created_by, spec_blob)
 VALUES (?, ?, ?, ?, ?);
 
--- name: ListDeploymentConfigVersions :many
-SELECT deployment_id, version, created_at, created_by, spec_blob
-FROM deployment_config_versions
+-- name: ListDeploymentVersions :many
+SELECT id, deployment_id, version, created_at, created_by, spec_blob
+FROM deployment_versions
 WHERE deployment_id = ?
 ORDER BY version ASC;
 
--- name: GetDeploymentConfigVersion :one
-SELECT deployment_id, version, created_at, created_by, spec_blob
-FROM deployment_config_versions
+-- name: GetDeploymentVersion :one
+SELECT id, deployment_id, version, created_at, created_by, spec_blob
+FROM deployment_versions
 WHERE deployment_id = ? AND version = ?;
 
 -- === scheduled_instances ===

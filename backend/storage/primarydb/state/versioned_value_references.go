@@ -63,7 +63,7 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 			next.UpdatedAt = now
 			next.UpdatedBy = int64(updatedBy)
 			next.SpecBlob = update.spec.Encode()
-			if err := q.InsertDeploymentConfigVersion(ctx, pq.InsertDeploymentConfigVersionParams{
+			if err := q.InsertDeploymentVersion(ctx, pq.InsertDeploymentVersionParams{
 				DeploymentID: next.DeploymentID,
 				Version:      next.Version,
 				CreatedAt:    next.UpdatedAt,

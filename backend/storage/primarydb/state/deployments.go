@@ -31,9 +31,9 @@ func (s *Service) ListActiveDeploymentConfigs() []*apigen.DeploymentConfig {
 
 func (s *Service) MustFetchDeploymentHistory(deploymentID int32) []*apigen.DeploymentConfig {
 	ctx := context.Background()
-	rows, err := s.q.ListDeploymentConfigVersions(ctx, int64(deploymentID))
+	rows, err := s.q.ListDeploymentVersions(ctx, int64(deploymentID))
 	if err != nil {
-		panic(fmt.Sprintf("ListDeploymentConfigVersions: %v", err))
+		panic(fmt.Sprintf("ListDeploymentVersions: %v", err))
 	}
 	base := s.configCache[deploymentID]
 	out := make([]*apigen.DeploymentConfig, 0, len(rows))
@@ -108,14 +108,14 @@ func (s *Service) mustCommitDeploymentConfigLocked(prev, next pq.DeploymentConfi
 	bgCtx := context.Background()
 	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
 		if next.Version != prev.Version {
-			if err := q.InsertDeploymentConfigVersion(bgCtx, pq.InsertDeploymentConfigVersionParams{
+			if err := q.InsertDeploymentVersion(bgCtx, pq.InsertDeploymentVersionParams{
 				DeploymentID: next.DeploymentID,
 				Version:      next.Version,
 				CreatedAt:    next.UpdatedAt,
 				CreatedBy:    next.UpdatedBy,
 				SpecBlob:     next.SpecBlob,
 			}); err != nil {
-				panic(fmt.Sprintf("InsertDeploymentConfigVersion (%s): %v", label, err))
+				panic(fmt.Sprintf("InsertDeploymentVersion (%s): %v", label, err))
 			}
 		}
 		if next.Deleted != prev.Deleted {
@@ -214,14 +214,14 @@ func (s *Service) mustCreateDeploymentLocked(cid *apigen.DeploymentIdentity, nod
 		if err != nil {
 			panic(fmt.Sprintf("CreateDeploymentConfig (%s): %v", label, err))
 		}
-		if err := q.InsertDeploymentConfigVersion(bgCtx, pq.InsertDeploymentConfigVersionParams{
+		if err := q.InsertDeploymentVersion(bgCtx, pq.InsertDeploymentVersionParams{
 			DeploymentID: dbID,
 			Version:      1,
 			CreatedAt:    now,
 			CreatedBy:    createdBy,
 			SpecBlob:     specBlob,
 		}); err != nil {
-			panic(fmt.Sprintf("InsertDeploymentConfigVersion (%s): %v", label, err))
+			panic(fmt.Sprintf("InsertDeploymentVersion (%s): %v", label, err))
 		}
 		return nil
 	}); err != nil {

@@ -221,7 +221,7 @@ func (s *Service) configForInstanceLocked(inst *apigen.ScheduledInstance) *apige
 }
 
 func (s *Service) loadConfigVersionLocked(deploymentID, version int32) *apigen.DeploymentConfig {
-	row, err := s.q.GetDeploymentConfigVersion(context.Background(), pq.GetDeploymentConfigVersionParams{
+	row, err := s.q.GetDeploymentVersion(context.Background(), pq.GetDeploymentVersionParams{
 		DeploymentID: int64(deploymentID),
 		Version:      int64(version),
 	})

@@ -13,23 +13,21 @@
 -- last_login_at column adds and backfill. A third sweep (2026-08-15, after
 -- every active cluster reached v0.0.426) removed the run-once authz verb
 -- renumber fixup (its local_kv marker 'migration.authz-verb-renumber' may
--- linger and is harmless). Upgrading a database from before
--- then requires stepping through a release that still carried them.
+-- linger and is harmless). A fourth sweep (2026-08-15, after every active
+-- cluster reached v0.0.432) removed the deployment config identity/versions
+-- split (deployment_config_history into deployment_config_versions plus the
+-- deployment_configs column drops). Upgrading a database from before then
+-- requires stepping through a release that still carried them.
 
--- 2026-08-15 deployment config identity/versions split. The append-only
--- deployment_config_history becomes deployment_config_versions (schema files
--- run first, so the new table already exists and the copy lands in it), and
--- deployment_configs is slimmed to the stable identity columns. The guard copy
--- from deployment_configs covers a current version that somehow never reached
--- history. Both copies and the drops are no-ops once applied (PK conflicts are
--- ignored and missing tables/columns are tolerated).
-INSERT OR IGNORE INTO deployment_config_versions (deployment_id, version, created_at, created_by, spec_blob)
-SELECT deployment_id, version, updated_at, updated_by, spec_blob FROM deployment_config_history;
-INSERT OR IGNORE INTO deployment_config_versions (deployment_id, version, created_at, created_by, spec_blob)
-SELECT deployment_id, version, updated_at, updated_by, spec_blob FROM deployment_configs;
-DROP TABLE IF EXISTS deployment_config_history;
-ALTER TABLE deployment_configs DROP COLUMN version;
-ALTER TABLE deployment_configs DROP COLUMN created_at;
-ALTER TABLE deployment_configs DROP COLUMN updated_at;
-ALTER TABLE deployment_configs DROP COLUMN updated_by;
-ALTER TABLE deployment_configs DROP COLUMN spec_blob;
+-- 2026-08-15 rebuild the deployment spec version log as deployment_versions,
+-- which adds an id primary key (SQLite cannot add a primary-key column in
+-- place, and a same-name rebuild would re-fire on every startup, so the table
+-- is renamed as part of the change). Schema files run first, so the new empty
+-- table already exists and the copy lands in it. The ORDER BY makes id
+-- assignment chronological and deterministic. Both statements are no-ops once
+-- applied: the source table no longer exists.
+INSERT OR IGNORE INTO deployment_versions (deployment_id, version, created_at, created_by, spec_blob)
+SELECT deployment_id, version, created_at, created_by, spec_blob
+FROM deployment_config_versions
+ORDER BY created_at, deployment_id, version;
+DROP TABLE IF EXISTS deployment_config_versions;

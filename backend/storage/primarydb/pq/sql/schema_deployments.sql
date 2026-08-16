@@ -2,7 +2,7 @@
 -- versions split. One row per deployment, ever: deletion is a tombstone (the
 -- partial unique index below frees the identity tuple for reuse), and the node
 -- is fixed for the life of a deployment. The spec lives in immutable
--- deployment_config_versions rows; creation/update times and attribution are
+-- deployment_versions rows; creation/update times and attribution are
 -- derived from the first/latest version row. space_id is identity-level state:
 -- moving spaces does not mint a version.
 CREATE TABLE IF NOT EXISTS deployment_configs (
@@ -17,18 +17,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_deployment_configs_active_node_identity
     ON deployment_configs(node_id, space_id, name)
     WHERE deleted = 0;
 
--- Immutable spec versions, append-only. The current desired state is the
--- MAX(version) row; scheduled instances and status reports pin
--- (deployment_id, version) pairs, so rows must never be renumbered or pruned.
--- Deleting a deployment appends a final workload-stopped version, so a
--- tombstone's deletion time is its latest version's created_at.
-CREATE TABLE IF NOT EXISTS deployment_config_versions (
+-- Immutable spec versions, append-only, mirroring config_versions. The current
+-- desired state is the MAX(version) row; scheduled instances and status reports
+-- pin (deployment_id, version) pairs, so rows must never be renumbered or
+-- pruned. Deleting a deployment appends a final workload-stopped version, so a
+-- tombstone's deletion time is its latest version's created_at. id is a stable
+-- no-reuse identity for the version row itself; nothing pins it yet.
+CREATE TABLE IF NOT EXISTS deployment_versions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
     deployment_id   INTEGER NOT NULL,
-    version         INTEGER NOT NULL,
+    version         INTEGER NOT NULL,  -- version could be implicit but is kept to make pruning possible.
     created_at      INTEGER NOT NULL,  -- epoch ms
     created_by      INTEGER NOT NULL DEFAULT 0,
     spec_blob       BLOB    NOT NULL,
-    PRIMARY KEY (deployment_id, version)
+    UNIQUE (deployment_id, version)
 );
 
 -- One row per placement/runtime incarnation. state: 0=run, 1=terminate, 2=finalized.

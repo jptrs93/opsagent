@@ -5,9 +5,9 @@ import (
 )
 
 // Hand-written deployment config reads. A deployment's current desired config
-// is its identity row joined with its latest deployment_config_versions row;
-// creation time and attribution come from the first version row. Version rows
-// are append-only and never pruned, so both rows always exist.
+// is its identity row joined with its latest deployment_versions row; creation
+// time and attribution come from the first version row. Version rows are
+// append-only and never pruned, so both rows always exist.
 
 // DeploymentConfigRow is a stable identity joined with its latest version.
 type DeploymentConfigRow struct {
@@ -26,12 +26,12 @@ type DeploymentConfigRow struct {
 const deploymentConfigRowSelect = `
 	SELECT d.deployment_id, d.node_id, d.space_id, d.name, d.deleted,
 	       v.version,
-	       (SELECT f.created_at FROM deployment_config_versions f
+	       (SELECT f.created_at FROM deployment_versions f
 	        WHERE f.deployment_id = d.deployment_id ORDER BY f.version LIMIT 1),
 	       v.created_at, v.created_by, v.spec_blob
 	FROM deployment_configs d
-	JOIN deployment_config_versions v ON v.deployment_id = d.deployment_id
-	    AND v.version = (SELECT MAX(m.version) FROM deployment_config_versions m
+	JOIN deployment_versions v ON v.deployment_id = d.deployment_id
+	    AND v.version = (SELECT MAX(m.version) FROM deployment_versions m
 	                     WHERE m.deployment_id = d.deployment_id)`
 
 type deploymentConfigScanner interface {

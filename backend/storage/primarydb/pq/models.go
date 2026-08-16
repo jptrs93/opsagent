@@ -109,7 +109,8 @@ type DeploymentConfig struct {
 	Deleted      int64
 }
 
-type DeploymentConfigVersion struct {
+type DeploymentVersion struct {
+	ID           int64
 	DeploymentID int64
 	Version      int64
 	CreatedAt    int64

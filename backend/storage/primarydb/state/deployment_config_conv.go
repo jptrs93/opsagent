@@ -31,7 +31,7 @@ func configRowToProto(r pq.DeploymentConfigRow) *apigen.DeploymentConfig {
 // tombstone state) come from base — the deployment's current cached config —
 // since the version rows carry only the immutable spec. base may be nil when
 // the identity is not cached; identity fields are then zero-valued.
-func configVersionRowToProto(v pq.DeploymentConfigVersion, base *apigen.DeploymentConfig) *apigen.DeploymentConfig {
+func configVersionRowToProto(v pq.DeploymentVersion, base *apigen.DeploymentConfig) *apigen.DeploymentConfig {
 	spec := mustDecodeDeploymentSpec(v.SpecBlob, v.DeploymentID, v.Version)
 	cfg := &apigen.DeploymentConfig{
 		ID:        int32(v.DeploymentID),

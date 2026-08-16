@@ -639,21 +639,22 @@ func (q *Queries) GetConfigVersionByID(ctx context.Context, id int64) (GetConfig
 	return i, err
 }
 
-const getDeploymentConfigVersion = `-- name: GetDeploymentConfigVersion :one
-SELECT deployment_id, version, created_at, created_by, spec_blob
-FROM deployment_config_versions
+const getDeploymentVersion = `-- name: GetDeploymentVersion :one
+SELECT id, deployment_id, version, created_at, created_by, spec_blob
+FROM deployment_versions
 WHERE deployment_id = ? AND version = ?
 `
 
-type GetDeploymentConfigVersionParams struct {
+type GetDeploymentVersionParams struct {
 	DeploymentID int64
 	Version      int64
 }
 
-func (q *Queries) GetDeploymentConfigVersion(ctx context.Context, arg GetDeploymentConfigVersionParams) (DeploymentConfigVersion, error) {
-	row := q.db.QueryRowContext(ctx, getDeploymentConfigVersion, arg.DeploymentID, arg.Version)
-	var i DeploymentConfigVersion
+func (q *Queries) GetDeploymentVersion(ctx context.Context, arg GetDeploymentVersionParams) (DeploymentVersion, error) {
+	row := q.db.QueryRowContext(ctx, getDeploymentVersion, arg.DeploymentID, arg.Version)
+	var i DeploymentVersion
 	err := row.Scan(
+		&i.ID,
 		&i.DeploymentID,
 		&i.Version,
 		&i.CreatedAt,
@@ -1213,13 +1214,13 @@ func (q *Queries) InsertConfigVersion(ctx context.Context, arg InsertConfigVersi
 	return i, err
 }
 
-const insertDeploymentConfigVersion = `-- name: InsertDeploymentConfigVersion :exec
+const insertDeploymentVersion = `-- name: InsertDeploymentVersion :exec
 
-INSERT INTO deployment_config_versions (deployment_id, version, created_at, created_by, spec_blob)
+INSERT INTO deployment_versions (deployment_id, version, created_at, created_by, spec_blob)
 VALUES (?, ?, ?, ?, ?)
 `
 
-type InsertDeploymentConfigVersionParams struct {
+type InsertDeploymentVersionParams struct {
 	DeploymentID int64
 	Version      int64
 	CreatedAt    int64
@@ -1227,9 +1228,9 @@ type InsertDeploymentConfigVersionParams struct {
 	SpecBlob     []byte
 }
 
-// === deployment_config_versions ===
-func (q *Queries) InsertDeploymentConfigVersion(ctx context.Context, arg InsertDeploymentConfigVersionParams) error {
-	_, err := q.db.ExecContext(ctx, insertDeploymentConfigVersion,
+// === deployment_versions ===
+func (q *Queries) InsertDeploymentVersion(ctx context.Context, arg InsertDeploymentVersionParams) error {
+	_, err := q.db.ExecContext(ctx, insertDeploymentVersion,
 		arg.DeploymentID,
 		arg.Version,
 		arg.CreatedAt,
@@ -1874,23 +1875,24 @@ func (q *Queries) ListConfigVersionsByConfigID(ctx context.Context, configID int
 	return items, nil
 }
 
-const listDeploymentConfigVersions = `-- name: ListDeploymentConfigVersions :many
-SELECT deployment_id, version, created_at, created_by, spec_blob
-FROM deployment_config_versions
+const listDeploymentVersions = `-- name: ListDeploymentVersions :many
+SELECT id, deployment_id, version, created_at, created_by, spec_blob
+FROM deployment_versions
 WHERE deployment_id = ?
 ORDER BY version ASC
 `
 
-func (q *Queries) ListDeploymentConfigVersions(ctx context.Context, deploymentID int64) ([]DeploymentConfigVersion, error) {
-	rows, err := q.db.QueryContext(ctx, listDeploymentConfigVersions, deploymentID)
+func (q *Queries) ListDeploymentVersions(ctx context.Context, deploymentID int64) ([]DeploymentVersion, error) {
+	rows, err := q.db.QueryContext(ctx, listDeploymentVersions, deploymentID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []DeploymentConfigVersion
+	var items []DeploymentVersion
 	for rows.Next() {
-		var i DeploymentConfigVersion
+		var i DeploymentVersion
 		if err := rows.Scan(
+			&i.ID,
 			&i.DeploymentID,
 			&i.Version,
 			&i.CreatedAt,
