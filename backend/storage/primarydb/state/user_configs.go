@@ -86,16 +86,23 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, aut
 	var row Config
 	var version pq.ConfigVersion
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		var err error
-		row, err = q.InsertConfigRow(ctx, pq.InsertConfigRowParams{
+		id, err := q.InsertConfigRow(ctx, pq.InsertConfigRowParams{
 			Name:             name,
-			SpaceID:          space,
 			ValueDirectoryID: dirID,
 			CreatedAt:        now,
 		})
 		if err != nil {
 			panic(fmt.Sprintf("InsertConfigRow: %v", err))
 		}
+		if err := q.InsertConfigSpaceRow(ctx, pq.InsertConfigSpaceRowParams{
+			ConfigID:  id,
+			Author:    int64(author),
+			CreatedAt: now,
+			SpaceID:   space,
+		}); err != nil {
+			panic(fmt.Sprintf("InsertConfigSpaceRow: %v", err))
+		}
+		row = Config{ID: id, Name: name, SpaceID: space, ValueDirectoryID: dirID, CreatedAt: now}
 		version, err = q.InsertConfigVersion(ctx, pq.InsertConfigVersionParams{
 			ConfigID:  row.ID,
 			Version:   1,
@@ -250,10 +257,11 @@ func (s *Service) MoveConfigDirectory(configID, newDirectoryID int32) (Config, e
 
 // MoveConfigSpace moves a config to another space, landing it in
 // newDirectoryID there (0 = the destination space's root). Version rows are
-// untouched, so every pinned reference survives. Reference locality is the
-// caller's law — the handler refuses the move while anything outside the
+// untouched, so every pinned reference survives. A space change appends to
+// the config_spaces log with author as the acting user. Reference locality is
+// the caller's law — the handler refuses the move while anything outside the
 // destination space references the config.
-func (s *Service) MoveConfigSpace(configID, newSpaceID, newDirectoryID int32) error {
+func (s *Service) MoveConfigSpace(configID, newSpaceID, newDirectoryID, author int32) error {
 	ctx := context.Background()
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -287,14 +295,31 @@ func (s *Service) MoveConfigSpace(configID, newSpaceID, newDirectoryID int32) er
 	if s.valueSiblingNameTakenLocked(ctx, s.q, spaceID, dirID, row.Name, 0, row.ID, 0) {
 		return ErrValueAlreadyExists
 	}
-	if err := s.q.SetConfigSpace(ctx, pq.SetConfigSpaceParams{SpaceID: spaceID, ValueDirectoryID: dirID, ID: row.ID}); err != nil {
-		panic(fmt.Sprintf("SetConfigSpace: %v", err))
+	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		if spaceID != row.SpaceID {
+			if err := q.InsertConfigSpaceRow(ctx, pq.InsertConfigSpaceRowParams{
+				ConfigID:  row.ID,
+				Author:    int64(author),
+				CreatedAt: time.Now().UnixMilli(),
+				SpaceID:   spaceID,
+			}); err != nil {
+				panic(fmt.Sprintf("InsertConfigSpaceRow: %v", err))
+			}
+		}
+		if err := q.SetConfigValueDirectoryID(ctx, pq.SetConfigValueDirectoryIDParams{ValueDirectoryID: dirID, ID: row.ID}); err != nil {
+			panic(fmt.Sprintf("SetConfigValueDirectoryID: %v", err))
+		}
+		return nil
+	}); err != nil {
+		panic(fmt.Sprintf("config space move tx: %v", err))
 	}
 	return nil
 }
 
-// DeleteConfig removes the config identity and all its versions. Returns the
-// deleted meta (marked Deleted) for notification, or false if absent.
+// DeleteConfig soft-deletes the config identity. Version rows stay in place,
+// so the delete is recoverable at the DB level; reads exclude the config from
+// here on. Returns the deleted meta (marked Deleted) for notification, or
+// false if absent.
 func (s *Service) DeleteConfig(configID int32) (*apigen.ConfigMeta, bool) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -302,17 +327,11 @@ func (s *Service) DeleteConfig(configID int32) (*apigen.ConfigMeta, bool) {
 	if !ok {
 		return nil, false
 	}
-	ctx := context.Background()
-	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		if err := q.DeleteConfigVersionsByConfigID(ctx, int64(configID)); err != nil {
-			panic(fmt.Sprintf("DeleteConfigVersionsByConfigID: %v", err))
-		}
-		if err := q.DeleteConfigRow(ctx, int64(configID)); err != nil {
-			panic(fmt.Sprintf("DeleteConfigRow: %v", err))
-		}
-		return nil
+	if err := s.q.SoftDeleteConfigRow(context.Background(), pq.SoftDeleteConfigRowParams{
+		DeletedAt: time.Now().UnixMilli(),
+		ID:        int64(configID),
 	}); err != nil {
-		panic(fmt.Sprintf("delete config tx: %v", err))
+		panic(fmt.Sprintf("SoftDeleteConfigRow: %v", err))
 	}
 	meta.Deleted = true
 	return meta, true

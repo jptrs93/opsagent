@@ -25,10 +25,10 @@ type AgentSession struct {
 
 type Asset struct {
 	ID               int64
-	SpaceID          int64
 	Key              string
 	AssetDirectoryID int64
 	CreatedAt        int64
+	DeletedAt        int64
 }
 
 type AssetDirectory struct {
@@ -50,6 +50,14 @@ type AssetMigration struct {
 	StartedAt          int64
 	LastAttemptAt      int64
 	FinishedAt         int64
+}
+
+type AssetSpace struct {
+	ID        int64
+	AssetID   int64
+	Author    int64
+	CreatedAt int64
+	SpaceID   int64
 }
 
 type AssetStore struct {
@@ -76,17 +84,17 @@ type AuthzGrant struct {
 	ID         int64
 	UserID     int64
 	TemplateID int64
-	Deleted    int64
+	DeletedAt  int64
 	Author     int64
 	CreatedAt  int64
 	DataBlob   []byte
 }
 
 type AuthzRuleTemplate struct {
-	ID      int64
-	Name    string
-	Builtin int64
-	Deleted int64
+	ID        int64
+	Name      string
+	Builtin   int64
+	DeletedAt int64
 }
 
 type AuthzRuleTemplateVersion struct {
@@ -101,9 +109,17 @@ type AuthzRuleTemplateVersion struct {
 type Config struct {
 	ID               int64
 	Name             string
-	SpaceID          int64
 	ValueDirectoryID int64
 	CreatedAt        int64
+	DeletedAt        int64
+}
+
+type ConfigSpace struct {
+	ID        int64
+	ConfigID  int64
+	Author    int64
+	CreatedAt int64
+	SpaceID   int64
 }
 
 type ConfigVersion struct {
@@ -120,7 +136,7 @@ type DeploymentConfig struct {
 	NodeID       int64
 	SpaceID      int64
 	Name         string
-	Deleted      int64
+	DeletedAt    int64
 }
 
 type DeploymentVersion struct {
@@ -216,9 +232,9 @@ type ScheduledInstanceVersion struct {
 type Secret struct {
 	ID               int64
 	Name             string
-	SpaceID          int64
 	ValueDirectoryID int64
 	CreatedAt        int64
+	DeletedAt        int64
 }
 
 type SecretKeyslot struct {
@@ -228,6 +244,14 @@ type SecretKeyslot struct {
 	Nonce      []byte
 	KdfSalt    []byte
 	CreatedAt  int64
+}
+
+type SecretSpace struct {
+	ID        int64
+	SecretID  int64
+	Author    int64
+	CreatedAt int64
+	SpaceID   int64
 }
 
 type SecretVersion struct {

@@ -15,7 +15,7 @@ type DeploymentConfigRow struct {
 	NodeID       int64
 	SpaceID      int64
 	Name         string
-	Deleted      int64
+	DeletedAt    int64
 	Version      int64
 	CreatedAt    int64 // first version's created_at
 	UpdatedAt    int64 // latest version's created_at
@@ -24,7 +24,7 @@ type DeploymentConfigRow struct {
 }
 
 const deploymentConfigRowSelect = `
-	SELECT d.deployment_id, d.node_id, d.space_id, d.name, d.deleted,
+	SELECT d.deployment_id, d.node_id, d.space_id, d.name, d.deleted_at,
 	       v.version,
 	       (SELECT f.created_at FROM deployment_versions f
 	        WHERE f.deployment_id = d.deployment_id ORDER BY f.version LIMIT 1),
@@ -40,7 +40,7 @@ type deploymentConfigScanner interface {
 
 func scanDeploymentConfigRow(scanner deploymentConfigScanner) (DeploymentConfigRow, error) {
 	var r DeploymentConfigRow
-	err := scanner.Scan(&r.DeploymentID, &r.NodeID, &r.SpaceID, &r.Name, &r.Deleted,
+	err := scanner.Scan(&r.DeploymentID, &r.NodeID, &r.SpaceID, &r.Name, &r.DeletedAt,
 		&r.Version, &r.CreatedAt, &r.UpdatedAt, &r.Author, &r.SpecBlob)
 	return r, err
 }

@@ -10,10 +10,22 @@ CREATE TABLE IF NOT EXISTS secret_keyslots (
 CREATE TABLE IF NOT EXISTS secrets (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     name               TEXT    NOT NULL,
-    space_id           INTEGER NOT NULL DEFAULT 1,
     value_directory_id INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
-    created_at         INTEGER NOT NULL             -- epoch ms
+    created_at         INTEGER NOT NULL,            -- epoch ms
+    deleted_at         INTEGER NOT NULL DEFAULT 0   -- epoch ms, 0 = not deleted
 );
+
+-- Append-only log of space assignments; the newest row is the secret's current
+-- space. Creation writes the first row.
+CREATE TABLE IF NOT EXISTS secret_spaces (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    secret_id   INTEGER NOT NULL,
+    author  INTEGER NOT NULL DEFAULT 0,  -- user id
+    created_at  INTEGER NOT NULL,            -- epoch ms
+    space_id    INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_secret_spaces_secret ON secret_spaces (secret_id);
 
 -- ciphertext is AEAD-sealed under the SMK with
 -- "opendeploy-secret:user:s<secret_id>:v<version>" as associated data, so it

@@ -301,9 +301,7 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 	var a Asset
 	var v pq.AssetVersion
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		var err error
-		a, err = q.InsertAssetRow(ctx, pq.InsertAssetRowParams{
-			SpaceID:          space,
+		id, err := q.InsertAssetRow(ctx, pq.InsertAssetRowParams{
 			Key:              key,
 			AssetDirectoryID: dirID,
 			CreatedAt:        now,
@@ -311,6 +309,15 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 		if err != nil {
 			panic(fmt.Sprintf("InsertAssetRow: %v", err))
 		}
+		if err := q.InsertAssetSpaceRow(ctx, pq.InsertAssetSpaceRowParams{
+			AssetID:   id,
+			Author:    int64(author),
+			CreatedAt: now,
+			SpaceID:   space,
+		}); err != nil {
+			panic(fmt.Sprintf("InsertAssetSpaceRow: %v", err))
+		}
+		a = Asset{ID: id, Key: key, SpaceID: space, AssetDirectoryID: dirID, CreatedAt: now}
 		v, err = q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
 			AssetID:   a.ID,
 			Version:   1,
@@ -452,9 +459,10 @@ func (s *Service) MoveAssetDirectory(assetID, newDirectoryID int32) (Asset, erro
 // MoveAssetSpace moves an asset to another space, landing it in
 // newDirectoryID there (0 = the destination space's root). Version rows, ids,
 // and content are untouched, so every pinned mount and reference survives.
-// Reference locality is the caller's law — the handler refuses the move while
-// anything outside the destination space references the asset.
-func (s *Service) MoveAssetSpace(assetID, newSpaceID, newDirectoryID int32) error {
+// A space change appends to the asset_spaces log with author as the acting
+// user. Reference locality is the caller's law — the handler refuses the move
+// while anything outside the destination space references the asset.
+func (s *Service) MoveAssetSpace(assetID, newSpaceID, newDirectoryID, author int32) error {
 	ctx := context.Background()
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -488,27 +496,37 @@ func (s *Service) MoveAssetSpace(assetID, newSpaceID, newDirectoryID int32) erro
 	if s.assetSiblingKeyTakenLocked(ctx, s.q, spaceID, dirID, a.Key, a.ID, 0) {
 		return ErrAssetAlreadyExists
 	}
-	if err := s.q.SetAssetSpace(ctx, pq.SetAssetSpaceParams{SpaceID: spaceID, AssetDirectoryID: dirID, ID: a.ID}); err != nil {
-		panic(fmt.Sprintf("SetAssetSpace: %v", err))
+	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		if spaceID != a.SpaceID {
+			if err := q.InsertAssetSpaceRow(ctx, pq.InsertAssetSpaceRowParams{
+				AssetID:   a.ID,
+				Author:    int64(author),
+				CreatedAt: time.Now().UnixMilli(),
+				SpaceID:   spaceID,
+			}); err != nil {
+				panic(fmt.Sprintf("InsertAssetSpaceRow: %v", err))
+			}
+		}
+		if err := q.SetAssetDirectoryID(ctx, pq.SetAssetDirectoryIDParams{AssetDirectoryID: dirID, ID: a.ID}); err != nil {
+			panic(fmt.Sprintf("SetAssetDirectoryID: %v", err))
+		}
+		return nil
+	}); err != nil {
+		panic(fmt.Sprintf("asset space move tx: %v", err))
 	}
 	return nil
 }
 
-// DeleteAsset removes the asset identity and every version row. Content-store
-// rows are the caller's to reclaim — other assets may share them by sha.
+// DeleteAsset soft-deletes the asset identity. Version rows, space history,
+// and content stay in place, so the delete is recoverable at the DB level;
+// reads exclude the asset from here on.
 func (s *Service) DeleteAsset(assetID int32) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	ctx := context.Background()
-	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		if err := q.DeleteAssetVersionsByAssetID(ctx, int64(assetID)); err != nil {
-			panic(fmt.Sprintf("DeleteAssetVersionsByAssetID: %v", err))
-		}
-		if err := q.DeleteAssetRow(ctx, int64(assetID)); err != nil {
-			panic(fmt.Sprintf("DeleteAssetRow: %v", err))
-		}
-		return nil
+	if err := s.q.SoftDeleteAssetRow(context.Background(), pq.SoftDeleteAssetRowParams{
+		DeletedAt: time.Now().UnixMilli(),
+		ID:        int64(assetID),
 	}); err != nil {
-		panic(fmt.Sprintf("asset delete tx: %v", err))
+		panic(fmt.Sprintf("SoftDeleteAssetRow: %v", err))
 	}
 }

@@ -11,10 +11,22 @@ CREATE TABLE IF NOT EXISTS value_directories (
 CREATE TABLE IF NOT EXISTS configs (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     name               TEXT    NOT NULL,
-    space_id           INTEGER NOT NULL DEFAULT 1,
     value_directory_id INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
-    created_at         INTEGER NOT NULL             -- epoch ms
+    created_at         INTEGER NOT NULL,            -- epoch ms
+    deleted_at         INTEGER NOT NULL DEFAULT 0   -- epoch ms, 0 = not deleted
 );
+
+-- Append-only log of space assignments; the newest row is the config's current
+-- space. Creation writes the first row.
+CREATE TABLE IF NOT EXISTS config_spaces (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    config_id   INTEGER NOT NULL,
+    author  INTEGER NOT NULL DEFAULT 0,  -- user id
+    created_at  INTEGER NOT NULL,            -- epoch ms
+    space_id    INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_config_spaces_config ON config_spaces (config_id);
 
 CREATE TABLE IF NOT EXISTS config_versions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

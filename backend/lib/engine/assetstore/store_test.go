@@ -121,11 +121,16 @@ func TestLargeAssetStoredLocallyWhenBackupDisabled(t *testing.T) {
 	if err := store.DeleteAsset(context.Background(), asset.AssetID); err != nil {
 		t.Fatalf("DeleteAsset: %v", err)
 	}
-	if _, err := os.Stat(localPath(row.ID)); !os.IsNotExist(err) {
-		t.Fatalf("local file still exists after delete: %v", err)
+	// Deletes are soft: surviving version rows keep the content referenced.
+	if _, err := os.Stat(localPath(row.ID)); err != nil {
+		t.Fatalf("local file gone after soft delete: %v", err)
 	}
-	if _, ok := store.DB.GetAssetStoreRowBySha(hashBlob(blob)); ok {
-		t.Fatal("content store row still exists after delete")
+	if _, ok := store.DB.GetAssetStoreRowBySha(hashBlob(blob)); !ok {
+		t.Fatal("content store row gone after soft delete")
+	}
+	// The large-assets dir is shared process state; leave it clean.
+	if err := os.Remove(localPath(row.ID)); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -158,8 +163,9 @@ func TestDuplicateContentSharesOneStoreRow(t *testing.T) {
 	if err := store.DeleteAsset(context.Background(), second.AssetID); err != nil {
 		t.Fatalf("delete second: %v", err)
 	}
-	if _, ok := store.DB.GetAssetStoreRowBySha(first.Sha256); ok {
-		t.Fatal("content row still exists after last reference deleted")
+	// Deletes are soft: the surviving version rows keep the content referenced.
+	if _, ok := store.DB.GetAssetStoreRowBySha(first.Sha256); !ok {
+		t.Fatal("content row gone after soft deletes")
 	}
 }
 
@@ -313,6 +319,11 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	mu.Unlock()
 	if !retained {
 		t.Fatal("S3 object was not retained after asset deletion")
+	}
+	// Deletes are soft, so the local content survives; the large-assets dir is
+	// shared process state, so leave it clean.
+	if err := os.Remove(localPath(row.ID)); err != nil {
+		t.Fatal(err)
 	}
 }
 

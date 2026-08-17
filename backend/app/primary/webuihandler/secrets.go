@@ -274,7 +274,7 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 		}
 		// Through the Manager, not the store: cached version records denormalize
 		// the space, and reveal/edit authz reads it.
-		if err := h.Secrets.MoveSpace(req.SecretID, req.SpaceID, req.ValueDirectoryID); err != nil {
+		if err := h.Secrets.MoveSpace(req.SecretID, req.SpaceID, req.ValueDirectoryID, ctx.AttributionUserID()); err != nil {
 			return nil, mapSecretErr(err)
 		}
 		// Clients that saw the old space but cannot see the new one would

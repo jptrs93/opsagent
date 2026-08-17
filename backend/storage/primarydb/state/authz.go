@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/lib/authz"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -28,7 +29,7 @@ func (s *Service) ListAuthzRuleTemplates() ([]authz.RuleTemplateRow, error) {
 			ID:        row.ID,
 			Name:      row.Name,
 			Builtin:   row.Builtin != 0,
-			Deleted:   row.Deleted != 0,
+			Deleted:   row.DeletedAt != 0,
 			Author:    row.Author,
 			CreatedAt: row.CreatedAt,
 			Blob:      row.DataBlob,
@@ -74,7 +75,10 @@ func (s *Service) UpdateAuthzRuleTemplate(id int64, name string, blob []byte, au
 }
 
 func (s *Service) DeleteAuthzRuleTemplate(id int64) error {
-	return s.q.SetAuthzRuleTemplateDeleted(context.Background(), id)
+	return s.q.SetAuthzRuleTemplateDeletedAt(context.Background(), pq.SetAuthzRuleTemplateDeletedAtParams{
+		DeletedAt: time.Now().UnixMilli(),
+		ID:        id,
+	})
 }
 
 // UpsertAuthzRuleTemplate seeds a builtin template. It runs on every startup,
@@ -131,7 +135,10 @@ func (s *Service) InsertAuthzGrant(row authz.GrantRow) (int64, error) {
 }
 
 func (s *Service) DeleteAuthzGrant(id int64) error {
-	return s.q.SetAuthzGrantDeleted(context.Background(), id)
+	return s.q.SetAuthzGrantDeletedAt(context.Background(), pq.SetAuthzGrantDeletedAtParams{
+		DeletedAt: time.Now().UnixMilli(),
+		ID:        id,
+	})
 }
 
 func (s *Service) ListAuthzGlobalRules() ([]authz.GlobalRuleRow, error) {

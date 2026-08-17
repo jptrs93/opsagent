@@ -39,7 +39,7 @@ func assertNodeDeploymentIdentitySchema(t *testing.T, db *sql.DB) {
 		t.Fatalf("read node identity index: %v", err)
 	}
 	indexSQL = strings.ToLower(indexSQL)
-	if !strings.Contains(indexSQL, "node_id, space_id, name") || !strings.Contains(indexSQL, "where deleted = 0") {
+	if !strings.Contains(indexSQL, "node_id, space_id, name") || !strings.Contains(indexSQL, "where deleted_at = 0") {
 		t.Fatalf("node identity index = %q", indexSQL)
 	}
 }
@@ -53,17 +53,17 @@ func assertNodeDeploymentIdentityConstraint(t *testing.T, db *sql.DB) {
 	}
 	insertDeploymentIdentityRow(t, db, 3, 2, 0)
 	insertDeploymentIdentityRow(t, db, 4, 1, 1)
-	if _, err := db.Exec(`UPDATE deployment_configs SET deleted = 1 WHERE deployment_id = 1`); err != nil {
+	if _, err := db.Exec(`UPDATE deployment_configs SET deleted_at = 1755000000000 WHERE deployment_id = 1`); err != nil {
 		t.Fatalf("delete active deployment: %v", err)
 	}
 	insertDeploymentIdentityRow(t, db, 5, 1, 0)
 }
 
-func insertDeploymentIdentityRow(t *testing.T, db *sql.DB, id, nodeID, deleted int) {
+func insertDeploymentIdentityRow(t *testing.T, db *sql.DB, id, nodeID, deletedAt int) {
 	t.Helper()
 	if _, err := db.Exec(`INSERT INTO deployment_configs
-		(deployment_id, node_id, space_id, name, deleted)
-		VALUES (?, ?, 1, 'app', ?)`, id, nodeID, deleted); err != nil {
+		(deployment_id, node_id, space_id, name, deleted_at)
+		VALUES (?, ?, 1, 'app', ?)`, id, nodeID, deletedAt); err != nil {
 		t.Fatalf("insert deployment %d: %v", id, err)
 	}
 }

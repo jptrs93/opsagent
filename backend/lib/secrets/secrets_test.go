@@ -129,7 +129,7 @@ func (m *memStore) RenameSecret(secretID int32, newName string) error {
 	}
 	return nil
 }
-func (m *memStore) MoveSecretSpace(secretID, newSpaceID, newDirectoryID int32) error {
+func (m *memStore) MoveSecretSpace(secretID, newSpaceID, newDirectoryID, author int32) error {
 	identity, ok := m.identities[secretID]
 	if !ok {
 		return fmt.Errorf("secret %d not found", secretID)

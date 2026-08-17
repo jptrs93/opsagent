@@ -4,12 +4,12 @@
 -- auto-allocates its deployment_id. Deleted deployments do not reserve their
 -- former identity tuple. The caller inserts the v1 version row in the same tx.
 -- name: CreateDeploymentConfig :one
-INSERT INTO deployment_configs (node_id, space_id, name, deleted)
+INSERT INTO deployment_configs (node_id, space_id, name, deleted_at)
 VALUES (?, ?, ?, 0)
 RETURNING deployment_id;
 
--- name: UpdateDeploymentConfigDeleted :exec
-UPDATE deployment_configs SET deleted = ? WHERE deployment_id = ?;
+-- name: UpdateDeploymentConfigDeletedAt :exec
+UPDATE deployment_configs SET deleted_at = ? WHERE deployment_id = ?;
 
 -- === spaces ===
 
@@ -28,7 +28,7 @@ RETURNING id, name;
 DELETE FROM spaces WHERE id = ?;
 
 -- name: CountDeploymentsForSpace :one
-SELECT COUNT(*) FROM deployment_configs WHERE space_id = ? AND deleted = 0;
+SELECT COUNT(*) FROM deployment_configs WHERE space_id = ? AND deleted_at = 0;
 
 -- === deployment_versions ===
 
@@ -196,29 +196,28 @@ ON CONFLICT(kid) DO UPDATE SET key_bytes = excluded.key_bytes;
 
 -- === configs ===
 
--- name: ListConfigRows :many
-SELECT id, name, space_id, value_directory_id, created_at
-FROM configs
-ORDER BY name;
-
--- name: GetConfigRowByID :one
-SELECT id, name, space_id, value_directory_id, created_at
-FROM configs WHERE id = ?;
-
--- name: GetConfigInDirectoryByName :one
-SELECT id, name, space_id, value_directory_id, created_at
-FROM configs WHERE space_id = ? AND value_directory_id = ? AND name = ?;
+-- Container reads are hand-written in values.go: the current space is the
+-- newest config_spaces row and reads exclude soft-deleted configs.
 
 -- name: InsertConfigRow :one
-INSERT INTO configs (name, space_id, value_directory_id, created_at)
-VALUES (?, ?, ?, ?)
-RETURNING id, name, space_id, value_directory_id, created_at;
+INSERT INTO configs (name, value_directory_id, created_at)
+VALUES (?, ?, ?)
+RETURNING id;
+
+-- name: InsertConfigSpaceRow :exec
+INSERT INTO config_spaces (config_id, author, created_at, space_id)
+VALUES (?, ?, ?, ?);
+
+-- name: ListConfigSpaceRowsByConfigID :many
+SELECT id, config_id, author, created_at, space_id
+FROM config_spaces WHERE config_id = ?
+ORDER BY id ASC;
 
 -- name: RenameConfigRow :exec
 UPDATE configs SET name = ? WHERE id = ?;
 
--- name: DeleteConfigRow :exec
-DELETE FROM configs WHERE id = ?;
+-- name: SoftDeleteConfigRow :exec
+UPDATE configs SET deleted_at = ? WHERE id = ?;
 
 -- name: ListConfigVersionRows :many
 SELECT id, config_id, version, value, created_at, author
@@ -230,12 +229,6 @@ SELECT id, config_id, version, value, created_at, author
 FROM config_versions WHERE config_id = ?
 ORDER BY version ASC;
 
--- name: GetConfigVersionByID :one
-SELECT v.id, v.config_id, v.version, v.value, v.created_at, v.author, c.name, c.space_id
-FROM config_versions v
-JOIN configs c ON c.id = v.config_id
-WHERE v.id = ?;
-
 -- name: GetNextConfigVersionNumber :one
 SELECT COALESCE(MAX(version), 0) + 1
 FROM config_versions
@@ -245,9 +238,6 @@ WHERE config_id = ?;
 INSERT INTO config_versions (config_id, version, value, created_at, author)
 VALUES (?, ?, ?, ?, ?)
 RETURNING id, config_id, version, value, created_at, author;
-
--- name: DeleteConfigVersionsByConfigID :exec
-DELETE FROM config_versions WHERE config_id = ?;
 
 -- === value directories (shared by secrets and configs) ===
 
@@ -283,10 +273,10 @@ DELETE FROM value_directories WHERE id = ?;
 SELECT COUNT(*) FROM value_directories WHERE parent_id = ?;
 
 -- name: CountSecretsInDirectory :one
-SELECT COUNT(*) FROM secrets WHERE value_directory_id = ?;
+SELECT COUNT(*) FROM secrets WHERE value_directory_id = ? AND deleted_at = 0;
 
 -- name: CountConfigsInDirectory :one
-SELECT COUNT(*) FROM configs WHERE value_directory_id = ?;
+SELECT COUNT(*) FROM configs WHERE value_directory_id = ? AND deleted_at = 0;
 
 -- name: SetSecretValueDirectoryID :exec
 UPDATE secrets SET value_directory_id = ? WHERE id = ?;
@@ -294,49 +284,28 @@ UPDATE secrets SET value_directory_id = ? WHERE id = ?;
 -- name: SetConfigValueDirectoryID :exec
 UPDATE configs SET value_directory_id = ? WHERE id = ?;
 
--- name: SetSecretSpace :exec
-UPDATE secrets SET space_id = ?, value_directory_id = ? WHERE id = ?;
-
--- name: SetConfigSpace :exec
-UPDATE configs SET space_id = ?, value_directory_id = ? WHERE id = ?;
-
--- name: CountConfigSiblingsWithName :one
-SELECT COUNT(*) FROM configs
-WHERE space_id = ? AND value_directory_id = ? AND name = ? AND id != ?;
-
--- name: CountSecretSiblingsWithName :one
-SELECT COUNT(*) FROM secrets
-WHERE space_id = ? AND value_directory_id = ? AND name = ? AND id != ?;
-
 -- === assets ===
 
--- name: ListAssetRows :many
-SELECT id, space_id, key, asset_directory_id, created_at
-FROM assets
-ORDER BY key;
-
--- name: GetAssetByID :one
-SELECT id, space_id, key, asset_directory_id, created_at
-FROM assets
-WHERE id = ?;
-
--- name: GetAssetInDirectoryByKey :one
-SELECT id, space_id, key, asset_directory_id, created_at
-FROM assets
-WHERE space_id = ? AND asset_directory_id = ? AND key = ?;
-
--- name: CountAssetSiblingsWithKey :one
-SELECT COUNT(*) FROM assets
-WHERE space_id = ? AND asset_directory_id = ? AND key = ? AND id != ?;
+-- Container reads are hand-written in assets.go: the current space is the
+-- newest asset_spaces row and reads exclude soft-deleted assets.
 
 -- name: CountDirectorySiblingsWithKey :one
 SELECT COUNT(*) FROM asset_directories
 WHERE space_id = ? AND parent_id = ? AND key = ? AND id != ?;
 
 -- name: InsertAssetRow :one
-INSERT INTO assets (space_id, key, asset_directory_id, created_at)
-VALUES (?, ?, ?, ?)
-RETURNING id, space_id, key, asset_directory_id, created_at;
+INSERT INTO assets (key, asset_directory_id, created_at)
+VALUES (?, ?, ?)
+RETURNING id;
+
+-- name: InsertAssetSpaceRow :exec
+INSERT INTO asset_spaces (asset_id, author, created_at, space_id)
+VALUES (?, ?, ?, ?);
+
+-- name: ListAssetSpaceRowsByAssetID :many
+SELECT id, asset_id, author, created_at, space_id
+FROM asset_spaces WHERE asset_id = ?
+ORDER BY id ASC;
 
 -- name: RenameAssetKey :exec
 UPDATE assets SET key = ? WHERE id = ?;
@@ -344,11 +313,8 @@ UPDATE assets SET key = ? WHERE id = ?;
 -- name: SetAssetDirectoryID :exec
 UPDATE assets SET asset_directory_id = ? WHERE id = ?;
 
--- name: SetAssetSpace :exec
-UPDATE assets SET space_id = ?, asset_directory_id = ? WHERE id = ?;
-
--- name: DeleteAssetRow :exec
-DELETE FROM assets WHERE id = ?;
+-- name: SoftDeleteAssetRow :exec
+UPDATE assets SET deleted_at = ? WHERE id = ?;
 
 -- name: GetAssetDirectoryByID :one
 SELECT id, space_id, key, parent_id, created_at, author
@@ -375,7 +341,7 @@ UPDATE asset_directories SET parent_id = ? WHERE id = ?;
 DELETE FROM asset_directories WHERE id = ?;
 
 -- name: CountAssetsInDirectory :one
-SELECT COUNT(*) FROM assets WHERE asset_directory_id = ?;
+SELECT COUNT(*) FROM assets WHERE asset_directory_id = ? AND deleted_at = 0;
 
 -- name: CountChildAssetDirectories :one
 SELECT COUNT(*) FROM asset_directories WHERE parent_id = ?;
@@ -389,9 +355,6 @@ WHERE asset_id = ?;
 INSERT INTO asset_versions (asset_id, version, created_at, author, size_bytes, sha256)
 VALUES (?, ?, ?, ?, ?, ?)
 RETURNING id, asset_id, version, created_at, author, size_bytes, sha256;
-
--- name: DeleteAssetVersionsByAssetID :exec
-DELETE FROM asset_versions WHERE asset_id = ?;
 
 -- name: CountAssetVersionsBySha :one
 SELECT COUNT(*) FROM asset_versions WHERE sha256 = ?;
@@ -494,36 +457,29 @@ ON CONFLICT(slot) DO UPDATE SET
 
 -- === secrets ===
 
--- name: ListSecretRows :many
-SELECT id, name, space_id, value_directory_id, created_at
-FROM secrets
-ORDER BY name;
-
--- name: GetSecretRowByID :one
-SELECT id, name, space_id, value_directory_id, created_at
-FROM secrets WHERE id = ?;
-
--- name: GetSecretInDirectoryByName :one
-SELECT id, name, space_id, value_directory_id, created_at
-FROM secrets WHERE space_id = ? AND value_directory_id = ? AND name = ?;
+-- Container reads and the version-record list are hand-written in values.go:
+-- the current space is the newest secret_spaces row and reads exclude
+-- soft-deleted secrets.
 
 -- name: InsertSecretRow :one
-INSERT INTO secrets (name, space_id, value_directory_id, created_at)
-VALUES (?, ?, ?, ?)
-RETURNING id, name, space_id, value_directory_id, created_at;
+INSERT INTO secrets (name, value_directory_id, created_at)
+VALUES (?, ?, ?)
+RETURNING id;
+
+-- name: InsertSecretSpaceRow :exec
+INSERT INTO secret_spaces (secret_id, author, created_at, space_id)
+VALUES (?, ?, ?, ?);
+
+-- name: ListSecretSpaceRowsBySecretID :many
+SELECT id, secret_id, author, created_at, space_id
+FROM secret_spaces WHERE secret_id = ?
+ORDER BY id ASC;
 
 -- name: RenameSecretRow :exec
 UPDATE secrets SET name = ? WHERE id = ?;
 
--- name: DeleteSecretRow :exec
-DELETE FROM secrets WHERE id = ?;
-
--- name: ListSecretVersionRecords :many
-SELECT v.id, v.secret_id, v.version, v.smk_version, v.ciphertext, v.nonce, v.created_at, v.author,
-       s.name, s.space_id
-FROM secret_versions v
-JOIN secrets s ON s.id = v.secret_id
-ORDER BY v.secret_id, v.version;
+-- name: SoftDeleteSecretRow :exec
+UPDATE secrets SET deleted_at = ? WHERE id = ?;
 
 -- name: ListSecretVersionMetas :many
 SELECT id, secret_id, version, created_at, author
@@ -542,9 +498,6 @@ RETURNING id, secret_id, version, smk_version, ciphertext, nonce, created_at, au
 
 -- name: UpdateSecretVersionCiphertext :exec
 UPDATE secret_versions SET smk_version = ?, ciphertext = ?, nonce = ? WHERE id = ?;
-
--- name: DeleteSecretVersionsBySecretID :exec
-DELETE FROM secret_versions WHERE secret_id = ?;
 
 -- name: ListSecretVersionIDsBySecretID :many
 SELECT id FROM secret_versions WHERE secret_id = ? ORDER BY version;
@@ -598,7 +551,7 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value;
 -- same tx; content updates are pure appends.
 
 -- name: CreateAuthzRuleTemplate :one
-INSERT INTO authz_rule_templates (name, builtin, deleted)
+INSERT INTO authz_rule_templates (name, builtin, deleted_at)
 VALUES (?, 0, 0) RETURNING id;
 
 -- name: AppendAuthzRuleTemplateVersion :exec
@@ -610,16 +563,16 @@ WHERE template_id = @template_id;
 -- name: UpdateAuthzRuleTemplateName :exec
 UPDATE authz_rule_templates SET name = ? WHERE id = ?;
 
--- name: SetAuthzRuleTemplateDeleted :exec
-UPDATE authz_rule_templates SET deleted = 1 WHERE id = ?;
+-- name: SetAuthzRuleTemplateDeletedAt :exec
+UPDATE authz_rule_templates SET deleted_at = ? WHERE id = ?;
 
 -- name: UpsertAuthzRuleTemplateIdentity :exec
-INSERT INTO authz_rule_templates (id, name, builtin, deleted)
+INSERT INTO authz_rule_templates (id, name, builtin, deleted_at)
 VALUES (?, ?, 1, 0)
 ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
     builtin = 1,
-    deleted = 0;
+    deleted_at = 0;
 
 -- name: GetLatestAuthzRuleTemplateVersionBlob :one
 SELECT data_blob FROM authz_rule_template_versions
@@ -627,14 +580,14 @@ WHERE template_id = ? ORDER BY id DESC LIMIT 1;
 
 -- name: ListAuthzGrantRows :many
 SELECT id, user_id, template_id, author, created_at, data_blob FROM authz_grants
-WHERE deleted = 0;
+WHERE deleted_at = 0;
 
 -- name: InsertAuthzGrantRow :one
 INSERT INTO authz_grants (user_id, template_id, author, created_at, data_blob)
 VALUES (?, ?, ?, ?, ?) RETURNING id;
 
--- name: SetAuthzGrantDeleted :exec
-UPDATE authz_grants SET deleted = 1 WHERE id = ?;
+-- name: SetAuthzGrantDeletedAt :exec
+UPDATE authz_grants SET deleted_at = ? WHERE id = ?;
 
 -- name: ListGlobalAccessRuleRows :many
 SELECT id, name, author, created_at, data_blob FROM global_access_rules;

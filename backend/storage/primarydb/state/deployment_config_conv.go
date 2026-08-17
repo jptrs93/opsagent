@@ -22,7 +22,7 @@ func configRowToProto(r pq.DeploymentConfigRow) *apigen.DeploymentConfig {
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),
 		Author:    int32(r.Author),
 		Spec:      deploymentSpecValue(spec),
-		Deleted:   r.Deleted != 0,
+		Deleted:   r.DeletedAt != 0,
 	}
 }
 

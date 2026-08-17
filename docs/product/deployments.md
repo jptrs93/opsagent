@@ -101,7 +101,8 @@ stable identity (node, space, name, tombstone) lives in `deployment_configs`,
 and every spec revision is an immutable append-only row in
 `deployment_versions`, so the UI can reconstruct the sequence of
 changes. The current desired state is the latest version row; deleting appends
-a final workload-stopped version before tombstoning the identity.
+a final workload-stopped version before tombstoning the identity
+(`deleted_at`, `0` = live).
 
 Space moves are rejected (`deployment_space_move_unsupported`), and the UI
 locks the space alongside name and node after creation: the space feeds the

@@ -3,12 +3,12 @@ CREATE TABLE IF NOT EXISTS deployment_configs (
     node_id         INTEGER NOT NULL DEFAULT -1,
     space_id        INTEGER NOT NULL DEFAULT 1 CHECK (space_id BETWEEN 0 AND 65535),
     name            TEXT    NOT NULL DEFAULT '',
-    deleted         INTEGER NOT NULL DEFAULT 0
+    deleted_at      INTEGER NOT NULL DEFAULT 0  -- epoch ms, 0 = not deleted
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_deployment_configs_active_node_identity
     ON deployment_configs(node_id, space_id, name)
-    WHERE deleted = 0;
+    WHERE deleted_at = 0;
 
 -- Scheduled instances and status reports pin (deployment_id, version)
 CREATE TABLE IF NOT EXISTS deployment_versions (

@@ -148,7 +148,7 @@ type Store interface {
 	AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal SealFunc, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(Record)) (Record, []int32, error)
 	UpdateSecretVersionCiphertext(versionID, smkVersion int32, ciphertext, nonce []byte)
 	RenameSecret(secretID int32, newName string) error
-	MoveSecretSpace(secretID, newSpaceID, newDirectoryID int32) error
+	MoveSecretSpace(secretID, newSpaceID, newDirectoryID, author int32) error
 	DeleteSecret(secretID int32) error
 	GetSystemSecret(name string) (SystemRecord, bool)
 	UpsertSystemSecret(SystemRecord)
@@ -480,13 +480,13 @@ func (m *Manager) Rename(secretID int32, newName string) error {
 // identity id, not the space, so no re-encryption happens — but cached version
 // records denormalize the space, and authz decisions read it, so the cache is
 // fixed up here. Safe to call while locked (no decryption needed).
-func (m *Manager) MoveSpace(secretID, newSpaceID, directoryID int32) error {
+func (m *Manager) MoveSpace(secretID, newSpaceID, directoryID, author int32) error {
 	if newSpaceID <= 0 {
 		newSpaceID = defaultUserSpaceID
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.store.MoveSecretSpace(secretID, newSpaceID, directoryID); err != nil {
+	if err := m.store.MoveSecretSpace(secretID, newSpaceID, directoryID, author); err != nil {
 		return err
 	}
 	for id, rec := range m.cache {

@@ -9,11 +9,23 @@ CREATE TABLE IF NOT EXISTS asset_directories (
 
 CREATE TABLE IF NOT EXISTS assets (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    space_id            INTEGER NOT NULL DEFAULT 1,
     key                 TEXT    NOT NULL,
     asset_directory_id  INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
-    created_at          INTEGER NOT NULL             -- epoch ms
+    created_at          INTEGER NOT NULL,            -- epoch ms
+    deleted_at          INTEGER NOT NULL DEFAULT 0   -- epoch ms, 0 = not deleted
 );
+
+-- Append-only log of space assignments; the newest row is the asset's current
+-- space. Creation writes the first row.
+CREATE TABLE IF NOT EXISTS asset_spaces (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id    INTEGER NOT NULL,
+    author  INTEGER NOT NULL DEFAULT 0,  -- user id
+    created_at  INTEGER NOT NULL,            -- epoch ms
+    space_id    INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_asset_spaces_asset ON asset_spaces (asset_id);
 
 CREATE TABLE IF NOT EXISTS asset_versions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

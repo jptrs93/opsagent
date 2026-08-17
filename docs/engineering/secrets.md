@@ -40,9 +40,15 @@ to live there (configs keep the strict same-space rule), and a
 cluster-settings reference pins the value to the global space. Both the
 deployment-write check and the check-and-move run under
 `ConfigService.LockReferences()` so neither side can race the other.
-`MoveSecretSpace` / `MoveConfigSpace` rewrite `space_id` +
-`value_directory_id` in one locked store op (the destination directory must
-belong to the destination space, and sibling-name uniqueness holds there).
+`MoveSecretSpace` / `MoveConfigSpace` append the new space to the
+`secret_spaces` / `config_spaces` log (with the acting user as `author`) and
+rewrite `value_directory_id` in one locked tx (the destination directory must
+belong to the destination space, and sibling-name uniqueness holds there);
+the newest log row is the current space, and the log preserves the full
+assignment history. Deletion is soft (`deleted_at`, `0` = live): the identity
+and version rows stay in the database but every read excludes them — the
+Manager's startup record load included, so a deleted secret cannot resurface
+in the cache — and the name is immediately reusable.
 Secret space moves go through `Manager.MoveSpace`, which also fixes the
 denormalized `SpaceID` on cached version records — reveal/edit authz reads
 it. On the state stream a delete-tombstone precedes the update so clients

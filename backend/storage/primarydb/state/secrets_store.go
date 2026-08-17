@@ -103,16 +103,23 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, aut
 	var row Secret
 	var version pq.SecretVersion
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		var err error
-		row, err = q.InsertSecretRow(ctx, pq.InsertSecretRowParams{
+		id, err := q.InsertSecretRow(ctx, pq.InsertSecretRowParams{
 			Name:             name,
-			SpaceID:          space,
 			ValueDirectoryID: dirID,
 			CreatedAt:        now,
 		})
 		if err != nil {
 			panic(fmt.Sprintf("InsertSecretRow: %v", err))
 		}
+		if err := q.InsertSecretSpaceRow(ctx, pq.InsertSecretSpaceRowParams{
+			SecretID:  id,
+			Author:    int64(author),
+			CreatedAt: now,
+			SpaceID:   space,
+		}); err != nil {
+			panic(fmt.Sprintf("InsertSecretSpaceRow: %v", err))
+		}
+		row = Secret{ID: id, Name: name, SpaceID: space, ValueDirectoryID: dirID, CreatedAt: now}
 		sealed, err := seal(int32(row.ID), 1)
 		if err != nil {
 			return err
@@ -274,10 +281,11 @@ func (s *Service) MoveSecretDirectory(secretID, newDirectoryID int32) (Secret, e
 // MoveSecretSpace moves a secret to another space, landing it in
 // newDirectoryID there (0 = the destination space's root). Version rows and
 // their sealed bytes are untouched: the AAD binds the identity id, not the
-// location, so every pinned reference survives. Reference locality is the
+// location, so every pinned reference survives. A space change appends to the
+// secret_spaces log with author as the acting user. Reference locality is the
 // caller's law — the handler refuses the move while anything outside the
 // destination space references the secret.
-func (s *Service) MoveSecretSpace(secretID, newSpaceID, newDirectoryID int32) error {
+func (s *Service) MoveSecretSpace(secretID, newSpaceID, newDirectoryID, author int32) error {
 	ctx := context.Background()
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -311,13 +319,31 @@ func (s *Service) MoveSecretSpace(secretID, newSpaceID, newDirectoryID int32) er
 	if s.valueSiblingNameTakenLocked(ctx, s.q, spaceID, dirID, row.Name, row.ID, 0, 0) {
 		return ErrValueAlreadyExists
 	}
-	if err := s.q.SetSecretSpace(ctx, pq.SetSecretSpaceParams{SpaceID: spaceID, ValueDirectoryID: dirID, ID: row.ID}); err != nil {
-		panic(fmt.Sprintf("SetSecretSpace: %v", err))
+	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		if spaceID != row.SpaceID {
+			if err := q.InsertSecretSpaceRow(ctx, pq.InsertSecretSpaceRowParams{
+				SecretID:  row.ID,
+				Author:    int64(author),
+				CreatedAt: time.Now().UnixMilli(),
+				SpaceID:   spaceID,
+			}); err != nil {
+				panic(fmt.Sprintf("InsertSecretSpaceRow: %v", err))
+			}
+		}
+		if err := q.SetSecretValueDirectoryID(ctx, pq.SetSecretValueDirectoryIDParams{ValueDirectoryID: dirID, ID: row.ID}); err != nil {
+			panic(fmt.Sprintf("SetSecretValueDirectoryID: %v", err))
+		}
+		return nil
+	}); err != nil {
+		panic(fmt.Sprintf("secret space move tx: %v", err))
 	}
 	return nil
 }
 
-// DeleteSecret removes the secret identity and all its versions.
+// DeleteSecret soft-deletes the secret identity. Version rows and their
+// sealed bytes stay in place, so the delete is recoverable at the DB level;
+// reads (including the Manager's startup record load) exclude the secret from
+// here on.
 func (s *Service) DeleteSecret(secretID int32) error {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -327,16 +353,11 @@ func (s *Service) DeleteSecret(secretID int32) error {
 	} else if err != nil {
 		panic(fmt.Sprintf("GetSecretRowByID: %v", err))
 	}
-	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		if err := q.DeleteSecretVersionsBySecretID(ctx, int64(secretID)); err != nil {
-			panic(fmt.Sprintf("DeleteSecretVersionsBySecretID: %v", err))
-		}
-		if err := q.DeleteSecretRow(ctx, int64(secretID)); err != nil {
-			panic(fmt.Sprintf("DeleteSecretRow: %v", err))
-		}
-		return nil
+	if err := s.q.SoftDeleteSecretRow(ctx, pq.SoftDeleteSecretRowParams{
+		DeletedAt: time.Now().UnixMilli(),
+		ID:        int64(secretID),
 	}); err != nil {
-		panic(fmt.Sprintf("delete secret tx: %v", err))
+		panic(fmt.Sprintf("SoftDeleteSecretRow: %v", err))
 	}
 	return nil
 }

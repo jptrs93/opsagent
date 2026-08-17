@@ -317,21 +317,11 @@ func (s *Store) DeleteAsset(ctx context.Context, assetID int32) error {
 	defer s.mu.Unlock()
 
 	meta, hadVersions := s.DB.GetAssetMeta(assetID)
-	versions := s.DB.ListAssetVersionsJoinedOfAsset(assetID)
+	// Soft delete: version rows survive, so the content they reference stays
+	// reclaim-exempt and the asset is recoverable at the DB level.
 	s.DB.DeleteAsset(assetID)
 	if hadVersions {
 		s.DB.NotifyAssetDeleted(meta)
-	}
-	seen := map[string]struct{}{}
-	for _, v := range versions {
-		sha := v.Version.Sha256
-		if _, ok := seen[sha]; ok {
-			continue
-		}
-		seen[sha] = struct{}{}
-		if err := s.reclaimStoreContent(sha); err != nil {
-			return err
-		}
 	}
 	return nil
 }

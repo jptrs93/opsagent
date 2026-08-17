@@ -122,7 +122,7 @@ func prepareDeploymentReferenceUpdates(
 		// references it held when it was deleted. It will never run again, so
 		// rewriting it is pointless — and counting it here would make every
 		// rotation fail against the live set the caller can see.
-		if row.Deleted != 0 {
+		if row.DeletedAt != 0 {
 			continue
 		}
 		spec, err := apigen.DecodeDeploymentSpec(row.SpecBlob)

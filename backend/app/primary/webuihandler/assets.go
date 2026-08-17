@@ -243,7 +243,7 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 		if h.referencesOutsideSpace(h.assetVersionIDSet(req.AssetID), assetRefIDs, destSpace) {
 			return nil, MoveReferencesOutsideSpaceErr
 		}
-		if err := h.Store.MoveAssetSpace(req.AssetID, req.SpaceID, req.AssetDirectoryID); err != nil {
+		if err := h.Store.MoveAssetSpace(req.AssetID, req.SpaceID, req.AssetDirectoryID, ctx.AttributionUserID()); err != nil {
 			return nil, mapAssetStoreErr(err)
 		}
 		// Tombstone for clients that saw the old space but cannot see the new

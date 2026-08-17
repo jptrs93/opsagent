@@ -16,7 +16,7 @@ type AuthzRuleTemplateRow struct {
 	ID        int64
 	Name      string
 	Builtin   int64
-	Deleted   int64
+	DeletedAt int64
 	Author    int64  // first version's author
 	CreatedAt int64  // first version's created_at
 	DataBlob  []byte // latest version's data_blob
@@ -24,7 +24,7 @@ type AuthzRuleTemplateRow struct {
 
 func (q *Queries) ListAuthzRuleTemplateRows(ctx context.Context) ([]AuthzRuleTemplateRow, error) {
 	rows, err := q.db.QueryContext(ctx, `
-		SELECT t.id, t.name, t.builtin, t.deleted, f.author, f.created_at, v.data_blob
+		SELECT t.id, t.name, t.builtin, t.deleted_at, f.author, f.created_at, v.data_blob
 		FROM authz_rule_templates t
 		JOIN authz_rule_template_versions f ON f.id =
 		    (SELECT MIN(m.id) FROM authz_rule_template_versions m
@@ -40,7 +40,7 @@ func (q *Queries) ListAuthzRuleTemplateRows(ctx context.Context) ([]AuthzRuleTem
 	var out []AuthzRuleTemplateRow
 	for rows.Next() {
 		var r AuthzRuleTemplateRow
-		if err := rows.Scan(&r.ID, &r.Name, &r.Builtin, &r.Deleted,
+		if err := rows.Scan(&r.ID, &r.Name, &r.Builtin, &r.DeletedAt,
 			&r.Author, &r.CreatedAt, &r.DataBlob); err != nil {
 			return nil, err
 		}

@@ -141,7 +141,7 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 		if h.referencesOutsideSpace(ids, runtimeinputs.ConfigRefs, destSpace) {
 			return nil, MoveReferencesOutsideSpaceErr
 		}
-		if err := h.Store.MoveConfigSpace(req.ConfigID, req.SpaceID, req.ValueDirectoryID); err != nil {
+		if err := h.Store.MoveConfigSpace(req.ConfigID, req.SpaceID, req.ValueDirectoryID, ctx.AttributionUserID()); err != nil {
 			return nil, mapConfigStoreErr(err)
 		}
 		// Tombstone for clients that saw the old space but cannot see the new

@@ -82,9 +82,15 @@ func (s *Service) UpdateDeploymentConfig(ctx apigen.Context, deploymentID int32,
 	}
 
 	next := existing
-	next.Deleted = boolToInt(update.Deleted)
+	if update.Deleted {
+		if existing.DeletedAt == 0 {
+			next.DeletedAt = now
+		}
+	} else {
+		next.DeletedAt = 0
+	}
 	if bytes.Equal(specBlob, existing.SpecBlob) &&
-		next.Deleted == existing.Deleted {
+		next.DeletedAt == existing.DeletedAt {
 		return configRowToProto(existing), false, true
 	}
 
@@ -118,12 +124,12 @@ func (s *Service) mustCommitDeploymentConfigLocked(prev, next pq.DeploymentConfi
 				panic(fmt.Sprintf("InsertDeploymentVersion (%s): %v", label, err))
 			}
 		}
-		if next.Deleted != prev.Deleted {
-			if err := q.UpdateDeploymentConfigDeleted(bgCtx, pq.UpdateDeploymentConfigDeletedParams{
-				Deleted:      next.Deleted,
+		if next.DeletedAt != prev.DeletedAt {
+			if err := q.UpdateDeploymentConfigDeletedAt(bgCtx, pq.UpdateDeploymentConfigDeletedAtParams{
+				DeletedAt:    next.DeletedAt,
 				DeploymentID: next.DeploymentID,
 			}); err != nil {
-				panic(fmt.Sprintf("UpdateDeploymentConfigDeleted (%s): %v", label, err))
+				panic(fmt.Sprintf("UpdateDeploymentConfigDeletedAt (%s): %v", label, err))
 			}
 		}
 		return nil

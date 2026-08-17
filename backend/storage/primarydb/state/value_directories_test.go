@@ -339,14 +339,14 @@ func TestMoveSecretSpace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.MoveSecretSpace(sec.SecretID, DefaultSpaceID, 0); err != nil {
+	if err := store.MoveSecretSpace(sec.SecretID, DefaultSpaceID, 0, 1); err != nil {
 		t.Fatalf("same-space no-op err = %v", err)
 	}
-	if err := store.MoveSecretSpace(999, 2, 0); !errors.Is(err, ErrValueNotFound) {
+	if err := store.MoveSecretSpace(999, 2, 0, 1); !errors.Is(err, ErrValueNotFound) {
 		t.Fatalf("missing secret err = %v, want ErrValueNotFound", err)
 	}
 
-	if err := store.MoveSecretSpace(sec.SecretID, 2, 0); err != nil {
+	if err := store.MoveSecretSpace(sec.SecretID, 2, 0, 1); err != nil {
 		t.Fatalf("space move: %v", err)
 	}
 	meta, ok := store.GetSecretMeta(sec.SecretID)
@@ -364,18 +364,18 @@ func TestMoveSecretSpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recreate at vacated name: %v", err)
 	}
-	if err := store.MoveSecretSpace(sec.SecretID, DefaultSpaceID, 0); !errors.Is(err, ErrValueAlreadyExists) {
+	if err := store.MoveSecretSpace(sec.SecretID, DefaultSpaceID, 0, 1); !errors.Is(err, ErrValueAlreadyExists) {
 		t.Fatalf("move onto taken name err = %v, want ErrValueAlreadyExists", err)
 	}
 
 	// A destination directory must live in the destination space; the origin's
 	// directory reads as absent there.
 	originDir, _ := store.CreateValueDirectory(int32(DefaultSpaceID), 0, "app", 0)
-	if err := store.MoveSecretSpace(dup.SecretID, 2, int32(originDir.ID)); !errors.Is(err, ErrValueDirectoryNotFound) {
+	if err := store.MoveSecretSpace(dup.SecretID, 2, int32(originDir.ID), 1); !errors.Is(err, ErrValueDirectoryNotFound) {
 		t.Fatalf("foreign destination dir err = %v, want ErrValueDirectoryNotFound", err)
 	}
 	destDir, _ := store.CreateValueDirectory(2, 0, "app", 0)
-	if err := store.MoveSecretSpace(dup.SecretID, 2, int32(destDir.ID)); err != nil {
+	if err := store.MoveSecretSpace(dup.SecretID, 2, int32(destDir.ID), 1); err != nil {
 		t.Fatalf("space move into directory: %v", err)
 	}
 	meta, ok = store.GetSecretMeta(dup.SecretID)
@@ -391,14 +391,14 @@ func TestMoveConfigSpace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.MoveConfigSpace(cfg.ID, DefaultSpaceID, 0); err != nil {
+	if err := store.MoveConfigSpace(cfg.ID, DefaultSpaceID, 0, 1); err != nil {
 		t.Fatalf("same-space no-op err = %v", err)
 	}
-	if err := store.MoveConfigSpace(999, 2, 0); !errors.Is(err, ErrValueNotFound) {
+	if err := store.MoveConfigSpace(999, 2, 0, 1); !errors.Is(err, ErrValueNotFound) {
 		t.Fatalf("missing config err = %v, want ErrValueNotFound", err)
 	}
 
-	if err := store.MoveConfigSpace(cfg.ID, 2, 0); err != nil {
+	if err := store.MoveConfigSpace(cfg.ID, 2, 0, 1); err != nil {
 		t.Fatalf("space move: %v", err)
 	}
 	meta, ok := store.GetConfigMeta(cfg.ID)
@@ -419,7 +419,7 @@ func TestMoveConfigSpace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.MoveConfigSpace(cfg2.ID, 2, 0); !errors.Is(err, ErrValueAlreadyExists) {
+	if err := store.MoveConfigSpace(cfg2.ID, 2, 0, 1); !errors.Is(err, ErrValueAlreadyExists) {
 		t.Fatalf("move onto secret name err = %v, want ErrValueAlreadyExists", err)
 	}
 }

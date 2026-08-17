@@ -34,3 +34,48 @@
 -- author column renames across twelve tables and the container-level author
 -- column drops on assets/secrets/configs. Upgrading a database from before
 -- then requires stepping through a release that still carried them.
+
+-- Purge rows soft-deleted under the old deleted flag before it becomes
+-- deleted_at. The rename doubles as the backfill: every surviving row has
+-- deleted = 0. Purged deployments take their version and scheduled-instance
+-- history with them so a later reuse of a freed deployment_id cannot inherit
+-- stale rows.
+DELETE FROM scheduled_instance_status WHERE scheduled_instance_id IN (
+    SELECT id FROM scheduled_instances WHERE deployment_id IN (
+        SELECT deployment_id FROM deployment_configs WHERE deleted = 1));
+DELETE FROM scheduled_instance_versions WHERE scheduled_instance_id IN (
+    SELECT id FROM scheduled_instances WHERE deployment_id IN (
+        SELECT deployment_id FROM deployment_configs WHERE deleted = 1));
+DELETE FROM scheduled_instances WHERE deployment_id IN (
+    SELECT deployment_id FROM deployment_configs WHERE deleted = 1);
+DELETE FROM deployment_versions WHERE deployment_id IN (
+    SELECT deployment_id FROM deployment_configs WHERE deleted = 1);
+DELETE FROM deployment_configs WHERE deleted = 1;
+ALTER TABLE deployment_configs RENAME COLUMN deleted TO deleted_at;
+DELETE FROM authz_rule_template_versions WHERE template_id IN (
+    SELECT id FROM authz_rule_templates WHERE deleted = 1);
+DELETE FROM authz_rule_templates WHERE deleted = 1;
+ALTER TABLE authz_rule_templates RENAME COLUMN deleted TO deleted_at;
+DELETE FROM authz_grants WHERE deleted = 1;
+ALTER TABLE authz_grants RENAME COLUMN deleted TO deleted_at;
+
+ALTER TABLE assets ADD COLUMN deleted_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE secrets ADD COLUMN deleted_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE configs ADD COLUMN deleted_at INTEGER NOT NULL DEFAULT 0;
+
+-- Space assignments move into append-only *_spaces logs. The backfill writes
+-- each existing row's current space as its initial assignment (author 0 =
+-- unknown, stamped with the container's creation time), then the denormalized
+-- column drops. Re-runs fail on the dropped space_id column and are tolerated.
+INSERT INTO asset_spaces (asset_id, author, created_at, space_id)
+SELECT id, 0, created_at, space_id FROM assets
+WHERE id NOT IN (SELECT asset_id FROM asset_spaces);
+ALTER TABLE assets DROP COLUMN space_id;
+INSERT INTO secret_spaces (secret_id, author, created_at, space_id)
+SELECT id, 0, created_at, space_id FROM secrets
+WHERE id NOT IN (SELECT secret_id FROM secret_spaces);
+ALTER TABLE secrets DROP COLUMN space_id;
+INSERT INTO config_spaces (config_id, author, created_at, space_id)
+SELECT id, 0, created_at, space_id FROM configs
+WHERE id NOT IN (SELECT config_id FROM config_spaces);
+ALTER TABLE configs DROP COLUMN space_id;
