@@ -26,16 +26,8 @@
 -- its converter had hashed away all 'legacy:' placeholder shas) removed the
 -- asset content split (the asset_store backfill, the asset_versions sha256
 -- column add and blob/location drops, and the background legacy-sha
--- converter). Upgrading a database from before then requires stepping through
--- a release that still carried them.
-
--- 2026-08-17 authz rule template identity/versions split and grant soft
--- delete. The backfill reads columns the drops below remove, so re-runs stop
--- at the tolerated "no such column".
-INSERT INTO authz_rule_template_versions (template_id, version, created_at, created_by, data_blob)
-SELECT id, 1, created_at, created_by, data_blob FROM authz_rule_templates
-WHERE id NOT IN (SELECT template_id FROM authz_rule_template_versions);
-ALTER TABLE authz_rule_templates DROP COLUMN created_at;
-ALTER TABLE authz_rule_templates DROP COLUMN created_by;
-ALTER TABLE authz_rule_templates DROP COLUMN data_blob;
-ALTER TABLE authz_grants ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;
+-- converter). An eighth sweep (2026-08-17, after every active cluster reached
+-- v0.0.437) removed the authz rule template identity/versions split (the
+-- authz_rule_template_versions backfill and authz_rule_templates column
+-- drops) and the authz_grants deleted column add. Upgrading a database from
+-- before then requires stepping through a release that still carried them.
