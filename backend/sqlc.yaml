@@ -6,6 +6,7 @@ sql:
       - "storage/primarydb/pq/sql/schema.sql"
       - "storage/primarydb/pq/sql/schema_authz.sql"
       - "storage/primarydb/pq/sql/schema_deployments.sql"
+      - "storage/primarydb/pq/sql/schema_scheduled_instances.sql"
       - "storage/primarydb/pq/sql/schema_secrets.sql"
       - "storage/primarydb/pq/sql/schema_configs.sql"
       - "storage/primarydb/pq/sql/schema_assets.sql"
