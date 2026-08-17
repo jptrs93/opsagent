@@ -1,5 +1,6 @@
 import van from "vanjs-core";
-import {editIcon, eyeOpenIcon, refreshIcon, xIcon} from "../lib/icons.js";
+import {caretRightIcon, chevronDownIcon, editIcon, eyeOpenIcon, refreshIcon, xIcon} from "../lib/icons.js";
+import {groupEnvRows, isBooleanRow, isTruthyEnvValue} from "../lib/envVarGrouping.js";
 import {nodeAllowsSpace} from "../lib/nodeSpaces.js";
 import {assetEditorOverlay} from "./assetEditor.js";
 import {referencePicker} from "./referencePicker.js";
@@ -1510,6 +1511,52 @@ export function volumeMountsPane(form, opts = {}) {
     );
 }
 
+const envGridCellClass = "border border-gray-700 p-0 align-middle";
+const envControlFocusClass = "focus:outline-none focus:bg-gray-800 focus:ring-1 focus:ring-inset focus:ring-brand";
+const envTextInputClass = `h-6 w-full bg-transparent px-1.5 text-gray-100 font-mono ${envControlFocusClass}`;
+const envPickerInputClass = `h-6 w-full bg-transparent px-1.5 ${envControlFocusClass}`;
+const envSelectClass = `h-6 w-full bg-transparent px-1 text-gray-100 cursor-pointer ${envControlFocusClass}`;
+const envRefValueTextClass = {secret: 'text-purple-300', config: 'text-blue-300', asset: 'text-asset', address: 'text-gray-100'};
+
+function envSwitchPill(checked) {
+    return span(
+        {class: () => `relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${checked() ? 'bg-brand' : 'bg-gray-600'}`},
+        span({class: () => `inline-block h-3 w-3 rounded-full bg-white transition-transform ${checked() ? 'translate-x-3.5' : 'translate-x-0.5'}`}),
+    );
+}
+
+function envHeaderToggle(text, state, testid) {
+    return button({
+        type: "button",
+        role: "switch",
+        "aria-checked": () => String(state.val),
+        "data-testid": testid,
+        class: "group flex items-center gap-1.5 cursor-pointer",
+        onclick: () => { state.val = !state.val; },
+    },
+        span({class: () => `text-[11px] whitespace-nowrap ${state.val ? 'text-gray-200' : 'text-gray-500'} group-hover:text-gray-200`}, text),
+        envSwitchPill(() => state.val),
+    );
+}
+
+function envGroupHeaderRow(group, isCollapsed, onToggle) {
+    const name = group.prefix === '' ? 'No group' : group.prefix;
+    return tr(
+        td({colSpan: 4, class: "pt-2 pb-0.5"},
+            button({
+                type: "button",
+                class: "flex w-full items-center gap-1 text-left cursor-pointer text-gray-400 hover:text-gray-200",
+                "aria-expanded": String(!isCollapsed),
+                onclick: onToggle,
+            },
+                (isCollapsed ? caretRightIcon : chevronDownIcon)({size: 12}),
+                span({class: "text-[11px] font-semibold uppercase tracking-wide"}, name),
+                span({class: "text-[11px] font-normal text-gray-600"}, `· ${group.rows.length}`),
+            ),
+        ),
+    );
+}
+
 // envVarsPane is the right-hand editor pane. It is always mounted and toggled
 // via a CSS class (a binding that returns null would be GC'd by VanJS and never
 // re-open).
@@ -1519,12 +1566,25 @@ export function envVarsPane(form, opts = {}) {
     const configRefs = () => stateValue(opts.configRefs) || [];
     const deployments = () => stateValue(opts.deployments) || [];
     const spaces = () => stateValue(opts.spaces) || [];
+    const groupByPrefix = van.state(false);
+    const booleanToggles = van.state(false);
+    const collapsedGroups = van.state(new Set());
+    const toggleGroupCollapsed = prefix => {
+        const next = new Set(collapsedGroups.val);
+        if (next.has(prefix)) next.delete(prefix);
+        else next.add(prefix);
+        collapsedGroups.val = next;
+    };
     const envRows = tbody();
     let envRowsSignature = '';
     van.derive(() => {
         const rows = form.envVars.val || [];
+        const toggles = booleanToggles.val;
+        const collapsed = collapsedGroups.val;
+        const groups = groupByPrefix.val ? groupEnvRows(rows) : [{prefix: null, rows}];
         const signature = [
-            rows.map(row => `${row.id}:${row.type || 'value'}:${row.addressDeploymentId || 0}:${row.addressSpaceId || 0}:${row.asset || ''}:${row.assetVersionId || 0}:${row.version || 0}`).join('|'),
+            JSON.stringify([toggles, [...collapsed].sort(), groups.map(group => [group.prefix, group.rows.map(row =>
+                `${row.id}:${row.type || 'value'}:${toggles && isBooleanRow(row) ? 1 : 0}:${row.addressDeploymentId || 0}:${row.addressSpaceId || 0}:${row.asset || ''}:${row.assetVersionId || 0}:${row.version || 0}`)])]),
             secretRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
             configRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
             `${form.nodeId.val}:${deployments().map(item => `${item.config?.id || 0}:${item.config?.nodeId || 0}:${item.config?.spaceId ?? 0}:${item.config?.name || ''}:${item.config?.spec?.networking?.mode || 0}:${item.config?.deleted ? 1 : 0}`).join('|')}`,
@@ -1541,29 +1601,43 @@ export function envVarsPane(form, opts = {}) {
             spaces: spaces(),
             previewAsset: opts.previewAsset,
         };
-        envRows.replaceChildren(...rows.map(row => envVarRow(form, row, catalogs)));
+        const children = [];
+        for (const group of groups) {
+            if (group.prefix !== null) {
+                const isCollapsed = collapsed.has(group.prefix);
+                children.push(envGroupHeaderRow(group, isCollapsed, () => toggleGroupCollapsed(group.prefix)));
+                if (isCollapsed) continue;
+            }
+            children.push(...group.rows.map(row => envVarRow(form, row, catalogs, toggles)));
+        }
+        envRows.replaceChildren(...children);
     });
     return div(
         {class: () => configurationPaneClass(form.envPaneOpen.val)},
         div(
-            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
+            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-2"},
             h3({class: "text-sm font-semibold text-gray-200"}, "Environment variables"),
-            button({
-                type: "button",
-                class: "text-gray-500 hover:text-gray-200 cursor-pointer",
-                title: "Close",
-                onclick: () => { form.envPaneOpen.val = false; },
-            }, xIcon({size: 16})),
+            div(
+                {class: "flex items-center gap-4"},
+                envHeaderToggle("Group by prefix", groupByPrefix, "env-group-by-prefix-toggle"),
+                envHeaderToggle("Boolean toggles", booleanToggles, "env-boolean-toggles-toggle"),
+                button({
+                    type: "button",
+                    class: "text-gray-500 hover:text-gray-200 cursor-pointer",
+                    title: "Close",
+                    onclick: () => { form.envPaneOpen.val = false; },
+                }, xIcon({size: 16})),
+            ),
         ),
         div(
-            {class: "app-scroll flex-1 min-h-0 flex flex-col p-3 overflow-auto"},
+            {class: "app-scroll flex-1 min-h-0 flex flex-col p-3 pt-2 overflow-auto"},
             table({class: "w-full text-xs border-collapse"},
                 thead(
-                    tr({class: "text-left text-gray-400 border-b border-gray-700"},
-                        th({class: "pb-1.5 pr-1.5 font-medium"}, "Env name"),
-                        th({class: "pb-1.5 px-1.5 font-medium w-24"}, "Type"),
-                        th({class: "pb-1.5 pl-1.5 pr-0.5 font-medium"}, "Value"),
-                        th({class: "pb-1.5 pl-0.5 font-medium w-12 text-right"}, ""),
+                    tr({class: "text-left text-gray-400"},
+                        th({class: "border border-gray-700 bg-gray-900 px-1.5 py-1 font-medium"}, "Env name"),
+                        th({class: "border border-gray-700 bg-gray-900 px-1.5 py-1 font-medium w-24"}, "Type"),
+                        th({class: "border border-gray-700 bg-gray-900 px-1.5 py-1 font-medium"}, "Value"),
+                        th({class: "w-12"}, ""),
                     ),
                 ),
                 envRows,
@@ -1571,8 +1645,11 @@ export function envVarsPane(form, opts = {}) {
                     tr(td({colSpan: 4, class: "pt-2"},
                         button({
                             type: "button",
-                            class: "w-full rounded-md border border-dashed border-gray-600 text-gray-300 hover:border-brand hover:text-white py-1.5 cursor-pointer",
-                            onclick: () => { form.envVars.val = [...(form.envVars.val || []), newEnvRow()]; },
+                            class: "w-full rounded-md border border-dashed border-gray-600 text-gray-300 hover:border-brand hover:text-white py-1 cursor-pointer",
+                            onclick: () => {
+                                form.envVars.val = [...(form.envVars.val || []), newEnvRow()];
+                                if (collapsedGroups.val.has('')) toggleGroupCollapsed('');
+                            },
                         }, "+ Add environment variable"),
                     )),
                 ),
@@ -1581,21 +1658,21 @@ export function envVarsPane(form, opts = {}) {
     );
 }
 
-function envVarRow(form, row, catalogs) {
+function envVarRow(form, row, catalogs, toggles) {
     const type = row.type || 'value';
-    return tr({class: "border-b border-gray-800 last:border-b-0"},
-        td({class: "py-1 pr-1.5 align-top"},
+    return tr(
+        td({class: envGridCellClass},
             input({
                 type: "text",
-                class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 font-mono focus:outline-none focus:ring-1 focus:ring-brand",
+                class: envTextInputClass,
                 placeholder: "DATABASE_URL",
                 value: row.key || '',
                 oninput: e => updateEnvRow(form, row.id, {key: e.target.value}),
             }),
         ),
-        td({class: "py-1 px-1.5 align-top"},
+        td({class: envGridCellClass},
             select({
-                class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand",
+                class: envSelectClass,
                 value: type,
                 onchange: e => updateEnvRow(form, row.id, envTypePatch(row, e.target.value)),
             },
@@ -1606,22 +1683,38 @@ function envVarRow(form, row, catalogs) {
                 option({value: "asset", selected: type === 'asset'}, "Asset"),
             ),
         ),
-        td({class: "py-1 pl-1.5 pr-0.5 align-top"}, envValueInput(form, row, catalogs)),
-        td({class: "py-1 pl-0.5 align-top text-right"},
+        td({class: envGridCellClass}, envValueInput(form, row, catalogs, toggles)),
+        td({class: "p-0 pl-1.5 align-middle text-right"},
             button({
                 type: "button",
-                class: "text-gray-500 hover:text-red-300 cursor-pointer px-1 py-1",
+                class: "text-gray-500 hover:text-red-300 cursor-pointer px-1",
                 onclick: () => { form.envVars.val = (form.envVars.val || []).filter(v => v.id !== row.id); },
             }, "Remove"),
         ),
     );
 }
 
-function envValueInput(form, row, catalogs) {
+function envBooleanValueToggle(form, row) {
+    const current = () => (form.envVars.val || []).find(item => item.id === row.id) || row;
+    const on = () => isTruthyEnvValue(current().value);
+    return button({
+        type: "button",
+        role: "switch",
+        "aria-checked": () => String(on()),
+        class: "flex h-6 items-center gap-2 cursor-pointer px-1.5",
+        onclick: () => updateEnvRow(form, row.id, {value: on() ? 'false' : 'true'}),
+    },
+        envSwitchPill(on),
+        span({class: () => `font-mono text-[11px] ${on() ? 'text-gray-200' : 'text-gray-500'}`}, () => on() ? 'true' : 'false'),
+    );
+}
+
+function envValueInput(form, row, catalogs, toggles) {
     if ((row.type || 'value') === 'value') {
+        if (toggles && isBooleanRow(row)) return envBooleanValueToggle(form, row);
         return input({
             type: "text",
-            class: "w-full rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 font-mono focus:outline-none focus:ring-1 focus:ring-brand",
+            class: envTextInputClass,
             placeholder: "inplace env val",
             value: row.value || '',
             oninput: e => updateEnvRow(form, row.id, {value: e.target.value}),
@@ -1639,7 +1732,7 @@ function envValueInput(form, row, catalogs) {
                 placeholder: "Search assets",
                 noMatchesLabel: "No matching assets",
                 emptyLabel: "No assets defined",
-                inputClass: "w-full rounded-[0.3rem] bg-gray-800 border border-gray-700 pl-1.5 pr-9 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand",
+                inputClass: `h-6 w-full bg-transparent pl-1.5 pr-9 ${envRefValueTextClass.asset} ${envControlFocusClass}`,
                 getKey: assetOptionValue,
                 getLabel: assetOptionLabel,
                 onSelect: asset => {
@@ -1681,6 +1774,7 @@ function envReferenceAutocomplete(form, row, catalogs) {
     return referencePicker({
         refs: options,
         selectedKey,
+        inputClass: `${envPickerInputClass} ${isSecret ? envRefValueTextClass.secret : envRefValueTextClass.config}`,
         placeholder: isSecret ? "Search secrets" : "Search configs",
         noMatchesLabel: `No matching ${isSecret ? 'secrets' : 'configs'}`,
         emptyLabel: `No ${isSecret ? 'secrets' : 'configs'} available`,
@@ -1701,6 +1795,7 @@ function envAddressAutocomplete(form, row, deployments) {
     return referencePicker({
         refs: options,
         selectedKey,
+        inputClass: `${envPickerInputClass} ${envRefValueTextClass.address}`,
         placeholder: "Search deployments",
         noMatchesLabel: "No matching deployments",
         emptyLabel: "No virtual deployments",

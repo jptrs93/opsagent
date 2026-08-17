@@ -7,11 +7,12 @@
     "dev": "vite",
     "dev:deployment-editor": "vite --open /fixtures/deployment-editor/",
     "dev:deployment-status": "vite --open /fixtures/deployment-status/",
+    "dev:env-vars": "vite --open /fixtures/env-vars/",
     "dev:mounted-assets": "vite --open /fixtures/mounted-assets/",
     "dev:secret-editor": "vite --open /fixtures/secret-editor/",
     "check:secret-editor": "node fixtures/secret-editor/stateCheck.js",
     "check:deployment-editor": "node fixtures/deployment-editor/deploymentSourceCheck.js && node fixtures/deployment-editor/roundTripCheck.js",
-    "test": "node --test src/state/deploymentMerge.test.js src/lib/agentSessions.test.js src/lib/nodeSpaces.test.js src/lib/valueExplorer.test.js src/lib/assetExplorer.test.js src/lib/authz.test.js src/hcl/index.test.js",
+    "test": "node --test src/state/deploymentMerge.test.js src/lib/agentSessions.test.js src/lib/envVarGrouping.test.js src/lib/nodeSpaces.test.js src/lib/valueExplorer.test.js src/lib/assetExplorer.test.js src/lib/authz.test.js src/hcl/index.test.js",
     "generate:hcl-parser": "node src/hcl/generate.js",
     "build": "vite build",
     "preview": "vite preview"
