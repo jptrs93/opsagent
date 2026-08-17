@@ -59,7 +59,7 @@ func (s *Service) loadLocalScheduledInstanceCache() {
 		if err != nil {
 			panic(fmt.Sprintf("decode local scheduled instance %d: %v", row.InstanceID, err))
 		}
-		restoreCachedIdentity(state, row.Blob)
+		restoreCachedIdentity(state)
 		if state.Instance.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {
 			continue
 		}
@@ -85,6 +85,10 @@ func (s *Service) MustWriteScheduledInstanceAssignment(state *apigen.ScheduledIn
 	if state == nil || state.Instance.ID == 0 {
 		return
 	}
+	// A pre-v0.0.444 primary sends the identity only in the legacy nested
+	// layout; fold it into the flat fields before the assignment is cached,
+	// published, or acted on.
+	restoreCachedIdentity(state)
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	ctx := context.Background()

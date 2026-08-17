@@ -25,6 +25,17 @@ Key generated files:
 - `frontend/src/capi/model.js` — JS typedefs and protobuf encode/decode functions.
 - `frontend/src/capi/capi.js` — Typed JS API client class.
 
+Decoders silently drop unknown fields, and a peer re-encodes what it decoded.
+So for any message that a worker persists or relays (assignments and their
+embedded configs above all), moving data to new field numbers destroys it in
+the mixed-version rollout window: the old binary drops the new fields on
+decode and writes blobs carrying the data in neither format. Keep old field
+numbers, or dual-write old and new layouts across the transition and fold the
+old layout into the new fields on decode — see
+`DeploymentConfig.legacy_identity` (v0.0.448) for the pattern, which exists
+because the v0.0.444 identity field move broke worker address derivation and
+virtual networking for every cached workload.
+
 ## Mux and handler flow (Go)
 
 - Routes use `http.NewServeMux()` with Go 1.22+ pattern syntax (e.g. `"POST /v1/auth/master"`).

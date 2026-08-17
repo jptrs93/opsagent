@@ -132,14 +132,10 @@ func TestLegacyAssignmentBlobsKeepTheirIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode legacy blob: %v", err)
 	}
-	if decoded.Config.Name != "" {
-		t.Fatalf("modern decoder read legacy identity name %q; fallback is dead code", decoded.Config.Name)
-	}
-
-	spaceID, name, ok := legacyDeploymentIdentity(blob)
-	if !ok || spaceID != internaldeploy.SpaceID || name != internaldeploy.NetproxyName {
-		t.Fatalf("legacyDeploymentIdentity = (%d, %q, %v), want (%d, %q, true)",
-			spaceID, name, ok, internaldeploy.SpaceID, internaldeploy.NetproxyName)
+	if decoded.Config.LegacyIdentity.SpaceID != internaldeploy.SpaceID || decoded.Config.LegacyIdentity.Name != internaldeploy.NetproxyName {
+		t.Fatalf("legacy identity decoded as (%d, %q), want (%d, %q)",
+			decoded.Config.LegacyIdentity.SpaceID, decoded.Config.LegacyIdentity.Name,
+			internaldeploy.SpaceID, internaldeploy.NetproxyName)
 	}
 
 	dbPath := filepath.Join(t.TempDir(), "secondary.db")
@@ -168,5 +164,59 @@ func TestLegacyAssignmentBlobsKeepTheirIdentity(t *testing.T) {
 	}
 	if netproxy.Config.ID != 12 || netproxy.Config.NodeID != 2 {
 		t.Fatalf("netproxy config = id %d node %d, want id 12 node 2", netproxy.Config.ID, netproxy.Config.NodeID)
+	}
+	if netproxy.Config.SpaceID != internaldeploy.SpaceID || netproxy.Config.Name != internaldeploy.NetproxyName {
+		t.Fatalf("legacy identity not folded into flat fields: space %d name %q", netproxy.Config.SpaceID, netproxy.Config.Name)
+	}
+}
+
+// TestIncomingLegacyAssignmentFoldsIdentity covers the reverse mixed-version
+// window: a >= v0.0.448 worker receiving assignments from a <= v0.0.443
+// primary, which encodes the identity only in the legacy nested layout. The
+// write path must fold it before the assignment is cached or published, or
+// address derivation runs with space 0.
+func TestIncomingLegacyAssignmentFoldsIdentity(t *testing.T) {
+	blob := encodeLegacyScheduledInstanceState(61, 16, 2, 5, "radkit-postgres")
+	incoming, err := apigen.DecodeScheduledInstanceState(blob)
+	if err != nil {
+		t.Fatalf("decode legacy assignment: %v", err)
+	}
+
+	store := Open(filepath.Join(t.TempDir(), "secondary.db"))
+	defer store.Close()
+	store.MustWriteScheduledInstanceAssignment(incoming)
+
+	snapshot := store.FetchScheduledSnapshot(nil)
+	if len(snapshot) != 1 {
+		t.Fatalf("snapshot has %d items, want 1", len(snapshot))
+	}
+	if got := snapshot[0].Config; got.SpaceID != 5 || got.Name != "radkit-postgres" {
+		t.Fatalf("published assignment identity = space %d name %q, want space 5 name %q", got.SpaceID, got.Name, "radkit-postgres")
+	}
+
+	// The persisted blob must carry the flat fields natively so a later boot
+	// does not depend on the fold at all.
+	reencoded := snapshot[0].Config.Encode()
+	roundTripped, err := apigen.DecodeDeploymentConfig(reencoded)
+	if err != nil {
+		t.Fatalf("round-trip decode: %v", err)
+	}
+	if roundTripped.SpaceID != 5 || roundTripped.Name != "radkit-postgres" {
+		t.Fatalf("re-encoded config identity = space %d name %q, want space 5 name %q", roundTripped.SpaceID, roundTripped.Name, "radkit-postgres")
+	}
+}
+
+func TestFlatIdentityWinsOverLegacy(t *testing.T) {
+	state := &apigen.ScheduledInstanceState{
+		Config: apigen.DeploymentConfig{
+			ID:             16,
+			SpaceID:        5,
+			Name:           "radkit-postgres",
+			LegacyIdentity: apigen.DeploymentIdentity{SpaceID: 9, Name: "stale"},
+		},
+	}
+	restoreCachedIdentity(state)
+	if state.Config.SpaceID != 5 || state.Config.Name != "radkit-postgres" {
+		t.Fatalf("flat identity was overwritten: space %d name %q", state.Config.SpaceID, state.Config.Name)
 	}
 }

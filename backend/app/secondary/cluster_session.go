@@ -29,7 +29,10 @@ func (o *outbox) Send(msg *apigen.MsgToMaster) bool {
 	}
 }
 
-func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Service, primaryHTTPClient *http.Client, acme *acmestate.Holder) {
+// notifySynced (optional) is signalled once the first snapshot from the
+// primary has been applied to the store; the boot sync gate releases the
+// deployment operator on it.
+func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Service, primaryHTTPClient *http.Client, acme *acmestate.Holder, notifySynced func()) {
 	capi := apigen.NewOpsagentClusterV1Capi(
 		"https://"+cfg.PrimaryClusterAddr,
 		apigen.WithOpsagentClusterV1CapiHTTPClient(primaryHTTPClient),
@@ -45,7 +48,7 @@ func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Ser
 			underlayAddress, err = resolveDefaultUnderlayAddress(cfg.PrimaryClusterAddr)
 		}
 		if err == nil {
-			err = runSession(ctx, capi, store, cfg.NodeID, underlayAddress, acme)
+			err = runSession(ctx, capi, store, cfg.NodeID, underlayAddress, acme, notifySynced)
 		}
 		if ctx.Err() != nil {
 			return
@@ -121,7 +124,7 @@ func scheduledInstancePredicateForNode(nodeID int32) storage.ScheduledInstancePr
 // the primary's messages (snapshot, assignment updates, log requests) from the
 // response stream, applying them to the local store. Returns when the stream
 // ends (error or clean EOF).
-func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID int32, underlayAddress string, acme *acmestate.Holder) error {
+func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID int32, underlayAddress string, acme *acmestate.Holder, notifySynced func()) error {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -181,13 +184,13 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 			connected = true
 			slog.Info("slave connected to primary", "peer", capi.BaseURL)
 		}
-		dispatchFromPrimary(sessCtx, out, store, tracker, msg, nodeID, acme)
+		dispatchFromPrimary(sessCtx, out, store, tracker, msg, nodeID, acme, notifySynced)
 	}
 	return sessErr
 }
 
 // dispatchFromPrimary applies one MsgToWorker received from the primary.
-func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, msg *apigen.MsgToWorker, nodeID int32, acme *acmestate.Holder) {
+func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, msg *apigen.MsgToWorker, nodeID int32, acme *acmestate.Holder, notifySynced func()) {
 	msgType := "heartbeat"
 	switch {
 	case msg.ScheduledInstancesSnapshot != nil:
@@ -216,6 +219,9 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 	switch {
 	case msg.ScheduledInstancesSnapshot != nil:
 		applySnapshot(out, store, msg.ScheduledInstancesSnapshot, nodeID)
+		if notifySynced != nil {
+			notifySynced()
+		}
 	case msg.ScheduledInstanceUpdate != nil:
 		applyInstanceUpdate(store, msg.ScheduledInstanceUpdate, nodeID)
 	case msg.ClusterNetwork != nil:

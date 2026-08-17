@@ -483,13 +483,19 @@ message ValidateContainerImageSourceResponse {
 
 
 message DeploymentConfig {
-  reserved 3;
-  reserved "identity";
   int32 id = 1;
   int32 node_id = 2;
   int32 space_id = 10;
   int32 space_version = 12;  // per-deployment monotonically increasing space version
   string name = 11;
+  // legacy_identity is a wire-compat dual-write of (space_id, name) in the
+  // pre-v0.0.444 nested layout (the removed DeploymentConfig.identity field).
+  // The primary populates it on the cluster stream so a <= v0.0.443 worker in
+  // the mixed-version rollout window keeps a decodable identity in its
+  // re-encoded local cache, and a >= v0.0.448 worker folds it into the flat
+  // fields when they are absent (legacy primary or legacy cached blob).
+  // Remove once every cluster runs >= v0.0.448.
+  DeploymentIdentity legacy_identity = 3 [(cp.go_value) = true];
   int64 created_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int64 updated_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   // user id; 0 = unknown/system, negative = agent of user -author
@@ -497,6 +503,16 @@ message DeploymentConfig {
   int32 version = 7;  // per-deployment monotonically increasing config version
   DeploymentSpec spec = 8 [(cp.go_value) = true];
   bool deleted = 9;
+}
+
+// DeploymentIdentity survives only as DeploymentConfig.legacy_identity, the
+// pre-v0.0.444 wire layout of (space_id, name) dual-written for mixed-version
+// cluster compatibility. Do not add fields or new uses.
+message DeploymentIdentity {
+  reserved 2;
+  reserved "machine";
+  int32 space_id = 1;
+  string name = 3;
 }
 
 message DeploymentSpec {

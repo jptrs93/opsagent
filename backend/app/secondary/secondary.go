@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -41,6 +42,16 @@ type runtimeConfig struct {
 	ClusterPrefix      network.Prefix
 	NetDeploymentID    int32
 }
+
+// bootSyncTimeout bounds how long a booting worker holds the deployment
+// operator back waiting for the primary's first snapshot. Cached assignments
+// can be arbitrarily stale — a fresh assignment arriving seconds later has
+// repeatedly meant acting on the cache first did real damage (self-version
+// downgrade fights, netns setup from identityless configs) — so when the
+// primary is reachable the operator starts from the synced state instead. The
+// timeout keeps an offline worker self-managing: past it, the operator runs
+// from the cache exactly as before the gate existed.
+const bootSyncTimeout = 15 * time.Second
 
 // Run boots the local store, starts the deployment operator, and then maintains
 // a persistent connection to the primary. It intentionally runs forever; fatal
@@ -106,15 +117,31 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	}
 	go netproxy.RunNetStateWriter(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID), cfg.NodeIdentifier, cfg.NetproxyStatePath, runtimeInputs, acmeHolder, runtimeInputs.EnsureSecretIDs)
 	go runRuntimeInputRetention(ctx, store, runtimeInputs, scheduledInstancePredicateForNode(cfg.NodeID), acmeHolder)
-	go engine.DeploymentOperator{
-		Store:              store,
-		GithubRelease:      githubReleasePreparer,
-		NixDocker:          nixDockerPreparer,
-		GithubReleaseImage: githubReleaseImagePreparer,
-		RuntimeInputs:      runtimeInputs,
-	}.RunAll(scheduledInstancePredicateForNode(cfg.NodeID))
 
-	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient, acmeHolder)
+	// Boot sync gate: hold the operator until the primary's first snapshot has
+	// been applied to the store, or bootSyncTimeout if the primary is
+	// unreachable. RunAll snapshots and subscribes atomically, so everything
+	// applied before it starts is in its initial view.
+	synced := make(chan struct{})
+	notifySynced := sync.OnceFunc(func() { close(synced) })
+	go func() {
+		select {
+		case <-synced:
+		case <-time.After(bootSyncTimeout):
+			slog.Warn("no primary snapshot received; starting deployment operator from cached assignments", "waited", bootSyncTimeout)
+		case <-ctx.Done():
+			return
+		}
+		engine.DeploymentOperator{
+			Store:              store,
+			GithubRelease:      githubReleasePreparer,
+			NixDocker:          nixDockerPreparer,
+			GithubReleaseImage: githubReleaseImagePreparer,
+			RuntimeInputs:      runtimeInputs,
+		}.RunAll(scheduledInstancePredicateForNode(cfg.NodeID))
+	}()
+
+	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient, acmeHolder, notifySynced)
 }
 
 // newPrimaryHTTPClient builds the HTTP/2-only client a worker uses to dial the
