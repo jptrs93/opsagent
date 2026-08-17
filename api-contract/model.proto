@@ -411,13 +411,12 @@ message SecretMeta {
   string name = 1;
   reserved 2;
   int64 created_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"]; // secret creation time
-  reserved 4, 5, 9;
-  reserved "updated_by", "version";
+  reserved 4, 5, 9, 11;
+  reserved "updated_by", "version", "author";
   int32 id = 6;            // stable secret id
   bool deleted = 7;
   int32 space_id = 8;
   int32 value_directory_id = 10; // 0 = the implicit root directory
-  int32 author = 11;         // user id that created the secret; 0 = unknown/system, negative = agent of user -author
   // Every version, NEWEST FIRST — version_refs[0] is the latest. Deployment
   // env refs pin the row ids, so this is what usage matching and
   // version-pinned references join against.
@@ -527,14 +526,13 @@ message SecretUnlockRequest {
 // values. Latest version facts live in version_refs[0], never at the root.
 message ConfigMeta {
   string name = 1;
-  reserved 2, 3, 5, 6, 10;
-  reserved "value", "updated_by", "version";
+  reserved 2, 3, 5, 6, 10, 12;
+  reserved "value", "updated_by", "version", "author";
   int64 created_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"]; // config creation time
   int32 id = 7;            // stable config id
   bool deleted = 8;
   int32 space_id = 9;
   int32 value_directory_id = 11; // 0 = the implicit root directory
-  int32 author = 12;         // user id that created the config; 0 = unknown/system, negative = agent of user -author
   // Every version, NEWEST FIRST — version_refs[0] is the latest.
   repeated ConfigVersionMeta version_refs = 13;
 }
@@ -647,7 +645,8 @@ message AssetMeta {
   int32 space_id = 8;
   bool deleted = 9;
   int32 asset_directory_id = 11; // 0 = the implicit root directory
-  int32 author = 12;         // user id that created the asset; 0 = unknown/system, negative = agent of user -author
+  reserved 12;
+  reserved "author";
   // Every published version, NEWEST FIRST — version_refs[0] is the latest.
   // Deployment specs pin the row ids, so this is what usage matching and
   // version-pinned references join against. Always non-empty in lists: an

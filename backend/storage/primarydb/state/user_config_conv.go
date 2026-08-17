@@ -17,7 +17,6 @@ func configMetaFromRow(c Config, refs []*apigen.ConfigVersionMeta) *apigen.Confi
 		SpaceID:          int32(c.SpaceID),
 		ValueDirectoryID: int32(c.ValueDirectoryID),
 		CreatedAt:        time.UnixMilli(c.CreatedAt),
-		Author:           int32(c.Author),
 		VersionRefs:      refs,
 	}
 }

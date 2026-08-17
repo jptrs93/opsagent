@@ -12,8 +12,7 @@ CREATE TABLE IF NOT EXISTS secrets (
     name               TEXT    NOT NULL,
     space_id           INTEGER NOT NULL DEFAULT 1,
     value_directory_id INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
-    created_at         INTEGER NOT NULL,            -- epoch ms
-    author         INTEGER NOT NULL DEFAULT 0   -- user id; 0 = unknown/system, negative = agent of user -author
+    created_at         INTEGER NOT NULL             -- epoch ms
 );
 
 -- ciphertext is AEAD-sealed under the SMK with

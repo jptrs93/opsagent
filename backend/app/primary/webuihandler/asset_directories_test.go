@@ -49,10 +49,10 @@ func TestCreateAssetInsideDirectory(t *testing.T) {
 	if !ok || meta.AssetDirectoryID != dir.ID {
 		t.Fatalf("created asset meta = %+v, want directory %d", meta, dir.ID)
 	}
-	// The acting user is recorded on both the asset and its version row; the
-	// UI's created-by display depends on it.
-	if meta.Author != user.ID || meta.VersionRefs[0].Author != user.ID {
-		t.Fatalf("created-by = asset %d / version %d, want %d", meta.Author, meta.VersionRefs[0].Author, user.ID)
+	// The acting user is recorded on the version row; the UI's author display
+	// depends on it.
+	if meta.VersionRefs[0].Author != user.ID {
+		t.Fatalf("author = %d, want %d", meta.VersionRefs[0].Author, user.ID)
 	}
 
 	// The same key is free in the root: the sibling namespace is per directory.

@@ -917,7 +917,6 @@ type SecretMeta struct {
 	Deleted          bool                 `json:"deleted"`
 	SpaceID          int32                `json:"space_id"`
 	ValueDirectoryID int32                `json:"value_directory_id"`
-	Author           int32                `json:"author"`
 	VersionRefs      []*SecretVersionMeta `json:"version_refs,omitempty"`
 }
 
@@ -1000,7 +999,6 @@ type ConfigMeta struct {
 	Deleted          bool                 `json:"deleted"`
 	SpaceID          int32                `json:"space_id"`
 	ValueDirectoryID int32                `json:"value_directory_id"`
-	Author           int32                `json:"author"`
 	VersionRefs      []*ConfigVersionMeta `json:"version_refs,omitempty"`
 }
 
@@ -1087,7 +1085,6 @@ type AssetMeta struct {
 	SpaceID          int32               `json:"space_id"`
 	Deleted          bool                `json:"deleted"`
 	AssetDirectoryID int32               `json:"asset_directory_id"`
-	Author           int32               `json:"author"`
 	VersionRefs      []*AssetVersionMeta `json:"version_refs,omitempty"`
 }
 

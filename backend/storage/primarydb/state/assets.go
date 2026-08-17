@@ -307,7 +307,6 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 			Key:              key,
 			AssetDirectoryID: dirID,
 			CreatedAt:        now,
-			Author:           int64(author),
 		})
 		if err != nil {
 			panic(fmt.Sprintf("InsertAssetRow: %v", err))

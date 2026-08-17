@@ -5607,7 +5607,6 @@ func (m *SecretMeta) Encode() []byte {
 	b = AppendBoolField(b, m.Deleted, 7)
 	b = AppendInt32Field(b, m.SpaceID, 8)
 	b = AppendInt32Field(b, m.ValueDirectoryID, 10)
-	b = AppendInt32Field(b, m.Author, 11)
 	for _, item := range m.VersionRefs {
 		if item == nil {
 			continue
@@ -5642,8 +5641,6 @@ func DecodeSecretMeta(b []byte) (*SecretMeta, error) {
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		case 10:
 			b, m.ValueDirectoryID, err = ConsumeVarInt32(b, typ)
-		case 11:
-			b, m.Author, err = ConsumeVarInt32(b, typ)
 		case 12:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -6164,7 +6161,6 @@ func (m *ConfigMeta) Encode() []byte {
 	b = AppendBoolField(b, m.Deleted, 8)
 	b = AppendInt32Field(b, m.SpaceID, 9)
 	b = AppendInt32Field(b, m.ValueDirectoryID, 11)
-	b = AppendInt32Field(b, m.Author, 12)
 	for _, item := range m.VersionRefs {
 		if item == nil {
 			continue
@@ -6199,8 +6195,6 @@ func DecodeConfigMeta(b []byte) (*ConfigMeta, error) {
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		case 11:
 			b, m.ValueDirectoryID, err = ConsumeVarInt32(b, typ)
-		case 12:
-			b, m.Author, err = ConsumeVarInt32(b, typ)
 		case 13:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -6719,7 +6713,6 @@ func (m *AssetMeta) Encode() []byte {
 	b = AppendInt32Field(b, m.SpaceID, 8)
 	b = AppendBoolField(b, m.Deleted, 9)
 	b = AppendInt32Field(b, m.AssetDirectoryID, 11)
-	b = AppendInt32Field(b, m.Author, 12)
 	for _, item := range m.VersionRefs {
 		if item == nil {
 			continue
@@ -6754,8 +6747,6 @@ func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
 			b, m.Deleted, err = ConsumeBool(b, typ)
 		case 11:
 			b, m.AssetDirectoryID, err = ConsumeVarInt32(b, typ)
-		case 12:
-			b, m.Author, err = ConsumeVarInt32(b, typ)
 		case 13:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {

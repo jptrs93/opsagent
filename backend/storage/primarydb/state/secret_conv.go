@@ -30,7 +30,6 @@ func secretMetaFromRow(sec Secret, refs []*apigen.SecretVersionMeta) *apigen.Sec
 		SpaceID:          int32(sec.SpaceID),
 		ValueDirectoryID: int32(sec.ValueDirectoryID),
 		CreatedAt:        time.UnixMilli(sec.CreatedAt),
-		Author:           int32(sec.Author),
 		VersionRefs:      refs,
 	}
 }

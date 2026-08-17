@@ -17,7 +17,6 @@ func assetMetaFromRow(a Asset, refs []*apigen.AssetVersionMeta) *apigen.AssetMet
 		SpaceID:          int32(a.SpaceID),
 		AssetDirectoryID: int32(a.AssetDirectoryID),
 		CreatedAt:        time.UnixMilli(a.CreatedAt),
-		Author:           int32(a.Author),
 		VersionRefs:      refs,
 	}
 }

@@ -12,8 +12,7 @@ CREATE TABLE IF NOT EXISTS assets (
     space_id            INTEGER NOT NULL DEFAULT 1,
     key                 TEXT    NOT NULL,
     asset_directory_id  INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
-    created_at          INTEGER NOT NULL,            -- epoch ms
-    author          INTEGER NOT NULL DEFAULT 0   -- user id
+    created_at          INTEGER NOT NULL             -- epoch ms
 );
 
 CREATE TABLE IF NOT EXISTS asset_versions (

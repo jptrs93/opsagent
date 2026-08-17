@@ -92,7 +92,6 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, aut
 			SpaceID:          space,
 			ValueDirectoryID: dirID,
 			CreatedAt:        now,
-			Author:           int64(author),
 		})
 		if err != nil {
 			panic(fmt.Sprintf("InsertConfigRow: %v", err))

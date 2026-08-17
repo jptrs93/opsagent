@@ -44,3 +44,7 @@ ALTER TABLE authz_rule_template_versions RENAME COLUMN created_by TO author;
 ALTER TABLE authz_grants RENAME COLUMN created_by TO author;
 ALTER TABLE global_access_rules RENAME COLUMN created_by TO author;
 ALTER TABLE deployment_versions RENAME COLUMN created_by TO author;
+
+ALTER TABLE assets DROP COLUMN author;
+ALTER TABLE secrets DROP COLUMN author;
+ALTER TABLE configs DROP COLUMN author;

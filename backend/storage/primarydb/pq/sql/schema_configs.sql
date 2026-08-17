@@ -13,8 +13,7 @@ CREATE TABLE IF NOT EXISTS configs (
     name               TEXT    NOT NULL,
     space_id           INTEGER NOT NULL DEFAULT 1,
     value_directory_id INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
-    created_at         INTEGER NOT NULL,            -- epoch ms
-    author         INTEGER NOT NULL DEFAULT 0   -- user id
+    created_at         INTEGER NOT NULL             -- epoch ms
 );
 
 CREATE TABLE IF NOT EXISTS config_versions (

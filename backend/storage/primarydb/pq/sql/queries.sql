@@ -197,22 +197,22 @@ ON CONFLICT(kid) DO UPDATE SET key_bytes = excluded.key_bytes;
 -- === configs ===
 
 -- name: ListConfigRows :many
-SELECT id, name, space_id, value_directory_id, created_at, author
+SELECT id, name, space_id, value_directory_id, created_at
 FROM configs
 ORDER BY name;
 
 -- name: GetConfigRowByID :one
-SELECT id, name, space_id, value_directory_id, created_at, author
+SELECT id, name, space_id, value_directory_id, created_at
 FROM configs WHERE id = ?;
 
 -- name: GetConfigInDirectoryByName :one
-SELECT id, name, space_id, value_directory_id, created_at, author
+SELECT id, name, space_id, value_directory_id, created_at
 FROM configs WHERE space_id = ? AND value_directory_id = ? AND name = ?;
 
 -- name: InsertConfigRow :one
-INSERT INTO configs (name, space_id, value_directory_id, created_at, author)
-VALUES (?, ?, ?, ?, ?)
-RETURNING id, name, space_id, value_directory_id, created_at, author;
+INSERT INTO configs (name, space_id, value_directory_id, created_at)
+VALUES (?, ?, ?, ?)
+RETURNING id, name, space_id, value_directory_id, created_at;
 
 -- name: RenameConfigRow :exec
 UPDATE configs SET name = ? WHERE id = ?;
@@ -311,17 +311,17 @@ WHERE space_id = ? AND value_directory_id = ? AND name = ? AND id != ?;
 -- === assets ===
 
 -- name: ListAssetRows :many
-SELECT id, space_id, key, asset_directory_id, created_at, author
+SELECT id, space_id, key, asset_directory_id, created_at
 FROM assets
 ORDER BY key;
 
 -- name: GetAssetByID :one
-SELECT id, space_id, key, asset_directory_id, created_at, author
+SELECT id, space_id, key, asset_directory_id, created_at
 FROM assets
 WHERE id = ?;
 
 -- name: GetAssetInDirectoryByKey :one
-SELECT id, space_id, key, asset_directory_id, created_at, author
+SELECT id, space_id, key, asset_directory_id, created_at
 FROM assets
 WHERE space_id = ? AND asset_directory_id = ? AND key = ?;
 
@@ -334,9 +334,9 @@ SELECT COUNT(*) FROM asset_directories
 WHERE space_id = ? AND parent_id = ? AND key = ? AND id != ?;
 
 -- name: InsertAssetRow :one
-INSERT INTO assets (space_id, key, asset_directory_id, created_at, author)
-VALUES (?, ?, ?, ?, ?)
-RETURNING id, space_id, key, asset_directory_id, created_at, author;
+INSERT INTO assets (space_id, key, asset_directory_id, created_at)
+VALUES (?, ?, ?, ?)
+RETURNING id, space_id, key, asset_directory_id, created_at;
 
 -- name: RenameAssetKey :exec
 UPDATE assets SET key = ? WHERE id = ?;
@@ -495,22 +495,22 @@ ON CONFLICT(slot) DO UPDATE SET
 -- === secrets ===
 
 -- name: ListSecretRows :many
-SELECT id, name, space_id, value_directory_id, created_at, author
+SELECT id, name, space_id, value_directory_id, created_at
 FROM secrets
 ORDER BY name;
 
 -- name: GetSecretRowByID :one
-SELECT id, name, space_id, value_directory_id, created_at, author
+SELECT id, name, space_id, value_directory_id, created_at
 FROM secrets WHERE id = ?;
 
 -- name: GetSecretInDirectoryByName :one
-SELECT id, name, space_id, value_directory_id, created_at, author
+SELECT id, name, space_id, value_directory_id, created_at
 FROM secrets WHERE space_id = ? AND value_directory_id = ? AND name = ?;
 
 -- name: InsertSecretRow :one
-INSERT INTO secrets (name, space_id, value_directory_id, created_at, author)
-VALUES (?, ?, ?, ?, ?)
-RETURNING id, name, space_id, value_directory_id, created_at, author;
+INSERT INTO secrets (name, space_id, value_directory_id, created_at)
+VALUES (?, ?, ?, ?)
+RETURNING id, name, space_id, value_directory_id, created_at;
 
 -- name: RenameSecretRow :exec
 UPDATE secrets SET name = ? WHERE id = ?;

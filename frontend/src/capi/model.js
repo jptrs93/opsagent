@@ -749,7 +749,6 @@
  * @property {boolean} deleted
  * @property {number} spaceId
  * @property {number} valueDirectoryId
- * @property {number} author
  * @property {SecretVersionMeta[]} versionRefs
  */
 /**
@@ -832,7 +831,6 @@
  * @property {boolean} deleted
  * @property {number} spaceId
  * @property {number} valueDirectoryId
- * @property {number} author
  * @property {ConfigVersionMeta[]} versionRefs
  */
 /**
@@ -919,7 +917,6 @@
  * @property {number} spaceId
  * @property {boolean} deleted
  * @property {number} assetDirectoryId
- * @property {number} author
  * @property {AssetVersionMeta[]} versionRefs
  */
 /**
@@ -10384,9 +10381,6 @@ export function writeSecretMeta(message, writer) {
     if (message.valueDirectoryId !== undefined && message.valueDirectoryId !== null && message.valueDirectoryId !== 0) {
         writer.uint32(tag(10, WIRE.VARINT)).int32(message.valueDirectoryId);
     }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(11, WIRE.VARINT)).int32(message.author);
-    }
     if (message.versionRefs && message.versionRefs.length > 0) {
         for (const item of message.versionRefs) {
             writer.uint32(tag(12, WIRE.LDELIM)).fork();
@@ -10415,7 +10409,7 @@ export function encodeSecretMeta(message) {
  */
 function decodeSecretMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", createdAt: new Date(0), id: 0, deleted: false, spaceId: 0, valueDirectoryId: 0, author: 0, versionRefs: [] };
+    const message = {name: "", createdAt: new Date(0), id: 0, deleted: false, spaceId: 0, valueDirectoryId: 0, versionRefs: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10441,10 +10435,6 @@ function decodeSecretMetaMessage(reader, length) {
             }
             case 10: {
                 message.valueDirectoryId = reader.int32();
-                break;
-            }
-            case 11: {
-                message.author = reader.int32();
                 break;
             }
             case 12: {
@@ -11399,9 +11389,6 @@ export function writeConfigMeta(message, writer) {
     if (message.valueDirectoryId !== undefined && message.valueDirectoryId !== null && message.valueDirectoryId !== 0) {
         writer.uint32(tag(11, WIRE.VARINT)).int32(message.valueDirectoryId);
     }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(12, WIRE.VARINT)).int32(message.author);
-    }
     if (message.versionRefs && message.versionRefs.length > 0) {
         for (const item of message.versionRefs) {
             writer.uint32(tag(13, WIRE.LDELIM)).fork();
@@ -11430,7 +11417,7 @@ export function encodeConfigMeta(message) {
  */
 function decodeConfigMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", createdAt: new Date(0), id: 0, deleted: false, spaceId: 0, valueDirectoryId: 0, author: 0, versionRefs: [] };
+    const message = {name: "", createdAt: new Date(0), id: 0, deleted: false, spaceId: 0, valueDirectoryId: 0, versionRefs: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11456,10 +11443,6 @@ function decodeConfigMetaMessage(reader, length) {
             }
             case 11: {
                 message.valueDirectoryId = reader.int32();
-                break;
-            }
-            case 12: {
-                message.author = reader.int32();
                 break;
             }
             case 13: {
@@ -12416,9 +12399,6 @@ export function writeAssetMeta(message, writer) {
     if (message.assetDirectoryId !== undefined && message.assetDirectoryId !== null && message.assetDirectoryId !== 0) {
         writer.uint32(tag(11, WIRE.VARINT)).int32(message.assetDirectoryId);
     }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(12, WIRE.VARINT)).int32(message.author);
-    }
     if (message.versionRefs && message.versionRefs.length > 0) {
         for (const item of message.versionRefs) {
             writer.uint32(tag(13, WIRE.LDELIM)).fork();
@@ -12447,7 +12427,7 @@ export function encodeAssetMeta(message) {
  */
 function decodeAssetMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", createdAt: new Date(0), id: 0, spaceId: 0, deleted: false, assetDirectoryId: 0, author: 0, versionRefs: [] };
+    const message = {key: "", createdAt: new Date(0), id: 0, spaceId: 0, deleted: false, assetDirectoryId: 0, versionRefs: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -12473,10 +12453,6 @@ function decodeAssetMetaMessage(reader, length) {
             }
             case 11: {
                 message.assetDirectoryId = reader.int32();
-                break;
-            }
-            case 12: {
-                message.author = reader.int32();
                 break;
             }
             case 13: {

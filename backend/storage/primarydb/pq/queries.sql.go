@@ -542,7 +542,7 @@ func (q *Queries) GetAgentSession(ctx context.Context, id string) (AgentSession,
 }
 
 const getAssetByID = `-- name: GetAssetByID :one
-SELECT id, space_id, key, asset_directory_id, created_at, author
+SELECT id, space_id, key, asset_directory_id, created_at
 FROM assets
 WHERE id = ?
 `
@@ -556,7 +556,6 @@ func (q *Queries) GetAssetByID(ctx context.Context, id int64) (Asset, error) {
 		&i.Key,
 		&i.AssetDirectoryID,
 		&i.CreatedAt,
-		&i.Author,
 	)
 	return i, err
 }
@@ -582,7 +581,7 @@ func (q *Queries) GetAssetDirectoryByID(ctx context.Context, id int64) (AssetDir
 }
 
 const getAssetInDirectoryByKey = `-- name: GetAssetInDirectoryByKey :one
-SELECT id, space_id, key, asset_directory_id, created_at, author
+SELECT id, space_id, key, asset_directory_id, created_at
 FROM assets
 WHERE space_id = ? AND asset_directory_id = ? AND key = ?
 `
@@ -602,7 +601,6 @@ func (q *Queries) GetAssetInDirectoryByKey(ctx context.Context, arg GetAssetInDi
 		&i.Key,
 		&i.AssetDirectoryID,
 		&i.CreatedAt,
-		&i.Author,
 	)
 	return i, err
 }
@@ -661,7 +659,7 @@ func (q *Queries) GetConfigByID(ctx context.Context, id int64) (SystemConfigRevi
 }
 
 const getConfigInDirectoryByName = `-- name: GetConfigInDirectoryByName :one
-SELECT id, name, space_id, value_directory_id, created_at, author
+SELECT id, name, space_id, value_directory_id, created_at
 FROM configs WHERE space_id = ? AND value_directory_id = ? AND name = ?
 `
 
@@ -680,13 +678,12 @@ func (q *Queries) GetConfigInDirectoryByName(ctx context.Context, arg GetConfigI
 		&i.SpaceID,
 		&i.ValueDirectoryID,
 		&i.CreatedAt,
-		&i.Author,
 	)
 	return i, err
 }
 
 const getConfigRowByID = `-- name: GetConfigRowByID :one
-SELECT id, name, space_id, value_directory_id, created_at, author
+SELECT id, name, space_id, value_directory_id, created_at
 FROM configs WHERE id = ?
 `
 
@@ -699,7 +696,6 @@ func (q *Queries) GetConfigRowByID(ctx context.Context, id int64) (Config, error
 		&i.SpaceID,
 		&i.ValueDirectoryID,
 		&i.CreatedAt,
-		&i.Author,
 	)
 	return i, err
 }
@@ -852,7 +848,7 @@ func (q *Queries) GetPublicKey(ctx context.Context, kid string) (PublicKey, erro
 }
 
 const getSecretInDirectoryByName = `-- name: GetSecretInDirectoryByName :one
-SELECT id, name, space_id, value_directory_id, created_at, author
+SELECT id, name, space_id, value_directory_id, created_at
 FROM secrets WHERE space_id = ? AND value_directory_id = ? AND name = ?
 `
 
@@ -871,13 +867,12 @@ func (q *Queries) GetSecretInDirectoryByName(ctx context.Context, arg GetSecretI
 		&i.SpaceID,
 		&i.ValueDirectoryID,
 		&i.CreatedAt,
-		&i.Author,
 	)
 	return i, err
 }
 
 const getSecretRowByID = `-- name: GetSecretRowByID :one
-SELECT id, name, space_id, value_directory_id, created_at, author
+SELECT id, name, space_id, value_directory_id, created_at
 FROM secrets WHERE id = ?
 `
 
@@ -890,7 +885,6 @@ func (q *Queries) GetSecretRowByID(ctx context.Context, id int64) (Secret, error
 		&i.SpaceID,
 		&i.ValueDirectoryID,
 		&i.CreatedAt,
-		&i.Author,
 	)
 	return i, err
 }
@@ -1089,9 +1083,9 @@ func (q *Queries) InsertAssetMigration(ctx context.Context, arg InsertAssetMigra
 }
 
 const insertAssetRow = `-- name: InsertAssetRow :one
-INSERT INTO assets (space_id, key, asset_directory_id, created_at, author)
-VALUES (?, ?, ?, ?, ?)
-RETURNING id, space_id, key, asset_directory_id, created_at, author
+INSERT INTO assets (space_id, key, asset_directory_id, created_at)
+VALUES (?, ?, ?, ?)
+RETURNING id, space_id, key, asset_directory_id, created_at
 `
 
 type InsertAssetRowParams struct {
@@ -1099,7 +1093,6 @@ type InsertAssetRowParams struct {
 	Key              string
 	AssetDirectoryID int64
 	CreatedAt        int64
-	Author           int64
 }
 
 func (q *Queries) InsertAssetRow(ctx context.Context, arg InsertAssetRowParams) (Asset, error) {
@@ -1108,7 +1101,6 @@ func (q *Queries) InsertAssetRow(ctx context.Context, arg InsertAssetRowParams) 
 		arg.Key,
 		arg.AssetDirectoryID,
 		arg.CreatedAt,
-		arg.Author,
 	)
 	var i Asset
 	err := row.Scan(
@@ -1117,7 +1109,6 @@ func (q *Queries) InsertAssetRow(ctx context.Context, arg InsertAssetRowParams) 
 		&i.Key,
 		&i.AssetDirectoryID,
 		&i.CreatedAt,
-		&i.Author,
 	)
 	return i, err
 }
@@ -1227,9 +1218,9 @@ func (q *Queries) InsertAuthzGrantRow(ctx context.Context, arg InsertAuthzGrantR
 }
 
 const insertConfigRow = `-- name: InsertConfigRow :one
-INSERT INTO configs (name, space_id, value_directory_id, created_at, author)
-VALUES (?, ?, ?, ?, ?)
-RETURNING id, name, space_id, value_directory_id, created_at, author
+INSERT INTO configs (name, space_id, value_directory_id, created_at)
+VALUES (?, ?, ?, ?)
+RETURNING id, name, space_id, value_directory_id, created_at
 `
 
 type InsertConfigRowParams struct {
@@ -1237,7 +1228,6 @@ type InsertConfigRowParams struct {
 	SpaceID          int64
 	ValueDirectoryID int64
 	CreatedAt        int64
-	Author           int64
 }
 
 func (q *Queries) InsertConfigRow(ctx context.Context, arg InsertConfigRowParams) (Config, error) {
@@ -1246,7 +1236,6 @@ func (q *Queries) InsertConfigRow(ctx context.Context, arg InsertConfigRowParams
 		arg.SpaceID,
 		arg.ValueDirectoryID,
 		arg.CreatedAt,
-		arg.Author,
 	)
 	var i Config
 	err := row.Scan(
@@ -1255,7 +1244,6 @@ func (q *Queries) InsertConfigRow(ctx context.Context, arg InsertConfigRowParams
 		&i.SpaceID,
 		&i.ValueDirectoryID,
 		&i.CreatedAt,
-		&i.Author,
 	)
 	return i, err
 }
@@ -1439,9 +1427,9 @@ func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, arg InsertS
 }
 
 const insertSecretRow = `-- name: InsertSecretRow :one
-INSERT INTO secrets (name, space_id, value_directory_id, created_at, author)
-VALUES (?, ?, ?, ?, ?)
-RETURNING id, name, space_id, value_directory_id, created_at, author
+INSERT INTO secrets (name, space_id, value_directory_id, created_at)
+VALUES (?, ?, ?, ?)
+RETURNING id, name, space_id, value_directory_id, created_at
 `
 
 type InsertSecretRowParams struct {
@@ -1449,7 +1437,6 @@ type InsertSecretRowParams struct {
 	SpaceID          int64
 	ValueDirectoryID int64
 	CreatedAt        int64
-	Author           int64
 }
 
 func (q *Queries) InsertSecretRow(ctx context.Context, arg InsertSecretRowParams) (Secret, error) {
@@ -1458,7 +1445,6 @@ func (q *Queries) InsertSecretRow(ctx context.Context, arg InsertSecretRowParams
 		arg.SpaceID,
 		arg.ValueDirectoryID,
 		arg.CreatedAt,
-		arg.Author,
 	)
 	var i Secret
 	err := row.Scan(
@@ -1467,7 +1453,6 @@ func (q *Queries) InsertSecretRow(ctx context.Context, arg InsertSecretRowParams
 		&i.SpaceID,
 		&i.ValueDirectoryID,
 		&i.CreatedAt,
-		&i.Author,
 	)
 	return i, err
 }
@@ -1653,7 +1638,7 @@ func (q *Queries) ListAssetIDsBySha(ctx context.Context, sha256 string) ([]int64
 
 const listAssetRows = `-- name: ListAssetRows :many
 
-SELECT id, space_id, key, asset_directory_id, created_at, author
+SELECT id, space_id, key, asset_directory_id, created_at
 FROM assets
 ORDER BY key
 `
@@ -1674,7 +1659,6 @@ func (q *Queries) ListAssetRows(ctx context.Context) ([]Asset, error) {
 			&i.Key,
 			&i.AssetDirectoryID,
 			&i.CreatedAt,
-			&i.Author,
 		); err != nil {
 			return nil, err
 		}
@@ -1781,7 +1765,7 @@ func (q *Queries) ListAuthzGrantRows(ctx context.Context) ([]ListAuthzGrantRowsR
 
 const listConfigRows = `-- name: ListConfigRows :many
 
-SELECT id, name, space_id, value_directory_id, created_at, author
+SELECT id, name, space_id, value_directory_id, created_at
 FROM configs
 ORDER BY name
 `
@@ -1802,7 +1786,6 @@ func (q *Queries) ListConfigRows(ctx context.Context) ([]Config, error) {
 			&i.SpaceID,
 			&i.ValueDirectoryID,
 			&i.CreatedAt,
-			&i.Author,
 		); err != nil {
 			return nil, err
 		}
@@ -2222,7 +2205,7 @@ func (q *Queries) ListSecretKeyslots(ctx context.Context) ([]SecretKeyslot, erro
 
 const listSecretRows = `-- name: ListSecretRows :many
 
-SELECT id, name, space_id, value_directory_id, created_at, author
+SELECT id, name, space_id, value_directory_id, created_at
 FROM secrets
 ORDER BY name
 `
@@ -2243,7 +2226,6 @@ func (q *Queries) ListSecretRows(ctx context.Context) ([]Secret, error) {
 			&i.SpaceID,
 			&i.ValueDirectoryID,
 			&i.CreatedAt,
-			&i.Author,
 		); err != nil {
 			return nil, err
 		}

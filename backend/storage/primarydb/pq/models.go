@@ -29,7 +29,6 @@ type Asset struct {
 	Key              string
 	AssetDirectoryID int64
 	CreatedAt        int64
-	Author           int64
 }
 
 type AssetDirectory struct {
@@ -105,7 +104,6 @@ type Config struct {
 	SpaceID          int64
 	ValueDirectoryID int64
 	CreatedAt        int64
-	Author           int64
 }
 
 type ConfigVersion struct {
@@ -221,7 +219,6 @@ type Secret struct {
 	SpaceID          int64
 	ValueDirectoryID int64
 	CreatedAt        int64
-	Author           int64
 }
 
 type SecretKeyslot struct {
