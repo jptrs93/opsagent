@@ -57,7 +57,7 @@ func (h *Handler) PostV1AccessRuleTemplatesUpdate(ctx apigen.Context, req *apige
 	if err := h.requireAccess(ctx, vUpdate, eAccess, 0, req.ID); err != nil {
 		return nil, err
 	}
-	rec, err := h.Authz.UpdateRuleTemplate(req.ID, req.Name, req.Template)
+	rec, err := h.Authz.UpdateRuleTemplate(req.ID, req.Name, req.Template, int64(requestUserID(ctx)))
 	if err != nil {
 		return nil, mapAuthzErr(err)
 	}

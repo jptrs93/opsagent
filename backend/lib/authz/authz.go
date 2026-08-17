@@ -76,7 +76,8 @@ type GlobalRuleRow struct {
 type Store interface {
 	ListAuthzRuleTemplates() ([]RuleTemplateRow, error)
 	InsertAuthzRuleTemplate(row RuleTemplateRow) (int64, error)
-	UpdateAuthzRuleTemplate(id int64, name string, deleted bool, blob []byte) error
+	UpdateAuthzRuleTemplate(id int64, name string, blob []byte, updatedBy, updatedAt int64) error
+	DeleteAuthzRuleTemplate(id int64) error
 	UpsertAuthzRuleTemplate(id int64, name string, blob []byte) error
 	ListAuthzGrants() ([]GrantRow, error)
 	InsertAuthzGrant(row GrantRow) (int64, error)
@@ -278,7 +279,7 @@ func (s *Service) CreateRuleTemplate(name string, template *apigen.AuthzRuleTemp
 	return cloneTemplateRecord(rec), nil
 }
 
-func (s *Service) UpdateRuleTemplate(id int64, name string, template *apigen.AuthzRuleTemplate) (*apigen.AuthzRuleTemplateRecord, error) {
+func (s *Service) UpdateRuleTemplate(id int64, name string, template *apigen.AuthzRuleTemplate, updatedBy int64) (*apigen.AuthzRuleTemplateRecord, error) {
 	if err := validateTemplate(name, template); err != nil {
 		return nil, err
 	}
@@ -311,7 +312,7 @@ func (s *Service) UpdateRuleTemplate(id int64, name string, template *apigen.Aut
 			}
 		}
 	}
-	if err := s.store.UpdateAuthzRuleTemplate(id, name, false, rec.Template.Encode()); err != nil {
+	if err := s.store.UpdateAuthzRuleTemplate(id, name, rec.Template.Encode(), updatedBy, s.now().UnixMilli()); err != nil {
 		return nil, err
 	}
 	s.templates[id] = rec
@@ -338,7 +339,7 @@ func (s *Service) DeleteRuleTemplate(id int64) error {
 	}
 	rec := cloneTemplateRecord(existing)
 	rec.Deleted = true
-	if err := s.store.UpdateAuthzRuleTemplate(id, rec.Name, true, rec.Template.Encode()); err != nil {
+	if err := s.store.DeleteAuthzRuleTemplate(id); err != nil {
 		return err
 	}
 	s.templates[id] = rec

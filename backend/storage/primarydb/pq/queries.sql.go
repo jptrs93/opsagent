@@ -10,6 +10,30 @@ import (
 	"database/sql"
 )
 
+const appendAuthzRuleTemplateVersion = `-- name: AppendAuthzRuleTemplateVersion :exec
+INSERT INTO authz_rule_template_versions (template_id, version, created_at, created_by, data_blob)
+SELECT ?1, COALESCE(MAX(version), 0) + 1, ?2, ?3, ?4
+FROM authz_rule_template_versions
+WHERE template_id = ?1
+`
+
+type AppendAuthzRuleTemplateVersionParams struct {
+	TemplateID int64
+	CreatedAt  int64
+	CreatedBy  int64
+	DataBlob   []byte
+}
+
+func (q *Queries) AppendAuthzRuleTemplateVersion(ctx context.Context, arg AppendAuthzRuleTemplateVersionParams) error {
+	_, err := q.db.ExecContext(ctx, appendAuthzRuleTemplateVersion,
+		arg.TemplateID,
+		arg.CreatedAt,
+		arg.CreatedBy,
+		arg.DataBlob,
+	)
+	return err
+}
+
 const appendScheduledInstanceVersion = `-- name: AppendScheduledInstanceVersion :exec
 INSERT INTO scheduled_instance_versions (scheduled_instance_id, version, created_at, state)
 SELECT ?1, COALESCE(MAX(version), 0) + 1, ?2, ?3
@@ -307,6 +331,25 @@ func (q *Queries) CountValueDirectorySiblingsWithName(ctx context.Context, arg C
 	return count, err
 }
 
+const createAuthzRuleTemplate = `-- name: CreateAuthzRuleTemplate :one
+
+
+INSERT INTO authz_rule_templates (name, builtin, deleted)
+VALUES (?, 0, 0) RETURNING id
+`
+
+// === authz ===
+// The template list read is hand-written in authz.go: a template row is its
+// identity joined with the version log for created_at/created_by (v1 row) and
+// current content (latest row). Creation appends the v1 version row in the
+// same tx; content updates are pure appends.
+func (q *Queries) CreateAuthzRuleTemplate(ctx context.Context, name string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, createAuthzRuleTemplate, name)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const createDeploymentConfig = `-- name: CreateDeploymentConfig :one
 
 INSERT INTO deployment_configs (node_id, space_id, name, deleted)
@@ -376,15 +419,6 @@ DELETE FROM asset_versions WHERE asset_id = ?
 
 func (q *Queries) DeleteAssetVersionsByAssetID(ctx context.Context, assetID int64) error {
 	_, err := q.db.ExecContext(ctx, deleteAssetVersionsByAssetID, assetID)
-	return err
-}
-
-const deleteAuthzGrantRow = `-- name: DeleteAuthzGrantRow :exec
-DELETE FROM authz_grants WHERE id = ?
-`
-
-func (q *Queries) DeleteAuthzGrantRow(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, deleteAuthzGrantRow, id)
 	return err
 }
 
@@ -727,6 +761,18 @@ func (q *Queries) GetDeploymentVersion(ctx context.Context, arg GetDeploymentVer
 		&i.SpecBlob,
 	)
 	return i, err
+}
+
+const getLatestAuthzRuleTemplateVersionBlob = `-- name: GetLatestAuthzRuleTemplateVersionBlob :one
+SELECT data_blob FROM authz_rule_template_versions
+WHERE template_id = ? ORDER BY id DESC LIMIT 1
+`
+
+func (q *Queries) GetLatestAuthzRuleTemplateVersionBlob(ctx context.Context, templateID int64) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, getLatestAuthzRuleTemplateVersionBlob, templateID)
+	var data_blob []byte
+	err := row.Scan(&data_blob)
+	return data_blob, err
 }
 
 const getLatestConfig = `-- name: GetLatestConfig :one
@@ -1171,30 +1217,6 @@ func (q *Queries) InsertAuthzGrantRow(ctx context.Context, arg InsertAuthzGrantR
 	row := q.db.QueryRowContext(ctx, insertAuthzGrantRow,
 		arg.UserID,
 		arg.TemplateID,
-		arg.CreatedBy,
-		arg.CreatedAt,
-		arg.DataBlob,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
-const insertAuthzRuleTemplateRow = `-- name: InsertAuthzRuleTemplateRow :one
-INSERT INTO authz_rule_templates (name, builtin, deleted, created_by, created_at, data_blob)
-VALUES (?, 0, 0, ?, ?, ?) RETURNING id
-`
-
-type InsertAuthzRuleTemplateRowParams struct {
-	Name      string
-	CreatedBy int64
-	CreatedAt int64
-	DataBlob  []byte
-}
-
-func (q *Queries) InsertAuthzRuleTemplateRow(ctx context.Context, arg InsertAuthzRuleTemplateRowParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, insertAuthzRuleTemplateRow,
-		arg.Name,
 		arg.CreatedBy,
 		arg.CreatedAt,
 		arg.DataBlob,
@@ -1715,58 +1737,31 @@ func (q *Queries) ListAssetStoreRowMetas(ctx context.Context) ([]ListAssetStoreR
 
 const listAuthzGrantRows = `-- name: ListAuthzGrantRows :many
 SELECT id, user_id, template_id, created_by, created_at, data_blob FROM authz_grants
+WHERE deleted = 0
 `
 
-func (q *Queries) ListAuthzGrantRows(ctx context.Context) ([]AuthzGrant, error) {
+type ListAuthzGrantRowsRow struct {
+	ID         int64
+	UserID     int64
+	TemplateID int64
+	CreatedBy  int64
+	CreatedAt  int64
+	DataBlob   []byte
+}
+
+func (q *Queries) ListAuthzGrantRows(ctx context.Context) ([]ListAuthzGrantRowsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listAuthzGrantRows)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []AuthzGrant
+	var items []ListAuthzGrantRowsRow
 	for rows.Next() {
-		var i AuthzGrant
+		var i ListAuthzGrantRowsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,
 			&i.TemplateID,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.DataBlob,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listAuthzRuleTemplateRows = `-- name: ListAuthzRuleTemplateRows :many
-
-SELECT id, name, builtin, deleted, created_by, created_at, data_blob FROM authz_rule_templates
-`
-
-// === authz ===
-func (q *Queries) ListAuthzRuleTemplateRows(ctx context.Context) ([]AuthzRuleTemplate, error) {
-	rows, err := q.db.QueryContext(ctx, listAuthzRuleTemplateRows)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []AuthzRuleTemplate
-	for rows.Next() {
-		var i AuthzRuleTemplate
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Builtin,
-			&i.Deleted,
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.DataBlob,
@@ -2778,6 +2773,24 @@ func (q *Queries) SetAssetStoreRemoteStatus(ctx context.Context, arg SetAssetSto
 	return err
 }
 
+const setAuthzGrantDeleted = `-- name: SetAuthzGrantDeleted :exec
+UPDATE authz_grants SET deleted = 1 WHERE id = ?
+`
+
+func (q *Queries) SetAuthzGrantDeleted(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, setAuthzGrantDeleted, id)
+	return err
+}
+
+const setAuthzRuleTemplateDeleted = `-- name: SetAuthzRuleTemplateDeleted :exec
+UPDATE authz_rule_templates SET deleted = 1 WHERE id = ?
+`
+
+func (q *Queries) SetAuthzRuleTemplateDeleted(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, setAuthzRuleTemplateDeleted, id)
+	return err
+}
+
 const setConfigSpace = `-- name: SetConfigSpace :exec
 UPDATE configs SET space_id = ?, value_directory_id = ? WHERE id = ?
 `
@@ -2910,24 +2923,17 @@ func (q *Queries) TouchUserLastLogin(ctx context.Context, arg TouchUserLastLogin
 	return err
 }
 
-const updateAuthzRuleTemplateRow = `-- name: UpdateAuthzRuleTemplateRow :exec
-UPDATE authz_rule_templates SET name = ?, deleted = ?, data_blob = ? WHERE id = ?
+const updateAuthzRuleTemplateName = `-- name: UpdateAuthzRuleTemplateName :exec
+UPDATE authz_rule_templates SET name = ? WHERE id = ?
 `
 
-type UpdateAuthzRuleTemplateRowParams struct {
-	Name     string
-	Deleted  int64
-	DataBlob []byte
-	ID       int64
+type UpdateAuthzRuleTemplateNameParams struct {
+	Name string
+	ID   int64
 }
 
-func (q *Queries) UpdateAuthzRuleTemplateRow(ctx context.Context, arg UpdateAuthzRuleTemplateRowParams) error {
-	_, err := q.db.ExecContext(ctx, updateAuthzRuleTemplateRow,
-		arg.Name,
-		arg.Deleted,
-		arg.DataBlob,
-		arg.ID,
-	)
+func (q *Queries) UpdateAuthzRuleTemplateName(ctx context.Context, arg UpdateAuthzRuleTemplateNameParams) error {
+	_, err := q.db.ExecContext(ctx, updateAuthzRuleTemplateName, arg.Name, arg.ID)
 	return err
 }
 
@@ -2983,24 +2989,22 @@ func (q *Queries) UpdateSpace(ctx context.Context, arg UpdateSpaceParams) (Space
 	return i, err
 }
 
-const upsertAuthzRuleTemplateRow = `-- name: UpsertAuthzRuleTemplateRow :exec
-INSERT INTO authz_rule_templates (id, name, builtin, deleted, created_by, created_at, data_blob)
-VALUES (?, ?, 1, 0, 0, 0, ?)
+const upsertAuthzRuleTemplateIdentity = `-- name: UpsertAuthzRuleTemplateIdentity :exec
+INSERT INTO authz_rule_templates (id, name, builtin, deleted)
+VALUES (?, ?, 1, 0)
 ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
     builtin = 1,
-    deleted = 0,
-    data_blob = excluded.data_blob
+    deleted = 0
 `
 
-type UpsertAuthzRuleTemplateRowParams struct {
-	ID       int64
-	Name     string
-	DataBlob []byte
+type UpsertAuthzRuleTemplateIdentityParams struct {
+	ID   int64
+	Name string
 }
 
-func (q *Queries) UpsertAuthzRuleTemplateRow(ctx context.Context, arg UpsertAuthzRuleTemplateRowParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAuthzRuleTemplateRow, arg.ID, arg.Name, arg.DataBlob)
+func (q *Queries) UpsertAuthzRuleTemplateIdentity(ctx context.Context, arg UpsertAuthzRuleTemplateIdentityParams) error {
+	_, err := q.db.ExecContext(ctx, upsertAuthzRuleTemplateIdentity, arg.ID, arg.Name)
 	return err
 }
 

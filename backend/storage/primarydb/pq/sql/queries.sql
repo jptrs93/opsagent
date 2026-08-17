@@ -592,34 +592,49 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value;
 
 -- === authz ===
 
--- name: ListAuthzRuleTemplateRows :many
-SELECT id, name, builtin, deleted, created_by, created_at, data_blob FROM authz_rule_templates;
+-- The template list read is hand-written in authz.go: a template row is its
+-- identity joined with the version log for created_at/created_by (v1 row) and
+-- current content (latest row). Creation appends the v1 version row in the
+-- same tx; content updates are pure appends.
 
--- name: InsertAuthzRuleTemplateRow :one
-INSERT INTO authz_rule_templates (name, builtin, deleted, created_by, created_at, data_blob)
-VALUES (?, 0, 0, ?, ?, ?) RETURNING id;
+-- name: CreateAuthzRuleTemplate :one
+INSERT INTO authz_rule_templates (name, builtin, deleted)
+VALUES (?, 0, 0) RETURNING id;
 
--- name: UpdateAuthzRuleTemplateRow :exec
-UPDATE authz_rule_templates SET name = ?, deleted = ?, data_blob = ? WHERE id = ?;
+-- name: AppendAuthzRuleTemplateVersion :exec
+INSERT INTO authz_rule_template_versions (template_id, version, created_at, created_by, data_blob)
+SELECT @template_id, COALESCE(MAX(version), 0) + 1, @created_at, @created_by, @data_blob
+FROM authz_rule_template_versions
+WHERE template_id = @template_id;
 
--- name: UpsertAuthzRuleTemplateRow :exec
-INSERT INTO authz_rule_templates (id, name, builtin, deleted, created_by, created_at, data_blob)
-VALUES (?, ?, 1, 0, 0, 0, ?)
+-- name: UpdateAuthzRuleTemplateName :exec
+UPDATE authz_rule_templates SET name = ? WHERE id = ?;
+
+-- name: SetAuthzRuleTemplateDeleted :exec
+UPDATE authz_rule_templates SET deleted = 1 WHERE id = ?;
+
+-- name: UpsertAuthzRuleTemplateIdentity :exec
+INSERT INTO authz_rule_templates (id, name, builtin, deleted)
+VALUES (?, ?, 1, 0)
 ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
     builtin = 1,
-    deleted = 0,
-    data_blob = excluded.data_blob;
+    deleted = 0;
+
+-- name: GetLatestAuthzRuleTemplateVersionBlob :one
+SELECT data_blob FROM authz_rule_template_versions
+WHERE template_id = ? ORDER BY id DESC LIMIT 1;
 
 -- name: ListAuthzGrantRows :many
-SELECT id, user_id, template_id, created_by, created_at, data_blob FROM authz_grants;
+SELECT id, user_id, template_id, created_by, created_at, data_blob FROM authz_grants
+WHERE deleted = 0;
 
 -- name: InsertAuthzGrantRow :one
 INSERT INTO authz_grants (user_id, template_id, created_by, created_at, data_blob)
 VALUES (?, ?, ?, ?, ?) RETURNING id;
 
--- name: DeleteAuthzGrantRow :exec
-DELETE FROM authz_grants WHERE id = ?;
+-- name: SetAuthzGrantDeleted :exec
+UPDATE authz_grants SET deleted = 1 WHERE id = ?;
 
 -- name: ListGlobalAccessRuleRows :many
 SELECT id, name, created_by, created_at, data_blob FROM global_access_rules;

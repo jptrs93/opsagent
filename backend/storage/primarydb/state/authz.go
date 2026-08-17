@@ -1,7 +1,10 @@
 package state
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 
 	"github.com/jptrs93/opsagent/backend/lib/authz"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -35,23 +38,66 @@ func (s *Service) ListAuthzRuleTemplates() ([]authz.RuleTemplateRow, error) {
 }
 
 func (s *Service) InsertAuthzRuleTemplate(row authz.RuleTemplateRow) (int64, error) {
-	return s.q.InsertAuthzRuleTemplateRow(context.Background(), pq.InsertAuthzRuleTemplateRowParams{
-		Name:      row.Name,
-		CreatedBy: row.CreatedBy,
-		CreatedAt: row.CreatedAt,
-		DataBlob:  notNullBlob(row.Blob),
+	ctx := context.Background()
+	var id int64
+	err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		var err error
+		id, err = q.CreateAuthzRuleTemplate(ctx, row.Name)
+		if err != nil {
+			return err
+		}
+		return q.AppendAuthzRuleTemplateVersion(ctx, pq.AppendAuthzRuleTemplateVersionParams{
+			TemplateID: id,
+			CreatedAt:  row.CreatedAt,
+			CreatedBy:  row.CreatedBy,
+			DataBlob:   notNullBlob(row.Blob),
+		})
+	})
+	return id, err
+}
+
+func (s *Service) UpdateAuthzRuleTemplate(id int64, name string, blob []byte, updatedBy, updatedAt int64) error {
+	ctx := context.Background()
+	return s.q.Tx(ctx, func(q *pq.Queries) error {
+		if err := q.UpdateAuthzRuleTemplateName(ctx, pq.UpdateAuthzRuleTemplateNameParams{
+			Name: name, ID: id,
+		}); err != nil {
+			return err
+		}
+		return q.AppendAuthzRuleTemplateVersion(ctx, pq.AppendAuthzRuleTemplateVersionParams{
+			TemplateID: id,
+			CreatedAt:  updatedAt,
+			CreatedBy:  updatedBy,
+			DataBlob:   notNullBlob(blob),
+		})
 	})
 }
 
-func (s *Service) UpdateAuthzRuleTemplate(id int64, name string, deleted bool, blob []byte) error {
-	return s.q.UpdateAuthzRuleTemplateRow(context.Background(), pq.UpdateAuthzRuleTemplateRowParams{
-		Name: name, Deleted: boolToInt(deleted), DataBlob: blob, ID: id,
-	})
+func (s *Service) DeleteAuthzRuleTemplate(id int64) error {
+	return s.q.SetAuthzRuleTemplateDeleted(context.Background(), id)
 }
 
+// UpsertAuthzRuleTemplate seeds a builtin template. It runs on every startup,
+// so a version is appended only when the content actually changed.
 func (s *Service) UpsertAuthzRuleTemplate(id int64, name string, blob []byte) error {
-	return s.q.UpsertAuthzRuleTemplateRow(context.Background(), pq.UpsertAuthzRuleTemplateRowParams{
-		ID: id, Name: name, DataBlob: blob,
+	ctx := context.Background()
+	return s.q.Tx(ctx, func(q *pq.Queries) error {
+		if err := q.UpsertAuthzRuleTemplateIdentity(ctx, pq.UpsertAuthzRuleTemplateIdentityParams{
+			ID: id, Name: name,
+		}); err != nil {
+			return err
+		}
+		latest, err := q.GetLatestAuthzRuleTemplateVersionBlob(ctx, id)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err == nil && bytes.Equal(latest, blob) {
+			return nil
+		}
+		return q.AppendAuthzRuleTemplateVersion(ctx, pq.AppendAuthzRuleTemplateVersionParams{
+			TemplateID: id,
+			DataBlob:   notNullBlob(blob),
+		})
 	})
 }
 
@@ -85,7 +131,7 @@ func (s *Service) InsertAuthzGrant(row authz.GrantRow) (int64, error) {
 }
 
 func (s *Service) DeleteAuthzGrant(id int64) error {
-	return s.q.DeleteAuthzGrantRow(context.Background(), id)
+	return s.q.SetAuthzGrantDeleted(context.Background(), id)
 }
 
 func (s *Service) ListAuthzGlobalRules() ([]authz.GlobalRuleRow, error) {

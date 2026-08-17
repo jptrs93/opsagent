@@ -43,9 +43,16 @@ func (m *memStore) InsertAuthzRuleTemplate(row RuleTemplateRow) (int64, error) {
 	return row.ID, nil
 }
 
-func (m *memStore) UpdateAuthzRuleTemplate(id int64, name string, deleted bool, blob []byte) error {
+func (m *memStore) UpdateAuthzRuleTemplate(id int64, name string, blob []byte, updatedBy, updatedAt int64) error {
 	row := m.templates[id]
-	row.Name, row.Deleted, row.Blob = name, deleted, blob
+	row.Name, row.Blob = name, blob
+	m.templates[id] = row
+	return nil
+}
+
+func (m *memStore) DeleteAuthzRuleTemplate(id int64) error {
+	row := m.templates[id]
+	row.Deleted = true
 	m.templates[id] = row
 	return nil
 }
@@ -72,6 +79,8 @@ func (m *memStore) InsertAuthzGrant(row GrantRow) (int64, error) {
 	return row.ID, nil
 }
 
+// DeleteAuthzGrant soft-deletes in the real store; the map delete models the
+// row disappearing from ListAuthzGrants either way.
 func (m *memStore) DeleteAuthzGrant(id int64) error {
 	delete(m.grants, id)
 	return nil
@@ -344,7 +353,7 @@ func TestRuleTemplateCRUD(t *testing.T) {
 	if _, err := s.CreateRuleTemplate("Bad Name", content, 5); err == nil {
 		t.Fatal("invalid name should be rejected")
 	}
-	if _, err := s.UpdateRuleTemplate(ClusterAdminTemplateID, "cluster_admin", content); !errors.Is(err, ErrBuiltin) {
+	if _, err := s.UpdateRuleTemplate(ClusterAdminTemplateID, "cluster_admin", content, 0); !errors.Is(err, ErrBuiltin) {
 		t.Fatalf("builtin update: expected ErrBuiltin, got %v", err)
 	}
 	if err := s.DeleteRuleTemplate(SpaceAdminTemplateID); !errors.Is(err, ErrBuiltin) {
@@ -370,7 +379,7 @@ func TestRuleTemplateCRUD(t *testing.T) {
 			EntityTypes: all(),
 			EntityRefs:  all(),
 		}},
-	})
+	}, 7)
 	if err != nil {
 		t.Fatalf("UpdateRuleTemplate: %v", err)
 	}
@@ -483,7 +492,7 @@ func TestUpdateTemplateSignatureGuard(t *testing.T) {
 			EntityRefs:  all(),
 		}},
 	}
-	if _, err := s.UpdateRuleTemplate(created.ID, "deployer", changed); err == nil {
+	if _, err := s.UpdateRuleTemplate(created.ID, "deployer", changed, 0); err == nil {
 		t.Fatal("changing the argument signature must be rejected while grants bind it")
 	}
 	renamed := &apigen.AuthzRuleTemplate{
@@ -495,7 +504,7 @@ func TestUpdateTemplateSignatureGuard(t *testing.T) {
 			EntityRefs:  all(),
 		}},
 	}
-	if _, err := s.UpdateRuleTemplate(created.ID, "deployer", renamed); err != nil {
+	if _, err := s.UpdateRuleTemplate(created.ID, "deployer", renamed, 0); err != nil {
 		t.Fatalf("renaming an argument must not invalidate bindings: %v", err)
 	}
 	if !s.HasAccess(1, viewDeployment(2)) {
@@ -504,7 +513,7 @@ func TestUpdateTemplateSignatureGuard(t *testing.T) {
 	if err := s.DeleteGrant(1, grant.ID); err != nil {
 		t.Fatalf("DeleteGrant: %v", err)
 	}
-	if _, err := s.UpdateRuleTemplate(created.ID, "deployer", changed); err != nil {
+	if _, err := s.UpdateRuleTemplate(created.ID, "deployer", changed, 0); err != nil {
 		t.Fatalf("signature change should be allowed once no grants bind it: %v", err)
 	}
 }
