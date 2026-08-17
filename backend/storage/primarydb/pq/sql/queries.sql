@@ -4,12 +4,30 @@
 -- auto-allocates its deployment_id. Deleted deployments do not reserve their
 -- former identity tuple. The caller inserts the v1 version row in the same tx.
 -- name: CreateDeploymentConfig :one
-INSERT INTO deployment_configs (node_id, space_id, name, deleted_at)
-VALUES (?, ?, ?, 0)
+INSERT INTO deployment_configs (node_id, name, deleted_at)
+VALUES (?, ?, 0)
 RETURNING deployment_id;
 
 -- name: UpdateDeploymentConfigDeletedAt :exec
 UPDATE deployment_configs SET deleted_at = ? WHERE deployment_id = ?;
+
+-- name: InsertDeploymentSpaceVersion :one
+INSERT INTO deployment_space_versions (deployment_id, version, author, created_at, space_id)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id;
+
+-- name: ListDeploymentSpaceVersionsByDeploymentID :many
+SELECT id, deployment_id, version, author, created_at, space_id
+FROM deployment_space_versions
+WHERE deployment_id = ?
+ORDER BY version ASC;
+
+-- name: ListCurrentDeploymentSpaceVersions :many
+SELECT sp.id, sp.deployment_id, sp.version, sp.author, sp.created_at, sp.space_id
+FROM deployment_space_versions sp
+JOIN (SELECT deployment_id, MAX(version) AS version
+      FROM deployment_space_versions GROUP BY deployment_id) latest
+  ON latest.deployment_id = sp.deployment_id AND latest.version = sp.version;
 
 -- === spaces ===
 
@@ -28,7 +46,11 @@ RETURNING id, name;
 DELETE FROM spaces WHERE id = ?;
 
 -- name: CountDeploymentsForSpace :one
-SELECT COUNT(*) FROM deployment_configs WHERE space_id = ? AND deleted_at = 0;
+SELECT COUNT(*) FROM deployment_configs d
+WHERE d.deleted_at = 0
+  AND (SELECT sp.space_id FROM deployment_space_versions sp
+       WHERE sp.deployment_id = d.deployment_id
+       ORDER BY sp.version DESC LIMIT 1) = ?;
 
 -- === deployment_versions ===
 
@@ -55,8 +77,8 @@ WHERE deployment_id = ? AND version = ?;
 -- pure appends.
 
 -- name: InsertScheduledInstance :one
-INSERT INTO scheduled_instances (deployment_id, deployment_version, node_id, instance_ordinal)
-VALUES (?, ?, ?, ?)
+INSERT INTO scheduled_instances (deployment_id, deployment_version, node_id, instance_ordinal, deployment_space_version_id)
+VALUES (?, ?, ?, ?, ?)
 RETURNING id;
 
 -- name: AppendScheduledInstanceVersion :exec

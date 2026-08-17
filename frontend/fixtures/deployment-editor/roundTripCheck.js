@@ -21,7 +21,7 @@ const catalogs = {
     secretRefs: mockSecretRefs,
     configRefs: mockConfigRefs,
     deployments: [...mockDeployments, {
-        config: {id: 998, nodeId: 12, identity: {name: 'api', spaceId: 1}},
+        config: {id: 998, nodeId: 12, name: 'api', spaceId: 1},
         status: {},
     }],
 };
@@ -32,7 +32,7 @@ const collisionCatalogs = {
     secretRefs: [...mockSecretRefs, {id: 399, name: 'database-password', version: 5, spaceId: 2}],
     configRefs: [...mockConfigRefs, {id: 499, name: 'database-host', version: 3, spaceId: 2}],
     deployments: [...mockDeployments, {
-        config: {id: 999, nodeId: 11, identity: {name: 'api', spaceId: 2}},
+        config: {id: 999, nodeId: 11, name: 'api', spaceId: 2},
         status: {},
     }],
 };

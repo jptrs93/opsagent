@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS scheduled_instances (
     deployment_id      INTEGER NOT NULL,
     deployment_version INTEGER NOT NULL,
     node_id            INTEGER NOT NULL,
-    instance_ordinal   INTEGER NOT NULL DEFAULT 0
+    instance_ordinal   INTEGER NOT NULL DEFAULT 0,
+    deployment_space_version_id INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_instances_deployment_ordinal

@@ -323,9 +323,9 @@ func assertRoutes(t *testing.T, stage string, got *apigen.ClusterNetMap, want ma
 
 func virtualDeployment(id, nodeID, spaceID int32) apigen.DeploymentConfig {
 	return apigen.DeploymentConfig{
-		ID:       id,
-		NodeID:   nodeID,
-		Identity: apigen.DeploymentIdentity{SpaceID: spaceID},
+		ID:      id,
+		NodeID:  nodeID,
+		SpaceID: spaceID,
 		Spec: apigen.DeploymentSpec{
 			Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL},
 			Container1Spec: &apigen.ContainerSpec{

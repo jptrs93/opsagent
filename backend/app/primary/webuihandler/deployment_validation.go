@@ -587,7 +587,7 @@ func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID int32, spec *apige
 		if target.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			return invalidConfigErrf("container1Spec.runtime.envVars.%s: address deployment must use virtual networking", key)
 		}
-		if value.AddressSpaceID == nil || target.Identity.SpaceID != *value.AddressSpaceID {
+		if value.AddressSpaceID == nil || target.SpaceID != *value.AddressSpaceID {
 			return invalidConfigErrf("container1Spec.runtime.envVars.%s: address space does not match deployment", key)
 		}
 	}

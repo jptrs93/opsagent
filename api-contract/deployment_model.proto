@@ -162,19 +162,27 @@ message DeploymentConfigVersionRef {
 }
 
 message DeploymentUpdateRequest {
+  reserved 7;
+  reserved "space_id";
   int32 deployment_id = 5;
   string target_version = 2;
   bool stop = 3;
   int32 version = 4;
   DeploymentSpec spec = 6 [(cp.go_value) = true]; // optional: update deployment spec
-  optional int32 space_id = 7;                     // optional: move deployment to another space
+}
+
+message DeploymentSpaceMoveRequest {
+  int32 deployment_id = 1;
+  int32 space_id = 2;       // destination space
+  int32 space_version = 3;  // expected next space version, = current space_version + 1
 }
 
 message DeploymentCreateRequest {
-  DeploymentIdentity identity = 1 [(cp.go_value) = true];
+  reserved 1, 3;
+  reserved "identity", "desired_state";
+  string name = 5;
+  int32 space_id = 6;
   DeploymentSpec spec = 2 [(cp.go_value) = true];
-  reserved 3;
-  reserved "desired_state";
   int32 node_id = 4; // required canonical target node
 }
 
@@ -240,12 +248,6 @@ message LogLineBatch {
 }
 
 
-message DeploymentIdentity {
-  reserved 2;
-  reserved "machine";
-  int32 space_id = 1;
-  string name = 3;
-}
 
 message DeploymentDeleteRequest {
   int32 deployment_id = 1;
@@ -279,6 +281,7 @@ message ScheduledInstance {
   int32 node_id = 5;
   int32 instance_ordinal = 6;
   ScheduledInstanceTarget state = 7;
+  int32 space_id = 8;
 }
 
 // ScheduledInstanceStatus is the observed preparer/runner status for one
@@ -480,9 +483,13 @@ message ValidateContainerImageSourceResponse {
 
 
 message DeploymentConfig {
+  reserved 3;
+  reserved "identity";
   int32 id = 1;
   int32 node_id = 2;
-  DeploymentIdentity identity = 3 [(cp.go_value) = true];
+  int32 space_id = 10;
+  int32 space_version = 12;  // per-deployment monotonically increasing space version
+  string name = 11;
   int64 created_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int64 updated_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   // user id; 0 = unknown/system, negative = agent of user -author

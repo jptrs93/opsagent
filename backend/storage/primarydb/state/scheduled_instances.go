@@ -26,12 +26,14 @@ import (
 func (s *Service) EnsureRunScheduledInstance(deploymentID, deploymentVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) (*apigen.ScheduledInstance, bool) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
+	spaceID := s.currentSpaceLocked(deploymentID)
 	for _, state := range s.Scheduled {
 		inst := state.Instance
 		if inst.DeploymentID == deploymentID &&
 			inst.DeploymentVersion == deploymentVersion &&
 			inst.NodeID == nodeID &&
 			inst.InstanceOrdinal == instanceOrdinal &&
+			inst.SpaceID == spaceID &&
 			inst.State.WantsRunning() {
 			cp := inst
 			return &cp, false
@@ -48,20 +50,29 @@ func (s *Service) CreateScheduledInstance(deploymentID, deploymentVersion, nodeI
 	return s.createScheduledInstanceLocked(deploymentID, deploymentVersion, nodeID, instanceOrdinal, initial)
 }
 
+func (s *Service) currentSpaceLocked(deploymentID int32) int32 {
+	if cfg := s.configCache[deploymentID]; cfg != nil {
+		return cfg.SpaceID
+	}
+	return 0
+}
+
 func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
 	ctx := context.Background()
 	if !initial.WantsRunning() {
 		panic(fmt.Sprintf("createScheduledInstance: initial state %v is not runnable", initial))
 	}
+	spaceID := s.currentSpaceLocked(deploymentID)
 	now := time.Now().UnixMilli()
 	var id int64
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		var err error
 		id, err = q.InsertScheduledInstance(ctx, pq.InsertScheduledInstanceParams{
-			DeploymentID:      int64(deploymentID),
-			DeploymentVersion: int64(deploymentVersion),
-			NodeID:            int64(nodeID),
-			InstanceOrdinal:   int64(instanceOrdinal),
+			DeploymentID:             int64(deploymentID),
+			DeploymentVersion:        int64(deploymentVersion),
+			NodeID:                   int64(nodeID),
+			InstanceOrdinal:          int64(instanceOrdinal),
+			DeploymentSpaceVersionID: s.spaceVersionRowIDs[deploymentID],
 		})
 		if err != nil {
 			return err
@@ -81,12 +92,10 @@ func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentVersion,
 		DeploymentVersion: deploymentVersion,
 		NodeID:            nodeID,
 		InstanceOrdinal:   instanceOrdinal,
+		SpaceID:           spaceID,
 		State:             initial,
 	}
-	state := &apigen.ScheduledInstanceState{Instance: *inst}
-	if cfg := s.configForInstanceLocked(inst); cfg != nil {
-		state.Config = *cfg
-	}
+	state := s.instanceStateLocked(inst)
 	s.Scheduled[inst.ID] = state
 	// This incarnation now speaks for the ordinal, so whatever ran last is no
 	// longer worth retaining.
@@ -129,10 +138,7 @@ func (s *Service) SetScheduledInstanceState(instanceID int32, state apigen.Sched
 	updated.State = state
 	entry := cached
 	if entry == nil {
-		entry = &apigen.ScheduledInstanceState{Instance: updated}
-		if cfg := s.configForInstanceLocked(&updated); cfg != nil {
-			entry.Config = *cfg
-		}
+		entry = s.instanceStateLocked(&updated)
 	} else {
 		entry.Instance = updated
 	}
@@ -188,10 +194,7 @@ func (s *Service) MustWriteReplicatedScheduledInstanceStatus(st *apigen.Schedule
 			)
 			return
 		}
-		entry = &apigen.ScheduledInstanceState{Instance: *inst}
-		if cfg := s.configForInstanceLocked(inst); cfg != nil {
-			entry.Config = *cfg
-		}
+		entry = s.instanceStateLocked(inst)
 		s.Scheduled[inst.ID] = entry
 	}
 	st.DeploymentID = entry.Instance.DeploymentID

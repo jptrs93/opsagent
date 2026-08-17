@@ -51,7 +51,7 @@ func recentlyDeleted(t *testing.T, h *Handler, limit int32) []*apigen.Deployment
 func deletedNames(items []*apigen.DeploymentConfig) []string {
 	out := make([]string, 0, len(items))
 	for _, cfg := range items {
-		out = append(out, cfg.Identity.Name)
+		out = append(out, cfg.Name)
 	}
 	return out
 }
@@ -103,8 +103,8 @@ func TestRecentlyDeletedRetainsForkableSpec(t *testing.T) {
 	if got := cfg.Spec.Container1Spec.Source.NixDockerBuild.Repo; got != "github.com/acme/app" {
 		t.Fatalf("repo = %q, want github.com/acme/app", got)
 	}
-	if cfg.Identity.Name != "web" || cfg.NodeID != nodeID {
-		t.Fatalf("identity = %q/%d, want web/%d", cfg.Identity.Name, cfg.NodeID, nodeID)
+	if cfg.Name != "web" || cfg.NodeID != nodeID {
+		t.Fatalf("identity = %q/%d, want web/%d", cfg.Name, cfg.NodeID, nodeID)
 	}
 	if !cfg.Deleted {
 		t.Fatal("tombstone is not marked deleted")
@@ -174,12 +174,12 @@ func TestRecentlyDeletedOmitsInternalDeployments(t *testing.T) {
 	}
 
 	items := recentlyDeleted(t, h, 0)
-	if len(items) != 1 || items[0].Identity.Name != "web" {
+	if len(items) != 1 || items[0].Name != "web" {
 		t.Fatalf("deleted = %v, want [web]", deletedNames(items))
 	}
 	for _, cfg := range items {
 		if internaldeploy.IsInternalConfig(cfg) {
-			t.Fatalf("internal deployment %q listed", cfg.Identity.Name)
+			t.Fatalf("internal deployment %q listed", cfg.Name)
 		}
 	}
 }

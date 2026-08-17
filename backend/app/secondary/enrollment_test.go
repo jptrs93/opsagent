@@ -158,13 +158,11 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 				State:        apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 			},
 			Config: apigen.DeploymentConfig{
-				ID:     10,
-				NodeID: 2,
-				Spec:   *internaldeploy.SelfSpec(),
-				Identity: apigen.DeploymentIdentity{
-					SpaceID: internaldeploy.SpaceID,
-					Name:    internaldeploy.SelfName,
-				},
+				ID:      10,
+				NodeID:  2,
+				Spec:    *internaldeploy.SelfSpec(),
+				SpaceID: internaldeploy.SpaceID,
+				Name:    internaldeploy.SelfName,
 			},
 		},
 		NodeNetDeployment: &apigen.ScheduledInstanceState{
@@ -175,13 +173,11 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 				State:        apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 			},
 			Config: apigen.DeploymentConfig{
-				ID:     11,
-				NodeID: 2,
-				Spec:   *internaldeploy.NetproxySpec(),
-				Identity: apigen.DeploymentIdentity{
-					SpaceID: internaldeploy.SpaceID,
-					Name:    internaldeploy.NetproxyName,
-				},
+				ID:      11,
+				NodeID:  2,
+				Spec:    *internaldeploy.NetproxySpec(),
+				SpaceID: internaldeploy.SpaceID,
+				Name:    internaldeploy.NetproxyName,
 			},
 		},
 	}

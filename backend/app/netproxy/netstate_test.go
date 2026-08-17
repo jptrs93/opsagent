@@ -100,8 +100,8 @@ func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 	network.SetDefault(network.New(prefix, 99))
 	state := RenderNetState(7, "node-a", []apigen.ScheduledInstanceState{{
 		Config: apigen.DeploymentConfig{
-			ID:       42,
-			Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "database"},
+			ID:      42,
+			SpaceID: 1, Name: "database",
 			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 				Ingress: []*apigen.Ingress{{
@@ -159,8 +159,8 @@ func TestRenderNetStateDerivesEndpointsFromPlacement(t *testing.T) {
 		return apigen.ScheduledInstanceState{
 			Instance: apigen.ScheduledInstance{ID: 5, DeploymentID: 42, NodeID: 1, State: state},
 			Config: apigen.DeploymentConfig{
-				ID:       42,
-				Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "database"},
+				ID:      42,
+				SpaceID: 1, Name: "database",
 				Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 					Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 				}},

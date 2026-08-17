@@ -130,9 +130,9 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 		if cfg.Deleted || cfg.NodeID != node.ID {
 			continue
 		}
-		if _, ok := requested[cfg.Identity.SpaceID]; !ok {
+		if _, ok := requested[cfg.SpaceID]; !ok {
 			return nil, apigen.NewApiErr(
-				fmt.Sprintf("Deployment %q is already on this node in a space you are removing", cfg.Identity.Name),
+				fmt.Sprintf("Deployment %q is already on this node in a space you are removing", cfg.Name),
 				"node_space_in_use", http.StatusConflict)
 		}
 	}

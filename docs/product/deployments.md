@@ -19,10 +19,8 @@ A deployment is created by posting a `DeploymentCreateRequest` to
 
 ```json
 {
-  "identity": {
-    "name": "coflip_server",
-    "spaceId": 1
-  },
+  "name": "coflip_server",
+  "spaceId": 1,
   "nodeId": 1,
   "spec": {
     "networking": {"mode": 1},
@@ -89,7 +87,7 @@ responses redact its runtime details.
 - `portForwarding` publishes host-interface TCP or UDP ports to container ports through nftables DNAT and requires `VIRTUAL`, e.g. `{protocol: TCP, hostPort: 443, containerPort: 443}`.
 - `ingress` currently accepts `TLS_PASSTHROUGH` routes in virtual mode. Each route has a hostname and `tlsPassthroughConfig: {hostPort, containerPort}`; `hostPort: 0` defaults to `443`. Routes are rendered into local netproxy state, which selects by TLS SNI and relays the original TCP stream to a READY backend without TLS termination. The primary node reserves `:443` for the Web UI until both share one listener.
 - Virtual-mode deployments publish endpoint status for `.internal` DNS discovery through the per-machine netproxy deployment.
-- An environment variable of type `Address` selects a same-node virtual deployment and stores its deployment and space IDs. The consuming container receives that target's stable inbound IPv6 address `I` when it starts; run-scoped `O` is never exposed through Address refs. A target cannot be deleted or changed out of virtual networking while Address references remain (deployment space moves are rejected outright — see Config versioning).
+- An environment variable of type `Address` selects a same-node virtual deployment and stores its deployment and space IDs. The consuming container receives that target's stable inbound IPv6 address `I` when it starts; run-scoped `O` is never exposed through Address refs. A target cannot be deleted, changed out of virtual networking, or moved to another space while Address references remain (see Config versioning).
 - Workers reconcile cross-machine fixed tunnels and workload routes. Equivalent primary-node remote routing, unpublished candidate `O` distribution, policy, and public ingress remain incomplete.
 
 ### Config versioning
@@ -104,11 +102,31 @@ changes. The current desired state is the latest version row; deleting appends
 a final workload-stopped version before tombstoning the identity
 (`deleted_at`, `0` = live).
 
-Space moves are rejected (`deployment_space_move_unsupported`), and the UI
-locks the space alongside name and node after creation: the space feeds the
-workload's derived inbound address, DNS name, and issued TLS identity, so a
-move requires a coordinated re-placement. The target design is a separate
-`deployment_spaces` entity with its own versioning capturing space placements.
+The deployment's space lives in its own append-only version log,
+`deployment_space_versions` (`id, deployment_id, version, author, created_at,
+space_id`, unique on `(deployment_id, version)`): creation writes version 1,
+and each move appends the next version without bumping the config version. The
+newest row is the current space, and its `version` is exposed as
+`DeploymentConfig.spaceVersion`. A move is its own operation, `POST
+/v1/deployments/move-space`, guarded by the space version the caller observed
+(the request's `spaceVersion` must equal the current one + 1, mirroring the
+config-update guard), so a stale client cannot silently move a deployment
+back. The space feeds the workload's derived inbound address, DNS name, and
+issued TLS identity, so a live placement is never mutated by a move: each
+scheduled instance pins the `deployment_space_versions` row current at
+scheduling time (`scheduled_instances.deployment_space_version_id`) and keeps
+deriving for that space, while the scheduler compares resolved space values
+and treats a pin/config mismatch exactly like a superseded config version,
+replacing the placement through the normal rollover (or recreate) path
+(comparing values rather than rows means an A-B-A move cancels cleanly). A
+move is validated like a create into the destination: the caller needs create
+access there, the node must allow the space, secret refs must satisfy
+own-or-global locality against it, the (node, space, name) identity must be
+free, and it is refused with `deployment_address_referenced` while other
+deployments hold Address references to the moved deployment. Space 0 (the
+internal opendeploy space) is excluded from moves in both directions: the
+destination must be between 1 and the maximum space ID, and a deployment in
+space 0 cannot be moved out.
 
 The selected workload's `version` and `running` fields inside the persisted
 `DeploymentSpec` are the only authoritative desired state.
@@ -162,7 +180,7 @@ Driven by the runner. Tracks the running container task with `running_pid`,
 
 ## Deployment identification
 
-Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployments/create`. Human-readable metadata is stored as `DeploymentConfig.Identity`, and application identity is `{nodeId, spaceId, name}`. SQLite enforces that identity with a partial unique index over active deployments. All API requests, storage keys, and log file paths use the integer `id`.
+Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployments/create`. Human-readable metadata lives directly on `DeploymentConfig` (`name`, `spaceId`), and application identity is `{nodeId, spaceId, name}`. Active-identity uniqueness is a Go-level check under the store mutex on create and space move (the space lives in the `deployment_space_versions` log, so it cannot be a SQL constraint). All API requests, storage keys, and log file paths use the integer `id`.
 
 Deleting a deployment releases its human-readable identity tuple but retains its ID, configuration history, status history, logs, volumes, and other ID-owned records. Creating a deployment later with the same space, node, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
 

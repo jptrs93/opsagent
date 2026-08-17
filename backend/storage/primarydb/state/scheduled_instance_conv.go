@@ -17,6 +17,7 @@ func scheduledInstanceRowToProto(r pq.ScheduledInstanceRow) *apigen.ScheduledIns
 		DeploymentVersion: int32(r.DeploymentVersion),
 		NodeID:            int32(r.NodeID),
 		InstanceOrdinal:   int32(r.InstanceOrdinal),
+		SpaceID:           int32(r.SpaceID),
 		State:             apigen.ScheduledInstanceTarget(r.State),
 	}
 }

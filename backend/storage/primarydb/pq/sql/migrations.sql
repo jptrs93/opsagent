@@ -40,3 +40,20 @@
 -- *_spaces space-assignment log backfills with their space_id column drops.
 -- Upgrading a database from before then requires stepping through a release
 -- that still carried them.
+
+INSERT INTO deployment_space_versions (deployment_id, version, author, created_at, space_id)
+SELECT d.deployment_id, 1, 0,
+       COALESCE((SELECT MIN(v.created_at) FROM deployment_versions v
+                 WHERE v.deployment_id = d.deployment_id), 0),
+       d.space_id
+FROM deployment_configs d
+WHERE d.deployment_id NOT IN (SELECT deployment_id FROM deployment_space_versions);
+DROP INDEX IF EXISTS idx_deployment_configs_active_node_identity;
+ALTER TABLE deployment_configs DROP COLUMN space_id;
+
+ALTER TABLE scheduled_instances ADD COLUMN deployment_space_version_id INTEGER NOT NULL DEFAULT 0;
+UPDATE scheduled_instances SET
+    deployment_space_version_id = COALESCE((SELECT sp.id FROM deployment_space_versions sp
+        WHERE sp.deployment_id = scheduled_instances.deployment_id
+        ORDER BY sp.version DESC LIMIT 1), 0)
+WHERE deployment_space_version_id = 0;

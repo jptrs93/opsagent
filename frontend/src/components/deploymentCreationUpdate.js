@@ -638,10 +638,8 @@ export class DeploymentCreationUpdate {
         const workload = spec.container1Spec || spec.systemdSpec || {};
         replaceDeploymentFormFromConfig(this.form, {
             id: Number(this.form.deploymentId.val || 0),
-            identity: {
-                name: identity.name || '',
-                spaceId: Number(identity.spaceId || 0),
-            },
+            name: identity.name || '',
+            spaceId: Number(identity.spaceId || 0),
             nodeId: Number(document?.nodeId || 0),
             spec,
         });
@@ -680,10 +678,26 @@ export class DeploymentCreationUpdate {
     toCreatePayload() {
         const version = this.createDesiredVersion();
         const running = Boolean(this.desiredRunning.val);
+        const identity = formToDeploymentIdentity(this.form);
         return {
-            identity: formToDeploymentIdentity(this.form),
+            name: identity.name,
+            spaceId: identity.spaceId,
             nodeId: Number(this.form.nodeId.val || 0),
             spec: formToSpec(this.form, {version, running}),
+        };
+    }
+
+    // toMovePayload returns a DeploymentSpaceMoveRequest when the form names a
+    // different space than the deployment currently has, else null. Moves are
+    // an independent operation guarded by the deployment's space version.
+    toMovePayload() {
+        if (!this.existingState) throw new Error('Cannot produce move payload without existing deployment state');
+        const nextSpaceId = Number(this.form.spaceId.val || 0);
+        if (!nextSpaceId || nextSpaceId === Number(this.existingState.spaceId || 0)) return null;
+        return {
+            deploymentId: this.existingState.id,
+            spaceId: nextSpaceId,
+            spaceVersion: Number(this.existingState.spaceVersion || 0) + 1,
         };
     }
 

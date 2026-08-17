@@ -44,7 +44,7 @@ const apiConfig = {
     id: 101,
     version: 7,
     nodeId: 11,
-    identity: {name: 'api', spaceId: 1},
+    name: 'api', spaceId: 1,
     spec: {
         container1Spec: {
             source: {remoteImage: {image: 'ghcr.io/acme/api'}},
@@ -78,7 +78,7 @@ const workerConfig = {
     id: 102,
     version: 5,
     nodeId: 11,
-    identity: {name: 'worker', spaceId: 2},
+    name: 'worker', spaceId: 2,
     spec: {
         container1Spec: {
             source: {nixDockerBuild: {repo: 'github.com/acme/platform', flake: 'services/worker/flake.nix', target: '.#worker-image'}},
@@ -101,7 +101,7 @@ const databaseConfig = {
     id: 103,
     version: 2,
     nodeId: 11,
-    identity: {name: 'database', spaceId: 1},
+    name: 'database', spaceId: 1,
     spec: {
         container1Spec: {
             source: {remoteImage: {image: 'postgres:17'}},
@@ -120,6 +120,7 @@ const apiDeployment = {
     id: 101,
     name: 'api',
     spaceId: 1,
+    spaceVersion: 1,
     variant: 'containerImage',
     deployedVersion: 'v2.8.1',
     desiredRunning: true,
@@ -131,6 +132,7 @@ const workerDeployment = {
     id: 102,
     name: 'worker',
     spaceId: 2,
+    spaceVersion: 1,
     variant: 'nixDockerBuild',
     deployedVersion: 'c48d9b6f9c4a9a92b9f4dd25bfe5a3c671eca444',
     desiredRunning: false,

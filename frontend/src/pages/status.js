@@ -26,8 +26,8 @@ const STATUS_RUNNING = 2;
 const STATUS_STOPPED = 3;
 
 const isOpenDeployDeployment = deployment => {
-    const name = deployment?.name || deployment?.identity?.name || '';
-    const spaceId = Number(deployment?.spaceId ?? deployment?.identity?.spaceId ?? -1);
+    const name = deployment?.name || deployment?.name || '';
+    const spaceId = Number(deployment?.spaceId ?? deployment?.spaceId ?? -1);
     return spaceId === OPENDEPLOY_SPACE_ID && (name === 'opendeploy' || name === 'opendeploy-net');
 };
 
@@ -157,9 +157,9 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
     const label = currentConfig
         ? formatDeploymentLabel({
             id: deploymentId,
-            spaceName: `space ${currentConfig.identity?.spaceId ?? 0}`,
+            spaceName: `space ${currentConfig.spaceId ?? 0}`,
             node: currentConfig.nodeId ? nodeDisplayName(currentConfig.nodeId, machinesS.val) : '',
-            name: currentConfig.identity?.name || '',
+            name: currentConfig.name || '',
         })
         : `#${deploymentId}`;
 
@@ -283,7 +283,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
     return deployments.filter(d => d.config && d.config.id && !d.config.deleted).map((d) => {
         const id = d.config.id; // deployment id for API actions
         const instanceId = d.instance?.id || 0;
-        const identity = d.config.identity || {};
+        const identity = {spaceId: d.config.spaceId, name: d.config.name};
         const spec = d.config.spec || {};
         const workload = deploymentWorkload(d.config) || {};
         const runner = d.status?.runner || {};
@@ -350,6 +350,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             preparer: prep,
             prepareVersion: deploymentWorkload(d.pinnedConfig)?.version || workload.version || '',
             currentVersion: d.config.version || 0,
+            spaceVersion: d.config.spaceVersion || 0,
             targetState: d.instance?.state || 0,
             scheduledInstances,
         };

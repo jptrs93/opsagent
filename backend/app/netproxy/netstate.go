@@ -122,8 +122,8 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 			continue
 		}
 		services = append(services, &apigen.DnsService{
-			Name:        network.DNSLabel(item.Config.Identity.Name),
-			Environment: network.SpaceDNSName(item.Config.Identity.SpaceID),
+			Name:        network.DNSLabel(item.Config.Name),
+			Environment: network.SpaceDNSName(item.Config.SpaceID),
 			Endpoints:   ready,
 		})
 	}
@@ -313,7 +313,7 @@ func readyEndpoints(prefix network.Prefix, item apigen.ScheduledInstanceState) [
 		item.Status.Runner.Status != apigen.RunningStatus_RUNNING {
 		return nil
 	}
-	addr, err := prefix.InboundAddr(item.Config.Identity.SpaceID, item.Config.ID, item.Instance.InstanceOrdinal)
+	addr, err := prefix.InboundAddr(item.Config.SpaceID, item.Config.ID, item.Instance.InstanceOrdinal)
 	if err != nil {
 		return nil
 	}

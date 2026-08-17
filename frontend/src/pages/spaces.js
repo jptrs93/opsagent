@@ -38,7 +38,7 @@ const countDistinct = (items, spaceID, keyOf) => {
 
 const countDeployments = (deployments, spaceID) => (deployments || []).filter((deployment) => {
     const config = deployment?.config;
-    return config && !config.deleted && Number(config.identity?.spaceId || 0) === spaceID;
+    return config && !config.deleted && Number(config.spaceId || 0) === spaceID;
 }).length;
 
 const smallBtn = (text, onclick, cls, disabledWhen) => button({

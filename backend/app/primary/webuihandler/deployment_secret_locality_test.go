@@ -62,9 +62,9 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 
 	create := func(name string, spaceID, secretVersionID int32) (*apigen.DeploymentConfig, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-			Identity: apigen.DeploymentIdentity{SpaceID: spaceID, Name: name},
-			NodeID:   node.ID,
-			Spec:     secretEnvSpec("nginx", secretVersionID),
+			SpaceID: spaceID, Name: name,
+			NodeID: node.ID,
+			Spec:   secretEnvSpec("nginx", secretVersionID),
 		})
 	}
 
@@ -82,9 +82,9 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	}
 
 	clean, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		Identity: apigen.DeploymentIdentity{SpaceID: staging.ID, Name: "clean"},
-		NodeID:   node.ID,
-		Spec:     remoteDeploymentSpec("nginx", hostNetworking()),
+		SpaceID: staging.ID, Name: "clean",
+		NodeID: node.ID,
+		Spec:   remoteDeploymentSpec("nginx", hostNetworking()),
 	})
 	if err != nil {
 		t.Fatalf("creating clean deployment: %v", err)
@@ -135,16 +135,16 @@ func TestIngressCertSecretRefScopedToSpace(t *testing.T) {
 	}
 
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		Identity: apigen.DeploymentIdentity{SpaceID: state.DefaultSpaceID, Name: "web-global"},
-		NodeID:   node.ID,
-		Spec:     httpsSpec(),
+		SpaceID: state.DefaultSpaceID, Name: "web-global",
+		NodeID: node.ID,
+		Spec:   httpsSpec(),
 	}); !isSecretRefOutsideSpaceErr(err) {
 		t.Fatalf("global deployment with prod cert secret err = %v, want %v", err, SecretRefOutsideSpaceErr)
 	}
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		Identity: apigen.DeploymentIdentity{SpaceID: prod.ID, Name: "web-prod"},
-		NodeID:   node.ID,
-		Spec:     httpsSpec(),
+		SpaceID: prod.ID, Name: "web-prod",
+		NodeID: node.ID,
+		Spec:   httpsSpec(),
 	}); err != nil {
 		t.Fatalf("own-space cert secret ref rejected: %v", err)
 	}
@@ -165,9 +165,9 @@ func TestSecretMoveToGlobalAllowedWithOutsideRefs(t *testing.T) {
 		t.Fatalf("creating secret: %v", err)
 	}
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		Identity: apigen.DeploymentIdentity{SpaceID: prod.ID, Name: "db"},
-		NodeID:   node.ID,
-		Spec:     secretEnvSpec("postgres", secret.ID),
+		SpaceID: prod.ID, Name: "db",
+		NodeID: node.ID,
+		Spec:   secretEnvSpec("postgres", secret.ID),
 	}); err != nil {
 		t.Fatalf("creating referencing deployment: %v", err)
 	}

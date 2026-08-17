@@ -134,9 +134,17 @@ type ConfigVersion struct {
 type DeploymentConfig struct {
 	DeploymentID int64
 	NodeID       int64
-	SpaceID      int64
 	Name         string
 	DeletedAt    int64
+}
+
+type DeploymentSpaceVersion struct {
+	ID           int64
+	DeploymentID int64
+	Version      int64
+	Author       int64
+	CreatedAt    int64
+	SpaceID      int64
 }
 
 type DeploymentVersion struct {
@@ -197,11 +205,12 @@ type PublicKey struct {
 }
 
 type ScheduledInstance struct {
-	ID                int64
-	DeploymentID      int64
-	DeploymentVersion int64
-	NodeID            int64
-	InstanceOrdinal   int64
+	ID                       int64
+	DeploymentID             int64
+	DeploymentVersion        int64
+	NodeID                   int64
+	InstanceOrdinal          int64
+	DeploymentSpaceVersionID int64
 }
 
 type ScheduledInstanceStatus struct {

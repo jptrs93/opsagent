@@ -13,7 +13,8 @@ import (
 type DeploymentConfigRow struct {
 	DeploymentID int64
 	NodeID       int64
-	SpaceID      int64
+	SpaceID      int64 // latest space version's space_id
+	SpaceVersion int64 // latest space version's version
 	Name         string
 	DeletedAt    int64
 	Version      int64
@@ -24,7 +25,7 @@ type DeploymentConfigRow struct {
 }
 
 const deploymentConfigRowSelect = `
-	SELECT d.deployment_id, d.node_id, d.space_id, d.name, d.deleted_at,
+	SELECT d.deployment_id, d.node_id, sp.space_id, sp.version, d.name, d.deleted_at,
 	       v.version,
 	       (SELECT f.created_at FROM deployment_versions f
 	        WHERE f.deployment_id = d.deployment_id ORDER BY f.version LIMIT 1),
@@ -32,7 +33,10 @@ const deploymentConfigRowSelect = `
 	FROM deployment_configs d
 	JOIN deployment_versions v ON v.deployment_id = d.deployment_id
 	    AND v.version = (SELECT MAX(m.version) FROM deployment_versions m
-	                     WHERE m.deployment_id = d.deployment_id)`
+	                     WHERE m.deployment_id = d.deployment_id)
+	JOIN deployment_space_versions sp ON sp.deployment_id = d.deployment_id
+	    AND sp.version = (SELECT MAX(ms.version) FROM deployment_space_versions ms
+	                      WHERE ms.deployment_id = d.deployment_id)`
 
 type deploymentConfigScanner interface {
 	Scan(dest ...any) error
@@ -40,7 +44,7 @@ type deploymentConfigScanner interface {
 
 func scanDeploymentConfigRow(scanner deploymentConfigScanner) (DeploymentConfigRow, error) {
 	var r DeploymentConfigRow
-	err := scanner.Scan(&r.DeploymentID, &r.NodeID, &r.SpaceID, &r.Name, &r.DeletedAt,
+	err := scanner.Scan(&r.DeploymentID, &r.NodeID, &r.SpaceID, &r.SpaceVersion, &r.Name, &r.DeletedAt,
 		&r.Version, &r.CreatedAt, &r.UpdatedAt, &r.Author, &r.SpecBlob)
 	return r, err
 }

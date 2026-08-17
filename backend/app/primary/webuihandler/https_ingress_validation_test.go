@@ -42,14 +42,14 @@ func TestHTTPSIngressUpdateOnWorkerWithPassthrough(t *testing.T) {
 		return &spec
 	}
 	for _, hostname := range []string{"one.ingress.opendeploy.test", "two.ingress.opendeploy.test"} {
-		cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{Name: "tls-" + hostname, SpaceID: 1}, workerNode.ID, passthroughSpec(hostname))
+		cfg := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "tls-"+hostname, workerNode.ID, passthroughSpec(hostname))
 		if err := h.validateNodeNetworkingClaims(workerNode.ID, cfg.ID, passthroughSpec(hostname)); err != nil {
 			t.Fatalf("passthrough claims for %s rejected: %v", hostname, err)
 		}
 	}
 
 	echoSpec := remoteDeploymentSpec("httpecho", apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL})
-	echo := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{Name: "https-echo-root", SpaceID: 1}, workerNode.ID, &echoSpec)
+	echo := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "https-echo-root", workerNode.ID, &echoSpec)
 
 	updated := remoteDeploymentSpec("httpecho", apigen.NetworkingConfig{
 		Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,

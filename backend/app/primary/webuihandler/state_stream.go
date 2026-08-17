@@ -65,8 +65,8 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				return spaceID, true
 			}
 			if cfg := h.findConfigByID(deploymentID); cfg != nil {
-				depSpace[deploymentID] = cfg.Identity.SpaceID
-				return cfg.Identity.SpaceID, true
+				depSpace[deploymentID] = cfg.SpaceID
+				return cfg.SpaceID, true
 			}
 			return 0, false
 		}
@@ -94,7 +94,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 
 		buildState := func() (*apigen.State, error) {
 			for _, cfg := range h.Store.FetchDeploymentSnapshot(nil) {
-				depSpace[cfg.ID] = cfg.Identity.SpaceID
+				depSpace[cfg.ID] = cfg.SpaceID
 			}
 			configs := h.filterDeploymentConfigs(ctx, h.Store.ListActiveDeploymentConfigs())
 			configItems := make([]*apigen.DeploymentConfig, 0, len(configs))
@@ -182,8 +182,8 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
-				depSpace[cfg.ID] = cfg.Identity.SpaceID
-				if !h.canAccess(ctx, vView, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID)) {
+				depSpace[cfg.ID] = cfg.SpaceID
+				if !h.canAccess(ctx, vView, eDeployment, int64(cfg.SpaceID), int64(cfg.ID)) {
 					continue
 				}
 				if !yield(&apigen.State{DeploymentConfigUpdate: redactDeploymentConfig(&cfg)}, nil) {

@@ -230,13 +230,19 @@ type DeploymentUpdateRequest struct {
 	Stop          bool           `json:"stop"`
 	Version       int32          `json:"version"`
 	Spec          DeploymentSpec `json:"spec"`
-	SpaceID       *int32         `json:"space_id,omitempty"`
+}
+
+type DeploymentSpaceMoveRequest struct {
+	DeploymentID int32 `json:"deployment_id"`
+	SpaceID      int32 `json:"space_id"`
+	SpaceVersion int32 `json:"space_version"`
 }
 
 type DeploymentCreateRequest struct {
-	Identity DeploymentIdentity `json:"identity"`
-	Spec     DeploymentSpec     `json:"spec"`
-	NodeID   int32              `json:"node_id"`
+	Name    string         `json:"name,omitempty"`
+	SpaceID int32          `json:"space_id"`
+	Spec    DeploymentSpec `json:"spec"`
+	NodeID  int32          `json:"node_id"`
 }
 
 type DeploymentHistoryRequest struct {
@@ -297,11 +303,6 @@ type LogLineBatch struct {
 	LogDir string     `json:"log_dir,omitempty"`
 }
 
-type DeploymentIdentity struct {
-	SpaceID int32  `json:"space_id"`
-	Name    string `json:"name,omitempty"`
-}
-
 type DeploymentDeleteRequest struct {
 	DeploymentID int32 `json:"deployment_id"`
 	Version      int32 `json:"version"`
@@ -315,6 +316,7 @@ type ScheduledInstance struct {
 	NodeID            int32                   `json:"node_id"`
 	InstanceOrdinal   int32                   `json:"instance_ordinal"`
 	State             ScheduledInstanceTarget `json:"state"`
+	SpaceID           int32                   `json:"space_id"`
 }
 
 type ScheduledInstanceStatus struct {
@@ -471,15 +473,17 @@ type ValidateContainerImageSourceResponse struct {
 }
 
 type DeploymentConfig struct {
-	ID        int32              `json:"id"`
-	NodeID    int32              `json:"node_id"`
-	Identity  DeploymentIdentity `json:"identity"`
-	CreatedAt time.Time          `json:"created_at"`
-	UpdatedAt time.Time          `json:"updated_at"`
-	Author    int32              `json:"author"`
-	Version   int32              `json:"version"`
-	Spec      DeploymentSpec     `json:"spec"`
-	Deleted   bool               `json:"deleted"`
+	ID           int32          `json:"id"`
+	NodeID       int32          `json:"node_id"`
+	SpaceID      int32          `json:"space_id"`
+	SpaceVersion int32          `json:"space_version"`
+	Name         string         `json:"name,omitempty"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	Author       int32          `json:"author"`
+	Version      int32          `json:"version"`
+	Spec         DeploymentSpec `json:"spec"`
+	Deleted      bool           `json:"deleted"`
 }
 
 type DeploymentSpec struct {

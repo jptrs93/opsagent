@@ -38,9 +38,9 @@ func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 	// before anyone narrows anything. This is the default-open half.
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		Identity: apigen.DeploymentIdentity{SpaceID: space.ID, Name: "web"},
-		NodeID:   node.ID,
-		Spec:     spec,
+		SpaceID: space.ID, Name: "web",
+		NodeID: node.ID,
+		Spec:   spec,
 	}); err != nil {
 		t.Fatalf("create before narrowing: %v", err)
 	}
@@ -55,9 +55,9 @@ func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 	}
 
 	_, err = h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		Identity: apigen.DeploymentIdentity{SpaceID: fenced.ID, Name: "web2"},
-		NodeID:   node.ID,
-		Spec:     spec,
+		SpaceID: fenced.ID, Name: "web2",
+		NodeID: node.ID,
+		Spec:   spec,
 	})
 	if err == nil || !strings.Contains(err.Error(), "node_space_not_allowed") {
 		t.Fatalf("err = %v, want node_space_not_allowed", err)
@@ -72,9 +72,9 @@ func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 	}
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
 	cfg, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		Identity: apigen.DeploymentIdentity{SpaceID: state.DefaultSpaceID, Name: "web"},
-		NodeID:   node.ID,
-		Spec:     spec,
+		SpaceID: state.DefaultSpaceID, Name: "web",
+		NodeID: node.ID,
+		Spec:   spec,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -83,14 +83,13 @@ func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 		t.Fatalf("narrowing: %v", err)
 	}
 
-	target := space.ID
-	_, err = h.PostV1DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+	_, err = h.PostV1DeploymentsMoveSpace(apigen.Context{}, &apigen.DeploymentSpaceMoveRequest{
 		DeploymentID: cfg.ID,
-		Version:      cfg.Version + 1,
-		SpaceID:      &target,
+		SpaceID:      space.ID,
+		SpaceVersion: cfg.SpaceVersion + 1,
 	})
-	if err != DeploymentSpaceMoveUnsupportedErr {
-		t.Fatalf("err = %v, want %v", err, DeploymentSpaceMoveUnsupportedErr)
+	if err == nil || !strings.Contains(err.Error(), "node_space_not_allowed") {
+		t.Fatalf("err = %v, want node_space_not_allowed", err)
 	}
 }
 
@@ -100,9 +99,9 @@ func TestNarrowingIsRejectedWhileDeploymentsUseTheSpace(t *testing.T) {
 	h, node := newNodeSpacesHandler(t)
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		Identity: apigen.DeploymentIdentity{SpaceID: state.DefaultSpaceID, Name: "web"},
-		NodeID:   node.ID,
-		Spec:     spec,
+		SpaceID: state.DefaultSpaceID, Name: "web",
+		NodeID: node.ID,
+		Spec:   spec,
 	}); err != nil {
 		t.Fatalf("create: %v", err)
 	}

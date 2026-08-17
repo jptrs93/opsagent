@@ -38,11 +38,11 @@ func (i *Issuer) Issue(cfg *apigen.DeploymentConfig) (*apigen.ClusterIssuedTLSRe
 			NotAfter:  notAfter.UnixMilli(),
 		}, nil
 	}
-	dnsName := network.DeploymentDNSName(cfg.Identity.Name, cfg.Identity.SpaceID)
+	dnsName := network.DeploymentDNSName(cfg.Name, cfg.SpaceID)
 	names := []string{dnsName}
 	if cfg.Spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 		if prefix, ok := network.Default.PrefixValue(); ok {
-			if addr, addrErr := prefix.InboundAddr(cfg.Identity.SpaceID, cfg.ID, 0); addrErr == nil {
+			if addr, addrErr := prefix.InboundAddr(cfg.SpaceID, cfg.ID, 0); addrErr == nil {
 				names = append(names, addr.String())
 			}
 		}

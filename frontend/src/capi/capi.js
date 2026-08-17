@@ -87,6 +87,7 @@ import {
   encodeDeploymentDeleteRequest,
   encodeDeploymentGetRequest,
   encodeDeploymentHistoryRequest,
+  encodeDeploymentSpaceMoveRequest,
   encodeDeploymentUpdateRequest,
   encodeDeploymentVersionsRequest,
   encodeEmptyRequest,
@@ -624,6 +625,18 @@ export class Capi {
    */
   async postV1DeploymentsUpdate(payload) {
     const response = await this.#request("/v1/deployments/update", { method: 'POST', body: encodeDeploymentUpdateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeDeploymentConfig(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {DeploymentSpaceMoveRequest} payload
+   * @returns {Promise<DeploymentConfig>}
+   */
+  async postV1DeploymentsMoveSpace(payload) {
+    const response = await this.#request("/v1/deployments/move-space", { method: 'POST', body: encodeDeploymentSpaceMoveRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

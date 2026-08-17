@@ -72,10 +72,7 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	unrelated := store.SetConfigByName("other", "keep", 1)
 	unrelatedID := latestConfigRef(t, unrelated).ID
 	create := func(name string, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
-		return store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-			SpaceID: DefaultSpaceID,
-			Name:    name,
-		}, node.ID, spec)
+		return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, node.ID, spec)
 	}
 	firstDeployment := create("first", envRefSpec(map[string]int32{
 		"DATABASE": firstID,
@@ -159,10 +156,7 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	create := func(name string, secretVersionID int32) *apigen.DeploymentConfig {
-		return store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-			SpaceID: DefaultSpaceID,
-			Name:    name,
-		}, node.ID, envRefSpec(nil, map[string]int32{"TOKEN": secretVersionID}))
+		return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, node.ID, envRefSpec(nil, map[string]int32{"TOKEN": secretVersionID}))
 	}
 	firstDeployment := create("first", first.ID)
 	secondDeployment := create("second", second.ID)
@@ -234,10 +228,7 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	create := func(name string) *apigen.DeploymentConfig {
-		return store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-			SpaceID: DefaultSpaceID,
-			Name:    name,
-		}, node.ID, envRefSpec(nil, map[string]int32{"POSTGRES_PASSWORD": first.ID}))
+		return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, node.ID, envRefSpec(nil, map[string]int32{"POSTGRES_PASSWORD": first.ID}))
 	}
 	original := create("original")
 	live := create("live")

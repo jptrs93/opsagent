@@ -298,13 +298,13 @@ function deploymentConfig(item) {
 }
 
 function itemSpace(item, type) {
-    if (type === "deployment") return deploymentConfig(item)?.identity?.spaceId;
+    if (type === "deployment") return deploymentConfig(item)?.spaceId;
     return item?.spaceId;
 }
 
 function itemName(item, type) {
     if (type === "asset") return item?.key;
-    if (type === "deployment") return deploymentConfig(item)?.identity?.name;
+    if (type === "deployment") return deploymentConfig(item)?.name;
     return item?.name;
 }
 
@@ -950,7 +950,7 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
         if (value.name === "asset") setEnv(entry.name, {asset: item.key, assetVersionId: Number(item.id)});
         if (value.name === "address") {
             const config = deploymentConfig(item);
-            setEnv(entry.name, {addressDeploymentId: Number(config.id), addressSpaceId: Number(config.identity.spaceId)});
+            setEnv(entry.name, {addressDeploymentId: Number(config.id), addressSpaceId: Number(config.spaceId)});
         }
     }
     container.envVars = envVars;

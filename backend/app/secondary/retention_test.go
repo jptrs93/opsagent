@@ -55,10 +55,10 @@ func withRetentionAssetDir(t *testing.T, names ...string) string {
 // values seeded by retentionTestStore and withRetentionAssetDir.
 func referencingConfig(version int32) apigen.DeploymentConfig {
 	return apigen.DeploymentConfig{
-		ID:       7,
-		NodeID:   23,
-		Version:  version,
-		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "api"},
+		ID:      7,
+		NodeID:  23,
+		Version: version,
+		SpaceID: 1, Name: "api",
 		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 			Runtime: apigen.ContainerRuntime{
 				AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4}},
@@ -124,7 +124,7 @@ func TestSweepSkipsEntirelyWhileAnyInstanceIsMidRollout(t *testing.T) {
 	// A second instance mid-rollout: prepared at v4, still running v3.
 	other := referencingConfig(4)
 	other.ID = 8
-	other.Identity.Name = "worker"
+	other.Name = "worker"
 	writeInstance(t, store, 12, other, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, 4, 3)
 
 	sweepRuntimeInputs(context.Background(), store, inputs, nil, nil)

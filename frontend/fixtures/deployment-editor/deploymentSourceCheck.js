@@ -167,14 +167,14 @@ duplicateNameModel.form.name.val = 'api';
 duplicateNameModel.form.spaceId.val = 1;
 duplicateNameModel.form.nodeId.val = 11;
 assert.equal(formInvalidReason(duplicateNameModel.form, {
-    deployments: [{config: {id: 10, nodeId: 11, identity: {name: 'api', spaceId: 1}}}],
+    deployments: [{config: {id: 10, nodeId: 11, name: 'api', spaceId: 1}}],
 }), 'Deployment name is unavailable on this node and in this space.');
 assert.notEqual(formInvalidReason(duplicateNameModel.form, {
-    deployments: [{config: {id: 11, nodeId: 12, identity: {name: 'api', spaceId: 1}}}],
+    deployments: [{config: {id: 11, nodeId: 12, name: 'api', spaceId: 1}}],
 }), 'Deployment name is unavailable on this node and in this space.');
 duplicateNameModel.form.deploymentId.val = 10;
 assert.notEqual(formInvalidReason(duplicateNameModel.form, {
-    deployments: [{config: {id: 10, nodeId: 11, identity: {name: 'api', spaceId: 1}}}],
+    deployments: [{config: {id: 10, nodeId: 11, name: 'api', spaceId: 1}}],
 }), 'Deployment name is unavailable on this node and in this space.');
 
 // A persisted running source remains trusted across failed discovery refreshes.

@@ -35,7 +35,7 @@ func (h *Handler) PostV1DeploymentsGet(ctx apigen.Context, req *apigen.Deploymen
 	if cfg == nil || cfg.Deleted {
 		return nil, DeploymentNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return nil, err
 	}
 	states := make([]apigen.ScheduledInstanceState, 0, 2)

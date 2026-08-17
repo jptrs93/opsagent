@@ -162,8 +162,8 @@ func (c *Cache) NotifyInstanceLocked(id int32) {
 		return
 	}
 	name := ""
-	if !state.Config.Identity.IsZero() {
-		name = fmt.Sprintf("%d:%d:%s", state.Config.Identity.SpaceID, state.Config.NodeID, state.Config.Identity.Name)
+	if state.Config.Name != "" {
+		name = fmt.Sprintf("%d:%d:%s", state.Config.SpaceID, state.Config.NodeID, state.Config.Name)
 	}
 	slog.Info("store: notify scheduled instance",
 		"scheduled_instance", id,

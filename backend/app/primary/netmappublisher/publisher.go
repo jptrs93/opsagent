@@ -260,7 +260,7 @@ func render(prefix network.Prefix, nodes []*state.Node, instances []apigen.Sched
 		if _, ok := knownNodes[inst.NodeID]; !ok {
 			return nil, fmt.Errorf("scheduled instance %d references unknown node %d", inst.ID, inst.NodeID)
 		}
-		placement, err := prefix.PlacementCIDR(cfg.Identity.SpaceID, cfg.ID, inst.InstanceOrdinal, inst.ID)
+		placement, err := prefix.PlacementCIDR(cfg.SpaceID, cfg.ID, inst.InstanceOrdinal, inst.ID)
 		if err != nil {
 			return nil, fmt.Errorf("deriving placement prefix for scheduled instance %d: %w", inst.ID, err)
 		}
@@ -270,7 +270,7 @@ func render(prefix network.Prefix, nodes []*state.Node, instances []apigen.Sched
 		if inst.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
 			continue
 		}
-		instancePrefix, err := prefix.InstanceCIDR(cfg.Identity.SpaceID, cfg.ID, inst.InstanceOrdinal)
+		instancePrefix, err := prefix.InstanceCIDR(cfg.SpaceID, cfg.ID, inst.InstanceOrdinal)
 		if err != nil {
 			return nil, fmt.Errorf("deriving instance prefix for scheduled instance %d: %w", inst.ID, err)
 		}

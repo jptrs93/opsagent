@@ -188,7 +188,11 @@ func (q *Queries) CountConfigsInDirectory(ctx context.Context, valueDirectoryID 
 }
 
 const countDeploymentsForSpace = `-- name: CountDeploymentsForSpace :one
-SELECT COUNT(*) FROM deployment_configs WHERE space_id = ? AND deleted_at = 0
+SELECT COUNT(*) FROM deployment_configs d
+WHERE d.deleted_at = 0
+  AND (SELECT sp.space_id FROM deployment_space_versions sp
+       WHERE sp.deployment_id = d.deployment_id
+       ORDER BY sp.version DESC LIMIT 1) = ?
 `
 
 func (q *Queries) CountDeploymentsForSpace(ctx context.Context, spaceID int64) (int64, error) {
@@ -285,15 +289,14 @@ func (q *Queries) CreateAuthzRuleTemplate(ctx context.Context, name string) (int
 
 const createDeploymentConfig = `-- name: CreateDeploymentConfig :one
 
-INSERT INTO deployment_configs (node_id, space_id, name, deleted_at)
-VALUES (?, ?, ?, 0)
+INSERT INTO deployment_configs (node_id, name, deleted_at)
+VALUES (?, ?, 0)
 RETURNING deployment_id
 `
 
 type CreateDeploymentConfigParams struct {
-	NodeID  int64
-	SpaceID int64
-	Name    string
+	NodeID int64
+	Name   string
 }
 
 // === deployment_configs ===
@@ -301,7 +304,7 @@ type CreateDeploymentConfigParams struct {
 // auto-allocates its deployment_id. Deleted deployments do not reserve their
 // former identity tuple. The caller inserts the v1 version row in the same tx.
 func (q *Queries) CreateDeploymentConfig(ctx context.Context, arg CreateDeploymentConfigParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, createDeploymentConfig, arg.NodeID, arg.SpaceID, arg.Name)
+	row := q.db.QueryRowContext(ctx, createDeploymentConfig, arg.NodeID, arg.Name)
 	var deployment_id int64
 	err := row.Scan(&deployment_id)
 	return deployment_id, err
@@ -1024,6 +1027,33 @@ func (q *Queries) InsertConfigVersion(ctx context.Context, arg InsertConfigVersi
 	return i, err
 }
 
+const insertDeploymentSpaceVersion = `-- name: InsertDeploymentSpaceVersion :one
+INSERT INTO deployment_space_versions (deployment_id, version, author, created_at, space_id)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id
+`
+
+type InsertDeploymentSpaceVersionParams struct {
+	DeploymentID int64
+	Version      int64
+	Author       int64
+	CreatedAt    int64
+	SpaceID      int64
+}
+
+func (q *Queries) InsertDeploymentSpaceVersion(ctx context.Context, arg InsertDeploymentSpaceVersionParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertDeploymentSpaceVersion,
+		arg.DeploymentID,
+		arg.Version,
+		arg.Author,
+		arg.CreatedAt,
+		arg.SpaceID,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertDeploymentVersion = `-- name: InsertDeploymentVersion :exec
 
 INSERT INTO deployment_versions (deployment_id, version, created_at, author, spec_blob)
@@ -1077,16 +1107,17 @@ func (q *Queries) InsertGlobalAccessRuleRow(ctx context.Context, arg InsertGloba
 const insertScheduledInstance = `-- name: InsertScheduledInstance :one
 
 
-INSERT INTO scheduled_instances (deployment_id, deployment_version, node_id, instance_ordinal)
-VALUES (?, ?, ?, ?)
+INSERT INTO scheduled_instances (deployment_id, deployment_version, node_id, instance_ordinal, deployment_space_version_id)
+VALUES (?, ?, ?, ?, ?)
 RETURNING id
 `
 
 type InsertScheduledInstanceParams struct {
-	DeploymentID      int64
-	DeploymentVersion int64
-	NodeID            int64
-	InstanceOrdinal   int64
+	DeploymentID             int64
+	DeploymentVersion        int64
+	NodeID                   int64
+	InstanceOrdinal          int64
+	DeploymentSpaceVersionID int64
 }
 
 // === scheduled_instances ===
@@ -1100,6 +1131,7 @@ func (q *Queries) InsertScheduledInstance(ctx context.Context, arg InsertSchedul
 		arg.DeploymentVersion,
 		arg.NodeID,
 		arg.InstanceOrdinal,
+		arg.DeploymentSpaceVersionID,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -1639,6 +1671,81 @@ func (q *Queries) ListConfigVersionsByConfigID(ctx context.Context, configID int
 			&i.Value,
 			&i.CreatedAt,
 			&i.Author,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCurrentDeploymentSpaceVersions = `-- name: ListCurrentDeploymentSpaceVersions :many
+SELECT sp.id, sp.deployment_id, sp.version, sp.author, sp.created_at, sp.space_id
+FROM deployment_space_versions sp
+JOIN (SELECT deployment_id, MAX(version) AS version
+      FROM deployment_space_versions GROUP BY deployment_id) latest
+  ON latest.deployment_id = sp.deployment_id AND latest.version = sp.version
+`
+
+func (q *Queries) ListCurrentDeploymentSpaceVersions(ctx context.Context) ([]DeploymentSpaceVersion, error) {
+	rows, err := q.db.QueryContext(ctx, listCurrentDeploymentSpaceVersions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeploymentSpaceVersion
+	for rows.Next() {
+		var i DeploymentSpaceVersion
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeploymentID,
+			&i.Version,
+			&i.Author,
+			&i.CreatedAt,
+			&i.SpaceID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDeploymentSpaceVersionsByDeploymentID = `-- name: ListDeploymentSpaceVersionsByDeploymentID :many
+SELECT id, deployment_id, version, author, created_at, space_id
+FROM deployment_space_versions
+WHERE deployment_id = ?
+ORDER BY version ASC
+`
+
+func (q *Queries) ListDeploymentSpaceVersionsByDeploymentID(ctx context.Context, deploymentID int64) ([]DeploymentSpaceVersion, error) {
+	rows, err := q.db.QueryContext(ctx, listDeploymentSpaceVersionsByDeploymentID, deploymentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeploymentSpaceVersion
+	for rows.Next() {
+		var i DeploymentSpaceVersion
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeploymentID,
+			&i.Version,
+			&i.Author,
+			&i.CreatedAt,
+			&i.SpaceID,
 		); err != nil {
 			return nil, err
 		}

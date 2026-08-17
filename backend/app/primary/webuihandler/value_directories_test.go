@@ -252,7 +252,7 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 			CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{SecretVersionID: certSecret.VersionRefs[0].ID}},
 		},
 	}}
-	createTestDeployment(h.Store, "node1", apigen.DeploymentIdentity{Name: "web", SpaceID: 1}, &spec)
+	createTestDeployment(h.Store, "node1", 1, "web", &spec)
 
 	// All three pins live in space 1, so nothing may leave it.
 	if _, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
@@ -290,7 +290,7 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 	straySpec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
 		"STRAY": {SecretVersionID: ptrInt32(stray.VersionRefs[0].ID)},
 	}
-	createTestDeployment(h.Store, "node1", apigen.DeploymentIdentity{Name: "worker", SpaceID: 1}, &straySpec)
+	createTestDeployment(h.Store, "node1", 1, "worker", &straySpec)
 	moved, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
 		SecretID: stray.ID, SpaceID: 1,
 	})

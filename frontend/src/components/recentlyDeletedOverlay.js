@@ -56,13 +56,13 @@ export function recentlyDeletedOverlay(onFork, onClose) {
             "data-testid": `recently-deleted-row-${config.id}`,
         },
         td({class: "px-3 py-2 text-gray-200"},
-            div(config.identity?.name || `#${config.id}`),
+            div(config.name || `#${config.id}`),
             () => {
                 const source = sourceLabel(config);
                 return source ? div({class: "text-xs text-gray-500 truncate"}, source) : '';
             },
         ),
-        td({class: "px-3 py-2 text-gray-400"}, spaceName(config.identity?.spaceId)),
+        td({class: "px-3 py-2 text-gray-400"}, spaceName(config.spaceId)),
         td({class: "px-3 py-2 text-gray-400"}, nodeDisplayName(config.nodeId, machinesS.val) || '—'),
         td({class: "px-3 py-2 text-gray-400 whitespace-nowrap"}, formatHistoryTime(config.updatedAt) || '—'),
         td({class: "px-3 py-2 text-gray-400"}, resolveUserDisplayName(config.author) || '—'),

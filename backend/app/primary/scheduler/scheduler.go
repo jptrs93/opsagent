@@ -148,7 +148,8 @@ func (s *Scheduler) onConfig(cfg apigen.DeploymentConfig) {
 		if inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
 			serving = true
 		}
-		if inst.DeploymentVersion == cfg.Version && inst.NodeID == cfg.NodeID && inst.State.WantsRunning() {
+		if inst.DeploymentVersion == cfg.Version && inst.NodeID == cfg.NodeID &&
+			inst.SpaceID == cfg.SpaceID && inst.State.WantsRunning() {
 			exact = state
 			continue
 		}
@@ -229,7 +230,8 @@ func (s *Scheduler) onInstance(state apigen.ScheduledInstanceState) {
 			s.retireDrainedInstances()
 			return
 		}
-		if cfg.Version == inst.DeploymentVersion && cfg.NodeID == inst.NodeID {
+		if cfg.Version == inst.DeploymentVersion && cfg.NodeID == inst.NodeID &&
+			cfg.SpaceID == inst.SpaceID {
 			s.promoteIfReady(state)
 			return
 		}

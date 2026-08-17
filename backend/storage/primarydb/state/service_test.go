@@ -38,10 +38,7 @@ func TestPrimaryStorageIgnoresRetiredDesiredStateColumns(t *testing.T) {
 
 	store := Open(dbPath)
 	node := testNode(store, "primary")
-	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: DefaultSpaceID,
-		Name:    "api",
-	}, node.ID, testSpecWithState("v1", true))
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, "api", node.ID, testSpecWithState("v1", true))
 	store.MustSetDeploymentWorkloadState(apigen.Context{}, cfg.ID, "v2", false)
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
@@ -67,18 +64,12 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	primaryNode := testNode(store, "primary")
 	workerNode := testNode(store, "worker")
 	create := func(nodeID int32, name string, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
-		return store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-			SpaceID: DefaultSpaceID,
-			Name:    name,
-		}, nodeID, spec)
+		return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, nodeID, spec)
 	}
 	containerSpec := testSpecWithState("v1", true)
 	primary := create(primaryNode.ID, "app", containerSpec)
 	worker := create(workerNode.ID, "app", containerSpec)
-	system := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: OpendeploySpaceID,
-		Name:    internaldeploy.SelfName,
-	}, primaryNode.ID, testSystemSpecWithState("v1", true))
+	system := store.MustCreateDeploymentForNode(apigen.Context{}, OpendeploySpaceID, internaldeploy.SelfName, primaryNode.ID, testSystemSpecWithState("v1", true))
 
 	seedStatus := func(cfg *apigen.DeploymentConfig, artifact string) *apigen.ScheduledInstance {
 		inst := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
@@ -137,8 +128,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := testNode(store, "primary")
-	cid := &apigen.DeploymentIdentity{SpaceID: OpendeploySpaceID, Name: internaldeploy.SelfName}
-	created := store.MustCreateDeploymentForNode(apigen.Context{}, cid, node.ID, testSpecWithState("", false))
+	created := store.MustCreateDeploymentForNode(apigen.Context{}, OpendeploySpaceID, internaldeploy.SelfName, node.ID, testSpecWithState("", false))
 	store.MustSetDeploymentWorkloadState(apigen.Context{}, created.ID, "v0.0.194", true)
 
 	store.EnsureSystemDeployment(node.ID, "v0.0.195")
@@ -171,11 +161,11 @@ func TestEnsureNetproxyDeploymentCreatesInternalConfig(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("netproxy config not returned")
 	}
-	if cfg.NodeID != node.ID || cfg.Identity.SpaceID != OpendeploySpaceID || cfg.Identity.Name != internaldeploy.NetproxyName {
-		t.Fatalf("unexpected config id: %+v", cfg.Identity)
+	if cfg.NodeID != node.ID || cfg.SpaceID != OpendeploySpaceID || cfg.Name != internaldeploy.NetproxyName {
+		t.Fatalf("unexpected config identity: node=%d space=%d name=%q", cfg.NodeID, cfg.SpaceID, cfg.Name)
 	}
 	if !internaldeploy.IsNetproxyConfig(cfg) || !internaldeploy.IsInternalConfig(cfg) {
-		t.Fatalf("netproxy config not recognized as internal: %+v", cfg.Identity)
+		t.Fatalf("netproxy config not recognized as internal: space=%d name=%q", cfg.SpaceID, cfg.Name)
 	}
 	if !cfg.WorkloadRunning() || cfg.WorkloadVersion() != "v0.0.200" {
 		t.Fatalf("workload state = %q/%v, want running v0.0.200", cfg.WorkloadVersion(), cfg.WorkloadRunning())
@@ -202,8 +192,8 @@ func TestInternalDeploymentsAreScopedByNodeID(t *testing.T) {
 	if a.ID == b.ID || a.NodeID != nodeA.ID || b.NodeID != nodeB.ID {
 		t.Fatalf("netproxy deployments not scoped by node: a=%+v b=%+v", a, b)
 	}
-	if a.Identity.SpaceID != b.Identity.SpaceID || a.Identity.Name != b.Identity.Name {
-		t.Fatalf("internal identities differ across nodes: a=%+v b=%+v", a.Identity, b.Identity)
+	if a.SpaceID != b.SpaceID || a.Name != b.Name {
+		t.Fatalf("internal identities differ across nodes: a=%d/%q b=%d/%q", a.SpaceID, a.Name, b.SpaceID, b.Name)
 	}
 }
 
@@ -397,10 +387,7 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 	defer store.Close()
 	node := store.EnsurePrimaryNode("primary", "primary-id")
 
-	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: DefaultSpaceID,
-		Name:    "api",
-	}, node.ID, testSystemSpecWithState("v1", true))
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, "api", node.ID, testSystemSpecWithState("v1", true))
 	if cfg.NodeID != node.ID {
 		t.Fatalf("created node ID = %d, want %d", cfg.NodeID, node.ID)
 	}
@@ -432,10 +419,7 @@ func TestSetDeploymentWorkloadStateReencodesSpec(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := Open(dbPath)
 	node := testNode(store, "primary")
-	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: DefaultSpaceID,
-		Name:    "api",
-	}, node.ID, testSpecWithState("v1", true))
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, "api", node.ID, testSpecWithState("v1", true))
 
 	store.MustSetDeploymentWorkloadState(apigen.Context{}, cfg.ID, "v2", false)
 
@@ -501,10 +485,7 @@ func TestEnsureRunScheduledInstanceIsConcurrentAndIdempotent(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary-id")
-	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: DefaultSpaceID,
-		Name:    "api",
-	}, node.ID, testSpecWithState("v1", true))
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, "api", node.ID, testSpecWithState("v1", true))
 
 	const callers = 16
 	ids := make(chan int32, callers)

@@ -117,6 +117,15 @@ const actions = {
         await wait(400);
         return {id: nextDeploymentID++, version: 1, ...request};
     },
+    moveDeploymentSpace: async request => {
+        record('move-deployment-space', request);
+        await wait(200);
+        const current = mockDeployments.find(item => item.config.id === request.deploymentId)?.config || {};
+        const config = structuredClone(current);
+        config.spaceId = request.spaceId;
+        config.spaceVersion = request.spaceVersion;
+        return config;
+    },
     updateDeployment: async request => {
         record(request.stop ? 'stop-deployment' : (request.targetVersion ? 'deploy-version' : 'update-deployment'), request);
         await wait(400);

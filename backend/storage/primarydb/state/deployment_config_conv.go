@@ -11,18 +11,17 @@ import (
 func configRowToProto(r pq.DeploymentConfigRow) *apigen.DeploymentConfig {
 	spec := mustDecodeDeploymentSpec(r.SpecBlob, r.DeploymentID, r.Version)
 	return &apigen.DeploymentConfig{
-		ID:     int32(r.DeploymentID),
-		NodeID: int32(r.NodeID),
-		Identity: apigen.DeploymentIdentity{
-			SpaceID: int32(r.SpaceID),
-			Name:    r.Name,
-		},
-		CreatedAt: millisToTime(r.CreatedAt),
-		Version:   int32(r.Version),
-		UpdatedAt: time.UnixMilli(r.UpdatedAt),
-		Author:    int32(r.Author),
-		Spec:      deploymentSpecValue(spec),
-		Deleted:   r.DeletedAt != 0,
+		ID:           int32(r.DeploymentID),
+		NodeID:       int32(r.NodeID),
+		SpaceID:      int32(r.SpaceID),
+		SpaceVersion: int32(r.SpaceVersion),
+		Name:         r.Name,
+		CreatedAt:    millisToTime(r.CreatedAt),
+		Version:      int32(r.Version),
+		UpdatedAt:    time.UnixMilli(r.UpdatedAt),
+		Author:       int32(r.Author),
+		Spec:         deploymentSpecValue(spec),
+		Deleted:      r.DeletedAt != 0,
 	}
 }
 
@@ -42,7 +41,9 @@ func configVersionRowToProto(v pq.DeploymentVersion, base *apigen.DeploymentConf
 	}
 	if base != nil {
 		cfg.NodeID = base.NodeID
-		cfg.Identity = base.Identity
+		cfg.SpaceID = base.SpaceID
+		cfg.SpaceVersion = base.SpaceVersion
+		cfg.Name = base.Name
 		cfg.CreatedAt = base.CreatedAt
 		cfg.Deleted = base.Deleted
 	}

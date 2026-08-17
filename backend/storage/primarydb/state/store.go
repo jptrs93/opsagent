@@ -36,6 +36,13 @@ func (s *Service) loadCache() {
 		id := int32(row.DeploymentID)
 		s.configCache[id] = configRowToProto(row)
 	}
+	spaceRows, err := s.q.ListCurrentDeploymentSpaceVersions(ctx)
+	if err != nil {
+		panic(fmt.Sprintf("loadCache: ListCurrentDeploymentSpaceVersions: %v", err))
+	}
+	for _, row := range spaceRows {
+		s.spaceVersionRowIDs[int32(row.DeploymentID)] = row.ID
+	}
 
 	instances, err := s.q.ListNonFinalScheduledInstances(ctx)
 	if err != nil {
@@ -44,10 +51,7 @@ func (s *Service) loadCache() {
 	byID := make(map[int32]*apigen.ScheduledInstanceState, len(instances))
 	for _, row := range instances {
 		inst := scheduledInstanceRowToProto(row)
-		state := &apigen.ScheduledInstanceState{Instance: *inst}
-		if cfg := s.configForInstanceLocked(inst); cfg != nil {
-			state.Config = *cfg
-		}
+		state := s.instanceStateLocked(inst)
 		s.Scheduled[inst.ID] = state
 		byID[inst.ID] = state
 	}
@@ -64,10 +68,7 @@ func (s *Service) loadCache() {
 		if !inst.State.IsFinal() {
 			continue
 		}
-		state := &apigen.ScheduledInstanceState{Instance: *inst}
-		if cfg := s.configForInstanceLocked(inst); cfg != nil {
-			state.Config = *cfg
-		}
+		state := s.instanceStateLocked(inst)
 		s.latestFinalCache[ordinalKeyOf(inst)] = state
 		byID[inst.ID] = state
 	}
@@ -206,6 +207,15 @@ func (s *Service) retainFinalizedLocked(state *apigen.ScheduledInstanceState) {
 	}
 	cp := *state
 	s.latestFinalCache[key] = &cp
+}
+
+func (s *Service) instanceStateLocked(inst *apigen.ScheduledInstance) *apigen.ScheduledInstanceState {
+	state := &apigen.ScheduledInstanceState{Instance: *inst}
+	if cfg := s.configForInstanceLocked(inst); cfg != nil {
+		state.Config = *cfg
+		state.Config.SpaceID = inst.SpaceID
+	}
+	return state
 }
 
 // configForInstanceLocked resolves a pinned config version for primary

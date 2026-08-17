@@ -186,6 +186,11 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1DeploymentsMoveSpace(DeploymentSpaceMoveRequest) returns (DeploymentConfig) {
+    option (cp.url) = "/v1/deployments/move-space";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   rpc PostV1DeploymentsDelete(DeploymentDeleteRequest) returns (cp.Empty) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }

@@ -62,11 +62,17 @@
  * @property {boolean} stop
  * @property {number} version
  * @property {DeploymentSpec} spec
+ */
+/**
+ * @typedef {Object} DeploymentSpaceMoveRequest
+ * @property {number} deploymentId
  * @property {number} spaceId
+ * @property {number} spaceVersion
  */
 /**
  * @typedef {Object} DeploymentCreateRequest
- * @property {DeploymentIdentity} identity
+ * @property {string} name
+ * @property {number} spaceId
  * @property {DeploymentSpec} spec
  * @property {number} nodeId
  */
@@ -129,11 +135,6 @@
  * @property {string} logDir
  */
 /**
- * @typedef {Object} DeploymentIdentity
- * @property {number} spaceId
- * @property {string} name
- */
-/**
  * @typedef {Object} DeploymentDeleteRequest
  * @property {number} deploymentId
  * @property {number} version
@@ -147,6 +148,7 @@
  * @property {number} nodeId
  * @property {number} instanceOrdinal
  * @property {number} state
+ * @property {number} spaceId
  */
 /**
  * @typedef {Object} ScheduledInstanceStatus
@@ -305,7 +307,9 @@
  * @typedef {Object} DeploymentConfig
  * @property {number} id
  * @property {number} nodeId
- * @property {DeploymentIdentity} identity
+ * @property {number} spaceId
+ * @property {number} spaceVersion
+ * @property {string} name
  * @property {Date} createdAt
  * @property {Date} updatedAt
  * @property {number} author
@@ -2133,9 +2137,6 @@ export function writeDeploymentUpdateRequest(message, writer) {
         writeDeploymentSpec(message.spec, writer);
         writer.ldelim();
     }
-    if (message.spaceId !== undefined && message.spaceId !== null) {
-        writer.uint32(tag(7, WIRE.VARINT)).int32(message.spaceId);
-    }
 }
 
 
@@ -2157,7 +2158,7 @@ export function encodeDeploymentUpdateRequest(message) {
  */
 function decodeDeploymentUpdateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, targetVersion: "", stop: false, version: 0, spec: undefined, spaceId: undefined };
+    const message = {deploymentId: 0, targetVersion: "", stop: false, version: 0, spec: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2181,10 +2182,6 @@ function decodeDeploymentUpdateRequestMessage(reader, length) {
                 message.spec = decodeDeploymentSpecMessage(reader, reader.uint32());
                 break;
             }
-            case 7: {
-                message.spaceId = reader.int32();
-                break;
-            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -2205,14 +2202,85 @@ export function decodeDeploymentUpdateRequest(buffer) {
 
 
 /**
+ * @param {DeploymentSpaceMoveRequest} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentSpaceMoveRequest(message, writer) {
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
+    }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.spaceVersion !== undefined && message.spaceVersion !== null && message.spaceVersion !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.spaceVersion);
+    }
+}
+
+
+/**
+ * @param {DeploymentSpaceMoveRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentSpaceMoveRequest(message) {
+    const writer = Writer.create();
+    writeDeploymentSpaceMoveRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentSpaceMoveRequest}
+ */
+function decodeDeploymentSpaceMoveRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {deploymentId: 0, spaceId: 0, spaceVersion: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.deploymentId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.spaceVersion = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentSpaceMoveRequest}
+ */
+export function decodeDeploymentSpaceMoveRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentSpaceMoveRequestMessage(reader);
+}
+
+
+
+/**
  * @param {DeploymentCreateRequest} message
  * @param {Writer} writer
  */
 export function writeDeploymentCreateRequest(message, writer) {
-    if (message.identity !== undefined && message.identity !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentIdentity(message.identity, writer);
-        writer.ldelim();
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(5, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.spaceId);
     }
     if (message.spec !== undefined && message.spec !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
@@ -2243,12 +2311,16 @@ export function encodeDeploymentCreateRequest(message) {
  */
 function decodeDeploymentCreateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {identity: undefined, spec: undefined, nodeId: 0 };
+    const message = {name: "", spaceId: 0, spec: undefined, nodeId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.identity = decodeDeploymentIdentityMessage(reader, reader.uint32());
+            case 5: {
+                message.name = reader.string();
+                break;
+            }
+            case 6: {
+                message.spaceId = reader.int32();
                 break;
             }
             case 2: {
@@ -3002,69 +3074,6 @@ export function decodeLogLineBatch(buffer) {
 
 
 /**
- * @param {DeploymentIdentity} message
- * @param {Writer} writer
- */
-export function writeDeploymentIdentity(message, writer) {
-    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.spaceId);
-    }
-    if (message.name !== undefined && message.name !== null && message.name !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.name);
-    }
-}
-
-
-/**
- * @param {DeploymentIdentity} message
- * @returns {Uint8Array}
- */
-export function encodeDeploymentIdentity(message) {
-    const writer = Writer.create();
-    writeDeploymentIdentity(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {DeploymentIdentity}
- */
-function decodeDeploymentIdentityMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {spaceId: 0, name: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.spaceId = reader.int32();
-                break;
-            }
-            case 3: {
-                message.name = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {DeploymentIdentity}
- */
-export function decodeDeploymentIdentity(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentIdentityMessage(reader);
-}
-
-
-
-/**
  * @param {DeploymentDeleteRequest} message
  * @param {Writer} writer
  */
@@ -3153,6 +3162,9 @@ export function writeScheduledInstance(message, writer) {
     if (message.state !== undefined && message.state !== null && message.state !== 0) {
         writer.uint32(tag(7, WIRE.VARINT)).int32(message.state);
     }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int32(message.spaceId);
+    }
 }
 
 
@@ -3174,7 +3186,7 @@ export function encodeScheduledInstance(message) {
  */
 function decodeScheduledInstanceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, createdAt: new Date(0), deploymentId: 0, deploymentVersion: 0, nodeId: 0, instanceOrdinal: 0, state: 0 };
+    const message = {id: 0, createdAt: new Date(0), deploymentId: 0, deploymentVersion: 0, nodeId: 0, instanceOrdinal: 0, state: 0, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3204,6 +3216,10 @@ function decodeScheduledInstanceMessage(reader, length) {
             }
             case 7: {
                 message.state = reader.int32();
+                break;
+            }
+            case 8: {
+                message.spaceId = reader.int32();
                 break;
             }
             default:
@@ -5029,10 +5045,14 @@ export function writeDeploymentConfig(message, writer) {
     if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.nodeId);
     }
-    if (message.identity !== undefined && message.identity !== null) {
-        writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeDeploymentIdentity(message.identity, writer);
-        writer.ldelim();
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(10, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.spaceVersion !== undefined && message.spaceVersion !== null && message.spaceVersion !== 0) {
+        writer.uint32(tag(12, WIRE.VARINT)).int32(message.spaceVersion);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(11, WIRE.LDELIM)).string(message.name);
     }
     if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
@@ -5075,7 +5095,7 @@ export function encodeDeploymentConfig(message) {
  */
 function decodeDeploymentConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, nodeId: 0, identity: undefined, createdAt: new Date(0), updatedAt: new Date(0), author: 0, version: 0, spec: undefined, deleted: false };
+    const message = {id: 0, nodeId: 0, spaceId: 0, spaceVersion: 0, name: "", createdAt: new Date(0), updatedAt: new Date(0), author: 0, version: 0, spec: undefined, deleted: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5087,8 +5107,16 @@ function decodeDeploymentConfigMessage(reader, length) {
                 message.nodeId = reader.int32();
                 break;
             }
-            case 3: {
-                message.identity = decodeDeploymentIdentityMessage(reader, reader.uint32());
+            case 10: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            case 12: {
+                message.spaceVersion = reader.int32();
+                break;
+            }
+            case 11: {
+                message.name = reader.string();
                 break;
             }
             case 4: {

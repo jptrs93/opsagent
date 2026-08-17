@@ -93,7 +93,6 @@ export function emptyDeploymentForm() {
 }
 
 export function deploymentConfigToForm(cfg) {
-    const identity = cfg?.identity || {};
     const spec = cfg?.spec || {};
     const container = spec.container1Spec || {};
     const source = container.source || {};
@@ -106,8 +105,8 @@ export function deploymentConfigToForm(cfg) {
     const fileDescriptorLimit = Number(runtime.fileDescriptorLimit || 0);
     return makeFormState({
         deploymentId: cfg.id || 0,
-        name: identity.name || '',
-        spaceId: identity.spaceId ?? DEFAULT_SPACE_ID,
+        name: cfg?.name || '',
+        spaceId: cfg?.spaceId ?? DEFAULT_SPACE_ID,
         nodeId: cfg.nodeId || 0,
         sourceType: source.remoteImage ? SOURCE_DOCKER_IMAGE : SOURCE_NIX_DOCKER,
         nixRepo: nixDocker.repo || '',
@@ -186,11 +185,10 @@ export function deploymentForm(form, opts = {}) {
                         return select({
                             "data-testid": "deployment-space-select",
                             value: String(form.spaceId.val ?? DEFAULT_SPACE_ID),
-                            disabled: identityLocked,
-                            class: textInputClass(false, identityLocked),
+                            class: textInputClass(false, false),
                             onchange: e => { form.spaceId.val = Number(e.target.value || 0); },
                         }, ...spaceOptions.map(space => option({value: String(space.id), selected: Number(space.id) === Number(form.spaceId.val)}, space.name || `space ${space.id}`)));
-                    }, identityLocked, () => showIdentityLockedNotice("Space is not currently changeable after creation.")),
+                    }, false, () => {}),
                     identityField("Node", () => nodeSelect(form, {
                         identityLocked,
                         nodeOptionsLoaded: stateValue(opts.nodeOptionsLoaded) !== false,
@@ -1529,7 +1527,7 @@ export function envVarsPane(form, opts = {}) {
             rows.map(row => `${row.id}:${row.type || 'value'}:${row.addressDeploymentId || 0}:${row.addressSpaceId || 0}:${row.asset || ''}:${row.assetVersionId || 0}:${row.version || 0}`).join('|'),
             secretRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
             configRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
-            `${form.nodeId.val}:${deployments().map(item => `${item.config?.id || 0}:${item.config?.nodeId || 0}:${item.config?.identity?.spaceId ?? 0}:${item.config?.identity?.name || ''}:${item.config?.spec?.networking?.mode || 0}:${item.config?.deleted ? 1 : 0}`).join('|')}`,
+            `${form.nodeId.val}:${deployments().map(item => `${item.config?.id || 0}:${item.config?.nodeId || 0}:${item.config?.spaceId ?? 0}:${item.config?.name || ''}:${item.config?.spec?.networking?.mode || 0}:${item.config?.deleted ? 1 : 0}`).join('|')}`,
             assets().map(asset => `${asset.id}:${asset.key}:${asset.version}`).join('|'),
             `${form.spaceId.val}:${spaces().map(space => `${space.id}:${space.name || ''}`).join('|')}`,
         ].join('::');
@@ -1712,7 +1710,7 @@ function envAddressAutocomplete(form, row, deployments) {
             selectedKey.val = deployment.config.id;
             updateEnvRow(form, row.id, {
                 addressDeploymentId: deployment.config.id,
-                addressSpaceId: deployment.config.identity?.spaceId ?? 0,
+                addressSpaceId: deployment.config.spaceId ?? 0,
             });
         },
     });
@@ -1732,8 +1730,7 @@ function addressOptionsForRow(form, row, deployments) {
 
 function addressOptionLabel(item) {
     const config = item?.config || {};
-    const id = config.identity || {};
-    return `${id.name || 'deployment'} (space ${id.spaceId ?? 0}, #${config.id || 0})`;
+    return `${config.name || 'deployment'} (space ${config.spaceId ?? 0}, #${config.id || 0})`;
 }
 
 function versionedRefOptions(refs, selectedID, allRefs = refs) {
@@ -2074,9 +2071,9 @@ function optionDeployments(opts) {
 }
 
 function deploymentVolumeLabel(deployment, spaces) {
-    const id = deployment.config?.identity || {};
-    const space = spaceName(id.spaceId, spaces);
-    return `${id.name || `deployment ${deployment.config?.id}`} (${space})`;
+    const config = deployment.config || {};
+    const space = spaceName(config.spaceId, spaces);
+    return `${config.name || `deployment ${config.id}`} (${space})`;
 }
 
 function spaceName(id, spaces) {
@@ -2386,12 +2383,11 @@ function deploymentNameTaken(form, deployments) {
     if (!name) return false;
     return deployments.some(deployment => {
         const config = deployment?.config || deployment?.currentConfig || deployment;
-        const identity = config?.identity || deployment?.identity || {};
         const candidateId = Number(config?.id || deployment?.id || 0);
         if (deploymentId && candidateId === deploymentId) return false;
         return !config?.deleted && !deployment?.deleted
-            && identity.name === name
-            && Number(identity.spaceId) === spaceId
+            && config?.name === name
+            && Number(config?.spaceId) === spaceId
             && Number(config?.nodeId ?? deployment?.nodeId) === nodeId;
     });
 }

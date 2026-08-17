@@ -13,10 +13,10 @@ type DeploymentConfigVersion struct {
 	Version int32
 }
 
-func DeploymentKeyMatches(cfg apigen.DeploymentConfig, nodeID int32, identity apigen.DeploymentIdentity) bool {
+func DeploymentKeyMatches(cfg apigen.DeploymentConfig, nodeID, spaceID int32, name string) bool {
 	return cfg.NodeID == nodeID &&
-		cfg.Identity.SpaceID == identity.SpaceID &&
-		cfg.Identity.Name == identity.Name
+		cfg.SpaceID == spaceID &&
+		cfg.Name == name
 }
 
 // OperatorStore is the runtime store used by preparers and runners. Status is

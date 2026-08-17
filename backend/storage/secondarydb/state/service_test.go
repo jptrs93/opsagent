@@ -18,7 +18,8 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	cfg := apigen.DeploymentConfig{
 		ID:        7,
 		NodeID:    23,
-		Identity:  apigen.DeploymentIdentity{SpaceID: 1, Name: "api"},
+		SpaceID:   1,
+		Name:      "api",
 		Version:   3,
 		UpdatedAt: time.UnixMilli(1000),
 		Spec:      *testSpecWithState("v3", true),
@@ -58,8 +59,8 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 		t.Fatalf("expected 1 scheduled instance, got %d", len(got))
 	}
 	rc := got[0].Config
-	if rc.NodeID != 23 || rc.Version != 3 || rc.Identity.SpaceID != 1 || rc.Identity.Name != "api" {
-		t.Fatalf("config not round-tripped: %+v / %+v", rc, rc.Identity)
+	if rc.NodeID != 23 || rc.Version != 3 || rc.SpaceID != 1 || rc.Name != "api" {
+		t.Fatalf("config not round-tripped: %+v", rc)
 	}
 	rs := got[0].Status
 	if rs.Preparer.Rollup() != apigen.PreparationStatus_READY || rs.Preparer.Artifact != "art" {
@@ -85,7 +86,7 @@ func TestSecondaryOlderAssignmentDoesNotStompPinnedConfig(t *testing.T) {
 
 	v1 := apigen.DeploymentConfig{
 		ID: 12, NodeID: 3, Version: 1,
-		Identity: apigen.DeploymentIdentity{SpaceID: 1, Name: "tls-ingress-one"},
+		SpaceID: 1, Name: "tls-ingress-one",
 		Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 		}},

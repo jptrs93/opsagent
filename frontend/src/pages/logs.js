@@ -27,13 +27,13 @@ function fromLocalInputValue(value) {
 
 function deploymentLabel(item, machines) {
     const cfg = item?.config || {};
-    const identity = cfg.identity || {};
+    const identity = {spaceId: cfg.spaceId, name: cfg.name};
     const node = nodeDisplayName(cfg.nodeId, machines);
     return [node, identity.name].filter(Boolean).join(' / ') || `#${cfg.id}`;
 }
 
 function deploymentSpaceID(item) {
-    return item?.config?.identity?.spaceId || 0;
+    return item?.config?.spaceId || 0;
 }
 
 function selectedDeployment(items, id) {
@@ -41,8 +41,7 @@ function selectedDeployment(items, id) {
 }
 
 function isSystemDeployment(item) {
-    const identity = item?.config?.identity || {};
-    return identity.name === SYSTEM_DEPLOYMENT_NAME && (
+    return item?.config?.name === SYSTEM_DEPLOYMENT_NAME && (
         deploymentSpaceID(item) === SYSTEM_SPACE_ID || Boolean(item?.config?.spec?.systemdSpec)
     );
 }

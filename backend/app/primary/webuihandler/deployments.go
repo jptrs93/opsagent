@@ -3,6 +3,7 @@ package webuihandler
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -29,17 +30,12 @@ var DeploymentNotFoundErr = apigen.NewApiErr("Deployment not found", "deployment
 
 var DuplicateDeploymentErr = apigen.NewApiErr("A deployment with this name, space, and node already exists", "duplicate_deployment", http.StatusConflict)
 
-// Space moves are disabled: a deployment's space feeds its derived inbound
-// address, DNS name, and issued TLS identity, so changing it needs a
-// coordinated re-placement. The target design is a separate deployment_spaces
-// entity with its own versioning capturing space placements.
-var DeploymentSpaceMoveUnsupportedErr = apigen.NewApiErr("Moving a deployment between spaces is not supported", "deployment_space_move_unsupported", http.StatusBadRequest)
+var DeploymentAddressReferencedErr = apigen.NewApiErr("Deployment address is referenced by other deployments", "deployment_address_referenced", http.StatusConflict)
 
 const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHub. Please try again."
 
 func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentConfig, error) {
-	identity := req.Identity
-	if identity.Name == "" {
+	if req.Name == "" {
 		return nil, invalidConfigErrf("name is required")
 	}
 	if req.NodeID <= 0 {
@@ -49,16 +45,16 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 	if err != nil {
 		return nil, invalidConfigErrf("node is not registered")
 	}
-	if internaldeploy.IsInternalIdentity(identity) {
+	if internaldeploy.IsInternalIdentity(req.SpaceID, req.Name) {
 		return nil, invalidConfigErrf("opendeploy system deployment identity is internal-only")
 	}
-	if identity.SpaceID < 0 || identity.SpaceID > network.MaxSpaceID {
+	if req.SpaceID < 0 || req.SpaceID > network.MaxSpaceID {
 		return nil, invalidConfigErrf("spaceId must be between 0 and %d", network.MaxSpaceID)
 	}
-	if err := h.requireAccess(ctx, vCreate, eDeployment, int64(identity.SpaceID), 0); err != nil {
+	if err := h.requireAccess(ctx, vCreate, eDeployment, int64(req.SpaceID), 0); err != nil {
 		return nil, err
 	}
-	if err := h.validateNodeAllowsSpace(req.NodeID, identity.SpaceID); err != nil {
+	if err := h.validateNodeAllowsSpace(req.NodeID, req.SpaceID); err != nil {
 		return nil, err
 	}
 	spec, err := h.validateDeploymentSpec(&req.Spec)
@@ -72,7 +68,7 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 	// Check for duplicate before creating.
 	snapshot := h.Store.FetchDeploymentSnapshot(nil)
 	for _, cfg := range snapshot {
-		if storage.DeploymentKeyMatches(cfg, req.NodeID, identity) && !cfg.Deleted {
+		if storage.DeploymentKeyMatches(cfg, req.NodeID, req.SpaceID, req.Name) && !cfg.Deleted {
 			return nil, DuplicateDeploymentErr
 		}
 	}
@@ -96,10 +92,10 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 	// ref accepted here cannot be stranded by a concurrent secret space move.
 	unlockReferences := h.ConfigService.LockReferences()
 	defer unlockReferences()
-	if err := h.validateSecretRefSpaces(spec, identity.SpaceID); err != nil {
+	if err := h.validateSecretRefSpaces(spec, req.SpaceID); err != nil {
 		return nil, err
 	}
-	cfg := h.Store.MustCreateDeploymentForNode(ctx, &identity, req.NodeID, spec)
+	cfg := h.Store.MustCreateDeploymentForNode(ctx, req.SpaceID, req.Name, req.NodeID, spec)
 	h.wakeAcme()
 	return cfg, nil
 }
@@ -118,12 +114,8 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	if cfg == nil || cfg.Deleted {
 		return nil, DeploymentNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vUpdate, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return nil, err
-	}
-	// A request naming the deployment's current space is a no-op, not a move.
-	if req.SpaceID != nil && *req.SpaceID != cfg.Identity.SpaceID {
-		return nil, DeploymentSpaceMoveUnsupportedErr
 	}
 	if req.Version != cfg.Version+1 {
 		return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
@@ -200,7 +192,7 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		// see PostV1DeploymentsCreate.
 		unlockReferences := h.ConfigService.LockReferences()
 		defer unlockReferences()
-		if err := h.validateSecretRefSpaces(effectiveSpec, cfg.Identity.SpaceID); err != nil {
+		if err := h.validateSecretRefSpaces(effectiveSpec, cfg.SpaceID); err != nil {
 			return nil, err
 		}
 		current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, state.DeploymentConfigUpdate{
@@ -218,6 +210,66 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	return cfg, nil
 }
 
+// PostV1DeploymentsMoveSpace moves a deployment to another space. The move is
+// guarded by the deployment's space version rather than its config version, is
+// validated like a create into the destination space, and rides the scheduler
+// rollover path: live placements keep their pinned space until replaced.
+func (h *Handler) PostV1DeploymentsMoveSpace(ctx apigen.Context, req *apigen.DeploymentSpaceMoveRequest) (*apigen.DeploymentConfig, error) {
+	if req.DeploymentID == 0 {
+		return nil, MissingKeyErr
+	}
+	cfg := h.findConfigByID(req.DeploymentID)
+	if cfg == nil || cfg.Deleted {
+		return nil, DeploymentNotFoundErr
+	}
+	if err := h.requireEntityAccess(ctx, vUpdate, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+		return nil, err
+	}
+	if req.SpaceVersion != cfg.SpaceVersion+1 {
+		return nil, invalidConfigErrf("deployment space version mismatch: got %d, want %d", req.SpaceVersion, cfg.SpaceVersion+1)
+	}
+	if internaldeploy.IsInternalConfig(cfg) {
+		return nil, invalidConfigErrf("opendeploy system deployment identity and spec are internal-only")
+	}
+	if cfg.SpaceID == 0 {
+		return nil, invalidConfigErrf("deployments in space 0 cannot be moved")
+	}
+	if req.SpaceID < 1 || req.SpaceID > network.MaxSpaceID {
+		return nil, invalidConfigErrf("spaceId must be between 1 and %d", network.MaxSpaceID)
+	}
+	if req.SpaceID == cfg.SpaceID {
+		return cfg, nil
+	}
+	if err := h.requireAccess(ctx, vCreate, eDeployment, int64(req.SpaceID), 0); err != nil {
+		return nil, err
+	}
+	if err := h.validateNodeAllowsSpace(cfg.NodeID, req.SpaceID); err != nil {
+		return nil, err
+	}
+
+	// Same lock discipline as create: see PostV1DeploymentsCreate.
+	unlockReferences := h.ConfigService.LockReferences()
+	defer unlockReferences()
+	if err := h.validateSecretRefSpaces(&cfg.Spec, req.SpaceID); err != nil {
+		return nil, err
+	}
+	if h.deploymentUsesAddressID(int32Set([]int32{cfg.ID})) {
+		return nil, DeploymentAddressReferencedErr
+	}
+	moved, err := h.Store.MoveDeploymentSpace(cfg.ID, req.SpaceID, req.SpaceVersion, ctx.AttributionUserID())
+	if err != nil {
+		switch {
+		case errors.Is(err, state.DuplicateDeploymentIdentityErr):
+			return nil, DuplicateDeploymentErr
+		case errors.Is(err, state.SpaceVersionMismatchErr):
+			return nil, invalidConfigErrf("deployment space version mismatch: got %d, want %d", req.SpaceVersion, cfg.SpaceVersion+1)
+		default:
+			return nil, DeploymentNotFoundErr
+		}
+	}
+	return moved, nil
+}
+
 func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.DeploymentDeleteRequest) error {
 	if req.DeploymentID == 0 {
 		return MissingKeyErr
@@ -226,7 +278,7 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 	if cfg == nil || cfg.Deleted {
 		return DeploymentNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vDelete, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vDelete, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return err
 	}
 	if req.Version != cfg.Version+1 {
@@ -280,7 +332,7 @@ func (h *Handler) PostV1DeploymentsRecentlyDeleted(ctx apigen.Context, req *apig
 	}
 	configs := h.Store.FetchDeletedDeploymentSnapshot(func(cfg apigen.DeploymentConfig) bool {
 		return !internaldeploy.IsInternalConfig(&cfg) &&
-			h.canAccess(ctx, vView, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID))
+			h.canAccess(ctx, vView, eDeployment, int64(cfg.SpaceID), int64(cfg.ID))
 	}, limit)
 	items := make([]*apigen.DeploymentConfig, 0, len(configs))
 	for i := range configs {
@@ -298,7 +350,7 @@ func (h *Handler) PostV1DeploymentsVersions(ctx apigen.Context, req *apigen.Depl
 	if cfg == nil || cfg.Spec.IsZero() {
 		return nil, DeploymentNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return nil, err
 	}
 	if internaldeploy.IsNetproxyConfig(cfg) {
@@ -412,7 +464,7 @@ func (h *Handler) PostV1DeploymentsLogSearch(ctx apigen.Context, req *apigen.Log
 			yield(nil, DeploymentNotFoundErr)
 			return
 		}
-		if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+		if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 			yield(nil, err)
 			return
 		}
@@ -544,7 +596,7 @@ func (h *Handler) PostV1DeploymentsPrepareOutput(ctx apigen.Context, req *apigen
 			yield(nil, DeploymentNotFoundErr)
 			return
 		}
-		if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Identity.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+		if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 			yield(nil, err)
 			return
 		}

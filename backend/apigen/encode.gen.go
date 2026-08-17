@@ -456,7 +456,6 @@ func (m *DeploymentUpdateRequest) Encode() []byte {
 		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, m.Spec.Encode())
 	}
-	b = AppendInt32FieldOpt(b, m.SpaceID, 7)
 	return b
 }
 
@@ -489,8 +488,41 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 					m.Spec = *item
 				}
 			}
-		case 7:
-			b, m.SpaceID, err = ConsumeVarInt32Opt(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *DeploymentSpaceMoveRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DeploymentID, 1)
+	b = AppendInt32Field(b, m.SpaceID, 2)
+	b = AppendInt32Field(b, m.SpaceVersion, 3)
+	return b
+}
+
+func DecodeDeploymentSpaceMoveRequest(b []byte) (*DeploymentSpaceMoveRequest, error) {
+	var m DeploymentSpaceMoveRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.SpaceVersion, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -503,10 +535,8 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 
 func (m *DeploymentCreateRequest) Encode() []byte {
 	var b []byte
-	if !m.Identity.IsZero() {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.Identity.Encode())
-	}
+	b = AppendStringField(b, m.Name, 5)
+	b = AppendInt32Field(b, m.SpaceID, 6)
 	if !m.Spec.IsZero() {
 		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, m.Spec.Encode())
@@ -527,15 +557,10 @@ func DecodeDeploymentCreateRequest(b []byte) (*DeploymentCreateRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentIdentity
-				item, err = DecodeDeploymentIdentity(msgBytes)
-				if err == nil {
-					m.Identity = *item
-				}
-			}
+		case 5:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 6:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -958,43 +983,6 @@ func DecodeLogLineBatch(b []byte) (*LogLineBatch, error) {
 	return &m, nil
 }
 
-func (m DeploymentIdentity) IsZero() bool {
-	return m.SpaceID == 0 &&
-		m.Name == ""
-}
-
-func (m *DeploymentIdentity) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.SpaceID, 1)
-	b = AppendStringField(b, m.Name, 3)
-	return b
-}
-
-func DecodeDeploymentIdentity(b []byte) (*DeploymentIdentity, error) {
-	var m DeploymentIdentity
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 3:
-			b, m.Name, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 func (m *DeploymentDeleteRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 1)
@@ -1034,7 +1022,8 @@ func (m ScheduledInstance) IsZero() bool {
 		m.DeploymentVersion == 0 &&
 		m.NodeID == 0 &&
 		m.InstanceOrdinal == 0 &&
-		m.State == 0
+		m.State == 0 &&
+		m.SpaceID == 0
 }
 
 func (m *ScheduledInstance) Encode() []byte {
@@ -1046,6 +1035,7 @@ func (m *ScheduledInstance) Encode() []byte {
 	b = AppendInt32Field(b, m.NodeID, 5)
 	b = AppendInt32Field(b, m.InstanceOrdinal, 6)
 	b = AppendInt32Field(b, int32(m.State), 7)
+	b = AppendInt32Field(b, m.SpaceID, 8)
 	return b
 }
 
@@ -1078,6 +1068,8 @@ func DecodeScheduledInstance(b []byte) (*ScheduledInstance, error) {
 			if err == nil {
 				m.State = ScheduledInstanceTarget(raw)
 			}
+		case 8:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -2331,7 +2323,9 @@ func DecodeValidateContainerImageSourceResponse(b []byte) (*ValidateContainerIma
 func (m DeploymentConfig) IsZero() bool {
 	return m.ID == 0 &&
 		m.NodeID == 0 &&
-		m.Identity.IsZero() &&
+		m.SpaceID == 0 &&
+		m.SpaceVersion == 0 &&
+		m.Name == "" &&
 		m.CreatedAt.IsZero() &&
 		m.UpdatedAt.IsZero() &&
 		m.Author == 0 &&
@@ -2344,10 +2338,9 @@ func (m *DeploymentConfig) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendInt32Field(b, m.NodeID, 2)
-	if !m.Identity.IsZero() {
-		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.Identity.Encode())
-	}
+	b = AppendInt32Field(b, m.SpaceID, 10)
+	b = AppendInt32Field(b, m.SpaceVersion, 12)
+	b = AppendStringField(b, m.Name, 11)
 	b = AppendInt64FromTime(b, m.CreatedAt, 4)
 	b = AppendInt64FromTime(b, m.UpdatedAt, 5)
 	b = AppendInt32Field(b, m.Author, 6)
@@ -2376,15 +2369,12 @@ func DecodeDeploymentConfig(b []byte) (*DeploymentConfig, error) {
 			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.NodeID, err = ConsumeVarInt32(b, typ)
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentIdentity
-				item, err = DecodeDeploymentIdentity(msgBytes)
-				if err == nil {
-					m.Identity = *item
-				}
-			}
+		case 10:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 12:
+			b, m.SpaceVersion, err = ConsumeVarInt32(b, typ)
+		case 11:
+			b, m.Name, err = ConsumeString(b, typ)
 		case 4:
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 5:

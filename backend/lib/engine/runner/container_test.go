@@ -171,9 +171,9 @@ func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, systemdTestInstanceID, &apigen.DeploymentConfig{
-		ID:       7,
-		Version:  3,
-		Identity: apigen.DeploymentIdentity{SpaceID: 5},
+		ID:      7,
+		Version: 3,
+		SpaceID: 5,
 		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
 			DefaultVolume:       apigen.DefaultVolumeMount{Disabled: true},
 			DevShmSizeKb:        65536,

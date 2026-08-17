@@ -10,18 +10,18 @@ const (
 	NetproxyImage       = "opendeploy-net"
 )
 
-func IsSelfIdentity(identity apigen.DeploymentIdentity) bool {
-	return identity.SpaceID == SpaceID && identity.Name == SelfName
+func IsSelfIdentity(spaceID int32, name string) bool {
+	return spaceID == SpaceID && name == SelfName
 }
 
-func IsNetproxyIdentity(identity apigen.DeploymentIdentity) bool {
-	return identity.SpaceID == SpaceID && identity.Name == NetproxyName
+func IsNetproxyIdentity(spaceID int32, name string) bool {
+	return spaceID == SpaceID && name == NetproxyName
 }
 
-func IsInternalIdentity(identity apigen.DeploymentIdentity) bool {
-	return IsSelfIdentity(identity) || IsNetproxyIdentity(identity)
+func IsInternalIdentity(spaceID int32, name string) bool {
+	return IsSelfIdentity(spaceID, name) || IsNetproxyIdentity(spaceID, name)
 }
 
 func IsNetproxyConfig(cfg *apigen.DeploymentConfig) bool {
-	return cfg != nil && IsNetproxyIdentity(cfg.Identity)
+	return cfg != nil && IsNetproxyIdentity(cfg.SpaceID, cfg.Name)
 }

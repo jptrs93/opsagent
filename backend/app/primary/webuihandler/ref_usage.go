@@ -63,7 +63,7 @@ func (h *Handler) referencingDeployments(ids map[int32]struct{}, refs func(*apig
 // spaceID pins one of ids — the veto for cross-space moves.
 func (h *Handler) referencesOutsideSpace(ids map[int32]struct{}, refs func(*apigen.DeploymentConfig) []int32, spaceID int32) bool {
 	for _, cfg := range h.referencingDeployments(ids, refs) {
-		if cfg.Identity.SpaceID != spaceID {
+		if cfg.SpaceID != spaceID {
 			return true
 		}
 	}

@@ -138,7 +138,7 @@ function deploymentConfig(item) {
 
 function catalogName(item, namespace) {
     if (namespace === "asset") return item?.key;
-    if (namespace === "deployment") return deploymentConfig(item)?.identity?.name;
+    if (namespace === "deployment") return deploymentConfig(item)?.name;
     return item?.name;
 }
 
@@ -148,7 +148,7 @@ function catalogID(item, namespace) {
 
 function catalogSpaceID(item, namespace) {
     return namespace === "deployment"
-        ? deploymentConfig(item)?.identity?.spaceId
+        ? deploymentConfig(item)?.spaceId
         : item?.spaceId;
 }
 

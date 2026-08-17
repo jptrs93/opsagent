@@ -104,6 +104,7 @@ type ApiServerHandler interface {
 	PostV1DeploymentsGet(Context, *DeploymentGetRequest) (*DeploymentState, error)
 	PostV1DeploymentsCreate(Context, *DeploymentCreateRequest) (*DeploymentConfig, error)
 	PostV1DeploymentsUpdate(Context, *DeploymentUpdateRequest) (*DeploymentConfig, error)
+	PostV1DeploymentsMoveSpace(Context, *DeploymentSpaceMoveRequest) (*DeploymentConfig, error)
 	PostV1DeploymentsDelete(Context, *DeploymentDeleteRequest) error
 	PostV1DeploymentsRecentlyDeleted(Context, *RecentlyDeletedDeploymentsRequest) (*RecentlyDeletedDeployments, error)
 	PostV1DeploymentsHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
@@ -564,6 +565,17 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/deployments/update", buildHandlerFunc(config, verifyAuth, postV1DeploymentsUpdateAccessPolicy, postAuthHandlerPostV1DeploymentsUpdate, compressionModeAuto, false))
+	postV1DeploymentsMoveSpaceAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1DeploymentsMoveSpace := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentSpaceMoveRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1DeploymentsMoveSpace(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/deployments/move-space", buildHandlerFunc(config, verifyAuth, postV1DeploymentsMoveSpaceAccessPolicy, postAuthHandlerPostV1DeploymentsMoveSpace, compressionModeAuto, false))
 	postV1DeploymentsDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1DeploymentsDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentDeleteRequest)

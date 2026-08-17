@@ -33,6 +33,7 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
             createAsset: request => capi.postV1AssetsCreate(request),
             saveVersion: request => capi.postV1AssetsSet(request),
             updateDeployment: request => capi.postV1DeploymentsUpdate(request),
+            moveDeploymentSpace: request => capi.postV1DeploymentsMoveSpace(request),
         },
         onCancel: onClose,
         onSuccess: () => {

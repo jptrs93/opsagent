@@ -200,7 +200,7 @@ func TestCrossSpaceAssetMove(t *testing.T) {
 	spec.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount{{
 		AssetVersionID: asset.ID, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY,
 	}}
-	createTestDeployment(h.Store, "node1", apigen.DeploymentIdentity{Name: "web", SpaceID: 2}, &spec)
+	createTestDeployment(h.Store, "node1", 2, "web", &spec)
 	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
 		AssetID: asset.AssetID, SpaceID: 1,
 	}); !errors.Is(err, MoveReferencesOutsideSpaceErr) {

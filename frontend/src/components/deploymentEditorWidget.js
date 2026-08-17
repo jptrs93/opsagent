@@ -153,7 +153,10 @@ export function deploymentEditorWidget(opts) {
         const payload = mode === 'create'
             ? deploymentUpdate.toCreatePayload()
             : deploymentUpdate.toUpdatePayload();
+        const movePayload = mode === 'create' ? null : deploymentUpdate.toMovePayload();
         try {
+            // Move first so spec validation runs against the destination space.
+            if (movePayload) await actions.moveDeploymentSpace(movePayload);
             const result = mode === 'create'
                 ? await actions.createDeployment(payload)
                 : await actions.updateDeployment(payload);

@@ -35,7 +35,7 @@ func TestGetV1GlobalStateReturnsEachSection(t *testing.T) {
 	if _, err := h.Store.CreateConfigWithVersion("log_level", space.ID, 0, 0, "debug"); err != nil {
 		t.Fatalf("CreateConfigWithVersion: %v", err)
 	}
-	cfg := createTestDeployment(h.Store, "node-a", apigen.DeploymentIdentity{Name: "api", SpaceID: space.ID}, ptr(remoteDeploymentSpec("nginx", hostNetworking())))
+	cfg := createTestDeployment(h.Store, "node-a", space.ID, "api", ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 
 	res, err := h.GetV1GlobalState(apigen.Context{Ctx: context.Background()})
 	if err != nil {
@@ -74,7 +74,7 @@ func TestGetV1GlobalStateRedactsSystemdRuntime(t *testing.T) {
 		Networking:     hostNetworking(),
 		Container1Spec: nil,
 	}
-	createTestDeployment(h.Store, "node-a", apigen.DeploymentIdentity{Name: "svc"}, &spec)
+	createTestDeployment(h.Store, "node-a", 0, "svc", &spec)
 
 	res, err := h.GetV1GlobalState(apigen.Context{Ctx: context.Background()})
 	if err != nil {
@@ -89,7 +89,7 @@ func TestGetV1GlobalStateRedactsSystemdRuntime(t *testing.T) {
 
 func TestGetV1GlobalStateExcludesDeletedDeployments(t *testing.T) {
 	h := newGlobalStateTestHandler(t)
-	cfg := createTestDeployment(h.Store, "node-a", apigen.DeploymentIdentity{Name: "gone"}, ptr(remoteDeploymentSpec("nginx", hostNetworking())))
+	cfg := createTestDeployment(h.Store, "node-a", 0, "gone", ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 	markDeleted(t, h, cfg)
 
 	res, err := h.GetV1GlobalState(apigen.Context{Ctx: context.Background()})
@@ -105,7 +105,7 @@ func TestGetV1GlobalStateExcludesDeletedDeployments(t *testing.T) {
 
 func TestPostV1DeploymentsGetReturnsConfigAndInstances(t *testing.T) {
 	h := newGlobalStateTestHandler(t)
-	cfg := createTestDeployment(h.Store, "node-a", apigen.DeploymentIdentity{Name: "api"}, ptr(remoteDeploymentSpec("nginx", hostNetworking())))
+	cfg := createTestDeployment(h.Store, "node-a", 0, "api", ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 	seedDeploymentRunnerStatus(h.Store, cfg, apigen.RunningStatus_RUNNING)
 
 	res, err := h.PostV1DeploymentsGet(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentGetRequest{ID: cfg.ID})
@@ -127,8 +127,8 @@ func TestPostV1DeploymentsGetReturnsConfigAndInstances(t *testing.T) {
 
 func TestPostV1DeploymentsGetOnlyReturnsRequestedDeployment(t *testing.T) {
 	h := newGlobalStateTestHandler(t)
-	wanted := createTestDeployment(h.Store, "node-a", apigen.DeploymentIdentity{Name: "api"}, ptr(remoteDeploymentSpec("nginx", hostNetworking())))
-	other := createTestDeployment(h.Store, "node-b", apigen.DeploymentIdentity{Name: "web"}, ptr(remoteDeploymentSpec("nginx", hostNetworking())))
+	wanted := createTestDeployment(h.Store, "node-a", 0, "api", ptr(remoteDeploymentSpec("nginx", hostNetworking())))
+	other := createTestDeployment(h.Store, "node-b", 0, "web", ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 	seedDeploymentRunnerStatus(h.Store, wanted, apigen.RunningStatus_RUNNING)
 	seedDeploymentRunnerStatus(h.Store, other, apigen.RunningStatus_RUNNING)
 
@@ -145,7 +145,7 @@ func TestPostV1DeploymentsGetOnlyReturnsRequestedDeployment(t *testing.T) {
 
 func TestPostV1DeploymentsGetRejectsBadID(t *testing.T) {
 	h := newGlobalStateTestHandler(t)
-	cfg := createTestDeployment(h.Store, "node-a", apigen.DeploymentIdentity{Name: "gone"}, ptr(remoteDeploymentSpec("nginx", hostNetworking())))
+	cfg := createTestDeployment(h.Store, "node-a", 0, "gone", ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 	markDeleted(t, h, cfg)
 
 	for name, id := range map[string]int32{"zero": 0, "negative": -1, "unknown": 99999, "deleted": cfg.ID} {
@@ -162,7 +162,7 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 	if _, err := h.Store.CreateSpace("prod"); err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	cfg := createTestDeployment(h.Store, "node-a", apigen.DeploymentIdentity{Name: "api"}, ptr(remoteDeploymentSpec("nginx", hostNetworking())))
+	cfg := createTestDeployment(h.Store, "node-a", 0, "api", ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 	mux := apigen.CreateApiServerMux(h, &apigen.MuxConfig{
 		VerifyAuth: func(ctx context.Context, _ http.ResponseWriter, _ *http.Request, _ apigen.AccessPolicy) (apigen.Context, error) {
 			return apigen.Context{Ctx: ctx}, nil

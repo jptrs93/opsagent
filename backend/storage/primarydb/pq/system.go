@@ -24,11 +24,13 @@ func (q *Queries) DeleteScheduledInstanceStatusesForNode(ctx context.Context, no
 	result, err := q.db.ExecContext(ctx, `
 		DELETE FROM scheduled_instance_status
 		WHERE scheduled_instance_id IN (
-			SELECT id FROM scheduled_instances
-			WHERE node_id = ?
-				AND deployment_id IN (
-					SELECT deployment_id FROM deployment_configs
-					WHERE NOT (space_id = ? AND name = ?)
+			SELECT si.id FROM scheduled_instances si
+			WHERE si.node_id = ?
+				AND si.deployment_id IN (
+					SELECT d.deployment_id FROM deployment_configs d
+					WHERE NOT ((SELECT sp.space_id FROM deployment_space_versions sp
+					            WHERE sp.deployment_id = d.deployment_id
+					            ORDER BY sp.version DESC LIMIT 1) = ? AND d.name = ?)
 				)
 		)`, nodeID, exceptSpaceID, exceptName)
 	if err != nil {

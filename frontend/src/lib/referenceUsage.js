@@ -7,12 +7,11 @@ export function deploymentUsages(deployments, spaces, machines, usesDeployment) 
         const config = deployment?.config;
         if (!config || config.deleted || !usesDeployment(deployment)) return [];
 
-        const identity = config.identity || {};
-        const spaceId = Number(identity.spaceId || 0);
+        const spaceId = Number(config.spaceId || 0);
         return [{
             id: Number(config.id || 0),
             space: spaceNames.get(spaceId) || `space ${spaceId}`,
-            name: identity.name || `deployment ${config.id}`,
+            name: config.name || `deployment ${config.id}`,
             node: nodeDisplayName(config.nodeId, machines),
         }];
     }).sort((a, b) => a.space.localeCompare(b.space)

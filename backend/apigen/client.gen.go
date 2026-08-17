@@ -739,6 +739,25 @@ func (c *ApiServerCapi) PostV1DeploymentsUpdate(ctx context.Context, req *Deploy
 	return DecodeDeploymentConfig(body)
 }
 
+func (c *ApiServerCapi) PostV1DeploymentsMoveSpace(ctx context.Context, req *DeploymentSpaceMoveRequest) (*DeploymentConfig, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1DeploymentsMoveSpace request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/deployments/move-space", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeDeploymentConfig(body)
+}
+
 func (c *ApiServerCapi) PostV1DeploymentsDelete(ctx context.Context, req *DeploymentDeleteRequest) error {
 	if req == nil {
 		return fmt.Errorf("PostV1DeploymentsDelete request is nil")

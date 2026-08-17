@@ -35,10 +35,7 @@ func runningDeploymentSpec() *apigen.DeploymentSpec {
 func seedDeployment(t *testing.T, store *Service, name string) *apigen.DeploymentConfig {
 	t.Helper()
 	node := store.EnsurePrimaryNode("primary", "primary")
-	return store.MustCreateDeploymentForNode(apigen.Context{}, &apigen.DeploymentIdentity{
-		SpaceID: DefaultSpaceID,
-		Name:    name,
-	}, node.ID, runningDeploymentSpec())
+	return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, node.ID, runningDeploymentSpec())
 }
 
 func writeRunnerStatus(t *testing.T, store *Service, instanceID int32, status apigen.RunningStatus) {

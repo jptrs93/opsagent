@@ -59,6 +59,10 @@ type Service struct {
 	// Used by primary scheduler/APIs only — never as the pinned config source for
 	// a scheduled-instance snapshot.
 	configCache map[int32]*apigen.DeploymentConfig
+	// spaceVersionRowIDs holds each deployment's current deployment_space_versions
+	// row id — the pin stamped onto scheduled instances at creation. The space
+	// value and version themselves live on the cached config.
+	spaceVersionRowIDs map[int32]int64
 	// latestFinalCache retains the last incarnation of an ordinal after it is
 	// finalized, so a stopped deployment can still show how its final run ended.
 	// At most one entry per ordinal, and only while no live instance supersedes
@@ -88,23 +92,24 @@ type Service struct {
 
 func Open(dbPath string) *Service {
 	s := &Service{
-		q:                pq.Open(dbPath),
-		configCache:      make(map[int32]*apigen.DeploymentConfig),
-		latestFinalCache: make(map[instanceOrdinalKey]*apigen.ScheduledInstanceState),
-		configSubs:       &pubsubu.PubSub[apigen.DeploymentConfig]{},
-		userSubs:         &pubsubu.PubSub[apigen.User]{},
-		backupStatusSubs: &pubsubu.PubSub[apigen.BackupStatus]{},
-		secretStatusSubs: &pubsubu.PubSub[apigen.SecretsStatusResponse]{},
-		secretMetaSubs:   &pubsubu.PubSub[apigen.SecretMeta]{},
-		userConfigSubs:   &pubsubu.PubSub[apigen.ConfigMeta]{},
-		valueDirSubs:     &pubsubu.PubSub[apigen.ValueDirectory]{},
-		spaceSubs:        &pubsubu.PubSub[apigen.Space]{},
-		assetSubs:        &pubsubu.PubSub[apigen.AssetMeta]{},
-		assetDirSubs:     &pubsubu.PubSub[apigen.AssetDirectory]{},
-		enrollmentSubs:   &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
-		nodeSubs:         &pubsubu.PubSub[apigen.ClusterNode]{},
-		nodeStatusSubs:   &pubsubu.PubSub[apigen.ClusterNodeStatus]{},
-		agentSessionSubs: &pubsubu.PubSub[AgentSessionRecord]{},
+		q:                  pq.Open(dbPath),
+		configCache:        make(map[int32]*apigen.DeploymentConfig),
+		spaceVersionRowIDs: make(map[int32]int64),
+		latestFinalCache:   make(map[instanceOrdinalKey]*apigen.ScheduledInstanceState),
+		configSubs:         &pubsubu.PubSub[apigen.DeploymentConfig]{},
+		userSubs:           &pubsubu.PubSub[apigen.User]{},
+		backupStatusSubs:   &pubsubu.PubSub[apigen.BackupStatus]{},
+		secretStatusSubs:   &pubsubu.PubSub[apigen.SecretsStatusResponse]{},
+		secretMetaSubs:     &pubsubu.PubSub[apigen.SecretMeta]{},
+		userConfigSubs:     &pubsubu.PubSub[apigen.ConfigMeta]{},
+		valueDirSubs:       &pubsubu.PubSub[apigen.ValueDirectory]{},
+		spaceSubs:          &pubsubu.PubSub[apigen.Space]{},
+		assetSubs:          &pubsubu.PubSub[apigen.AssetMeta]{},
+		assetDirSubs:       &pubsubu.PubSub[apigen.AssetDirectory]{},
+		enrollmentSubs:     &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
+		nodeSubs:           &pubsubu.PubSub[apigen.ClusterNode]{},
+		nodeStatusSubs:     &pubsubu.PubSub[apigen.ClusterNodeStatus]{},
+		agentSessionSubs:   &pubsubu.PubSub[AgentSessionRecord]{},
 	}
 	s.Cache = instancecache.New(s.persistStatus)
 	s.loadCache()

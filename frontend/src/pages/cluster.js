@@ -337,8 +337,8 @@ function primaryOpenDeployVersion() {
     if (!primaryID) return "";
     const deployment = deploymentsS.val.find(item =>
         Number(item.config?.nodeId || 0) === primaryID &&
-        Number(item.config?.identity?.spaceId || 0) === 0 &&
-        item.config?.identity?.name === "opendeploy",
+        Number(item.config?.spaceId || 0) === 0 &&
+        item.config?.name === "opendeploy",
     );
     return (deployment?.status?.runner?.runningVersion || deploymentWorkload(deployment?.config)?.version || "").trim();
 }
