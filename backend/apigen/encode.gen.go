@@ -2326,7 +2326,6 @@ func (m DeploymentConfig) IsZero() bool {
 		m.SpaceID == 0 &&
 		m.SpaceVersion == 0 &&
 		m.Name == "" &&
-		m.LegacyIdentity.IsZero() &&
 		m.CreatedAt.IsZero() &&
 		m.UpdatedAt.IsZero() &&
 		m.Author == 0 &&
@@ -2342,10 +2341,6 @@ func (m *DeploymentConfig) Encode() []byte {
 	b = AppendInt32Field(b, m.SpaceID, 10)
 	b = AppendInt32Field(b, m.SpaceVersion, 12)
 	b = AppendStringField(b, m.Name, 11)
-	if !m.LegacyIdentity.IsZero() {
-		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.LegacyIdentity.Encode())
-	}
 	b = AppendInt64FromTime(b, m.CreatedAt, 4)
 	b = AppendInt64FromTime(b, m.UpdatedAt, 5)
 	b = AppendInt32Field(b, m.Author, 6)
@@ -2380,15 +2375,6 @@ func DecodeDeploymentConfig(b []byte) (*DeploymentConfig, error) {
 			b, m.SpaceVersion, err = ConsumeVarInt32(b, typ)
 		case 11:
 			b, m.Name, err = ConsumeString(b, typ)
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentIdentity
-				item, err = DecodeDeploymentIdentity(msgBytes)
-				if err == nil {
-					m.LegacyIdentity = *item
-				}
-			}
 		case 4:
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 5:
@@ -2408,43 +2394,6 @@ func DecodeDeploymentConfig(b []byte) (*DeploymentConfig, error) {
 			}
 		case 9:
 			b, m.Deleted, err = ConsumeBool(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m DeploymentIdentity) IsZero() bool {
-	return m.SpaceID == 0 &&
-		m.Name == ""
-}
-
-func (m *DeploymentIdentity) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.SpaceID, 1)
-	b = AppendStringField(b, m.Name, 3)
-	return b
-}
-
-func DecodeDeploymentIdentity(b []byte) (*DeploymentIdentity, error) {
-	var m DeploymentIdentity
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 3:
-			b, m.Name, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

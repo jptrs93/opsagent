@@ -76,24 +76,6 @@ func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID int32
 	}
 }
 
-// stampLegacyIdentity dual-writes the config's (space_id, name) into the
-// pre-v0.0.444 nested identity layout on every assignment sent to a worker. A
-// <= v0.0.443 worker decodes only that layout, and it re-encodes whatever it
-// decoded into its local assignment cache — without the dual-write, the flat
-// fields are dropped as unknown and the cached blob loses its identity, which
-// breaks address derivation (and therefore virtual networking) when the worker
-// later boots a newer binary from that cache. Remove together with
-// DeploymentConfig.legacy_identity once every cluster runs >= v0.0.448.
-func stampLegacyIdentity(state *apigen.ScheduledInstanceState) {
-	if state.Config.ID == 0 {
-		return
-	}
-	state.Config.LegacyIdentity = apigen.DeploymentIdentity{
-		SpaceID: state.Config.SpaceID,
-		Name:    state.Config.Name,
-	}
-}
-
 // send queues a frame for the worker. It returns false if the session is
 // tearing down, in which case the frame is dropped.
 func (s *Session) send(msg *apigen.MsgToWorker) bool {
@@ -135,7 +117,6 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 	}
 	items := make([]*apigen.ScheduledInstanceState, 0, len(snapshot))
 	for i := range snapshot {
-		stampLegacyIdentity(&snapshot[i])
 		items = append(items, &snapshot[i])
 	}
 	initial := &apigen.MsgToWorker{
@@ -168,7 +149,6 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 					return
 				}
 				update := state
-				stampLegacyIdentity(&update)
 				if !s.send(&apigen.MsgToWorker{ScheduledInstanceUpdate: &update}) {
 					return
 				}

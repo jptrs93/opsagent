@@ -473,23 +473,17 @@ type ValidateContainerImageSourceResponse struct {
 }
 
 type DeploymentConfig struct {
-	ID             int32              `json:"id"`
-	NodeID         int32              `json:"node_id"`
-	SpaceID        int32              `json:"space_id"`
-	SpaceVersion   int32              `json:"space_version"`
-	Name           string             `json:"name,omitempty"`
-	LegacyIdentity DeploymentIdentity `json:"legacy_identity"`
-	CreatedAt      time.Time          `json:"created_at"`
-	UpdatedAt      time.Time          `json:"updated_at"`
-	Author         int32              `json:"author"`
-	Version        int32              `json:"version"`
-	Spec           DeploymentSpec     `json:"spec"`
-	Deleted        bool               `json:"deleted"`
-}
-
-type DeploymentIdentity struct {
-	SpaceID int32  `json:"space_id"`
-	Name    string `json:"name,omitempty"`
+	ID           int32          `json:"id"`
+	NodeID       int32          `json:"node_id"`
+	SpaceID      int32          `json:"space_id"`
+	SpaceVersion int32          `json:"space_version"`
+	Name         string         `json:"name,omitempty"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	Author       int32          `json:"author"`
+	Version      int32          `json:"version"`
+	Spec         DeploymentSpec `json:"spec"`
+	Deleted      bool           `json:"deleted"`
 }
 
 type DeploymentSpec struct {

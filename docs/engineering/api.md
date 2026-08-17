@@ -31,10 +31,11 @@ embedded configs above all), moving data to new field numbers destroys it in
 the mixed-version rollout window: the old binary drops the new fields on
 decode and writes blobs carrying the data in neither format. Keep old field
 numbers, or dual-write old and new layouts across the transition and fold the
-old layout into the new fields on decode — see
-`DeploymentConfig.legacy_identity` (v0.0.448) for the pattern, which exists
-because the v0.0.444 identity field move broke worker address derivation and
-virtual networking for every cached workload.
+old layout into the new fields on decode, removing the dual-write only once
+every cluster runs the new release. `DeploymentConfig.legacy_identity`
+(v0.0.448, removed after fleet convergence — see the reserved field 3) is the
+worked example: it exists because the v0.0.444 identity field move broke
+worker address derivation and virtual networking for every cached workload.
 
 ## Mux and handler flow (Go)
 

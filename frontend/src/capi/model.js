@@ -310,18 +310,12 @@
  * @property {number} spaceId
  * @property {number} spaceVersion
  * @property {string} name
- * @property {DeploymentIdentity} legacyIdentity
  * @property {Date} createdAt
  * @property {Date} updatedAt
  * @property {number} author
  * @property {number} version
  * @property {DeploymentSpec} spec
  * @property {boolean} deleted
- */
-/**
- * @typedef {Object} DeploymentIdentity
- * @property {number} spaceId
- * @property {string} name
  */
 /**
  * @typedef {Object} DeploymentSpec
@@ -5060,11 +5054,6 @@ export function writeDeploymentConfig(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(11, WIRE.LDELIM)).string(message.name);
     }
-    if (message.legacyIdentity !== undefined && message.legacyIdentity !== null) {
-        writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeDeploymentIdentity(message.legacyIdentity, writer);
-        writer.ldelim();
-    }
     if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
     }
@@ -5106,7 +5095,7 @@ export function encodeDeploymentConfig(message) {
  */
 function decodeDeploymentConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, nodeId: 0, spaceId: 0, spaceVersion: 0, name: "", legacyIdentity: undefined, createdAt: new Date(0), updatedAt: new Date(0), author: 0, version: 0, spec: undefined, deleted: false };
+    const message = {id: 0, nodeId: 0, spaceId: 0, spaceVersion: 0, name: "", createdAt: new Date(0), updatedAt: new Date(0), author: 0, version: 0, spec: undefined, deleted: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5128,10 +5117,6 @@ function decodeDeploymentConfigMessage(reader, length) {
             }
             case 11: {
                 message.name = reader.string();
-                break;
-            }
-            case 3: {
-                message.legacyIdentity = decodeDeploymentIdentityMessage(reader, reader.uint32());
                 break;
             }
             case 4: {
@@ -5173,69 +5158,6 @@ function decodeDeploymentConfigMessage(reader, length) {
 export function decodeDeploymentConfig(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeDeploymentConfigMessage(reader);
-}
-
-
-
-/**
- * @param {DeploymentIdentity} message
- * @param {Writer} writer
- */
-export function writeDeploymentIdentity(message, writer) {
-    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.spaceId);
-    }
-    if (message.name !== undefined && message.name !== null && message.name !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.name);
-    }
-}
-
-
-/**
- * @param {DeploymentIdentity} message
- * @returns {Uint8Array}
- */
-export function encodeDeploymentIdentity(message) {
-    const writer = Writer.create();
-    writeDeploymentIdentity(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {DeploymentIdentity}
- */
-function decodeDeploymentIdentityMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {spaceId: 0, name: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.spaceId = reader.int32();
-                break;
-            }
-            case 3: {
-                message.name = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {DeploymentIdentity}
- */
-export function decodeDeploymentIdentity(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentIdentityMessage(reader);
 }
 
 
