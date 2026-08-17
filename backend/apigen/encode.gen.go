@@ -2334,7 +2334,7 @@ func (m DeploymentConfig) IsZero() bool {
 		m.Identity.IsZero() &&
 		m.CreatedAt.IsZero() &&
 		m.UpdatedAt.IsZero() &&
-		m.UpdatedBy == 0 &&
+		m.Author == 0 &&
 		m.Version == 0 &&
 		m.Spec.IsZero() &&
 		m.Deleted == false
@@ -2350,7 +2350,7 @@ func (m *DeploymentConfig) Encode() []byte {
 	}
 	b = AppendInt64FromTime(b, m.CreatedAt, 4)
 	b = AppendInt64FromTime(b, m.UpdatedAt, 5)
-	b = AppendInt32Field(b, m.UpdatedBy, 6)
+	b = AppendInt32Field(b, m.Author, 6)
 	b = AppendInt32Field(b, m.Version, 7)
 	if !m.Spec.IsZero() {
 		b = AppendTag(b, 8, BytesType)
@@ -2390,7 +2390,7 @@ func DecodeDeploymentConfig(b []byte) (*DeploymentConfig, error) {
 		case 5:
 			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 6:
-			b, m.UpdatedBy, err = ConsumeVarInt32(b, typ)
+			b, m.Author, err = ConsumeVarInt32(b, typ)
 		case 7:
 			b, m.Version, err = ConsumeVarInt32(b, typ)
 		case 8:
@@ -4867,7 +4867,7 @@ func (m *AuthzRuleTemplateRecord) Encode() []byte {
 	b = AppendStringField(b, m.Name, 2)
 	b = AppendBoolField(b, m.Builtin, 3)
 	b = AppendBoolField(b, m.Deleted, 4)
-	b = AppendInt64Field(b, m.CreatedBy, 5)
+	b = AppendInt64Field(b, m.Author, 5)
 	b = AppendInt64Field(b, m.CreatedAt, 6)
 	if m.Template != nil {
 		b = AppendTag(b, 7, BytesType)
@@ -4897,7 +4897,7 @@ func DecodeAuthzRuleTemplateRecord(b []byte) (*AuthzRuleTemplateRecord, error) {
 		case 4:
 			b, m.Deleted, err = ConsumeBool(b, typ)
 		case 5:
-			b, m.CreatedBy, err = ConsumeVarInt64(b, typ)
+			b, m.Author, err = ConsumeVarInt64(b, typ)
 		case 6:
 			b, m.CreatedAt, err = ConsumeVarInt64(b, typ)
 		case 7:
@@ -5012,7 +5012,7 @@ func (m *AuthzGrantRecord) Encode() []byte {
 	b = AppendInt64Field(b, m.ID, 1)
 	b = AppendInt64Field(b, m.UserID, 2)
 	b = AppendInt64Field(b, m.TemplateID, 3)
-	b = AppendInt64Field(b, m.CreatedBy, 4)
+	b = AppendInt64Field(b, m.Author, 4)
 	b = AppendInt64Field(b, m.CreatedAt, 5)
 	if m.Grant != nil {
 		b = AppendTag(b, 6, BytesType)
@@ -5040,7 +5040,7 @@ func DecodeAuthzGrantRecord(b []byte) (*AuthzGrantRecord, error) {
 		case 3:
 			b, m.TemplateID, err = ConsumeVarInt64(b, typ)
 		case 4:
-			b, m.CreatedBy, err = ConsumeVarInt64(b, typ)
+			b, m.Author, err = ConsumeVarInt64(b, typ)
 		case 5:
 			b, m.CreatedAt, err = ConsumeVarInt64(b, typ)
 		case 6:
@@ -5154,7 +5154,7 @@ func (m *AuthzGlobalRuleRecord) Encode() []byte {
 	var b []byte
 	b = AppendInt64Field(b, m.ID, 1)
 	b = AppendStringField(b, m.Name, 2)
-	b = AppendInt64Field(b, m.CreatedBy, 3)
+	b = AppendInt64Field(b, m.Author, 3)
 	b = AppendInt64Field(b, m.CreatedAt, 4)
 	if m.Rule != nil {
 		b = AppendTag(b, 5, BytesType)
@@ -5180,7 +5180,7 @@ func DecodeAuthzGlobalRuleRecord(b []byte) (*AuthzGlobalRuleRecord, error) {
 		case 2:
 			b, m.Name, err = ConsumeString(b, typ)
 		case 3:
-			b, m.CreatedBy, err = ConsumeVarInt64(b, typ)
+			b, m.Author, err = ConsumeVarInt64(b, typ)
 		case 4:
 			b, m.CreatedAt, err = ConsumeVarInt64(b, typ)
 		case 5:
@@ -5607,7 +5607,7 @@ func (m *SecretMeta) Encode() []byte {
 	b = AppendBoolField(b, m.Deleted, 7)
 	b = AppendInt32Field(b, m.SpaceID, 8)
 	b = AppendInt32Field(b, m.ValueDirectoryID, 10)
-	b = AppendInt32Field(b, m.CreatedBy, 11)
+	b = AppendInt32Field(b, m.Author, 11)
 	for _, item := range m.VersionRefs {
 		if item == nil {
 			continue
@@ -5643,7 +5643,7 @@ func DecodeSecretMeta(b []byte) (*SecretMeta, error) {
 		case 10:
 			b, m.ValueDirectoryID, err = ConsumeVarInt32(b, typ)
 		case 11:
-			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
+			b, m.Author, err = ConsumeVarInt32(b, typ)
 		case 12:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -5668,7 +5668,7 @@ func (m *SecretVersionMeta) Encode() []byte {
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendInt32Field(b, m.Version, 2)
 	b = AppendInt64FromTime(b, m.CreatedAt, 3)
-	b = AppendInt32Field(b, m.CreatedBy, 4)
+	b = AppendInt32Field(b, m.Author, 4)
 	return b
 }
 
@@ -5690,7 +5690,7 @@ func DecodeSecretVersionMeta(b []byte) (*SecretVersionMeta, error) {
 		case 3:
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 4:
-			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
+			b, m.Author, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6164,7 +6164,7 @@ func (m *ConfigMeta) Encode() []byte {
 	b = AppendBoolField(b, m.Deleted, 8)
 	b = AppendInt32Field(b, m.SpaceID, 9)
 	b = AppendInt32Field(b, m.ValueDirectoryID, 11)
-	b = AppendInt32Field(b, m.CreatedBy, 12)
+	b = AppendInt32Field(b, m.Author, 12)
 	for _, item := range m.VersionRefs {
 		if item == nil {
 			continue
@@ -6200,7 +6200,7 @@ func DecodeConfigMeta(b []byte) (*ConfigMeta, error) {
 		case 11:
 			b, m.ValueDirectoryID, err = ConsumeVarInt32(b, typ)
 		case 12:
-			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
+			b, m.Author, err = ConsumeVarInt32(b, typ)
 		case 13:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -6226,7 +6226,7 @@ func (m *ConfigVersionMeta) Encode() []byte {
 	b = AppendInt32Field(b, m.Version, 2)
 	b = AppendStringField(b, m.Value, 3)
 	b = AppendInt64FromTime(b, m.CreatedAt, 4)
-	b = AppendInt32Field(b, m.CreatedBy, 5)
+	b = AppendInt32Field(b, m.Author, 5)
 	return b
 }
 
@@ -6250,7 +6250,7 @@ func DecodeConfigVersionMeta(b []byte) (*ConfigVersionMeta, error) {
 		case 4:
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 5:
-			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
+			b, m.Author, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6497,7 +6497,7 @@ func (m *ValueDirectory) Encode() []byte {
 	b = AppendStringField(b, m.Name, 3)
 	b = AppendInt32Field(b, m.ParentID, 4)
 	b = AppendInt64FromTime(b, m.CreatedAt, 5)
-	b = AppendInt32Field(b, m.CreatedBy, 6)
+	b = AppendInt32Field(b, m.Author, 6)
 	b = AppendBoolField(b, m.Deleted, 7)
 	return b
 }
@@ -6524,7 +6524,7 @@ func DecodeValueDirectory(b []byte) (*ValueDirectory, error) {
 		case 5:
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 6:
-			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
+			b, m.Author, err = ConsumeVarInt32(b, typ)
 		case 7:
 			b, m.Deleted, err = ConsumeBool(b, typ)
 		default:
@@ -6719,7 +6719,7 @@ func (m *AssetMeta) Encode() []byte {
 	b = AppendInt32Field(b, m.SpaceID, 8)
 	b = AppendBoolField(b, m.Deleted, 9)
 	b = AppendInt32Field(b, m.AssetDirectoryID, 11)
-	b = AppendInt32Field(b, m.CreatedBy, 12)
+	b = AppendInt32Field(b, m.Author, 12)
 	for _, item := range m.VersionRefs {
 		if item == nil {
 			continue
@@ -6755,7 +6755,7 @@ func DecodeAssetMeta(b []byte) (*AssetMeta, error) {
 		case 11:
 			b, m.AssetDirectoryID, err = ConsumeVarInt32(b, typ)
 		case 12:
-			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
+			b, m.Author, err = ConsumeVarInt32(b, typ)
 		case 13:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -6780,7 +6780,7 @@ func (m *AssetVersionMeta) Encode() []byte {
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendInt32Field(b, m.Version, 2)
 	b = AppendInt64FromTime(b, m.CreatedAt, 3)
-	b = AppendInt32Field(b, m.CreatedBy, 4)
+	b = AppendInt32Field(b, m.Author, 4)
 	b = AppendInt32Field(b, m.SizeBytes, 5)
 	b = AppendStringField(b, m.Location, 6)
 	b = AppendStringField(b, m.Sha256, 7)
@@ -6805,7 +6805,7 @@ func DecodeAssetVersionMeta(b []byte) (*AssetVersionMeta, error) {
 		case 3:
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 4:
-			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
+			b, m.Author, err = ConsumeVarInt32(b, typ)
 		case 5:
 			b, m.SizeBytes, err = ConsumeVarInt32(b, typ)
 		case 6:
@@ -6833,7 +6833,7 @@ func (m *AssetVersion) Encode() []byte {
 	b = AppendInt32Field(b, m.SpaceID, 8)
 	b = AppendInt32Field(b, m.SizeBytes, 9)
 	b = AppendInt32Field(b, m.AssetID, 10)
-	b = AppendInt32Field(b, m.CreatedBy, 11)
+	b = AppendInt32Field(b, m.Author, 11)
 	b = AppendStringField(b, m.Sha256, 12)
 	return b
 }
@@ -6868,7 +6868,7 @@ func DecodeAssetVersion(b []byte) (*AssetVersion, error) {
 		case 10:
 			b, m.AssetID, err = ConsumeVarInt32(b, typ)
 		case 11:
-			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
+			b, m.Author, err = ConsumeVarInt32(b, typ)
 		case 12:
 			b, m.Sha256, err = ConsumeString(b, typ)
 		default:
@@ -7129,7 +7129,7 @@ func (m *AssetDirectory) Encode() []byte {
 	b = AppendStringField(b, m.Key, 3)
 	b = AppendInt32Field(b, m.ParentID, 4)
 	b = AppendInt64FromTime(b, m.CreatedAt, 5)
-	b = AppendInt32Field(b, m.CreatedBy, 6)
+	b = AppendInt32Field(b, m.Author, 6)
 	b = AppendBoolField(b, m.Deleted, 7)
 	return b
 }
@@ -7156,7 +7156,7 @@ func DecodeAssetDirectory(b []byte) (*AssetDirectory, error) {
 		case 5:
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 6:
-			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
+			b, m.Author, err = ConsumeVarInt32(b, typ)
 		case 7:
 			b, m.Deleted, err = ConsumeBool(b, typ)
 		default:

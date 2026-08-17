@@ -485,8 +485,8 @@ message DeploymentConfig {
   DeploymentIdentity identity = 3 [(cp.go_value) = true];
   int64 created_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int64 updated_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  // user id; 0 = unknown/system, negative = agent of user -updated_by
-  int32 updated_by = 6;
+  // user id; 0 = unknown/system, negative = agent of user -author
+  int32 author = 6;
   int32 version = 7;  // per-deployment monotonically increasing config version
   DeploymentSpec spec = 8 [(cp.go_value) = true];
   bool deleted = 9;

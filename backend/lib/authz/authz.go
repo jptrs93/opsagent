@@ -51,7 +51,7 @@ type RuleTemplateRow struct {
 	Name      string
 	Builtin   bool
 	Deleted   bool
-	CreatedBy int64
+	Author    int64
 	CreatedAt int64
 	Blob      []byte
 }
@@ -60,7 +60,7 @@ type GrantRow struct {
 	ID         int64
 	UserID     int64
 	TemplateID int64
-	CreatedBy  int64
+	Author     int64
 	CreatedAt  int64
 	Blob       []byte
 }
@@ -68,7 +68,7 @@ type GrantRow struct {
 type GlobalRuleRow struct {
 	ID        int64
 	Name      string
-	CreatedBy int64
+	Author    int64
 	CreatedAt int64
 	Blob      []byte
 }
@@ -76,7 +76,7 @@ type GlobalRuleRow struct {
 type Store interface {
 	ListAuthzRuleTemplates() ([]RuleTemplateRow, error)
 	InsertAuthzRuleTemplate(row RuleTemplateRow) (int64, error)
-	UpdateAuthzRuleTemplate(id int64, name string, blob []byte, updatedBy, updatedAt int64) error
+	UpdateAuthzRuleTemplate(id int64, name string, blob []byte, author, updatedAt int64) error
 	DeleteAuthzRuleTemplate(id int64) error
 	UpsertAuthzRuleTemplate(id int64, name string, blob []byte) error
 	ListAuthzGrants() ([]GrantRow, error)
@@ -126,7 +126,7 @@ func Open(store Store) (*Service, error) {
 			Name:      row.Name,
 			Builtin:   row.Builtin,
 			Deleted:   row.Deleted,
-			CreatedBy: row.CreatedBy,
+			Author:    row.Author,
 			CreatedAt: row.CreatedAt,
 			Template:  content,
 		}
@@ -144,7 +144,7 @@ func Open(store Store) (*Service, error) {
 			ID:         row.ID,
 			UserID:     row.UserID,
 			TemplateID: row.TemplateID,
-			CreatedBy:  row.CreatedBy,
+			Author:     row.Author,
 			CreatedAt:  row.CreatedAt,
 			Grant:      content,
 		}
@@ -175,7 +175,7 @@ func Open(store Store) (*Service, error) {
 		s.globalRules = append(s.globalRules, &apigen.AuthzGlobalRuleRecord{
 			ID:        row.ID,
 			Name:      row.Name,
-			CreatedBy: row.CreatedBy,
+			Author:    row.Author,
 			CreatedAt: row.CreatedAt,
 			Rule:      content,
 		})
@@ -249,7 +249,7 @@ func (s *Service) SpaceVisible(userID int64, spaceID int64, delegated bool) bool
 	return false
 }
 
-func (s *Service) CreateRuleTemplate(name string, template *apigen.AuthzRuleTemplate, createdBy int64) (*apigen.AuthzRuleTemplateRecord, error) {
+func (s *Service) CreateRuleTemplate(name string, template *apigen.AuthzRuleTemplate, author int64) (*apigen.AuthzRuleTemplateRecord, error) {
 	if err := validateTemplate(name, template); err != nil {
 		return nil, err
 	}
@@ -260,13 +260,13 @@ func (s *Service) CreateRuleTemplate(name string, template *apigen.AuthzRuleTemp
 	}
 	rec := &apigen.AuthzRuleTemplateRecord{
 		Name:      name,
-		CreatedBy: createdBy,
+		Author:    author,
 		CreatedAt: s.now().UnixMilli(),
 		Template:  cloneTemplateContent(template),
 	}
 	id, err := s.store.InsertAuthzRuleTemplate(RuleTemplateRow{
 		Name:      rec.Name,
-		CreatedBy: rec.CreatedBy,
+		Author:    rec.Author,
 		CreatedAt: rec.CreatedAt,
 		Blob:      rec.Template.Encode(),
 	})
@@ -279,7 +279,7 @@ func (s *Service) CreateRuleTemplate(name string, template *apigen.AuthzRuleTemp
 	return cloneTemplateRecord(rec), nil
 }
 
-func (s *Service) UpdateRuleTemplate(id int64, name string, template *apigen.AuthzRuleTemplate, updatedBy int64) (*apigen.AuthzRuleTemplateRecord, error) {
+func (s *Service) UpdateRuleTemplate(id int64, name string, template *apigen.AuthzRuleTemplate, author int64) (*apigen.AuthzRuleTemplateRecord, error) {
 	if err := validateTemplate(name, template); err != nil {
 		return nil, err
 	}
@@ -312,7 +312,7 @@ func (s *Service) UpdateRuleTemplate(id int64, name string, template *apigen.Aut
 			}
 		}
 	}
-	if err := s.store.UpdateAuthzRuleTemplate(id, name, rec.Template.Encode(), updatedBy, s.now().UnixMilli()); err != nil {
+	if err := s.store.UpdateAuthzRuleTemplate(id, name, rec.Template.Encode(), author, s.now().UnixMilli()); err != nil {
 		return nil, err
 	}
 	s.templates[id] = rec
@@ -417,7 +417,7 @@ func (s *Service) CreateGrant(g *apigen.AuthzGrantRecord) (*apigen.AuthzGrantRec
 	id, err := s.store.InsertAuthzGrant(GrantRow{
 		UserID:     rec.UserID,
 		TemplateID: rec.TemplateID,
-		CreatedBy:  rec.CreatedBy,
+		Author:     rec.Author,
 		CreatedAt:  rec.CreatedAt,
 		Blob:       rec.Grant.Encode(),
 	})
@@ -497,7 +497,7 @@ func (s *Service) Grants() []*apigen.AuthzGrantRecord {
 	return out
 }
 
-func (s *Service) CreateGlobalRule(name string, rule *apigen.AuthzGlobalRule, createdBy int64) (*apigen.AuthzGlobalRuleRecord, error) {
+func (s *Service) CreateGlobalRule(name string, rule *apigen.AuthzGlobalRule, author int64) (*apigen.AuthzGlobalRuleRecord, error) {
 	if err := validateGlobalRule(name, rule); err != nil {
 		return nil, err
 	}
@@ -505,13 +505,13 @@ func (s *Service) CreateGlobalRule(name string, rule *apigen.AuthzGlobalRule, cr
 	defer s.mu.Unlock()
 	rec := &apigen.AuthzGlobalRuleRecord{
 		Name:      name,
-		CreatedBy: createdBy,
+		Author:    author,
 		CreatedAt: s.now().UnixMilli(),
 		Rule:      cloneGlobalRule(rule),
 	}
 	id, err := s.store.InsertAuthzGlobalRule(GlobalRuleRow{
 		Name:      rec.Name,
-		CreatedBy: rec.CreatedBy,
+		Author:    rec.Author,
 		CreatedAt: rec.CreatedAt,
 		Blob:      rec.Rule.Encode(),
 	})

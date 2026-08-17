@@ -34,7 +34,7 @@ func TestAuthzStoreRoundTrip(t *testing.T) {
 	grant, err := svc.CreateGrant(&apigen.AuthzGrantRecord{
 		UserID:     7,
 		TemplateID: created.ID,
-		CreatedBy:  1,
+		Author:     1,
 		Grant:      &apigen.AuthzGrant{Args: []*apigen.AuthzArgumentBinding{{ArgumentID: 1, Values: []int64{2}}}},
 	})
 	if err != nil {
@@ -103,7 +103,7 @@ func TestAuthzStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Grant: %v", err)
 	}
-	if got.UserID != 7 || got.TemplateID != created.ID || got.CreatedBy != 1 || got.CreatedAt == 0 || len(got.Grant.Args) != 1 {
+	if got.UserID != 7 || got.TemplateID != created.ID || got.Author != 1 || got.CreatedAt == 0 || len(got.Grant.Args) != 1 {
 		t.Fatalf("unexpected grant after reopen: %+v", got)
 	}
 	if err := svc.DeleteGrant(7, grant.ID); err != nil {

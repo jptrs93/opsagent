@@ -58,7 +58,7 @@ func TestAccessRuleTemplateCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if created.ID <= authz.SpaceAdminTemplateID || created.CreatedBy != 1 {
+	if created.ID <= authz.SpaceAdminTemplateID || created.Author != 1 {
 		t.Fatalf("unexpected created template: %+v", created)
 	}
 
@@ -135,7 +135,7 @@ func TestAccessGrantCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create template grant: %v", err)
 	}
-	if grant.CreatedBy != 1 || grant.CreatedAt == 0 {
+	if grant.Author != 1 || grant.CreatedAt == 0 {
 		t.Fatalf("grant metadata not stamped: %+v", grant)
 	}
 
@@ -193,7 +193,7 @@ func TestAccessGlobalRuleCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if rule.CreatedBy != 1 || rule.CreatedAt == 0 {
+	if rule.Author != 1 || rule.CreatedAt == 0 {
 		t.Fatalf("rule metadata not stamped: %+v", rule)
 	}
 

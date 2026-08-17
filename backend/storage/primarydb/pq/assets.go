@@ -24,12 +24,12 @@ type AssetVersionJoined struct {
 	Store   AssetStoreRef
 }
 
-const assetVersionJoinedColumns = `v.id, v.asset_id, v.version, v.created_at, v.created_by, v.size_bytes, v.sha256,
+const assetVersionJoinedColumns = `v.id, v.asset_id, v.version, v.created_at, v.author, v.size_bytes, v.sha256,
        s.id, s.local_status, s.remote_status, CAST(LENGTH(s.inline_blob) AS INTEGER)`
 
 func scanAssetVersionJoined(scan func(dest ...any) error, r *AssetVersionJoined, extra ...any) error {
 	dest := []any{
-		&r.Version.ID, &r.Version.AssetID, &r.Version.Version, &r.Version.CreatedAt, &r.Version.CreatedBy,
+		&r.Version.ID, &r.Version.AssetID, &r.Version.Version, &r.Version.CreatedAt, &r.Version.Author,
 		&r.Version.SizeBytes, &r.Version.Sha256,
 		&r.Store.ID, &r.Store.LocalStatus, &r.Store.RemoteStatus, &r.Store.InlineSize,
 	}

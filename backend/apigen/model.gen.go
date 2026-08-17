@@ -476,7 +476,7 @@ type DeploymentConfig struct {
 	Identity  DeploymentIdentity `json:"identity"`
 	CreatedAt time.Time          `json:"created_at"`
 	UpdatedAt time.Time          `json:"updated_at"`
-	UpdatedBy int32              `json:"updated_by"`
+	Author    int32              `json:"author"`
 	Version   int32              `json:"version"`
 	Spec      DeploymentSpec     `json:"spec"`
 	Deleted   bool               `json:"deleted"`
@@ -821,7 +821,7 @@ type AuthzRuleTemplateRecord struct {
 	Name      string             `json:"name,omitempty"`
 	Builtin   bool               `json:"builtin"`
 	Deleted   bool               `json:"deleted"`
-	CreatedBy int64              `json:"created_by"`
+	Author    int64              `json:"author"`
 	CreatedAt int64              `json:"created_at"`
 	Template  *AuthzRuleTemplate `json:"template"`
 }
@@ -840,7 +840,7 @@ type AuthzGrantRecord struct {
 	ID         int64       `json:"id"`
 	UserID     int64       `json:"user_id"`
 	TemplateID int64       `json:"template_id"`
-	CreatedBy  int64       `json:"created_by"`
+	Author     int64       `json:"author"`
 	CreatedAt  int64       `json:"created_at"`
 	Grant      *AuthzGrant `json:"grant"`
 }
@@ -858,7 +858,7 @@ type AuthzGlobalRule struct {
 type AuthzGlobalRuleRecord struct {
 	ID        int64            `json:"id"`
 	Name      string           `json:"name,omitempty"`
-	CreatedBy int64            `json:"created_by"`
+	Author    int64            `json:"author"`
 	CreatedAt int64            `json:"created_at"`
 	Rule      *AuthzGlobalRule `json:"rule"`
 }
@@ -917,7 +917,7 @@ type SecretMeta struct {
 	Deleted          bool                 `json:"deleted"`
 	SpaceID          int32                `json:"space_id"`
 	ValueDirectoryID int32                `json:"value_directory_id"`
-	CreatedBy        int32                `json:"created_by"`
+	Author           int32                `json:"author"`
 	VersionRefs      []*SecretVersionMeta `json:"version_refs,omitempty"`
 }
 
@@ -925,7 +925,7 @@ type SecretVersionMeta struct {
 	ID        int32     `json:"id"`
 	Version   int32     `json:"version"`
 	CreatedAt time.Time `json:"created_at"`
-	CreatedBy int32     `json:"created_by"`
+	Author    int32     `json:"author"`
 }
 
 type SecretList struct {
@@ -1000,7 +1000,7 @@ type ConfigMeta struct {
 	Deleted          bool                 `json:"deleted"`
 	SpaceID          int32                `json:"space_id"`
 	ValueDirectoryID int32                `json:"value_directory_id"`
-	CreatedBy        int32                `json:"created_by"`
+	Author           int32                `json:"author"`
 	VersionRefs      []*ConfigVersionMeta `json:"version_refs,omitempty"`
 }
 
@@ -1009,7 +1009,7 @@ type ConfigVersionMeta struct {
 	Version   int32     `json:"version"`
 	Value     string    `json:"value,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
-	CreatedBy int32     `json:"created_by"`
+	Author    int32     `json:"author"`
 }
 
 type ConfigList struct {
@@ -1051,7 +1051,7 @@ type ValueDirectory struct {
 	Name      string    `json:"name,omitempty"`
 	ParentID  int32     `json:"parent_id"`
 	CreatedAt time.Time `json:"created_at"`
-	CreatedBy int32     `json:"created_by"`
+	Author    int32     `json:"author"`
 	Deleted   bool      `json:"deleted"`
 }
 
@@ -1087,7 +1087,7 @@ type AssetMeta struct {
 	SpaceID          int32               `json:"space_id"`
 	Deleted          bool                `json:"deleted"`
 	AssetDirectoryID int32               `json:"asset_directory_id"`
-	CreatedBy        int32               `json:"created_by"`
+	Author           int32               `json:"author"`
 	VersionRefs      []*AssetVersionMeta `json:"version_refs,omitempty"`
 }
 
@@ -1095,7 +1095,7 @@ type AssetVersionMeta struct {
 	ID        int32     `json:"id"`
 	Version   int32     `json:"version"`
 	CreatedAt time.Time `json:"created_at"`
-	CreatedBy int32     `json:"created_by"`
+	Author    int32     `json:"author"`
 	SizeBytes int32     `json:"size_bytes"`
 	Location  string    `json:"location,omitempty"`
 	Sha256    string    `json:"sha256,omitempty"`
@@ -1111,7 +1111,7 @@ type AssetVersion struct {
 	SpaceID   int32     `json:"space_id"`
 	SizeBytes int32     `json:"size_bytes"`
 	AssetID   int32     `json:"asset_id"`
-	CreatedBy int32     `json:"created_by"`
+	Author    int32     `json:"author"`
 	Sha256    string    `json:"sha256,omitempty"`
 }
 
@@ -1157,7 +1157,7 @@ type AssetDirectory struct {
 	Key       string    `json:"key,omitempty"`
 	ParentID  int32     `json:"parent_id"`
 	CreatedAt time.Time `json:"created_at"`
-	CreatedBy int32     `json:"created_by"`
+	Author    int32     `json:"author"`
 	Deleted   bool      `json:"deleted"`
 }
 

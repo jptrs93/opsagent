@@ -201,7 +201,7 @@ export function deploymentHistory(deploymentId, label, onClose, onRevertTargetVe
                     if (isConfig) {
                         const info = configByVersion[e.config.version];
                         const desc = describeConfigEntry(e.config, info?.prev);
-                        const userName = resolveUserDisplayName(e.config.updatedBy);
+                        const userName = resolveUserDisplayName(e.config.author);
                         const user = userName ? ` [${userName}]` : '';
                         const targetVersion = deploymentWorkload(e.config)?.version || '';
                         const canRevertTargetVersion = targetVersion && e.config.version !== currentConfigVersion;

@@ -21,7 +21,7 @@ var (
 // in the shared secrets/configs tree of spaceID. Directories share the sibling
 // namespace with secrets and configs, so the name must be free in all three
 // tables.
-func (s *Service) CreateValueDirectory(spaceID, parentID int32, name string, createdBy int32) (ValueDirectory, error) {
+func (s *Service) CreateValueDirectory(spaceID, parentID int32, name string, author int32) (ValueDirectory, error) {
 	if !ValidValueName(name) {
 		return ValueDirectory{}, ErrValueNameInvalid
 	}
@@ -52,7 +52,7 @@ func (s *Service) CreateValueDirectory(spaceID, parentID int32, name string, cre
 		Name:      name,
 		ParentID:  parent,
 		CreatedAt: time.Now().UnixMilli(),
-		CreatedBy: int64(createdBy),
+		Author:    int64(author),
 	})
 	if err != nil {
 		panic(fmt.Sprintf("InsertValueDirectory: %v", err))
@@ -89,7 +89,7 @@ func valueDirectoryToProto(d ValueDirectory) *apigen.ValueDirectory {
 		Name:      d.Name,
 		ParentID:  int32(d.ParentID),
 		CreatedAt: time.UnixMilli(d.CreatedAt),
-		CreatedBy: int32(d.CreatedBy),
+		Author:    int32(d.Author),
 	}
 }
 

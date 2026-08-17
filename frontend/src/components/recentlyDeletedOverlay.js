@@ -65,7 +65,7 @@ export function recentlyDeletedOverlay(onFork, onClose) {
         td({class: "px-3 py-2 text-gray-400"}, spaceName(config.identity?.spaceId)),
         td({class: "px-3 py-2 text-gray-400"}, nodeDisplayName(config.nodeId, machinesS.val) || '—'),
         td({class: "px-3 py-2 text-gray-400 whitespace-nowrap"}, formatHistoryTime(config.updatedAt) || '—'),
-        td({class: "px-3 py-2 text-gray-400"}, resolveUserDisplayName(config.updatedBy) || '—'),
+        td({class: "px-3 py-2 text-gray-400"}, resolveUserDisplayName(config.author) || '—'),
         td({class: "px-3 py-2 text-right"},
             button({
                 type: "button",

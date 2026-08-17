@@ -29,7 +29,7 @@ type Asset struct {
 	Key              string
 	AssetDirectoryID int64
 	CreatedAt        int64
-	CreatedBy        int64
+	Author           int64
 }
 
 type AssetDirectory struct {
@@ -38,7 +38,7 @@ type AssetDirectory struct {
 	Key       string
 	ParentID  int64
 	CreatedAt int64
-	CreatedBy int64
+	Author    int64
 }
 
 type AssetMigration struct {
@@ -68,7 +68,7 @@ type AssetVersion struct {
 	AssetID   int64
 	Version   int64
 	CreatedAt int64
-	CreatedBy int64
+	Author    int64
 	SizeBytes int64
 	Sha256    string
 }
@@ -78,7 +78,7 @@ type AuthzGrant struct {
 	UserID     int64
 	TemplateID int64
 	Deleted    int64
-	CreatedBy  int64
+	Author     int64
 	CreatedAt  int64
 	DataBlob   []byte
 }
@@ -95,7 +95,7 @@ type AuthzRuleTemplateVersion struct {
 	TemplateID int64
 	Version    int64
 	CreatedAt  int64
-	CreatedBy  int64
+	Author     int64
 	DataBlob   []byte
 }
 
@@ -105,7 +105,7 @@ type Config struct {
 	SpaceID          int64
 	ValueDirectoryID int64
 	CreatedAt        int64
-	CreatedBy        int64
+	Author           int64
 }
 
 type ConfigVersion struct {
@@ -114,7 +114,7 @@ type ConfigVersion struct {
 	Version   int64
 	Value     string
 	CreatedAt int64
-	CreatedBy int64
+	Author    int64
 }
 
 type DeploymentConfig struct {
@@ -130,7 +130,7 @@ type DeploymentVersion struct {
 	DeploymentID int64
 	Version      int64
 	CreatedAt    int64
-	CreatedBy    int64
+	Author       int64
 	SpecBlob     []byte
 }
 
@@ -148,7 +148,7 @@ type EnrollmentRequest struct {
 type GlobalAccessRule struct {
 	ID        int64
 	Name      string
-	CreatedBy int64
+	Author    int64
 	CreatedAt int64
 	DataBlob  []byte
 }
@@ -221,7 +221,7 @@ type Secret struct {
 	SpaceID          int64
 	ValueDirectoryID int64
 	CreatedAt        int64
-	CreatedBy        int64
+	Author           int64
 }
 
 type SecretKeyslot struct {
@@ -241,7 +241,7 @@ type SecretVersion struct {
 	Ciphertext []byte
 	Nonce      []byte
 	CreatedAt  int64
-	CreatedBy  int64
+	Author     int64
 }
 
 type Space struct {
@@ -278,5 +278,5 @@ type ValueDirectory struct {
 	Name      string
 	ParentID  int64
 	CreatedAt int64
-	CreatedBy int64
+	Author    int64
 }

@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS deployment_versions (
     deployment_id   INTEGER NOT NULL,
     version         INTEGER NOT NULL,  -- version can be derived but is kept for convenience and to make future pruning possible.
     created_at      INTEGER NOT NULL,  -- epoch ms
-    created_by      INTEGER NOT NULL DEFAULT 0,
+    author      INTEGER NOT NULL DEFAULT 0,
     spec_blob       BLOB    NOT NULL,
     UNIQUE (deployment_id, version)
 );

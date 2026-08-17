@@ -57,20 +57,20 @@ func (m *memStore) GetSecretIDByName(spaceID int32, name string) (int32, bool) {
 	}
 	return 0, false
 }
-func (m *memStore) CreateSecretWithVersion(name string, spaceID, directoryID, createdBy int32, seal SealFunc) (Record, error) {
+func (m *memStore) CreateSecretWithVersion(name string, spaceID, directoryID, author int32, seal SealFunc) (Record, error) {
 	if _, exists := m.GetSecretIDByName(spaceID, name); exists {
 		return Record{}, fmt.Errorf("secret %q already exists", name)
 	}
 	m.nextID++
 	secretID := m.nextID
 	m.identities[secretID] = memIdentity{name: name, spaceID: spaceID}
-	return m.insertVersion(secretID, createdBy, seal)
+	return m.insertVersion(secretID, author, seal)
 }
-func (m *memStore) AppendSecretVersionWithDeploymentUpdates(secretID, createdBy int32, seal SealFunc, update bool, deployments []storage.DeploymentConfigVersion, afterCommit func(Record)) (Record, []int32, error) {
+func (m *memStore) AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal SealFunc, update bool, deployments []storage.DeploymentConfigVersion, afterCommit func(Record)) (Record, []int32, error) {
 	if _, ok := m.identities[secretID]; !ok {
 		return Record{}, nil, fmt.Errorf("secret %d not found", secretID)
 	}
-	rec, err := m.insertVersion(secretID, createdBy, seal)
+	rec, err := m.insertVersion(secretID, author, seal)
 	if err != nil {
 		return Record{}, nil, err
 	}
@@ -79,7 +79,7 @@ func (m *memStore) AppendSecretVersionWithDeploymentUpdates(secretID, createdBy 
 	}
 	return rec, nil, nil
 }
-func (m *memStore) insertVersion(secretID, createdBy int32, seal SealFunc) (Record, error) {
+func (m *memStore) insertVersion(secretID, author int32, seal SealFunc) (Record, error) {
 	var maxVersion int32
 	for _, r := range m.records {
 		if r.SecretID == secretID && r.Version > maxVersion {
@@ -102,7 +102,7 @@ func (m *memStore) insertVersion(secretID, createdBy int32, seal SealFunc) (Reco
 		SMKVersion: sealed.SMKVersion,
 		Ciphertext: sealed.Ciphertext,
 		Nonce:      sealed.Nonce,
-		CreatedBy:  createdBy,
+		Author:     author,
 	}
 	m.records[rec.ID] = rec
 	return rec, nil
@@ -198,7 +198,7 @@ func TestCreateResolveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if meta.SecretID == 0 || meta.ID == 0 || meta.Version != 1 || meta.CreatedBy != 7 {
+	if meta.SecretID == 0 || meta.ID == 0 || meta.Version != 1 || meta.Author != 7 {
 		t.Fatalf("meta = %+v", meta)
 	}
 	got, ok := mgr.Resolve(meta.ID)

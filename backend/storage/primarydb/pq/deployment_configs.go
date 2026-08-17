@@ -19,7 +19,7 @@ type DeploymentConfigRow struct {
 	Version      int64
 	CreatedAt    int64 // first version's created_at
 	UpdatedAt    int64 // latest version's created_at
-	UpdatedBy    int64 // latest version's created_by
+	Author       int64 // latest version's author
 	SpecBlob     []byte
 }
 
@@ -28,7 +28,7 @@ const deploymentConfigRowSelect = `
 	       v.version,
 	       (SELECT f.created_at FROM deployment_versions f
 	        WHERE f.deployment_id = d.deployment_id ORDER BY f.version LIMIT 1),
-	       v.created_at, v.created_by, v.spec_blob
+	       v.created_at, v.author, v.spec_blob
 	FROM deployment_configs d
 	JOIN deployment_versions v ON v.deployment_id = d.deployment_id
 	    AND v.version = (SELECT MAX(m.version) FROM deployment_versions m
@@ -41,7 +41,7 @@ type deploymentConfigScanner interface {
 func scanDeploymentConfigRow(scanner deploymentConfigScanner) (DeploymentConfigRow, error) {
 	var r DeploymentConfigRow
 	err := scanner.Scan(&r.DeploymentID, &r.NodeID, &r.SpaceID, &r.Name, &r.Deleted,
-		&r.Version, &r.CreatedAt, &r.UpdatedAt, &r.UpdatedBy, &r.SpecBlob)
+		&r.Version, &r.CreatedAt, &r.UpdatedAt, &r.Author, &r.SpecBlob)
 	return r, err
 }
 

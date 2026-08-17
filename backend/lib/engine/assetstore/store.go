@@ -122,27 +122,27 @@ func (s *Store) notifyContentMoved(sha string) {
 
 // CreateAsset creates a new asset in directoryID (0 = the space root) of
 // spaceID with its first version.
-func (s *Store) CreateAsset(ctx context.Context, key string, spaceID, directoryID, createdBy int32, blob []byte) (*apigen.AssetVersion, error) {
-	return s.CreateAssetFromReader(ctx, key, spaceID, directoryID, createdBy, int64(len(blob)), bytes.NewReader(blob))
+func (s *Store) CreateAsset(ctx context.Context, key string, spaceID, directoryID, author int32, blob []byte) (*apigen.AssetVersion, error) {
+	return s.CreateAssetFromReader(ctx, key, spaceID, directoryID, author, int64(len(blob)), bytes.NewReader(blob))
 }
 
-func (s *Store) CreateAssetFromReader(ctx context.Context, key string, spaceID, directoryID, createdBy int32, sizeBytes int64, r io.Reader) (*apigen.AssetVersion, error) {
+func (s *Store) CreateAssetFromReader(ctx context.Context, key string, spaceID, directoryID, author int32, sizeBytes int64, r io.Reader) (*apigen.AssetVersion, error) {
 	return s.writeVersion(ctx, sizeBytes, r,
 		func(sha string) (*apigen.AssetVersion, error) {
-			return s.DB.CreateAssetWithVersion(key, spaceID, directoryID, createdBy, sha, sizeBytes)
+			return s.DB.CreateAssetWithVersion(key, spaceID, directoryID, author, sha, sizeBytes)
 		})
 }
 
 // AppendAssetVersion appends the next version of an existing asset. The asset
 // identity — key, space, directory — cannot change here.
-func (s *Store) AppendAssetVersion(ctx context.Context, assetID, createdBy int32, blob []byte) (*apigen.AssetVersion, error) {
-	return s.AppendAssetVersionFromReader(ctx, assetID, createdBy, int64(len(blob)), bytes.NewReader(blob))
+func (s *Store) AppendAssetVersion(ctx context.Context, assetID, author int32, blob []byte) (*apigen.AssetVersion, error) {
+	return s.AppendAssetVersionFromReader(ctx, assetID, author, int64(len(blob)), bytes.NewReader(blob))
 }
 
-func (s *Store) AppendAssetVersionFromReader(ctx context.Context, assetID, createdBy int32, sizeBytes int64, r io.Reader) (*apigen.AssetVersion, error) {
+func (s *Store) AppendAssetVersionFromReader(ctx context.Context, assetID, author int32, sizeBytes int64, r io.Reader) (*apigen.AssetVersion, error) {
 	return s.writeVersion(ctx, sizeBytes, r,
 		func(sha string) (*apigen.AssetVersion, error) {
-			return s.DB.AppendAssetVersion(assetID, createdBy, sha, sizeBytes)
+			return s.DB.AppendAssetVersion(assetID, author, sha, sizeBytes)
 		})
 }
 

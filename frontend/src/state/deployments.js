@@ -346,7 +346,7 @@ export const expandValueVersionRefs = (metas) => (metas || []).flatMap((meta) =>
     version: ref.version,
     value: ref.value,
     createdAt: ref.createdAt,
-    createdBy: ref.createdBy,
+    author: ref.author,
 })));
 
 const applySpaceUpdate = (items, update) => {

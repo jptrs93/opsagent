@@ -43,7 +43,7 @@ func (m *memStore) InsertAuthzRuleTemplate(row RuleTemplateRow) (int64, error) {
 	return row.ID, nil
 }
 
-func (m *memStore) UpdateAuthzRuleTemplate(id int64, name string, blob []byte, updatedBy, updatedAt int64) error {
+func (m *memStore) UpdateAuthzRuleTemplate(id int64, name string, blob []byte, author, updatedAt int64) error {
 	row := m.templates[id]
 	row.Name, row.Blob = name, blob
 	m.templates[id] = row
@@ -343,7 +343,7 @@ func TestRuleTemplateCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRuleTemplate: %v", err)
 	}
-	if created.ID <= SpaceAdminTemplateID || created.CreatedBy != 5 || created.CreatedAt == 0 {
+	if created.ID <= SpaceAdminTemplateID || created.Author != 5 || created.CreatedAt == 0 {
 		t.Fatalf("unexpected created template: %+v", created)
 	}
 
@@ -383,7 +383,7 @@ func TestRuleTemplateCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateRuleTemplate: %v", err)
 	}
-	if updated.Name != "release_manager" || updated.CreatedBy != 5 {
+	if updated.Name != "release_manager" || updated.Author != 5 {
 		t.Fatalf("unexpected updated template: %+v", updated)
 	}
 	edit := viewDeployment(2)

@@ -120,7 +120,7 @@ Each deployment's runtime state is structured into sections owned by different c
 
 Set by user actions (deploy or stop). The selected `ContainerSpec` or
 `SystemdSpec` contains the target `version` and `running` boolean. Audit fields
-(`updated_at`, `updated_by`) and the config revision remain on the parent
+(`updated_at`, `author`) and the config revision remain on the parent
 `DeploymentConfig`.
 
 Nix desired versions, when set, are full immutable commit hashes. Branch selection and the 25 most recent commits are discovery aids and are not persisted as source authority. Creating a running Nix deployment, starting one, changing its target commit, or changing its Nix source while it remains running performs synchronous remote commit and flake verification before persistence. Stopped Nix deployments still require structurally valid source fields but may omit the desired version and do not require remote accessibility until they transition to running.

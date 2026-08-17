@@ -1160,8 +1160,8 @@ export function assetsPage() {
             td({class: "truncate py-0.5 pr-2", title: formatDateTime(ref.createdAt, "")},
                 formatDate(ref.createdAt, "-")),
             td({class: "truncate py-0.5 pr-2 text-right text-gray-500"}, fmtSize(ref.sizeBytes)),
-            td({class: "truncate py-0.5 text-gray-500", title: versionAuthor(ref.createdBy)},
-                versionAuthor(ref.createdBy)),
+            td({class: "truncate py-0.5 text-gray-500", title: versionAuthor(ref.author)},
+                versionAuthor(ref.author)),
         ))));
 
     const itemInspector = (sel) => {
@@ -1179,7 +1179,7 @@ export function assetsPage() {
                     ...kvRow("Version", `v${item.version}`),
                     ...kvRow("Created", span({title: formatDateTime(item.createdAt, "")},
                         formatDate(item.createdAt, "-"),
-                        span({class: "text-gray-500"}, ` · ${versionAuthor(item.meta.versionRefs?.[0]?.createdBy)}`))),
+                        span({class: "text-gray-500"}, ` · ${versionAuthor(item.meta.versionRefs?.[0]?.author)}`))),
                     ...kvRow("Size", `${fmtSize(item.sizeBytes)}${item.large ? " · large" : ""}`),
                     ...kvRow("In use by", usageCount
                         ? button({

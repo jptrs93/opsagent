@@ -19,7 +19,7 @@ func secretVersionRecord(identity Secret, v pq.SecretVersion) secrets.Record {
 		Ciphertext: v.Ciphertext,
 		Nonce:      v.Nonce,
 		CreatedAt:  v.CreatedAt,
-		CreatedBy:  int32(v.CreatedBy),
+		Author:     int32(v.Author),
 	}
 }
 
@@ -30,7 +30,7 @@ func secretMetaFromRow(sec Secret, refs []*apigen.SecretVersionMeta) *apigen.Sec
 		SpaceID:          int32(sec.SpaceID),
 		ValueDirectoryID: int32(sec.ValueDirectoryID),
 		CreatedAt:        time.UnixMilli(sec.CreatedAt),
-		CreatedBy:        int32(sec.CreatedBy),
+		Author:           int32(sec.Author),
 		VersionRefs:      refs,
 	}
 }
@@ -40,6 +40,6 @@ func secretVersionMetaFromRow(v pq.ListSecretVersionMetasRow) *apigen.SecretVers
 		ID:        int32(v.ID),
 		Version:   int32(v.Version),
 		CreatedAt: time.UnixMilli(v.CreatedAt),
-		CreatedBy: int32(v.CreatedBy),
+		Author:    int32(v.Author),
 	}
 }

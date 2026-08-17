@@ -13,7 +13,7 @@ func TestCreateValueDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create root directory: %v", err)
 	}
-	if root.ID == 0 || root.SpaceID != int64(DefaultSpaceID) || root.ParentID != 0 || root.Name != "db" || root.CreatedBy != 7 {
+	if root.ID == 0 || root.SpaceID != int64(DefaultSpaceID) || root.ParentID != 0 || root.Name != "db" || root.Author != 7 {
 		t.Fatalf("root directory = %+v", root)
 	}
 

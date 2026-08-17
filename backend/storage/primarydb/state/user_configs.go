@@ -67,7 +67,7 @@ func (s *Service) GetConfigMeta(configID int32) (*apigen.ConfigMeta, bool) {
 
 // CreateConfigWithVersion creates a new config in directoryID (0 = the root)
 // of spaceID with its first version.
-func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, createdBy int32, value string) (*apigen.ConfigMeta, error) {
+func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, author int32, value string) (*apigen.ConfigMeta, error) {
 	if !ValidValueName(name) {
 		return nil, ErrValueNameInvalid
 	}
@@ -92,7 +92,7 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, cre
 			SpaceID:          space,
 			ValueDirectoryID: dirID,
 			CreatedAt:        now,
-			CreatedBy:        int64(createdBy),
+			Author:           int64(author),
 		})
 		if err != nil {
 			panic(fmt.Sprintf("InsertConfigRow: %v", err))
@@ -102,7 +102,7 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, cre
 			Version:   1,
 			Value:     value,
 			CreatedAt: now,
-			CreatedBy: int64(createdBy),
+			Author:    int64(author),
 		})
 		if err != nil {
 			panic(fmt.Sprintf("InsertConfigVersion: %v", err))
@@ -117,7 +117,7 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, cre
 // AppendConfigVersionWithDeploymentUpdates appends an immutable config version
 // and optionally rolls the caller-asserted deployment references to the new
 // row atomically.
-func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value string, updatedBy int32, updateDeployments bool, expected []storage.DeploymentConfigVersion) (*apigen.ConfigMeta, []int32, error) {
+func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value string, author int32, updateDeployments bool, expected []storage.DeploymentConfigVersion) (*apigen.ConfigMeta, []int32, error) {
 	ctx := context.Background()
 	insert := func(q *pq.Queries) (int32, error) {
 		if _, err := q.GetConfigRowByID(ctx, int64(configID)); err == sql.ErrNoRows {
@@ -134,7 +134,7 @@ func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value
 			Version:   version,
 			Value:     value,
 			CreatedAt: time.Now().UnixMilli(),
-			CreatedBy: int64(updatedBy),
+			Author:    int64(author),
 		})
 		if err != nil {
 			return 0, fmt.Errorf("insert config version: %w", err)
@@ -142,7 +142,7 @@ func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value
 		return int32(row.ID), nil
 	}
 	updatedDeployments, err := s.setVersionedValueWithDeploymentUpdates(
-		configValueReference, configID, updateDeployments, expected, updatedBy, insert, nil)
+		configValueReference, configID, updateDeployments, expected, author, insert, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -155,14 +155,14 @@ func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value
 
 // SetConfigByName is a create-or-append convenience for tests and seeding: it
 // targets the root directory of the default space by name.
-func (s *Service) SetConfigByName(name, value string, updatedBy int32) *apigen.ConfigMeta {
+func (s *Service) SetConfigByName(name, value string, author int32) *apigen.ConfigMeta {
 	row, err := s.q.GetConfigInDirectoryByName(context.Background(), pq.GetConfigInDirectoryByNameParams{
 		SpaceID:          int64(DefaultSpaceID),
 		ValueDirectoryID: 0,
 		Name:             name,
 	})
 	if err == sql.ErrNoRows {
-		meta, createErr := s.CreateConfigWithVersion(name, DefaultSpaceID, 0, updatedBy, value)
+		meta, createErr := s.CreateConfigWithVersion(name, DefaultSpaceID, 0, author, value)
 		if createErr != nil {
 			panic(fmt.Sprintf("SetConfigByName create: %v", createErr))
 		}
@@ -171,7 +171,7 @@ func (s *Service) SetConfigByName(name, value string, updatedBy int32) *apigen.C
 	if err != nil {
 		panic(fmt.Sprintf("GetConfigInDirectoryByName: %v", err))
 	}
-	meta, _, appendErr := s.AppendConfigVersionWithDeploymentUpdates(int32(row.ID), value, updatedBy, false, nil)
+	meta, _, appendErr := s.AppendConfigVersionWithDeploymentUpdates(int32(row.ID), value, author, false, nil)
 	if appendErr != nil {
 		panic(fmt.Sprintf("SetConfigByName append: %v", appendErr))
 	}
@@ -342,7 +342,7 @@ type ConfigVersionRef struct {
 	Version   int32
 	Value     string
 	CreatedAt int64
-	CreatedBy int32
+	Author    int32
 }
 
 // GetConfigVersionByID resolves a pinned config version row id.
@@ -362,7 +362,7 @@ func (s *Service) GetConfigVersionByID(id int32) (ConfigVersionRef, bool) {
 		Version:   int32(r.Version),
 		Value:     r.Value,
 		CreatedAt: r.CreatedAt,
-		CreatedBy: int32(r.CreatedBy),
+		Author:    int32(r.Author),
 	}, true
 }
 

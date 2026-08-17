@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS authz_rule_template_versions (
     template_id INTEGER NOT NULL,
     version     INTEGER NOT NULL,  -- version can be derived but is kept for convenience and to make future pruning possible.
     created_at  INTEGER NOT NULL,  -- epoch ms
-    created_by  INTEGER NOT NULL DEFAULT 0,  -- user id
+    author  INTEGER NOT NULL DEFAULT 0,  -- user id
     data_blob   BLOB    NOT NULL,
     UNIQUE (template_id, version)
 );
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS authz_grants (
     user_id     INTEGER NOT NULL,
     template_id INTEGER NOT NULL DEFAULT 0,
     deleted     INTEGER NOT NULL DEFAULT 0,
-    created_by  INTEGER NOT NULL DEFAULT 0,  -- user id
+    author  INTEGER NOT NULL DEFAULT 0,  -- user id
     created_at  INTEGER NOT NULL DEFAULT 0,  -- epoch ms
     data_blob   BLOB    NOT NULL
 );
@@ -41,7 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_authz_grants_template
 CREATE TABLE IF NOT EXISTS global_access_rules (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT    NOT NULL DEFAULT '',
-    created_by INTEGER NOT NULL DEFAULT 0,  -- user id
+    author INTEGER NOT NULL DEFAULT 0,  -- user id
     created_at INTEGER NOT NULL DEFAULT 0,  -- epoch ms
     data_blob  BLOB    NOT NULL
 );

@@ -35,7 +35,7 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 	stableID int32,
 	updateDeployments bool,
 	expected []storage.DeploymentConfigVersion,
-	updatedBy int32,
+	author int32,
 	insert func(*pq.Queries) (int32, error),
 	afterCommit func([]int32),
 ) ([]int32, error) {
@@ -61,13 +61,13 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 			next := update.row
 			next.Version = update.row.Version + 1
 			next.UpdatedAt = now
-			next.UpdatedBy = int64(updatedBy)
+			next.Author = int64(author)
 			next.SpecBlob = update.spec.Encode()
 			if err := q.InsertDeploymentVersion(ctx, pq.InsertDeploymentVersionParams{
 				DeploymentID: next.DeploymentID,
 				Version:      next.Version,
 				CreatedAt:    next.UpdatedAt,
-				CreatedBy:    next.UpdatedBy,
+				Author:       next.Author,
 				SpecBlob:     next.SpecBlob,
 			}); err != nil {
 				return fmt.Errorf("update deployment %d reference: %w", update.row.DeploymentID, err)

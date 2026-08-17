@@ -275,7 +275,7 @@ func (s *Service) assetStoreRefBySha(ctx context.Context, sha256 string) (pq.Ass
 // CreateAssetWithVersion creates a new asset in directoryID (0 = the space
 // root) of spaceID with its first version. The content must already be in the
 // asset store under sha256.
-func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, createdBy int32, sha256 string, sizeBytes int64) (*apigen.AssetVersion, error) {
+func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, author int32, sha256 string, sizeBytes int64) (*apigen.AssetVersion, error) {
 	if !ValidAssetKey(key) {
 		return nil, ErrAssetKeyInvalid
 	}
@@ -307,7 +307,7 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, creat
 			Key:              key,
 			AssetDirectoryID: dirID,
 			CreatedAt:        now,
-			CreatedBy:        int64(createdBy),
+			Author:           int64(author),
 		})
 		if err != nil {
 			panic(fmt.Sprintf("InsertAssetRow: %v", err))
@@ -316,7 +316,7 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, creat
 			AssetID:   a.ID,
 			Version:   1,
 			CreatedAt: now,
-			CreatedBy: int64(createdBy),
+			Author:    int64(author),
 			SizeBytes: sizeBytes,
 			Sha256:    sha256,
 		})
@@ -333,7 +333,7 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, creat
 // AppendAssetVersion appends the next version of an existing asset. The asset
 // identity — key, space, directory — is untouched. The content must already be
 // in the asset store under sha256.
-func (s *Service) AppendAssetVersion(assetID, createdBy int32, sha256 string, sizeBytes int64) (*apigen.AssetVersion, error) {
+func (s *Service) AppendAssetVersion(assetID, author int32, sha256 string, sizeBytes int64) (*apigen.AssetVersion, error) {
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
 
@@ -359,7 +359,7 @@ func (s *Service) AppendAssetVersion(assetID, createdBy int32, sha256 string, si
 		AssetID:   a.ID,
 		Version:   version,
 		CreatedAt: now,
-		CreatedBy: int64(createdBy),
+		Author:    int64(author),
 		SizeBytes: sizeBytes,
 		Sha256:    sha256,
 	})

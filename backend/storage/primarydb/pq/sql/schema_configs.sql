@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS value_directories (
     name        TEXT    NOT NULL,
     parent_id   INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
     created_at  INTEGER NOT NULL,            -- epoch ms
-    created_by  INTEGER NOT NULL DEFAULT 0   -- user id; 0 = unknown/system, negative = agent of user -created_by
+    author  INTEGER NOT NULL DEFAULT 0   -- user id; 0 = unknown/system, negative = agent of user -author
 );
 
 CREATE TABLE IF NOT EXISTS configs (
@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS configs (
     space_id           INTEGER NOT NULL DEFAULT 1,
     value_directory_id INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
     created_at         INTEGER NOT NULL,            -- epoch ms
-    created_by         INTEGER NOT NULL DEFAULT 0   -- user id
+    author         INTEGER NOT NULL DEFAULT 0   -- user id
 );
 
 CREATE TABLE IF NOT EXISTS config_versions (
@@ -23,6 +23,6 @@ CREATE TABLE IF NOT EXISTS config_versions (
     version     INTEGER NOT NULL,  -- version can be derived but is kept for convenience and to make future pruning possible.
     value       TEXT    NOT NULL DEFAULT '',
     created_at  INTEGER NOT NULL,            -- epoch ms
-    created_by  INTEGER NOT NULL DEFAULT 0,  -- user id
+    author  INTEGER NOT NULL DEFAULT 0,  -- user id
     UNIQUE (config_id, version)
 );

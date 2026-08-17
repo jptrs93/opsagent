@@ -35,7 +35,7 @@ func mustCreateAssetDir(t *testing.T, h *Handler, user *apigen.InternalUser, spa
 func TestCreateAssetInsideDirectory(t *testing.T) {
 	h, user := newAssetTestHandler(t)
 	dir := mustCreateAssetDir(t, h, user, 1, 0, "nginx")
-	if dir.SpaceID != 1 || dir.ParentID != 0 || dir.CreatedBy != user.ID {
+	if dir.SpaceID != 1 || dir.ParentID != 0 || dir.Author != user.ID {
 		t.Fatalf("dir = %+v, want a root directory in space 1 created by %d", dir, user.ID)
 	}
 
@@ -51,8 +51,8 @@ func TestCreateAssetInsideDirectory(t *testing.T) {
 	}
 	// The acting user is recorded on both the asset and its version row; the
 	// UI's created-by display depends on it.
-	if meta.CreatedBy != user.ID || meta.VersionRefs[0].CreatedBy != user.ID {
-		t.Fatalf("created-by = asset %d / version %d, want %d", meta.CreatedBy, meta.VersionRefs[0].CreatedBy, user.ID)
+	if meta.Author != user.ID || meta.VersionRefs[0].Author != user.ID {
+		t.Fatalf("created-by = asset %d / version %d, want %d", meta.Author, meta.VersionRefs[0].Author, user.ID)
 	}
 
 	// The same key is free in the root: the sibling namespace is per directory.
@@ -113,7 +113,7 @@ func TestUploadAssetIntoDirectory(t *testing.T) {
 	if !ok {
 		t.Fatalf("uploaded asset not found in directory %d", dir.ID)
 	}
-	if meta, ok := h.Store.GetAssetMeta(int32(uploaded.ID)); !ok || meta.VersionRefs[0].CreatedBy != user.ID {
+	if meta, ok := h.Store.GetAssetMeta(int32(uploaded.ID)); !ok || meta.VersionRefs[0].Author != user.ID {
 		t.Fatalf("uploaded version created-by = %+v, want user %d", meta, user.ID)
 	}
 

@@ -29,7 +29,7 @@ func (s *Service) ListAuthzRuleTemplates() ([]authz.RuleTemplateRow, error) {
 			Name:      row.Name,
 			Builtin:   row.Builtin != 0,
 			Deleted:   row.Deleted != 0,
-			CreatedBy: row.CreatedBy,
+			Author:    row.Author,
 			CreatedAt: row.CreatedAt,
 			Blob:      row.DataBlob,
 		})
@@ -49,14 +49,14 @@ func (s *Service) InsertAuthzRuleTemplate(row authz.RuleTemplateRow) (int64, err
 		return q.AppendAuthzRuleTemplateVersion(ctx, pq.AppendAuthzRuleTemplateVersionParams{
 			TemplateID: id,
 			CreatedAt:  row.CreatedAt,
-			CreatedBy:  row.CreatedBy,
+			Author:     row.Author,
 			DataBlob:   notNullBlob(row.Blob),
 		})
 	})
 	return id, err
 }
 
-func (s *Service) UpdateAuthzRuleTemplate(id int64, name string, blob []byte, updatedBy, updatedAt int64) error {
+func (s *Service) UpdateAuthzRuleTemplate(id int64, name string, blob []byte, author, updatedAt int64) error {
 	ctx := context.Background()
 	return s.q.Tx(ctx, func(q *pq.Queries) error {
 		if err := q.UpdateAuthzRuleTemplateName(ctx, pq.UpdateAuthzRuleTemplateNameParams{
@@ -67,7 +67,7 @@ func (s *Service) UpdateAuthzRuleTemplate(id int64, name string, blob []byte, up
 		return q.AppendAuthzRuleTemplateVersion(ctx, pq.AppendAuthzRuleTemplateVersionParams{
 			TemplateID: id,
 			CreatedAt:  updatedAt,
-			CreatedBy:  updatedBy,
+			Author:     author,
 			DataBlob:   notNullBlob(blob),
 		})
 	})
@@ -112,7 +112,7 @@ func (s *Service) ListAuthzGrants() ([]authz.GrantRow, error) {
 			ID:         row.ID,
 			UserID:     row.UserID,
 			TemplateID: row.TemplateID,
-			CreatedBy:  row.CreatedBy,
+			Author:     row.Author,
 			CreatedAt:  row.CreatedAt,
 			Blob:       row.DataBlob,
 		})
@@ -124,7 +124,7 @@ func (s *Service) InsertAuthzGrant(row authz.GrantRow) (int64, error) {
 	return s.q.InsertAuthzGrantRow(context.Background(), pq.InsertAuthzGrantRowParams{
 		UserID:     row.UserID,
 		TemplateID: row.TemplateID,
-		CreatedBy:  row.CreatedBy,
+		Author:     row.Author,
 		CreatedAt:  row.CreatedAt,
 		DataBlob:   notNullBlob(row.Blob),
 	})
@@ -144,7 +144,7 @@ func (s *Service) ListAuthzGlobalRules() ([]authz.GlobalRuleRow, error) {
 		out = append(out, authz.GlobalRuleRow{
 			ID:        row.ID,
 			Name:      row.Name,
-			CreatedBy: row.CreatedBy,
+			Author:    row.Author,
 			CreatedAt: row.CreatedAt,
 			Blob:      row.DataBlob,
 		})
@@ -155,7 +155,7 @@ func (s *Service) ListAuthzGlobalRules() ([]authz.GlobalRuleRow, error) {
 func (s *Service) InsertAuthzGlobalRule(row authz.GlobalRuleRow) (int64, error) {
 	return s.q.InsertGlobalAccessRuleRow(context.Background(), pq.InsertGlobalAccessRuleRowParams{
 		Name:      row.Name,
-		CreatedBy: row.CreatedBy,
+		Author:    row.Author,
 		CreatedAt: row.CreatedAt,
 		DataBlob:  notNullBlob(row.Blob),
 	})

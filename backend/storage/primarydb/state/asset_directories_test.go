@@ -13,7 +13,7 @@ func TestCreateDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create root directory: %v", err)
 	}
-	if root.ID == 0 || root.SpaceID != int64(DefaultSpaceID) || root.ParentID != 0 || root.Key != "configs" || root.CreatedBy != 7 {
+	if root.ID == 0 || root.SpaceID != int64(DefaultSpaceID) || root.ParentID != 0 || root.Key != "configs" || root.Author != 7 {
 		t.Fatalf("root directory = %+v", root)
 	}
 
@@ -299,7 +299,7 @@ func TestListAssetDirectoriesAndCreateInDirectory(t *testing.T) {
 	}
 
 	listed := store.ListAssetDirectories()
-	if len(listed) != 1 || listed[0].ID != int32(dir.ID) || listed[0].Key != "bundles" || listed[0].CreatedBy != 3 {
+	if len(listed) != 1 || listed[0].ID != int32(dir.ID) || listed[0].Key != "bundles" || listed[0].Author != 3 {
 		t.Fatalf("ListAssetDirectories = %+v, want the one created", listed)
 	}
 	if meta, ok := store.GetAssetDirectoryMeta(int32(dir.ID)); !ok || meta.Key != "bundles" {

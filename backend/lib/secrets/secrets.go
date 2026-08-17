@@ -96,7 +96,7 @@ type Record struct {
 	Ciphertext []byte
 	Nonce      []byte
 	CreatedAt  int64 // epoch ms
-	CreatedBy  int32
+	Author     int32
 }
 
 // SystemRecord is an encrypted OpenDeploy-managed secret as persisted in the
@@ -118,7 +118,7 @@ type Meta struct {
 	Version   int32
 	SpaceID   int32
 	CreatedAt time.Time
-	CreatedBy int32
+	Author    int32
 }
 
 // SealedValue is the output of sealing one plaintext under the SMK.
@@ -144,8 +144,8 @@ type Store interface {
 	UpsertSecretKeyslot(Keyslot)
 	ListSecretVersionRecords() []Record
 	GetSecretIDByName(spaceID int32, name string) (int32, bool)
-	CreateSecretWithVersion(name string, spaceID, directoryID, createdBy int32, seal SealFunc) (Record, error)
-	AppendSecretVersionWithDeploymentUpdates(secretID, createdBy int32, seal SealFunc, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(Record)) (Record, []int32, error)
+	CreateSecretWithVersion(name string, spaceID, directoryID, author int32, seal SealFunc) (Record, error)
+	AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal SealFunc, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(Record)) (Record, []int32, error)
 	UpdateSecretVersionCiphertext(versionID, smkVersion int32, ciphertext, nonce []byte)
 	RenameSecret(secretID int32, newName string) error
 	MoveSecretSpace(secretID, newSpaceID, newDirectoryID int32) error
@@ -337,7 +337,7 @@ func (m *Manager) LatestMetaByName(name string) (Meta, bool) {
 // Create creates a new secret with its first version in directoryID (0 = the
 // space root) of spaceID (0 = the default space). value is encrypted under the
 // SMK before it touches disk. Returns the version's metadata (never its value).
-func (m *Manager) Create(name string, value []byte, createdBy, spaceID, directoryID int32) (Meta, error) {
+func (m *Manager) Create(name string, value []byte, author, spaceID, directoryID int32) (Meta, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Meta{}, errors.New("secret name is required")
@@ -353,7 +353,7 @@ func (m *Manager) Create(name string, value []byte, createdBy, spaceID, director
 	if m.smk == nil {
 		return Meta{}, ErrLocked
 	}
-	rec, err := m.store.CreateSecretWithVersion(name, spaceID, directoryID, createdBy, m.sealFuncLocked(value))
+	rec, err := m.store.CreateSecretWithVersion(name, spaceID, directoryID, author, m.sealFuncLocked(value))
 	if err != nil {
 		return Meta{}, err
 	}
@@ -365,17 +365,17 @@ func (m *Manager) Create(name string, value []byte, createdBy, spaceID, director
 // version if the name already exists there. Used by install/restore flows that
 // provision well-known secrets; interactive callers go through Create/Set with
 // explicit ids.
-func (m *Manager) SetByName(name string, value []byte, createdBy int32) (Meta, error) {
+func (m *Manager) SetByName(name string, value []byte, author int32) (Meta, error) {
 	name = strings.TrimSpace(name)
 	if id, ok := m.store.GetSecretIDByName(defaultUserSpaceID, name); ok {
-		return m.SetWithDeploymentUpdates(id, value, createdBy, false, nil, nil)
+		return m.SetWithDeploymentUpdates(id, value, author, false, nil, nil)
 	}
-	return m.Create(name, value, createdBy, 0, 0)
+	return m.Create(name, value, author, 0, 0)
 }
 
 // SetWithDeploymentUpdates appends an immutable secret version and optionally
 // rolls the caller-asserted deployment references to the new row atomically.
-func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, updatedBy int32, updateDeployments bool, deployments []storage.DeploymentConfigVersion, onCommit func(Meta)) (Meta, error) {
+func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, author int32, updateDeployments bool, deployments []storage.DeploymentConfigVersion, onCommit func(Meta)) (Meta, error) {
 	if secretID == 0 {
 		return Meta{}, ErrNotFound
 	}
@@ -384,7 +384,7 @@ func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, updated
 	if m.smk == nil {
 		return Meta{}, ErrLocked
 	}
-	rec, _, err := m.store.AppendSecretVersionWithDeploymentUpdates(secretID, updatedBy, m.sealFuncLocked(value), updateDeployments, deployments, func(committed Record) {
+	rec, _, err := m.store.AppendSecretVersionWithDeploymentUpdates(secretID, author, m.sealFuncLocked(value), updateDeployments, deployments, func(committed Record) {
 		m.cache[committed.ID] = committed
 		if onCommit != nil {
 			onCommit(committed.meta())
@@ -737,6 +737,6 @@ func (r Record) meta() Meta {
 		Version:   r.Version,
 		SpaceID:   r.SpaceID,
 		CreatedAt: time.UnixMilli(r.CreatedAt),
-		CreatedBy: r.CreatedBy,
+		Author:    r.Author,
 	}
 }

@@ -308,7 +308,7 @@
  * @property {DeploymentIdentity} identity
  * @property {Date} createdAt
  * @property {Date} updatedAt
- * @property {number} updatedBy
+ * @property {number} author
  * @property {number} version
  * @property {DeploymentSpec} spec
  * @property {boolean} deleted
@@ -653,7 +653,7 @@
  * @property {string} name
  * @property {boolean} builtin
  * @property {boolean} deleted
- * @property {number} createdBy
+ * @property {number} author
  * @property {number} createdAt
  * @property {AuthzRuleTemplate} template
  */
@@ -672,7 +672,7 @@
  * @property {number} id
  * @property {number} userId
  * @property {number} templateId
- * @property {number} createdBy
+ * @property {number} author
  * @property {number} createdAt
  * @property {AuthzGrant} grant
  */
@@ -690,7 +690,7 @@
  * @typedef {Object} AuthzGlobalRuleRecord
  * @property {number} id
  * @property {string} name
- * @property {number} createdBy
+ * @property {number} author
  * @property {number} createdAt
  * @property {AuthzGlobalRule} rule
  */
@@ -749,7 +749,7 @@
  * @property {boolean} deleted
  * @property {number} spaceId
  * @property {number} valueDirectoryId
- * @property {number} createdBy
+ * @property {number} author
  * @property {SecretVersionMeta[]} versionRefs
  */
 /**
@@ -757,7 +757,7 @@
  * @property {number} id
  * @property {number} version
  * @property {Date} createdAt
- * @property {number} createdBy
+ * @property {number} author
  */
 /**
  * @typedef {Object} SecretList
@@ -832,7 +832,7 @@
  * @property {boolean} deleted
  * @property {number} spaceId
  * @property {number} valueDirectoryId
- * @property {number} createdBy
+ * @property {number} author
  * @property {ConfigVersionMeta[]} versionRefs
  */
 /**
@@ -841,7 +841,7 @@
  * @property {number} version
  * @property {string} value
  * @property {Date} createdAt
- * @property {number} createdBy
+ * @property {number} author
  */
 /**
  * @typedef {Object} ConfigList
@@ -883,7 +883,7 @@
  * @property {string} name
  * @property {number} parentId
  * @property {Date} createdAt
- * @property {number} createdBy
+ * @property {number} author
  * @property {boolean} deleted
  */
 /**
@@ -919,7 +919,7 @@
  * @property {number} spaceId
  * @property {boolean} deleted
  * @property {number} assetDirectoryId
- * @property {number} createdBy
+ * @property {number} author
  * @property {AssetVersionMeta[]} versionRefs
  */
 /**
@@ -927,7 +927,7 @@
  * @property {number} id
  * @property {number} version
  * @property {Date} createdAt
- * @property {number} createdBy
+ * @property {number} author
  * @property {number} sizeBytes
  * @property {string} location
  * @property {string} sha256
@@ -943,7 +943,7 @@
  * @property {number} spaceId
  * @property {number} sizeBytes
  * @property {number} assetId
- * @property {number} createdBy
+ * @property {number} author
  * @property {string} sha256
  */
 /**
@@ -989,7 +989,7 @@
  * @property {string} key
  * @property {number} parentId
  * @property {Date} createdAt
- * @property {number} createdBy
+ * @property {number} author
  * @property {boolean} deleted
  */
 /**
@@ -5043,8 +5043,8 @@ export function writeDeploymentConfig(message, writer) {
     if (message.updatedAt instanceof Date && message.updatedAt.getTime() !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.updatedAt.getTime()));
     }
-    if (message.updatedBy !== undefined && message.updatedBy !== null && message.updatedBy !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.updatedBy);
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.author);
     }
     if (message.version !== undefined && message.version !== null && message.version !== 0) {
         writer.uint32(tag(7, WIRE.VARINT)).int32(message.version);
@@ -5078,7 +5078,7 @@ export function encodeDeploymentConfig(message) {
  */
 function decodeDeploymentConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, nodeId: 0, identity: undefined, createdAt: new Date(0), updatedAt: new Date(0), updatedBy: 0, version: 0, spec: undefined, deleted: false };
+    const message = {id: 0, nodeId: 0, identity: undefined, createdAt: new Date(0), updatedAt: new Date(0), author: 0, version: 0, spec: undefined, deleted: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5103,7 +5103,7 @@ function decodeDeploymentConfigMessage(reader, length) {
                 break;
             }
             case 6: {
-                message.updatedBy = reader.int32();
+                message.author = reader.int32();
                 break;
             }
             case 7: {
@@ -9223,8 +9223,8 @@ export function writeAuthzRuleTemplateRecord(message, writer) {
     if (message.deleted === true) {
         writer.uint32(tag(4, WIRE.VARINT)).bool(message.deleted);
     }
-    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int64(message.createdBy);
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(message.author);
     }
     if (message.createdAt !== undefined && message.createdAt !== null && message.createdAt !== 0) {
         writer.uint32(tag(6, WIRE.VARINT)).int64(message.createdAt);
@@ -9255,7 +9255,7 @@ export function encodeAuthzRuleTemplateRecord(message) {
  */
 function decodeAuthzRuleTemplateRecordMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", builtin: false, deleted: false, createdBy: 0, createdAt: 0, template: undefined };
+    const message = {id: 0, name: "", builtin: false, deleted: false, author: 0, createdAt: 0, template: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9276,7 +9276,7 @@ function decodeAuthzRuleTemplateRecordMessage(reader, length) {
                 break;
             }
             case 5: {
-                message.createdBy = readInt64(reader, "int64");
+                message.author = readInt64(reader, "int64");
                 break;
             }
             case 6: {
@@ -9461,8 +9461,8 @@ export function writeAuthzGrantRecord(message, writer) {
     if (message.templateId !== undefined && message.templateId !== null && message.templateId !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int64(message.templateId);
     }
-    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(message.createdBy);
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(message.author);
     }
     if (message.createdAt !== undefined && message.createdAt !== null && message.createdAt !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int64(message.createdAt);
@@ -9493,7 +9493,7 @@ export function encodeAuthzGrantRecord(message) {
  */
 function decodeAuthzGrantRecordMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, userId: 0, templateId: 0, createdBy: 0, createdAt: 0, grant: undefined };
+    const message = {id: 0, userId: 0, templateId: 0, author: 0, createdAt: 0, grant: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9510,7 +9510,7 @@ function decodeAuthzGrantRecordMessage(reader, length) {
                 break;
             }
             case 4: {
-                message.createdBy = readInt64(reader, "int64");
+                message.author = readInt64(reader, "int64");
                 break;
             }
             case 5: {
@@ -9657,8 +9657,8 @@ export function writeAuthzGlobalRuleRecord(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
     }
-    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int64(message.createdBy);
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(message.author);
     }
     if (message.createdAt !== undefined && message.createdAt !== null && message.createdAt !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int64(message.createdAt);
@@ -9689,7 +9689,7 @@ export function encodeAuthzGlobalRuleRecord(message) {
  */
 function decodeAuthzGlobalRuleRecordMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", createdBy: 0, createdAt: 0, rule: undefined };
+    const message = {id: 0, name: "", author: 0, createdAt: 0, rule: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9702,7 +9702,7 @@ function decodeAuthzGlobalRuleRecordMessage(reader, length) {
                 break;
             }
             case 3: {
-                message.createdBy = readInt64(reader, "int64");
+                message.author = readInt64(reader, "int64");
                 break;
             }
             case 4: {
@@ -10384,8 +10384,8 @@ export function writeSecretMeta(message, writer) {
     if (message.valueDirectoryId !== undefined && message.valueDirectoryId !== null && message.valueDirectoryId !== 0) {
         writer.uint32(tag(10, WIRE.VARINT)).int32(message.valueDirectoryId);
     }
-    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
-        writer.uint32(tag(11, WIRE.VARINT)).int32(message.createdBy);
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(11, WIRE.VARINT)).int32(message.author);
     }
     if (message.versionRefs && message.versionRefs.length > 0) {
         for (const item of message.versionRefs) {
@@ -10415,7 +10415,7 @@ export function encodeSecretMeta(message) {
  */
 function decodeSecretMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", createdAt: new Date(0), id: 0, deleted: false, spaceId: 0, valueDirectoryId: 0, createdBy: 0, versionRefs: [] };
+    const message = {name: "", createdAt: new Date(0), id: 0, deleted: false, spaceId: 0, valueDirectoryId: 0, author: 0, versionRefs: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10444,7 +10444,7 @@ function decodeSecretMetaMessage(reader, length) {
                 break;
             }
             case 11: {
-                message.createdBy = reader.int32();
+                message.author = reader.int32();
                 break;
             }
             case 12: {
@@ -10484,8 +10484,8 @@ export function writeSecretVersionMeta(message, writer) {
     if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
     }
-    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.createdBy);
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.author);
     }
 }
 
@@ -10508,7 +10508,7 @@ export function encodeSecretVersionMeta(message) {
  */
 function decodeSecretVersionMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, version: 0, createdAt: new Date(0), createdBy: 0 };
+    const message = {id: 0, version: 0, createdAt: new Date(0), author: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10525,7 +10525,7 @@ function decodeSecretVersionMetaMessage(reader, length) {
                 break;
             }
             case 4: {
-                message.createdBy = reader.int32();
+                message.author = reader.int32();
                 break;
             }
             default:
@@ -11399,8 +11399,8 @@ export function writeConfigMeta(message, writer) {
     if (message.valueDirectoryId !== undefined && message.valueDirectoryId !== null && message.valueDirectoryId !== 0) {
         writer.uint32(tag(11, WIRE.VARINT)).int32(message.valueDirectoryId);
     }
-    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
-        writer.uint32(tag(12, WIRE.VARINT)).int32(message.createdBy);
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(12, WIRE.VARINT)).int32(message.author);
     }
     if (message.versionRefs && message.versionRefs.length > 0) {
         for (const item of message.versionRefs) {
@@ -11430,7 +11430,7 @@ export function encodeConfigMeta(message) {
  */
 function decodeConfigMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", createdAt: new Date(0), id: 0, deleted: false, spaceId: 0, valueDirectoryId: 0, createdBy: 0, versionRefs: [] };
+    const message = {name: "", createdAt: new Date(0), id: 0, deleted: false, spaceId: 0, valueDirectoryId: 0, author: 0, versionRefs: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11459,7 +11459,7 @@ function decodeConfigMetaMessage(reader, length) {
                 break;
             }
             case 12: {
-                message.createdBy = reader.int32();
+                message.author = reader.int32();
                 break;
             }
             case 13: {
@@ -11502,8 +11502,8 @@ export function writeConfigVersionMeta(message, writer) {
     if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
     }
-    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.createdBy);
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.author);
     }
 }
 
@@ -11526,7 +11526,7 @@ export function encodeConfigVersionMeta(message) {
  */
 function decodeConfigVersionMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, version: 0, value: "", createdAt: new Date(0), createdBy: 0 };
+    const message = {id: 0, version: 0, value: "", createdAt: new Date(0), author: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11547,7 +11547,7 @@ function decodeConfigVersionMetaMessage(reader, length) {
                 break;
             }
             case 5: {
-                message.createdBy = reader.int32();
+                message.author = reader.int32();
                 break;
             }
             default:
@@ -11996,8 +11996,8 @@ export function writeValueDirectory(message, writer) {
     if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
     }
-    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.createdBy);
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.author);
     }
     if (message.deleted === true) {
         writer.uint32(tag(7, WIRE.VARINT)).bool(message.deleted);
@@ -12023,7 +12023,7 @@ export function encodeValueDirectory(message) {
  */
 function decodeValueDirectoryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, spaceId: 0, name: "", parentId: 0, createdAt: new Date(0), createdBy: 0, deleted: false };
+    const message = {id: 0, spaceId: 0, name: "", parentId: 0, createdAt: new Date(0), author: 0, deleted: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -12048,7 +12048,7 @@ function decodeValueDirectoryMessage(reader, length) {
                 break;
             }
             case 6: {
-                message.createdBy = reader.int32();
+                message.author = reader.int32();
                 break;
             }
             case 7: {
@@ -12416,8 +12416,8 @@ export function writeAssetMeta(message, writer) {
     if (message.assetDirectoryId !== undefined && message.assetDirectoryId !== null && message.assetDirectoryId !== 0) {
         writer.uint32(tag(11, WIRE.VARINT)).int32(message.assetDirectoryId);
     }
-    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
-        writer.uint32(tag(12, WIRE.VARINT)).int32(message.createdBy);
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(12, WIRE.VARINT)).int32(message.author);
     }
     if (message.versionRefs && message.versionRefs.length > 0) {
         for (const item of message.versionRefs) {
@@ -12447,7 +12447,7 @@ export function encodeAssetMeta(message) {
  */
 function decodeAssetMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", createdAt: new Date(0), id: 0, spaceId: 0, deleted: false, assetDirectoryId: 0, createdBy: 0, versionRefs: [] };
+    const message = {key: "", createdAt: new Date(0), id: 0, spaceId: 0, deleted: false, assetDirectoryId: 0, author: 0, versionRefs: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -12476,7 +12476,7 @@ function decodeAssetMetaMessage(reader, length) {
                 break;
             }
             case 12: {
-                message.createdBy = reader.int32();
+                message.author = reader.int32();
                 break;
             }
             case 13: {
@@ -12516,8 +12516,8 @@ export function writeAssetVersionMeta(message, writer) {
     if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
     }
-    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.createdBy);
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.author);
     }
     if (message.sizeBytes !== undefined && message.sizeBytes !== null && message.sizeBytes !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int32(message.sizeBytes);
@@ -12549,7 +12549,7 @@ export function encodeAssetVersionMeta(message) {
  */
 function decodeAssetVersionMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, version: 0, createdAt: new Date(0), createdBy: 0, sizeBytes: 0, location: "", sha256: "" };
+    const message = {id: 0, version: 0, createdAt: new Date(0), author: 0, sizeBytes: 0, location: "", sha256: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -12566,7 +12566,7 @@ function decodeAssetVersionMetaMessage(reader, length) {
                 break;
             }
             case 4: {
-                message.createdBy = reader.int32();
+                message.author = reader.int32();
                 break;
             }
             case 5: {
@@ -12632,8 +12632,8 @@ export function writeAssetVersion(message, writer) {
     if (message.assetId !== undefined && message.assetId !== null && message.assetId !== 0) {
         writer.uint32(tag(10, WIRE.VARINT)).int32(message.assetId);
     }
-    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
-        writer.uint32(tag(11, WIRE.VARINT)).int32(message.createdBy);
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(11, WIRE.VARINT)).int32(message.author);
     }
     if (message.sha256 !== undefined && message.sha256 !== null && message.sha256 !== "") {
         writer.uint32(tag(12, WIRE.LDELIM)).string(message.sha256);
@@ -12659,7 +12659,7 @@ export function encodeAssetVersion(message) {
  */
 function decodeAssetVersionMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", createdAt: new Date(0), version: 0, location: "", blob: new Uint8Array(0), id: 0, spaceId: 0, sizeBytes: 0, assetId: 0, createdBy: 0, sha256: "" };
+    const message = {key: "", createdAt: new Date(0), version: 0, location: "", blob: new Uint8Array(0), id: 0, spaceId: 0, sizeBytes: 0, assetId: 0, author: 0, sha256: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -12700,7 +12700,7 @@ function decodeAssetVersionMessage(reader, length) {
                 break;
             }
             case 11: {
-                message.createdBy = reader.int32();
+                message.author = reader.int32();
                 break;
             }
             case 12: {
@@ -13198,8 +13198,8 @@ export function writeAssetDirectory(message, writer) {
     if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
     }
-    if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.createdBy);
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.author);
     }
     if (message.deleted === true) {
         writer.uint32(tag(7, WIRE.VARINT)).bool(message.deleted);
@@ -13225,7 +13225,7 @@ export function encodeAssetDirectory(message) {
  */
 function decodeAssetDirectoryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, spaceId: 0, key: "", parentId: 0, createdAt: new Date(0), createdBy: 0, deleted: false };
+    const message = {id: 0, spaceId: 0, key: "", parentId: 0, createdAt: new Date(0), author: 0, deleted: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -13250,7 +13250,7 @@ function decodeAssetDirectoryMessage(reader, length) {
                 break;
             }
             case 6: {
-                message.createdBy = reader.int32();
+                message.author = reader.int32();
                 break;
             }
             case 7: {

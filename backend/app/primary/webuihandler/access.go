@@ -85,7 +85,7 @@ func (h *Handler) PostV1AccessGrantsCreate(ctx apigen.Context, req *apigen.Authz
 	rec, err := h.Authz.CreateGrant(&apigen.AuthzGrantRecord{
 		UserID:     req.UserID,
 		TemplateID: req.TemplateID,
-		CreatedBy:  int64(requestUserID(ctx)),
+		Author:     int64(requestUserID(ctx)),
 		Grant:      req.Grant,
 	})
 	if err != nil {

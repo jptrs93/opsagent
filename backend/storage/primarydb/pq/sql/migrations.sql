@@ -31,3 +31,16 @@
 -- authz_rule_template_versions backfill and authz_rule_templates column
 -- drops) and the authz_grants deleted column add. Upgrading a database from
 -- before then requires stepping through a release that still carried them.
+
+ALTER TABLE asset_directories RENAME COLUMN created_by TO author;
+ALTER TABLE assets RENAME COLUMN created_by TO author;
+ALTER TABLE asset_versions RENAME COLUMN created_by TO author;
+ALTER TABLE value_directories RENAME COLUMN created_by TO author;
+ALTER TABLE configs RENAME COLUMN created_by TO author;
+ALTER TABLE config_versions RENAME COLUMN created_by TO author;
+ALTER TABLE secrets RENAME COLUMN created_by TO author;
+ALTER TABLE secret_versions RENAME COLUMN created_by TO author;
+ALTER TABLE authz_rule_template_versions RENAME COLUMN created_by TO author;
+ALTER TABLE authz_grants RENAME COLUMN created_by TO author;
+ALTER TABLE global_access_rules RENAME COLUMN created_by TO author;
+ALTER TABLE deployment_versions RENAME COLUMN created_by TO author;

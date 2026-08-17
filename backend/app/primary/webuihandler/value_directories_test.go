@@ -27,7 +27,7 @@ func mustCreateDir(t *testing.T, h *Handler, user *apigen.InternalUser, spaceID,
 func TestCreateSecretAndConfigInsideDirectory(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	dir := mustCreateDir(t, h, user, 1, 0, "postgres")
-	if dir.SpaceID != 1 || dir.ParentID != 0 || dir.CreatedBy != user.ID {
+	if dir.SpaceID != 1 || dir.ParentID != 0 || dir.Author != user.ID {
 		t.Fatalf("dir = %+v, want a root directory in space 1 created by %d", dir, user.ID)
 	}
 

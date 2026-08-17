@@ -36,8 +36,8 @@ func TestGenerateSecretStoresAValueTheCallerNeverSees(t *testing.T) {
 	if meta.Name != "db-password" || meta.ID == 0 || len(meta.VersionRefs) != 1 {
 		t.Fatalf("meta = %+v, want a named secret with an id and one version", meta)
 	}
-	if meta.CreatedBy != user.ID || meta.VersionRefs[0].CreatedBy != user.ID {
-		t.Fatalf("CreatedBy = %d/%d, want the approving operator %d", meta.CreatedBy, meta.VersionRefs[0].CreatedBy, user.ID)
+	if meta.Author != user.ID || meta.VersionRefs[0].Author != user.ID {
+		t.Fatalf("Author = %d/%d, want the approving operator %d", meta.Author, meta.VersionRefs[0].Author, user.ID)
 	}
 
 	// The response type has no value field at all, so the only way to confirm

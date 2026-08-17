@@ -94,7 +94,7 @@ func (s *Service) UpdateDeploymentConfig(ctx apigen.Context, deploymentID int32,
 	// deletes.
 	next.Version = existing.Version + 1
 	next.UpdatedAt = now
-	next.UpdatedBy = userID
+	next.Author = userID
 	next.SpecBlob = specBlob
 	cfg := s.mustCommitDeploymentConfigLocked(existing, next, "deployment config update")
 	return cfg, true, true
@@ -112,7 +112,7 @@ func (s *Service) mustCommitDeploymentConfigLocked(prev, next pq.DeploymentConfi
 				DeploymentID: next.DeploymentID,
 				Version:      next.Version,
 				CreatedAt:    next.UpdatedAt,
-				CreatedBy:    next.UpdatedBy,
+				Author:       next.Author,
 				SpecBlob:     next.SpecBlob,
 			}); err != nil {
 				panic(fmt.Sprintf("InsertDeploymentVersion (%s): %v", label, err))
@@ -139,11 +139,11 @@ func (s *Service) mustCommitDeploymentConfigLocked(prev, next pq.DeploymentConfi
 
 // mustAppendConfigVersionLocked appends the next spec version for an existing
 // deployment, leaving identity fields untouched. Caller must hold s.Mu.
-func (s *Service) mustAppendConfigVersionLocked(existing pq.DeploymentConfigRow, specBlob []byte, updatedBy int64, label string) *apigen.DeploymentConfig {
+func (s *Service) mustAppendConfigVersionLocked(existing pq.DeploymentConfigRow, specBlob []byte, author int64, label string) *apigen.DeploymentConfig {
 	next := existing
 	next.Version = existing.Version + 1
 	next.UpdatedAt = time.Now().UnixMilli()
-	next.UpdatedBy = updatedBy
+	next.Author = author
 	next.SpecBlob = specBlob
 	return s.mustCommitDeploymentConfigLocked(existing, next, label)
 }
@@ -200,7 +200,7 @@ func (s *Service) MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int3
 
 // mustCreateDeploymentLocked inserts a stable identity row and its v1 version
 // row in one tx, then caches and notifies. Caller must hold s.Mu.
-func (s *Service) mustCreateDeploymentLocked(cid *apigen.DeploymentIdentity, nodeID int32, specBlob []byte, createdBy int64, label string) *apigen.DeploymentConfig {
+func (s *Service) mustCreateDeploymentLocked(cid *apigen.DeploymentIdentity, nodeID int32, specBlob []byte, author int64, label string) *apigen.DeploymentConfig {
 	bgCtx := context.Background()
 	now := time.Now().UnixMilli()
 	var dbID int64
@@ -218,7 +218,7 @@ func (s *Service) mustCreateDeploymentLocked(cid *apigen.DeploymentIdentity, nod
 			DeploymentID: dbID,
 			Version:      1,
 			CreatedAt:    now,
-			CreatedBy:    createdBy,
+			Author:       author,
 			SpecBlob:     specBlob,
 		}); err != nil {
 			panic(fmt.Sprintf("InsertDeploymentVersion (%s): %v", label, err))
@@ -236,7 +236,7 @@ func (s *Service) mustCreateDeploymentLocked(cid *apigen.DeploymentIdentity, nod
 		Version:      1,
 		CreatedAt:    now,
 		UpdatedAt:    now,
-		UpdatedBy:    createdBy,
+		Author:       author,
 		SpecBlob:     specBlob,
 	})
 	id := int32(dbID)

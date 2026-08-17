@@ -17,7 +17,7 @@ func assetMetaFromRow(a Asset, refs []*apigen.AssetVersionMeta) *apigen.AssetMet
 		SpaceID:          int32(a.SpaceID),
 		AssetDirectoryID: int32(a.AssetDirectoryID),
 		CreatedAt:        time.UnixMilli(a.CreatedAt),
-		CreatedBy:        int32(a.CreatedBy),
+		Author:           int32(a.Author),
 		VersionRefs:      refs,
 	}
 }
@@ -39,7 +39,7 @@ func assetVersionMetaFromJoined(r pq.AssetVersionJoined) *apigen.AssetVersionMet
 		ID:        int32(r.Version.ID),
 		Version:   int32(r.Version.Version),
 		CreatedAt: time.UnixMilli(r.Version.CreatedAt),
-		CreatedBy: int32(r.Version.CreatedBy),
+		Author:    int32(r.Version.Author),
 		SizeBytes: int32(r.Version.SizeBytes),
 		Location:  assetLocationString(r.Store),
 		Sha256:    r.Version.Sha256,
@@ -53,7 +53,7 @@ func assetVersionFromJoined(a Asset, r pq.AssetVersionJoined) *apigen.AssetVersi
 		Key:       a.Key,
 		SpaceID:   int32(a.SpaceID),
 		CreatedAt: time.UnixMilli(r.Version.CreatedAt),
-		CreatedBy: int32(r.Version.CreatedBy),
+		Author:    int32(r.Version.Author),
 		Version:   int32(r.Version.Version),
 		Location:  assetLocationString(r.Store),
 		SizeBytes: int32(r.Version.SizeBytes),

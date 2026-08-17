@@ -20,7 +20,7 @@ func configRowToProto(r pq.DeploymentConfigRow) *apigen.DeploymentConfig {
 		CreatedAt: millisToTime(r.CreatedAt),
 		Version:   int32(r.Version),
 		UpdatedAt: time.UnixMilli(r.UpdatedAt),
-		UpdatedBy: int32(r.UpdatedBy),
+		Author:    int32(r.Author),
 		Spec:      deploymentSpecValue(spec),
 		Deleted:   r.Deleted != 0,
 	}
@@ -37,7 +37,7 @@ func configVersionRowToProto(v pq.DeploymentVersion, base *apigen.DeploymentConf
 		ID:        int32(v.DeploymentID),
 		Version:   int32(v.Version),
 		UpdatedAt: time.UnixMilli(v.CreatedAt),
-		UpdatedBy: int32(v.CreatedBy),
+		Author:    int32(v.Author),
 		Spec:      deploymentSpecValue(spec),
 	}
 	if base != nil {

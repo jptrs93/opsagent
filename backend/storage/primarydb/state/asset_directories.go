@@ -21,7 +21,7 @@ var (
 // CreateDirectory creates a directory under parentID (0 = the space root) in
 // spaceID. Directories share the sibling namespace with assets, so the key must
 // be free in both tables.
-func (s *Service) CreateDirectory(spaceID, parentID int32, key string, createdBy int32) (AssetDirectory, error) {
+func (s *Service) CreateDirectory(spaceID, parentID int32, key string, author int32) (AssetDirectory, error) {
 	if !ValidAssetKey(key) {
 		return AssetDirectory{}, ErrAssetKeyInvalid
 	}
@@ -52,7 +52,7 @@ func (s *Service) CreateDirectory(spaceID, parentID int32, key string, createdBy
 		Key:       key,
 		ParentID:  parent,
 		CreatedAt: time.Now().UnixMilli(),
-		CreatedBy: int64(createdBy),
+		Author:    int64(author),
 	})
 	if err != nil {
 		panic(fmt.Sprintf("InsertAssetDirectory: %v", err))
@@ -89,7 +89,7 @@ func assetDirectoryToProto(d AssetDirectory) *apigen.AssetDirectory {
 		Key:       d.Key,
 		ParentID:  int32(d.ParentID),
 		CreatedAt: time.UnixMilli(d.CreatedAt),
-		CreatedBy: int32(d.CreatedBy),
+		Author:    int32(d.Author),
 	}
 }
 

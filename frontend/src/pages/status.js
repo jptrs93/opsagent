@@ -343,7 +343,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             existingVersion: runner.runningVersion || '',
             numberOfRestarts: runner.numberOfRestarts || 0,
             lastRestartAt: runner.lastRestartAt,
-            deployedBy: d.config.updatedBy || 0,
+            deployedBy: d.config.author || 0,
             deployedAt: d.config.updatedAt,
             deployedVersion: workload.version || '',
             desiredRunning: Boolean(workload.running),

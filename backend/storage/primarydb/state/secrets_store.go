@@ -75,7 +75,7 @@ func (s *Service) ListSecretVersionRecords() []secrets.Record {
 			Ciphertext: r.Ciphertext,
 			Nonce:      r.Nonce,
 			CreatedAt:  r.CreatedAt,
-			CreatedBy:  int32(r.CreatedBy),
+			Author:     int32(r.Author),
 		})
 	}
 	return out
@@ -84,7 +84,7 @@ func (s *Service) ListSecretVersionRecords() []secrets.Record {
 // CreateSecretWithVersion creates a new secret in directoryID (0 = the root)
 // of spaceID with its first version. seal is called with the new identity id
 // and version 1 inside the transaction, once both are known.
-func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, createdBy int32, seal secrets.SealFunc) (secrets.Record, error) {
+func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, author int32, seal secrets.SealFunc) (secrets.Record, error) {
 	if !ValidValueName(name) {
 		return secrets.Record{}, ErrValueNameInvalid
 	}
@@ -109,7 +109,7 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, cre
 			SpaceID:          space,
 			ValueDirectoryID: dirID,
 			CreatedAt:        now,
-			CreatedBy:        int64(createdBy),
+			Author:           int64(author),
 		})
 		if err != nil {
 			panic(fmt.Sprintf("InsertSecretRow: %v", err))
@@ -125,7 +125,7 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, cre
 			Ciphertext: sealed.Ciphertext,
 			Nonce:      sealed.Nonce,
 			CreatedAt:  now,
-			CreatedBy:  int64(createdBy),
+			Author:     int64(author),
 		})
 		if err != nil {
 			panic(fmt.Sprintf("InsertSecretVersion: %v", err))
@@ -141,7 +141,7 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, cre
 // and optionally rolls the caller-asserted deployment references to the new
 // row atomically. seal is called with the identity id and the next version
 // number inside the transaction.
-func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, createdBy int32, seal secrets.SealFunc, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(secrets.Record)) (secrets.Record, []int32, error) {
+func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal secrets.SealFunc, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(secrets.Record)) (secrets.Record, []int32, error) {
 	ctx := context.Background()
 	var record secrets.Record
 	insert := func(q *pq.Queries) (int32, error) {
@@ -166,7 +166,7 @@ func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, createdBy i
 			Ciphertext: sealed.Ciphertext,
 			Nonce:      sealed.Nonce,
 			CreatedAt:  time.Now().UnixMilli(),
-			CreatedBy:  int64(createdBy),
+			Author:     int64(author),
 		})
 		if err != nil {
 			return 0, fmt.Errorf("insert secret version: %w", err)
@@ -175,7 +175,7 @@ func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, createdBy i
 		return int32(row.ID), nil
 	}
 	updatedDeployments, err := s.setVersionedValueWithDeploymentUpdates(
-		secretValueReference, secretID, updateDeployments, expected, createdBy, insert,
+		secretValueReference, secretID, updateDeployments, expected, author, insert,
 		func(_ []int32) {
 			if afterCommit != nil {
 				afterCommit(record)
@@ -395,7 +395,7 @@ func (s *Service) GetSecretMeta(secretID int32) (*apigen.SecretMeta, bool) {
 			ID:        int32(ids[i].ID),
 			Version:   int32(ids[i].Version),
 			CreatedAt: time.UnixMilli(ids[i].CreatedAt),
-			CreatedBy: int32(ids[i].CreatedBy),
+			Author:    int32(ids[i].Author),
 		})
 	}
 	return secretMetaFromRow(sec, refs), true
