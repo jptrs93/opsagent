@@ -16,18 +16,8 @@
 -- linger and is harmless). A fourth sweep (2026-08-15, after every active
 -- cluster reached v0.0.432) removed the deployment config identity/versions
 -- split (deployment_config_history into deployment_config_versions plus the
--- deployment_configs column drops). Upgrading a database from before then
--- requires stepping through a release that still carried them.
-
--- 2026-08-15 rebuild the deployment spec version log as deployment_versions,
--- which adds an id primary key (SQLite cannot add a primary-key column in
--- place, and a same-name rebuild would re-fire on every startup, so the table
--- is renamed as part of the change). Schema files run first, so the new empty
--- table already exists and the copy lands in it. The ORDER BY makes id
--- assignment chronological and deterministic. Both statements are no-ops once
--- applied: the source table no longer exists.
-INSERT OR IGNORE INTO deployment_versions (deployment_id, version, created_at, created_by, spec_blob)
-SELECT deployment_id, version, created_at, created_by, spec_blob
-FROM deployment_config_versions
-ORDER BY created_at, deployment_id, version;
-DROP TABLE IF EXISTS deployment_config_versions;
+-- deployment_configs column drops). A fifth sweep (2026-08-17, after every
+-- active cluster reached v0.0.433) removed the rebuild of
+-- deployment_config_versions into deployment_versions. Upgrading a database
+-- from before then requires stepping through a release that still carried
+-- them.
