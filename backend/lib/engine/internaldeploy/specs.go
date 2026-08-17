@@ -56,6 +56,14 @@ func IsSelfSpec(spec *apigen.DeploymentSpec) bool {
 			spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_UNSPECIFIED)
 }
 
+// IsNetproxySpec reports whether a stored spec is the per-node netproxy
+// workload, recognized by its reserved container image.
+func IsNetproxySpec(spec *apigen.DeploymentSpec) bool {
+	return spec != nil && spec.Container1Spec != nil &&
+		spec.Container1Spec.Source.RemoteImage != nil &&
+		spec.Container1Spec.Source.RemoteImage.Image == NetproxyImage
+}
+
 // NetproxySpec is the desired spec of the per-node opendeploy-net deployment.
 func NetproxySpec() *apigen.DeploymentSpec {
 	return &apigen.DeploymentSpec{
