@@ -29,22 +29,8 @@
 -- converter). An eighth sweep (2026-08-17, after every active cluster reached
 -- v0.0.437) removed the authz rule template identity/versions split (the
 -- authz_rule_template_versions backfill and authz_rule_templates column
--- drops) and the authz_grants deleted column add. Upgrading a database from
--- before then requires stepping through a release that still carried them.
-
-ALTER TABLE asset_directories RENAME COLUMN created_by TO author;
-ALTER TABLE assets RENAME COLUMN created_by TO author;
-ALTER TABLE asset_versions RENAME COLUMN created_by TO author;
-ALTER TABLE value_directories RENAME COLUMN created_by TO author;
-ALTER TABLE configs RENAME COLUMN created_by TO author;
-ALTER TABLE config_versions RENAME COLUMN created_by TO author;
-ALTER TABLE secrets RENAME COLUMN created_by TO author;
-ALTER TABLE secret_versions RENAME COLUMN created_by TO author;
-ALTER TABLE authz_rule_template_versions RENAME COLUMN created_by TO author;
-ALTER TABLE authz_grants RENAME COLUMN created_by TO author;
-ALTER TABLE global_access_rules RENAME COLUMN created_by TO author;
-ALTER TABLE deployment_versions RENAME COLUMN created_by TO author;
-
-ALTER TABLE assets DROP COLUMN author;
-ALTER TABLE secrets DROP COLUMN author;
-ALTER TABLE configs DROP COLUMN author;
+-- drops) and the authz_grants deleted column add. A ninth sweep (2026-08-17,
+-- after every active cluster reached v0.0.440) removed the created_by to
+-- author column renames across twelve tables and the container-level author
+-- column drops on assets/secrets/configs. Upgrading a database from before
+-- then requires stepping through a release that still carried them.
