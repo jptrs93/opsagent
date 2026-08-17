@@ -240,7 +240,7 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 		// between the locality check and the move.
 		unlockReferences := h.ConfigService.LockReferences()
 		defer unlockReferences()
-		if h.referencesOutsideSpace(h.assetVersionIDSet(req.AssetID), assetRefIDs, destSpace) {
+		if destSpace != state.DefaultSpaceID && h.referencesOutsideSpace(h.assetVersionIDSet(req.AssetID), assetRefIDs, destSpace) {
 			return nil, MoveReferencesOutsideSpaceErr
 		}
 		if err := h.Store.MoveAssetSpace(req.AssetID, req.SpaceID, req.AssetDirectoryID, ctx.AttributionUserID()); err != nil {

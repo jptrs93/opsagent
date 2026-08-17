@@ -61,7 +61,7 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 	if err != nil {
 		return nil, err
 	}
-	if err := h.validateCrossDeploymentMountSources(spec, req.NodeID, 0); err != nil {
+	if err := h.validateCrossDeploymentMountSources(spec, req.NodeID, 0, req.SpaceID); err != nil {
 		return nil, err
 	}
 
@@ -75,7 +75,7 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 	if err := h.validateNodeNetworkingClaims(req.NodeID, 0, spec); err != nil {
 		return nil, err
 	}
-	if err := h.validateAddressEnvRefs(req.NodeID, 0, spec, snapshot); err != nil {
+	if err := h.validateAddressEnvRefs(req.NodeID, 0, req.SpaceID, spec, snapshot); err != nil {
 		return nil, err
 	}
 	if err := validateNixWorkloadVersion(spec); err != nil {
@@ -92,7 +92,7 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 	// ref accepted here cannot be stranded by a concurrent secret space move.
 	unlockReferences := h.ConfigService.LockReferences()
 	defer unlockReferences()
-	if err := h.validateSecretRefSpaces(spec, req.SpaceID); err != nil {
+	if err := h.validateRefSpaces(spec, req.SpaceID); err != nil {
 		return nil, err
 	}
 	cfg := h.Store.MustCreateDeploymentForNode(ctx, req.SpaceID, req.Name, req.NodeID, spec)
@@ -133,10 +133,10 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		if err := h.validateNodeNetworkingClaims(cfg.NodeID, cfg.ID, validated); err != nil {
 			return nil, err
 		}
-		if err := h.validateCrossDeploymentMountSources(validated, cfg.NodeID, cfg.ID); err != nil {
+		if err := h.validateCrossDeploymentMountSources(validated, cfg.NodeID, cfg.ID, cfg.SpaceID); err != nil {
 			return nil, err
 		}
-		if err := h.validateAddressEnvRefs(cfg.NodeID, cfg.ID, validated, h.Store.FetchDeploymentSnapshot(nil)); err != nil {
+		if err := h.validateAddressEnvRefs(cfg.NodeID, cfg.ID, cfg.SpaceID, validated, h.Store.FetchDeploymentSnapshot(nil)); err != nil {
 			return nil, err
 		}
 		if validated.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL && h.deploymentUsesAddressID(int32Set([]int32{cfg.ID})) {
@@ -192,7 +192,7 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		// see PostV1DeploymentsCreate.
 		unlockReferences := h.ConfigService.LockReferences()
 		defer unlockReferences()
-		if err := h.validateSecretRefSpaces(effectiveSpec, cfg.SpaceID); err != nil {
+		if err := h.validateRefSpaces(effectiveSpec, cfg.SpaceID); err != nil {
 			return nil, err
 		}
 		current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, state.DeploymentConfigUpdate{
@@ -250,11 +250,20 @@ func (h *Handler) PostV1DeploymentsMoveSpace(ctx apigen.Context, req *apigen.Dep
 	// Same lock discipline as create: see PostV1DeploymentsCreate.
 	unlockReferences := h.ConfigService.LockReferences()
 	defer unlockReferences()
-	if err := h.validateSecretRefSpaces(&cfg.Spec, req.SpaceID); err != nil {
+	if err := h.validateRefSpaces(&cfg.Spec, req.SpaceID); err != nil {
+		return nil, err
+	}
+	if err := h.validateAddressEnvRefs(cfg.NodeID, cfg.ID, req.SpaceID, &cfg.Spec, h.Store.FetchDeploymentSnapshot(nil)); err != nil {
+		return nil, err
+	}
+	if err := h.validateCrossDeploymentMountSources(&cfg.Spec, cfg.NodeID, cfg.ID, req.SpaceID); err != nil {
 		return nil, err
 	}
 	if h.deploymentUsesAddressID(int32Set([]int32{cfg.ID})) {
 		return nil, DeploymentAddressReferencedErr
+	}
+	if req.SpaceID != state.DefaultSpaceID && h.referencesOutsideSpace(int32Set([]int32{cfg.ID}), crossDeploymentMountSourceIDs, req.SpaceID) {
+		return nil, MoveReferencesOutsideSpaceErr
 	}
 	moved, err := h.Store.MoveDeploymentSpace(cfg.ID, req.SpaceID, req.SpaceVersion, ctx.AttributionUserID())
 	if err != nil {

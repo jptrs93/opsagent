@@ -25,6 +25,10 @@ var InvalidConfigErr = apigen.NewApiErr("", "invalid_config", http.StatusBadRequ
 // outside the deployment's own space and the global space.
 var SecretRefOutsideSpaceErr = apigen.NewApiErr("Deployment references a secret outside its own or the global space", "secret_reference_outside_space", http.StatusBadRequest)
 
+var ConfigRefOutsideSpaceErr = apigen.NewApiErr("Deployment references a config outside its own or the global space", "config_reference_outside_space", http.StatusBadRequest)
+
+var AssetRefOutsideSpaceErr = apigen.NewApiErr("Deployment references an asset outside its own or the global space", "asset_reference_outside_space", http.StatusBadRequest)
+
 func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.DeploymentConfig) bool {
 	if cfg.NodeID <= 0 || cfg.NodeID == h.NodeID || h.Cluster == nil {
 		return false
@@ -535,6 +539,16 @@ func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentS
 	return nil
 }
 
+func (h *Handler) validateRefSpaces(spec *apigen.DeploymentSpec, spaceID int32) error {
+	if err := h.validateSecretRefSpaces(spec, spaceID); err != nil {
+		return err
+	}
+	if err := h.validateConfigRefSpaces(spec, spaceID); err != nil {
+		return err
+	}
+	return h.validateAssetRefSpaces(spec, spaceID)
+}
+
 // validateSecretRefSpaces enforces reference locality: a deployment may pin
 // secret versions only from its own space or the global space. It runs over
 // the same collector the engine fetches by (env refs plus ingress cert
@@ -564,7 +578,45 @@ func (h *Handler) validateSecretRefSpaces(spec *apigen.DeploymentSpec, spaceID i
 	return nil
 }
 
-func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID int32, spec *apigen.DeploymentSpec, snapshot []apigen.DeploymentConfig) error {
+func (h *Handler) validateConfigRefSpaces(spec *apigen.DeploymentSpec, spaceID int32) error {
+	if spec == nil {
+		return nil
+	}
+	cfg := apigen.DeploymentConfig{Spec: *spec}
+	for _, id := range runtimeinputs.ConfigRefs(&cfg) {
+		ref, ok := h.Store.GetConfigVersionByID(id)
+		if !ok {
+			return invalidConfigErrf("unknown config id %d", id)
+		}
+		if ref.SpaceID != spaceID && ref.SpaceID != state.DefaultSpaceID {
+			e := ConfigRefOutsideSpaceErr
+			e.DisplayErr = fmt.Sprintf("Config %q lives in space %d and cannot be referenced from a deployment in space %d", ref.Name, ref.SpaceID, spaceID)
+			return e
+		}
+	}
+	return nil
+}
+
+func (h *Handler) validateAssetRefSpaces(spec *apigen.DeploymentSpec, spaceID int32) error {
+	if spec == nil {
+		return nil
+	}
+	cfg := apigen.DeploymentConfig{Spec: *spec}
+	for _, ref := range runtimeinputs.RequiredAssetRefs(&cfg) {
+		version, ok := h.Store.GetAssetVersionByID(ref.AssetVersionID)
+		if !ok {
+			return invalidConfigErrf("asset version id %d not found", ref.AssetVersionID)
+		}
+		if version.SpaceID != spaceID && version.SpaceID != state.DefaultSpaceID {
+			e := AssetRefOutsideSpaceErr
+			e.DisplayErr = fmt.Sprintf("Asset %q lives in space %d and cannot be referenced from a deployment in space %d", version.Key, version.SpaceID, spaceID)
+			return e
+		}
+	}
+	return nil
+}
+
+func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID, spaceID int32, spec *apigen.DeploymentSpec, snapshot []apigen.DeploymentConfig) error {
 	if spec == nil || spec.Container() == nil {
 		return nil
 	}
@@ -589,6 +641,9 @@ func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID int32, spec *apige
 		}
 		if value.AddressSpaceID == nil || target.SpaceID != *value.AddressSpaceID {
 			return invalidConfigErrf("container1Spec.runtime.envVars.%s: address space does not match deployment", key)
+		}
+		if target.SpaceID != spaceID && target.SpaceID != state.DefaultSpaceID {
+			return invalidConfigErrf("container1Spec.runtime.envVars.%s: address deployment %q lives in space %d and cannot be referenced from a deployment in space %d", key, target.Name, target.SpaceID, spaceID)
 		}
 	}
 	return nil
@@ -932,7 +987,7 @@ func containerHostMountDenied(host string) bool {
 	return false
 }
 
-func (h *Handler) validateCrossDeploymentMountSources(spec *apigen.DeploymentSpec, nodeID, currentID int32) error {
+func (h *Handler) validateCrossDeploymentMountSources(spec *apigen.DeploymentSpec, nodeID, currentID, spaceID int32) error {
 	if spec == nil || spec.Container() == nil {
 		return nil
 	}
@@ -949,6 +1004,9 @@ func (h *Handler) validateCrossDeploymentMountSources(spec *apigen.DeploymentSpe
 		}
 		if source.NodeID != nodeID {
 			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: source deployment %d is on a different node", mount.DeploymentID)
+		}
+		if source.SpaceID != spaceID && source.SpaceID != state.DefaultSpaceID {
+			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: source deployment %q lives in space %d and cannot be mounted from a deployment in space %d", source.Name, source.SpaceID, spaceID)
 		}
 		container := source.Spec.Container()
 		if container == nil || container.Runtime.DefaultVolume.Disabled {

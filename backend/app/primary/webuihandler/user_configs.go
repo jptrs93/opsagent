@@ -138,7 +138,7 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 		if h.settingsUseConfigID(ids) && destSpace != state.DefaultSpaceID {
 			return nil, MoveReferencesOutsideSpaceErr
 		}
-		if h.referencesOutsideSpace(ids, runtimeinputs.ConfigRefs, destSpace) {
+		if destSpace != state.DefaultSpaceID && h.referencesOutsideSpace(ids, runtimeinputs.ConfigRefs, destSpace) {
 			return nil, MoveReferencesOutsideSpaceErr
 		}
 		if err := h.Store.MoveConfigSpace(req.ConfigID, req.SpaceID, req.ValueDirectoryID, ctx.AttributionUserID()); err != nil {

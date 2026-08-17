@@ -195,16 +195,25 @@ func TestCrossSpaceAssetMove(t *testing.T) {
 		t.Fatalf("version refs changed across the move: %+v, want version id %d", moved.VersionRefs, asset.ID)
 	}
 
-	// A mounted asset cannot leave the mounting deployment's space.
 	spec := remoteDeploymentSpec("registry/web", virtualNetworking())
 	spec.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount{{
 		AssetVersionID: asset.ID, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY,
 	}}
 	createTestDeployment(h.Store, "node1", 2, "web", &spec)
 	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
-		AssetID: asset.AssetID, SpaceID: 1,
+		AssetID: asset.AssetID, SpaceID: 3,
 	}); !errors.Is(err, MoveReferencesOutsideSpaceErr) {
 		t.Fatalf("mounted asset move err = %v, want MoveReferencesOutsideSpaceErr", err)
+	}
+	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
+		AssetID: asset.AssetID, SpaceID: 1,
+	}); err != nil {
+		t.Fatalf("mounted asset move to global: %v", err)
+	}
+	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
+		AssetID: asset.AssetID, SpaceID: 2,
+	}); err != nil {
+		t.Fatalf("mounted asset move back to the mounting space: %v", err)
 	}
 	// And a pinned version blocks deletion of the whole asset.
 	if err := h.PostV1AssetsDelete(testCtx(user), &apigen.AssetDeleteRequest{

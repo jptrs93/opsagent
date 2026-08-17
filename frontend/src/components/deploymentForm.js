@@ -1405,7 +1405,7 @@ export function volumeMountsPane(form, opts = {}) {
     const removeMount = (row) => {
         form.volumeMounts.val = rows().filter(m => m.id !== row.id);
     };
-    const deploymentOptions = () => deploymentVolumeOptions(optionDeployments(opts), form, stateValue(opts.spaces) || []);
+    const deploymentOptions = row => deploymentVolumeOptions(optionDeployments(opts), form, stateValue(opts.spaces) || [], row?.deploymentId);
     const deploymentRowEl = (row) => div(
         {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
         div(
@@ -1418,8 +1418,8 @@ export function volumeMountsPane(form, opts = {}) {
                     updateMount(row, {deploymentId, host: deploymentId ? defaultVolumeHostPath(deploymentId) : ''});
                 },
             },
-                option({value: '', disabled: true, selected: !row.deploymentId}, deploymentOptions().length ? "Select deployment..." : "No deployments on this node"),
-                ...deploymentOptions().map(d => option({value: String(d.config.id), selected: d.config.id === row.deploymentId}, deploymentVolumeLabel(d, stateValue(opts.spaces) || []))),
+                option({value: '', disabled: true, selected: !row.deploymentId}, deploymentOptions(row).length ? "Select deployment..." : "No deployments on this node"),
+                ...deploymentOptions(row).map(d => option({value: String(d.config.id), selected: d.config.id === row.deploymentId}, deploymentVolumeLabel(d, stateValue(opts.spaces) || []))),
             )),
             field("Container mount path", input({
                 class: textInputClass(true),
@@ -1743,7 +1743,7 @@ function envValueInput(form, row, catalogs, toggles) {
             assetPreviewButton(selectedAsset, catalogs.previewAsset),
         );
     }
-    if (row.type === 'address') return envAddressAutocomplete(form, row, catalogs.deployments);
+    if (row.type === 'address') return envAddressAutocomplete(form, row, catalogs);
     return envReferenceAutocomplete(form, row, catalogs);
 }
 
@@ -1788,10 +1788,11 @@ function envReferenceAutocomplete(form, row, catalogs) {
     });
 }
 
-function envAddressAutocomplete(form, row, deployments) {
+function envAddressAutocomplete(form, row, catalogs) {
     const selectedID = Number(row.addressDeploymentId || 0);
     const selectedKey = van.state(selectedID || '');
-    const options = () => addressOptionsForRow(form, row, deployments);
+    const spaces = () => stateValue(catalogs.spaces);
+    const options = () => addressOptionsForRow(form, row, stateValue(catalogs.deployments), spaces());
     return referencePicker({
         refs: options,
         selectedKey,
@@ -1800,7 +1801,7 @@ function envAddressAutocomplete(form, row, deployments) {
         noMatchesLabel: "No matching deployments",
         emptyLabel: "No virtual deployments",
         getKey: deployment => deployment.config?.id,
-        getLabel: addressOptionLabel,
+        getLabel: deployment => addressOptionLabel(deployment, spaces()),
         onSelect: deployment => {
             selectedKey.val = deployment.config.id;
             updateEnvRow(form, row.id, {
@@ -1811,21 +1812,23 @@ function envAddressAutocomplete(form, row, deployments) {
     });
 }
 
-function addressOptionsForRow(form, row, deployments) {
+function addressOptionsForRow(form, row, deployments, spaces) {
     const selectedID = Number(row.addressDeploymentId || 0);
     const currentDeploymentID = Number(form.deploymentId.val || 0);
+    const spaceId = Number(form.spaceId.val || DEFAULT_SPACE_ID);
     const all = deployments || [];
     const selectable = all.filter(item => !item.config?.deleted
         && Number(item.config?.id || 0) !== currentDeploymentID
-		&& Number(item.config?.spec?.networking?.mode || 0) === NETWORKING_MODE_VIRTUAL);
+        && Number(item.config?.spec?.networking?.mode || 0) === NETWORKING_MODE_VIRTUAL
+        && (Number(item.config?.spaceId ?? 0) === spaceId || Number(item.config?.spaceId ?? 0) === DEFAULT_SPACE_ID));
     const selected = all.find(item => Number(item.config?.id || 0) === selectedID);
     if (selected && selectedID !== currentDeploymentID && !selectable.some(item => Number(item.config?.id || 0) === selectedID)) selectable.push(selected);
-    return selectable.sort((a, b) => addressOptionLabel(a).localeCompare(addressOptionLabel(b)));
+    return selectable.sort((a, b) => addressOptionLabel(a, spaces).localeCompare(addressOptionLabel(b, spaces)));
 }
 
-function addressOptionLabel(item) {
+function addressOptionLabel(item, spaces) {
     const config = item?.config || {};
-    return `${config.name || 'deployment'} (space ${config.spaceId ?? 0}, #${config.id || 0})`;
+    return `${spaceNameForID(spaces, config.spaceId ?? 0)} / ${config.name || 'deployment'} (#${config.id || 0})`;
 }
 
 function versionedRefOptions(refs, selectedID, allRefs = refs) {
@@ -2142,21 +2145,28 @@ function defaultVolumeHostPath(deploymentID) {
     return `/var/lib/opendeploy-volumes/${deploymentID}/default`;
 }
 
-function deploymentVolumeOptions(deployments, form, spaces) {
+function deploymentVolumeOptions(deployments, form, spaces, selectedID = 0) {
     const nodeId = Number(form.nodeId.val || 0);
     const currentID = Number(form.deploymentId.val || 0);
-    return (deployments || [])
-        .filter(d => {
-            const config = d.config;
-            const container = config?.spec?.container1Spec;
-            return config?.id
-                && config.id !== currentID
-                && !config.deleted
-                && Number(config.nodeId || 0) === nodeId
-                && container
-                && !container.runtime?.defaultVolume?.disabled;
-        })
-        .sort((a, b) => deploymentVolumeLabel(a, spaces).localeCompare(deploymentVolumeLabel(b, spaces)));
+    const spaceId = Number(form.spaceId.val || DEFAULT_SPACE_ID);
+    const all = deployments || [];
+    const options = all.filter(d => {
+        const config = d.config;
+        const container = config?.spec?.container1Spec;
+        return config?.id
+            && config.id !== currentID
+            && !config.deleted
+            && Number(config.nodeId || 0) === nodeId
+            && (Number(config.spaceId ?? 0) === spaceId || Number(config.spaceId ?? 0) === DEFAULT_SPACE_ID)
+            && container
+            && !container.runtime?.defaultVolume?.disabled;
+    });
+    const sel = Number(selectedID || 0);
+    if (sel && sel !== currentID && !options.some(d => Number(d.config?.id || 0) === sel)) {
+        const selected = all.find(d => Number(d.config?.id || 0) === sel);
+        if (selected) options.push(selected);
+    }
+    return options.sort((a, b) => deploymentVolumeLabel(a, spaces).localeCompare(deploymentVolumeLabel(b, spaces)));
 }
 
 function optionDeployments(opts) {

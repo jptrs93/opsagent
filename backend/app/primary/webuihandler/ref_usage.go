@@ -41,6 +41,20 @@ func addressRefIDs(cfg *apigen.DeploymentConfig) []int32 {
 	return ids
 }
 
+func crossDeploymentMountSourceIDs(cfg *apigen.DeploymentConfig) []int32 {
+	container := cfg.Spec.Container()
+	if container == nil {
+		return nil
+	}
+	var ids []int32
+	for _, mount := range container.Runtime.CrossDeploymentMounts {
+		if mount != nil {
+			ids = append(ids, mount.DeploymentID)
+		}
+	}
+	return ids
+}
+
 // referencingDeployments returns the non-deleted deployments pinning any of
 // ids, with refs extracting one kind's version ids from a config.
 func (h *Handler) referencingDeployments(ids map[int32]struct{}, refs func(*apigen.DeploymentConfig) []int32) []apigen.DeploymentConfig {
