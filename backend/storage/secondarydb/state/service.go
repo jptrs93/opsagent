@@ -59,6 +59,14 @@ func (s *Service) loadLocalScheduledInstanceCache() {
 		if err != nil {
 			panic(fmt.Sprintf("decode local scheduled instance %d: %v", row.InstanceID, err))
 		}
+		if state.Config.ID != 0 && state.Config.Name == "" {
+			// Blob persisted by a pre-v0.0.444 binary: space/name still live
+			// in the removed identity sub-message.
+			if spaceID, name, ok := legacyDeploymentIdentity(row.Blob); ok {
+				state.Config.SpaceID = spaceID
+				state.Config.Name = name
+			}
+		}
 		if state.Instance.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {
 			continue
 		}
