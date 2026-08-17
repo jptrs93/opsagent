@@ -9,7 +9,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-func scheduledInstanceRowToProto(r pq.ScheduledInstance) *apigen.ScheduledInstance {
+func scheduledInstanceRowToProto(r pq.ScheduledInstanceRow) *apigen.ScheduledInstance {
 	return &apigen.ScheduledInstance{
 		ID:                int32(r.ID),
 		CreatedAt:         millisToTime(r.CreatedAt),

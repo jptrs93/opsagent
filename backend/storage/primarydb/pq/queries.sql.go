@@ -10,6 +10,24 @@ import (
 	"database/sql"
 )
 
+const appendScheduledInstanceVersion = `-- name: AppendScheduledInstanceVersion :exec
+INSERT INTO scheduled_instance_versions (scheduled_instance_id, version, created_at, state)
+SELECT ?1, COALESCE(MAX(version), 0) + 1, ?2, ?3
+FROM scheduled_instance_versions
+WHERE scheduled_instance_id = ?1
+`
+
+type AppendScheduledInstanceVersionParams struct {
+	ScheduledInstanceID int64
+	CreatedAt           int64
+	State               int64
+}
+
+func (q *Queries) AppendScheduledInstanceVersion(ctx context.Context, arg AppendScheduledInstanceVersionParams) error {
+	_, err := q.db.ExecContext(ctx, appendScheduledInstanceVersion, arg.ScheduledInstanceID, arg.CreatedAt, arg.State)
+	return err
+}
+
 const approveAgentSession = `-- name: ApproveAgentSession :execrows
 UPDATE agent_sessions SET status = 2, approved_at = ?, scopes = ?
 WHERE id = ? AND user_id = ? AND status = 1
@@ -764,27 +782,6 @@ func (q *Queries) GetPublicKey(ctx context.Context, kid string) (PublicKey, erro
 	return i, err
 }
 
-const getScheduledInstance = `-- name: GetScheduledInstance :one
-SELECT id, created_at, deployment_id, deployment_version, node_id, instance_ordinal, state
-FROM scheduled_instances
-WHERE id = ?
-`
-
-func (q *Queries) GetScheduledInstance(ctx context.Context, id int64) (ScheduledInstance, error) {
-	row := q.db.QueryRowContext(ctx, getScheduledInstance, id)
-	var i ScheduledInstance
-	err := row.Scan(
-		&i.ID,
-		&i.CreatedAt,
-		&i.DeploymentID,
-		&i.DeploymentVersion,
-		&i.NodeID,
-		&i.InstanceOrdinal,
-		&i.State,
-	)
-	return i, err
-}
-
 const getSecretInDirectoryByName = `-- name: GetSecretInDirectoryByName :one
 SELECT id, name, space_id, value_directory_id, created_at, created_by
 FROM secrets WHERE space_id = ? AND value_directory_id = ? AND name = ?
@@ -1266,41 +1263,34 @@ func (q *Queries) InsertGlobalAccessRuleRow(ctx context.Context, arg InsertGloba
 
 const insertScheduledInstance = `-- name: InsertScheduledInstance :one
 
-INSERT INTO scheduled_instances (created_at, deployment_id, deployment_version, node_id, instance_ordinal, state)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, created_at, deployment_id, deployment_version, node_id, instance_ordinal, state
+
+INSERT INTO scheduled_instances (deployment_id, deployment_version, node_id, instance_ordinal)
+VALUES (?, ?, ?, ?)
+RETURNING id
 `
 
 type InsertScheduledInstanceParams struct {
-	CreatedAt         int64
 	DeploymentID      int64
 	DeploymentVersion int64
 	NodeID            int64
 	InstanceOrdinal   int64
-	State             int64
 }
 
 // === scheduled_instances ===
-func (q *Queries) InsertScheduledInstance(ctx context.Context, arg InsertScheduledInstanceParams) (ScheduledInstance, error) {
+// Reads are hand-written in scheduled_instances.go: an instance row is its
+// identity joined with the version log for creation time and current state.
+// Creation appends the v1 version row in the same tx; state transitions are
+// pure appends.
+func (q *Queries) InsertScheduledInstance(ctx context.Context, arg InsertScheduledInstanceParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, insertScheduledInstance,
-		arg.CreatedAt,
 		arg.DeploymentID,
 		arg.DeploymentVersion,
 		arg.NodeID,
 		arg.InstanceOrdinal,
-		arg.State,
 	)
-	var i ScheduledInstance
-	err := row.Scan(
-		&i.ID,
-		&i.CreatedAt,
-		&i.DeploymentID,
-		&i.DeploymentVersion,
-		&i.NodeID,
-		&i.InstanceOrdinal,
-		&i.State,
-	)
-	return i, err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertScheduledInstanceStatus = `-- name: InsertScheduledInstanceStatus :exec
@@ -1945,51 +1935,6 @@ func (q *Queries) ListGlobalAccessRuleRows(ctx context.Context) ([]GlobalAccessR
 	return items, nil
 }
 
-const listLatestScheduledInstancePerOrdinal = `-- name: ListLatestScheduledInstancePerOrdinal :many
-SELECT si.id, si.created_at, si.deployment_id, si.deployment_version, si.node_id, si.instance_ordinal, si.state
-FROM scheduled_instances si
-JOIN (
-    SELECT deployment_id, instance_ordinal, MAX(id) AS id
-    FROM scheduled_instances
-    GROUP BY deployment_id, instance_ordinal
-) latest ON latest.id = si.id
-ORDER BY si.id ASC
-`
-
-// The newest incarnation of every (deployment, ordinal), whatever its state.
-// Rebuilds the retained view of ordinals whose last instance has been finalized,
-// which is all a stopped deployment has left to show.
-func (q *Queries) ListLatestScheduledInstancePerOrdinal(ctx context.Context) ([]ScheduledInstance, error) {
-	rows, err := q.db.QueryContext(ctx, listLatestScheduledInstancePerOrdinal)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ScheduledInstance
-	for rows.Next() {
-		var i ScheduledInstance
-		if err := rows.Scan(
-			&i.ID,
-			&i.CreatedAt,
-			&i.DeploymentID,
-			&i.DeploymentVersion,
-			&i.NodeID,
-			&i.InstanceOrdinal,
-			&i.State,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listLatestScheduledInstanceStatuses = `-- name: ListLatestScheduledInstanceStatuses :many
 SELECT s.scheduled_instance_id, s.updated_at, s.deployment_id,
        s.preparer_config_version, s.preparer_artifact,
@@ -2028,82 +1973,6 @@ func (q *Queries) ListLatestScheduledInstanceStatuses(ctx context.Context) ([]Sc
 			&i.RunnerNumRestarts,
 			&i.RunnerLastRestartAt,
 			&i.RunnerExtraBlob,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listNonFinalScheduledInstances = `-- name: ListNonFinalScheduledInstances :many
-SELECT id, created_at, deployment_id, deployment_version, node_id, instance_ordinal, state
-FROM scheduled_instances
-WHERE state != 2
-ORDER BY id ASC
-`
-
-func (q *Queries) ListNonFinalScheduledInstances(ctx context.Context) ([]ScheduledInstance, error) {
-	rows, err := q.db.QueryContext(ctx, listNonFinalScheduledInstances)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ScheduledInstance
-	for rows.Next() {
-		var i ScheduledInstance
-		if err := rows.Scan(
-			&i.ID,
-			&i.CreatedAt,
-			&i.DeploymentID,
-			&i.DeploymentVersion,
-			&i.NodeID,
-			&i.InstanceOrdinal,
-			&i.State,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listNonFinalScheduledInstancesForDeployment = `-- name: ListNonFinalScheduledInstancesForDeployment :many
-SELECT id, created_at, deployment_id, deployment_version, node_id, instance_ordinal, state
-FROM scheduled_instances
-WHERE deployment_id = ? AND state != 2
-ORDER BY id ASC
-`
-
-func (q *Queries) ListNonFinalScheduledInstancesForDeployment(ctx context.Context, deploymentID int64) ([]ScheduledInstance, error) {
-	rows, err := q.db.QueryContext(ctx, listNonFinalScheduledInstancesForDeployment, deploymentID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ScheduledInstance
-	for rows.Next() {
-		var i ScheduledInstance
-		if err := rows.Scan(
-			&i.ID,
-			&i.CreatedAt,
-			&i.DeploymentID,
-			&i.DeploymentVersion,
-			&i.NodeID,
-			&i.InstanceOrdinal,
-			&i.State,
 		); err != nil {
 			return nil, err
 		}
@@ -3018,20 +2887,6 @@ type UpdateDeploymentConfigDeletedParams struct {
 
 func (q *Queries) UpdateDeploymentConfigDeleted(ctx context.Context, arg UpdateDeploymentConfigDeletedParams) error {
 	_, err := q.db.ExecContext(ctx, updateDeploymentConfigDeleted, arg.Deleted, arg.DeploymentID)
-	return err
-}
-
-const updateScheduledInstanceState = `-- name: UpdateScheduledInstanceState :exec
-UPDATE scheduled_instances SET state = ? WHERE id = ?
-`
-
-type UpdateScheduledInstanceStateParams struct {
-	State int64
-	ID    int64
-}
-
-func (q *Queries) UpdateScheduledInstanceState(ctx context.Context, arg UpdateScheduledInstanceStateParams) error {
-	_, err := q.db.ExecContext(ctx, updateScheduledInstanceState, arg.State, arg.ID)
 	return err
 }
 

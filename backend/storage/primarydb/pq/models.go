@@ -168,12 +168,10 @@ type PublicKey struct {
 
 type ScheduledInstance struct {
 	ID                int64
-	CreatedAt         int64
 	DeploymentID      int64
 	DeploymentVersion int64
 	NodeID            int64
 	InstanceOrdinal   int64
-	State             int64
 }
 
 type ScheduledInstanceStatus struct {
@@ -191,6 +189,14 @@ type ScheduledInstanceStatus struct {
 	RunnerNumRestarts     sql.NullInt64
 	RunnerLastRestartAt   sql.NullInt64
 	RunnerExtraBlob       []byte
+}
+
+type ScheduledInstanceVersion struct {
+	ID                  int64
+	ScheduledInstanceID int64
+	Version             int64
+	CreatedAt           int64
+	State               int64
 }
 
 type Secret struct {

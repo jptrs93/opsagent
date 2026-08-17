@@ -14,6 +14,11 @@ import (
 // EnsureRunScheduledInstance returns the existing matching runnable assignment
 // or creates and publishes one atomically in the given initial state.
 //
+// The scan below is the only enforcement of at-most-one-runnable-incarnation
+// per assignment tuple: the database no longer carries a state column, so the
+// former partial unique index backing it is gone. Creation must stay behind
+// s.Mu.
+//
 // The initial state is the caller's to choose and cannot be corrected after the
 // fact: creating a replacement as RUN_SERVING would hand it the instance's
 // inbound route before its container exists, so a cross-node rollover must
@@ -48,18 +53,36 @@ func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentVersion,
 	if !initial.WantsRunning() {
 		panic(fmt.Sprintf("createScheduledInstance: initial state %v is not runnable", initial))
 	}
-	row, err := s.q.InsertScheduledInstance(ctx, pq.InsertScheduledInstanceParams{
-		CreatedAt:         time.Now().UnixMilli(),
-		DeploymentID:      int64(deploymentID),
-		DeploymentVersion: int64(deploymentVersion),
-		NodeID:            int64(nodeID),
-		InstanceOrdinal:   int64(instanceOrdinal),
-		State:             int64(initial),
-	})
-	if err != nil {
+	now := time.Now().UnixMilli()
+	var id int64
+	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		var err error
+		id, err = q.InsertScheduledInstance(ctx, pq.InsertScheduledInstanceParams{
+			DeploymentID:      int64(deploymentID),
+			DeploymentVersion: int64(deploymentVersion),
+			NodeID:            int64(nodeID),
+			InstanceOrdinal:   int64(instanceOrdinal),
+		})
+		if err != nil {
+			return err
+		}
+		return q.AppendScheduledInstanceVersion(ctx, pq.AppendScheduledInstanceVersionParams{
+			ScheduledInstanceID: id,
+			CreatedAt:           now,
+			State:               int64(initial),
+		})
+	}); err != nil {
 		panic(fmt.Sprintf("InsertScheduledInstance: %v", err))
 	}
-	inst := scheduledInstanceRowToProto(row)
+	inst := &apigen.ScheduledInstance{
+		ID:                int32(id),
+		CreatedAt:         millisToTime(now),
+		DeploymentID:      deploymentID,
+		DeploymentVersion: deploymentVersion,
+		NodeID:            nodeID,
+		InstanceOrdinal:   instanceOrdinal,
+		State:             initial,
+	}
 	state := &apigen.ScheduledInstanceState{Instance: *inst}
 	if cfg := s.configForInstanceLocked(inst); cfg != nil {
 		state.Config = *cfg
@@ -72,8 +95,10 @@ func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentVersion,
 	return inst
 }
 
-// SetScheduledInstanceState updates target state and publishes. When finalized,
-// the instance is removed from the active cache after notify.
+// SetScheduledInstanceState appends the transition to
+// scheduled_instance_versions — the sole store of instance state — and
+// publishes. When finalized, the instance is removed from the active cache
+// after notify.
 func (s *Service) SetScheduledInstanceState(instanceID int32, state apigen.ScheduledInstanceTarget) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -93,11 +118,12 @@ func (s *Service) SetScheduledInstanceState(instanceID int32, state apigen.Sched
 	if inst.State == state {
 		return
 	}
-	if err := s.q.UpdateScheduledInstanceState(ctx, pq.UpdateScheduledInstanceStateParams{
-		State: int64(state),
-		ID:    int64(instanceID),
+	if err := s.q.AppendScheduledInstanceVersion(ctx, pq.AppendScheduledInstanceVersionParams{
+		ScheduledInstanceID: int64(instanceID),
+		CreatedAt:           time.Now().UnixMilli(),
+		State:               int64(state),
 	}); err != nil {
-		panic(fmt.Sprintf("UpdateScheduledInstanceState: %v", err))
+		panic(fmt.Sprintf("AppendScheduledInstanceVersion: %v", err))
 	}
 	updated := *inst
 	updated.State = state

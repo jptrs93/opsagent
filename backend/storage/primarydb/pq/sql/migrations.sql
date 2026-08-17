@@ -21,3 +21,19 @@
 -- deployment_config_versions into deployment_versions. Upgrading a database
 -- from before then requires stepping through a release that still carried
 -- them.
+
+-- 2026-08-17 split scheduled instance state into the append-only
+-- scheduled_instance_versions log (schema files run first, so the empty table
+-- already exists). The backfill gives every existing instance a single
+-- baseline row claiming its current state from birth — pre-split transitions
+-- were never recorded. created_at and state then move off scheduled_instances
+-- entirely, derived from the first/latest version rows instead. The unique_run
+-- index references state and must be dropped before the column can be. Re-runs
+-- are no-ops: the backfill's column references fail as "no such column" once
+-- the drops have applied.
+INSERT OR IGNORE INTO scheduled_instance_versions (scheduled_instance_id, version, created_at, state)
+SELECT id, 1, created_at, state FROM scheduled_instances ORDER BY id;
+ALTER TABLE scheduled_instances DROP COLUMN created_at;
+DROP INDEX IF EXISTS idx_scheduled_instances_node_active;
+DROP INDEX IF EXISTS idx_scheduled_instances_unique_run;
+ALTER TABLE scheduled_instances DROP COLUMN state;

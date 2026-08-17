@@ -49,43 +49,21 @@ WHERE deployment_id = ? AND version = ?;
 
 -- === scheduled_instances ===
 
+-- Reads are hand-written in scheduled_instances.go: an instance row is its
+-- identity joined with the version log for creation time and current state.
+-- Creation appends the v1 version row in the same tx; state transitions are
+-- pure appends.
+
 -- name: InsertScheduledInstance :one
-INSERT INTO scheduled_instances (created_at, deployment_id, deployment_version, node_id, instance_ordinal, state)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, created_at, deployment_id, deployment_version, node_id, instance_ordinal, state;
+INSERT INTO scheduled_instances (deployment_id, deployment_version, node_id, instance_ordinal)
+VALUES (?, ?, ?, ?)
+RETURNING id;
 
--- name: GetScheduledInstance :one
-SELECT id, created_at, deployment_id, deployment_version, node_id, instance_ordinal, state
-FROM scheduled_instances
-WHERE id = ?;
-
--- name: ListNonFinalScheduledInstances :many
-SELECT id, created_at, deployment_id, deployment_version, node_id, instance_ordinal, state
-FROM scheduled_instances
-WHERE state != 2
-ORDER BY id ASC;
-
--- name: ListNonFinalScheduledInstancesForDeployment :many
-SELECT id, created_at, deployment_id, deployment_version, node_id, instance_ordinal, state
-FROM scheduled_instances
-WHERE deployment_id = ? AND state != 2
-ORDER BY id ASC;
-
--- name: ListLatestScheduledInstancePerOrdinal :many
--- The newest incarnation of every (deployment, ordinal), whatever its state.
--- Rebuilds the retained view of ordinals whose last instance has been finalized,
--- which is all a stopped deployment has left to show.
-SELECT si.id, si.created_at, si.deployment_id, si.deployment_version, si.node_id, si.instance_ordinal, si.state
-FROM scheduled_instances si
-JOIN (
-    SELECT deployment_id, instance_ordinal, MAX(id) AS id
-    FROM scheduled_instances
-    GROUP BY deployment_id, instance_ordinal
-) latest ON latest.id = si.id
-ORDER BY si.id ASC;
-
--- name: UpdateScheduledInstanceState :exec
-UPDATE scheduled_instances SET state = ? WHERE id = ?;
+-- name: AppendScheduledInstanceVersion :exec
+INSERT INTO scheduled_instance_versions (scheduled_instance_id, version, created_at, state)
+SELECT @scheduled_instance_id, COALESCE(MAX(version), 0) + 1, @created_at, @state
+FROM scheduled_instance_versions
+WHERE scheduled_instance_id = @scheduled_instance_id;
 
 -- === scheduled_instance_status ===
 
