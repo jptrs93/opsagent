@@ -20,6 +20,7 @@ import (
 // the local deployment operator and primary connection.
 func Run(ctx context.Context) {
 	cfg := ainit.StaticConfig
+	slog.Info(fmt.Sprintf("opendeploy secondary booting version=%v dataDir=%v", version.Version, cfg.DataDir))
 	if cfg.PrimaryClusterAddr == "" || cfg.PrimaryEnrollmentAddr == "" {
 		panic("OPENDEPLOY_PRIMARY_CLUSTER_ADDR and OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR must be set when running secondary")
 	}
@@ -58,18 +59,23 @@ func Run(ctx context.Context) {
 func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyPath string) runtimeConfig {
 	tlsCfg := certu.MustLoadTLSConfig(caPath, certPath, keyPath)
 	nodeIdentifier := certu.MustCertLoadCommonName(certPath)
-	store := state.Open(filepath.Join(cfg.DataDir, "secondary.db"))
+	dbPath := filepath.Join(cfg.DataDir, "secondary.db")
+	store := state.Open(dbPath)
 	defer store.Close()
 
 	var netDeploymentID, nodeID int32
+	cached := make([]string, 0)
 	for _, item := range store.FetchScheduledSnapshot(nil) {
+		cached = append(cached, fmt.Sprintf("{instance=%d deployment=%d node=%d name=%q space=%d}",
+			item.Instance.ID, item.Config.ID, item.Config.NodeID, item.Config.Name, item.Config.SpaceID))
 		if internaldeploy.IsNetproxyConfig(&item.Config) && item.Config.ID != 0 {
 			netDeploymentID = item.Config.ID
 			nodeID = item.Config.NodeID
 		}
 	}
 	if netDeploymentID == 0 || nodeID <= 0 {
-		panic("cached netproxy deployment has no valid node ID")
+		panic(fmt.Sprintf("cached netproxy deployment has no valid node ID version=%v db=%v cached=%v",
+			version.Version, dbPath, cached))
 	}
 
 	var prefix network.Prefix
