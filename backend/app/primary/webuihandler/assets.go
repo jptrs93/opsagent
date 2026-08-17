@@ -263,7 +263,7 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 }
 
 func (h *Handler) assetVersionIDSet(assetID int32) map[int32]struct{} {
-	versions := h.Store.ListAssetVersionsIncludingPending(assetID)
+	versions := h.Store.ListAssetVersions(assetID)
 	ids := make([]int32, 0, len(versions))
 	for _, v := range versions {
 		ids = append(ids, v.ID)

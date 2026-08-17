@@ -930,6 +930,7 @@
  * @property {number} createdBy
  * @property {number} sizeBytes
  * @property {string} location
+ * @property {string} sha256
  */
 /**
  * @typedef {Object} AssetVersion
@@ -943,6 +944,7 @@
  * @property {number} sizeBytes
  * @property {number} assetId
  * @property {number} createdBy
+ * @property {string} sha256
  */
 /**
  * @typedef {Object} AssetList
@@ -12523,6 +12525,9 @@ export function writeAssetVersionMeta(message, writer) {
     if (message.location !== undefined && message.location !== null && message.location !== "") {
         writer.uint32(tag(6, WIRE.LDELIM)).string(message.location);
     }
+    if (message.sha256 !== undefined && message.sha256 !== null && message.sha256 !== "") {
+        writer.uint32(tag(7, WIRE.LDELIM)).string(message.sha256);
+    }
 }
 
 
@@ -12544,7 +12549,7 @@ export function encodeAssetVersionMeta(message) {
  */
 function decodeAssetVersionMetaMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, version: 0, createdAt: new Date(0), createdBy: 0, sizeBytes: 0, location: "" };
+    const message = {id: 0, version: 0, createdAt: new Date(0), createdBy: 0, sizeBytes: 0, location: "", sha256: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -12570,6 +12575,10 @@ function decodeAssetVersionMetaMessage(reader, length) {
             }
             case 6: {
                 message.location = reader.string();
+                break;
+            }
+            case 7: {
+                message.sha256 = reader.string();
                 break;
             }
             default:
@@ -12626,6 +12635,9 @@ export function writeAssetVersion(message, writer) {
     if (message.createdBy !== undefined && message.createdBy !== null && message.createdBy !== 0) {
         writer.uint32(tag(11, WIRE.VARINT)).int32(message.createdBy);
     }
+    if (message.sha256 !== undefined && message.sha256 !== null && message.sha256 !== "") {
+        writer.uint32(tag(12, WIRE.LDELIM)).string(message.sha256);
+    }
 }
 
 
@@ -12647,7 +12659,7 @@ export function encodeAssetVersion(message) {
  */
 function decodeAssetVersionMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {key: "", createdAt: new Date(0), version: 0, location: "", blob: new Uint8Array(0), id: 0, spaceId: 0, sizeBytes: 0, assetId: 0, createdBy: 0 };
+    const message = {key: "", createdAt: new Date(0), version: 0, location: "", blob: new Uint8Array(0), id: 0, spaceId: 0, sizeBytes: 0, assetId: 0, createdBy: 0, sha256: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -12689,6 +12701,10 @@ function decodeAssetVersionMessage(reader, length) {
             }
             case 11: {
                 message.createdBy = reader.int32();
+                break;
+            }
+            case 12: {
+                message.sha256 = reader.string();
                 break;
             }
             default:

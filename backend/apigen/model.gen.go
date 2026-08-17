@@ -1098,6 +1098,7 @@ type AssetVersionMeta struct {
 	CreatedBy int32     `json:"created_by"`
 	SizeBytes int32     `json:"size_bytes"`
 	Location  string    `json:"location,omitempty"`
+	Sha256    string    `json:"sha256,omitempty"`
 }
 
 type AssetVersion struct {
@@ -1111,6 +1112,7 @@ type AssetVersion struct {
 	SizeBytes int32     `json:"size_bytes"`
 	AssetID   int32     `json:"asset_id"`
 	CreatedBy int32     `json:"created_by"`
+	Sha256    string    `json:"sha256,omitempty"`
 }
 
 type AssetList struct {

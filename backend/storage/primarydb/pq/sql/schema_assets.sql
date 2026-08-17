@@ -16,18 +16,28 @@ CREATE TABLE IF NOT EXISTS assets (
     created_by          INTEGER NOT NULL DEFAULT 0   -- user id
 );
 
--- Small versions store content inline in blob; large versions store their object reference in location.
 CREATE TABLE IF NOT EXISTS asset_versions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     asset_id    INTEGER NOT NULL,
     version     INTEGER NOT NULL,
     created_at  INTEGER NOT NULL,            -- epoch ms
     created_by  INTEGER NOT NULL DEFAULT 0,  -- user id
-    location    TEXT    NOT NULL DEFAULT '',
     size_bytes  INTEGER NOT NULL DEFAULT 0,
-    blob        BLOB    NOT NULL,
+    sha256      TEXT    NOT NULL DEFAULT '',
     UNIQUE (asset_id, version)
 );
+
+CREATE TABLE IF NOT EXISTS asset_store (
+    id            TEXT    PRIMARY KEY,
+    sha256        TEXT    NOT NULL DEFAULT '',
+    size_bytes    INTEGER NOT NULL DEFAULT 0,
+    inline_blob   BLOB    NOT NULL DEFAULT x'',
+    local_status  INTEGER NOT NULL DEFAULT 0,
+    remote_status INTEGER NOT NULL DEFAULT 0,
+    created_at    INTEGER NOT NULL             -- epoch ms
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_store_sha256 ON asset_store (sha256) WHERE sha256 != '';
 
 CREATE TABLE IF NOT EXISTS asset_migrations (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,

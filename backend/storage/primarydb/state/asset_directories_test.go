@@ -306,7 +306,7 @@ func TestListAssetDirectoriesAndCreateInDirectory(t *testing.T) {
 		t.Fatalf("GetAssetDirectoryMeta = %+v, %v", meta, ok)
 	}
 
-	v, err := store.CreateAssetWithVersion("app.tar", DefaultSpaceID, int32(dir.ID), 0, "", 1, []byte("x"))
+	v, err := store.CreateAssetWithVersion("app.tar", DefaultSpaceID, int32(dir.ID), 0, store.MustPutInlineAssetContent([]byte("x")), 1)
 	if err != nil {
 		t.Fatalf("create asset in directory: %v", err)
 	}
@@ -314,18 +314,18 @@ func TestListAssetDirectoriesAndCreateInDirectory(t *testing.T) {
 		t.Fatalf("asset row = %+v, want directory %d", a, dir.ID)
 	}
 	// The sibling check happens at the target directory, not the root.
-	if _, err := store.CreateAssetWithVersion("app.tar", DefaultSpaceID, 0, 0, "", 1, []byte("x")); err != nil {
+	if _, err := store.CreateAssetWithVersion("app.tar", DefaultSpaceID, 0, 0, store.MustPutInlineAssetContent([]byte("x")), 1); err != nil {
 		t.Fatalf("same key at root: %v", err)
 	}
-	if _, err := store.CreateAssetWithVersion("app.tar", DefaultSpaceID, int32(dir.ID), 0, "", 1, []byte("x")); !errors.Is(err, ErrAssetAlreadyExists) {
+	if _, err := store.CreateAssetWithVersion("app.tar", DefaultSpaceID, int32(dir.ID), 0, store.MustPutInlineAssetContent([]byte("x")), 1); !errors.Is(err, ErrAssetAlreadyExists) {
 		t.Fatalf("duplicate in directory err = %v, want ErrAssetAlreadyExists", err)
 	}
 	// Missing and cross-space directories do not exist for a create.
-	if _, err := store.CreateAssetWithVersion("b.txt", DefaultSpaceID, 999, 0, "", 1, []byte("x")); !errors.Is(err, ErrDirectoryNotFound) {
+	if _, err := store.CreateAssetWithVersion("b.txt", DefaultSpaceID, 999, 0, store.MustPutInlineAssetContent([]byte("x")), 1); !errors.Is(err, ErrDirectoryNotFound) {
 		t.Fatalf("create into missing directory err = %v, want ErrDirectoryNotFound", err)
 	}
 	foreign, _ := store.CreateDirectory(2, 0, "other", 0)
-	if _, err := store.CreateAssetWithVersion("b.txt", DefaultSpaceID, int32(foreign.ID), 0, "", 1, []byte("x")); !errors.Is(err, ErrDirectoryNotFound) {
+	if _, err := store.CreateAssetWithVersion("b.txt", DefaultSpaceID, int32(foreign.ID), 0, store.MustPutInlineAssetContent([]byte("x")), 1); !errors.Is(err, ErrDirectoryNotFound) {
 		t.Fatalf("create into foreign directory err = %v, want ErrDirectoryNotFound", err)
 	}
 }

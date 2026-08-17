@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -56,6 +57,15 @@ func largeTestBlob() []byte {
 	return bytes.Repeat([]byte("a"), InlineThresholdBytes+1)
 }
 
+func storeRowFor(t *testing.T, store *Store, blob []byte) state.AssetStore {
+	t.Helper()
+	row, ok := store.DB.GetAssetStoreRowBySha(hashBlob(blob))
+	if !ok {
+		t.Fatal("content store row not found")
+	}
+	return row
+}
+
 func createMigration(t *testing.T, store *Store, oldSettings, newSettings *apigen.ClusterSettings) {
 	t.Helper()
 	if _, err := store.DB.FetchLatestOpenDeployConfig(); err != nil {
@@ -81,10 +91,17 @@ func TestLargeAssetStoredLocallyWhenBackupDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateAssetFromReader: %v", err)
 	}
-	if got, want := asset.Location, localLocation(asset.ID); got != want {
+	row := storeRowFor(t, store, blob)
+	if row.LocalStatus != 1 || row.RemoteStatus != 0 {
+		t.Fatalf("store row statuses = local %d remote %d, want durable local", row.LocalStatus, row.RemoteStatus)
+	}
+	if got, want := asset.Location, "local://"+row.ID; got != want {
 		t.Fatalf("Location = %q, want %q", got, want)
 	}
-	if _, err := os.Stat(localPath(asset.ID)); err != nil {
+	if got, want := asset.Sha256, hashBlob(blob); got != want {
+		t.Fatalf("Sha256 = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(localPath(row.ID)); err != nil {
 		t.Fatalf("local asset file: %v", err)
 	}
 
@@ -104,38 +121,117 @@ func TestLargeAssetStoredLocallyWhenBackupDisabled(t *testing.T) {
 	if err := store.DeleteAsset(context.Background(), asset.AssetID); err != nil {
 		t.Fatalf("DeleteAsset: %v", err)
 	}
-	if _, err := os.Stat(localPath(asset.ID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(localPath(row.ID)); !os.IsNotExist(err) {
 		t.Fatalf("local file still exists after delete: %v", err)
+	}
+	if _, ok := store.DB.GetAssetStoreRowBySha(hashBlob(blob)); ok {
+		t.Fatal("content store row still exists after delete")
 	}
 }
 
-func TestReconcileFinishesInterruptedLocalUpload(t *testing.T) {
+func TestDuplicateContentSharesOneStoreRow(t *testing.T) {
 	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	store := newTestStore(t, &settings)
-	stagedName := ".upload-interrupted"
-	if err := os.WriteFile(filepath.Join(ainit.StaticConfig.LargeAssetsDir, stagedName), []byte("data"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	asset, err := store.DB.CreateAssetWithVersion("interrupted.bin", 1, 0, 0, pendingLocation(stagedName), 4, nil)
+	blob := []byte("shared config contents")
+
+	first, err := store.CreateAsset(context.Background(), "a.conf", 1, 0, 0, blob)
 	if err != nil {
-		t.Fatalf("stage pending upload: %v", err)
+		t.Fatalf("create first: %v", err)
 	}
-	if _, ok := store.DB.GetAssetVersionByID(asset.ID); ok {
-		t.Fatal("pending upload was visible through the public asset reader")
+	second, err := store.CreateAsset(context.Background(), "b.conf", 1, 0, 0, blob)
+	if err != nil {
+		t.Fatalf("create second: %v", err)
+	}
+	if first.Sha256 != second.Sha256 {
+		t.Fatalf("shas differ: %q vs %q", first.Sha256, second.Sha256)
+	}
+	if rows := store.DB.ListAssetStoreRowMetas(); len(rows) != 1 {
+		t.Fatalf("store rows = %d, want 1", len(rows))
 	}
 
-	if err := store.recoverPendingUploads(context.Background()); err != nil {
-		t.Fatalf("recoverPendingUploads: %v", err)
+	if err := store.DeleteAsset(context.Background(), first.AssetID); err != nil {
+		t.Fatalf("delete first: %v", err)
 	}
-	stored, ok := store.DB.GetAssetVersionByID(asset.ID)
-	if !ok {
-		t.Fatal("asset disappeared during reconciliation")
+	if _, ok := store.DB.GetAssetStoreRowBySha(first.Sha256); !ok {
+		t.Fatal("shared content row deleted while still referenced")
 	}
-	if got, want := stored.Location, localLocation(asset.ID); got != want {
-		t.Fatalf("Location = %q, want %q", got, want)
+	if err := store.DeleteAsset(context.Background(), second.AssetID); err != nil {
+		t.Fatalf("delete second: %v", err)
 	}
-	if got, err := os.ReadFile(localPath(asset.ID)); err != nil || string(got) != "data" {
-		t.Fatalf("local file = %q, err=%v", got, err)
+	if _, ok := store.DB.GetAssetStoreRowBySha(first.Sha256); ok {
+		t.Fatal("content row still exists after last reference deleted")
+	}
+}
+
+func TestSweepReclaimsInterruptedStagedUpload(t *testing.T) {
+	settings := config.DefaultSettings(config.DefaultInitialConfig())
+	store := newTestStore(t, &settings)
+	staged := newStoreID()
+	store.DB.InsertAssetStoreRow(staged, "", 4, nil, 0, 0)
+	if err := os.WriteFile(localPath(staged), []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.SweepUnreferencedStoreRows(time.Now().Add(-time.Hour)); err != nil {
+		t.Fatalf("graced sweep: %v", err)
+	}
+	if _, ok := store.DB.GetAssetStoreRowByID(staged); !ok {
+		t.Fatal("staging row inside the grace period was reclaimed")
+	}
+
+	if err := store.SweepUnreferencedStoreRows(time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("startup sweep: %v", err)
+	}
+	if _, ok := store.DB.GetAssetStoreRowByID(staged); ok {
+		t.Fatal("staging row survived the startup sweep")
+	}
+	if _, err := os.Stat(localPath(staged)); !os.IsNotExist(err) {
+		t.Fatalf("staged file survived the startup sweep: %v", err)
+	}
+}
+
+func TestConvertLegacyRowsHashesAndMerges(t *testing.T) {
+	settings := config.DefaultSettings(config.DefaultInitialConfig())
+	store := newTestStore(t, &settings)
+	blob := []byte("legacy content")
+	store.DB.InsertAssetStoreRow("1", "legacy:1", int64(len(blob)), blob, 0, 0)
+	store.DB.InsertAssetStoreRow("2", "legacy:2", int64(len(blob)), blob, 0, 0)
+	a, err := store.DB.CreateAssetWithVersion("a.conf", 1, 0, 0, "legacy:1", int64(len(blob)))
+	if err != nil {
+		t.Fatalf("create a: %v", err)
+	}
+	b, err := store.DB.CreateAssetWithVersion("b.conf", 1, 0, 0, "legacy:2", int64(len(blob)))
+	if err != nil {
+		t.Fatalf("create b: %v", err)
+	}
+	if a.Sha256 != "" || b.Sha256 != "" {
+		t.Fatalf("legacy shas leaked to the wire: %q %q", a.Sha256, b.Sha256)
+	}
+
+	if err := store.convertLegacyRows(context.Background()); err != nil {
+		t.Fatalf("convertLegacyRows: %v", err)
+	}
+	want := hashBlob(blob)
+	converted, ok := store.DB.GetAssetVersionByID(a.ID)
+	if !ok || converted.Sha256 != want {
+		t.Fatalf("converted a sha = %q ok=%v, want %q", converted.Sha256, ok, want)
+	}
+	converted, ok = store.DB.GetAssetVersionByID(b.ID)
+	if !ok || converted.Sha256 != want {
+		t.Fatalf("converted b sha = %q ok=%v, want %q", converted.Sha256, ok, want)
+	}
+	if rows := store.DB.ListAssetStoreRowMetas(); len(rows) != 1 || rows[0].Sha256 != want {
+		t.Fatalf("store rows after merge = %+v, want one row with the real sha", rows)
+	}
+
+	_, body, err := store.OpenAsset(context.Background(), a.ID)
+	if err != nil {
+		t.Fatalf("OpenAsset after merge: %v", err)
+	}
+	got, _ := io.ReadAll(body)
+	body.Close()
+	if !bytes.Equal(got, blob) {
+		t.Fatal("merged content did not round-trip")
 	}
 }
 
@@ -208,6 +304,8 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	if err != nil {
 		t.Fatalf("local upload: %v", err)
 	}
+	row := storeRowFor(t, store, blob)
+	objectPath := "/bucket/asset-prefix/" + row.ID
 
 	oldSettings := *settings
 	newSettings := *settings
@@ -218,11 +316,17 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 		t.Fatalf("reconcile to S3: pending=%d err=%v", pending, err)
 	}
 	remote, _ := store.DB.GetAssetVersionByID(asset.ID)
-	if got, want := remote.Location, "s3://bucket/asset-prefix/"+fmt.Sprint(asset.ID); got != want {
+	if got, want := remote.Location, "s3://"+row.ID; got != want {
 		t.Fatalf("S3 location = %q, want %q", got, want)
 	}
-	if _, err := os.Stat(localPath(asset.ID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(localPath(row.ID)); !os.IsNotExist(err) {
 		t.Fatalf("local file remains after S3 migration: %v", err)
+	}
+	mu.Lock()
+	_, uploaded := objects[objectPath]
+	mu.Unlock()
+	if !uploaded {
+		t.Fatalf("object %q was not uploaded", objectPath)
 	}
 	if !strings.Contains(auth, "Credential=shared-key/") {
 		t.Fatalf("S3 request did not use shared credentials: %q", auth)
@@ -237,11 +341,11 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 		t.Fatalf("reconcile to local: pending=%d err=%v", pending, err)
 	}
 	local, _ := store.DB.GetAssetVersionByID(asset.ID)
-	if got, want := local.Location, localLocation(asset.ID); got != want {
+	if got, want := local.Location, "local://"+row.ID; got != want {
 		t.Fatalf("local location = %q, want %q", got, want)
 	}
 	mu.Lock()
-	_, retained := objects["/bucket/asset-prefix/"+fmt.Sprint(asset.ID)]
+	_, retained := objects[objectPath]
 	mu.Unlock()
 	if !retained {
 		t.Fatal("S3 object was not retained after migration to local storage")
@@ -250,7 +354,7 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 		t.Fatalf("DeleteAsset: %v", err)
 	}
 	mu.Lock()
-	_, retained = objects["/bucket/asset-prefix/"+fmt.Sprint(asset.ID)]
+	_, retained = objects[objectPath]
 	mu.Unlock()
 	if !retained {
 		t.Fatal("S3 object was not retained after asset deletion")
@@ -285,8 +389,12 @@ func TestLargeAssetSeparateS3OverridesSharedCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateAssetFromReader: %v", err)
 	}
-	if !strings.HasPrefix(asset.Location, "s3://separate-bucket/") {
-		t.Fatalf("Location = %q, want separate bucket", asset.Location)
+	row := storeRowFor(t, store, blob)
+	if row.RemoteStatus != 1 || row.LocalStatus != 0 {
+		t.Fatalf("store row statuses = local %d remote %d, want durable remote", row.LocalStatus, row.RemoteStatus)
+	}
+	if got, want := asset.Location, "s3://"+row.ID; got != want {
+		t.Fatalf("Location = %q, want %q", got, want)
 	}
 	if !strings.Contains(auth, "Credential=separate-key/") {
 		t.Fatalf("S3 request did not use separate credentials: %q", auth)
@@ -306,25 +414,37 @@ func TestLargeAssetUploadDoesNotFallBackWhenBackupS3IsInvalid(t *testing.T) {
 	if got := store.DB.ListAssets(); len(got) != 0 {
 		t.Fatalf("stored %d asset rows after failed S3 upload, want 0", len(got))
 	}
-	if got := store.DB.ListAllAssetVersions(); len(got) != 0 {
-		t.Fatalf("stored %d asset rows after failed S3 upload, want 0", len(got))
+	if got := store.DB.ListAssetStoreRowMetas(); len(got) != 0 {
+		t.Fatalf("stored %d content rows after failed S3 upload, want 0", len(got))
+	}
+	entries, err := os.ReadDir(ainit.StaticConfig.LargeAssetsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("staged files remain after failed S3 upload: %v", entries)
 	}
 }
 
 func TestS3ConfigurationChangeRequiresAssetsToBeLocal(t *testing.T) {
 	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	store := newTestStore(t, &settings)
-	if _, err := store.DB.CreateAssetWithVersion("large.bin", 1, 0, 0, "s3://bucket/path/1", InlineThresholdBytes+1, nil); err != nil {
-		t.Fatalf("create s3 asset: %v", err)
-	}
+	sha := hashBlob([]byte("remote content"))
+	store.DB.InsertAssetStoreRow("remote-row", sha, InlineThresholdBytes+1, nil, 0, 1)
 	next := *settings
 	next.LargeAssets.S3Path.Value = "different-path"
 
 	if err := store.ValidateSettingsUpdate(*settings, next); !errors.Is(err, ErrAssetS3ConfigChangeRequiresLocal) {
 		t.Fatalf("ValidateSettingsUpdate error = %v, want ErrAssetS3ConfigChangeRequiresLocal", err)
 	}
-	store.DB.UpdateAssetVersionLocation(1, localLocation(1))
+	store.DB.SetAssetStoreRemoteStatus("remote-row", 0)
+	store.DB.SetAssetStoreLocalStatus("remote-row", 1)
 	if err := store.ValidateSettingsUpdate(*settings, next); err != nil {
 		t.Fatalf("ValidateSettingsUpdate with local assets: %v", err)
+	}
+
+	store.DB.InsertAssetStoreRow("staging-row", "", 4, nil, 0, 0)
+	if err := store.ValidateSettingsUpdate(*settings, next); !errors.Is(err, ErrAssetS3ConfigChangeRequiresLocal) {
+		t.Fatalf("ValidateSettingsUpdate with staging row error = %v, want ErrAssetS3ConfigChangeRequiresLocal", err)
 	}
 }

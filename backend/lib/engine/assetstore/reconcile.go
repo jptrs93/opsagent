@@ -2,11 +2,9 @@ package assetstore
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +17,12 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
+// storeRowSweepGrace is how long an unreferenced content-store row survives
+// before the sweep reclaims it. It bounds how long an interrupted upload's
+// staging row and file linger, and leaves room for future flows that upload
+// content before creating the referencing asset.
+const storeRowSweepGrace = 24 * time.Hour
+
 type ReconcileStatus struct {
 	TargetS3 bool
 	Pending  int
@@ -28,13 +32,27 @@ type ReconcileStatus struct {
 
 func (s *Store) StartReconciler(ctx context.Context) <-chan struct{} {
 	done := make(chan struct{})
+	startupCutoff := time.Now()
 	go func() {
 		defer close(done)
 		retryDelay := time.Second
+		startupSweepDone := false
 		for {
-			err := s.recoverPendingUploads(ctx)
+			var err error
+			if !startupSweepDone {
+				// Nothing references a staging or orphaned row across a
+				// restart, so the first sweep reclaims regardless of age.
+				err = s.SweepUnreferencedStoreRows(startupCutoff)
+				startupSweepDone = err == nil
+			}
 			if err == nil {
 				_, err = s.Reconcile(ctx)
+			}
+			if err == nil {
+				err = s.convertLegacyRows(ctx)
+			}
+			if err == nil {
+				err = s.SweepUnreferencedStoreRows(time.Now().Add(-storeRowSweepGrace))
 			}
 			if err != nil && ctx.Err() == nil {
 				slog.Error("reconcile large asset storage", "err", err)
@@ -64,6 +82,21 @@ func (s *Store) StartReconciler(ctx context.Context) <-chan struct{} {
 	return done
 }
 
+// SweepUnreferencedStoreRows deletes content-store rows no version links to
+// that were created before cutoff, along with their local files. S3 objects
+// are retained for database restore points.
+func (s *Store) SweepUnreferencedStoreRows(cutoff time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, row := range s.DB.ListUnreferencedAssetStoreRows(cutoff) {
+		if err := os.Remove(localPath(row.ID)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove unreferenced large asset %s: %w", row.ID, err)
+		}
+		s.DB.DeleteAssetStoreRow(row.ID)
+	}
+	return nil
+}
+
 func (s *Store) Reconcile(ctx context.Context) (int, error) {
 	migration, ok := s.DB.GetUnfinishedAssetMigration()
 	if !ok {
@@ -83,14 +116,17 @@ func (s *Store) Reconcile(ctx context.Context) (int, error) {
 		}
 	}
 
-	for _, meta := range s.DB.ListAllAssetVersions() {
+	for _, row := range s.DB.ListAssetStoreRowMetas() {
 		if ctx.Err() != nil {
 			return s.pendingForMode(targetS3), ctx.Err()
 		}
-		if targetS3 && strings.HasPrefix(meta.Location, "local://") {
-			err = s.migrateToS3(ctx, meta.ID, newSettings)
-		} else if !targetS3 && strings.HasPrefix(meta.Location, "s3://") {
-			err = s.migrateToLocal(ctx, meta.ID, oldSettings)
+		if !row.FileBacked() {
+			continue
+		}
+		if targetS3 && row.LocalStatus == 1 && row.RemoteStatus == 0 {
+			err = s.migrateRowToS3(ctx, row.ID, newSettings)
+		} else if !targetS3 && row.RemoteStatus == 1 {
+			err = s.migrateRowToLocal(ctx, row.ID, oldSettings)
 		}
 		if err != nil {
 			s.DB.RecordAssetMigrationError(migration.ID, err)
@@ -163,223 +199,170 @@ func (s *Store) AssetStorageStatus() (bool, int, bool, string) {
 	return status.TargetS3, status.Pending, status.Running, status.Error
 }
 
-func (s *Store) migrateToS3(ctx context.Context, assetVersionID int32, target *apigen.ClusterSettings) error {
+func (s *Store) migrateRowToS3(ctx context.Context, storeID string, target *apigen.ClusterSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	asset, ok := s.DB.GetAssetVersionByID(assetVersionID)
-	if !ok || !strings.HasPrefix(asset.Location, "local://") {
+	row, ok := s.DB.GetAssetStoreRowByID(storeID)
+	if !ok || row.LocalStatus != 1 || row.RemoteStatus == 1 || row.Sha256 == "" {
 		return nil
 	}
 	client, bucket, err := s.s3Client(target)
 	if err != nil {
 		return err
 	}
-	body, err := os.Open(localPath(asset.ID))
+	body, err := os.Open(localPath(storeID))
 	if err != nil {
-		return fmt.Errorf("open local large asset %d: %w", asset.ID, err)
+		return fmt.Errorf("open local large asset %s: %w", storeID, err)
 	}
 	defer body.Close()
-	key := objectKey(s.Loader.MustLoadConfigStringValue(target.LargeAssets.S3Path), asset.ID)
+	key := objectKey(s.Loader.MustLoadConfigStringValue(target.LargeAssets.S3Path), storeID)
 	if _, err := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(bucket),
 		Key:           aws.String(key),
 		Body:          body,
-		ContentLength: aws.Int64(int64(asset.SizeBytes)),
+		ContentLength: aws.Int64(row.SizeBytes),
 	}); err != nil {
-		return fmt.Errorf("migrate large asset %d to s3: %w", asset.ID, err)
+		return fmt.Errorf("migrate large asset %s to s3: %w", storeID, err)
 	}
-	asset = s.DB.UpdateAssetVersionLocation(asset.ID, "s3://"+bucket+"/"+key)
-	if err := os.Remove(localPath(asset.ID)); err != nil && !os.IsNotExist(err) {
-		slog.Warn("remove migrated local large asset", "asset_id", asset.ID, "err", err)
+	s.DB.SetAssetStoreRemoteStatus(storeID, 1)
+	if err := os.Remove(localPath(storeID)); err != nil && !os.IsNotExist(err) {
+		slog.Warn("remove migrated local large asset", "store_id", storeID, "err", err)
 	}
-	s.notifyVersionWritten(asset)
+	s.DB.SetAssetStoreLocalStatus(storeID, 0)
+	s.notifyContentMoved(row.Sha256)
 	return nil
 }
 
-func (s *Store) recoverPendingUploads(ctx context.Context) error {
-	targetS3 := s.backupEnabled()
-	for _, meta := range s.DB.ListAllAssetVersionsIncludingPending() {
-		if !strings.HasPrefix(meta.Location, "pending://") {
-			continue
-		}
-		if err := s.finishPending(ctx, meta.ID, targetS3); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Store) finishPending(ctx context.Context, assetVersionID int32, targetS3 bool) error {
+func (s *Store) migrateRowToLocal(ctx context.Context, storeID string, source *apigen.ClusterSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	asset, ok := s.DB.GetAssetVersionByIDIncludingPending(assetVersionID)
-	if !ok || !strings.HasPrefix(asset.Location, "pending://") {
+	row, ok := s.DB.GetAssetStoreRowByID(storeID)
+	if !ok || row.RemoteStatus != 1 || row.Sha256 == "" {
 		return nil
 	}
-	name, err := parsePendingLocation(asset.Location)
-	if err != nil {
-		return err
-	}
-	stagedPath := filepath.Join(ainit.StaticConfig.LargeAssetsDir, name)
-	sourcePath := stagedPath
-	file, err := os.Open(sourcePath)
-	if os.IsNotExist(err) {
-		sourcePath = localPath(asset.ID)
-		file, err = os.Open(sourcePath)
-	}
-	if os.IsNotExist(err) {
-		if targetS3 {
-			return s.finishPendingFromS3(ctx, asset)
-		}
-		s.deleteFailedVersion(asset)
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("open staged large asset %d: %w", asset.ID, err)
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return fmt.Errorf("stat staged large asset %d: %w", asset.ID, err)
-	}
-	if info.Size() != int64(asset.SizeBytes) {
-		_ = file.Close()
-		if targetS3 {
-			if err := s.finishPendingFromS3(ctx, asset); err != nil {
-				return err
+	if row.LocalStatus != 1 {
+		if info, err := os.Stat(localPath(storeID)); err == nil && info.Size() == row.SizeBytes {
+			if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
+				return fmt.Errorf("sync recovered large asset directory %s: %w", storeID, err)
 			}
 		} else {
-			s.deleteFailedVersion(asset)
-		}
-		if err := os.Remove(sourcePath); err != nil && !os.IsNotExist(err) {
-			slog.Warn("remove invalid staged large asset", "asset_id", asset.ID, "err", err)
-		}
-		return nil
-	}
-
-	if targetS3 {
-		cfg := s.Config()
-		client, bucket, err := s.s3Client(cfg)
-		if err != nil {
-			return err
-		}
-		key := objectKey(s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Path), asset.ID)
-		if _, err := client.PutObject(ctx, &s3.PutObjectInput{
-			Bucket:        aws.String(bucket),
-			Key:           aws.String(key),
-			Body:          file,
-			ContentLength: aws.Int64(int64(asset.SizeBytes)),
-		}); err != nil {
-			return fmt.Errorf("migrate staged large asset %d to s3: %w", asset.ID, err)
-		}
-		asset = s.DB.UpdateAssetVersionLocation(asset.ID, "s3://"+bucket+"/"+key)
-		if err := os.Remove(sourcePath); err != nil && !os.IsNotExist(err) {
-			slog.Warn("remove migrated staged large asset", "asset_id", asset.ID, "err", err)
-		}
-	} else {
-		if err := file.Close(); err != nil {
-			return fmt.Errorf("close staged large asset %d: %w", asset.ID, err)
-		}
-		if sourcePath != localPath(asset.ID) {
-			if err := os.Rename(sourcePath, localPath(asset.ID)); err != nil {
-				return fmt.Errorf("store staged large asset %d locally: %w", asset.ID, err)
+			if err := s.downloadRowToLocal(ctx, row, source); err != nil {
+				return err
 			}
 		}
-		if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
-			return fmt.Errorf("sync staged large asset directory %d: %w", asset.ID, err)
-		}
-		asset = s.DB.UpdateAssetVersionLocation(asset.ID, localLocation(asset.ID))
+		s.DB.SetAssetStoreLocalStatus(storeID, 1)
 	}
-	s.notifyVersionWritten(asset)
+	s.DB.SetAssetStoreRemoteStatus(storeID, 0)
+	s.notifyContentMoved(row.Sha256)
 	return nil
 }
 
-func (s *Store) finishPendingFromS3(ctx context.Context, asset *apigen.AssetVersion) error {
-	cfg := s.Config()
-	client, bucket, err := s.s3Client(cfg)
+func (s *Store) downloadRowToLocal(ctx context.Context, row state.AssetStore, source *apigen.ClusterSettings) error {
+	client, bucket, err := s.s3Client(source)
 	if err != nil {
 		return err
 	}
-	key := objectKey(s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Path), asset.ID)
-	result, err := client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
-	if err != nil {
-		var responseErr interface{ HTTPStatusCode() int }
-		if errors.As(err, &responseErr) && responseErr.HTTPStatusCode() == http.StatusNotFound {
-			s.deleteFailedVersion(asset)
-			return nil
-		}
-		return fmt.Errorf("check staged large asset %d in s3: %w", asset.ID, err)
-	}
-	if result.ContentLength == nil || *result.ContentLength != int64(asset.SizeBytes) {
-		s.deleteFailedVersion(asset)
-		return nil
-	}
-	asset = s.DB.UpdateAssetVersionLocation(asset.ID, "s3://"+bucket+"/"+key)
-	s.notifyVersionWritten(asset)
-	return nil
-}
-
-func (s *Store) migrateToLocal(ctx context.Context, assetVersionID int32, source *apigen.ClusterSettings) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	asset, ok := s.DB.GetAssetVersionByID(assetVersionID)
-	if !ok || !strings.HasPrefix(asset.Location, "s3://") {
-		return nil
-	}
-	if info, err := os.Stat(localPath(asset.ID)); err == nil && info.Size() == int64(asset.SizeBytes) {
-		if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
-			return fmt.Errorf("sync recovered large asset directory %d: %w", asset.ID, err)
-		}
-		asset = s.DB.UpdateAssetVersionLocation(asset.ID, localLocation(asset.ID))
-		s.notifyVersionWritten(asset)
-		return nil
-	}
-	bucket, key, err := parseS3Location(asset.Location)
-	if err != nil {
-		return err
-	}
-	client, _, err := s.s3Client(source)
-	if err != nil {
-		return err
-	}
+	key := objectKey(s.Loader.MustLoadConfigStringValue(source.LargeAssets.S3Path), row.ID)
 	res, err := client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
 	if err != nil {
-		return fmt.Errorf("download large asset %d from s3: %w", asset.ID, err)
+		return fmt.Errorf("download large asset %s from s3: %w", row.ID, err)
 	}
 	defer res.Body.Close()
 	tmp, err := os.CreateTemp(ainit.StaticConfig.LargeAssetsDir, ".migration-*")
 	if err != nil {
-		return fmt.Errorf("stage local large asset %d: %w", asset.ID, err)
+		return fmt.Errorf("stage local large asset %s: %w", row.ID, err)
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
-	written, copyErr := io.Copy(tmp, io.LimitReader(res.Body, int64(asset.SizeBytes)+1))
+	written, copyErr := io.Copy(tmp, io.LimitReader(res.Body, row.SizeBytes+1))
 	if copyErr != nil {
 		tmp.Close()
-		return fmt.Errorf("download large asset %d: %w", asset.ID, copyErr)
+		return fmt.Errorf("download large asset %s: %w", row.ID, copyErr)
 	}
-	if written != int64(asset.SizeBytes) {
+	if written != row.SizeBytes {
 		tmp.Close()
-		return fmt.Errorf("downloaded large asset %d has size %d, expected %d", asset.ID, written, asset.SizeBytes)
+		return fmt.Errorf("downloaded large asset %s has size %d, expected %d", row.ID, written, row.SizeBytes)
 	}
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
-		return fmt.Errorf("sync local large asset %d: %w", asset.ID, err)
+		return fmt.Errorf("sync local large asset %s: %w", row.ID, err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close local large asset %d: %w", asset.ID, err)
+		return fmt.Errorf("close local large asset %s: %w", row.ID, err)
 	}
-	if err := os.Rename(tmpName, localPath(asset.ID)); err != nil {
-		return fmt.Errorf("store migrated large asset %d locally: %w", asset.ID, err)
+	if err := os.Rename(tmpName, localPath(row.ID)); err != nil {
+		return fmt.Errorf("store migrated large asset %s locally: %w", row.ID, err)
 	}
 	if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
-		return fmt.Errorf("sync migrated large asset directory %d: %w", asset.ID, err)
+		return fmt.Errorf("sync migrated large asset directory %s: %w", row.ID, err)
 	}
-	asset = s.DB.UpdateAssetVersionLocation(asset.ID, localLocation(asset.ID))
-	s.notifyVersionWritten(asset)
+	return nil
+}
+
+// convertLegacyRows hashes the content of rows migrated with placeholder shas
+// and repoints their version links, merging rows whose content turns out to
+// already exist under its real sha.
+func (s *Store) convertLegacyRows(ctx context.Context) error {
+	for _, row := range s.DB.ListAssetStoreRowMetas() {
+		if !row.LegacySha() {
+			continue
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err := s.convertLegacyRow(ctx, row.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) convertLegacyRow(ctx context.Context, storeID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	row, ok := s.DB.GetAssetStoreRowByID(storeID)
+	if !ok || !strings.HasPrefix(row.Sha256, "legacy:") {
+		return nil
+	}
+	var sha string
+	switch {
+	case row.SizeBytes == 0 || len(row.InlineBlob) > 0:
+		sha = hashBlob(row.InlineBlob)
+	case row.LocalStatus == 1:
+		file, err := os.Open(localPath(storeID))
+		if err != nil {
+			return fmt.Errorf("open local large asset %s for hashing: %w", storeID, err)
+		}
+		sha, err = hashReader(file)
+		file.Close()
+		if err != nil {
+			return fmt.Errorf("hash local large asset %s: %w", storeID, err)
+		}
+	case row.RemoteStatus == 1:
+		body, err := s.openS3Asset(ctx, storeID)
+		if err != nil {
+			return err
+		}
+		sha, err = hashReader(body)
+		body.Close()
+		if err != nil {
+			return fmt.Errorf("hash s3 large asset %s: %w", storeID, err)
+		}
+	default:
+		slog.Warn("legacy asset store row has no content to hash", "store_id", storeID)
+		return nil
+	}
+	if s.DB.RelinkLegacyAssetSha(storeID, row.Sha256, sha) {
+		if row.LocalStatus == 1 {
+			if err := os.Remove(localPath(storeID)); err != nil && !os.IsNotExist(err) {
+				slog.Warn("remove merged duplicate large asset", "store_id", storeID, "err", err)
+			}
+		}
+	}
+	s.notifyContentMoved(sha)
 	return nil
 }
 
@@ -389,11 +372,14 @@ func (s *Store) backupEnabled() bool {
 
 func (s *Store) pendingForMode(targetS3 bool) int {
 	pending := 0
-	for _, asset := range s.DB.ListAllAssetVersions() {
-		if targetS3 && strings.HasPrefix(asset.Location, "local://") {
+	for _, row := range s.DB.ListAssetStoreRowMetas() {
+		if !row.FileBacked() {
+			continue
+		}
+		if targetS3 && row.RemoteStatus == 0 {
 			pending++
 		}
-		if !targetS3 && strings.HasPrefix(asset.Location, "s3://") {
+		if !targetS3 && row.RemoteStatus == 1 {
 			pending++
 		}
 	}
@@ -404,14 +390,9 @@ func (s *Store) cleanupInactiveLocalFiles() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	active := map[string]struct{}{}
-	for _, asset := range s.DB.ListAllAssetVersionsIncludingPending() {
-		if strings.HasPrefix(asset.Location, "local://") {
-			active[fmt.Sprint(asset.ID)] = struct{}{}
-		}
-		if strings.HasPrefix(asset.Location, "pending://") {
-			if name, err := parsePendingLocation(asset.Location); err == nil {
-				active[name] = struct{}{}
-			}
+	for _, row := range s.DB.ListAssetStoreRowMetas() {
+		if row.LocalStatus == 1 || row.Staging() {
+			active[row.ID] = struct{}{}
 		}
 	}
 	entries, err := os.ReadDir(ainit.StaticConfig.LargeAssetsDir)

@@ -662,6 +662,7 @@ message AssetVersionMeta {
   int32 created_by = 4;    // user id that created this version; 0 = unknown/system, negative = agent of user -created_by
   int32 size_bytes = 5;
   string location = 6;     // empty for inline blob-backed versions
+  string sha256 = 7;
 }
 
 message AssetVersion {
@@ -676,6 +677,7 @@ message AssetVersion {
   int32 size_bytes = 9;
   int32 asset_id = 10;     // owning stable asset id
   int32 created_by = 11;   // user id that created this version; 0 = unknown/system, negative = agent of user -created_by
+  string sha256 = 12;
 }
 
 message AssetList {

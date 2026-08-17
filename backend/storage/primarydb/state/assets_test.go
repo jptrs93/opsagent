@@ -1,13 +1,31 @@
 package state
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
+
+func contentSha(blob []byte) string {
+	sum := sha256.Sum256(blob)
+	return hex.EncodeToString(sum[:])
+}
+
+// MustPutInlineAssetContent stores blob inline in the content store (if
+// absent) and returns its sha. Test-only convenience.
+func (s *Service) MustPutInlineAssetContent(blob []byte) string {
+	sha := contentSha(blob)
+	if _, ok := s.GetAssetStoreRowBySha(sha); !ok {
+		s.InsertAssetStoreRow(uuid.Must(uuid.NewV7()).String(), sha, int64(len(blob)), blob, 0, 0)
+	}
+	return sha
+}
 
 // SetAssetByKey creates the asset in spaceID's root on first use and appends a
 // version on each later call. Test-only convenience over the public write API.
@@ -16,14 +34,15 @@ func (s *Service) SetAssetByKey(key string, blob []byte, spaceIDs ...int32) *api
 	if len(spaceIDs) > 0 {
 		spaceID = normalizedUserSpaceID(spaceIDs[0])
 	}
+	sha := s.MustPutInlineAssetContent(blob)
 	if existing, ok := s.GetAssetInRootByKey(spaceID, key); ok {
-		v, err := s.AppendAssetVersion(int32(existing.ID), 0, "", int64(len(blob)), blob)
+		v, err := s.AppendAssetVersion(int32(existing.ID), 0, sha, int64(len(blob)))
 		if err != nil {
 			panic(fmt.Sprintf("SetAssetByKey append: %v", err))
 		}
 		return v
 	}
-	v, err := s.CreateAssetWithVersion(key, spaceID, 0, 0, "", int64(len(blob)), blob)
+	v, err := s.CreateAssetWithVersion(key, spaceID, 0, 0, sha, int64(len(blob)))
 	if err != nil {
 		panic(fmt.Sprintf("SetAssetByKey create: %v", err))
 	}
@@ -36,6 +55,9 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	v1 := store.SetAssetByKey("nginx.conf", []byte("events {}\n"))
 	if v1.ID == 0 || v1.AssetID == 0 || v1.Version != 1 || v1.SpaceID != DefaultSpaceID {
 		t.Fatalf("first version = id %d asset %d version %d space %d, want nonzero ids version 1 space %d", v1.ID, v1.AssetID, v1.Version, v1.SpaceID, DefaultSpaceID)
+	}
+	if v1.Sha256 != contentSha([]byte("events {}\n")) {
+		t.Fatalf("first version sha = %q, want content sha", v1.Sha256)
 	}
 	v2 := store.SetAssetByKey("nginx.conf", []byte("events {}\nhttp {}\n"))
 	if v2.ID == 0 || v2.ID == v1.ID || v2.Version != 2 || v2.AssetID != v1.AssetID {
@@ -74,6 +96,7 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	if len(meta.VersionRefs) != 2 ||
 		meta.VersionRefs[0].ID != v2.ID || meta.VersionRefs[0].Version != 2 ||
 		meta.VersionRefs[0].SizeBytes != int32(len("events {}\nhttp {}\n")) ||
+		meta.VersionRefs[0].Sha256 != v2.Sha256 ||
 		!meta.VersionRefs[0].CreatedAt.Equal(v2.CreatedAt) ||
 		meta.VersionRefs[1].ID != v1.ID || meta.VersionRefs[1].Version != 1 {
 		t.Fatalf("asset version refs = %+v", meta.VersionRefs)
@@ -92,12 +115,45 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	}
 }
 
+func TestAssetVersionsShareContentBySha(t *testing.T) {
+	store := Open(filepath.Join(t.TempDir(), "primary.db"))
+	blob := []byte("shared content")
+
+	a := store.SetAssetByKey("a.conf", blob)
+	b := store.SetAssetByKey("b.conf", blob)
+	if a.Sha256 != b.Sha256 {
+		t.Fatalf("shas differ: %q vs %q", a.Sha256, b.Sha256)
+	}
+	if store.CountAssetVersionsBySha(a.Sha256) != 2 {
+		t.Fatalf("versions by sha = %d, want 2", store.CountAssetVersionsBySha(a.Sha256))
+	}
+	if rows := store.ListAssetStoreRowMetas(); len(rows) != 1 {
+		t.Fatalf("store rows = %d, want 1 shared row", len(rows))
+	}
+}
+
+func TestAssetVersionRequiresStoredContent(t *testing.T) {
+	store := Open(filepath.Join(t.TempDir(), "primary.db"))
+	if _, err := store.CreateAssetWithVersion("app.yaml", DefaultSpaceID, 0, 0, contentSha([]byte("missing")), 7); !errors.Is(err, ErrAssetContentMissing) {
+		t.Fatalf("create without content err = %v, want ErrAssetContentMissing", err)
+	}
+	v := store.SetAssetByKey("app.yaml", []byte("x"))
+	if _, err := store.AppendAssetVersion(v.AssetID, 0, contentSha([]byte("missing")), 7); !errors.Is(err, ErrAssetContentMissing) {
+		t.Fatalf("append without content err = %v, want ErrAssetContentMissing", err)
+	}
+}
+
 func TestRenameAssetPreservesVersions(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	v1 := store.SetAssetByKey("old-name", []byte("one"))
-	v2, err := store.AppendAssetVersion(v1.AssetID, 0, "local://2", 12_000_000, []byte{})
+	largeSha := contentSha([]byte("large"))
+	store.InsertAssetStoreRow("large-store", largeSha, 12_000_000, nil, 1, 0)
+	v2, err := store.AppendAssetVersion(v1.AssetID, 0, largeSha, 12_000_000)
 	if err != nil {
 		t.Fatalf("append version: %v", err)
+	}
+	if v2.Location != "local://large-store" {
+		t.Fatalf("large version location = %q, want local://large-store", v2.Location)
 	}
 
 	renamed, err := store.RenameAssetKey(v1.AssetID, "new-name")
@@ -112,7 +168,7 @@ func TestRenameAssetPreservesVersions(t *testing.T) {
 		t.Fatal("old asset key still exists")
 	}
 
-	versions := store.ListAssetVersionsIncludingPending(v1.AssetID)
+	versions := store.ListAssetVersions(v1.AssetID)
 	if len(versions) != 2 {
 		t.Fatalf("renamed versions = %d, want 2", len(versions))
 	}
@@ -120,13 +176,14 @@ func TestRenameAssetPreservesVersions(t *testing.T) {
 	for i, got := range versions {
 		if got.ID != want[i].ID || got.Key != "new-name" || got.SpaceID != want[i].SpaceID ||
 			got.Version != want[i].Version || got.Location != want[i].Location ||
-			got.SizeBytes != want[i].SizeBytes || string(got.Blob) != string(want[i].Blob) ||
+			got.SizeBytes != want[i].SizeBytes || got.Sha256 != want[i].Sha256 ||
+			string(got.Blob) != string(want[i].Blob) ||
 			!got.CreatedAt.Equal(want[i].CreatedAt) {
 			t.Fatalf("renamed version %d = %+v, want original metadata %+v with new key", i+1, got, want[i])
 		}
 	}
 
-	v3, err := store.AppendAssetVersion(v1.AssetID, 0, "", 5, []byte("three"))
+	v3, err := store.AppendAssetVersion(v1.AssetID, 0, store.MustPutInlineAssetContent([]byte("three")), 5)
 	if err != nil {
 		t.Fatalf("append after rename: %v", err)
 	}
@@ -159,18 +216,19 @@ func TestRenameAssetRejectsExistingKey(t *testing.T) {
 
 func TestCreateAssetRejectsDuplicateAndInvalidKeys(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
-	if _, err := store.CreateAssetWithVersion("app.yaml", DefaultSpaceID, 0, 0, "", 1, []byte("x")); err != nil {
+	sha := store.MustPutInlineAssetContent([]byte("x"))
+	if _, err := store.CreateAssetWithVersion("app.yaml", DefaultSpaceID, 0, 0, sha, 1); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if _, err := store.CreateAssetWithVersion("app.yaml", DefaultSpaceID, 0, 0, "", 1, []byte("x")); !errors.Is(err, ErrAssetAlreadyExists) {
+	if _, err := store.CreateAssetWithVersion("app.yaml", DefaultSpaceID, 0, 0, sha, 1); !errors.Is(err, ErrAssetAlreadyExists) {
 		t.Fatalf("duplicate create error = %v, want %v", err, ErrAssetAlreadyExists)
 	}
 	// Same key in another space is a different file system.
-	if _, err := store.CreateAssetWithVersion("app.yaml", 2, 0, 0, "", 1, []byte("x")); err != nil {
+	if _, err := store.CreateAssetWithVersion("app.yaml", 2, 0, 0, sha, 1); err != nil {
 		t.Fatalf("create in second space: %v", err)
 	}
 	for _, key := range []string{"", ".", "..", "a/b", "a\\b", "a\x00b"} {
-		if _, err := store.CreateAssetWithVersion(key, DefaultSpaceID, 0, 0, "", 1, []byte("x")); !errors.Is(err, ErrAssetKeyInvalid) {
+		if _, err := store.CreateAssetWithVersion(key, DefaultSpaceID, 0, 0, sha, 1); !errors.Is(err, ErrAssetKeyInvalid) {
 			t.Fatalf("key %q error = %v, want %v", key, err, ErrAssetKeyInvalid)
 		}
 	}

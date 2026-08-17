@@ -6783,6 +6783,7 @@ func (m *AssetVersionMeta) Encode() []byte {
 	b = AppendInt32Field(b, m.CreatedBy, 4)
 	b = AppendInt32Field(b, m.SizeBytes, 5)
 	b = AppendStringField(b, m.Location, 6)
+	b = AppendStringField(b, m.Sha256, 7)
 	return b
 }
 
@@ -6809,6 +6810,8 @@ func DecodeAssetVersionMeta(b []byte) (*AssetVersionMeta, error) {
 			b, m.SizeBytes, err = ConsumeVarInt32(b, typ)
 		case 6:
 			b, m.Location, err = ConsumeString(b, typ)
+		case 7:
+			b, m.Sha256, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6831,6 +6834,7 @@ func (m *AssetVersion) Encode() []byte {
 	b = AppendInt32Field(b, m.SizeBytes, 9)
 	b = AppendInt32Field(b, m.AssetID, 10)
 	b = AppendInt32Field(b, m.CreatedBy, 11)
+	b = AppendStringField(b, m.Sha256, 12)
 	return b
 }
 
@@ -6865,6 +6869,8 @@ func DecodeAssetVersion(b []byte) (*AssetVersion, error) {
 			b, m.AssetID, err = ConsumeVarInt32(b, typ)
 		case 11:
 			b, m.CreatedBy, err = ConsumeVarInt32(b, typ)
+		case 12:
+			b, m.Sha256, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

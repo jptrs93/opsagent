@@ -87,6 +87,27 @@ func (q *Queries) ClaimAgentSessionToken(ctx context.Context, arg ClaimAgentSess
 	return result.RowsAffected()
 }
 
+const completeAssetStoreRow = `-- name: CompleteAssetStoreRow :exec
+UPDATE asset_store SET sha256 = ?, local_status = ?, remote_status = ? WHERE id = ?
+`
+
+type CompleteAssetStoreRowParams struct {
+	Sha256       string
+	LocalStatus  int64
+	RemoteStatus int64
+	ID           string
+}
+
+func (q *Queries) CompleteAssetStoreRow(ctx context.Context, arg CompleteAssetStoreRowParams) error {
+	_, err := q.db.ExecContext(ctx, completeAssetStoreRow,
+		arg.Sha256,
+		arg.LocalStatus,
+		arg.RemoteStatus,
+		arg.ID,
+	)
+	return err
+}
+
 const countAssetSiblingsWithKey = `-- name: CountAssetSiblingsWithKey :one
 SELECT COUNT(*) FROM assets
 WHERE space_id = ? AND asset_directory_id = ? AND key = ? AND id != ?
@@ -106,6 +127,17 @@ func (q *Queries) CountAssetSiblingsWithKey(ctx context.Context, arg CountAssetS
 		arg.Key,
 		arg.ID,
 	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countAssetVersionsBySha = `-- name: CountAssetVersionsBySha :one
+SELECT COUNT(*) FROM asset_versions WHERE sha256 = ?
+`
+
+func (q *Queries) CountAssetVersionsBySha(ctx context.Context, sha256 string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAssetVersionsBySha, sha256)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -329,12 +361,12 @@ func (q *Queries) DeleteAssetRow(ctx context.Context, id int64) error {
 	return err
 }
 
-const deleteAssetVersionByID = `-- name: DeleteAssetVersionByID :exec
-DELETE FROM asset_versions WHERE id = ?
+const deleteAssetStoreRow = `-- name: DeleteAssetStoreRow :exec
+DELETE FROM asset_store WHERE id = ?
 `
 
-func (q *Queries) DeleteAssetVersionByID(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, deleteAssetVersionByID, id)
+func (q *Queries) DeleteAssetStoreRow(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteAssetStoreRow, id)
 	return err
 }
 
@@ -541,29 +573,44 @@ func (q *Queries) GetAssetInDirectoryByKey(ctx context.Context, arg GetAssetInDi
 	return i, err
 }
 
-const getAssetVersionByNumber = `-- name: GetAssetVersionByNumber :one
-SELECT id, asset_id, version, created_at, created_by, location, size_bytes, blob
-FROM asset_versions
-WHERE asset_id = ? AND version = ? AND location NOT LIKE 'pending://%'
+const getAssetStoreRowByID = `-- name: GetAssetStoreRowByID :one
+SELECT id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at
+FROM asset_store
+WHERE id = ?
 `
 
-type GetAssetVersionByNumberParams struct {
-	AssetID int64
-	Version int64
-}
-
-func (q *Queries) GetAssetVersionByNumber(ctx context.Context, arg GetAssetVersionByNumberParams) (AssetVersion, error) {
-	row := q.db.QueryRowContext(ctx, getAssetVersionByNumber, arg.AssetID, arg.Version)
-	var i AssetVersion
+func (q *Queries) GetAssetStoreRowByID(ctx context.Context, id string) (AssetStore, error) {
+	row := q.db.QueryRowContext(ctx, getAssetStoreRowByID, id)
+	var i AssetStore
 	err := row.Scan(
 		&i.ID,
-		&i.AssetID,
-		&i.Version,
-		&i.CreatedAt,
-		&i.CreatedBy,
-		&i.Location,
+		&i.Sha256,
 		&i.SizeBytes,
-		&i.Blob,
+		&i.InlineBlob,
+		&i.LocalStatus,
+		&i.RemoteStatus,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getAssetStoreRowBySha = `-- name: GetAssetStoreRowBySha :one
+SELECT id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at
+FROM asset_store
+WHERE sha256 = ? AND sha256 != ''
+`
+
+func (q *Queries) GetAssetStoreRowBySha(ctx context.Context, sha256 string) (AssetStore, error) {
+	row := q.db.QueryRowContext(ctx, getAssetStoreRowBySha, sha256)
+	var i AssetStore
+	err := row.Scan(
+		&i.ID,
+		&i.Sha256,
+		&i.SizeBytes,
+		&i.InlineBlob,
+		&i.LocalStatus,
+		&i.RemoteStatus,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -678,30 +725,6 @@ func (q *Queries) GetDeploymentVersion(ctx context.Context, arg GetDeploymentVer
 		&i.CreatedAt,
 		&i.CreatedBy,
 		&i.SpecBlob,
-	)
-	return i, err
-}
-
-const getLatestAssetVersion = `-- name: GetLatestAssetVersion :one
-SELECT id, asset_id, version, created_at, created_by, location, size_bytes, blob
-FROM asset_versions
-WHERE asset_id = ? AND location NOT LIKE 'pending://%'
-ORDER BY version DESC
-LIMIT 1
-`
-
-func (q *Queries) GetLatestAssetVersion(ctx context.Context, assetID int64) (AssetVersion, error) {
-	row := q.db.QueryRowContext(ctx, getLatestAssetVersion, assetID)
-	var i AssetVersion
-	err := row.Scan(
-		&i.ID,
-		&i.AssetID,
-		&i.Version,
-		&i.CreatedAt,
-		&i.CreatedBy,
-		&i.Location,
-		&i.SizeBytes,
-		&i.Blob,
 	)
 	return i, err
 }
@@ -1053,10 +1076,51 @@ func (q *Queries) InsertAssetRow(ctx context.Context, arg InsertAssetRowParams) 
 	return i, err
 }
 
-const insertAssetVersion = `-- name: InsertAssetVersion :one
-INSERT INTO asset_versions (asset_id, version, created_at, created_by, location, size_bytes, blob)
+const insertAssetStoreRow = `-- name: InsertAssetStoreRow :one
+
+INSERT INTO asset_store (id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, asset_id, version, created_at, created_by, location, size_bytes, blob
+RETURNING id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at
+`
+
+type InsertAssetStoreRowParams struct {
+	ID           string
+	Sha256       string
+	SizeBytes    int64
+	InlineBlob   []byte
+	LocalStatus  int64
+	RemoteStatus int64
+	CreatedAt    int64
+}
+
+// === asset_store ===
+func (q *Queries) InsertAssetStoreRow(ctx context.Context, arg InsertAssetStoreRowParams) (AssetStore, error) {
+	row := q.db.QueryRowContext(ctx, insertAssetStoreRow,
+		arg.ID,
+		arg.Sha256,
+		arg.SizeBytes,
+		arg.InlineBlob,
+		arg.LocalStatus,
+		arg.RemoteStatus,
+		arg.CreatedAt,
+	)
+	var i AssetStore
+	err := row.Scan(
+		&i.ID,
+		&i.Sha256,
+		&i.SizeBytes,
+		&i.InlineBlob,
+		&i.LocalStatus,
+		&i.RemoteStatus,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const insertAssetVersion = `-- name: InsertAssetVersion :one
+INSERT INTO asset_versions (asset_id, version, created_at, created_by, size_bytes, sha256)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, asset_id, version, created_at, created_by, size_bytes, sha256
 `
 
 type InsertAssetVersionParams struct {
@@ -1064,9 +1128,8 @@ type InsertAssetVersionParams struct {
 	Version   int64
 	CreatedAt int64
 	CreatedBy int64
-	Location  string
 	SizeBytes int64
-	Blob      []byte
+	Sha256    string
 }
 
 func (q *Queries) InsertAssetVersion(ctx context.Context, arg InsertAssetVersionParams) (AssetVersion, error) {
@@ -1075,9 +1138,8 @@ func (q *Queries) InsertAssetVersion(ctx context.Context, arg InsertAssetVersion
 		arg.Version,
 		arg.CreatedAt,
 		arg.CreatedBy,
-		arg.Location,
 		arg.SizeBytes,
-		arg.Blob,
+		arg.Sha256,
 	)
 	var i AssetVersion
 	err := row.Scan(
@@ -1086,9 +1148,8 @@ func (q *Queries) InsertAssetVersion(ctx context.Context, arg InsertAssetVersion
 		&i.Version,
 		&i.CreatedAt,
 		&i.CreatedBy,
-		&i.Location,
 		&i.SizeBytes,
-		&i.Blob,
+		&i.Sha256,
 	)
 	return i, err
 }
@@ -1541,6 +1602,33 @@ func (q *Queries) ListAssetDirectories(ctx context.Context) ([]AssetDirectory, e
 	return items, nil
 }
 
+const listAssetIDsBySha = `-- name: ListAssetIDsBySha :many
+SELECT DISTINCT asset_id FROM asset_versions WHERE sha256 = ?
+`
+
+func (q *Queries) ListAssetIDsBySha(ctx context.Context, sha256 string) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listAssetIDsBySha, sha256)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var asset_id int64
+		if err := rows.Scan(&asset_id); err != nil {
+			return nil, err
+		}
+		items = append(items, asset_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAssetRows = `-- name: ListAssetRows :many
 
 SELECT id, space_id, key, asset_directory_id, created_at, created_by
@@ -1579,70 +1667,38 @@ func (q *Queries) ListAssetRows(ctx context.Context) ([]Asset, error) {
 	return items, nil
 }
 
-const listAssetVersions = `-- name: ListAssetVersions :many
-SELECT id, asset_id, version, created_at, created_by, location, size_bytes, blob
-FROM asset_versions
-WHERE asset_id = ? AND location NOT LIKE 'pending://%'
-ORDER BY version ASC
+const listAssetStoreRowMetas = `-- name: ListAssetStoreRowMetas :many
+SELECT id, sha256, size_bytes, CAST(LENGTH(inline_blob) AS INTEGER) AS inline_size, local_status, remote_status, created_at
+FROM asset_store
 `
 
-func (q *Queries) ListAssetVersions(ctx context.Context, assetID int64) ([]AssetVersion, error) {
-	rows, err := q.db.QueryContext(ctx, listAssetVersions, assetID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []AssetVersion
-	for rows.Next() {
-		var i AssetVersion
-		if err := rows.Scan(
-			&i.ID,
-			&i.AssetID,
-			&i.Version,
-			&i.CreatedAt,
-			&i.CreatedBy,
-			&i.Location,
-			&i.SizeBytes,
-			&i.Blob,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type ListAssetStoreRowMetasRow struct {
+	ID           string
+	Sha256       string
+	SizeBytes    int64
+	InlineSize   int64
+	LocalStatus  int64
+	RemoteStatus int64
+	CreatedAt    int64
 }
 
-const listAssetVersionsIncludingPending = `-- name: ListAssetVersionsIncludingPending :many
-SELECT id, asset_id, version, created_at, created_by, location, size_bytes, blob
-FROM asset_versions
-WHERE asset_id = ?
-ORDER BY version ASC
-`
-
-func (q *Queries) ListAssetVersionsIncludingPending(ctx context.Context, assetID int64) ([]AssetVersion, error) {
-	rows, err := q.db.QueryContext(ctx, listAssetVersionsIncludingPending, assetID)
+func (q *Queries) ListAssetStoreRowMetas(ctx context.Context) ([]ListAssetStoreRowMetasRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAssetStoreRowMetas)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []AssetVersion
+	var items []ListAssetStoreRowMetasRow
 	for rows.Next() {
-		var i AssetVersion
+		var i ListAssetStoreRowMetasRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.AssetID,
-			&i.Version,
-			&i.CreatedAt,
-			&i.CreatedBy,
-			&i.Location,
+			&i.Sha256,
 			&i.SizeBytes,
-			&i.Blob,
+			&i.InlineSize,
+			&i.LocalStatus,
+			&i.RemoteStatus,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -2015,54 +2071,6 @@ func (q *Queries) ListPendingAgentSessionsForUser(ctx context.Context, userID in
 			&i.RequestingAddress,
 			&i.ApprovalCode,
 			&i.ApprovedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listPublishedAssetVersionMetas = `-- name: ListPublishedAssetVersionMetas :many
-SELECT asset_id, id, version, created_at, created_by, size_bytes, location
-FROM asset_versions
-WHERE location NOT LIKE 'pending://%'
-ORDER BY asset_id, version DESC
-`
-
-type ListPublishedAssetVersionMetasRow struct {
-	AssetID   int64
-	ID        int64
-	Version   int64
-	CreatedAt int64
-	CreatedBy int64
-	SizeBytes int64
-	Location  string
-}
-
-func (q *Queries) ListPublishedAssetVersionMetas(ctx context.Context) ([]ListPublishedAssetVersionMetasRow, error) {
-	rows, err := q.db.QueryContext(ctx, listPublishedAssetVersionMetas)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListPublishedAssetVersionMetasRow
-	for rows.Next() {
-		var i ListPublishedAssetVersionMetasRow
-		if err := rows.Scan(
-			&i.AssetID,
-			&i.ID,
-			&i.Version,
-			&i.CreatedAt,
-			&i.CreatedBy,
-			&i.SizeBytes,
-			&i.Location,
 		); err != nil {
 			return nil, err
 		}
@@ -2452,6 +2460,53 @@ func (q *Queries) ListSpaces(ctx context.Context) ([]Space, error) {
 	return items, nil
 }
 
+const listUnreferencedAssetStoreRows = `-- name: ListUnreferencedAssetStoreRows :many
+SELECT s.id, s.sha256, s.size_bytes, CAST(LENGTH(s.inline_blob) AS INTEGER) AS inline_size, s.local_status, s.remote_status, s.created_at
+FROM asset_store s
+WHERE s.created_at < ? AND NOT EXISTS (SELECT 1 FROM asset_versions v WHERE v.sha256 = s.sha256)
+`
+
+type ListUnreferencedAssetStoreRowsRow struct {
+	ID           string
+	Sha256       string
+	SizeBytes    int64
+	InlineSize   int64
+	LocalStatus  int64
+	RemoteStatus int64
+	CreatedAt    int64
+}
+
+func (q *Queries) ListUnreferencedAssetStoreRows(ctx context.Context, createdAt int64) ([]ListUnreferencedAssetStoreRowsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUnreferencedAssetStoreRows, createdAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUnreferencedAssetStoreRowsRow
+	for rows.Next() {
+		var i ListUnreferencedAssetStoreRowsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Sha256,
+			&i.SizeBytes,
+			&i.InlineSize,
+			&i.LocalStatus,
+			&i.RemoteStatus,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsers = `-- name: ListUsers :many
 SELECT id, name, data_blob, created_at, last_login_at FROM users ORDER BY id
 `
@@ -2550,6 +2605,20 @@ func (q *Queries) RecordAssetMigrationError(ctx context.Context, arg RecordAsset
 		&i.FinishedAt,
 	)
 	return i, err
+}
+
+const relinkAssetVersionsSha = `-- name: RelinkAssetVersionsSha :exec
+UPDATE asset_versions SET sha256 = ? WHERE sha256 = ?
+`
+
+type RelinkAssetVersionsShaParams struct {
+	Sha256   string
+	Sha256_2 string
+}
+
+func (q *Queries) RelinkAssetVersionsSha(ctx context.Context, arg RelinkAssetVersionsShaParams) error {
+	_, err := q.db.ExecContext(ctx, relinkAssetVersionsSha, arg.Sha256, arg.Sha256_2)
+	return err
 }
 
 const renameAssetKey = `-- name: RenameAssetKey :exec
@@ -2695,6 +2764,48 @@ func (q *Queries) SetAssetSpace(ctx context.Context, arg SetAssetSpaceParams) er
 	return err
 }
 
+const setAssetStoreLocalStatus = `-- name: SetAssetStoreLocalStatus :exec
+UPDATE asset_store SET local_status = ? WHERE id = ?
+`
+
+type SetAssetStoreLocalStatusParams struct {
+	LocalStatus int64
+	ID          string
+}
+
+func (q *Queries) SetAssetStoreLocalStatus(ctx context.Context, arg SetAssetStoreLocalStatusParams) error {
+	_, err := q.db.ExecContext(ctx, setAssetStoreLocalStatus, arg.LocalStatus, arg.ID)
+	return err
+}
+
+const setAssetStoreRemoteStatus = `-- name: SetAssetStoreRemoteStatus :exec
+UPDATE asset_store SET remote_status = ? WHERE id = ?
+`
+
+type SetAssetStoreRemoteStatusParams struct {
+	RemoteStatus int64
+	ID           string
+}
+
+func (q *Queries) SetAssetStoreRemoteStatus(ctx context.Context, arg SetAssetStoreRemoteStatusParams) error {
+	_, err := q.db.ExecContext(ctx, setAssetStoreRemoteStatus, arg.RemoteStatus, arg.ID)
+	return err
+}
+
+const setAssetStoreSha = `-- name: SetAssetStoreSha :exec
+UPDATE asset_store SET sha256 = ? WHERE id = ?
+`
+
+type SetAssetStoreShaParams struct {
+	Sha256 string
+	ID     string
+}
+
+func (q *Queries) SetAssetStoreSha(ctx context.Context, arg SetAssetStoreShaParams) error {
+	_, err := q.db.ExecContext(ctx, setAssetStoreSha, arg.Sha256, arg.ID)
+	return err
+}
+
 const setConfigSpace = `-- name: SetConfigSpace :exec
 UPDATE configs SET space_id = ?, value_directory_id = ? WHERE id = ?
 `
@@ -2825,34 +2936,6 @@ type TouchUserLastLoginParams struct {
 func (q *Queries) TouchUserLastLogin(ctx context.Context, arg TouchUserLastLoginParams) error {
 	_, err := q.db.ExecContext(ctx, touchUserLastLogin, arg.LastLoginAt, arg.ID)
 	return err
-}
-
-const updateAssetVersionLocation = `-- name: UpdateAssetVersionLocation :one
-UPDATE asset_versions
-SET location = ?
-WHERE id = ?
-RETURNING id, asset_id, version, created_at, created_by, location, size_bytes, blob
-`
-
-type UpdateAssetVersionLocationParams struct {
-	Location string
-	ID       int64
-}
-
-func (q *Queries) UpdateAssetVersionLocation(ctx context.Context, arg UpdateAssetVersionLocationParams) (AssetVersion, error) {
-	row := q.db.QueryRowContext(ctx, updateAssetVersionLocation, arg.Location, arg.ID)
-	var i AssetVersion
-	err := row.Scan(
-		&i.ID,
-		&i.AssetID,
-		&i.Version,
-		&i.CreatedAt,
-		&i.CreatedBy,
-		&i.Location,
-		&i.SizeBytes,
-		&i.Blob,
-	)
-	return i, err
 }
 
 const updateAuthzRuleTemplateRow = `-- name: UpdateAuthzRuleTemplateRow :exec

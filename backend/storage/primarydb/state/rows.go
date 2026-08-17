@@ -7,6 +7,8 @@ import "github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 type (
 	Asset                = pq.Asset
 	AssetDirectory       = pq.AssetDirectory
+	AssetStore           = pq.AssetStore
+	AssetVersionJoined   = pq.AssetVersionJoined
 	ValueDirectory       = pq.ValueDirectory
 	Secret               = pq.Secret
 	Config               = pq.Config

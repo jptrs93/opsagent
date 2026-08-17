@@ -380,57 +380,68 @@ SELECT COUNT(*) FROM assets WHERE asset_directory_id = ?;
 -- name: CountChildAssetDirectories :one
 SELECT COUNT(*) FROM asset_directories WHERE parent_id = ?;
 
--- name: ListPublishedAssetVersionMetas :many
-SELECT asset_id, id, version, created_at, created_by, size_bytes, location
-FROM asset_versions
-WHERE location NOT LIKE 'pending://%'
-ORDER BY asset_id, version DESC;
-
--- name: GetLatestAssetVersion :one
-SELECT id, asset_id, version, created_at, created_by, location, size_bytes, blob
-FROM asset_versions
-WHERE asset_id = ? AND location NOT LIKE 'pending://%'
-ORDER BY version DESC
-LIMIT 1;
-
--- name: GetAssetVersionByNumber :one
-SELECT id, asset_id, version, created_at, created_by, location, size_bytes, blob
-FROM asset_versions
-WHERE asset_id = ? AND version = ? AND location NOT LIKE 'pending://%';
-
--- name: ListAssetVersions :many
-SELECT id, asset_id, version, created_at, created_by, location, size_bytes, blob
-FROM asset_versions
-WHERE asset_id = ? AND location NOT LIKE 'pending://%'
-ORDER BY version ASC;
-
--- name: ListAssetVersionsIncludingPending :many
-SELECT id, asset_id, version, created_at, created_by, location, size_bytes, blob
-FROM asset_versions
-WHERE asset_id = ?
-ORDER BY version ASC;
-
 -- name: GetNextAssetVersionNumber :one
 SELECT COALESCE(MAX(version), 0) + 1
 FROM asset_versions
 WHERE asset_id = ?;
 
 -- name: InsertAssetVersion :one
-INSERT INTO asset_versions (asset_id, version, created_at, created_by, location, size_bytes, blob)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, asset_id, version, created_at, created_by, location, size_bytes, blob;
-
--- name: UpdateAssetVersionLocation :one
-UPDATE asset_versions
-SET location = ?
-WHERE id = ?
-RETURNING id, asset_id, version, created_at, created_by, location, size_bytes, blob;
-
--- name: DeleteAssetVersionByID :exec
-DELETE FROM asset_versions WHERE id = ?;
+INSERT INTO asset_versions (asset_id, version, created_at, created_by, size_bytes, sha256)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, asset_id, version, created_at, created_by, size_bytes, sha256;
 
 -- name: DeleteAssetVersionsByAssetID :exec
 DELETE FROM asset_versions WHERE asset_id = ?;
+
+-- name: CountAssetVersionsBySha :one
+SELECT COUNT(*) FROM asset_versions WHERE sha256 = ?;
+
+-- name: ListAssetIDsBySha :many
+SELECT DISTINCT asset_id FROM asset_versions WHERE sha256 = ?;
+
+-- name: RelinkAssetVersionsSha :exec
+UPDATE asset_versions SET sha256 = ? WHERE sha256 = ?;
+
+-- === asset_store ===
+
+-- name: InsertAssetStoreRow :one
+INSERT INTO asset_store (id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at;
+
+-- name: GetAssetStoreRowByID :one
+SELECT id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at
+FROM asset_store
+WHERE id = ?;
+
+-- name: GetAssetStoreRowBySha :one
+SELECT id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at
+FROM asset_store
+WHERE sha256 = ? AND sha256 != '';
+
+-- name: ListAssetStoreRowMetas :many
+SELECT id, sha256, size_bytes, CAST(LENGTH(inline_blob) AS INTEGER) AS inline_size, local_status, remote_status, created_at
+FROM asset_store;
+
+-- name: ListUnreferencedAssetStoreRows :many
+SELECT s.id, s.sha256, s.size_bytes, CAST(LENGTH(s.inline_blob) AS INTEGER) AS inline_size, s.local_status, s.remote_status, s.created_at
+FROM asset_store s
+WHERE s.created_at < ? AND NOT EXISTS (SELECT 1 FROM asset_versions v WHERE v.sha256 = s.sha256);
+
+-- name: CompleteAssetStoreRow :exec
+UPDATE asset_store SET sha256 = ?, local_status = ?, remote_status = ? WHERE id = ?;
+
+-- name: SetAssetStoreLocalStatus :exec
+UPDATE asset_store SET local_status = ? WHERE id = ?;
+
+-- name: SetAssetStoreRemoteStatus :exec
+UPDATE asset_store SET remote_status = ? WHERE id = ?;
+
+-- name: SetAssetStoreSha :exec
+UPDATE asset_store SET sha256 = ? WHERE id = ?;
+
+-- name: DeleteAssetStoreRow :exec
+DELETE FROM asset_store WHERE id = ?;
 
 -- === asset_migrations ===
 

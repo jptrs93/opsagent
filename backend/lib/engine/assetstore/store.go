@@ -3,13 +3,14 @@ package assetstore
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -49,8 +50,8 @@ func (s *Store) ValidateSettingsUpdate(current, next apigen.ClusterSettings) err
 	if s.effectiveS3Identity(current) == s.effectiveS3Identity(next) {
 		return nil
 	}
-	for _, asset := range s.DB.ListAllAssetVersionsIncludingPending() {
-		if strings.HasPrefix(asset.Location, "s3://") || strings.HasPrefix(asset.Location, "pending://") {
+	for _, row := range s.DB.ListAssetStoreRowMetas() {
+		if row.RemoteStatus == 1 || row.Staging() {
 			return ErrAssetS3ConfigChangeRequiresLocal
 		}
 	}
@@ -109,6 +110,16 @@ func (s *Store) notifyVersionWritten(v *apigen.AssetVersion) {
 	}
 }
 
+// notifyContentMoved publishes every asset whose versions link the sha, after
+// its content changed storage side or finished hashing.
+func (s *Store) notifyContentMoved(sha string) {
+	for _, assetID := range s.DB.ListAssetIDsBySha(sha) {
+		if meta, ok := s.DB.GetAssetMeta(assetID); ok {
+			s.DB.NotifyAssetUpdate(meta)
+		}
+	}
+}
+
 // CreateAsset creates a new asset in directoryID (0 = the space root) of
 // spaceID with its first version.
 func (s *Store) CreateAsset(ctx context.Context, key string, spaceID, directoryID, createdBy int32, blob []byte) (*apigen.AssetVersion, error) {
@@ -117,8 +128,8 @@ func (s *Store) CreateAsset(ctx context.Context, key string, spaceID, directoryI
 
 func (s *Store) CreateAssetFromReader(ctx context.Context, key string, spaceID, directoryID, createdBy int32, sizeBytes int64, r io.Reader) (*apigen.AssetVersion, error) {
 	return s.writeVersion(ctx, sizeBytes, r,
-		func(location string, size int64, blob []byte) (*apigen.AssetVersion, error) {
-			return s.DB.CreateAssetWithVersion(key, spaceID, directoryID, createdBy, location, size, blob)
+		func(sha string) (*apigen.AssetVersion, error) {
+			return s.DB.CreateAssetWithVersion(key, spaceID, directoryID, createdBy, sha, sizeBytes)
 		})
 }
 
@@ -130,174 +141,196 @@ func (s *Store) AppendAssetVersion(ctx context.Context, assetID, createdBy int32
 
 func (s *Store) AppendAssetVersionFromReader(ctx context.Context, assetID, createdBy int32, sizeBytes int64, r io.Reader) (*apigen.AssetVersion, error) {
 	return s.writeVersion(ctx, sizeBytes, r,
-		func(location string, size int64, blob []byte) (*apigen.AssetVersion, error) {
-			return s.DB.AppendAssetVersion(assetID, createdBy, location, size, blob)
+		func(sha string) (*apigen.AssetVersion, error) {
+			return s.DB.AppendAssetVersion(assetID, createdBy, sha, sizeBytes)
 		})
 }
 
-func (s *Store) writeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(location string, size int64, blob []byte) (*apigen.AssetVersion, error)) (*apigen.AssetVersion, error) {
+// writeVersion stores the content first — deduplicated by sha256 against the
+// content store — and creates the identity rows only once the content is
+// durable, so an identity can never point at content that failed to land.
+func (s *Store) writeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(sha string) (*apigen.AssetVersion, error)) (*apigen.AssetVersion, error) {
 	if sizeBytes < 0 {
 		return nil, fmt.Errorf("asset upload requires a content length")
 	}
 	if sizeBytes > math.MaxInt32 {
 		return nil, fmt.Errorf("asset upload is too large: maximum supported size is %d bytes", math.MaxInt32)
 	}
-	if sizeBytes <= InlineThresholdBytes {
-		blob, err := io.ReadAll(io.LimitReader(r, InlineThresholdBytes+1))
-		if err != nil {
-			return nil, fmt.Errorf("read inline asset upload: %w", err)
-		}
-		if int64(len(blob)) != sizeBytes {
-			return nil, fmt.Errorf("asset upload size changed while reading")
-		}
-		version, err := insert("", sizeBytes, blob)
-		if err != nil {
-			return nil, err
-		}
-		s.notifyVersionWritten(version)
-		return version, nil
+	if sizeBytes > InlineThresholdBytes {
+		return s.writeLargeVersion(ctx, sizeBytes, r, insert)
 	}
-	return s.writeLargeVersion(ctx, sizeBytes, r, insert)
+	blob, err := io.ReadAll(io.LimitReader(r, InlineThresholdBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read inline asset upload: %w", err)
+	}
+	if int64(len(blob)) != sizeBytes {
+		return nil, fmt.Errorf("asset upload size changed while reading")
+	}
+	sha := hashBlob(blob)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	created := false
+	if _, ok := s.DB.GetAssetStoreRowBySha(sha); !ok {
+		s.DB.InsertAssetStoreRow(newStoreID(), sha, sizeBytes, blob, 0, 0)
+		created = true
+	}
+	version, err := insert(sha)
+	if err != nil {
+		if created {
+			if reclaimErr := s.reclaimStoreContent(sha); reclaimErr != nil {
+				slog.Warn("reclaim asset content after failed write", "sha256", sha, "err", reclaimErr)
+			}
+		}
+		return nil, err
+	}
+	s.notifyVersionWritten(version)
+	return version, nil
 }
 
-// deleteFailedVersion removes the version row of a write that could not reach
-// durable storage, and the asset row too when this was its only version — a
-// versionless asset would be invisible while still claiming its key.
-func (s *Store) deleteFailedVersion(version *apigen.AssetVersion) {
-	s.DB.DeleteAssetVersionByID(version.ID)
-	s.DB.DeleteAssetIfNoVersions(version.AssetID)
-}
-
-func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(location string, size int64, blob []byte) (*apigen.AssetVersion, error)) (*apigen.AssetVersion, error) {
+func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(sha string) (*apigen.AssetVersion, error)) (*apigen.AssetVersion, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	cfg := s.Config()
-	tmp, err := os.CreateTemp(ainit.StaticConfig.LargeAssetsDir, ".upload-*")
+	storeID := newStoreID()
+	s.DB.InsertAssetStoreRow(storeID, "", sizeBytes, nil, 0, 0)
+	discardStaging := func() {
+		if err := os.Remove(localPath(storeID)); err != nil && !os.IsNotExist(err) {
+			slog.Warn("remove staged large asset", "store_id", storeID, "err", err)
+		}
+		s.DB.DeleteAssetStoreRow(storeID)
+	}
+	file, err := os.OpenFile(localPath(storeID), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
+		discardStaging()
 		return nil, fmt.Errorf("stage large asset upload: %w", err)
 	}
-	defer os.Remove(tmp.Name())
-	defer tmp.Close()
-	if written, err := io.Copy(tmp, r); err != nil {
+	defer file.Close()
+	hasher := sha256.New()
+	if written, err := io.Copy(io.MultiWriter(file, hasher), r); err != nil {
+		discardStaging()
 		return nil, fmt.Errorf("stage large asset upload: %w", err)
 	} else if written != sizeBytes {
+		discardStaging()
 		return nil, fmt.Errorf("asset upload size changed while reading")
 	}
-	if err := tmp.Sync(); err != nil {
+	if err := file.Sync(); err != nil {
+		discardStaging()
 		return nil, fmt.Errorf("sync staged large asset upload: %w", err)
 	}
-	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
-		return nil, fmt.Errorf("stage large asset upload: %w", err)
-	}
+	sha := hex.EncodeToString(hasher.Sum(nil))
 
-	asset, err := insert(pendingLocation(filepath.Base(tmp.Name())), sizeBytes, []byte{})
-	if err != nil {
-		return nil, err
-	}
-	var location string
-	if s.Loader.MustLoadConfigBoolValue(cfg.Backup.Enabled) {
+	if _, ok := s.DB.GetAssetStoreRowBySha(sha); ok {
+		discardStaging()
+	} else if s.Loader.MustLoadConfigBoolValue(cfg.Backup.Enabled) {
 		client, bucket, err := s.s3Client(cfg)
 		if err != nil {
-			s.deleteFailedVersion(asset)
+			discardStaging()
 			return nil, err
 		}
-		prefix := s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Path)
-		s3ObjectKey := objectKey(prefix, asset.ID)
-		location = "s3://" + bucket + "/" + s3ObjectKey
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			discardStaging()
+			return nil, fmt.Errorf("stage large asset upload: %w", err)
+		}
+		key := objectKey(s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Path), storeID)
 		if _, err := client.PutObject(ctx, &s3.PutObjectInput{
 			Bucket:        aws.String(bucket),
-			Key:           aws.String(s3ObjectKey),
-			Body:          tmp,
+			Key:           aws.String(key),
+			Body:          file,
 			ContentLength: aws.Int64(sizeBytes),
 		}); err != nil {
-			s.deleteFailedVersion(asset)
+			discardStaging()
 			return nil, fmt.Errorf("write large asset to s3: %w", err)
 		}
+		s.DB.CompleteAssetStoreRow(storeID, sha, 0, 1)
+		if err := os.Remove(localPath(storeID)); err != nil && !os.IsNotExist(err) {
+			slog.Warn("remove staged large asset", "store_id", storeID, "err", err)
+		}
 	} else {
-		location = localLocation(asset.ID)
-		if err := tmp.Close(); err != nil {
-			s.deleteFailedVersion(asset)
-			return nil, fmt.Errorf("close large asset: %w", err)
-		}
-		if err := os.Rename(tmp.Name(), localPath(asset.ID)); err != nil {
-			s.deleteFailedVersion(asset)
-			return nil, fmt.Errorf("store large asset locally: %w", err)
-		}
 		if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
-			s.deleteFailedVersion(asset)
+			discardStaging()
 			return nil, fmt.Errorf("sync large asset directory: %w", err)
 		}
+		s.DB.CompleteAssetStoreRow(storeID, sha, 1, 0)
 	}
-	if location == "" {
-		s.deleteFailedVersion(asset)
-		return nil, fmt.Errorf("large asset location was not selected")
+
+	version, err := insert(sha)
+	if err != nil {
+		if reclaimErr := s.reclaimStoreContent(sha); reclaimErr != nil {
+			slog.Warn("reclaim asset content after failed write", "sha256", sha, "err", reclaimErr)
+		}
+		return nil, err
 	}
-	asset = s.DB.UpdateAssetVersionLocation(asset.ID, location)
-	asset.Blob = nil
-	s.notifyVersionWritten(asset)
-	return asset, nil
+	s.notifyVersionWritten(version)
+	return version, nil
+}
+
+// reclaimStoreContent deletes the content-store row for sha, and its local
+// file, once no version links it. The S3 object, if any, is retained for
+// database restore points; the bucket lifecycle policy expires it.
+func (s *Store) reclaimStoreContent(sha string) error {
+	if sha == "" || s.DB.CountAssetVersionsBySha(sha) > 0 {
+		return nil
+	}
+	row, ok := s.DB.GetAssetStoreRowBySha(sha)
+	if !ok {
+		return nil
+	}
+	if err := os.Remove(localPath(row.ID)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete local large asset: %w", err)
+	}
+	s.DB.DeleteAssetStoreRow(row.ID)
+	return nil
 }
 
 func (s *Store) OpenAsset(ctx context.Context, assetVersionID int32) (*apigen.AssetVersion, io.ReadCloser, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	asset, ok := s.DB.GetAssetVersionByID(assetVersionID)
+
+	r, ok := s.DB.GetAssetVersionJoined(assetVersionID)
 	if !ok {
 		return nil, nil, fmt.Errorf("asset version %d not found", assetVersionID)
 	}
-	if strings.HasPrefix(asset.Location, "s3://") {
-		body, err := s.openS3Asset(ctx, asset.Location)
-		if err != nil {
-			return nil, nil, err
-		}
-		return asset, body, nil
-	}
-	if strings.HasPrefix(asset.Location, "local://") {
-		id, err := parseLocalLocation(asset.Location)
-		if err != nil {
-			return nil, nil, err
-		}
-		body, err := os.Open(localPath(id))
+	asset := state.AssetVersionFromJoined(r.Asset, r)
+	switch {
+	case r.Store.InlineSize > 0 || r.Version.SizeBytes == 0:
+		return asset, io.NopCloser(bytes.NewReader(r.Store.InlineBlob)), nil
+	case r.Store.LocalStatus == 1:
+		body, err := os.Open(localPath(r.Store.ID))
 		if err != nil {
 			return nil, nil, fmt.Errorf("read local large asset: %w", err)
 		}
 		return asset, body, nil
+	case r.Store.RemoteStatus == 1:
+		body, err := s.openS3Asset(ctx, r.Store.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return asset, body, nil
 	}
-	if asset.Location != "" {
-		return nil, nil, fmt.Errorf("unsupported asset location %q", asset.Location)
-	}
-	return asset, io.NopCloser(bytes.NewReader(asset.Blob)), nil
+	return nil, nil, fmt.Errorf("asset version %d content is unavailable", assetVersionID)
 }
 
 func (s *Store) DeleteAsset(ctx context.Context, assetID int32) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	meta, hadPublished := s.DB.GetAssetMeta(assetID)
-	versions := s.DB.ListAssetVersionsIncludingPending(assetID)
+	meta, hadVersions := s.DB.GetAssetMeta(assetID)
+	versions := s.DB.ListAssetVersionsJoinedOfAsset(assetID)
 	s.DB.DeleteAsset(assetID)
-	if hadPublished {
+	if hadVersions {
 		s.DB.NotifyAssetDeleted(meta)
 	}
-	for _, asset := range versions {
-		if strings.HasPrefix(asset.Location, "local://") {
-			id, err := parseLocalLocation(asset.Location)
-			if err != nil {
-				return err
-			}
-			if err := os.Remove(localPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("delete local large asset: %w", err)
-			}
+	seen := map[string]struct{}{}
+	for _, v := range versions {
+		sha := v.Version.Sha256
+		if _, ok := seen[sha]; ok {
+			continue
 		}
-		if strings.HasPrefix(asset.Location, "pending://") {
-			name, err := parsePendingLocation(asset.Location)
-			if err != nil {
-				return err
-			}
-			if err := os.Remove(filepath.Join(ainit.StaticConfig.LargeAssetsDir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("delete staged large asset: %w", err)
-			}
+		seen[sha] = struct{}{}
+		if err := s.reclaimStoreContent(sha); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -315,15 +348,13 @@ func (s *Store) RenameAsset(ctx context.Context, assetID int32, newKey string) (
 	return meta, nil
 }
 
-func (s *Store) openS3Asset(ctx context.Context, location string) (io.ReadCloser, error) {
-	bucket, key, err := parseS3Location(location)
+func (s *Store) openS3Asset(ctx context.Context, storeID string) (io.ReadCloser, error) {
+	cfg := s.Config()
+	client, bucket, err := s.s3Client(cfg)
 	if err != nil {
 		return nil, err
 	}
-	client, _, err := s.s3Client(s.Config())
-	if err != nil {
-		return nil, err
-	}
+	key := objectKey(s.Loader.MustLoadConfigStringValue(cfg.LargeAssets.S3Path), storeID)
 	res, err := client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
 	if err != nil {
 		return nil, fmt.Errorf("read large asset from s3: %w", err)

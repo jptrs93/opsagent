@@ -1,6 +1,7 @@
 package state
 
 import (
+	"strings"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -9,7 +10,7 @@ import (
 
 // assetMetaFromRow builds the wire meta: identity at the root, version facts
 // only in VersionRefs (newest first). refs must be non-empty — an asset with
-// no published version is never surfaced as a meta.
+// no version is never surfaced as a meta.
 func assetMetaFromRow(a Asset, refs []*apigen.AssetVersionMeta) *apigen.AssetMeta {
 	return &apigen.AssetMeta{
 		ID:               int32(a.ID),
@@ -22,28 +23,51 @@ func assetMetaFromRow(a Asset, refs []*apigen.AssetVersionMeta) *apigen.AssetMet
 	}
 }
 
-func assetVersionMetaFromRow(v pq.AssetVersion) *apigen.AssetVersionMeta {
+// assetLocationString derives the display location: empty for inline content,
+// otherwise the active storage side keyed by the content-store id.
+func assetLocationString(s pq.AssetStoreRef) string {
+	if s.RemoteStatus == 1 {
+		return "s3://" + s.ID
+	}
+	if s.LocalStatus == 1 {
+		return "local://" + s.ID
+	}
+	return ""
+}
+
+// assetShaString hides the migration placeholder shas of rows whose content
+// has not been hashed yet.
+func assetShaString(sha string) string {
+	if strings.HasPrefix(sha, "legacy:") {
+		return ""
+	}
+	return sha
+}
+
+func assetVersionMetaFromJoined(r pq.AssetVersionJoined) *apigen.AssetVersionMeta {
 	return &apigen.AssetVersionMeta{
-		ID:        int32(v.ID),
-		Version:   int32(v.Version),
-		CreatedAt: time.UnixMilli(v.CreatedAt),
-		CreatedBy: int32(v.CreatedBy),
-		SizeBytes: int32(v.SizeBytes),
-		Location:  v.Location,
+		ID:        int32(r.Version.ID),
+		Version:   int32(r.Version.Version),
+		CreatedAt: time.UnixMilli(r.Version.CreatedAt),
+		CreatedBy: int32(r.Version.CreatedBy),
+		SizeBytes: int32(r.Version.SizeBytes),
+		Location:  assetLocationString(r.Store),
+		Sha256:    assetShaString(r.Version.Sha256),
 	}
 }
 
-func assetVersionFromRows(a Asset, v pq.AssetVersion) *apigen.AssetVersion {
+func assetVersionFromJoined(a Asset, r pq.AssetVersionJoined) *apigen.AssetVersion {
 	return &apigen.AssetVersion{
-		ID:        int32(v.ID),
+		ID:        int32(r.Version.ID),
 		AssetID:   int32(a.ID),
 		Key:       a.Key,
 		SpaceID:   int32(a.SpaceID),
-		CreatedAt: time.UnixMilli(v.CreatedAt),
-		CreatedBy: int32(v.CreatedBy),
-		Version:   int32(v.Version),
-		Location:  v.Location,
-		SizeBytes: int32(v.SizeBytes),
-		Blob:      v.Blob,
+		CreatedAt: time.UnixMilli(r.Version.CreatedAt),
+		CreatedBy: int32(r.Version.CreatedBy),
+		Version:   int32(r.Version.Version),
+		Location:  assetLocationString(r.Store),
+		SizeBytes: int32(r.Version.SizeBytes),
+		Sha256:    assetShaString(r.Version.Sha256),
+		Blob:      r.Store.InlineBlob,
 	}
 }

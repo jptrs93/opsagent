@@ -53,15 +53,24 @@ type AssetMigration struct {
 	FinishedAt         int64
 }
 
+type AssetStore struct {
+	ID           string
+	Sha256       string
+	SizeBytes    int64
+	InlineBlob   []byte
+	LocalStatus  int64
+	RemoteStatus int64
+	CreatedAt    int64
+}
+
 type AssetVersion struct {
 	ID        int64
 	AssetID   int64
 	Version   int64
 	CreatedAt int64
 	CreatedBy int64
-	Location  string
 	SizeBytes int64
-	Blob      []byte
+	Sha256    string
 }
 
 type AuthzGrant struct {
