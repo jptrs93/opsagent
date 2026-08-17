@@ -190,51 +190,6 @@ func TestSweepReclaimsInterruptedStagedUpload(t *testing.T) {
 	}
 }
 
-func TestConvertLegacyRowsHashesAndMerges(t *testing.T) {
-	settings := config.DefaultSettings(config.DefaultInitialConfig())
-	store := newTestStore(t, &settings)
-	blob := []byte("legacy content")
-	store.DB.InsertAssetStoreRow("1", "legacy:1", int64(len(blob)), blob, 0, 0)
-	store.DB.InsertAssetStoreRow("2", "legacy:2", int64(len(blob)), blob, 0, 0)
-	a, err := store.DB.CreateAssetWithVersion("a.conf", 1, 0, 0, "legacy:1", int64(len(blob)))
-	if err != nil {
-		t.Fatalf("create a: %v", err)
-	}
-	b, err := store.DB.CreateAssetWithVersion("b.conf", 1, 0, 0, "legacy:2", int64(len(blob)))
-	if err != nil {
-		t.Fatalf("create b: %v", err)
-	}
-	if a.Sha256 != "" || b.Sha256 != "" {
-		t.Fatalf("legacy shas leaked to the wire: %q %q", a.Sha256, b.Sha256)
-	}
-
-	if err := store.convertLegacyRows(context.Background()); err != nil {
-		t.Fatalf("convertLegacyRows: %v", err)
-	}
-	want := hashBlob(blob)
-	converted, ok := store.DB.GetAssetVersionByID(a.ID)
-	if !ok || converted.Sha256 != want {
-		t.Fatalf("converted a sha = %q ok=%v, want %q", converted.Sha256, ok, want)
-	}
-	converted, ok = store.DB.GetAssetVersionByID(b.ID)
-	if !ok || converted.Sha256 != want {
-		t.Fatalf("converted b sha = %q ok=%v, want %q", converted.Sha256, ok, want)
-	}
-	if rows := store.DB.ListAssetStoreRowMetas(); len(rows) != 1 || rows[0].Sha256 != want {
-		t.Fatalf("store rows after merge = %+v, want one row with the real sha", rows)
-	}
-
-	_, body, err := store.OpenAsset(context.Background(), a.ID)
-	if err != nil {
-		t.Fatalf("OpenAsset after merge: %v", err)
-	}
-	got, _ := io.ReadAll(body)
-	body.Close()
-	if !bytes.Equal(got, blob) {
-		t.Fatal("merged content did not round-trip")
-	}
-}
-
 func TestMigrationRemainsActiveUntilReconcileFinishesIt(t *testing.T) {
 	settings := config.DefaultSettings(config.DefaultInitialConfig())
 	store := newTestStore(t, &settings)

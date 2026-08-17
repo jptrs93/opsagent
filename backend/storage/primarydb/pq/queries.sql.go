@@ -2607,20 +2607,6 @@ func (q *Queries) RecordAssetMigrationError(ctx context.Context, arg RecordAsset
 	return i, err
 }
 
-const relinkAssetVersionsSha = `-- name: RelinkAssetVersionsSha :exec
-UPDATE asset_versions SET sha256 = ? WHERE sha256 = ?
-`
-
-type RelinkAssetVersionsShaParams struct {
-	Sha256   string
-	Sha256_2 string
-}
-
-func (q *Queries) RelinkAssetVersionsSha(ctx context.Context, arg RelinkAssetVersionsShaParams) error {
-	_, err := q.db.ExecContext(ctx, relinkAssetVersionsSha, arg.Sha256, arg.Sha256_2)
-	return err
-}
-
 const renameAssetKey = `-- name: RenameAssetKey :exec
 UPDATE assets SET key = ? WHERE id = ?
 `
@@ -2789,20 +2775,6 @@ type SetAssetStoreRemoteStatusParams struct {
 
 func (q *Queries) SetAssetStoreRemoteStatus(ctx context.Context, arg SetAssetStoreRemoteStatusParams) error {
 	_, err := q.db.ExecContext(ctx, setAssetStoreRemoteStatus, arg.RemoteStatus, arg.ID)
-	return err
-}
-
-const setAssetStoreSha = `-- name: SetAssetStoreSha :exec
-UPDATE asset_store SET sha256 = ? WHERE id = ?
-`
-
-type SetAssetStoreShaParams struct {
-	Sha256 string
-	ID     string
-}
-
-func (q *Queries) SetAssetStoreSha(ctx context.Context, arg SetAssetStoreShaParams) error {
-	_, err := q.db.ExecContext(ctx, setAssetStoreSha, arg.Sha256, arg.ID)
 	return err
 }
 

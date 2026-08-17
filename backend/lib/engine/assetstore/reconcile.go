@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -47,9 +46,6 @@ func (s *Store) StartReconciler(ctx context.Context) <-chan struct{} {
 			}
 			if err == nil {
 				_, err = s.Reconcile(ctx)
-			}
-			if err == nil {
-				err = s.convertLegacyRows(ctx)
 			}
 			if err == nil {
 				err = s.SweepUnreferencedStoreRows(time.Now().Add(-storeRowSweepGrace))
@@ -298,71 +294,6 @@ func (s *Store) downloadRowToLocal(ctx context.Context, row state.AssetStore, so
 	if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
 		return fmt.Errorf("sync migrated large asset directory %s: %w", row.ID, err)
 	}
-	return nil
-}
-
-// convertLegacyRows hashes the content of rows migrated with placeholder shas
-// and repoints their version links, merging rows whose content turns out to
-// already exist under its real sha.
-func (s *Store) convertLegacyRows(ctx context.Context) error {
-	for _, row := range s.DB.ListAssetStoreRowMetas() {
-		if !row.LegacySha() {
-			continue
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if err := s.convertLegacyRow(ctx, row.ID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Store) convertLegacyRow(ctx context.Context, storeID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	row, ok := s.DB.GetAssetStoreRowByID(storeID)
-	if !ok || !strings.HasPrefix(row.Sha256, "legacy:") {
-		return nil
-	}
-	var sha string
-	switch {
-	case row.SizeBytes == 0 || len(row.InlineBlob) > 0:
-		sha = hashBlob(row.InlineBlob)
-	case row.LocalStatus == 1:
-		file, err := os.Open(localPath(storeID))
-		if err != nil {
-			return fmt.Errorf("open local large asset %s for hashing: %w", storeID, err)
-		}
-		sha, err = hashReader(file)
-		file.Close()
-		if err != nil {
-			return fmt.Errorf("hash local large asset %s: %w", storeID, err)
-		}
-	case row.RemoteStatus == 1:
-		body, err := s.openS3Asset(ctx, storeID)
-		if err != nil {
-			return err
-		}
-		sha, err = hashReader(body)
-		body.Close()
-		if err != nil {
-			return fmt.Errorf("hash s3 large asset %s: %w", storeID, err)
-		}
-	default:
-		slog.Warn("legacy asset store row has no content to hash", "store_id", storeID)
-		return nil
-	}
-	if s.DB.RelinkLegacyAssetSha(storeID, row.Sha256, sha) {
-		if row.LocalStatus == 1 {
-			if err := os.Remove(localPath(storeID)); err != nil && !os.IsNotExist(err) {
-				slog.Warn("remove merged duplicate large asset", "store_id", storeID, "err", err)
-			}
-		}
-	}
-	s.notifyContentMoved(sha)
 	return nil
 }
 

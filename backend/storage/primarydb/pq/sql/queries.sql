@@ -399,9 +399,6 @@ SELECT COUNT(*) FROM asset_versions WHERE sha256 = ?;
 -- name: ListAssetIDsBySha :many
 SELECT DISTINCT asset_id FROM asset_versions WHERE sha256 = ?;
 
--- name: RelinkAssetVersionsSha :exec
-UPDATE asset_versions SET sha256 = ? WHERE sha256 = ?;
-
 -- === asset_store ===
 
 -- name: InsertAssetStoreRow :one
@@ -436,9 +433,6 @@ UPDATE asset_store SET local_status = ? WHERE id = ?;
 
 -- name: SetAssetStoreRemoteStatus :exec
 UPDATE asset_store SET remote_status = ? WHERE id = ?;
-
--- name: SetAssetStoreSha :exec
-UPDATE asset_store SET sha256 = ? WHERE id = ?;
 
 -- name: DeleteAssetStoreRow :exec
 DELETE FROM asset_store WHERE id = ?;

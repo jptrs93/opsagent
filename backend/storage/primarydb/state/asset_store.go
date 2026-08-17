@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -24,10 +23,6 @@ type AssetStoreMeta struct {
 
 // Staging reports whether the row's content has not finished uploading.
 func (m AssetStoreMeta) Staging() bool { return m.Sha256 == "" }
-
-// LegacySha reports whether the row still carries a migration placeholder sha
-// and needs its content hashed.
-func (m AssetStoreMeta) LegacySha() bool { return strings.HasPrefix(m.Sha256, "legacy:") }
 
 // FileBacked reports whether the row's content lives outside the database.
 func (m AssetStoreMeta) FileBacked() bool {
@@ -178,36 +173,4 @@ func (s *Service) ListAssetIDsBySha(sha256 string) []int32 {
 		out = append(out, int32(id))
 	}
 	return out
-}
-
-// RelinkLegacyAssetSha replaces a migration placeholder sha with the real
-// content hash. When another store row already holds that sha the row merges
-// into it: every version linking the placeholder is repointed and the
-// duplicate row is deleted. Returns whether a merge happened, in which case
-// the caller reclaims the duplicate's local file.
-func (s *Service) RelinkLegacyAssetSha(storeID, legacySha, realSha string) bool {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
-	ctx := context.Background()
-	existing, err := s.q.GetAssetStoreRowBySha(ctx, realSha)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		panic(fmt.Sprintf("GetAssetStoreRowBySha: %v", err))
-	}
-	merge := err == nil && existing.ID != storeID
-	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		if merge {
-			if err := q.DeleteAssetStoreRow(ctx, storeID); err != nil {
-				panic(fmt.Sprintf("DeleteAssetStoreRow: %v", err))
-			}
-		} else if err := q.SetAssetStoreSha(ctx, pq.SetAssetStoreShaParams{Sha256: realSha, ID: storeID}); err != nil {
-			panic(fmt.Sprintf("SetAssetStoreSha: %v", err))
-		}
-		if err := q.RelinkAssetVersionsSha(ctx, pq.RelinkAssetVersionsShaParams{Sha256: realSha, Sha256_2: legacySha}); err != nil {
-			panic(fmt.Sprintf("RelinkAssetVersionsSha: %v", err))
-		}
-		return nil
-	}); err != nil {
-		panic(fmt.Sprintf("relink asset sha tx: %v", err))
-	}
-	return merge
 }

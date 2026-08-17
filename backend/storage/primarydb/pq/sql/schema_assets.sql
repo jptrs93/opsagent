@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS asset_versions (
     UNIQUE (asset_id, version)
 );
 
+CREATE INDEX IF NOT EXISTS idx_asset_versions_sha256 ON asset_versions (sha256);
+
 CREATE TABLE IF NOT EXISTS asset_store (
     id            TEXT    PRIMARY KEY,
     sha256        TEXT    NOT NULL DEFAULT '',

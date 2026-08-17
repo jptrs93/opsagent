@@ -1,7 +1,6 @@
 package state
 
 import (
-	"strings"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -35,15 +34,6 @@ func assetLocationString(s pq.AssetStoreRef) string {
 	return ""
 }
 
-// assetShaString hides the migration placeholder shas of rows whose content
-// has not been hashed yet.
-func assetShaString(sha string) string {
-	if strings.HasPrefix(sha, "legacy:") {
-		return ""
-	}
-	return sha
-}
-
 func assetVersionMetaFromJoined(r pq.AssetVersionJoined) *apigen.AssetVersionMeta {
 	return &apigen.AssetVersionMeta{
 		ID:        int32(r.Version.ID),
@@ -52,7 +42,7 @@ func assetVersionMetaFromJoined(r pq.AssetVersionJoined) *apigen.AssetVersionMet
 		CreatedBy: int32(r.Version.CreatedBy),
 		SizeBytes: int32(r.Version.SizeBytes),
 		Location:  assetLocationString(r.Store),
-		Sha256:    assetShaString(r.Version.Sha256),
+		Sha256:    r.Version.Sha256,
 	}
 }
 
@@ -67,7 +57,7 @@ func assetVersionFromJoined(a Asset, r pq.AssetVersionJoined) *apigen.AssetVersi
 		Version:   int32(r.Version.Version),
 		Location:  assetLocationString(r.Store),
 		SizeBytes: int32(r.Version.SizeBytes),
-		Sha256:    assetShaString(r.Version.Sha256),
+		Sha256:    r.Version.Sha256,
 		Blob:      r.Store.InlineBlob,
 	}
 }
