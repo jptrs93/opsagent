@@ -131,7 +131,6 @@ OpenDeploy self-updates go through plain `/v1/deployments/update` calls, one per
 ### Nodes
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
-| GET | `/v1/nodes/status` | — | `NodeStatusResponse` | ANY_OF default |
 | POST | `/v1/nodes/rename` | `NodeRenameRequest` | `ClusterNode` | ANY_OF default |
 | POST | `/v1/nodes/allowed-spaces` | `NodeAllowedSpacesRequest` | `ClusterNode` | ANY_OF default |
 | GET | `/v1/nodes/enrollments/info` | — | `NodeEnrollmentInfo` | ANY_OF default |
@@ -203,12 +202,13 @@ Cluster secrets/configs requests carry immutable row IDs. The primary authorizes
 
 `/v1/cluster/connect` is the long-lived bidirectional worker session. HTTP/2
 request and response bodies contain unsigned-varint-length-prefixed protobuf
-frames. The primary sends legacy cluster-prefix state, the latest targeted
+frames. The primary sends the cluster network info, the latest targeted
 `ClusterNetMap`, and the deployment snapshot at session start. Later complete
 network maps use latest-value coalescing rather than queueing obsolete versions.
 Workers send durable `NetMapStatus` acknowledgements on the request stream.
 
-Cluster sessions use protocol version `2`. Workers require the primary's
+Cluster sessions use a single protocol version, `apigen.ClusterProtocolVersion`
+(bumped on any wire-incompatible change). Workers require the primary's
 version marker before applying state, and the primary cancels sessions whose
 worker hello reports a different version. A mismatch retries after the normal
 reconnect delay.

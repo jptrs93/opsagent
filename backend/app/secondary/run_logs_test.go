@@ -10,7 +10,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-func TestLatestRunLogFilePrefersFlatLogs(t *testing.T) {
+func TestLatestRunLogFilePicksNewestByModTime(t *testing.T) {
 	old := ainit.StaticConfig.RunOutputDir
 	ainit.StaticConfig.RunOutputDir = t.TempDir()
 	t.Cleanup(func() { ainit.StaticConfig.RunOutputDir = old })

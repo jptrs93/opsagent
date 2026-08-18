@@ -44,16 +44,9 @@ const loadView = () => {
 };
 
 // Deployment specs pin asset *version* row ids; an asset's meta lists every
-// published version id, so membership is the usage test. Env refs may also
-// carry a legacy display key.
-const assetRefMatches = (assetKey, versionIDs, ref) => {
-    if (!ref) return false;
-    const refVersionId = Number(ref.assetVersionId || 0);
-    if (refVersionId) return versionIDs.has(refVersionId);
-    return Boolean(assetKey && ref.asset === assetKey);
-};
-
-const assetMountRefMatches = (versionIDs, ref) => versionIDs.has(Number(ref?.assetVersionId || 0));
+// published version id, so membership is the usage test.
+const assetRefMatches = (versionIDs, ref) =>
+    versionIDs.has(Number(ref?.assetVersionId || 0));
 
 async function uploadAssetFile(file, params, token, onProgress) {
     const query = new URLSearchParams(params);
@@ -186,8 +179,8 @@ export function assetsPage() {
             const cfg = deployment?.config;
             if (!cfg || cfg.deleted) return false;
             const runtime = containerWorkload(cfg)?.runtime || {};
-            return Object.values(runtime.envVars || {}).some((ref) => assetRefMatches(item.name, versionIDs, ref))
-                || (runtime.assetMounts || []).some((ref) => assetMountRefMatches(versionIDs, ref));
+            return Object.values(runtime.envVars || {}).some((ref) => assetRefMatches(versionIDs, ref))
+                || (runtime.assetMounts || []).some((ref) => assetRefMatches(versionIDs, ref));
         });
         return {deployments, settings: []};
     };

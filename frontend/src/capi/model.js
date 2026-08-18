@@ -194,7 +194,6 @@
  * @typedef {Object} Endpoint
  * @property {number} ordinal
  * @property {string} address
- * @property {string} machine
  * @property {number} state
  * @property {number} nodeId
  */
@@ -274,13 +273,6 @@
  * @property {boolean} loaded
  * @property {string} errormessage
  * @property {string[]} branches
- */
-/**
- * @typedef {Object} RepoValidationResult
- * @property {boolean} checked
- * @property {string} repoUrl
- * @property {boolean} ok
- * @property {string} message
  */
 /**
  * @typedef {Object} ValidationResult
@@ -1113,10 +1105,6 @@
  * @property {number} id
  */
 /**
- * @typedef {Object} ClusterMachineList
- * @property {ClusterMachine[]} items
- */
-/**
  * @typedef {Object} DeploymentHistoryEntry
  * @property {DeploymentConfig} config
  * @property {ScheduledInstanceStatus} status
@@ -1149,16 +1137,6 @@
  * @typedef {Object} PublicKeyRecord
  * @property {string} kid
  * @property {Uint8Array} keyBytes
- */
-/**
- * @typedef {Object} ClusterMachine
- * @property {string} name
- * @property {boolean} isPrimary
- * @property {boolean} connected
- * @property {Date} connectedAt
- * @property {string} identifier
- * @property {number} id
- * @property {number[]} allowedSpaces
  */
 /**
  * @typedef {Object} ClusterNode
@@ -1196,10 +1174,6 @@
 /**
  * @typedef {Object} ClusterNodeStatusList
  * @property {ClusterNodeStatus[]} items
- */
-/**
- * @typedef {Object} NodeStatusResponse
- * @property {ClusterMachine[]} machines
  */
 /**
  * @typedef {Object} MsgToWorker
@@ -3739,9 +3713,6 @@ export function writeEndpoint(message, writer) {
     if (message.address !== undefined && message.address !== null && message.address !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.address);
     }
-    if (message.machine !== undefined && message.machine !== null && message.machine !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.machine);
-    }
     if (message.state !== undefined && message.state !== null && message.state !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.state);
     }
@@ -3769,7 +3740,7 @@ export function encodeEndpoint(message) {
  */
 function decodeEndpointMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {ordinal: 0, address: "", machine: "", state: 0, nodeId: 0 };
+    const message = {ordinal: 0, address: "", state: 0, nodeId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3779,10 +3750,6 @@ function decodeEndpointMessage(reader, length) {
             }
             case 2: {
                 message.address = reader.string();
-                break;
-            }
-            case 3: {
-                message.machine = reader.string();
                 break;
             }
             case 4: {
@@ -4701,83 +4668,6 @@ function decodeAvailableBranchesMessage(reader, length) {
 export function decodeAvailableBranches(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeAvailableBranchesMessage(reader);
-}
-
-
-
-/**
- * @param {RepoValidationResult} message
- * @param {Writer} writer
- */
-export function writeRepoValidationResult(message, writer) {
-    if (message.checked === true) {
-        writer.uint32(tag(1, WIRE.VARINT)).bool(message.checked);
-    }
-    if (message.repoUrl !== undefined && message.repoUrl !== null && message.repoUrl !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.repoUrl);
-    }
-    if (message.ok === true) {
-        writer.uint32(tag(3, WIRE.VARINT)).bool(message.ok);
-    }
-    if (message.message !== undefined && message.message !== null && message.message !== "") {
-        writer.uint32(tag(4, WIRE.LDELIM)).string(message.message);
-    }
-}
-
-
-/**
- * @param {RepoValidationResult} message
- * @returns {Uint8Array}
- */
-export function encodeRepoValidationResult(message) {
-    const writer = Writer.create();
-    writeRepoValidationResult(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {RepoValidationResult}
- */
-function decodeRepoValidationResultMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {checked: false, repoUrl: "", ok: false, message: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.checked = reader.bool();
-                break;
-            }
-            case 2: {
-                message.repoUrl = reader.string();
-                break;
-            }
-            case 3: {
-                message.ok = reader.bool();
-                break;
-            }
-            case 4: {
-                message.message = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {RepoValidationResult}
- */
-export function decodeRepoValidationResult(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeRepoValidationResultMessage(reader);
 }
 
 
@@ -14677,66 +14567,6 @@ export function decodeSpaceDeleteRequest(buffer) {
 
 
 /**
- * @param {ClusterMachineList} message
- * @param {Writer} writer
- */
-export function writeClusterMachineList(message, writer) {
-    if (message.items && message.items.length > 0) {
-        for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeClusterMachine(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {ClusterMachineList} message
- * @returns {Uint8Array}
- */
-export function encodeClusterMachineList(message) {
-    const writer = Writer.create();
-    writeClusterMachineList(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ClusterMachineList}
- */
-function decodeClusterMachineListMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {items: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.items.push(decodeClusterMachineMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ClusterMachineList}
- */
-export function decodeClusterMachineList(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeClusterMachineListMessage(reader);
-}
-
-
-
-/**
  * @param {DeploymentHistoryEntry} message
  * @param {Writer} writer
  */
@@ -15150,113 +14980,6 @@ function decodePublicKeyRecordMessage(reader, length) {
 export function decodePublicKeyRecord(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodePublicKeyRecordMessage(reader);
-}
-
-
-
-/**
- * @param {ClusterMachine} message
- * @param {Writer} writer
- */
-export function writeClusterMachine(message, writer) {
-    if (message.name !== undefined && message.name !== null && message.name !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
-    }
-    if (message.isPrimary === true) {
-        writer.uint32(tag(2, WIRE.VARINT)).bool(message.isPrimary);
-    }
-    if (message.connected === true) {
-        writer.uint32(tag(3, WIRE.VARINT)).bool(message.connected);
-    }
-    if (message.connectedAt instanceof Date && message.connectedAt.getTime() !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.connectedAt.getTime()));
-    }
-    if (message.identifier !== undefined && message.identifier !== null && message.identifier !== "") {
-        writer.uint32(tag(5, WIRE.LDELIM)).string(message.identifier);
-    }
-    if (message.id !== undefined && message.id !== null && message.id !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.id);
-    }
-    if (message.allowedSpaces) {
-        const packedWriter = Writer.create();
-        for (const item of message.allowedSpaces) {
-            packedWriter.int32(item);
-        }
-        if (packedWriter.len > 0) {
-            writer.uint32(tag(7, WIRE.LDELIM)).bytes(packedWriter.finish());
-        }
-    }
-}
-
-
-/**
- * @param {ClusterMachine} message
- * @returns {Uint8Array}
- */
-export function encodeClusterMachine(message) {
-    const writer = Writer.create();
-    writeClusterMachine(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ClusterMachine}
- */
-function decodeClusterMachineMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", isPrimary: false, connected: false, connectedAt: new Date(0), identifier: "", id: 0, allowedSpaces: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.name = reader.string();
-                break;
-            }
-            case 2: {
-                message.isPrimary = reader.bool();
-                break;
-            }
-            case 3: {
-                message.connected = reader.bool();
-                break;
-            }
-            case 4: {
-                message.connectedAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 5: {
-                message.identifier = reader.string();
-                break;
-            }
-            case 6: {
-                message.id = reader.int32();
-                break;
-            }
-            case 7: {
-                const end2 = reader.uint32() + reader.pos;
-                while (reader.pos < end2) {
-                    message.allowedSpaces.push(reader.int32());
-                }
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ClusterMachine}
- */
-export function decodeClusterMachine(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeClusterMachineMessage(reader);
 }
 
 
@@ -15721,66 +15444,6 @@ function decodeClusterNodeStatusListMessage(reader, length) {
 export function decodeClusterNodeStatusList(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeClusterNodeStatusListMessage(reader);
-}
-
-
-
-/**
- * @param {NodeStatusResponse} message
- * @param {Writer} writer
- */
-export function writeNodeStatusResponse(message, writer) {
-    if (message.machines && message.machines.length > 0) {
-        for (const item of message.machines) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeClusterMachine(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {NodeStatusResponse} message
- * @returns {Uint8Array}
- */
-export function encodeNodeStatusResponse(message) {
-    const writer = Writer.create();
-    writeNodeStatusResponse(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {NodeStatusResponse}
- */
-function decodeNodeStatusResponseMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {machines: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.machines.push(decodeClusterMachineMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {NodeStatusResponse}
- */
-export function decodeNodeStatusResponse(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeNodeStatusResponseMessage(reader);
 }
 
 

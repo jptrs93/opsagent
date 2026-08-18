@@ -52,8 +52,7 @@ func IsSelfSpec(spec *apigen.DeploymentSpec) bool {
 		gh.Asset == "opendeploy-linux-"+runtime.GOARCH &&
 		sys.Name == SelfName &&
 		sys.BinPath == SelfBinPath &&
-		(spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_HOST ||
-			spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_UNSPECIFIED)
+		spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_HOST
 }
 
 // NetproxySpec is the desired spec of the per-node opendeploy-net deployment.

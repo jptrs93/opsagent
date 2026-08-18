@@ -959,22 +959,6 @@ func (c *ApiServerCapi) PostV1ReposValidate(ctx context.Context, req *RepoValida
 	return DecodeRepoValidateResponse(body)
 }
 
-func (c *ApiServerCapi) GetV1NodesStatus(ctx context.Context) (*NodeStatusResponse, error) {
-	resp, err := c.do(ctx, "GET", "/v1/nodes/status", nil, "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeNodeStatusResponse(body)
-}
-
 func (c *ApiServerCapi) PostV1NodesRename(ctx context.Context, req *NodeRenameRequest) (*ClusterNode, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1NodesRename request is nil")

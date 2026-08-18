@@ -135,36 +135,25 @@ func TestValidateClusterNetMapRejectsInvalidTopology(t *testing.T) {
 	}
 }
 
-// A cached map written before stamps existed decodes with DerivedFromSeq zero.
-// It must stay usable for boot-time reconciliation; the session snapshot that
-// follows replaces it unconditionally either way.
-func TestValidateClusterNetMapToleratesUnstampedCache(t *testing.T) {
-	prefix := network.GeneratePrefix()
-	legacy := testClusterNetMap(t, prefix, 0)
-	if _, _, err := validateClusterNetMap(legacy, 1, prefix); err != nil {
-		t.Fatalf("unstamped map rejected: %v", err)
-	}
-}
-
-// A worker upgraded across the route-format change finds a map it cannot read:
-// the field that now carries a CIDR was written as a bare address by the release
-// before it. The map is worthless either way — host routes are rejected even
-// spelled as /128 — so it must be dropped rather than surfaced, because the two
-// callers that see the error cannot survive it: startup panics, and
-// acceptClusterNetMap would refuse the replacement map on the strength of the
-// unreadable one it is replacing.
+// The cached map outlives the binary that wrote it, so a release that changes
+// what a map may contain inherits whatever the previous release persisted. A
+// cached blob this build cannot validate must be dropped rather than surfaced,
+// because the two callers that see the error cannot survive it: startup
+// panics, and acceptClusterNetMap would refuse the replacement map on the
+// strength of the unreadable one it is replacing.
 func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "secondary.db"))
 	defer store.Close()
 	prefix := network.GeneratePrefix()
 
-	legacy := testClusterNetMap(t, prefix, 7)
+	// A bare address where a CIDR route prefix belongs fails validation.
+	unreadable := testClusterNetMap(t, prefix, 7)
 	addr, err := prefix.InboundAddr(1, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy.Routes[0].LogicalPrefix = addr.String()
-	store.MustSetLocalKV(storage.LocalKVWorkerClusterNetMap, legacy.Encode())
+	unreadable.Routes[0].LogicalPrefix = addr.String()
+	store.MustSetLocalKV(storage.LocalKVWorkerClusterNetMap, unreadable.Encode())
 
 	cached, _, ok, err := cachedClusterNetMap(store, 1, prefix)
 	if err != nil {

@@ -146,7 +146,6 @@ type Store interface {
 	GetSecretIDByName(spaceID int32, name string) (int32, bool)
 	CreateSecretWithVersion(name string, spaceID, directoryID, author int32, seal SealFunc) (Record, error)
 	AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal SealFunc, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(Record)) (Record, []int32, error)
-	UpdateSecretVersionCiphertext(versionID, smkVersion int32, ciphertext, nonce []byte)
 	RenameSecret(secretID int32, newName string) error
 	MoveSecretSpace(secretID, newSpaceID, newDirectoryID, author int32) error
 	DeleteSecret(secretID int32) error

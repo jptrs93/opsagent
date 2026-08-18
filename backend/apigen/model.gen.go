@@ -362,7 +362,6 @@ type RunnerStatus struct {
 type Endpoint struct {
 	Ordinal int32         `json:"ordinal"`
 	Address string        `json:"address,omitempty"`
-	Machine string        `json:"machine,omitempty"`
 	State   EndpointState `json:"state"`
 	NodeID  int32         `json:"node_id"`
 }
@@ -442,13 +441,6 @@ type AvailableBranches struct {
 	Loaded       bool     `json:"loaded"`
 	Errormessage *string  `json:"errormessage,omitempty"`
 	Branches     []string `json:"branches,omitempty"`
-}
-
-type RepoValidationResult struct {
-	Checked bool   `json:"checked"`
-	RepoUrl string `json:"repo_url,omitempty"`
-	Ok      bool   `json:"ok"`
-	Message string `json:"message,omitempty"`
 }
 
 type ValidationResult struct {
@@ -1281,10 +1273,6 @@ type SpaceDeleteRequest struct {
 	ID int32 `json:"id"`
 }
 
-type ClusterMachineList struct {
-	Items []*ClusterMachine `json:"items,omitempty"`
-}
-
 type DeploymentHistoryEntry struct {
 	Config *DeploymentConfig        `json:"config"`
 	Status *ScheduledInstanceStatus `json:"status"`
@@ -1317,16 +1305,6 @@ type InternalUser struct {
 type PublicKeyRecord struct {
 	Kid      string `json:"kid,omitempty"`
 	KeyBytes []byte `json:"key_bytes"`
-}
-
-type ClusterMachine struct {
-	Name          string    `json:"name,omitempty"`
-	IsPrimary     bool      `json:"is_primary"`
-	Connected     bool      `json:"connected"`
-	ConnectedAt   time.Time `json:"connected_at"`
-	Identifier    string    `json:"identifier,omitempty"`
-	ID            int32     `json:"id"`
-	AllowedSpaces []int32   `json:"allowed_spaces,omitempty"`
 }
 
 type ClusterNode struct {
@@ -1364,10 +1342,6 @@ type ClusterNodeStatus struct {
 
 type ClusterNodeStatusList struct {
 	Items []*ClusterNodeStatus `json:"items,omitempty"`
-}
-
-type NodeStatusResponse struct {
-	Machines []*ClusterMachine `json:"machines,omitempty"`
 }
 
 type MsgToWorker struct {

@@ -352,14 +352,17 @@ func (s *Service) MustCreateDeploymentForNode(ctx apigen.Context, spaceID int32,
 }
 
 // EnsureSystemDeployment creates the OPENDEPLOY opendeploy deployment for
-// the given node if it does not already exist. When opendeployVersion is
-// known, first-time system deployments are marked desired-running at that
-// version so the systemd runner can observe the already-running service.
+// the given node if it does not already exist. First-time system deployments
+// are marked desired-running at opendeployVersion so the systemd runner can
+// observe the already-running service.
 func (s *Service) EnsureSystemDeployment(nodeID int32, opendeployVersion string) {
 	if nodeID <= 0 {
 		panic("deployment node ID must be positive")
 	}
 	opendeployVersion = strings.TrimSpace(opendeployVersion)
+	if opendeployVersion == "" {
+		panic("EnsureSystemDeployment requires an explicit OpenDeploy version")
+	}
 
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -376,7 +379,7 @@ func (s *Service) EnsureSystemDeployment(nodeID int32, opendeployVersion string)
 	}
 
 	spec := internaldeploy.SelfSpec()
-	if err := spec.SetWorkloadState(opendeployVersion, opendeployVersion != ""); err != nil {
+	if err := spec.SetWorkloadState(opendeployVersion, true); err != nil {
 		panic(fmt.Sprintf("initialize system deployment state: %v", err))
 	}
 	s.mustCreateDeploymentLocked(OpendeploySpaceID, internaldeploy.SelfName, nodeID, spec.Encode(), 0, "system deployment")

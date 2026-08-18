@@ -551,9 +551,6 @@ INSERT INTO secret_versions (secret_id, version, smk_version, ciphertext, nonce,
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, secret_id, version, smk_version, ciphertext, nonce, created_at, author, global_seq;
 
--- name: UpdateSecretVersionCiphertext :exec
-UPDATE secret_versions SET smk_version = ?, ciphertext = ?, nonce = ? WHERE id = ?;
-
 -- name: ListSecretVersionIDsBySecretID :many
 SELECT id FROM secret_versions WHERE secret_id = ? ORDER BY version;
 

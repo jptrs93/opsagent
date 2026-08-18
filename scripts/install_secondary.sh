@@ -20,7 +20,7 @@ detect_arch() {
 }
 
 requested_version() {
-    local version="${OPENDEPLOY_VERSION:-v0.0.202}"
+    local version="${OPENDEPLOY_VERSION:-latest}"
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --version=*)

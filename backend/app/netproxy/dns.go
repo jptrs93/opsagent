@@ -93,18 +93,22 @@ func (s *dnsServer) handle(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 	q := r.Question[0]
-	if q.Qtype == dns.TypeAAAA || q.Qtype == dns.TypeANY {
-		if answers := s.lookupAAAA(q.Name); len(answers) > 0 {
-			res.Authoritative = true
-			for _, addr := range answers {
-				res.Answer = append(res.Answer, &dns.AAAA{
-					Hdr:  dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: 5},
-					AAAA: net.ParseIP(addr),
-				})
-			}
-			_ = w.WriteMsg(res)
-			return
+	answers, known := s.lookupAAAA(q.Name)
+	if (q.Qtype == dns.TypeAAAA || q.Qtype == dns.TypeANY) && len(answers) > 0 {
+		res.Authoritative = true
+		for _, addr := range answers {
+			res.Answer = append(res.Answer, &dns.AAAA{
+				Hdr:  dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: 5},
+				AAAA: net.ParseIP(addr),
+			})
 		}
+		_ = w.WriteMsg(res)
+		return
+	}
+	if known {
+		res.Authoritative = true
+		_ = w.WriteMsg(res)
+		return
 	}
 	if s.forward(w, r) {
 		return
@@ -117,33 +121,37 @@ func (s *dnsServer) handle(w dns.ResponseWriter, r *dns.Msg) {
 	_ = w.WriteMsg(res)
 }
 
-func (s *dnsServer) lookupAAAA(name string) []string {
+// lookupAAAA resolves name against the local catalog. known reports whether
+// the name belongs to a catalogued service on this node — for those the server
+// is authoritative even with no live endpoints, answering empty NOERROR
+// instead of leaking the query upstream.
+func (s *dnsServer) lookupAAAA(name string) (answers []string, known bool) {
 	state := s.state.Load()
 	if state == nil {
-		return nil
+		return nil, false
 	}
 	parts := strings.Split(strings.TrimSuffix(strings.ToLower(name), "."), ".")
 	if len(parts) < 3 || parts[len(parts)-1] != "internal" {
-		return nil
+		return nil, false
 	}
 	ordinal := int32(-1)
 	servicePart := 0
 	if len(parts) == 4 {
 		var parsed int
 		if _, err := fmt.Sscanf(parts[0], "%d", &parsed); err != nil {
-			return nil
+			return nil, false
 		}
 		ordinal = int32(parsed)
 		servicePart = 1
 	} else if len(parts) != 3 {
-		return nil
+		return nil, false
 	}
 	serviceName, env := parts[servicePart], parts[servicePart+1]
-	var out []string
 	for _, svc := range state.DnsServices {
 		if svc == nil || svc.Name != serviceName || svc.Environment != env {
 			continue
 		}
+		known = true
 		for _, ep := range svc.Endpoints {
 			if ep == nil || ep.State != apigen.EndpointState_ENDPOINT_READY {
 				continue
@@ -151,10 +159,10 @@ func (s *dnsServer) lookupAAAA(name string) []string {
 			if ordinal >= 0 && ep.Ordinal != ordinal {
 				continue
 			}
-			out = append(out, ep.Address)
+			answers = append(answers, ep.Address)
 		}
 	}
-	return out
+	return answers, known
 }
 
 func (s *dnsServer) forward(w dns.ResponseWriter, r *dns.Msg) bool {

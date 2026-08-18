@@ -55,7 +55,7 @@ The dashboard uses a split-pane layout:
 - Deployment history (`components/deploymentHistory.js`) color-codes entries: green for stable running, grey for other status transitions, orange for config changes.
 
 ### Cluster (`pages/cluster.js`)
-- Shows primary + worker machines and connection state via `GET /v1/nodes/status`.
+- Shows primary + worker machines and connection state, derived client-side from the state stream's `ClusterNode` and `ClusterNodeStatus` snapshots.
 - Allows editing a machine's display name without changing its certificate or deployment identity.
 
 Deployment node selectors render `ClusterNode.name` and submit `ClusterNode.id` as `DeploymentCreateRequest.nodeId`.

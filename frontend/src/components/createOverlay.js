@@ -3,6 +3,7 @@ import {capi} from "../capi/index.js";
 import {
     assetMetasS,
     deploymentsS,
+    nodesS,
     secretRefsS,
     spacesS,
     userConfigRefsS,
@@ -20,13 +21,14 @@ export function createOverlay(onClose, onCreated, opts = {}) {
         retainIdentity: Boolean(opts.retainIdentity),
         catalogs: {
             spaces: spacesS,
+            nodes: nodesS,
+            nodesLoaded: true,
             deployments: deploymentsS,
             assets: assetMetasS,
             secretRefs: secretRefsS,
             configRefs: userConfigRefsS,
         },
         actions: {
-            loadNodes: () => capi.getV1NodesStatus(),
             validateSource: request => capi.postV1ReposValidate(request),
             loadAsset: request => capi.postV1AssetsGet(request),
             createAsset: request => capi.postV1AssetsCreate(request),

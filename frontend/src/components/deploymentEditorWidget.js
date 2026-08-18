@@ -39,7 +39,7 @@ export function deploymentEditorWidget(opts) {
     const secretRefs = catalogs.secretRefs || [];
     const configRefs = catalogs.configRefs || [];
     const nodes = asState(catalogs.nodes, []);
-    const nodesLoaded = asState(catalogs.nodesLoaded, mode === 'update' || typeof actions.loadNodes !== 'function');
+    const nodesLoaded = asState(catalogs.nodesLoaded, true);
     const deployment = opts.deployment || null;
     const deploymentConfig = opts.deploymentConfig || null;
     const deploymentUpdate = new DeploymentCreationUpdate({
@@ -92,8 +92,9 @@ export function deploymentEditorWidget(opts) {
         if (opts.onSuccess) opts.onSuccess({kind, payload, result, form, deploymentUpdate});
     };
 
-    if (mode === 'create' && typeof actions.loadNodes === 'function') {
-        void loadNodes(actions.loadNodes, nodes, nodesLoaded, form, errorMsg);
+    if (mode === 'create' && !form.nodeId.val) {
+        const nodeList = (stateValue(nodes) || []).filter(node => Number(node?.id || 0));
+        if (nodeList.length === 1) form.nodeId.val = nodeList[0].id;
     }
 
     const loadVersions = async (branch, loadOpts = {}) => {
@@ -284,21 +285,6 @@ export function deploymentEditorWidget(opts) {
             onCancel: opts.onCancel,
         }),
     );
-}
-
-async function loadNodes(action, nodes, nodesLoaded, form, errorMsg) {
-    try {
-        const result = await action();
-        nodes.val = [...(result?.machines || [])]
-            .filter(node => Number(node?.id || 0))
-            .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-        if (!form.nodeId.val && nodes.val.length === 1) form.nodeId.val = nodes.val[0].id;
-    } catch (e) {
-        errorMsg.val = e.message || 'Failed to load cluster nodes';
-        nodes.val = [];
-    } finally {
-        nodesLoaded.val = true;
-    }
 }
 
 function editorModeToggle(args) {

@@ -118,12 +118,14 @@ func (s *Service) MustSetNodeAddresses(id int32, addresses []string) *Node {
 	return node
 }
 
-// NormalizeNodeUnderlay canonicalizes an optional underlay address and ensures
-// it uses the same address family as the other nodes in the cluster.
+// NormalizeNodeUnderlay canonicalizes a worker's underlay address and ensures
+// it uses the same address family as the other nodes in the cluster. Workers
+// resolve an address before enrolling or connecting, so an empty address is a
+// caller bug, never a legitimate state.
 func (s *Service) NormalizeNodeUnderlay(identifier, raw string) (string, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
-		return "", nil
+		return "", fmt.Errorf("underlay address is required")
 	}
 	addr, err := netip.ParseAddr(value)
 	if err != nil || addr.Zone() != "" {

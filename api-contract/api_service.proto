@@ -236,11 +236,6 @@ service ApiServer {
 
   // Nodes
 
-  rpc GetV1NodesStatus(cp.Empty) returns (NodeStatusResponse) {
-    option (cp.go_custom) = true;
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
-  }
-
   rpc PostV1NodesRename(NodeRenameRequest) returns (ClusterNode) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }

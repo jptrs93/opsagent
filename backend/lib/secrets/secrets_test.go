@@ -107,13 +107,6 @@ func (m *memStore) insertVersion(secretID, author int32, seal SealFunc) (Record,
 	m.records[rec.ID] = rec
 	return rec, nil
 }
-func (m *memStore) UpdateSecretVersionCiphertext(versionID, smkVersion int32, ciphertext, nonce []byte) {
-	rec := m.records[versionID]
-	rec.SMKVersion = smkVersion
-	rec.Ciphertext = ciphertext
-	rec.Nonce = nonce
-	m.records[versionID] = rec
-}
 func (m *memStore) RenameSecret(secretID int32, newName string) error {
 	identity, ok := m.identities[secretID]
 	if !ok {

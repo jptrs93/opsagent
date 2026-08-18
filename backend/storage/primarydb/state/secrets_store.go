@@ -200,22 +200,6 @@ func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, author int3
 	return record, updatedDeployments, nil
 }
 
-// UpdateSecretVersionCiphertext rewrites one version row's sealed bytes. Used
-// by the Manager's AAD re-seal sweep; the row id, version, and plaintext are
-// unchanged.
-func (s *Service) UpdateSecretVersionCiphertext(versionID, smkVersion int32, ciphertext, nonce []byte) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
-	if err := s.q.UpdateSecretVersionCiphertext(context.Background(), pq.UpdateSecretVersionCiphertextParams{
-		SmkVersion: int64(smkVersion),
-		Ciphertext: ciphertext,
-		Nonce:      nonce,
-		ID:         int64(versionID),
-	}); err != nil {
-		panic(fmt.Sprintf("UpdateSecretVersionCiphertext: %v", err))
-	}
-}
-
 // RenameSecret renames the stable secret identity. Versions and their sealed
 // bytes are untouched: the AAD binds the identity id, not the name.
 func (s *Service) RenameSecret(secretID int32, newName string) error {

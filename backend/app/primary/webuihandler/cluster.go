@@ -6,44 +6,10 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
-
-func (h *Handler) GetV1NodesStatus(ctx apigen.Context, r *http.Request, w http.ResponseWriter) error {
-	connected := map[int32]timeAndConnected{}
-	if h.Cluster != nil {
-		for nodeID, connectedAt := range h.Cluster.ConnectedNodes() {
-			connected[nodeID] = timeAndConnected{connectedAt: connectedAt, connected: true}
-		}
-	}
-	connected[h.NodeID] = timeAndConnected{connected: true}
-
-	nodes := h.Store.ListNodes()
-	machines := make([]*apigen.ClusterMachine, 0, len(nodes))
-	for _, node := range nodes {
-		if node == nil || node.Name == "" || node.Identifier == "" {
-			continue
-		}
-		if !h.nodeVisible(ctx, int64(node.ID), node.AllowedSpaces) {
-			continue
-		}
-		conn := connected[node.ID]
-		machines = append(machines, &apigen.ClusterMachine{
-			ID:            node.ID,
-			Name:          node.Name,
-			Identifier:    node.Identifier,
-			IsPrimary:     nodeHasRole(node, state.NodeRolePrimary),
-			Connected:     conn.connected,
-			ConnectedAt:   conn.connectedAt,
-			AllowedSpaces: node.AllowedSpaces,
-		})
-	}
-	respond(w, &apigen.NodeStatusResponse{Machines: machines})
-	return nil
-}
 
 var InvalidNodeRenameErr = apigen.NewApiErr("Node name and identifier are required", "invalid_node_rename", http.StatusBadRequest)
 var NodeNotFoundErr = apigen.NewApiErr("Node not found", "node_not_found", http.StatusNotFound)
@@ -188,16 +154,3 @@ func (h *Handler) validateNodeAllowsSpace(nodeID, spaceID int32) error {
 		"node_space_not_allowed", http.StatusConflict)
 }
 
-type timeAndConnected struct {
-	connectedAt time.Time
-	connected   bool
-}
-
-func nodeHasRole(node *state.Node, role int32) bool {
-	for _, r := range node.Roles {
-		if r == role {
-			return true
-		}
-	}
-	return false
-}

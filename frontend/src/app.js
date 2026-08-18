@@ -14,8 +14,6 @@ function renderRoute() {
     return loginPage();
 }
 
-console.log("opsagent frontend v0.0.54");
-
 if (!window.__opsagentAppInited) {
     window.__opsagentAppInited = true;
     initLoginState().then(async () => {

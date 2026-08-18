@@ -194,7 +194,7 @@ Each node carries an `allowed_spaces` list, and a deployment cannot be placed on
 
 `POST /v1/nodes/allowed-spaces` replaces a node's list, keyed by node identifier to match `POST /v1/nodes/rename`. It rejects a list naming a space that does not exist, and rejects a narrowing that would strip a space out from under deployments already on that node — the same shape as refusing to delete a space with live deployments. So the stored policy can never contradict what is running.
 
-Existing installs are unaffected by the upgrade: the migration backfills every node with every space that exists. It keys that backfill off an empty-string sentinel rather than a `'[0]'` default, because migrations re-run on every startup and a `'[0]'` default could not be told apart from a node an operator had legitimately narrowed to exactly the _system space — which would have silently reset it on the next restart.
+When the allow list shipped, existing installs were backfilled with every space that existed at the time (that migration has since been swept); a node created today starts out allowing every space, so the policy binds only where an operator has deliberately narrowed it.
 
 ### Recovering a deleted deployment
 

@@ -2945,27 +2945,6 @@ func (q *Queries) UpdateDeploymentDeletedAt(ctx context.Context, arg UpdateDeplo
 	return err
 }
 
-const updateSecretVersionCiphertext = `-- name: UpdateSecretVersionCiphertext :exec
-UPDATE secret_versions SET smk_version = ?, ciphertext = ?, nonce = ? WHERE id = ?
-`
-
-type UpdateSecretVersionCiphertextParams struct {
-	SmkVersion int64
-	Ciphertext []byte
-	Nonce      []byte
-	ID         int64
-}
-
-func (q *Queries) UpdateSecretVersionCiphertext(ctx context.Context, arg UpdateSecretVersionCiphertextParams) error {
-	_, err := q.db.ExecContext(ctx, updateSecretVersionCiphertext,
-		arg.SmkVersion,
-		arg.Ciphertext,
-		arg.Nonce,
-		arg.ID,
-	)
-	return err
-}
-
 const updateSpace = `-- name: UpdateSpace :one
 UPDATE spaces SET name = ? WHERE id = ?
 RETURNING id, name

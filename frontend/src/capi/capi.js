@@ -39,7 +39,6 @@ import {
   decodeLoginResponse,
   decodeMsgToWorker,
   decodeNodeEnrollmentInfo,
-  decodeNodeStatusResponse,
   decodePersonalSessionList,
   decodePrepareOutputChunk,
   decodeRecentlyDeletedDeployments,
@@ -763,17 +762,6 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeRepoValidateResponse(await response.arrayBuffer());
-  }
-
-  /**
-   * @returns {Promise<NodeStatusResponse>}
-   */
-  async getV1NodesStatus() {
-    const response = await this.#request("/v1/nodes/status", { method: 'GET' });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeNodeStatusResponse(await response.arrayBuffer());
   }
 
   /**

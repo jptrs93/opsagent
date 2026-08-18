@@ -112,8 +112,6 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 	if candidate == nil {
 		return nil, network.Prefix{}, fmt.Errorf("cluster network map is nil")
 	}
-	// Zero is tolerated only because a cached map written before stamps existed
-	// decodes to it; a session snapshot always replaces such a map.
 	if candidate.DerivedFromSeq < 0 {
 		return nil, network.Prefix{}, fmt.Errorf("cluster network map derived_from_seq is negative")
 	}

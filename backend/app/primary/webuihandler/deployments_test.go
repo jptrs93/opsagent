@@ -631,7 +631,7 @@ func TestValidateDeploymentSpecAcceptsHostMounts(t *testing.T) {
 	}
 }
 
-func TestValidateDeploymentSpecValidatesV2Mounts(t *testing.T) {
+func TestValidateDeploymentSpecValidatesMounts(t *testing.T) {
 	t.Run("default volume path", func(t *testing.T) {
 		input := remoteDeploymentSpec("nginx", hostNetworking())
 		input.Container1Spec.Runtime.DefaultVolume.ContainerPath = "data"
@@ -1374,7 +1374,7 @@ func TestDeploymentSpaceMove(t *testing.T) {
 	}
 }
 
-func TestDeploymentUpdatePreservesLegacyHostNetworking(t *testing.T) {
+func TestDeploymentUpdatePreservesHostNetworking(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	created := createTestDeployment(store, "primary", 1, "web", &initial)

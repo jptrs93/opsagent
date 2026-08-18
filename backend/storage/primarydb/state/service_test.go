@@ -2,7 +2,6 @@ package state
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -12,45 +11,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/storage/sqlitedb"
 )
-
-func TestPrimaryStorageIgnoresRetiredDesiredStateColumns(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	if err := Open(dbPath).Close(); err != nil {
-		t.Fatal(err)
-	}
-	db, err := sql.Open("sqlite", "file:"+dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, statement := range []string{
-		`ALTER TABLE deployments ADD COLUMN desired_version TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE deployments ADD COLUMN desired_running INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE deployment_versions ADD COLUMN desired_version TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE deployment_versions ADD COLUMN desired_running INTEGER NOT NULL DEFAULT 0`,
-	} {
-		if _, err := db.Exec(statement); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	store := Open(dbPath)
-	node := testNode(store, "primary")
-	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, "api", node.ID, testSpecWithState("v1", true))
-	store.MustSetDeploymentWorkloadState(apigen.Context{}, cfg.ID, "v2", false)
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	store = Open(dbPath)
-	defer store.Close()
-	reloaded := store.configCache[cfg.ID]
-	if reloaded == nil || reloaded.WorkloadVersion() != "v2" || reloaded.WorkloadRunning() {
-		t.Fatalf("reloaded deployment = %+v, want stopped v2", reloaded)
-	}
-}
 
 func testNode(store *Service, identifier string) *Node {
 	return store.EnsurePrimaryNode(identifier, identifier)

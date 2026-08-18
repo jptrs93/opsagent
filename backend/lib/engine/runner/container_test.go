@@ -194,7 +194,7 @@ func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	}
 }
 
-func TestContainerMountsTranslatesV2MountsAndPermissions(t *testing.T) {
+func TestContainerMountsTranslatesMountsAndPermissions(t *testing.T) {
 	oldVolumesDir := ainit.StaticConfig.VolumesDir
 	ainit.StaticConfig.VolumesDir = "/var/lib/opendeploy-volumes"
 	t.Cleanup(func() { ainit.StaticConfig.VolumesDir = oldVolumesDir })

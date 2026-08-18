@@ -1,6 +1,7 @@
 package netproxy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -33,10 +34,27 @@ type CertSecretResolverFunc func(id int32) (string, bool)
 func (f CertSecretResolverFunc) ResolveSecret(id int32) (string, bool) { return f(id) }
 
 // RunNetStateWriter writes full protobuf netstate snapshots for the local
-// netproxy process. It is intentionally full-state and idempotent.
+// netproxy process. It is intentionally full-state and idempotent. Each output
+// file carries its own sequence and is rewritten only when its rendered
+// content changed; the first write after startup is unconditional so the
+// ingress port forwarding is reconciled from an unknown machine state.
 func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predicate storage.ScheduledInstancePredicate, nodeIdentifier, path string, certs CertSecretResolver, acme *acmestate.Holder, ensureSecrets func(context.Context, []int32) error) {
 	bundlePath := filepath.Join(filepath.Dir(path), CertBundleFileName)
-	seq := initialNetStateSequence(path)
+	netSeq := initialArtifactSequence(path, func(b []byte) (int64, error) {
+		state, err := apigen.DecodeNetState(b)
+		if err != nil {
+			return 0, err
+		}
+		return state.Seq, nil
+	})
+	bundleSeq := initialArtifactSequence(bundlePath, func(b []byte) (int64, error) {
+		bundle, err := apigen.DecodeCertBundle(b)
+		if err != nil {
+			return 0, err
+		}
+		return bundle.Seq, nil
+	})
+	var lastState, lastBundle []byte
 	var acmeUpdates <-chan *apigen.AcmeState
 	if acme != nil {
 		var unsubAcme func()
@@ -44,21 +62,32 @@ func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predic
 		defer unsubAcme()
 	}
 	write := func(items []apigen.ScheduledInstanceState) {
-		seq++
 		var acmeState *apigen.AcmeState
 		if acme != nil {
 			acmeState = acme.Get()
 		}
-		state := RenderNetState(seq, nodeIdentifier, items, acmeState)
-		if err := WriteCertBundle(bundlePath, RenderCertBundle(ctx, seq, items, certs, acmestate.Bindings(acmeState), ensureSecrets)); err != nil {
-			slog.Warn("writing netproxy cert bundle failed", "path", bundlePath, "err", err)
+		bundle := RenderCertBundle(ctx, 0, items, certs, acmestate.Bindings(acmeState), ensureSecrets)
+		if b := bundle.Encode(); !bytes.Equal(b, lastBundle) {
+			bundleSeq++
+			bundle.Seq = bundleSeq
+			if err := WriteCertBundle(bundlePath, bundle); err != nil {
+				slog.Warn("writing netproxy cert bundle failed", "path", bundlePath, "err", err)
+			} else {
+				lastBundle = b
+			}
 		}
-		if err := WriteNetState(path, state); err != nil {
-			slog.Warn("writing netproxy netstate failed", "path", path, "err", err)
-			return
-		}
-		if err := network.Default.SetNetproxyIngress(state.Ingress); err != nil {
-			slog.Warn("reconciling netproxy ingress forwarding failed", "err", err)
+		state := RenderNetState(0, nodeIdentifier, items, acmeState)
+		if b := state.Encode(); !bytes.Equal(b, lastState) {
+			netSeq++
+			state.Seq = netSeq
+			if err := WriteNetState(path, state); err != nil {
+				slog.Warn("writing netproxy netstate failed", "path", path, "err", err)
+				return
+			}
+			lastState = b
+			if err := network.Default.SetNetproxyIngress(state.Ingress); err != nil {
+				slog.Warn("reconciling netproxy ingress forwarding failed", "err", err)
+			}
 		}
 	}
 	snapshot, updates, unsub := store.MustFetchScheduledSnapshotAndSubscribe(predicate)
@@ -83,21 +112,27 @@ func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predic
 	}
 }
 
-func initialNetStateSequence(path string) int64 {
+// initialArtifactSequence floors the sequence at the current unix
+// milliseconds: netproxy runs in a separate process whose monotonic seq gates
+// survive an agent state-dir wipe, so restarting the count from the file (or
+// zero) would leave a running netproxy silently dropping every update until
+// its own restart.
+func initialArtifactSequence(path string, seqOf func([]byte) (int64, error)) int64 {
+	now := time.Now().UnixMilli()
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return 0
+		return now
 	}
 	if err != nil {
-		slog.Warn("reading existing netproxy netstate failed", "path", path, "err", err)
-		return 0
+		slog.Warn("reading existing netproxy state file failed", "path", path, "err", err)
+		return now
 	}
-	state, err := apigen.DecodeNetState(b)
+	seq, err := seqOf(b)
 	if err != nil {
-		slog.Warn("decoding existing netproxy netstate failed", "path", path, "err", err)
-		return 0
+		slog.Warn("decoding existing netproxy state file failed", "path", path, "err", err)
+		return now
 	}
-	return max(state.Seq, 0)
+	return max(seq, now)
 }
 
 // RenderNetState derives node-local DNS and ingress from the placements this
@@ -105,9 +140,10 @@ func initialNetStateSequence(path string) int64 {
 //
 // Endpoints are derived, not reported: an instance's stable inbound address is
 // a pure function of its space, deployment, and ordinal, so the only thing the
-// runner contributes is whether it is up. Readiness still gates both DNS and
-// ingress backends, which is what keeps a name from resolving to, or a proxy
-// from dialling, a container that is not running.
+// runner contributes is whether it is up. Readiness gates the endpoint set,
+// not the service's presence: every virtual-mode placement contributes its DNS
+// name, so the DNS server can answer authoritatively for a service that
+// exists but is down instead of leaking the lookup upstream.
 func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledInstanceState, acme *apigen.AcmeState) *apigen.NetState {
 	prefix, _ := network.Default.PrefixValue()
 	services := make([]*apigen.DnsService, 0, len(items))
@@ -118,11 +154,12 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 		}
 		ready := readyEndpoints(prefix, item)
 		ingress = append(ingress, renderIngress(item, ready)...)
-		if len(ready) == 0 {
+		name := network.DNSLabel(item.Config.Name)
+		if name == "" {
 			continue
 		}
 		services = append(services, &apigen.DnsService{
-			Name:        network.DNSLabel(item.Config.Name),
+			Name:        name,
 			Environment: network.SpaceDNSName(item.Config.SpaceID),
 			Endpoints:   ready,
 		})

@@ -25,6 +25,7 @@ docs/                Project documentation.
 - [docs/future-work/kata-networking.md](docs/future-work/kata-networking.md) — Kata Containers + Cloud Hypervisor runtime direction and networking design tradeoffs for routed L3 workload attachments.
 - [docs/future-work/networking.md](docs/future-work/networking.md) — Built-in networking layer design: IPv6 ULA addressing, fixed IPv6-in-IPv6 or IPv6-in-IPv4 node tunnels, netmap distribution, DNS discovery, embedded ingress proxy, policy, load balancing, and implementation phases.
 - [docs/future-work/cross-node-routing-implementation-plan.md](docs/future-work/cross-node-routing-implementation-plan.md) — Ordered implementation plan for route ownership, netmap distribution, runtime route reports, fixed tunnels, policy, recovery, and verification.
+- [docs/future-work/netstate-split-implementation-plan.md](docs/future-work/netstate-split-implementation-plan.md) — Deferred netstate.pb split (NetConfig + liveness overlay) and the shipped fused-artifact patch: diff-gated writes, complete DNS catalog with authoritative empty answers, wall-clock seq floor.
 - [docs/future-work/workload-addressing-routing.md](docs/future-work/workload-addressing-routing.md) — Stable logical workload addressing and fixed-tunnel cross-node routing: underlay requirements, host routes, placement changes, policy, and scale tradeoffs.- [docs/product/deployments.md](docs/product/deployments.md) — Deployment config, lifecycle state, and deploy workflow.
 - [docs/product/todo.md](docs/product/todo.md) — Product and engineering backlog items.
 

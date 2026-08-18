@@ -23,7 +23,7 @@ func TestNormalizeEnrollmentUnderlay(t *testing.T) {
 	if _, err := store.NormalizeNodeUnderlay("worker-id", "not-an-ip"); err == nil {
 		t.Fatal("invalid underlay address was accepted")
 	}
-	if got, err := store.NormalizeNodeUnderlay("legacy-worker", ""); err != nil || got != "" {
-		t.Fatalf("empty legacy underlay = %q, err=%v", got, err)
+	if _, err := store.NormalizeNodeUnderlay("worker-id", ""); err == nil {
+		t.Fatal("empty underlay address was accepted")
 	}
 }

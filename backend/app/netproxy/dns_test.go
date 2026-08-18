@@ -77,6 +77,72 @@ func TestDNSResolverAddressAddsDefaultPort(t *testing.T) {
 	}
 }
 
+func TestDNSAnswersAAAAForCataloguedService(t *testing.T) {
+	server := &dnsServer{}
+	server.state.Store(&apigen.NetState{
+		DnsServices: []*apigen.DnsService{{
+			Name: "db", Environment: "space-1",
+			Endpoints: []*apigen.Endpoint{{Address: "fd12::1", State: apigen.EndpointState_ENDPOINT_READY}},
+		}},
+		UpstreamResolvers: []string{"192.0.2.53"},
+	})
+	request := new(dns.Msg)
+	request.SetQuestion("db.space-1.internal.", dns.TypeAAAA)
+	w := &testDNSResponseWriter{}
+
+	server.handle(w, request)
+
+	if w.msg == nil || !w.msg.Authoritative || len(w.msg.Answer) != 1 {
+		t.Fatalf("response = %+v, want one authoritative AAAA answer", w.msg)
+	}
+	if got := w.msg.Answer[0].(*dns.AAAA).AAAA.String(); got != "fd12::1" {
+		t.Fatalf("answer = %s, want fd12::1", got)
+	}
+}
+
+// A catalogued service with no live endpoints exists but is down: the answer
+// is an authoritative empty NOERROR, not a forward that leaks the .internal
+// name upstream and comes back NXDOMAIN.
+func TestDNSAnswersEmptyNoErrorForKnownServiceWithoutEndpoints(t *testing.T) {
+	server := &dnsServer{}
+	server.state.Store(&apigen.NetState{
+		DnsServices:       []*apigen.DnsService{{Name: "db", Environment: "space-1"}},
+		UpstreamResolvers: []string{"192.0.2.53"},
+	})
+	request := new(dns.Msg)
+	request.SetQuestion("db.space-1.internal.", dns.TypeAAAA)
+	w := &testDNSResponseWriter{}
+
+	server.handle(w, request)
+
+	if w.msg == nil || w.msg.Rcode != dns.RcodeSuccess || !w.msg.Authoritative || len(w.msg.Answer) != 0 {
+		t.Fatalf("response = %+v, want authoritative empty NOERROR", w.msg)
+	}
+}
+
+// The catalogue is authoritative for every record type of a known name: an A
+// query for an AAAA-only service gets empty NOERROR rather than a forwarded
+// NXDOMAIN that contradicts the AAAA answer.
+func TestDNSAnswersEmptyNoErrorForNonAAAAQueryOnKnownService(t *testing.T) {
+	server := &dnsServer{}
+	server.state.Store(&apigen.NetState{
+		DnsServices: []*apigen.DnsService{{
+			Name: "db", Environment: "space-1",
+			Endpoints: []*apigen.Endpoint{{Address: "fd12::1", State: apigen.EndpointState_ENDPOINT_READY}},
+		}},
+		UpstreamResolvers: []string{"192.0.2.53"},
+	})
+	request := new(dns.Msg)
+	request.SetQuestion("db.space-1.internal.", dns.TypeA)
+	w := &testDNSResponseWriter{}
+
+	server.handle(w, request)
+
+	if w.msg == nil || w.msg.Rcode != dns.RcodeSuccess || !w.msg.Authoritative || len(w.msg.Answer) != 0 {
+		t.Fatalf("response = %+v, want authoritative empty NOERROR", w.msg)
+	}
+}
+
 func TestDNSReturnsServerFailureWithoutExternalResolver(t *testing.T) {
 	server := &dnsServer{}
 	server.state.Store(&apigen.NetState{})

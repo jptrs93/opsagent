@@ -182,12 +182,13 @@ The container receives a generated `resolv.conf` pointing at the machine-local n
 
 Node-local network state is deliberately separate from the cluster map. The
 cluster map carries cross-node routing; `netstate.pb` carries DNS and ingress,
-derived on each node from the placements it holds. Only a `RUN_SERVING`
+derived on each node from the placements it holds. Every virtual-mode
+placement contributes its DNS name to the catalog; only a `RUN_SERVING`
 placement that is actually `RUNNING` contributes an endpoint, which is what
 keeps a name from resolving to, or a proxy from dialling, a container that is
 not up.
 
-The agent writes full node-local `NetState` protobuf snapshots to `/var/lib/opendeploy/netproxy/netstate.pb`. It atomically takes its initial deployment snapshot and subscribes before writing, so a concurrent route or endpoint update cannot be lost during startup. The snapshot contains DNS records and rendered ingress routes. Netproxy watches its directory for the atomic write-rename updates, answers `.internal` AAAA records for READY virtual endpoints, and forwards unmatched queries to the host's upstream resolvers. Resolver discovery ignores loopback stubs that are unreachable from the netproxy namespace and falls back to the systemd-resolved or NetworkManager upstream resolver files. Forwarding is capped at 256 concurrent queries; overload and upstream failure return `SERVFAIL` rather than a cacheable negative answer.
+The agent writes full node-local `NetState` protobuf snapshots to `/var/lib/opendeploy/netproxy/netstate.pb`. It atomically takes its initial deployment snapshot and subscribes before writing, so a concurrent route or endpoint update cannot be lost during startup. The snapshot contains DNS records and rendered ingress routes. Writes are content-diffed: `netstate.pb` and `certbundle.pb` each carry an independent sequence and are rewritten only when their own rendered content changed, so status heartbeats that change nothing rendered trigger no writes and no nftables reconciliation. Sequences seed at `max(persisted seq, unix-millis)` because netproxy's monotonic gates live in a separate process that survives an agent state-dir wipe. Netproxy watches its directory for the atomic write-rename updates and answers authoritatively for every catalogued name: AAAA records for READY virtual endpoints, and an empty `NOERROR` answer (any record type) for a service that exists on the node but has no live endpoint, so `.internal` names of down services are neither leaked upstream nor denied with `NXDOMAIN`. Names not in the node-local catalog — including `.internal` services on other nodes — are forwarded to the host's upstream resolvers. Resolver discovery ignores loopback stubs that are unreachable from the netproxy namespace and falls back to the systemd-resolved or NetworkManager upstream resolver files. Forwarding is capped at 256 concurrent queries; overload and upstream failure return `SERVFAIL` rather than a cacheable negative answer.
 
 For TLS passthrough, netproxy listens on each rendered ingress TCP host port. It
 reads a bounded TLS ClientHello to select an exact SNI route, dials a READY
