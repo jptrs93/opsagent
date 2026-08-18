@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS asset_spaces (
     asset_id    INTEGER NOT NULL,
     author  INTEGER NOT NULL DEFAULT 0,  -- user id
     created_at  INTEGER NOT NULL,            -- epoch ms
-    space_id    INTEGER NOT NULL
+    space_id    INTEGER NOT NULL,
+    global_seq  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_asset_spaces_asset ON asset_spaces (asset_id);
@@ -35,6 +36,7 @@ CREATE TABLE IF NOT EXISTS asset_versions (
     author  INTEGER NOT NULL DEFAULT 0,  -- user id
     size_bytes  INTEGER NOT NULL DEFAULT 0,
     sha256      TEXT    NOT NULL DEFAULT '',
+    global_seq  INTEGER NOT NULL DEFAULT 0,
     UNIQUE (asset_id, version)
 );
 

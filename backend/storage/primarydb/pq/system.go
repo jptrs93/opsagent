@@ -27,7 +27,7 @@ func (q *Queries) DeleteScheduledInstanceStatusesForNode(ctx context.Context, no
 			SELECT si.id FROM scheduled_instances si
 			WHERE si.node_id = ?
 				AND si.deployment_id IN (
-					SELECT d.deployment_id FROM deployment_configs d
+					SELECT d.deployment_id FROM deployments d
 					WHERE NOT ((SELECT sp.space_id FROM deployment_space_versions sp
 					            WHERE sp.deployment_id = d.deployment_id
 					            ORDER BY sp.version DESC LIMIT 1) = ? AND d.name = ?)

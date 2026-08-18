@@ -28,9 +28,9 @@ func ordinalKeyOf(inst *apigen.ScheduledInstance) instanceOrdinalKey {
 
 func (s *Service) loadCache() {
 	ctx := context.Background()
-	rows, err := s.q.ListAllDeploymentConfigs(ctx)
+	rows, err := s.q.ListAllDeployments(ctx)
 	if err != nil {
-		panic(fmt.Sprintf("loadCache: ListAllDeploymentConfigs: %v", err))
+		panic(fmt.Sprintf("loadCache: ListAllDeployments: %v", err))
 	}
 	for _, row := range rows {
 		id := int32(row.DeploymentID)

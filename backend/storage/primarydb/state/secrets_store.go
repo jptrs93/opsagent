@@ -103,6 +103,10 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, aut
 	var row Secret
 	var version pq.SecretVersion
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		seq, err := q.NextGlobalSeq(ctx)
+		if err != nil {
+			panic(fmt.Sprintf("NextGlobalSeq: %v", err))
+		}
 		id, err := q.InsertSecretRow(ctx, pq.InsertSecretRowParams{
 			Name:             name,
 			ValueDirectoryID: dirID,
@@ -116,6 +120,7 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, aut
 			Author:    int64(author),
 			CreatedAt: now,
 			SpaceID:   space,
+			GlobalSeq: seq,
 		}); err != nil {
 			panic(fmt.Sprintf("InsertSecretSpaceRow: %v", err))
 		}
@@ -132,6 +137,7 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, aut
 			Nonce:      sealed.Nonce,
 			CreatedAt:  now,
 			Author:     int64(author),
+			GlobalSeq:  seq,
 		})
 		if err != nil {
 			panic(fmt.Sprintf("InsertSecretVersion: %v", err))
@@ -150,7 +156,7 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, aut
 func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal secrets.SealFunc, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(secrets.Record)) (secrets.Record, []int32, error) {
 	ctx := context.Background()
 	var record secrets.Record
-	insert := func(q *pq.Queries) (int32, error) {
+	insert := func(q *pq.Queries, globalSeq int64) (int32, error) {
 		identity, err := q.GetSecretRowByID(ctx, int64(secretID))
 		if err == sql.ErrNoRows {
 			return 0, ErrValueNotFound
@@ -173,6 +179,7 @@ func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, author int3
 			Nonce:      sealed.Nonce,
 			CreatedAt:  time.Now().UnixMilli(),
 			Author:     int64(author),
+			GlobalSeq:  globalSeq,
 		})
 		if err != nil {
 			return 0, fmt.Errorf("insert secret version: %w", err)
@@ -321,11 +328,16 @@ func (s *Service) MoveSecretSpace(secretID, newSpaceID, newDirectoryID, author i
 	}
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		if spaceID != row.SpaceID {
+			seq, err := q.NextGlobalSeq(ctx)
+			if err != nil {
+				panic(fmt.Sprintf("NextGlobalSeq: %v", err))
+			}
 			if err := q.InsertSecretSpaceRow(ctx, pq.InsertSecretSpaceRowParams{
 				SecretID:  row.ID,
 				Author:    int64(author),
 				CreatedAt: time.Now().UnixMilli(),
 				SpaceID:   spaceID,
+				GlobalSeq: seq,
 			}); err != nil {
 				panic(fmt.Sprintf("InsertSecretSpaceRow: %v", err))
 			}

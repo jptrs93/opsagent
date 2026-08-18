@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS config_spaces (
     config_id   INTEGER NOT NULL,
     author  INTEGER NOT NULL DEFAULT 0,  -- user id
     created_at  INTEGER NOT NULL,            -- epoch ms
-    space_id    INTEGER NOT NULL
+    space_id    INTEGER NOT NULL,
+    global_seq  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_config_spaces_config ON config_spaces (config_id);
@@ -35,5 +36,6 @@ CREATE TABLE IF NOT EXISTS config_versions (
     value       TEXT    NOT NULL DEFAULT '',
     created_at  INTEGER NOT NULL,            -- epoch ms
     author  INTEGER NOT NULL DEFAULT 0,  -- user id
+    global_seq  INTEGER NOT NULL DEFAULT 0,
     UNIQUE (config_id, version)
 );

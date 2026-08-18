@@ -22,7 +22,7 @@ const (
 )
 
 type deploymentReferenceUpdate struct {
-	row  pq.DeploymentConfigRow
+	row  pq.DeploymentRow
 	spec *apigen.DeploymentSpec
 }
 
@@ -36,7 +36,7 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 	updateDeployments bool,
 	expected []storage.DeploymentConfigVersion,
 	author int32,
-	insert func(*pq.Queries) (int32, error),
+	insert func(*pq.Queries, int64) (int32, error),
 	afterCommit func([]int32),
 ) ([]int32, error) {
 	s.Mu.Lock()
@@ -50,7 +50,11 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 		if err != nil {
 			return err
 		}
-		newID, err := insert(q)
+		seq, err := q.NextGlobalSeq(ctx)
+		if err != nil {
+			return err
+		}
+		newID, err := insert(q, seq)
 		if err != nil {
 			return err
 		}
@@ -69,6 +73,7 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 				CreatedAt:    next.UpdatedAt,
 				Author:       next.Author,
 				SpecBlob:     next.SpecBlob,
+				GlobalSeq:    seq,
 			}); err != nil {
 				return fmt.Errorf("update deployment %d reference: %w", update.row.DeploymentID, err)
 			}
@@ -112,7 +117,7 @@ func prepareDeploymentReferenceUpdates(
 	if err != nil {
 		return nil, nil, err
 	}
-	rows, err := q.ListAllDeploymentConfigs(ctx)
+	rows, err := q.ListAllDeployments(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list deployments for reference update: %w", err)
 	}

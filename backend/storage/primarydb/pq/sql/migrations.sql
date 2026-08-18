@@ -3,57 +3,23 @@
 -- duplicate column, no such column, no such table). Comments must not contain
 -- semicolons — statements are split on them.
 --
--- History note: all migrations accumulated up to the 2026-08 storage split
--- (deployment_status drops, preparer stage split, agent_sessions request/
--- approve columns, nodes.allowed_spaces) were removed after every active
--- cluster had been rolled forward. A second sweep (2026-08-13) removed the
--- asset_versions created_by attribution, the run-once authz cluster_admin
--- grant backfill (its local_kv marker 'migration.authz-cluster-admin-grants'
--- may linger in older databases and is harmless), and the users created_at /
--- last_login_at column adds and backfill. A third sweep (2026-08-15, after
--- every active cluster reached v0.0.426) removed the run-once authz verb
--- renumber fixup (its local_kv marker 'migration.authz-verb-renumber' may
--- linger and is harmless). A fourth sweep (2026-08-15, after every active
--- cluster reached v0.0.432) removed the deployment config identity/versions
--- split (deployment_config_history into deployment_config_versions plus the
--- deployment_configs column drops). A fifth sweep (2026-08-17, after every
--- active cluster reached v0.0.433) removed the rebuild of
--- deployment_config_versions into deployment_versions. A sixth sweep
--- (2026-08-17, after every active cluster reached v0.0.434) removed the
--- scheduled instance state split (the scheduled_instance_versions backfill
--- plus the scheduled_instances created_at/state column and index drops). A
--- seventh sweep (2026-08-17, after every active cluster reached v0.0.435 and
--- its converter had hashed away all 'legacy:' placeholder shas) removed the
--- asset content split (the asset_store backfill, the asset_versions sha256
--- column add and blob/location drops, and the background legacy-sha
--- converter). An eighth sweep (2026-08-17, after every active cluster reached
--- v0.0.437) removed the authz rule template identity/versions split (the
--- authz_rule_template_versions backfill and authz_rule_templates column
--- drops) and the authz_grants deleted column add. A ninth sweep (2026-08-17,
--- after every active cluster reached v0.0.440) removed the created_by to
--- author column renames across twelve tables and the container-level author
--- column drops on assets/secrets/configs. A tenth sweep (2026-08-17, after
--- every active cluster reached v0.0.442) removed the deleted-flag to
--- deleted_at conversion (the purge of previously soft-deleted deployment/
--- authz rows with their version and scheduled-instance history, the column
--- renames, and the deleted_at adds on assets/secrets/configs) and the
--- *_spaces space-assignment log backfills with their space_id column drops.
--- Upgrading a database from before then requires stepping through a release
--- that still carried them.
+-- History note: all migrations accumulated up to v0.0.503 (2026-08-18),
+-- ending with the deployment_space_versions space-split backfill and the
+-- scheduled_instances deployment_space_version_id add, were removed after
+-- every active cluster had been rolled forward. Upgrading a database from
+-- before then requires stepping through a release that still carried them.
 
-INSERT INTO deployment_space_versions (deployment_id, version, author, created_at, space_id)
-SELECT d.deployment_id, 1, 0,
-       COALESCE((SELECT MIN(v.created_at) FROM deployment_versions v
-                 WHERE v.deployment_id = d.deployment_id), 0),
-       d.space_id
-FROM deployment_configs d
-WHERE d.deployment_id NOT IN (SELECT deployment_id FROM deployment_space_versions);
-DROP INDEX IF EXISTS idx_deployment_configs_active_node_identity;
-ALTER TABLE deployment_configs DROP COLUMN space_id;
+INSERT OR IGNORE INTO deployments (deployment_id, node_id, name, deleted_at)
+SELECT deployment_id, node_id, name, deleted_at FROM deployment_configs;
+DROP TABLE IF EXISTS deployment_configs;
 
-ALTER TABLE scheduled_instances ADD COLUMN deployment_space_version_id INTEGER NOT NULL DEFAULT 0;
-UPDATE scheduled_instances SET
-    deployment_space_version_id = COALESCE((SELECT sp.id FROM deployment_space_versions sp
-        WHERE sp.deployment_id = scheduled_instances.deployment_id
-        ORDER BY sp.version DESC LIMIT 1), 0)
-WHERE deployment_space_version_id = 0;
+ALTER TABLE deployment_versions ADD COLUMN global_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE deployment_space_versions ADD COLUMN global_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE scheduled_instance_versions ADD COLUMN global_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE asset_versions ADD COLUMN global_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE asset_spaces ADD COLUMN global_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE config_versions ADD COLUMN global_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE config_spaces ADD COLUMN global_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE secret_versions ADD COLUMN global_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE secret_spaces ADD COLUMN global_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE authz_rule_template_versions ADD COLUMN global_seq INTEGER NOT NULL DEFAULT 0;

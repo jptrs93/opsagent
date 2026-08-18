@@ -77,10 +77,15 @@ func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentVersion,
 		if err != nil {
 			return err
 		}
+		seq, err := q.NextGlobalSeq(ctx)
+		if err != nil {
+			return err
+		}
 		return q.AppendScheduledInstanceVersion(ctx, pq.AppendScheduledInstanceVersionParams{
 			ScheduledInstanceID: id,
 			CreatedAt:           now,
 			State:               int64(initial),
+			GlobalSeq:           seq,
 		})
 	}); err != nil {
 		panic(fmt.Sprintf("InsertScheduledInstance: %v", err))
@@ -127,10 +132,17 @@ func (s *Service) SetScheduledInstanceState(instanceID int32, state apigen.Sched
 	if inst.State == state {
 		return
 	}
-	if err := s.q.AppendScheduledInstanceVersion(ctx, pq.AppendScheduledInstanceVersionParams{
-		ScheduledInstanceID: int64(instanceID),
-		CreatedAt:           time.Now().UnixMilli(),
-		State:               int64(state),
+	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		seq, err := q.NextGlobalSeq(ctx)
+		if err != nil {
+			return err
+		}
+		return q.AppendScheduledInstanceVersion(ctx, pq.AppendScheduledInstanceVersionParams{
+			ScheduledInstanceID: int64(instanceID),
+			CreatedAt:           time.Now().UnixMilli(),
+			State:               int64(state),
+			GlobalSeq:           seq,
+		})
 	}); err != nil {
 		panic(fmt.Sprintf("AppendScheduledInstanceVersion: %v", err))
 	}

@@ -21,7 +21,7 @@ func TestDeploymentIdentityUniquenessIsGoLevel(t *testing.T) {
 	defer db.Close()
 	var indexes int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index'
-		AND name = 'idx_deployment_configs_active_node_identity'`).Scan(&indexes); err != nil {
+		AND tbl_name IN ('deployments', 'deployment_configs') AND name LIKE 'idx_%'`).Scan(&indexes); err != nil {
 		t.Fatalf("count identity indexes: %v", err)
 	}
 	if indexes != 0 {

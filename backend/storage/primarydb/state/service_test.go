@@ -23,8 +23,8 @@ func TestPrimaryStorageIgnoresRetiredDesiredStateColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
-		`ALTER TABLE deployment_configs ADD COLUMN desired_version TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE deployment_configs ADD COLUMN desired_running INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE deployments ADD COLUMN desired_version TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE deployments ADD COLUMN desired_running INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE deployment_versions ADD COLUMN desired_version TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE deployment_versions ADD COLUMN desired_running INTEGER NOT NULL DEFAULT 0`,
 	} {
@@ -423,7 +423,7 @@ func TestSetDeploymentWorkloadStateReencodesSpec(t *testing.T) {
 
 	store.MustSetDeploymentWorkloadState(apigen.Context{}, cfg.ID, "v2", false)
 
-	row, err := store.q.GetDeploymentConfig(context.Background(), int64(cfg.ID))
+	row, err := store.q.GetDeployment(context.Background(), int64(cfg.ID))
 	if err != nil {
 		t.Fatalf("read updated deployment: %v", err)
 	}

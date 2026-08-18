@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS deployment_configs (
+CREATE TABLE IF NOT EXISTS deployments (
     deployment_id   INTEGER PRIMARY KEY CHECK (deployment_id BETWEEN 1 AND 16777215),
     node_id         INTEGER NOT NULL DEFAULT -1,
     name            TEXT    NOT NULL DEFAULT '',
@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS deployment_space_versions (
     version       INTEGER NOT NULL,
     author        INTEGER NOT NULL DEFAULT 0,
     created_at    INTEGER NOT NULL,
-    space_id      INTEGER NOT NULL CHECK (space_id BETWEEN 0 AND 65535)
+    space_id      INTEGER NOT NULL CHECK (space_id BETWEEN 0 AND 65535),
+    global_seq    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_deployment_space_versions_deployment_version
@@ -25,5 +26,6 @@ CREATE TABLE IF NOT EXISTS deployment_versions (
     created_at      INTEGER NOT NULL,  -- epoch ms
     author      INTEGER NOT NULL DEFAULT 0,
     spec_blob       BLOB    NOT NULL,
+    global_seq      INTEGER NOT NULL DEFAULT 0,
     UNIQUE (deployment_id, version)
 );

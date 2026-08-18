@@ -301,6 +301,10 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 	var a Asset
 	var v pq.AssetVersion
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		seq, err := q.NextGlobalSeq(ctx)
+		if err != nil {
+			panic(fmt.Sprintf("NextGlobalSeq: %v", err))
+		}
 		id, err := q.InsertAssetRow(ctx, pq.InsertAssetRowParams{
 			Key:              key,
 			AssetDirectoryID: dirID,
@@ -314,6 +318,7 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 			Author:    int64(author),
 			CreatedAt: now,
 			SpaceID:   space,
+			GlobalSeq: seq,
 		}); err != nil {
 			panic(fmt.Sprintf("InsertAssetSpaceRow: %v", err))
 		}
@@ -325,6 +330,7 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 			Author:    int64(author),
 			SizeBytes: sizeBytes,
 			Sha256:    sha256,
+			GlobalSeq: seq,
 		})
 		if err != nil {
 			panic(fmt.Sprintf("InsertAssetVersion: %v", err))
@@ -361,15 +367,23 @@ func (s *Service) AppendAssetVersion(assetID, author int32, sha256 string, sizeB
 	if err != nil {
 		panic(fmt.Sprintf("GetNextAssetVersionNumber: %v", err))
 	}
-	v, err := s.q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
-		AssetID:   a.ID,
-		Version:   version,
-		CreatedAt: now,
-		Author:    int64(author),
-		SizeBytes: sizeBytes,
-		Sha256:    sha256,
-	})
-	if err != nil {
+	var v pq.AssetVersion
+	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		seq, err := q.NextGlobalSeq(ctx)
+		if err != nil {
+			return err
+		}
+		v, err = q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
+			AssetID:   a.ID,
+			Version:   version,
+			CreatedAt: now,
+			Author:    int64(author),
+			SizeBytes: sizeBytes,
+			Sha256:    sha256,
+			GlobalSeq: seq,
+		})
+		return err
+	}); err != nil {
 		panic(fmt.Sprintf("InsertAssetVersion: %v", err))
 	}
 	return assetVersionFromJoined(a, pq.AssetVersionJoined{Version: v, Store: store}), nil
@@ -498,11 +512,16 @@ func (s *Service) MoveAssetSpace(assetID, newSpaceID, newDirectoryID, author int
 	}
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		if spaceID != a.SpaceID {
+			seq, err := q.NextGlobalSeq(ctx)
+			if err != nil {
+				panic(fmt.Sprintf("NextGlobalSeq: %v", err))
+			}
 			if err := q.InsertAssetSpaceRow(ctx, pq.InsertAssetSpaceRowParams{
 				AssetID:   a.ID,
 				Author:    int64(author),
 				CreatedAt: time.Now().UnixMilli(),
 				SpaceID:   spaceID,
+				GlobalSeq: seq,
 			}); err != nil {
 				panic(fmt.Sprintf("InsertAssetSpaceRow: %v", err))
 			}

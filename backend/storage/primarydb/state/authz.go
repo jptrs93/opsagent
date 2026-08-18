@@ -47,11 +47,16 @@ func (s *Service) InsertAuthzRuleTemplate(row authz.RuleTemplateRow) (int64, err
 		if err != nil {
 			return err
 		}
+		seq, err := q.NextGlobalSeq(ctx)
+		if err != nil {
+			return err
+		}
 		return q.AppendAuthzRuleTemplateVersion(ctx, pq.AppendAuthzRuleTemplateVersionParams{
 			TemplateID: id,
 			CreatedAt:  row.CreatedAt,
 			Author:     row.Author,
 			DataBlob:   notNullBlob(row.Blob),
+			GlobalSeq:  seq,
 		})
 	})
 	return id, err
@@ -65,11 +70,16 @@ func (s *Service) UpdateAuthzRuleTemplate(id int64, name string, blob []byte, au
 		}); err != nil {
 			return err
 		}
+		seq, err := q.NextGlobalSeq(ctx)
+		if err != nil {
+			return err
+		}
 		return q.AppendAuthzRuleTemplateVersion(ctx, pq.AppendAuthzRuleTemplateVersionParams{
 			TemplateID: id,
 			CreatedAt:  updatedAt,
 			Author:     author,
 			DataBlob:   notNullBlob(blob),
+			GlobalSeq:  seq,
 		})
 	})
 }
@@ -98,9 +108,14 @@ func (s *Service) UpsertAuthzRuleTemplate(id int64, name string, blob []byte) er
 		if err == nil && bytes.Equal(latest, blob) {
 			return nil
 		}
+		seq, err := q.NextGlobalSeq(ctx)
+		if err != nil {
+			return err
+		}
 		return q.AppendAuthzRuleTemplateVersion(ctx, pq.AppendAuthzRuleTemplateVersionParams{
 			TemplateID: id,
 			DataBlob:   notNullBlob(blob),
+			GlobalSeq:  seq,
 		})
 	})
 }

@@ -5,6 +5,17 @@ CREATE TABLE IF NOT EXISTS spaces (
 
 INSERT INTO spaces (id, name) VALUES (0, '_system'), (1, 'global') ON CONFLICT(id) DO UPDATE SET name = excluded.name;
 
+-- Single global write counter: every state-changing write transaction that
+-- appends to a version/space log allocates the next value and stamps its rows,
+-- so any counter value identifies one cluster-wide state. Rows stamped 0
+-- predate the counter.
+CREATE TABLE IF NOT EXISTS global_seq (
+    id    INTEGER PRIMARY KEY CHECK (id = 1),
+    value INTEGER NOT NULL
+);
+
+INSERT OR IGNORE INTO global_seq (id, value) VALUES (1, 0);
+
 CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY,
     name          TEXT    NOT NULL,

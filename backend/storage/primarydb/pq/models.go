@@ -58,6 +58,7 @@ type AssetSpace struct {
 	Author    int64
 	CreatedAt int64
 	SpaceID   int64
+	GlobalSeq int64
 }
 
 type AssetStore struct {
@@ -78,6 +79,7 @@ type AssetVersion struct {
 	Author    int64
 	SizeBytes int64
 	Sha256    string
+	GlobalSeq int64
 }
 
 type AuthzGrant struct {
@@ -104,6 +106,7 @@ type AuthzRuleTemplateVersion struct {
 	CreatedAt  int64
 	Author     int64
 	DataBlob   []byte
+	GlobalSeq  int64
 }
 
 type Config struct {
@@ -120,6 +123,7 @@ type ConfigSpace struct {
 	Author    int64
 	CreatedAt int64
 	SpaceID   int64
+	GlobalSeq int64
 }
 
 type ConfigVersion struct {
@@ -129,9 +133,10 @@ type ConfigVersion struct {
 	Value     string
 	CreatedAt int64
 	Author    int64
+	GlobalSeq int64
 }
 
-type DeploymentConfig struct {
+type Deployment struct {
 	DeploymentID int64
 	NodeID       int64
 	Name         string
@@ -145,6 +150,7 @@ type DeploymentSpaceVersion struct {
 	Author       int64
 	CreatedAt    int64
 	SpaceID      int64
+	GlobalSeq    int64
 }
 
 type DeploymentVersion struct {
@@ -154,6 +160,7 @@ type DeploymentVersion struct {
 	CreatedAt    int64
 	Author       int64
 	SpecBlob     []byte
+	GlobalSeq    int64
 }
 
 type EnrollmentRequest struct {
@@ -173,6 +180,11 @@ type GlobalAccessRule struct {
 	Author    int64
 	CreatedAt int64
 	DataBlob  []byte
+}
+
+type GlobalSeq struct {
+	ID    int64
+	Value int64
 }
 
 type LocalKv struct {
@@ -248,6 +260,7 @@ type ScheduledInstanceVersion struct {
 	Version             int64
 	CreatedAt           int64
 	State               int64
+	GlobalSeq           int64
 }
 
 type Secret struct {
@@ -273,6 +286,7 @@ type SecretSpace struct {
 	Author    int64
 	CreatedAt int64
 	SpaceID   int64
+	GlobalSeq int64
 }
 
 type SecretVersion struct {
@@ -284,6 +298,7 @@ type SecretVersion struct {
 	Nonce      []byte
 	CreatedAt  int64
 	Author     int64
+	GlobalSeq  int64
 }
 
 type Space struct {

@@ -11,8 +11,8 @@ import (
 )
 
 const appendAuthzRuleTemplateVersion = `-- name: AppendAuthzRuleTemplateVersion :exec
-INSERT INTO authz_rule_template_versions (template_id, version, created_at, author, data_blob)
-SELECT ?1, COALESCE(MAX(version), 0) + 1, ?2, ?3, ?4
+INSERT INTO authz_rule_template_versions (template_id, version, created_at, author, data_blob, global_seq)
+SELECT ?1, COALESCE(MAX(version), 0) + 1, ?2, ?3, ?4, ?5
 FROM authz_rule_template_versions
 WHERE template_id = ?1
 `
@@ -22,6 +22,7 @@ type AppendAuthzRuleTemplateVersionParams struct {
 	CreatedAt  int64
 	Author     int64
 	DataBlob   []byte
+	GlobalSeq  int64
 }
 
 func (q *Queries) AppendAuthzRuleTemplateVersion(ctx context.Context, arg AppendAuthzRuleTemplateVersionParams) error {
@@ -30,13 +31,14 @@ func (q *Queries) AppendAuthzRuleTemplateVersion(ctx context.Context, arg Append
 		arg.CreatedAt,
 		arg.Author,
 		arg.DataBlob,
+		arg.GlobalSeq,
 	)
 	return err
 }
 
 const appendScheduledInstanceVersion = `-- name: AppendScheduledInstanceVersion :exec
-INSERT INTO scheduled_instance_versions (scheduled_instance_id, version, created_at, state)
-SELECT ?1, COALESCE(MAX(version), 0) + 1, ?2, ?3
+INSERT INTO scheduled_instance_versions (scheduled_instance_id, version, created_at, state, global_seq)
+SELECT ?1, COALESCE(MAX(version), 0) + 1, ?2, ?3, ?4
 FROM scheduled_instance_versions
 WHERE scheduled_instance_id = ?1
 `
@@ -45,10 +47,16 @@ type AppendScheduledInstanceVersionParams struct {
 	ScheduledInstanceID int64
 	CreatedAt           int64
 	State               int64
+	GlobalSeq           int64
 }
 
 func (q *Queries) AppendScheduledInstanceVersion(ctx context.Context, arg AppendScheduledInstanceVersionParams) error {
-	_, err := q.db.ExecContext(ctx, appendScheduledInstanceVersion, arg.ScheduledInstanceID, arg.CreatedAt, arg.State)
+	_, err := q.db.ExecContext(ctx, appendScheduledInstanceVersion,
+		arg.ScheduledInstanceID,
+		arg.CreatedAt,
+		arg.State,
+		arg.GlobalSeq,
+	)
 	return err
 }
 
@@ -188,7 +196,7 @@ func (q *Queries) CountConfigsInDirectory(ctx context.Context, valueDirectoryID 
 }
 
 const countDeploymentsForSpace = `-- name: CountDeploymentsForSpace :one
-SELECT COUNT(*) FROM deployment_configs d
+SELECT COUNT(*) FROM deployments d
 WHERE d.deleted_at = 0
   AND (SELECT sp.space_id FROM deployment_space_versions sp
        WHERE sp.deployment_id = d.deployment_id
@@ -287,24 +295,24 @@ func (q *Queries) CreateAuthzRuleTemplate(ctx context.Context, name string) (int
 	return id, err
 }
 
-const createDeploymentConfig = `-- name: CreateDeploymentConfig :one
+const createDeployment = `-- name: CreateDeployment :one
 
-INSERT INTO deployment_configs (node_id, name, deleted_at)
+INSERT INTO deployments (node_id, name, deleted_at)
 VALUES (?, ?, 0)
 RETURNING deployment_id
 `
 
-type CreateDeploymentConfigParams struct {
+type CreateDeploymentParams struct {
 	NodeID int64
 	Name   string
 }
 
-// === deployment_configs ===
-// CreateDeploymentConfig inserts a new stable deployment identity and
+// === deployments ===
+// CreateDeployment inserts a new stable deployment identity and
 // auto-allocates its deployment_id. Deleted deployments do not reserve their
 // former identity tuple. The caller inserts the v1 version row in the same tx.
-func (q *Queries) CreateDeploymentConfig(ctx context.Context, arg CreateDeploymentConfigParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, createDeploymentConfig, arg.NodeID, arg.Name)
+func (q *Queries) CreateDeployment(ctx context.Context, arg CreateDeploymentParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, createDeployment, arg.NodeID, arg.Name)
 	var deployment_id int64
 	err := row.Scan(&deployment_id)
 	return deployment_id, err
@@ -497,7 +505,7 @@ func (q *Queries) GetConfigByID(ctx context.Context, id int64) (SystemConfigRevi
 }
 
 const getDeploymentVersion = `-- name: GetDeploymentVersion :one
-SELECT id, deployment_id, version, created_at, author, spec_blob
+SELECT id, deployment_id, version, created_at, author, spec_blob, global_seq
 FROM deployment_versions
 WHERE deployment_id = ? AND version = ?
 `
@@ -517,6 +525,7 @@ func (q *Queries) GetDeploymentVersion(ctx context.Context, arg GetDeploymentVer
 		&i.CreatedAt,
 		&i.Author,
 		&i.SpecBlob,
+		&i.GlobalSeq,
 	)
 	return i, err
 }
@@ -845,8 +854,8 @@ func (q *Queries) InsertAssetRow(ctx context.Context, arg InsertAssetRowParams) 
 }
 
 const insertAssetSpaceRow = `-- name: InsertAssetSpaceRow :exec
-INSERT INTO asset_spaces (asset_id, author, created_at, space_id)
-VALUES (?, ?, ?, ?)
+INSERT INTO asset_spaces (asset_id, author, created_at, space_id, global_seq)
+VALUES (?, ?, ?, ?, ?)
 `
 
 type InsertAssetSpaceRowParams struct {
@@ -854,6 +863,7 @@ type InsertAssetSpaceRowParams struct {
 	Author    int64
 	CreatedAt int64
 	SpaceID   int64
+	GlobalSeq int64
 }
 
 func (q *Queries) InsertAssetSpaceRow(ctx context.Context, arg InsertAssetSpaceRowParams) error {
@@ -862,6 +872,7 @@ func (q *Queries) InsertAssetSpaceRow(ctx context.Context, arg InsertAssetSpaceR
 		arg.Author,
 		arg.CreatedAt,
 		arg.SpaceID,
+		arg.GlobalSeq,
 	)
 	return err
 }
@@ -908,9 +919,9 @@ func (q *Queries) InsertAssetStoreRow(ctx context.Context, arg InsertAssetStoreR
 }
 
 const insertAssetVersion = `-- name: InsertAssetVersion :one
-INSERT INTO asset_versions (asset_id, version, created_at, author, size_bytes, sha256)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, asset_id, version, created_at, author, size_bytes, sha256
+INSERT INTO asset_versions (asset_id, version, created_at, author, size_bytes, sha256, global_seq)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id, asset_id, version, created_at, author, size_bytes, sha256, global_seq
 `
 
 type InsertAssetVersionParams struct {
@@ -920,6 +931,7 @@ type InsertAssetVersionParams struct {
 	Author    int64
 	SizeBytes int64
 	Sha256    string
+	GlobalSeq int64
 }
 
 func (q *Queries) InsertAssetVersion(ctx context.Context, arg InsertAssetVersionParams) (AssetVersion, error) {
@@ -930,6 +942,7 @@ func (q *Queries) InsertAssetVersion(ctx context.Context, arg InsertAssetVersion
 		arg.Author,
 		arg.SizeBytes,
 		arg.Sha256,
+		arg.GlobalSeq,
 	)
 	var i AssetVersion
 	err := row.Scan(
@@ -940,6 +953,7 @@ func (q *Queries) InsertAssetVersion(ctx context.Context, arg InsertAssetVersion
 		&i.Author,
 		&i.SizeBytes,
 		&i.Sha256,
+		&i.GlobalSeq,
 	)
 	return i, err
 }
@@ -995,8 +1009,8 @@ func (q *Queries) InsertConfigRow(ctx context.Context, arg InsertConfigRowParams
 }
 
 const insertConfigSpaceRow = `-- name: InsertConfigSpaceRow :exec
-INSERT INTO config_spaces (config_id, author, created_at, space_id)
-VALUES (?, ?, ?, ?)
+INSERT INTO config_spaces (config_id, author, created_at, space_id, global_seq)
+VALUES (?, ?, ?, ?, ?)
 `
 
 type InsertConfigSpaceRowParams struct {
@@ -1004,6 +1018,7 @@ type InsertConfigSpaceRowParams struct {
 	Author    int64
 	CreatedAt int64
 	SpaceID   int64
+	GlobalSeq int64
 }
 
 func (q *Queries) InsertConfigSpaceRow(ctx context.Context, arg InsertConfigSpaceRowParams) error {
@@ -1012,14 +1027,15 @@ func (q *Queries) InsertConfigSpaceRow(ctx context.Context, arg InsertConfigSpac
 		arg.Author,
 		arg.CreatedAt,
 		arg.SpaceID,
+		arg.GlobalSeq,
 	)
 	return err
 }
 
 const insertConfigVersion = `-- name: InsertConfigVersion :one
-INSERT INTO config_versions (config_id, version, value, created_at, author)
-VALUES (?, ?, ?, ?, ?)
-RETURNING id, config_id, version, value, created_at, author
+INSERT INTO config_versions (config_id, version, value, created_at, author, global_seq)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, config_id, version, value, created_at, author, global_seq
 `
 
 type InsertConfigVersionParams struct {
@@ -1028,6 +1044,7 @@ type InsertConfigVersionParams struct {
 	Value     string
 	CreatedAt int64
 	Author    int64
+	GlobalSeq int64
 }
 
 func (q *Queries) InsertConfigVersion(ctx context.Context, arg InsertConfigVersionParams) (ConfigVersion, error) {
@@ -1037,6 +1054,7 @@ func (q *Queries) InsertConfigVersion(ctx context.Context, arg InsertConfigVersi
 		arg.Value,
 		arg.CreatedAt,
 		arg.Author,
+		arg.GlobalSeq,
 	)
 	var i ConfigVersion
 	err := row.Scan(
@@ -1046,13 +1064,14 @@ func (q *Queries) InsertConfigVersion(ctx context.Context, arg InsertConfigVersi
 		&i.Value,
 		&i.CreatedAt,
 		&i.Author,
+		&i.GlobalSeq,
 	)
 	return i, err
 }
 
 const insertDeploymentSpaceVersion = `-- name: InsertDeploymentSpaceVersion :one
-INSERT INTO deployment_space_versions (deployment_id, version, author, created_at, space_id)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO deployment_space_versions (deployment_id, version, author, created_at, space_id, global_seq)
+VALUES (?, ?, ?, ?, ?, ?)
 RETURNING id
 `
 
@@ -1062,6 +1081,7 @@ type InsertDeploymentSpaceVersionParams struct {
 	Author       int64
 	CreatedAt    int64
 	SpaceID      int64
+	GlobalSeq    int64
 }
 
 func (q *Queries) InsertDeploymentSpaceVersion(ctx context.Context, arg InsertDeploymentSpaceVersionParams) (int64, error) {
@@ -1071,6 +1091,7 @@ func (q *Queries) InsertDeploymentSpaceVersion(ctx context.Context, arg InsertDe
 		arg.Author,
 		arg.CreatedAt,
 		arg.SpaceID,
+		arg.GlobalSeq,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -1079,8 +1100,8 @@ func (q *Queries) InsertDeploymentSpaceVersion(ctx context.Context, arg InsertDe
 
 const insertDeploymentVersion = `-- name: InsertDeploymentVersion :exec
 
-INSERT INTO deployment_versions (deployment_id, version, created_at, author, spec_blob)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO deployment_versions (deployment_id, version, created_at, author, spec_blob, global_seq)
+VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type InsertDeploymentVersionParams struct {
@@ -1089,6 +1110,7 @@ type InsertDeploymentVersionParams struct {
 	CreatedAt    int64
 	Author       int64
 	SpecBlob     []byte
+	GlobalSeq    int64
 }
 
 // === deployment_versions ===
@@ -1099,6 +1121,7 @@ func (q *Queries) InsertDeploymentVersion(ctx context.Context, arg InsertDeploym
 		arg.CreatedAt,
 		arg.Author,
 		arg.SpecBlob,
+		arg.GlobalSeq,
 	)
 	return err
 }
@@ -1282,8 +1305,8 @@ func (q *Queries) InsertSecretRow(ctx context.Context, arg InsertSecretRowParams
 }
 
 const insertSecretSpaceRow = `-- name: InsertSecretSpaceRow :exec
-INSERT INTO secret_spaces (secret_id, author, created_at, space_id)
-VALUES (?, ?, ?, ?)
+INSERT INTO secret_spaces (secret_id, author, created_at, space_id, global_seq)
+VALUES (?, ?, ?, ?, ?)
 `
 
 type InsertSecretSpaceRowParams struct {
@@ -1291,6 +1314,7 @@ type InsertSecretSpaceRowParams struct {
 	Author    int64
 	CreatedAt int64
 	SpaceID   int64
+	GlobalSeq int64
 }
 
 func (q *Queries) InsertSecretSpaceRow(ctx context.Context, arg InsertSecretSpaceRowParams) error {
@@ -1299,14 +1323,15 @@ func (q *Queries) InsertSecretSpaceRow(ctx context.Context, arg InsertSecretSpac
 		arg.Author,
 		arg.CreatedAt,
 		arg.SpaceID,
+		arg.GlobalSeq,
 	)
 	return err
 }
 
 const insertSecretVersion = `-- name: InsertSecretVersion :one
-INSERT INTO secret_versions (secret_id, version, smk_version, ciphertext, nonce, created_at, author)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, secret_id, version, smk_version, ciphertext, nonce, created_at, author
+INSERT INTO secret_versions (secret_id, version, smk_version, ciphertext, nonce, created_at, author, global_seq)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, secret_id, version, smk_version, ciphertext, nonce, created_at, author, global_seq
 `
 
 type InsertSecretVersionParams struct {
@@ -1317,6 +1342,7 @@ type InsertSecretVersionParams struct {
 	Nonce      []byte
 	CreatedAt  int64
 	Author     int64
+	GlobalSeq  int64
 }
 
 func (q *Queries) InsertSecretVersion(ctx context.Context, arg InsertSecretVersionParams) (SecretVersion, error) {
@@ -1328,6 +1354,7 @@ func (q *Queries) InsertSecretVersion(ctx context.Context, arg InsertSecretVersi
 		arg.Nonce,
 		arg.CreatedAt,
 		arg.Author,
+		arg.GlobalSeq,
 	)
 	var i SecretVersion
 	err := row.Scan(
@@ -1339,6 +1366,7 @@ func (q *Queries) InsertSecretVersion(ctx context.Context, arg InsertSecretVersi
 		&i.Nonce,
 		&i.CreatedAt,
 		&i.Author,
+		&i.GlobalSeq,
 	)
 	return i, err
 }
@@ -1483,7 +1511,7 @@ func (q *Queries) ListAssetIDsBySha(ctx context.Context, sha256 string) ([]int64
 }
 
 const listAssetSpaceRowsByAssetID = `-- name: ListAssetSpaceRowsByAssetID :many
-SELECT id, asset_id, author, created_at, space_id
+SELECT id, asset_id, author, created_at, space_id, global_seq
 FROM asset_spaces WHERE asset_id = ?
 ORDER BY id ASC
 `
@@ -1503,6 +1531,7 @@ func (q *Queries) ListAssetSpaceRowsByAssetID(ctx context.Context, assetID int64
 			&i.Author,
 			&i.CreatedAt,
 			&i.SpaceID,
+			&i.GlobalSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -1608,7 +1637,7 @@ func (q *Queries) ListAuthzGrantRows(ctx context.Context) ([]ListAuthzGrantRowsR
 }
 
 const listConfigSpaceRowsByConfigID = `-- name: ListConfigSpaceRowsByConfigID :many
-SELECT id, config_id, author, created_at, space_id
+SELECT id, config_id, author, created_at, space_id, global_seq
 FROM config_spaces WHERE config_id = ?
 ORDER BY id ASC
 `
@@ -1628,6 +1657,7 @@ func (q *Queries) ListConfigSpaceRowsByConfigID(ctx context.Context, configID in
 			&i.Author,
 			&i.CreatedAt,
 			&i.SpaceID,
+			&i.GlobalSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -1670,7 +1700,7 @@ func (q *Queries) ListConfigVersionIDsByConfigID(ctx context.Context, configID i
 }
 
 const listConfigVersionRows = `-- name: ListConfigVersionRows :many
-SELECT id, config_id, version, value, created_at, author
+SELECT id, config_id, version, value, created_at, author, global_seq
 FROM config_versions
 ORDER BY config_id, version
 `
@@ -1691,6 +1721,7 @@ func (q *Queries) ListConfigVersionRows(ctx context.Context) ([]ConfigVersion, e
 			&i.Value,
 			&i.CreatedAt,
 			&i.Author,
+			&i.GlobalSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -1706,7 +1737,7 @@ func (q *Queries) ListConfigVersionRows(ctx context.Context) ([]ConfigVersion, e
 }
 
 const listConfigVersionsByConfigID = `-- name: ListConfigVersionsByConfigID :many
-SELECT id, config_id, version, value, created_at, author
+SELECT id, config_id, version, value, created_at, author, global_seq
 FROM config_versions WHERE config_id = ?
 ORDER BY version ASC
 `
@@ -1727,6 +1758,7 @@ func (q *Queries) ListConfigVersionsByConfigID(ctx context.Context, configID int
 			&i.Value,
 			&i.CreatedAt,
 			&i.Author,
+			&i.GlobalSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -1742,7 +1774,7 @@ func (q *Queries) ListConfigVersionsByConfigID(ctx context.Context, configID int
 }
 
 const listCurrentDeploymentSpaceVersions = `-- name: ListCurrentDeploymentSpaceVersions :many
-SELECT sp.id, sp.deployment_id, sp.version, sp.author, sp.created_at, sp.space_id
+SELECT sp.id, sp.deployment_id, sp.version, sp.author, sp.created_at, sp.space_id, sp.global_seq
 FROM deployment_space_versions sp
 JOIN (SELECT deployment_id, MAX(version) AS version
       FROM deployment_space_versions GROUP BY deployment_id) latest
@@ -1765,6 +1797,7 @@ func (q *Queries) ListCurrentDeploymentSpaceVersions(ctx context.Context) ([]Dep
 			&i.Author,
 			&i.CreatedAt,
 			&i.SpaceID,
+			&i.GlobalSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -1780,7 +1813,7 @@ func (q *Queries) ListCurrentDeploymentSpaceVersions(ctx context.Context) ([]Dep
 }
 
 const listDeploymentSpaceVersionsByDeploymentID = `-- name: ListDeploymentSpaceVersionsByDeploymentID :many
-SELECT id, deployment_id, version, author, created_at, space_id
+SELECT id, deployment_id, version, author, created_at, space_id, global_seq
 FROM deployment_space_versions
 WHERE deployment_id = ?
 ORDER BY version ASC
@@ -1802,6 +1835,7 @@ func (q *Queries) ListDeploymentSpaceVersionsByDeploymentID(ctx context.Context,
 			&i.Author,
 			&i.CreatedAt,
 			&i.SpaceID,
+			&i.GlobalSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -1817,7 +1851,7 @@ func (q *Queries) ListDeploymentSpaceVersionsByDeploymentID(ctx context.Context,
 }
 
 const listDeploymentVersions = `-- name: ListDeploymentVersions :many
-SELECT id, deployment_id, version, created_at, author, spec_blob
+SELECT id, deployment_id, version, created_at, author, spec_blob, global_seq
 FROM deployment_versions
 WHERE deployment_id = ?
 ORDER BY version ASC
@@ -1839,6 +1873,7 @@ func (q *Queries) ListDeploymentVersions(ctx context.Context, deploymentID int64
 			&i.CreatedAt,
 			&i.Author,
 			&i.SpecBlob,
+			&i.GlobalSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -2160,7 +2195,7 @@ func (q *Queries) ListSecretKeyslots(ctx context.Context) ([]SecretKeyslot, erro
 }
 
 const listSecretSpaceRowsBySecretID = `-- name: ListSecretSpaceRowsBySecretID :many
-SELECT id, secret_id, author, created_at, space_id
+SELECT id, secret_id, author, created_at, space_id, global_seq
 FROM secret_spaces WHERE secret_id = ?
 ORDER BY id ASC
 `
@@ -2180,6 +2215,7 @@ func (q *Queries) ListSecretSpaceRowsBySecretID(ctx context.Context, secretID in
 			&i.Author,
 			&i.CreatedAt,
 			&i.SpaceID,
+			&i.GlobalSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -2450,6 +2486,20 @@ func (q *Queries) ListValueDirectories(ctx context.Context) ([]ValueDirectory, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const nextGlobalSeq = `-- name: NextGlobalSeq :one
+
+UPDATE global_seq SET value = value + 1 WHERE id = 1
+RETURNING value
+`
+
+// === global_seq ===
+func (q *Queries) NextGlobalSeq(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextGlobalSeq)
+	var value int64
+	err := row.Scan(&value)
+	return value, err
 }
 
 const recordAssetMigrationError = `-- name: RecordAssetMigrationError :one
@@ -2858,17 +2908,17 @@ func (q *Queries) UpdateAuthzRuleTemplateName(ctx context.Context, arg UpdateAut
 	return err
 }
 
-const updateDeploymentConfigDeletedAt = `-- name: UpdateDeploymentConfigDeletedAt :exec
-UPDATE deployment_configs SET deleted_at = ? WHERE deployment_id = ?
+const updateDeploymentDeletedAt = `-- name: UpdateDeploymentDeletedAt :exec
+UPDATE deployments SET deleted_at = ? WHERE deployment_id = ?
 `
 
-type UpdateDeploymentConfigDeletedAtParams struct {
+type UpdateDeploymentDeletedAtParams struct {
 	DeletedAt    int64
 	DeploymentID int64
 }
 
-func (q *Queries) UpdateDeploymentConfigDeletedAt(ctx context.Context, arg UpdateDeploymentConfigDeletedAtParams) error {
-	_, err := q.db.ExecContext(ctx, updateDeploymentConfigDeletedAt, arg.DeletedAt, arg.DeploymentID)
+func (q *Queries) UpdateDeploymentDeletedAt(ctx context.Context, arg UpdateDeploymentDeletedAtParams) error {
+	_, err := q.db.ExecContext(ctx, updateDeploymentDeletedAt, arg.DeletedAt, arg.DeploymentID)
 	return err
 }
 

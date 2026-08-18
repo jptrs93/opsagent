@@ -1,29 +1,35 @@
--- === deployment_configs ===
+-- === global_seq ===
 
--- CreateDeploymentConfig inserts a new stable deployment identity and
+-- name: NextGlobalSeq :one
+UPDATE global_seq SET value = value + 1 WHERE id = 1
+RETURNING value;
+
+-- === deployments ===
+
+-- CreateDeployment inserts a new stable deployment identity and
 -- auto-allocates its deployment_id. Deleted deployments do not reserve their
 -- former identity tuple. The caller inserts the v1 version row in the same tx.
--- name: CreateDeploymentConfig :one
-INSERT INTO deployment_configs (node_id, name, deleted_at)
+-- name: CreateDeployment :one
+INSERT INTO deployments (node_id, name, deleted_at)
 VALUES (?, ?, 0)
 RETURNING deployment_id;
 
--- name: UpdateDeploymentConfigDeletedAt :exec
-UPDATE deployment_configs SET deleted_at = ? WHERE deployment_id = ?;
+-- name: UpdateDeploymentDeletedAt :exec
+UPDATE deployments SET deleted_at = ? WHERE deployment_id = ?;
 
 -- name: InsertDeploymentSpaceVersion :one
-INSERT INTO deployment_space_versions (deployment_id, version, author, created_at, space_id)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO deployment_space_versions (deployment_id, version, author, created_at, space_id, global_seq)
+VALUES (?, ?, ?, ?, ?, ?)
 RETURNING id;
 
 -- name: ListDeploymentSpaceVersionsByDeploymentID :many
-SELECT id, deployment_id, version, author, created_at, space_id
+SELECT id, deployment_id, version, author, created_at, space_id, global_seq
 FROM deployment_space_versions
 WHERE deployment_id = ?
 ORDER BY version ASC;
 
 -- name: ListCurrentDeploymentSpaceVersions :many
-SELECT sp.id, sp.deployment_id, sp.version, sp.author, sp.created_at, sp.space_id
+SELECT sp.id, sp.deployment_id, sp.version, sp.author, sp.created_at, sp.space_id, sp.global_seq
 FROM deployment_space_versions sp
 JOIN (SELECT deployment_id, MAX(version) AS version
       FROM deployment_space_versions GROUP BY deployment_id) latest
@@ -46,7 +52,7 @@ RETURNING id, name;
 DELETE FROM spaces WHERE id = ?;
 
 -- name: CountDeploymentsForSpace :one
-SELECT COUNT(*) FROM deployment_configs d
+SELECT COUNT(*) FROM deployments d
 WHERE d.deleted_at = 0
   AND (SELECT sp.space_id FROM deployment_space_versions sp
        WHERE sp.deployment_id = d.deployment_id
@@ -55,17 +61,17 @@ WHERE d.deleted_at = 0
 -- === deployment_versions ===
 
 -- name: InsertDeploymentVersion :exec
-INSERT INTO deployment_versions (deployment_id, version, created_at, author, spec_blob)
-VALUES (?, ?, ?, ?, ?);
+INSERT INTO deployment_versions (deployment_id, version, created_at, author, spec_blob, global_seq)
+VALUES (?, ?, ?, ?, ?, ?);
 
 -- name: ListDeploymentVersions :many
-SELECT id, deployment_id, version, created_at, author, spec_blob
+SELECT id, deployment_id, version, created_at, author, spec_blob, global_seq
 FROM deployment_versions
 WHERE deployment_id = ?
 ORDER BY version ASC;
 
 -- name: GetDeploymentVersion :one
-SELECT id, deployment_id, version, created_at, author, spec_blob
+SELECT id, deployment_id, version, created_at, author, spec_blob, global_seq
 FROM deployment_versions
 WHERE deployment_id = ? AND version = ?;
 
@@ -82,8 +88,8 @@ VALUES (?, ?, ?, ?, ?)
 RETURNING id;
 
 -- name: AppendScheduledInstanceVersion :exec
-INSERT INTO scheduled_instance_versions (scheduled_instance_id, version, created_at, state)
-SELECT @scheduled_instance_id, COALESCE(MAX(version), 0) + 1, @created_at, @state
+INSERT INTO scheduled_instance_versions (scheduled_instance_id, version, created_at, state, global_seq)
+SELECT @scheduled_instance_id, COALESCE(MAX(version), 0) + 1, @created_at, @state, @global_seq
 FROM scheduled_instance_versions
 WHERE scheduled_instance_id = @scheduled_instance_id;
 
@@ -251,11 +257,11 @@ VALUES (?, ?, ?)
 RETURNING id;
 
 -- name: InsertConfigSpaceRow :exec
-INSERT INTO config_spaces (config_id, author, created_at, space_id)
-VALUES (?, ?, ?, ?);
+INSERT INTO config_spaces (config_id, author, created_at, space_id, global_seq)
+VALUES (?, ?, ?, ?, ?);
 
 -- name: ListConfigSpaceRowsByConfigID :many
-SELECT id, config_id, author, created_at, space_id
+SELECT id, config_id, author, created_at, space_id, global_seq
 FROM config_spaces WHERE config_id = ?
 ORDER BY id ASC;
 
@@ -266,12 +272,12 @@ UPDATE configs SET name = ? WHERE id = ?;
 UPDATE configs SET deleted_at = ? WHERE id = ?;
 
 -- name: ListConfigVersionRows :many
-SELECT id, config_id, version, value, created_at, author
+SELECT id, config_id, version, value, created_at, author, global_seq
 FROM config_versions
 ORDER BY config_id, version;
 
 -- name: ListConfigVersionsByConfigID :many
-SELECT id, config_id, version, value, created_at, author
+SELECT id, config_id, version, value, created_at, author, global_seq
 FROM config_versions WHERE config_id = ?
 ORDER BY version ASC;
 
@@ -281,9 +287,9 @@ FROM config_versions
 WHERE config_id = ?;
 
 -- name: InsertConfigVersion :one
-INSERT INTO config_versions (config_id, version, value, created_at, author)
-VALUES (?, ?, ?, ?, ?)
-RETURNING id, config_id, version, value, created_at, author;
+INSERT INTO config_versions (config_id, version, value, created_at, author, global_seq)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, config_id, version, value, created_at, author, global_seq;
 
 -- === value directories (shared by secrets and configs) ===
 
@@ -345,11 +351,11 @@ VALUES (?, ?, ?)
 RETURNING id;
 
 -- name: InsertAssetSpaceRow :exec
-INSERT INTO asset_spaces (asset_id, author, created_at, space_id)
-VALUES (?, ?, ?, ?);
+INSERT INTO asset_spaces (asset_id, author, created_at, space_id, global_seq)
+VALUES (?, ?, ?, ?, ?);
 
 -- name: ListAssetSpaceRowsByAssetID :many
-SELECT id, asset_id, author, created_at, space_id
+SELECT id, asset_id, author, created_at, space_id, global_seq
 FROM asset_spaces WHERE asset_id = ?
 ORDER BY id ASC;
 
@@ -398,9 +404,9 @@ FROM asset_versions
 WHERE asset_id = ?;
 
 -- name: InsertAssetVersion :one
-INSERT INTO asset_versions (asset_id, version, created_at, author, size_bytes, sha256)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, asset_id, version, created_at, author, size_bytes, sha256;
+INSERT INTO asset_versions (asset_id, version, created_at, author, size_bytes, sha256, global_seq)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id, asset_id, version, created_at, author, size_bytes, sha256, global_seq;
 
 -- name: CountAssetVersionsBySha :one
 SELECT COUNT(*) FROM asset_versions WHERE sha256 = ?;
@@ -513,11 +519,11 @@ VALUES (?, ?, ?)
 RETURNING id;
 
 -- name: InsertSecretSpaceRow :exec
-INSERT INTO secret_spaces (secret_id, author, created_at, space_id)
-VALUES (?, ?, ?, ?);
+INSERT INTO secret_spaces (secret_id, author, created_at, space_id, global_seq)
+VALUES (?, ?, ?, ?, ?);
 
 -- name: ListSecretSpaceRowsBySecretID :many
-SELECT id, secret_id, author, created_at, space_id
+SELECT id, secret_id, author, created_at, space_id, global_seq
 FROM secret_spaces WHERE secret_id = ?
 ORDER BY id ASC;
 
@@ -538,9 +544,9 @@ FROM secret_versions
 WHERE secret_id = ?;
 
 -- name: InsertSecretVersion :one
-INSERT INTO secret_versions (secret_id, version, smk_version, ciphertext, nonce, created_at, author)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, secret_id, version, smk_version, ciphertext, nonce, created_at, author;
+INSERT INTO secret_versions (secret_id, version, smk_version, ciphertext, nonce, created_at, author, global_seq)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, secret_id, version, smk_version, ciphertext, nonce, created_at, author, global_seq;
 
 -- name: UpdateSecretVersionCiphertext :exec
 UPDATE secret_versions SET smk_version = ?, ciphertext = ?, nonce = ? WHERE id = ?;
@@ -601,8 +607,8 @@ INSERT INTO authz_rule_templates (name, builtin, deleted_at)
 VALUES (?, 0, 0) RETURNING id;
 
 -- name: AppendAuthzRuleTemplateVersion :exec
-INSERT INTO authz_rule_template_versions (template_id, version, created_at, author, data_blob)
-SELECT @template_id, COALESCE(MAX(version), 0) + 1, @created_at, @author, @data_blob
+INSERT INTO authz_rule_template_versions (template_id, version, created_at, author, data_blob, global_seq)
+SELECT @template_id, COALESCE(MAX(version), 0) + 1, @created_at, @author, @data_blob, @global_seq
 FROM authz_rule_template_versions
 WHERE template_id = @template_id;
 

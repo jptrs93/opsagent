@@ -95,7 +95,7 @@ responses redact its runtime details.
 Each deployment's `DeploymentConfig.Version` is a per-deployment
 monotonically increasing integer that bumps on any spec or desired-state
 change. Storage follows the secrets/configs identity + versions split: the
-stable identity (node, space, name, tombstone) lives in `deployment_configs`,
+stable identity (node, space, name, tombstone) lives in `deployments`,
 and every spec revision is an immutable append-only row in
 `deployment_versions`, so the UI can reconstruct the sequence of
 changes. The current desired state is the latest version row; deleting appends

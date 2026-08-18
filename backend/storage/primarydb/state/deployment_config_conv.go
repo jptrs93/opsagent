@@ -8,7 +8,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-func configRowToProto(r pq.DeploymentConfigRow) *apigen.DeploymentConfig {
+func configRowToProto(r pq.DeploymentRow) *apigen.DeploymentConfig {
 	spec := mustDecodeDeploymentSpec(r.SpecBlob, r.DeploymentID, r.Version)
 	return &apigen.DeploymentConfig{
 		ID:           int32(r.DeploymentID),

@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS authz_rule_template_versions (
     created_at  INTEGER NOT NULL,  -- epoch ms
     author  INTEGER NOT NULL DEFAULT 0,  -- user id
     data_blob   BLOB    NOT NULL,
+    global_seq  INTEGER NOT NULL DEFAULT 0,
     UNIQUE (template_id, version)
 );
 

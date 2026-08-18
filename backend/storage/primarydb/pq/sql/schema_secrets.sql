@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS secret_spaces (
     secret_id   INTEGER NOT NULL,
     author  INTEGER NOT NULL DEFAULT 0,  -- user id
     created_at  INTEGER NOT NULL,            -- epoch ms
-    space_id    INTEGER NOT NULL
+    space_id    INTEGER NOT NULL,
+    global_seq  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_secret_spaces_secret ON secret_spaces (secret_id);
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS secret_versions (
     nonce       BLOB    NOT NULL,
     created_at  INTEGER NOT NULL,            -- epoch ms
     author  INTEGER NOT NULL DEFAULT 0,  -- user id
+    global_seq  INTEGER NOT NULL DEFAULT 0,
     UNIQUE (secret_id, version)
 );
 

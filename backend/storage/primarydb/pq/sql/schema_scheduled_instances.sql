@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS scheduled_instance_versions (
     version               INTEGER NOT NULL,  -- derivable (count of prior rows + 1) but kept for convenience
     created_at            INTEGER NOT NULL,  -- epoch ms
     state                 INTEGER NOT NULL,  -- ScheduledInstanceTarget
+    global_seq            INTEGER NOT NULL DEFAULT 0,
     UNIQUE (scheduled_instance_id, version)
 );
 

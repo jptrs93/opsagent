@@ -86,6 +86,10 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, aut
 	var row Config
 	var version pq.ConfigVersion
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		seq, err := q.NextGlobalSeq(ctx)
+		if err != nil {
+			panic(fmt.Sprintf("NextGlobalSeq: %v", err))
+		}
 		id, err := q.InsertConfigRow(ctx, pq.InsertConfigRowParams{
 			Name:             name,
 			ValueDirectoryID: dirID,
@@ -99,6 +103,7 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, aut
 			Author:    int64(author),
 			CreatedAt: now,
 			SpaceID:   space,
+			GlobalSeq: seq,
 		}); err != nil {
 			panic(fmt.Sprintf("InsertConfigSpaceRow: %v", err))
 		}
@@ -109,6 +114,7 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, aut
 			Value:     value,
 			CreatedAt: now,
 			Author:    int64(author),
+			GlobalSeq: seq,
 		})
 		if err != nil {
 			panic(fmt.Sprintf("InsertConfigVersion: %v", err))
@@ -125,7 +131,7 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, aut
 // row atomically.
 func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value string, author int32, updateDeployments bool, expected []storage.DeploymentConfigVersion) (*apigen.ConfigMeta, []int32, error) {
 	ctx := context.Background()
-	insert := func(q *pq.Queries) (int32, error) {
+	insert := func(q *pq.Queries, globalSeq int64) (int32, error) {
 		if _, err := q.GetConfigRowByID(ctx, int64(configID)); err == sql.ErrNoRows {
 			return 0, ErrValueNotFound
 		} else if err != nil {
@@ -141,6 +147,7 @@ func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value
 			Value:     value,
 			CreatedAt: time.Now().UnixMilli(),
 			Author:    int64(author),
+			GlobalSeq: globalSeq,
 		})
 		if err != nil {
 			return 0, fmt.Errorf("insert config version: %w", err)
@@ -297,11 +304,16 @@ func (s *Service) MoveConfigSpace(configID, newSpaceID, newDirectoryID, author i
 	}
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		if spaceID != row.SpaceID {
+			seq, err := q.NextGlobalSeq(ctx)
+			if err != nil {
+				panic(fmt.Sprintf("NextGlobalSeq: %v", err))
+			}
 			if err := q.InsertConfigSpaceRow(ctx, pq.InsertConfigSpaceRowParams{
 				ConfigID:  row.ID,
 				Author:    int64(author),
 				CreatedAt: time.Now().UnixMilli(),
 				SpaceID:   spaceID,
+				GlobalSeq: seq,
 			}); err != nil {
 				panic(fmt.Sprintf("InsertConfigSpaceRow: %v", err))
 			}
