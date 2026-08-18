@@ -85,8 +85,7 @@ type Store interface {
 	ListAuthzGlobalRules() ([]GlobalRuleRow, error)
 	InsertAuthzGlobalRule(row GlobalRuleRow) (int64, error)
 	DeleteAuthzGlobalRule(id int64) error
-	FetchLocalKV(key string) ([]byte, bool)
-	MustSetLocalKV(key string, value []byte)
+	SeedAuthzGlobalRule(name string, blob []byte) error
 }
 
 type Service struct {
@@ -153,15 +152,8 @@ func Open(store Store) (*Service, error) {
 	for _, grants := range s.grantsByUser {
 		sortByID(grants, func(g *apigen.AuthzGrantRecord) int64 { return g.ID })
 	}
-	if _, done := store.FetchLocalKV(defaultUserVisibilityMarker); !done {
-		rule := defaultUserVisibilityRule()
-		if _, err := store.InsertAuthzGlobalRule(GlobalRuleRow{
-			Name: DefaultUserVisibilityRuleName,
-			Blob: rule.Encode(),
-		}); err != nil {
-			return nil, fmt.Errorf("authz: seed %s: %w", DefaultUserVisibilityRuleName, err)
-		}
-		store.MustSetLocalKV(defaultUserVisibilityMarker, []byte("1"))
+	if err := store.SeedAuthzGlobalRule(DefaultUserVisibilityRuleName, defaultUserVisibilityRule().Encode()); err != nil {
+		return nil, fmt.Errorf("authz: seed %s: %w", DefaultUserVisibilityRuleName, err)
 	}
 	globalRuleRows, err := store.ListAuthzGlobalRules()
 	if err != nil {

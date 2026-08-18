@@ -8,3 +8,6 @@
 -- column backfill across the version-log tables, were removed after every
 -- active cluster had been rolled forward. Upgrading a database from before
 -- then requires stepping through a release that still carried them.
+
+ALTER TABLE global_access_rules ADD COLUMN deleted_at INTEGER NOT NULL DEFAULT 0;
+DELETE FROM local_kv WHERE key = 'migration.authz-default-user-visibility';

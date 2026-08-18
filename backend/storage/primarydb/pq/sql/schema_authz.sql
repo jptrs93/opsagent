@@ -42,6 +42,7 @@ CREATE INDEX IF NOT EXISTS idx_authz_grants_template
 CREATE TABLE IF NOT EXISTS global_access_rules (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT    NOT NULL DEFAULT '',
+    deleted_at INTEGER NOT NULL DEFAULT 0,  -- epoch ms, 0 = not deleted
     author INTEGER NOT NULL DEFAULT 0,  -- user id
     created_at INTEGER NOT NULL DEFAULT 0,  -- epoch ms
     data_blob  BLOB    NOT NULL

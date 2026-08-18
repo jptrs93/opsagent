@@ -184,5 +184,26 @@ func (s *Service) InsertAuthzGlobalRule(row authz.GlobalRuleRow) (int64, error) 
 }
 
 func (s *Service) DeleteAuthzGlobalRule(id int64) error {
-	return s.q.DeleteGlobalAccessRuleRow(context.Background(), id)
+	return s.q.SetGlobalAccessRuleDeletedAt(context.Background(), pq.SetGlobalAccessRuleDeletedAtParams{
+		DeletedAt: time.Now().UnixMilli(),
+		ID:        id,
+	})
+}
+
+func (s *Service) SeedAuthzGlobalRule(name string, blob []byte) error {
+	ctx := context.Background()
+	return s.q.Tx(ctx, func(q *pq.Queries) error {
+		count, err := q.CountGlobalAccessRuleRowsByName(ctx, name)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			return nil
+		}
+		_, err = q.InsertGlobalAccessRuleRow(ctx, pq.InsertGlobalAccessRuleRowParams{
+			Name:     name,
+			DataBlob: notNullBlob(blob),
+		})
+		return err
+	})
 }

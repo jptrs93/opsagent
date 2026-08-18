@@ -11,7 +11,7 @@ type memStore struct {
 	templates map[int64]RuleTemplateRow
 	grants    map[int64]GrantRow
 	rules     map[int64]GlobalRuleRow
-	kv        map[string][]byte
+	seeded    map[string]bool
 	nextID    int64
 }
 
@@ -20,7 +20,7 @@ func newMemStore() *memStore {
 		templates: make(map[int64]RuleTemplateRow),
 		grants:    make(map[int64]GrantRow),
 		rules:     make(map[int64]GlobalRuleRow),
-		kv:        make(map[string][]byte),
+		seeded:    make(map[string]bool),
 	}
 }
 
@@ -105,13 +105,13 @@ func (m *memStore) DeleteAuthzGlobalRule(id int64) error {
 	return nil
 }
 
-func (m *memStore) FetchLocalKV(key string) ([]byte, bool) {
-	v, ok := m.kv[key]
-	return v, ok
-}
-
-func (m *memStore) MustSetLocalKV(key string, value []byte) {
-	m.kv[key] = value
+func (m *memStore) SeedAuthzGlobalRule(name string, blob []byte) error {
+	if m.seeded[name] {
+		return nil
+	}
+	m.seeded[name] = true
+	_, err := m.InsertAuthzGlobalRule(GlobalRuleRow{Name: name, Blob: blob})
+	return err
 }
 
 func mustOpen(t *testing.T, store Store) *Service {

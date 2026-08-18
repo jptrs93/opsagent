@@ -11,12 +11,10 @@ const spaceAdminSpacesArgID int64 = 1
 
 // DefaultUserVisibilityRuleName names the seeded allow-mode global rule that
 // makes the user roster visible to everyone, so a space-limited operator can
-// resolve names for audit display. It is seeded exactly once (run-once marker,
-// not re-asserted at startup): an admin who deletes it has opted out, and a
-// restart must not resurrect that decision.
+// resolve names for audit display. It is seeded exactly once: deletion leaves
+// a tombstone row, so an admin who deletes it has opted out and a restart
+// must not resurrect that decision.
 const DefaultUserVisibilityRuleName = "default_user_visibility"
-
-const defaultUserVisibilityMarker = "migration.authz-default-user-visibility"
 
 func defaultUserVisibilityRule() *apigen.AuthzGlobalRule {
 	return &apigen.AuthzGlobalRule{

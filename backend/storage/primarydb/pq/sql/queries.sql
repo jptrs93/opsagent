@@ -645,11 +645,15 @@ VALUES (?, ?, ?, ?, ?) RETURNING id;
 UPDATE authz_grants SET deleted_at = ? WHERE id = ?;
 
 -- name: ListGlobalAccessRuleRows :many
-SELECT id, name, author, created_at, data_blob FROM global_access_rules;
+SELECT id, name, author, created_at, data_blob FROM global_access_rules
+WHERE deleted_at = 0;
 
 -- name: InsertGlobalAccessRuleRow :one
 INSERT INTO global_access_rules (name, author, created_at, data_blob)
 VALUES (?, ?, ?, ?) RETURNING id;
 
--- name: DeleteGlobalAccessRuleRow :exec
-DELETE FROM global_access_rules WHERE id = ?;
+-- name: SetGlobalAccessRuleDeletedAt :exec
+UPDATE global_access_rules SET deleted_at = ? WHERE id = ?;
+
+-- name: CountGlobalAccessRuleRowsByName :one
+SELECT COUNT(*) FROM global_access_rules WHERE name = ?;

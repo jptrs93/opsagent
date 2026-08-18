@@ -239,6 +239,17 @@ func (q *Queries) CountDirectorySiblingsWithKey(ctx context.Context, arg CountDi
 	return count, err
 }
 
+const countGlobalAccessRuleRowsByName = `-- name: CountGlobalAccessRuleRowsByName :one
+SELECT COUNT(*) FROM global_access_rules WHERE name = ?
+`
+
+func (q *Queries) CountGlobalAccessRuleRowsByName(ctx context.Context, name string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countGlobalAccessRuleRowsByName, name)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countSecretsInDirectory = `-- name: CountSecretsInDirectory :one
 SELECT COUNT(*) FROM secrets WHERE value_directory_id = ? AND deleted_at = 0
 `
@@ -345,15 +356,6 @@ DELETE FROM asset_store WHERE id = ?
 
 func (q *Queries) DeleteAssetStoreRow(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, deleteAssetStoreRow, id)
-	return err
-}
-
-const deleteGlobalAccessRuleRow = `-- name: DeleteGlobalAccessRuleRow :exec
-DELETE FROM global_access_rules WHERE id = ?
-`
-
-func (q *Queries) DeleteGlobalAccessRuleRow(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, deleteGlobalAccessRuleRow, id)
 	return err
 }
 
@@ -1901,17 +1903,26 @@ func (q *Queries) ListDeploymentVersions(ctx context.Context, deploymentID int64
 
 const listGlobalAccessRuleRows = `-- name: ListGlobalAccessRuleRows :many
 SELECT id, name, author, created_at, data_blob FROM global_access_rules
+WHERE deleted_at = 0
 `
 
-func (q *Queries) ListGlobalAccessRuleRows(ctx context.Context) ([]GlobalAccessRule, error) {
+type ListGlobalAccessRuleRowsRow struct {
+	ID        int64
+	Name      string
+	Author    int64
+	CreatedAt int64
+	DataBlob  []byte
+}
+
+func (q *Queries) ListGlobalAccessRuleRows(ctx context.Context) ([]ListGlobalAccessRuleRowsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listGlobalAccessRuleRows)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GlobalAccessRule
+	var items []ListGlobalAccessRuleRowsRow
 	for rows.Next() {
-		var i GlobalAccessRule
+		var i ListGlobalAccessRuleRowsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -2758,6 +2769,20 @@ type SetConfigValueDirectoryIDParams struct {
 
 func (q *Queries) SetConfigValueDirectoryID(ctx context.Context, arg SetConfigValueDirectoryIDParams) error {
 	_, err := q.db.ExecContext(ctx, setConfigValueDirectoryID, arg.ValueDirectoryID, arg.ID)
+	return err
+}
+
+const setGlobalAccessRuleDeletedAt = `-- name: SetGlobalAccessRuleDeletedAt :exec
+UPDATE global_access_rules SET deleted_at = ? WHERE id = ?
+`
+
+type SetGlobalAccessRuleDeletedAtParams struct {
+	DeletedAt int64
+	ID        int64
+}
+
+func (q *Queries) SetGlobalAccessRuleDeletedAt(ctx context.Context, arg SetGlobalAccessRuleDeletedAtParams) error {
+	_, err := q.db.ExecContext(ctx, setGlobalAccessRuleDeletedAt, arg.DeletedAt, arg.ID)
 	return err
 }
 

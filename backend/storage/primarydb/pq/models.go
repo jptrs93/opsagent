@@ -177,6 +177,7 @@ type EnrollmentRequest struct {
 type GlobalAccessRule struct {
 	ID        int64
 	Name      string
+	DeletedAt int64
 	Author    int64
 	CreatedAt int64
 	DataBlob  []byte

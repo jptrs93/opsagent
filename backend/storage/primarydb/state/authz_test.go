@@ -6,6 +6,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/authz"
+	"github.com/jptrs93/opsagent/backend/storage/sqlitedb"
 )
 
 func TestAuthzStoreRoundTrip(t *testing.T) {
@@ -124,5 +125,104 @@ func TestAuthzStoreRoundTrip(t *testing.T) {
 		}},
 	}, 1); err != nil {
 		t.Fatalf("name should be reusable after delete (partial unique index): %v", err)
+	}
+}
+
+func TestDeletedSeededGlobalRuleStaysDeleted(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "primary.db")
+	store := Open(dbPath)
+
+	if _, err := authz.Open(store); err != nil {
+		t.Fatalf("authz.Open: %v", err)
+	}
+	rules, err := store.ListAuthzGlobalRules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seededID int64
+	for _, rule := range rules {
+		if rule.Name == authz.DefaultUserVisibilityRuleName {
+			seededID = rule.ID
+		}
+	}
+	if seededID == 0 {
+		t.Fatalf("seeded rule missing from %+v", rules)
+	}
+	if err := store.DeleteAuthzGlobalRule(seededID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store = Open(dbPath)
+	defer store.Close()
+	if _, err := authz.Open(store); err != nil {
+		t.Fatalf("authz.Open after delete: %v", err)
+	}
+	rules, err = store.ListAuthzGlobalRules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range rules {
+		if rule.Name == authz.DefaultUserVisibilityRuleName {
+			t.Fatalf("deleted seeded rule was resurrected: %+v", rule)
+		}
+	}
+
+	db := sqlitedb.MustOpen(dbPath)
+	defer db.Close()
+	var tombstones int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM global_access_rules WHERE name = ? AND deleted_at != 0`,
+		authz.DefaultUserVisibilityRuleName).Scan(&tombstones); err != nil {
+		t.Fatal(err)
+	}
+	if tombstones != 1 {
+		t.Fatalf("tombstone rows = %d, want 1", tombstones)
+	}
+}
+
+func TestGlobalRuleDeletedAtMigration(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "primary.db")
+	db := sqlitedb.MustOpen(dbPath)
+	mustExec := func(stmt string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(stmt, args...); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	mustExec(`CREATE TABLE global_access_rules (
+	    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	    name       TEXT    NOT NULL DEFAULT '',
+	    author     INTEGER NOT NULL DEFAULT 0,
+	    created_at INTEGER NOT NULL DEFAULT 0,
+	    data_blob  BLOB    NOT NULL
+	)`)
+	mustExec(`INSERT INTO global_access_rules (name, data_blob) VALUES (?, ?)`,
+		authz.DefaultUserVisibilityRuleName, (&apigen.AuthzGlobalRule{DelegationAllowed: true}).Encode())
+	mustExec(`CREATE TABLE local_kv (key TEXT PRIMARY KEY, value BLOB NOT NULL)`)
+	mustExec(`INSERT INTO local_kv (key, value) VALUES ('migration.authz-default-user-visibility', '1')`)
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store := Open(dbPath)
+	defer store.Close()
+	if _, err := authz.Open(store); err != nil {
+		t.Fatalf("authz.Open: %v", err)
+	}
+	if _, ok := store.FetchLocalKV("migration.authz-default-user-visibility"); ok {
+		t.Fatal("legacy seed marker survived the migration")
+	}
+
+	db = sqlitedb.MustOpen(dbPath)
+	defer db.Close()
+	var seeded int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM global_access_rules WHERE name = ? AND deleted_at = 0`,
+		authz.DefaultUserVisibilityRuleName).Scan(&seeded); err != nil {
+		t.Fatal(err)
+	}
+	if seeded != 1 {
+		t.Fatalf("seeded rule rows = %d, want the migrated row alone", seeded)
 	}
 }
