@@ -1,6 +1,11 @@
 // Pure helpers for the agent sessions list. Kept free of van and capi imports
 // so they can be unit tested outside a browser.
 
+export const INSTRUCTIONS_PATH = "/v1/agent-sessions/instructions";
+
+export const agentPrompt = (origin, userId) =>
+    `Fetch instructions for using our deployment orchestration platform, opendeploy from ${origin}${INSTRUCTIONS_PATH}?user_id=${userId}. Then request a new session if you don't have an existing valid token.`;
+
 // Mirrors the AgentSessionStatus enum in api-contract/model.proto. Duplicated
 // rather than imported because the generated capi module reaches for `window`.
 export const STATUS = {

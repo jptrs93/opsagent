@@ -207,6 +207,30 @@ WHERE id = ? AND status = 2 AND length(token_hash) = 0;
 UPDATE agent_sessions SET revoked_at = ?, status = ?
 WHERE id = ? AND user_id = ? AND revoked_at = 0;
 
+-- === personal_sessions ===
+
+-- name: InsertPersonalSession :exec
+INSERT INTO personal_sessions (id, user_id, created_at, expires_at, token_hash, revoked_at,
+                               requesting_address, user_agent, last_active_at)
+VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?);
+
+-- name: GetPersonalSession :one
+SELECT id, user_id, created_at, expires_at, token_hash, revoked_at,
+       requesting_address, user_agent, last_active_at
+FROM personal_sessions WHERE id = ?;
+
+-- name: ListPersonalSessionsForUser :many
+SELECT id, user_id, created_at, expires_at, token_hash, revoked_at,
+       requesting_address, user_agent, last_active_at
+FROM personal_sessions WHERE user_id = ? ORDER BY created_at DESC;
+
+-- name: RevokePersonalSession :execrows
+UPDATE personal_sessions SET revoked_at = ?
+WHERE id = ? AND user_id = ? AND revoked_at = 0;
+
+-- name: TouchPersonalSessionActivity :exec
+UPDATE personal_sessions SET last_active_at = ? WHERE id = ?;
+
 -- === public_keys ===
 
 -- name: GetPublicKey :one

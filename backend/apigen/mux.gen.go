@@ -88,6 +88,8 @@ type ApiServerHandler interface {
 	PostV1AgentSessionsCreate(Context) (*AgentSessionCreated, error)
 	PostV1AgentSessionsList(Context, *EmptyRequest) (*AgentSessionList, error)
 	PostV1AgentSessionsRevoke(Context, *AgentSessionRevokeRequest) error
+	PostV1PersonalSessionsList(Context, *EmptyRequest) (*PersonalSessionList, error)
+	PostV1PersonalSessionsRevoke(Context, *PersonalSessionRevokeRequest) error
 	PostV1AccessRuleTemplatesList(Context, *EmptyRequest) (*AuthzRuleTemplateList, error)
 	PostV1AccessRuleTemplatesCreate(Context, *AuthzRuleTemplateCreateRequest) (*AuthzRuleTemplateRecord, error)
 	PostV1AccessRuleTemplatesUpdate(Context, *AuthzRuleTemplateUpdateRequest) (*AuthzRuleTemplateRecord, error)
@@ -375,6 +377,32 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/agent-sessions/revoke", buildHandlerFunc(config, verifyAuth, postV1AgentSessionsRevokeAccessPolicy, postAuthHandlerPostV1AgentSessionsRevoke, compressionModeAuto, false))
+	postV1PersonalSessionsListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1PersonalSessionsList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1PersonalSessionsList(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/personal-sessions/list", buildHandlerFunc(config, verifyAuth, postV1PersonalSessionsListAccessPolicy, postAuthHandlerPostV1PersonalSessionsList, compressionModeAuto, false))
+	postV1PersonalSessionsRevokeAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1PersonalSessionsRevoke := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodePersonalSessionRevokeRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1PersonalSessionsRevoke(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/personal-sessions/revoke", buildHandlerFunc(config, verifyAuth, postV1PersonalSessionsRevokeAccessPolicy, postAuthHandlerPostV1PersonalSessionsRevoke, compressionModeAuto, false))
 	postV1AccessRuleTemplatesListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1AccessRuleTemplatesList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEmptyRequest)

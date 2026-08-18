@@ -301,6 +301,15 @@ stripping); WebSocket upgrades pass through; SSE and unknown-length responses
 flush immediately. Only non-happy responses (status >= 400, backend dial/proxy
 errors) are logged.
 
+`backend = "h2c"` routes support full-duplex streaming (e.g. cleanproto bidi
+RPCs, gRPC) end to end when the client connects with HTTP/2. The h2c backend
+transport pumps the inbound request body through a cancelable pipe: without
+it, a backend that half-closes its response while the client keeps the
+request stream open deadlocks the raw http2 transport (closing the response
+body waits on the request-body write goroutine, which sits in an
+uninterruptible read on the inbound body). Covered by
+`TestH2CBidiServerHalfClose` and the `proto-stream` e2e cases.
+
 Certificate private keys never enter `netstate.pb`. The agent renders a
 separate `certbundle.pb` (0600, atomic write-rename) beside it, resolving
 secret-arm refs and ACME bindings from locally persisted secrets; netproxy

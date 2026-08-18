@@ -6,6 +6,9 @@ import {caseDef as nixDockerVirtualNetworkCase} from './nix-docker-virtual-netwo
 import {hostRolloverCase, virtualPortForwardingCase, virtualRolloverCase} from './rollover-networking.js';
 import {expectTLSPassthroughRoutes, tlsPassthroughCases} from './tls-passthrough.js';
 import {expectHTTPSIngressRoutes, httpsIngressCases} from './https-ingress.js';
+import {httpsHeaderCases} from './https-headers.js';
+import {expectProtoStreamRoutes, protoStreamCases} from './proto-stream.js';
+import {expectWebSocketRoute, websocketCases} from './websocket.js';
 import {issuedTLSCases} from './issued-tls.js';
 import {pgBackRestCases} from './postgres-pgbackrest.js';
 import {installVirtualAuthenticator} from '../helpers/webauthn.js';
@@ -180,6 +183,9 @@ export const orderedCases = [
   virtualPortForwardingCase,
   ...tlsPassthroughCases,
   ...httpsIngressCases,
+  ...httpsHeaderCases,
+  ...protoStreamCases,
+  ...websocketCases,
   ...issuedTLSCases,
   {
     id: 'private-github-deployment',
@@ -473,7 +479,7 @@ export const orderedCases = [
     id: 'opendeploy-agents-upgraded',
     title: 'upgrade opendeploy agents',
     description: 'Upgrades worker and primary OpenDeploy agents to the expected upgrade version.',
-    requires: ['nix-docker-virtual-network', 'virtual-network-rollover', 'virtual-port-forwarding', 'tls-ingress-route-restored', 'https-routes-restored'],
+    requires: ['nix-docker-virtual-network', 'virtual-network-rollover', 'virtual-port-forwarding', 'tls-ingress-route-restored', 'https-routes-restored', 'protostream-routes-added', 'wsecho-route-added'],
     async run(ctx) {
       const virtualWorkloads = [
         {name: 'nixdockerbuild-virtual', machine: 'worker-1'},
@@ -484,6 +490,8 @@ export const orderedCases = [
         {name: 'tls-ingress-three', machine: 'worker-2'},
         {name: 'https-echo-root', machine: 'worker-2'},
         {name: 'https-echo-api', machine: 'worker-2'},
+        {name: 'protostream', machine: 'worker-2'},
+        {name: 'wsecho', machine: 'worker-2'},
       ];
       const restartCounts = new Map();
       for (const workload of virtualWorkloads) {
@@ -499,6 +507,8 @@ export const orderedCases = [
           if (workerName === 'worker-2') {
             await expectTLSPassthroughRoutes();
             await expectHTTPSIngressRoutes();
+            await expectProtoStreamRoutes();
+            await expectWebSocketRoute();
           }
         },
         afterUpgrade: async () => {
@@ -515,6 +525,8 @@ export const orderedCases = [
           }
           await expectTLSPassthroughRoutes();
           await expectHTTPSIngressRoutes();
+          await expectProtoStreamRoutes();
+          await expectWebSocketRoute();
         },
       });
     },

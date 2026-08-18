@@ -435,6 +435,40 @@ func (c *ApiServerCapi) PostV1AgentSessionsRevoke(ctx context.Context, req *Agen
 	return nil
 }
 
+func (c *ApiServerCapi) PostV1PersonalSessionsList(ctx context.Context, req *EmptyRequest) (*PersonalSessionList, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1PersonalSessionsList request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/personal-sessions/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodePersonalSessionList(body)
+}
+
+func (c *ApiServerCapi) PostV1PersonalSessionsRevoke(ctx context.Context, req *PersonalSessionRevokeRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1PersonalSessionsRevoke request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/personal-sessions/revoke", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
 func (c *ApiServerCapi) PostV1AccessRuleTemplatesList(ctx context.Context, req *EmptyRequest) (*AuthzRuleTemplateList, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AccessRuleTemplatesList request is nil")

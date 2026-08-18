@@ -1,5 +1,5 @@
 import van from "vanjs-core";
-import {basicSetup} from "codemirror";
+import {basicSetup, minimalSetup} from "codemirror";
 import {yaml} from "@codemirror/lang-yaml";
 import {HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {Compartment, EditorState} from "@codemirror/state";
@@ -71,6 +71,11 @@ export function assetCodeEditor({
     ariaLabel,
     yamlSyntax = false,
     bare = false,
+    wrap = false,
+    lineNumbers = true,
+    fontSize = "",
+    background = "",
+    extensions = [],
 }) {
     const editable = new Compartment();
     const valueBridge = createEditorValueBridge(value);
@@ -91,9 +96,24 @@ export function assetCodeEditor({
             state: EditorState.create({
                 doc: stateValue(value) || "",
                 extensions: [
-                    basicSetup,
+                    // minimalSetup drops the gutters and fold UI for prose-like
+                    // blocks (a command line, a prompt) where line numbers are
+                    // noise.
+                    lineNumbers ? basicSetup : minimalSetup,
+                    ...(wrap ? [EditorView.lineWrapping] : []),
+                    // Before codeEditorTheme: earlier extensions take
+                    // precedence, so this is what lets a caller's overrides
+                    // win over the theme's defaults.
+                    ...(fontSize ? [EditorView.theme({".cm-content": {fontSize}})] : []),
+                    ...(background ? [EditorView.theme({
+                        "&": {backgroundColor: background},
+                        ".cm-gutters": {backgroundColor: background},
+                    })] : []),
                     codeEditorTheme,
                     ...(yamlSyntax ? [yaml(), syntaxHighlighting(yamlHighlightStyle)] : []),
+                    // Caller-supplied language/lint extensions, so this editor
+                    // needs no knowledge of the dialects that use it.
+                    ...extensions,
                     editable.of(EditorView.editable.of(!isDisabled())),
                     EditorView.updateListener.of(update => {
                         if (update.docChanged) valueBridge.updateFromEditor(update.state.doc.toString());

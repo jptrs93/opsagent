@@ -95,7 +95,10 @@ export function clusterPage() {
         // flush surface running to the window and sidebar edges.
         {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
         div(
-            {class: "app-scroll flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto"},
+            // No app-scroll: its stable scrollbar gutter would hold the
+            // section bands 8px off the right edge (the IAM page scrolls the
+            // same way).
+            {class: "flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto"},
             () => {
                 if (deploymentsStreamS.val.status !== "connected" && machinesS.val.length === 0) {
                     return p({class: "px-4 py-3 text-gray-400"}, "Loading...");

@@ -592,6 +592,25 @@
  * @property {string} id
  */
 /**
+ * @typedef {Object} PersonalSession
+ * @property {string} id
+ * @property {Date} createdAt
+ * @property {Date} expiresAt
+ * @property {Date} revokedAt
+ * @property {string} requestingAddress
+ * @property {string} userAgent
+ * @property {Date} lastActiveAt
+ * @property {boolean} current
+ */
+/**
+ * @typedef {Object} PersonalSessionList
+ * @property {PersonalSession[]} items
+ */
+/**
+ * @typedef {Object} PersonalSessionRevokeRequest
+ * @property {string} id
+ */
+/**
  * @typedef {Object} AgentSessionRequestStartRequest
  * @property {number} userId
  */
@@ -8465,6 +8484,227 @@ function decodeAgentSessionRevokeRequestMessage(reader, length) {
 export function decodeAgentSessionRevokeRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeAgentSessionRevokeRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {PersonalSession} message
+ * @param {Writer} writer
+ */
+export function writePersonalSession(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.id);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.expiresAt instanceof Date && message.expiresAt.getTime() !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.expiresAt.getTime()));
+    }
+    if (message.revokedAt instanceof Date && message.revokedAt.getTime() !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.revokedAt.getTime()));
+    }
+    if (message.requestingAddress !== undefined && message.requestingAddress !== null && message.requestingAddress !== "") {
+        writer.uint32(tag(5, WIRE.LDELIM)).string(message.requestingAddress);
+    }
+    if (message.userAgent !== undefined && message.userAgent !== null && message.userAgent !== "") {
+        writer.uint32(tag(6, WIRE.LDELIM)).string(message.userAgent);
+    }
+    if (message.lastActiveAt instanceof Date && message.lastActiveAt.getTime() !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int64(Math.trunc(message.lastActiveAt.getTime()));
+    }
+    if (message.current === true) {
+        writer.uint32(tag(8, WIRE.VARINT)).bool(message.current);
+    }
+}
+
+
+/**
+ * @param {PersonalSession} message
+ * @returns {Uint8Array}
+ */
+export function encodePersonalSession(message) {
+    const writer = Writer.create();
+    writePersonalSession(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {PersonalSession}
+ */
+function decodePersonalSessionMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: "", createdAt: new Date(0), expiresAt: new Date(0), revokedAt: new Date(0), requestingAddress: "", userAgent: "", lastActiveAt: new Date(0), current: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.string();
+                break;
+            }
+            case 2: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 3: {
+                message.expiresAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 4: {
+                message.revokedAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 5: {
+                message.requestingAddress = reader.string();
+                break;
+            }
+            case 6: {
+                message.userAgent = reader.string();
+                break;
+            }
+            case 7: {
+                message.lastActiveAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 8: {
+                message.current = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {PersonalSession}
+ */
+export function decodePersonalSession(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodePersonalSessionMessage(reader);
+}
+
+
+
+/**
+ * @param {PersonalSessionList} message
+ * @param {Writer} writer
+ */
+export function writePersonalSessionList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writePersonalSession(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {PersonalSessionList} message
+ * @returns {Uint8Array}
+ */
+export function encodePersonalSessionList(message) {
+    const writer = Writer.create();
+    writePersonalSessionList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {PersonalSessionList}
+ */
+function decodePersonalSessionListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodePersonalSessionMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {PersonalSessionList}
+ */
+export function decodePersonalSessionList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodePersonalSessionListMessage(reader);
+}
+
+
+
+/**
+ * @param {PersonalSessionRevokeRequest} message
+ * @param {Writer} writer
+ */
+export function writePersonalSessionRevokeRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.id);
+    }
+}
+
+
+/**
+ * @param {PersonalSessionRevokeRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodePersonalSessionRevokeRequest(message) {
+    const writer = Writer.create();
+    writePersonalSessionRevokeRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {PersonalSessionRevokeRequest}
+ */
+function decodePersonalSessionRevokeRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {PersonalSessionRevokeRequest}
+ */
+export function decodePersonalSessionRevokeRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodePersonalSessionRevokeRequestMessage(reader);
 }
 
 

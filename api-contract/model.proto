@@ -202,6 +202,25 @@ message AgentSessionRevokeRequest {
   string id = 1;
 }
 
+message PersonalSession {
+  string id = 1;
+  int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 expires_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 revoked_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string requesting_address = 5;
+  string user_agent = 6;
+  int64 last_active_at = 7 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  bool current = 8;
+}
+
+message PersonalSessionList {
+  repeated PersonalSession items = 1;
+}
+
+message PersonalSessionRevokeRequest {
+  string id = 1;
+}
+
 // AgentSessionRequestStartRequest is an agent's opening call. It is
 // unauthenticated: user_id says only whose approval queue the request lands in,
 // and grants nothing until that operator approves it.

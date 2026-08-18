@@ -4408,6 +4408,128 @@ func DecodeAgentSessionRevokeRequest(b []byte) (*AgentSessionRevokeRequest, erro
 	return &m, nil
 }
 
+func (m *PersonalSession) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.ID, 1)
+	b = AppendInt64FromTime(b, m.CreatedAt, 2)
+	b = AppendInt64FromTime(b, m.ExpiresAt, 3)
+	b = AppendInt64FromTime(b, m.RevokedAt, 4)
+	b = AppendStringField(b, m.RequestingAddress, 5)
+	b = AppendStringField(b, m.UserAgent, 6)
+	b = AppendInt64FromTime(b, m.LastActiveAt, 7)
+	b = AppendBoolField(b, m.Current, 8)
+	return b
+}
+
+func DecodePersonalSession(b []byte) (*PersonalSession, error) {
+	var m PersonalSession
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeString(b, typ)
+		case 2:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, m.ExpiresAt, err = ConsumeTimeFromInt64(b, typ)
+		case 4:
+			b, m.RevokedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 5:
+			b, m.RequestingAddress, err = ConsumeString(b, typ)
+		case 6:
+			b, m.UserAgent, err = ConsumeString(b, typ)
+		case 7:
+			b, m.LastActiveAt, err = ConsumeTimeFromInt64(b, typ)
+		case 8:
+			b, m.Current, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *PersonalSessionList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodePersonalSessionList(b []byte) (*PersonalSessionList, error) {
+	var m PersonalSessionList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *PersonalSession
+				item, err = DecodePersonalSession(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *PersonalSessionRevokeRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.ID, 1)
+	return b
+}
+
+func DecodePersonalSessionRevokeRequest(b []byte) (*PersonalSessionRevokeRequest, error) {
+	var m PersonalSessionRevokeRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *AgentSessionRequestStartRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.UserID, 1)

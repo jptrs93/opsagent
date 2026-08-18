@@ -104,6 +104,18 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  // Personal sessions
+
+  rpc PostV1PersonalSessionsList(EmptyRequest) returns (PersonalSessionList) {
+    option (cp.url) = "/v1/personal-sessions/list";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1PersonalSessionsRevoke(PersonalSessionRevokeRequest) returns (cp.Empty) {
+    option (cp.url) = "/v1/personal-sessions/revoke";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   // Access control
 
   rpc PostV1AccessRuleTemplatesList(EmptyRequest) returns (AuthzRuleTemplateList) {

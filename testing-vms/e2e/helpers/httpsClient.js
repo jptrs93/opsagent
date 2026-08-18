@@ -9,7 +9,7 @@ import tls from 'node:tls';
 const INGRESS_READY_TIMEOUT = 180_000;
 const REQUEST_TIMEOUT = 15_000;
 
-function ingressTarget() {
+export function ingressTarget() {
   return {
     host: process.env.OPD_TLS_INGRESS_HOST || 'host.docker.internal',
     httpsPort: Number(process.env.OPD_TLS_INGRESS_PORT || '18443'),
@@ -17,7 +17,7 @@ function ingressTarget() {
   };
 }
 
-function ingressCA() {
+export function ingressCA() {
   const ca = Buffer.from(process.env.OPD_TLS_INGRESS_CA_B64 || '', 'base64');
   if (ca.length === 0) throw new Error('OPD_TLS_INGRESS_CA_B64 is required');
   return ca;

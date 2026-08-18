@@ -15,6 +15,8 @@ import (
 
 type ctxKey struct{}
 
+type uaCtxKey struct{}
+
 // ClientIP is the connecting address. It reads RemoteAddr only: forwarded
 // headers are attacker-controlled unless a trusted proxy overwrites them, and
 // nothing in front of this server does.
@@ -33,7 +35,9 @@ func ClientIP(req *http.Request) string {
 func Middleware() apigen.MiddlewareFunc {
 	return func(next apigen.HandlerFunc) apigen.HandlerFunc {
 		return func(ctx context.Context, w http.ResponseWriter, req *http.Request) {
-			next(context.WithValue(ctx, ctxKey{}, ClientIP(req)), w, req)
+			ctx = context.WithValue(ctx, ctxKey{}, ClientIP(req))
+			ctx = context.WithValue(ctx, uaCtxKey{}, req.Header.Get("User-Agent"))
+			next(ctx, w, req)
 		}
 	}
 }
@@ -45,4 +49,9 @@ func Middleware() apigen.MiddlewareFunc {
 func From(ctx context.Context) string {
 	addr, _ := ctx.Value(ctxKey{}).(string)
 	return addr
+}
+
+func UserAgentFrom(ctx context.Context) string {
+	ua, _ := ctx.Value(uaCtxKey{}).(string)
+	return ua
 }

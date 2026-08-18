@@ -199,6 +199,18 @@ type NodeStatus struct {
 	IsConnected     int64
 }
 
+type PersonalSession struct {
+	ID                string
+	UserID            int64
+	CreatedAt         int64
+	ExpiresAt         int64
+	TokenHash         []byte
+	RevokedAt         int64
+	RequestingAddress string
+	UserAgent         string
+	LastActiveAt      int64
+}
+
 type PublicKey struct {
 	Kid      string
 	KeyBytes []byte

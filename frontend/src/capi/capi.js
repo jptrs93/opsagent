@@ -40,6 +40,7 @@ import {
   decodeMsgToWorker,
   decodeNodeEnrollmentInfo,
   decodeNodeStatusResponse,
+  decodePersonalSessionList,
   decodePrepareOutputChunk,
   decodeRecentlyDeletedDeployments,
   decodeRepoValidateResponse,
@@ -100,6 +101,7 @@ import {
   encodeMsgToMaster,
   encodeNodeAllowedSpacesRequest,
   encodeNodeRenameRequest,
+  encodePersonalSessionRevokeRequest,
   encodePrepareOutputRequest,
   encodeRecentlyDeletedDeploymentsRequest,
   encodeRepoValidateRequest,
@@ -429,6 +431,30 @@ export class Capi {
    */
   async postV1AgentSessionsRevoke(payload) {
     const response = await this.#request("/v1/agent-sessions/revoke", { method: 'POST', body: encodeAgentSessionRevokeRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
+  }
+
+  /**
+   * @param {EmptyRequest} payload
+   * @returns {Promise<PersonalSessionList>}
+   */
+  async postV1PersonalSessionsList(payload) {
+    const response = await this.#request("/v1/personal-sessions/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodePersonalSessionList(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {PersonalSessionRevokeRequest} payload
+   * @returns {Promise<void>}
+   */
+  async postV1PersonalSessionsRevoke(payload) {
+    const response = await this.#request("/v1/personal-sessions/revoke", { method: 'POST', body: encodePersonalSessionRevokeRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

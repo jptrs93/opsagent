@@ -36,6 +36,21 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_user_created
     ON agent_sessions (user_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS personal_sessions (
+    id                 TEXT    PRIMARY KEY,
+    user_id            INTEGER NOT NULL,
+    created_at         INTEGER NOT NULL,
+    expires_at         INTEGER NOT NULL,
+    token_hash         BLOB    NOT NULL,
+    revoked_at         INTEGER NOT NULL DEFAULT 0,
+    requesting_address TEXT    NOT NULL DEFAULT '',
+    user_agent         TEXT    NOT NULL DEFAULT '',
+    last_active_at     INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_personal_sessions_user_created
+    ON personal_sessions (user_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS system_config_revisions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     updated_at  INTEGER NOT NULL,  -- epoch ms

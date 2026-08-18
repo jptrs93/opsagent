@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package protostream.v1;
+
+import "api-contract/options.proto";
+
+option go_package = "github.com/jptrs93/opsagent/testexamples/protostream/gen";
+
+// Test service exercising every cleanproto streaming shape through the
+// opendeploy-net HTTPS terminating proxy. Each streaming RPC carries a
+// client-chosen stream_id; the server records a StreamReport per id so tests
+// can verify what the backend observed (frames, completion, cancellation).
+
+message TickRequest {
+  string stream_id = 1;
+  int32 count = 2;        // ticks to emit; 0 = until cancelled
+  int32 interval_ms = 3;  // delay between ticks
+  int32 fail_after = 4;   // >0: server aborts the stream with an error after this many ticks
+  int32 payload_bytes = 5; // padding bytes per tick
+}
+
+message Tick {
+  string stream_id = 1;
+  int32 seq = 2;
+  bytes padding = 3;
+}
+
+message Chunk {
+  string stream_id = 1;
+  int32 seq = 2;
+  bytes data = 3;
+}
+
+message UploadSummary {
+  string stream_id = 1;
+  int32 frames = 2;
+  int64 total_bytes = 3;
+  string sha256 = 4;
+}
+
+message EchoRequest {
+  string stream_id = 1;
+  int32 seq = 2;
+  string text = 3;
+  bool close_stream = 4;  // server half-closes the response stream after echoing this message
+}
+
+message EchoReply {
+  string stream_id = 1;
+  int32 seq = 2;
+  string text = 3;
+}
+
+message StreamReportRequest {
+  string stream_id = 1;
+}
+
+// result values: "" (still running), "completed", "aborted" (server-initiated
+// failure), "context-canceled", or "recv-error: <detail>" when the request
+// stream failed mid-read.
+message StreamReport {
+  string stream_id = 1;
+  string kind = 2;
+  int32 messages_in = 3;
+  int32 messages_out = 4;
+  bool started = 5;
+  bool done = 6;
+  string result = 7;
+}
+
+service ProtoStreamService {
+  rpc PostV1ServerStream(TickRequest) returns (stream Tick) {
+    option (cp.url) = "/v1/server-stream";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+  rpc PostV1ClientStream(stream Chunk) returns (UploadSummary) {
+    option (cp.url) = "/v1/client-stream";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+  rpc PostV1BidiStream(stream EchoRequest) returns (stream EchoReply) {
+    option (cp.url) = "/v1/bidi-stream";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+  rpc PostV1StreamReport(StreamReportRequest) returns (StreamReport) {
+    option (cp.url) = "/v1/stream-report";
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+}

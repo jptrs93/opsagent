@@ -136,14 +136,8 @@ func (h *Handler) PostV1AuthPasskeyRegisterFinish(ctx apigen.Context, req *apige
 	if err != nil {
 		return nil, apigen.NewApiErr("bad credentials", fmt.Sprintf("err=%v", err), http.StatusBadRequest)
 	}
-	expiry := time.Now().Add(defaultSessionTokenTTL)
-	token, err := h.jwtAuth.GenerateTokenWith(ctx.User.ID, defaultUserScopes, defaultSessionTokenTTL)
-	if err != nil {
-		return nil, err
-	}
 	// Registration ends with a full session, so it counts as a login too.
-	h.Store.TouchUserLastLogin(ctx.User.ID)
-	return newLoginResponse(ctx.User, token, defaultUserScopes, expiry), nil
+	return h.startPersonalSession(ctx, ctx.User)
 }
 
 func (h *Handler) PostV1AuthPasskeyLoginStart(ctx apigen.Context, _ *apigen.EmptyRequest) (*apigen.WebAuthNOptionsResponse, error) {
@@ -159,11 +153,5 @@ func (h *Handler) PostV1AuthPasskeyLoginFinish(ctx apigen.Context, req *apigen.W
 	if err != nil {
 		return nil, apigen.NewApiErr("bad credentials", fmt.Sprintf("err=%v", err), http.StatusBadRequest)
 	}
-	expiry := time.Now().Add(defaultSessionTokenTTL)
-	token, err := h.jwtAuth.GenerateTokenWith(user.ID, defaultUserScopes, defaultSessionTokenTTL)
-	if err != nil {
-		return nil, err
-	}
-	h.Store.TouchUserLastLogin(user.ID)
-	return newLoginResponse(user, token, defaultUserScopes, expiry), nil
+	return h.startPersonalSession(ctx, user)
 }

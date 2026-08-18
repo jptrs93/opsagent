@@ -1804,8 +1804,9 @@ async function selectEnvReference(row, {type, name}) {
   await picker.fill(name);
   await expect(row.locator('li').filter({hasText: name}).first()).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await picker.press('Enter');
+  // Address pickers label as "<space> / <name> (#id)".
   const selectedValue = type === 'address'
-    ? new RegExp(`^${escapeRegExp(name)} \\(space \\d+, #\\d+\\)$`)
+    ? new RegExp(`^.+ / ${escapeRegExp(name)} \\(#\\d+\\)$`)
     : versionedReferenceValue(name);
   await expect(picker).toHaveValue(selectedValue, {timeout: LONG_UI_TIMEOUT});
 }

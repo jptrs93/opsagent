@@ -105,14 +105,14 @@ func newHTTPSServer(ctx context.Context, certs *certStore, currentState func() *
 			IdleConnTimeout:       backendIdleConnTimeout,
 			MaxIdleConnsPerHost:   32,
 		},
-		h2Transport: &http2.Transport{
+		h2Transport: &h2BackendTransport{inner: &http2.Transport{
 			AllowHTTP: true,
 			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
 				return dialer.DialContext(ctx, network, addr)
 			},
 			ReadIdleTimeout: 30 * time.Second,
 			PingTimeout:     10 * time.Second,
-		},
+		}},
 	}
 	s.server = &http.Server{
 		Handler:           s,
@@ -317,6 +317,51 @@ func (s *httpsServer) buildState(snapshot *apigen.NetState) *httpsState {
 		sort.Slice(host.routes, func(i, j int) bool { return len(host.routes[i].prefix) > len(host.routes[j].prefix) })
 	}
 	return state
+}
+
+// h2BackendTransport wraps the h2c backend transport to keep full-duplex
+// streams live when the backend half-closes first. The raw http2 transport
+// deadlocks in that case: closing the response body waits for the
+// request-body write goroutine, which sits in an uninterruptible Read on the
+// inbound request body the client is deliberately keeping open (bidi
+// streaming). Pumping the inbound body through a pipe makes that Read
+// cancelable, and the response body's Close tears the pipe down first.
+type h2BackendTransport struct {
+	inner http.RoundTripper
+}
+
+func (t *h2BackendTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Body == nil || req.Body == http.NoBody {
+		return t.inner.RoundTrip(req)
+	}
+	inbound := req.Body
+	pr, pw := io.Pipe()
+	go func() {
+		_, err := io.Copy(pw, inbound)
+		_ = pw.CloseWithError(err)
+	}()
+	req.Body = pr
+	resp, err := t.inner.RoundTrip(req)
+	if err != nil {
+		_ = pr.CloseWithError(err)
+		return nil, err
+	}
+	resp.Body = &requestUnblockingBody{ReadCloser: resp.Body, unblock: func() {
+		_ = pr.CloseWithError(errResponseFinished)
+	}}
+	return resp, nil
+}
+
+var errResponseFinished = errors.New("response finished before request stream ended")
+
+type requestUnblockingBody struct {
+	io.ReadCloser
+	unblock func()
+}
+
+func (b *requestUnblockingBody) Close() error {
+	b.unblock()
+	return b.ReadCloser.Close()
 }
 
 func flushIntervalFromMs(ms int32) time.Duration {

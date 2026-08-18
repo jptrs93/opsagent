@@ -133,8 +133,8 @@ export const spaceMoveCases = [
   },
   {
     id: 'space-move-toward-references',
-    title: 'a value moves toward its referencing space, never away',
-    description: 'A global config referenced only by a restricted-space deployment moves into that space; moving it back refuses until the deployment is deleted.',
+    title: 'a value moves toward its referencing space, and back to global',
+    description: 'A global config referenced only by a restricted-space deployment moves into that space; moving it back to global succeeds because global values are referenceable from every space.',
     requires: ['access-restricted-space-granted', 'worker-enrolled'],
     async run(ctx) {
       const admin = ctx.page;
@@ -165,20 +165,21 @@ export const spaceMoveCases = [
         await expectDeploymentRunning(admin, {name: REFHOST_DEPLOYMENT, machine: 'worker-1'});
       });
 
-      await test.step('moving it away from its referencer refuses', async () => {
+      await test.step('moving it back to global succeeds while the pin lives', async () => {
+        // Same rule as secrets: a deployment pin cannot veto a move to global.
         await admin.getByTestId('nav-secrets').click();
         await searchExplorerAndSelect(admin, VALUES_SEARCH, MOVE_CONFIG);
-        await expectMoveToSpaceBlocked(admin, {space: 'global', message: MOVE_BLOCKED_MESSAGE});
+        await moveExplorerSelectionToSpace(admin, {space: 'global'});
+        await expectExplorerPath(admin, `global/${MOVE_CONFIG}`);
+        await expectDeploymentRunning(admin, {name: REFHOST_DEPLOYMENT, machine: 'worker-1'});
       });
 
-      await test.step('deleting the deployment releases the pin', async () => {
+      await test.step('delete the deployment and the moved config', async () => {
         // Delete is only offered once a deployment is stopped.
         await stopDeployment(admin, {name: REFHOST_DEPLOYMENT, machine: 'worker-1'});
         await deleteDeployment(admin, {name: REFHOST_DEPLOYMENT, machine: 'worker-1'});
         await admin.getByTestId('nav-secrets').click();
         await searchExplorerAndSelect(admin, VALUES_SEARCH, MOVE_CONFIG);
-        await moveExplorerSelectionToSpace(admin, {space: 'global'});
-        await expectExplorerPath(admin, `global/${MOVE_CONFIG}`);
         await deleteExplorerSelection(admin);
         await expect(rowNamed(admin, MOVE_CONFIG)).toBeHidden({timeout: LONG_UI_TIMEOUT});
         await clearExplorerSearch(admin, VALUES_SEARCH);
