@@ -72,9 +72,6 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	}
 	githubCredentials := NewPrimaryGithubCredentialsProvider(primaryURL, primaryHTTPClient)
 	network.SetDefault(network.New(cfg.ClusterPrefix, cfg.NetDeploymentID))
-	if err := store.DeleteLocalKV(storage.LocalKVWorkerRetiredNetMapGenerations); err != nil {
-		slog.Warn("deleting retired network map generations failed", "err", err)
-	}
 	if clusterMap, _, ok, err := cachedClusterNetMap(store, cfg.NodeID, cfg.ClusterPrefix); err != nil {
 		slog.Warn("loading cached cluster network map failed", "err", err)
 	} else if ok {
