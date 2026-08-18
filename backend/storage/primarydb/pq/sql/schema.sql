@@ -68,12 +68,6 @@ CREATE TABLE IF NOT EXISTS system_config_revisions (
     config_blob BLOB    NOT NULL
 );
 
--- Machine-local state. Created on every node; never replicated.
-CREATE TABLE IF NOT EXISTS local_kv (
-    key   TEXT PRIMARY KEY,
-    value BLOB NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS enrollment_requests (
     id                       INTEGER PRIMARY KEY,
     created_at               INTEGER NOT NULL,  -- epoch ms

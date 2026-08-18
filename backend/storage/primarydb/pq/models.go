@@ -188,11 +188,6 @@ type GlobalSeq struct {
 	Value int64
 }
 
-type LocalKv struct {
-	Key   string
-	Value []byte
-}
-
 type NodeRow struct {
 	ID            int64
 	EnrollmentID  sql.NullInt64

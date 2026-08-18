@@ -588,16 +588,6 @@ select * from system_config_revisions order by id desc limit 1;
 -- name: GetConfigByID :one
 SELECT id, updated_at, config_blob FROM system_config_revisions WHERE id = ?;
 
--- === local_kv ===
-
--- name: GetLocalKV :one
-SELECT value FROM local_kv WHERE key = ?;
-
--- name: UpsertLocalKV :exec
-INSERT INTO local_kv (key, value) VALUES (?, ?)
-ON CONFLICT(key) DO UPDATE SET value = excluded.value;
-
-
 -- === authz ===
 
 -- The template list read is hand-written in authz.go: a template row is its

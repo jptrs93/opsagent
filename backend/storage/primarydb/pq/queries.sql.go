@@ -566,19 +566,6 @@ func (q *Queries) GetLatestConfig(ctx context.Context) (SystemConfigRevision, er
 	return i, err
 }
 
-const getLocalKV = `-- name: GetLocalKV :one
-
-SELECT value FROM local_kv WHERE key = ?
-`
-
-// === local_kv ===
-func (q *Queries) GetLocalKV(ctx context.Context, key string) ([]byte, error) {
-	row := q.db.QueryRowContext(ctx, getLocalKV, key)
-	var value []byte
-	err := row.Scan(&value)
-	return value, err
-}
-
 const getNextAssetVersionNumber = `-- name: GetNextAssetVersionNumber :one
 SELECT COALESCE(MAX(version), 0) + 1
 FROM asset_versions
@@ -3012,21 +2999,6 @@ type UpsertAuthzRuleTemplateIdentityParams struct {
 
 func (q *Queries) UpsertAuthzRuleTemplateIdentity(ctx context.Context, arg UpsertAuthzRuleTemplateIdentityParams) error {
 	_, err := q.db.ExecContext(ctx, upsertAuthzRuleTemplateIdentity, arg.ID, arg.Name)
-	return err
-}
-
-const upsertLocalKV = `-- name: UpsertLocalKV :exec
-INSERT INTO local_kv (key, value) VALUES (?, ?)
-ON CONFLICT(key) DO UPDATE SET value = excluded.value
-`
-
-type UpsertLocalKVParams struct {
-	Key   string
-	Value []byte
-}
-
-func (q *Queries) UpsertLocalKV(ctx context.Context, arg UpsertLocalKVParams) error {
-	_, err := q.db.ExecContext(ctx, upsertLocalKV, arg.Key, arg.Value)
 	return err
 }
 

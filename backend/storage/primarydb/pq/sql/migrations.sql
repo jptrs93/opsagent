@@ -3,11 +3,9 @@
 -- duplicate column, no such column, no such table). Comments must not contain
 -- semicolons — statements are split on them.
 --
--- History note: all migrations accumulated up to v0.0.504 (2026-08-18),
--- ending with the deployment_configs -> deployments rename and the global_seq
--- column backfill across the version-log tables, were removed after every
--- active cluster had been rolled forward. Upgrading a database from before
--- then requires stepping through a release that still carried them.
+-- History note: all migrations accumulated up to v0.0.506 (2026-08-18),
+-- ending with the global_access_rules deleted_at add, were removed after
+-- every active cluster had been rolled forward. Upgrading a database from
+-- before then requires stepping through a release that still carried them.
 
-ALTER TABLE global_access_rules ADD COLUMN deleted_at INTEGER NOT NULL DEFAULT 0;
-DELETE FROM local_kv WHERE key = 'migration.authz-default-user-visibility';
+DROP TABLE IF EXISTS local_kv;

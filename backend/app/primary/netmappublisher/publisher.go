@@ -15,7 +15,6 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
-	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
@@ -68,10 +67,6 @@ func New(store *state.Service, prefix network.Prefix) (*Publisher, error) {
 		unsubscribe:     []func(){unsubscribeNodes, unsubscribeInstances},
 		applied:         make(map[int32]int64),
 		ackUpdates:      make(chan struct{}, 1),
-	}
-	if err := store.DeleteLocalKV(storage.LocalKVPrimaryClusterNetMap); err != nil {
-		p.Close()
-		return nil, fmt.Errorf("deleting retired persisted cluster network map: %w", err)
 	}
 	if err := p.Refresh(); err != nil {
 		p.Close()

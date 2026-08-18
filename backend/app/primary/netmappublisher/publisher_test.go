@@ -7,7 +7,6 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
-	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
@@ -16,7 +15,6 @@ func TestPublisherStampsAndCoalescesLatestMap(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	prefix := network.GeneratePrefix()
 	store := state.Open(dbPath)
-	store.MustSetLocalKV(storage.LocalKVPrimaryClusterNetMap, []byte("stale"))
 	node := store.EnsurePrimaryNode("primary", "primary-id")
 	store.MustSetNodeAddresses(node.ID, []string{"192.0.2.10"})
 	store.EnsureNetproxyDeployment(node.ID, version.Version)
@@ -34,9 +32,6 @@ func TestPublisherStampsAndCoalescesLatestMap(t *testing.T) {
 	}
 	if len(initial.Routes) != 0 {
 		t.Fatalf("initial routes = %+v, want none before the netproxy is scheduled", initial.Routes)
-	}
-	if _, ok := store.FetchLocalKV(storage.LocalKVPrimaryClusterNetMap); ok {
-		t.Fatal("the map is derived state; the retired local_kv row must be deleted, not written")
 	}
 	if err := publisher.Refresh(); err != nil {
 		t.Fatal(err)

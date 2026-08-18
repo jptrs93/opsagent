@@ -182,7 +182,7 @@ func TestDeletedSeededGlobalRuleStaysDeleted(t *testing.T) {
 	}
 }
 
-func TestGlobalRuleDeletedAtMigration(t *testing.T) {
+func TestPrimaryLocalKVDropMigration(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	db := sqlitedb.MustOpen(dbPath)
 	mustExec := func(stmt string, args ...any) {
@@ -191,15 +191,6 @@ func TestGlobalRuleDeletedAtMigration(t *testing.T) {
 			t.Fatalf("%s: %v", stmt, err)
 		}
 	}
-	mustExec(`CREATE TABLE global_access_rules (
-	    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-	    name       TEXT    NOT NULL DEFAULT '',
-	    author     INTEGER NOT NULL DEFAULT 0,
-	    created_at INTEGER NOT NULL DEFAULT 0,
-	    data_blob  BLOB    NOT NULL
-	)`)
-	mustExec(`INSERT INTO global_access_rules (name, data_blob) VALUES (?, ?)`,
-		authz.DefaultUserVisibilityRuleName, (&apigen.AuthzGlobalRule{DelegationAllowed: true}).Encode())
 	mustExec(`CREATE TABLE local_kv (key TEXT PRIMARY KEY, value BLOB NOT NULL)`)
 	mustExec(`INSERT INTO local_kv (key, value) VALUES ('migration.authz-default-user-visibility', '1')`)
 	if err := db.Close(); err != nil {
@@ -207,22 +198,28 @@ func TestGlobalRuleDeletedAtMigration(t *testing.T) {
 	}
 
 	store := Open(dbPath)
-	defer store.Close()
 	if _, err := authz.Open(store); err != nil {
 		t.Fatalf("authz.Open: %v", err)
 	}
-	if _, ok := store.FetchLocalKV("migration.authz-default-user-visibility"); ok {
-		t.Fatal("legacy seed marker survived the migration")
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
 	}
 
 	db = sqlitedb.MustOpen(dbPath)
 	defer db.Close()
+	var legacyTables int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'local_kv'`).Scan(&legacyTables); err != nil {
+		t.Fatal(err)
+	}
+	if legacyTables != 0 {
+		t.Fatal("primary local_kv table survived the drop migration")
+	}
 	var seeded int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM global_access_rules WHERE name = ? AND deleted_at = 0`,
 		authz.DefaultUserVisibilityRuleName).Scan(&seeded); err != nil {
 		t.Fatal(err)
 	}
 	if seeded != 1 {
-		t.Fatalf("seeded rule rows = %d, want the migrated row alone", seeded)
+		t.Fatalf("seeded rule rows = %d, want exactly one", seeded)
 	}
 }
