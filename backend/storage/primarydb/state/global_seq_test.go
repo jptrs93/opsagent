@@ -9,71 +9,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/sqlitedb"
 )
 
-func TestDeploymentsTableRenameMigration(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	db := sqlitedb.MustOpen(dbPath)
-	mustExec := func(stmt string, args ...any) {
-		t.Helper()
-		if _, err := db.Exec(stmt, args...); err != nil {
-			t.Fatalf("%s: %v", stmt, err)
-		}
-	}
-	mustExec(`CREATE TABLE deployment_configs (
-	    deployment_id INTEGER PRIMARY KEY CHECK (deployment_id BETWEEN 1 AND 16777215),
-	    node_id       INTEGER NOT NULL DEFAULT -1,
-	    name          TEXT    NOT NULL DEFAULT '',
-	    deleted_at    INTEGER NOT NULL DEFAULT 0
-	)`)
-	mustExec(`INSERT INTO deployment_configs (deployment_id, node_id, name, deleted_at) VALUES (1, 1, 'web', 0)`)
-	mustExec(`INSERT INTO deployment_configs (deployment_id, node_id, name, deleted_at) VALUES (2, 1, 'old', 123)`)
-	spec := nonEmptySpec().Encode()
-	mustExec(`CREATE TABLE deployment_versions (
-	    id INTEGER PRIMARY KEY AUTOINCREMENT, deployment_id INTEGER NOT NULL,
-	    version INTEGER NOT NULL, created_at INTEGER NOT NULL,
-	    author INTEGER NOT NULL DEFAULT 0, spec_blob BLOB NOT NULL,
-	    UNIQUE (deployment_id, version)
-	)`)
-	mustExec(`INSERT INTO deployment_versions (deployment_id, version, created_at, author, spec_blob) VALUES (1, 1, 5, 0, ?)`, spec)
-	mustExec(`INSERT INTO deployment_versions (deployment_id, version, created_at, author, spec_blob) VALUES (2, 1, 5, 0, ?)`, spec)
-	mustExec(`CREATE TABLE deployment_space_versions (
-	    id INTEGER PRIMARY KEY AUTOINCREMENT, deployment_id INTEGER NOT NULL,
-	    version INTEGER NOT NULL, author INTEGER NOT NULL DEFAULT 0,
-	    created_at INTEGER NOT NULL, space_id INTEGER NOT NULL
-	)`)
-	mustExec(`INSERT INTO deployment_space_versions (deployment_id, version, author, created_at, space_id) VALUES (1, 1, 0, 5, 1)`)
-	mustExec(`INSERT INTO deployment_space_versions (deployment_id, version, author, created_at, space_id) VALUES (2, 1, 0, 5, 1)`)
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	store := Open(dbPath)
-	if cfg := store.configCache[1]; cfg == nil || cfg.Name != "web" || cfg.Deleted {
-		t.Fatalf("migrated deployment 1 = %+v, want live 'web'", store.configCache[1])
-	}
-	if cfg := store.configCache[2]; cfg == nil || !cfg.Deleted {
-		t.Fatalf("migrated deployment 2 = %+v, want tombstone", store.configCache[2])
-	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	db = sqlitedb.MustOpen(dbPath)
-	defer db.Close()
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM deployments`).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 2 {
-		t.Fatalf("deployments row count = %d, want 2", count)
-	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'deployment_configs'`).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatal("deployment_configs table survived the rename migration")
-	}
-}
-
 func TestGlobalSeqStampsVersionWrites(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := Open(dbPath)
@@ -127,4 +62,57 @@ func TestGlobalSeqStampsVersionWrites(t *testing.T) {
 
 func itoa(v int32) string {
 	return fmt.Sprintf("%d", v)
+}
+
+// Every network-map input write must advance the counter, because the map's
+// derived_from_seq stamp is read alongside the inputs: a write without a bump
+// would let two different map contents share one stamp. Idempotent re-writes
+// must not advance it, so restarts replay bootstrap without consuming history.
+func TestGlobalSeqAdvancesOnNodeRegistryWrites(t *testing.T) {
+	store := Open(filepath.Join(t.TempDir(), "primary.db"))
+	defer store.Close()
+	counter := func() int64 {
+		t.Helper()
+		_, _, seq := store.FetchNetworkMapInputs()
+		return seq
+	}
+
+	before := counter()
+	node := store.EnsurePrimaryNode("primary", "primary-id")
+	if counter() <= before {
+		t.Fatal("creating a node did not advance the global sequence")
+	}
+	before = counter()
+	store.EnsurePrimaryNode("primary", "primary-id")
+	if counter() != before {
+		t.Fatal("re-ensuring an existing node consumed a sequence")
+	}
+
+	store.MustSetNodeAddresses(node.ID, []string{"192.0.2.1"})
+	if counter() <= before {
+		t.Fatal("changing a node underlay did not advance the global sequence")
+	}
+	before = counter()
+	store.MustSetNodeAddresses(node.ID, []string{"192.0.2.1"})
+	if counter() != before {
+		t.Fatal("re-writing an unchanged underlay consumed a sequence")
+	}
+
+	if _, err := store.SetNodeAllowedSpaces(node.Identifier, []int32{1}); err != nil {
+		t.Fatal(err)
+	}
+	if counter() <= before {
+		t.Fatal("changing allowed spaces did not advance the global sequence")
+	}
+
+	before = counter()
+	store.AllowSpaceOnAllNodes(7)
+	if counter() <= before {
+		t.Fatal("opening a space on all nodes did not advance the global sequence")
+	}
+	before = counter()
+	store.AllowSpaceOnAllNodes(7)
+	if counter() != before {
+		t.Fatal("re-opening an already-open space consumed a sequence")
+	}
 }

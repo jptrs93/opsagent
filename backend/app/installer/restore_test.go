@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/stringu"
 )
@@ -69,20 +68,14 @@ func TestApplyRestoredPrimaryConfigOverrides(t *testing.T) {
 	}
 }
 
-func TestInvalidateRestoredPrimaryRuntimeStateResetsNetworkMapGeneration(t *testing.T) {
+func TestInvalidateRestoredPrimaryRuntimeState(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := state.Open(dbPath)
 	store.EnsurePrimaryNode("primary", "primary-id")
-	store.MustSetLocalKV(storage.LocalKVPrimaryClusterNetMap, []byte("old publication"))
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := invalidateRestoredPrimaryRuntimeState(dbPath, noChown); err != nil {
 		t.Fatal(err)
-	}
-	store = state.Open(dbPath)
-	defer store.Close()
-	if _, ok := store.FetchLocalKV(storage.LocalKVPrimaryClusterNetMap); ok {
-		t.Fatal("restored primary retained its old network map generation")
 	}
 }

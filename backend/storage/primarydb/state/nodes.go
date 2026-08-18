@@ -59,16 +59,25 @@ func normalizeAllowedSpaces(spaces []int32) []int32 {
 // EnsurePrimaryNode resolves the primary by its server certificate CN, then
 // creates the initial registry entry if that certificate has no row yet. The
 // identifier is the mTLS and deployment identity; name is UI metadata only.
+// Node registry changes are network-map inputs, so the create advances the
+// global write sequence; a restart that finds the row consumes nothing.
 func (s *Service) EnsurePrimaryNode(name, identifier string) *Node {
 	s.Mu.Lock()
 	ctx := context.Background()
 	row, err := s.q.GetNodeRowByIdentifier(ctx, identifier)
 	if errors.Is(err, sql.ErrNoRows) {
-		row, err = s.q.InsertNodeRow(ctx, pq.InsertNodeRowParams{
-			EnrolledAt: time.Now().UnixMilli(),
-			Name:       name,
-			Identifier: identifier,
-			RolesJSON:  nodeRolesJSON([]int32{NodeRolePrimary}),
+		err = s.q.Tx(ctx, func(q *pq.Queries) error {
+			if _, err := q.NextGlobalSeq(ctx); err != nil {
+				return err
+			}
+			var txErr error
+			row, txErr = q.InsertNodeRow(ctx, pq.InsertNodeRowParams{
+				EnrolledAt: time.Now().UnixMilli(),
+				Name:       name,
+				Identifier: identifier,
+				RolesJSON:  nodeRolesJSON([]int32{NodeRolePrimary}),
+			})
+			return txErr
 		})
 	}
 	s.Mu.Unlock()
@@ -82,7 +91,24 @@ func (s *Service) EnsurePrimaryNode(name, identifier string) *Node {
 
 func (s *Service) MustSetNodeAddresses(id int32, addresses []string) *Node {
 	s.Mu.Lock()
-	row, err := s.q.UpdateNodeAddresses(context.Background(), nodeAddressesJSON(addresses), int64(id))
+	ctx := context.Background()
+	addressesJSON := nodeAddressesJSON(addresses)
+	var row pq.NodeRow
+	err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		current, err := q.GetNodeRowByID(ctx, int64(id))
+		if err != nil {
+			return err
+		}
+		if current.Addresses == addressesJSON {
+			row = current
+			return nil
+		}
+		if _, err := q.NextGlobalSeq(ctx); err != nil {
+			return err
+		}
+		row, err = q.UpdateNodeAddresses(ctx, addressesJSON, int64(id))
+		return err
+	})
 	s.Mu.Unlock()
 	if err != nil {
 		panic(fmt.Sprintf("set node addresses: %v", err))
@@ -138,11 +164,18 @@ func (s *Service) listNodesLocked() []*Node {
 }
 
 // FetchNetworkMapInputs returns node and scheduled-instance state from one
-// storage critical section so the publisher never renders a mixed-time snapshot.
-func (s *Service) FetchNetworkMapInputs() ([]*Node, []apigen.ScheduledInstanceState) {
+// storage critical section so the publisher never renders a mixed-time
+// snapshot, together with the global write sequence the snapshot reflects.
+// Every map-input write advances that sequence in its own transaction, so a
+// render at seq N is a pure function of state@N.
+func (s *Service) FetchNetworkMapInputs() ([]*Node, []apigen.ScheduledInstanceState, int64) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	return s.listNodesLocked(), s.SnapshotLocked(nil)
+	seq, err := s.q.GetGlobalSeq(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("get global seq: %v", err))
+	}
+	return s.listNodesLocked(), s.SnapshotLocked(nil), seq
 }
 
 func (s *Service) ListClusterNodes() []*apigen.ClusterNode {
@@ -235,7 +268,16 @@ func (s *Service) RenameNode(identifier, name string) (*apigen.ClusterNode, erro
 // the way in, so the opendeploy space survives a caller that omitted it.
 func (s *Service) SetNodeAllowedSpaces(identifier string, spaces []int32) (*apigen.ClusterNode, error) {
 	s.Mu.Lock()
-	row, err := s.q.UpdateNodeAllowedSpacesByIdentifier(context.Background(), allowedSpacesJSON(spaces), identifier)
+	ctx := context.Background()
+	var row pq.NodeRow
+	err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		if _, err := q.NextGlobalSeq(ctx); err != nil {
+			return err
+		}
+		var txErr error
+		row, txErr = q.UpdateNodeAllowedSpacesByIdentifier(ctx, allowedSpacesJSON(spaces), identifier)
+		return txErr
+	})
 	s.Mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -272,23 +314,37 @@ func (s *Service) RemoveSpaceFromAllNodes(spaceID int32) {
 
 func (s *Service) updateAllNodeAllowedSpaces(fn func([]int32) []int32) {
 	s.Mu.Lock()
+	ctx := context.Background()
 	nodes := s.listNodesLocked()
 	updated := make([]*Node, 0, len(nodes))
-	for _, node := range nodes {
-		if node == nil {
-			continue
+	err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		bumped := false
+		for _, node := range nodes {
+			if node == nil {
+				continue
+			}
+			next := allowedSpacesJSON(fn(node.AllowedSpaces))
+			if next == allowedSpacesJSON(node.AllowedSpaces) {
+				continue
+			}
+			if !bumped {
+				if _, err := q.NextGlobalSeq(ctx); err != nil {
+					return err
+				}
+				bumped = true
+			}
+			row, err := q.UpdateNodeAllowedSpacesByID(ctx, next, int64(node.ID))
+			if err != nil {
+				return err
+			}
+			updated = append(updated, nodeRowToNode(row))
 		}
-		next := allowedSpacesJSON(fn(node.AllowedSpaces))
-		if next == allowedSpacesJSON(node.AllowedSpaces) {
-			continue
-		}
-		row, err := s.q.UpdateNodeAllowedSpacesByID(context.Background(), next, int64(node.ID))
-		if err != nil {
-			panic(fmt.Sprintf("update node allowed spaces: %v", err))
-		}
-		updated = append(updated, nodeRowToNode(row))
-	}
+		return nil
+	})
 	s.Mu.Unlock()
+	if err != nil {
+		panic(fmt.Sprintf("update node allowed spaces: %v", err))
+	}
 	// Notified outside the lock, matching the other node mutators.
 	for _, node := range updated {
 		s.nodeSubs.Notify(*nodeToAPI(node))

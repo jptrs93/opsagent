@@ -15,10 +15,10 @@ Implemented today:
 - The host routes `O` to the run for its full lifetime and routes `I` only to the current run.
 - OpenDeploy-owned host routes use a dedicated route-protocol tag, and an `unreachable` cluster ULA `/48` route prevents unknown logical destinations from reaching the host default route.
 - Each node records one underlay address. The primary uses `--underlay-address` or derives it from its cluster listener; a worker uses the flag or derives the source address selected for its primary cluster connection and includes it in enrollment.
-- The primary renders deterministic, versioned full network maps containing node underlay addresses and virtual-workload routes. It durably preserves their generation and sequence, coalesces updates for connected workers, and includes a targeted map in enrollment when publication succeeds.
-- Cluster routes are prefixes, not addresses, and are derived from scheduled instance assignments alone. No runner status is read, so container restarts and crashes never move a route or advance the map's sequence.
-- Workers validate and persist accepted maps before exposing their prefix to runtime networking. They reject stale sequences, conflicting snapshots, wrong targets, mixed underlay families, invalid route layouts, and returns to retired generations; cached maps survive primary outages and agent restarts.
-- Workers reconcile fixed IPv6-in-IPv6 or IPv6-in-IPv4 tunnels and remote routed prefixes from accepted maps, then report the applied sequence.
+- The primary renders deterministic full network maps containing node underlay addresses and virtual-workload routes. Each published map is stamped with `derived_from_seq`, the global write sequence its inputs reflect; the map itself is derived state, never persisted, and re-rendered on every boot. Updates are coalesced for connected workers and a targeted map is included in enrollment when publication succeeds.
+- Cluster routes are prefixes, not addresses, and are derived from scheduled instance assignments alone. No runner status is read, so container restarts and crashes never move a route or republish the map.
+- Workers validate and persist accepted maps before exposing their prefix to runtime networking. Acceptance is session-based: the first map accepted after connect replaces the cache unconditionally, later in-session maps must carry a higher stamp. Wrong targets, mixed underlay families, and invalid route layouts are rejected; cached maps survive primary outages and agent restarts.
+- Workers reconcile fixed IPv6-in-IPv6 or IPv6-in-IPv4 tunnels and remote routed prefixes from accepted maps, then report the applied stamp.
 - The primary consumes those reports as a barrier: a superseded placement keeps running, and keeps its routes, until every node holding network state has applied the map that replaced it.
 - IPv4 egress is masqueraded from a fixed machine-local private range.
 - `portForwarding` publishes virtual-mode container TCP/UDP ports through nftables DNAT on the machine's host interfaces.
@@ -135,9 +135,13 @@ For virtual-mode containers, the runner asks `backend/lib/network` to create net
 
 When an agent restarts, containerd tasks and their network namespaces can remain running. Reattachment opens the surviving named namespace and identifies its deterministic host veth by the mutual peer indexes of namespace `eth0` and the host link. Veth aliases are not used for ownership. Recovery restores the run's `O` route and, for the current run, its `I` route, then records the host ifindex before removing unretained slots, so a current task is never deleted as stale and delayed teardown cannot delete a link whose name has since been reused. A task on the current config republishes its host-port state; the internal netproxy also republishes across its version-only upgrades. Older application tasks retain recovered metadata for safe teardown but wait for their prepared replacement before using a newer networking config. If required reconstruction fails, the adopted task is replaced rather than left running without its forwarding rules.
 
-The primary persists one target-neutral `ClusterNetMap` in `local_kv`. Its
-generation survives ordinary restarts and its sequence advances only when
-deterministically rendered node or route content changes.
+The map is a pure derivation and is not persisted on the primary. Every render
+reads its inputs and the global write sequence in one storage critical section
+and stamps the result with `derived_from_seq`; every map-input write — node
+registry changes included — advances that sequence in its own transaction, so
+the stamp identifies exactly which state a map reflects. A new map is published
+only when deterministically rendered node or route content changes; a render
+that changes nothing keeps the published map and its older stamp.
 
 Routes are derived from scheduled instance assignments and nothing else. Every
 live placement contributes the `/120` covering its runs, pointed at its own
@@ -155,12 +159,20 @@ over a routed prefix, so a map that lags a placement arriving on this node
 cannot divert its traffic.
 
 Session delivery clones the map with the mTLS-authenticated node ID and uses a
-capacity-one latest-value channel. Workers persist their targeted accepted map
-and retired generation IDs atomically. `NetMapStatus` reports durable acceptance
-and the sequence successfully applied to the worker kernel; the primary tracks
-those reports per connected node and uses them as the barrier described under
-Rollover. Only a clean apply counts, and a disconnected node stops holding the
-barrier because it is served a complete snapshot when it returns.
+capacity-one latest-value channel. Worker acceptance is session-based: the
+snapshot served at connect replaces the persisted map unconditionally — a
+primary restored from backup republishes with a rolled-back counter, and its
+snapshot is authoritative even so — while later in-session maps must carry a
+higher stamp. That unconditional acceptance is scoped by the cluster mTLS
+material alone: the worker only reaches a primary holding a certificate signed
+by the CA it enrolled under, and the per-install CA is the cluster's identity.
+`NetMapStatus` reports durable acceptance and the stamp successfully applied to
+the worker kernel; the primary tracks those reports per connected node and uses
+them as the barrier described under Rollover: a drain decision is in force once
+a render has seen the decision's own write sequence and every reporting node
+has applied the current map's stamp. Only a clean apply counts, and a
+disconnected node stops holding the barrier because it is served a complete
+snapshot when it returns.
 
 Each node gets an `opendeploy-net` deployment when it is first created or enrolled, initially using the primary release available at that time. Agent upgrades and primary restarts do not change an existing netproxy's desired version or running state. Administrators update netproxy deployments explicitly and are responsible for selecting versions compatible with the agents and rendered netstate format.
 
@@ -224,9 +236,9 @@ This avoids binding conflicts on published ports. Existing TCP connections to th
 
 The cluster map does not change across a same-node promotion: both placements
 already point their `/120` at this node, and the `/100` never moves. The render
-is byte-identical, so no new sequence is minted and there is nothing to wait
-for. This needs no special case — it falls out of deriving routes from
-assignments.
+is byte-identical, so no new map is published and the wait collapses as soon as
+a render has seen the flip's write sequence. This needs no special case — it
+falls out of deriving routes from assignments.
 
 ### Cross-node rollover
 
@@ -235,7 +247,7 @@ there, not a rollover candidate. The handoff is driven centrally:
 
 1. The standby starts on the new node. It owns its `/120` immediately, so its outbound traffic is routable, but it does **not** claim `I`.
 2. It reports `RUNNING`. The scheduler moves the old placement to `RUN_DRAINING` and the standby to `RUN_SERVING` in one step, which re-renders the map with `/100` pointing at the new node.
-3. The scheduler waits for that sequence to be applied by every node holding network state, then tells the drained placement to terminate. A timeout backstops a node that is connected but wedged.
+3. The scheduler waits for its own decision's write sequence to be in force — rendered, and the resulting map applied by every node holding network state — then tells the drained placement to terminate. A timeout backstops a node that is connected but wedged.
 
 Claiming `I` locally is gated on target state, not on local readiness: a runner
 installs the host route for `I` only once its placement is `RUN_SERVING`

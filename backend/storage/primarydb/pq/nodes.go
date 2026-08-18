@@ -26,6 +26,14 @@ func scanNodeRow(scanner nodeScanner) (NodeRow, error) {
 	return r, err
 }
 
+func (q *Queries) GetNodeRowByID(ctx context.Context, id int64) (NodeRow, error) {
+	return scanNodeRow(q.db.QueryRowContext(ctx, `
+		SELECT `+nodeColumns+`
+		FROM nodes
+		WHERE id = ?
+		LIMIT 1`, id))
+}
+
 func (q *Queries) GetNodeRowByIdentifier(ctx context.Context, identifier string) (NodeRow, error) {
 	return scanNodeRow(q.db.QueryRowContext(ctx, `
 		SELECT `+nodeColumns+`

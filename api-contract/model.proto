@@ -1028,14 +1028,16 @@ message ClusterNetworkInfo {
 }
 
 // ClusterNetMap is a complete placement and underlay snapshot targeted to one
-// authenticated node. Sequence is monotonic within generation.
+// authenticated node. derived_from_seq is the primary's global write sequence
+// at render time; acceptance is session-based — the first map accepted in a
+// session replaces the worker's cache unconditionally, later in-session maps
+// must carry a higher stamp.
 message ClusterNetMap {
-  string generation = 1;
-  int64 sequence = 2;
   int32 target_node_id = 3;
   bytes ula_prefix = 4;
   repeated ClusterNetMapNode nodes = 5;
   repeated ClusterNetMapRoute routes = 6;
+  int64 derived_from_seq = 7;
 }
 
 message ClusterNetMapNode {
@@ -1062,10 +1064,10 @@ message LocalRouteReport {
 }
 
 // NetMapStatus reports durable acceptance separately from kernel application.
+// Both fields carry a map's derived_from_seq stamp.
 message NetMapStatus {
-  string accepted_generation = 1;
-  int64 persisted_sequence = 2;
-  int64 applied_sequence = 3;
+  int64 persisted_seq = 2;
+  int64 applied_seq = 3;
   string reconciliation_error = 4;
 }
 

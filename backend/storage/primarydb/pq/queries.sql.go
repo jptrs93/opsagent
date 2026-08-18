@@ -530,6 +530,17 @@ func (q *Queries) GetDeploymentVersion(ctx context.Context, arg GetDeploymentVer
 	return i, err
 }
 
+const getGlobalSeq = `-- name: GetGlobalSeq :one
+SELECT value FROM global_seq WHERE id = 1
+`
+
+func (q *Queries) GetGlobalSeq(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getGlobalSeq)
+	var value int64
+	err := row.Scan(&value)
+	return value, err
+}
+
 const getLatestAuthzRuleTemplateVersionBlob = `-- name: GetLatestAuthzRuleTemplateVersionBlob :one
 SELECT data_blob FROM authz_rule_template_versions
 WHERE template_id = ? ORDER BY id DESC LIMIT 1

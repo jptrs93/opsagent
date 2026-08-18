@@ -1400,12 +1400,11 @@ type ClusterNetworkInfo struct {
 }
 
 type ClusterNetMap struct {
-	Generation   string                `json:"generation,omitempty"`
-	Sequence     int64                 `json:"sequence"`
-	TargetNodeID int32                 `json:"target_node_id"`
-	UlaPrefix    []byte                `json:"ula_prefix"`
-	Nodes        []*ClusterNetMapNode  `json:"nodes,omitempty"`
-	Routes       []*ClusterNetMapRoute `json:"routes,omitempty"`
+	TargetNodeID   int32                 `json:"target_node_id"`
+	UlaPrefix      []byte                `json:"ula_prefix"`
+	Nodes          []*ClusterNetMapNode  `json:"nodes,omitempty"`
+	Routes         []*ClusterNetMapRoute `json:"routes,omitempty"`
+	DerivedFromSeq int64                 `json:"derived_from_seq"`
 }
 
 type ClusterNetMapNode struct {
@@ -1424,9 +1423,8 @@ type LocalRouteReport struct {
 }
 
 type NetMapStatus struct {
-	AcceptedGeneration  string `json:"accepted_generation,omitempty"`
-	PersistedSequence   int64  `json:"persisted_sequence"`
-	AppliedSequence     int64  `json:"applied_sequence"`
+	PersistedSeq        int64  `json:"persisted_seq"`
+	AppliedSeq          int64  `json:"applied_seq"`
 	ReconciliationError string `json:"reconciliation_error,omitempty"`
 }
 

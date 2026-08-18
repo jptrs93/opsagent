@@ -34,12 +34,11 @@ const drainPollInterval = 2 * time.Second
 
 // routeBarrier reports when published network state is in force cluster-wide.
 type routeBarrier interface {
-	// CurrentSequence is the sequence encoding the state derived so far.
-	CurrentSequence() int64
-	// AppliedEverywhere reports whether every node holding network state has
-	// programmed at least the given sequence.
-	AppliedEverywhere(sequence int64) bool
-	// AckUpdates fires when applied sequences advance.
+	// DecisionInForce reports whether the routing implied by the sequenced
+	// write at seq has been rendered and applied by every node holding
+	// network state.
+	DecisionInForce(seq int64) bool
+	// AckUpdates fires when applied stamps or renders advance.
 	AckUpdates() <-chan struct{}
 }
 
@@ -47,11 +46,12 @@ type Scheduler struct {
 	store   *state.Service
 	barrier routeBarrier
 
-	// draining records what each draining placement is waiting for: the sequence
-	// that must be applied everywhere, and the deadline after which it stops
-	// waiting. It is in-memory only, so a restart finds RUN_DRAINING rows on disk
-	// with nothing tracking them; adoptDraining puts them back under a fresh
-	// deadline, which only ever waits longer than the original.
+	// draining records what each draining placement is waiting for: the global
+	// write sequence of the drain decision, which must be in force everywhere,
+	// and the deadline after which it stops waiting. It is in-memory only, so a
+	// restart finds RUN_DRAINING rows on disk with nothing tracking them;
+	// adoptDraining puts them back under a fresh deadline, which only ever waits
+	// longer than the original.
 	draining map[int32]drainWait
 }
 
@@ -329,19 +329,14 @@ func (s *Scheduler) drainSuperseded(current apigen.ScheduledInstance) {
 	}
 }
 
-// beginDraining records what the placement is waiting for before writing the
-// state, so the sequence captured is never newer than the decision itself.
+// beginDraining waits on the drain decision's own write sequence: the state
+// change is what produces the map that must propagate, and the sequence its
+// transaction allocated identifies it exactly. If the flip changed no routes at
+// all — both placements on one node — the published map never changes and the
+// wait is satisfied as soon as a render has seen the write.
 func (s *Scheduler) beginDraining(instanceID int32) {
-	wait := drainWait{deadline: time.Now().Add(drainTimeout)}
-	s.setState(instanceID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING)
-	if s.barrier != nil {
-		// Read the sequence after the write: the state change is what produces the
-		// map that must propagate, so the sequence to wait for is the one rendered
-		// from it. If the flip changed no routes at all — both placements on one
-		// node — no new sequence is minted and the wait is already satisfied.
-		wait.sequence = s.barrier.CurrentSequence()
-	}
-	s.draining[instanceID] = wait
+	seq := s.setState(instanceID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING)
+	s.draining[instanceID] = drainWait{sequence: seq, deadline: time.Now().Add(drainTimeout)}
 }
 
 // adoptDraining puts a RUN_DRAINING placement the scheduler is not tracking
@@ -374,13 +369,13 @@ func (s *Scheduler) retireDrainedInstances() {
 		}
 		// An adopted wait cannot use the barrier. Acknowledgements live only in
 		// memory, so straight after a restart the barrier knows of no node and
-		// AppliedEverywhere is vacuously true — it cannot tell "every node applied
+		// DecisionInForce is vacuously true — it cannot tell "every node applied
 		// the flip" from "no node has reported yet". Trusting it there would retire
 		// the placement instantly, which is precisely the case the barrier exists to
 		// prevent: a worker that had not yet applied the flip still points the
 		// instance prefix at a container we just stopped. Adopted waits sit out the
 		// backstop instead, which also gives workers time to reconnect and report.
-		applied := s.barrier == nil || (!wait.adopted && s.barrier.AppliedEverywhere(wait.sequence))
+		applied := s.barrier == nil || (!wait.adopted && s.barrier.DecisionInForce(wait.sequence))
 		expired := now.After(wait.deadline)
 		if !applied && !expired {
 			continue
@@ -400,11 +395,11 @@ func (s *Scheduler) retireDrainedInstances() {
 	}
 }
 
-func (s *Scheduler) setState(instanceID int32, state apigen.ScheduledInstanceTarget) {
+func (s *Scheduler) setState(instanceID int32, state apigen.ScheduledInstanceTarget) int64 {
 	if state != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
 		delete(s.draining, instanceID)
 	}
-	s.store.SetScheduledInstanceState(instanceID, state)
+	return s.store.SetScheduledInstanceState(instanceID, state)
 }
 
 func (s *Scheduler) scheduledStates(deploymentID int32) []apigen.ScheduledInstanceState {

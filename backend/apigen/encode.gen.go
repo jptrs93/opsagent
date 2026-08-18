@@ -9153,8 +9153,6 @@ func DecodeClusterNetworkInfo(b []byte) (*ClusterNetworkInfo, error) {
 
 func (m *ClusterNetMap) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Generation, 1)
-	b = AppendInt64Field(b, m.Sequence, 2)
 	b = AppendInt32Field(b, m.TargetNodeID, 3)
 	b = AppendBytesField(b, m.UlaPrefix, 4)
 	for _, item := range m.Nodes {
@@ -9171,6 +9169,7 @@ func (m *ClusterNetMap) Encode() []byte {
 		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
+	b = AppendInt64Field(b, m.DerivedFromSeq, 7)
 	return b
 }
 
@@ -9186,10 +9185,6 @@ func DecodeClusterNetMap(b []byte) (*ClusterNetMap, error) {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, m.Generation, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Sequence, err = ConsumeVarInt64(b, typ)
 		case 3:
 			b, m.TargetNodeID, err = ConsumeVarInt32(b, typ)
 		case 4:
@@ -9212,6 +9207,8 @@ func DecodeClusterNetMap(b []byte) (*ClusterNetMap, error) {
 					m.Routes = append(m.Routes, item)
 				}
 			}
+		case 7:
+			b, m.DerivedFromSeq, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -9324,9 +9321,8 @@ func DecodeLocalRouteReport(b []byte) (*LocalRouteReport, error) {
 
 func (m *NetMapStatus) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.AcceptedGeneration, 1)
-	b = AppendInt64Field(b, m.PersistedSequence, 2)
-	b = AppendInt64Field(b, m.AppliedSequence, 3)
+	b = AppendInt64Field(b, m.PersistedSeq, 2)
+	b = AppendInt64Field(b, m.AppliedSeq, 3)
 	b = AppendStringField(b, m.ReconciliationError, 4)
 	return b
 }
@@ -9342,12 +9338,10 @@ func DecodeNetMapStatus(b []byte) (*NetMapStatus, error) {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, m.AcceptedGeneration, err = ConsumeString(b, typ)
 		case 2:
-			b, m.PersistedSequence, err = ConsumeVarInt64(b, typ)
+			b, m.PersistedSeq, err = ConsumeVarInt64(b, typ)
 		case 3:
-			b, m.AppliedSequence, err = ConsumeVarInt64(b, typ)
+			b, m.AppliedSeq, err = ConsumeVarInt64(b, typ)
 		case 4:
 			b, m.ReconciliationError, err = ConsumeString(b, typ)
 		default:

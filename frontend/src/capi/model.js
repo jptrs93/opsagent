@@ -1232,12 +1232,11 @@
  */
 /**
  * @typedef {Object} ClusterNetMap
- * @property {string} generation
- * @property {number} sequence
  * @property {number} targetNodeId
  * @property {Uint8Array} ulaPrefix
  * @property {ClusterNetMapNode[]} nodes
  * @property {ClusterNetMapRoute[]} routes
+ * @property {number} derivedFromSeq
  */
 /**
  * @typedef {Object} ClusterNetMapNode
@@ -1256,9 +1255,8 @@
  */
 /**
  * @typedef {Object} NetMapStatus
- * @property {string} acceptedGeneration
- * @property {number} persistedSequence
- * @property {number} appliedSequence
+ * @property {number} persistedSeq
+ * @property {number} appliedSeq
  * @property {string} reconciliationError
  */
 /**
@@ -16133,12 +16131,6 @@ export function decodeClusterNetworkInfo(buffer) {
  * @param {Writer} writer
  */
 export function writeClusterNetMap(message, writer) {
-    if (message.generation !== undefined && message.generation !== null && message.generation !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.generation);
-    }
-    if (message.sequence !== undefined && message.sequence !== null && message.sequence !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int64(message.sequence);
-    }
     if (message.targetNodeId !== undefined && message.targetNodeId !== null && message.targetNodeId !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int32(message.targetNodeId);
     }
@@ -16158,6 +16150,9 @@ export function writeClusterNetMap(message, writer) {
             writeClusterNetMapRoute(item, writer);
             writer.ldelim();
         }
+    }
+    if (message.derivedFromSeq !== undefined && message.derivedFromSeq !== null && message.derivedFromSeq !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int64(message.derivedFromSeq);
     }
 }
 
@@ -16180,18 +16175,10 @@ export function encodeClusterNetMap(message) {
  */
 function decodeClusterNetMapMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {generation: "", sequence: 0, targetNodeId: 0, ulaPrefix: new Uint8Array(0), nodes: [], routes: [] };
+    const message = {targetNodeId: 0, ulaPrefix: new Uint8Array(0), nodes: [], routes: [], derivedFromSeq: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.generation = reader.string();
-                break;
-            }
-            case 2: {
-                message.sequence = readInt64(reader, "int64");
-                break;
-            }
             case 3: {
                 message.targetNodeId = reader.int32();
                 break;
@@ -16206,6 +16193,10 @@ function decodeClusterNetMapMessage(reader, length) {
             }
             case 6: {
                 message.routes.push(decodeClusterNetMapRouteMessage(reader, reader.uint32()));
+                break;
+            }
+            case 7: {
+                message.derivedFromSeq = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -16423,14 +16414,11 @@ export function decodeLocalRouteReport(buffer) {
  * @param {Writer} writer
  */
 export function writeNetMapStatus(message, writer) {
-    if (message.acceptedGeneration !== undefined && message.acceptedGeneration !== null && message.acceptedGeneration !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.acceptedGeneration);
+    if (message.persistedSeq !== undefined && message.persistedSeq !== null && message.persistedSeq !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.persistedSeq);
     }
-    if (message.persistedSequence !== undefined && message.persistedSequence !== null && message.persistedSequence !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int64(message.persistedSequence);
-    }
-    if (message.appliedSequence !== undefined && message.appliedSequence !== null && message.appliedSequence !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int64(message.appliedSequence);
+    if (message.appliedSeq !== undefined && message.appliedSeq !== null && message.appliedSeq !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(message.appliedSeq);
     }
     if (message.reconciliationError !== undefined && message.reconciliationError !== null && message.reconciliationError !== "") {
         writer.uint32(tag(4, WIRE.LDELIM)).string(message.reconciliationError);
@@ -16456,20 +16444,16 @@ export function encodeNetMapStatus(message) {
  */
 function decodeNetMapStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {acceptedGeneration: "", persistedSequence: 0, appliedSequence: 0, reconciliationError: "" };
+    const message = {persistedSeq: 0, appliedSeq: 0, reconciliationError: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.acceptedGeneration = reader.string();
-                break;
-            }
             case 2: {
-                message.persistedSequence = readInt64(reader, "int64");
+                message.persistedSeq = readInt64(reader, "int64");
                 break;
             }
             case 3: {
-                message.appliedSequence = readInt64(reader, "int64");
+                message.appliedSeq = readInt64(reader, "int64");
                 break;
             }
             case 4: {

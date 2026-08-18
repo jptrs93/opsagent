@@ -14,7 +14,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primarybootstrap"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
@@ -143,9 +142,6 @@ func invalidateRestoredPrimaryRuntimeState(dbPath string, own owner) error {
 		if err == nil {
 			info("invalidated runtime state for %d replacement-primary deployments", count)
 		}
-	}
-	if deleteErr := store.DeleteLocalKV(storage.LocalKVPrimaryClusterNetMap); deleteErr != nil && err == nil {
-		err = fmt.Errorf("reset restored cluster network map generation: %w", deleteErr)
 	}
 	if err != nil {
 		_ = store.Close()

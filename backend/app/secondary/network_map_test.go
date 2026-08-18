@@ -13,63 +13,49 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
 
-func TestAcceptClusterNetMapSequencing(t *testing.T) {
+func TestAcceptClusterNetMapSessionSemantics(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "secondary.db")
 	store := state.Open(dbPath)
 	defer store.Close()
 	prefix := network.GeneratePrefix()
-	first := testClusterNetMap(t, prefix, "generation-a", 1)
 
-	status, err := acceptClusterNetMap(store, first, 1, prefix)
+	first := testClusterNetMap(t, prefix, 5)
+	status, err := acceptClusterNetMap(store, first, 1, prefix, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.AcceptedGeneration != first.Generation || status.PersistedSequence != 1 {
+	if status.PersistedSeq != 5 {
 		t.Fatalf("status = %+v", status)
 	}
 
-	duplicate := testClusterNetMap(t, prefix, "generation-a", 1)
+	duplicate := testClusterNetMap(t, prefix, 5)
 	duplicate.Nodes[0], duplicate.Nodes[1] = duplicate.Nodes[1], duplicate.Nodes[0]
-	if _, err := acceptClusterNetMap(store, duplicate, 1, prefix); err != nil {
+	if _, err := acceptClusterNetMap(store, duplicate, 1, prefix, false); err != nil {
 		t.Fatalf("idempotent map rejected: %v", err)
 	}
-	stale := testClusterNetMap(t, prefix, "generation-a", -1)
-	if _, err := acceptClusterNetMap(store, stale, 1, prefix); err == nil {
-		t.Fatal("non-positive sequence was accepted")
-	}
-	conflict := testClusterNetMap(t, prefix, "generation-a", 1)
-	conflict.Routes[0].HostingNodeID = 2
-	if _, err := acceptClusterNetMap(store, conflict, 1, prefix); !errors.Is(err, ErrConflictingClusterNetMap) {
-		t.Fatalf("conflict error = %v", err)
-	}
-
-	higher := testClusterNetMap(t, prefix, "generation-a", 2)
-	if _, err := acceptClusterNetMap(store, higher, 1, prefix); err != nil {
-		t.Fatal(err)
-	}
-	stale = testClusterNetMap(t, prefix, "generation-a", 1)
-	if _, err := acceptClusterNetMap(store, stale, 1, prefix); !errors.Is(err, ErrStaleClusterNetMap) {
+	stale := testClusterNetMap(t, prefix, 4)
+	if _, err := acceptClusterNetMap(store, stale, 1, prefix, false); !errors.Is(err, ErrStaleClusterNetMap) {
 		t.Fatalf("stale error = %v", err)
 	}
-	reset := testClusterNetMap(t, prefix, "generation-b", 1)
-	if _, err := acceptClusterNetMap(store, reset, 1, prefix); err != nil {
-		t.Fatalf("new generation rejected: %v", err)
+	higher := testClusterNetMap(t, prefix, 8)
+	if _, err := acceptClusterNetMap(store, higher, 1, prefix, false); err != nil {
+		t.Fatal(err)
+	}
+
+	// A new session's snapshot wins unconditionally: a primary restored from a
+	// backup republishes with a rolled-back counter, and its snapshot at connect
+	// is authoritative even so.
+	rolledBack := testClusterNetMap(t, prefix, 2)
+	rolledBack.Nodes[1].UnderlayAddress = "192.0.2.9"
+	if _, err := acceptClusterNetMap(store, rolledBack, 1, prefix, true); err != nil {
+		t.Fatalf("session snapshot with a lower stamp rejected: %v", err)
 	}
 	cached, _, ok, err := cachedClusterNetMap(store, 1, prefix)
 	if err != nil || !ok {
 		t.Fatalf("cached map: ok=%v err=%v", ok, err)
 	}
-	if cached.Generation != "generation-b" || cached.Sequence != 1 {
+	if cached.DerivedFromSeq != 2 || cached.Nodes[1].UnderlayAddress != "192.0.2.9" {
 		t.Fatalf("cached map = %+v", cached)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store = state.Open(dbPath)
-	defer store.Close()
-	retired := testClusterNetMap(t, prefix, "generation-a", 3)
-	if _, err := acceptClusterNetMap(store, retired, 1, prefix); !errors.Is(err, ErrStaleClusterNetMap) {
-		t.Fatalf("retired generation error = %v", err)
 	}
 }
 
@@ -81,22 +67,24 @@ func TestRejectedInitialClusterNetMapReportsError(t *testing.T) {
 	network.SetDefault(network.New(prefix, 0))
 	t.Cleanup(func() { network.SetDefault(oldDefault) })
 	out := &outbox{ch: make(chan *apigen.MsgToMaster, 1), ctx: context.Background()}
-	invalid := testClusterNetMap(t, prefix, "generation-a", 1)
+	invalid := testClusterNetMap(t, prefix, 1)
 	invalid.TargetNodeID = 2
-	dispatchFromPrimary(context.Background(), out, store, newLogStreamTracker(), &apigen.MsgToWorker{ClusterNetMap: invalid}, 1, nil, nil)
+	sess := &primarySessionState{netMapSnapshotPending: true}
+	dispatchFromPrimary(context.Background(), out, store, newLogStreamTracker(), sess, &apigen.MsgToWorker{ClusterNetMap: invalid}, 1, nil, nil)
 	status := (<-out.ch).NetMapStatus
-	if status == nil || status.ReconciliationError == "" || status.PersistedSequence != 0 {
+	if status == nil || status.ReconciliationError == "" || status.PersistedSeq != 0 {
 		t.Fatalf("rejection status = %+v", status)
+	}
+	if !sess.netMapSnapshotPending {
+		t.Fatal("a rejected map consumed the session's unconditional snapshot acceptance")
 	}
 }
 
 func TestValidateClusterNetMapRejectsInvalidTopology(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	tests := map[string]func(*apigen.ClusterNetMap){
-		"wrong target": func(m *apigen.ClusterNetMap) { m.TargetNodeID = 2 },
-		"padded generation": func(m *apigen.ClusterNetMap) {
-			m.Generation = " generation-a "
-		},
+		"wrong target":   func(m *apigen.ClusterNetMap) { m.TargetNodeID = 2 },
+		"negative stamp": func(m *apigen.ClusterNetMap) { m.DerivedFromSeq = -1 },
 		"missing target": func(m *apigen.ClusterNetMap) { m.Nodes = m.Nodes[1:] },
 		"duplicate node": func(m *apigen.ClusterNetMap) { m.Nodes = append(m.Nodes, m.Nodes[0]) },
 		"mixed family":   func(m *apigen.ClusterNetMap) { m.Nodes[1].UnderlayAddress = "2001:db8::2" },
@@ -138,12 +126,23 @@ func TestValidateClusterNetMapRejectsInvalidTopology(t *testing.T) {
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
-			candidate := testClusterNetMap(t, prefix, "generation-a", 1)
+			candidate := testClusterNetMap(t, prefix, 1)
 			mutate(candidate)
 			if _, _, err := validateClusterNetMap(candidate, 1, prefix); err == nil {
 				t.Fatal("invalid map was accepted")
 			}
 		})
+	}
+}
+
+// A cached map written before stamps existed decodes with DerivedFromSeq zero.
+// It must stay usable for boot-time reconciliation; the session snapshot that
+// follows replaces it unconditionally either way.
+func TestValidateClusterNetMapToleratesUnstampedCache(t *testing.T) {
+	prefix := network.GeneratePrefix()
+	legacy := testClusterNetMap(t, prefix, 0)
+	if _, _, err := validateClusterNetMap(legacy, 1, prefix); err != nil {
+		t.Fatalf("unstamped map rejected: %v", err)
 	}
 }
 
@@ -159,7 +158,7 @@ func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
 	defer store.Close()
 	prefix := network.GeneratePrefix()
 
-	legacy := testClusterNetMap(t, prefix, "generation-a", 7)
+	legacy := testClusterNetMap(t, prefix, 7)
 	addr, err := prefix.InboundAddr(1, 10, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -177,52 +176,27 @@ func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
 	if _, present := store.FetchLocalKV(storage.LocalKVWorkerClusterNetMap); present {
 		t.Fatal("unreadable cached map was left in the store")
 	}
-}
 
-// The primary persists its generation across restarts, so the map that replaces
-// an unreadable one usually carries the same generation. Retiring that
-// generation on discard would refuse every subsequent map from that primary.
-func TestUnreadableCachedClusterNetMapDoesNotRetireItsGeneration(t *testing.T) {
-	store := state.Open(filepath.Join(t.TempDir(), "secondary.db"))
-	defer store.Close()
-	prefix := network.GeneratePrefix()
-
-	legacy := testClusterNetMap(t, prefix, "generation-a", 7)
-	addr, err := prefix.InboundAddr(1, 10, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy.Routes[0].LogicalPrefix = addr.String()
-	store.MustSetLocalKV(storage.LocalKVWorkerClusterNetMap, legacy.Encode())
-
-	next := testClusterNetMap(t, prefix, "generation-a", 8)
-	status, err := acceptClusterNetMap(store, next, 1, prefix)
+	next := testClusterNetMap(t, prefix, 8)
+	status, err := acceptClusterNetMap(store, next, 1, prefix, false)
 	if err != nil {
 		t.Fatalf("republished map rejected after discarding the unreadable cache: %v", err)
 	}
-	if status.AcceptedGeneration != "generation-a" || status.PersistedSequence != 8 {
+	if status.PersistedSeq != 8 {
 		t.Fatalf("status = %+v", status)
-	}
-	cached, _, ok, err := cachedClusterNetMap(store, 1, prefix)
-	if err != nil || !ok {
-		t.Fatalf("cached map: ok=%v err=%v", ok, err)
-	}
-	if cached.Sequence != 8 {
-		t.Fatalf("cached map = %+v", cached)
 	}
 }
 
-func testClusterNetMap(t *testing.T, prefix network.Prefix, generation string, sequence int64) *apigen.ClusterNetMap {
+func testClusterNetMap(t *testing.T, prefix network.Prefix, seq int64) *apigen.ClusterNetMap {
 	t.Helper()
 	destination, err := prefix.InstanceCIDR(1, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return &apigen.ClusterNetMap{
-		Generation:   generation,
-		Sequence:     sequence,
-		TargetNodeID: 1,
-		UlaPrefix:    prefix.Bytes(),
+		DerivedFromSeq: seq,
+		TargetNodeID:   1,
+		UlaPrefix:      prefix.Bytes(),
 		Nodes: []*apigen.ClusterNetMapNode{
 			{NodeID: 1, UnderlayAddress: "192.0.2.1"},
 			{NodeID: 2, UnderlayAddress: "192.0.2.2"},

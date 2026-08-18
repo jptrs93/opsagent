@@ -167,6 +167,7 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 
 	connected := false
 	protocolConfirmed := false
+	sess := &primarySessionState{netMapSnapshotPending: true}
 	var sessErr error
 	for msg, err := range capi.PostV1ClusterConnect(sessCtx, reqs) {
 		if err != nil {
@@ -184,13 +185,20 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 			connected = true
 			slog.Info("slave connected to primary", "peer", capi.BaseURL)
 		}
-		dispatchFromPrimary(sessCtx, out, store, tracker, msg, nodeID, acme, notifySynced)
+		dispatchFromPrimary(sessCtx, out, store, tracker, sess, msg, nodeID, acme, notifySynced)
 	}
 	return sessErr
 }
 
+// primarySessionState carries per-session dispatch state. The first map
+// accepted after connect is the session's snapshot and replaces the worker's
+// cache unconditionally.
+type primarySessionState struct {
+	netMapSnapshotPending bool
+}
+
 // dispatchFromPrimary applies one MsgToWorker received from the primary.
-func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, msg *apigen.MsgToWorker, nodeID int32, acme *acmestate.Holder, notifySynced func()) {
+func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, sess *primarySessionState, msg *apigen.MsgToWorker, nodeID int32, acme *acmestate.Holder, notifySynced func()) {
 	msgType := "heartbeat"
 	switch {
 	case msg.ScheduledInstancesSnapshot != nil:
@@ -235,18 +243,21 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 		}
 	case msg.ClusterNetMap != nil:
 		expectedPrefix, _ := network.Default.PrefixValue()
-		status, err := acceptClusterNetMap(store, msg.ClusterNetMap, nodeID, expectedPrefix)
+		status, err := acceptClusterNetMap(store, msg.ClusterNetMap, nodeID, expectedPrefix, sess.netMapSnapshotPending)
 		if err != nil {
 			slog.Warn("accepting cluster network map failed", "err", err)
 			status, _ = cachedClusterNetMapStatus(store, nodeID, expectedPrefix, err.Error())
 			if status == nil {
 				status = &apigen.NetMapStatus{ReconciliationError: err.Error()}
 			}
-		} else if err := reconcileClusterNetMap(msg.ClusterNetMap, nodeID, expectedPrefix); err != nil {
-			slog.Warn("reconciling cluster network map failed", "err", err)
-			status.ReconciliationError = err.Error()
 		} else {
-			status.AppliedSequence = status.PersistedSequence
+			sess.netMapSnapshotPending = false
+			if err := reconcileClusterNetMap(msg.ClusterNetMap, nodeID, expectedPrefix); err != nil {
+				slog.Warn("reconciling cluster network map failed", "err", err)
+				status.ReconciliationError = err.Error()
+			} else {
+				status.AppliedSeq = status.PersistedSeq
+			}
 		}
 		if status != nil {
 			out.Send(&apigen.MsgToMaster{NetMapStatus: status})

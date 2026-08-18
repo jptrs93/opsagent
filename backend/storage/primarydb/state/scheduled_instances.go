@@ -112,8 +112,10 @@ func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentVersion,
 // SetScheduledInstanceState appends the transition to
 // scheduled_instance_versions — the sole store of instance state — and
 // publishes. When finalized, the instance is removed from the active cache
-// after notify.
-func (s *Service) SetScheduledInstanceState(instanceID int32, state apigen.ScheduledInstanceTarget) {
+// after notify. It returns the global write sequence allocated for the
+// transition, or 0 when nothing was written, so callers can wait for the
+// network map derived from their own decision.
+func (s *Service) SetScheduledInstanceState(instanceID int32, state apigen.ScheduledInstanceTarget) int64 {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	ctx := context.Background()
@@ -125,18 +127,20 @@ func (s *Service) SetScheduledInstanceState(instanceID int32, state apigen.Sched
 		row, err := s.q.GetScheduledInstance(ctx, int64(instanceID))
 		if err != nil {
 			slog.Warn("SetScheduledInstanceState: unknown instance", "id", instanceID, "err", err)
-			return
+			return 0
 		}
 		inst = scheduledInstanceRowToProto(row)
 	}
 	if inst.State == state {
-		return
+		return 0
 	}
+	var allocated int64
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		seq, err := q.NextGlobalSeq(ctx)
 		if err != nil {
 			return err
 		}
+		allocated = seq
 		return q.AppendScheduledInstanceVersion(ctx, pq.AppendScheduledInstanceVersionParams{
 			ScheduledInstanceID: int64(instanceID),
 			CreatedAt:           time.Now().UnixMilli(),
@@ -159,10 +163,11 @@ func (s *Service) SetScheduledInstanceState(instanceID int32, state apigen.Sched
 		s.NotifyInstanceLocked(instanceID)
 		delete(s.Scheduled, instanceID)
 		s.retainFinalizedLocked(entry)
-		return
+		return allocated
 	}
 	s.Scheduled[instanceID] = entry
 	s.NotifyInstanceLocked(instanceID)
+	return allocated
 }
 
 // MustWriteReplicatedScheduledInstanceStatus persists a worker status write

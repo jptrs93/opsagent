@@ -225,15 +225,14 @@ func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 	case msg.NetMapStatus != nil:
 		slog.Info("worker network map status",
 			"node_id", s.NodeID,
-			"generation", msg.NetMapStatus.AcceptedGeneration,
-			"persisted_sequence", msg.NetMapStatus.PersistedSequence,
-			"applied_sequence", msg.NetMapStatus.AppliedSequence,
+			"persisted_seq", msg.NetMapStatus.PersistedSeq,
+			"applied_seq", msg.NetMapStatus.AppliedSeq,
 			"error", msg.NetMapStatus.ReconciliationError)
 		// Only a clean apply counts. A worker reporting a reconciliation error
 		// still has whatever its kernel held before, so treating it as caught up
 		// would retire a placement that node can still be routing to.
 		if s.networkMaps != nil && msg.NetMapStatus.ReconciliationError == "" {
-			s.networkMaps.RecordApplied(s.NodeID, msg.NetMapStatus.AppliedSequence)
+			s.networkMaps.RecordApplied(s.NodeID, msg.NetMapStatus.AppliedSeq)
 		}
 	case len(msg.LogData) > 0:
 		s.routeLogChunk(msg.LogRequestID, logChunk{data: msg.LogData})

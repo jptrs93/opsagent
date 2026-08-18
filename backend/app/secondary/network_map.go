@@ -1,9 +1,7 @@
 package secondary
 
 import (
-	"bytes"
 	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,12 +17,18 @@ import (
 )
 
 var (
-	ErrStaleClusterNetMap       = errors.New("stale cluster network map")
-	ErrConflictingClusterNetMap = errors.New("conflicting cluster network map")
-	clusterNetMapMu             sync.Mutex
+	ErrStaleClusterNetMap = errors.New("stale cluster network map")
+	clusterNetMapMu       sync.Mutex
 )
 
-func acceptClusterNetMap(store *state.Service, candidate *apigen.ClusterNetMap, nodeID int32, expectedPrefix network.Prefix) (*apigen.NetMapStatus, error) {
+// acceptClusterNetMap validates and persists a received map. Acceptance is
+// session-based: the first map accepted in a session replaces whatever is
+// cached unconditionally — the primary is the sole author of the map, so its
+// snapshot at connect is authoritative even when a restore rolled its history
+// (and stamps) backwards. Within a session the stream is ordered and stamps
+// only grow, so a lower stamp can only be a coalescing artifact and is
+// rejected as stale.
+func acceptClusterNetMap(store *state.Service, candidate *apigen.ClusterNetMap, nodeID int32, expectedPrefix network.Prefix, sessionSnapshot bool) (*apigen.NetMapStatus, error) {
 	next, prefix, err := validateClusterNetMap(candidate, nodeID, expectedPrefix)
 	if err != nil {
 		return nil, err
@@ -32,40 +36,22 @@ func acceptClusterNetMap(store *state.Service, candidate *apigen.ClusterNetMap, 
 
 	clusterNetMapMu.Lock()
 	defer clusterNetMapMu.Unlock()
-	retired, err := loadRetiredNetMapGenerations(store)
-	if err != nil {
-		return nil, err
-	}
-	if _, wasRetired := retired[next.Generation]; wasRetired {
-		return nil, fmt.Errorf("%w: generation %s was superseded", ErrStaleClusterNetMap, next.Generation)
-	}
-	current, _, cached, err := cachedClusterNetMap(store, nodeID, expectedPrefix)
-	if err != nil {
-		return nil, err
-	}
-	if cached {
-		if next.Generation == current.Generation {
-			switch {
-			case next.Sequence < current.Sequence:
-				return nil, fmt.Errorf("%w: got sequence %d, persisted %d", ErrStaleClusterNetMap, next.Sequence, current.Sequence)
-			case next.Sequence == current.Sequence && !bytes.Equal(next.Encode(), current.Encode()):
-				return nil, fmt.Errorf("%w: generation %s sequence %d", ErrConflictingClusterNetMap, next.Generation, next.Sequence)
-			case next.Sequence == current.Sequence:
+	if !sessionSnapshot {
+		current, _, cached, err := cachedClusterNetMap(store, nodeID, expectedPrefix)
+		if err != nil {
+			return nil, err
+		}
+		if cached {
+			if next.DerivedFromSeq < current.DerivedFromSeq {
+				return nil, fmt.Errorf("%w: got seq %d, persisted %d", ErrStaleClusterNetMap, next.DerivedFromSeq, current.DerivedFromSeq)
+			}
+			if next.DerivedFromSeq == current.DerivedFromSeq {
 				return statusForClusterNetMap(current, ""), nil
 			}
-		} else {
-			retired[current.Generation] = struct{}{}
 		}
 	}
 
-	retiredJSON, err := json.Marshal(sortedGenerationSet(retired))
-	if err != nil {
-		return nil, fmt.Errorf("encoding retired network map generations: %w", err)
-	}
-	store.MustSetLocalKVs(map[string][]byte{
-		storage.LocalKVWorkerClusterNetMap:            next.Encode(),
-		storage.LocalKVWorkerRetiredNetMapGenerations: retiredJSON,
-	})
+	store.MustSetLocalKV(storage.LocalKVWorkerClusterNetMap, next.Encode())
 	network.Default.SetPrefix(prefix)
 	return statusForClusterNetMap(next, ""), nil
 }
@@ -80,11 +66,6 @@ func acceptClusterNetMap(store *state.Service, candidate *apigen.ClusterNetMap, 
 // error is unrecoverable in both directions: it panics the worker before it can
 // connect, and it makes acceptClusterNetMap reject the very map that would
 // replace it.
-//
-// The discard deliberately does not retire the stale generation. Generations are
-// persisted by the primary and survive its restarts, so the map that supersedes
-// this one almost always carries the same generation; retiring it here would
-// refuse every future map from that primary.
 func cachedClusterNetMap(store *state.Service, nodeID int32, expectedPrefix network.Prefix) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
 	encoded, ok := store.FetchLocalKV(storage.LocalKVWorkerClusterNetMap)
 	if !ok {
@@ -122,8 +103,7 @@ func cachedClusterNetMapStatus(store *state.Service, nodeID int32, expectedPrefi
 
 func statusForClusterNetMap(current *apigen.ClusterNetMap, reconcileErr string) *apigen.NetMapStatus {
 	return &apigen.NetMapStatus{
-		AcceptedGeneration:  current.Generation,
-		PersistedSequence:   current.Sequence,
+		PersistedSeq:        current.DerivedFromSeq,
 		ReconciliationError: reconcileErr,
 	}
 }
@@ -132,14 +112,10 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 	if candidate == nil {
 		return nil, network.Prefix{}, fmt.Errorf("cluster network map is nil")
 	}
-	if strings.TrimSpace(candidate.Generation) == "" {
-		return nil, network.Prefix{}, fmt.Errorf("cluster network map generation is empty")
-	}
-	if candidate.Generation != strings.TrimSpace(candidate.Generation) {
-		return nil, network.Prefix{}, fmt.Errorf("cluster network map generation contains surrounding whitespace")
-	}
-	if candidate.Sequence <= 0 {
-		return nil, network.Prefix{}, fmt.Errorf("cluster network map sequence must be positive")
+	// Zero is tolerated only because a cached map written before stamps existed
+	// decodes to it; a session snapshot always replaces such a map.
+	if candidate.DerivedFromSeq < 0 {
+		return nil, network.Prefix{}, fmt.Errorf("cluster network map derived_from_seq is negative")
 	}
 	if nodeID <= 0 || candidate.TargetNodeID != nodeID {
 		return nil, network.Prefix{}, fmt.Errorf("cluster network map target %d does not match local node %d", candidate.TargetNodeID, nodeID)
@@ -153,12 +129,11 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 	}
 
 	normalized := &apigen.ClusterNetMap{
-		Generation:   candidate.Generation,
-		Sequence:     candidate.Sequence,
-		TargetNodeID: candidate.TargetNodeID,
-		UlaPrefix:    slices.Clone(candidate.UlaPrefix),
-		Nodes:        make([]*apigen.ClusterNetMapNode, 0, len(candidate.Nodes)),
-		Routes:       make([]*apigen.ClusterNetMapRoute, 0, len(candidate.Routes)),
+		DerivedFromSeq: candidate.DerivedFromSeq,
+		TargetNodeID:   candidate.TargetNodeID,
+		UlaPrefix:      slices.Clone(candidate.UlaPrefix),
+		Nodes:          make([]*apigen.ClusterNetMapNode, 0, len(candidate.Nodes)),
+		Routes:         make([]*apigen.ClusterNetMapRoute, 0, len(candidate.Routes)),
 	}
 	knownNodes := make(map[int32]struct{}, len(candidate.Nodes))
 	targetPresent := false
@@ -220,32 +195,4 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 		return cmp.Compare(a.HostingNodeID, b.HostingNodeID)
 	})
 	return normalized, prefix, nil
-}
-
-func loadRetiredNetMapGenerations(store *state.Service) (map[string]struct{}, error) {
-	retired := make(map[string]struct{})
-	encoded, ok := store.FetchLocalKV(storage.LocalKVWorkerRetiredNetMapGenerations)
-	if !ok {
-		return retired, nil
-	}
-	var generations []string
-	if err := json.Unmarshal(encoded, &generations); err != nil {
-		return nil, fmt.Errorf("decoding retired network map generations: %w", err)
-	}
-	for _, generation := range generations {
-		if generation == "" || generation != strings.TrimSpace(generation) {
-			return nil, fmt.Errorf("invalid retired network map generation %q", generation)
-		}
-		retired[generation] = struct{}{}
-	}
-	return retired, nil
-}
-
-func sortedGenerationSet(generations map[string]struct{}) []string {
-	out := make([]string, 0, len(generations))
-	for generation := range generations {
-		out = append(out, generation)
-	}
-	slices.Sort(out)
-	return out
 }

@@ -51,16 +51,16 @@ func (p *sessionNetMapProvider) appliedFor(nodeID int32) (int64, bool) {
 // before, so counting it as caught up would retire a placement it can still be
 // routing to.
 func TestSessionRecordsOnlyCleanNetMapApplies(t *testing.T) {
-	provider := &sessionNetMapProvider{current: &apigen.ClusterNetMap{Generation: "g", Sequence: 1}}
+	provider := &sessionNetMapProvider{current: &apigen.ClusterNetMap{DerivedFromSeq: 1}}
 	session := &Session{NodeID: 7, networkMaps: provider}
 
-	session.handleIncoming(&apigen.MsgToMaster{NetMapStatus: &apigen.NetMapStatus{AppliedSequence: 4}})
+	session.handleIncoming(&apigen.MsgToMaster{NetMapStatus: &apigen.NetMapStatus{AppliedSeq: 4}})
 	if seq, ok := provider.appliedFor(7); !ok || seq != 4 {
 		t.Fatalf("clean apply recorded %d (present=%v), want 4", seq, ok)
 	}
 
 	session.handleIncoming(&apigen.MsgToMaster{NetMapStatus: &apigen.NetMapStatus{
-		AppliedSequence: 9, ReconciliationError: "installing remote route: no such device",
+		AppliedSeq: 9, ReconciliationError: "installing remote route: no such device",
 	}})
 	if seq, _ := provider.appliedFor(7); seq != 4 {
 		t.Fatalf("failed apply recorded %d, want the previous clean value 4", seq)
@@ -70,15 +70,15 @@ func TestSessionRecordsOnlyCleanNetMapApplies(t *testing.T) {
 func TestSessionReconnectSendsLatestNetworkMap(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	provider := &sessionNetMapProvider{current: &apigen.ClusterNetMap{Generation: "generation-a", Sequence: 1}}
+	provider := &sessionNetMapProvider{current: &apigen.ClusterNetMap{DerivedFromSeq: 1}}
 
 	first := initialSessionNetMap(t, store, provider)
-	if first.Sequence != 1 || first.TargetNodeID != 7 {
+	if first.DerivedFromSeq != 1 || first.TargetNodeID != 7 {
 		t.Fatalf("first session map = %+v", first)
 	}
-	provider.current = &apigen.ClusterNetMap{Generation: "generation-a", Sequence: 3}
+	provider.current = &apigen.ClusterNetMap{DerivedFromSeq: 3}
 	second := initialSessionNetMap(t, store, provider)
-	if second.Sequence != 3 || second.TargetNodeID != 7 {
+	if second.DerivedFromSeq != 3 || second.TargetNodeID != 7 {
 		t.Fatalf("reconnected session map = %+v", second)
 	}
 }

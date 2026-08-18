@@ -153,7 +153,7 @@ func cacheEnrollmentBootstrapState(cfg EnrollmentConfig, accepted *apigen.Enroll
 	cacheEnrollmentInstance(store, accepted.NodeNetDeployment)
 	if accepted.ClusterNetMap != nil {
 		nodeID := accepted.NodeNetDeployment.Instance.NodeID
-		if _, err := acceptClusterNetMap(store, accepted.ClusterNetMap, nodeID, prefix); err != nil {
+		if _, err := acceptClusterNetMap(store, accepted.ClusterNetMap, nodeID, prefix, true); err != nil {
 			return fmt.Errorf("accepting enrollment cluster network map: %w", err)
 		}
 	}

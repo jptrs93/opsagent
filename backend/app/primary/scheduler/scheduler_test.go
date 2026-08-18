@@ -9,22 +9,20 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
-// fakeBarrier stands in for the applied-sequence barrier. Held blocks every
+// fakeBarrier stands in for the applied-stamp barrier. Held blocks every
 // wait, which is how tests distinguish "drained and retired" from "draining and
 // still waiting for the cluster to catch up".
 type fakeBarrier struct {
-	sequence int64
-	held     bool
-	acks     chan struct{}
+	held bool
+	acks chan struct{}
 }
 
 func newFakeBarrier() *fakeBarrier {
 	return &fakeBarrier{acks: make(chan struct{}, 1)}
 }
 
-func (b *fakeBarrier) CurrentSequence() int64                { return b.sequence }
-func (b *fakeBarrier) AppliedEverywhere(sequence int64) bool { return !b.held }
-func (b *fakeBarrier) AckUpdates() <-chan struct{}           { return b.acks }
+func (b *fakeBarrier) DecisionInForce(seq int64) bool { return !b.held }
+func (b *fakeBarrier) AckUpdates() <-chan struct{}    { return b.acks }
 
 func testRunningSpec(version string) *apigen.DeploymentSpec {
 	return &apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
@@ -540,7 +538,7 @@ func TestRestartAdoptsDrainingInstances(t *testing.T) {
 	s := restartWith(store, newFakeBarrier(), updated)
 
 	// An adopted wait must not trust the barrier: with no acknowledgements
-	// recorded yet, AppliedEverywhere is vacuously true and would retire the
+	// recorded yet, DecisionInForce is vacuously true and would retire the
 	// placement instantly, before any worker has confirmed the flip.
 	s.retireDrainedInstances()
 	if got := statesByID(store, cfg.ID)[drainingInst.ID]; got != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {

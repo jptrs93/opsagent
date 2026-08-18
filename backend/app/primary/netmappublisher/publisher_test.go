@@ -12,10 +12,11 @@ import (
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
 
-func TestPublisherPersistsAndCoalescesLatestMap(t *testing.T) {
+func TestPublisherStampsAndCoalescesLatestMap(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	prefix := network.GeneratePrefix()
 	store := state.Open(dbPath)
+	store.MustSetLocalKV(storage.LocalKVPrimaryClusterNetMap, []byte("stale"))
 	node := store.EnsurePrimaryNode("primary", "primary-id")
 	store.MustSetNodeAddresses(node.ID, []string{"192.0.2.10"})
 	store.EnsureNetproxyDeployment(node.ID, version.Version)
@@ -25,7 +26,7 @@ func TestPublisherPersistsAndCoalescesLatestMap(t *testing.T) {
 		t.Fatal(err)
 	}
 	initial := publisher.SnapshotForNode(node.ID)
-	if initial == nil || initial.Generation == "" || initial.Sequence != 1 || initial.TargetNodeID != node.ID {
+	if initial == nil || initial.DerivedFromSeq <= 0 || initial.TargetNodeID != node.ID {
 		t.Fatalf("unexpected initial map: %+v", initial)
 	}
 	if len(initial.Nodes) != 1 || initial.Nodes[0].UnderlayAddress != "192.0.2.10" {
@@ -34,22 +35,14 @@ func TestPublisherPersistsAndCoalescesLatestMap(t *testing.T) {
 	if len(initial.Routes) != 0 {
 		t.Fatalf("initial routes = %+v, want none before the netproxy is scheduled", initial.Routes)
 	}
-	persistedBytes, ok := store.FetchLocalKV(storage.LocalKVPrimaryClusterNetMap)
-	if !ok {
-		t.Fatal("published map was not persisted")
-	}
-	persisted, err := apigen.DecodeClusterNetMap(persistedBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if persisted.TargetNodeID != 0 {
-		t.Fatalf("persisted target = %d, want neutral target", persisted.TargetNodeID)
+	if _, ok := store.FetchLocalKV(storage.LocalKVPrimaryClusterNetMap); ok {
+		t.Fatal("the map is derived state; the retired local_kv row must be deleted, not written")
 	}
 	if err := publisher.Refresh(); err != nil {
 		t.Fatal(err)
 	}
-	if got := publisher.SnapshotForNode(node.ID).Sequence; got != initial.Sequence {
-		t.Fatalf("unchanged refresh sequence = %d, want %d", got, initial.Sequence)
+	if got := publisher.SnapshotForNode(node.ID).DerivedFromSeq; got != initial.DerivedFromSeq {
+		t.Fatalf("unchanged refresh stamp = %d, want %d", got, initial.DerivedFromSeq)
 	}
 
 	_, updates, unsubscribe := publisher.SnapshotAndSubscribe(node.ID)
@@ -63,11 +56,12 @@ func TestPublisherPersistsAndCoalescesLatestMap(t *testing.T) {
 		t.Fatal(err)
 	}
 	latest := <-updates
-	if latest.Sequence != initial.Sequence+2 || latest.Nodes[0].UnderlayAddress != "192.0.2.12" {
+	if latest.DerivedFromSeq <= initial.DerivedFromSeq || latest.Nodes[0].UnderlayAddress != "192.0.2.12" {
 		t.Fatalf("coalesced map = %+v", latest)
 	}
 
-	wantGeneration, wantSequence := latest.Generation, latest.Sequence
+	wantContent := string(canonicalContent(latest))
+	wantStamp := latest.DerivedFromSeq
 	publisher.Close()
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
@@ -80,8 +74,11 @@ func TestPublisherPersistsAndCoalescesLatestMap(t *testing.T) {
 	}
 	defer restarted.Close()
 	got := restarted.SnapshotForNode(node.ID)
-	if got.Generation != wantGeneration || got.Sequence != wantSequence {
-		t.Fatalf("restarted publication = %s/%d, want %s/%d", got.Generation, got.Sequence, wantGeneration, wantSequence)
+	if string(canonicalContent(got)) != wantContent {
+		t.Fatalf("restarted map content = %+v, want the same derivation", got)
+	}
+	if got.DerivedFromSeq < wantStamp {
+		t.Fatalf("restarted stamp = %d, below %d: the counter never goes backwards", got.DerivedFromSeq, wantStamp)
 	}
 }
 
@@ -285,7 +282,7 @@ func TestRenderRejectsUnknownNode(t *testing.T) {
 
 func TestPublishLatestDoesNotBlockIfSubscriberDrains(t *testing.T) {
 	ch := make(chan *apigen.ClusterNetMap, 1)
-	ch <- &apigen.ClusterNetMap{Sequence: 1}
+	ch <- &apigen.ClusterNetMap{DerivedFromSeq: 1}
 	drained := make(chan struct{})
 	go func() {
 		<-ch
@@ -294,7 +291,7 @@ func TestPublishLatestDoesNotBlockIfSubscriberDrains(t *testing.T) {
 	<-drained
 	done := make(chan struct{})
 	go func() {
-		publishLatest(ch, &apigen.ClusterNetMap{Sequence: 2})
+		publishLatest(ch, &apigen.ClusterNetMap{DerivedFromSeq: 2})
 		close(done)
 	}()
 	select {

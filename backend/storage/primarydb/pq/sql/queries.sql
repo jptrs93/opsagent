@@ -4,6 +4,9 @@
 UPDATE global_seq SET value = value + 1 WHERE id = 1
 RETURNING value;
 
+-- name: GetGlobalSeq :one
+SELECT value FROM global_seq WHERE id = 1;
+
 -- === deployments ===
 
 -- CreateDeployment inserts a new stable deployment identity and

@@ -1,5 +1,6 @@
-// Package netmappublisher renders, persists, and distributes complete cluster
-// network maps. Published snapshots are immutable.
+// Package netmappublisher renders and distributes complete cluster network
+// maps. The map is derived state: it is never persisted on the primary and is
+// re-rendered from the store on every boot. Published snapshots are immutable.
 package netmappublisher
 
 import (
@@ -7,13 +8,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math"
 	"net/netip"
 	"slices"
 	"strings"
 	"sync"
 
-	"github.com/google/uuid"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -29,9 +28,15 @@ type Publisher struct {
 	store  *state.Service
 	prefix network.Prefix
 
-	mu              sync.Mutex
-	refreshMu       sync.Mutex
-	current         *apigen.ClusterNetMap
+	mu        sync.Mutex
+	refreshMu sync.Mutex
+	current   *apigen.ClusterNetMap
+	// lastRenderedSeq is the global write sequence of the newest completed
+	// render, whether or not it changed the published map. A decision at seq N
+	// is in force once lastRenderedSeq has reached N and the current map is
+	// applied everywhere: if the render at N changed no routes, the map already
+	// in force encodes it.
+	lastRenderedSeq int64
 	subscribers     map[*subscriber]struct{}
 	nodeUpdates     <-chan apigen.ClusterNode
 	instanceUpdates <-chan apigen.ScheduledInstanceState
@@ -64,17 +69,9 @@ func New(store *state.Service, prefix network.Prefix) (*Publisher, error) {
 		applied:         make(map[int32]int64),
 		ackUpdates:      make(chan struct{}, 1),
 	}
-	if persisted, ok := store.FetchLocalKV(storage.LocalKVPrimaryClusterNetMap); ok {
-		current, err := apigen.DecodeClusterNetMap(persisted)
-		if err != nil {
-			p.Close()
-			return nil, fmt.Errorf("decoding persisted cluster network map: %w", err)
-		}
-		if current.Generation == "" || current.Sequence <= 0 || current.TargetNodeID != 0 {
-			p.Close()
-			return nil, fmt.Errorf("persisted cluster network map has invalid publication metadata")
-		}
-		p.current = current
+	if err := store.DeleteLocalKV(storage.LocalKVPrimaryClusterNetMap); err != nil {
+		p.Close()
+		return nil, fmt.Errorf("deleting retired persisted cluster network map: %w", err)
 	}
 	if err := p.Refresh(); err != nil {
 		p.Close()
@@ -112,12 +109,12 @@ func (p *Publisher) Run(ctx context.Context) {
 	}
 }
 
-// Refresh synchronously renders and durably stores changed topology. It is used
-// by enrollment to avoid serving a snapshot from before the node transaction.
+// Refresh synchronously renders changed topology. It is used by enrollment and
+// the scheduler to avoid acting on a map from before their own transaction.
 func (p *Publisher) Refresh() error {
 	p.refreshMu.Lock()
 	defer p.refreshMu.Unlock()
-	nodes, instances := p.store.FetchNetworkMapInputs()
+	nodes, instances, seq := p.store.FetchNetworkMapInputs()
 	next, err := render(p.prefix, nodes, instances)
 	if err != nil {
 		return err
@@ -125,20 +122,20 @@ func (p *Publisher) Refresh() error {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	defer notifyAck(p.ackUpdates)
+	if seq > p.lastRenderedSeq {
+		p.lastRenderedSeq = seq
+	}
 	if p.current != nil && slices.Equal(canonicalContent(p.current), canonicalContent(next)) {
 		return nil
 	}
-	if p.current == nil {
-		next.Generation = uuid.NewString()
-		next.Sequence = 1
-	} else {
-		if p.current.Sequence == math.MaxInt64 {
-			return fmt.Errorf("cluster network map sequence exhausted")
-		}
-		next.Generation = p.current.Generation
-		next.Sequence = p.current.Sequence + 1
+	// Content changed, so some map-input write happened since the previous
+	// render, and every map-input write advances the counter in its own
+	// transaction. An equal stamp means a write site is missing its bump.
+	if p.current != nil && seq <= p.current.DerivedFromSeq {
+		return fmt.Errorf("cluster network map content changed without a global sequence advance (seq %d)", seq)
 	}
-	p.store.MustSetLocalKV(storage.LocalKVPrimaryClusterNetMap, next.Encode())
+	next.DerivedFromSeq = seq
 	p.current = next
 	for sub := range p.subscribers {
 		publishLatest(sub.updates, mapForNode(next, sub.nodeID))
@@ -198,8 +195,7 @@ func mapForNode(source *apigen.ClusterNetMap, nodeID int32) *apigen.ClusterNetMa
 
 func canonicalContent(source *apigen.ClusterNetMap) []byte {
 	canonical := mapForNode(source, 0)
-	canonical.Generation = ""
-	canonical.Sequence = 0
+	canonical.DerivedFromSeq = 0
 	return canonical.Encode()
 }
 

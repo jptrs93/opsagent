@@ -110,10 +110,9 @@ func TestCacheEnrollmentBootstrapStatePersistsNetworkMap(t *testing.T) {
 	dataDir := t.TempDir()
 	accepted := enrollmentAcceptedWithBootstrap(t, "worker-1")
 	accepted.ClusterNetMap = &apigen.ClusterNetMap{
-		Generation:   "generation-a",
-		Sequence:     1,
-		TargetNodeID: 2,
-		UlaPrefix:    accepted.ClusterNetwork.UlaPrefix,
+		DerivedFromSeq: 1,
+		TargetNodeID:   2,
+		UlaPrefix:      accepted.ClusterNetwork.UlaPrefix,
 		Nodes: []*apigen.ClusterNetMapNode{
 			{NodeID: 2, UnderlayAddress: "192.0.2.2"},
 		},
@@ -127,7 +126,7 @@ func TestCacheEnrollmentBootstrapStatePersistsNetworkMap(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("cached map: ok=%v err=%v", ok, err)
 	}
-	if cached.Generation != "generation-a" || cached.Sequence != 1 || cached.TargetNodeID != 2 {
+	if cached.DerivedFromSeq != 1 || cached.TargetNodeID != 2 {
 		t.Fatalf("cached map = %+v", cached)
 	}
 }

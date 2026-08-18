@@ -114,6 +114,9 @@ func (s *Service) AcceptEnrollmentRequest(id int32, workerName, requestingMachin
 		if err != nil {
 			return err
 		}
+		if _, err := q.NextGlobalSeq(ctx); err != nil {
+			return err
+		}
 		nodeRow, err := q.UpsertEnrolledNodeRow(ctx, pq.UpsertEnrolledNodeRowParams{
 			EnrollmentID:  int64(id),
 			EnrolledAt:    time.Now().UnixMilli(),
