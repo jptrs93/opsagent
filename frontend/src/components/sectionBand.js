@@ -4,14 +4,14 @@ import {chevronDownIcon, plusIcon} from "../lib/icons.js";
 const {button, div, h2, span} = van.tags;
 
 // Collapsible section header for the flush pages (IAM, nodes): a band running
-// edge to edge instead of a card heading. first:border-t-0 keeps the top band
-// flush with the window edge now that these pages have no surrounding card.
-// The toggle sits inside a real h2 so the section still reads (and tests) as
-// a heading.
-// min-h keeps every band the same height whether or not it carries actions,
-// matching the height a bandButton would give it.
+// edge to edge instead of a card heading, set off by background alone — no
+// borders. The toggle sits inside a real h2 so the section still reads (and
+// tests) as a heading.
+// min-h keeps every band the same height whether or not it carries actions;
+// 34px fits the tallest occupant (the users search input) so a band with an
+// input is no taller than one without.
 export const sectionBand = (openState, title, count, ...actions) => div(
-    {class: "flex flex-none flex-wrap items-center gap-2 border-y border-gray-700 first:border-t-0 bg-gray-950/40 px-2 py-1 min-h-[30px]"},
+    {class: "flex flex-none flex-wrap items-center gap-2 bg-gray-950/40 px-2 py-1 min-h-[34px]"},
     h2({class: "text-[11px] font-semibold leading-none"},
         button({
             type: "button",
