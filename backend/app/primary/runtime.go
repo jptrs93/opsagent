@@ -27,6 +27,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/secretdist"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/lib/issuedtls"
+	"github.com/jptrs93/opsagent/backend/lib/netaudit"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	repogit "github.com/jptrs93/opsagent/backend/lib/repo/git"
 	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
@@ -156,6 +157,7 @@ func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string
 	go scheduler.New(r.store, networkMaps).Run()
 	go r.acmeIssuer.Run(ctx)
 	go netproxy.RunNetStateWriter(ctx, r.store, predicate, nodeIdentifier, ainit.StaticConfig.NetproxyStatePath, netproxy.CertSecretResolverFunc(r.secrets.Resolve), r.acmeHolder, nil)
+	go netaudit.Run(ctx, network.Default, netaudit.DefaultInterval)
 	go r.operator.RunAll(predicate)
 }
 

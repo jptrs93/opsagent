@@ -1032,7 +1032,7 @@ func (c *config) vmExists(name string) bool {
 
 func (c *config) writeLimaYAML(name, role, cpus, memory, disk, yamlPath string) error {
 	packages := map[string]string{
-		"node":        "sudo ca-certificates curl git openssl python3 nix-bin nix-setup-systemd",
+		"node":        "sudo ca-certificates curl git openssl python3 nix-bin nix-setup-systemd tcpdump conntrack nftables",
 		"repo-mirror": "sudo ca-certificates curl git openssl tar gzip docker-registry skopeo",
 	}[role]
 	if packages == "" {
@@ -2450,6 +2450,8 @@ func (c *config) runPlaywrightFlows() error {
 		return err
 	}
 	defer c.stopPlaywrightTunnel()
+	c.startIngressPacketCapture()
+	defer c.stopIngressPacketCapture()
 	testCmd := []string{"npx", "playwright", "test"}
 	for _, arg := range flowArgs {
 		testCmd = append(testCmd, shellQuote(arg))
@@ -2458,6 +2460,9 @@ func (c *config) runPlaywrightFlows() error {
 	err = c.step("flows", strings.Join(flowArgs, " "), func() error {
 		return c.runPlaywrightDockerFiltered(envPairs, "set -euo pipefail && "+strings.Join(testCmd, " "))
 	})
+	if err != nil {
+		c.captureIngressDiagnostics()
+	}
 	c.copyPlaywrightResults()
 	return err
 }

@@ -8,6 +8,7 @@ import tls from 'node:tls';
 
 const INGRESS_READY_TIMEOUT = 180_000;
 const REQUEST_TIMEOUT = 15_000;
+const UNAVAILABLE_PROBE_TIMEOUT = 3_000;
 
 export function ingressTarget() {
   return {
@@ -134,15 +135,79 @@ export async function expectHTTPSStatus(hostname, path, expectedStatus, {
   }, {message: `expected HTTPS ${method} ${hostname}${path} to return ${expectedStatus}`, timeout}).toBe(expectedStatus);
 }
 
+// probeTLSIngressClosed makes one TLS connection attempt with the given SNI
+// and classifies the outcome. The healthy fail-closed path always answers
+// fast: either the worker refuses the connection outright (no DNAT rule,
+// surfaced through the ssh tunnel as an immediate close of the forwarded
+// connection) or netproxy reads the ClientHello and closes on an unrouted
+// SNI. Two outcomes must never read as "correctly unavailable": a local
+// ECONNREFUSED before the TCP connect completes (the ssh tunnel listener
+// itself is down) and a timeout (packets silently dropped somewhere between
+// the tunnel and netproxy — the signature of an ingress blackhole, worth
+// capturing network state from the worker before restarting anything).
+export function probeTLSIngressClosed(hostname) {
+  const target = ingressTarget();
+  const ca = ingressCA();
+  return new Promise(resolve => {
+    let done = false;
+    let tcpConnected = false;
+    const socket = tls.connect({
+      host: target.host,
+      port: target.httpsPort,
+      servername: hostname,
+      ca,
+      rejectUnauthorized: true,
+    });
+    const finish = outcome => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(outcome);
+    };
+    const timer = setTimeout(() => finish({kind: 'timeout', detail: tcpConnected ? 'connected, TLS handshake stalled' : 'TCP connect stalled'}), UNAVAILABLE_PROBE_TIMEOUT);
+    socket.on('connect', () => { tcpConnected = true; });
+    socket.on('secureConnect', () => finish({kind: 'established', detail: 'TLS handshake completed'}));
+    socket.on('error', error => {
+      const code = error?.code || '';
+      if (!tcpConnected && code === 'ECONNREFUSED') {
+        finish({kind: 'tunnel-refused', detail: String(error?.message || error)});
+        return;
+      }
+      if (['ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'EPIPE'].includes(code) ||
+          String(error?.message || '').includes('disconnected before secure TLS connection')) {
+        finish({kind: 'rejected', detail: String(error?.message || error)});
+        return;
+      }
+      // Anything else (certificate errors, protocol errors) means a TLS
+      // server answered, so the route is not closed.
+      finish({kind: 'tls-responded', detail: String(error?.message || error)});
+    });
+    socket.on('close', () => finish({kind: 'rejected', detail: 'connection closed before TLS was established'}));
+  });
+}
+
 export async function expectHTTPSIngressUnavailable(hostname, {timeout = INGRESS_READY_TIMEOUT} = {}) {
+  await expectTLSProbeRejected(hostname, `expected HTTPS ingress for ${hostname} to fail closed`, timeout);
+}
+
+// expectTLSProbeRejected polls until a probe reports the remote side
+// rejecting the connection. A tunnel failure or a silent packet drop aborts
+// the poll immediately with a diagnosis instead of masquerading as a pass
+// (blackholes) or burning the poll budget (dead tunnel).
+export async function expectTLSProbeRejected(hostname, message, timeout) {
   await expect.poll(async () => {
-    try {
-      await requestHTTPSIngress(hostname, {path: '/'});
-      return false;
-    } catch {
-      return true;
+    const probe = await probeTLSIngressClosed(hostname);
+    if (probe.kind === 'timeout') {
+      throw new Error(`TLS probe for ${hostname} timed out after ${UNAVAILABLE_PROBE_TIMEOUT}ms (${probe.detail}): ` +
+        'the ingress path is silently dropping packets instead of refusing — capture nft/conntrack/route state from the worker before restarting anything');
     }
-  }, {message: `expected HTTPS ingress for ${hostname} to fail closed`, timeout}).toBe(true);
+    if (probe.kind === 'tunnel-refused') {
+      throw new Error(`TLS probe for ${hostname} was refused by the local tunnel listener (${probe.detail}): ` +
+        'the ssh ingress tunnel is down, not the product ingress');
+    }
+    return probe.kind;
+  }, {message, timeout}).toBe('rejected');
 }
 
 // Proves the response body was streamed rather than buffered: the backend emits

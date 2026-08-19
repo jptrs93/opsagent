@@ -135,6 +135,8 @@ For virtual-mode containers, the runner asks `backend/lib/network` to create net
 
 When an agent restarts, containerd tasks and their network namespaces can remain running. Reattachment opens the surviving named namespace and identifies its deterministic host veth by the mutual peer indexes of namespace `eth0` and the host link. Veth aliases are not used for ownership. Recovery restores the run's `O` route and, for the current run, its `I` route, then records the host ifindex before removing unretained slots, so a current task is never deleted as stale and delayed teardown cannot delete a link whose name has since been reused. A task on the current config republishes its host-port state; the internal netproxy also republishes across its version-only upgrades. Older application tasks retain recovered metadata for safe teardown but wait for their prepared replacement before using a newer networking config. If required reconstruction fails, the adopted task is replaced rather than left running without its forwarding rules.
 
+Kernel state is written event-wise and assumed to persist, so `backend/lib/netaudit` audits it every 60 seconds: it compares the manager's desired DNAT/masquerade rules and `/128` workload routes against the live nftables ruleset and protocol-200 route table, rechecking once after 2 seconds before reporting. It is strictly log-only (`netaudit: kernel network state in sync` / `diverged`) — divergence is evidence of a bug or external interference and must stay visible, not be silently repaired.
+
 The map is a pure derivation and is not persisted on the primary. Every render
 reads its inputs and the global write sequence in one storage critical section
 and stamps the result with `derived_from_seq`; every map-input write — node

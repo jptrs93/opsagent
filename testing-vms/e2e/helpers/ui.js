@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import https from 'node:https';
 import path from 'node:path';
+import {expectTLSProbeRejected} from './httpsClient.js';
 
 const LONG_UI_TIMEOUT = 15_000;
 const OPTIONAL_VALIDATION_TIMEOUT = LONG_UI_TIMEOUT;
@@ -1401,14 +1402,7 @@ export async function expectTLSIngress(hostname, {backend, certificateBundle, ti
 }
 
 export async function expectTLSIngressUnavailable(hostname, {timeout = DEPLOYMENT_RUNNING_TIMEOUT} = {}) {
-  await expect.poll(async () => {
-    try {
-      await requestTLSIngress(hostname);
-      return false;
-    } catch {
-      return true;
-    }
-  }, {message: `expected TLS ingress for ${hostname} to fail closed`, timeout}).toBe(true);
+  await expectTLSProbeRejected(hostname, `expected TLS ingress for ${hostname} to fail closed`, timeout);
 }
 
 function requestTLSIngress(hostname) {

@@ -17,6 +17,10 @@ const (
 	routeProtocolOpenDeploy = netlink.RouteProtocol(200)
 )
 
+// AuditRouteProtocol exposes the manager's route protocol value so the
+// netaudit package can select exactly the routes this manager owns.
+func AuditRouteProtocol() netlink.RouteProtocol { return routeProtocolOpenDeploy }
+
 type routeOperations interface {
 	RouteReplace(route *netlink.Route) error
 	RouteListFiltered(family int, filter *netlink.Route, filterMask uint64) ([]netlink.Route, error)
