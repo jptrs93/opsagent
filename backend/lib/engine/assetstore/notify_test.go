@@ -21,12 +21,12 @@ func TestCreateAssetNotifiesSubscribers(t *testing.T) {
 	}
 
 	select {
-	case meta := <-sub.Ch:
-		if meta.Key != "notify-check.txt" {
-			t.Fatalf("meta.Key = %q", meta.Key)
+	case asset := <-sub.Ch:
+		if asset.Fs == nil || asset.Fs.Key != "notify-check.txt" {
+			t.Fatalf("asset.Fs = %+v", asset.Fs)
 		}
-		if len(meta.VersionRefs) == 0 || meta.VersionRefs[0].ID == 0 {
-			t.Fatalf("meta.VersionRefs = %+v, want a first version ref with an id", meta.VersionRefs)
+		if len(asset.ContentVersions) == 0 || asset.ContentVersions[0].ID == 0 {
+			t.Fatalf("asset.ContentVersions = %+v, want a first content version with an id", asset.ContentVersions)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no asset update was published within 2s of CreateAsset")

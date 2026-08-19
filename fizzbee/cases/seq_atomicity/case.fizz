@@ -1,0 +1,82 @@
+always assertion SeqStampsBounded:
+    for family in FAMILIES:
+        for r in value_versions[family]:
+            if value_versions[family][r].seq < 1 or value_versions[family][r].seq > global_seq:
+                return False
+        for e in value_space_log[family]:
+            if e.seq < 1 or e.seq > global_seq:
+                return False
+    for d in deployments:
+        for spec in deployment_versions[d]:
+            if spec.seq < 1 or spec.seq > global_seq:
+                return False
+        for e in deployment_space_versions[d]:
+            if e.seq < 1 or e.seq > global_seq:
+                return False
+    for i in scheduled_instances:
+        if scheduled_instances[i].seq < 1 or scheduled_instances[i].seq > global_seq:
+            return False
+    return True
+
+always assertion ValueCreationAtomic:
+    for family in FAMILIES:
+        for id in value_entities[family]:
+            v1seq = 0
+            for r in value_versions[family]:
+                v = value_versions[family][r]
+                if v.owner == id and v.version == 1:
+                    v1seq = v.seq
+            s1seq = -1
+            for e in value_space_log[family]:
+                if e.owner == id and s1seq == -1:
+                    s1seq = e.seq
+            if v1seq != s1seq:
+                return False
+    return True
+
+always assertion DeploymentCreationAtomic:
+    for d in deployments:
+        if deployment_versions[d][0].seq != deployment_space_versions[d][0].seq:
+            return False
+    return True
+
+always assertion ValueLogsConsistent:
+    for family in FAMILIES:
+        for id in value_entities[family]:
+            nversions = 0
+            for r in value_versions[family]:
+                if value_versions[family][r].owner == id:
+                    nversions = nversions + 1
+            nspaces = 0
+            for e in value_space_log[family]:
+                if e.owner == id:
+                    nspaces = nspaces + 1
+            if nversions < 1 or nspaces < 1 or nversions != value_entities[family][id].nversions:
+                return False
+    return True
+
+always assertion ValueVersionRowOrderAgrees:
+    for family in FAMILIES:
+        for r1 in value_versions[family]:
+            for r2 in value_versions[family]:
+                v1 = value_versions[family][r1]
+                v2 = value_versions[family][r2]
+                if v1.owner == v2.owner and r1 < r2 and v1.version >= v2.version:
+                    return False
+    return True
+
+always assertion DeploymentLogsNonEmpty:
+    for d in deployments:
+        if len(deployment_versions[d]) < 1 or len(deployment_space_versions[d]) < 1:
+            return False
+    return True
+
+exists assertion RotationSharesSeq:
+    for d in deployments:
+        for spec in deployment_versions[d]:
+            if spec.version > 1:
+                for family in FAMILIES:
+                    for r in value_versions[family]:
+                        if value_versions[family][r].seq == spec.seq:
+                            return True
+    return False

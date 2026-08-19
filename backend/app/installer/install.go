@@ -28,15 +28,6 @@ type staged struct {
 	runtime  []stagedDep
 }
 
-// doInstall is the entry point for `install`. It auto-detects fresh-install vs
-// upgrade by whether the systemd unit already exists, then runs two phases:
-//
-//	Phase 1 — download + checksum every binary into a temp dir. No host changes.
-//	Phase 2 — apply: create user/dirs, install the staged binaries, write units,
-//	          enable + restart. Local filesystem + systemctl only, no network.
-//
-// A network or checksum failure in phase 1 aborts with the host untouched,
-// rather than leaving a half-provisioned machine.
 type installOptions struct {
 	role                  string
 	httpOnly              *bool
@@ -63,6 +54,15 @@ func (o installOptions) hasPrimaryConfigOverrides() bool {
 	return o.httpOnly != nil || o.webListen != nil || o.webTLSSelfManaged != nil || o.webTLSCertPEM != nil || o.clusterListen != nil || o.enrollmentListen != nil || o.acmeHosts != nil
 }
 
+// doInstall auto-detects fresh-install vs upgrade by whether the systemd unit
+// already exists, then runs two phases:
+//
+//	Phase 1 — download + checksum every binary into a temp dir. No host changes.
+//	Phase 2 — apply: create user/dirs, install the staged binaries, write units,
+//	          enable + restart. Local filesystem + systemctl only, no network.
+//
+// A network or checksum failure in phase 1 aborts with the host untouched,
+// rather than leaving a half-provisioned machine.
 func doInstall(version string, opts installOptions) error {
 	upgrade := pathExists(serviceUnitPath)
 	if opts.restore != nil && upgrade {
@@ -103,15 +103,14 @@ func doInstall(version string, opts installOptions) error {
 	}
 	defer os.RemoveAll(tmp)
 
-	// Phase 1 — stage. Runtime binaries are provisioned root-only, so an
-	// unprivileged upgrade skips staging them.
+	// Runtime binaries are provisioned root-only, so an unprivileged upgrade
+	// skips staging them.
 	withRuntime := isRoot() || dryRun
 	st, err := stageAll(version, arch, tmp, withRuntime, selfInstall)
 	if err != nil {
 		return err
 	}
 
-	// Phase 2 — apply.
 	if upgrade {
 		return runUpgrade(version, arch, st, opts)
 	}
@@ -169,9 +168,9 @@ func stageSelfAgent(tmp string) (string, error) {
 	return dst, nil
 }
 
-// preflight enforces the same permission rules as the shell installer: fresh
-// install requires root; upgrade requires write access to the bin dir (and, if
-// run unprivileged, a working passwordless systemctl restart via sudoers).
+// preflight enforces the permission rules: fresh install requires root;
+// upgrade requires write access to the bin dir (and, if run unprivileged, a
+// working passwordless systemctl restart via sudoers).
 func preflight(upgrade bool) error {
 	if !upgrade {
 		if !isRoot() && !dryRun {
@@ -339,7 +338,6 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 		return err
 	}
 
-	// install staged binary into its versioned dir + symlink
 	step("Installing binary")
 	dst := releaseBinPath(version, arch)
 	if err := ensureReleaseArtifactDir(version, arch, own); err != nil {
@@ -375,13 +373,11 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 		info("kept existing %s", envFile)
 	}
 
-	// sudoers — validate with visudo before moving into place
 	step("Installing sudoers drop-in")
 	if err := installSudoers(); err != nil {
 		return err
 	}
 
-	// systemd unit (embedded)
 	step("Installing systemd unit")
 	if _, err := writeFile(serviceUnitPath, renderOpenDeployUnit(opts), 0o644, noChown, false); err != nil {
 		return err
@@ -393,7 +389,6 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 		return err
 	}
 
-	// bundled container runtime (staged in phase 1)
 	if err := applyRuntime(st.runtime); err != nil {
 		return err
 	}
@@ -586,7 +581,6 @@ func resolveOpenDeployOwner() owner {
 	return o
 }
 
-// isWritableDir reports whether the current user can create files in dir.
 func isWritableDir(dir string) bool {
 	probeFile := filepath.Join(dir, ".opendeploy-write-probe")
 	f, err := os.OpenFile(probeFile, os.O_CREATE|os.O_WRONLY, 0o600)

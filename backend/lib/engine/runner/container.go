@@ -324,8 +324,6 @@ func (r *containerRunner) Stop() {
 			slog.WarnContext(r.ctx, "sending SIGKILL to container failed", "containerID", r.containerID, "err", err)
 		}
 	}
-	// Break out of the monitor/backoff loop and wait for it to finish, then
-	// remove the container.
 	r.cancel()
 	<-r.done
 	if task != nil {
@@ -340,7 +338,6 @@ func (r *containerRunner) run() {
 	crashCount := 0
 	hadProcess := false
 
-	// Reattach: reconcile any existing containerd task for this deterministic id.
 	if r.startupMode == containerStartupReattachRunning || r.startupMode == containerStartupReattachStopped {
 		if task, err := ctrd.Default.LoadTask(r.ctx, r.containerID); err == nil {
 			r.logContainerEvent("re-attach", r.currentRunNumber(), r.mounts)
@@ -605,7 +602,6 @@ func (r *containerRunner) run() {
 			return
 		}
 
-		// Crash: stability reset, record CRASHED, clean up, back off, respawn.
 		if time.Since(startedAt) >= containerStableRunWindow {
 			crashCount = 0
 		}
@@ -628,7 +624,6 @@ func (r *containerRunner) notifyArtifactMissing() {
 	}
 }
 
-// monitorTask blocks until the task exits or the runner context is cancelled.
 func (r *containerRunner) monitorTask(task *ctrd.Task) {
 	exitCh, err := task.Wait(r.ctx)
 	if err != nil {
@@ -1233,8 +1228,6 @@ func (r *containerRunner) getContainerNet() *network.ContainerNet {
 	return r.net
 }
 
-// --- state writes ---
-
 func (r *containerRunner) updateStatus(status apigen.RunningStatus, pid int32) {
 	r.status.Status = status
 	r.status.RunningPid = pid
@@ -1254,8 +1247,6 @@ func (r *containerRunner) writeStatus() {
 		return true
 	})
 }
-
-// --- config helpers ---
 
 // containerMounts builds the container's bind mounts: the default per-deployment
 // data volume (unless disabled) followed by any configured mounts. It also
@@ -1334,8 +1325,6 @@ func defaultVolumeHostDir(deploymentID int32) string {
 	return filepath.Join(ainit.StaticConfig.VolumesDir, strconv.Itoa(int(deploymentID)), "default")
 }
 
-// defaultVolumeDest is the in-container mount point for the default data volume:
-// the explicit override if set, else /data.
 func defaultVolumeDest(override string) string {
 	if override != "" {
 		return override

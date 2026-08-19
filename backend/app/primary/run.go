@@ -29,7 +29,6 @@ import (
 // process supervisor should restart OpenDeploy.
 var ErrRestartRequired = errors.New("primary restart required")
 
-// Run starts all primary services and blocks until shutdown or failure.
 func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	lifecycleCtx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
@@ -85,7 +84,6 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	if err != nil {
 		return fmt.Errorf("computing enrollment TLS fingerprint: %w", err)
 	}
-	// Primary cluster and enrollment listeners start for every primary.
 	clusterHandler := clusterhandler.New(primaryRuntime.store, primaryRuntime.assets, primaryRuntime.github, primaryRuntime.secrets, primaryRuntime.configService.NetworkPrefix(), networkMaps, primaryRuntime.acmeHolder, primaryRuntime.issuedTLS)
 	enrollmentHandler := enrollmenthandler.New(primaryRuntime.store, primaryRuntime.secrets, primaryRuntime.configService, enrollmentFingerprint, networkMaps)
 	webUIHandler.Cluster = clusterHandler

@@ -75,7 +75,7 @@ func (p *Publisher) DecisionInForce(seq int64) bool {
 
 // AckUpdates signals that applied sequences have advanced. It is a single
 // coalescing slot for one consumer, not a broadcast: a missed wakeup is
-// harmless because consumers re-read AppliedEverywhere on every tick.
+// harmless because consumers re-read DecisionInForce on every tick.
 func (p *Publisher) AckUpdates() <-chan struct{} { return p.ackUpdates }
 
 func notifyAck(ch chan struct{}) {

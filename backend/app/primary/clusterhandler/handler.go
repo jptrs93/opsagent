@@ -14,7 +14,6 @@ import (
 	"iter"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,7 +33,6 @@ import (
 
 var _ apigen.OpsagentClusterV1Handler = (*Handler)(nil)
 
-// machineCtxKey keys the worker's node identifier from its certificate CN.
 type machineCtxKey struct{}
 
 type peerCertCtxKey struct{}
@@ -64,7 +62,6 @@ func peerCertFromContext(ctx context.Context) *x509.Certificate {
 	return cert
 }
 
-// machineFromContext returns the worker machine name stashed by VerifyClusterPeer.
 func machineFromContext(ctx context.Context) string {
 	name, _ := ctx.Value(machineCtxKey{}).(string)
 	return name
@@ -115,7 +112,7 @@ type Handler struct {
 }
 
 type assetProvider interface {
-	OpenAsset(ctx context.Context, assetID int32) (*apigen.AssetVersion, io.ReadCloser, error)
+	OpenAsset(ctx context.Context, assetID int32) (sizeBytes int64, body io.ReadCloser, err error)
 }
 
 type networkMapProvider interface {
@@ -127,7 +124,6 @@ type networkMapProvider interface {
 	ForgetNode(nodeID int32)
 }
 
-// New creates a cluster handler.
 func New(store *state.Service, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, networkMaps networkMapProvider, acme *acmestate.Holder, issuedTLS *issuedtls.Issuer) *Handler {
 	return &Handler{
 		store:             store,
@@ -170,17 +166,14 @@ func (p *Handler) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w h
 	if !p.allowedRefs(predicate).assetAllowed(assetVersionID) {
 		return clusterForbiddenErr
 	}
-	asset, body, err := p.assets.OpenAsset(authCtx, assetVersionID)
+	sizeBytes, body, err := p.assets.OpenAsset(authCtx, assetVersionID)
 	if err != nil {
 		return err
 	}
 	defer body.Close()
 
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", strconv.Itoa(int(asset.SizeBytes)))
-	w.Header().Set("X-Opsagent-Asset-Version-ID", strconv.Itoa(int(asset.ID)))
-	w.Header().Set("X-Opsagent-Asset-Key", url.QueryEscape(asset.Key))
-	w.Header().Set("X-Opsagent-Asset-Version", strconv.Itoa(int(asset.Version)))
+	w.Header().Set("Content-Length", strconv.FormatInt(sizeBytes, 10))
 	if _, err := io.Copy(w, body); err != nil {
 		slog.ErrorContext(authCtx, "stream cluster asset", "asset_version_id", assetVersionID, "err", err)
 	}
@@ -419,11 +412,6 @@ func (p *Handler) GetV1ClusterRenewCertificate(authCtx apigen.Context) (*apigen.
 	}, nil
 }
 
-// PostV1ClusterConnect handles one worker's bidirectional stream for its full
-// lifetime: it registers the session, sends the initial snapshot, forwards
-// config updates plus keepalive frames, and ingests the worker's status writes
-// and log chunks. It returns (ending the stream) when the worker disconnects,
-// the request errors, or the context is cancelled.
 func (p *Handler) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*apigen.MsgToMaster, error]) iter.Seq2[*apigen.MsgToWorker, error] {
 	return func(yield func(*apigen.MsgToWorker, error) bool) {
 		machine := machineFromContext(authCtx)
@@ -473,9 +461,8 @@ func (p *Handler) unregisterSession(nodeID int32, identifier string, expected *S
 	}
 }
 
-// RequestLogs sends a log request to the identified worker and returns a reader that
-// yields the streamed log data. The caller must read until EOF (or close the
-// reader to abort).
+// RequestLogs's caller must read the returned reader until EOF, or close it to
+// abort.
 func (p *Handler) RequestLogs(nodeID int32, req *apigen.MsgToWorker) (io.ReadCloser, error) {
 	p.mu.RLock()
 	sess, ok := p.sessions[nodeID]
@@ -496,8 +483,6 @@ func (p *Handler) RequestLogSearch(nodeID int32, req *apigen.MsgToWorker) (*LogS
 	return sess.requestLogSearch(req)
 }
 
-// ConnectedNodes returns the set of currently connected worker node IDs and
-// when each connected.
 func (p *Handler) ConnectedNodes() map[int32]time.Time {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

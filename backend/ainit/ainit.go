@@ -31,7 +31,7 @@ func init() {
 	if Args.Command == CommandNetproxy {
 		w = os.Stdout
 	} else {
-		// Main opendeploy agents (primary, secondary) are a special case that write logs directly to /var/opendeploy-run-logs/0
+		// Main opendeploy agents (primary, secondary) log into the run-logs tree as deployment 0
 		basePath := log.SystemLogBasePath(StaticConfig.RunOutputDir)
 		w = erru.Must(log.NewSystemLogWriter(basePath))
 	}

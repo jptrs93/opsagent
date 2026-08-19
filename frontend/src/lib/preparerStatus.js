@@ -1,7 +1,7 @@
 // Preparer status values and the shared phrasing for them.
 //
 // The model generator emits typedefs and wire codecs but no enum constants, so
-// these mirror the enums in api-contract/deployment_model.proto by hand and must
+// these mirror the enums in api-contract/model_deployments.proto by hand and must
 // be kept in step with it.
 //
 // Preparation runs in two stages: resolving runtime inputs (assets, secrets,

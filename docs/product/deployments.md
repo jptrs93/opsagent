@@ -35,8 +35,8 @@ A deployment is created by posting a `DeploymentCreateRequest` to
         "user": "1000",
         "envVars": {
           "LOG_LEVEL": {"value": "info"},
-          "DATABASE_URL": {"configId": 42},
-          "DB_PASSWORD": {"secretId": 99}
+          "DATABASE_URL": {"configVersionId": 42},
+          "DB_PASSWORD": {"secretVersionId": 99}
         },
         "devShmSizeKb": 65536,
         "mounts": [{"hostPath": "/home/ubuntu/coflip-server/data", "containerPath": "/data", "permission": 1}]
@@ -50,7 +50,8 @@ A deployment is created by posting a `DeploymentCreateRequest` to
 
 The spec of an existing deployment is updated by posting the typed `spec` field
 in `POST /v1/deployments/update`. Its name and `nodeId` placement are fixed at
-creation; its space can be changed through the update path.
+creation; its space can be changed through `POST /v1/deployments/move-space`
+(see Config versioning).
 
 `nodeId` is the required canonical placement and references `ClusterNode.id`.
 Every stored deployment has a positive canonical `nodeId`. Deployment history
@@ -71,7 +72,7 @@ self-deployment. Public create/update validation rejects it.
 
 | Variant | Fields | Description |
 |---|---|---|
-| `runtime` | `user`, `envVars`, `overrideCommand`, `overrideWorkingDir`, `defaultVolume`, `crossDeploymentMounts`, `mounts`, `assetMounts`, `devShmSizeKb`, `fileDescriptorLimit` | Runs the selected source as a container via containerd with OpenDeploy-supervised crash/backoff. Networking is controlled by `spec.networking`. `envVars` contains typed literal, pinned secret/config, asset, or address references. A deployment may reference secrets only from its own space or the global space; creates, updates, and space moves reject other pins with `secret_reference_outside_space`, and the editor applies the same own-or-global scoping to `secret("name")`, `config("name")`, and `asset("name")` with the deployment's own space shadowing a same-named global item (an explicit `{ space = "name" }` option targets one of the two spaces exactly; the server currently enforces locality only for secrets). `defaultVolume` controls the per-deployment data volume. `crossDeploymentMounts` references another same-node deployment by ID; `mounts` is the raw host-path escape hatch. Mount permissions are explicit `READ_WRITE`, `READ_ONLY`, or, where supported, `READ_EXECUTE`. Upgrade strategy and readiness are fields on `container1Spec`. Linux only. |
+| `runtime` | `user`, `envVars`, `overrideCommand`, `overrideWorkingDir`, `defaultVolume`, `crossDeploymentMounts`, `mounts`, `assetMounts`, `devShmSizeKb`, `fileDescriptorLimit` | Runs the selected source as a container via containerd with OpenDeploy-supervised crash/backoff. Networking is controlled by `spec.networking`. `envVars` contains typed literal, pinned secret/config, asset, or address references. A deployment may reference secrets only from its own space or the global space; creates, updates, and space moves reject other pins with `secret_reference_outside_space`, and the editor applies the same own-or-global scoping to `secret("name")`, `config("name")`, and `asset("name")` with the deployment's own space shadowing a same-named global item (an explicit `{ space = "name" }` option targets one of the two spaces exactly; the server enforces own-or-global locality for secret, config, and asset pins). `defaultVolume` controls the per-deployment data volume. `crossDeploymentMounts` references another same-node deployment by ID; `mounts` is the raw host-path escape hatch. Mount permissions are explicit `READ_WRITE`, `READ_ONLY`, or, where supported, `READ_EXECUTE`. Upgrade strategy and readiness are fields on `container1Spec`. Linux only. |
 
 `systemdSpec` remains an internal-only workload for the `OPENDEPLOY`
 self-deployment. Public create/update validation rejects it, and public state
@@ -167,10 +168,12 @@ routing snapshots never include a finalized placement, which owns no address.
 
 ### PreparerStatus
 
-Driven by the preparer. Tracks prepare progress with status values:
-`PREPARING`, `DOWNLOADING`, `READY`, `FAILED`. On success, contains the
-resolved `artifact` (local image ref) and the `deployment_config_version`
-from `DeploymentConfig.Version`.
+Driven by the preparer. Reported as two stages: `inputs` (resolving assets,
+secrets, and configs) and `image` (producing the artifact). The runner-gating
+rollup (`PREPARING`, `DOWNLOADING`, `PULLING`, `READY`, `FAILED`) is derived
+from the pair, never stored or sent — see [engine.md](../engineering/engine.md).
+On success, contains the resolved `artifact` (local image ref) and the
+`deployment_config_version` from `DeploymentConfig.Version`.
 
 ### RunnerStatus
 
@@ -186,7 +189,7 @@ Deleting a deployment releases its human-readable identity tuple but retains its
 
 ### Node space policy
 
-Each node carries an `allowed_spaces` list, and a deployment cannot be placed on a node that does not allow its space. Enforced in `validateNodeAllowsSpace`, called from the only two places a (node, space) pair can arise: `PostV1DeploymentsCreate`, and `PostV1DeploymentsUpdate` when it carries a `space_id`. There is no third — `DeploymentUpdateRequest` has no node field, so a deployment never moves nodes after creation.
+Each node carries an `allowed_spaces` list, and a deployment cannot be placed on a node that does not allow its space. Enforced in `validateNodeAllowsSpace`, called from the only two places a (node, space) pair can arise: `PostV1DeploymentsCreate` and `PostV1DeploymentsMoveSpace`. There is no third — neither update nor move-space carries a node field, so a deployment never moves nodes after creation.
 
 **The policy defaults fully open and only ever narrows deliberately.** A new node is inserted allowing every space that exists at the time, and creating a space opens it on every existing node (`AllowSpaceOnAllNodes`). Without that second half the list would be a snapshot taken at enrolment, and the first deployment into a newly created space would fail on every node with nothing to explain why. Deleting a space strips it from every list, so ids of spaces that no longer exist do not accumulate.
 
@@ -257,8 +260,8 @@ plus "Add deployment" and "Export" on the right. Each row displays:
 4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the spec with the selected workload's version and `running=true`, and bumps `DeploymentConfig.Version`. Verification failure writes nothing.
 5. The operator's reconciliation loop picks up the change and starts a
    preparer.
-6. The preparer clones/fetches, pulls, or imports the image, then writes
-   `PreparerStatus.Status = READY`.
+6. The preparer resolves runtime inputs, then clones/fetches, pulls, or
+   imports the image, and publishes a preparer status whose rollup is `READY`.
 7. The operator creates a runner, which writes `RunnerStatus.Status =
    STARTING` then `RUNNING` with the PID.
 
@@ -268,7 +271,7 @@ For container deployments with `upgradeStrategy = ROLLOVER`, step 7 starts a can
 
 The container runner owns crash recovery directly: on task exit it writes
 `RunnerStatus.Status = CRASHED`, sleeps for an exponentially increasing delay
-(1s to 60s, doubling per consecutive crash), and respawns the same image.
+(1 second to 1 hour, doubling per consecutive crash), and respawns the same image.
 `number_of_restarts` increments on each respawn and resets on new deployments.
 If the container runs stably for 15+ seconds before crashing, the local crash
 counter is reset.

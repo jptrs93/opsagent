@@ -1,0 +1,43 @@
+always assertion InstancePinsResolve:
+    for i in scheduled_instances:
+        inst = scheduled_instances[i]
+        if inst.deployment not in deployments:
+            return False
+        version_found = False
+        for spec in deployment_versions[inst.deployment]:
+            if spec.version == inst.deployment_version:
+                version_found = True
+        row_found = False
+        for e in deployment_space_versions[inst.deployment]:
+            if e.row_id == inst.space_version_row_id:
+                row_found = True
+        if not version_found or not row_found:
+            return False
+    return True
+
+always assertion InstanceIncarnationUnique:
+    for i in scheduled_instances:
+        for j in scheduled_instances:
+            if i < j:
+                a = scheduled_instances[i]
+                b = scheduled_instances[j]
+                if a.deployment == b.deployment and a.deployment_version == b.deployment_version and a.node == b.node and a.ordinal == b.ordinal:
+                    return False
+    return True
+
+always assertion DeploymentLogsNonEmpty:
+    for d in deployments:
+        if len(deployment_versions[d]) < 1 or len(deployment_space_versions[d]) < 1:
+            return False
+    return True
+
+exists assertion InstanceScheduled:
+    return len(scheduled_instances) > 0
+
+exists assertion InstancePinsMovedSpaceRow:
+    for i in scheduled_instances:
+        inst = scheduled_instances[i]
+        for e in deployment_space_versions[inst.deployment]:
+            if e.row_id == inst.space_version_row_id and e.version > 1:
+                return True
+    return False

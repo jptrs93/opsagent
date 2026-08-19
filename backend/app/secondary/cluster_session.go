@@ -77,7 +77,6 @@ func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Ser
 	}
 }
 
-// logStreamTracker manages cancellable log stream goroutines keyed by request ID.
 type logStreamTracker struct {
 	mu      sync.Mutex
 	streams map[string]context.CancelFunc
@@ -119,11 +118,6 @@ func scheduledInstancePredicateForNode(nodeID int32) storage.ScheduledInstancePr
 	}
 }
 
-// runSession opens one bidirectional stream to the primary: it pushes local
-// status changes and requested log data out via the request stream, and reads
-// the primary's messages (snapshot, assignment updates, log requests) from the
-// response stream, applying them to the local store. Returns when the stream
-// ends (error or clean EOF).
 func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID int32, underlayAddress string, acme *acmestate.Holder, notifySynced func()) error {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -190,14 +184,12 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 	return sessErr
 }
 
-// primarySessionState carries per-session dispatch state. The first map
-// accepted after connect is the session's snapshot and replaces the worker's
-// cache unconditionally.
+// The first map accepted after connect is the session's snapshot and replaces
+// the worker's cache unconditionally.
 type primarySessionState struct {
 	netMapSnapshotPending bool
 }
 
-// dispatchFromPrimary applies one MsgToWorker received from the primary.
 func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, sess *primarySessionState, msg *apigen.MsgToWorker, nodeID int32, acme *acmestate.Holder, notifySynced func()) {
 	msgType := "heartbeat"
 	switch {
@@ -298,8 +290,6 @@ func applyClusterNetwork(store *state.Service, info *apigen.ClusterNetworkInfo) 
 	return nil
 }
 
-// statusPushLoop forwards local status changes to the primary. It tracks the
-// last UpdatedAt clock sent per scheduled instance to avoid sending duplicate updates.
 func statusPushLoop(ctx context.Context, out *outbox, ch <-chan apigen.ScheduledInstanceState) {
 	lastSent := make(map[int32]time.Time)
 	for {
@@ -326,12 +316,10 @@ func statusPushLoop(ctx context.Context, out *outbox, ch <-chan apigen.Scheduled
 	}
 }
 
-// applySnapshot writes scheduled instance assignments from the primary's snapshot
-// into the local store, drops any the primary no longer knows about, and replays
-// any status history the primary is missing. Each snapshot item carries the
-// primary's last-known UpdatedAt clock for that instance; the secondary scans its
-// local history for rows above that value and streams them back as individual
-// StatusWrites so the primary can insert each one at its canonical clock.
+// Each snapshot item carries the primary's last-known UpdatedAt clock for that
+// instance; the secondary scans its local history for rows above that value and
+// streams them back as individual StatusWrites so the primary can insert each
+// one at its canonical clock.
 func applySnapshot(out *outbox, store *state.Service, snap *apigen.ScheduledInstanceSnapshot, nodeID int32) {
 	slog.Info("applying scheduled instances snapshot from primary", "count", len(snap.Items))
 	present := make(map[int32]struct{}, len(snap.Items))
@@ -373,7 +361,6 @@ func applySnapshot(out *outbox, store *state.Service, snap *apigen.ScheduledInst
 	}
 }
 
-// applyInstanceUpdate writes a single scheduled instance assignment from the primary.
 func applyInstanceUpdate(store *state.Service, state *apigen.ScheduledInstanceState, nodeID int32) {
 	if state == nil || state.Instance.ID == 0 || state.Instance.NodeID != nodeID {
 		return

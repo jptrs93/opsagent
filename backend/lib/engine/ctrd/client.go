@@ -89,7 +89,6 @@ func (c *Client) Import(ctx context.Context, image ImageStream) (string, error) 
 	return image.Ref, nil
 }
 
-// ImageSize returns the total size of an image's packed resources.
 func (c *Client) ImageSize(ctx context.Context, ref string) (int64, error) {
 	cl, err := c.ensure()
 	if err != nil {
@@ -131,7 +130,6 @@ func (c *Client) ImageReady(ctx context.Context, ref string) error {
 	return nil
 }
 
-// Task is a handle to a created (and started) container task.
 type Task struct {
 	client    *Client
 	container containerd.Container
@@ -305,7 +303,6 @@ func (t *Task) Pid() uint32 {
 	return t.task.Pid()
 }
 
-// Wait returns a channel that delivers the task's exit status once it exits.
 func (t *Task) Wait(ctx context.Context) (<-chan ExitStatus, error) {
 	statusC, err := t.task.Wait(t.client.withNS(ctx))
 	if err != nil {

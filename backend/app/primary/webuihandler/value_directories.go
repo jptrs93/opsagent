@@ -36,7 +36,6 @@ func mapValueDirectoryErr(err error) error {
 	return err
 }
 
-// notifyValueDirectory pushes the directory's current row into the state stream.
 func (h *Handler) notifyValueDirectory(directoryID int32) {
 	if dir, ok := h.Store.GetValueDirectoryMeta(directoryID); ok {
 		h.Store.NotifyValueDirectoryUpdate(*dir)

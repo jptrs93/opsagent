@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message User {
+  int32 id = 1;
+  string name = 2;
+  // Unix millis; 0 for users created before the column existed.
+  int64 created_at = 3;
+  // Unix millis of the last completed passkey login; 0 if never.
+  int64 last_login_at = 4;
+}
+
+message WebAuthnCredential {
+  bytes id = 1;
+  bytes data = 2;
+}
+
+message InternalUser {
+  int32 id = 1;
+  bytes web_auth_n_id = 2;
+  string name = 3;
+  repeated WebAuthnCredential credentials = 4;
+  // Runtime-only: set during request verification for agent-session tokens.
+  // Never persisted; stored user blobs always carry false.
+  bool delegated = 5;
+}
+
+message PublicKeyRecord {
+  string kid = 1;
+  bytes key_bytes = 2;
+}

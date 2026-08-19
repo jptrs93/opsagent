@@ -1,8 +1,9 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {handleErr} from "../capi/err.js";
-import {decodeAssetVersion} from "../capi/model.js";
+import {decodeAsset} from "../capi/model.js";
 import {assetEditorOverlay, preloadAssetCodeEditor} from "../components/assetEditor.js";
+import {loadAssetPreview} from "../lib/assetContent.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {formatDate, formatDateTime} from "../lib/date.js";
@@ -65,7 +66,7 @@ async function uploadAssetFile(file, params, token, onProgress) {
         xhr.onload = async () => {
             if (xhr.status >= 200 && xhr.status < 300) {
                 onProgress(file.size, file.size);
-                resolve(decodeAssetVersion(xhr.response));
+                resolve(decodeAsset(xhr.response));
                 return;
             }
             try {
@@ -147,7 +148,6 @@ export function assetsPage() {
         } catch (_) { /* view state is a convenience, never load-bearing */ }
     };
 
-    // ---- derived data -----------------------------------------------------
 
     const currentItems = () => makeAssetItems(assetMetasS.val);
     const currentDirs = () => assetDirsAsNamed(assetDirectoriesS.val);
@@ -174,7 +174,7 @@ export function assetsPage() {
     const colsDirty = () => !sameSet(shownCols.val, new Set(ASSET_DEFAULT_COLUMNS));
 
     const usageForItem = (item) => {
-        const versionIDs = new Set((item.meta.versionRefs || []).map((ref) => Number(ref?.id || 0)).filter(Boolean));
+        const versionIDs = new Set((item.meta.contentVersions || []).map((ref) => Number(ref?.id || 0)).filter(Boolean));
         const deployments = deploymentUsages(deploymentsS.val, spacesS.val, machinesS.val, (deployment) => {
             const cfg = deployment?.config;
             if (!cfg || cfg.deleted) return false;
@@ -225,7 +225,6 @@ export function assetsPage() {
         if (item && filteredSpaces.val.has(item.spaceId)) selectedKey.val = null;
     });
 
-    // ---- actions ----------------------------------------------------------
 
     const select = (key) => {
         selectedKey.val = key;
@@ -265,9 +264,6 @@ export function assetsPage() {
         persistView();
     };
 
-    // Creating starts in the selection's folder: a selected folder itself, a
-    // selected item's folder, or a selected space's root. The dialog's picker
-    // can move it elsewhere from there.
     const createContext = () => {
         const sel = resolveSelection();
         if (sel?.type === "space") return {spaceId: Number(sel.space.id), directoryId: 0};
@@ -435,7 +431,6 @@ export function assetsPage() {
         }
     };
 
-    // ---- upload -----------------------------------------------------------
 
     const uploadPicker = input({
         class: "hidden",
@@ -496,10 +491,10 @@ export function assetsPage() {
                 uploadLoaded.val = loaded;
                 uploadTotal.val = total || target.file.size;
             });
-            uploadedKey.val = version.key;
-            uploadName.val = version.key;
+            uploadedKey.val = version.fs?.key || "";
+            uploadName.val = version.fs?.key || "";
             expandTo(target.spaceId, target.directoryId);
-            selectedKey.val = `asset:${version.assetId}`;
+            selectedKey.val = `asset:${version.id}`;
         } catch (e) {
             uploadError.val = e.message;
         } finally {
@@ -507,7 +502,6 @@ export function assetsPage() {
         }
     };
 
-    // ---- resize wiring ----------------------------------------------------
 
     const startColResize = (event, colKey, min) => {
         event.preventDefault();
@@ -564,7 +558,6 @@ export function assetsPage() {
         document.body.classList.add("resizing");
     };
 
-    // ---- small building blocks --------------------------------------------
 
     const spaceDot = (spaceId) => span({
         class: "inline-block w-[7px] h-[7px] rounded-full flex-none",
@@ -617,7 +610,6 @@ export function assetsPage() {
         },
     }, text);
 
-    // ---- toolbar ----------------------------------------------------------
 
     // label is a function so the button face stays live (space dots) without
     // rebuilding the toolbar and losing search focus.
@@ -756,7 +748,6 @@ export function assetsPage() {
         }, plusIcon(), "New asset"),
     );
 
-    // ---- table ------------------------------------------------------------
 
     const activeColumns = () => ASSET_COLUMNS.filter((c) => shownCols.val.has(c.key));
 
@@ -793,8 +784,6 @@ export function assetsPage() {
         grip);
     };
 
-    // ---- drag and drop ----------------------------------------------------
-    //
     // The drag bookkeeping is plain variables rather than van states on purpose.
     // The table is one derived node, so a state read here would rebuild every
     // row on each dragover — hundreds of times per drag. The hover affordance is
@@ -1043,7 +1032,6 @@ export function assetsPage() {
         );
     };
 
-    // ---- path bar ---------------------------------------------------------
 
     const pathbar = () => {
         const sel = resolveSelection();
@@ -1070,7 +1058,6 @@ export function assetsPage() {
         );
     };
 
-    // ---- inspector --------------------------------------------------------
 
     const kvRow = (label, value) => [
         dt({class: "text-[10.5px] font-semibold uppercase tracking-wide text-gray-500"}, label),
@@ -1114,9 +1101,6 @@ export function assetsPage() {
     // attribution existed, so the author slot never silently vanishes.
     const versionAuthor = (id) => resolveUserDisplayName(Number(id)) || "unknown";
 
-    // Version rows open the editor pinned to that version, matching the old
-    // page's history browsing.
-    //
     // table-fixed and the colgroup are what make the columns line up: under
     // automatic layout a browser sizes columns from their content and ignores
     // max-width on cells, so widths drifted with whatever name or size a row
@@ -1131,7 +1115,7 @@ export function assetsPage() {
         // pr-2 gutter: "v123", "Sep 30, 2026", "12.34 MB". The author takes the
         // rest — ~10 characters at the default 280px inspector, more as it widens.
         colgroup(col({style: "width:2.1rem"}), col({style: "width:5.7rem"}), col({style: "width:3.9rem"}), col()),
-        tbody(...(item.meta.versionRefs || []).map((ref, i) => tr(
+        tbody(...(item.meta.contentVersions || []).map((ref, i) => tr(
             {
                 class: "cursor-pointer hover:bg-white/5",
                 title: `Open v${ref.version}`,
@@ -1172,7 +1156,7 @@ export function assetsPage() {
                     ...kvRow("Version", `v${item.version}`),
                     ...kvRow("Created", span({title: formatDateTime(item.createdAt, "")},
                         formatDate(item.createdAt, "-"),
-                        span({class: "text-gray-500"}, ` · ${versionAuthor(item.meta.versionRefs?.[0]?.author)}`))),
+                        span({class: "text-gray-500"}, ` · ${versionAuthor(item.meta.contentVersions?.[0]?.author)}`))),
                     ...kvRow("Size", `${fmtSize(item.sizeBytes)}${item.large ? " · large" : ""}`),
                     ...kvRow("In use by", usageCount
                         ? button({
@@ -1275,7 +1259,6 @@ export function assetsPage() {
         );
     };
 
-    // ---- banners and dialogs ----------------------------------------------
 
     const errorLine = () => error.val ? div(
         {class: "flex flex-none items-center gap-3 border-b border-red-500/30 bg-red-500/10 px-3 py-1.5"},
@@ -1463,14 +1446,14 @@ export function assetsPage() {
             initialKey: "",
             latestVersion: target.latestVersion || 0,
             locationNode: target.mode === "create" ? destinationPicker : null,
-            loadAsset: (request) => capi.postV1AssetsGet(request),
+            loadAsset: loadAssetPreview,
             // The picker owns the destination, so the space in the editor's
             // create request is overridden with whatever it is showing on save.
             createAsset: async (request) => {
                 const {spaceId, directoryId} = createDest.val;
                 const created = await capi.postV1AssetsCreate({...request, spaceId, assetDirectoryId: directoryId});
                 expandTo(spaceId, directoryId);
-                selectedKey.val = `asset:${created.assetId}`;
+                selectedKey.val = `asset:${created.id}`;
                 return created;
             },
             saveVersion: (request) => capi.postV1AssetsSet(request),
@@ -1482,7 +1465,6 @@ export function assetsPage() {
         });
     };
 
-    // ---- page -------------------------------------------------------------
 
     return div(
         // bg-surface: per the design mock the explorer is one flush card

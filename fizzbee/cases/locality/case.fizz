@@ -1,0 +1,77 @@
+always assertion LiveDeploymentPinLocality:
+    for d in deployments:
+        if not deployments[d].deleted:
+            dlog = deployment_space_versions[d]
+            dspace = dlog[len(dlog) - 1].space
+            vlog = deployment_versions[d]
+            spec = vlog[len(vlog) - 1]
+            pins = {'secret': spec.secret_pin, 'config': spec.config_pin, 'asset': spec.asset_pin}
+            for family in pins:
+                pin = pins[family]
+                if pin != None:
+                    owner = value_versions[family][pin].owner
+                    owner_space = 0
+                    for e in value_space_log[family]:
+                        if e.owner == owner:
+                            owner_space = e.space
+                    if owner_space != dspace and owner_space != GLOBAL_SPACE:
+                        return False
+    return True
+
+always assertion ValuesNeverInSystemSpace:
+    for family in FAMILIES:
+        for e in value_space_log[family]:
+            if e.space == SYSTEM_SPACE:
+                return False
+    return True
+
+always assertion LiveDeploymentSpaceExists:
+    for d in deployments:
+        if not deployments[d].deleted:
+            dlog = deployment_space_versions[d]
+            if dlog[len(dlog) - 1].space not in spaces:
+                return False
+    return True
+
+always assertion DeploymentPinsResolve:
+    for d in deployments:
+        for spec in deployment_versions[d]:
+            if spec.secret_pin != None and spec.secret_pin not in value_versions['secret']:
+                return False
+            if spec.config_pin != None and spec.config_pin not in value_versions['config']:
+                return False
+            if spec.asset_pin != None and spec.asset_pin not in value_versions['asset']:
+                return False
+    return True
+
+exists assertion CrossSpaceGlobalReference:
+    for d in deployments:
+        if not deployments[d].deleted:
+            dlog = deployment_space_versions[d]
+            dspace = dlog[len(dlog) - 1].space
+            if dspace != GLOBAL_SPACE:
+                vlog = deployment_versions[d]
+                spec = vlog[len(vlog) - 1]
+                pins = {'secret': spec.secret_pin, 'config': spec.config_pin, 'asset': spec.asset_pin}
+                for family in pins:
+                    pin = pins[family]
+                    if pin != None:
+                        owner = value_versions[family][pin].owner
+                        owner_space = 0
+                        for e in value_space_log[family]:
+                            if e.owner == owner:
+                                owner_space = e.space
+                        if owner_space == GLOBAL_SPACE:
+                            return True
+    return False
+
+exists assertion ValueSpaceCanDangle:
+    for family in FAMILIES:
+        for id in value_entities[family]:
+            owner_space = 0
+            for e in value_space_log[family]:
+                if e.owner == id:
+                    owner_space = e.space
+            if owner_space not in spaces:
+                return True
+    return False

@@ -34,11 +34,9 @@ func (q *Queries) DeleteLocalScheduledInstanceCache(ctx context.Context, instanc
 }
 
 const getLocalKV = `-- name: GetLocalKV :one
-
 SELECT value FROM local_kv WHERE key = ?
 `
 
-// === local_kv ===
 func (q *Queries) GetLocalKV(ctx context.Context, key string) ([]byte, error) {
 	row := q.db.QueryRowContext(ctx, getLocalKV, key)
 	var value []byte
@@ -47,7 +45,6 @@ func (q *Queries) GetLocalKV(ctx context.Context, key string) ([]byte, error) {
 }
 
 const insertScheduledInstanceStatus = `-- name: InsertScheduledInstanceStatus :exec
-
 INSERT INTO scheduled_instance_status (
     scheduled_instance_id, updated_at, deployment_id,
     preparer_config_version, preparer_artifact,
@@ -87,7 +84,6 @@ type InsertScheduledInstanceStatusParams struct {
 	RunnerExtraBlob       []byte
 }
 
-// === scheduled_instance_status ===
 func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, arg InsertScheduledInstanceStatusParams) error {
 	_, err := q.db.ExecContext(ctx, insertScheduledInstanceStatus,
 		arg.ScheduledInstanceID,
@@ -161,11 +157,9 @@ func (q *Queries) ListLatestScheduledInstanceStatuses(ctx context.Context) ([]Sc
 }
 
 const listLocalRuntimeInputs = `-- name: ListLocalRuntimeInputs :many
-
 SELECT kind, ref_id, ciphertext, nonce, fetched_at FROM local_runtime_inputs
 `
 
-// === local_runtime_inputs ===
 func (q *Queries) ListLocalRuntimeInputs(ctx context.Context) ([]LocalRuntimeInput, error) {
 	rows, err := q.db.QueryContext(ctx, listLocalRuntimeInputs)
 	if err != nil {
@@ -320,7 +314,6 @@ func (q *Queries) UpsertLocalRuntimeInput(ctx context.Context, arg UpsertLocalRu
 }
 
 const upsertLocalScheduledInstanceCache = `-- name: UpsertLocalScheduledInstanceCache :exec
-
 INSERT INTO local_scheduled_instance_cache (instance_id, blob)
 VALUES (?, ?)
 ON CONFLICT(instance_id) DO UPDATE SET blob = excluded.blob
@@ -331,7 +324,6 @@ type UpsertLocalScheduledInstanceCacheParams struct {
 	Blob       []byte
 }
 
-// === local_scheduled_instance_cache ===
 func (q *Queries) UpsertLocalScheduledInstanceCache(ctx context.Context, arg UpsertLocalScheduledInstanceCacheParams) error {
 	_, err := q.db.ExecContext(ctx, upsertLocalScheduledInstanceCache, arg.InstanceID, arg.Blob)
 	return err

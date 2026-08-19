@@ -160,8 +160,6 @@ export function deploymentHistory(deploymentId, label, onClose, onRevertTargetVe
                 const renderEntries = showStatusUpdates.val
                     ? visibleEntries
                     : visibleEntries.filter(e => e.config);
-
-                // Build a map of config entries by version for diffing.
                 const configEntries = visibleEntries.filter(e => e.config);
                 const configByVersion = {};
                 const configsSorted = [...configEntries].sort((a, b) => a.config.version - b.config.version);

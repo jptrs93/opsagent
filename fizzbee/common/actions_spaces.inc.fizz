@@ -1,0 +1,15 @@
+atomic action CreateSpace:
+    require next_space_id <= MAX_SPACE_ID
+    spaces.add(next_space_id)
+    next_space_id = next_space_id + 1
+
+atomic action DeleteSpace:
+    s = oneof [x for x in spaces if x != SYSTEM_SPACE and x != GLOBAL_SPACE]
+    blocked = False
+    for d in deployments:
+        if not deployments[d].deleted:
+            dlog = deployment_space_versions[d]
+            if dlog[len(dlog) - 1].space == s:
+                blocked = True
+    require not blocked
+    spaces.discard(s)

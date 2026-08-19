@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model_assets.proto";
+import "api-contract/model_assets_operations.proto";
+import "api-contract/model_auth.proto";
+import "api-contract/model_authz_operations.proto";
+import "api-contract/model_backup.proto";
+import "api-contract/model_configs.proto";
+import "api-contract/model_configs_operations.proto";
+import "api-contract/model_deployments.proto";
+import "api-contract/model_directories.proto";
+import "api-contract/model_directories_operations.proto";
+import "api-contract/model_enrollment.proto";
+import "api-contract/model_enrollment_operations.proto";
+import "api-contract/model_nodes.proto";
+import "api-contract/model_nodes_operations.proto";
+import "api-contract/model_primary_config.proto";
+import "api-contract/model_secrets.proto";
+import "api-contract/model_secrets_operations.proto";
+import "api-contract/model_sessions.proto";
+import "api-contract/model_sessions_operations.proto";
+import "api-contract/model_spaces.proto";
+import "api-contract/model_spaces_operations.proto";
+import "api-contract/options.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+// State is the UI stream envelope. The primary emits initial snapshots on
+// subscribe, then emits updates as the store sees changes, with periodic
+// heartbeats to keep the HTTP connection alive.
+message State {
+  bool heartbeat = 1;
+  reserved 2, 3;
+  reserved "deployments_snapshot", "deployment_update";
+  DeploymentConfigSnapshot deployment_configs_snapshot = 4;
+  DeploymentConfig deployment_config_update = 5;
+  repeated User users_snapshot = 6;
+  User user_update = 7;
+  EnrollmentRequestList enrollments_snapshot = 10;
+  EnrollmentRequestStatus enrollment_update = 11;
+  // 12-15 were per-version SecretReference/ConfigReference channels; the meta
+  // channels below now carry the full version index in version_refs.
+  reserved 12, 13, 14, 15;
+  reserved "secrets_snapshot", "secret_update", "user_configs_snapshot", "user_config_update";
+  SecretsStatusResponse secrets_status_snapshot = 16;
+  SecretList secret_metas_snapshot = 17;
+  SecretMeta secret_meta_update = 18;
+  ConfigList user_config_values_snapshot = 19;
+  ConfigMeta user_config_value_update = 20;
+  SpaceList spaces_snapshot = 21;
+  Space space_update = 22;
+  AssetList assets_snapshot = 23;
+  Asset asset_update = 24;
+  ClusterNodeList nodes_snapshot = 25;
+  ClusterNode node_update = 26;
+  ClusterNodeStatusList node_statuses_snapshot = 27;
+  ClusterNodeStatus node_status_update = 28;
+  BackupStatus backup_status_snapshot = 29;
+  BackupStatus backup_status_update = 30;
+  // Full redacted primary configuration, emitted initially and after every
+  // persisted configuration change.
+  PrimaryConfigVersion config_snapshot = 31 [(cp.go_value) = true];
+  ScheduledInstanceSnapshot scheduled_instances_snapshot = 32;
+  ScheduledInstanceState scheduled_instance_update = 33;
+  // Filtered to the connected user before it is yielded, unlike every other
+  // field here: agent sessions belong to one operator.
+  AgentSessionList agent_sessions_snapshot = 34;
+  AgentSession agent_session_update = 35;
+  ValueDirectoryList value_directories_snapshot = 36;
+  ValueDirectory value_directory_update = 37;
+  AssetDirectoryList asset_directories_snapshot = 38;
+  AssetDirectory asset_directory_update = 39;
+  // Authz collections are small and mutate rarely, so each change re-emits the
+  // full snapshot instead of tombstoning hard-deleted grants and rules.
+  AuthzRuleTemplateList authz_rule_templates_snapshot = 40;
+  AuthzGrantList authz_grants_snapshot = 41;
+  AuthzGlobalRuleList authz_global_rules_snapshot = 42;
+}
+
+message GlobalState {
+  SpaceList spaces = 1;
+  AssetList assets = 2;
+  ConfigList configs = 3;
+  SecretList secrets = 4;
+  DeploymentConfigSnapshot deployment_configs = 5;
+  ValueDirectoryList value_directories = 6;
+  AssetDirectoryList asset_directories = 7;
+}

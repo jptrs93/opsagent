@@ -11,7 +11,7 @@ type exportedConfigBundle struct {
 	Deployments []*apigen.DeploymentConfig `json:"deployments"`
 	Configs     []*apigen.ConfigMeta       `json:"configs"`
 	Secrets     []*apigen.SecretMeta       `json:"secrets"`
-	Assets      []*apigen.AssetMeta        `json:"assets"`
+	Assets      []*apigen.Asset            `json:"assets"`
 	Spaces      []*apigen.Space            `json:"spaces"`
 	Settings    apigen.ClusterSettings     `json:"settings"`
 }
@@ -40,7 +40,7 @@ func (h *Handler) PostV1GlobalExportedConfig(ctx apigen.Context, req *apigen.Emp
 	sort.Slice(exportedDeployments, func(i, j int) bool { return exportedDeployments[i].ID < exportedDeployments[j].ID })
 	sort.Slice(configs, func(i, j int) bool { return configs[i].Name < configs[j].Name })
 	sort.Slice(secrets, func(i, j int) bool { return secrets[i].Name < secrets[j].Name })
-	sort.Slice(assets, func(i, j int) bool { return assets[i].Key < assets[j].Key })
+	sort.Slice(assets, func(i, j int) bool { return assets[i].Fs.Key < assets[j].Fs.Key })
 	sort.Slice(spaces, func(i, j int) bool { return spaces[i].ID < spaces[j].ID })
 
 	content := exportedConfigBundle{

@@ -1,0 +1,70 @@
+atomic action CreateDeployment:
+    require next_deployment_id <= MAX_DEPLOYMENTS
+    node = oneof NODES
+    space = oneof [x for x in spaces if x != SYSTEM_SPACE]
+    secret_cands = pin_candidates('secret', space)
+    config_cands = pin_candidates('config', space)
+    asset_cands = pin_candidates('asset', space)
+    secret_pin = oneof secret_cands
+    config_pin = oneof config_cands
+    asset_pin = oneof asset_cands
+    global_seq = global_seq + 1
+    d = next_deployment_id
+    next_deployment_id = d + 1
+    deployments[d] = record(node=node, deleted=False)
+    deployment_versions[d] = [record(version=1, seq=global_seq, secret_pin=secret_pin, config_pin=config_pin, asset_pin=asset_pin)]
+    row = next_space_version_row_id
+    next_space_version_row_id = row + 1
+    deployment_space_versions[d] = [record(row_id=row, version=1, space=space, seq=global_seq)]
+
+atomic action UpdateDeploymentSpec:
+    candidates = [d for d in deployments if not deployments[d].deleted and len(deployment_versions[d]) < MAX_DEPLOYMENT_VERSIONS]
+    d = oneof candidates
+    dlog = deployment_space_versions[d]
+    space = dlog[len(dlog) - 1].space
+    secret_cands = pin_candidates('secret', space)
+    config_cands = pin_candidates('config', space)
+    asset_cands = pin_candidates('asset', space)
+    secret_pin = oneof secret_cands
+    config_pin = oneof config_cands
+    asset_pin = oneof asset_cands
+    global_seq = global_seq + 1
+    vlog = deployment_versions[d]
+    vlog.append(record(version=vlog[len(vlog) - 1].version + 1, seq=global_seq, secret_pin=secret_pin, config_pin=config_pin, asset_pin=asset_pin))
+
+atomic action MoveDeploymentSpace:
+    candidates = [d for d in deployments if not deployments[d].deleted]
+    d = oneof candidates
+    dest = oneof [x for x in spaces if x != SYSTEM_SPACE]
+    dlog = deployment_space_versions[d]
+    cur = dlog[len(dlog) - 1].space
+    require dest != cur
+    vlog = deployment_versions[d]
+    spec = vlog[len(vlog) - 1]
+    ok = True
+    for family in FAMILIES:
+        if family == 'secret':
+            pin = spec.secret_pin
+        elif family == 'config':
+            pin = spec.config_pin
+        else:
+            pin = spec.asset_pin
+        if pin != None:
+            owner = value_versions[family][pin].owner
+            owner_space = current_value_space(family, owner)
+            if owner_space != dest and owner_space != GLOBAL_SPACE:
+                ok = False
+    require ok
+    global_seq = global_seq + 1
+    row = next_space_version_row_id
+    next_space_version_row_id = row + 1
+    dlog.append(record(row_id=row, version=dlog[len(dlog) - 1].version + 1, space=dest, seq=global_seq))
+
+atomic action SoftDeleteDeployment:
+    candidates = [d for d in deployments if not deployments[d].deleted]
+    d = oneof candidates
+    global_seq = global_seq + 1
+    deployments[d].deleted = True
+    vlog = deployment_versions[d]
+    last = vlog[len(vlog) - 1]
+    vlog.append(record(version=last.version + 1, seq=global_seq, secret_pin=last.secret_pin, config_pin=last.config_pin, asset_pin=last.asset_pin))

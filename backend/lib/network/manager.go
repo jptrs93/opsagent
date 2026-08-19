@@ -15,7 +15,6 @@ import (
 // Default is the process-wide instance, wired by the bootstrap.
 var Default = New(Prefix{}, 0)
 
-// New returns a manager initialized with the machine's cluster network identity.
 func New(prefix Prefix, netproxyDeploymentID int32) *Manager {
 	return &Manager{
 		prefix:               prefix,
@@ -28,7 +27,6 @@ func New(prefix Prefix, netproxyDeploymentID int32) *Manager {
 	}
 }
 
-// SetDefault installs the process-wide manager during application startup.
 func SetDefault(manager *Manager) {
 	Default = manager
 }
@@ -202,7 +200,6 @@ func (m *Manager) SetPrefix(p Prefix) {
 	m.hasPrefix = !p.IsZero()
 }
 
-// PrefixValue returns the cluster ULA prefix, and whether it is known yet.
 func (m *Manager) PrefixValue() (Prefix, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -230,8 +227,6 @@ func (m *Manager) DNSAddr() (netip.Addr, bool) {
 	return addr, err == nil
 }
 
-// IsNetproxyDeployment reports whether id is this machine's netproxy system
-// deployment.
 func (m *Manager) IsNetproxyDeployment(id int32) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -2,6 +2,8 @@ package webuihandler
 
 import (
 	"errors"
+	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"strconv"
@@ -76,35 +78,47 @@ func requestUserID(ctx apigen.Context) int32 {
 }
 
 func (h *Handler) PostV1AssetsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.AssetList, error) {
-	return &apigen.AssetList{Items: h.filterAssetMetas(ctx, h.Store.ListAssets())}, nil
+	return &apigen.AssetList{Items: h.filterAssets(ctx, h.Store.ListAssets())}, nil
 }
 
 func (h *Handler) requireAssetAccess(ctx apigen.Context, verb apigen.AuthzVerb, assetID int32) error {
-	meta, ok := h.Store.GetAssetMeta(assetID)
+	asset, ok := h.Store.GetAsset(assetID)
 	if !ok {
 		return AssetNotFoundErr
 	}
-	return h.requireEntityAccess(ctx, verb, eAsset, int64(meta.SpaceID), int64(meta.ID), AssetNotFoundErr)
+	return h.requireEntityAccess(ctx, verb, eAsset, int64(asset.SpaceID()), int64(asset.ID), AssetNotFoundErr)
 }
 
-func (h *Handler) PostV1AssetsGet(ctx apigen.Context, req *apigen.AssetGetRequest) (*apigen.AssetVersion, error) {
-	if req.AssetID <= 0 {
-		return nil, AssetIDRequiredErr
+// GetV1AssetsContent streams the raw bytes of one content version
+// (?contentVersionId=N). Metadata travels on the asset shapes; this route is
+// the only way content leaves the server on the web API.
+func (h *Handler) GetV1AssetsContent(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {
+	rawID := strings.TrimSpace(request.URL.Query().Get("contentVersionId"))
+	parsed, err := strconv.ParseInt(rawID, 10, 32)
+	if err != nil || parsed <= 0 {
+		return apigen.NewApiErr("Content version id is required", "asset_content_version_id_required", http.StatusBadRequest)
 	}
-	if err := h.requireAssetAccess(ctx, vView, req.AssetID); err != nil {
-		return nil, err
-	}
-	asset, ok, err := h.Assets.GetAssetForPreview(req.AssetID, req.Version)
-	if err != nil {
-		return nil, err
-	}
+	joined, ok := h.Store.GetAssetVersionJoined(int32(parsed))
 	if !ok {
-		return nil, AssetNotFoundErr
+		return AssetNotFoundErr
 	}
-	return asset, nil
+	if err := h.requireAssetAccess(ctx, vView, int32(joined.Asset.ID)); err != nil {
+		return err
+	}
+	sizeBytes, body, err := h.Assets.OpenAsset(ctx, int32(parsed))
+	if err != nil {
+		return mapAssetStoreErr(err)
+	}
+	defer body.Close()
+	writer.Header().Set("Content-Type", "application/octet-stream")
+	writer.Header().Set("Content-Length", strconv.FormatInt(sizeBytes, 10))
+	if _, err := io.Copy(writer, body); err != nil {
+		slog.ErrorContext(ctx, "stream asset content", "content_version_id", parsed, "err", err)
+	}
+	return nil
 }
 
-func (h *Handler) PostV1AssetsCreate(ctx apigen.Context, req *apigen.AssetCreateRequest) (*apigen.AssetVersion, error) {
+func (h *Handler) PostV1AssetsCreate(ctx apigen.Context, req *apigen.AssetCreateRequest) (*apigen.Asset, error) {
 	key := strings.TrimSpace(req.Key)
 	if key == "" {
 		return nil, AssetKeyRequiredErr
@@ -119,7 +133,7 @@ func (h *Handler) PostV1AssetsCreate(ctx apigen.Context, req *apigen.AssetCreate
 	return asset, nil
 }
 
-func (h *Handler) PostV1AssetsSet(ctx apigen.Context, req *apigen.AssetSetRequest) (*apigen.AssetVersion, error) {
+func (h *Handler) PostV1AssetsSet(ctx apigen.Context, req *apigen.AssetSetRequest) (*apigen.Asset, error) {
 	if req.AssetID <= 0 {
 		return nil, AssetIDRequiredErr
 	}
@@ -147,7 +161,7 @@ func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, 
 	// numeric suffix if that name is taken in the target space's root, which is
 	// what the web UI's file picker wants.
 	var (
-		asset *apigen.AssetVersion
+		asset *apigen.Asset
 		err   error
 	)
 	if rawAssetID := strings.TrimSpace(query.Get("asset_id")); rawAssetID != "" {
@@ -193,7 +207,7 @@ func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, 
 	return nil
 }
 
-func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRenameRequest) (*apigen.AssetMeta, error) {
+func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRenameRequest) (*apigen.Asset, error) {
 	if req.AssetID <= 0 {
 		return nil, AssetIDRequiredErr
 	}
@@ -216,19 +230,19 @@ func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRename
 // pinned mount and reference are untouched either way. A cross-space move is
 // allowed only while no deployment outside the destination space references
 // the asset.
-func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequest) (*apigen.AssetMeta, error) {
+func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequest) (*apigen.Asset, error) {
 	if req.AssetID <= 0 {
 		return nil, AssetIDRequiredErr
 	}
-	existing, ok := h.Store.GetAssetMeta(req.AssetID)
+	existing, ok := h.Store.GetAsset(req.AssetID)
 	if !ok {
 		return nil, AssetNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vUpdate, eAsset, int64(existing.SpaceID), int64(existing.ID), AssetNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eAsset, int64(existing.SpaceID()), int64(existing.ID), AssetNotFoundErr); err != nil {
 		return nil, err
 	}
 	destSpace := state.NormalizedUserSpaceID(req.SpaceID)
-	spaceChanging := req.SpaceID != 0 && destSpace != existing.SpaceID
+	spaceChanging := req.SpaceID != 0 && destSpace != existing.SpaceID()
 	// Moving into another space also needs the right to create an asset there.
 	if spaceChanging {
 		if err := h.requireAccess(ctx, vCreate, eAsset, valueSpace(req.SpaceID), 0); err != nil {
@@ -254,19 +268,19 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 	} else if _, err := h.Store.MoveAssetDirectory(req.AssetID, req.AssetDirectoryID); err != nil {
 		return nil, mapAssetStoreErr(err)
 	}
-	meta, ok := h.Store.GetAssetMeta(req.AssetID)
+	asset, ok := h.Store.GetAsset(req.AssetID)
 	if !ok {
 		return nil, AssetNotFoundErr
 	}
-	h.Store.NotifyAssetUpdate(meta)
-	return meta, nil
+	h.Store.NotifyAssetUpdate(asset)
+	return asset, nil
 }
 
 func (h *Handler) assetVersionIDSet(assetID int32) map[int32]struct{} {
-	versions := h.Store.ListAssetVersions(assetID)
+	versions := h.Store.ListAssetVersionsJoinedOfAsset(assetID)
 	ids := make([]int32, 0, len(versions))
 	for _, v := range versions {
-		ids = append(ids, v.ID)
+		ids = append(ids, int32(v.Version.ID))
 	}
 	return int32Set(ids)
 }

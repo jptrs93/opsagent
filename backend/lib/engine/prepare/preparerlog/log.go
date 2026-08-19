@@ -33,12 +33,10 @@ func New(ctx context.Context, dep *apigen.DeploymentConfig) (*Log, string, error
 	return &Log{ctx: ctx, file: file}, path, nil
 }
 
-// Write records a normal OpenDeploy preparation message.
 func (l *Log) Write(format string, args ...any) {
 	l.write("", format, args...)
 }
 
-// Error records a failed OpenDeploy preparation step.
 func (l *Log) Error(format string, args ...any) {
 	l.write("ERROR: ", format, args...)
 }

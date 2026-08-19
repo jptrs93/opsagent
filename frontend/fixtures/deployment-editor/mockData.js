@@ -17,15 +17,15 @@ export const mockSpaces = [
     {id: 3, name: 'development'},
 ];
 
-// Asset metas mirror the API shape: pinnable version rows live in versionRefs,
+// Asset view models mirror the page shape: pinnable version rows live in contentVersions,
 // NEWEST FIRST, never at the root.
 export const mockAssets = [
-    {id: 201, key: 'nginx.conf', format: 'text', spaceId: 1, versionRefs: [
+    {id: 201, key: 'nginx.conf', format: 'text', spaceId: 1, contentVersions: [
         {id: 213, version: 3},
         {id: 212, version: 2},
         {id: 211, version: 1},
     ]},
-    {id: 202, key: 'branding/logo.svg', format: 'binary', spaceId: 1, versionRefs: [
+    {id: 202, key: 'branding/logo.svg', format: 'binary', spaceId: 1, contentVersions: [
         {id: 221, version: 1},
     ]},
 ];

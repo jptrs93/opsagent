@@ -2,8 +2,9 @@ syntax = "proto3";
 
 package opsagent.v1;
 
+import "api-contract/model_cluster.proto";
+import "api-contract/model_cluster_operations.proto";
 import "api-contract/options.proto";
-import "api-contract/model.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 

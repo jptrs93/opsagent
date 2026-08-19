@@ -17,6 +17,10 @@ export const ASSET_COLUMNS = [
 export const ASSET_DEFAULT_COLUMNS = ["name", "version", "created", "uses", "size", "actions"];
 export const ASSET_DEFAULT_COLUMN_WIDTHS = {name: 340, version: 90, created: 150, uses: 100, size: 100, actions: 72};
 
+// Content above this size is never fetched for inline preview; the editor
+// shows the size facts instead. Mirrors the backend's inline-storage threshold.
+export const PREVIEW_LIMIT_BYTES = 10 * 1024 * 1024;
+
 export const fmtSize = (n) => {
     if (!n) return "0 B";
     if (n < 1000) return `${n} B`;
@@ -24,23 +28,24 @@ export const fmtSize = (n) => {
     return `${(n / 1000 / 1000).toFixed(2)} MB`;
 };
 
-// makeAssetItems flattens asset metas into the one row shape the explorer
-// renders. Latest version facts come from versionRefs[0]; an asset with no
-// published version is never listed by the server, but is skipped defensively.
-export function makeAssetItems(assetMetas) {
-    return (assetMetas || []).flatMap((meta) => {
-        const latest = meta.versionRefs?.[0];
+// makeAssetItems flattens asset view models into the one row shape the
+// explorer renders. Latest version facts come from contentVersions[0]; an
+// asset with no published version is never listed by the server, but is
+// skipped defensively.
+export function makeAssetItems(assets) {
+    return (assets || []).flatMap((meta) => {
+        const latest = meta.contentVersions?.[0];
         if (!latest) return [];
         return [{
             kind: "asset",
             id: Number(meta.id),
             name: meta.key || "",
             spaceId: Number(meta.spaceId || 0),
-            directoryId: Number(meta.assetDirectoryId || 0),
+            directoryId: Number(meta.directoryId || 0),
             version: Number(latest.version || 0),
             createdAt: latest.createdAt instanceof Date ? latest.createdAt : null,
             sizeBytes: Number(latest.sizeBytes || 0),
-            large: Boolean(latest.location),
+            large: Number(latest.sizeBytes || 0) > PREVIEW_LIMIT_BYTES,
             meta,
         }];
     });

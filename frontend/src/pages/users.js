@@ -116,7 +116,6 @@ export function usersPage() {
         ...labels.map(([text, cls]) => th({class: `py-1.5 pr-3 text-[10px] font-semibold uppercase tracking-wider ${cls || ""}`}, text)),
     ));
 
-    // ---- users section -----------------------------------------------------
 
     // Revoking a grant is one click, except for cluster_admin: losing it takes
     // a user's whole cluster with it, so it asks first — and when it is the
@@ -219,7 +218,6 @@ export function usersPage() {
                 tbody(...visible.map((user) => userRow(user, grantsByUser)))));
     };
 
-    // ---- templates section -------------------------------------------------
 
     const templateRow = (record) => {
         const args = templateArguments(record.template);
@@ -267,7 +265,6 @@ export function usersPage() {
                 tbody(...templates.map(templateRow))));
     };
 
-    // ---- global rules section ----------------------------------------------
 
     const globalRuleRow = (record) => tr(
         {class: "border-b border-gray-800 last:border-0 align-middle", "data-testid": `global-rule-row-${record.id}`},
@@ -304,7 +301,6 @@ export function usersPage() {
                 tbody(...rules.map(globalRuleRow))));
     };
 
-    // ---- overlays ----------------------------------------------------------
 
     const overlay = () => {
         const active = overlayS.val;

@@ -15,7 +15,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-// ListActiveDeploymentConfigs returns all non-deleted configs from the cache.
 func (s *Service) ListActiveDeploymentConfigs() []*apigen.DeploymentConfig {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -27,8 +26,6 @@ func (s *Service) ListActiveDeploymentConfigs() []*apigen.DeploymentConfig {
 	}
 	return out
 }
-
-// --- deployment history ---
 
 func (s *Service) MustFetchDeploymentHistory(deploymentID int32) []*apigen.DeploymentConfig {
 	ctx := context.Background()
@@ -43,8 +40,6 @@ func (s *Service) MustFetchDeploymentHistory(deploymentID int32) []*apigen.Deplo
 	}
 	return out
 }
-
-// --- deployment config update ---
 
 // DeploymentConfigUpdate is a full replacement of the mutable config fields,
 // applied only when ExpectedVersion matches the next version of the stored row.
@@ -180,8 +175,6 @@ func (s *Service) mustSetDeploymentWorkloadStateLocked(ctx apigen.Context, deplo
 	}
 	s.mustAppendConfigVersionLocked(existing, spec.Encode(), userID, "deployment workload state")
 }
-
-// --- deployment spec update ---
 
 func (s *Service) MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) {
 	s.Mu.Lock()
@@ -337,7 +330,6 @@ func (s *Service) MustCreateDeploymentForNode(ctx apigen.Context, spaceID int32,
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	// Reject if a non-deleted deployment with the same semantic key already exists.
 	for _, cfg := range s.configCache {
 		if storage.DeploymentKeyMatches(*cfg, nodeID, spaceID, name) && !cfg.Deleted {
 			panic(fmt.Sprintf("deployment node=%d space=%d name=%q already exists", nodeID, spaceID, name))
@@ -367,7 +359,6 @@ func (s *Service) EnsureSystemDeployment(nodeID int32, opendeployVersion string)
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	// Check if it already exists.
 	for _, cfg := range s.configCache {
 		if storage.DeploymentKeyMatches(*cfg, nodeID, OpendeploySpaceID, internaldeploy.SelfName) && !cfg.Deleted {
 			if !internaldeploy.IsSelfSpec(&cfg.Spec) {

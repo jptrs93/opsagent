@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model_sessions.proto";
+import "api-contract/options.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message AgentSessionList {
+  repeated AgentSession items = 1;
+}
+
+// AgentSessionCreated carries the one and only delivery of a new session's
+// token. Deliberately not a LoginResponse: this token is not a browser session
+// and must never be fed into the frontend's login state. The plaintext is not
+// stored, so it cannot be retrieved again.
+message AgentSessionCreated {
+  string token = 1;
+  AgentSession session = 2;
+}
+
+message AgentSessionRevokeRequest {
+  string id = 1;
+}
+
+message PersonalSessionList {
+  repeated PersonalSession items = 1;
+}
+
+message PersonalSessionRevokeRequest {
+  string id = 1;
+}
+
+// AgentSessionRequestStartRequest is an agent's opening call. It is
+// unauthenticated: user_id says only whose approval queue the request lands in,
+// and grants nothing until that operator approves it.
+message AgentSessionRequestStartRequest {
+  int32 user_id = 1;
+}
+
+message AgentSessionGetRequest {
+  string id = 1;
+}
+
+// AgentSessionPickup carries the token exactly once: on the first get-session
+// call after approval. Every later call returns status alone.
+message AgentSessionPickup {
+  AgentSessionStatus status = 1;
+  string token = 2;
+  int64 expires_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+message AgentSessionApproveRequest {
+  string id = 1;
+}

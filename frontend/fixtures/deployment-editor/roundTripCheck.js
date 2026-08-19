@@ -28,7 +28,7 @@ const catalogs = {
 
 const collisionCatalogs = {
     ...catalogs,
-    assets: [...mockAssets, {id: 298, key: 'nginx.conf', format: 'text', spaceId: 2, versionRefs: [{id: 299, version: 4}]}],
+    assets: [...mockAssets, {id: 298, key: 'nginx.conf', format: 'text', spaceId: 2, contentVersions: [{id: 299, version: 4}]}],
     secretRefs: [...mockSecretRefs, {id: 399, name: 'database-password', version: 5, spaceId: 2}],
     configRefs: [...mockConfigRefs, {id: 499, name: 'database-host', version: 3, spaceId: 2}],
     deployments: [...mockDeployments, {

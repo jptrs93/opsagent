@@ -33,11 +33,6 @@ with a build container. No implementation is planned yet.
   creates `DataDir`, `GitCacheDir`, and `GitWorktreesDir` at `0750`; the
   installer chmods `machine.key` and `primary.db` to `0600`. `nixbld*` is not
   in the `opendeploy` group.
-- Resolved. `EnsureCheckout` previously ran `git remote set-url origin` with the
-  token embedded, leaving it at rest in `{GitWorktreesDir}/<repo>/.git/config`
-  and readable from `/proc/<pid>/cmdline` while any git command ran. Clone URLs
-  are now credential-free and the token is injected per invocation as a
-  github.com-scoped `http.extraHeader`. See `docs/engineering/engine.md`.
 - Nothing asserts that Nix is a multi-user install. On a single-user install
   builds run as the `opendeploy` user, which can read `machine.key` and
   `primary.db`.
@@ -166,9 +161,7 @@ Open items in this scope:
 - Security and install simplification are separate arguments. `sandbox = true`
   closes most of the current exposure as a configuration change; the residual
   is fixed-output derivation egress, cgroup limits, and seccomp coverage.
-- Independent of the container decision: stop persisting the GitHub token into
-  the worktree `.git/config` by using `GIT_ASKPASS` or a per-invocation
-  `-c http.extraHeader=`, and assert or document the multi-user Nix
+- Independent of the container decision: assert or document the multi-user Nix
   requirement.
 - Estimated container implementation effort is two days to a working path and
   three to five days to production confidence. Risk concentrates in store

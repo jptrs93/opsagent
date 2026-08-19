@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
@@ -536,15 +535,15 @@ func TestValidateDeploymentSpecRejectsNonLocalNixTarget(t *testing.T) {
 	}
 }
 
-type fakeAssetResolver map[string]*apigen.AssetVersion
+type fakeAssetResolver map[string]state.AssetVersionRef
 
-func (r fakeAssetResolver) GetAssetVersionByID(assetVersionID int32) (*apigen.AssetVersion, bool) {
+func (r fakeAssetResolver) GetAssetVersionRef(assetVersionID int32) (state.AssetVersionRef, bool) {
 	for _, asset := range r {
-		if asset != nil && asset.ID == assetVersionID {
+		if asset.VersionID == assetVersionID {
 			return asset, true
 		}
 	}
-	return nil, false
+	return state.AssetVersionRef{}, false
 }
 
 type fakeSecretResolver map[int32]string
@@ -564,10 +563,9 @@ func (r fakeConfigResolver) ResolveConfig(id int32) (string, bool) {
 func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 	assets := fakeAssetResolver{
 		"nginx.conf": {
-			ID:        42,
+			VersionID: 42,
+			AssetID:   1,
 			Key:       "nginx.conf",
-			CreatedAt: time.UnixMilli(1000),
-			Version:   3,
 		},
 	}
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
@@ -590,9 +588,9 @@ func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 func TestValidateDeploymentSpecResolvesEnvAssetRefs(t *testing.T) {
 	assets := fakeAssetResolver{
 		"app.conf": {
-			ID:      51,
-			Key:     "app.conf",
-			Version: 7,
+			VersionID: 51,
+			AssetID:   2,
+			Key:       "app.conf",
 		},
 	}
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
@@ -659,7 +657,7 @@ func TestValidateDeploymentSpecValidatesMounts(t *testing.T) {
 	t.Run("asset mount permission", func(t *testing.T) {
 		input := remoteDeploymentSpec("nginx", hostNetworking())
 		input.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount{{AssetVersionID: 1, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_WRITE}}
-		assets := fakeAssetResolver{"app.conf": {ID: 1, Key: "app.conf"}}
+		assets := fakeAssetResolver{"app.conf": {VersionID: 1, AssetID: 3, Key: "app.conf"}}
 		if _, err := validateDeploymentSpecWithAssets(&input, assets); err == nil || !strings.Contains(err.Error(), "READ_ONLY or READ_EXECUTE") {
 			t.Fatalf("err = %v, want asset mount permission rejection", err)
 		}

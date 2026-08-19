@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS asset_directories (
     key         TEXT    NOT NULL,
     parent_id   INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
     created_at  INTEGER NOT NULL,            -- epoch ms
-    author  INTEGER NOT NULL DEFAULT 0   -- user id; 0 = unknown/system, negative = agent of user -author
+    author  INTEGER NOT NULL DEFAULT 0       -- user id; 0 = unknown/system, negative = agent of user -author
 );
 
 CREATE TABLE IF NOT EXISTS assets (

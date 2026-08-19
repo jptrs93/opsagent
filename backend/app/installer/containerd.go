@@ -53,7 +53,6 @@ func stageDep(dep runtimeDep, arch, tmp string) (stagedDep, error) {
 			sd.files[b] = filepath.Join(stageDir, b)
 		}
 	} else {
-		// Bare ELF: the download itself is the (only) binary.
 		sd.files[dep.binaries[0]] = dl
 	}
 	return sd, nil
@@ -76,8 +75,6 @@ func applyRuntime(deps []stagedDep) error {
 		}
 	}
 
-	// Install each staged binary into its version dir, then re-point the active
-	// symlinks, tracking whether any active target changed.
 	changed := false
 	for _, sd := range deps {
 		if err := ensureDir(sd.verDir, 0o755, noChown); err != nil {
@@ -115,7 +112,6 @@ func applyRuntime(deps []stagedDep) error {
 		return err
 	}
 
-	// config.toml: gid scopes the gRPC socket to the opendeploy group.
 	gid := 0
 	if o, err := lookupOwner(); err == nil {
 		gid = o.gid
@@ -126,7 +122,6 @@ func applyRuntime(deps []stagedDep) error {
 		return err
 	}
 
-	// Install + enable the dedicated unit (embedded — no fetch).
 	if _, err := writeFile(containerdUnitPath, unitContainerd, 0o644, noChown, false); err != nil {
 		return err
 	}

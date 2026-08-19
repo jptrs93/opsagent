@@ -212,7 +212,6 @@ func (q *Queries) CountDeploymentsForSpace(ctx context.Context, spaceID int64) (
 
 const countDirectorySiblingsWithKey = `-- name: CountDirectorySiblingsWithKey :one
 
-
 SELECT COUNT(*) FROM asset_directories
 WHERE space_id = ? AND parent_id = ? AND key = ? AND id != ?
 `
@@ -224,7 +223,6 @@ type CountDirectorySiblingsWithKeyParams struct {
 	ID       int64
 }
 
-// === assets ===
 // Container reads are hand-written in assets.go: the current space is the
 // newest asset_spaces row and reads exclude soft-deleted assets.
 func (q *Queries) CountDirectorySiblingsWithKey(ctx context.Context, arg CountDirectorySiblingsWithKeyParams) (int64, error) {
@@ -262,7 +260,6 @@ func (q *Queries) CountSecretsInDirectory(ctx context.Context, valueDirectoryID 
 }
 
 const countValueDirectorySiblingsWithName = `-- name: CountValueDirectorySiblingsWithName :one
-
 SELECT COUNT(*) FROM value_directories
 WHERE space_id = ? AND parent_id = ? AND name = ? AND id != ?
 `
@@ -274,7 +271,6 @@ type CountValueDirectorySiblingsWithNameParams struct {
 	ID       int64
 }
 
-// === value directories (shared by secrets and configs) ===
 func (q *Queries) CountValueDirectorySiblingsWithName(ctx context.Context, arg CountValueDirectorySiblingsWithNameParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countValueDirectorySiblingsWithName,
 		arg.SpaceID,
@@ -289,12 +285,10 @@ func (q *Queries) CountValueDirectorySiblingsWithName(ctx context.Context, arg C
 
 const createAuthzRuleTemplate = `-- name: CreateAuthzRuleTemplate :one
 
-
 INSERT INTO authz_rule_templates (name, builtin, deleted_at)
 VALUES (?, 0, 0) RETURNING id
 `
 
-// === authz ===
 // The template list read is hand-written in authz.go: a template row is its
 // identity joined with the version log for created_at/author (v1 row) and
 // current content (latest row). Creation appends the v1 version row in the
@@ -307,7 +301,6 @@ func (q *Queries) CreateAuthzRuleTemplate(ctx context.Context, name string) (int
 }
 
 const createDeployment = `-- name: CreateDeployment :one
-
 INSERT INTO deployments (node_id, name, deleted_at)
 VALUES (?, ?, 0)
 RETURNING deployment_id
@@ -318,7 +311,6 @@ type CreateDeploymentParams struct {
 	Name   string
 }
 
-// === deployments ===
 // CreateDeployment inserts a new stable deployment identity and
 // auto-allocates its deployment_id. Deleted deployments do not reserve their
 // former identity tuple. The caller inserts the v1 version row in the same tx.
@@ -629,11 +621,9 @@ func (q *Queries) GetPersonalSession(ctx context.Context, id string) (PersonalSe
 }
 
 const getPublicKey = `-- name: GetPublicKey :one
-
 SELECT kid, key_bytes FROM public_keys WHERE kid = ?
 `
 
-// === public_keys ===
 func (q *Queries) GetPublicKey(ctx context.Context, kid string) (PublicKey, error) {
 	row := q.db.QueryRowContext(ctx, getPublicKey, kid)
 	var i PublicKey
@@ -642,13 +632,11 @@ func (q *Queries) GetPublicKey(ctx context.Context, kid string) (PublicKey, erro
 }
 
 const getSystemSecret = `-- name: GetSystemSecret :one
-
 SELECT name, smk_version, ciphertext, nonce, created_at, updated_at
 FROM system_secrets
 WHERE name = ?
 `
 
-// === system_secrets ===
 func (q *Queries) GetSystemSecret(ctx context.Context, name string) (SystemSecret, error) {
 	row := q.db.QueryRowContext(ctx, getSystemSecret, name)
 	var i SystemSecret
@@ -664,7 +652,6 @@ func (q *Queries) GetSystemSecret(ctx context.Context, name string) (SystemSecre
 }
 
 const getUnfinishedAssetMigration = `-- name: GetUnfinishedAssetMigration :one
-
 SELECT id, old_config_version_id, new_config_version_id, status, last_error,
        created_at, started_at, last_attempt_at, finished_at
 FROM asset_migrations
@@ -673,7 +660,6 @@ ORDER BY id
 LIMIT 1
 `
 
-// === asset_migrations ===
 func (q *Queries) GetUnfinishedAssetMigration(ctx context.Context) (AssetMigration, error) {
 	row := q.db.QueryRowContext(ctx, getUnfinishedAssetMigration)
 	var i AssetMigration
@@ -692,11 +678,9 @@ func (q *Queries) GetUnfinishedAssetMigration(ctx context.Context) (AssetMigrati
 }
 
 const getUser = `-- name: GetUser :one
-
 SELECT id, name, data_blob, created_at, last_login_at FROM users WHERE id = ?
 `
 
-// === users ===
 func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
 	row := q.db.QueryRowContext(ctx, getUser, id)
 	var i User
@@ -731,7 +715,6 @@ func (q *Queries) GetValueDirectoryByID(ctx context.Context, id int64) (ValueDir
 }
 
 const insertAgentSession = `-- name: InsertAgentSession :exec
-
 INSERT INTO agent_sessions (id, user_id, created_at, expires_at, token_hash, token_prefix, revoked_at, scopes,
                             status, requesting_address, approval_code, approved_at)
 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
@@ -751,7 +734,6 @@ type InsertAgentSessionParams struct {
 	ApprovedAt        int64
 }
 
-// === agent_sessions ===
 func (q *Queries) InsertAgentSession(ctx context.Context, arg InsertAgentSessionParams) error {
 	_, err := q.db.ExecContext(ctx, insertAgentSession,
 		arg.ID,
@@ -878,7 +860,6 @@ func (q *Queries) InsertAssetSpaceRow(ctx context.Context, arg InsertAssetSpaceR
 }
 
 const insertAssetStoreRow = `-- name: InsertAssetStoreRow :one
-
 INSERT INTO asset_store (id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at
@@ -894,7 +875,6 @@ type InsertAssetStoreRowParams struct {
 	CreatedAt    int64
 }
 
-// === asset_store ===
 func (q *Queries) InsertAssetStoreRow(ctx context.Context, arg InsertAssetStoreRowParams) (AssetStore, error) {
 	row := q.db.QueryRowContext(ctx, insertAssetStoreRow,
 		arg.ID,
@@ -986,7 +966,6 @@ func (q *Queries) InsertAuthzGrantRow(ctx context.Context, arg InsertAuthzGrantR
 
 const insertConfigRow = `-- name: InsertConfigRow :one
 
-
 INSERT INTO configs (name, value_directory_id, created_at)
 VALUES (?, ?, ?)
 RETURNING id
@@ -998,7 +977,6 @@ type InsertConfigRowParams struct {
 	CreatedAt        int64
 }
 
-// === configs ===
 // Container reads are hand-written in values.go: the current space is the
 // newest config_spaces row and reads exclude soft-deleted configs.
 func (q *Queries) InsertConfigRow(ctx context.Context, arg InsertConfigRowParams) (int64, error) {
@@ -1099,7 +1077,6 @@ func (q *Queries) InsertDeploymentSpaceVersion(ctx context.Context, arg InsertDe
 }
 
 const insertDeploymentVersion = `-- name: InsertDeploymentVersion :exec
-
 INSERT INTO deployment_versions (deployment_id, version, created_at, author, spec_blob, global_seq)
 VALUES (?, ?, ?, ?, ?, ?)
 `
@@ -1113,7 +1090,6 @@ type InsertDeploymentVersionParams struct {
 	GlobalSeq    int64
 }
 
-// === deployment_versions ===
 func (q *Queries) InsertDeploymentVersion(ctx context.Context, arg InsertDeploymentVersionParams) error {
 	_, err := q.db.ExecContext(ctx, insertDeploymentVersion,
 		arg.DeploymentID,
@@ -1151,7 +1127,6 @@ func (q *Queries) InsertGlobalAccessRuleRow(ctx context.Context, arg InsertGloba
 }
 
 const insertPersonalSession = `-- name: InsertPersonalSession :exec
-
 INSERT INTO personal_sessions (id, user_id, created_at, expires_at, token_hash, revoked_at,
                                requesting_address, user_agent, last_active_at)
 VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
@@ -1168,7 +1143,6 @@ type InsertPersonalSessionParams struct {
 	LastActiveAt      int64
 }
 
-// === personal_sessions ===
 func (q *Queries) InsertPersonalSession(ctx context.Context, arg InsertPersonalSessionParams) error {
 	_, err := q.db.ExecContext(ctx, insertPersonalSession,
 		arg.ID,
@@ -1185,7 +1159,6 @@ func (q *Queries) InsertPersonalSession(ctx context.Context, arg InsertPersonalS
 
 const insertScheduledInstance = `-- name: InsertScheduledInstance :one
 
-
 INSERT INTO scheduled_instances (deployment_id, deployment_version, node_id, instance_ordinal, deployment_space_version_id)
 VALUES (?, ?, ?, ?, ?)
 RETURNING id
@@ -1199,7 +1172,6 @@ type InsertScheduledInstanceParams struct {
 	DeploymentSpaceVersionID int64
 }
 
-// === scheduled_instances ===
 // Reads are hand-written in scheduled_instances.go: an instance row is its
 // identity joined with the version log for creation time and current state.
 // Creation appends the v1 version row in the same tx; state transitions are
@@ -1218,7 +1190,6 @@ func (q *Queries) InsertScheduledInstance(ctx context.Context, arg InsertSchedul
 }
 
 const insertScheduledInstanceStatus = `-- name: InsertScheduledInstanceStatus :exec
-
 INSERT INTO scheduled_instance_status (
     scheduled_instance_id, updated_at, deployment_id,
     preparer_config_version, preparer_artifact,
@@ -1258,7 +1229,6 @@ type InsertScheduledInstanceStatusParams struct {
 	RunnerExtraBlob       []byte
 }
 
-// === scheduled_instance_status ===
 func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, arg InsertScheduledInstanceStatusParams) error {
 	_, err := q.db.ExecContext(ctx, insertScheduledInstanceStatus,
 		arg.ScheduledInstanceID,
@@ -1281,7 +1251,6 @@ func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, arg InsertS
 
 const insertSecretRow = `-- name: InsertSecretRow :one
 
-
 INSERT INTO secrets (name, value_directory_id, created_at)
 VALUES (?, ?, ?)
 RETURNING id
@@ -1293,7 +1262,6 @@ type InsertSecretRowParams struct {
 	CreatedAt        int64
 }
 
-// === secrets ===
 // Container reads and the version-record list are hand-written in values.go:
 // the current space is the newest secret_spaces row and reads exclude
 // soft-deleted secrets.
@@ -1500,6 +1468,42 @@ func (q *Queries) ListAssetIDsBySha(ctx context.Context, sha256 string) ([]int64
 			return nil, err
 		}
 		items = append(items, asset_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAssetSpaceRows = `-- name: ListAssetSpaceRows :many
+SELECT id, asset_id, author, created_at, space_id, global_seq
+FROM asset_spaces
+ORDER BY asset_id, id ASC
+`
+
+func (q *Queries) ListAssetSpaceRows(ctx context.Context) ([]AssetSpace, error) {
+	rows, err := q.db.QueryContext(ctx, listAssetSpaceRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AssetSpace
+	for rows.Next() {
+		var i AssetSpace
+		if err := rows.Scan(
+			&i.ID,
+			&i.AssetID,
+			&i.Author,
+			&i.CreatedAt,
+			&i.SpaceID,
+			&i.GlobalSeq,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -2167,12 +2171,10 @@ func (q *Queries) ListScheduledInstanceStatusHistorySince(ctx context.Context, a
 }
 
 const listSecretKeyslots = `-- name: ListSecretKeyslots :many
-
 SELECT slot, smk_version, wrapped_smk, nonce, kdf_salt, created_at
 FROM secret_keyslots ORDER BY slot
 `
 
-// === secret_keyslots ===
 func (q *Queries) ListSecretKeyslots(ctx context.Context) ([]SecretKeyslot, error) {
 	rows, err := q.db.QueryContext(ctx, listSecretKeyslots)
 	if err != nil {
@@ -2353,11 +2355,9 @@ func (q *Queries) ListSecretVersionsBySecretID(ctx context.Context, secretID int
 }
 
 const listSpaces = `-- name: ListSpaces :many
-
 SELECT id, name FROM spaces ORDER BY id
 `
 
-// === spaces ===
 func (q *Queries) ListSpaces(ctx context.Context) ([]Space, error) {
 	rows, err := q.db.QueryContext(ctx, listSpaces)
 	if err != nil {
@@ -2498,12 +2498,10 @@ func (q *Queries) ListValueDirectories(ctx context.Context) ([]ValueDirectory, e
 }
 
 const nextGlobalSeq = `-- name: NextGlobalSeq :one
-
 UPDATE global_seq SET value = value + 1 WHERE id = 1
 RETURNING value
 `
 
-// === global_seq ===
 func (q *Queries) NextGlobalSeq(ctx context.Context) (int64, error) {
 	row := q.db.QueryRowContext(ctx, nextGlobalSeq)
 	var value int64

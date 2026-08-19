@@ -60,14 +60,10 @@ const (
 // (the store is locked and awaiting a recovery unlock).
 var ErrLocked = errors.New("secrets store is locked")
 
-// ErrNoRecoveryCode is returned by Unlock when no recovery slot exists.
 var ErrNoRecoveryCode = errors.New("no recovery code configured")
 
-// ErrInvalidRecoveryCode is returned by Unlock when the supplied code does not
-// unwrap the recovery slot.
 var ErrInvalidRecoveryCode = errors.New("invalid recovery code")
 
-// ErrNotFound is returned when no secret exists for the given id.
 var ErrNotFound = errors.New("secret not found")
 
 // ErrReservedName is returned when user-facing APIs try to mutate OpenDeploy's
@@ -121,7 +117,6 @@ type Meta struct {
 	Author    int32
 }
 
-// SealedValue is the output of sealing one plaintext under the SMK.
 type SealedValue struct {
 	SMKVersion int32
 	Ciphertext []byte
@@ -535,8 +530,6 @@ func (m *Manager) Delete(secretID int32) error {
 	return nil
 }
 
-// Status reports whether the store is unlocked and whether a recovery code has
-// been configured.
 func (m *Manager) Status() (unlocked, recoveryConfigured bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -602,8 +595,6 @@ func (m *Manager) Unlock(code string) error {
 	return nil
 }
 
-// --- init / unlock internals ---
-
 func (m *Manager) initFirstRun() error {
 	smk := make([]byte, keyLen)
 	if _, err := rand.Read(smk); err != nil {
@@ -617,8 +608,6 @@ func (m *Manager) initFirstRun() error {
 	return nil
 }
 
-// rewriteMachineSlot establishes a fresh machine KEK via the configured
-// provider and stores the SMK wrapped under it as the machine keyslot.
 func (m *Manager) rewriteMachineSlot(smk []byte, version int32) error {
 	machineKey, err := m.machineKey.Establish()
 	if err != nil {
@@ -655,8 +644,6 @@ func (m *Manager) unlockWithMachineKey(slots []Keyslot) error {
 	m.version = slot.SMKVersion
 	return nil
 }
-
-// --- crypto helpers ---
 
 func aeadSeal(key, plaintext, aad []byte) (ciphertext, nonce []byte, err error) {
 	return machinekey.Seal(key, plaintext, aad)
@@ -697,7 +684,6 @@ func generateRecoveryCode() (string, error) {
 	return groupCode(enc), nil
 }
 
-// groupCode inserts a hyphen every 5 characters for readability.
 func groupCode(s string) string {
 	var b strings.Builder
 	for i, c := range s {
@@ -709,7 +695,6 @@ func groupCode(s string) string {
 	return b.String()
 }
 
-// normalizeCode reverses groupCode and tolerates user formatting.
 func normalizeCode(s string) string {
 	s = strings.ToUpper(strings.TrimSpace(s))
 	s = strings.ReplaceAll(s, "-", "")

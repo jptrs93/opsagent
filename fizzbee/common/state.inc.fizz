@@ -1,0 +1,16 @@
+action Init:
+    global_seq = 0
+    spaces = set([SYSTEM_SPACE, GLOBAL_SPACE])
+    next_space_id = 2
+    value_entities = {'secret': {}, 'config': {}, 'asset': {}}
+    value_versions = {'secret': {}, 'config': {}, 'asset': {}}
+    value_space_log = {'secret': [], 'config': [], 'asset': []}
+    next_value_id = {'secret': 1, 'config': 1, 'asset': 1}
+    next_value_version_row_id = {'secret': 1, 'config': 1, 'asset': 1}
+    deployments = {}
+    deployment_versions = {}
+    deployment_space_versions = {}
+    next_deployment_id = 1
+    next_space_version_row_id = 1
+    scheduled_instances = {}
+    next_instance_id = 1

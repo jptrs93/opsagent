@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model_directories.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message ValueDirectoryList {
+  repeated ValueDirectory items = 1;
+}
+
+message ValueDirectoryCreateRequest {
+  int32 space_id = 1;
+  int32 parent_id = 2;     // 0 = the space root; must exist in space_id
+  string name = 3;
+}
+
+message ValueDirectoryMoveRequest {
+  int32 directory_id = 1;
+  int32 new_parent_id = 2; // 0 = the root of the target space
+  // Target space; 0 keeps the directory where it is. See AssetMoveRequest.
+  int32 space_id = 3;
+}
+
+message ValueDirectoryRenameRequest {
+  int32 directory_id = 1;
+  string new_name = 2;
+}
+
+message ValueDirectoryDeleteRequest {
+  int32 directory_id = 1;  // must be empty: contents are never cascaded
+}
+
+message AssetDirectoryList {
+  repeated AssetDirectory items = 1;
+}
+
+message AssetDirectoryCreateRequest {
+  int32 space_id = 1;
+  int32 parent_id = 2;     // 0 = the space root; must exist in space_id
+  string key = 3;
+}
+
+message AssetDirectoryMoveRequest {
+  int32 directory_id = 1;
+  int32 new_parent_id = 2; // 0 = the root of the target space
+  // Target space; 0 keeps the directory where it is. See AssetMoveRequest.
+  int32 space_id = 3;
+}
+
+message AssetDirectoryRenameRequest {
+  int32 directory_id = 1;
+  string new_key = 2;
+}
+
+message AssetDirectoryDeleteRequest {
+  int32 directory_id = 1;  // must be empty: contents are never cascaded
+}

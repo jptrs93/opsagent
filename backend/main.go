@@ -35,7 +35,6 @@ func main() {
 			os.Exit(1)
 		}
 	case ainit.CommandNetproxy:
-		// Let the DNS servers stop cleanly when the netproxy process is terminated.
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		err := netproxy.Run(ctx)
@@ -46,7 +45,6 @@ func main() {
 		}
 		slog.Info("opendeploy net stopped")
 	case ainit.CommandPrimary:
-		// Stop the primary's web, cluster, enrollment, backup, and config-watcher work.
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		err := primary.Run(ctx, fsys)
@@ -60,7 +58,6 @@ func main() {
 			os.Exit(1)
 		}
 	case ainit.CommandSecondary:
-		// Stop the secondary's cluster session and netstate writer on termination.
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		secondary.Run(ctx)

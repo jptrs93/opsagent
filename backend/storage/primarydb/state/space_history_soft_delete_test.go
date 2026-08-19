@@ -14,14 +14,14 @@ func TestSpaceAssignmentHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create asset: %v", err)
 	}
-	if err := store.MoveAssetSpace(v.AssetID, 2, 0, 9); err != nil {
+	if err := store.MoveAssetSpace(v.ID, 2, 0, 9); err != nil {
 		t.Fatalf("move asset space: %v", err)
 	}
 	// A directory-only move through the space endpoint must not log.
-	if err := store.MoveAssetSpace(v.AssetID, 2, 0, 9); err != nil {
+	if err := store.MoveAssetSpace(v.ID, 2, 0, 9); err != nil {
 		t.Fatalf("repeat asset space move: %v", err)
 	}
-	rows, err := store.q.ListAssetSpaceRowsByAssetID(t.Context(), int64(v.AssetID))
+	rows, err := store.q.ListAssetSpaceRowsByAssetID(t.Context(), int64(v.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestSpaceAssignmentHistory(t *testing.T) {
 	if rows[1].SpaceID != 2 || rows[1].Author != 9 {
 		t.Fatalf("move row = space %d author %d, want space 2 author 9", rows[1].SpaceID, rows[1].Author)
 	}
-	if a, ok := store.GetAssetRow(v.AssetID); !ok || a.SpaceID != 2 {
+	if a, ok := store.GetAssetRow(v.ID); !ok || a.SpaceID != 2 {
 		t.Fatalf("asset row after move = %+v ok=%v, want current space 2", a, ok)
 	}
 
@@ -77,8 +77,8 @@ func TestSoftDeleteHidesRowAndFreesName(t *testing.T) {
 	defer store.Close()
 
 	v := store.SetAssetByKey("app.conf", []byte("v1"))
-	store.DeleteAsset(v.AssetID)
-	if _, ok := store.GetAssetRow(v.AssetID); ok {
+	store.DeleteAsset(v.ID)
+	if _, ok := store.GetAssetRow(v.ID); ok {
 		t.Fatal("deleted asset still resolves by id")
 	}
 	if _, ok := store.GetAssetInRootByKey(DefaultSpaceID, "app.conf"); ok {
@@ -89,10 +89,10 @@ func TestSoftDeleteHidesRowAndFreesName(t *testing.T) {
 	}
 	// The name is reusable, and the old asset's version rows survive.
 	replacement := store.SetAssetByKey("app.conf", []byte("v2"))
-	if replacement.AssetID == v.AssetID {
+	if replacement.ID == v.ID {
 		t.Fatal("recreated asset reused the deleted identity")
 	}
-	if versions := store.ListAssetVersionsJoinedOfAsset(v.AssetID); len(versions) != 1 {
+	if versions := store.ListAssetVersionsJoinedOfAsset(v.ID); len(versions) != 1 {
 		t.Fatalf("deleted asset version rows = %d, want 1 retained", len(versions))
 	}
 

@@ -31,66 +31,57 @@ func ValidAssetKey(key string) bool {
 	return !strings.ContainsAny(key, "/\\\x00")
 }
 
-func (s *Service) ListAssets() []*apigen.AssetMeta {
-	rows, err := s.q.ListAssetRows(context.Background())
+func (s *Service) ListAssets() []*apigen.Asset {
+	ctx := context.Background()
+	rows, err := s.q.ListAssetRows(ctx)
 	if err != nil {
 		panic(fmt.Sprintf("ListAssetRows: %v", err))
 	}
-	joined, err := s.q.ListAssetVersionsJoined(context.Background())
+	joined, err := s.q.ListAssetVersionsJoined(ctx)
 	if err != nil {
 		panic(fmt.Sprintf("ListAssetVersionsJoined: %v", err))
 	}
-	// The query orders by version ASC, so each asset's slice reverses to newest
-	// first.
-	versionRefs := make(map[int64][]*apigen.AssetVersionMeta, len(rows))
-	for _, v := range joined {
-		versionRefs[v.Version.AssetID] = append(versionRefs[v.Version.AssetID], assetVersionMetaFromJoined(v))
+	spaceRows, err := s.q.ListAssetSpaceRows(ctx)
+	if err != nil {
+		panic(fmt.Sprintf("ListAssetSpaceRows: %v", err))
 	}
-	out := make([]*apigen.AssetMeta, 0, len(rows))
+	versions := make(map[int64][]pq.AssetVersionJoined, len(rows))
+	for _, v := range joined {
+		versions[v.Version.AssetID] = append(versions[v.Version.AssetID], v)
+	}
+	spaces := make(map[int64][]pq.AssetSpace, len(rows))
+	for _, sp := range spaceRows {
+		spaces[sp.AssetID] = append(spaces[sp.AssetID], sp)
+	}
+	out := make([]*apigen.Asset, 0, len(rows))
 	for _, r := range rows {
-		refs := versionRefs[r.ID]
-		if len(refs) == 0 {
+		vs := versions[r.ID]
+		if len(vs) == 0 {
 			continue
 		}
-		for i, j := 0, len(refs)-1; i < j; i, j = i+1, j-1 {
-			refs[i], refs[j] = refs[j], refs[i]
-		}
-		out = append(out, assetMetaFromRow(r, refs))
+		out = append(out, assetFromParts(r, spaces[r.ID], vs))
 	}
 	return out
 }
 
-// ListAllAssetVersions returns every version row across all assets, joined
-// with its owning asset for display fields. Inline blobs are not loaded.
-func (s *Service) ListAllAssetVersions() []*apigen.AssetVersion {
-	rows, err := s.q.ListAssetVersionsJoined(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListAssetVersionsJoined: %v", err))
-	}
-	out := []*apigen.AssetVersion{}
-	for _, r := range rows {
-		out = append(out, assetVersionFromJoined(r.Asset, r))
-	}
-	return out
-}
-
-func (s *Service) NotifyAssetUpdate(meta *apigen.AssetMeta) {
-	if meta == nil || (meta.ID == 0 && meta.Key == "") {
+func (s *Service) NotifyAssetUpdate(a *apigen.Asset) {
+	if a == nil || a.ID == 0 {
 		return
 	}
-	s.assetSubs.Notify(*meta)
+	s.assetSubs.Notify(*a)
 }
 
-func (s *Service) NotifyAssetDeleted(meta *apigen.AssetMeta) {
-	if meta == nil || (meta.ID == 0 && meta.Key == "") {
+// NotifyAssetDeleted publishes a tombstone: the same asset stamped deleted now.
+func (s *Service) NotifyAssetDeleted(a *apigen.Asset) {
+	if a == nil || a.ID == 0 {
 		return
 	}
-	cp := *meta
-	cp.Deleted = true
+	cp := *a
+	cp.DeletedAt = time.Now()
 	s.assetSubs.Notify(cp)
 }
 
-func (s *Service) SubscribeAssetUpdates() (*pubsubu.Sub[apigen.AssetMeta], func()) {
+func (s *Service) SubscribeAssetUpdates() (*pubsubu.Sub[apigen.Asset], func()) {
 	sub := s.assetSubs.Subscribe(nil)
 	return sub, sub.UnsubscribeFunc
 }
@@ -107,9 +98,9 @@ func (s *Service) GetAssetRow(assetID int32) (Asset, bool) {
 	return r, true
 }
 
-// GetAssetMeta returns the asset with its version index, or false when the
-// asset does not exist or has no version.
-func (s *Service) GetAssetMeta(assetID int32) (*apigen.AssetMeta, bool) {
+// GetAsset returns the asset with its space and content logs, or false when
+// the asset does not exist or has no version.
+func (s *Service) GetAsset(assetID int32) (*apigen.Asset, bool) {
 	a, ok := s.GetAssetRow(assetID)
 	if !ok {
 		return nil, false
@@ -121,11 +112,11 @@ func (s *Service) GetAssetMeta(assetID int32) (*apigen.AssetMeta, bool) {
 	if len(versions) == 0 {
 		return nil, false
 	}
-	refs := make([]*apigen.AssetVersionMeta, 0, len(versions))
-	for i := len(versions) - 1; i >= 0; i-- { // query is oldest first; refs are newest first
-		refs = append(refs, assetVersionMetaFromJoined(versions[i]))
+	spaces, err := s.q.ListAssetSpaceRowsByAssetID(context.Background(), a.ID)
+	if err != nil {
+		panic(fmt.Sprintf("ListAssetSpaceRowsByAssetID: %v", err))
 	}
-	return assetMetaFromRow(a, refs), true
+	return assetFromParts(a, spaces, versions), true
 }
 
 // GetAssetInRootByKey resolves an asset by key in a space's implicit root
@@ -151,30 +142,26 @@ func (s *Service) GetAssetInDirectory(spaceID, directoryID int32, key string) (A
 	return r, true
 }
 
-// GetAssetVersion returns one version of an asset; version 0 means latest.
-func (s *Service) GetAssetVersion(assetID, version int32) (*apigen.AssetVersion, bool) {
-	a, ok := s.GetAssetRow(assetID)
-	if !ok {
-		return nil, false
-	}
-	v, err := s.q.GetAssetVersionJoinedByNumber(context.Background(), a.ID, int64(version))
-	if err == sql.ErrNoRows {
-		return nil, false
-	}
-	if err != nil {
-		panic(fmt.Sprintf("GetAssetVersionJoinedByNumber: %v", err))
-	}
-	return assetVersionFromJoined(a, v), true
+// AssetVersionRef resolves a pinned content version row id — the id
+// deployment configs pin and workers fetch by — to its owning asset's facts.
+type AssetVersionRef struct {
+	VersionID int32
+	AssetID   int32
+	Key       string
+	SpaceID   int32
 }
 
-// GetAssetVersionByID resolves a version row id — the id deployment configs
-// pin and workers fetch by.
-func (s *Service) GetAssetVersionByID(assetVersionID int32) (*apigen.AssetVersion, bool) {
+func (s *Service) GetAssetVersionRef(assetVersionID int32) (AssetVersionRef, bool) {
 	r, ok := s.GetAssetVersionJoined(assetVersionID)
 	if !ok {
-		return nil, false
+		return AssetVersionRef{}, false
 	}
-	return assetVersionFromJoined(r.Asset, r), true
+	return AssetVersionRef{
+		VersionID: int32(r.Version.ID),
+		AssetID:   int32(r.Asset.ID),
+		Key:       r.Asset.Key,
+		SpaceID:   int32(r.Asset.SpaceID),
+	}, true
 }
 
 // GetAssetVersionJoined resolves a version row id to the raw joined row,
@@ -198,28 +185,6 @@ func (s *Service) ListAssetVersionsJoinedOfAsset(assetID int32) []AssetVersionJo
 		panic(fmt.Sprintf("ListAssetVersionsOfAsset: %v", err))
 	}
 	return rows
-}
-
-// AssetVersionFromJoined converts a raw joined row to the wire shape.
-func AssetVersionFromJoined(a Asset, r AssetVersionJoined) *apigen.AssetVersion {
-	return assetVersionFromJoined(a, r)
-}
-
-// ListAssetVersions returns every version of one asset, oldest first.
-func (s *Service) ListAssetVersions(assetID int32) []*apigen.AssetVersion {
-	a, ok := s.GetAssetRow(assetID)
-	if !ok {
-		return nil
-	}
-	rows, err := s.q.ListAssetVersionsOfAsset(context.Background(), a.ID)
-	if err != nil {
-		panic(fmt.Sprintf("ListAssetVersionsOfAsset: %v", err))
-	}
-	out := make([]*apigen.AssetVersion, 0, len(rows))
-	for _, v := range rows {
-		out = append(out, assetVersionFromJoined(a, v))
-	}
-	return out
 }
 
 // assetSiblingKeyTakenLocked reports whether key is already used by another
@@ -275,7 +240,7 @@ func (s *Service) assetStoreRefBySha(ctx context.Context, sha256 string) (pq.Ass
 // CreateAssetWithVersion creates a new asset in directoryID (0 = the space
 // root) of spaceID with its first version. The content must already be in the
 // asset store under sha256.
-func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, author int32, sha256 string, sizeBytes int64) (*apigen.AssetVersion, error) {
+func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, author int32, sha256 string, sizeBytes int64) (*apigen.Asset, error) {
 	if !ValidAssetKey(key) {
 		return nil, ErrAssetKeyInvalid
 	}
@@ -286,8 +251,7 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	store, err := s.assetStoreRefBySha(ctx, sha256)
-	if err != nil {
+	if _, err := s.assetStoreRefBySha(ctx, sha256); err != nil {
 		return nil, err
 	}
 	dirID, err := s.resolveAssetDirectoryLocked(ctx, space, directoryID)
@@ -298,8 +262,7 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 		return nil, ErrAssetAlreadyExists
 	}
 
-	var a Asset
-	var v pq.AssetVersion
+	var assetID int64
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		seq, err := q.NextGlobalSeq(ctx)
 		if err != nil {
@@ -322,38 +285,40 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 		}); err != nil {
 			panic(fmt.Sprintf("InsertAssetSpaceRow: %v", err))
 		}
-		a = Asset{ID: id, Key: key, SpaceID: space, AssetDirectoryID: dirID, CreatedAt: now}
-		v, err = q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
-			AssetID:   a.ID,
+		assetID = id
+		if _, err := q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
+			AssetID:   id,
 			Version:   1,
 			CreatedAt: now,
 			Author:    int64(author),
 			SizeBytes: sizeBytes,
 			Sha256:    sha256,
 			GlobalSeq: seq,
-		})
-		if err != nil {
+		}); err != nil {
 			panic(fmt.Sprintf("InsertAssetVersion: %v", err))
 		}
 		return nil
 	}); err != nil {
 		panic(fmt.Sprintf("asset create tx: %v", err))
 	}
-	return assetVersionFromJoined(a, pq.AssetVersionJoined{Version: v, Store: store}), nil
+	asset, ok := s.GetAsset(int32(assetID))
+	if !ok {
+		panic(fmt.Sprintf("created asset %d not readable", assetID))
+	}
+	return asset, nil
 }
 
 // AppendAssetVersion appends the next version of an existing asset. The asset
 // identity — key, space, directory — is untouched. The content must already be
 // in the asset store under sha256.
-func (s *Service) AppendAssetVersion(assetID, author int32, sha256 string, sizeBytes int64) (*apigen.AssetVersion, error) {
+func (s *Service) AppendAssetVersion(assetID, author int32, sha256 string, sizeBytes int64) (*apigen.Asset, error) {
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
 
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	store, err := s.assetStoreRefBySha(ctx, sha256)
-	if err != nil {
+	if _, err := s.assetStoreRefBySha(ctx, sha256); err != nil {
 		return nil, err
 	}
 	a, err := s.q.GetAssetByID(ctx, int64(assetID))
@@ -367,13 +332,12 @@ func (s *Service) AppendAssetVersion(assetID, author int32, sha256 string, sizeB
 	if err != nil {
 		panic(fmt.Sprintf("GetNextAssetVersionNumber: %v", err))
 	}
-	var v pq.AssetVersion
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		seq, err := q.NextGlobalSeq(ctx)
 		if err != nil {
 			return err
 		}
-		v, err = q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
+		_, err = q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
 			AssetID:   a.ID,
 			Version:   version,
 			CreatedAt: now,
@@ -386,12 +350,16 @@ func (s *Service) AppendAssetVersion(assetID, author int32, sha256 string, sizeB
 	}); err != nil {
 		panic(fmt.Sprintf("InsertAssetVersion: %v", err))
 	}
-	return assetVersionFromJoined(a, pq.AssetVersionJoined{Version: v, Store: store}), nil
+	asset, ok := s.GetAsset(assetID)
+	if !ok {
+		panic(fmt.Sprintf("appended asset %d not readable", assetID))
+	}
+	return asset, nil
 }
 
 // RenameAssetKey renames an asset in place. Version rows, ids, and content are
 // untouched; deployment configs keep working because they pin version row ids.
-func (s *Service) RenameAssetKey(assetID int32, newKey string) (*apigen.AssetMeta, error) {
+func (s *Service) RenameAssetKey(assetID int32, newKey string) (*apigen.Asset, error) {
 	if !ValidAssetKey(newKey) {
 		return nil, ErrAssetKeyInvalid
 	}
@@ -416,18 +384,11 @@ func (s *Service) RenameAssetKey(assetID int32, newKey string) (*apigen.AssetMet
 		}
 		a.Key = newKey
 	}
-	versions, err := s.q.ListAssetVersionsOfAsset(ctx, a.ID)
-	if err != nil {
-		return nil, fmt.Errorf("load renamed asset versions: %w", err)
-	}
-	if len(versions) == 0 {
+	asset, ok := s.GetAsset(assetID)
+	if !ok {
 		return nil, ErrAssetNotFound
 	}
-	refs := make([]*apigen.AssetVersionMeta, 0, len(versions))
-	for i := len(versions) - 1; i >= 0; i-- { // query is oldest first; refs are newest first
-		refs = append(refs, assetVersionMetaFromJoined(versions[i]))
-	}
-	return assetMetaFromRow(a, refs), nil
+	return asset, nil
 }
 
 // MoveAssetDirectory moves an asset to another directory (0 = the space root)

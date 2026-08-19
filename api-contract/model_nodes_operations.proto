@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model_nodes.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message NodeRenameRequest {
+  string identifier = 1;
+  string name = 2;
+}
+
+message NodeAllowedSpacesRequest {
+  string identifier = 1;
+  repeated int32 space_ids = 2;
+}
+
+message ClusterNodeList {
+  repeated ClusterNode items = 1;
+}
+
+message ClusterNodeStatusList {
+  repeated ClusterNodeStatus items = 1;
+}

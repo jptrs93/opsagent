@@ -7,56 +7,48 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-// assetMetaFromRow builds the wire meta: identity at the root, version facts
-// only in VersionRefs (newest first). refs must be non-empty — an asset with
-// no version is never surfaced as a meta.
-func assetMetaFromRow(a Asset, refs []*apigen.AssetVersionMeta) *apigen.AssetMeta {
-	return &apigen.AssetMeta{
-		ID:               int32(a.ID),
-		Key:              a.Key,
-		SpaceID:          int32(a.SpaceID),
-		AssetDirectoryID: int32(a.AssetDirectoryID),
-		CreatedAt:        time.UnixMilli(a.CreatedAt),
-		VersionRefs:      refs,
+// assetFromParts builds the wire shape: identity at the root, the space and
+// content logs newest first. spaces and versions must be oldest first (query
+// order); versions must be non-empty — an asset with no version is never
+// surfaced.
+func assetFromParts(a Asset, spaces []pq.AssetSpace, versions []pq.AssetVersionJoined) *apigen.Asset {
+	svs := make([]*apigen.AssetSpaceVersion, 0, len(spaces))
+	for i := len(spaces) - 1; i >= 0; i-- {
+		svs = append(svs, assetSpaceVersionFromRow(spaces[i]))
+	}
+	cvs := make([]*apigen.AssetContentVersion, 0, len(versions))
+	for i := len(versions) - 1; i >= 0; i-- {
+		cvs = append(cvs, assetContentVersionFromJoined(versions[i]))
+	}
+	return &apigen.Asset{
+		ID: int32(a.ID),
+		Fs: &apigen.AssetFs{
+			Key:         a.Key,
+			DirectoryID: int32(a.AssetDirectoryID),
+		},
+		SpaceVersions:   svs,
+		ContentVersions: cvs,
 	}
 }
 
-// assetLocationString derives the display location: empty for inline content,
-// otherwise the active storage side keyed by the content-store id.
-func assetLocationString(s pq.AssetStoreRef) string {
-	if s.RemoteStatus == 1 {
-		return "s3://" + s.ID
+func assetSpaceVersionFromRow(r pq.AssetSpace) *apigen.AssetSpaceVersion {
+	return &apigen.AssetSpaceVersion{
+		ID:        int32(r.ID),
+		CreatedAt: time.UnixMilli(r.CreatedAt),
+		Author:    int32(r.Author),
+		SpaceID:   int32(r.SpaceID),
+		GlobalSeq: r.GlobalSeq,
 	}
-	if s.LocalStatus == 1 {
-		return "local://" + s.ID
-	}
-	return ""
 }
 
-func assetVersionMetaFromJoined(r pq.AssetVersionJoined) *apigen.AssetVersionMeta {
-	return &apigen.AssetVersionMeta{
+func assetContentVersionFromJoined(r pq.AssetVersionJoined) *apigen.AssetContentVersion {
+	return &apigen.AssetContentVersion{
 		ID:        int32(r.Version.ID),
 		Version:   int32(r.Version.Version),
 		CreatedAt: time.UnixMilli(r.Version.CreatedAt),
 		Author:    int32(r.Version.Author),
-		SizeBytes: int32(r.Version.SizeBytes),
-		Location:  assetLocationString(r.Store),
 		Sha256:    r.Version.Sha256,
-	}
-}
-
-func assetVersionFromJoined(a Asset, r pq.AssetVersionJoined) *apigen.AssetVersion {
-	return &apigen.AssetVersion{
-		ID:        int32(r.Version.ID),
-		AssetID:   int32(a.ID),
-		Key:       a.Key,
-		SpaceID:   int32(a.SpaceID),
-		CreatedAt: time.UnixMilli(r.Version.CreatedAt),
-		Author:    int32(r.Version.Author),
-		Version:   int32(r.Version.Version),
-		Location:  assetLocationString(r.Store),
-		SizeBytes: int32(r.Version.SizeBytes),
-		Sha256:    r.Version.Sha256,
-		Blob:      r.Store.InlineBlob,
+		SizeBytes: r.Version.SizeBytes,
+		GlobalSeq: r.Version.GlobalSeq,
 	}
 }

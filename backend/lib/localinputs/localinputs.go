@@ -109,7 +109,6 @@ func (s *Store) LoadRuntimeInputs() (secrets, configs map[int32]string, err erro
 	return secrets, configs, nil
 }
 
-// StoreRuntimeInputs seals and persists the given values.
 func (s *Store) StoreRuntimeInputs(secrets, configs map[int32]string) error {
 	if err := s.storeKind(state.LocalRuntimeInputKindSecret, secrets); err != nil {
 		return err

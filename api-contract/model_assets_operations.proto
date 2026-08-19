@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model_assets.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message AssetList {
+  repeated Asset items = 1;
+}
+
+message AssetCreateRequest {
+  string key = 1;
+  int32 space_id = 2;
+  bytes blob = 3;
+  int32 asset_directory_id = 4; // 0 = the space root; must exist in space_id
+}
+
+message AssetSetRequest {
+  // Appends the next version of an existing asset. Space and key belong to the
+  // asset identity and cannot be supplied here.
+  bytes blob = 3;
+  int32 asset_id = 5;
+}
+
+message AssetRenameRequest {
+  reserved 1;
+  reserved "key";
+  string new_key = 2;
+  int32 asset_id = 3;
+}
+
+message AssetDeleteRequest {
+  reserved 1;
+  reserved "key";
+  int32 asset_id = 2;
+}
+
+message AssetMoveRequest {
+  int32 asset_id = 1;
+  int32 asset_directory_id = 2; // 0 = the root of the target space
+  // Target space; 0 keeps the asset where it is. A cross-space move appends to
+  // the asset's space log and is refused while anything outside the
+  // destination space references the asset.
+  int32 space_id = 3;
+}

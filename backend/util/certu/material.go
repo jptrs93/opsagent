@@ -13,13 +13,13 @@ import (
 )
 
 const (
-	secretCACert      = "opendeploy.cluster.ca.cert"
-	secretCAKey       = "opendeploy.cluster.ca.key"
+	secretCACert         = "opendeploy.cluster.ca.cert"
+	secretCAKey          = "opendeploy.cluster.ca.key"
 	secretWorkloadCACert = "opendeploy.workload.ca.cert"
 	secretWorkloadCAKey  = "opendeploy.workload.ca.key"
-	secretPrimaryCert = "opendeploy.cluster.primary.cert"
-	secretPrimaryKey  = "opendeploy.cluster.primary.key"
-	secretWebUITLS    = "opendeploy.webui.self_signed_tls_bundle"
+	secretPrimaryCert    = "opendeploy.cluster.primary.cert"
+	secretPrimaryKey     = "opendeploy.cluster.primary.key"
+	secretWebUITLS       = "opendeploy.webui.self_signed_tls_bundle"
 )
 
 type Material struct {

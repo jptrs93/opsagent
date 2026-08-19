@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/options.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message MasterPasswordRequest {
+  string password = 1;
+  string username = 2;
+}
+
+message MasterPasswordVerifyRequest {
+  string password = 1;
+}
+
+message MasterPasswordSaveRequest {
+  string password = 1;
+}
+
+message LoginResponse {
+  string token = 1;
+  int32 user_id = 2;
+  repeated string scopes = 3;
+  string name = 4;
+  int64 expiry = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+message WebAuthNOptionsResponse {
+  string session_id = 1;
+  bytes options_json = 2;
+}
+
+message WebAuthNFinishRequest {
+  string session_id = 1;
+  bytes credential_json = 2;
+}

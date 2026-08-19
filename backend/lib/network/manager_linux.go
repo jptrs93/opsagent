@@ -127,7 +127,6 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 		return nil, setupErr
 	}
 
-	// veth pair in the host ns; peer moves into the container ns.
 	peerName := fmt.Sprintf("odp%ds%d", spec.DeploymentID, slot)
 	veth := &netlink.Veth{
 		LinkAttrs: netlink.LinkAttrs{Name: hostVeth, MTU: vethMTU},
@@ -145,7 +144,6 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 		return cleanup(fmt.Errorf("moving veth peer into netns: %w", err))
 	}
 
-	// Container side.
 	nsNetlink, err := netlink.NewHandleAt(nsHandle)
 	if err != nil {
 		return cleanup(fmt.Errorf("opening netlink handle in netns: %w", err))
@@ -155,7 +153,6 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 		return cleanup(err)
 	}
 
-	// Host side.
 	hostLink, err := netlink.LinkByName(hostVeth)
 	if err != nil {
 		return cleanup(fmt.Errorf("looking up host veth: %w", err))
@@ -362,8 +359,6 @@ func deleteNamedNetns(containerID string) {
 		slog.Warn("deleting netns", "container", containerID, "err", err)
 	}
 }
-
-// --- helpers ---
 
 func hostVethName(deploymentID int32, slot int) string {
 	return "od" + strconv.Itoa(int(deploymentID)) + "s" + strconv.Itoa(slot)

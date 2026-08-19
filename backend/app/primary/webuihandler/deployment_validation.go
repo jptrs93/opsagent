@@ -70,9 +70,9 @@ func (h *Handler) instancePermitsDelete(cfg *apigen.DeploymentConfig, status api
 }
 
 type deploymentAssetResolver interface {
-	// GetAssetVersionByID resolves the immutable version row ids deployment
+	// GetAssetVersionRef resolves the immutable version row ids deployment
 	// specs pin.
-	GetAssetVersionByID(assetVersionID int32) (*apigen.AssetVersion, bool)
+	GetAssetVersionRef(assetVersionID int32) (state.AssetVersionRef, bool)
 }
 
 type deploymentSecretResolver interface {
@@ -603,7 +603,7 @@ func (h *Handler) validateAssetRefSpaces(spec *apigen.DeploymentSpec, spaceID in
 	}
 	cfg := apigen.DeploymentConfig{Spec: *spec}
 	for _, ref := range runtimeinputs.RequiredAssetRefs(&cfg) {
-		version, ok := h.Store.GetAssetVersionByID(ref.AssetVersionID)
+		version, ok := h.Store.GetAssetVersionRef(ref.AssetVersionID)
 		if !ok {
 			return invalidConfigErrf("asset version id %d not found", ref.AssetVersionID)
 		}
@@ -1044,14 +1044,14 @@ func resolveAssetMounts(in []*apigen.AssetMount, assets deploymentAssetResolver)
 		if cleanPath != path || cleanPath == "/" || strings.HasSuffix(path, "/") {
 			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: path must be an absolute file path")
 		}
-		asset, ok := assets.GetAssetVersionByID(m.AssetVersionID)
+		asset, ok := assets.GetAssetVersionRef(m.AssetVersionID)
 		if !ok {
 			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: asset version id %d not found", m.AssetVersionID)
 		}
 		if m.Permission != apigen.FilePermission_READ_ONLY && m.Permission != apigen.FilePermission_READ_EXECUTE {
 			return nil, invalidConfigErrf("container1Spec.runtime.assetMounts: permission must be READ_ONLY or READ_EXECUTE")
 		}
-		out = append(out, &apigen.AssetMount{AssetVersionID: asset.ID, ContainerPath: cleanPath, Permission: m.Permission})
+		out = append(out, &apigen.AssetMount{AssetVersionID: asset.VersionID, ContainerPath: cleanPath, Permission: m.Permission})
 	}
 	return out, nil
 }
@@ -1064,12 +1064,12 @@ func resolveEnvAssetRefs(scope string, env map[string]*apigen.EnvVarValue, asset
 		if assets == nil {
 			return invalidConfigErrf("%s.%s: assets cannot be resolved here", scope, key)
 		}
-		asset, ok := assets.GetAssetVersionByID(value.AssetVersionID)
+		asset, ok := assets.GetAssetVersionRef(value.AssetVersionID)
 		if !ok {
 			return invalidConfigErrf("%s.%s: asset version id %d not found", scope, key, value.AssetVersionID)
 		}
 		value.Asset = asset.Key
-		value.AssetVersionID = asset.ID
+		value.AssetVersionID = asset.VersionID
 	}
 	return nil
 }

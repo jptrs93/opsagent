@@ -6,7 +6,7 @@ export const INSTRUCTIONS_PATH = "/v1/agent-sessions/instructions";
 export const agentPrompt = (origin, userId) =>
     `Fetch instructions for using our deployment orchestration platform, opendeploy from ${origin}${INSTRUCTIONS_PATH}?user_id=${userId}. Then request a new session if you don't have an existing valid token.`;
 
-// Mirrors the AgentSessionStatus enum in api-contract/model.proto. Duplicated
+// Mirrors the AgentSessionStatus enum in api-contract/model_sessions.proto. Duplicated
 // rather than imported because the generated capi module reaches for `window`.
 export const STATUS = {
     UNKNOWN: 0,

@@ -79,7 +79,6 @@ func fillFromAlphabet(out []byte, alphabet string) error {
 	return nil
 }
 
-// Zero overwrites a plaintext buffer in place.
 func Zero(b []byte) {
 	for i := range b {
 		b[i] = 0

@@ -23,7 +23,6 @@ func doUninstall(purge, assumeYes bool) error {
 		}
 	}
 
-	// stop + disable both services
 	for _, unit := range []string{serviceName, containerdService} {
 		if !unitInstalled(unit) {
 			continue
@@ -42,7 +41,6 @@ func doUninstall(purge, assumeYes bool) error {
 		}
 	}
 
-	// remove unit files
 	for _, path := range []string{serviceUnitPath, containerdUnitPath} {
 		if pathExists(path) {
 			if err := removeFile(path); err != nil {
@@ -55,7 +53,6 @@ func doUninstall(purge, assumeYes bool) error {
 		return err
 	}
 
-	// sudoers + binary
 	if pathExists(sudoersFile) {
 		if err := removeFile(sudoersFile); err != nil {
 			return err
@@ -85,7 +82,6 @@ Re-run with --purge to delete these.
 		return nil
 	}
 
-	// purge: wipe state dirs + user
 	step("Purging all state")
 	for _, dir := range []string{dataDir, assetCacheDir, releasesDir, volumesDir, buildLogsDir, runLogsDir, containerdRoot, configDir} {
 		if pathExists(dir) {

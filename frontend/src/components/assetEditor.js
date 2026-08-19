@@ -85,8 +85,11 @@ export function assetEditor({
     const originalRevision = van.state(0);
     let originalContent = "";
 
+    // hydrate takes the loadAssetPreview shape: {assetId, key, version,
+    // createdAt, sizeBytes, large, blob}. `large` means blob was deliberately
+    // not fetched.
     const hydrate = (asset) => {
-        const isLarge = Boolean(asset?.location);
+        const isLarge = Boolean(asset?.large);
         const decoded = isLarge ? {content: "", binary: false} : decodeContent(asset?.blob);
         key.val = asset?.key || key.val;
         content.val = decoded.content;
@@ -99,6 +102,21 @@ export function assetEditor({
         sizeBytes.val = Number(asset?.sizeBytes || asset?.blob?.length || 0);
         originalContent = decoded.content;
         originalRevision.val += 1;
+    };
+
+    // Save responses are wire Assets (identity + newest-first content log, no
+    // content bytes); the editor keeps the content it just saved.
+    const hydrateFromSaved = (saved, blob) => {
+        const latest = saved?.contentVersions?.[0];
+        hydrate({
+            assetId: Number(saved?.id || 0),
+            key: saved?.fs?.key || "",
+            version: Number(latest?.version || 0),
+            createdAt: latest?.createdAt || null,
+            sizeBytes: Number(latest?.sizeBytes || 0),
+            large: false,
+            blob,
+        });
     };
 
     if (!creating) {
@@ -129,19 +147,20 @@ export function assetEditor({
             error.val = "";
             // The first save of a new asset creates it; every later save
             // appends a version against the stable asset id.
+            const blob = encoder.encode(content.val);
             let saved;
             if (assetId.val) {
                 if (typeof saveVersion !== "function") throw new Error("Asset saving is unavailable");
-                saved = await saveVersion({assetId: assetId.val, blob: encoder.encode(content.val)});
+                saved = await saveVersion({assetId: assetId.val, blob});
             } else {
                 if (typeof createAsset !== "function") throw new Error("Asset creation is unavailable");
                 saved = await createAsset({
                     key: assetKey,
-                    blob: encoder.encode(content.val),
+                    blob,
                     spaceId: Number(spaceId || 0),
                 });
             }
-            hydrate(saved);
+            hydrateFromSaved(saved, blob);
             if (onSaved) await onSaved(saved);
         } catch (e) {
             error.val = e.message || "Failed to save asset";

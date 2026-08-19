@@ -3,6 +3,7 @@ package primary
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -89,7 +90,7 @@ func newRuntime() (*runtime, error) {
 
 	secretProvider := secretdist.NewPrimaryProvider(secretsMgr)
 	configProvider := configdist.NewPrimaryProvider(store)
-	runtimeInputs := runtimeinputs.New(assetStore, secretProvider, configProvider)
+	runtimeInputs := runtimeinputs.New(localAssetProvider{assetStore}, secretProvider, configProvider)
 	tlsIssuer := &issuedtls.Issuer{Secrets: secretsMgr}
 	runtimeInputs.SetIssuedTLSProvider(&issuedtls.PrimaryProvider{
 		Issuer: tlsIssuer,
@@ -156,4 +157,15 @@ func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string
 	go r.acmeIssuer.Run(ctx)
 	go netproxy.RunNetStateWriter(ctx, r.store, predicate, nodeIdentifier, ainit.StaticConfig.NetproxyStatePath, netproxy.CertSecretResolverFunc(r.secrets.Resolve), r.acmeHolder, nil)
 	go r.operator.RunAll(predicate)
+}
+
+// localAssetProvider narrows assetstore's OpenAsset to the operator's pure
+// id-to-stream contract.
+type localAssetProvider struct {
+	store *assetstore.Store
+}
+
+func (p localAssetProvider) OpenAsset(ctx context.Context, assetVersionID int32) (io.ReadCloser, error) {
+	_, body, err := p.store.OpenAsset(ctx, assetVersionID)
+	return body, err
 }

@@ -1,0 +1,16 @@
+atomic func current_value_space(family, id):
+    space = 0
+    for e in value_space_log[family]:
+        if e.owner == id:
+            space = e.space
+    return space
+
+atomic func pin_candidates(family, space):
+    out = [None]
+    for row in value_versions[family]:
+        v = value_versions[family][row]
+        if not value_entities[family][v.owner].deleted:
+            owner_space = current_value_space(family, v.owner)
+            if owner_space == space or owner_space == GLOBAL_SPACE:
+                out.append(row)
+    return out

@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/options.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message ClusterNode {
+  int32 id = 1;
+  int32 enrollment_id = 2;
+  string name = 3;
+  string identifier = 4;
+  repeated int32 roles = 5;
+  string wg_public_key = 6;
+  repeated string addresses = 7;
+  int64 enrolled_at = 8 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  // Spaces whose deployments may be placed on this node. The opendeploy space
+  // is always present: it is unioned in on every read and write, so the list
+  // cannot exclude it however it was written. A node starts out allowing every
+  // space that exists, and creating a space opens it on every node, so the
+  // policy binds only where an operator has deliberately narrowed it.
+  repeated int32 allowed_spaces = 9;
+}
+
+message ClusterNodeStatus {
+  int32 id = 1;
+  int32 node_id = 2;
+  int64 last_connected_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  bool is_connected = 4;
+}

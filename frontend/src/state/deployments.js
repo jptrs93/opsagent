@@ -269,11 +269,11 @@ const handleStateMessage = (message) => {
     }
 
     if (message.assetsSnapshot) {
-        assetMetasS.val = sortAssets(message.assetsSnapshot.items || []);
+        assetMetasS.val = sortAssets((message.assetsSnapshot.items || []).map(assetViewModel));
     }
 
-    if (message.assetUpdate && (message.assetUpdate.id || message.assetUpdate.key)) {
-        assetMetasS.val = applyAssetUpdate(assetMetasS.val, message.assetUpdate);
+    if (message.assetUpdate && message.assetUpdate.id) {
+        assetMetasS.val = applyAssetUpdate(assetMetasS.val, assetViewModel(message.assetUpdate));
     }
 
     if (message.assetDirectoriesSnapshot) {
@@ -304,6 +304,18 @@ const handleStateMessage = (message) => {
 const sortByName = (items) => [...items].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 const sortSpaces = (items) => [...items].sort((a, b) => (a.id || 0) - (b.id || 0) || (a.name || '').localeCompare(b.name || ''));
 const sortAssets = (items) => [...items].sort((a, b) => (a.key || '').localeCompare(b.key || '') || Number(a.id || 0) - Number(b.id || 0));
+
+// assetViewModel flattens the wire Asset — identity in `fs`, space and content
+// history in newest-first logs — into the page shape: `key`/`directoryId`/
+// `spaceId`/`deleted` join the generic helpers shared with secrets and
+// configs, while `contentVersions` stays the version index specs pin against.
+export const assetViewModel = (asset) => ({
+    ...asset,
+    key: asset?.fs?.key || "",
+    directoryId: Number(asset?.fs?.directoryId || 0),
+    spaceId: Number(asset?.spaceVersions?.[0]?.spaceId || 0),
+    deleted: asset?.deletedAt instanceof Date && asset.deletedAt.getTime() > 0,
+});
 
 const refreshMachinesFromNodes = () => {
     const statusesByNodeId = new Map((nodeStatusesS.val || []).map((status) => [status.nodeId, status]));

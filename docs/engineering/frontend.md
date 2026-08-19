@@ -29,8 +29,8 @@ cleared, so the user lands on the login page on the next render.
 ## Layout
 
 The dashboard uses a split-pane layout:
-- `components/sidebar.js` — left sidebar with top-level navigation (Status, Cluster).
-- The main pane is split horizontally with a draggable divider (width persisted to `localStorage`). The right-hand pane shows the deployment logs / history sidebar when a card action opens one.
+- `components/sidebar.js` — left sidebar with top-level navigation (Deployments, Logs, Secrets / Configs, Assets, Spaces, IAM, Sessions, Nodes, Settings).
+- The main pane is split horizontally with a draggable divider (width persisted to `localStorage`). The right-hand pane shows the deployment history sidebar when a card action opens one.
 - The active page is tracked via a `van.state` value. Clicking a sidebar item swaps the main content.
 
 ## Pages
@@ -40,8 +40,8 @@ The dashboard uses a split-pane layout:
 - "First time setup" link navigates to `/bootstrap`.
 
 ### Bootstrap (`pages/bootstrap.js`)
-- Three-step flow: master password entry, passkey registration, completion.
-- Steps are tracked via a `van.state('password' | 'register' | 'done')`.
+- Two-step flow: master password entry, then passkey registration.
+- Steps are tracked via a `van.state('password' | 'register')`.
 
 ### Status (`pages/status.js`)
 - Consumes live deployment state from `POST /v1/global/state-stream` (binary protobuf stream via `AsyncIterable<State>`).
@@ -51,7 +51,7 @@ The dashboard uses a split-pane layout:
 - The deploy overlay fetches available versions on demand via `POST /v1/deployments/versions`, lets the user edit the deployment spec form, and submits a typed `DeploymentUpdateRequest` via `POST /v1/deployments/update`.
 - The per-node internal `opendeploy` and `opendeploy-net` deployments are merged client-side into one group row each (`makeSystemGroups` in `pages/status.js`, rendered by `systemGroupStatusRow`), with Node, Status, Version, Prepare, Restarts, and audit cells split into one subline per node — secondaries first, primary last. Their Update action opens `components/openDeployGroupUpdateOverlay.js`: a per-node table of current and target release dropdowns with an "Align versions" toggle (on by default, the primary's dropdown drives all rows). On confirm the browser orchestrates the rollout itself via sequential `POST /v1/deployments/update` calls — secondaries one at a time, each waiting for the node's runner to report the new version through the state stream, primary last, halting on the first failure. With the toggle off, only nodes whose dropdown was explicitly changed are acted on; untouched nodes are skipped entirely, so successive single-node canary upgrades never revert each other. The `opendeploy` and `opendeploy-net` groups are deliberately uncoupled: rolling one never touches the other.
 - The deployment editor card has independent UI and HCL editor surfaces over one API-shaped authoring document. Valid HCL updates the shared document; invalid HCL is retained privately while the UI continues to show the last valid state. CodeMirror is loaded only when Code mode is first opened.
-- Sidebar content is reused by the same `components/deploymentLogs.js` for prepare output and run output (switched by a mode flag), and `components/deploymentHistory.js` for the history view. All three show "Connection error" in the header on network failure.
+- Prepare output opens `components/prepareOutputOverlay.js`; run output navigates to the Logs page (`pages/logs.js`); the history view is the `components/deploymentHistory.js` sidebar. History and prepare output show "Connection error" on network failure.
 - Deployment history (`components/deploymentHistory.js`) color-codes entries: green for stable running, grey for other status transitions, orange for config changes.
 
 ### Cluster (`pages/cluster.js`)

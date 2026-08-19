@@ -110,7 +110,6 @@ func (r *RuntimeInputs) Retain(secrets, configs map[int32]struct{}) (int, error)
 	return r.persistence.RetainRuntimeInputs(secrets, configs)
 }
 
-// missingIDs returns the subset of ids with no value held yet.
 func (r *RuntimeInputs) missingIDs(ids []int32, have map[int32]string) []int32 {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

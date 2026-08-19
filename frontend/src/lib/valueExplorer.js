@@ -228,8 +228,6 @@ export function folderOptions(dirs, spaceId, excludeSubtreeOf = 0) {
     ];
 }
 
-// ---- drag and drop ---------------------------------------------------------
-
 // dropDestination maps the row under the cursor to the folder a drop would land
 // in. Dropping on a folder means "into it"; dropping on an item means "beside
 // it", i.e. into its parent; dropping on a space means that space's root.

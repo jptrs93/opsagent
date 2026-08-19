@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model_configs.proto";
+import "api-contract/model_deployments.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message ConfigList {
+  repeated ConfigMeta items = 1;
+}
+
+message ConfigCreateRequest {
+  string name = 1;
+  string value = 3;
+  int32 space_id = 4;
+  int32 value_directory_id = 5; // 0 = the space root; must exist in space_id
+}
+
+message ConfigSetRequest {
+  // Appends the next version of an existing config. Space and name belong to
+  // the config identity and cannot be supplied here.
+  reserved 1, 4;
+  reserved "name", "space_id";
+  string value = 3;
+  bool update_referencing_deployments = 5;
+  repeated DeploymentConfigVersionRef referencing_deployments = 6;
+  int32 config_id = 7;
+}
+
+message ConfigRenameRequest {
+  reserved 1;
+  reserved "name";
+  string new_name = 2;
+  int32 config_id = 3;
+}
+
+message ConfigDeleteRequest {
+  reserved 1;
+  reserved "name";
+  int32 config_id = 2;
+}
+
+message ConfigMoveRequest {
+  int32 config_id = 1;
+  int32 value_directory_id = 2; // 0 = the root of the target space
+  // Target space; 0 keeps the config where it is. See AssetMoveRequest.
+  int32 space_id = 3;
+}

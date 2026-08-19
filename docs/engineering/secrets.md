@@ -25,18 +25,17 @@ pinned reference — survive unchanged. All three move requests carry a
 `space_id` (`0` keeps the row where it is). For items, naming another space
 moves them there under a **reference-locality rule**: a deployment may pin
 secret versions only from its own space or the global space (space 1). Both
-sides enforce it. Deployment creates and updates run
-`validateSecretRefSpaces` over the effective spec and the deployment's space
-(deployment space moves themselves are rejected with
-`deployment_space_move_unsupported`), using the
+sides enforce it. Deployment creates, updates, and space moves run
+`validateSecretRefSpaces` over the effective spec and the deployment's
+(destination) space, using the
 same `runtimeinputs.SecretRefs` collector the engine fetches by (env refs
 plus ingress cert refs), and refuse violations with
 `secret_reference_outside_space`. Item moves collect every deployment
 pinning one of the item's version ids and refuse with
 `move_references_outside_space` unless the pins stay legal from the
-destination: for secrets a move *to* the global space is always
+destination: a move *to* the global space is always
 reference-safe, any other destination requires every referencing deployment
-to live there (configs keep the strict same-space rule), and a
+to live there, and a
 cluster-settings reference pins the value to the global space. Both the
 deployment-write check and the check-and-move run under
 `ConfigService.LockReferences()` so neither side can race the other.
@@ -60,7 +59,7 @@ space's root — and the explorer's drag-and-drop and Move dialog surface the
 refusal. Reserved `opendeploy.*` secrets cannot be moved at all:
 install/restore flows find them by name in the space root. Directories ride
 the UI state stream as `value_directories_snapshot` /
-`value_directory_update` and appear in `GET /v1/global-state`.
+`value_directory_update` and appear in `GET /v1/global/state`.
 
 Values are decrypted during deployment preparation, cached on the node that
 runs the deployment — in memory, and additionally encrypted at rest on a
@@ -127,12 +126,12 @@ Key files:
   local cache.
 - `backend/lib/localinputs/localinputs.go` — a secondary's encrypted at-rest
   copy of the runtime inputs it needs.
-- `backend/storage/primarydb/secrets_store.go` — `secrets.Store` on the primary
+- `backend/storage/primarydb/state/secrets_store.go` — `secrets.Store` on the primary
   `StorageAdapter` (`secret_keyslots`, `secrets`, `secret_versions`, and
   `system_secrets` tables, plus the `SecretMeta` builders). Sealing happens
   through a `secrets.SealFunc` callback inside the write transaction, because
   the id-and-version AAD needs the identity id before the ciphertext can exist.
-- `backend/storage/primarydb/values.go` — the shared secrets/configs namespace
+- `backend/storage/primarydb/state/values.go` — the shared secrets/configs namespace
   law: `ValidValueName` and the three-table sibling-uniqueness check.
 - `backend/lib/engine/prepare/runtimeinputs/secrets.go` — finds typed `secretVersionId`
   / `configVersionId` refs, fetches each needed batch, validates it, and owns the
@@ -209,7 +208,7 @@ Adding or rotating a keyslot never re-encrypts the secrets themselves.
 ### Why the machine key sits outside the DB
 
 The machine KEK is *not* in the database and *not* in backups (litestream
-replicates only `primary.db`; see `backend/backup/litestream.go`). So a leaked
+replicates only `primary.db`; see `backend/app/primary/backup/litestream.go`). So a leaked
 DB or backup holds only `AEAD(SMK, KEK)` and `AEAD(SMK, recoveryKEK)` — useless
 without either the on-box machine KEK or the recovery code.
 

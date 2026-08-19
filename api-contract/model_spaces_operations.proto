@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model_spaces.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message SpaceList {
+  repeated Space items = 1;
+}
+
+message SpaceSetRequest {
+  int32 id = 1;
+  string name = 2;
+}
+
+message SpaceDeleteRequest {
+  int32 id = 1;
+}

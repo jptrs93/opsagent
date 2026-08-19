@@ -1,0 +1,178 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model_deployments.proto";
+import "api-contract/options.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message DeploymentUpdateRequest {
+  reserved 7;
+  reserved "space_id";
+  int32 deployment_id = 5;
+  string target_version = 2;
+  bool stop = 3;
+  int32 version = 4;
+  DeploymentSpec spec = 6 [(cp.go_value) = true]; // optional: update deployment spec
+}
+
+message DeploymentSpaceMoveRequest {
+  int32 deployment_id = 1;
+  int32 space_id = 2;       // destination space
+  int32 space_version = 3;  // expected next space version, = current space_version + 1
+}
+
+message DeploymentCreateRequest {
+  reserved 1, 3;
+  reserved "identity", "desired_state";
+  string name = 5;
+  int32 space_id = 6;
+  DeploymentSpec spec = 2 [(cp.go_value) = true];
+  int32 node_id = 4; // required canonical target node
+}
+
+message DeploymentHistoryRequest {
+  int32 deployment_id = 1;
+}
+
+message RecentlyDeletedDeploymentsRequest {
+  int32 limit = 1;  // max entries to return; 0 or out of range uses the server default
+}
+
+message RecentlyDeletedDeployments {
+  // Final config of each deleted deployment, most recently deleted first. The
+  // spec is intact, so a client can seed a new deployment from one; the id and
+  // version belong to the deleted deployment and cannot be reused.
+  repeated DeploymentConfig items = 1;
+}
+
+message DeploymentDeleteRequest {
+  int32 deployment_id = 1;
+  int32 version = 2; // expected next config version
+}
+
+// Version is the shared display shape for a deployable source item: a git
+// commit, a container tag, or a GitHub release tag.
+message Version {
+  string id = 1;
+  string label = 2;
+  string author = 3;
+  int64 time = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+// DeploymentVersions returns source-specific deployable versions for one deployment.
+message DeploymentVersions {
+  int32 deployment_id = 1;
+  DeploymentNixDockerBuildVersions nix_docker_build = 2;
+  DeploymentGithubReleaseVersions github_release = 3;
+  DeploymentContainerImageVersions container_image = 4;
+}
+
+message DeploymentNixDockerBuildVersions {
+  repeated string branches = 1;
+  string selected_branch = 2;
+  repeated Version commits = 3;
+}
+
+message DeploymentGithubReleaseVersions {
+  repeated Version releases = 1;
+}
+
+message DeploymentContainerImageVersions {
+  repeated Version tags = 1;
+}
+
+// DeploymentVersionsRequest fetches available versions for a deployment on demand.
+message DeploymentVersionsRequest {
+  int32 deployment_id = 1;
+  string selected_branch = 2;  // optional: specific git branch to list commits for
+}
+
+// RepoValidateRequest checks an image source's accessibility before a
+// deployment using it is created/updated. Exactly one source field must be set.
+message RepoValidateRequest {
+  ValidateNixDockerBuildSource nix_docker_build = 2;
+  ValidateContainerImageSource container_image = 4;
+}
+
+message ValidateNixDockerBuildSource {
+  string repo_url = 1;     // e.g. "github.com/owner/repo"
+  string selected_branch = 2;       // optional branch/scope whose versions should be listed
+  Version selected_commit = 3;       // optional exact commit to validate
+  string selected_flake_path = 4;   // optional path to flake.nix; when empty, path is not validated
+
+  bool refresh_available_branches = 5; // force loading available branches
+  bool refresh_available_commits = 6; // force loading commits for selected_branch
+
+  bool check_repo = 7;
+  bool check_branch = 8;
+  bool check_commit = 9; // validate commit exists
+  bool check_flake_path = 10; // validate flake_path exists at branch/commit
+}
+
+message ValidateNixDockerBuildSourceResponse {
+  string checked_repo_url = 1;
+  ValidationResult git_repository = 2 [(cp.go_value) = true];
+  string checked_branch = 3;
+  ValidationResult branch_check = 4 [(cp.go_value) = true];
+  Version checked_commit = 5;
+  ValidationResult commit_check = 6 [(cp.go_value) = true];
+  string checked_flake_path = 7;
+  ValidationResult nix_flake_file = 8 [(cp.go_value) = true];
+
+  AvailableBranches available_branches = 9 [(cp.go_value) = true];
+  AvailableCommits available_commits = 10 [(cp.go_value) = true];
+}
+
+message AvailableCommits {
+  bool loaded = 1;
+  string branch = 2;
+  optional string errorMessage = 3;
+  repeated Version commits = 4;
+}
+
+message AvailableBranches {
+  bool loaded = 1;
+  optional string errorMessage = 2;
+  repeated string branches = 3;
+}
+
+message ValidationResult {
+  bool checked = 1;
+  bool ok = 2;
+  string message = 3;  // human-readable result, safe to display to the user
+}
+
+message ValidateContainerImageSource {
+  string image = 1;        // image repository without tag; e.g. "ghcr.io/owner/app"
+  bool refresh_versions = 2; // list available image tags/versions
+}
+
+message RepoValidateResponse {
+  ValidateNixDockerBuildSourceResponse nix_docker_build = 2;
+  ValidateContainerImageSourceResponse container_image = 4;
+}
+
+message ValidateContainerImageSourceResponse {
+  ValidationResult image = 1 [(cp.go_value) = true];
+  repeated Version tags = 2;
+}
+
+message DeploymentGetRequest {
+  int32 id = 1;
+}
+
+message DeploymentState {
+  DeploymentConfig config = 1;
+  ScheduledInstanceSnapshot instances = 2;
+}
+
+message DeploymentHistoryEntry {
+  DeploymentConfig config = 1;
+  ScheduledInstanceStatus status = 2;
+}
+
+message DeploymentHistory {
+  repeated DeploymentHistoryEntry entries = 1;
+}

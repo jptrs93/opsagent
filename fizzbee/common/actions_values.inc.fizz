@@ -1,0 +1,73 @@
+atomic action CreateValue:
+    family = oneof FAMILIES
+    require next_value_id[family] <= MAX_ENTITIES
+    space = oneof [x for x in spaces if x != SYSTEM_SPACE]
+    global_seq = global_seq + 1
+    id = next_value_id[family]
+    next_value_id[family] = id + 1
+    value_entities[family][id] = record(deleted=False, nversions=1)
+    value_space_log[family].append(record(owner=id, space=space, seq=global_seq))
+    row = next_value_version_row_id[family]
+    next_value_version_row_id[family] = row + 1
+    value_versions[family][row] = record(owner=id, version=1, seq=global_seq)
+
+atomic action AppendValueVersion:
+    family = oneof FAMILIES
+    candidates = [id for id in value_entities[family] if not value_entities[family][id].deleted and value_entities[family][id].nversions < MAX_VERSIONS]
+    id = oneof candidates
+    global_seq = global_seq + 1
+    e = value_entities[family][id]
+    e.nversions = e.nversions + 1
+    row = next_value_version_row_id[family]
+    next_value_version_row_id[family] = row + 1
+    value_versions[family][row] = record(owner=id, version=e.nversions, seq=global_seq)
+    if family != 'asset':
+        for d in deployments:
+            if not deployments[d].deleted:
+                vlog = deployment_versions[d]
+                spec = vlog[len(vlog) - 1]
+                pin = spec.secret_pin if family == 'secret' else spec.config_pin
+                rotate = False
+                if pin != None:
+                    if value_versions[family][pin].owner == id:
+                        rotate = True
+                if rotate:
+                    if family == 'secret':
+                        vlog.append(record(version=spec.version + 1, seq=global_seq, secret_pin=row, config_pin=spec.config_pin, asset_pin=spec.asset_pin))
+                    else:
+                        vlog.append(record(version=spec.version + 1, seq=global_seq, secret_pin=spec.secret_pin, config_pin=row, asset_pin=spec.asset_pin))
+
+atomic action MoveValueSpace:
+    family = oneof FAMILIES
+    candidates = [id for id in value_entities[family] if not value_entities[family][id].deleted]
+    id = oneof candidates
+    dest = oneof [x for x in spaces if x != SYSTEM_SPACE]
+    cur = current_value_space(family, id)
+    require dest != cur
+    if dest != GLOBAL_SPACE:
+        blocked = False
+        for d in deployments:
+            if not deployments[d].deleted:
+                dlog = deployment_space_versions[d]
+                dspace = dlog[len(dlog) - 1].space
+                if dspace != dest:
+                    vlog = deployment_versions[d]
+                    spec = vlog[len(vlog) - 1]
+                    if family == 'secret':
+                        pin = spec.secret_pin
+                    elif family == 'config':
+                        pin = spec.config_pin
+                    else:
+                        pin = spec.asset_pin
+                    if pin != None:
+                        if value_versions[family][pin].owner == id:
+                            blocked = True
+        require not blocked
+    global_seq = global_seq + 1
+    value_space_log[family].append(record(owner=id, space=dest, seq=global_seq))
+
+atomic action SoftDeleteValue:
+    family = oneof FAMILIES
+    candidates = [id for id in value_entities[family] if not value_entities[family][id].deleted]
+    id = oneof candidates
+    value_entities[family][id].deleted = True

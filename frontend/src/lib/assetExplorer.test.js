@@ -3,14 +3,16 @@ import assert from "node:assert/strict";
 import {ASSET_COLUMNS, assetDirsAsNamed, fmtSize, makeAssetItems} from "./assetExplorer.js";
 import {buildRows, flexColumnKey} from "./valueExplorer.js";
 
-const meta = (id, key, spaceId, assetDirectoryId, refs) => ({id, key, spaceId, assetDirectoryId, versionRefs: refs});
+// Fixtures use the view-model shape state/deployments.js derives from the
+// wire Asset: key/spaceId/directoryId flattened, contentVersions newest first.
+const meta = (id, key, spaceId, directoryId, refs) => ({id, key, spaceId, directoryId, contentVersions: refs});
 const ref = (id, version, extra = {}) => ({id, version, createdAt: extra.createdAt ?? new Date(1000),
-    sizeBytes: extra.sizeBytes ?? 10, location: extra.location ?? ""});
+    sizeBytes: extra.sizeBytes ?? 10});
 
 test("makeAssetItems takes latest version facts and skips versionless metas", () => {
     const items = makeAssetItems([
         meta(1, "app.yaml", 1, 10, [ref(12, 3, {sizeBytes: 42, createdAt: new Date(3000)}), ref(11, 2)]),
-        meta(2, "big.bin", 1, 0, [ref(21, 1, {location: "local://21", sizeBytes: 999})]),
+        meta(2, "big.bin", 1, 0, [ref(21, 1, {sizeBytes: 11 * 1024 * 1024})]),
         meta(3, "pending.bin", 1, 0, []),
     ]);
     assert.deepEqual(items.map((i) => i.name), ["app.yaml", "big.bin"]);

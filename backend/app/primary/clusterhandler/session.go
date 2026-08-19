@@ -49,7 +49,6 @@ type Session struct {
 	// senders fall through on sessCtx.Done so they never block past teardown.
 	outbox chan *apigen.MsgToWorker
 
-	// Log streaming: multiple concurrent streams multiplexed by request ID.
 	logMu      sync.Mutex
 	logStreams map[string]chan logChunk
 	nextLogID  atomic.Uint64
@@ -87,10 +86,6 @@ func (s *Session) send(msg *apigen.MsgToWorker) bool {
 	}
 }
 
-// run drives the session: it yields the initial snapshot, spawns a reader that
-// ingests incoming frames and a feeder that forwards store updates plus
-// keepalives, then drains the outbox to the response iterator until the worker
-// disconnects or the context is cancelled.
 func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*apigen.MsgToWorker, error) bool) {
 	defer s.cancel()
 	defer s.closeAllLogStreams()
@@ -123,8 +118,8 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 		ScheduledInstancesSnapshot: &apigen.ScheduledInstanceSnapshot{Items: items},
 	}
 
-	// Reader: ingest incoming MsgToMaster frames. Cancelling on return ends the
-	// feeder and unblocks the response loop when the worker disconnects.
+	// Cancelling on return ends the feeder and unblocks the response loop when
+	// the worker disconnects.
 	go func() {
 		defer s.cancel()
 		for msg, err := range reqs {
@@ -136,7 +131,6 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 		}
 	}()
 
-	// Feeder: forward per-machine config updates and emit periodic keepalives.
 	go func() {
 		heartbeat := time.NewTicker(heartbeatInterval)
 		defer heartbeat.Stop()
@@ -186,7 +180,6 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 		return
 	}
 
-	// Response loop: drain the outbox to the worker.
 	for {
 		select {
 		case <-s.sessCtx.Done():
@@ -215,7 +208,6 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 	}
 }
 
-// handleIncoming dispatches one frame from the worker.
 func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 	switch {
 	case msg.ClusterHello != nil:
@@ -267,7 +259,6 @@ func (s *Session) handleClusterHello(hello *apigen.ClusterHello) {
 	slog.Warn("worker cluster hello references unknown node", "node_id", s.NodeID)
 }
 
-// routeLogChunk sends a log chunk to the channel for the given request ID.
 func (s *Session) routeLogChunk(requestID string, chunk logChunk) {
 	s.logMu.Lock()
 	ch, ok := s.logStreams[requestID]
@@ -282,8 +273,6 @@ func (s *Session) routeLogChunk(requestID string, chunk logChunk) {
 	}
 }
 
-// closeAllLogStreams closes every open log stream channel so blocked readers
-// wake up. Called when the session ends.
 func (s *Session) closeAllLogStreams() {
 	s.logMu.Lock()
 	defer s.logMu.Unlock()
@@ -313,7 +302,6 @@ func (s *Session) handleStatusWrite(st *apigen.ScheduledInstanceStatus) {
 // the streamed data until LogEnd or Close. Multiple requests can be in flight
 // concurrently — each gets its own channel keyed by request ID.
 func (s *Session) requestLogs(req *apigen.MsgToWorker) (io.ReadCloser, error) {
-	// Assign a unique request ID.
 	id := fmt.Sprintf("%s-%d", s.identifier, s.nextLogID.Add(1))
 	if req.DeploymentLogRequest != nil {
 		req.DeploymentLogRequest.RequestID = id
@@ -433,8 +421,6 @@ func (r *LogSearchStream) Close() error {
 	return nil
 }
 
-// logReader implements io.ReadCloser over the streamed log chunks for one
-// request ID.
 type logReader struct {
 	session   *Session
 	requestID string
@@ -476,20 +462,15 @@ func (r *logReader) Read(p []byte) (int, error) {
 	}
 }
 
-// Close stops the log stream. It unregisters the channel so the reader stops
-// routing chunks to it, signals the worker to stop tailing, and wakes up any
-// blocked Read call.
 func (r *logReader) Close() error {
 	r.closeOnce.Do(func() {
 		r.done = true
 		close(r.closeCh)
 
-		// Unregister from the session so the reader stops delivering chunks.
 		r.session.logMu.Lock()
 		delete(r.session.logStreams, r.requestID)
 		r.session.logMu.Unlock()
 
-		// Tell the worker to stop tailing this stream.
 		stop := &apigen.MsgToWorker{StopLogRequestID: r.requestID}
 		if !r.session.send(stop) {
 			slog.Warn("failed sending stop log request to worker (session ended)",

@@ -2,10 +2,33 @@ syntax = "proto3";
 
 package opsagent.v1;
 
+import "api-contract/model_assets.proto";
+import "api-contract/model_assets_operations.proto";
+import "api-contract/model_auth_operations.proto";
+import "api-contract/model_authz.proto";
+import "api-contract/model_authz_operations.proto";
+import "api-contract/model_common.proto";
+import "api-contract/model_configs.proto";
+import "api-contract/model_configs_operations.proto";
+import "api-contract/model_deployments.proto";
+import "api-contract/model_deployments_operations.proto";
+import "api-contract/model_directories.proto";
+import "api-contract/model_directories_operations.proto";
+import "api-contract/model_enrollment.proto";
+import "api-contract/model_enrollment_operations.proto";
+import "api-contract/model_global_operations.proto";
+import "api-contract/model_logs.proto";
+import "api-contract/model_logs_operations.proto";
+import "api-contract/model_nodes.proto";
+import "api-contract/model_nodes_operations.proto";
+import "api-contract/model_primary_config.proto";
+import "api-contract/model_secrets.proto";
+import "api-contract/model_secrets_operations.proto";
+import "api-contract/model_sessions.proto";
+import "api-contract/model_sessions_operations.proto";
+import "api-contract/model_spaces.proto";
+import "api-contract/model_spaces_operations.proto";
 import "api-contract/options.proto";
-import "api-contract/deployment_model.proto";
-import "api-contract/model.proto";
-import "api-contract/system_config_model.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
@@ -20,8 +43,6 @@ service ApiServer {
     option (cp.policy) = { policy_type: NO_AUTH };
   }
 
-  // Cluster settings
-
   rpc PostV1ClusterSettingsGet(EmptyRequest) returns (ClusterSettings) {
     option (cp.url) = "/v1/cluster-settings/get";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
@@ -31,8 +52,6 @@ service ApiServer {
     option (cp.url) = "/v1/cluster-settings/update";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
-
-  // Auth
 
   rpc PostV1AuthMaster(MasterPasswordRequest) returns (LoginResponse) {
     option (cp.policy) = { policy_type: NO_AUTH };
@@ -65,8 +84,6 @@ service ApiServer {
   rpc PostV1AuthPasskeyLoginFinish(WebAuthNFinishRequest) returns (LoginResponse) {
     option (cp.policy) = { policy_type: NO_AUTH };
   }
-
-  // Agent sessions
 
   rpc GetV1AgentSessionsInstructions(cp.Empty) returns (cp.Empty) {
     option (cp.url) = "/v1/agent-sessions/instructions";
@@ -104,8 +121,6 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  // Personal sessions
-
   rpc PostV1PersonalSessionsList(EmptyRequest) returns (PersonalSessionList) {
     option (cp.url) = "/v1/personal-sessions/list";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
@@ -115,8 +130,6 @@ service ApiServer {
     option (cp.url) = "/v1/personal-sessions/revoke";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
-
-  // Access control
 
   rpc PostV1AccessRuleTemplatesList(EmptyRequest) returns (AuthzRuleTemplateList) {
     option (cp.url) = "/v1/access/rule-templates/list";
@@ -168,8 +181,6 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  // Global state
-
   rpc GetV1GlobalState(cp.Empty) returns (GlobalState) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -183,8 +194,6 @@ service ApiServer {
     option (cp.url) = "/v1/global/exported-config";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
-
-  // Deployments
 
   rpc PostV1DeploymentsGet(DeploymentGetRequest) returns (DeploymentState) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
@@ -234,8 +243,6 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  // Nodes
-
   rpc PostV1NodesRename(NodeRenameRequest) returns (ClusterNode) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -257,8 +264,6 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  // Spaces
-
   rpc PostV1SpacesCreate(SpaceSetRequest) returns (Space) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -270,8 +275,6 @@ service ApiServer {
   rpc PostV1SpacesDelete(SpaceDeleteRequest) returns (cp.Empty) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
-
-  // Secrets
 
   rpc PostV1SecretsList(EmptyRequest) returns (SecretList) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
@@ -318,8 +321,6 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  // Configs
-
   rpc PostV1ConfigsList(EmptyRequest) returns (ConfigList) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -343,8 +344,6 @@ service ApiServer {
   rpc PostV1ConfigsMove(ConfigMoveRequest) returns (ConfigMeta) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
-
-  // Value directories (the shared secrets/configs folder tree)
 
   rpc PostV1ValueDirectoriesList(EmptyRequest) returns (ValueDirectoryList) {
     option (cp.url) = "/v1/value-directories/list";
@@ -371,31 +370,33 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  // Assets
-
   rpc PostV1AssetsList(EmptyRequest) returns (AssetList) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsGet(AssetGetRequest) returns (AssetVersion) {
+  // Streams raw content bytes for one content version (?contentVersionId=N).
+  rpc GetV1AssetsContent(cp.Empty) returns (cp.Empty) {
+    option (cp.url) = "/v1/assets/content";
+    option (cp.go_custom) = true;
+    option (cp.compression) = COMPRESSION_MODE_NEVER;
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsCreate(AssetCreateRequest) returns (AssetVersion) {
+  rpc PostV1AssetsCreate(AssetCreateRequest) returns (Asset) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsSet(AssetSetRequest) returns (AssetVersion) {
+  rpc PostV1AssetsSet(AssetSetRequest) returns (Asset) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsUpload(cp.Empty) returns (AssetVersion) {
+  rpc PostV1AssetsUpload(cp.Empty) returns (Asset) {
     option (cp.url) = "/v1/assets/upload";
     option (cp.go_custom) = true;
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsRename(AssetRenameRequest) returns (AssetMeta) {
+  rpc PostV1AssetsRename(AssetRenameRequest) returns (Asset) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -403,11 +404,9 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsMove(AssetMoveRequest) returns (AssetMeta) {
+  rpc PostV1AssetsMove(AssetMoveRequest) returns (Asset) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
-
-  // Asset directories
 
   rpc PostV1AssetDirectoriesList(EmptyRequest) returns (AssetDirectoryList) {
     option (cp.url) = "/v1/asset-directories/list";

@@ -95,7 +95,7 @@ const actions = {
             format: assets.val.find(item => item.key === request.key)?.format || 'text',
             createdAt: new Date('2026-07-14T12:00:00Z'),
             blob: new TextEncoder().encode(body),
-            location: '',
+            large: false,
             sizeBytes: body.length,
         };
     },
@@ -106,11 +106,14 @@ const actions = {
         // edit can be re-pointed at it.
         const latest = assets.val
             .filter(item => item.key === request.key)
-            .reduce((highest, item) => Math.max(highest, Number(item.version || 0)), 0);
-        const asset = {id: nextAssetID++, key: request.key, spaceId: request.spaceId, version: latest + 1, format: request.format};
-        assetContent.set(`${asset.key}@${asset.version}`, new TextDecoder().decode(request.blob || new Uint8Array()));
+            .reduce((highest, item) => Math.max(highest, Number(item.contentVersions?.[0]?.version || item.version || 0)), 0);
+        const id = nextAssetID++;
+        const versionRow = {id: id * 1000, version: latest + 1, sizeBytes: (request.blob || []).length};
+        const asset = {id, key: request.key, spaceId: request.spaceId, format: request.format, contentVersions: [versionRow]};
+        assetContent.set(`${asset.key}@${versionRow.version}`, new TextDecoder().decode(request.blob || new Uint8Array()));
         assets.val = [...assets.val, asset];
-        return asset;
+        // Responses mirror the wire Asset: identity in fs, logs newest first.
+        return {id, fs: {key: asset.key, directoryId: 0}, spaceVersions: [{id: 1, spaceId: asset.spaceId}], contentVersions: [versionRow]};
     },
     createDeployment: async request => {
         record('create-deployment', request);

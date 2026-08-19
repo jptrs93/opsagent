@@ -13,17 +13,6 @@ enum ContainerUpgradeStrategy {
   ROLLOVER = 2;
 }
 
-message ContainerReadinessSignal {
-  int32 timeout_seconds = 1; // 0 = default timeout
-}
-
-// === Networking config ===
-
-// NetworkingMode is pinned to the config version. Create/update requests must
-// include networking; the UI defaults new deployments to VIRTUAL unless HOST is
-// explicitly chosen, and UNSPECIFIED is rejected on new writes.
-// Restarts and respawns re-read the immutable spec version, so an existing
-// deployment's networking never changes without a new config version.
 enum NetworkingMode {
   NETWORKING_MODE_UNSPECIFIED = 0; // invalid for deployment config writes
   NETWORKING_MODE_VIRTUAL = 1;     // per-container netns on the virtual IPv6 network
@@ -34,12 +23,6 @@ enum PortForwardProtocol {
   PORT_FORWARD_PROTOCOL_UNSPECIFIED = 0;
   PORT_FORWARD_PROTOCOL_TCP = 1;
   PORT_FORWARD_PROTOCOL_UDP = 2;
-}
-
-message PortForward {
-  PortForwardProtocol protocol = 1;
-  int32 host_port = 2;      // port published on the machine's host interfaces
-  int32 container_port = 3; // port inside the virtual-mode container netns
 }
 
 enum IngressKind {
@@ -56,6 +39,16 @@ enum HttpBackendProtocol {
 enum AcmeChallenge {
   ACME_CHALLENGE_UNSPECIFIED = 0;
   ACME_CHALLENGE_HTTP_01 = 1;
+}
+
+message PortForward {
+  PortForwardProtocol protocol = 1;
+  int32 host_port = 2;      // port published on the machine's host interfaces
+  int32 container_port = 3; // port inside the virtual-mode container netns
+}
+
+message ContainerReadinessSignal {
+  int32 timeout_seconds = 1; // 0 = default timeout
 }
 
 message AcmeCertSource {
@@ -103,9 +96,6 @@ message NetworkingConfig {
   repeated Ingress ingress = 3;
 }
 
-
-// === Deployment status messages ===
-
 enum RunningStatus {
   DEPLOYMENT_STATUS_UNKNOWN = 0;
   NO_DEPLOYMENT = 1;
@@ -152,106 +142,10 @@ enum ImageStatus {
   IMAGE_FAILED = 5;
 }
 
-
-// === Deployment update / version request messages ===
-
 // Identifies the current deployment config version observed by a caller.
 message DeploymentConfigVersionRef {
   int32 id = 1;
   int32 version = 2;
-}
-
-message DeploymentUpdateRequest {
-  reserved 7;
-  reserved "space_id";
-  int32 deployment_id = 5;
-  string target_version = 2;
-  bool stop = 3;
-  int32 version = 4;
-  DeploymentSpec spec = 6 [(cp.go_value) = true]; // optional: update deployment spec
-}
-
-message DeploymentSpaceMoveRequest {
-  int32 deployment_id = 1;
-  int32 space_id = 2;       // destination space
-  int32 space_version = 3;  // expected next space version, = current space_version + 1
-}
-
-message DeploymentCreateRequest {
-  reserved 1, 3;
-  reserved "identity", "desired_state";
-  string name = 5;
-  int32 space_id = 6;
-  DeploymentSpec spec = 2 [(cp.go_value) = true];
-  int32 node_id = 4; // required canonical target node
-}
-
-message DeploymentHistoryRequest {
-  int32 deployment_id = 1;
-}
-
-message RecentlyDeletedDeploymentsRequest {
-  int32 limit = 1;  // max entries to return; 0 or out of range uses the server default
-}
-
-message RecentlyDeletedDeployments {
-  // Final config of each deleted deployment, most recently deleted first. The
-  // spec is intact, so a client can seed a new deployment from one; the id and
-  // version belong to the deleted deployment and cannot be reused.
-  repeated DeploymentConfig items = 1;
-}
-
-message PrepareOutputRequest {
-  int32 deployment_id = 3;
-  int32 version = 2;  // config version whose log to stream (0 = latest)
-}
-
-message PrepareOutputChunk {
-  bytes data = 1;
-}
-
-message RunOutputRequest {
-  int32 deployment_id = 3;
-  int32 version = 2;  // config version whose log to stream (0 = latest)
-}
-
-message DeploymentLogRequest {
-  RunOutputRequest runner_output = 1;
-  PrepareOutputRequest preparer_output = 2;
-  string request_id = 3;  // Unique ID for multiplexing parallel log streams over a single cluster session.
-}
-
-message LogSearchRequest {
-  int32 deployment_id = 1;
-  int64 time_start = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int64 time_end = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  string level_min = 4;
-  map<string, string> search_keys = 5;
-  string request_id = 6;  // Internal: multiplexes worker log-search streams.
-  int32 log_line_limit = 7;
-  int32 config_version = 8;  // Deployment config version to search (0 = all versions).
-  string search_str = 9;     // Exact case-sensitive substring filter applied per log line.
-  int32 target_node_id = 10; // Required for system log searches (deployment_id = 0).
-}
-
-message LogLine {
-  int64 time = 1;     // Unix nanoseconds.
-  int32 version = 2;  // Deployment config version.
-  int32 run = 3;      // Run/restart number.
-  int32 stream = 4;   // 0 = stdout, 1 = stderr.
-  bytes line = 5;     // Raw log line bytes.
-}
-
-message LogLineBatch {
-  repeated LogLine lines = 1;
-  string log_dir = 2;  // Absolute worker path to this deployment's run log directory.
-}
-
-
-
-message DeploymentDeleteRequest {
-  int32 deployment_id = 1;
-  int32 version = 2; // expected next config version
 }
 
 // ScheduledInstanceTarget is the primary-controlled desired runtime state for
@@ -361,122 +255,6 @@ message Endpoint {
   int32 node_id = 5;      // canonical hosting node
 }
 
-
-
-// Version is the shared display shape for a deployable source item: a git
-// commit, a container tag, or a GitHub release tag.
-message Version {
-  string id = 1;
-  string label = 2;
-  string author = 3;
-  int64 time = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-}
-
-// DeploymentVersions returns source-specific deployable versions for one deployment.
-message DeploymentVersions {
-  int32 deployment_id = 1;
-  DeploymentNixDockerBuildVersions nix_docker_build = 2;
-  DeploymentGithubReleaseVersions github_release = 3;
-  DeploymentContainerImageVersions container_image = 4;
-}
-
-message DeploymentNixDockerBuildVersions {
-  repeated string branches = 1;
-  string selected_branch = 2;
-  repeated Version commits = 3;
-}
-
-message DeploymentGithubReleaseVersions {
-  repeated Version releases = 1;
-}
-
-message DeploymentContainerImageVersions {
-  repeated Version tags = 1;
-}
-
-// DeploymentVersionsRequest fetches available versions for a deployment on demand.
-message DeploymentVersionsRequest {
-  int32 deployment_id = 1;
-  string selected_branch = 2;  // optional: specific git branch to list commits for
-}
-
-// RepoValidateRequest checks an image source's accessibility before a
-// deployment using it is created/updated. Exactly one source field must be set.
-message RepoValidateRequest {
-  ValidateNixDockerBuildSource nix_docker_build = 2;
-  ValidateContainerImageSource container_image = 4;
-}
-
-message ValidateNixDockerBuildSource {
-  string repo_url = 1;     // e.g. "github.com/owner/repo"
-  string selected_branch = 2;       // optional branch/scope whose versions should be listed
-  Version selected_commit = 3;       // optional exact commit to validate
-  string selected_flake_path = 4;   // optional path to flake.nix; when empty, path is not validated
-
-  bool refresh_available_branches = 5; // force loading available branches
-  bool refresh_available_commits = 6; // force loading commits for selected_branch
-
-  bool check_repo = 7;
-  bool check_branch = 8;
-  bool check_commit = 9; // validate commit exists
-  bool check_flake_path = 10; // validate flake_path exists at branch/commit
-}
-
-message ValidateNixDockerBuildSourceResponse {
-  string checked_repo_url = 1;
-  ValidationResult git_repository = 2 [(cp.go_value) = true];
-  string checked_branch = 3;
-  ValidationResult branch_check = 4 [(cp.go_value) = true];
-  Version checked_commit = 5;
-  ValidationResult commit_check = 6 [(cp.go_value) = true];
-  string checked_flake_path = 7;
-  ValidationResult nix_flake_file = 8 [(cp.go_value) = true];
-
-  AvailableBranches available_branches = 9 [(cp.go_value) = true];
-  AvailableCommits available_commits = 10 [(cp.go_value) = true];
-}
-
-message AvailableCommits {
-  bool loaded = 1;
-  string branch = 2;
-  optional string errorMessage = 3;
-  repeated Version commits = 4;
-}
-
-message AvailableBranches {
-  bool loaded = 1;
-  optional string errorMessage = 2;
-  repeated string branches = 3;
-}
-
-message ValidationResult {
-  bool checked = 1;
-  bool ok = 2;
-  string message = 3;  // human-readable result, safe to display to the user
-}
-
-
-message ValidateContainerImageSource {
-  string image = 1;        // image repository without tag; e.g. "ghcr.io/owner/app"
-  bool refresh_versions = 2; // list available image tags/versions
-}
-
-
-
-message RepoValidateResponse {
-  ValidateNixDockerBuildSourceResponse nix_docker_build = 2;
-  ValidateContainerImageSourceResponse container_image = 4;
-}
-
-
-
-message ValidateContainerImageSourceResponse {
-  ValidationResult image = 1 [(cp.go_value) = true];
-  repeated Version tags = 2;
-}
-
-
-
 message DeploymentConfig {
   // Field 3 carried the identity twice: as the nested DeploymentIdentity
   // sub-message until v0.0.444, then as the legacy_identity wire-compat
@@ -515,7 +293,9 @@ message DeploymentSpec {
 }
 
 message MicroVMSpec {}
+
 message VMSpec {}
+
 message SystemdSpec {
   GithubRelease source = 1;
   SystemdRuntime runtime = 2;
@@ -527,6 +307,7 @@ message GithubRelease {
   string repo = 1;
   string asset = 2;  // asset name (optional; falls back to the architecture-specific asset or first asset)
 }
+
 message SystemdRuntime{
   string name = 1;     // systemd unit name
   string bin_path = 2; // where the artifact is installed on disk

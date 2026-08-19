@@ -17,7 +17,6 @@ var ImageRequiredErr = apigen.NewApiErr("Image is required", "missing_image", ht
 var InvalidSourceTypeErr = apigen.NewApiErr("Invalid source type", "invalid_source_type", http.StatusBadRequest)
 var InvalidValidateRequestErr = apigen.NewApiErr("Invalid validate request", "invalid_validate_request", http.StatusBadRequest)
 
-// PostV1ReposValidate checks that a deployment source is reachable and authorized.
 func (h *Handler) PostV1ReposValidate(ctx apigen.Context, req *apigen.RepoValidateRequest) (*apigen.RepoValidateResponse, error) {
 	if countValidationSources(req) != 1 {
 		return nil, InvalidSourceTypeErr

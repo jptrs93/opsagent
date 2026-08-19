@@ -30,7 +30,6 @@ func (q *Queries) sqlDB() *sql.DB {
 	return q.db.(*sql.DB)
 }
 
-// Close closes the underlying database connection.
 func (q *Queries) Close() error {
 	return q.sqlDB().Close()
 }

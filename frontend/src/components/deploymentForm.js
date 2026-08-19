@@ -422,7 +422,6 @@ function makeFormState(values) {
         issuedTlsMount: van.state(values.issuedTlsMount || null),
         identityLockNotice: van.state(''),
         identityLockNoticeTimer: null,
-        // Whether the environment-variables editor pane is open in the overlay.
         envPaneOpen: van.state(false),
         commandPaneOpen: van.state(false),
         assetMountsPaneOpen: van.state(false),
@@ -473,7 +472,6 @@ function identityField(text, control, locked, onLockedClick, status) {
     );
 }
 
-// --- Additional (optional) options -----------------------------------------
 
 // optionsDisclosure renders an expand/collapse toggle (no surrounding card or
 // rule) that reveals a section's optional fields.
@@ -1133,7 +1131,7 @@ function assetPreviewButton(assetValue, onPreview, positionClass = 'right-1') {
 
 function latestAssetVersionForKey(assets, key) {
     for (const asset of assets || []) {
-        if ((asset?.key || '') === key) return Number(asset.versionRefs?.[0]?.version || 0);
+        if ((asset?.key || '') === key) return Number(asset.contentVersions?.[0]?.version || 0);
     }
     return 0;
 }
@@ -1142,7 +1140,7 @@ function latestAssetVersionForKey(assets, key) {
 // of the latest published version for normal options; assetId is the stable
 // identity the editor and preview need.
 function assetOptionFromMeta(meta, spaces) {
-    const latest = meta.versionRefs?.[0];
+    const latest = meta.contentVersions?.[0];
     return {
         assetId: Number(meta.id || 0),
         assetVersionId: Number(latest?.id || 0),
@@ -1155,15 +1153,15 @@ function assetOptionFromMeta(meta, spaces) {
 
 function versionedAssetOptions(assets, selectedID, spaceId, spaces) {
     const options = localValueRefs(assets, spaceId)
-        .filter(meta => meta && meta.versionRefs?.[0]?.id)
+        .filter(meta => meta && meta.contentVersions?.[0]?.id)
         .map(meta => assetOptionFromMeta(meta, spaces));
     const sel = Number(selectedID || 0);
     if (sel && !options.some(option => option.assetVersionId === sel)) {
         // A pinned version that is no asset's latest (or one outside the local
         // scope). The owning asset's meta lists every published version, so
         // the label keeps the key and the real version number.
-        const owner = (assets || []).find(meta => (meta?.versionRefs || []).some(ref => Number(ref?.id || 0) === sel));
-        const ref = (owner?.versionRefs || []).find(ref => Number(ref?.id || 0) === sel);
+        const owner = (assets || []).find(meta => (meta?.contentVersions || []).some(ref => Number(ref?.id || 0) === sel));
+        const ref = (owner?.contentVersions || []).find(ref => Number(ref?.id || 0) === sel);
         options.push({
             assetId: Number(owner?.id || 0),
             assetVersionId: sel,
@@ -2275,7 +2273,6 @@ function resetFileDescriptorLimitOverrideValue(form) {
 	form.containerFileDescriptorLimit.val = FILE_DESCRIPTOR_LIMIT_DEFAULT;
 }
 
-// --- Repository field with on-blur accessibility validation ----------------
 
 function repoField(form, sourceController) {
     const repoState = form.nixRepo;

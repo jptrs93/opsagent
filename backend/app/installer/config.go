@@ -1,30 +1,26 @@
 package installer
 
 // This file is the single source of truth for every path, version, and checksum
-// the installer touches. In the shell installer these were scattered across
-// top-of-file constants and inline strings; here they live in one typed place
-// that the daemon could eventually import directly (keeping installer and
-// runtime layout from drifting).
+// the installer touches.
 
 const (
 	repo = "jptrs93/opsagent"
 
-	// System user the daemon runs as. Created on fresh install.
 	osUser  = "opendeploy"
 	osGroup = "opendeploy"
 
-	// Core paths. DataDir stays 0750 (db, TLS keys, logs private); siblings that
-	// must be reachable by a different runAs user are 0755 and live outside it.
-	dataDir                  = "/var/lib/opendeploy"
-	binPath                  = "/var/lib/opendeploy/bin/opendeploy"
-	releasesDir              = "/var/lib/opendeploy-releases"
-	assetCacheDir            = "/var/lib/opendeploy-assets"
-	volumesDir               = "/var/lib/opendeploy-volumes"
-	buildLogsDir             = "/var/lib/opendeploy-build-logs"
-	runLogsDir               = "/var/lib/opendeploy-run-logs"
-	configDir                = "/etc/opendeploy"
-	envFile                  = "/etc/opendeploy/env"
-	tlsDir                   = dataDir + "/tls"
+	// DataDir stays 0750 (db, TLS keys, logs private); siblings that must be
+	// reachable by a different runAs user are 0755 and live outside it.
+	dataDir       = "/var/lib/opendeploy"
+	binPath       = "/var/lib/opendeploy/bin/opendeploy"
+	releasesDir   = "/var/lib/opendeploy-releases"
+	assetCacheDir = "/var/lib/opendeploy-assets"
+	volumesDir    = "/var/lib/opendeploy-volumes"
+	buildLogsDir  = "/var/lib/opendeploy-build-logs"
+	runLogsDir    = "/var/lib/opendeploy-run-logs"
+	configDir     = "/etc/opendeploy"
+	envFile       = "/etc/opendeploy/env"
+	tlsDir        = dataDir + "/tls"
 
 	serviceName     = "opendeploy.service"
 	serviceUnitPath = "/etc/systemd/system/opendeploy.service"
@@ -44,15 +40,12 @@ const (
 )
 
 // runtimeDep describes one pinned runtime binary set fetched from upstream and
-// verified against per-arch checksums. The shell installer hard-coded these as
-// CONTAINERD_VERSION / CONTAINERD_SHA256_amd64 / ... ; here they're data.
+// verified against per-arch checksums.
 type runtimeDep struct {
-	name    string // logical name, e.g. "containerd"
+	name    string
 	version string
-	// url builds the download URL for the given arch (amd64/arm64).
-	url func(arch string) string
-	// sha256 maps arch -> expected hex digest of the downloaded artifact.
-	sha256 map[string]string
+	url     func(arch string) string
+	sha256  map[string]string
 	// binaries are the executables this dep contributes to runtimeBin. They are
 	// resolved relative to extractDir after download (tarball members for
 	// containerd, the single downloaded file for runc).

@@ -175,7 +175,6 @@ func (r *systemdRunner) writeStatus() {
 	})
 }
 
-// --- helpers ---
 func normalizeUnit(name string) string {
 	if !strings.HasSuffix(name, ".service") {
 		return name + ".service"
@@ -187,7 +186,6 @@ func atomicSymlink(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return fmt.Errorf("creating bin dir: %w", err)
 	}
-	// Create a temp symlink, then atomically rename over dst.
 	tmpLink := dst + ".new"
 	_ = os.Remove(tmpLink)
 	if err := os.Symlink(src, tmpLink); err != nil {

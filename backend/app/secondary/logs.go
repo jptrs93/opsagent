@@ -85,8 +85,6 @@ func preparerOutputVersion(statuses []apigen.ScheduledInstanceStatus) int32 {
 	return 0
 }
 
-// preparingVersion reports whether any live instance is still preparing the
-// given config version.
 func preparingVersion(statuses []apigen.ScheduledInstanceStatus, version int32) bool {
 	for i := range statuses {
 		p := statuses[i].Preparer
@@ -97,9 +95,6 @@ func preparingVersion(statuses []apigen.ScheduledInstanceStatus, version int32) 
 	return false
 }
 
-// streamDeploymentLog resolves seqNo=0 to latest from local status, then
-// streams the appropriate log file back to the primary. All chunks and the
-// final LogEnd are tagged with the request ID for multiplexing.
 func streamDeploymentLog(ctx context.Context, out *outbox, store *state.Service, req *apigen.DeploymentLogRequest) {
 	requestID := req.RequestID
 	if req.RunnerOutput != nil {
@@ -186,13 +181,10 @@ func logSearchLimit(req *apigen.LogSearchRequest) int {
 	return int(req.LogLineLimit)
 }
 
-// streamPrepareLog reads a prepare output file and sends it back to the primary
-// as a series of LogData frames followed by a LogEnd frame.
 func streamPrepareLog(ctx context.Context, out *outbox, req *apigen.PrepareOutputRequest) {
 	streamFile(ctx, out, req.OutputPath(), "", nil)
 }
 
-// streamRunLog reads a run output file and sends it back to the primary.
 func streamRunLog(ctx context.Context, out *outbox, req *apigen.RunOutputRequest) {
 	streamLatestRunLog(ctx, out, req, "", nil)
 }
@@ -333,11 +325,9 @@ func latestMatchingLogFile(pattern string) (string, error) {
 	return latest, nil
 }
 
-// streamFile reads a file and sends its contents as LogData frames, followed by
-// a LogEnd frame. When keepTailing is non-nil, it polls for new content while
-// the process is still active instead of ending at the first EOF. All frames
-// are tagged with requestID for multiplexing. Always sends LogEnd, even on
-// failure.
+// streamFile always sends LogEnd, even on failure. When keepTailing is non-nil,
+// it polls for new content while the process is still active instead of ending
+// at the first EOF.
 func streamFile(ctx context.Context, out *outbox, path string, requestID string, keepTailing func() bool) {
 	defer func() {
 		out.Send(&apigen.MsgToMaster{LogEnd: true, LogRequestID: requestID})
@@ -351,8 +341,6 @@ func streamFile(ctx context.Context, out *outbox, path string, requestID string,
 	defer f.Close()
 
 	buf := make([]byte, 32*1024)
-
-	// drain reads all currently available data and sends it as LogData frames.
 	drain := func() error {
 		for {
 			n, readErr := f.Read(buf)
@@ -372,18 +360,14 @@ func streamFile(ctx context.Context, out *outbox, path string, requestID string,
 		}
 	}
 
-	// Initial drain of existing content.
 	if err := drain(); err != nil {
 		slog.Error("failed streaming log file", "path", path, "err", err)
 		return
 	}
-
-	// If no tailing callback, just send what we have and finish.
 	if keepTailing == nil {
 		return
 	}
 
-	// Poll for new content while the process is active.
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 

@@ -269,7 +269,7 @@ function unwrap(value) {
 function expandAssetVersions(metas) {
     const out = [];
     for (const meta of metas) {
-        for (const ref of meta.versionRefs || []) {
+        for (const ref of meta.contentVersions || []) {
             if (!Number(ref?.id || 0)) continue;
             out.push({id: Number(ref.id), key: meta.key, spaceId: meta.spaceId, version: Number(ref.version || 0)});
         }

@@ -16,7 +16,7 @@ Key files:
 
 ## User model
 
-The `User` proto exposes `{id, name}` to the UI for audit display. The full `InternalUser` record (with WebAuthn ID and credentials) is stored in the SQLite `users` table keyed by integer id. The first user is created automatically when the master password is used for the first time; every new user starts with a `cluster_admin` grant, which can then be narrowed or replaced through the access-control layer below.
+The `User` proto exposes `{id, name}` to the UI for audit display. The full `InternalUser` record (with WebAuthn ID and credentials) is stored in the SQLite `users` table keyed by integer id. A user is created automatically when the master password is exchanged with a username that does not exist yet; every new user starts with a `cluster_admin` grant, which can then be narrowed or replaced through the access-control layer below.
 
 ## Master password bootstrap
 
@@ -27,7 +27,7 @@ The configured master password hash is stored in the persisted OpenDeploy config
 ### Flow (`POST /v1/auth/master`)
 1. Resolve the configured master password hash from the persisted OpenDeploy config envelope.
 2. Verify the request password against the resolved hash using `authu.VerifyPassword` (constant-time comparison).
-3. If no user exists, create one with a new UUID v7.
+3. Look up the request's `username`; if no user with that name exists, create one (next integer id, fresh WebAuthn ID) with a `cluster_admin` grant.
 4. Return a JWT with `scopes: ["passkey:create"]` and 10-minute expiry.
 
 ### Rotation (`POST /v1/auth/master/password/save`)

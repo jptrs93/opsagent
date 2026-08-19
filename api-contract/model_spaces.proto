@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message Space {
+  int32 id = 1;
+  string name = 2;
+  bool deleted = 3;
+}

@@ -65,7 +65,6 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 		return nil, err
 	}
 
-	// Check for duplicate before creating.
 	snapshot := h.Store.FetchDeploymentSnapshot(nil)
 	for _, cfg := range snapshot {
 		if storage.DeploymentKeyMatches(cfg, req.NodeID, req.SpaceID, req.Name) && !cfg.Deleted {
@@ -751,7 +750,6 @@ func toAPILogLine(line logreader.LogLine) *apigen.LogLine {
 	}
 }
 
-// findConfigByID looks up a deployment config from the store's snapshot by integer ID.
 func (h *Handler) findConfigByID(deploymentID int32) *apigen.DeploymentConfig {
 	for _, cfg := range h.Store.FetchDeploymentSnapshot(nil) {
 		if cfg.ID == deploymentID {

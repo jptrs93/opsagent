@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/options.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message PrepareOutputRequest {
+  int32 deployment_id = 3;
+  int32 version = 2;  // config version whose log to stream (0 = latest)
+}
+
+message PrepareOutputChunk {
+  bytes data = 1;
+}
+
+message RunOutputRequest {
+  int32 deployment_id = 3;
+  int32 version = 2;  // config version whose log to stream (0 = latest)
+}
+
+message DeploymentLogRequest {
+  RunOutputRequest runner_output = 1;
+  PrepareOutputRequest preparer_output = 2;
+  string request_id = 3;  // Unique ID for multiplexing parallel log streams over a single cluster session.
+}
+
+message LogSearchRequest {
+  int32 deployment_id = 1;
+  int64 time_start = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 time_end = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string level_min = 4;
+  map<string, string> search_keys = 5;
+  string request_id = 6;  // Internal: multiplexes worker log-search streams.
+  int32 log_line_limit = 7;
+  int32 config_version = 8;  // Deployment config version to search (0 = all versions).
+  string search_str = 9;     // Exact case-sensitive substring filter applied per log line.
+  int32 target_node_id = 10; // Required for system log searches (deployment_id = 0).
+}

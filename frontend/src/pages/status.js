@@ -89,7 +89,6 @@ function saveShowOpendeploy(value) {
     try { localStorage.setItem(SHOW_OPENDEPLOY_KEY, value ? 'true' : 'false'); } catch {}
 }
 
-// Sidebar modes
 const SIDEBAR_NONE = null;
 const SIDEBAR_PREPARE = 'prepare';
 const SIDEBAR_RUN = 'run';
@@ -281,7 +280,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
         .map(machine => [Number(machine.id), machine]));
 
     return deployments.filter(d => d.config && d.config.id && !d.config.deleted).map((d) => {
-        const id = d.config.id; // deployment id for API actions
+        const id = d.config.id;
         const instanceId = d.instance?.id || 0;
         const identity = {spaceId: d.config.spaceId, name: d.config.name};
         const spec = d.config.spec || {};
@@ -357,7 +356,6 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
     });
 };
 
-// findRawConfig finds the latest desired DeploymentConfig for a deployment ID.
 const findRawConfig = (deploymentId) => {
     const all = deploymentsS.rawVal;
     if (!Array.isArray(all)) return null;
@@ -846,7 +844,6 @@ export function statusPage(onOpenLogs = () => {}) {
         const depId = sidebarDeploymentId.val;
         const _rev = sidebarRevision.val;
 
-        // Clear previous sidebar content.
         sidebarPane.innerHTML = '';
 
         if (!mode || !depId) {

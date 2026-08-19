@@ -1,5 +1,3 @@
--- === scheduled_instance_status ===
-
 -- name: InsertScheduledInstanceStatus :exec
 INSERT INTO scheduled_instance_status (
     scheduled_instance_id, updated_at, deployment_id,
@@ -45,8 +43,6 @@ FROM scheduled_instance_status
 WHERE scheduled_instance_id = ? AND updated_at > ?
 ORDER BY updated_at ASC;
 
--- === local_scheduled_instance_cache ===
-
 -- name: UpsertLocalScheduledInstanceCache :exec
 INSERT INTO local_scheduled_instance_cache (instance_id, blob)
 VALUES (?, ?)
@@ -58,16 +54,12 @@ DELETE FROM local_scheduled_instance_cache WHERE instance_id = ?;
 -- name: ListLocalScheduledInstanceCache :many
 SELECT instance_id, blob FROM local_scheduled_instance_cache;
 
--- === local_kv ===
-
 -- name: GetLocalKV :one
 SELECT value FROM local_kv WHERE key = ?;
 
 -- name: UpsertLocalKV :exec
 INSERT INTO local_kv (key, value) VALUES (?, ?)
 ON CONFLICT(key) DO UPDATE SET value = excluded.value;
-
--- === local_runtime_inputs ===
 
 -- name: ListLocalRuntimeInputs :many
 SELECT kind, ref_id, ciphertext, nonce, fetched_at FROM local_runtime_inputs;

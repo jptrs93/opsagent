@@ -79,7 +79,7 @@ type Service struct {
 	userConfigSubs   *pubsubu.PubSub[apigen.ConfigMeta]
 	valueDirSubs     *pubsubu.PubSub[apigen.ValueDirectory]
 	spaceSubs        *pubsubu.PubSub[apigen.Space]
-	assetSubs        *pubsubu.PubSub[apigen.AssetMeta]
+	assetSubs        *pubsubu.PubSub[apigen.Asset]
 	assetDirSubs     *pubsubu.PubSub[apigen.AssetDirectory]
 	enrollmentSubs   *pubsubu.PubSub[apigen.EnrollmentRequestStatus]
 	nodeSubs         *pubsubu.PubSub[apigen.ClusterNode]
@@ -104,7 +104,7 @@ func Open(dbPath string) *Service {
 		userConfigSubs:     &pubsubu.PubSub[apigen.ConfigMeta]{},
 		valueDirSubs:       &pubsubu.PubSub[apigen.ValueDirectory]{},
 		spaceSubs:          &pubsubu.PubSub[apigen.Space]{},
-		assetSubs:          &pubsubu.PubSub[apigen.AssetMeta]{},
+		assetSubs:          &pubsubu.PubSub[apigen.Asset]{},
 		assetDirSubs:       &pubsubu.PubSub[apigen.AssetDirectory]{},
 		enrollmentSubs:     &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
 		nodeSubs:           &pubsubu.PubSub[apigen.ClusterNode]{},
@@ -160,8 +160,6 @@ func boolToInt(b bool) int64 {
 	}
 	return 0
 }
-
-// --- auth: users ---
 
 var ErrNotFound = fmt.Errorf("not found")
 
@@ -375,9 +373,7 @@ func (s *Service) UpdateUserMatching(predicate func(*apigen.InternalUser) bool, 
 	s.WriteUser(user)
 }
 
-// --- auth: agent sessions ---
-
-// AgentSession is a stored agent session. TokenHash is the SHA-256 of the
+// AgentSessionRecord is a stored agent session. TokenHash is the SHA-256 of the
 // issued token; the plaintext is never persisted. A session that is still a
 // pending request has no token at all: TokenHash, TokenPrefix, and ExpiresAt
 // stay zero until it is approved and collected.
@@ -584,7 +580,6 @@ func (s *Service) AppendOpenDeploySettings(blob []byte) (int64, error) {
 	return s.q.InsertSystemConfigRevision(context.Background(), time.Now().UnixMilli(), blob)
 }
 
-// --- auth: public keys ---
 func (s *Service) WritePublicKey(rec *apigen.PublicKeyRecord) {
 	ctx := context.Background()
 	if err := s.q.UpsertPublicKey(ctx, pq.UpsertPublicKeyParams{

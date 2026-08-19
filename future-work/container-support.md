@@ -32,9 +32,5 @@ Known gap: there is no retention or archival policy for completed log files.
 - **Registry credentials** — a resolver with auth (per-deployment or global
   registry creds, likely via the secrets store). Phase 1 is anonymous pull only,
   so private images fail.
-- **Network isolation** — CNI/bridge + port mapping, to run multiple instances
-  of a service on one host without port collisions. Phase 1 is host-net only.
-- **Tag/version listing** — registry tag enumeration in the deploy overlay (needs
-  credentials + registry API). Today the user types the tag/digest manually.
 - **`nixImage` preparer** — `dockerTools.buildLayeredImage` → import into
   containerd: daemonless image builds from the existing nix machinery.

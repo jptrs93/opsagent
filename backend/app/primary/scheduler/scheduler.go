@@ -68,8 +68,6 @@ func New(store *state.Service, barrier routeBarrier) *Scheduler {
 	return &Scheduler{store: store, barrier: barrier, draining: make(map[int32]drainWait)}
 }
 
-// Run reconciles the current config snapshot, then reacts to config and
-// scheduled-instance updates until the process exits.
 func (s *Scheduler) Run() {
 	configs, configCh, unsubConfigs := s.store.MustFetchDeploymentConfigSnapshotAndSubscribe(nil)
 	defer unsubConfigs()

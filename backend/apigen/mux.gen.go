@@ -145,13 +145,13 @@ type ApiServerHandler interface {
 	PostV1ValueDirectoriesRename(Context, *ValueDirectoryRenameRequest) (*ValueDirectory, error)
 	PostV1ValueDirectoriesDelete(Context, *ValueDirectoryDeleteRequest) error
 	PostV1AssetsList(Context, *EmptyRequest) (*AssetList, error)
-	PostV1AssetsGet(Context, *AssetGetRequest) (*AssetVersion, error)
-	PostV1AssetsCreate(Context, *AssetCreateRequest) (*AssetVersion, error)
-	PostV1AssetsSet(Context, *AssetSetRequest) (*AssetVersion, error)
+	GetV1AssetsContent(Context, *http.Request, http.ResponseWriter) error
+	PostV1AssetsCreate(Context, *AssetCreateRequest) (*Asset, error)
+	PostV1AssetsSet(Context, *AssetSetRequest) (*Asset, error)
 	PostV1AssetsUpload(Context, *http.Request, http.ResponseWriter) error
-	PostV1AssetsRename(Context, *AssetRenameRequest) (*AssetMeta, error)
+	PostV1AssetsRename(Context, *AssetRenameRequest) (*Asset, error)
 	PostV1AssetsDelete(Context, *AssetDeleteRequest) error
-	PostV1AssetsMove(Context, *AssetMoveRequest) (*AssetMeta, error)
+	PostV1AssetsMove(Context, *AssetMoveRequest) (*Asset, error)
 	PostV1AssetDirectoriesList(Context, *EmptyRequest) (*AssetDirectoryList, error)
 	PostV1AssetDirectoriesCreate(Context, *AssetDirectoryCreateRequest) (*AssetDirectory, error)
 	PostV1AssetDirectoriesMove(Context, *AssetDirectoryMoveRequest) (*AssetDirectory, error)
@@ -1055,17 +1055,15 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/assets/list", buildHandlerFunc(config, verifyAuth, postV1AssetsListAccessPolicy, postAuthHandlerPostV1AssetsList, compressionModeAuto, false))
-	postV1AssetsGetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
-	postAuthHandlerPostV1AssetsGet := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetGetRequest)
+	getV1AssetsContentAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerGetV1AssetsContent := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		err := h.GetV1AssetsContent(authCtx, r, w)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-		res, err := h.PostV1AssetsGet(authCtx, req)
-		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("POST /v1/assets/get", buildHandlerFunc(config, verifyAuth, postV1AssetsGetAccessPolicy, postAuthHandlerPostV1AssetsGet, compressionModeAuto, false))
+	m.HandleFunc("GET /v1/assets/content", buildHandlerFunc(config, verifyAuth, getV1AssetsContentAccessPolicy, postAuthHandlerGetV1AssetsContent, compressionModeNever, false))
 	postV1AssetsCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1AssetsCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetCreateRequest)

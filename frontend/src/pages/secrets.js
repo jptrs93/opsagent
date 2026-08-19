@@ -130,7 +130,6 @@ export function secretsPage() {
         } catch (_) { /* view state is a convenience, never load-bearing */ }
     };
 
-    // ---- derived data -----------------------------------------------------
 
     const secretsUnlocked = () => secretsStatusS.val?.unlocked === true;
     const currentItems = () => makeItems(secretMetasS.val, userConfigsS.val, secretsUnlocked());
@@ -221,7 +220,6 @@ export function secretsPage() {
         if (item && (filteredSpaces.val.has(item.spaceId) || !types.val.has(item.kind))) selectedKey.val = null;
     });
 
-    // ---- actions ----------------------------------------------------------
 
     const select = (key) => {
         selectedKey.val = key;
@@ -317,10 +315,6 @@ export function secretsPage() {
         }
         revealed.val = null;
     };
-
-    // Creating starts in the selection's folder: a selected folder itself, a
-    // selected item's folder, or a selected space's root. The dialog's picker
-    // can move it elsewhere from there.
     const createContext = () => {
         const sel = resolveSelection();
         if (sel?.type === "space") return {spaceId: Number(sel.space.id), directoryId: 0};
@@ -493,7 +487,6 @@ export function secretsPage() {
         }
     };
 
-    // ---- resize wiring ----------------------------------------------------
 
     const startColResize = (event, colKey, min) => {
         event.preventDefault();
@@ -550,7 +543,6 @@ export function secretsPage() {
         document.body.classList.add("resizing");
     };
 
-    // ---- small building blocks --------------------------------------------
 
     const spaceDot = (spaceId) => span({
         class: "inline-block w-[7px] h-[7px] rounded-full flex-none",
@@ -603,7 +595,6 @@ export function secretsPage() {
         },
     }, text);
 
-    // ---- toolbar ----------------------------------------------------------
 
     // label is a function so the button face stays live (space dots, dimmed
     // type icons) without rebuilding the toolbar and losing search focus.
@@ -789,7 +780,6 @@ export function secretsPage() {
         }, plusIcon(), "New secret"),
     );
 
-    // ---- table ------------------------------------------------------------
 
     const activeColumns = () => ALL_COLUMNS.filter((c) => shownCols.val.has(c.key));
 
@@ -826,8 +816,6 @@ export function secretsPage() {
         grip);
     };
 
-    // ---- drag and drop ----------------------------------------------------
-    //
     // Mirrors the assets explorer. The drag bookkeeping is plain variables
     // rather than van states on purpose: the table is one derived node, so a
     // state read here would rebuild every row on each dragover — hundreds of
@@ -1097,7 +1085,6 @@ export function secretsPage() {
         );
     };
 
-    // ---- path bar ---------------------------------------------------------
 
     const hiddenByTypeCount = () => {
         let hidden = 0;
@@ -1137,7 +1124,6 @@ export function secretsPage() {
         );
     };
 
-    // ---- inspector --------------------------------------------------------
 
     const kvRow = (label, value) => [
         dt({class: "text-[10.5px] font-semibold uppercase tracking-wide text-gray-500"}, label),
@@ -1345,7 +1331,6 @@ export function secretsPage() {
         );
     };
 
-    // ---- banners and dialogs ----------------------------------------------
 
     const unlockCode = van.state("");
     const unlock = async () => {
@@ -1513,7 +1498,6 @@ export function secretsPage() {
         });
     };
 
-    // ---- page -------------------------------------------------------------
 
     return div(
         // bg-surface: per the design mock the explorer is one flush card

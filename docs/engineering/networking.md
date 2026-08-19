@@ -27,16 +27,15 @@ Implemented today:
 - Endpoints are derived, not reported. A placement's inbound address is a pure function of its space, deployment, and ordinal, so `netstate.pb` renders DNS and ingress backends from the placement itself and reads status only for whether it is running.
 - The space in that function is the placement's own pin, captured at scheduling time as a `deployment_space_versions` row reference and overlaid onto the config identity every derivation reads. A deployment space move therefore never mutates live network state: the scheduler replaces placements through the rollover path, and old-space and new-space placements coexist (each self-consistently addressed, named, and certified for its own space) until the flip.
 - A per-machine internal netproxy deployment runs the built-in DNS process and answers `.internal` AAAA records from endpoint state.
-- Virtual-mode deployments can declare `TLS_PASSTHROUGH` ingress routes. The local agent renders them and their READY IPv6 backends into `netstate.pb`, derives netproxy TCP forwarding from their host-port set, and netproxy forwards TLS streams by SNI without termination.
+- Virtual-mode deployments can declare `TLS_PASSTHROUGH` and `HTTPS` ingress routes. The local agent renders them and their READY IPv6 backends into `netstate.pb`, derives netproxy TCP forwarding from their host-port set, and netproxy forwards TLS streams by SNI without termination or terminates HTTPS itself (see Ingress Shape).
 
 Not implemented yet:
 
 - Applying the targeted cluster map on the primary node; worker-to-worker routing is implemented, but primary-hosted workloads do not yet receive equivalent remote routes.
 - Cross-node DNS. `netstate.pb` is derived node-locally from the placements a node holds, so `.internal` names resolve only for deployments running on the resolving node.
 - Source anti-spoofing and destination ingress policy.
-- Embedded public L7 ingress proxy, including TLS termination and ACME certificate distribution.
 - A separate address allocation and design for future service virtual addresses, plus socket-level load balancing. The workload address ABI allocates only `I` and `O`.
-- Cross-machine `ingress` routes (`HTTPS`, `TLS_PASSTHROUGH`, `HTTP3`) and the embedded proxy that serves them.
+- Cross-machine `ingress` routes: ingress state is derived node-locally, so a route only serves backends running on the same node.
 
 ## Configuration
 
@@ -48,8 +47,9 @@ Deployment networking is configured on `DeploymentSpec.networking`.
 
 `networking.portForwarding` maps one host-interface TCP or UDP port to one container port and requires virtual mode. TCP and UDP claims are independent, so the same numeric host port can be published once for TCP and once for UDP.
 
-`networking.ingress` also requires virtual mode. The currently supported shape is a
-`TLS_PASSTHROUGH` route with a hostname and a `tlsPassthroughConfig` containing
+`networking.ingress` also requires virtual mode. The supported kinds are
+`TLS_PASSTHROUGH` and `HTTPS` (see Ingress Shape below). A `TLS_PASSTHROUGH`
+route carries a hostname and a `tlsPassthroughConfig` containing
 `containerPort` plus optional `hostPort` (zero/default is `443`). The route and
 raw TCP forwarding cannot claim the same host port on a node; multiple distinct
 hostnames can share one ingress host port. Netproxy reads the TLS ClientHello to
@@ -200,8 +200,8 @@ limit because every routed connection holds one client and one backend socket.
 
 DNS names are derived from deployment and space identity:
 
-- `{name}.{environment}.internal` returns READY inbound addresses `I`.
-- `{ordinal}.{name}.{environment}.internal` returns one READY inbound address `I`.
+- `{name}.space-{spaceId}.internal` returns READY inbound addresses `I`.
+- `{ordinal}.{name}.space-{spaceId}.internal` returns one READY inbound address `I`.
 
 Names are normalized to lowercase DNS labels, with underscores converted to dashes.
 

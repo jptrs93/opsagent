@@ -53,11 +53,9 @@ type runtimeConfig struct {
 // from the cache exactly as before the gate existed.
 const bootSyncTimeout = 15 * time.Second
 
-// Run boots the local store, starts the deployment operator, and then maintains
-// a persistent connection to the primary. It intentionally runs forever; fatal
-// failures should panic and let the service manager restart the process.
+// run intentionally runs forever; fatal failures should panic and let the
+// service manager restart the process.
 func run(ctx context.Context, cfg runtimeConfig) {
-
 	store := state.Open(filepath.Join(cfg.DataDir, "secondary.db"))
 	certManager, err := newClusterCertManager(cfg.ClusterCertPath, cfg.ClusterKeyPath)
 	if err != nil {

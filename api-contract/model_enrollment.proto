@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/options.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message EnrollmentRequestStatus {
+  int32 id = 1;
+  int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 updated_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string requesting_ip_address = 4;
+  string requesting_machine_id = 5;
+  string status = 6; // waiting | disconnected | accepted
+  string opendeploy_version = 7;
+  string underlay_address = 8;
+}
+
+message NodeEnrollmentInfo {
+  string enrollment_tls_spki_sha256 = 1;
+}

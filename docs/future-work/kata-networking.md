@@ -97,7 +97,7 @@ Avoid guest network mutation on the promotion critical path. The implemented
 runc lifecycle already has the runtime-neutral shape Kata should preserve:
 
 1. Derive `I = Address(prefix, space, deployment, ordinal, 0, 0)` and a unique
-   `O` whose version and run slots are nonzero normalized values.
+   `O` whose placement and run slots are nonzero normalized values.
 2. Assign both before workload start. Configure `I` with `preferred_lft=0` and
    keep `O` preferred.
 3. Route `O` for the run's full lifetime. Use the `I` host route to decide which
@@ -212,7 +212,7 @@ Kata deployments should use virtual networking and explicit `portForwarding` or 
 
 ## Netproxy services
 
-The current plan runs DNS and ingress proxy in one `opendeploy-net` internal deployment. Kata changes the tradeoff.
+The current implementation runs DNS and ingress proxy in one `opendeploy-net` internal deployment. Kata changes the tradeoff.
 
 Recommended split to evaluate:
 

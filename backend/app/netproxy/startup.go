@@ -18,7 +18,6 @@ const (
 	netproxyDNSPort            = int32(53)
 )
 
-// Run starts the netproxy DNS and ingress services using process configuration.
 func Run(ctx context.Context) error {
 	statePath := ainit.StaticConfig.NetproxyStatePath
 	listen := os.Getenv("OPENDEPLOY_NETPROXY_DNS_LISTEN")

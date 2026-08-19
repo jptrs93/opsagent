@@ -16,8 +16,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
 
-// Run enrolls the secondary when needed, loads its cluster identity, and starts
-// the local deployment operator and primary connection.
 func Run(ctx context.Context) {
 	cfg := ainit.StaticConfig
 	slog.Info(fmt.Sprintf("opendeploy secondary booting version=%v dataDir=%v", version.Version, cfg.DataDir))

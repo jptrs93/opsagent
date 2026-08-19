@@ -57,7 +57,6 @@ func (h *Handler) secretsStatus() apigen.SecretsStatusResponse {
 	}
 }
 
-// notifySecretMeta pushes the secret's current meta into the state stream.
 func (h *Handler) notifySecretMeta(secretID int32) {
 	if meta, ok := h.Store.GetSecretMeta(secretID); ok {
 		h.Store.NotifySecretMetaUpdate(*meta)

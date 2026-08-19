@@ -25,7 +25,6 @@ type Watcher struct {
 	subscribers map[chan *apigen.NetState]struct{}
 }
 
-// New creates a watcher for path. Run starts filesystem watching.
 func New(path string) *Watcher {
 	return &Watcher{
 		path:        filepath.Clean(path),

@@ -22,13 +22,10 @@ import (
 // dryRun, when set via --dry-run, makes every mutating helper log the action it
 // *would* take and return without performing it. Read-only probes (unitActive,
 // readlink, userExists, downloads-for-inspection) still run so the planned
-// actions are realistic. This is the inspect-before-you-run story a compiled
-// installer otherwise lacks versus an auditable shell script.
+// actions are realistic.
 var dryRun bool
 
 func itoa(i int) string { return strconv.Itoa(i) }
-
-// --- logging -----------------------------------------------------------------
 
 func step(format string, a ...any) { fmt.Printf("\n==> "+format+"\n", a...) }
 func info(format string, a ...any) { fmt.Printf("    "+format+"\n", a...) }
@@ -36,8 +33,6 @@ func info(format string, a ...any) { fmt.Printf("    "+format+"\n", a...) }
 func planned(format string, a ...any) {
 	fmt.Printf("    [dry-run] would %s\n", fmt.Sprintf(format, a...))
 }
-
-// --- privilege / arch --------------------------------------------------------
 
 func isRoot() bool { return os.Geteuid() == 0 }
 
@@ -53,10 +48,6 @@ func hostArch() (string, error) {
 	}
 }
 
-// --- command execution -------------------------------------------------------
-
-// run executes a command, streaming its output, and returns an error on failure.
-// Honors dryRun for anything that mutates host state.
 func run(name string, args ...string) error {
 	if dryRun {
 		planned("run: %s %s", name, strings.Join(args, " "))
@@ -75,8 +66,6 @@ func probe(name string, args ...string) bool {
 	return cmd.Run() == nil
 }
 
-// --- filesystem --------------------------------------------------------------
-
 type owner struct{ uid, gid int }
 
 // noChown is used before the opendeploy user exists (or for root-owned files).
@@ -93,7 +82,6 @@ func (o owner) apply(path string) error {
 	return os.Chown(path, o.uid, o.gid)
 }
 
-// ensureDir creates dir (and parents) with mode and ownership, idempotently.
 func ensureDir(path string, mode os.FileMode, own owner) error {
 	if dryRun {
 		planned("mkdir -m %o %s", mode, path)
@@ -133,7 +121,6 @@ func writeFile(path string, content []byte, mode os.FileMode, own owner, onlyIfA
 	return true, own.apply(path)
 }
 
-// installBinary copies src to dst with mode + ownership (like `install -m`).
 func installBinary(src, dst string, mode os.FileMode, own owner) error {
 	if dryRun {
 		planned("install -m %o %s -> %s", mode, src, dst)
@@ -173,7 +160,6 @@ func atomicSymlink(target, link string) error {
 	return os.Rename(tmp, link)
 }
 
-// readlink returns the symlink target, or "" if absent / not a link. Read-only.
 func readlink(link string) string {
 	t, err := os.Readlink(link)
 	if err != nil {
@@ -206,8 +192,6 @@ func removeFile(path string) error {
 	}
 	return err
 }
-
-// --- download + checksum -----------------------------------------------------
 
 // download fetches url to dest. Always performs the network read (even in
 // dry-run) so checksum verification is real; only the final placement honors
@@ -311,8 +295,6 @@ func extractTarGzMembers(tarPath, destDir string, members []string) error {
 	return nil
 }
 
-// --- systemd -----------------------------------------------------------------
-
 func systemctl(args ...string) error { return run("systemctl", args...) }
 
 func daemonReload() error { return systemctl("daemon-reload") }
@@ -329,14 +311,11 @@ func unitEnabled(unit string) bool {
 	return probe("systemctl", "is-enabled", "--quiet", unit)
 }
 
-// --- users -------------------------------------------------------------------
-
 func userExists(name string) bool {
 	_, err := user.Lookup(name)
 	return err == nil
 }
 
-// ensureSystemUser creates the opendeploy system user if absent (idempotent).
 func ensureSystemUser() error {
 	if userExists(osUser) {
 		return nil
@@ -364,9 +343,6 @@ func lookupOwner() (owner, error) {
 	return owner{uid: uid, gid: gid}, nil
 }
 
-// --- github ------------------------------------------------------------------
-
-// resolveLatestTag queries the GitHub releases API for the newest release tag.
 func resolveLatestTag() (string, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
 	req, _ := http.NewRequest(http.MethodGet, url, nil)

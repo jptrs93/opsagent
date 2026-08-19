@@ -135,7 +135,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				UserConfigValuesSnapshot:   &apigen.ConfigList{Items: h.filterConfigMetas(ctx, h.Store.ListConfigMetas())},
 				ValueDirectoriesSnapshot:   &apigen.ValueDirectoryList{Items: h.filterValueDirectories(ctx, h.Store.ListValueDirectories())},
 				SpacesSnapshot:             &apigen.SpaceList{Items: h.filterSpaces(ctx, h.Store.ListSpaces())},
-				AssetsSnapshot:             &apigen.AssetList{Items: h.filterAssetMetas(ctx, h.Store.ListAssets())},
+				AssetsSnapshot:             &apigen.AssetList{Items: h.filterAssets(ctx, h.Store.ListAssets())},
 				AssetDirectoriesSnapshot:   &apigen.AssetDirectoryList{Items: h.filterAssetDirectories(ctx, h.Store.ListAssetDirectories())},
 				NodesSnapshot:              &apigen.ClusterNodeList{Items: h.filterNodes(ctx, h.Store.ListClusterNodes())},
 				NodeStatusesSnapshot:       &apigen.ClusterNodeStatusList{Items: h.filterNodeStatuses(ctx, h.Store.ListNodeStatuses())},
@@ -274,7 +274,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
-				if !h.canAccess(ctx, vView, eAsset, int64(asset.SpaceID), int64(asset.ID)) {
+				if !h.canAccess(ctx, vView, eAsset, int64(asset.SpaceID()), int64(asset.ID)) {
 					continue
 				}
 				if !yield(&apigen.State{AssetUpdate: &asset}, nil) {

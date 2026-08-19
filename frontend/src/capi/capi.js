@@ -6,11 +6,10 @@ import {
   decodeAgentSessionList,
   decodeAgentSessionPickup,
   decodeAgentSessionRequest,
+  decodeAsset,
   decodeAssetDirectory,
   decodeAssetDirectoryList,
   decodeAssetList,
-  decodeAssetMeta,
-  decodeAssetVersion,
   decodeAuthzGlobalRuleList,
   decodeAuthzGlobalRuleRecord,
   decodeAuthzGrantList,
@@ -63,7 +62,6 @@ import {
   encodeAssetDirectoryDeleteRequest,
   encodeAssetDirectoryMoveRequest,
   encodeAssetDirectoryRenameRequest,
-  encodeAssetGetRequest,
   encodeAssetMoveRequest,
   encodeAssetRenameRequest,
   encodeAssetSetRequest,
@@ -1135,62 +1133,61 @@ export class Capi {
   }
 
   /**
-   * @param {AssetGetRequest} payload
-   * @returns {Promise<AssetVersion>}
+   * @returns {Promise<void>}
    */
-  async postV1AssetsGet(payload) {
-    const response = await this.#request("/v1/assets/get", { method: 'POST', body: encodeAssetGetRequest(payload) });
+  async getV1AssetsContent() {
+    const response = await this.#request("/v1/assets/content", { method: 'GET' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAssetVersion(await response.arrayBuffer());
+    await response.arrayBuffer();
   }
 
   /**
    * @param {AssetCreateRequest} payload
-   * @returns {Promise<AssetVersion>}
+   * @returns {Promise<Asset>}
    */
   async postV1AssetsCreate(payload) {
     const response = await this.#request("/v1/assets/create", { method: 'POST', body: encodeAssetCreateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAssetVersion(await response.arrayBuffer());
+    return decodeAsset(await response.arrayBuffer());
   }
 
   /**
    * @param {AssetSetRequest} payload
-   * @returns {Promise<AssetVersion>}
+   * @returns {Promise<Asset>}
    */
   async postV1AssetsSet(payload) {
     const response = await this.#request("/v1/assets/set", { method: 'POST', body: encodeAssetSetRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAssetVersion(await response.arrayBuffer());
+    return decodeAsset(await response.arrayBuffer());
   }
 
   /**
-   * @returns {Promise<AssetVersion>}
+   * @returns {Promise<Asset>}
    */
   async postV1AssetsUpload() {
     const response = await this.#request("/v1/assets/upload", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAssetVersion(await response.arrayBuffer());
+    return decodeAsset(await response.arrayBuffer());
   }
 
   /**
    * @param {AssetRenameRequest} payload
-   * @returns {Promise<AssetMeta>}
+   * @returns {Promise<Asset>}
    */
   async postV1AssetsRename(payload) {
     const response = await this.#request("/v1/assets/rename", { method: 'POST', body: encodeAssetRenameRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAssetMeta(await response.arrayBuffer());
+    return decodeAsset(await response.arrayBuffer());
   }
 
   /**
@@ -1207,14 +1204,14 @@ export class Capi {
 
   /**
    * @param {AssetMoveRequest} payload
-   * @returns {Promise<AssetMeta>}
+   * @returns {Promise<Asset>}
    */
   async postV1AssetsMove(payload) {
     const response = await this.#request("/v1/assets/move", { method: 'POST', body: encodeAssetMoveRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAssetMeta(await response.arrayBuffer());
+    return decodeAsset(await response.arrayBuffer());
   }
 
   /**

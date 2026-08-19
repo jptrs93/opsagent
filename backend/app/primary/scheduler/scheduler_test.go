@@ -432,8 +432,6 @@ func TestTerminateDeploymentStopsEveryRunnableState(t *testing.T) {
 	}
 }
 
-// restartWith rebuilds the scheduler from what is on disk, exactly as Run does
-// on process start: statuses first, then configs.
 // restartWith mirrors Run()'s startup order: sweep stopped placements, replay
 // instances, then reconcile configs.
 func restartWith(store *state.Service, barrier routeBarrier, cfg *apigen.DeploymentConfig) *Scheduler {

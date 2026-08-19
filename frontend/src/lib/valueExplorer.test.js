@@ -183,7 +183,6 @@ test("the last visible non-fixed column absorbs the slack", () => {
     assert.equal(flexColumnKey(new Set(["name", "actions"])), "name");
 });
 
-// ---- drag and drop ---------------------------------------------------------
 
 const DND_DIRS = [dir(10, 1, "postgres"), dir(11, 1, "stripe", 10), dir(12, 2, "postgres")];
 const DND_ITEMS = [

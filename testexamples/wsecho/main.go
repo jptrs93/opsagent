@@ -221,7 +221,6 @@ func closePayload(code int, reason string) []byte {
 	return payload
 }
 
-// recordClose parses a received close frame into the connection state.
 func recordClose(state *connState, payload []byte) {
 	state.mu.Lock()
 	if len(payload) >= 2 {

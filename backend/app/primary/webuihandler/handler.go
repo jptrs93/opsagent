@@ -65,7 +65,6 @@ type Handler struct {
 	AcmeWake func()
 }
 
-// Dependencies contains the shared primary services used by Web UI routes.
 type Dependencies struct {
 	Store                 *state.Service
 	Assets                *assetstore.Store

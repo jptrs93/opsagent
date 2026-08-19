@@ -1,0 +1,180 @@
+always assertion ValueLogsConsistent:
+    for family in FAMILIES:
+        for id in value_entities[family]:
+            nversions = 0
+            for r in value_versions[family]:
+                if value_versions[family][r].owner == id:
+                    nversions = nversions + 1
+            nspaces = 0
+            for e in value_space_log[family]:
+                if e.owner == id:
+                    nspaces = nspaces + 1
+            if nversions < 1 or nspaces < 1 or nversions != value_entities[family][id].nversions:
+                return False
+    return True
+
+always assertion ValueVersionRowOrderAgrees:
+    for family in FAMILIES:
+        for r1 in value_versions[family]:
+            for r2 in value_versions[family]:
+                v1 = value_versions[family][r1]
+                v2 = value_versions[family][r2]
+                if v1.owner == v2.owner and r1 < r2 and v1.version >= v2.version:
+                    return False
+    return True
+
+always assertion ValuesNeverInSystemSpace:
+    for family in FAMILIES:
+        for e in value_space_log[family]:
+            if e.space == SYSTEM_SPACE:
+                return False
+    return True
+
+always assertion DeploymentLogsNonEmpty:
+    for d in deployments:
+        if len(deployment_versions[d]) < 1 or len(deployment_space_versions[d]) < 1:
+            return False
+    return True
+
+always assertion DeploymentCreationAtomic:
+    for d in deployments:
+        if deployment_versions[d][0].seq != deployment_space_versions[d][0].seq:
+            return False
+    return True
+
+always assertion DeploymentPinsResolve:
+    for d in deployments:
+        for spec in deployment_versions[d]:
+            if spec.secret_pin != None and spec.secret_pin not in value_versions['secret']:
+                return False
+            if spec.config_pin != None and spec.config_pin not in value_versions['config']:
+                return False
+            if spec.asset_pin != None and spec.asset_pin not in value_versions['asset']:
+                return False
+    return True
+
+always assertion LiveDeploymentPinLocality:
+    for d in deployments:
+        if not deployments[d].deleted:
+            dlog = deployment_space_versions[d]
+            dspace = dlog[len(dlog) - 1].space
+            vlog = deployment_versions[d]
+            spec = vlog[len(vlog) - 1]
+            pins = {'secret': spec.secret_pin, 'config': spec.config_pin, 'asset': spec.asset_pin}
+            for family in pins:
+                pin = pins[family]
+                if pin != None:
+                    owner = value_versions[family][pin].owner
+                    owner_space = 0
+                    for e in value_space_log[family]:
+                        if e.owner == owner:
+                            owner_space = e.space
+                    if owner_space != dspace and owner_space != GLOBAL_SPACE:
+                        return False
+    return True
+
+always assertion LiveDeploymentSpaceExists:
+    for d in deployments:
+        if not deployments[d].deleted:
+            dlog = deployment_space_versions[d]
+            if dlog[len(dlog) - 1].space not in spaces:
+                return False
+    return True
+
+always assertion SeqStampsBounded:
+    for family in FAMILIES:
+        for r in value_versions[family]:
+            if value_versions[family][r].seq < 1 or value_versions[family][r].seq > global_seq:
+                return False
+        for e in value_space_log[family]:
+            if e.seq < 1 or e.seq > global_seq:
+                return False
+    for d in deployments:
+        for spec in deployment_versions[d]:
+            if spec.seq < 1 or spec.seq > global_seq:
+                return False
+        for e in deployment_space_versions[d]:
+            if e.seq < 1 or e.seq > global_seq:
+                return False
+    for i in scheduled_instances:
+        if scheduled_instances[i].seq < 1 or scheduled_instances[i].seq > global_seq:
+            return False
+    return True
+
+always assertion ValueCreationAtomic:
+    for family in FAMILIES:
+        for id in value_entities[family]:
+            v1seq = 0
+            for r in value_versions[family]:
+                v = value_versions[family][r]
+                if v.owner == id and v.version == 1:
+                    v1seq = v.seq
+            s1seq = -1
+            for e in value_space_log[family]:
+                if e.owner == id and s1seq == -1:
+                    s1seq = e.seq
+            if v1seq != s1seq:
+                return False
+    return True
+
+always assertion InstancePinsResolve:
+    for i in scheduled_instances:
+        inst = scheduled_instances[i]
+        if inst.deployment not in deployments:
+            return False
+        version_found = False
+        for spec in deployment_versions[inst.deployment]:
+            if spec.version == inst.deployment_version:
+                version_found = True
+        row_found = False
+        for e in deployment_space_versions[inst.deployment]:
+            if e.row_id == inst.space_version_row_id:
+                row_found = True
+        if not version_found or not row_found:
+            return False
+    return True
+
+always assertion InstanceIncarnationUnique:
+    for i in scheduled_instances:
+        for j in scheduled_instances:
+            if i < j:
+                a = scheduled_instances[i]
+                b = scheduled_instances[j]
+                if a.deployment == b.deployment and a.deployment_version == b.deployment_version and a.node == b.node and a.ordinal == b.ordinal:
+                    return False
+    return True
+
+exists assertion InstanceScheduled:
+    return len(scheduled_instances) > 0
+
+exists assertion CrossSpaceGlobalReference:
+    for d in deployments:
+        if not deployments[d].deleted:
+            dlog = deployment_space_versions[d]
+            dspace = dlog[len(dlog) - 1].space
+            if dspace != GLOBAL_SPACE:
+                vlog = deployment_versions[d]
+                spec = vlog[len(vlog) - 1]
+                pins = {'secret': spec.secret_pin, 'config': spec.config_pin, 'asset': spec.asset_pin}
+                for family in pins:
+                    pin = pins[family]
+                    if pin != None:
+                        owner = value_versions[family][pin].owner
+                        owner_space = 0
+                        for e in value_space_log[family]:
+                            if e.owner == owner:
+                                owner_space = e.space
+                        if owner_space == GLOBAL_SPACE:
+                            return True
+    return False
+
+exists assertion ValueSpaceCanDangle:
+    for family in FAMILIES:
+        for id in value_entities[family]:
+            owner_space = 0
+            for e in value_space_log[family]:
+                if e.owner == id:
+                    owner_space = e.space
+            if owner_space not in spaces:
+                return True
+    return False

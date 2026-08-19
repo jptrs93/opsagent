@@ -153,4 +153,3 @@ func (h *Handler) validateNodeAllowsSpace(nodeID, spaceID int32) error {
 		"This node does not allow deployments from that space",
 		"node_space_not_allowed", http.StatusConflict)
 }
-

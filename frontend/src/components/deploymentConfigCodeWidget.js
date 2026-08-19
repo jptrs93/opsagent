@@ -250,9 +250,9 @@ function catalogVersionCompletionOptions(namespace, catalogs, text, name, spaceN
     for (const item of collection) {
         if (item?.deleted || catalogName(item, namespace) !== name) continue;
         if (namespace === "asset") {
-            // Asset catalogs are metas whose pinnable versions live in
-            // version_refs, not at the root.
-            for (const ref of item?.versionRefs || []) addVersion(Number(ref?.version || 0), ref?.id);
+            // Asset catalogs are view models whose pinnable versions live in
+            // contentVersions, not at the root.
+            for (const ref of item?.contentVersions || []) addVersion(Number(ref?.version || 0), ref?.id);
         } else {
             addVersion(Number(item?.version || 0), catalogID(item, namespace));
         }

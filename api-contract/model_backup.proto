@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/options.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message BackupStatus {
+  bool configured = 1;
+  bool running = 2;
+  bool in_sync = 3;
+  uint64 local_txid = 4;
+  uint64 remote_txid = 5;
+  int64 last_successful_sync_at = 6 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string error = 7;
+  bool asset_migration_running = 8;
+  uint32 asset_pending = 9;
+  bool asset_target_s3 = 10;
+  string asset_error = 11;
+}

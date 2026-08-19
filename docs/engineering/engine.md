@@ -8,11 +8,11 @@ Key files:
 
 - `backend/lib/engine/operator.go` — `DeploymentOperator` reconciliation loop and preparer dispatch.
 - `backend/app/primary/runtime.go` — primary dependency graph and operator startup.
-- `backend/lib/engine/preparer/preparer.go` — in-flight handle lifecycle and shared preparation helpers.
-- `backend/lib/engine/preparer/nixdocker/` — builds a Nix flake that streams an OCI/Docker image and imports it into containerd.
-- `backend/lib/engine/preparer/containerimage/` — pulls an ordinary registry image into containerd.
-- `backend/lib/engine/preparer/githubrelease/` — internal-only OpenDeploy executable release preparation.
-- `backend/lib/engine/preparer/githubreleaseimage/` — builds the internal `opendeploy-net` image from an OpenDeploy release binary.
+- `backend/lib/engine/prepare/preparer.go` — in-flight handle lifecycle and shared preparation helpers.
+- `backend/lib/engine/prepare/nixdocker/` — builds a Nix flake that streams an OCI/Docker image and imports it into containerd.
+- `backend/lib/engine/prepare/containerimage/` — pulls an ordinary registry image into containerd.
+- `backend/lib/engine/prepare/githubrelease/` — internal-only OpenDeploy executable release preparation.
+- `backend/lib/engine/prepare/githubreleaseimage/` — builds the internal `opendeploy-net` image from an OpenDeploy release binary.
 - `backend/lib/repo/git/` — Git repo/branch/commit and checkout service used by validation, version discovery, and Nix Docker builds.
 - `backend/lib/repo/github/` — authenticated GitHub release and asset download client.
 - `backend/lib/engine/ctrd/` — containerd client wrapper behind Linux build tags.
@@ -42,15 +42,13 @@ The single status that gates runner start, that retention reads, and that holds 
 
 The rollup ranks a ready image above a resolving inputs stage. That is what lets an input retry on an already-prepared instance publish its stage without demoting the rollup that keeps the runner running.
 
-Databases predating the split are migrated in place: the old `preparer_status` column is backfilled into the two stage columns and then dropped. Every legacy value maps to a stage pair that re-derives to itself; the one thing not recoverable is which stage a legacy `FAILED` failed in, which is attributed to the image.
-
 ## Operator
 
 `DeploymentOperator` owns concrete references to the stateful artifact preparers and the runtime-input service, along with the runner reconciliation loop. It passes the runtime-input instance to every container runner it creates or reattaches. Ordinary container-image preparation is a stateless package operation; image preparation and runners use the process-wide lazy `ctrd.Default` client directly. A single private switch selects the GitHub release, Nix Docker, ordinary container image, or internal GitHub release image path. Primary constructs and starts its operator in `app/primary/runtime.go`; secondary does so in `app/secondary/secondary.go`.
 
 On a secondary, the operator starts behind a boot sync gate: `RunAll` is held until the primary's first assignment snapshot has been applied to the local store, or for `bootSyncTimeout` when the primary is unreachable, after which it runs from the cached assignments exactly as before. Cached assignments can be arbitrarily stale, and acting on them seconds before a fresh snapshot arrives has caused real damage — a self-deployment runner reverting a just-installed binary to the cached version, and container network namespaces derived from cached configs that had lost their space identity. The cluster session signals the gate after `applySnapshot`; `RunAll` snapshots and subscribes atomically, so everything applied before it starts is in its initial view.
 
-`preparer.Handle` is the concrete cancellation/completion handle for the complete preparation operation. The operator owns its goroutine and all status transitions: it first ensures all runtime inputs are available, then calls the selected artifact preparer synchronously, and publishes the terminal status only after both stages complete. Concrete artifact preparers only perform strategy-specific artifact work and report an `ImageStatus`.
+`prepare.Handle` is the concrete cancellation/completion handle for the complete preparation operation. The operator owns its goroutine and all status transitions: it first ensures all runtime inputs are available, then calls the selected artifact preparer synchronously, and publishes the terminal status only after both stages complete. Concrete artifact preparers only perform strategy-specific artifact work and report an `ImageStatus`.
 
 Inputs run before the image stage so a cheap and commonly transient failure — a secret the primary has not distributed yet — fails before committing to a build that can take minutes. The two stages are otherwise independent. `prepare.StatusUpdate` is the only way to publish a transition. Nix builds are serialized across deployments to avoid Nix-store contention; image pulls and the two internal release preparations are allowed to run independently.
 
@@ -105,16 +103,20 @@ type Runner interface {
     Stop()
     Version() int32
     ArtifactMissing() <-chan struct{}
+    // Serve claims the instance's stable inbound address for this placement
+    // (host route plus published host ports); idempotent, called by the
+    // operator whenever the placement's target state is RUN_SERVING.
+    Serve() error
 }
 ```
 
 Public deployments run through `containerRunner`. It creates one deterministic containerd container per deployment config version (`opendeploy-{deploymentID}-v{version}`), wires stdout/stderr through a dedicated binary log consumer, waits for task exit, and respawns with exponential backoff on crashes. The consumer writes merged half-hourly UTC files under `{RunOutputDir}/{deploymentID}/{YYYYMMDD_HHMM}_{version}_{run}.logbin`. Each binary record carries its timestamp, config version, run number, and stdout/stderr stream. `version` is the deployment configuration version; `run` starts at `1` and increments for each respawn of that version. A rollover candidate has a newer configuration version, so it writes distinct files while it overlaps the old runner. Host-network deployments join the host network namespace. Virtual-network deployments get a pre-created Linux netns from `backend/lib/network`, and the containerd OCI spec joins that namespace.
 
-Run-log reads go through `engine/logreader`. It identifies all candidate `.logbin` files for a deployment, turns each into a chronological `LogLine` stream, and merges those streams by timestamp for historical searches. It only scans existing files and does not tail active writes.
+Run-log reads go through `lib/log/logreader`. It identifies all candidate `.logbin` files for a deployment, turns each into a chronological `LogLine` stream, and merges those streams by timestamp for historical searches. It only scans existing files and does not tail active writes.
 
 Container runner behavior:
 
-- Environment variables are stored as typed `EnvVarValue` entries. Exactly one of literal `value`, `secretId`, `configId`, asset ref, or Address ref is set. An Address ref persists `{addressDeploymentId, addressSpaceId}` and, at spawn, derives the target's stable inbound virtual IPv6 address `I` from the local cluster ULA prefix without fetching target deployment state. Address refs never expose `O`. Targets must be virtual-networked on the same node; target deletion, removal of virtual networking, and space moves are rejected while references exist.
+- Environment variables are stored as typed `EnvVarValue` entries. Exactly one of literal `value`, `secretVersionId`, `configVersionId`, asset ref, or Address ref is set. An Address ref persists `{addressDeploymentId, addressSpaceId}` and, at spawn, derives the target's stable inbound virtual IPv6 address `I` from the local cluster ULA prefix without fetching target deployment state. Address refs never expose `O`. Targets must be virtual-networked on the same node; target deletion, removal of virtual networking, and space moves are rejected while references exist.
 - Default data volume is created under `{dataDir}-volumes/{deploymentID}/default` and mounted at `/data`, unless `runtime.defaultVolume.disabled` is set or `runtime.defaultVolume.containerPath` overrides the destination.
 - Additional host mounts and OpenDeploy-managed asset mounts are translated to containerd bind mounts.
 - `devShmSizeKb` optionally resizes the container's default `/dev/shm` tmpfs from containerd's default 64 MiB using a KiB value.

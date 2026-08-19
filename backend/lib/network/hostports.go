@@ -160,7 +160,6 @@ func (m *Manager) SetCurrentNet(deploymentID int32, cn *ContainerNet) {
 	m.current[deploymentID] = cn
 }
 
-// CurrentNet returns the recorded current container network, if any.
 func (m *Manager) CurrentNet(deploymentID int32) *ContainerNet {
 	m.mu.Lock()
 	defer m.mu.Unlock()

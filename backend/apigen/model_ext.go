@@ -260,3 +260,21 @@ func (s AccessPolicyType) String() string {
 		return fmt.Sprintf("AccessPolicyType(%d)", int32(s))
 	}
 }
+
+// SpaceID is the asset's current space: the newest entry of the append-only
+// space log.
+func (a *Asset) SpaceID() int32 {
+	if a == nil || len(a.SpaceVersions) == 0 {
+		return 0
+	}
+	return a.SpaceVersions[0].SpaceID
+}
+
+// LatestContentVersion is the newest content version, or nil for an asset
+// with no published version (never surfaced by list/get reads).
+func (a *Asset) LatestContentVersion() *AssetContentVersion {
+	if a == nil || len(a.ContentVersions) == 0 {
+		return nil
+	}
+	return a.ContentVersions[0]
+}

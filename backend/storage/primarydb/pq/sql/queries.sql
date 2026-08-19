@@ -1,13 +1,9 @@
--- === global_seq ===
-
 -- name: NextGlobalSeq :one
 UPDATE global_seq SET value = value + 1 WHERE id = 1
 RETURNING value;
 
 -- name: GetGlobalSeq :one
 SELECT value FROM global_seq WHERE id = 1;
-
--- === deployments ===
 
 -- CreateDeployment inserts a new stable deployment identity and
 -- auto-allocates its deployment_id. Deleted deployments do not reserve their
@@ -38,8 +34,6 @@ JOIN (SELECT deployment_id, MAX(version) AS version
       FROM deployment_space_versions GROUP BY deployment_id) latest
   ON latest.deployment_id = sp.deployment_id AND latest.version = sp.version;
 
--- === spaces ===
-
 -- name: ListSpaces :many
 SELECT id, name FROM spaces ORDER BY id;
 
@@ -61,8 +55,6 @@ WHERE d.deleted_at = 0
        WHERE sp.deployment_id = d.deployment_id
        ORDER BY sp.version DESC LIMIT 1) = ?;
 
--- === deployment_versions ===
-
 -- name: InsertDeploymentVersion :exec
 INSERT INTO deployment_versions (deployment_id, version, created_at, author, spec_blob, global_seq)
 VALUES (?, ?, ?, ?, ?, ?);
@@ -77,8 +69,6 @@ ORDER BY version ASC;
 SELECT id, deployment_id, version, created_at, author, spec_blob, global_seq
 FROM deployment_versions
 WHERE deployment_id = ? AND version = ?;
-
--- === scheduled_instances ===
 
 -- Reads are hand-written in scheduled_instances.go: an instance row is its
 -- identity joined with the version log for creation time and current state.
@@ -95,8 +85,6 @@ INSERT INTO scheduled_instance_versions (scheduled_instance_id, version, created
 SELECT @scheduled_instance_id, COALESCE(MAX(version), 0) + 1, @created_at, @state, @global_seq
 FROM scheduled_instance_versions
 WHERE scheduled_instance_id = @scheduled_instance_id;
-
--- === scheduled_instance_status ===
 
 -- name: InsertScheduledInstanceStatus :exec
 INSERT INTO scheduled_instance_status (
@@ -153,8 +141,6 @@ FROM scheduled_instance_status
 WHERE deployment_id = ?
 ORDER BY updated_at ASC;
 
--- === users ===
-
 -- name: GetUser :one
 SELECT id, name, data_blob, created_at, last_login_at FROM users WHERE id = ?;
 
@@ -170,8 +156,6 @@ UPDATE users SET last_login_at = ? WHERE id = ?;
 
 -- name: ListUsers :many
 SELECT id, name, data_blob, created_at, last_login_at FROM users ORDER BY id;
-
--- === agent_sessions ===
 
 -- name: InsertAgentSession :exec
 INSERT INTO agent_sessions (id, user_id, created_at, expires_at, token_hash, token_prefix, revoked_at, scopes,
@@ -216,8 +200,6 @@ WHERE id = ? AND status = 2 AND length(token_hash) = 0;
 UPDATE agent_sessions SET revoked_at = ?, status = ?
 WHERE id = ? AND user_id = ? AND revoked_at = 0;
 
--- === personal_sessions ===
-
 -- name: InsertPersonalSession :exec
 INSERT INTO personal_sessions (id, user_id, created_at, expires_at, token_hash, revoked_at,
                                requesting_address, user_agent, last_active_at)
@@ -240,16 +222,12 @@ WHERE id = ? AND user_id = ? AND revoked_at = 0;
 -- name: TouchPersonalSessionActivity :exec
 UPDATE personal_sessions SET last_active_at = ? WHERE id = ?;
 
--- === public_keys ===
-
 -- name: GetPublicKey :one
 SELECT kid, key_bytes FROM public_keys WHERE kid = ?;
 
 -- name: UpsertPublicKey :exec
 INSERT INTO public_keys (kid, key_bytes) VALUES (?, ?)
 ON CONFLICT(kid) DO UPDATE SET key_bytes = excluded.key_bytes;
-
--- === configs ===
 
 -- Container reads are hand-written in values.go: the current space is the
 -- newest config_spaces row and reads exclude soft-deleted configs.
@@ -294,8 +272,6 @@ INSERT INTO config_versions (config_id, version, value, created_at, author, glob
 VALUES (?, ?, ?, ?, ?, ?)
 RETURNING id, config_id, version, value, created_at, author, global_seq;
 
--- === value directories (shared by secrets and configs) ===
-
 -- name: CountValueDirectorySiblingsWithName :one
 SELECT COUNT(*) FROM value_directories
 WHERE space_id = ? AND parent_id = ? AND name = ? AND id != ?;
@@ -339,8 +315,6 @@ UPDATE secrets SET value_directory_id = ? WHERE id = ?;
 -- name: SetConfigValueDirectoryID :exec
 UPDATE configs SET value_directory_id = ? WHERE id = ?;
 
--- === assets ===
-
 -- Container reads are hand-written in assets.go: the current space is the
 -- newest asset_spaces row and reads exclude soft-deleted assets.
 
@@ -361,6 +335,11 @@ VALUES (?, ?, ?, ?, ?);
 SELECT id, asset_id, author, created_at, space_id, global_seq
 FROM asset_spaces WHERE asset_id = ?
 ORDER BY id ASC;
+
+-- name: ListAssetSpaceRows :many
+SELECT id, asset_id, author, created_at, space_id, global_seq
+FROM asset_spaces
+ORDER BY asset_id, id ASC;
 
 -- name: RenameAssetKey :exec
 UPDATE assets SET key = ? WHERE id = ?;
@@ -417,8 +396,6 @@ SELECT COUNT(*) FROM asset_versions WHERE sha256 = ?;
 -- name: ListAssetIDsBySha :many
 SELECT DISTINCT asset_id FROM asset_versions WHERE sha256 = ?;
 
--- === asset_store ===
-
 -- name: InsertAssetStoreRow :one
 INSERT INTO asset_store (id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -454,8 +431,6 @@ UPDATE asset_store SET remote_status = ? WHERE id = ?;
 
 -- name: DeleteAssetStoreRow :exec
 DELETE FROM asset_store WHERE id = ?;
-
--- === asset_migrations ===
 
 -- name: GetUnfinishedAssetMigration :one
 SELECT id, old_config_version_id, new_config_version_id, status, last_error,
@@ -494,8 +469,6 @@ WHERE id = ?
 RETURNING id, old_config_version_id, new_config_version_id, status, last_error,
           created_at, started_at, last_attempt_at, finished_at;
 
--- === secret_keyslots ===
-
 -- name: ListSecretKeyslots :many
 SELECT slot, smk_version, wrapped_smk, nonce, kdf_salt, created_at
 FROM secret_keyslots ORDER BY slot;
@@ -509,8 +482,6 @@ ON CONFLICT(slot) DO UPDATE SET
     nonce = excluded.nonce,
     kdf_salt = excluded.kdf_salt,
     created_at = excluded.created_at;
-
--- === secrets ===
 
 -- Container reads and the version-record list are hand-written in values.go:
 -- the current space is the newest secret_spaces row and reads exclude
@@ -562,8 +533,6 @@ ORDER BY version ASC;
 -- name: ListConfigVersionIDsByConfigID :many
 SELECT id FROM config_versions WHERE config_id = ? ORDER BY version;
 
--- === system_secrets ===
-
 -- name: GetSystemSecret :one
 SELECT name, smk_version, ciphertext, nonce, created_at, updated_at
 FROM system_secrets
@@ -584,8 +553,6 @@ select * from system_config_revisions order by id desc limit 1;
 
 -- name: GetConfigByID :one
 SELECT id, updated_at, config_blob FROM system_config_revisions WHERE id = ?;
-
--- === authz ===
 
 -- The template list read is hand-written in authz.go: a template row is its
 -- identity joined with the version log for created_at/author (v1 row) and

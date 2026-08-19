@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+enum AuthzVerb {
+  AUTHZ_VERB_UNKNOWN = 0;
+  AUTHZ_VERB_CREATE = 1;
+  AUTHZ_VERB_UPDATE = 2;
+  AUTHZ_VERB_DELETE = 3;
+  AUTHZ_VERB_VIEW = 4;
+  AUTHZ_VERB_VIEW_LOGS = 5;
+  AUTHZ_VERB_REVEAL = 6;
+}
+
+enum AuthzEntity {
+  AUTHZ_ENTITY_UNKNOWN = 0;
+  AUTHZ_ENTITY_SPACE = 1;
+  AUTHZ_ENTITY_DEPLOYMENT = 2;
+  AUTHZ_ENTITY_SECRET = 3;
+  AUTHZ_ENTITY_CONFIG = 4;
+  AUTHZ_ENTITY_ASSET = 5;
+  AUTHZ_ENTITY_NODE = 6;
+  AUTHZ_ENTITY_CLUSTER = 7;
+  AUTHZ_ENTITY_USER = 8;
+  AUTHZ_ENTITY_ACCESS = 9;
+}
+
+message AuthzSelector {
+  bool wildcard = 1;
+  int64 argument_id = 2;
+  repeated int64 include = 3;
+  repeated int64 exclude = 4;
+}
+
+message AuthzRule {
+  AuthzSelector permissions = 1;
+  AuthzSelector spaces = 2;
+  AuthzSelector entity_types = 3;
+  AuthzSelector entity_refs = 4;
+  bool delegation_allowed = 5;
+}
+
+message AuthzTemplateArgument {
+  int64 id = 1;
+  string name = 2;
+}
+
+message AuthzRuleTemplate {
+  repeated AuthzTemplateArgument arguments = 1;
+  repeated AuthzRule rules = 2;
+}
+
+message AuthzRuleTemplateRecord {
+  int64 id = 1;
+  string name = 2;
+  bool builtin = 3;
+  bool deleted = 4;
+  int64 author = 5;
+  int64 created_at = 6;
+  AuthzRuleTemplate template = 7;
+}
+
+message AuthzArgumentBinding {
+  int64 argument_id = 1;
+  repeated int64 values = 2;
+}
+
+message AuthzGrant {
+  repeated AuthzArgumentBinding args = 1;
+  AuthzRule rule = 2;
+}
+
+message AuthzGrantRecord {
+  int64 id = 1;
+  int64 user_id = 2;
+  int64 template_id = 3;
+  int64 author = 4;
+  int64 created_at = 5;
+  AuthzGrant grant = 6;
+}
+
+message AuthzGlobalRule {
+  AuthzSelector permissions = 1;
+  AuthzSelector spaces = 2;
+  AuthzSelector entity_types = 3;
+  AuthzSelector entity_refs = 4;
+  // Deny rules only: fire only for delegated (agent) sessions.
+  bool delegated_only = 5;
+  reserved 6; // briefly held an inverted `allow` flag
+  // Allow rules only: whether delegated (agent) sessions also receive it.
+  bool delegation_allowed = 7;
+  // Deny mode: the rule blocks matching requests before any grant is
+  // considered. Unset, the rule is an allow: it grants matching requests to
+  // every user, evaluated alongside their grants, and denies still beat it.
+  bool deny = 8;
+}
+
+message AuthzGlobalRuleRecord {
+  int64 id = 1;
+  string name = 2;
+  int64 author = 3;
+  int64 created_at = 4;
+  AuthzGlobalRule rule = 5;
+}

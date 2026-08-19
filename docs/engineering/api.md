@@ -2,7 +2,7 @@
 
 ## Overview
 
-The API is HTTP + binary protobuf v3. Each service has its own file — `api-contract/api_service.proto`, `cluster_service.proto`, and `enrollment_service.proto` — holding its RPC definitions and per-route access policies; model messages are split across `api-contract/*_model.proto`. The generator concatenates every file into one schema before running, so a message defined in any of them is visible to all. Go and JS code is generated from the proto schema using [cleanproto](https://github.com/jptrs93/cleanproto/blob/main/README.md).
+The API is HTTP + binary protobuf v3. Each service has its own file — `api-contract/api_service.proto`, `cluster_service.proto`, and `enrollment_service.proto` — holding its RPC definitions and per-route access policies; model messages are split per entity into `api-contract/model_<entity>.proto` (data model shapes) and `api-contract/model_<entity>_operations.proto` (endpoint request/response shapes). The generator concatenates every file into one schema before running, so a message defined in any of them is visible to all. Go and JS code is generated from the proto schema using [cleanproto](https://github.com/jptrs93/cleanproto/blob/main/README.md).
 
 The split follows the security boundary, not just size: each service is served on a different listener with a different notion of caller identity, so which file an RPC lives in decides what can reach it.
 
@@ -60,7 +60,7 @@ worker address derivation and virtual networking for every cached workload.
 
 ## Endpoints
 
-Every route below is generated from `api-contract/*_service.proto`; the group headings match the groups in those files.
+Every route below is generated from `api-contract/*_service.proto`.
 
 ### Root
 | Method | Path | Request | Response | Policy |
@@ -97,6 +97,28 @@ Every route below is generated from `api-contract/*_service.proto`; the group he
 | POST | `/v1/agent-sessions/list` | — | `AgentSessionList` | ANY_OF default |
 | POST | `/v1/agent-sessions/revoke` | `AgentSessionRevokeRequest` | — | ANY_OF default |
 
+### Personal sessions
+| Method | Path | Request | Response | Policy |
+|--------|------|---------|----------|--------|
+| POST | `/v1/personal-sessions/list` | — | `PersonalSessionList` | ANY_OF default |
+| POST | `/v1/personal-sessions/revoke` | `PersonalSessionRevokeRequest` | — | ANY_OF default |
+
+### Access control
+| Method | Path | Request | Response | Policy |
+|--------|------|---------|----------|--------|
+| POST | `/v1/access/rule-templates/list` | — | `AuthzRuleTemplateList` | ANY_OF default |
+| POST | `/v1/access/rule-templates/create` | `AuthzRuleTemplateCreateRequest` | `AuthzRuleTemplateRecord` | ANY_OF default |
+| POST | `/v1/access/rule-templates/update` | `AuthzRuleTemplateUpdateRequest` | `AuthzRuleTemplateRecord` | ANY_OF default |
+| POST | `/v1/access/rule-templates/delete` | `AuthzRuleTemplateDeleteRequest` | — | ANY_OF default |
+| POST | `/v1/access/grants/list` | — | `AuthzGrantList` | ANY_OF default |
+| POST | `/v1/access/grants/create` | `AuthzGrantCreateRequest` | `AuthzGrantRecord` | ANY_OF default |
+| POST | `/v1/access/grants/delete` | `AuthzGrantDeleteRequest` | — | ANY_OF default |
+| POST | `/v1/access/global-rules/list` | — | `AuthzGlobalRuleList` | ANY_OF default |
+| POST | `/v1/access/global-rules/create` | `AuthzGlobalRuleCreateRequest` | `AuthzGlobalRuleRecord` | ANY_OF default |
+| POST | `/v1/access/global-rules/delete` | `AuthzGlobalRuleDeleteRequest` | — | ANY_OF default |
+
+See [auth.md](auth.md) for the access-control model these routes manage.
+
 ### Global state
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
@@ -112,6 +134,7 @@ Every route below is generated from `api-contract/*_service.proto`; the group he
 | POST | `/v1/deployments/get` | `DeploymentGetRequest` | `DeploymentState` | ANY_OF default |
 | POST | `/v1/deployments/create` | `DeploymentCreateRequest` | `DeploymentConfig` | ANY_OF default |
 | POST | `/v1/deployments/update` | `DeploymentUpdateRequest` | `DeploymentConfig` | ANY_OF default |
+| POST | `/v1/deployments/move-space` | `DeploymentSpaceMoveRequest` | `DeploymentConfig` | ANY_OF default |
 | POST | `/v1/deployments/delete` | `DeploymentDeleteRequest` | — | ANY_OF default |
 | POST | `/v1/deployments/recently-deleted` | `RecentlyDeletedDeploymentsRequest` | `RecentlyDeletedDeployments` | ANY_OF default |
 | POST | `/v1/deployments/history` | `DeploymentHistoryRequest` | `DeploymentHistory` | ANY_OF default |
@@ -152,16 +175,18 @@ Workers use `EnrollmentV1` only when local cluster CA/cert/key material is missi
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/secrets/list` | — | `SecretList` | ANY_OF default |
+| POST | `/v1/secrets/create` | `SecretCreateRequest` | `SecretMeta` | ANY_OF default |
 | POST | `/v1/secrets/set` | `SecretSetRequest` | `SecretMeta` | ANY_OF default |
 | POST | `/v1/secrets/generate` | `SecretGenerateRequest` | `SecretMeta` | ANY_OF default |
 | POST | `/v1/secrets/rename` | `SecretRenameRequest` | `SecretMeta` | ANY_OF default |
+| POST | `/v1/secrets/move` | `SecretMoveRequest` | `SecretMeta` | ANY_OF default |
 | POST | `/v1/secrets/reveal` | `SecretRevealRequest` | `SecretRevealResponse` | ANY_OF default |
 | POST | `/v1/secrets/delete` | `SecretDeleteRequest` | — | ANY_OF default |
 | POST | `/v1/secrets/status` | — | `SecretsStatusResponse` | ANY_OF default |
 | POST | `/v1/secrets/rotate-recovery-code` | — | `SecretRecoveryCodeResponse` | ANY_OF default |
 | POST | `/v1/secrets/unlock` | `SecretUnlockRequest` | `SecretsStatusResponse` | ANY_OF default |
 
-User-managed configs and encrypted secrets are immutable versioned rows. Saving an existing name appends version `vN` with a new numeric row ID; settings refs and deployment env refs pin exact rows with `ConfigRef.id`, `SecretRef.id`, `EnvVarValue.configId`, and `EnvVarValue.secretId`. Rename changes the display name for all versions of a secret/config group without creating a new version. Delete hard-deletes the whole group and is rejected while any settings or deployment config still references one of its row IDs.
+User-managed configs and encrypted secrets are immutable versioned rows. Setting an existing secret/config appends version `vN` with a new numeric version row ID; settings refs and deployment env refs pin exact rows with `ConfigRef.version_id`, `SecretRef.version_id`, `EnvVarValue.configVersionId`, and `EnvVarValue.secretVersionId`. Rename changes the display name for all versions of a secret/config group without creating a new version. Delete soft-deletes the whole group and is rejected while any settings or deployment config still references one of its row IDs.
 
 `SecretSetRequest` and `ConfigSetRequest` can atomically roll deployment env refs to the new immutable row. With `update_referencing_deployments`, the request supplies every referencing deployment's current config ID/version. The backend derives the references from current stored specs, rejects stale, duplicate, missing, or extra entries, then commits the new value row and all deployment config/history versions in one transaction.
 
@@ -173,21 +198,47 @@ User-managed configs and encrypted secrets are immutable versioned rows. Saving 
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/configs/list` | — | `ConfigList` | ANY_OF default |
-| POST | `/v1/configs/set` | `ConfigSetRequest` | `Config` | ANY_OF default |
-| POST | `/v1/configs/rename` | `ConfigRenameRequest` | `Config` | ANY_OF default |
+| POST | `/v1/configs/create` | `ConfigCreateRequest` | `ConfigMeta` | ANY_OF default |
+| POST | `/v1/configs/set` | `ConfigSetRequest` | `ConfigMeta` | ANY_OF default |
+| POST | `/v1/configs/rename` | `ConfigRenameRequest` | `ConfigMeta` | ANY_OF default |
+| POST | `/v1/configs/move` | `ConfigMoveRequest` | `ConfigMeta` | ANY_OF default |
 | POST | `/v1/configs/delete` | `ConfigDeleteRequest` | — | ANY_OF default |
+
+### Value directories
+| Method | Path | Request | Response | Policy |
+|--------|------|---------|----------|--------|
+| POST | `/v1/value-directories/list` | — | `ValueDirectoryList` | ANY_OF default |
+| POST | `/v1/value-directories/create` | `ValueDirectoryCreateRequest` | `ValueDirectory` | ANY_OF default |
+| POST | `/v1/value-directories/move` | `ValueDirectoryMoveRequest` | `ValueDirectory` | ANY_OF default |
+| POST | `/v1/value-directories/rename` | `ValueDirectoryRenameRequest` | `ValueDirectory` | ANY_OF default |
+| POST | `/v1/value-directories/delete` | `ValueDirectoryDeleteRequest` | — | ANY_OF default |
+
+The shared secrets/configs folder tree; see [secrets.md](secrets.md).
 
 ### Assets
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/assets/list` | — | `AssetList` | ANY_OF default |
-| POST | `/v1/assets/get` | `AssetGetRequest` | `Asset` | ANY_OF default |
+| GET | `/v1/assets/content` | `contentVersionId` query param | raw content bytes | ANY_OF default |
+| POST | `/v1/assets/create` | `AssetCreateRequest` | `Asset` | ANY_OF default |
 | POST | `/v1/assets/set` | `AssetSetRequest` | `Asset` | ANY_OF default |
-| POST | `/v1/assets/upload` | raw file body, `key` or `name` plus `format`/`space_id` query params | `Asset` | ANY_OF default |
+| POST | `/v1/assets/upload` | raw file body, `asset_id` or `name` plus `space_id`/`directory_id` query params | `Asset` | ANY_OF default |
 | POST | `/v1/assets/rename` | `AssetRenameRequest` | `Asset` | ANY_OF default |
+| POST | `/v1/assets/move` | `AssetMoveRequest` | `Asset` | ANY_OF default |
 | POST | `/v1/assets/delete` | `AssetDeleteRequest` | — | ANY_OF default |
 
-Assets are versioned plaintext file blobs recorded in `assets`. Setting an existing key creates a new version with a numeric asset id. Rename changes the key for every version without creating a version or changing IDs and rejects an existing destination key. List and state stream APIs expose only `AssetMeta`, not blob content. Blobs up to and including 10 MiB are stored inline. Larger blobs use local primary storage while Backup is disabled and S3 while Backup is enabled; changing Backup starts an asynchronous placement transition. Storage placement is transparent to these asset endpoints. Workers stream required asset blobs on demand over the mTLS cluster asset endpoint during preparation. See [Assets](assets.md) for storage modes, transition status, retention, restore, and compatibility.
+Assets are versioned file blobs split into a stable identity (`assets`, surfaced as `Asset.fs`), an append-only space log (`asset_spaces` → `Asset.space_versions`, newest first), and immutable content version rows (`asset_versions` → `Asset.content_versions`, newest first, each carrying sha256/size/global_seq). `/v1/assets/create` creates a new asset; `/v1/assets/set` targets the stable asset id and appends the next content version. Rename changes the key without creating a version or changing IDs and rejects an existing destination key. List and state stream APIs carry only `Asset` metadata; content bytes are streamed exclusively by `GET /v1/assets/content?contentVersionId=N`. Blobs up to and including 10 MiB are stored inline. Larger blobs use local primary storage while Backup is disabled and S3 while Backup is enabled; changing Backup starts an asynchronous placement transition. Storage placement is transparent to these asset endpoints. Workers stream required asset blobs on demand over the mTLS cluster asset endpoint during preparation. See [Assets](assets.md) for storage modes, transition status, retention, restore, and compatibility.
+
+### Asset directories
+| Method | Path | Request | Response | Policy |
+|--------|------|---------|----------|--------|
+| POST | `/v1/asset-directories/list` | — | `AssetDirectoryList` | ANY_OF default |
+| POST | `/v1/asset-directories/create` | `AssetDirectoryCreateRequest` | `AssetDirectory` | ANY_OF default |
+| POST | `/v1/asset-directories/move` | `AssetDirectoryMoveRequest` | `AssetDirectory` | ANY_OF default |
+| POST | `/v1/asset-directories/rename` | `AssetDirectoryRenameRequest` | `AssetDirectory` | ANY_OF default |
+| POST | `/v1/asset-directories/delete` | `AssetDirectoryDeleteRequest` | — | ANY_OF default |
+
+The per-space asset folder tree; see [Assets](assets.md).
 
 ### Cluster transport (mTLS listener)
 | Method | Path | Request | Response | Policy |
@@ -196,6 +247,8 @@ Assets are versioned plaintext file blobs recorded in `assets`. Setting an exist
 | GET | `/v1/cluster/asset?asset_version_id=<id>` | query params | raw asset bytes with `X-Opsagent-Asset-*` headers | NO_AUTH |
 | GET | `/v1/cluster/secrets` | `ClusterSecretsRequest` | `ClusterSecretsResponse` | NO_AUTH |
 | GET | `/v1/cluster/configs` | `ClusterConfigsRequest` | `ClusterConfigsResponse` | NO_AUTH |
+| GET | `/v1/cluster/issued-tls` | `ClusterIssuedTLSRequest` | `ClusterIssuedTLSResponse` | NO_AUTH |
+| GET | `/v1/cluster/renew-certificate` | — | `ClusterRenewCertificateResponse` | NO_AUTH |
 | POST | `/v1/cluster/connect` | stream `MsgToMaster` | stream `MsgToWorker` | NO_AUTH |
 
 Cluster secrets/configs requests carry immutable row IDs. The primary authorizes those IDs against the deployment refs allowed for the requesting worker, decrypts/fetches only those rows, and the worker keeps the plaintext values in memory.
@@ -220,7 +273,7 @@ reconnect delay.
 
 ## Adding new endpoints
 
-1. Add the RPC to the `api-contract/*_service.proto` file for the listener it belongs on, and new message types to the appropriate `api-contract/*_model.proto` file.
+1. Add the RPC to the `api-contract/*_service.proto` file for the listener it belongs on. Request/response message types go in the entity's `api-contract/model_<entity>_operations.proto`; if the endpoint returns a clean data model shape directly, define it in `model_<entity>.proto` instead.
 2. Run `bash api-contract/proto_generate.sh`.
 3. Implement the handler method in the matching package under `backend/app/primary`: `webuihandler`, `clusterhandler`, or `enrollmenthandler`.
 4. The JS client method is generated automatically in `frontend/src/capi/capi.js`.

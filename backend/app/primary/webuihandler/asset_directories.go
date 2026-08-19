@@ -35,7 +35,6 @@ func mapAssetDirectoryErr(err error) error {
 	return err
 }
 
-// notifyAssetDirectory pushes the directory's current row into the state stream.
 func (h *Handler) notifyAssetDirectory(directoryID int32) {
 	if dir, ok := h.Store.GetAssetDirectoryMeta(directoryID); ok {
 		h.Store.NotifyAssetDirectoryUpdate(*dir)

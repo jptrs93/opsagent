@@ -90,7 +90,7 @@ func TestMoveDirectory(t *testing.T) {
 		t.Fatalf("move onto sibling directory err = %v, want ErrAssetAlreadyExists", err)
 	}
 	v := store.SetAssetByKey("c.txt", []byte("x"))
-	asset, err := store.MoveAssetDirectory(v.AssetID, int32(b.ID))
+	asset, err := store.MoveAssetDirectory(v.ID, int32(b.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestDeleteDirectory(t *testing.T) {
 	}
 
 	v := store.SetAssetByKey("f.txt", []byte("x"))
-	if _, err := store.MoveAssetDirectory(v.AssetID, int32(child.ID)); err != nil {
+	if _, err := store.MoveAssetDirectory(v.ID, int32(child.ID)); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.DeleteDirectory(int32(child.ID)); !errors.Is(err, ErrDirectoryNotEmpty) {
@@ -143,7 +143,7 @@ func TestDeleteDirectory(t *testing.T) {
 	}
 
 	// Empty it out and both deletes succeed, bottom up.
-	if _, err := store.MoveAssetDirectory(v.AssetID, 0); err != nil {
+	if _, err := store.MoveAssetDirectory(v.ID, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.DeleteDirectory(int32(child.ID)); err != nil {
@@ -163,7 +163,7 @@ func TestMoveAssetDirectory(t *testing.T) {
 	dir, _ := store.CreateDirectory(0, 0, "confs", 0)
 	v := store.SetAssetByKey("nginx.conf", []byte("events {}\n"))
 
-	moved, err := store.MoveAssetDirectory(v.AssetID, int32(dir.ID))
+	moved, err := store.MoveAssetDirectory(v.ID, int32(dir.ID))
 	if err != nil {
 		t.Fatalf("move asset: %v", err)
 	}
@@ -172,33 +172,37 @@ func TestMoveAssetDirectory(t *testing.T) {
 	}
 
 	// Version rows are untouched by the move.
-	got, ok := store.GetAssetVersionByID(v.ID)
-	if !ok || got.AssetID != v.AssetID || got.Version != 1 || string(got.Blob) != "events {}\n" {
-		t.Fatalf("version after move = %+v ok=%v", got, ok)
+	versionID := v.LatestContentVersion().ID
+	ref, ok := store.GetAssetVersionRef(versionID)
+	if !ok || ref.AssetID != v.ID || ref.Key != "nginx.conf" {
+		t.Fatalf("version ref after move = %+v ok=%v", ref, ok)
+	}
+	if joined, ok := store.GetAssetVersionJoined(versionID); !ok || joined.Version.Version != 1 || string(joined.Store.InlineBlob) != "events {}\n" {
+		t.Fatalf("version after move = %+v ok=%v", joined, ok)
 	}
 
 	// No-op move to the current directory.
-	if again, err := store.MoveAssetDirectory(v.AssetID, int32(dir.ID)); err != nil || again.AssetDirectoryID != dir.ID {
+	if again, err := store.MoveAssetDirectory(v.ID, int32(dir.ID)); err != nil || again.AssetDirectoryID != dir.ID {
 		t.Fatalf("no-op move = %+v, %v", again, err)
 	}
 
 	// The root key is free again, and the destination key is now taken.
 	v2 := store.SetAssetByKey("nginx.conf", []byte("http {}\n"))
-	if v2.AssetID == v.AssetID {
+	if v2.ID == v.ID {
 		t.Fatal("expected a new asset identity in the root")
 	}
-	if _, err := store.MoveAssetDirectory(v2.AssetID, int32(dir.ID)); !errors.Is(err, ErrAssetAlreadyExists) {
+	if _, err := store.MoveAssetDirectory(v2.ID, int32(dir.ID)); !errors.Is(err, ErrAssetAlreadyExists) {
 		t.Fatalf("move onto taken key err = %v, want ErrAssetAlreadyExists", err)
 	}
 	// A directory with the asset's key also blocks the move.
 	sub, _ := store.CreateDirectory(0, int32(dir.ID), "sub", 0)
 	v3 := store.SetAssetByKey("sub", []byte("x"))
-	if _, err := store.MoveAssetDirectory(v3.AssetID, int32(dir.ID)); !errors.Is(err, ErrAssetAlreadyExists) {
+	if _, err := store.MoveAssetDirectory(v3.ID, int32(dir.ID)); !errors.Is(err, ErrAssetAlreadyExists) {
 		t.Fatalf("move onto directory key err = %v, want ErrAssetAlreadyExists", err)
 	}
 	_ = sub
 
-	if _, err := store.MoveAssetDirectory(v2.AssetID, 999); !errors.Is(err, ErrDirectoryNotFound) {
+	if _, err := store.MoveAssetDirectory(v2.ID, 999); !errors.Is(err, ErrDirectoryNotFound) {
 		t.Fatalf("move to missing directory err = %v, want ErrDirectoryNotFound", err)
 	}
 	if _, err := store.MoveAssetDirectory(999, int32(dir.ID)); !errors.Is(err, ErrAssetNotFound) {
@@ -207,7 +211,7 @@ func TestMoveAssetDirectory(t *testing.T) {
 
 	// A directory in another space is a space move, which is unsupported.
 	foreign, _ := store.CreateDirectory(2, 0, "other", 0)
-	if _, err := store.MoveAssetDirectory(v2.AssetID, int32(foreign.ID)); !errors.Is(err, ErrSpaceMoveUnsupported) {
+	if _, err := store.MoveAssetDirectory(v2.ID, int32(foreign.ID)); !errors.Is(err, ErrSpaceMoveUnsupported) {
 		t.Fatalf("cross-space move err = %v, want ErrSpaceMoveUnsupported", err)
 	}
 }
@@ -216,45 +220,45 @@ func TestMoveAssetSpace(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	v := store.SetAssetByKey("a.txt", []byte("x"))
 
-	if err := store.MoveAssetSpace(v.AssetID, DefaultSpaceID, 0, 1); err != nil {
+	if err := store.MoveAssetSpace(v.ID, DefaultSpaceID, 0, 1); err != nil {
 		t.Fatalf("same-space no-op err = %v", err)
 	}
 	if err := store.MoveAssetSpace(999, 2, 0, 1); !errors.Is(err, ErrAssetNotFound) {
 		t.Fatalf("missing asset err = %v, want ErrAssetNotFound", err)
 	}
 
-	if err := store.MoveAssetSpace(v.AssetID, 2, 0, 1); err != nil {
+	if err := store.MoveAssetSpace(v.ID, 2, 0, 1); err != nil {
 		t.Fatalf("space move: %v", err)
 	}
-	meta, ok := store.GetAssetMeta(v.AssetID)
-	if !ok || meta.SpaceID != 2 || meta.AssetDirectoryID != 0 {
-		t.Fatalf("meta after move = %+v ok=%v", meta, ok)
+	asset, ok := store.GetAsset(v.ID)
+	if !ok || asset.SpaceID() != 2 || asset.Fs.DirectoryID != 0 {
+		t.Fatalf("asset after move = %+v ok=%v", asset, ok)
 	}
 	// Version rows are untouched: the pinned version id still resolves.
-	if _, ok := store.GetAssetVersionByID(v.ID); !ok {
-		t.Fatalf("version %d missing after move", v.ID)
+	if _, ok := store.GetAssetVersionRef(v.LatestContentVersion().ID); !ok {
+		t.Fatalf("version %d missing after move", v.LatestContentVersion().ID)
 	}
 
 	// The vacated key is reusable at the origin, and the occupied one blocks a
 	// move back.
 	dup := store.SetAssetByKey("a.txt", []byte("y"))
-	if err := store.MoveAssetSpace(v.AssetID, DefaultSpaceID, 0, 1); !errors.Is(err, ErrAssetAlreadyExists) {
+	if err := store.MoveAssetSpace(v.ID, DefaultSpaceID, 0, 1); !errors.Is(err, ErrAssetAlreadyExists) {
 		t.Fatalf("move onto taken key err = %v, want ErrAssetAlreadyExists", err)
 	}
 
 	// A destination directory must live in the destination space; the origin's
 	// directory reads as absent there.
 	originDir, _ := store.CreateDirectory(int32(DefaultSpaceID), 0, "app", 0)
-	if err := store.MoveAssetSpace(dup.AssetID, 2, int32(originDir.ID), 1); !errors.Is(err, ErrDirectoryNotFound) {
+	if err := store.MoveAssetSpace(dup.ID, 2, int32(originDir.ID), 1); !errors.Is(err, ErrDirectoryNotFound) {
 		t.Fatalf("foreign destination dir err = %v, want ErrDirectoryNotFound", err)
 	}
 	destDir, _ := store.CreateDirectory(2, 0, "app", 0)
-	if err := store.MoveAssetSpace(dup.AssetID, 2, int32(destDir.ID), 1); err != nil {
+	if err := store.MoveAssetSpace(dup.ID, 2, int32(destDir.ID), 1); err != nil {
 		t.Fatalf("space move into directory: %v", err)
 	}
-	meta, ok = store.GetAssetMeta(dup.AssetID)
-	if !ok || meta.SpaceID != 2 || meta.AssetDirectoryID != int32(destDir.ID) {
-		t.Fatalf("meta after directory move = %+v ok=%v", meta, ok)
+	asset, ok = store.GetAsset(dup.ID)
+	if !ok || asset.SpaceID() != 2 || asset.Fs.DirectoryID != int32(destDir.ID) {
+		t.Fatalf("asset after directory move = %+v ok=%v", asset, ok)
 	}
 }
 
@@ -310,7 +314,7 @@ func TestListAssetDirectoriesAndCreateInDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create asset in directory: %v", err)
 	}
-	if a, ok := store.GetAssetRow(v.AssetID); !ok || a.AssetDirectoryID != dir.ID {
+	if a, ok := store.GetAssetRow(v.ID); !ok || a.AssetDirectoryID != dir.ID {
 		t.Fatalf("asset row = %+v, want directory %d", a, dir.ID)
 	}
 	// The sibling check happens at the target directory, not the root.

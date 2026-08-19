@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model_authz.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message AuthzRuleTemplateList {
+  repeated AuthzRuleTemplateRecord items = 1;
+}
+
+message AuthzRuleTemplateCreateRequest {
+  string name = 1;
+  AuthzRuleTemplate template = 2;
+}
+
+message AuthzRuleTemplateUpdateRequest {
+  int64 id = 1;
+  string name = 2;
+  AuthzRuleTemplate template = 3;
+}
+
+message AuthzRuleTemplateDeleteRequest {
+  int64 id = 1;
+}
+
+message AuthzGrantList {
+  repeated AuthzGrantRecord items = 1;
+}
+
+message AuthzGrantCreateRequest {
+  int64 user_id = 1;
+  int64 template_id = 2;
+  AuthzGrant grant = 3;
+}
+
+message AuthzGrantDeleteRequest {
+  int64 user_id = 1;
+  int64 id = 2;
+}
+
+message AuthzGlobalRuleList {
+  repeated AuthzGlobalRuleRecord items = 1;
+}
+
+message AuthzGlobalRuleCreateRequest {
+  string name = 1;
+  AuthzGlobalRule rule = 2;
+}
+
+message AuthzGlobalRuleDeleteRequest {
+  int64 id = 1;
+}

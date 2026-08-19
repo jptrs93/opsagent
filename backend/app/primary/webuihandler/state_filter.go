@@ -32,9 +32,9 @@ func (h *Handler) filterConfigMetas(ctx apigen.Context, items []*apigen.ConfigMe
 	})
 }
 
-func (h *Handler) filterAssetMetas(ctx apigen.Context, items []*apigen.AssetMeta) []*apigen.AssetMeta {
-	return filterVisible(items, func(m *apigen.AssetMeta) bool {
-		return h.canAccess(ctx, vView, eAsset, int64(m.SpaceID), int64(m.ID))
+func (h *Handler) filterAssets(ctx apigen.Context, items []*apigen.Asset) []*apigen.Asset {
+	return filterVisible(items, func(a *apigen.Asset) bool {
+		return h.canAccess(ctx, vView, eAsset, int64(a.SpaceID()), int64(a.ID))
 	})
 }
 

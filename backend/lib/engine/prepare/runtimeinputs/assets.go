@@ -15,7 +15,7 @@ import (
 )
 
 type AssetProvider interface {
-	OpenAsset(ctx context.Context, assetVersionID int32) (*apigen.AssetVersion, io.ReadCloser, error)
+	OpenAsset(ctx context.Context, assetVersionID int32) (io.ReadCloser, error)
 }
 
 type requiredAssetRef struct {
@@ -45,13 +45,9 @@ func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deplo
 		} else if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("checking asset cache %s: %w", path, err)
 		}
-		asset, body, err := r.assets.OpenAsset(ctx, ref.AssetVersionID)
+		body, err := r.assets.OpenAsset(ctx, ref.AssetVersionID)
 		if err != nil {
 			return fmt.Errorf("fetching asset version %d: %w", ref.AssetVersionID, err)
-		}
-		if asset.ID != ref.AssetVersionID {
-			_ = body.Close()
-			return fmt.Errorf("primary returned wrong asset version: got %d", asset.ID)
 		}
 		tmp := path + ".tmp"
 		out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)

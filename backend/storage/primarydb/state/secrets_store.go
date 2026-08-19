@@ -358,8 +358,6 @@ func (s *Service) DeleteSecret(secretID int32) error {
 	return nil
 }
 
-// --- secret metas (no values, no ciphertext) ---
-
 // ListSecretMetas returns every secret with its full version index, newest
 // version first, ordered by name. Never returns values or ciphertext.
 func (s *Service) ListSecretMetas() []*apigen.SecretMeta {

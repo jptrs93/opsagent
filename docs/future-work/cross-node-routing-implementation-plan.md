@@ -2,481 +2,52 @@
 
 ## Purpose
 
-This document is the implementation plan for OpenDeploy cross-node workload
-routing. The canonical network design remains in
-[`networking.md`](networking.md) and
-[`workload-addressing-routing.md`](workload-addressing-routing.md). This plan
-records the current code state, the remaining implementation sequence, control
-plane and dataplane boundaries, failure behavior, and completion criteria.
+This document is the implementation plan for the remaining OpenDeploy
+cross-node workload routing work. The canonical network design remains in
+[`networking.md`](networking.md); the shipped implementation — addressing,
+route ownership, underlay addresses, `ClusterNetMap` rendering and
+distribution, worker tunnel/route reconciliation, and rollover semantics — is
+documented in `docs/engineering/networking.md`.
+
+Shipped so far: route-protocol ownership (documented value `200` with
+structural ownership checks), the `ClusterNetMap`/`NetMapStatus` protocol with
+`derived_from_seq` stamping and session-based acceptance, worker persistence
+of accepted maps, fixed `ip6tnl`/SIT tunnel and remote routed-prefix
+reconciliation on workers, and the map-application barrier used by cross-node
+rollover. Routes are prefixes (`/100` per serving instance, `/120` per
+placement) derived purely from scheduled-instance assignments, which removed
+the earlier plan's need for runner-status-derived routes and worker
+candidate-route reports.
 
 The target is the first production-capable implementation for clusters of at
 most approximately 100 nodes. It uses one fixed IP-in-IP tunnel per remote node
-and direct logical workload `/128` routes. Larger-scale tunnel topology, NAT
+and direct logical workload routes. Larger-scale tunnel topology, NAT
 traversal, and encrypted transport are outside this plan.
 
-## Fixed decisions
+## Remaining fixed decisions
 
-- Every virtual run has stable inbound RFC 4193 ULA IPv6 address `I` and a
-  run-scoped preferred outbound address `O`. Both are `/128`s.
-- The address ABI is
-  `<ULA:48><space:16><deployment:24><ordinal:12><versionSlot:20><runSlot:8>`
-  and contains no node placement.
-- `I = Address(prefix, space, deployment, ordinal, 0, 0)`. `O` uses nonzero
-  version and run slots normalized from positive full-width values with
-  `((n - 1) % max) + 1`, where `max = 2^bits - 1`.
-- Every virtual run is preassigned both addresses. `I` has `preferred_lft=0`;
-  `O` is preferred and routed for the run's full life, including after rollover
-  promotion. DNS, endpoints, ingress, and Address refs use `I`.
-- A local logical `/128` route selects the workload's host-side veth or TAP.
-- A remote logical `/128` route selects the fixed tunnel for the node currently
-  hosting the workload.
-- Every node has one fixed tunnel interface per remote node.
-- An IPv6 underlay uses Linux `ip6tnl` and carries IPv6 inside IPv6.
-- An IPv4 underlay uses Linux SIT and carries IPv6 inside IPv4.
-- The underlay family is inferred from the configured address. It is not stored
-  as a separate enum.
-- A cluster initially uses one underlay family. Pairwise family selection is not
-  part of the first implementation.
-- The initial workload and tunnel MTU is 1420 for either underlay family.
+- The underlay family is inferred from the configured address. A cluster uses
+  one underlay family; pairwise family selection is not part of the first
+  implementation.
 - IP protocol 41 must be directly routable between node underlay addresses.
-- Ordinary port-based NAT traversal and relaying are not supported.
+  Ordinary port-based NAT traversal and relaying are not supported.
 - The transport is initially unauthenticated and unencrypted.
 - Routes determine location. nftables policy determines authorization.
 - The primary computes and distributes state but is never on the packet path.
 - Workers persist the last accepted network map and can restore forwarding
   without primary availability.
 
-## Current implementation state
-
-### Workload attachments
-
-The machine-local dataplane exists in `backend/lib/network`:
-
-- One named network namespace and veth pair is created per virtual container.
-- The workload side is `eth0`; the host side is `od<deployment-id>s<slot>`.
-- The workload receives preassigned `I` and `O` plus a machine-local IPv4
-  address used for masqueraded internet egress.
-- The host installs the local `O` `/128` route at setup and the `I` `/128` route
-  when a run is activated.
-- ROLLOVER candidates start with preferred, routed `O` plus non-preferred `I`.
-  Promotion replaces only the `I` host route; `O` remains preferred and routed
-  until that run ends.
-- IPv6 and IPv4 forwarding are enabled by `Manager.EnsureBase`.
-- The workload MTU is 1420.
-
-### Route ownership
-
-OpenDeploy sets route-protocol value `200` on local `/128` routes and the cluster
-ULA `/48` `unreachable` fallback. Existing untagged local routes are replaced
-when workloads are created or recovered. Legacy protocol-`99` routes are removed
-only when the destination, table, route type, and proven attachment or exact
-fallback all match.
-
-The fallback route ensures an unknown cluster logical address cannot fall
-through to the host's default route. More-specific local and future remote
-`/128` routes win by longest-prefix matching.
-
-### Underlay addresses
-
-`--underlay-address` is available for primary and secondary installation and is
-stored as `OPENDEPLOY_UNDERLAY_ADDRESS`.
-
-- A primary without an explicit value derives an address from its cluster
-  listener. A wildcard listener falls back to the first non-loopback global
-  interface address.
-- A secondary without an explicit value performs a UDP route lookup to the
-  primary cluster address and uses the selected local source address. The UDP
-  connect does not send a packet.
-- A worker includes its underlay address in `EnrollmentHello`.
-- The primary persists it on `enrollment_requests.underlay_address`.
-- Accepting the enrollment copies it into the existing `nodes.addresses` JSON
-  array.
-- Primary startup writes the primary's underlay address to its node row.
-- The frontend node table displays the address.
-- New enrollment addresses are canonical IP literals and must match the
-  existing cluster underlay family. Empty addresses remain accepted for legacy
-  workers.
-
-Existing nodes enrolled before this field was introduced do not gain an address
-automatically; they require reenrollment or a later authenticated node-report
-path.
-
-### Network-map distribution
-
-The primary renders and persists a deterministic full `ClusterNetMap` with an
-opaque generation and monotonic sequence. It contains every known node, its
-underlay address when available, observed `I` routes for published virtual
-runners, and `O` routes derived from those runner identities and run metadata.
-Unpublished candidate `O` routes are absent. Target node IDs are added only when
-serving an authenticated session or enrollment response.
-
-Workers validate and atomically persist maps before publishing their prefix to
-runtime networking. Same-generation stale or conflicting snapshots are
-rejected. A new generation retires the previous generation durably so an old
-control-plane history cannot later become current again. Reconnects report the
-cached accepted generation and sequence. Workers reconcile fixed tunnels and
-remote `/128` routes, then report the applied sequence.
-
-### Missing pieces
+## Missing pieces
 
 The following do not exist yet:
 
-- Applying equivalent remote topology on the primary node.
-- Reporting and distribution of unpublished candidate `O` routes. The current
-  primary map already derives `O` for published `STARTING` and `RUNNING` runners.
+- Applying equivalent remote topology on the primary node. Worker-to-worker
+  routing is implemented, but primary-hosted workloads do not receive remote
+  routes.
 - Source anti-spoofing and destination ingress policy.
-- Cross-node DNS data.
+- Cross-node DNS data. `netstate.pb` is derived node-locally, so `.internal`
+  names resolve only for deployments on the resolving node.
 - Cross-node integration tests and operational diagnostics.
-
-## Route protocol ownership
-
-### Why protocol 99 must change
-
-Linux routes contain an 8-bit `rtm_protocol` metadata field. The kernel does
-not interpret values at or above `RTPROT_STATIC` for forwarding decisions; the
-field identifies the software that installed a route so userspace can inspect
-and reconcile its own state.
-
-Protocol `99` is not private. Linux defines it as `RTPROT_OPENR`, and iproute2
-maps it to the name `openr`. Consequences of retaining `99` are:
-
-- `ip route` presents OpenDeploy routes as `proto openr`.
-- An Open/R installation and OpenDeploy become indistinguishable by protocol.
-- A future OpenDeploy garbage collector filtering only on protocol `99` could
-  remove legitimate Open/R routes.
-- Open/R could replace routes that OpenDeploy assumes it owns.
-
-References:
-
-- Linux `include/uapi/linux/rtnetlink.h` assigns `RTPROT_OPENR = 99`.
-- iproute2 `etc/iproute2/rt_protos` maps `99` to `openr`.
-
-### Replacement strategy
-
-Use `200` as OpenDeploy's documented local route-protocol value unless it gains
-an upstream assignment before implementation. It is unassigned in the current
-Linux and iproute2 protocol lists, but Linux does not reserve a private range,
-so the numeric value alone is not a sufficient ownership proof.
-
-Route cleanup must match all applicable ownership properties:
-
-- protocol `200`;
-- destination inside the configured cluster ULA `/48`;
-- expected route type: unicast `/128` or unreachable `/48`;
-- expected table: main;
-- for local routes, a verified OpenDeploy host veth or TAP;
-- for remote routes, an OpenDeploy-owned tunnel name and alias.
-
-The source constant must explain this choice. OpenDeploy does not need to edit
-the host's `/etc/iproute2/rt_protos`; tools may display `proto 200` instead of a
-name.
-
-## Target packet paths
-
-### Same-node traffic
-
-```text
-source workload eth0
-  -> source host veth
-  -> source anti-spoof check
-  -> destination ingress policy
-  -> destination /128 route
-  -> destination host veth
-  -> destination workload eth0
-```
-
-### Cross-node traffic
-
-```text
-source workload eth0
-  -> source host veth
-  -> source anti-spoof check
-  -> remote workload /128 route
-  -> fixed tunnel for destination node
-  -> IPv4 or IPv6 protocol-41 underlay packet
-  -> matching fixed tunnel on destination node
-  -> unchanged logical IPv6 packet
-  -> destination ingress policy
-  -> local workload /128 route
-  -> destination workload eth0
-```
-
-The inner source and destination addresses never change. Transport checksums do
-not require adjustment. Same-node and cross-node packets are evaluated against
-the same logical policy identities.
-
-## Control-plane model
-
-### Authority
-
-The primary is authoritative for:
-
-- cluster ULA prefix;
-- canonical node IDs;
-- node underlay addresses;
-- deployment identity and desired node placement;
-- stable inbound `I` derivation and published-run `O` derivation;
-- policy intent.
-
-Workers are authoritative only for machine-local runtime facts that the primary
-cannot derive, especially the currently routed `O` of an unpublished candidate.
-
-Worker-supplied addresses must always be associated with the node authenticated
-by the mTLS session. A payload must never be allowed to select another node ID.
-
-### Network map contract
-
-The implemented full-snapshot protobuf carried by `MsgToWorker` has this shape:
-
-```text
-ClusterNetMap {
-  generation
-  sequence
-  target_node_id
-  ula_prefix
-  nodes: [
-    {node_id, underlay_address}
-  ]
-  routes: [
-    {logical_address, hosting_node_id}
-  ]
-}
-```
-
-Properties:
-
-- `generation` distinguishes a restored or deliberately reset primary from an
-  earlier control-plane history.
-- `sequence` is monotonic within a generation.
-- `target_node_id` prevents applying a snapshot intended for another node.
-- Address family is inferred from `underlay_address`.
-- Routes contain logical addresses and node IDs, never tunnel names or outer
-  addresses.
-- The worker derives local-versus-remote behavior from `target_node_id`.
-- The first implementation distributes a complete cluster map. Filtering is a
-  later scale optimization.
-
-The primary derives `I` from deployment identity rather than trusting endpoint
-addresses received in worker status. It derives the published runner's `O` from
-runner status; future local-route reports cover unpublished candidate `O`.
-
-### Worker local-route report
-
-`I` placement is available from primary configuration, and the primary derives
-`O` for published `STARTING` and `RUNNING` runners. An unpublished ROLLOVER candidate's `O`
-is already assigned and routed locally before promotion but is not represented
-by current runner status. Remote replies to its outbound connections need a
-route back to that `O`.
-
-Add an authenticated full local-route report to `MsgToMaster`:
-
-```text
-LocalRouteReport {
-  revision
-  logical_addresses
-}
-```
-
-Requirements:
-
-- The report is a complete replacement, not a delta.
-- The worker sends it when a local attachment is created, recovered, promoted,
-  or removed and at the start of every cluster session.
-- The primary binds it to the authenticated session node.
-- The primary includes reported unpublished candidate `O` routes in subsequent
-  network maps.
-- Reported `I` values are checked against primary-derived placement. Reported
-  `O` values are decoded and checked against cluster prefix, address ABI,
-  authenticated node, deployment, ordinal, and nonzero slot rules.
-- A disconnected worker's last report remains usable while its workloads are
-  expected to survive agent restarts.
-
-### Worker application status
-
-Add a small `NetMapStatus` worker message containing accepted generation,
-persisted sequence, applied sequence, and the latest reconciliation error. This
-is needed for diagnostics and later safe placement movement. Initial routing
-does not block all publication on acknowledgements, but cross-node moves must
-eventually use them.
-
-## Persistence and distribution
-
-### Primary
-
-The primary network-map publisher subscribes atomically to the
-inputs used to render maps:
-
-- node changes;
-- deployment configuration and placement changes;
-- deployment/runtime route reports;
-- policy changes when policy is added.
-
-The renderer produces deterministic ordering and content so unchanged
-state does not increment the sequence. Publication state and the latest
-rendered snapshot should be persisted so reconnect and primary restart preserve
-sequence semantics.
-
-Full maps use a latest-value/coalescing channel rather than queueing many
-obsolete snapshots behind a slow worker.
-
-### Worker
-
-The last accepted map and retired generations are persisted atomically in the
-existing `local_kv` table. Applying a map follows this order:
-
-1. Decode and validate generation, sequence, target node, prefix, references,
-   address family, and bounds.
-2. Reject an older sequence or conflicting content at the same sequence.
-3. Persist the accepted full snapshot.
-4. Publish it to the local network reconciler.
-5. Record and report reconciliation success or failure.
-
-Persist-before-reconcile prevents a crash from leaving newer kernel state with
-only older durable control-plane state.
-
-### Startup order
-
-Worker startup should become:
-
-1. Load TLS identity and the cached cluster network map.
-2. Initialize the networking manager with local node identity.
-3. Reconcile cached tunnels, remote routes, and the fallback route.
-4. Recover local workload attachments and local routes.
-5. Start normal deployment operation.
-6. Connect to the primary and apply newer snapshots.
-
-A strict global route cleanup must not run before local workload recovery. The
-remote reconciler should initially garbage-collect only routes that point to
-OpenDeploy-owned tunnels plus the cluster fallback. Local veth routes remain
-owned by workload lifecycle and recovery.
-
-## Tunnel and route reconciler
-
-### Common desired state
-
-Add family-neutral types under `backend/lib/network`:
-
-```text
-NodeTunnel {
-  node_id
-  local_underlay
-  remote_underlay
-}
-
-RemoteRoute {
-  logical_address
-  node_id
-}
-
-TopologySnapshot {
-  generation
-  sequence
-  local_node_id
-  tunnels
-  remote_routes
-}
-```
-
-Common code should validate and diff desired state. Linux-specific files should
-perform netlink operations. Non-Linux files retain explicit unsupported stubs.
-
-### Interface identity
-
-Use deterministic names derived from immutable remote node IDs and constrained
-to Linux's 15-character interface-name limit, for example
-`odt<base36-node-id>`. Set a link alias such as
-`opendeploy:tunnel:<node-id>` as an additional ownership marker.
-
-Do not rely on names alone before deleting an interface. Verify the concrete
-link type, alias, local endpoint, remote endpoint, and expected node identity.
-
-### IPv6 underlay
-
-Create `netlink.Ip6tnl` with:
-
-- fixed local and remote IPv6 endpoints;
-- `Proto = IPPROTO_IPV6`;
-- flow-based mode disabled;
-- encapsulation-limit behavior configured consistently with the MTU model;
-- MTU 1420;
-- link state up.
-
-### IPv4 underlay
-
-Create `netlink.Sittun` with:
-
-- fixed local and remote IPv4 endpoints;
-- `Proto = IPPROTO_IPV6`;
-- path-MTU discovery enabled;
-- MTU 1420;
-- link state up.
-
-SIT is protocol 41, not UDP. It works over directly routed public or private
-IPv4 but not ordinary port-address translation or CGNAT.
-
-### Route merge and precedence
-
-The complete desired route set on a node is:
-
-```text
-local workload /128  -> local host veth or TAP
-remote workload /128 -> fixed tunnel for hosting node
-cluster ULA /48      -> unreachable
-```
-
-Local attachment state always wins if a stale map also describes the same
-logical `/128` as remote. Reconciliation must not replace a proven local route
-with a remote route.
-
-### Reconciliation order
-
-For each accepted topology snapshot:
-
-1. Validate that all participating node addresses use one underlay family.
-2. Create missing tunnels.
-3. Recreate tunnels whose type or fixed endpoints changed.
-4. Bring desired tunnels up.
-5. Replace desired remote `/128` routes.
-6. Remove stale owned remote routes.
-7. Remove stale owned tunnel interfaces after no route references them.
-8. Retain or replace the cluster `/48` unreachable fallback.
-
-Every operation must be idempotent. A partial failure leaves the last usable
-kernel state where possible and is retried from the complete desired snapshot.
-
-## Placement and rollover behavior
-
-### Stable placements
-
-For the current single-instance model, the primary derives ordinal-zero `I`
-addresses from deployment space and deployment IDs and maps them to
-`DeploymentConfig.NodeID`.
-
-### Same-node rollover
-
-Candidate creation adds its `O` local route. Future runtime reporting publishes
-that route for cross-node replies. Promotion replaces the `I` local route to
-the candidate veth; the candidate's `O` route remains for the promoted run's
-full lifetime. `I` does not require a cluster placement update because its node
-does not change. Current maps derive only published `STARTING` and `RUNNING` runner `O` routes,
-so unpublished candidate reporting is still required before cross-node warmup
-is complete.
-
-### Cross-node movement
-
-Cross-node movement is not implemented by merely changing `NodeID`. The later
-movement sequence must be:
-
-1. Prepare the target attachment with preassigned `I` and preferred, routed `O`.
-2. Confirm target readiness.
-3. Publish a versioned stable placement change.
-4. Wait for the required map application acknowledgements.
-5. Drain the source workload.
-6. Remove the source attachment and its run-scoped `O` routes.
-
-During convergence, a stale sender may reach the old node. If that node has the
-new placement route, it may forward the unchanged inner packet one additional
-tunnel hop. Placement generations and update ordering must prevent loops.
 
 ## Security gate
 
@@ -517,47 +88,17 @@ until authenticated transport is added.
 
 ## Implementation sequence
 
-### Milestone 0: correct route ownership
+Milestones 0–3 of the original plan (route ownership, the network-map API and
+persistence, and fixed tunnel reconciliation on workers) have shipped; the
+former runtime route-reporting milestone was made unnecessary by deriving
+prefix routes from assignments alone.
 
-- [x] Replace route protocol `99` with documented local value `200`.
-- [x] Centralize constructors for local `/128`, remote `/128`, and fallback routes.
-- [x] Add route listing and deletion helpers that require protocol plus structural
-  ownership checks.
-- [x] Keep local route cleanup scoped to proven workload attachments.
+### Milestone: primary-node topology
 
-The standalone privileged Linux route test previously considered for this
-milestone is intentionally omitted from this plan.
+- Apply the primary's own targeted cluster map on the primary node so
+  primary-hosted workloads reach and are reachable from remote placements.
 
-### Milestone 1: network-map API and persistence
-
-- [x] Add `ClusterNetMap`, node, route, local-route-report, and application-status
-  protobuf messages.
-- [x] Regenerate Go and JavaScript API bindings.
-- [x] Add primary publication persistence with generation and sequence.
-- [x] Add worker `local_kv` persistence and stale-snapshot rejection.
-- [x] Include the initial map in enrollment bootstrap when available.
-- [x] Add reconnect tests proving the latest map is resent and older maps are
-  rejected.
-
-### Milestone 2: local runtime route reporting
-
-- Expose a complete local routed-address snapshot from `network.Manager`.
-- Publish it at session start and after setup, recovery, promotion, and teardown.
-- Bind reports to authenticated node identity on the primary.
-- Merge reported unpublished candidate `O` routes into rendered maps without
-  replacing the currently published runner's `O`.
-- Ensure report replacement removes routes no longer present.
-
-### Milestone 3: fixed tunnel reconciliation
-
-- Add common topology desired-state and diff code.
-- Implement Linux `ip6tnl` and SIT creation, inspection, update, and deletion.
-- Implement remote `/128` route reconciliation.
-- Integrate cached-map reconciliation into primary and worker startup.
-- Surface address-family mismatch, missing address, protocol-41 reachability,
-  and reconciliation errors in node status.
-
-### Milestone 4: logical network policy
+### Milestone: logical network policy
 
 - Add nftables source anti-spoofing per local attachment.
 - Add same-space destination ingress policy.
@@ -565,7 +106,7 @@ milestone is intentionally omitted from this plan.
 - Ensure same-host and cross-host packets use equivalent policy.
 - Add explicit cross-space policy only after the default boundary is correct.
 
-### Milestone 5: DNS and product integration
+### Milestone: DNS and product integration
 
 - Render cluster-wide ready endpoints into node netproxy state.
 - Display underlay family, tunnel readiness, applied map sequence, and errors on
@@ -573,35 +114,21 @@ milestone is intentionally omitted from this plan.
 - Add operator diagnostics for underlay reachability and MTU failures.
 - Keep the primary off the data path during control-plane outages.
 
-### Milestone 6: end-to-end verification
+### Milestone: end-to-end verification
 
-- Add pure unit tests for map rendering, sequencing, route merge precedence,
-  tunnel naming, family selection, MTU, and reconciliation diffs.
-- Add storage migration and persistence tests.
 - Add two-node VM coverage for SIT over the existing IPv4-oriented VM network.
 - Add IPv6-underlay VM coverage for `ip6tnl` once the harness provisions routed
   IPv6 endpoints.
 - Verify TCP, UDP, and ICMPv6 workload traffic.
 - Verify agent restart from cached state and continued traffic during primary
   outage.
-- Verify candidate warmup traffic receives remote replies through its reported
-  `O` route and that the same route remains valid after promotion.
+- Verify a standby placement's outbound traffic receives remote replies through
+  its `/120` route before promotion and that the route remains valid after.
 - Verify stale map and tunnel state is removed without touching unrelated host
   networking.
 - Verify same-space access and default cross-space denial.
 
 ## Failure behavior
-
-### Primary unavailable
-
-Existing kernel tunnels, routes, and nftables rules continue forwarding. The
-worker uses its persisted map after restart. Placement, policy, and DNS changes
-pause until the primary returns.
-
-### Agent unavailable
-
-Kernel forwarding continues. No local attachments or topology changes are
-reconciled until the agent returns.
 
 ### Remote node unavailable
 
@@ -609,13 +136,6 @@ Routes may continue selecting its tunnel and traffic fails according to normal
 underlay behavior. Automatic rerouting is not possible because a stable
 instance has one current placement. Health-aware DNS should stop returning DOWN
 endpoints independently of route cleanup.
-
-### Stale map
-
-A stale source may send to the old hosting node. It either takes one additional
-routed tunnel hop if the old node knows the new placement or fails. The cluster
-fallback prevents unknown logical destinations from escaping through the host
-default route.
 
 ### Partial reconciliation
 
@@ -631,11 +151,11 @@ unchanged because they refer to node identity rather than outer addresses.
 
 ## Deferred work
 
-- Strict underlay-address validation beyond the parsing required to create a
-  tunnel.
 - Pairwise IPv4/IPv6 family selection.
 - NAT traversal, UDP encapsulation, and relay nodes.
-- Encrypted and authenticated underlay transport.
+- Encrypted and authenticated underlay transport (for example transparently
+  routing each remote node's underlay address through WireGuard, which leaves
+  tunnel interfaces and workload routes unchanged).
 - Flow-based single-tunnel dataplanes.
 - Bounded-degree gateway topology for clusters materially above 100 nodes.
 - Incremental or sharded network-map distribution.
@@ -646,16 +166,11 @@ unchanged because they refer to node identity rather than outer addresses.
 
 The first cross-node routing release is complete when:
 
-- Every participating node has one valid same-family underlay address.
-- Each node reconciles one fixed tunnel per remote participating node.
-- Stable inbound `I` and run-scoped outbound `O` remote `/128` routes select the
-  correct tunnel.
-- Cached maps restore forwarding without primary availability.
-- Local routes always take precedence over stale remote placement state.
-- Unknown cluster destinations terminate at the `/48` unreachable fallback.
+- The primary node reconciles the same tunnels and remote routes as workers.
 - Source spoofing is blocked at local attachments.
 - Same-space traffic is allowed and cross-space traffic is denied by default on
   both same-node and cross-node paths.
+- `.internal` names resolve cluster-wide.
 - Node status exposes map and tunnel reconciliation failures.
 - SIT and `ip6tnl` paths pass end-to-end VM coverage.
 - No reconciliation operation deletes unrelated host routes or interfaces.

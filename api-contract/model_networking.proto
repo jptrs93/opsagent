@@ -1,0 +1,138 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model_deployments.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message AcmeState {
+  int64 seq = 1;
+  repeated AcmeCertBinding cert_bindings = 2;
+  repeated AcmeHttpChallenge challenges = 3;
+}
+
+message AcmeCertBinding {
+  string hostname = 1;
+  int32 secret_version_id = 2;
+}
+
+// ClusterNetworkInfo carries the cluster-wide virtual network parameters.
+// Inbound and outbound addresses are pure functions of the ULA prefix, space,
+// deployment, instance ordinal, config version, and run number, so this is the
+// only distributed IPAM state.
+message ClusterNetworkInfo {
+  bytes ula_prefix = 1; // 6 bytes: the RFC 4193 ULA /48 prefix, generated once at first primary startup
+}
+
+// ClusterNetMap is a complete placement and underlay snapshot targeted to one
+// authenticated node. derived_from_seq is the primary's global write sequence
+// at render time; acceptance is session-based — the first map accepted in a
+// session replaces the worker's cache unconditionally, later in-session maps
+// must carry a higher stamp.
+message ClusterNetMap {
+  // 1 and 2 held the string generation and int64 sequence replaced by
+  // derived_from_seq; the map is cached on worker disks, so the numbers must
+  // not be reused.
+  reserved 1, 2;
+  reserved "generation", "sequence";
+  int32 target_node_id = 3;
+  bytes ula_prefix = 4;
+  repeated ClusterNetMapNode nodes = 5;
+  repeated ClusterNetMapRoute routes = 6;
+  int64 derived_from_seq = 7;
+}
+
+message ClusterNetMapNode {
+  int32 node_id = 1;
+  string underlay_address = 2;
+}
+
+// ClusterNetMapRoute points one routed prefix at the node hosting it. Only two
+// prefix lengths are legal: the /100 covering a (deployment, ordinal) instance,
+// which follows the serving placement, and the /120 covering every run of one
+// scheduled instance, which stays with that placement until it is finalized.
+// Routing whole prefixes rather than individual addresses keeps container
+// restarts out of the map entirely.
+message ClusterNetMapRoute {
+  string logical_prefix = 1;
+  int32 hosting_node_id = 2;
+}
+
+// NetMapStatus reports durable acceptance separately from kernel application.
+// Both fields carry a map's derived_from_seq stamp.
+message NetMapStatus {
+  reserved 1;
+  reserved "accepted_generation";
+  int64 persisted_seq = 2;
+  int64 applied_seq = 3;
+  string reconciliation_error = 4;
+}
+
+// NetState is the configuration interface between the agent and the per-machine
+// dataplane system deployment (DNS server today; ingress proxy in a later
+// phase). The agent writes full snapshots with atomic write-rename into the
+// dataplane deployment's data volume; the dataplane process loads the file at
+// start and reacts to updates via file watching. It is a pure state consumer:
+// no sockets, no DB access, no deltas.
+message NetState {
+  int64 seq = 1;               // monotonic; consumers ignore snapshots with seq <= last applied
+  bytes ula_prefix = 2;        // 6-byte ULA /48 prefix
+  string node_identifier = 3;  // immutable identifier of the node this snapshot was rendered for
+  repeated DnsService dns_services = 4;
+  repeated string upstream_resolvers = 5; // host's upstream DNS servers, "ip" or "ip:port"
+  repeated NetIngress ingress = 6;
+  repeated AcmeHttpChallenge acme_challenges = 7;
+}
+
+message AcmeHttpChallenge {
+  string token = 1;
+  string key_authorization = 2;
+}
+
+// DnsService is one deployment's discovery record set:
+// {name}.{environment}.internal -> READY instance addresses.
+message DnsService {
+  string name = 1;        // normalized deployment name (underscores -> hyphens)
+  string environment = 2; // normalized space name
+  repeated Endpoint endpoints = 3;
+}
+
+// NetIngress is a node-local, rendered ingress route consumed by netproxy.
+// It contains ready backend endpoints instead of deployment configuration.
+message NetIngress {
+  IngressKind kind = 1;
+  string hostname = 2;
+  TlsPassthroughNetIngress tls_passthrough = 3;
+  HttpsNetIngress https = 4;
+}
+
+message HttpsNetIngress {
+  string path_prefix = 1;
+  bool strip_prefix = 2;
+  HttpBackendProtocol backend_protocol = 3;
+  int64 max_request_body_bytes = 4;
+  int32 flush_interval_ms = 5;
+  string cert_id = 6;
+  repeated IngressBackend backends = 7;
+}
+
+message CertBundle {
+  int64 seq = 1;
+  repeated CertBundleEntry certs = 2;
+}
+
+message CertBundleEntry {
+  string cert_id = 1;
+  bytes pem = 2;
+}
+
+message TlsPassthroughNetIngress {
+  int32 host_port = 1;
+  repeated IngressBackend backends = 2;
+}
+
+message IngressBackend {
+  string address = 1;
+  int32 port = 2;
+}

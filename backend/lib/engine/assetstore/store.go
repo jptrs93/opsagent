@@ -93,55 +93,38 @@ func (s *Store) effectiveS3Identity(settings apigen.ClusterSettings) s3Identity 
 	}
 }
 
-func (s *Store) GetAssetForPreview(assetID, version int32) (*apigen.AssetVersion, bool, error) {
-	asset, ok := s.DB.GetAssetVersion(assetID, version)
-	if !ok || asset.Location == "" {
-		return asset, ok, nil
-	}
-	asset.Blob = nil
-	return asset, true, nil
-}
-
-// notifyVersionWritten publishes the owning asset's current list-item state
-// after a version write.
-func (s *Store) notifyVersionWritten(v *apigen.AssetVersion) {
-	if meta, ok := s.DB.GetAssetMeta(v.AssetID); ok {
-		s.DB.NotifyAssetUpdate(meta)
-	}
-}
-
 // notifyContentMoved publishes every asset whose versions link the sha, after
 // its content changed storage side or finished hashing.
 func (s *Store) notifyContentMoved(sha string) {
 	for _, assetID := range s.DB.ListAssetIDsBySha(sha) {
-		if meta, ok := s.DB.GetAssetMeta(assetID); ok {
-			s.DB.NotifyAssetUpdate(meta)
+		if asset, ok := s.DB.GetAsset(assetID); ok {
+			s.DB.NotifyAssetUpdate(asset)
 		}
 	}
 }
 
 // CreateAsset creates a new asset in directoryID (0 = the space root) of
 // spaceID with its first version.
-func (s *Store) CreateAsset(ctx context.Context, key string, spaceID, directoryID, author int32, blob []byte) (*apigen.AssetVersion, error) {
+func (s *Store) CreateAsset(ctx context.Context, key string, spaceID, directoryID, author int32, blob []byte) (*apigen.Asset, error) {
 	return s.CreateAssetFromReader(ctx, key, spaceID, directoryID, author, int64(len(blob)), bytes.NewReader(blob))
 }
 
-func (s *Store) CreateAssetFromReader(ctx context.Context, key string, spaceID, directoryID, author int32, sizeBytes int64, r io.Reader) (*apigen.AssetVersion, error) {
+func (s *Store) CreateAssetFromReader(ctx context.Context, key string, spaceID, directoryID, author int32, sizeBytes int64, r io.Reader) (*apigen.Asset, error) {
 	return s.writeVersion(ctx, sizeBytes, r,
-		func(sha string) (*apigen.AssetVersion, error) {
+		func(sha string) (*apigen.Asset, error) {
 			return s.DB.CreateAssetWithVersion(key, spaceID, directoryID, author, sha, sizeBytes)
 		})
 }
 
 // AppendAssetVersion appends the next version of an existing asset. The asset
 // identity — key, space, directory — cannot change here.
-func (s *Store) AppendAssetVersion(ctx context.Context, assetID, author int32, blob []byte) (*apigen.AssetVersion, error) {
+func (s *Store) AppendAssetVersion(ctx context.Context, assetID, author int32, blob []byte) (*apigen.Asset, error) {
 	return s.AppendAssetVersionFromReader(ctx, assetID, author, int64(len(blob)), bytes.NewReader(blob))
 }
 
-func (s *Store) AppendAssetVersionFromReader(ctx context.Context, assetID, author int32, sizeBytes int64, r io.Reader) (*apigen.AssetVersion, error) {
+func (s *Store) AppendAssetVersionFromReader(ctx context.Context, assetID, author int32, sizeBytes int64, r io.Reader) (*apigen.Asset, error) {
 	return s.writeVersion(ctx, sizeBytes, r,
-		func(sha string) (*apigen.AssetVersion, error) {
+		func(sha string) (*apigen.Asset, error) {
 			return s.DB.AppendAssetVersion(assetID, author, sha, sizeBytes)
 		})
 }
@@ -149,7 +132,7 @@ func (s *Store) AppendAssetVersionFromReader(ctx context.Context, assetID, autho
 // writeVersion stores the content first — deduplicated by sha256 against the
 // content store — and creates the identity rows only once the content is
 // durable, so an identity can never point at content that failed to land.
-func (s *Store) writeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(sha string) (*apigen.AssetVersion, error)) (*apigen.AssetVersion, error) {
+func (s *Store) writeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(sha string) (*apigen.Asset, error)) (*apigen.Asset, error) {
 	if sizeBytes < 0 {
 		return nil, fmt.Errorf("asset upload requires a content length")
 	}
@@ -184,11 +167,11 @@ func (s *Store) writeVersion(ctx context.Context, sizeBytes int64, r io.Reader, 
 		}
 		return nil, err
 	}
-	s.notifyVersionWritten(version)
+	s.DB.NotifyAssetUpdate(version)
 	return version, nil
 }
 
-func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(sha string) (*apigen.AssetVersion, error)) (*apigen.AssetVersion, error) {
+func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(sha string) (*apigen.Asset, error)) (*apigen.Asset, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -262,7 +245,7 @@ func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Rea
 		}
 		return nil, err
 	}
-	s.notifyVersionWritten(version)
+	s.DB.NotifyAssetUpdate(version)
 	return version, nil
 }
 
@@ -284,58 +267,59 @@ func (s *Store) reclaimStoreContent(sha string) error {
 	return nil
 }
 
-func (s *Store) OpenAsset(ctx context.Context, assetVersionID int32) (*apigen.AssetVersion, io.ReadCloser, error) {
+// OpenAsset resolves a pinned content version row id to its byte stream.
+// sizeBytes is returned alongside so raw HTTP routes can set Content-Length.
+func (s *Store) OpenAsset(ctx context.Context, assetVersionID int32) (sizeBytes int64, body io.ReadCloser, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	r, ok := s.DB.GetAssetVersionJoined(assetVersionID)
 	if !ok {
-		return nil, nil, fmt.Errorf("asset version %d not found", assetVersionID)
+		return 0, nil, fmt.Errorf("asset version %d not found", assetVersionID)
 	}
-	asset := state.AssetVersionFromJoined(r.Asset, r)
 	switch {
 	case r.Store.InlineSize > 0 || r.Version.SizeBytes == 0:
-		return asset, io.NopCloser(bytes.NewReader(r.Store.InlineBlob)), nil
+		return r.Version.SizeBytes, io.NopCloser(bytes.NewReader(r.Store.InlineBlob)), nil
 	case r.Store.LocalStatus == 1:
 		body, err := os.Open(localPath(r.Store.ID))
 		if err != nil {
-			return nil, nil, fmt.Errorf("read local large asset: %w", err)
+			return 0, nil, fmt.Errorf("read local large asset: %w", err)
 		}
-		return asset, body, nil
+		return r.Version.SizeBytes, body, nil
 	case r.Store.RemoteStatus == 1:
 		body, err := s.openS3Asset(ctx, r.Store.ID)
 		if err != nil {
-			return nil, nil, err
+			return 0, nil, err
 		}
-		return asset, body, nil
+		return r.Version.SizeBytes, body, nil
 	}
-	return nil, nil, fmt.Errorf("asset version %d content is unavailable", assetVersionID)
+	return 0, nil, fmt.Errorf("asset version %d content is unavailable", assetVersionID)
 }
 
 func (s *Store) DeleteAsset(ctx context.Context, assetID int32) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	meta, hadVersions := s.DB.GetAssetMeta(assetID)
+	asset, hadVersions := s.DB.GetAsset(assetID)
 	// Soft delete: version rows survive, so the content they reference stays
 	// reclaim-exempt and the asset is recoverable at the DB level.
 	s.DB.DeleteAsset(assetID)
 	if hadVersions {
-		s.DB.NotifyAssetDeleted(meta)
+		s.DB.NotifyAssetDeleted(asset)
 	}
 	return nil
 }
 
-func (s *Store) RenameAsset(ctx context.Context, assetID int32, newKey string) (*apigen.AssetMeta, error) {
+func (s *Store) RenameAsset(ctx context.Context, assetID int32, newKey string) (*apigen.Asset, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	meta, err := s.DB.RenameAssetKey(assetID, newKey)
+	asset, err := s.DB.RenameAssetKey(assetID, newKey)
 	if err != nil {
 		return nil, err
 	}
-	s.DB.NotifyAssetUpdate(meta)
-	return meta, nil
+	s.DB.NotifyAssetUpdate(asset)
+	return asset, nil
 }
 
 func (s *Store) openS3Asset(ctx context.Context, storeID string) (io.ReadCloser, error) {

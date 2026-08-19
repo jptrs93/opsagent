@@ -1,0 +1,18 @@
+atomic action ScheduleInstance:
+    require next_instance_id <= MAX_INSTANCES
+    candidates = [d for d in deployments if not deployments[d].deleted]
+    d = oneof candidates
+    vlog = deployment_versions[d]
+    version = vlog[len(vlog) - 1].version
+    node = deployments[d].node
+    ordinal = oneof ORDINALS
+    dup = False
+    for i in scheduled_instances:
+        inst = scheduled_instances[i]
+        if inst.deployment == d and inst.deployment_version == version and inst.node == node and inst.ordinal == ordinal:
+            dup = True
+    require not dup
+    dlog = deployment_space_versions[d]
+    global_seq = global_seq + 1
+    scheduled_instances[next_instance_id] = record(deployment=d, deployment_version=version, node=node, ordinal=ordinal, space_version_row_id=dlog[len(dlog) - 1].row_id, seq=global_seq)
+    next_instance_id = next_instance_id + 1

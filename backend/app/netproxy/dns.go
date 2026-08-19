@@ -19,9 +19,8 @@ import (
 
 const maxConcurrentDNSForwards = 256
 
-// RunDNS serves the netproxy DNS process. It consumes NetState snapshots and
-// answers .internal AAAA queries locally, forwarding all unmatched queries to
-// the configured upstream resolvers.
+// RunDNS answers .internal AAAA queries from NetState snapshots locally and
+// forwards all unmatched queries to the configured upstream resolvers.
 func RunDNS(ctx context.Context, states netStateSubscriber, listen string) error {
 	if listen == "" {
 		listen = ":53"

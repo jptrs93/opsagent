@@ -95,19 +95,19 @@ func TestLargeAssetStoredLocallyWhenBackupDisabled(t *testing.T) {
 	if row.LocalStatus != 1 || row.RemoteStatus != 0 {
 		t.Fatalf("store row statuses = local %d remote %d, want durable local", row.LocalStatus, row.RemoteStatus)
 	}
-	if got, want := asset.Location, "local://"+row.ID; got != want {
-		t.Fatalf("Location = %q, want %q", got, want)
-	}
-	if got, want := asset.Sha256, hashBlob(blob); got != want {
+	if got, want := asset.LatestContentVersion().Sha256, hashBlob(blob); got != want {
 		t.Fatalf("Sha256 = %q, want %q", got, want)
 	}
 	if _, err := os.Stat(localPath(row.ID)); err != nil {
 		t.Fatalf("local asset file: %v", err)
 	}
 
-	_, body, err := store.OpenAsset(context.Background(), asset.ID)
+	sizeBytes, body, err := store.OpenAsset(context.Background(), asset.LatestContentVersion().ID)
 	if err != nil {
 		t.Fatalf("OpenAsset: %v", err)
+	}
+	if sizeBytes != int64(len(blob)) {
+		t.Fatalf("OpenAsset size = %d, want %d", sizeBytes, len(blob))
 	}
 	got, err := io.ReadAll(body)
 	body.Close()
@@ -118,7 +118,7 @@ func TestLargeAssetStoredLocallyWhenBackupDisabled(t *testing.T) {
 		t.Fatal("opened asset did not match upload")
 	}
 
-	if err := store.DeleteAsset(context.Background(), asset.AssetID); err != nil {
+	if err := store.DeleteAsset(context.Background(), asset.ID); err != nil {
 		t.Fatalf("DeleteAsset: %v", err)
 	}
 	// Deletes are soft: surviving version rows keep the content referenced.
@@ -147,24 +147,25 @@ func TestDuplicateContentSharesOneStoreRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create second: %v", err)
 	}
-	if first.Sha256 != second.Sha256 {
-		t.Fatalf("shas differ: %q vs %q", first.Sha256, second.Sha256)
+	firstSha := first.LatestContentVersion().Sha256
+	if firstSha != second.LatestContentVersion().Sha256 {
+		t.Fatalf("shas differ: %q vs %q", firstSha, second.LatestContentVersion().Sha256)
 	}
 	if rows := store.DB.ListAssetStoreRowMetas(); len(rows) != 1 {
 		t.Fatalf("store rows = %d, want 1", len(rows))
 	}
 
-	if err := store.DeleteAsset(context.Background(), first.AssetID); err != nil {
+	if err := store.DeleteAsset(context.Background(), first.ID); err != nil {
 		t.Fatalf("delete first: %v", err)
 	}
-	if _, ok := store.DB.GetAssetStoreRowBySha(first.Sha256); !ok {
+	if _, ok := store.DB.GetAssetStoreRowBySha(firstSha); !ok {
 		t.Fatal("shared content row deleted while still referenced")
 	}
-	if err := store.DeleteAsset(context.Background(), second.AssetID); err != nil {
+	if err := store.DeleteAsset(context.Background(), second.ID); err != nil {
 		t.Fatalf("delete second: %v", err)
 	}
 	// Deletes are soft: the surviving version rows keep the content referenced.
-	if _, ok := store.DB.GetAssetStoreRowBySha(first.Sha256); !ok {
+	if _, ok := store.DB.GetAssetStoreRowBySha(firstSha); !ok {
 		t.Fatal("content row gone after soft deletes")
 	}
 }
@@ -276,9 +277,8 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
 		t.Fatalf("reconcile to S3: pending=%d err=%v", pending, err)
 	}
-	remote, _ := store.DB.GetAssetVersionByID(asset.ID)
-	if got, want := remote.Location, "s3://"+row.ID; got != want {
-		t.Fatalf("S3 location = %q, want %q", got, want)
+	if remote := storeRowFor(t, store, blob); remote.RemoteStatus != 1 || remote.LocalStatus != 0 {
+		t.Fatalf("store row after S3 migration = local %d remote %d, want durable remote", remote.LocalStatus, remote.RemoteStatus)
 	}
 	if _, err := os.Stat(localPath(row.ID)); !os.IsNotExist(err) {
 		t.Fatalf("local file remains after S3 migration: %v", err)
@@ -301,9 +301,8 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
 		t.Fatalf("reconcile to local: pending=%d err=%v", pending, err)
 	}
-	local, _ := store.DB.GetAssetVersionByID(asset.ID)
-	if got, want := local.Location, "local://"+row.ID; got != want {
-		t.Fatalf("local location = %q, want %q", got, want)
+	if local := storeRowFor(t, store, blob); local.LocalStatus != 1 || local.RemoteStatus != 0 {
+		t.Fatalf("store row after local migration = local %d remote %d, want durable local", local.LocalStatus, local.RemoteStatus)
 	}
 	mu.Lock()
 	_, retained := objects[objectPath]
@@ -311,7 +310,7 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	if !retained {
 		t.Fatal("S3 object was not retained after migration to local storage")
 	}
-	if err := store.DeleteAsset(context.Background(), asset.AssetID); err != nil {
+	if err := store.DeleteAsset(context.Background(), asset.ID); err != nil {
 		t.Fatalf("DeleteAsset: %v", err)
 	}
 	mu.Lock()
@@ -359,8 +358,8 @@ func TestLargeAssetSeparateS3OverridesSharedCredentials(t *testing.T) {
 	if row.RemoteStatus != 1 || row.LocalStatus != 0 {
 		t.Fatalf("store row statuses = local %d remote %d, want durable remote", row.LocalStatus, row.RemoteStatus)
 	}
-	if got, want := asset.Location, "s3://"+row.ID; got != want {
-		t.Fatalf("Location = %q, want %q", got, want)
+	if got, want := asset.LatestContentVersion().Sha256, hashBlob(blob); got != want {
+		t.Fatalf("Sha256 = %q, want %q", got, want)
 	}
 	if !strings.Contains(auth, "Credential=separate-key/") {
 		t.Fatalf("S3 request did not use separate credentials: %q", auth)
