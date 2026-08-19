@@ -8,13 +8,11 @@ import "api-contract/options.proto";
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 message DeploymentUpdateRequest {
-  reserved 7;
-  reserved "space_id";
-  int32 deployment_id = 5;
+  int32 deployment_id = 1;
   string target_version = 2;
   bool stop = 3;
   int32 version = 4;
-  DeploymentSpec spec = 6 [(cp.go_value) = true]; // optional: update deployment spec
+  DeploymentSpec spec = 5 [(cp.go_value) = true]; // optional: update deployment spec
 }
 
 message DeploymentSpaceMoveRequest {
@@ -24,11 +22,9 @@ message DeploymentSpaceMoveRequest {
 }
 
 message DeploymentCreateRequest {
-  reserved 1, 3;
-  reserved "identity", "desired_state";
-  string name = 5;
-  int32 space_id = 6;
-  DeploymentSpec spec = 2 [(cp.go_value) = true];
+  string name = 1;
+  int32 space_id = 2;
+  DeploymentSpec spec = 3 [(cp.go_value) = true];
   int32 node_id = 4; // required canonical target node
 }
 
@@ -92,8 +88,8 @@ message DeploymentVersionsRequest {
 // RepoValidateRequest checks an image source's accessibility before a
 // deployment using it is created/updated. Exactly one source field must be set.
 message RepoValidateRequest {
-  ValidateNixDockerBuildSource nix_docker_build = 2;
-  ValidateContainerImageSource container_image = 4;
+  ValidateNixDockerBuildSource nix_docker_build = 1;
+  ValidateContainerImageSource container_image = 2;
 }
 
 message ValidateNixDockerBuildSource {
@@ -150,8 +146,8 @@ message ValidateContainerImageSource {
 }
 
 message RepoValidateResponse {
-  ValidateNixDockerBuildSourceResponse nix_docker_build = 2;
-  ValidateContainerImageSourceResponse container_image = 4;
+  ValidateNixDockerBuildSourceResponse nix_docker_build = 1;
+  ValidateContainerImageSourceResponse container_image = 2;
 }
 
 message ValidateContainerImageSourceResponse {

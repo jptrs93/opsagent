@@ -278,7 +278,7 @@ func TestAgentSessionsListReturnsOnlyTheCallersSessions(t *testing.T) {
 		t.Fatalf("PostV1AgentSessionsCreate for other user: %v", err)
 	}
 
-	list, err := h.PostV1AgentSessionsList(apigen.Context{Ctx: context.Background(), User: user}, &apigen.EmptyRequest{})
+	list, err := h.PostV1AgentSessionsList(apigen.Context{Ctx: context.Background(), User: user})
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsList: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestRevokedAgentSessionTokenFailsVerifyAuth(t *testing.T) {
 		t.Fatal("revoked token still authenticates")
 	}
 
-	list, err := h.PostV1AgentSessionsList(apigen.Context{Ctx: context.Background(), User: user}, &apigen.EmptyRequest{})
+	list, err := h.PostV1AgentSessionsList(apigen.Context{Ctx: context.Background(), User: user})
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsList: %v", err)
 	}

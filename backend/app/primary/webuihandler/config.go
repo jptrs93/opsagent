@@ -18,7 +18,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
-func (h *Handler) PostV1ClusterSettingsGet(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ClusterSettings, error) {
+func (h *Handler) PostV1ClusterSettingsGet(ctx apigen.Context) (*apigen.ClusterSettings, error) {
 	if err := h.requireAccess(ctx, vView, eCluster, 0, 0); err != nil {
 		return nil, err
 	}

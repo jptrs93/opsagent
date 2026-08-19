@@ -41,7 +41,7 @@ func (h *Handler) notifyAssetDirectory(directoryID int32) {
 	}
 }
 
-func (h *Handler) PostV1AssetDirectoriesList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.AssetDirectoryList, error) {
+func (h *Handler) PostV1AssetDirectoriesList(ctx apigen.Context) (*apigen.AssetDirectoryList, error) {
 	return &apigen.AssetDirectoryList{Items: h.filterAssetDirectories(ctx, h.Store.ListAssetDirectories())}, nil
 }
 

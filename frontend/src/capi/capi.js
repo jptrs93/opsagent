@@ -86,7 +86,6 @@ import {
   encodeDeploymentSpaceMoveRequest,
   encodeDeploymentUpdateRequest,
   encodeDeploymentVersionsRequest,
-  encodeEmptyRequest,
   encodeEnrollmentAcceptRequest,
   encodeEnrollmentWorkerMsg,
   encodeLogSearchRequest,
@@ -232,11 +231,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<ClusterSettings>}
    */
-  async postV1ClusterSettingsGet(payload) {
-    const response = await this.#request("/v1/cluster-settings/get", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1ClusterSettingsGet() {
+    const response = await this.#request("/v1/cluster-settings/get", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -303,11 +301,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<WebAuthNOptionsResponse>}
    */
-  async postV1AuthPasskeyRegisterStart(payload) {
-    const response = await this.#request("/v1/auth/passkey/register/start", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1AuthPasskeyRegisterStart() {
+    const response = await this.#request("/v1/auth/passkey/register/start", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -327,11 +324,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<WebAuthNOptionsResponse>}
    */
-  async postV1AuthPasskeyLoginStart(payload) {
-    const response = await this.#request("/v1/auth/passkey/login/start", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1AuthPasskeyLoginStart() {
+    const response = await this.#request("/v1/auth/passkey/login/start", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -409,11 +405,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<AgentSessionList>}
    */
-  async postV1AgentSessionsList(payload) {
-    const response = await this.#request("/v1/agent-sessions/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1AgentSessionsList() {
+    const response = await this.#request("/v1/agent-sessions/list", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -433,11 +428,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<PersonalSessionList>}
    */
-  async postV1PersonalSessionsList(payload) {
-    const response = await this.#request("/v1/personal-sessions/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1PersonalSessionsList() {
+    const response = await this.#request("/v1/personal-sessions/list", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -457,11 +451,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<AuthzRuleTemplateList>}
    */
-  async postV1AccessRuleTemplatesList(payload) {
-    const response = await this.#request("/v1/access/rule-templates/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1AccessRuleTemplatesList() {
+    const response = await this.#request("/v1/access/rule-templates/list", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -505,11 +498,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<AuthzGrantList>}
    */
-  async postV1AccessGrantsList(payload) {
-    const response = await this.#request("/v1/access/grants/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1AccessGrantsList() {
+    const response = await this.#request("/v1/access/grants/list", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -541,11 +533,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<AuthzGlobalRuleList>}
    */
-  async postV1AccessGlobalRulesList(payload) {
-    const response = await this.#request("/v1/access/global-rules/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1AccessGlobalRulesList() {
+    const response = await this.#request("/v1/access/global-rules/list", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -605,11 +596,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<ExportedConfigBlob>}
    */
-  async postV1GlobalExportedConfig(payload) {
-    const response = await this.#request("/v1/global/exported-config", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1GlobalExportedConfig() {
+    const response = await this.#request("/v1/global/exported-config", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -855,11 +845,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<SecretList>}
    */
-  async postV1SecretsList(payload) {
-    const response = await this.#request("/v1/secrets/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1SecretsList() {
+    const response = await this.#request("/v1/secrets/list", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -951,11 +940,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<SecretsStatusResponse>}
    */
-  async postV1SecretsStatus(payload) {
-    const response = await this.#request("/v1/secrets/status", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1SecretsStatus() {
+    const response = await this.#request("/v1/secrets/status", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -963,11 +951,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<SecretRecoveryCodeResponse>}
    */
-  async postV1SecretsRotateRecoveryCode(payload) {
-    const response = await this.#request("/v1/secrets/rotate-recovery-code", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1SecretsRotateRecoveryCode() {
+    const response = await this.#request("/v1/secrets/rotate-recovery-code", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -987,11 +974,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<ConfigList>}
    */
-  async postV1ConfigsList(payload) {
-    const response = await this.#request("/v1/configs/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1ConfigsList() {
+    const response = await this.#request("/v1/configs/list", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1059,11 +1045,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<ValueDirectoryList>}
    */
-  async postV1ValueDirectoriesList(payload) {
-    const response = await this.#request("/v1/value-directories/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1ValueDirectoriesList() {
+    const response = await this.#request("/v1/value-directories/list", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1119,11 +1104,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<AssetList>}
    */
-  async postV1AssetsList(payload) {
-    const response = await this.#request("/v1/assets/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1AssetsList() {
+    const response = await this.#request("/v1/assets/list", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1189,11 +1173,10 @@ export class Capi {
   }
 
   /**
-   * @param {EmptyRequest} payload
    * @returns {Promise<AssetDirectoryList>}
    */
-  async postV1AssetDirectoriesList(payload) {
-    const response = await this.#request("/v1/asset-directories/list", { method: 'POST', body: encodeEmptyRequest(payload) });
+  async postV1AssetDirectoriesList() {
+    const response = await this.#request("/v1/asset-directories/list", { method: 'POST' });
     if (!response.ok) {
       return this.errorHandler(response);
     }

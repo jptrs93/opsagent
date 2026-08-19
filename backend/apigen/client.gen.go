@@ -137,11 +137,8 @@ func (c *ApiServerCapi) GetV1Healthz(ctx context.Context) error {
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1ClusterSettingsGet(ctx context.Context, req *EmptyRequest) (*ClusterSettings, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1ClusterSettingsGet request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/cluster-settings/get", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1ClusterSettingsGet(ctx context.Context) (*ClusterSettings, error) {
+	resp, err := c.do(ctx, "POST", "/v1/cluster-settings/get", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -240,11 +237,8 @@ func (c *ApiServerCapi) GetV1AuthCurrentSession(ctx context.Context) (*LoginResp
 	return DecodeLoginResponse(body)
 }
 
-func (c *ApiServerCapi) PostV1AuthPasskeyRegisterStart(ctx context.Context, req *EmptyRequest) (*WebAuthNOptionsResponse, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1AuthPasskeyRegisterStart request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/auth/passkey/register/start", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1AuthPasskeyRegisterStart(ctx context.Context) (*WebAuthNOptionsResponse, error) {
+	resp, err := c.do(ctx, "POST", "/v1/auth/passkey/register/start", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -278,11 +272,8 @@ func (c *ApiServerCapi) PostV1AuthPasskeyRegisterFinish(ctx context.Context, req
 	return DecodeLoginResponse(body)
 }
 
-func (c *ApiServerCapi) PostV1AuthPasskeyLoginStart(ctx context.Context, req *EmptyRequest) (*WebAuthNOptionsResponse, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1AuthPasskeyLoginStart request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/auth/passkey/login/start", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1AuthPasskeyLoginStart(ctx context.Context) (*WebAuthNOptionsResponse, error) {
+	resp, err := c.do(ctx, "POST", "/v1/auth/passkey/login/start", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -401,11 +392,8 @@ func (c *ApiServerCapi) PostV1AgentSessionsCreate(ctx context.Context) (*AgentSe
 	return DecodeAgentSessionCreated(body)
 }
 
-func (c *ApiServerCapi) PostV1AgentSessionsList(ctx context.Context, req *EmptyRequest) (*AgentSessionList, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1AgentSessionsList request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1AgentSessionsList(ctx context.Context) (*AgentSessionList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/agent-sessions/list", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -435,11 +423,8 @@ func (c *ApiServerCapi) PostV1AgentSessionsRevoke(ctx context.Context, req *Agen
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1PersonalSessionsList(ctx context.Context, req *EmptyRequest) (*PersonalSessionList, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1PersonalSessionsList request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/personal-sessions/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1PersonalSessionsList(ctx context.Context) (*PersonalSessionList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/personal-sessions/list", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -469,11 +454,8 @@ func (c *ApiServerCapi) PostV1PersonalSessionsRevoke(ctx context.Context, req *P
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1AccessRuleTemplatesList(ctx context.Context, req *EmptyRequest) (*AuthzRuleTemplateList, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1AccessRuleTemplatesList request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/access/rule-templates/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1AccessRuleTemplatesList(ctx context.Context) (*AuthzRuleTemplateList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/access/rule-templates/list", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -541,11 +523,8 @@ func (c *ApiServerCapi) PostV1AccessRuleTemplatesDelete(ctx context.Context, req
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1AccessGrantsList(ctx context.Context, req *EmptyRequest) (*AuthzGrantList, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1AccessGrantsList request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/access/grants/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1AccessGrantsList(ctx context.Context) (*AuthzGrantList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/access/grants/list", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -594,11 +573,8 @@ func (c *ApiServerCapi) PostV1AccessGrantsDelete(ctx context.Context, req *Authz
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1AccessGlobalRulesList(ctx context.Context, req *EmptyRequest) (*AuthzGlobalRuleList, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1AccessGlobalRulesList request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/access/global-rules/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1AccessGlobalRulesList(ctx context.Context) (*AuthzGlobalRuleList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/access/global-rules/list", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -697,11 +673,8 @@ func (c *ApiServerCapi) PostV1GlobalStateStream(ctx context.Context) iter.Seq2[*
 	}
 }
 
-func (c *ApiServerCapi) PostV1GlobalExportedConfig(ctx context.Context, req *EmptyRequest) (*ExportedConfigBlob, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1GlobalExportedConfig request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/global/exported-config", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1GlobalExportedConfig(ctx context.Context) (*ExportedConfigBlob, error) {
+	resp, err := c.do(ctx, "POST", "/v1/global/exported-config", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -1101,11 +1074,8 @@ func (c *ApiServerCapi) PostV1SpacesDelete(ctx context.Context, req *SpaceDelete
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1SecretsList(ctx context.Context, req *EmptyRequest) (*SecretList, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1SecretsList request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/secrets/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1SecretsList(ctx context.Context) (*SecretList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/secrets/list", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -1249,11 +1219,8 @@ func (c *ApiServerCapi) PostV1SecretsDelete(ctx context.Context, req *SecretDele
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1SecretsStatus(ctx context.Context, req *EmptyRequest) (*SecretsStatusResponse, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1SecretsStatus request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/secrets/status", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1SecretsStatus(ctx context.Context) (*SecretsStatusResponse, error) {
+	resp, err := c.do(ctx, "POST", "/v1/secrets/status", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -1268,11 +1235,8 @@ func (c *ApiServerCapi) PostV1SecretsStatus(ctx context.Context, req *EmptyReque
 	return DecodeSecretsStatusResponse(body)
 }
 
-func (c *ApiServerCapi) PostV1SecretsRotateRecoveryCode(ctx context.Context, req *EmptyRequest) (*SecretRecoveryCodeResponse, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1SecretsRotateRecoveryCode request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/secrets/rotate-recovery-code", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1SecretsRotateRecoveryCode(ctx context.Context) (*SecretRecoveryCodeResponse, error) {
+	resp, err := c.do(ctx, "POST", "/v1/secrets/rotate-recovery-code", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -1306,11 +1270,8 @@ func (c *ApiServerCapi) PostV1SecretsUnlock(ctx context.Context, req *SecretUnlo
 	return DecodeSecretsStatusResponse(body)
 }
 
-func (c *ApiServerCapi) PostV1ConfigsList(ctx context.Context, req *EmptyRequest) (*ConfigList, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1ConfigsList request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/configs/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1ConfigsList(ctx context.Context) (*ConfigList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/configs/list", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -1416,11 +1377,8 @@ func (c *ApiServerCapi) PostV1ConfigsMove(ctx context.Context, req *ConfigMoveRe
 	return DecodeConfig(body)
 }
 
-func (c *ApiServerCapi) PostV1ValueDirectoriesList(ctx context.Context, req *EmptyRequest) (*ValueDirectoryList, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1ValueDirectoriesList request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/value-directories/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1ValueDirectoriesList(ctx context.Context) (*ValueDirectoryList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/value-directories/list", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -1507,11 +1465,8 @@ func (c *ApiServerCapi) PostV1ValueDirectoriesDelete(ctx context.Context, req *V
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1AssetsList(ctx context.Context, req *EmptyRequest) (*AssetList, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1AssetsList request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/assets/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1AssetsList(ctx context.Context) (*AssetList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/assets/list", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -1607,11 +1562,8 @@ func (c *ApiServerCapi) PostV1AssetsMove(ctx context.Context, req *AssetMoveRequ
 	return DecodeAsset(body)
 }
 
-func (c *ApiServerCapi) PostV1AssetDirectoriesList(ctx context.Context, req *EmptyRequest) (*AssetDirectoryList, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1AssetDirectoriesList request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/asset-directories/list", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1AssetDirectoriesList(ctx context.Context) (*AssetDirectoryList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/asset-directories/list", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}

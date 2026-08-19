@@ -35,7 +35,7 @@ func mapAuthzErr(err error) error {
 	}
 }
 
-func (h *Handler) PostV1AccessRuleTemplatesList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.AuthzRuleTemplateList, error) {
+func (h *Handler) PostV1AccessRuleTemplatesList(ctx apigen.Context) (*apigen.AuthzRuleTemplateList, error) {
 	if err := h.requireAccess(ctx, vView, eAccess, 0, 0); err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func (h *Handler) PostV1AccessRuleTemplatesDelete(ctx apigen.Context, req *apige
 	return mapAuthzErr(h.Authz.DeleteRuleTemplate(req.ID))
 }
 
-func (h *Handler) PostV1AccessGrantsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.AuthzGrantList, error) {
+func (h *Handler) PostV1AccessGrantsList(ctx apigen.Context) (*apigen.AuthzGrantList, error) {
 	if err := h.requireAccess(ctx, vView, eAccess, 0, 0); err != nil {
 		return nil, err
 	}
@@ -101,7 +101,7 @@ func (h *Handler) PostV1AccessGrantsDelete(ctx apigen.Context, req *apigen.Authz
 	return mapAuthzErr(h.Authz.DeleteGrant(req.UserID, req.ID))
 }
 
-func (h *Handler) PostV1AccessGlobalRulesList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.AuthzGlobalRuleList, error) {
+func (h *Handler) PostV1AccessGlobalRulesList(ctx apigen.Context) (*apigen.AuthzGlobalRuleList, error) {
 	if err := h.requireAccess(ctx, vView, eAccess, 0, 0); err != nil {
 		return nil, err
 	}

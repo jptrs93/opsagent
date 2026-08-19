@@ -2,32 +2,6 @@
 
 package apigen
 
-func (m *EmptyRequest) Encode() []byte {
-	var b []byte
-	return b
-}
-
-func DecodeEmptyRequest(b []byte) (*EmptyRequest, error) {
-	var m EmptyRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 func (m *PortForward) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, int32(m.Protocol), 1)
@@ -1895,12 +1869,12 @@ func DecodeIssuedTLSMount(b []byte) (*IssuedTLSMount, error) {
 
 func (m *DeploymentUpdateRequest) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.DeploymentID, 5)
+	b = AppendInt32Field(b, m.DeploymentID, 1)
 	b = AppendStringField(b, m.TargetVersion, 2)
 	b = AppendBoolField(b, m.Stop, 3)
 	b = AppendInt32Field(b, m.Version, 4)
 	if !m.Spec.IsZero() {
-		b = AppendTag(b, 6, BytesType)
+		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, m.Spec.Encode())
 	}
 	return b
@@ -1918,7 +1892,7 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 5:
+		case 1:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.TargetVersion, err = ConsumeString(b, typ)
@@ -1926,7 +1900,7 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 			b, m.Stop, err = ConsumeBool(b, typ)
 		case 4:
 			b, m.Version, err = ConsumeVarInt32(b, typ)
-		case 6:
+		case 5:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *DeploymentSpec
@@ -1982,10 +1956,10 @@ func DecodeDeploymentSpaceMoveRequest(b []byte) (*DeploymentSpaceMoveRequest, er
 
 func (m *DeploymentCreateRequest) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Name, 5)
-	b = AppendInt32Field(b, m.SpaceID, 6)
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendInt32Field(b, m.SpaceID, 2)
 	if !m.Spec.IsZero() {
-		b = AppendTag(b, 2, BytesType)
+		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, m.Spec.Encode())
 	}
 	b = AppendInt32Field(b, m.NodeID, 4)
@@ -2004,11 +1978,11 @@ func DecodeDeploymentCreateRequest(b []byte) (*DeploymentCreateRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 5:
+		case 1:
 			b, m.Name, err = ConsumeString(b, typ)
-		case 6:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		case 2:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 3:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *DeploymentSpec
@@ -2443,11 +2417,11 @@ func DecodeDeploymentVersionsRequest(b []byte) (*DeploymentVersionsRequest, erro
 func (m *RepoValidateRequest) Encode() []byte {
 	var b []byte
 	if m.NixDockerBuild != nil {
-		b = AppendTag(b, 2, BytesType)
+		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, m.NixDockerBuild.Encode())
 	}
 	if m.ContainerImage != nil {
-		b = AppendTag(b, 4, BytesType)
+		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, m.ContainerImage.Encode())
 	}
 	return b
@@ -2465,7 +2439,7 @@ func DecodeRepoValidateRequest(b []byte) (*RepoValidateRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 2:
+		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ValidateNixDockerBuildSource
@@ -2474,7 +2448,7 @@ func DecodeRepoValidateRequest(b []byte) (*RepoValidateRequest, error) {
 					m.NixDockerBuild = item
 				}
 			}
-		case 4:
+		case 2:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ValidateContainerImageSource
@@ -2867,11 +2841,11 @@ func DecodeValidateContainerImageSource(b []byte) (*ValidateContainerImageSource
 func (m *RepoValidateResponse) Encode() []byte {
 	var b []byte
 	if m.NixDockerBuild != nil {
-		b = AppendTag(b, 2, BytesType)
+		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, m.NixDockerBuild.Encode())
 	}
 	if m.ContainerImage != nil {
-		b = AppendTag(b, 4, BytesType)
+		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, m.ContainerImage.Encode())
 	}
 	return b
@@ -2889,7 +2863,7 @@ func DecodeRepoValidateResponse(b []byte) (*RepoValidateResponse, error) {
 			return nil, err
 		}
 		switch num {
-		case 2:
+		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ValidateNixDockerBuildSourceResponse
@@ -2898,7 +2872,7 @@ func DecodeRepoValidateResponse(b []byte) (*RepoValidateResponse, error) {
 					m.NixDockerBuild = item
 				}
 			}
-		case 4:
+		case 2:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ValidateContainerImageSourceResponse
@@ -5803,10 +5777,10 @@ func (m *AgentSession) Encode() []byte {
 	b = AppendInt64FromTime(b, m.ExpiresAt, 3)
 	b = AppendStringField(b, m.TokenPrefix, 4)
 	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 5))
-	b = AppendInt32Field(b, int32(m.Status), 7)
-	b = AppendStringField(b, m.RequestingAddress, 8)
-	b = AppendStringField(b, m.ApprovalCode, 9)
-	b = AppendInt64FromTime(b, m.ApprovedAt, 10)
+	b = AppendInt32Field(b, int32(m.Status), 6)
+	b = AppendStringField(b, m.RequestingAddress, 7)
+	b = AppendStringField(b, m.ApprovalCode, 8)
+	b = AppendInt64FromTime(b, m.ApprovedAt, 9)
 	return b
 }
 
@@ -5835,17 +5809,17 @@ func DecodeAgentSession(b []byte) (*AgentSession, error) {
 			if err == nil {
 				m.Scopes = append(m.Scopes, item)
 			}
-		case 7:
+		case 6:
 			var raw int32
 			b, raw, err = ConsumeVarInt32(b, typ)
 			if err == nil {
 				m.Status = AgentSessionStatus(raw)
 			}
-		case 8:
+		case 7:
 			b, m.RequestingAddress, err = ConsumeString(b, typ)
-		case 9:
+		case 8:
 			b, m.ApprovalCode, err = ConsumeString(b, typ)
-		case 10:
+		case 9:
 			b, m.ApprovedAt, err = ConsumeTimeFromInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -10198,138 +10172,138 @@ func (m *State) Encode() []byte {
 	var b []byte
 	b = AppendBoolField(b, m.Heartbeat, 1)
 	if m.DeploymentConfigsSnapshot != nil {
-		b = AppendTag(b, 4, BytesType)
+		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, m.DeploymentConfigsSnapshot.Encode())
 	}
 	if m.DeploymentConfigUpdate != nil {
-		b = AppendTag(b, 5, BytesType)
+		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, m.DeploymentConfigUpdate.Encode())
 	}
 	for _, item := range m.UsersSnapshot {
 		if item == nil {
 			continue
 		}
-		b = AppendTag(b, 6, BytesType)
+		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	if m.UserUpdate != nil {
-		b = AppendTag(b, 7, BytesType)
+		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, m.UserUpdate.Encode())
 	}
 	if m.EnrollmentsSnapshot != nil {
-		b = AppendTag(b, 10, BytesType)
+		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, m.EnrollmentsSnapshot.Encode())
 	}
 	if m.EnrollmentUpdate != nil {
-		b = AppendTag(b, 11, BytesType)
+		b = AppendTag(b, 7, BytesType)
 		b = AppendBytes(b, m.EnrollmentUpdate.Encode())
 	}
 	if m.SecretsStatusSnapshot != nil {
-		b = AppendTag(b, 16, BytesType)
+		b = AppendTag(b, 8, BytesType)
 		b = AppendBytes(b, m.SecretsStatusSnapshot.Encode())
 	}
 	if m.SecretMetasSnapshot != nil {
-		b = AppendTag(b, 17, BytesType)
+		b = AppendTag(b, 9, BytesType)
 		b = AppendBytes(b, m.SecretMetasSnapshot.Encode())
 	}
 	if m.SecretMetaUpdate != nil {
-		b = AppendTag(b, 18, BytesType)
+		b = AppendTag(b, 10, BytesType)
 		b = AppendBytes(b, m.SecretMetaUpdate.Encode())
 	}
 	if m.UserConfigValuesSnapshot != nil {
-		b = AppendTag(b, 19, BytesType)
+		b = AppendTag(b, 11, BytesType)
 		b = AppendBytes(b, m.UserConfigValuesSnapshot.Encode())
 	}
 	if m.UserConfigValueUpdate != nil {
-		b = AppendTag(b, 20, BytesType)
+		b = AppendTag(b, 12, BytesType)
 		b = AppendBytes(b, m.UserConfigValueUpdate.Encode())
 	}
 	if m.SpacesSnapshot != nil {
-		b = AppendTag(b, 21, BytesType)
+		b = AppendTag(b, 13, BytesType)
 		b = AppendBytes(b, m.SpacesSnapshot.Encode())
 	}
 	if m.SpaceUpdate != nil {
-		b = AppendTag(b, 22, BytesType)
+		b = AppendTag(b, 14, BytesType)
 		b = AppendBytes(b, m.SpaceUpdate.Encode())
 	}
 	if m.AssetsSnapshot != nil {
-		b = AppendTag(b, 23, BytesType)
+		b = AppendTag(b, 15, BytesType)
 		b = AppendBytes(b, m.AssetsSnapshot.Encode())
 	}
 	if m.AssetUpdate != nil {
-		b = AppendTag(b, 24, BytesType)
+		b = AppendTag(b, 16, BytesType)
 		b = AppendBytes(b, m.AssetUpdate.Encode())
 	}
 	if m.NodesSnapshot != nil {
-		b = AppendTag(b, 25, BytesType)
+		b = AppendTag(b, 17, BytesType)
 		b = AppendBytes(b, m.NodesSnapshot.Encode())
 	}
 	if m.NodeUpdate != nil {
-		b = AppendTag(b, 26, BytesType)
+		b = AppendTag(b, 18, BytesType)
 		b = AppendBytes(b, m.NodeUpdate.Encode())
 	}
 	if m.NodeStatusesSnapshot != nil {
-		b = AppendTag(b, 27, BytesType)
+		b = AppendTag(b, 19, BytesType)
 		b = AppendBytes(b, m.NodeStatusesSnapshot.Encode())
 	}
 	if m.NodeStatusUpdate != nil {
-		b = AppendTag(b, 28, BytesType)
+		b = AppendTag(b, 20, BytesType)
 		b = AppendBytes(b, m.NodeStatusUpdate.Encode())
 	}
 	if m.BackupStatusSnapshot != nil {
-		b = AppendTag(b, 29, BytesType)
+		b = AppendTag(b, 21, BytesType)
 		b = AppendBytes(b, m.BackupStatusSnapshot.Encode())
 	}
 	if m.BackupStatusUpdate != nil {
-		b = AppendTag(b, 30, BytesType)
+		b = AppendTag(b, 22, BytesType)
 		b = AppendBytes(b, m.BackupStatusUpdate.Encode())
 	}
 	if !m.ConfigSnapshot.IsZero() {
-		b = AppendTag(b, 31, BytesType)
+		b = AppendTag(b, 23, BytesType)
 		b = AppendBytes(b, m.ConfigSnapshot.Encode())
 	}
 	if m.ScheduledInstancesSnapshot != nil {
-		b = AppendTag(b, 32, BytesType)
+		b = AppendTag(b, 24, BytesType)
 		b = AppendBytes(b, m.ScheduledInstancesSnapshot.Encode())
 	}
 	if m.ScheduledInstanceUpdate != nil {
-		b = AppendTag(b, 33, BytesType)
+		b = AppendTag(b, 25, BytesType)
 		b = AppendBytes(b, m.ScheduledInstanceUpdate.Encode())
 	}
 	if m.AgentSessionsSnapshot != nil {
-		b = AppendTag(b, 34, BytesType)
+		b = AppendTag(b, 26, BytesType)
 		b = AppendBytes(b, m.AgentSessionsSnapshot.Encode())
 	}
 	if m.AgentSessionUpdate != nil {
-		b = AppendTag(b, 35, BytesType)
+		b = AppendTag(b, 27, BytesType)
 		b = AppendBytes(b, m.AgentSessionUpdate.Encode())
 	}
 	if m.ValueDirectoriesSnapshot != nil {
-		b = AppendTag(b, 36, BytesType)
+		b = AppendTag(b, 28, BytesType)
 		b = AppendBytes(b, m.ValueDirectoriesSnapshot.Encode())
 	}
 	if m.ValueDirectoryUpdate != nil {
-		b = AppendTag(b, 37, BytesType)
+		b = AppendTag(b, 29, BytesType)
 		b = AppendBytes(b, m.ValueDirectoryUpdate.Encode())
 	}
 	if m.AssetDirectoriesSnapshot != nil {
-		b = AppendTag(b, 38, BytesType)
+		b = AppendTag(b, 30, BytesType)
 		b = AppendBytes(b, m.AssetDirectoriesSnapshot.Encode())
 	}
 	if m.AssetDirectoryUpdate != nil {
-		b = AppendTag(b, 39, BytesType)
+		b = AppendTag(b, 31, BytesType)
 		b = AppendBytes(b, m.AssetDirectoryUpdate.Encode())
 	}
 	if m.AuthzRuleTemplatesSnapshot != nil {
-		b = AppendTag(b, 40, BytesType)
+		b = AppendTag(b, 32, BytesType)
 		b = AppendBytes(b, m.AuthzRuleTemplatesSnapshot.Encode())
 	}
 	if m.AuthzGrantsSnapshot != nil {
-		b = AppendTag(b, 41, BytesType)
+		b = AppendTag(b, 33, BytesType)
 		b = AppendBytes(b, m.AuthzGrantsSnapshot.Encode())
 	}
 	if m.AuthzGlobalRulesSnapshot != nil {
-		b = AppendTag(b, 42, BytesType)
+		b = AppendTag(b, 34, BytesType)
 		b = AppendBytes(b, m.AuthzGlobalRulesSnapshot.Encode())
 	}
 	return b
@@ -10349,7 +10323,7 @@ func DecodeState(b []byte) (*State, error) {
 		switch num {
 		case 1:
 			b, m.Heartbeat, err = ConsumeBool(b, typ)
-		case 4:
+		case 2:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *DeploymentConfigSnapshot
@@ -10358,7 +10332,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.DeploymentConfigsSnapshot = item
 				}
 			}
-		case 5:
+		case 3:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *DeploymentConfig
@@ -10367,7 +10341,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.DeploymentConfigUpdate = item
 				}
 			}
-		case 6:
+		case 4:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *User
@@ -10376,7 +10350,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.UsersSnapshot = append(m.UsersSnapshot, item)
 				}
 			}
-		case 7:
+		case 5:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *User
@@ -10385,7 +10359,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.UserUpdate = item
 				}
 			}
-		case 10:
+		case 6:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *EnrollmentRequestList
@@ -10394,7 +10368,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.EnrollmentsSnapshot = item
 				}
 			}
-		case 11:
+		case 7:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *EnrollmentRequestStatus
@@ -10403,7 +10377,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.EnrollmentUpdate = item
 				}
 			}
-		case 16:
+		case 8:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *SecretsStatusResponse
@@ -10412,7 +10386,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.SecretsStatusSnapshot = item
 				}
 			}
-		case 17:
+		case 9:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *SecretList
@@ -10421,7 +10395,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.SecretMetasSnapshot = item
 				}
 			}
-		case 18:
+		case 10:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *Secret
@@ -10430,7 +10404,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.SecretMetaUpdate = item
 				}
 			}
-		case 19:
+		case 11:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ConfigList
@@ -10439,7 +10413,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.UserConfigValuesSnapshot = item
 				}
 			}
-		case 20:
+		case 12:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *Config
@@ -10448,7 +10422,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.UserConfigValueUpdate = item
 				}
 			}
-		case 21:
+		case 13:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *SpaceList
@@ -10457,7 +10431,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.SpacesSnapshot = item
 				}
 			}
-		case 22:
+		case 14:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *Space
@@ -10466,7 +10440,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.SpaceUpdate = item
 				}
 			}
-		case 23:
+		case 15:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *AssetList
@@ -10475,7 +10449,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.AssetsSnapshot = item
 				}
 			}
-		case 24:
+		case 16:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *Asset
@@ -10484,7 +10458,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.AssetUpdate = item
 				}
 			}
-		case 25:
+		case 17:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ClusterNodeList
@@ -10493,7 +10467,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.NodesSnapshot = item
 				}
 			}
-		case 26:
+		case 18:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ClusterNode
@@ -10502,7 +10476,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.NodeUpdate = item
 				}
 			}
-		case 27:
+		case 19:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ClusterNodeStatusList
@@ -10511,7 +10485,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.NodeStatusesSnapshot = item
 				}
 			}
-		case 28:
+		case 20:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ClusterNodeStatus
@@ -10520,7 +10494,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.NodeStatusUpdate = item
 				}
 			}
-		case 29:
+		case 21:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *BackupStatus
@@ -10529,7 +10503,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.BackupStatusSnapshot = item
 				}
 			}
-		case 30:
+		case 22:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *BackupStatus
@@ -10538,7 +10512,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.BackupStatusUpdate = item
 				}
 			}
-		case 31:
+		case 23:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *PrimaryConfigVersion
@@ -10547,7 +10521,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.ConfigSnapshot = *item
 				}
 			}
-		case 32:
+		case 24:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ScheduledInstanceSnapshot
@@ -10556,7 +10530,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.ScheduledInstancesSnapshot = item
 				}
 			}
-		case 33:
+		case 25:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ScheduledInstanceState
@@ -10565,7 +10539,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.ScheduledInstanceUpdate = item
 				}
 			}
-		case 34:
+		case 26:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *AgentSessionList
@@ -10574,7 +10548,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.AgentSessionsSnapshot = item
 				}
 			}
-		case 35:
+		case 27:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *AgentSession
@@ -10583,7 +10557,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.AgentSessionUpdate = item
 				}
 			}
-		case 36:
+		case 28:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ValueDirectoryList
@@ -10592,7 +10566,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.ValueDirectoriesSnapshot = item
 				}
 			}
-		case 37:
+		case 29:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ValueDirectory
@@ -10601,7 +10575,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.ValueDirectoryUpdate = item
 				}
 			}
-		case 38:
+		case 30:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *AssetDirectoryList
@@ -10610,7 +10584,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.AssetDirectoriesSnapshot = item
 				}
 			}
-		case 39:
+		case 31:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *AssetDirectory
@@ -10619,7 +10593,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.AssetDirectoryUpdate = item
 				}
 			}
-		case 40:
+		case 32:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *AuthzRuleTemplateList
@@ -10628,7 +10602,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.AuthzRuleTemplatesSnapshot = item
 				}
 			}
-		case 41:
+		case 33:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *AuthzGrantList
@@ -10637,7 +10611,7 @@ func DecodeState(b []byte) (*State, error) {
 					m.AuthzGrantsSnapshot = item
 				}
 			}
-		case 42:
+		case 34:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *AuthzGlobalRuleList

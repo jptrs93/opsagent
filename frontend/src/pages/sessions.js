@@ -199,7 +199,7 @@ export function sessionsPage() {
 
     const loadPersonalSessions = async () => {
         try {
-            const res = await capi.postV1PersonalSessionsList({});
+            const res = await capi.postV1PersonalSessionsList();
             personalSessionsS.val = res.items || [];
             personalError.val = "";
         } catch (e) {

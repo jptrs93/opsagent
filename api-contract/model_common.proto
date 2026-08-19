@@ -1,7 +1,0 @@
-syntax = "proto3";
-
-package opsagent.v1;
-
-option go_package = "github.com/jptrs93/opsagent/backend/apigen";
-
-message EmptyRequest {}

@@ -42,7 +42,7 @@ func TestPersonalSessionLoginListRevoke(t *testing.T) {
 		t.Fatal("personal session marked delegated")
 	}
 
-	list, err := h.PostV1PersonalSessionsList(personalSessionCtx(user, resp.Token), &apigen.EmptyRequest{})
+	list, err := h.PostV1PersonalSessionsList(personalSessionCtx(user, resp.Token))
 	if err != nil {
 		t.Fatalf("PostV1PersonalSessionsList: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestPersonalSessionRevokeForeignID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("startPersonalSession: %v", err)
 	}
-	list, err := h.PostV1PersonalSessionsList(personalSessionCtx(user, resp.Token), &apigen.EmptyRequest{})
+	list, err := h.PostV1PersonalSessionsList(personalSessionCtx(user, resp.Token))
 	if err != nil {
 		t.Fatalf("PostV1PersonalSessionsList: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestSidlessTokenKeepsStatelessPath(t *testing.T) {
 	if _, err := mustVerifyAuth(t, h, token); err != nil {
 		t.Fatalf("VerifyAuth on sid-less token: %v", err)
 	}
-	list, err := h.PostV1PersonalSessionsList(personalSessionCtx(user, token), &apigen.EmptyRequest{})
+	list, err := h.PostV1PersonalSessionsList(personalSessionCtx(user, token))
 	if err != nil {
 		t.Fatalf("PostV1PersonalSessionsList: %v", err)
 	}

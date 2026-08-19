@@ -168,9 +168,6 @@ const (
 	AccessPolicyType_ANY_OF                         AccessPolicyType = 3
 )
 
-type EmptyRequest struct {
-}
-
 type PortForward struct {
 	Protocol      PortForwardProtocol `json:"protocol"`
 	HostPort      int32               `json:"host_port"`

@@ -123,7 +123,7 @@ func (h *Handler) passkeyOrigins() ([]string, error) {
 	return origins, nil
 }
 
-func (h *Handler) PostV1AuthPasskeyRegisterStart(ctx apigen.Context, _ *apigen.EmptyRequest) (*apigen.WebAuthNOptionsResponse, error) {
+func (h *Handler) PostV1AuthPasskeyRegisterStart(ctx apigen.Context) (*apigen.WebAuthNOptionsResponse, error) {
 	sessionID, optionsJSON, err := h.PasskeyService.BeginRegistration(ctx.User.WebAuthNID)
 	if err != nil {
 		return nil, apigen.NewApiErr("bad credentials", fmt.Sprintf("err=%v", err), http.StatusBadRequest)
@@ -140,7 +140,7 @@ func (h *Handler) PostV1AuthPasskeyRegisterFinish(ctx apigen.Context, req *apige
 	return h.startPersonalSession(ctx, ctx.User)
 }
 
-func (h *Handler) PostV1AuthPasskeyLoginStart(ctx apigen.Context, _ *apigen.EmptyRequest) (*apigen.WebAuthNOptionsResponse, error) {
+func (h *Handler) PostV1AuthPasskeyLoginStart(ctx apigen.Context) (*apigen.WebAuthNOptionsResponse, error) {
 	sessionID, optionsJSON, err := h.PasskeyService.BeginLogin()
 	if err != nil {
 		return nil, apigen.NewApiErr("bad credentials", fmt.Sprintf("err=%v", err), http.StatusBadRequest)

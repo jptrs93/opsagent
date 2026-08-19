@@ -16,7 +16,7 @@ type exportedConfigBundle struct {
 	Settings    apigen.ClusterSettings     `json:"settings"`
 }
 
-func (h *Handler) PostV1GlobalExportedConfig(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ExportedConfigBlob, error) {
+func (h *Handler) PostV1GlobalExportedConfig(ctx apigen.Context) (*apigen.ExportedConfigBlob, error) {
 	// The export bundles every space's metadata plus cluster settings, so it is
 	// gated on cluster-level view rather than filtered per space.
 	if err := h.requireAccess(ctx, vView, eCluster, 0, 0); err != nil {

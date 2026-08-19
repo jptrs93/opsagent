@@ -38,7 +38,7 @@ func wildcardSelector() *apigen.AuthzSelector {
 func TestAccessRuleTemplateCRUD(t *testing.T) {
 	h, ctx := newAccessTestHandler(t)
 
-	listed, err := h.PostV1AccessRuleTemplatesList(ctx, &apigen.EmptyRequest{})
+	listed, err := h.PostV1AccessRuleTemplatesList(ctx)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestAccessGrantCRUD(t *testing.T) {
 		t.Fatalf("create direct grant: %v", err)
 	}
 
-	listed, err := h.PostV1AccessGrantsList(ctx, &apigen.EmptyRequest{})
+	listed, err := h.PostV1AccessGrantsList(ctx)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestAccessGlobalRuleCRUD(t *testing.T) {
 		t.Fatalf("validation failure should map to a 400 ApiErr, got %v", err)
 	}
 
-	listed, err := h.PostV1AccessGlobalRulesList(ctx, &apigen.EmptyRequest{})
+	listed, err := h.PostV1AccessGlobalRulesList(ctx)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

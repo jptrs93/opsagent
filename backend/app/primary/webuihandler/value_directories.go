@@ -42,7 +42,7 @@ func (h *Handler) notifyValueDirectory(directoryID int32) {
 	}
 }
 
-func (h *Handler) PostV1ValueDirectoriesList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ValueDirectoryList, error) {
+func (h *Handler) PostV1ValueDirectoriesList(ctx apigen.Context) (*apigen.ValueDirectoryList, error) {
 	return &apigen.ValueDirectoryList{Items: h.filterValueDirectories(ctx, h.Store.ListValueDirectories())}, nil
 }
 

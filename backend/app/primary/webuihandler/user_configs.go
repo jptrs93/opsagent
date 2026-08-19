@@ -32,7 +32,7 @@ func mapConfigStoreErr(err error) error {
 	return err
 }
 
-func (h *Handler) PostV1ConfigsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ConfigList, error) {
+func (h *Handler) PostV1ConfigsList(ctx apigen.Context) (*apigen.ConfigList, error) {
 	return &apigen.ConfigList{Items: h.filterConfigs(ctx, h.Store.ListConfigs())}, nil
 }
 

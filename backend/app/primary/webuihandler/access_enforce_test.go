@@ -99,7 +99,7 @@ func TestEnforcementConfigsBySpace(t *testing.T) {
 		t.Fatalf("space-limited create with space id 0: %v", err)
 	}
 
-	listed, err := h.PostV1ConfigsList(spaceop, &apigen.EmptyRequest{})
+	listed, err := h.PostV1ConfigsList(spaceop)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestEnforcementDelegated(t *testing.T) {
 	if !ok || len(stored.Versions) == 0 {
 		t.Fatalf("secret missing after create: %+v", stored)
 	}
-	agentList, err := h.PostV1SecretsList(agent, &apigen.EmptyRequest{})
+	agentList, err := h.PostV1SecretsList(agent)
 	if err != nil {
 		t.Fatalf("delegated list: %v", err)
 	}

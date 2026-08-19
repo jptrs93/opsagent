@@ -52,7 +52,7 @@ export function bootstrapPage() {
     const registerButton = spinnerButton("Register passkey", async () => {
         status.val = '';
         try {
-            const startResponse = await capi.postV1AuthPasskeyRegisterStart({});
+            const startResponse = await capi.postV1AuthPasskeyRegisterStart();
             const credential = await navigator.credentials.create(
                 registrationOptionsFromJSONBytes(startResponse.optionsJson)
             );

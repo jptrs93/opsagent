@@ -108,7 +108,7 @@ func personalSessionToProto(rec state.PersonalSessionRecord, currentID string) *
 	}
 }
 
-func (h *Handler) PostV1PersonalSessionsList(ctx apigen.Context, _ *apigen.EmptyRequest) (*apigen.PersonalSessionList, error) {
+func (h *Handler) PostV1PersonalSessionsList(ctx apigen.Context) (*apigen.PersonalSessionList, error) {
 	if ctx.User == nil {
 		return nil, InvalidAuthTokenErr
 	}

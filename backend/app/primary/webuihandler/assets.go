@@ -66,7 +66,7 @@ func requestUserID(ctx apigen.Context) int32 {
 	return ctx.AttributionUserID()
 }
 
-func (h *Handler) PostV1AssetsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.AssetList, error) {
+func (h *Handler) PostV1AssetsList(ctx apigen.Context) (*apigen.AssetList, error) {
 	return &apigen.AssetList{Items: h.filterAssets(ctx, h.Store.ListAssets())}, nil
 }
 

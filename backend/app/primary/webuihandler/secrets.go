@@ -63,7 +63,7 @@ func (h *Handler) notifySecretMeta(secretID int32) {
 	}
 }
 
-func (h *Handler) PostV1SecretsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.SecretList, error) {
+func (h *Handler) PostV1SecretsList(ctx apigen.Context) (*apigen.SecretList, error) {
 	return &apigen.SecretList{Items: h.filterSecrets(ctx, h.Store.ListSecrets())}, nil
 }
 
@@ -347,12 +347,12 @@ func isReservedSecretMetaName(name string) bool {
 	return strings.HasPrefix(name, "opendeploy.") && !strings.HasPrefix(name, "opendeploy.config.")
 }
 
-func (h *Handler) PostV1SecretsStatus(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.SecretsStatusResponse, error) {
+func (h *Handler) PostV1SecretsStatus(ctx apigen.Context) (*apigen.SecretsStatusResponse, error) {
 	status := h.secretsStatus()
 	return &status, nil
 }
 
-func (h *Handler) PostV1SecretsRotateRecoveryCode(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.SecretRecoveryCodeResponse, error) {
+func (h *Handler) PostV1SecretsRotateRecoveryCode(ctx apigen.Context) (*apigen.SecretRecoveryCodeResponse, error) {
 	// Recovery-code rotation and unlock act on the whole secrets store, so they
 	// are cluster-level operations rather than any one secret's.
 	if err := h.requireAccess(ctx, vUpdate, eCluster, 0, 0); err != nil {

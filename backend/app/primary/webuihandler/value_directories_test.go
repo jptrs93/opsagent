@@ -410,7 +410,7 @@ func TestDeleteDirectoryOnlyWhenEmpty(t *testing.T) {
 		t.Fatalf("delete of emptied directory: %v", err)
 	}
 
-	list, err := h.PostV1ValueDirectoriesList(testCtx(user), &apigen.EmptyRequest{})
+	list, err := h.PostV1ValueDirectoriesList(testCtx(user))
 	if err != nil {
 		t.Fatalf("PostV1ValueDirectoriesList: %v", err)
 	}

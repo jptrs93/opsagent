@@ -13,7 +13,7 @@ export function exportConfigOverlay(onClose) {
 
     const loadExport = async () => {
         try {
-            const res = await capi.postV1GlobalExportedConfig({});
+            const res = await capi.postV1GlobalExportedConfig();
             outputText.val = decoder.decode(res.blob || new Uint8Array(0));
             status.val = 'Export generated. Asset blob contents are omitted.';
         } catch (e) {

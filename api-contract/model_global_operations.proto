@@ -32,51 +32,45 @@ option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 // heartbeats to keep the HTTP connection alive.
 message State {
   bool heartbeat = 1;
-  reserved 2, 3;
-  reserved "deployments_snapshot", "deployment_update";
-  DeploymentConfigSnapshot deployment_configs_snapshot = 4;
-  DeploymentConfig deployment_config_update = 5;
-  repeated User users_snapshot = 6;
-  User user_update = 7;
-  EnrollmentRequestList enrollments_snapshot = 10;
-  EnrollmentRequestStatus enrollment_update = 11;
-  // 12-15 were per-version SecretReference/ConfigReference channels; the meta
-  // channels below now carry the full version index in version_refs.
-  reserved 12, 13, 14, 15;
-  reserved "secrets_snapshot", "secret_update", "user_configs_snapshot", "user_config_update";
-  SecretsStatusResponse secrets_status_snapshot = 16;
-  SecretList secret_metas_snapshot = 17;
-  Secret secret_meta_update = 18;
-  ConfigList user_config_values_snapshot = 19;
-  Config user_config_value_update = 20;
-  SpaceList spaces_snapshot = 21;
-  Space space_update = 22;
-  AssetList assets_snapshot = 23;
-  Asset asset_update = 24;
-  ClusterNodeList nodes_snapshot = 25;
-  ClusterNode node_update = 26;
-  ClusterNodeStatusList node_statuses_snapshot = 27;
-  ClusterNodeStatus node_status_update = 28;
-  BackupStatus backup_status_snapshot = 29;
-  BackupStatus backup_status_update = 30;
+  DeploymentConfigSnapshot deployment_configs_snapshot = 2;
+  DeploymentConfig deployment_config_update = 3;
+  repeated User users_snapshot = 4;
+  User user_update = 5;
+  EnrollmentRequestList enrollments_snapshot = 6;
+  EnrollmentRequestStatus enrollment_update = 7;
+  SecretsStatusResponse secrets_status_snapshot = 8;
+  SecretList secret_metas_snapshot = 9;
+  Secret secret_meta_update = 10;
+  ConfigList user_config_values_snapshot = 11;
+  Config user_config_value_update = 12;
+  SpaceList spaces_snapshot = 13;
+  Space space_update = 14;
+  AssetList assets_snapshot = 15;
+  Asset asset_update = 16;
+  ClusterNodeList nodes_snapshot = 17;
+  ClusterNode node_update = 18;
+  ClusterNodeStatusList node_statuses_snapshot = 19;
+  ClusterNodeStatus node_status_update = 20;
+  BackupStatus backup_status_snapshot = 21;
+  BackupStatus backup_status_update = 22;
   // Full redacted primary configuration, emitted initially and after every
   // persisted configuration change.
-  PrimaryConfigVersion config_snapshot = 31 [(cp.go_value) = true];
-  ScheduledInstanceSnapshot scheduled_instances_snapshot = 32;
-  ScheduledInstanceState scheduled_instance_update = 33;
+  PrimaryConfigVersion config_snapshot = 23 [(cp.go_value) = true];
+  ScheduledInstanceSnapshot scheduled_instances_snapshot = 24;
+  ScheduledInstanceState scheduled_instance_update = 25;
   // Filtered to the connected user before it is yielded, unlike every other
   // field here: agent sessions belong to one operator.
-  AgentSessionList agent_sessions_snapshot = 34;
-  AgentSession agent_session_update = 35;
-  ValueDirectoryList value_directories_snapshot = 36;
-  ValueDirectory value_directory_update = 37;
-  AssetDirectoryList asset_directories_snapshot = 38;
-  AssetDirectory asset_directory_update = 39;
+  AgentSessionList agent_sessions_snapshot = 26;
+  AgentSession agent_session_update = 27;
+  ValueDirectoryList value_directories_snapshot = 28;
+  ValueDirectory value_directory_update = 29;
+  AssetDirectoryList asset_directories_snapshot = 30;
+  AssetDirectory asset_directory_update = 31;
   // Authz collections are small and mutate rarely, so each change re-emits the
   // full snapshot instead of tombstoning hard-deleted grants and rules.
-  AuthzRuleTemplateList authz_rule_templates_snapshot = 40;
-  AuthzGrantList authz_grants_snapshot = 41;
-  AuthzGlobalRuleList authz_global_rules_snapshot = 42;
+  AuthzRuleTemplateList authz_rule_templates_snapshot = 32;
+  AuthzGrantList authz_grants_snapshot = 33;
+  AuthzGlobalRuleList authz_global_rules_snapshot = 34;
 }
 
 message GlobalState {

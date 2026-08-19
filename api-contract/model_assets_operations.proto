@@ -22,8 +22,5 @@ message AssetDeleteRequest {
 message AssetMoveRequest {
   int32 asset_id = 1;
   int32 asset_directory_id = 2; // 0 = the root of the target space
-  // Target space; 0 keeps the asset where it is. A cross-space move appends to
-  // the asset's space log and is refused while anything outside the
-  // destination space references the asset.
-  int32 space_id = 3;
+  int32 space_id = 3; // Target space; 0 keeps the asset where it is.
 }

@@ -7,7 +7,6 @@ import "api-contract/model_assets_operations.proto";
 import "api-contract/model_auth_operations.proto";
 import "api-contract/model_authz.proto";
 import "api-contract/model_authz_operations.proto";
-import "api-contract/model_common.proto";
 import "api-contract/model_configs.proto";
 import "api-contract/model_configs_operations.proto";
 import "api-contract/model_deployments.proto";
@@ -43,7 +42,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: NO_AUTH };
   }
 
-  rpc PostV1ClusterSettingsGet(EmptyRequest) returns (ClusterSettings) {
+  rpc PostV1ClusterSettingsGet(cp.Empty) returns (ClusterSettings) {
     option (cp.url) = "/v1/cluster-settings/get";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -69,7 +68,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
   }
 
-  rpc PostV1AuthPasskeyRegisterStart(EmptyRequest) returns (WebAuthNOptionsResponse) {
+  rpc PostV1AuthPasskeyRegisterStart(cp.Empty) returns (WebAuthNOptionsResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
   }
 
@@ -77,7 +76,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
   }
 
-  rpc PostV1AuthPasskeyLoginStart(EmptyRequest) returns (WebAuthNOptionsResponse) {
+  rpc PostV1AuthPasskeyLoginStart(cp.Empty) returns (WebAuthNOptionsResponse) {
     option (cp.policy) = { policy_type: NO_AUTH };
   }
 
@@ -111,7 +110,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AgentSessionsList(EmptyRequest) returns (AgentSessionList) {
+  rpc PostV1AgentSessionsList(cp.Empty) returns (AgentSessionList) {
     option (cp.url) = "/v1/agent-sessions/list";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -121,7 +120,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1PersonalSessionsList(EmptyRequest) returns (PersonalSessionList) {
+  rpc PostV1PersonalSessionsList(cp.Empty) returns (PersonalSessionList) {
     option (cp.url) = "/v1/personal-sessions/list";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -131,7 +130,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AccessRuleTemplatesList(EmptyRequest) returns (AuthzRuleTemplateList) {
+  rpc PostV1AccessRuleTemplatesList(cp.Empty) returns (AuthzRuleTemplateList) {
     option (cp.url) = "/v1/access/rule-templates/list";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -151,7 +150,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AccessGrantsList(EmptyRequest) returns (AuthzGrantList) {
+  rpc PostV1AccessGrantsList(cp.Empty) returns (AuthzGrantList) {
     option (cp.url) = "/v1/access/grants/list";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -166,7 +165,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AccessGlobalRulesList(EmptyRequest) returns (AuthzGlobalRuleList) {
+  rpc PostV1AccessGlobalRulesList(cp.Empty) returns (AuthzGlobalRuleList) {
     option (cp.url) = "/v1/access/global-rules/list";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -190,7 +189,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1GlobalExportedConfig(EmptyRequest) returns (ExportedConfigBlob) {
+  rpc PostV1GlobalExportedConfig(cp.Empty) returns (ExportedConfigBlob) {
     option (cp.url) = "/v1/global/exported-config";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -276,7 +275,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1SecretsList(EmptyRequest) returns (SecretList) {
+  rpc PostV1SecretsList(cp.Empty) returns (SecretList) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -308,11 +307,11 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1SecretsStatus(EmptyRequest) returns (SecretsStatusResponse) {
+  rpc PostV1SecretsStatus(cp.Empty) returns (SecretsStatusResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1SecretsRotateRecoveryCode(EmptyRequest) returns (SecretRecoveryCodeResponse) {
+  rpc PostV1SecretsRotateRecoveryCode(cp.Empty) returns (SecretRecoveryCodeResponse) {
     option (cp.url) = "/v1/secrets/rotate-recovery-code";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -321,7 +320,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1ConfigsList(EmptyRequest) returns (ConfigList) {
+  rpc PostV1ConfigsList(cp.Empty) returns (ConfigList) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -345,7 +344,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1ValueDirectoriesList(EmptyRequest) returns (ValueDirectoryList) {
+  rpc PostV1ValueDirectoriesList(cp.Empty) returns (ValueDirectoryList) {
     option (cp.url) = "/v1/value-directories/list";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -370,7 +369,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsList(EmptyRequest) returns (AssetList) {
+  rpc PostV1AssetsList(cp.Empty) returns (AssetList) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -400,7 +399,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetDirectoriesList(EmptyRequest) returns (AssetDirectoryList) {
+  rpc PostV1AssetDirectoriesList(cp.Empty) returns (AssetDirectoryList) {
     option (cp.url) = "/v1/asset-directories/list";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }

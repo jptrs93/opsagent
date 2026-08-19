@@ -14,7 +14,7 @@ export function loginPage() {
     const passkeyButton = spinnerButton("Sign in with passkey", async () => {
         loginErr.val = '';
         try {
-            const startResponse = await capi.postV1AuthPasskeyLoginStart({});
+            const startResponse = await capi.postV1AuthPasskeyLoginStart();
             const credential = await navigator.credentials.get(loginOptionsFromJSONBytes(startResponse.optionsJson));
             if (!credential) {
                 throw new Error('Passkey sign-in returned no credential.');

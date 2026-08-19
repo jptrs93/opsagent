@@ -337,7 +337,7 @@ func (h *Handler) PostV1AgentSessionsApprove(ctx apigen.Context, req *apigen.Age
 // PostV1AgentSessionsList returns the caller's own sessions, newest first.
 // There is no cross-user view: every operator holds the same scopes, so this
 // filter is a scoping convenience rather than an isolation boundary.
-func (h *Handler) PostV1AgentSessionsList(ctx apigen.Context, _ *apigen.EmptyRequest) (*apigen.AgentSessionList, error) {
+func (h *Handler) PostV1AgentSessionsList(ctx apigen.Context) (*apigen.AgentSessionList, error) {
 	if ctx.User == nil {
 		return nil, InvalidAuthTokenErr
 	}

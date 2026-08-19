@@ -387,9 +387,9 @@ export function settingsPage() {
     const loadSecrets = async () => {
         try {
             error.val = null;
-            const secretsStatus = await capi.postV1SecretsStatus({});
+            const secretsStatus = await capi.postV1SecretsStatus();
             recoveryStatus.val = secretsStatus;
-            secrets.val = secretsStatus.unlocked ? expandValueVersionRefs(((await capi.postV1SecretsList({})).items || []).map(secretViewModel)) : [];
+            secrets.val = secretsStatus.unlocked ? expandValueVersionRefs(((await capi.postV1SecretsList()).items || []).map(secretViewModel)) : [];
         } catch (e) {
             error.val = e.message;
         }
@@ -406,8 +406,8 @@ export function settingsPage() {
     };
 
     const reloadSecrets = async () => {
-        recoveryStatus.val = await capi.postV1SecretsStatus({});
-        secrets.val = recoveryStatus.val.unlocked ? expandValueVersionRefs(((await capi.postV1SecretsList({})).items || []).map(secretViewModel)) : [];
+        recoveryStatus.val = await capi.postV1SecretsStatus();
+        secrets.val = recoveryStatus.val.unlocked ? expandValueVersionRefs(((await capi.postV1SecretsList()).items || []).map(secretViewModel)) : [];
     };
 
     const openCreateSecret = (setting) => {
@@ -505,9 +505,9 @@ export function settingsPage() {
     const generateRecovery = async () => {
         try {
             error.val = null;
-            const res = await capi.postV1SecretsRotateRecoveryCode({});
+            const res = await capi.postV1SecretsRotateRecoveryCode();
             recoveryCode.val = res.code;
-            recoveryStatus.val = await capi.postV1SecretsStatus({});
+            recoveryStatus.val = await capi.postV1SecretsStatus();
         } catch (e) {
             error.val = e.message;
         }
