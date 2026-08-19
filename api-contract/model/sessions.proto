@@ -6,9 +6,7 @@ import "api-contract/options.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-// AgentSessionStatus is the lifecycle of an agent session. Expiry is not one of
-// these: it is derived from expires_at on read, so nothing has to sweep the
-// table to keep the list honest.
+
 enum AgentSessionStatus {
   AGENT_SESSION_STATUS_UNKNOWN = 0;
   AGENT_SESSION_PENDING = 1;   // requested by an agent, awaiting operator approval
@@ -17,21 +15,14 @@ enum AgentSessionStatus {
   AGENT_SESSION_REVOKED = 4;   // was live, stopped by the operator
 }
 
-// AgentSession is the tracked record of a command-line or agent bearer token.
-// It never carries the token itself: only the leading characters, enough to
-// tell two sessions apart in a list.
 message AgentSession {
   string id = 1;
   int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  // Zero until the token is minted, which happens on first pickup rather than
-  // at approval.
-  int64 expires_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 expires_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"]; // set on pick up
   string token_prefix = 4;
   repeated string scopes = 5;
   AgentSessionStatus status = 6;
   string requesting_address = 7;
-  // Shown beside a pending request so the operator can match it against the
-  // code their agent printed. Meaningless once the session is live.
   string approval_code = 8;
   int64 approved_at = 9 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
 }
@@ -47,10 +38,6 @@ message PersonalSession {
   bool current = 8;
 }
 
-// AgentSessionRequest is what the requesting agent gets back. The two ids pull
-// in opposite directions: `id` is the pickup secret and must stay private,
-// while `approval_code` exists to be read out to the operator so they can tell
-// this request apart from any other that reached the server.
 message AgentSessionRequest {
   string id = 1;
   string approval_code = 2;

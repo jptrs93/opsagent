@@ -56,55 +56,8 @@
  * @property {number} version
  */
 /**
- * @typedef {Object} ScheduledInstance
- * @property {number} id
- * @property {Date} createdAt
- * @property {number} deploymentId
- * @property {number} deploymentVersion
- * @property {number} nodeId
- * @property {number} instanceOrdinal
- * @property {number} state
- * @property {number} spaceId
- */
-/**
- * @typedef {Object} ScheduledInstanceStatus
- * @property {Date} updatedAt
- * @property {number} scheduledInstanceId
- * @property {number} deploymentId
- * @property {PreparerStatus} preparer
- * @property {RunnerStatus} runner
- */
-/**
- * @typedef {Object} ScheduledInstanceState
- * @property {ScheduledInstance} instance
- * @property {DeploymentConfig} config
- * @property {ScheduledInstanceStatus} status
- */
-/**
- * @typedef {Object} ScheduledInstanceSnapshot
- * @property {ScheduledInstanceState[]} items
- */
-/**
  * @typedef {Object} DeploymentConfigSnapshot
  * @property {DeploymentConfig[]} items
- */
-/**
- * @typedef {Object} PreparerStatus
- * @property {number} deploymentConfigVersion
- * @property {string} artifact
- * @property {number} inputs
- * @property {number} image
- */
-/**
- * @typedef {Object} RunnerStatus
- * @property {number} deploymentConfigVersion
- * @property {number} runningPid
- * @property {string} runningArtifact
- * @property {number} status
- * @property {number} numberOfRestarts
- * @property {Date} lastRestartAt
- * @property {string} runningVersion
- * @property {string[]} networkDiagnostics
  */
 /**
  * @typedef {Object} Endpoint
@@ -236,6 +189,53 @@
  * @property {string} containerPath
  * @property {string[]} extraNames
  * @property {boolean} caOnly
+ */
+/**
+ * @typedef {Object} ScheduledInstance
+ * @property {number} id
+ * @property {Date} createdAt
+ * @property {number} deploymentId
+ * @property {number} deploymentVersion
+ * @property {number} nodeId
+ * @property {number} instanceOrdinal
+ * @property {number} state
+ * @property {number} spaceId
+ */
+/**
+ * @typedef {Object} ScheduledInstanceStatus
+ * @property {Date} updatedAt
+ * @property {number} scheduledInstanceId
+ * @property {number} deploymentId
+ * @property {PreparerStatus} preparer
+ * @property {RunnerStatus} runner
+ */
+/**
+ * @typedef {Object} ScheduledInstanceState
+ * @property {ScheduledInstance} instance
+ * @property {DeploymentConfig} config
+ * @property {ScheduledInstanceStatus} status
+ */
+/**
+ * @typedef {Object} ScheduledInstanceSnapshot
+ * @property {ScheduledInstanceState[]} items
+ */
+/**
+ * @typedef {Object} PreparerStatus
+ * @property {number} deploymentConfigVersion
+ * @property {string} artifact
+ * @property {number} inputs
+ * @property {number} image
+ */
+/**
+ * @typedef {Object} RunnerStatus
+ * @property {number} deploymentConfigVersion
+ * @property {number} runningPid
+ * @property {string} runningArtifact
+ * @property {number} status
+ * @property {number} numberOfRestarts
+ * @property {Date} lastRestartAt
+ * @property {string} runningVersion
+ * @property {string[]} networkDiagnostics
  */
 /**
  * @typedef {Object} DeploymentUpdateRequest
@@ -562,6 +562,16 @@
  * @property {number} globalSeq
  */
 /**
+ * @typedef {Object} ValueDirectory
+ * @property {number} id
+ * @property {number} spaceId
+ * @property {string} name
+ * @property {number} parentId
+ * @property {Date} createdAt
+ * @property {number} author
+ * @property {boolean} deleted
+ */
+/**
  * @typedef {Object} ConfigList
  * @property {Config[]} items
  */
@@ -626,6 +636,16 @@
  * @property {number} globalSeq
  */
 /**
+ * @typedef {Object} AssetDirectory
+ * @property {number} id
+ * @property {number} spaceId
+ * @property {string} key
+ * @property {number} parentId
+ * @property {Date} createdAt
+ * @property {number} author
+ * @property {boolean} deleted
+ */
+/**
  * @typedef {Object} AssetList
  * @property {Asset[]} items
  */
@@ -643,26 +663,6 @@
  * @property {number} assetId
  * @property {number} assetDirectoryId
  * @property {number} spaceId
- */
-/**
- * @typedef {Object} ValueDirectory
- * @property {number} id
- * @property {number} spaceId
- * @property {string} name
- * @property {number} parentId
- * @property {Date} createdAt
- * @property {number} author
- * @property {boolean} deleted
- */
-/**
- * @typedef {Object} AssetDirectory
- * @property {number} id
- * @property {number} spaceId
- * @property {string} key
- * @property {number} parentId
- * @property {Date} createdAt
- * @property {number} author
- * @property {boolean} deleted
  */
 /**
  * @typedef {Object} ValueDirectoryList
@@ -2102,337 +2102,6 @@ export function decodeDeploymentConfigVersionRef(buffer) {
 
 
 /**
- * @param {ScheduledInstance} message
- * @param {Writer} writer
- */
-export function writeScheduledInstance(message, writer) {
-    if (message.id !== undefined && message.id !== null && message.id !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
-    }
-    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
-    }
-    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentId);
-    }
-    if (message.deploymentVersion !== undefined && message.deploymentVersion !== null && message.deploymentVersion !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.deploymentVersion);
-    }
-    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.nodeId);
-    }
-    if (message.instanceOrdinal !== undefined && message.instanceOrdinal !== null && message.instanceOrdinal !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.instanceOrdinal);
-    }
-    if (message.state !== undefined && message.state !== null && message.state !== 0) {
-        writer.uint32(tag(7, WIRE.VARINT)).int32(message.state);
-    }
-    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
-        writer.uint32(tag(8, WIRE.VARINT)).int32(message.spaceId);
-    }
-}
-
-
-/**
- * @param {ScheduledInstance} message
- * @returns {Uint8Array}
- */
-export function encodeScheduledInstance(message) {
-    const writer = Writer.create();
-    writeScheduledInstance(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ScheduledInstance}
- */
-function decodeScheduledInstanceMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, createdAt: new Date(0), deploymentId: 0, deploymentVersion: 0, nodeId: 0, instanceOrdinal: 0, state: 0, spaceId: 0 };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.id = reader.int32();
-                break;
-            }
-            case 2: {
-                message.createdAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 3: {
-                message.deploymentId = reader.int32();
-                break;
-            }
-            case 4: {
-                message.deploymentVersion = reader.int32();
-                break;
-            }
-            case 5: {
-                message.nodeId = reader.int32();
-                break;
-            }
-            case 6: {
-                message.instanceOrdinal = reader.int32();
-                break;
-            }
-            case 7: {
-                message.state = reader.int32();
-                break;
-            }
-            case 8: {
-                message.spaceId = reader.int32();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ScheduledInstance}
- */
-export function decodeScheduledInstance(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeScheduledInstanceMessage(reader);
-}
-
-
-
-/**
- * @param {ScheduledInstanceStatus} message
- * @param {Writer} writer
- */
-export function writeScheduledInstanceStatus(message, writer) {
-    if (message.updatedAt !== undefined && message.updatedAt !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeTimestamp(message.updatedAt, writer);
-        writer.ldelim();
-    }
-    if (message.scheduledInstanceId !== undefined && message.scheduledInstanceId !== null && message.scheduledInstanceId !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.scheduledInstanceId);
-    }
-    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentId);
-    }
-    if (message.preparer !== undefined && message.preparer !== null) {
-        writer.uint32(tag(4, WIRE.LDELIM)).fork();
-        writePreparerStatus(message.preparer, writer);
-        writer.ldelim();
-    }
-    if (message.runner !== undefined && message.runner !== null) {
-        writer.uint32(tag(5, WIRE.LDELIM)).fork();
-        writeRunnerStatus(message.runner, writer);
-        writer.ldelim();
-    }
-}
-
-
-/**
- * @param {ScheduledInstanceStatus} message
- * @returns {Uint8Array}
- */
-export function encodeScheduledInstanceStatus(message) {
-    const writer = Writer.create();
-    writeScheduledInstanceStatus(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ScheduledInstanceStatus}
- */
-function decodeScheduledInstanceStatusMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {updatedAt: new Date(0), scheduledInstanceId: 0, deploymentId: 0, preparer: undefined, runner: undefined };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.updatedAt = decodeTimestampMessage(reader, reader.uint32());
-                break;
-            }
-            case 2: {
-                message.scheduledInstanceId = reader.int32();
-                break;
-            }
-            case 3: {
-                message.deploymentId = reader.int32();
-                break;
-            }
-            case 4: {
-                message.preparer = decodePreparerStatusMessage(reader, reader.uint32());
-                break;
-            }
-            case 5: {
-                message.runner = decodeRunnerStatusMessage(reader, reader.uint32());
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ScheduledInstanceStatus}
- */
-export function decodeScheduledInstanceStatus(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeScheduledInstanceStatusMessage(reader);
-}
-
-
-
-/**
- * @param {ScheduledInstanceState} message
- * @param {Writer} writer
- */
-export function writeScheduledInstanceState(message, writer) {
-    if (message.instance !== undefined && message.instance !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeScheduledInstance(message.instance, writer);
-        writer.ldelim();
-    }
-    if (message.config !== undefined && message.config !== null) {
-        writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeDeploymentConfig(message.config, writer);
-        writer.ldelim();
-    }
-    if (message.status !== undefined && message.status !== null) {
-        writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeScheduledInstanceStatus(message.status, writer);
-        writer.ldelim();
-    }
-}
-
-
-/**
- * @param {ScheduledInstanceState} message
- * @returns {Uint8Array}
- */
-export function encodeScheduledInstanceState(message) {
-    const writer = Writer.create();
-    writeScheduledInstanceState(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ScheduledInstanceState}
- */
-function decodeScheduledInstanceStateMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {instance: undefined, config: undefined, status: undefined };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.instance = decodeScheduledInstanceMessage(reader, reader.uint32());
-                break;
-            }
-            case 2: {
-                message.config = decodeDeploymentConfigMessage(reader, reader.uint32());
-                break;
-            }
-            case 3: {
-                message.status = decodeScheduledInstanceStatusMessage(reader, reader.uint32());
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ScheduledInstanceState}
- */
-export function decodeScheduledInstanceState(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeScheduledInstanceStateMessage(reader);
-}
-
-
-
-/**
- * @param {ScheduledInstanceSnapshot} message
- * @param {Writer} writer
- */
-export function writeScheduledInstanceSnapshot(message, writer) {
-    if (message.items && message.items.length > 0) {
-        for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeScheduledInstanceState(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {ScheduledInstanceSnapshot} message
- * @returns {Uint8Array}
- */
-export function encodeScheduledInstanceSnapshot(message) {
-    const writer = Writer.create();
-    writeScheduledInstanceSnapshot(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ScheduledInstanceSnapshot}
- */
-function decodeScheduledInstanceSnapshotMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {items: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.items.push(decodeScheduledInstanceStateMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ScheduledInstanceSnapshot}
- */
-export function decodeScheduledInstanceSnapshot(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeScheduledInstanceSnapshotMessage(reader);
-}
-
-
-
-/**
  * @param {DeploymentConfigSnapshot} message
  * @param {Writer} writer
  */
@@ -2488,190 +2157,6 @@ function decodeDeploymentConfigSnapshotMessage(reader, length) {
 export function decodeDeploymentConfigSnapshot(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeDeploymentConfigSnapshotMessage(reader);
-}
-
-
-
-/**
- * @param {PreparerStatus} message
- * @param {Writer} writer
- */
-export function writePreparerStatus(message, writer) {
-    if (message.deploymentConfigVersion !== undefined && message.deploymentConfigVersion !== null && message.deploymentConfigVersion !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentConfigVersion);
-    }
-    if (message.artifact !== undefined && message.artifact !== null && message.artifact !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.artifact);
-    }
-    if (message.inputs !== undefined && message.inputs !== null && message.inputs !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.inputs);
-    }
-    if (message.image !== undefined && message.image !== null && message.image !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.image);
-    }
-}
-
-
-/**
- * @param {PreparerStatus} message
- * @returns {Uint8Array}
- */
-export function encodePreparerStatus(message) {
-    const writer = Writer.create();
-    writePreparerStatus(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {PreparerStatus}
- */
-function decodePreparerStatusMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentConfigVersion: 0, artifact: "", inputs: 0, image: 0 };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.deploymentConfigVersion = reader.int32();
-                break;
-            }
-            case 2: {
-                message.artifact = reader.string();
-                break;
-            }
-            case 4: {
-                message.inputs = reader.int32();
-                break;
-            }
-            case 5: {
-                message.image = reader.int32();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {PreparerStatus}
- */
-export function decodePreparerStatus(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodePreparerStatusMessage(reader);
-}
-
-
-
-/**
- * @param {RunnerStatus} message
- * @param {Writer} writer
- */
-export function writeRunnerStatus(message, writer) {
-    if (message.deploymentConfigVersion !== undefined && message.deploymentConfigVersion !== null && message.deploymentConfigVersion !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentConfigVersion);
-    }
-    if (message.runningPid !== undefined && message.runningPid !== null && message.runningPid !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.runningPid);
-    }
-    if (message.runningArtifact !== undefined && message.runningArtifact !== null && message.runningArtifact !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.runningArtifact);
-    }
-    if (message.status !== undefined && message.status !== null && message.status !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.status);
-    }
-    if (message.numberOfRestarts !== undefined && message.numberOfRestarts !== null && message.numberOfRestarts !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.numberOfRestarts);
-    }
-    if (message.lastRestartAt instanceof Date && message.lastRestartAt.getTime() !== 0) {
-        writer.uint32(tag(7, WIRE.VARINT)).int64(Math.trunc(message.lastRestartAt.getTime()));
-    }
-    if (message.runningVersion !== undefined && message.runningVersion !== null && message.runningVersion !== "") {
-        writer.uint32(tag(8, WIRE.LDELIM)).string(message.runningVersion);
-    }
-    if (message.networkDiagnostics && message.networkDiagnostics.length > 0) {
-        for (const item of message.networkDiagnostics) {
-            writer.uint32(tag(10, WIRE.LDELIM)).string(item);
-        }
-    }
-}
-
-
-/**
- * @param {RunnerStatus} message
- * @returns {Uint8Array}
- */
-export function encodeRunnerStatus(message) {
-    const writer = Writer.create();
-    writeRunnerStatus(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {RunnerStatus}
- */
-function decodeRunnerStatusMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentConfigVersion: 0, runningPid: 0, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: new Date(0), runningVersion: "", networkDiagnostics: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.deploymentConfigVersion = reader.int32();
-                break;
-            }
-            case 2: {
-                message.runningPid = reader.int32();
-                break;
-            }
-            case 3: {
-                message.runningArtifact = reader.string();
-                break;
-            }
-            case 4: {
-                message.status = reader.int32();
-                break;
-            }
-            case 6: {
-                message.numberOfRestarts = reader.int32();
-                break;
-            }
-            case 7: {
-                message.lastRestartAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 8: {
-                message.runningVersion = reader.string();
-                break;
-            }
-            case 10: {
-                message.networkDiagnostics.push(reader.string());
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {RunnerStatus}
- */
-export function decodeRunnerStatus(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeRunnerStatusMessage(reader);
 }
 
 
@@ -4198,6 +3683,521 @@ function decodeIssuedTLSMountMessage(reader, length) {
 export function decodeIssuedTLSMount(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeIssuedTLSMountMessage(reader);
+}
+
+
+
+/**
+ * @param {ScheduledInstance} message
+ * @param {Writer} writer
+ */
+export function writeScheduledInstance(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentId);
+    }
+    if (message.deploymentVersion !== undefined && message.deploymentVersion !== null && message.deploymentVersion !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.deploymentVersion);
+    }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.nodeId);
+    }
+    if (message.instanceOrdinal !== undefined && message.instanceOrdinal !== null && message.instanceOrdinal !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.instanceOrdinal);
+    }
+    if (message.state !== undefined && message.state !== null && message.state !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.state);
+    }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int32(message.spaceId);
+    }
+}
+
+
+/**
+ * @param {ScheduledInstance} message
+ * @returns {Uint8Array}
+ */
+export function encodeScheduledInstance(message) {
+    const writer = Writer.create();
+    writeScheduledInstance(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ScheduledInstance}
+ */
+function decodeScheduledInstanceMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, createdAt: new Date(0), deploymentId: 0, deploymentVersion: 0, nodeId: 0, instanceOrdinal: 0, state: 0, spaceId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 3: {
+                message.deploymentId = reader.int32();
+                break;
+            }
+            case 4: {
+                message.deploymentVersion = reader.int32();
+                break;
+            }
+            case 5: {
+                message.nodeId = reader.int32();
+                break;
+            }
+            case 6: {
+                message.instanceOrdinal = reader.int32();
+                break;
+            }
+            case 7: {
+                message.state = reader.int32();
+                break;
+            }
+            case 8: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ScheduledInstance}
+ */
+export function decodeScheduledInstance(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeScheduledInstanceMessage(reader);
+}
+
+
+
+/**
+ * @param {ScheduledInstanceStatus} message
+ * @param {Writer} writer
+ */
+export function writeScheduledInstanceStatus(message, writer) {
+    if (message.updatedAt !== undefined && message.updatedAt !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeTimestamp(message.updatedAt, writer);
+        writer.ldelim();
+    }
+    if (message.scheduledInstanceId !== undefined && message.scheduledInstanceId !== null && message.scheduledInstanceId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.scheduledInstanceId);
+    }
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentId);
+    }
+    if (message.preparer !== undefined && message.preparer !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writePreparerStatus(message.preparer, writer);
+        writer.ldelim();
+    }
+    if (message.runner !== undefined && message.runner !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeRunnerStatus(message.runner, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {ScheduledInstanceStatus} message
+ * @returns {Uint8Array}
+ */
+export function encodeScheduledInstanceStatus(message) {
+    const writer = Writer.create();
+    writeScheduledInstanceStatus(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ScheduledInstanceStatus}
+ */
+function decodeScheduledInstanceStatusMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {updatedAt: new Date(0), scheduledInstanceId: 0, deploymentId: 0, preparer: undefined, runner: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.updatedAt = decodeTimestampMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.scheduledInstanceId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.deploymentId = reader.int32();
+                break;
+            }
+            case 4: {
+                message.preparer = decodePreparerStatusMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.runner = decodeRunnerStatusMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ScheduledInstanceStatus}
+ */
+export function decodeScheduledInstanceStatus(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeScheduledInstanceStatusMessage(reader);
+}
+
+
+
+/**
+ * @param {ScheduledInstanceState} message
+ * @param {Writer} writer
+ */
+export function writeScheduledInstanceState(message, writer) {
+    if (message.instance !== undefined && message.instance !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeScheduledInstance(message.instance, writer);
+        writer.ldelim();
+    }
+    if (message.config !== undefined && message.config !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeDeploymentConfig(message.config, writer);
+        writer.ldelim();
+    }
+    if (message.status !== undefined && message.status !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeScheduledInstanceStatus(message.status, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {ScheduledInstanceState} message
+ * @returns {Uint8Array}
+ */
+export function encodeScheduledInstanceState(message) {
+    const writer = Writer.create();
+    writeScheduledInstanceState(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ScheduledInstanceState}
+ */
+function decodeScheduledInstanceStateMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {instance: undefined, config: undefined, status: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.instance = decodeScheduledInstanceMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.config = decodeDeploymentConfigMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.status = decodeScheduledInstanceStatusMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ScheduledInstanceState}
+ */
+export function decodeScheduledInstanceState(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeScheduledInstanceStateMessage(reader);
+}
+
+
+
+/**
+ * @param {ScheduledInstanceSnapshot} message
+ * @param {Writer} writer
+ */
+export function writeScheduledInstanceSnapshot(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeScheduledInstanceState(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ScheduledInstanceSnapshot} message
+ * @returns {Uint8Array}
+ */
+export function encodeScheduledInstanceSnapshot(message) {
+    const writer = Writer.create();
+    writeScheduledInstanceSnapshot(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ScheduledInstanceSnapshot}
+ */
+function decodeScheduledInstanceSnapshotMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeScheduledInstanceStateMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ScheduledInstanceSnapshot}
+ */
+export function decodeScheduledInstanceSnapshot(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeScheduledInstanceSnapshotMessage(reader);
+}
+
+
+
+/**
+ * @param {PreparerStatus} message
+ * @param {Writer} writer
+ */
+export function writePreparerStatus(message, writer) {
+    if (message.deploymentConfigVersion !== undefined && message.deploymentConfigVersion !== null && message.deploymentConfigVersion !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentConfigVersion);
+    }
+    if (message.artifact !== undefined && message.artifact !== null && message.artifact !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.artifact);
+    }
+    if (message.inputs !== undefined && message.inputs !== null && message.inputs !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.inputs);
+    }
+    if (message.image !== undefined && message.image !== null && message.image !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.image);
+    }
+}
+
+
+/**
+ * @param {PreparerStatus} message
+ * @returns {Uint8Array}
+ */
+export function encodePreparerStatus(message) {
+    const writer = Writer.create();
+    writePreparerStatus(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {PreparerStatus}
+ */
+function decodePreparerStatusMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {deploymentConfigVersion: 0, artifact: "", inputs: 0, image: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.deploymentConfigVersion = reader.int32();
+                break;
+            }
+            case 2: {
+                message.artifact = reader.string();
+                break;
+            }
+            case 4: {
+                message.inputs = reader.int32();
+                break;
+            }
+            case 5: {
+                message.image = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {PreparerStatus}
+ */
+export function decodePreparerStatus(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodePreparerStatusMessage(reader);
+}
+
+
+
+/**
+ * @param {RunnerStatus} message
+ * @param {Writer} writer
+ */
+export function writeRunnerStatus(message, writer) {
+    if (message.deploymentConfigVersion !== undefined && message.deploymentConfigVersion !== null && message.deploymentConfigVersion !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentConfigVersion);
+    }
+    if (message.runningPid !== undefined && message.runningPid !== null && message.runningPid !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.runningPid);
+    }
+    if (message.runningArtifact !== undefined && message.runningArtifact !== null && message.runningArtifact !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.runningArtifact);
+    }
+    if (message.status !== undefined && message.status !== null && message.status !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.status);
+    }
+    if (message.numberOfRestarts !== undefined && message.numberOfRestarts !== null && message.numberOfRestarts !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.numberOfRestarts);
+    }
+    if (message.lastRestartAt instanceof Date && message.lastRestartAt.getTime() !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int64(Math.trunc(message.lastRestartAt.getTime()));
+    }
+    if (message.runningVersion !== undefined && message.runningVersion !== null && message.runningVersion !== "") {
+        writer.uint32(tag(8, WIRE.LDELIM)).string(message.runningVersion);
+    }
+    if (message.networkDiagnostics && message.networkDiagnostics.length > 0) {
+        for (const item of message.networkDiagnostics) {
+            writer.uint32(tag(10, WIRE.LDELIM)).string(item);
+        }
+    }
+}
+
+
+/**
+ * @param {RunnerStatus} message
+ * @returns {Uint8Array}
+ */
+export function encodeRunnerStatus(message) {
+    const writer = Writer.create();
+    writeRunnerStatus(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {RunnerStatus}
+ */
+function decodeRunnerStatusMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {deploymentConfigVersion: 0, runningPid: 0, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: new Date(0), runningVersion: "", networkDiagnostics: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.deploymentConfigVersion = reader.int32();
+                break;
+            }
+            case 2: {
+                message.runningPid = reader.int32();
+                break;
+            }
+            case 3: {
+                message.runningArtifact = reader.string();
+                break;
+            }
+            case 4: {
+                message.status = reader.int32();
+                break;
+            }
+            case 6: {
+                message.numberOfRestarts = reader.int32();
+                break;
+            }
+            case 7: {
+                message.lastRestartAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 8: {
+                message.runningVersion = reader.string();
+                break;
+            }
+            case 10: {
+                message.networkDiagnostics.push(reader.string());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {RunnerStatus}
+ */
+export function decodeRunnerStatus(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeRunnerStatusMessage(reader);
 }
 
 
@@ -8122,6 +8122,104 @@ export function decodeConfigValueVersion(buffer) {
 
 
 /**
+ * @param {ValueDirectory} message
+ * @param {Writer} writer
+ */
+export function writeValueDirectory(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.parentId !== undefined && message.parentId !== null && message.parentId !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.parentId);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.author);
+    }
+    if (message.deleted === true) {
+        writer.uint32(tag(7, WIRE.VARINT)).bool(message.deleted);
+    }
+}
+
+
+/**
+ * @param {ValueDirectory} message
+ * @returns {Uint8Array}
+ */
+export function encodeValueDirectory(message) {
+    const writer = Writer.create();
+    writeValueDirectory(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValueDirectory}
+ */
+function decodeValueDirectoryMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, spaceId: 0, name: "", parentId: 0, createdAt: new Date(0), author: 0, deleted: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.name = reader.string();
+                break;
+            }
+            case 4: {
+                message.parentId = reader.int32();
+                break;
+            }
+            case 5: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 6: {
+                message.author = reader.int32();
+                break;
+            }
+            case 7: {
+                message.deleted = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValueDirectory}
+ */
+export function decodeValueDirectory(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValueDirectoryMessage(reader);
+}
+
+
+
+/**
  * @param {ConfigList} message
  * @param {Writer} writer
  */
@@ -8868,6 +8966,104 @@ export function decodeAssetContentVersion(buffer) {
 
 
 /**
+ * @param {AssetDirectory} message
+ * @param {Writer} writer
+ */
+export function writeAssetDirectory(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.key !== undefined && message.key !== null && message.key !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.key);
+    }
+    if (message.parentId !== undefined && message.parentId !== null && message.parentId !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.parentId);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.author);
+    }
+    if (message.deleted === true) {
+        writer.uint32(tag(7, WIRE.VARINT)).bool(message.deleted);
+    }
+}
+
+
+/**
+ * @param {AssetDirectory} message
+ * @returns {Uint8Array}
+ */
+export function encodeAssetDirectory(message) {
+    const writer = Writer.create();
+    writeAssetDirectory(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AssetDirectory}
+ */
+function decodeAssetDirectoryMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, spaceId: 0, key: "", parentId: 0, createdAt: new Date(0), author: 0, deleted: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.key = reader.string();
+                break;
+            }
+            case 4: {
+                message.parentId = reader.int32();
+                break;
+            }
+            case 5: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 6: {
+                message.author = reader.int32();
+                break;
+            }
+            case 7: {
+                message.deleted = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AssetDirectory}
+ */
+export function decodeAssetDirectory(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAssetDirectoryMessage(reader);
+}
+
+
+
+/**
  * @param {AssetList} message
  * @param {Writer} writer
  */
@@ -9112,202 +9308,6 @@ function decodeAssetMoveRequestMessage(reader, length) {
 export function decodeAssetMoveRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeAssetMoveRequestMessage(reader);
-}
-
-
-
-/**
- * @param {ValueDirectory} message
- * @param {Writer} writer
- */
-export function writeValueDirectory(message, writer) {
-    if (message.id !== undefined && message.id !== null && message.id !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
-    }
-    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.spaceId);
-    }
-    if (message.name !== undefined && message.name !== null && message.name !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.name);
-    }
-    if (message.parentId !== undefined && message.parentId !== null && message.parentId !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.parentId);
-    }
-    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
-    }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.author);
-    }
-    if (message.deleted === true) {
-        writer.uint32(tag(7, WIRE.VARINT)).bool(message.deleted);
-    }
-}
-
-
-/**
- * @param {ValueDirectory} message
- * @returns {Uint8Array}
- */
-export function encodeValueDirectory(message) {
-    const writer = Writer.create();
-    writeValueDirectory(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ValueDirectory}
- */
-function decodeValueDirectoryMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, spaceId: 0, name: "", parentId: 0, createdAt: new Date(0), author: 0, deleted: false };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.id = reader.int32();
-                break;
-            }
-            case 2: {
-                message.spaceId = reader.int32();
-                break;
-            }
-            case 3: {
-                message.name = reader.string();
-                break;
-            }
-            case 4: {
-                message.parentId = reader.int32();
-                break;
-            }
-            case 5: {
-                message.createdAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 6: {
-                message.author = reader.int32();
-                break;
-            }
-            case 7: {
-                message.deleted = reader.bool();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ValueDirectory}
- */
-export function decodeValueDirectory(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeValueDirectoryMessage(reader);
-}
-
-
-
-/**
- * @param {AssetDirectory} message
- * @param {Writer} writer
- */
-export function writeAssetDirectory(message, writer) {
-    if (message.id !== undefined && message.id !== null && message.id !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
-    }
-    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.spaceId);
-    }
-    if (message.key !== undefined && message.key !== null && message.key !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.key);
-    }
-    if (message.parentId !== undefined && message.parentId !== null && message.parentId !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.parentId);
-    }
-    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
-    }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.author);
-    }
-    if (message.deleted === true) {
-        writer.uint32(tag(7, WIRE.VARINT)).bool(message.deleted);
-    }
-}
-
-
-/**
- * @param {AssetDirectory} message
- * @returns {Uint8Array}
- */
-export function encodeAssetDirectory(message) {
-    const writer = Writer.create();
-    writeAssetDirectory(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {AssetDirectory}
- */
-function decodeAssetDirectoryMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, spaceId: 0, key: "", parentId: 0, createdAt: new Date(0), author: 0, deleted: false };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.id = reader.int32();
-                break;
-            }
-            case 2: {
-                message.spaceId = reader.int32();
-                break;
-            }
-            case 3: {
-                message.key = reader.string();
-                break;
-            }
-            case 4: {
-                message.parentId = reader.int32();
-                break;
-            }
-            case 5: {
-                message.createdAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 6: {
-                message.author = reader.int32();
-                break;
-            }
-            case 7: {
-                message.deleted = reader.bool();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {AssetDirectory}
- */
-export function decodeAssetDirectory(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeAssetDirectoryMessage(reader);
 }
 
 

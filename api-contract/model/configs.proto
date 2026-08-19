@@ -6,20 +6,12 @@ import "api-contract/options.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-// A config is a stable identity whose plaintext values live in immutable
-// numbered versions. Deployment env refs and system settings pin value
-// *version* row ids; the config id is what survives renames, moves, and new
-// versions. Configs and secrets share one file system per space.
 message Config {
   int32 id = 1;
   int64 deleted_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"]; // 0 = live
   ConfigFs fs = 3;
-  // Append-only space log, NEWEST FIRST — [0] is the current space.
-  repeated ConfigSpaceVersion space_versions = 4;
-  // Append-only value log, NEWEST FIRST — [0] is the latest version.
-  // Deployment env refs and settings pin these row ids. Always non-empty in
-  // lists: a config with no version is never listed.
-  repeated ConfigValueVersion value_versions = 5;
+  repeated ConfigSpaceVersion space_versions = 4; // newest first
+  repeated ConfigValueVersion value_versions = 5; // newest first
 }
 
 message ConfigFs {
@@ -42,4 +34,14 @@ message ConfigValueVersion {
   int64 created_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 author = 5;   // user id; 0 = unknown/system, negative = agent of user -author
   int64 global_seq = 6;
+}
+
+message ValueDirectory {
+  int32 id = 1;
+  int32 space_id = 2;
+  string name = 3;
+  int32 parent_id = 4;     // 0 = the implicit root
+  int64 created_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int32 author = 6;        // user id that created the directory; 0 = unknown/system, negative = agent of user -author
+  bool deleted = 7;        // set on the state-stream update channel when removed
 }

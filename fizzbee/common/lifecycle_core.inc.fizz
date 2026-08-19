@@ -1,0 +1,117 @@
+TARGET = enum('SERVING', 'STANDBY', 'DRAINING', 'TERMINATE', 'FINALIZED')
+RUNNER = enum('UNKNOWN', 'STARTING', 'RUNNING', 'STOPPED', 'CRASHED')
+STRATEGY = enum('ROLLOVER', 'RECREATE')
+MAX_DEPLOYMENTS = 1
+MAX_VERSIONS = 3
+MAX_INSTANCES = 3
+
+action Init:
+    deployments = {}
+    instances = {}
+    next_deployment_id = 1
+    next_instance_id = 1
+
+atomic action CreateDeployment:
+    require next_deployment_id <= MAX_DEPLOYMENTS
+    strategy = oneof (STRATEGY.ROLLOVER, STRATEGY.RECREATE)
+    deployments[next_deployment_id] = record(version=1, deleted=False, strategy=strategy)
+    next_deployment_id = next_deployment_id + 1
+
+atomic action UpdateDeployment:
+    candidates = [d for d in deployments if not deployments[d].deleted and deployments[d].version < MAX_VERSIONS]
+    d = oneof candidates
+    deployments[d].version = deployments[d].version + 1
+
+atomic action DeleteDeployment:
+    candidates = [d for d in deployments if not deployments[d].deleted]
+    d = oneof candidates
+    deployments[d].deleted = True
+
+atomic action Reconcile:
+    d = oneof [x for x in deployments]
+    dep = deployments[d]
+    if dep.deleted:
+        to_term = [i for i in instances if instances[i].deployment == d and (instances[i].target == TARGET.SERVING or instances[i].target == TARGET.STANDBY or instances[i].target == TARGET.DRAINING)]
+        require len(to_term) > 0
+        for i in to_term:
+            instances[i].target = TARGET.TERMINATE
+    else:
+        runnable = [i for i in instances if instances[i].deployment == d and (instances[i].target == TARGET.SERVING or instances[i].target == TARGET.STANDBY or instances[i].target == TARGET.DRAINING)]
+        mismatched = [i for i in runnable if instances[i].version != dep.version]
+        exact = None
+        for i in runnable:
+            if instances[i].version == dep.version:
+                exact = i
+        serving = len([i for i in runnable if instances[i].target == TARGET.SERVING]) > 0
+        if dep.strategy == STRATEGY.RECREATE:
+            to_term = mismatched
+            stuck = [i for i in instances if instances[i].deployment == d and instances[i].target == TARGET.TERMINATE and instances[i].runner != RUNNER.STOPPED]
+            blocked = len(mismatched) > 0 or len(stuck) > 0
+        else:
+            to_term = [i for i in mismatched if instances[i].target == TARGET.STANDBY]
+            blocked = False
+        promote = exact != None and instances[exact].target == TARGET.STANDBY and instances[exact].runner == RUNNER.RUNNING
+        create = exact == None and not blocked and next_instance_id <= MAX_INSTANCES
+        require len(to_term) > 0 or promote or create
+        for i in to_term:
+            instances[i].target = TARGET.TERMINATE
+        if promote:
+            for i in runnable:
+                if i < exact and instances[i].target != TARGET.TERMINATE:
+                    instances[i].target = TARGET.DRAINING
+            instances[exact].target = TARGET.SERVING
+        if create:
+            initial = TARGET.STANDBY if serving else TARGET.SERVING
+            instances[next_instance_id] = record(deployment=d, version=dep.version, target=initial, runner=RUNNER.UNKNOWN)
+            next_instance_id = next_instance_id + 1
+
+atomic action PromoteFailedServing:
+    d = oneof [x for x in deployments if not deployments[x].deleted]
+    dep = deployments[d]
+    failed = None
+    for i in instances:
+        inst = instances[i]
+        if inst.deployment == d and inst.target == TARGET.SERVING and inst.version != dep.version and inst.runner == RUNNER.STOPPED:
+            failed = i
+    require failed != None
+    st = None
+    for i in instances:
+        if instances[i].deployment == d and instances[i].target == TARGET.STANDBY:
+            if st == None or i > st:
+                st = i
+    require st != None
+    for i in instances:
+        inst = instances[i]
+        if inst.deployment == d and i < st and (inst.target == TARGET.SERVING or inst.target == TARGET.STANDBY or inst.target == TARGET.DRAINING):
+            inst.target = TARGET.DRAINING
+    instances[st].target = TARGET.SERVING
+
+atomic action RetireDrained:
+    candidates = [i for i in instances if instances[i].target == TARGET.DRAINING]
+    i = oneof candidates
+    instances[i].target = TARGET.TERMINATE
+
+atomic action FinalizeStopped:
+    candidates = [i for i in instances if instances[i].target == TARGET.TERMINATE and instances[i].runner == RUNNER.STOPPED]
+    i = oneof candidates
+    instances[i].target = TARGET.FINALIZED
+
+atomic action AdvanceRunner:
+    candidates = [i for i in instances if instances[i].target != TARGET.FINALIZED]
+    i = oneof candidates
+    inst = instances[i]
+    if inst.target == TARGET.TERMINATE:
+        require inst.runner != RUNNER.STOPPED
+        inst.runner = RUNNER.STOPPED
+    else:
+        nexts = []
+        if inst.runner == RUNNER.UNKNOWN:
+            nexts = [RUNNER.STARTING]
+        elif inst.runner == RUNNER.STARTING:
+            nexts = [RUNNER.RUNNING, RUNNER.CRASHED]
+        elif inst.runner == RUNNER.RUNNING:
+            nexts = [RUNNER.CRASHED, RUNNER.STOPPED]
+        elif inst.runner == RUNNER.CRASHED:
+            nexts = [RUNNER.STARTING]
+        n = oneof nexts
+        inst.runner = n

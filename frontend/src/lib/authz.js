@@ -1,7 +1,7 @@
 // Pure helpers for rendering authz rule templates, grants, and global rules.
 // Kept free of van and capi imports so they can be unit tested outside a
 // browser. Verb and entity ids mirror the AuthzVerb / AuthzEntity enums in
-// api-contract/model_authz.proto; duplicated rather than imported because the
+// api-contract/model/authz.proto; duplicated rather than imported because the
 // generated capi module reaches for `window`.
 
 export const VERBS = [

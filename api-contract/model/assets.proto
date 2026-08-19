@@ -6,20 +6,12 @@ import "api-contract/options.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-// An asset is a stable identity whose content lives in immutable numbered
-// versions. Deployment configs pin content version row ids; the asset id is
-// what survives renames, moves, and new versions. Content bytes never travel
-// inline — they are fetched by content version id via /v1/assets/content.
 message Asset {
   int32 id = 1;
   int64 deleted_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"]; // 0 = live
   AssetFs fs = 3;
-  // Append-only space log, NEWEST FIRST — [0] is the current space.
-  repeated AssetSpaceVersion space_versions = 4;
-  // Append-only content log, NEWEST FIRST — [0] is the latest version.
-  // Deployment specs pin these row ids. Always non-empty in lists: an asset
-  // with no published version is never listed.
-  repeated AssetContentVersion content_versions = 5;
+  repeated AssetSpaceVersion space_versions = 4; // newest first
+  repeated AssetContentVersion content_versions = 5; // newest first
 }
 
 message AssetFs {
@@ -43,4 +35,14 @@ message AssetContentVersion {
   string sha256 = 5;
   int64 size_bytes = 6;
   int64 global_seq = 7;
+}
+
+message AssetDirectory {
+  int32 id = 1;
+  int32 space_id = 2;
+  string key = 3;
+  int32 parent_id = 4;     // 0 = the implicit root
+  int64 created_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int32 author = 6;        // user id that created the directory; 0 = unknown/system, negative = agent of user -author
+  bool deleted = 7;        // set on the state-stream update channel when removed
 }

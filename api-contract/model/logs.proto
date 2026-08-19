@@ -16,3 +16,17 @@ message LogLineBatch {
   repeated LogLine lines = 1;
   string log_dir = 2;  // Absolute worker path to this deployment's run log directory.
 }
+
+message StructuredLogLine {
+   int64 time = 1;
+   int32 source_deployment_id = 2;
+   int32 source_deployment_version_id = 3;
+   int32 source_run_number = 4;
+   int32 source_instance_ordinal = 5;
+   int32 source_node = 6;
+   int32 source_stream = 7;   // 0 = stdout, 1 = stderr.
+   map<string, int64> int_fields = 8;
+   map<string, double> float_fields = 9;
+   map<string, bool> bool_fields = 10;
+   map<string, string> str_fields = 11;
+}

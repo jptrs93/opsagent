@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "api-contract/model_assets.proto";
+import "api-contract/model/assets.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 

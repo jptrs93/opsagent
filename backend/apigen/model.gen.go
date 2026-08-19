@@ -52,6 +52,24 @@ const (
 	AcmeChallenge_ACME_CHALLENGE_HTTP_01     AcmeChallenge = 1
 )
 
+type EndpointState int32
+
+const (
+	EndpointState_ENDPOINT_STATE_UNSPECIFIED EndpointState = 0
+	EndpointState_ENDPOINT_READY             EndpointState = 1
+	EndpointState_ENDPOINT_DRAINING          EndpointState = 2
+	EndpointState_ENDPOINT_DOWN              EndpointState = 3
+)
+
+type FilePermission int32
+
+const (
+	FilePermission_FILE_PERMISSION_UNSPECIFIED FilePermission = 0
+	FilePermission_READ_WRITE                  FilePermission = 1
+	FilePermission_READ_ONLY                   FilePermission = 2
+	FilePermission_READ_EXECUTE                FilePermission = 3
+)
+
 type RunningStatus int32
 
 const (
@@ -102,24 +120,6 @@ const (
 	ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED    ScheduledInstanceTarget = 2
 	ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY  ScheduledInstanceTarget = 3
 	ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING ScheduledInstanceTarget = 4
-)
-
-type EndpointState int32
-
-const (
-	EndpointState_ENDPOINT_STATE_UNSPECIFIED EndpointState = 0
-	EndpointState_ENDPOINT_READY             EndpointState = 1
-	EndpointState_ENDPOINT_DRAINING          EndpointState = 2
-	EndpointState_ENDPOINT_DOWN              EndpointState = 3
-)
-
-type FilePermission int32
-
-const (
-	FilePermission_FILE_PERMISSION_UNSPECIFIED FilePermission = 0
-	FilePermission_READ_WRITE                  FilePermission = 1
-	FilePermission_READ_ONLY                   FilePermission = 2
-	FilePermission_READ_EXECUTE                FilePermission = 3
 )
 
 type AgentSessionStatus int32
@@ -224,55 +224,8 @@ type DeploymentConfigVersionRef struct {
 	Version int32 `json:"version"`
 }
 
-type ScheduledInstance struct {
-	ID                int32                   `json:"id"`
-	CreatedAt         time.Time               `json:"created_at"`
-	DeploymentID      int32                   `json:"deployment_id"`
-	DeploymentVersion int32                   `json:"deployment_version"`
-	NodeID            int32                   `json:"node_id"`
-	InstanceOrdinal   int32                   `json:"instance_ordinal"`
-	State             ScheduledInstanceTarget `json:"state"`
-	SpaceID           int32                   `json:"space_id"`
-}
-
-type ScheduledInstanceStatus struct {
-	UpdatedAt           time.Time      `json:"updated_at"`
-	ScheduledInstanceID int32          `json:"scheduled_instance_id"`
-	DeploymentID        int32          `json:"deployment_id"`
-	Preparer            PreparerStatus `json:"preparer"`
-	Runner              RunnerStatus   `json:"runner"`
-}
-
-type ScheduledInstanceState struct {
-	Instance ScheduledInstance       `json:"instance"`
-	Config   DeploymentConfig        `json:"config"`
-	Status   ScheduledInstanceStatus `json:"status"`
-}
-
-type ScheduledInstanceSnapshot struct {
-	Items []*ScheduledInstanceState `json:"items,omitempty"`
-}
-
 type DeploymentConfigSnapshot struct {
 	Items []*DeploymentConfig `json:"items,omitempty"`
-}
-
-type PreparerStatus struct {
-	DeploymentConfigVersion int32        `json:"deployment_config_version"`
-	Artifact                string       `json:"artifact,omitempty"`
-	Inputs                  InputsStatus `json:"inputs"`
-	Image                   ImageStatus  `json:"image"`
-}
-
-type RunnerStatus struct {
-	DeploymentConfigVersion int32         `json:"deployment_config_version"`
-	RunningPid              int32         `json:"running_pid"`
-	RunningArtifact         string        `json:"running_artifact,omitempty"`
-	Status                  RunningStatus `json:"status"`
-	NumberOfRestarts        int32         `json:"number_of_restarts"`
-	LastRestartAt           time.Time     `json:"last_restart_at"`
-	RunningVersion          string        `json:"running_version,omitempty"`
-	NetworkDiagnostics      []string      `json:"network_diagnostics,omitempty"`
 }
 
 type Endpoint struct {
@@ -404,6 +357,53 @@ type IssuedTLSMount struct {
 	ContainerPath string   `json:"container_path,omitempty"`
 	ExtraNames    []string `json:"extra_names,omitempty"`
 	CaOnly        bool     `json:"ca_only"`
+}
+
+type ScheduledInstance struct {
+	ID                int32                   `json:"id"`
+	CreatedAt         time.Time               `json:"created_at"`
+	DeploymentID      int32                   `json:"deployment_id"`
+	DeploymentVersion int32                   `json:"deployment_version"`
+	NodeID            int32                   `json:"node_id"`
+	InstanceOrdinal   int32                   `json:"instance_ordinal"`
+	State             ScheduledInstanceTarget `json:"state"`
+	SpaceID           int32                   `json:"space_id"`
+}
+
+type ScheduledInstanceStatus struct {
+	UpdatedAt           time.Time      `json:"updated_at"`
+	ScheduledInstanceID int32          `json:"scheduled_instance_id"`
+	DeploymentID        int32          `json:"deployment_id"`
+	Preparer            PreparerStatus `json:"preparer"`
+	Runner              RunnerStatus   `json:"runner"`
+}
+
+type ScheduledInstanceState struct {
+	Instance ScheduledInstance       `json:"instance"`
+	Config   DeploymentConfig        `json:"config"`
+	Status   ScheduledInstanceStatus `json:"status"`
+}
+
+type ScheduledInstanceSnapshot struct {
+	Items []*ScheduledInstanceState `json:"items,omitempty"`
+}
+
+type PreparerStatus struct {
+	DeploymentConfigVersion int32        `json:"deployment_config_version"`
+	Artifact                string       `json:"artifact,omitempty"`
+	Inputs                  InputsStatus `json:"inputs"`
+	Image                   ImageStatus  `json:"image"`
+}
+
+type RunnerStatus struct {
+	DeploymentConfigVersion int32         `json:"deployment_config_version"`
+	RunningPid              int32         `json:"running_pid"`
+	RunningArtifact         string        `json:"running_artifact,omitempty"`
+	Status                  RunningStatus `json:"status"`
+	NumberOfRestarts        int32         `json:"number_of_restarts"`
+	LastRestartAt           time.Time     `json:"last_restart_at"`
+	RunningVersion          string        `json:"running_version,omitempty"`
+	NetworkDiagnostics      []string      `json:"network_diagnostics,omitempty"`
 }
 
 type DeploymentUpdateRequest struct {
@@ -730,6 +730,16 @@ type ConfigValueVersion struct {
 	GlobalSeq int64     `json:"global_seq"`
 }
 
+type ValueDirectory struct {
+	ID        int32     `json:"id"`
+	SpaceID   int32     `json:"space_id"`
+	Name      string    `json:"name,omitempty"`
+	ParentID  int32     `json:"parent_id"`
+	CreatedAt time.Time `json:"created_at"`
+	Author    int32     `json:"author"`
+	Deleted   bool      `json:"deleted"`
+}
+
 type ConfigList struct {
 	Items []*Config `json:"items,omitempty"`
 }
@@ -794,6 +804,16 @@ type AssetContentVersion struct {
 	GlobalSeq int64     `json:"global_seq"`
 }
 
+type AssetDirectory struct {
+	ID        int32     `json:"id"`
+	SpaceID   int32     `json:"space_id"`
+	Key       string    `json:"key,omitempty"`
+	ParentID  int32     `json:"parent_id"`
+	CreatedAt time.Time `json:"created_at"`
+	Author    int32     `json:"author"`
+	Deleted   bool      `json:"deleted"`
+}
+
 type AssetList struct {
 	Items []*Asset `json:"items,omitempty"`
 }
@@ -811,26 +831,6 @@ type AssetMoveRequest struct {
 	AssetID          int32 `json:"asset_id"`
 	AssetDirectoryID int32 `json:"asset_directory_id"`
 	SpaceID          int32 `json:"space_id"`
-}
-
-type ValueDirectory struct {
-	ID        int32     `json:"id"`
-	SpaceID   int32     `json:"space_id"`
-	Name      string    `json:"name,omitempty"`
-	ParentID  int32     `json:"parent_id"`
-	CreatedAt time.Time `json:"created_at"`
-	Author    int32     `json:"author"`
-	Deleted   bool      `json:"deleted"`
-}
-
-type AssetDirectory struct {
-	ID        int32     `json:"id"`
-	SpaceID   int32     `json:"space_id"`
-	Key       string    `json:"key,omitempty"`
-	ParentID  int32     `json:"parent_id"`
-	CreatedAt time.Time `json:"created_at"`
-	Author    int32     `json:"author"`
-	Deleted   bool      `json:"deleted"`
 }
 
 type ValueDirectoryList struct {

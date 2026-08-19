@@ -2,7 +2,58 @@ syntax = "proto3";
 
 package opsagent.v1;
 
+import "api-contract/model/deployments.proto";
+import "api-contract/model/logs.proto";
+import "api-contract/model_logs_operations.proto";
+import "api-contract/model/networking.proto";
+import "api-contract/options.proto";
+
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message GithubCredentials {
+  string token = 1;
+  int64 changed_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+// Primary and worker communicate over an HTTP/2 mTLS protobuf stream.
+// Each frame is [unsigned-varint length][protobuf payload].
+// Primary sends MsgToWorker; worker sends MsgToMaster.
+// Dispatch on whichever field is non-nil.
+message MsgToWorker {
+  ScheduledInstanceSnapshot scheduled_instances_snapshot = 1;
+  ScheduledInstanceState scheduled_instance_update = 2;
+  PrepareOutputRequest prepare_log_request = 3;
+  RunOutputRequest run_log_request = 4;
+  DeploymentLogRequest deployment_log_request = 5;
+  string stop_log_request_id = 6;  // Cancel an active log stream by its request_id.
+  LogSearchRequest log_search_request = 7;
+  // Cluster-wide network parameters, sent at the head of every session before
+  // the scheduled-instances snapshot. Workers persist it and program the local
+  // dataplane from it on boot before reaching the primary.
+  ClusterNetworkInfo cluster_network = 8;
+  ClusterNetMap cluster_net_map = 9;
+  int32 cluster_protocol_version = 10;
+  AcmeState acme_state = 11;
+}
+
+// ClusterHello is the first frame sent by a worker on each authenticated
+// cluster session.
+message ClusterHello {
+  string underlay_address = 1;
+  int32 cluster_protocol_version = 2;
+}
+
+message MsgToMaster {
+  ScheduledInstanceStatus status_write = 1;
+  bytes log_data = 2;
+  bool log_end = 3;
+  string log_request_id = 4;  // Tags log_data/log_end with the originating request_id.
+  LogLineBatch log_lines = 5 [(cp.go_value) = true];
+  reserved 6;
+  reserved "local_route_report";
+  NetMapStatus net_map_status = 7;
+  ClusterHello cluster_hello = 8;
+}
 
 message ClusterSecretsRequest {
   repeated int32 ids = 1;

@@ -446,252 +446,6 @@ func DecodeDeploymentConfigVersionRef(b []byte) (*DeploymentConfigVersionRef, er
 	return &m, nil
 }
 
-func (m ScheduledInstance) IsZero() bool {
-	return m.ID == 0 &&
-		m.CreatedAt.IsZero() &&
-		m.DeploymentID == 0 &&
-		m.DeploymentVersion == 0 &&
-		m.NodeID == 0 &&
-		m.InstanceOrdinal == 0 &&
-		m.State == 0 &&
-		m.SpaceID == 0
-}
-
-func (m *ScheduledInstance) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendInt64FromTime(b, m.CreatedAt, 2)
-	b = AppendInt32Field(b, m.DeploymentID, 3)
-	b = AppendInt32Field(b, m.DeploymentVersion, 4)
-	b = AppendInt32Field(b, m.NodeID, 5)
-	b = AppendInt32Field(b, m.InstanceOrdinal, 6)
-	b = AppendInt32Field(b, int32(m.State), 7)
-	b = AppendInt32Field(b, m.SpaceID, 8)
-	return b
-}
-
-func DecodeScheduledInstance(b []byte) (*ScheduledInstance, error) {
-	var m ScheduledInstance
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 3:
-			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
-		case 4:
-			b, m.DeploymentVersion, err = ConsumeVarInt32(b, typ)
-		case 5:
-			b, m.NodeID, err = ConsumeVarInt32(b, typ)
-		case 6:
-			b, m.InstanceOrdinal, err = ConsumeVarInt32(b, typ)
-		case 7:
-			var raw int32
-			b, raw, err = ConsumeVarInt32(b, typ)
-			if err == nil {
-				m.State = ScheduledInstanceTarget(raw)
-			}
-		case 8:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m ScheduledInstanceStatus) IsZero() bool {
-	return m.UpdatedAt.IsZero() &&
-		m.ScheduledInstanceID == 0 &&
-		m.DeploymentID == 0 &&
-		m.Preparer.IsZero() &&
-		m.Runner.IsZero()
-}
-
-func (m *ScheduledInstanceStatus) Encode() []byte {
-	var b []byte
-	if !m.UpdatedAt.IsZero() {
-		b = AppendBytesField(b, EncodeTimestamp(m.UpdatedAt), 1)
-	}
-	b = AppendInt32Field(b, m.ScheduledInstanceID, 2)
-	b = AppendInt32Field(b, m.DeploymentID, 3)
-	if !m.Preparer.IsZero() {
-		b = AppendTag(b, 4, BytesType)
-		b = AppendBytes(b, m.Preparer.Encode())
-	}
-	if !m.Runner.IsZero() {
-		b = AppendTag(b, 5, BytesType)
-		b = AppendBytes(b, m.Runner.Encode())
-	}
-	return b
-}
-
-func DecodeScheduledInstanceStatus(b []byte) (*ScheduledInstanceStatus, error) {
-	var m ScheduledInstanceStatus
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.UpdatedAt, err = ConsumeTimeFromTimestamp(b, typ)
-		case 2:
-			b, m.ScheduledInstanceID, err = ConsumeVarInt32(b, typ)
-		case 3:
-			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
-		case 4:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *PreparerStatus
-				item, err = DecodePreparerStatus(msgBytes)
-				if err == nil {
-					m.Preparer = *item
-				}
-			}
-		case 5:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *RunnerStatus
-				item, err = DecodeRunnerStatus(msgBytes)
-				if err == nil {
-					m.Runner = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *ScheduledInstanceState) Encode() []byte {
-	var b []byte
-	if !m.Instance.IsZero() {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.Instance.Encode())
-	}
-	if !m.Config.IsZero() {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.Config.Encode())
-	}
-	if !m.Status.IsZero() {
-		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.Status.Encode())
-	}
-	return b
-}
-
-func DecodeScheduledInstanceState(b []byte) (*ScheduledInstanceState, error) {
-	var m ScheduledInstanceState
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ScheduledInstance
-				item, err = DecodeScheduledInstance(msgBytes)
-				if err == nil {
-					m.Instance = *item
-				}
-			}
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentConfig
-				item, err = DecodeDeploymentConfig(msgBytes)
-				if err == nil {
-					m.Config = *item
-				}
-			}
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ScheduledInstanceStatus
-				item, err = DecodeScheduledInstanceStatus(msgBytes)
-				if err == nil {
-					m.Status = *item
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *ScheduledInstanceSnapshot) Encode() []byte {
-	var b []byte
-	for _, item := range m.Items {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	return b
-}
-
-func DecodeScheduledInstanceSnapshot(b []byte) (*ScheduledInstanceSnapshot, error) {
-	var m ScheduledInstanceSnapshot
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ScheduledInstanceState
-				item, err = DecodeScheduledInstanceState(msgBytes)
-				if err == nil {
-					m.Items = append(m.Items, item)
-				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 func (m *DeploymentConfigSnapshot) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
@@ -724,128 +478,6 @@ func DecodeDeploymentConfigSnapshot(b []byte) (*DeploymentConfigSnapshot, error)
 				if err == nil {
 					m.Items = append(m.Items, item)
 				}
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m PreparerStatus) IsZero() bool {
-	return m.DeploymentConfigVersion == 0 &&
-		m.Artifact == "" &&
-		m.Inputs == 0 &&
-		m.Image == 0
-}
-
-func (m *PreparerStatus) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.DeploymentConfigVersion, 1)
-	b = AppendStringField(b, m.Artifact, 2)
-	b = AppendInt32Field(b, int32(m.Inputs), 4)
-	b = AppendInt32Field(b, int32(m.Image), 5)
-	return b
-}
-
-func DecodePreparerStatus(b []byte) (*PreparerStatus, error) {
-	var m PreparerStatus
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.DeploymentConfigVersion, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.Artifact, err = ConsumeString(b, typ)
-		case 4:
-			var raw int32
-			b, raw, err = ConsumeVarInt32(b, typ)
-			if err == nil {
-				m.Inputs = InputsStatus(raw)
-			}
-		case 5:
-			var raw int32
-			b, raw, err = ConsumeVarInt32(b, typ)
-			if err == nil {
-				m.Image = ImageStatus(raw)
-			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m RunnerStatus) IsZero() bool {
-	return m.DeploymentConfigVersion == 0 &&
-		m.RunningPid == 0 &&
-		m.RunningArtifact == "" &&
-		m.Status == 0 &&
-		m.NumberOfRestarts == 0 &&
-		m.LastRestartAt.IsZero() &&
-		m.RunningVersion == "" &&
-		len(m.NetworkDiagnostics) == 0
-}
-
-func (m *RunnerStatus) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.DeploymentConfigVersion, 1)
-	b = AppendInt32Field(b, m.RunningPid, 2)
-	b = AppendStringField(b, m.RunningArtifact, 3)
-	b = AppendInt32Field(b, int32(m.Status), 4)
-	b = AppendInt32Field(b, m.NumberOfRestarts, 6)
-	b = AppendInt64FromTime(b, m.LastRestartAt, 7)
-	b = AppendStringField(b, m.RunningVersion, 8)
-	b = AppendRepeated(b, m.NetworkDiagnostics, AppendFieldDecorator(AppendStringField, 10))
-	return b
-}
-
-func DecodeRunnerStatus(b []byte) (*RunnerStatus, error) {
-	var m RunnerStatus
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.DeploymentConfigVersion, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.RunningPid, err = ConsumeVarInt32(b, typ)
-		case 3:
-			b, m.RunningArtifact, err = ConsumeString(b, typ)
-		case 4:
-			var raw int32
-			b, raw, err = ConsumeVarInt32(b, typ)
-			if err == nil {
-				m.Status = RunningStatus(raw)
-			}
-		case 6:
-			b, m.NumberOfRestarts, err = ConsumeVarInt32(b, typ)
-		case 7:
-			b, m.LastRestartAt, err = ConsumeTimeFromInt64(b, typ)
-		case 8:
-			b, m.RunningVersion, err = ConsumeString(b, typ)
-		case 10:
-			var item string
-			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
-			if err == nil {
-				m.NetworkDiagnostics = append(m.NetworkDiagnostics, item)
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -1857,6 +1489,374 @@ func DecodeIssuedTLSMount(b []byte) (*IssuedTLSMount, error) {
 			}
 		case 3:
 			b, m.CaOnly, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m ScheduledInstance) IsZero() bool {
+	return m.ID == 0 &&
+		m.CreatedAt.IsZero() &&
+		m.DeploymentID == 0 &&
+		m.DeploymentVersion == 0 &&
+		m.NodeID == 0 &&
+		m.InstanceOrdinal == 0 &&
+		m.State == 0 &&
+		m.SpaceID == 0
+}
+
+func (m *ScheduledInstance) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt64FromTime(b, m.CreatedAt, 2)
+	b = AppendInt32Field(b, m.DeploymentID, 3)
+	b = AppendInt32Field(b, m.DeploymentVersion, 4)
+	b = AppendInt32Field(b, m.NodeID, 5)
+	b = AppendInt32Field(b, m.InstanceOrdinal, 6)
+	b = AppendInt32Field(b, int32(m.State), 7)
+	b = AppendInt32Field(b, m.SpaceID, 8)
+	return b
+}
+
+func DecodeScheduledInstance(b []byte) (*ScheduledInstance, error) {
+	var m ScheduledInstance
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.DeploymentVersion, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.InstanceOrdinal, err = ConsumeVarInt32(b, typ)
+		case 7:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.State = ScheduledInstanceTarget(raw)
+			}
+		case 8:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m ScheduledInstanceStatus) IsZero() bool {
+	return m.UpdatedAt.IsZero() &&
+		m.ScheduledInstanceID == 0 &&
+		m.DeploymentID == 0 &&
+		m.Preparer.IsZero() &&
+		m.Runner.IsZero()
+}
+
+func (m *ScheduledInstanceStatus) Encode() []byte {
+	var b []byte
+	if !m.UpdatedAt.IsZero() {
+		b = AppendBytesField(b, EncodeTimestamp(m.UpdatedAt), 1)
+	}
+	b = AppendInt32Field(b, m.ScheduledInstanceID, 2)
+	b = AppendInt32Field(b, m.DeploymentID, 3)
+	if !m.Preparer.IsZero() {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.Preparer.Encode())
+	}
+	if !m.Runner.IsZero() {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.Runner.Encode())
+	}
+	return b
+}
+
+func DecodeScheduledInstanceStatus(b []byte) (*ScheduledInstanceStatus, error) {
+	var m ScheduledInstanceStatus
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.UpdatedAt, err = ConsumeTimeFromTimestamp(b, typ)
+		case 2:
+			b, m.ScheduledInstanceID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *PreparerStatus
+				item, err = DecodePreparerStatus(msgBytes)
+				if err == nil {
+					m.Preparer = *item
+				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *RunnerStatus
+				item, err = DecodeRunnerStatus(msgBytes)
+				if err == nil {
+					m.Runner = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ScheduledInstanceState) Encode() []byte {
+	var b []byte
+	if !m.Instance.IsZero() {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Instance.Encode())
+	}
+	if !m.Config.IsZero() {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Config.Encode())
+	}
+	if !m.Status.IsZero() {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Status.Encode())
+	}
+	return b
+}
+
+func DecodeScheduledInstanceState(b []byte) (*ScheduledInstanceState, error) {
+	var m ScheduledInstanceState
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ScheduledInstance
+				item, err = DecodeScheduledInstance(msgBytes)
+				if err == nil {
+					m.Instance = *item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentConfig
+				item, err = DecodeDeploymentConfig(msgBytes)
+				if err == nil {
+					m.Config = *item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ScheduledInstanceStatus
+				item, err = DecodeScheduledInstanceStatus(msgBytes)
+				if err == nil {
+					m.Status = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ScheduledInstanceSnapshot) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeScheduledInstanceSnapshot(b []byte) (*ScheduledInstanceSnapshot, error) {
+	var m ScheduledInstanceSnapshot
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ScheduledInstanceState
+				item, err = DecodeScheduledInstanceState(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m PreparerStatus) IsZero() bool {
+	return m.DeploymentConfigVersion == 0 &&
+		m.Artifact == "" &&
+		m.Inputs == 0 &&
+		m.Image == 0
+}
+
+func (m *PreparerStatus) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DeploymentConfigVersion, 1)
+	b = AppendStringField(b, m.Artifact, 2)
+	b = AppendInt32Field(b, int32(m.Inputs), 4)
+	b = AppendInt32Field(b, int32(m.Image), 5)
+	return b
+}
+
+func DecodePreparerStatus(b []byte) (*PreparerStatus, error) {
+	var m PreparerStatus
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DeploymentConfigVersion, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Artifact, err = ConsumeString(b, typ)
+		case 4:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Inputs = InputsStatus(raw)
+			}
+		case 5:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Image = ImageStatus(raw)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m RunnerStatus) IsZero() bool {
+	return m.DeploymentConfigVersion == 0 &&
+		m.RunningPid == 0 &&
+		m.RunningArtifact == "" &&
+		m.Status == 0 &&
+		m.NumberOfRestarts == 0 &&
+		m.LastRestartAt.IsZero() &&
+		m.RunningVersion == "" &&
+		len(m.NetworkDiagnostics) == 0
+}
+
+func (m *RunnerStatus) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DeploymentConfigVersion, 1)
+	b = AppendInt32Field(b, m.RunningPid, 2)
+	b = AppendStringField(b, m.RunningArtifact, 3)
+	b = AppendInt32Field(b, int32(m.Status), 4)
+	b = AppendInt32Field(b, m.NumberOfRestarts, 6)
+	b = AppendInt64FromTime(b, m.LastRestartAt, 7)
+	b = AppendStringField(b, m.RunningVersion, 8)
+	b = AppendRepeated(b, m.NetworkDiagnostics, AppendFieldDecorator(AppendStringField, 10))
+	return b
+}
+
+func DecodeRunnerStatus(b []byte) (*RunnerStatus, error) {
+	var m RunnerStatus
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DeploymentConfigVersion, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.RunningPid, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.RunningArtifact, err = ConsumeString(b, typ)
+		case 4:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Status = RunningStatus(raw)
+			}
+		case 6:
+			b, m.NumberOfRestarts, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.LastRestartAt, err = ConsumeTimeFromInt64(b, typ)
+		case 8:
+			b, m.RunningVersion, err = ConsumeString(b, typ)
+		case 10:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.NetworkDiagnostics = append(m.NetworkDiagnostics, item)
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4267,6 +4267,53 @@ func DecodeConfigValueVersion(b []byte) (*ConfigValueVersion, error) {
 	return &m, nil
 }
 
+func (m *ValueDirectory) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt32Field(b, m.SpaceID, 2)
+	b = AppendStringField(b, m.Name, 3)
+	b = AppendInt32Field(b, m.ParentID, 4)
+	b = AppendInt64FromTime(b, m.CreatedAt, 5)
+	b = AppendInt32Field(b, m.Author, 6)
+	b = AppendBoolField(b, m.Deleted, 7)
+	return b
+}
+
+func DecodeValueDirectory(b []byte) (*ValueDirectory, error) {
+	var m ValueDirectory
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 4:
+			b, m.ParentID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 6:
+			b, m.Author, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *ConfigList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
@@ -4694,6 +4741,53 @@ func DecodeAssetContentVersion(b []byte) (*AssetContentVersion, error) {
 	return &m, nil
 }
 
+func (m *AssetDirectory) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt32Field(b, m.SpaceID, 2)
+	b = AppendStringField(b, m.Key, 3)
+	b = AppendInt32Field(b, m.ParentID, 4)
+	b = AppendInt64FromTime(b, m.CreatedAt, 5)
+	b = AppendInt32Field(b, m.Author, 6)
+	b = AppendBoolField(b, m.Deleted, 7)
+	return b
+}
+
+func DecodeAssetDirectory(b []byte) (*AssetDirectory, error) {
+	var m AssetDirectory
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.Key, err = ConsumeString(b, typ)
+		case 4:
+			b, m.ParentID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 6:
+			b, m.Author, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *AssetList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
@@ -4823,100 +4917,6 @@ func DecodeAssetMoveRequest(b []byte) (*AssetMoveRequest, error) {
 			b, m.AssetDirectoryID, err = ConsumeVarInt32(b, typ)
 		case 3:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *ValueDirectory) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendInt32Field(b, m.SpaceID, 2)
-	b = AppendStringField(b, m.Name, 3)
-	b = AppendInt32Field(b, m.ParentID, 4)
-	b = AppendInt64FromTime(b, m.CreatedAt, 5)
-	b = AppendInt32Field(b, m.Author, 6)
-	b = AppendBoolField(b, m.Deleted, 7)
-	return b
-}
-
-func DecodeValueDirectory(b []byte) (*ValueDirectory, error) {
-	var m ValueDirectory
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 3:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 4:
-			b, m.ParentID, err = ConsumeVarInt32(b, typ)
-		case 5:
-			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 6:
-			b, m.Author, err = ConsumeVarInt32(b, typ)
-		case 7:
-			b, m.Deleted, err = ConsumeBool(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *AssetDirectory) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendInt32Field(b, m.SpaceID, 2)
-	b = AppendStringField(b, m.Key, 3)
-	b = AppendInt32Field(b, m.ParentID, 4)
-	b = AppendInt64FromTime(b, m.CreatedAt, 5)
-	b = AppendInt32Field(b, m.Author, 6)
-	b = AppendBoolField(b, m.Deleted, 7)
-	return b
-}
-
-func DecodeAssetDirectory(b []byte) (*AssetDirectory, error) {
-	var m AssetDirectory
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 3:
-			b, m.Key, err = ConsumeString(b, typ)
-		case 4:
-			b, m.ParentID, err = ConsumeVarInt32(b, typ)
-		case 5:
-			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 6:
-			b, m.Author, err = ConsumeVarInt32(b, typ)
-		case 7:
-			b, m.Deleted, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

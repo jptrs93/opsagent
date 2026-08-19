@@ -1,0 +1,95 @@
+always assertion AtMostOneServingPerDeployment:
+    for d in deployments:
+        count = 0
+        for i in instances:
+            if instances[i].deployment == d and instances[i].target == TARGET.SERVING:
+                count = count + 1
+        if count > 1:
+            return False
+    return True
+
+always assertion AtMostOneRunnablePerDeploymentVersion:
+    for d in deployments:
+        for v in range(1, MAX_VERSIONS + 1):
+            count = 0
+            for i in instances:
+                inst = instances[i]
+                if inst.deployment == d and inst.version == v and (inst.target == TARGET.SERVING or inst.target == TARGET.STANDBY or inst.target == TARGET.DRAINING):
+                    count = count + 1
+            if count > 1:
+                return False
+    return True
+
+always assertion RecreateNeverOverlaps:
+    for d in deployments:
+        if deployments[d].strategy == STRATEGY.RECREATE:
+            count = 0
+            for i in instances:
+                inst = instances[i]
+                if inst.deployment == d and (inst.runner == RUNNER.STARTING or inst.runner == RUNNER.RUNNING or inst.runner == RUNNER.CRASHED):
+                    count = count + 1
+            if count > 1:
+                return False
+    return True
+
+always assertion FinalizedImpliesStopped:
+    for i in instances:
+        if instances[i].target == TARGET.FINALIZED and instances[i].runner != RUNNER.STOPPED:
+            return False
+    return True
+
+always assertion InstancePinsExistingVersion:
+    for i in instances:
+        inst = instances[i]
+        if inst.deployment not in deployments:
+            return False
+        if inst.version < 1 or inst.version > deployments[inst.deployment].version:
+            return False
+    return True
+
+transition assertion TargetTransitionsLegal(before, after):
+    for i in before.instances:
+        if i in after.instances:
+            b = before.instances[i].target
+            a = after.instances[i].target
+            if a != b:
+                legal = False
+                if b == TARGET.STANDBY and (a == TARGET.SERVING or a == TARGET.DRAINING or a == TARGET.TERMINATE):
+                    legal = True
+                if b == TARGET.SERVING and (a == TARGET.DRAINING or a == TARGET.TERMINATE):
+                    legal = True
+                if b == TARGET.DRAINING and a == TARGET.TERMINATE:
+                    legal = True
+                if b == TARGET.TERMINATE and a == TARGET.FINALIZED:
+                    legal = True
+                if not legal:
+                    return False
+    return True
+
+exists assertion RolloverHandover:
+    for i in instances:
+        for j in instances:
+            a = instances[i]
+            b = instances[j]
+            if a.deployment == b.deployment and a.target == TARGET.FINALIZED and b.target == TARGET.SERVING and b.version > a.version:
+                return True
+    return False
+
+exists assertion StandbyWarms:
+    for i in instances:
+        for j in instances:
+            if i != j and instances[i].deployment == instances[j].deployment and instances[i].target == TARGET.SERVING and instances[j].target == TARGET.STANDBY:
+                return True
+    return False
+
+exists assertion DrainingObserved:
+    for i in instances:
+        if instances[i].target == TARGET.DRAINING:
+            return True
+    return False
+
+exists assertion CrashObserved:
+    for i in instances:
+        if instances[i].runner == RUNNER.CRASHED:
+            return True
+    return False

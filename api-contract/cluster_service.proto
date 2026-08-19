@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "api-contract/model_cluster.proto";
 import "api-contract/model_cluster_operations.proto";
 import "api-contract/options.proto";
 

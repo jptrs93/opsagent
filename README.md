@@ -103,3 +103,13 @@ See [`docs/engineering/networking.md`](docs/engineering/networking.md) for the a
 # Development
 
 Local dev uses a Nix flake as the source of truth for Go, Node, and pnpm versions. See `CLAUDE.md` for the full set of dev commands.
+
+## Quint setup (macOS)
+
+Quint is a typed TLA+-family spec language, of interest alongside the FizzBee specs in `fizzbee/`. To set it up on a Mac:
+
+- Install the CLI (needs Node): `npm install -g @informalsystems/quint`
+- Verify with `quint --version`; try the REPL with `quint`
+- Install a JVM for the model checker backend: `brew install openjdk@21` — `quint verify` downloads and manages Apalache itself but requires Java 17+ (point `JAVA_HOME` at it if it is not the default JDK)
+- Editor support: in VS Code install the `informal.quint-vscode` extension; in Cursor the extension is not on Open VSX, so download the `.vsix` from the VS Code Marketplace page and use `Extensions: Install from VSIX...`; for JetBrains IDEs install the community `Quint` plugin from the Marketplace (runs `quint typecheck` for diagnostics, so the CLI must be installed)
+- Quick check: `quint run <spec>.qnt` simulates, `quint test` runs spec unit tests, `quint verify` model checks via Apalache
