@@ -67,8 +67,8 @@ func TestSpaceAssignmentHistory(t *testing.T) {
 	if len(cfgRows) != 2 || cfgRows[0].SpaceID != int64(DefaultSpaceID) || cfgRows[0].Author != 5 || cfgRows[1].SpaceID != 2 || cfgRows[1].Author != 9 {
 		t.Fatalf("config space log = %+v, want initial space %d author 5 then space 2 author 9", cfgRows, DefaultSpaceID)
 	}
-	if meta, ok := store.GetConfigMeta(cfg.ID); !ok || meta.SpaceID != 2 {
-		t.Fatalf("config meta after move = %+v ok=%v, want current space 2", meta, ok)
+	if c, ok := store.GetConfig(cfg.ID); !ok || c.SpaceID() != 2 {
+		t.Fatalf("config after move = %+v ok=%v, want current space 2", c, ok)
 	}
 }
 
@@ -117,14 +117,14 @@ func TestSoftDeleteHidesRowAndFreesName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create config: %v", err)
 	}
-	if meta, ok := store.DeleteConfig(cfg.ID); !ok || !meta.Deleted {
-		t.Fatalf("delete config = %+v ok=%v", meta, ok)
+	if c, ok := store.DeleteConfig(cfg.ID); !ok || c.DeletedAt.IsZero() {
+		t.Fatalf("delete config = %+v ok=%v", c, ok)
 	}
-	if _, ok := store.GetConfigMeta(cfg.ID); ok {
+	if _, ok := store.GetConfig(cfg.ID); ok {
 		t.Fatal("deleted config still resolves by id")
 	}
-	if got := store.ListConfigMetas(); len(got) != 0 {
-		t.Fatalf("ListConfigMetas after delete = %d items, want 0", len(got))
+	if got := store.ListConfigs(); len(got) != 0 {
+		t.Fatalf("ListConfigs after delete = %d items, want 0", len(got))
 	}
 	recreated, err := store.CreateConfigWithVersion("mode", DefaultSpaceID, 0, 1, "off")
 	if err != nil {
@@ -134,7 +134,7 @@ func TestSoftDeleteHidesRowAndFreesName(t *testing.T) {
 		t.Fatal("recreated config reused the deleted identity")
 	}
 	// Pinned version rows of the deleted config still resolve.
-	if ref, ok := store.GetConfigVersionByID(cfg.VersionRefs[0].ID); !ok || ref.Value != "on" {
+	if ref, ok := store.GetConfigVersionByID(cfg.ValueVersions[0].ID); !ok || ref.Value != "on" {
 		t.Fatalf("pinned version of deleted config = %+v ok=%v", ref, ok)
 	}
 }

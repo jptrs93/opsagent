@@ -123,22 +123,22 @@ type ApiServerHandler interface {
 	PostV1SpacesUpdate(Context, *SpaceSetRequest) (*Space, error)
 	PostV1SpacesDelete(Context, *SpaceDeleteRequest) error
 	PostV1SecretsList(Context, *EmptyRequest) (*SecretList, error)
-	PostV1SecretsCreate(Context, *SecretCreateRequest) (*SecretMeta, error)
-	PostV1SecretsSet(Context, *SecretSetRequest) (*SecretMeta, error)
-	PostV1SecretsGenerate(Context, *SecretGenerateRequest) (*SecretMeta, error)
-	PostV1SecretsRename(Context, *SecretRenameRequest) (*SecretMeta, error)
-	PostV1SecretsMove(Context, *SecretMoveRequest) (*SecretMeta, error)
+	PostV1SecretsCreate(Context, *SecretCreateRequest) (*Secret, error)
+	PostV1SecretsSet(Context, *SecretSetRequest) (*Secret, error)
+	PostV1SecretsGenerate(Context, *SecretGenerateRequest) (*Secret, error)
+	PostV1SecretsRename(Context, *SecretRenameRequest) (*Secret, error)
+	PostV1SecretsMove(Context, *SecretMoveRequest) (*Secret, error)
 	PostV1SecretsReveal(Context, *SecretRevealRequest) (*SecretRevealResponse, error)
 	PostV1SecretsDelete(Context, *SecretDeleteRequest) error
 	PostV1SecretsStatus(Context, *EmptyRequest) (*SecretsStatusResponse, error)
 	PostV1SecretsRotateRecoveryCode(Context, *EmptyRequest) (*SecretRecoveryCodeResponse, error)
 	PostV1SecretsUnlock(Context, *SecretUnlockRequest) (*SecretsStatusResponse, error)
 	PostV1ConfigsList(Context, *EmptyRequest) (*ConfigList, error)
-	PostV1ConfigsCreate(Context, *ConfigCreateRequest) (*ConfigMeta, error)
-	PostV1ConfigsSet(Context, *ConfigSetRequest) (*ConfigMeta, error)
-	PostV1ConfigsRename(Context, *ConfigRenameRequest) (*ConfigMeta, error)
+	PostV1ConfigsCreate(Context, *ConfigCreateRequest) (*Config, error)
+	PostV1ConfigsSet(Context, *ConfigSetRequest) (*Config, error)
+	PostV1ConfigsRename(Context, *ConfigRenameRequest) (*Config, error)
 	PostV1ConfigsDelete(Context, *ConfigDeleteRequest) error
-	PostV1ConfigsMove(Context, *ConfigMoveRequest) (*ConfigMeta, error)
+	PostV1ConfigsMove(Context, *ConfigMoveRequest) (*Config, error)
 	PostV1ValueDirectoriesList(Context, *EmptyRequest) (*ValueDirectoryList, error)
 	PostV1ValueDirectoriesCreate(Context, *ValueDirectoryCreateRequest) (*ValueDirectory, error)
 	PostV1ValueDirectoriesMove(Context, *ValueDirectoryMoveRequest) (*ValueDirectory, error)
@@ -146,8 +146,6 @@ type ApiServerHandler interface {
 	PostV1ValueDirectoriesDelete(Context, *ValueDirectoryDeleteRequest) error
 	PostV1AssetsList(Context, *EmptyRequest) (*AssetList, error)
 	GetV1AssetsContent(Context, *http.Request, http.ResponseWriter) error
-	PostV1AssetsCreate(Context, *AssetCreateRequest) (*Asset, error)
-	PostV1AssetsSet(Context, *AssetSetRequest) (*Asset, error)
 	PostV1AssetsUpload(Context, *http.Request, http.ResponseWriter) error
 	PostV1AssetsRename(Context, *AssetRenameRequest) (*Asset, error)
 	PostV1AssetsDelete(Context, *AssetDeleteRequest) error
@@ -1064,28 +1062,6 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		}
 	}
 	m.HandleFunc("GET /v1/assets/content", buildHandlerFunc(config, verifyAuth, getV1AssetsContentAccessPolicy, postAuthHandlerGetV1AssetsContent, compressionModeNever, false))
-	postV1AssetsCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
-	postAuthHandlerPostV1AssetsCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetCreateRequest)
-		if err != nil {
-			HandleReqErr(authCtx, err, r, w)
-			return
-		}
-		res, err := h.PostV1AssetsCreate(authCtx, req)
-		Respond(authCtx, r, w, res, err)
-	}
-	m.HandleFunc("POST /v1/assets/create", buildHandlerFunc(config, verifyAuth, postV1AssetsCreateAccessPolicy, postAuthHandlerPostV1AssetsCreate, compressionModeAuto, false))
-	postV1AssetsSetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
-	postAuthHandlerPostV1AssetsSet := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetSetRequest)
-		if err != nil {
-			HandleReqErr(authCtx, err, r, w)
-			return
-		}
-		res, err := h.PostV1AssetsSet(authCtx, req)
-		Respond(authCtx, r, w, res, err)
-	}
-	m.HandleFunc("POST /v1/assets/set", buildHandlerFunc(config, verifyAuth, postV1AssetsSetAccessPolicy, postAuthHandlerPostV1AssetsSet, compressionModeAuto, false))
 	postV1AssetsUploadAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1AssetsUpload := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		err := h.PostV1AssetsUpload(authCtx, r, w)

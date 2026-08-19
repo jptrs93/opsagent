@@ -71,13 +71,13 @@ func TestDeploymentConfigRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		})
 	}
 
-	if _, err := create("own-space", prod.ID, prodConfig.VersionRefs[0].ID); err != nil {
+	if _, err := create("own-space", prod.ID, prodConfig.ValueVersions[0].ID); err != nil {
 		t.Fatalf("own-space config ref rejected: %v", err)
 	}
-	if _, err := create("global-ref", prod.ID, globalConfig.VersionRefs[0].ID); err != nil {
+	if _, err := create("global-ref", prod.ID, globalConfig.ValueVersions[0].ID); err != nil {
 		t.Fatalf("global config ref rejected: %v", err)
 	}
-	if _, err := create("global-deploy", state.DefaultSpaceID, prodConfig.VersionRefs[0].ID); !isRefOutsideSpaceErr(err, ConfigRefOutsideSpaceErr) {
+	if _, err := create("global-deploy", state.DefaultSpaceID, prodConfig.ValueVersions[0].ID); !isRefOutsideSpaceErr(err, ConfigRefOutsideSpaceErr) {
 		t.Fatalf("global deployment with prod config err = %v, want %v", err, ConfigRefOutsideSpaceErr)
 	}
 }
@@ -89,15 +89,11 @@ func TestDeploymentAssetRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		t.Fatalf("CreateSpace: %v", err)
 	}
 	h.Assets = &assetstore.Store{DB: h.Store}
-	globalAsset, err := h.PostV1AssetsCreate(apigen.Context{}, &apigen.AssetCreateRequest{
-		Key: "global.conf", SpaceID: state.DefaultSpaceID, Blob: []byte("g"),
-	})
+	globalAsset, err := createTestAsset(h, apigen.Context{}, "global.conf", state.DefaultSpaceID, 0, []byte("g"))
 	if err != nil {
 		t.Fatalf("creating global asset: %v", err)
 	}
-	prodAsset, err := h.PostV1AssetsCreate(apigen.Context{}, &apigen.AssetCreateRequest{
-		Key: "prod.conf", SpaceID: prod.ID, Blob: []byte("p"),
-	})
+	prodAsset, err := createTestAsset(h, apigen.Context{}, "prod.conf", prod.ID, 0, []byte("p"))
 	if err != nil {
 		t.Fatalf("creating prod asset: %v", err)
 	}
@@ -206,7 +202,7 @@ func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 	referrer, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: prod.ID, Name: "web",
 		NodeID: node.ID,
-		Spec:   configEnvSpec("nginx", prodConfig.VersionRefs[0].ID),
+		Spec:   configEnvSpec("nginx", prodConfig.ValueVersions[0].ID),
 	})
 	if err != nil {
 		t.Fatalf("creating referencing deployment: %v", err)

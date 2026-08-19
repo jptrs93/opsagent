@@ -49,7 +49,7 @@ func TestGetV1GlobalStateReturnsEachSection(t *testing.T) {
 	}
 	var foundConfig bool
 	for _, c := range res.Configs.Items {
-		if c.Name == "log_level" && len(c.VersionRefs) > 0 && c.VersionRefs[0].Value == "debug" {
+		if c.Fs.Name == "log_level" && len(c.ValueVersions) > 0 && c.ValueVersions[0].Value == "debug" {
 			foundConfig = true
 		}
 	}

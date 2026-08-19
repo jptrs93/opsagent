@@ -233,22 +233,22 @@ const handleStateMessage = (message) => {
     }
 
     if (message.secretMetasSnapshot) {
-        secretMetasS.val = sortByName(message.secretMetasSnapshot.items || []);
+        secretMetasS.val = sortByName((message.secretMetasSnapshot.items || []).map(secretViewModel));
         secretRefsS.val = expandValueVersionRefs(secretMetasS.val);
     }
 
     if (message.secretMetaUpdate?.id) {
-        secretMetasS.val = applyItemUpdate(secretMetasS.val, message.secretMetaUpdate);
+        secretMetasS.val = applyItemUpdate(secretMetasS.val, secretViewModel(message.secretMetaUpdate));
         secretRefsS.val = expandValueVersionRefs(secretMetasS.val);
     }
 
     if (message.userConfigValuesSnapshot) {
-        userConfigsS.val = sortByName(message.userConfigValuesSnapshot.items || []);
+        userConfigsS.val = sortByName((message.userConfigValuesSnapshot.items || []).map(configViewModel));
         userConfigRefsS.val = expandValueVersionRefs(userConfigsS.val);
     }
 
     if (message.userConfigValueUpdate?.id) {
-        userConfigsS.val = applyItemUpdate(userConfigsS.val, message.userConfigValueUpdate);
+        userConfigsS.val = applyItemUpdate(userConfigsS.val, configViewModel(message.userConfigValueUpdate));
         userConfigRefsS.val = expandValueVersionRefs(userConfigsS.val);
     }
 
@@ -317,6 +317,25 @@ export const assetViewModel = (asset) => ({
     deleted: asset?.deletedAt instanceof Date && asset.deletedAt.getTime() > 0,
 });
 
+// secretViewModel/configViewModel flatten the wire shapes the same way:
+// identity in `fs`, space history in a newest-first log, while `versions`/
+// `valueVersions` stay the version index env refs pin against.
+export const secretViewModel = (secret) => ({
+    ...secret,
+    name: secret?.fs?.name || "",
+    valueDirectoryId: Number(secret?.fs?.directoryId || 0),
+    spaceId: Number(secret?.spaceVersions?.[0]?.spaceId || 0),
+    deleted: secret?.deletedAt instanceof Date && secret.deletedAt.getTime() > 0,
+});
+
+export const configViewModel = (config) => ({
+    ...config,
+    name: config?.fs?.name || "",
+    valueDirectoryId: Number(config?.fs?.directoryId || 0),
+    spaceId: Number(config?.spaceVersions?.[0]?.spaceId || 0),
+    deleted: config?.deletedAt instanceof Date && config.deletedAt.getTime() > 0,
+});
+
 const refreshMachinesFromNodes = () => {
     const statusesByNodeId = new Map((nodeStatusesS.val || []).map((status) => [status.nodeId, status]));
     machinesS.val = sortByName(nodesS.val.map((node) => {
@@ -347,10 +366,10 @@ const applyItemUpdate = (items, update) => {
     return sortByName(Array.from(next.values()));
 };
 
-// expandValueVersionRefs flattens secret/config metas into one entry per
+// expandValueVersionRefs flattens secret/config view models into one entry per
 // version row, the shape reference pickers join deployment env refs against.
 // `id` is the version row id (what specs pin); `stableId` is the identity.
-export const expandValueVersionRefs = (metas) => (metas || []).flatMap((meta) => (meta.versionRefs || []).map((ref) => ({
+export const expandValueVersionRefs = (metas) => (metas || []).flatMap((meta) => (meta.valueVersions || meta.versions || []).map((ref) => ({
     id: ref.id,
     stableId: meta.id,
     name: meta.name,

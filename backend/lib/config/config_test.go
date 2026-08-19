@@ -228,7 +228,7 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 	userCfgMeta := store.SetConfigByName("shared.cluster.listen", ":9555", 0)
-	userCfg := userCfgMeta.VersionRefs[0]
+	userCfg := userCfgMeta.ValueVersions[0]
 
 	settings := DefaultSettings(DefaultInitialConfig())
 	settings.Cluster.Listen = apigen.StringSetting{ConfigRef: apigen.ConfigRef{VersionID: userCfg.ID}}

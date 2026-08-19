@@ -125,11 +125,11 @@ test("uses sort reads the provided counts", () => {
 });
 
 test("makeItems takes latest version facts and drops secrets while locked", () => {
-    const secretMetas = [{id: 7, name: "token", spaceId: 1, valueDirectoryId: 10, versionRefs: [
+    const secretMetas = [{id: 7, name: "token", spaceId: 1, valueDirectoryId: 10, versions: [
         {id: 72, version: 2, createdAt: new Date(2000)},
         {id: 71, version: 1, createdAt: new Date(1000)},
     ]}];
-    const configMetas = [{id: 8, name: "level", spaceId: 1, valueDirectoryId: 0, versionRefs: [
+    const configMetas = [{id: 8, name: "level", spaceId: 1, valueDirectoryId: 0, valueVersions: [
         {id: 81, version: 3, value: "debug", createdAt: new Date(3000)},
     ]}];
     const unlocked = makeItems(secretMetas, configMetas, true);

@@ -104,8 +104,8 @@ func TestEnforcementConfigsBySpace(t *testing.T) {
 		t.Fatalf("list: %v", err)
 	}
 	for _, item := range listed.Items {
-		if item.SpaceID != state.DefaultSpaceID {
-			t.Fatalf("space-limited list leaked config %q from space %d", item.Name, item.SpaceID)
+		if item.SpaceID() != state.DefaultSpaceID {
+			t.Fatalf("space-limited list leaked config %q from space %d", item.Fs.Name, item.SpaceID())
 		}
 	}
 	if len(listed.Items) != 2 {
@@ -163,9 +163,9 @@ func TestEnforcementDelegated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Secrets.Create: %v", err)
 	}
-	stored, ok := h.Store.GetSecretMeta(meta.SecretID)
-	if !ok || len(stored.VersionRefs) == 0 {
-		t.Fatalf("secret meta missing after create: %+v", stored)
+	stored, ok := h.Store.GetSecret(meta.SecretID)
+	if !ok || len(stored.Versions) == 0 {
+		t.Fatalf("secret missing after create: %+v", stored)
 	}
 	agentList, err := h.PostV1SecretsList(agent, &apigen.EmptyRequest{})
 	if err != nil {
@@ -174,7 +174,7 @@ func TestEnforcementDelegated(t *testing.T) {
 	if len(agentList.Items) != 1 || agentList.Items[0].ID != meta.SecretID {
 		t.Fatalf("delegated list should show the operator's secret meta, got %+v", agentList.Items)
 	}
-	versionID := stored.VersionRefs[len(stored.VersionRefs)-1].ID
+	versionID := stored.Versions[len(stored.Versions)-1].ID
 	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: versionID}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("delegated reveal: got %v, want AccessDeniedErr", err)
 	}
@@ -209,10 +209,10 @@ func TestEnforcementDelegated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delegated generate: %v", err)
 	}
-	if len(minted.VersionRefs) != 1 {
-		t.Fatalf("generate returned %d version refs, want 1", len(minted.VersionRefs))
+	if len(minted.Versions) != 1 {
+		t.Fatalf("generate returned %d versions, want 1", len(minted.Versions))
 	}
-	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: minted.VersionRefs[0].ID}); !errors.Is(err, AccessDeniedErr) {
+	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: minted.Versions[0].ID}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("delegated reveal of its own secret: got %v, want AccessDeniedErr", err)
 	}
 }

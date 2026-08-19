@@ -28,35 +28,6 @@ func DecodeEmptyRequest(b []byte) (*EmptyRequest, error) {
 	return &m, nil
 }
 
-func (m *ContainerReadinessSignal) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.TimeoutSeconds, 1)
-	return b
-}
-
-func DecodeContainerReadinessSignal(b []byte) (*ContainerReadinessSignal, error) {
-	var m ContainerReadinessSignal
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.TimeoutSeconds, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 func (m *PortForward) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, int32(m.Protocol), 1)
@@ -86,6 +57,35 @@ func DecodePortForward(b []byte) (*PortForward, error) {
 			b, m.HostPort, err = ConsumeVarInt32(b, typ)
 		case 3:
 			b, m.ContainerPort, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ContainerReadinessSignal) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.TimeoutSeconds, 1)
+	return b
+}
+
+func DecodeContainerReadinessSignal(b []byte) (*ContainerReadinessSignal, error) {
+	var m ContainerReadinessSignal
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.TimeoutSeconds, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3451,26 +3451,33 @@ func DecodeLogSearchRequest(b []byte) (*LogSearchRequest, error) {
 	return &m, nil
 }
 
-func (m *SecretMeta) Encode() []byte {
+func (m *Secret) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Name, 1)
-	b = AppendInt64FromTime(b, m.CreatedAt, 3)
-	b = AppendInt32Field(b, m.ID, 6)
-	b = AppendBoolField(b, m.Deleted, 7)
-	b = AppendInt32Field(b, m.SpaceID, 8)
-	b = AppendInt32Field(b, m.ValueDirectoryID, 10)
-	for _, item := range m.VersionRefs {
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt64FromTime(b, m.DeletedAt, 2)
+	if m.Fs != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Fs.Encode())
+	}
+	for _, item := range m.SpaceVersions {
 		if item == nil {
 			continue
 		}
-		b = AppendTag(b, 12, BytesType)
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	for _, item := range m.Versions {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
-func DecodeSecretMeta(b []byte) (*SecretMeta, error) {
-	var m SecretMeta
+func DecodeSecret(b []byte) (*Secret, error) {
+	var m Secret
 	var num Number
 	var typ Type
 	var err error
@@ -3482,24 +3489,34 @@ func DecodeSecretMeta(b []byte) (*SecretMeta, error) {
 		}
 		switch num {
 		case 1:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 3:
-			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 6:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 7:
-			b, m.Deleted, err = ConsumeBool(b, typ)
-		case 8:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 10:
-			b, m.ValueDirectoryID, err = ConsumeVarInt32(b, typ)
-		case 12:
+		case 2:
+			b, m.DeletedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *SecretVersionMeta
-				item, err = DecodeSecretVersionMeta(msgBytes)
+				var item *SecretFs
+				item, err = DecodeSecretFs(msgBytes)
 				if err == nil {
-					m.VersionRefs = append(m.VersionRefs, item)
+					m.Fs = item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretSpaceVersion
+				item, err = DecodeSecretSpaceVersion(msgBytes)
+				if err == nil {
+					m.SpaceVersions = append(m.SpaceVersions, item)
+				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SecretVersion
+				item, err = DecodeSecretVersion(msgBytes)
+				if err == nil {
+					m.Versions = append(m.Versions, item)
 				}
 			}
 		default:
@@ -3512,17 +3529,91 @@ func DecodeSecretMeta(b []byte) (*SecretMeta, error) {
 	return &m, nil
 }
 
-func (m *SecretVersionMeta) Encode() []byte {
+func (m *SecretFs) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendInt32Field(b, m.DirectoryID, 2)
+	return b
+}
+
+func DecodeSecretFs(b []byte) (*SecretFs, error) {
+	var m SecretFs
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.DirectoryID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretSpaceVersion) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt64FromTime(b, m.CreatedAt, 2)
+	b = AppendInt32Field(b, m.Author, 3)
+	b = AppendInt32Field(b, m.SpaceID, 4)
+	b = AppendInt64Field(b, m.GlobalSeq, 5)
+	return b
+}
+
+func DecodeSecretSpaceVersion(b []byte) (*SecretSpaceVersion, error) {
+	var m SecretSpaceVersion
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, m.Author, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.GlobalSeq, err = ConsumeVarInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretVersion) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendInt32Field(b, m.Version, 2)
 	b = AppendInt64FromTime(b, m.CreatedAt, 3)
 	b = AppendInt32Field(b, m.Author, 4)
+	b = AppendInt64Field(b, m.GlobalSeq, 5)
 	return b
 }
 
-func DecodeSecretVersionMeta(b []byte) (*SecretVersionMeta, error) {
-	var m SecretVersionMeta
+func DecodeSecretVersion(b []byte) (*SecretVersion, error) {
+	var m SecretVersion
 	var num Number
 	var typ Type
 	var err error
@@ -3540,6 +3631,8 @@ func DecodeSecretVersionMeta(b []byte) (*SecretVersionMeta, error) {
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 4:
 			b, m.Author, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.GlobalSeq, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3577,8 +3670,8 @@ func DecodeSecretList(b []byte) (*SecretList, error) {
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *SecretMeta
-				item, err = DecodeSecretMeta(msgBytes)
+				var item *Secret
+				item, err = DecodeSecret(msgBytes)
 				if err == nil {
 					m.Items = append(m.Items, item)
 				}
@@ -3596,9 +3689,9 @@ func DecodeSecretList(b []byte) (*SecretList, error) {
 func (m *SecretCreateRequest) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Name, 1)
-	b = AppendBytesField(b, m.Value, 3)
-	b = AppendInt32Field(b, m.SpaceID, 4)
-	b = AppendInt32Field(b, m.ValueDirectoryID, 5)
+	b = AppendBytesField(b, m.Value, 2)
+	b = AppendInt32Field(b, m.SpaceID, 3)
+	b = AppendInt32Field(b, m.ValueDirectoryID, 4)
 	return b
 }
 
@@ -3615,11 +3708,11 @@ func DecodeSecretCreateRequest(b []byte) (*SecretCreateRequest, error) {
 		switch num {
 		case 1:
 			b, m.Name, err = ConsumeString(b, typ)
-		case 3:
+		case 2:
 			b, m.Value, err = ConsumeBytesCopy(b, typ)
-		case 4:
+		case 3:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 5:
+		case 4:
 			b, m.ValueDirectoryID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -3633,16 +3726,16 @@ func DecodeSecretCreateRequest(b []byte) (*SecretCreateRequest, error) {
 
 func (m *SecretSetRequest) Encode() []byte {
 	var b []byte
-	b = AppendBytesField(b, m.Value, 3)
-	b = AppendBoolField(b, m.UpdateReferencingDeployments, 5)
+	b = AppendInt32Field(b, m.SecretID, 1)
+	b = AppendBytesField(b, m.Value, 2)
+	b = AppendBoolField(b, m.UpdateReferencingDeployments, 3)
 	for _, item := range m.ReferencingDeployments {
 		if item == nil {
 			continue
 		}
-		b = AppendTag(b, 6, BytesType)
+		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
-	b = AppendInt32Field(b, m.SecretID, 7)
 	return b
 }
 
@@ -3658,11 +3751,13 @@ func DecodeSecretSetRequest(b []byte) (*SecretSetRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 3:
+		case 1:
+			b, m.SecretID, err = ConsumeVarInt32(b, typ)
+		case 2:
 			b, m.Value, err = ConsumeBytesCopy(b, typ)
-		case 5:
+		case 3:
 			b, m.UpdateReferencingDeployments, err = ConsumeBool(b, typ)
-		case 6:
+		case 4:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *DeploymentConfigVersionRef
@@ -3671,8 +3766,6 @@ func DecodeSecretSetRequest(b []byte) (*SecretSetRequest, error) {
 					m.ReferencingDeployments = append(m.ReferencingDeployments, item)
 				}
 			}
-		case 7:
-			b, m.SecretID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3763,8 +3856,8 @@ func DecodeSecretGenerateRequest(b []byte) (*SecretGenerateRequest, error) {
 
 func (m *SecretRenameRequest) Encode() []byte {
 	var b []byte
+	b = AppendInt32Field(b, m.SecretID, 1)
 	b = AppendStringField(b, m.NewName, 2)
-	b = AppendInt32Field(b, m.SecretID, 3)
 	return b
 }
 
@@ -3779,10 +3872,10 @@ func DecodeSecretRenameRequest(b []byte) (*SecretRenameRequest, error) {
 			return nil, err
 		}
 		switch num {
+		case 1:
+			b, m.SecretID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.NewName, err = ConsumeString(b, typ)
-		case 3:
-			b, m.SecretID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3830,7 +3923,7 @@ func DecodeSecretMoveRequest(b []byte) (*SecretMoveRequest, error) {
 
 func (m *SecretDeleteRequest) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.SecretID, 2)
+	b = AppendInt32Field(b, m.SecretID, 1)
 	return b
 }
 
@@ -3845,7 +3938,7 @@ func DecodeSecretDeleteRequest(b []byte) (*SecretDeleteRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 2:
+		case 1:
 			b, m.SecretID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -3859,7 +3952,7 @@ func DecodeSecretDeleteRequest(b []byte) (*SecretDeleteRequest, error) {
 
 func (m *SecretRevealRequest) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.ID, 2)
+	b = AppendInt32Field(b, m.ID, 1)
 	return b
 }
 
@@ -3874,7 +3967,7 @@ func DecodeSecretRevealRequest(b []byte) (*SecretRevealRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 2:
+		case 1:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -4005,26 +4098,33 @@ func DecodeSecretUnlockRequest(b []byte) (*SecretUnlockRequest, error) {
 	return &m, nil
 }
 
-func (m *ConfigMeta) Encode() []byte {
+func (m *Config) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Name, 1)
-	b = AppendInt64FromTime(b, m.CreatedAt, 4)
-	b = AppendInt32Field(b, m.ID, 7)
-	b = AppendBoolField(b, m.Deleted, 8)
-	b = AppendInt32Field(b, m.SpaceID, 9)
-	b = AppendInt32Field(b, m.ValueDirectoryID, 11)
-	for _, item := range m.VersionRefs {
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt64FromTime(b, m.DeletedAt, 2)
+	if m.Fs != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Fs.Encode())
+	}
+	for _, item := range m.SpaceVersions {
 		if item == nil {
 			continue
 		}
-		b = AppendTag(b, 13, BytesType)
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	for _, item := range m.ValueVersions {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
 }
 
-func DecodeConfigMeta(b []byte) (*ConfigMeta, error) {
-	var m ConfigMeta
+func DecodeConfig(b []byte) (*Config, error) {
+	var m Config
 	var num Number
 	var typ Type
 	var err error
@@ -4036,24 +4136,34 @@ func DecodeConfigMeta(b []byte) (*ConfigMeta, error) {
 		}
 		switch num {
 		case 1:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 4:
-			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 7:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 8:
-			b, m.Deleted, err = ConsumeBool(b, typ)
-		case 9:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 11:
-			b, m.ValueDirectoryID, err = ConsumeVarInt32(b, typ)
-		case 13:
+		case 2:
+			b, m.DeletedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *ConfigVersionMeta
-				item, err = DecodeConfigVersionMeta(msgBytes)
+				var item *ConfigFs
+				item, err = DecodeConfigFs(msgBytes)
 				if err == nil {
-					m.VersionRefs = append(m.VersionRefs, item)
+					m.Fs = item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ConfigSpaceVersion
+				item, err = DecodeConfigSpaceVersion(msgBytes)
+				if err == nil {
+					m.SpaceVersions = append(m.SpaceVersions, item)
+				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ConfigValueVersion
+				item, err = DecodeConfigValueVersion(msgBytes)
+				if err == nil {
+					m.ValueVersions = append(m.ValueVersions, item)
 				}
 			}
 		default:
@@ -4066,18 +4176,92 @@ func DecodeConfigMeta(b []byte) (*ConfigMeta, error) {
 	return &m, nil
 }
 
-func (m *ConfigVersionMeta) Encode() []byte {
+func (m *ConfigFs) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendInt32Field(b, m.DirectoryID, 2)
+	return b
+}
+
+func DecodeConfigFs(b []byte) (*ConfigFs, error) {
+	var m ConfigFs
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.DirectoryID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ConfigSpaceVersion) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt64FromTime(b, m.CreatedAt, 2)
+	b = AppendInt32Field(b, m.Author, 3)
+	b = AppendInt32Field(b, m.SpaceID, 4)
+	b = AppendInt64Field(b, m.GlobalSeq, 5)
+	return b
+}
+
+func DecodeConfigSpaceVersion(b []byte) (*ConfigSpaceVersion, error) {
+	var m ConfigSpaceVersion
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, m.Author, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.GlobalSeq, err = ConsumeVarInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ConfigValueVersion) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendInt32Field(b, m.Version, 2)
 	b = AppendStringField(b, m.Value, 3)
 	b = AppendInt64FromTime(b, m.CreatedAt, 4)
 	b = AppendInt32Field(b, m.Author, 5)
+	b = AppendInt64Field(b, m.GlobalSeq, 6)
 	return b
 }
 
-func DecodeConfigVersionMeta(b []byte) (*ConfigVersionMeta, error) {
-	var m ConfigVersionMeta
+func DecodeConfigValueVersion(b []byte) (*ConfigValueVersion, error) {
+	var m ConfigValueVersion
 	var num Number
 	var typ Type
 	var err error
@@ -4097,6 +4281,8 @@ func DecodeConfigVersionMeta(b []byte) (*ConfigVersionMeta, error) {
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 5:
 			b, m.Author, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.GlobalSeq, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4134,8 +4320,8 @@ func DecodeConfigList(b []byte) (*ConfigList, error) {
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *ConfigMeta
-				item, err = DecodeConfigMeta(msgBytes)
+				var item *Config
+				item, err = DecodeConfig(msgBytes)
 				if err == nil {
 					m.Items = append(m.Items, item)
 				}
@@ -4153,9 +4339,9 @@ func DecodeConfigList(b []byte) (*ConfigList, error) {
 func (m *ConfigCreateRequest) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Name, 1)
-	b = AppendStringField(b, m.Value, 3)
-	b = AppendInt32Field(b, m.SpaceID, 4)
-	b = AppendInt32Field(b, m.ValueDirectoryID, 5)
+	b = AppendStringField(b, m.Value, 2)
+	b = AppendInt32Field(b, m.SpaceID, 3)
+	b = AppendInt32Field(b, m.ValueDirectoryID, 4)
 	return b
 }
 
@@ -4172,11 +4358,11 @@ func DecodeConfigCreateRequest(b []byte) (*ConfigCreateRequest, error) {
 		switch num {
 		case 1:
 			b, m.Name, err = ConsumeString(b, typ)
-		case 3:
+		case 2:
 			b, m.Value, err = ConsumeString(b, typ)
-		case 4:
+		case 3:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 5:
+		case 4:
 			b, m.ValueDirectoryID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -4190,16 +4376,16 @@ func DecodeConfigCreateRequest(b []byte) (*ConfigCreateRequest, error) {
 
 func (m *ConfigSetRequest) Encode() []byte {
 	var b []byte
-	b = AppendStringField(b, m.Value, 3)
-	b = AppendBoolField(b, m.UpdateReferencingDeployments, 5)
+	b = AppendInt32Field(b, m.ConfigID, 1)
+	b = AppendStringField(b, m.Value, 2)
+	b = AppendBoolField(b, m.UpdateReferencingDeployments, 3)
 	for _, item := range m.ReferencingDeployments {
 		if item == nil {
 			continue
 		}
-		b = AppendTag(b, 6, BytesType)
+		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
-	b = AppendInt32Field(b, m.ConfigID, 7)
 	return b
 }
 
@@ -4215,11 +4401,13 @@ func DecodeConfigSetRequest(b []byte) (*ConfigSetRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 3:
+		case 1:
+			b, m.ConfigID, err = ConsumeVarInt32(b, typ)
+		case 2:
 			b, m.Value, err = ConsumeString(b, typ)
-		case 5:
+		case 3:
 			b, m.UpdateReferencingDeployments, err = ConsumeBool(b, typ)
-		case 6:
+		case 4:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *DeploymentConfigVersionRef
@@ -4228,8 +4416,6 @@ func DecodeConfigSetRequest(b []byte) (*ConfigSetRequest, error) {
 					m.ReferencingDeployments = append(m.ReferencingDeployments, item)
 				}
 			}
-		case 7:
-			b, m.ConfigID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4242,8 +4428,8 @@ func DecodeConfigSetRequest(b []byte) (*ConfigSetRequest, error) {
 
 func (m *ConfigRenameRequest) Encode() []byte {
 	var b []byte
+	b = AppendInt32Field(b, m.ConfigID, 1)
 	b = AppendStringField(b, m.NewName, 2)
-	b = AppendInt32Field(b, m.ConfigID, 3)
 	return b
 }
 
@@ -4258,10 +4444,10 @@ func DecodeConfigRenameRequest(b []byte) (*ConfigRenameRequest, error) {
 			return nil, err
 		}
 		switch num {
+		case 1:
+			b, m.ConfigID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.NewName, err = ConsumeString(b, typ)
-		case 3:
-			b, m.ConfigID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4274,7 +4460,7 @@ func DecodeConfigRenameRequest(b []byte) (*ConfigRenameRequest, error) {
 
 func (m *ConfigDeleteRequest) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.ConfigID, 2)
+	b = AppendInt32Field(b, m.ConfigID, 1)
 	return b
 }
 
@@ -4289,7 +4475,7 @@ func DecodeConfigDeleteRequest(b []byte) (*ConfigDeleteRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 2:
+		case 1:
 			b, m.ConfigID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -4577,80 +4763,10 @@ func DecodeAssetList(b []byte) (*AssetList, error) {
 	return &m, nil
 }
 
-func (m *AssetCreateRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Key, 1)
-	b = AppendInt32Field(b, m.SpaceID, 2)
-	b = AppendBytesField(b, m.Blob, 3)
-	b = AppendInt32Field(b, m.AssetDirectoryID, 4)
-	return b
-}
-
-func DecodeAssetCreateRequest(b []byte) (*AssetCreateRequest, error) {
-	var m AssetCreateRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Key, err = ConsumeString(b, typ)
-		case 2:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 3:
-			b, m.Blob, err = ConsumeBytesCopy(b, typ)
-		case 4:
-			b, m.AssetDirectoryID, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *AssetSetRequest) Encode() []byte {
-	var b []byte
-	b = AppendBytesField(b, m.Blob, 3)
-	b = AppendInt32Field(b, m.AssetID, 5)
-	return b
-}
-
-func DecodeAssetSetRequest(b []byte) (*AssetSetRequest, error) {
-	var m AssetSetRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 3:
-			b, m.Blob, err = ConsumeBytesCopy(b, typ)
-		case 5:
-			b, m.AssetID, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 func (m *AssetRenameRequest) Encode() []byte {
 	var b []byte
+	b = AppendInt32Field(b, m.AssetID, 1)
 	b = AppendStringField(b, m.NewKey, 2)
-	b = AppendInt32Field(b, m.AssetID, 3)
 	return b
 }
 
@@ -4665,10 +4781,10 @@ func DecodeAssetRenameRequest(b []byte) (*AssetRenameRequest, error) {
 			return nil, err
 		}
 		switch num {
+		case 1:
+			b, m.AssetID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.NewKey, err = ConsumeString(b, typ)
-		case 3:
-			b, m.AssetID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4681,7 +4797,7 @@ func DecodeAssetRenameRequest(b []byte) (*AssetRenameRequest, error) {
 
 func (m *AssetDeleteRequest) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.AssetID, 2)
+	b = AppendInt32Field(b, m.AssetID, 1)
 	return b
 }
 
@@ -4696,7 +4812,7 @@ func DecodeAssetDeleteRequest(b []byte) (*AssetDeleteRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 2:
+		case 1:
 			b, m.AssetID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -10308,8 +10424,8 @@ func DecodeState(b []byte) (*State, error) {
 		case 18:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *SecretMeta
-				item, err = DecodeSecretMeta(msgBytes)
+				var item *Secret
+				item, err = DecodeSecret(msgBytes)
 				if err == nil {
 					m.SecretMetaUpdate = item
 				}
@@ -10326,8 +10442,8 @@ func DecodeState(b []byte) (*State, error) {
 		case 20:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *ConfigMeta
-				item, err = DecodeConfigMeta(msgBytes)
+				var item *Config
+				item, err = DecodeConfig(msgBytes)
 				if err == nil {
 					m.UserConfigValueUpdate = item
 				}

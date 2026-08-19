@@ -9,8 +9,8 @@ import (
 
 type exportedConfigBundle struct {
 	Deployments []*apigen.DeploymentConfig `json:"deployments"`
-	Configs     []*apigen.ConfigMeta       `json:"configs"`
-	Secrets     []*apigen.SecretMeta       `json:"secrets"`
+	Configs     []*apigen.Config           `json:"configs"`
+	Secrets     []*apigen.Secret           `json:"secrets"`
 	Assets      []*apigen.Asset            `json:"assets"`
 	Spaces      []*apigen.Space            `json:"spaces"`
 	Settings    apigen.ClusterSettings     `json:"settings"`
@@ -30,16 +30,16 @@ func (h *Handler) PostV1GlobalExportedConfig(ctx apigen.Context, req *apigen.Emp
 		}
 		exportedDeployments = append(exportedDeployments, deployment)
 	}
-	configs := h.Store.ListConfigMetas()
-	secrets := h.Store.ListSecretMetas()
+	configs := h.Store.ListConfigs()
+	secrets := h.Store.ListSecrets()
 	assets := h.Store.ListAssets()
 	spaces := h.Store.ListSpaces()
 	storedSettings := h.ConfigService.Snapshot().Settings
 	settings := storedSettings
 
 	sort.Slice(exportedDeployments, func(i, j int) bool { return exportedDeployments[i].ID < exportedDeployments[j].ID })
-	sort.Slice(configs, func(i, j int) bool { return configs[i].Name < configs[j].Name })
-	sort.Slice(secrets, func(i, j int) bool { return secrets[i].Name < secrets[j].Name })
+	sort.Slice(configs, func(i, j int) bool { return configs[i].Fs.Name < configs[j].Fs.Name })
+	sort.Slice(secrets, func(i, j int) bool { return secrets[i].Fs.Name < secrets[j].Fs.Name })
 	sort.Slice(assets, func(i, j int) bool { return assets[i].Fs.Key < assets[j].Fs.Key })
 	sort.Slice(spaces, func(i, j int) bool { return spaces[i].ID < spaces[j].ID })
 

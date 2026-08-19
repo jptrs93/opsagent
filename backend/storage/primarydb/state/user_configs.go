@@ -13,9 +13,9 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-// ListConfigMetas returns every config with its full version index, newest
-// version first, ordered by name.
-func (s *Service) ListConfigMetas() []*apigen.ConfigMeta {
+// ListConfigs returns every config with its space and value logs, newest
+// first, ordered by name.
+func (s *Service) ListConfigs() []*apigen.Config {
 	ctx := context.Background()
 	rows, err := s.q.ListConfigRows(ctx)
 	if err != nil {
@@ -25,24 +25,32 @@ func (s *Service) ListConfigMetas() []*apigen.ConfigMeta {
 	if err != nil {
 		panic(fmt.Sprintf("ListConfigVersionRows: %v", err))
 	}
-	refsByConfig := make(map[int64][]*apigen.ConfigVersionMeta)
-	for _, v := range versions {
-		// ListConfigVersionRows is version ASC; prepend to end up newest first.
-		refsByConfig[v.ConfigID] = append([]*apigen.ConfigVersionMeta{configVersionMetaFromRow(v)}, refsByConfig[v.ConfigID]...)
+	spaceRows, err := s.q.ListConfigSpaceRows(ctx)
+	if err != nil {
+		panic(fmt.Sprintf("ListConfigSpaceRows: %v", err))
 	}
-	out := make([]*apigen.ConfigMeta, 0, len(rows))
+	versionsByConfig := make(map[int64][]pq.ConfigVersion, len(rows))
+	for _, v := range versions {
+		versionsByConfig[v.ConfigID] = append(versionsByConfig[v.ConfigID], v)
+	}
+	spacesByConfig := make(map[int64][]pq.ConfigSpace, len(rows))
+	for _, sp := range spaceRows {
+		spacesByConfig[sp.ConfigID] = append(spacesByConfig[sp.ConfigID], sp)
+	}
+	out := make([]*apigen.Config, 0, len(rows))
 	for _, c := range rows {
-		refs := refsByConfig[c.ID]
-		if len(refs) == 0 {
+		vs := versionsByConfig[c.ID]
+		if len(vs) == 0 {
 			continue
 		}
-		out = append(out, configMetaFromRow(c, refs))
+		out = append(out, configFromParts(c, spacesByConfig[c.ID], vs))
 	}
 	return out
 }
 
-// GetConfigMeta returns one config with its full version index, newest first.
-func (s *Service) GetConfigMeta(configID int32) (*apigen.ConfigMeta, bool) {
+// GetConfig returns the config with its space and value logs, or false when
+// the config does not exist or has no version.
+func (s *Service) GetConfig(configID int32) (*apigen.Config, bool) {
 	ctx := context.Background()
 	c, err := s.q.GetConfigRowByID(ctx, int64(configID))
 	if err == sql.ErrNoRows {
@@ -58,16 +66,16 @@ func (s *Service) GetConfigMeta(configID int32) (*apigen.ConfigMeta, bool) {
 	if len(versions) == 0 {
 		return nil, false
 	}
-	refs := make([]*apigen.ConfigVersionMeta, 0, len(versions))
-	for i := len(versions) - 1; i >= 0; i-- {
-		refs = append(refs, configVersionMetaFromRow(versions[i]))
+	spaces, err := s.q.ListConfigSpaceRowsByConfigID(ctx, c.ID)
+	if err != nil {
+		panic(fmt.Sprintf("ListConfigSpaceRowsByConfigID: %v", err))
 	}
-	return configMetaFromRow(c, refs), true
+	return configFromParts(c, spaces, versions), true
 }
 
 // CreateConfigWithVersion creates a new config in directoryID (0 = the root)
 // of spaceID with its first version.
-func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, author int32, value string) (*apigen.ConfigMeta, error) {
+func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, author int32, value string) (*apigen.Config, error) {
 	if !ValidValueName(name) {
 		return nil, ErrValueNameInvalid
 	}
@@ -83,8 +91,7 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, aut
 		return nil, ErrValueAlreadyExists
 	}
 	now := time.Now().UnixMilli()
-	var row Config
-	var version pq.ConfigVersion
+	var configID int64
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		seq, err := q.NextGlobalSeq(ctx)
 		if err != nil {
@@ -107,29 +114,32 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, aut
 		}); err != nil {
 			panic(fmt.Sprintf("InsertConfigSpaceRow: %v", err))
 		}
-		row = Config{ID: id, Name: name, SpaceID: space, ValueDirectoryID: dirID, CreatedAt: now}
-		version, err = q.InsertConfigVersion(ctx, pq.InsertConfigVersionParams{
-			ConfigID:  row.ID,
+		configID = id
+		if _, err := q.InsertConfigVersion(ctx, pq.InsertConfigVersionParams{
+			ConfigID:  id,
 			Version:   1,
 			Value:     value,
 			CreatedAt: now,
 			Author:    int64(author),
 			GlobalSeq: seq,
-		})
-		if err != nil {
+		}); err != nil {
 			panic(fmt.Sprintf("InsertConfigVersion: %v", err))
 		}
 		return nil
 	}); err != nil {
 		panic(fmt.Sprintf("create config tx: %v", err))
 	}
-	return configMetaFromRow(row, []*apigen.ConfigVersionMeta{configVersionMetaFromRow(version)}), nil
+	c, ok := s.GetConfig(int32(configID))
+	if !ok {
+		panic(fmt.Sprintf("created config %d not readable", configID))
+	}
+	return c, nil
 }
 
 // AppendConfigVersionWithDeploymentUpdates appends an immutable config version
 // and optionally rolls the caller-asserted deployment references to the new
 // row atomically.
-func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value string, author int32, updateDeployments bool, expected []storage.DeploymentConfigVersion) (*apigen.ConfigMeta, []int32, error) {
+func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value string, author int32, updateDeployments bool, expected []storage.DeploymentConfigVersion) (*apigen.Config, []int32, error) {
 	ctx := context.Background()
 	insert := func(q *pq.Queries, globalSeq int64) (int32, error) {
 		if _, err := q.GetConfigRowByID(ctx, int64(configID)); err == sql.ErrNoRows {
@@ -159,40 +169,40 @@ func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value
 	if err != nil {
 		return nil, nil, err
 	}
-	meta, ok := s.GetConfigMeta(configID)
+	c, ok := s.GetConfig(configID)
 	if !ok {
 		panic(fmt.Sprintf("config %d missing after append", configID))
 	}
-	return meta, updatedDeployments, nil
+	return c, updatedDeployments, nil
 }
 
 // SetConfigByName is a create-or-append convenience for tests and seeding: it
 // targets the root directory of the default space by name.
-func (s *Service) SetConfigByName(name, value string, author int32) *apigen.ConfigMeta {
+func (s *Service) SetConfigByName(name, value string, author int32) *apigen.Config {
 	row, err := s.q.GetConfigInDirectoryByName(context.Background(), pq.GetConfigInDirectoryByNameParams{
 		SpaceID:          int64(DefaultSpaceID),
 		ValueDirectoryID: 0,
 		Name:             name,
 	})
 	if err == sql.ErrNoRows {
-		meta, createErr := s.CreateConfigWithVersion(name, DefaultSpaceID, 0, author, value)
+		c, createErr := s.CreateConfigWithVersion(name, DefaultSpaceID, 0, author, value)
 		if createErr != nil {
 			panic(fmt.Sprintf("SetConfigByName create: %v", createErr))
 		}
-		return meta
+		return c
 	}
 	if err != nil {
 		panic(fmt.Sprintf("GetConfigInDirectoryByName: %v", err))
 	}
-	meta, _, appendErr := s.AppendConfigVersionWithDeploymentUpdates(int32(row.ID), value, author, false, nil)
+	c, _, appendErr := s.AppendConfigVersionWithDeploymentUpdates(int32(row.ID), value, author, false, nil)
 	if appendErr != nil {
 		panic(fmt.Sprintf("SetConfigByName append: %v", appendErr))
 	}
-	return meta
+	return c
 }
 
 // RenameConfig renames the stable config identity. Versions are untouched.
-func (s *Service) RenameConfig(configID int32, newName string) (*apigen.ConfigMeta, error) {
+func (s *Service) RenameConfig(configID int32, newName string) (*apigen.Config, error) {
 	if !ValidValueName(newName) {
 		return nil, ErrValueNameInvalid
 	}
@@ -215,11 +225,11 @@ func (s *Service) RenameConfig(configID int32, newName string) (*apigen.ConfigMe
 		}
 		slog.Info("renamed config", "id", configID, "name", row.Name, "newName", newName)
 	}
-	meta, ok := s.GetConfigMeta(configID)
+	c, ok := s.GetConfig(configID)
 	if !ok {
 		return nil, ErrValueNotFound
 	}
-	return meta, nil
+	return c, nil
 }
 
 // MoveConfigDirectory moves a config to another value directory (0 = the space
@@ -328,25 +338,26 @@ func (s *Service) MoveConfigSpace(configID, newSpaceID, newDirectoryID, author i
 	return nil
 }
 
-// DeleteConfig soft-deletes the config identity. Version rows stay in place,
-// so the delete is recoverable at the DB level; reads exclude the config from
-// here on. Returns the deleted meta (marked Deleted) for notification, or
-// false if absent.
-func (s *Service) DeleteConfig(configID int32) (*apigen.ConfigMeta, bool) {
+// DeleteConfig soft-deletes the config identity. Version rows and space
+// history stay in place, so the delete is recoverable at the DB level; reads
+// exclude the config from here on. Returns the deleted config (stamped
+// DeletedAt) for notification, or false if absent.
+func (s *Service) DeleteConfig(configID int32) (*apigen.Config, bool) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	meta, ok := s.GetConfigMeta(configID)
+	c, ok := s.GetConfig(configID)
 	if !ok {
 		return nil, false
 	}
+	now := time.Now()
 	if err := s.q.SoftDeleteConfigRow(context.Background(), pq.SoftDeleteConfigRowParams{
-		DeletedAt: time.Now().UnixMilli(),
+		DeletedAt: now.UnixMilli(),
 		ID:        int64(configID),
 	}); err != nil {
 		panic(fmt.Sprintf("SoftDeleteConfigRow: %v", err))
 	}
-	meta.Deleted = true
-	return meta, true
+	c.DeletedAt = now
+	return c, true
 }
 
 // ConfigVersionIDs returns every version row id of the config — the set a

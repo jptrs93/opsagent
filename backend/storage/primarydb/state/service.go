@@ -75,8 +75,8 @@ type Service struct {
 	backupStatus     apigen.BackupStatus
 	backupStatusSubs *pubsubu.PubSub[apigen.BackupStatus]
 	secretStatusSubs *pubsubu.PubSub[apigen.SecretsStatusResponse]
-	secretMetaSubs   *pubsubu.PubSub[apigen.SecretMeta]
-	userConfigSubs   *pubsubu.PubSub[apigen.ConfigMeta]
+	secretMetaSubs   *pubsubu.PubSub[apigen.Secret]
+	userConfigSubs   *pubsubu.PubSub[apigen.Config]
 	valueDirSubs     *pubsubu.PubSub[apigen.ValueDirectory]
 	spaceSubs        *pubsubu.PubSub[apigen.Space]
 	assetSubs        *pubsubu.PubSub[apigen.Asset]
@@ -100,8 +100,8 @@ func Open(dbPath string) *Service {
 		userSubs:           &pubsubu.PubSub[apigen.User]{},
 		backupStatusSubs:   &pubsubu.PubSub[apigen.BackupStatus]{},
 		secretStatusSubs:   &pubsubu.PubSub[apigen.SecretsStatusResponse]{},
-		secretMetaSubs:     &pubsubu.PubSub[apigen.SecretMeta]{},
-		userConfigSubs:     &pubsubu.PubSub[apigen.ConfigMeta]{},
+		secretMetaSubs:     &pubsubu.PubSub[apigen.Secret]{},
+		userConfigSubs:     &pubsubu.PubSub[apigen.Config]{},
 		valueDirSubs:       &pubsubu.PubSub[apigen.ValueDirectory]{},
 		spaceSubs:          &pubsubu.PubSub[apigen.Space]{},
 		assetSubs:          &pubsubu.PubSub[apigen.Asset]{},
@@ -243,20 +243,46 @@ func (s *Service) SubscribeSecretsStatusUpdates() (*pubsubu.Sub[apigen.SecretsSt
 	return sub, sub.UnsubscribeFunc
 }
 
-func (s *Service) NotifySecretMetaUpdate(meta apigen.SecretMeta) {
-	s.secretMetaSubs.Notify(meta)
+func (s *Service) NotifySecretUpdate(sec *apigen.Secret) {
+	if sec == nil || sec.ID == 0 {
+		return
+	}
+	s.secretMetaSubs.Notify(*sec)
 }
 
-func (s *Service) SubscribeSecretMetaUpdates() (*pubsubu.Sub[apigen.SecretMeta], func()) {
+// NotifySecretDeleted publishes a tombstone: the same secret stamped deleted now.
+func (s *Service) NotifySecretDeleted(sec *apigen.Secret) {
+	if sec == nil || sec.ID == 0 {
+		return
+	}
+	cp := *sec
+	cp.DeletedAt = time.Now()
+	s.secretMetaSubs.Notify(cp)
+}
+
+func (s *Service) SubscribeSecretUpdates() (*pubsubu.Sub[apigen.Secret], func()) {
 	sub := s.secretMetaSubs.Subscribe(nil)
 	return sub, sub.UnsubscribeFunc
 }
 
-func (s *Service) NotifyConfigMetaUpdate(meta apigen.ConfigMeta) {
-	s.userConfigSubs.Notify(meta)
+func (s *Service) NotifyConfigUpdate(c *apigen.Config) {
+	if c == nil || c.ID == 0 {
+		return
+	}
+	s.userConfigSubs.Notify(*c)
 }
 
-func (s *Service) SubscribeConfigMetaUpdates() (*pubsubu.Sub[apigen.ConfigMeta], func()) {
+// NotifyConfigDeleted publishes a tombstone: the same config stamped deleted now.
+func (s *Service) NotifyConfigDeleted(c *apigen.Config) {
+	if c == nil || c.ID == 0 {
+		return
+	}
+	cp := *c
+	cp.DeletedAt = time.Now()
+	s.userConfigSubs.Notify(cp)
+}
+
+func (s *Service) SubscribeConfigUpdates() (*pubsubu.Sub[apigen.Config], func()) {
 	sub := s.userConfigSubs.Subscribe(nil)
 	return sub, sub.UnsubscribeFunc
 }

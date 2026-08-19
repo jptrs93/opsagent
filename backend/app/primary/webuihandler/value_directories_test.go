@@ -37,8 +37,8 @@ func TestCreateSecretAndConfigInsideDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1SecretsCreate into directory: %v", err)
 	}
-	if secret.ValueDirectoryID != dir.ID {
-		t.Fatalf("secret directory = %d, want %d", secret.ValueDirectoryID, dir.ID)
+	if secret.Fs.DirectoryID != dir.ID {
+		t.Fatalf("secret directory = %d, want %d", secret.Fs.DirectoryID, dir.ID)
 	}
 
 	config, err := h.PostV1ConfigsCreate(testCtx(user), &apigen.ConfigCreateRequest{
@@ -47,8 +47,8 @@ func TestCreateSecretAndConfigInsideDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1ConfigsCreate into directory: %v", err)
 	}
-	if config.ValueDirectoryID != dir.ID {
-		t.Fatalf("config directory = %d, want %d", config.ValueDirectoryID, dir.ID)
+	if config.Fs.DirectoryID != dir.ID {
+		t.Fatalf("config directory = %d, want %d", config.Fs.DirectoryID, dir.ID)
 	}
 
 	// The same name is free in the root: the sibling namespace is per directory.
@@ -102,12 +102,12 @@ func TestMoveSecretAndConfigBetweenDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1SecretsMove: %v", err)
 	}
-	if moved.ValueDirectoryID != dir.ID {
-		t.Fatalf("moved secret directory = %d, want %d", moved.ValueDirectoryID, dir.ID)
+	if moved.Fs.DirectoryID != dir.ID {
+		t.Fatalf("moved secret directory = %d, want %d", moved.Fs.DirectoryID, dir.ID)
 	}
 	// The version index survives the move untouched.
-	if len(moved.VersionRefs) != 1 || moved.VersionRefs[0].ID != secret.VersionRefs[0].ID {
-		t.Fatalf("version refs changed across the move: %+v vs %+v", moved.VersionRefs, secret.VersionRefs)
+	if len(moved.Versions) != 1 || moved.Versions[0].ID != secret.Versions[0].ID {
+		t.Fatalf("versions changed across the move: %+v vs %+v", moved.Versions, secret.Versions)
 	}
 
 	config, err := h.PostV1ConfigsCreate(testCtx(user), &apigen.ConfigCreateRequest{
@@ -122,8 +122,8 @@ func TestMoveSecretAndConfigBetweenDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1ConfigsMove: %v", err)
 	}
-	if movedCfg.ValueDirectoryID != dir.ID {
-		t.Fatalf("moved config directory = %d, want %d", movedCfg.ValueDirectoryID, dir.ID)
+	if movedCfg.Fs.DirectoryID != dir.ID {
+		t.Fatalf("moved config directory = %d, want %d", movedCfg.Fs.DirectoryID, dir.ID)
 	}
 
 	// A sibling with the same name blocks the move back out.
@@ -166,13 +166,13 @@ func TestCrossSpaceValueMove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cross-space secret move: %v", err)
 	}
-	if movedSecret.SpaceID != 2 || movedSecret.ValueDirectoryID != 0 {
-		t.Fatalf("moved secret = space %d dir %d, want space 2 dir 0", movedSecret.SpaceID, movedSecret.ValueDirectoryID)
+	if movedSecret.SpaceID() != 2 || movedSecret.Fs.DirectoryID != 0 {
+		t.Fatalf("moved secret = space %d dir %d, want space 2 dir 0", movedSecret.SpaceID(), movedSecret.Fs.DirectoryID)
 	}
 	// The version index survives the move untouched: deployment specs pin
 	// version row ids.
-	if len(movedSecret.VersionRefs) != 1 || movedSecret.VersionRefs[0].ID != secret.VersionRefs[0].ID {
-		t.Fatalf("version refs changed across the move: %+v vs %+v", movedSecret.VersionRefs, secret.VersionRefs)
+	if len(movedSecret.Versions) != 1 || movedSecret.Versions[0].ID != secret.Versions[0].ID {
+		t.Fatalf("versions changed across the move: %+v vs %+v", movedSecret.Versions, secret.Versions)
 	}
 
 	movedCfg, err := h.PostV1ConfigsMove(testCtx(user), &apigen.ConfigMoveRequest{
@@ -181,8 +181,8 @@ func TestCrossSpaceValueMove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cross-space config move: %v", err)
 	}
-	if movedCfg.SpaceID != 2 || movedCfg.ValueDirectoryID != 0 {
-		t.Fatalf("moved config = space %d dir %d, want space 2 dir 0", movedCfg.SpaceID, movedCfg.ValueDirectoryID)
+	if movedCfg.SpaceID() != 2 || movedCfg.Fs.DirectoryID != 0 {
+		t.Fatalf("moved config = space %d dir %d, want space 2 dir 0", movedCfg.SpaceID(), movedCfg.Fs.DirectoryID)
 	}
 
 	if _, err := h.PostV1ValueDirectoriesMove(testCtx(user), &apigen.ValueDirectoryMoveRequest{
@@ -205,11 +205,11 @@ func TestCrossSpaceValueMove(t *testing.T) {
 	// The moved secret's value is still reachable through its new space —
 	// the Manager's denormalized space follows the identity row.
 	if revealed, err := h.PostV1SecretsReveal(testCtx(user), &apigen.SecretRevealRequest{
-		ID: secret.VersionRefs[0].ID,
+		ID: secret.Versions[0].ID,
 	}); err != nil || string(revealed.Value) != "v" {
 		t.Fatalf("reveal after move = %v, %v", revealed, err)
 	}
-	if meta, ok := h.Secrets.MetaByID(secret.VersionRefs[0].ID); !ok || meta.SpaceID != 2 {
+	if meta, ok := h.Secrets.MetaByID(secret.Versions[0].ID); !ok || meta.SpaceID != 2 {
 		t.Fatalf("manager meta after move = %+v ok=%v, want space 2", meta, ok)
 	}
 }
@@ -241,15 +241,15 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 
 	spec := remoteDeploymentSpec("registry/web", virtualNetworking())
 	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"TOKEN": {SecretVersionID: ptrInt32(secret.VersionRefs[0].ID)},
-		"LEVEL": {ConfigVersionID: ptrInt32(config.VersionRefs[0].ID)},
+		"TOKEN": {SecretVersionID: ptrInt32(secret.Versions[0].ID)},
+		"LEVEL": {ConfigVersionID: ptrInt32(config.ValueVersions[0].ID)},
 	}
 	spec.Networking.Ingress = []*apigen.Ingress{{
 		Kind:     apigen.IngressKind_INGRESS_KIND_HTTPS,
 		Hostname: "web.test",
 		HttpsConfig: &apigen.HttpsConfig{
 			ContainerPort: 8080,
-			CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{SecretVersionID: certSecret.VersionRefs[0].ID}},
+			CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{SecretVersionID: certSecret.Versions[0].ID}},
 		},
 	}}
 	createTestDeployment(h.Store, "node1", 1, "web", &spec)
@@ -288,7 +288,7 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 	}
 	straySpec := remoteDeploymentSpec("registry/worker", virtualNetworking())
 	straySpec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"STRAY": {SecretVersionID: ptrInt32(stray.VersionRefs[0].ID)},
+		"STRAY": {SecretVersionID: ptrInt32(stray.Versions[0].ID)},
 	}
 	createTestDeployment(h.Store, "node1", 1, "worker", &straySpec)
 	moved, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
@@ -297,8 +297,8 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("move toward the referencing space: %v", err)
 	}
-	if moved.SpaceID != 1 {
-		t.Fatalf("moved secret space = %d, want 1", moved.SpaceID)
+	if moved.SpaceID() != 1 {
+		t.Fatalf("moved secret space = %d, want 1", moved.SpaceID())
 	}
 
 	// A settings reference pins the value to the global space.
@@ -309,7 +309,7 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 		t.Fatalf("PostV1SecretsCreate: %v", err)
 	}
 	settings := h.ConfigService.Snapshot().Settings
-	settings.Repo.GithubToken.VersionID = pinned.VersionRefs[0].ID
+	settings.Repo.GithubToken.VersionID = pinned.Versions[0].ID
 	if err := h.ConfigService.UpdateSettingsInternal(settings); err != nil {
 		t.Fatalf("UpdateSettingsInternal: %v", err)
 	}

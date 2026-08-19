@@ -16,7 +16,7 @@ import {
     ALL_COLUMNS, DEFAULT_COLUMNS, DEFAULT_COLUMN_WIDTHS, DEFAULT_TYPES,
     buildRows, checkDrop, dirsById, dirPathSegments, dragSource, dropDestination,
     emptySpaceIds, flexColumnKey, folderOptions, itemKey, itemPathSegments, makeItems,
-    sameSet, spaceHue,
+    metaVersions, sameSet, spaceHue,
 } from "../lib/valueExplorer.js";
 import {
     deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS,
@@ -158,7 +158,7 @@ export function secretsPage() {
     const colsDirty = () => !sameSet(shownCols.val, new Set(DEFAULT_COLUMNS));
 
     const usageForItem = (item) => {
-        const refIds = new Set((item.meta.versionRefs || []).map((ref) => Number(ref.id)));
+        const refIds = new Set(metaVersions(item.meta).map((ref) => Number(ref.id)));
         const settings = (item.kind === "secret"
             ? settingSecretRefs(primaryConfigS.val?.config?.settings)
             : settingConfigRefs(primaryConfigS.val?.config?.settings)
@@ -174,7 +174,7 @@ export function secretsPage() {
     };
 
     const referencingDeploymentVersions = (item) => {
-        const refIds = new Set((item.meta.versionRefs || []).map((ref) => Number(ref.id)));
+        const refIds = new Set(metaVersions(item.meta).map((ref) => Number(ref.id)));
         return (deploymentsS.val || []).map((deployment) => deployment?.config).filter((cfg) =>
             cfg && !cfg.deleted && deploymentUsesEnvReferences(cfg, item.kind, refIds),
         ).map((cfg) => ({id: cfg.id, version: cfg.version}));
@@ -261,7 +261,7 @@ export function secretsPage() {
     };
 
     const secretLatestValue = async (item) => {
-        const res = await capi.postV1SecretsReveal({id: item.meta.versionRefs[0].id});
+        const res = await capi.postV1SecretsReveal({id: item.meta.versions[0].id});
         return new TextDecoder().decode(res.value);
     };
 
@@ -1178,7 +1178,7 @@ export function secretsPage() {
         // Sized to the widest real string in each column at 11px mono, plus the
         // pr-2 gutter: "v123", "Sep 30, 2026". The author takes the rest.
         colgroup(col({style: "width:2.1rem"}), col({style: "width:5.7rem"}), col()),
-        tbody(...(meta.versionRefs || []).map((ref, i) => tr(
+        tbody(...metaVersions(meta).map((ref, i) => tr(
             td({
                 class: `truncate py-0.5 pr-2 font-medium ${i === 0 ? "text-green-400" : "text-gray-200"}`,
                 title: i === 0 ? "Current version" : "",

@@ -1640,6 +1640,42 @@ func (q *Queries) ListAuthzGrantRows(ctx context.Context) ([]ListAuthzGrantRowsR
 	return items, nil
 }
 
+const listConfigSpaceRows = `-- name: ListConfigSpaceRows :many
+SELECT id, config_id, author, created_at, space_id, global_seq
+FROM config_spaces
+ORDER BY config_id, id ASC
+`
+
+func (q *Queries) ListConfigSpaceRows(ctx context.Context) ([]ConfigSpace, error) {
+	rows, err := q.db.QueryContext(ctx, listConfigSpaceRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ConfigSpace
+	for rows.Next() {
+		var i ConfigSpace
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConfigID,
+			&i.Author,
+			&i.CreatedAt,
+			&i.SpaceID,
+			&i.GlobalSeq,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConfigSpaceRowsByConfigID = `-- name: ListConfigSpaceRowsByConfigID :many
 SELECT id, config_id, author, created_at, space_id, global_seq
 FROM config_spaces WHERE config_id = ?
@@ -2205,6 +2241,42 @@ func (q *Queries) ListSecretKeyslots(ctx context.Context) ([]SecretKeyslot, erro
 	return items, nil
 }
 
+const listSecretSpaceRows = `-- name: ListSecretSpaceRows :many
+SELECT id, secret_id, author, created_at, space_id, global_seq
+FROM secret_spaces
+ORDER BY secret_id, id ASC
+`
+
+func (q *Queries) ListSecretSpaceRows(ctx context.Context) ([]SecretSpace, error) {
+	rows, err := q.db.QueryContext(ctx, listSecretSpaceRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SecretSpace
+	for rows.Next() {
+		var i SecretSpace
+		if err := rows.Scan(
+			&i.ID,
+			&i.SecretID,
+			&i.Author,
+			&i.CreatedAt,
+			&i.SpaceID,
+			&i.GlobalSeq,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSecretSpaceRowsBySecretID = `-- name: ListSecretSpaceRowsBySecretID :many
 SELECT id, secret_id, author, created_at, space_id, global_seq
 FROM secret_spaces WHERE secret_id = ?
@@ -2269,7 +2341,7 @@ func (q *Queries) ListSecretVersionIDsBySecretID(ctx context.Context, secretID i
 }
 
 const listSecretVersionMetas = `-- name: ListSecretVersionMetas :many
-SELECT id, secret_id, version, created_at, author
+SELECT id, secret_id, version, created_at, author, global_seq
 FROM secret_versions
 ORDER BY secret_id, version
 `
@@ -2280,6 +2352,7 @@ type ListSecretVersionMetasRow struct {
 	Version   int64
 	CreatedAt int64
 	Author    int64
+	GlobalSeq int64
 }
 
 func (q *Queries) ListSecretVersionMetas(ctx context.Context) ([]ListSecretVersionMetasRow, error) {
@@ -2297,6 +2370,7 @@ func (q *Queries) ListSecretVersionMetas(ctx context.Context) ([]ListSecretVersi
 			&i.Version,
 			&i.CreatedAt,
 			&i.Author,
+			&i.GlobalSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -2312,7 +2386,7 @@ func (q *Queries) ListSecretVersionMetas(ctx context.Context) ([]ListSecretVersi
 }
 
 const listSecretVersionsBySecretID = `-- name: ListSecretVersionsBySecretID :many
-SELECT id, secret_id, version, created_at, author
+SELECT id, secret_id, version, created_at, author, global_seq
 FROM secret_versions WHERE secret_id = ?
 ORDER BY version ASC
 `
@@ -2323,6 +2397,7 @@ type ListSecretVersionsBySecretIDRow struct {
 	Version   int64
 	CreatedAt int64
 	Author    int64
+	GlobalSeq int64
 }
 
 func (q *Queries) ListSecretVersionsBySecretID(ctx context.Context, secretID int64) ([]ListSecretVersionsBySecretIDRow, error) {
@@ -2340,6 +2415,7 @@ func (q *Queries) ListSecretVersionsBySecretID(ctx context.Context, secretID int
 			&i.Version,
 			&i.CreatedAt,
 			&i.Author,
+			&i.GlobalSeq,
 		); err != nil {
 			return nil, err
 		}

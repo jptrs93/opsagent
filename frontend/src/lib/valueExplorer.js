@@ -28,12 +28,17 @@ export function flexColumnKey(shownColumns, columns = ALL_COLUMNS) {
 
 export const itemKey = (item) => `${item.kind}:${item.id}`;
 
-// makeItems flattens secret/config metas into the one row shape the explorer
-// renders. Latest version facts come from versionRefs[0]. When the secrets
-// store is locked, secrets are left out entirely rather than shown unreadable.
+// metaVersions is the newest-first version log of a secret or config view
+// model, whichever kind it is.
+export const metaVersions = (meta) => meta?.valueVersions || meta?.versions || [];
+
+// makeItems flattens secret/config view models into the one row shape the
+// explorer renders. Latest version facts come from the newest log entry. When
+// the secrets store is locked, secrets are left out entirely rather than shown
+// unreadable.
 export function makeItems(secretMetas, userConfigs, secretsUnlocked) {
     const fromMeta = (kind, meta) => {
-        const latest = meta.versionRefs?.[0];
+        const latest = metaVersions(meta)[0];
         if (!latest) return [];
         return [{
             kind,

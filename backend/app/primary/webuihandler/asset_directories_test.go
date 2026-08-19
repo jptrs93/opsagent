@@ -1,8 +1,10 @@
 package webuihandler
 
 import (
+	"bytes"
 	"errors"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -10,6 +12,15 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
 )
+
+func createTestAsset(h *Handler, ctx apigen.Context, key string, spaceID, directoryID int32, blob []byte) (*apigen.Asset, error) {
+	query := url.Values{"key": {key}, "space_id": {strconv.Itoa(int(spaceID))}}
+	if directoryID != 0 {
+		query.Set("directory_id", strconv.Itoa(int(directoryID)))
+	}
+	req := httptest.NewRequest("POST", "/v1/assets/upload?"+query.Encode(), bytes.NewReader(blob))
+	return h.uploadAsset(ctx, req)
+}
 
 // newAssetTestHandler extends the auth test handler with an asset store.
 // Inline-sized blobs never leave the database, so no S3 or filesystem wiring
@@ -36,15 +47,13 @@ func mustCreateAssetDir(t *testing.T, h *Handler, user *apigen.InternalUser, spa
 // travels on the asset shapes.
 func TestGetAssetContentStreamsRawBytes(t *testing.T) {
 	h, user := newAssetTestHandler(t)
-	asset, err := h.PostV1AssetsCreate(testCtx(user), &apigen.AssetCreateRequest{
-		Key: "app.conf", SpaceID: 1, Blob: []byte("listen 8080;"),
-	})
+	asset, err := createTestAsset(h, testCtx(user), "app.conf", 1, 0, []byte("listen 8080;"))
 	if err != nil {
-		t.Fatalf("PostV1AssetsCreate: %v", err)
+		t.Fatalf("createTestAsset: %v", err)
 	}
 	versionID := asset.ContentVersions[0].ID
 
-	req := httptest.NewRequest("GET", "/v1/assets/content?contentVersionId="+strconv.Itoa(int(versionID)), nil)
+	req := httptest.NewRequest("GET", "/v1/assets/content?content_version_id="+strconv.Itoa(int(versionID)), nil)
 	rec := httptest.NewRecorder()
 	if err := h.GetV1AssetsContent(testCtx(user), req, rec); err != nil {
 		t.Fatalf("GetV1AssetsContent: %v", err)
@@ -60,14 +69,14 @@ func TestGetAssetContentStreamsRawBytes(t *testing.T) {
 	}
 
 	// A version id that resolves to nothing is a not-found, not a stream.
-	req = httptest.NewRequest("GET", "/v1/assets/content?contentVersionId=999999", nil)
+	req = httptest.NewRequest("GET", "/v1/assets/content?content_version_id=999999", nil)
 	if err := h.GetV1AssetsContent(testCtx(user), req, httptest.NewRecorder()); !errors.Is(err, AssetNotFoundErr) {
 		t.Fatalf("missing version err = %v, want AssetNotFoundErr", err)
 	}
 	// The id is required.
 	req = httptest.NewRequest("GET", "/v1/assets/content", nil)
 	if err := h.GetV1AssetsContent(testCtx(user), req, httptest.NewRecorder()); err == nil {
-		t.Fatal("missing contentVersionId param did not error")
+		t.Fatal("missing content_version_id param did not error")
 	}
 }
 
@@ -78,11 +87,9 @@ func TestCreateAssetInsideDirectory(t *testing.T) {
 		t.Fatalf("dir = %+v, want a root directory in space 1 created by %d", dir, user.ID)
 	}
 
-	asset, err := h.PostV1AssetsCreate(testCtx(user), &apigen.AssetCreateRequest{
-		Key: "site.conf", SpaceID: 1, Blob: []byte("server {}"), AssetDirectoryID: dir.ID,
-	})
+	asset, err := createTestAsset(h, testCtx(user), "site.conf", 1, dir.ID, []byte("server {}"))
 	if err != nil {
-		t.Fatalf("PostV1AssetsCreate into directory: %v", err)
+		t.Fatalf("createTestAsset into directory: %v", err)
 	}
 	stored, ok := h.Store.GetAsset(asset.ID)
 	if !ok || stored.Fs.DirectoryID != dir.ID {
@@ -95,29 +102,21 @@ func TestCreateAssetInsideDirectory(t *testing.T) {
 	}
 
 	// The same key is free in the root: the sibling namespace is per directory.
-	if _, err := h.PostV1AssetsCreate(testCtx(user), &apigen.AssetCreateRequest{
-		Key: "site.conf", SpaceID: 1, Blob: []byte("other"),
-	}); err != nil {
-		t.Fatalf("PostV1AssetsCreate same key at root: %v", err)
+	if _, err := createTestAsset(h, testCtx(user), "site.conf", 1, 0, []byte("other")); err != nil {
+		t.Fatalf("createTestAsset same key at root: %v", err)
 	}
 	// But taken inside the directory, and folders share the namespace too.
-	if _, err := h.PostV1AssetsCreate(testCtx(user), &apigen.AssetCreateRequest{
-		Key: "site.conf", SpaceID: 1, Blob: []byte("x"), AssetDirectoryID: dir.ID,
-	}); !errors.Is(err, AssetAlreadyExistsErr) {
+	if _, err := createTestAsset(h, testCtx(user), "site.conf", 1, dir.ID, []byte("x")); !errors.Is(err, AssetAlreadyExistsErr) {
 		t.Fatalf("create over sibling asset err = %v, want AssetAlreadyExistsErr", err)
 	}
-	if _, err := h.PostV1AssetsCreate(testCtx(user), &apigen.AssetCreateRequest{
-		Key: "nginx", SpaceID: 1, Blob: []byte("x"),
-	}); !errors.Is(err, AssetAlreadyExistsErr) {
+	if _, err := createTestAsset(h, testCtx(user), "nginx", 1, 0, []byte("x")); !errors.Is(err, AssetAlreadyExistsErr) {
 		t.Fatalf("create over sibling folder err = %v, want AssetAlreadyExistsErr", err)
 	}
 }
 
 func TestCreateAssetIntoMissingOrForeignDirectoryIsNotFound(t *testing.T) {
 	h, user := newAssetTestHandler(t)
-	if _, err := h.PostV1AssetsCreate(testCtx(user), &apigen.AssetCreateRequest{
-		Key: "app.yaml", SpaceID: 1, Blob: []byte("x"), AssetDirectoryID: 999,
-	}); !errors.Is(err, AssetDirectoryNotFoundErr) {
+	if _, err := createTestAsset(h, testCtx(user), "app.yaml", 1, 999, []byte("x")); !errors.Is(err, AssetDirectoryNotFoundErr) {
 		t.Fatalf("create into missing directory err = %v, want AssetDirectoryNotFoundErr", err)
 	}
 
@@ -127,9 +126,7 @@ func TestCreateAssetIntoMissingOrForeignDirectoryIsNotFound(t *testing.T) {
 	}
 	foreign := mustCreateAssetDir(t, h, user, space.ID, 0, "tls")
 	// A directory in another space does not exist from this space's viewpoint.
-	if _, err := h.PostV1AssetsCreate(testCtx(user), &apigen.AssetCreateRequest{
-		Key: "cert.pem", SpaceID: 1, Blob: []byte("pem"), AssetDirectoryID: foreign.ID,
-	}); !errors.Is(err, AssetDirectoryNotFoundErr) {
+	if _, err := createTestAsset(h, testCtx(user), "cert.pem", 1, foreign.ID, []byte("pem")); !errors.Is(err, AssetDirectoryNotFoundErr) {
 		t.Fatalf("create into foreign-space directory err = %v, want AssetDirectoryNotFoundErr", err)
 	}
 }
@@ -147,7 +144,7 @@ func TestUploadAssetIntoDirectory(t *testing.T) {
 		}
 	}
 
-	upload("name=app.tar&space_id=1&directory_id=" + strconv.Itoa(int(dir.ID)))
+	upload("key=app.tar&unique_key=1&space_id=1&directory_id=" + strconv.Itoa(int(dir.ID)))
 	uploaded, ok := h.Store.GetAssetInDirectory(1, dir.ID, "app.tar")
 	if !ok {
 		t.Fatalf("uploaded asset not found in directory %d", dir.ID)
@@ -156,8 +153,8 @@ func TestUploadAssetIntoDirectory(t *testing.T) {
 		t.Fatalf("uploaded version created-by = %+v, want user %d", stored, user.ID)
 	}
 
-	// A taken name is suffixed within the same directory, not the root.
-	upload("name=app.tar&space_id=1&directory_id=" + strconv.Itoa(int(dir.ID)))
+	// A taken key is suffixed within the same directory, not the root.
+	upload("key=app.tar&unique_key=1&space_id=1&directory_id=" + strconv.Itoa(int(dir.ID)))
 	if _, ok := h.Store.GetAssetInDirectory(1, dir.ID, "app.tar1"); !ok {
 		t.Fatalf("second upload did not suffix within the directory")
 	}
@@ -170,11 +167,9 @@ func TestMoveAssetBetweenDirectories(t *testing.T) {
 	h, user := newAssetTestHandler(t)
 	dir := mustCreateAssetDir(t, h, user, 1, 0, "app")
 
-	asset, err := h.PostV1AssetsCreate(testCtx(user), &apigen.AssetCreateRequest{
-		Key: "config.yaml", SpaceID: 1, Blob: []byte("a: 1"),
-	})
+	asset, err := createTestAsset(h, testCtx(user), "config.yaml", 1, 0, []byte("a: 1"))
 	if err != nil {
-		t.Fatalf("PostV1AssetsCreate: %v", err)
+		t.Fatalf("createTestAsset: %v", err)
 	}
 	moved, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
 		AssetID: asset.ID, AssetDirectoryID: dir.ID,
@@ -192,10 +187,8 @@ func TestMoveAssetBetweenDirectories(t *testing.T) {
 	}
 
 	// A sibling with the same key blocks the move back out.
-	if _, err := h.PostV1AssetsCreate(testCtx(user), &apigen.AssetCreateRequest{
-		Key: "config.yaml", SpaceID: 1, Blob: []byte("root"),
-	}); err != nil {
-		t.Fatalf("PostV1AssetsCreate at root: %v", err)
+	if _, err := createTestAsset(h, testCtx(user), "config.yaml", 1, 0, []byte("root")); err != nil {
+		t.Fatalf("createTestAsset at root: %v", err)
 	}
 	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
 		AssetID: asset.ID, AssetDirectoryID: 0,
@@ -212,11 +205,9 @@ func TestCrossSpaceAssetMove(t *testing.T) {
 	dir := mustCreateAssetDir(t, h, user, 1, 0, "app")
 	nested := mustCreateAssetDir(t, h, user, 1, dir.ID, "conf")
 
-	asset, err := h.PostV1AssetsCreate(testCtx(user), &apigen.AssetCreateRequest{
-		Key: "config.yaml", SpaceID: 1, Blob: []byte("a: 1"), AssetDirectoryID: dir.ID,
-	})
+	asset, err := createTestAsset(h, testCtx(user), "config.yaml", 1, dir.ID, []byte("a: 1"))
 	if err != nil {
-		t.Fatalf("PostV1AssetsCreate: %v", err)
+		t.Fatalf("createTestAsset: %v", err)
 	}
 
 	moved, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
@@ -301,10 +292,8 @@ func TestRenameAndMoveAssetDirectories(t *testing.T) {
 	}
 
 	// The rename target namespace spans assets and directories.
-	if _, err := h.PostV1AssetsCreate(testCtx(user), &apigen.AssetCreateRequest{
-		Key: "taken", SpaceID: 1, Blob: []byte("x"), AssetDirectoryID: parent.ID,
-	}); err != nil {
-		t.Fatalf("PostV1AssetsCreate: %v", err)
+	if _, err := createTestAsset(h, testCtx(user), "taken", 1, parent.ID, []byte("x")); err != nil {
+		t.Fatalf("createTestAsset: %v", err)
 	}
 	if _, err := h.PostV1AssetDirectoriesRename(testCtx(user), &apigen.AssetDirectoryRenameRequest{
 		DirectoryID: child.ID, NewKey: "taken",
@@ -333,11 +322,9 @@ func TestRenameAndMoveAssetDirectories(t *testing.T) {
 func TestDeleteAssetDirectoryOnlyWhenEmpty(t *testing.T) {
 	h, user := newAssetTestHandler(t)
 	dir := mustCreateAssetDir(t, h, user, 1, 0, "tmp")
-	asset, err := h.PostV1AssetsCreate(testCtx(user), &apigen.AssetCreateRequest{
-		Key: "k.txt", SpaceID: 1, Blob: []byte("v"), AssetDirectoryID: dir.ID,
-	})
+	asset, err := createTestAsset(h, testCtx(user), "k.txt", 1, dir.ID, []byte("v"))
 	if err != nil {
-		t.Fatalf("PostV1AssetsCreate: %v", err)
+		t.Fatalf("createTestAsset: %v", err)
 	}
 
 	if err := h.PostV1AssetDirectoriesDelete(testCtx(user), &apigen.AssetDirectoryDeleteRequest{

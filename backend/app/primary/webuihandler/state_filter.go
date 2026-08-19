@@ -20,15 +20,15 @@ func (h *Handler) filterSpaces(ctx apigen.Context, items []*apigen.Space) []*api
 	})
 }
 
-func (h *Handler) filterSecretMetas(ctx apigen.Context, items []*apigen.SecretMeta) []*apigen.SecretMeta {
-	return filterVisible(items, func(m *apigen.SecretMeta) bool {
-		return h.canAccess(ctx, vView, eSecret, int64(m.SpaceID), int64(m.ID))
+func (h *Handler) filterSecrets(ctx apigen.Context, items []*apigen.Secret) []*apigen.Secret {
+	return filterVisible(items, func(m *apigen.Secret) bool {
+		return h.canAccess(ctx, vView, eSecret, int64(m.SpaceID()), int64(m.ID))
 	})
 }
 
-func (h *Handler) filterConfigMetas(ctx apigen.Context, items []*apigen.ConfigMeta) []*apigen.ConfigMeta {
-	return filterVisible(items, func(m *apigen.ConfigMeta) bool {
-		return h.canAccess(ctx, vView, eConfig, int64(m.SpaceID), int64(m.ID))
+func (h *Handler) filterConfigs(ctx apigen.Context, items []*apigen.Config) []*apigen.Config {
+	return filterVisible(items, func(m *apigen.Config) bool {
+		return h.canAccess(ctx, vView, eConfig, int64(m.SpaceID()), int64(m.ID))
 	})
 }
 

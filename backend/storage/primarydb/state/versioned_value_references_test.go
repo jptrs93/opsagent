@@ -43,13 +43,13 @@ func deploymentEnvRefID(t *testing.T, cfg *apigen.DeploymentConfig, key string, 
 	return *value.ConfigVersionID
 }
 
-// latestVersionRef returns the newest version row (version_refs[0]).
-func latestConfigRef(t *testing.T, meta *apigen.ConfigMeta) *apigen.ConfigVersionMeta {
+// latestConfigRef returns the newest value version (value_versions[0]).
+func latestConfigRef(t *testing.T, c *apigen.Config) *apigen.ConfigValueVersion {
 	t.Helper()
-	if meta == nil || len(meta.VersionRefs) == 0 {
-		t.Fatalf("config meta has no version refs: %+v", meta)
+	if c == nil || len(c.ValueVersions) == 0 {
+		t.Fatalf("config has no value versions: %+v", c)
 	}
-	return meta.VersionRefs[0]
+	return c.ValueVersions[0]
 }
 
 // testSealFunc fabricates sealed bytes without a real SMK: reference-update
@@ -67,8 +67,8 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 
 	database := store.SetConfigByName("database", "one", 1)
 	database = store.SetConfigByName("database", "two", 1)
-	firstID := database.VersionRefs[1].ID
-	secondID := database.VersionRefs[0].ID
+	firstID := database.ValueVersions[1].ID
+	secondID := database.ValueVersions[0].ID
 	unrelated := store.SetConfigByName("other", "keep", 1)
 	unrelatedID := latestConfigRef(t, unrelated).ID
 	create := func(name string, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
@@ -133,7 +133,7 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	if !errors.Is(err, ErrReferencingDeploymentsChanged) {
 		t.Fatalf("stale update error = %v, want ErrReferencingDeploymentsChanged", err)
 	}
-	latest, ok := store.GetConfigMeta(database.ID)
+	latest, ok := store.GetConfig(database.ID)
 	if !ok || latestConfigRef(t, latest).ID != savedRef.ID || latestConfigRef(t, latest).Version != 3 {
 		t.Fatalf("latest config after rollback = %+v, ok=%v", latest, ok)
 	}
@@ -195,23 +195,23 @@ func TestRenameConfigPublishesFullVersionIndex(t *testing.T) {
 	defer store.Close()
 	meta := store.SetConfigByName("old-name", "one", 1)
 	meta = store.SetConfigByName("old-name", "two", 1)
-	metaSub, unsubscribe := store.SubscribeConfigMetaUpdates()
+	metaSub, unsubscribe := store.SubscribeConfigUpdates()
 	defer unsubscribe()
 
 	renamed, err := store.RenameConfig(meta.ID, "new-name")
 	if err != nil {
 		t.Fatalf("rename failed: %v", err)
 	}
-	store.NotifyConfigMetaUpdate(*renamed)
+	store.NotifyConfigUpdate(renamed)
 	select {
 	case update := <-metaSub.Ch:
-		if update.Name != "new-name" || update.ID != meta.ID {
-			t.Fatalf("meta update = %+v", update)
+		if update.Fs.Name != "new-name" || update.ID != meta.ID {
+			t.Fatalf("config update = %+v", update)
 		}
 		// The full version index rides along, so subscribers keep every
 		// version row id -> value mapping without a second channel.
-		if len(update.VersionRefs) != 2 || update.VersionRefs[0].Value != "two" || update.VersionRefs[1].Value != "one" {
-			t.Fatalf("meta update version refs = %+v", update.VersionRefs)
+		if len(update.ValueVersions) != 2 || update.ValueVersions[0].Value != "two" || update.ValueVersions[1].Value != "one" {
+			t.Fatalf("config update value versions = %+v", update.ValueVersions)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for config meta update")

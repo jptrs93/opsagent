@@ -358,9 +358,9 @@ func (s *Service) DeleteSecret(secretID int32) error {
 	return nil
 }
 
-// ListSecretMetas returns every secret with its full version index, newest
-// version first, ordered by name. Never returns values or ciphertext.
-func (s *Service) ListSecretMetas() []*apigen.SecretMeta {
+// ListSecrets returns every secret with its space and version logs, newest
+// first, ordered by name. Never returns values or ciphertext.
+func (s *Service) ListSecrets() []*apigen.Secret {
 	ctx := context.Background()
 	rows, err := s.q.ListSecretRows(ctx)
 	if err != nil {
@@ -370,24 +370,33 @@ func (s *Service) ListSecretMetas() []*apigen.SecretMeta {
 	if err != nil {
 		panic(fmt.Sprintf("ListSecretVersionMetas: %v", err))
 	}
-	refsBySecret := make(map[int64][]*apigen.SecretVersionMeta)
-	for _, v := range versions {
-		// ListSecretVersionMetas is version ASC; prepend to end up newest first.
-		refsBySecret[v.SecretID] = append([]*apigen.SecretVersionMeta{secretVersionMetaFromRow(v)}, refsBySecret[v.SecretID]...)
+	spaceRows, err := s.q.ListSecretSpaceRows(ctx)
+	if err != nil {
+		panic(fmt.Sprintf("ListSecretSpaceRows: %v", err))
 	}
-	out := make([]*apigen.SecretMeta, 0, len(rows))
+	versionsBySecret := make(map[int64][]pq.ListSecretVersionMetasRow, len(rows))
+	for _, v := range versions {
+		versionsBySecret[v.SecretID] = append(versionsBySecret[v.SecretID], v)
+	}
+	spacesBySecret := make(map[int64][]pq.SecretSpace, len(rows))
+	for _, sp := range spaceRows {
+		spacesBySecret[sp.SecretID] = append(spacesBySecret[sp.SecretID], sp)
+	}
+	out := make([]*apigen.Secret, 0, len(rows))
 	for _, sec := range rows {
-		refs := refsBySecret[sec.ID]
-		if len(refs) == 0 {
+		vs := versionsBySecret[sec.ID]
+		if len(vs) == 0 {
 			continue
 		}
-		out = append(out, secretMetaFromRow(sec, refs))
+		out = append(out, secretFromParts(sec, spacesBySecret[sec.ID], vs))
 	}
 	return out
 }
 
-// GetSecretMeta returns one secret with its full version index, newest first.
-func (s *Service) GetSecretMeta(secretID int32) (*apigen.SecretMeta, bool) {
+// GetSecret returns the secret with its space and version logs, or false when
+// the secret does not exist or has no version. Never returns values or
+// ciphertext.
+func (s *Service) GetSecret(secretID int32) (*apigen.Secret, bool) {
 	ctx := context.Background()
 	sec, err := s.q.GetSecretRowByID(ctx, int64(secretID))
 	if err == sql.ErrNoRows {
@@ -396,23 +405,22 @@ func (s *Service) GetSecretMeta(secretID int32) (*apigen.SecretMeta, bool) {
 	if err != nil {
 		panic(fmt.Sprintf("GetSecretRowByID: %v", err))
 	}
-	ids, err := s.q.ListSecretVersionsBySecretID(ctx, sec.ID)
+	rows, err := s.q.ListSecretVersionsBySecretID(ctx, sec.ID)
 	if err != nil {
 		panic(fmt.Sprintf("ListSecretVersionsBySecretID: %v", err))
 	}
-	if len(ids) == 0 {
+	if len(rows) == 0 {
 		return nil, false
 	}
-	refs := make([]*apigen.SecretVersionMeta, 0, len(ids))
-	for i := len(ids) - 1; i >= 0; i-- {
-		refs = append(refs, &apigen.SecretVersionMeta{
-			ID:        int32(ids[i].ID),
-			Version:   int32(ids[i].Version),
-			CreatedAt: time.UnixMilli(ids[i].CreatedAt),
-			Author:    int32(ids[i].Author),
-		})
+	versions := make([]pq.ListSecretVersionMetasRow, 0, len(rows))
+	for _, r := range rows {
+		versions = append(versions, pq.ListSecretVersionMetasRow(r))
 	}
-	return secretMetaFromRow(sec, refs), true
+	spaces, err := s.q.ListSecretSpaceRowsBySecretID(ctx, sec.ID)
+	if err != nil {
+		panic(fmt.Sprintf("ListSecretSpaceRowsBySecretID: %v", err))
+	}
+	return secretFromParts(sec, spaces, versions), true
 }
 
 // GetSecretIDByName implements the Manager's name lookup for install/restore

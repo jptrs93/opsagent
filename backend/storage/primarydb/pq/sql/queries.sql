@@ -246,6 +246,11 @@ SELECT id, config_id, author, created_at, space_id, global_seq
 FROM config_spaces WHERE config_id = ?
 ORDER BY id ASC;
 
+-- name: ListConfigSpaceRows :many
+SELECT id, config_id, author, created_at, space_id, global_seq
+FROM config_spaces
+ORDER BY config_id, id ASC;
+
 -- name: RenameConfigRow :exec
 UPDATE configs SET name = ? WHERE id = ?;
 
@@ -501,6 +506,11 @@ SELECT id, secret_id, author, created_at, space_id, global_seq
 FROM secret_spaces WHERE secret_id = ?
 ORDER BY id ASC;
 
+-- name: ListSecretSpaceRows :many
+SELECT id, secret_id, author, created_at, space_id, global_seq
+FROM secret_spaces
+ORDER BY secret_id, id ASC;
+
 -- name: RenameSecretRow :exec
 UPDATE secrets SET name = ? WHERE id = ?;
 
@@ -508,7 +518,7 @@ UPDATE secrets SET name = ? WHERE id = ?;
 UPDATE secrets SET deleted_at = ? WHERE id = ?;
 
 -- name: ListSecretVersionMetas :many
-SELECT id, secret_id, version, created_at, author
+SELECT id, secret_id, version, created_at, author, global_seq
 FROM secret_versions
 ORDER BY secret_id, version;
 
@@ -526,7 +536,7 @@ RETURNING id, secret_id, version, smk_version, ciphertext, nonce, created_at, au
 SELECT id FROM secret_versions WHERE secret_id = ? ORDER BY version;
 
 -- name: ListSecretVersionsBySecretID :many
-SELECT id, secret_id, version, created_at, author
+SELECT id, secret_id, version, created_at, author, global_seq
 FROM secret_versions WHERE secret_id = ?
 ORDER BY version ASC;
 

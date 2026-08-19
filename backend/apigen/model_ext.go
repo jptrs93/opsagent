@@ -278,3 +278,39 @@ func (a *Asset) LatestContentVersion() *AssetContentVersion {
 	}
 	return a.ContentVersions[0]
 }
+
+// SpaceID is the config's current space: the newest entry of the append-only
+// space log.
+func (c *Config) SpaceID() int32 {
+	if c == nil || len(c.SpaceVersions) == 0 {
+		return 0
+	}
+	return c.SpaceVersions[0].SpaceID
+}
+
+// LatestValueVersion is the newest value version, or nil for a config with no
+// version (never surfaced by list/get reads).
+func (c *Config) LatestValueVersion() *ConfigValueVersion {
+	if c == nil || len(c.ValueVersions) == 0 {
+		return nil
+	}
+	return c.ValueVersions[0]
+}
+
+// SpaceID is the secret's current space: the newest entry of the append-only
+// space log.
+func (s *Secret) SpaceID() int32 {
+	if s == nil || len(s.SpaceVersions) == 0 {
+		return 0
+	}
+	return s.SpaceVersions[0].SpaceID
+}
+
+// LatestVersion is the newest version, or nil for a secret with no version
+// (never surfaced by list/get reads).
+func (s *Secret) LatestVersion() *SecretVersion {
+	if s == nil || len(s.Versions) == 0 {
+		return nil
+	}
+	return s.Versions[0]
+}

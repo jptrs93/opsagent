@@ -4,7 +4,7 @@ import {referencePicker} from "../components/referencePicker.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {valueOverlay} from "../components/valueOverlay.js";
 import {checkIcon, copyIcon, eyeOffIcon, eyeOpenIcon} from "../lib/icons.js";
-import {primaryConfigS, secretRefsS, userConfigRefsS, expandValueVersionRefs} from "../state/deployments.js";
+import {primaryConfigS, secretRefsS, userConfigRefsS, expandValueVersionRefs, secretViewModel} from "../state/deployments.js";
 
 const { div, h2, p, pre, span, button, input, select, option, label: labelEl } = van.tags;
 
@@ -389,7 +389,7 @@ export function settingsPage() {
             error.val = null;
             const secretsStatus = await capi.postV1SecretsStatus({});
             recoveryStatus.val = secretsStatus;
-            secrets.val = secretsStatus.unlocked ? expandValueVersionRefs((await capi.postV1SecretsList({})).items) : [];
+            secrets.val = secretsStatus.unlocked ? expandValueVersionRefs(((await capi.postV1SecretsList({})).items || []).map(secretViewModel)) : [];
         } catch (e) {
             error.val = e.message;
         }
@@ -407,7 +407,7 @@ export function settingsPage() {
 
     const reloadSecrets = async () => {
         recoveryStatus.val = await capi.postV1SecretsStatus({});
-        secrets.val = recoveryStatus.val.unlocked ? expandValueVersionRefs((await capi.postV1SecretsList({})).items) : [];
+        secrets.val = recoveryStatus.val.unlocked ? expandValueVersionRefs(((await capi.postV1SecretsList({})).items || []).map(secretViewModel)) : [];
     };
 
     const openCreateSecret = (setting) => {
@@ -431,7 +431,7 @@ export function settingsPage() {
                 value: new TextEncoder().encode(value),
             });
             await reloadSecrets();
-            patchDraft(target.settingKey, {secretId: Number(saved?.versionRefs?.[0]?.id || 0)});
+            patchDraft(target.settingKey, {secretId: Number(saved?.versions?.[0]?.id || 0)});
         } catch (e) {
             error.val = e.message;
             throw e;
@@ -478,7 +478,7 @@ export function settingsPage() {
                 value: new TextEncoder().encode(value),
             });
             await reloadSecrets();
-            patchDraft(target.settingKey, {secretId: Number(saved?.versionRefs?.[0]?.id || 0)});
+            patchDraft(target.settingKey, {secretId: Number(saved?.versions?.[0]?.id || 0)});
         } catch (e) {
             error.val = e.message;
             throw e;

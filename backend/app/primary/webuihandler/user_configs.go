@@ -33,10 +33,10 @@ func mapConfigStoreErr(err error) error {
 }
 
 func (h *Handler) PostV1ConfigsList(ctx apigen.Context, req *apigen.EmptyRequest) (*apigen.ConfigList, error) {
-	return &apigen.ConfigList{Items: h.filterConfigMetas(ctx, h.Store.ListConfigMetas())}, nil
+	return &apigen.ConfigList{Items: h.filterConfigs(ctx, h.Store.ListConfigs())}, nil
 }
 
-func (h *Handler) PostV1ConfigsCreate(ctx apigen.Context, req *apigen.ConfigCreateRequest) (*apigen.ConfigMeta, error) {
+func (h *Handler) PostV1ConfigsCreate(ctx apigen.Context, req *apigen.ConfigCreateRequest) (*apigen.Config, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, UserConfigNameRequiredErr
@@ -48,17 +48,17 @@ func (h *Handler) PostV1ConfigsCreate(ctx apigen.Context, req *apigen.ConfigCrea
 	if err != nil {
 		return nil, mapConfigStoreErr(err)
 	}
-	h.Store.NotifyConfigMetaUpdate(*meta)
+	h.Store.NotifyConfigUpdate(meta)
 	return meta, nil
 }
 
-func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequest) (*apigen.ConfigMeta, error) {
+func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequest) (*apigen.Config, error) {
 	if req.ConfigID == 0 {
 		return nil, UserConfigIDRequiredErr
 	}
-	if existing, ok := h.Store.GetConfigMeta(req.ConfigID); !ok {
+	if existing, ok := h.Store.GetConfig(req.ConfigID); !ok {
 		return nil, UserConfigNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID()), int64(existing.ID), UserConfigNotFoundErr); err != nil {
 		return nil, err
 	}
 	unlockReferences := h.ConfigService.LockReferences()
@@ -80,27 +80,27 @@ func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequ
 		}
 		return nil, versionedValueSetError(err)
 	}
-	h.Store.NotifyConfigMetaUpdate(*meta)
+	h.Store.NotifyConfigUpdate(meta)
 	return meta, nil
 }
 
-func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRenameRequest) (*apigen.ConfigMeta, error) {
+func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRenameRequest) (*apigen.Config, error) {
 	if req.ConfigID == 0 {
 		return nil, UserConfigIDRequiredErr
 	}
 	if strings.TrimSpace(req.NewName) == "" {
 		return nil, UserConfigNameRequiredErr
 	}
-	if existing, ok := h.Store.GetConfigMeta(req.ConfigID); !ok {
+	if existing, ok := h.Store.GetConfig(req.ConfigID); !ok {
 		return nil, UserConfigNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID()), int64(existing.ID), UserConfigNotFoundErr); err != nil {
 		return nil, err
 	}
 	meta, err := h.Store.RenameConfig(req.ConfigID, strings.TrimSpace(req.NewName))
 	if err != nil {
 		return nil, mapConfigStoreErr(err)
 	}
-	h.Store.NotifyConfigMetaUpdate(*meta)
+	h.Store.NotifyConfigUpdate(meta)
 	return meta, nil
 }
 
@@ -110,19 +110,19 @@ func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRena
 // only while nothing outside the destination space references the config:
 // deployments must be able to keep their pins within their own space, and a
 // settings reference pins the value to the global space.
-func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRequest) (*apigen.ConfigMeta, error) {
+func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRequest) (*apigen.Config, error) {
 	if req.ConfigID == 0 {
 		return nil, UserConfigIDRequiredErr
 	}
-	existing, ok := h.Store.GetConfigMeta(req.ConfigID)
+	existing, ok := h.Store.GetConfig(req.ConfigID)
 	if !ok {
 		return nil, UserConfigNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID()), int64(existing.ID), UserConfigNotFoundErr); err != nil {
 		return nil, err
 	}
 	destSpace := state.NormalizedUserSpaceID(req.SpaceID)
-	spaceChanging := req.SpaceID != 0 && destSpace != existing.SpaceID
+	spaceChanging := req.SpaceID != 0 && destSpace != existing.SpaceID()
 	// Moving into another space also needs the right to create a config there.
 	if spaceChanging {
 		if err := h.requireAccess(ctx, vCreate, eConfig, valueSpace(req.SpaceID), 0); err != nil {
@@ -148,17 +148,15 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 		// one — updates a user cannot view are dropped, and nothing else says
 		// "gone". The update below re-adds the row where the destination is
 		// visible.
-		tombstone := *existing
-		tombstone.Deleted = true
-		h.Store.NotifyConfigMetaUpdate(tombstone)
+		h.Store.NotifyConfigDeleted(existing)
 	} else if _, err := h.Store.MoveConfigDirectory(req.ConfigID, req.ValueDirectoryID); err != nil {
 		return nil, mapConfigStoreErr(err)
 	}
-	meta, ok := h.Store.GetConfigMeta(req.ConfigID)
+	meta, ok := h.Store.GetConfig(req.ConfigID)
 	if !ok {
 		return nil, UserConfigNotFoundErr
 	}
-	h.Store.NotifyConfigMetaUpdate(*meta)
+	h.Store.NotifyConfigUpdate(meta)
 	return meta, nil
 }
 
@@ -168,9 +166,9 @@ func (h *Handler) PostV1ConfigsDelete(ctx apigen.Context, req *apigen.ConfigDele
 	if req.ConfigID == 0 {
 		return UserConfigIDRequiredErr
 	}
-	if existing, ok := h.Store.GetConfigMeta(req.ConfigID); !ok {
+	if existing, ok := h.Store.GetConfig(req.ConfigID); !ok {
 		return UserConfigNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vDelete, eConfig, int64(existing.SpaceID), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vDelete, eConfig, int64(existing.SpaceID()), int64(existing.ID), UserConfigNotFoundErr); err != nil {
 		return err
 	}
 	ids := int32Set(h.Store.ConfigVersionIDs(req.ConfigID))
@@ -184,6 +182,6 @@ func (h *Handler) PostV1ConfigsDelete(ctx apigen.Context, req *apigen.ConfigDele
 	if !ok {
 		return UserConfigNotFoundErr
 	}
-	h.Store.NotifyConfigMetaUpdate(*meta)
+	h.Store.NotifyConfigUpdate(meta)
 	return nil
 }

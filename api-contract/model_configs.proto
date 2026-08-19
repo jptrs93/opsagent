@@ -6,31 +6,40 @@ import "api-contract/options.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-// A config is a stable identity (space, directory, name) whose plaintext
-// values live in immutable numbered versions. Deployment env refs and system
-// settings pin config *version* row ids; the config id is what survives
-// renames, moves, and new versions. Configs and secrets share one file system
-// per space.
-
-// ConfigMeta is one config: the stable identity plus its version index with
-// values. Latest version facts live in version_refs[0], never at the root.
-message ConfigMeta {
-  string name = 1;
-  reserved 2, 3, 5, 6, 10, 12;
-  reserved "value", "updated_by", "version", "author";
-  int64 created_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"]; // config creation time
-  int32 id = 7;            // stable config id
-  bool deleted = 8;
-  int32 space_id = 9;
-  int32 value_directory_id = 11; // 0 = the implicit root directory
-  // Every version, NEWEST FIRST — version_refs[0] is the latest.
-  repeated ConfigVersionMeta version_refs = 13;
+// A config is a stable identity whose plaintext values live in immutable
+// numbered versions. Deployment env refs and system settings pin value
+// *version* row ids; the config id is what survives renames, moves, and new
+// versions. Configs and secrets share one file system per space.
+message Config {
+  int32 id = 1;
+  int64 deleted_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"]; // 0 = live
+  ConfigFs fs = 3;
+  // Append-only space log, NEWEST FIRST — [0] is the current space.
+  repeated ConfigSpaceVersion space_versions = 4;
+  // Append-only value log, NEWEST FIRST — [0] is the latest version.
+  // Deployment env refs and settings pin these row ids. Always non-empty in
+  // lists: a config with no version is never listed.
+  repeated ConfigValueVersion value_versions = 5;
 }
 
-message ConfigVersionMeta {
-  int32 id = 1;            // version row id — what env refs and settings pin
-  int32 version = 2;       // version number
-  string value = 3;        // plaintext value; not encrypted at rest
+message ConfigFs {
+  string name = 1;
+  int32 directory_id = 2; // 0 = the implicit space root
+}
+
+message ConfigSpaceVersion {
+  int32 id = 1;
+  int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int32 author = 3;   // user id; 0 = unknown/system, negative = agent of user -author
+  int32 space_id = 4;
+  int64 global_seq = 5;
+}
+
+message ConfigValueVersion {
+  int32 id = 1;       // version row id — what env refs and settings pin
+  int32 version = 2;
+  string value = 3;   // plaintext value; not encrypted at rest
   int64 created_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int32 author = 5;    // user id that created this version; 0 = unknown/system, negative = agent of user -author
+  int32 author = 5;   // user id; 0 = unknown/system, negative = agent of user -author
+  int64 global_seq = 6;
 }

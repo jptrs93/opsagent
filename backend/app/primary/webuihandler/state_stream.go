@@ -28,9 +28,9 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 		defer secretStatusUnsub()
 		configSub := h.ConfigService.VersionedSnapshotAndSubscribe()
 		defer configSub.UnsubscribeFunc()
-		secretMetaSub, secretMetaUnsub := h.Store.SubscribeSecretMetaUpdates()
+		secretMetaSub, secretMetaUnsub := h.Store.SubscribeSecretUpdates()
 		defer secretMetaUnsub()
-		userConfigSub, userConfigUnsub := h.Store.SubscribeConfigMetaUpdates()
+		userConfigSub, userConfigUnsub := h.Store.SubscribeConfigUpdates()
 		defer userConfigUnsub()
 		valueDirSub, valueDirUnsub := h.Store.SubscribeValueDirectoryUpdates()
 		defer valueDirUnsub()
@@ -131,8 +131,8 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				UsersSnapshot:              h.filterUsers(ctx, h.Store.ListUsersPublic()),
 				EnrollmentsSnapshot:        visibleEnrollments,
 				SecretsStatusSnapshot:      &secretStatus,
-				SecretMetasSnapshot:        &apigen.SecretList{Items: h.filterSecretMetas(ctx, h.Store.ListSecretMetas())},
-				UserConfigValuesSnapshot:   &apigen.ConfigList{Items: h.filterConfigMetas(ctx, h.Store.ListConfigMetas())},
+				SecretMetasSnapshot:        &apigen.SecretList{Items: h.filterSecrets(ctx, h.Store.ListSecrets())},
+				UserConfigValuesSnapshot:   &apigen.ConfigList{Items: h.filterConfigs(ctx, h.Store.ListConfigs())},
 				ValueDirectoriesSnapshot:   &apigen.ValueDirectoryList{Items: h.filterValueDirectories(ctx, h.Store.ListValueDirectories())},
 				SpacesSnapshot:             &apigen.SpaceList{Items: h.filterSpaces(ctx, h.Store.ListSpaces())},
 				AssetsSnapshot:             &apigen.AssetList{Items: h.filterAssets(ctx, h.Store.ListAssets())},
@@ -232,7 +232,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
-				if !h.canAccess(ctx, vView, eSecret, int64(secretMeta.SpaceID), int64(secretMeta.ID)) {
+				if !h.canAccess(ctx, vView, eSecret, int64(secretMeta.SpaceID()), int64(secretMeta.ID)) {
 					continue
 				}
 				if !yield(&apigen.State{SecretMetaUpdate: &secretMeta}, nil) {
@@ -242,7 +242,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok {
 					return
 				}
-				if !h.canAccess(ctx, vView, eConfig, int64(userConfig.SpaceID), int64(userConfig.ID)) {
+				if !h.canAccess(ctx, vView, eConfig, int64(userConfig.SpaceID()), int64(userConfig.ID)) {
 					continue
 				}
 				if !yield(&apigen.State{UserConfigValueUpdate: &userConfig}, nil) {

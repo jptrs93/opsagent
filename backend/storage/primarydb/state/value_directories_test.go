@@ -286,7 +286,7 @@ func TestMoveConfigDirectory(t *testing.T) {
 	}
 
 	// Version rows are untouched: the pinned version id still resolves.
-	versionID := cfg.VersionRefs[0].ID
+	versionID := cfg.ValueVersions[0].ID
 	ref, ok := store.GetConfigVersionByID(versionID)
 	if !ok || ref.ConfigID != cfg.ID || ref.Value != "info" {
 		t.Fatalf("version after move = %+v ok=%v", ref, ok)
@@ -349,9 +349,9 @@ func TestMoveSecretSpace(t *testing.T) {
 	if err := store.MoveSecretSpace(sec.SecretID, 2, 0, 1); err != nil {
 		t.Fatalf("space move: %v", err)
 	}
-	meta, ok := store.GetSecretMeta(sec.SecretID)
-	if !ok || meta.SpaceID != 2 || meta.ValueDirectoryID != 0 {
-		t.Fatalf("meta after move = %+v ok=%v", meta, ok)
+	moved, ok := store.GetSecret(sec.SecretID)
+	if !ok || moved.SpaceID() != 2 || moved.Fs.DirectoryID != 0 {
+		t.Fatalf("secret after move = %+v ok=%v", moved, ok)
 	}
 	// Version rows are untouched: the pinned version id still resolves.
 	if got := store.SecretVersionIDs(sec.SecretID); len(got) != 1 || got[0] != sec.ID {
@@ -378,9 +378,9 @@ func TestMoveSecretSpace(t *testing.T) {
 	if err := store.MoveSecretSpace(dup.SecretID, 2, int32(destDir.ID), 1); err != nil {
 		t.Fatalf("space move into directory: %v", err)
 	}
-	meta, ok = store.GetSecretMeta(dup.SecretID)
-	if !ok || meta.SpaceID != 2 || meta.ValueDirectoryID != int32(destDir.ID) {
-		t.Fatalf("meta after directory move = %+v ok=%v", meta, ok)
+	moved, ok = store.GetSecret(dup.SecretID)
+	if !ok || moved.SpaceID() != 2 || moved.Fs.DirectoryID != int32(destDir.ID) {
+		t.Fatalf("secret after directory move = %+v ok=%v", moved, ok)
 	}
 }
 
@@ -401,11 +401,11 @@ func TestMoveConfigSpace(t *testing.T) {
 	if err := store.MoveConfigSpace(cfg.ID, 2, 0, 1); err != nil {
 		t.Fatalf("space move: %v", err)
 	}
-	meta, ok := store.GetConfigMeta(cfg.ID)
-	if !ok || meta.SpaceID != 2 || meta.ValueDirectoryID != 0 {
-		t.Fatalf("meta after move = %+v ok=%v", meta, ok)
+	moved, ok := store.GetConfig(cfg.ID)
+	if !ok || moved.SpaceID() != 2 || moved.Fs.DirectoryID != 0 {
+		t.Fatalf("config after move = %+v ok=%v", moved, ok)
 	}
-	versionID := cfg.VersionRefs[0].ID
+	versionID := cfg.ValueVersions[0].ID
 	if ref, ok := store.GetConfigVersionByID(versionID); !ok || ref.Value != "info" {
 		t.Fatalf("version after move = %+v ok=%v", ref, ok)
 	}
@@ -479,15 +479,15 @@ func TestListValueDirectoriesAndCreateInDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create secret in directory: %v", err)
 	}
-	if meta, _ := store.GetSecretMeta(sec.SecretID); meta.ValueDirectoryID != int32(a.ID) {
-		t.Fatalf("secret directory = %d, want %d", meta.ValueDirectoryID, a.ID)
+	if created, _ := store.GetSecret(sec.SecretID); created.Fs.DirectoryID != int32(a.ID) {
+		t.Fatalf("secret directory = %d, want %d", created.Fs.DirectoryID, a.ID)
 	}
 	cfg, err := store.CreateConfigWithVersion("level", DefaultSpaceID, int32(a.ID), 0, "info")
 	if err != nil {
 		t.Fatalf("create config in directory: %v", err)
 	}
-	if cfg.ValueDirectoryID != int32(a.ID) {
-		t.Fatalf("config directory = %d, want %d", cfg.ValueDirectoryID, a.ID)
+	if cfg.Fs.DirectoryID != int32(a.ID) {
+		t.Fatalf("config directory = %d, want %d", cfg.Fs.DirectoryID, a.ID)
 	}
 	// A directory in another space does not exist from this space's viewpoint.
 	if _, err := store.CreateConfigWithVersion("x", DefaultSpaceID, int32(b.ID), 0, "v"); !errors.Is(err, ErrValueDirectoryNotFound) {

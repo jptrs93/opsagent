@@ -46,9 +46,9 @@ message State {
   reserved "secrets_snapshot", "secret_update", "user_configs_snapshot", "user_config_update";
   SecretsStatusResponse secrets_status_snapshot = 16;
   SecretList secret_metas_snapshot = 17;
-  SecretMeta secret_meta_update = 18;
+  Secret secret_meta_update = 18;
   ConfigList user_config_values_snapshot = 19;
-  ConfigMeta user_config_value_update = 20;
+  Config user_config_value_update = 20;
   SpaceList spaces_snapshot = 21;
   Space space_update = 22;
   AssetList assets_snapshot = 23;

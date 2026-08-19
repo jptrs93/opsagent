@@ -18,7 +18,7 @@ import (
 
 const generatorSymbols = "!@#$%^&*()-_=+[]{}"
 
-func generateSecret(t *testing.T, h *Handler, user *apigen.InternalUser, req *apigen.SecretGenerateRequest) (*apigen.SecretMeta, error) {
+func generateSecret(t *testing.T, h *Handler, user *apigen.InternalUser, req *apigen.SecretGenerateRequest) (*apigen.Secret, error) {
 	t.Helper()
 	return h.PostV1SecretsGenerate(apigen.Context{Ctx: context.Background(), User: user}, req)
 }
@@ -33,17 +33,17 @@ func TestGenerateSecretStoresAValueTheCallerNeverSees(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1SecretsGenerate: %v", err)
 	}
-	if meta.Name != "db-password" || meta.ID == 0 || len(meta.VersionRefs) != 1 {
-		t.Fatalf("meta = %+v, want a named secret with an id and one version", meta)
+	if meta.Fs.Name != "db-password" || meta.ID == 0 || len(meta.Versions) != 1 {
+		t.Fatalf("secret = %+v, want a named secret with an id and one version", meta)
 	}
-	if meta.VersionRefs[0].Author != user.ID {
-		t.Fatalf("Author = %d, want the approving operator %d", meta.VersionRefs[0].Author, user.ID)
+	if meta.Versions[0].Author != user.ID {
+		t.Fatalf("Author = %d, want the approving operator %d", meta.Versions[0].Author, user.ID)
 	}
 
 	// The response type has no value field at all, so the only way to confirm
 	// something real was stored is to go and reveal it.
 	revealed, err := h.PostV1SecretsReveal(apigen.Context{Ctx: context.Background(), User: user},
-		&apigen.SecretRevealRequest{ID: meta.VersionRefs[0].ID})
+		&apigen.SecretRevealRequest{ID: meta.Versions[0].ID})
 	if err != nil {
 		t.Fatalf("PostV1SecretsReveal: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestGenerateSecretHonoursTheSpecification(t *testing.T) {
 		t.Fatalf("PostV1SecretsGenerate: %v", err)
 	}
 	revealed, err := h.PostV1SecretsReveal(apigen.Context{Ctx: context.Background(), User: user},
-		&apigen.SecretRevealRequest{ID: meta.VersionRefs[0].ID})
+		&apigen.SecretRevealRequest{ID: meta.Versions[0].ID})
 	if err != nil {
 		t.Fatalf("PostV1SecretsReveal: %v", err)
 	}
@@ -172,9 +172,9 @@ func TestGenerateSecretNeverEchoesTheValue(t *testing.T) {
 	if _, ok := generated["value"]; ok {
 		t.Fatalf("generate response carried a value: %#v", generated)
 	}
-	refs, _ := generated["version_refs"].([]any)
+	refs, _ := generated["versions"].([]any)
 	if len(refs) != 1 {
-		t.Fatalf("generate returned no version refs: %#v", generated)
+		t.Fatalf("generate returned no versions: %#v", generated)
 	}
 	versionID, _ := refs[0].(map[string]any)["id"].(float64)
 	if versionID == 0 {

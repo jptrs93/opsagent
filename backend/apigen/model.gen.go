@@ -171,14 +171,14 @@ const (
 type EmptyRequest struct {
 }
 
-type ContainerReadinessSignal struct {
-	TimeoutSeconds int32 `json:"timeout_seconds"`
-}
-
 type PortForward struct {
 	Protocol      PortForwardProtocol `json:"protocol"`
 	HostPort      int32               `json:"host_port"`
 	ContainerPort int32               `json:"container_port"`
+}
+
+type ContainerReadinessSignal struct {
+	TimeoutSeconds int32 `json:"timeout_seconds"`
 }
 
 type AcmeCertSource struct {
@@ -609,25 +609,37 @@ type LogSearchRequest struct {
 	TargetNodeID  int32             `json:"target_node_id"`
 }
 
-type SecretMeta struct {
-	Name             string               `json:"name,omitempty"`
-	CreatedAt        time.Time            `json:"created_at"`
-	ID               int32                `json:"id"`
-	Deleted          bool                 `json:"deleted"`
-	SpaceID          int32                `json:"space_id"`
-	ValueDirectoryID int32                `json:"value_directory_id"`
-	VersionRefs      []*SecretVersionMeta `json:"version_refs,omitempty"`
+type Secret struct {
+	ID            int32                 `json:"id"`
+	DeletedAt     time.Time             `json:"deleted_at"`
+	Fs            *SecretFs             `json:"fs"`
+	SpaceVersions []*SecretSpaceVersion `json:"space_versions,omitempty"`
+	Versions      []*SecretVersion      `json:"versions,omitempty"`
 }
 
-type SecretVersionMeta struct {
+type SecretFs struct {
+	Name        string `json:"name,omitempty"`
+	DirectoryID int32  `json:"directory_id"`
+}
+
+type SecretSpaceVersion struct {
+	ID        int32     `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	Author    int32     `json:"author"`
+	SpaceID   int32     `json:"space_id"`
+	GlobalSeq int64     `json:"global_seq"`
+}
+
+type SecretVersion struct {
 	ID        int32     `json:"id"`
 	Version   int32     `json:"version"`
 	CreatedAt time.Time `json:"created_at"`
 	Author    int32     `json:"author"`
+	GlobalSeq int64     `json:"global_seq"`
 }
 
 type SecretList struct {
-	Items []*SecretMeta `json:"items,omitempty"`
+	Items []*Secret `json:"items,omitempty"`
 }
 
 type SecretCreateRequest struct {
@@ -638,10 +650,10 @@ type SecretCreateRequest struct {
 }
 
 type SecretSetRequest struct {
+	SecretID                     int32                         `json:"secret_id"`
 	Value                        []byte                        `json:"value"`
 	UpdateReferencingDeployments bool                          `json:"update_referencing_deployments"`
 	ReferencingDeployments       []*DeploymentConfigVersionRef `json:"referencing_deployments,omitempty"`
-	SecretID                     int32                         `json:"secret_id"`
 }
 
 type SecretPasswordSpec struct {
@@ -656,8 +668,8 @@ type SecretGenerateRequest struct {
 }
 
 type SecretRenameRequest struct {
-	NewName  string `json:"new_name,omitempty"`
 	SecretID int32  `json:"secret_id"`
+	NewName  string `json:"new_name,omitempty"`
 }
 
 type SecretMoveRequest struct {
@@ -691,26 +703,38 @@ type SecretUnlockRequest struct {
 	Code string `json:"code,omitempty"`
 }
 
-type ConfigMeta struct {
-	Name             string               `json:"name,omitempty"`
-	CreatedAt        time.Time            `json:"created_at"`
-	ID               int32                `json:"id"`
-	Deleted          bool                 `json:"deleted"`
-	SpaceID          int32                `json:"space_id"`
-	ValueDirectoryID int32                `json:"value_directory_id"`
-	VersionRefs      []*ConfigVersionMeta `json:"version_refs,omitempty"`
+type Config struct {
+	ID            int32                 `json:"id"`
+	DeletedAt     time.Time             `json:"deleted_at"`
+	Fs            *ConfigFs             `json:"fs"`
+	SpaceVersions []*ConfigSpaceVersion `json:"space_versions,omitempty"`
+	ValueVersions []*ConfigValueVersion `json:"value_versions,omitempty"`
 }
 
-type ConfigVersionMeta struct {
+type ConfigFs struct {
+	Name        string `json:"name,omitempty"`
+	DirectoryID int32  `json:"directory_id"`
+}
+
+type ConfigSpaceVersion struct {
+	ID        int32     `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	Author    int32     `json:"author"`
+	SpaceID   int32     `json:"space_id"`
+	GlobalSeq int64     `json:"global_seq"`
+}
+
+type ConfigValueVersion struct {
 	ID        int32     `json:"id"`
 	Version   int32     `json:"version"`
 	Value     string    `json:"value,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	Author    int32     `json:"author"`
+	GlobalSeq int64     `json:"global_seq"`
 }
 
 type ConfigList struct {
-	Items []*ConfigMeta `json:"items,omitempty"`
+	Items []*Config `json:"items,omitempty"`
 }
 
 type ConfigCreateRequest struct {
@@ -721,15 +745,15 @@ type ConfigCreateRequest struct {
 }
 
 type ConfigSetRequest struct {
+	ConfigID                     int32                         `json:"config_id"`
 	Value                        string                        `json:"value,omitempty"`
 	UpdateReferencingDeployments bool                          `json:"update_referencing_deployments"`
 	ReferencingDeployments       []*DeploymentConfigVersionRef `json:"referencing_deployments,omitempty"`
-	ConfigID                     int32                         `json:"config_id"`
 }
 
 type ConfigRenameRequest struct {
-	NewName  string `json:"new_name,omitempty"`
 	ConfigID int32  `json:"config_id"`
+	NewName  string `json:"new_name,omitempty"`
 }
 
 type ConfigDeleteRequest struct {
@@ -777,21 +801,9 @@ type AssetList struct {
 	Items []*Asset `json:"items,omitempty"`
 }
 
-type AssetCreateRequest struct {
-	Key              string `json:"key,omitempty"`
-	SpaceID          int32  `json:"space_id"`
-	Blob             []byte `json:"blob"`
-	AssetDirectoryID int32  `json:"asset_directory_id"`
-}
-
-type AssetSetRequest struct {
-	Blob    []byte `json:"blob"`
-	AssetID int32  `json:"asset_id"`
-}
-
 type AssetRenameRequest struct {
-	NewKey  string `json:"new_key,omitempty"`
 	AssetID int32  `json:"asset_id"`
+	NewKey  string `json:"new_key,omitempty"`
 }
 
 type AssetDeleteRequest struct {
@@ -1511,9 +1523,9 @@ type State struct {
 	EnrollmentUpdate           *EnrollmentRequestStatus   `json:"enrollment_update"`
 	SecretsStatusSnapshot      *SecretsStatusResponse     `json:"secrets_status_snapshot"`
 	SecretMetasSnapshot        *SecretList                `json:"secret_metas_snapshot"`
-	SecretMetaUpdate           *SecretMeta                `json:"secret_meta_update"`
+	SecretMetaUpdate           *Secret                    `json:"secret_meta_update"`
 	UserConfigValuesSnapshot   *ConfigList                `json:"user_config_values_snapshot"`
-	UserConfigValueUpdate      *ConfigMeta                `json:"user_config_value_update"`
+	UserConfigValueUpdate      *Config                    `json:"user_config_value_update"`
 	SpacesSnapshot             *SpaceList                 `json:"spaces_snapshot"`
 	SpaceUpdate                *Space                     `json:"space_update"`
 	AssetsSnapshot             *AssetList                 `json:"assets_snapshot"`

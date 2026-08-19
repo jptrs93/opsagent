@@ -23,22 +23,46 @@ func secretVersionRecord(identity Secret, v pq.SecretVersion) secrets.Record {
 	}
 }
 
-func secretMetaFromRow(sec Secret, refs []*apigen.SecretVersionMeta) *apigen.SecretMeta {
-	return &apigen.SecretMeta{
-		ID:               int32(sec.ID),
-		Name:             sec.Name,
-		SpaceID:          int32(sec.SpaceID),
-		ValueDirectoryID: int32(sec.ValueDirectoryID),
-		CreatedAt:        time.UnixMilli(sec.CreatedAt),
-		VersionRefs:      refs,
+// secretFromParts builds the wire shape: identity at the root, the space and
+// version logs newest first. spaces and versions must be oldest first (query
+// order); versions must be non-empty — a secret with no version is never
+// surfaced.
+func secretFromParts(sec Secret, spaces []pq.SecretSpace, versions []pq.ListSecretVersionMetasRow) *apigen.Secret {
+	svs := make([]*apigen.SecretSpaceVersion, 0, len(spaces))
+	for i := len(spaces) - 1; i >= 0; i-- {
+		svs = append(svs, secretSpaceVersionFromRow(spaces[i]))
+	}
+	vs := make([]*apigen.SecretVersion, 0, len(versions))
+	for i := len(versions) - 1; i >= 0; i-- {
+		vs = append(vs, secretVersionFromRow(versions[i]))
+	}
+	return &apigen.Secret{
+		ID: int32(sec.ID),
+		Fs: &apigen.SecretFs{
+			Name:        sec.Name,
+			DirectoryID: int32(sec.ValueDirectoryID),
+		},
+		SpaceVersions: svs,
+		Versions:      vs,
 	}
 }
 
-func secretVersionMetaFromRow(v pq.ListSecretVersionMetasRow) *apigen.SecretVersionMeta {
-	return &apigen.SecretVersionMeta{
+func secretSpaceVersionFromRow(r pq.SecretSpace) *apigen.SecretSpaceVersion {
+	return &apigen.SecretSpaceVersion{
+		ID:        int32(r.ID),
+		CreatedAt: time.UnixMilli(r.CreatedAt),
+		Author:    int32(r.Author),
+		SpaceID:   int32(r.SpaceID),
+		GlobalSeq: r.GlobalSeq,
+	}
+}
+
+func secretVersionFromRow(v pq.ListSecretVersionMetasRow) *apigen.SecretVersion {
+	return &apigen.SecretVersion{
 		ID:        int32(v.ID),
 		Version:   int32(v.Version),
 		CreatedAt: time.UnixMilli(v.CreatedAt),
 		Author:    int32(v.Author),
+		GlobalSeq: v.GlobalSeq,
 	}
 }

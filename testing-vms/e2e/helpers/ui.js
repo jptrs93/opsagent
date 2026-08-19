@@ -1011,7 +1011,7 @@ export async function createAsset(page, {key, content} = {}) {
   await fillCodeEditor(page, `Content for asset ${key}`, content);
   const createResponse = page.waitForResponse(response => {
     const request = response.request();
-    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/assets/create';
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/assets/upload';
   }, {timeout: LONG_UI_TIMEOUT});
   await page.getByRole('button', {name: 'Create asset'}).click();
   expect((await createResponse).ok()).toBe(true);
@@ -1028,7 +1028,7 @@ export async function updateAsset(page, {key, content} = {}) {
   await fillCodeEditor(page, `Content for asset ${key}`, content);
   const response = page.waitForResponse(res => {
     const request = res.request();
-    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/assets/set';
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/assets/upload';
   }, {timeout: LONG_UI_TIMEOUT});
   await page.getByRole('button', {name: /Save version \d+/}).click();
   expect((await response).ok()).toBe(true);
@@ -1286,7 +1286,7 @@ export async function verifyAssetDirectoryExplorer(page) {
     await fillCodeEditor(page, 'Content for asset e2e-dir-asset.txt', 'dir-asset-content');
     const createResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/assets/create';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/assets/upload';
     }, {timeout: LONG_UI_TIMEOUT});
     await page.getByRole('button', {name: 'Create asset'}).click();
     expect((await createResponse).ok()).toBe(true);

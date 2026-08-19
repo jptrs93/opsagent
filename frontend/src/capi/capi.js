@@ -22,8 +22,8 @@ import {
   decodeClusterRenewCertificateResponse,
   decodeClusterSecretsResponse,
   decodeClusterSettings,
+  decodeConfig,
   decodeConfigList,
-  decodeConfigMeta,
   decodeDeploymentConfig,
   decodeDeploymentHistory,
   decodeDeploymentState,
@@ -42,8 +42,8 @@ import {
   decodePrepareOutputChunk,
   decodeRecentlyDeletedDeployments,
   decodeRepoValidateResponse,
+  decodeSecret,
   decodeSecretList,
-  decodeSecretMeta,
   decodeSecretRecoveryCodeResponse,
   decodeSecretRevealResponse,
   decodeSecretsStatusResponse,
@@ -56,7 +56,6 @@ import {
   encodeAgentSessionGetRequest,
   encodeAgentSessionRequestStartRequest,
   encodeAgentSessionRevokeRequest,
-  encodeAssetCreateRequest,
   encodeAssetDeleteRequest,
   encodeAssetDirectoryCreateRequest,
   encodeAssetDirectoryDeleteRequest,
@@ -64,7 +63,6 @@ import {
   encodeAssetDirectoryRenameRequest,
   encodeAssetMoveRequest,
   encodeAssetRenameRequest,
-  encodeAssetSetRequest,
   encodeAuthzGlobalRuleCreateRequest,
   encodeAuthzGlobalRuleDeleteRequest,
   encodeAuthzGrantCreateRequest,
@@ -870,62 +868,62 @@ export class Capi {
 
   /**
    * @param {SecretCreateRequest} payload
-   * @returns {Promise<SecretMeta>}
+   * @returns {Promise<Secret>}
    */
   async postV1SecretsCreate(payload) {
     const response = await this.#request("/v1/secrets/create", { method: 'POST', body: encodeSecretCreateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecretMeta(await response.arrayBuffer());
+    return decodeSecret(await response.arrayBuffer());
   }
 
   /**
    * @param {SecretSetRequest} payload
-   * @returns {Promise<SecretMeta>}
+   * @returns {Promise<Secret>}
    */
   async postV1SecretsSet(payload) {
     const response = await this.#request("/v1/secrets/set", { method: 'POST', body: encodeSecretSetRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecretMeta(await response.arrayBuffer());
+    return decodeSecret(await response.arrayBuffer());
   }
 
   /**
    * @param {SecretGenerateRequest} payload
-   * @returns {Promise<SecretMeta>}
+   * @returns {Promise<Secret>}
    */
   async postV1SecretsGenerate(payload) {
     const response = await this.#request("/v1/secrets/generate", { method: 'POST', body: encodeSecretGenerateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecretMeta(await response.arrayBuffer());
+    return decodeSecret(await response.arrayBuffer());
   }
 
   /**
    * @param {SecretRenameRequest} payload
-   * @returns {Promise<SecretMeta>}
+   * @returns {Promise<Secret>}
    */
   async postV1SecretsRename(payload) {
     const response = await this.#request("/v1/secrets/rename", { method: 'POST', body: encodeSecretRenameRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecretMeta(await response.arrayBuffer());
+    return decodeSecret(await response.arrayBuffer());
   }
 
   /**
    * @param {SecretMoveRequest} payload
-   * @returns {Promise<SecretMeta>}
+   * @returns {Promise<Secret>}
    */
   async postV1SecretsMove(payload) {
     const response = await this.#request("/v1/secrets/move", { method: 'POST', body: encodeSecretMoveRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecretMeta(await response.arrayBuffer());
+    return decodeSecret(await response.arrayBuffer());
   }
 
   /**
@@ -1002,38 +1000,38 @@ export class Capi {
 
   /**
    * @param {ConfigCreateRequest} payload
-   * @returns {Promise<ConfigMeta>}
+   * @returns {Promise<Config>}
    */
   async postV1ConfigsCreate(payload) {
     const response = await this.#request("/v1/configs/create", { method: 'POST', body: encodeConfigCreateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfigMeta(await response.arrayBuffer());
+    return decodeConfig(await response.arrayBuffer());
   }
 
   /**
    * @param {ConfigSetRequest} payload
-   * @returns {Promise<ConfigMeta>}
+   * @returns {Promise<Config>}
    */
   async postV1ConfigsSet(payload) {
     const response = await this.#request("/v1/configs/set", { method: 'POST', body: encodeConfigSetRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfigMeta(await response.arrayBuffer());
+    return decodeConfig(await response.arrayBuffer());
   }
 
   /**
    * @param {ConfigRenameRequest} payload
-   * @returns {Promise<ConfigMeta>}
+   * @returns {Promise<Config>}
    */
   async postV1ConfigsRename(payload) {
     const response = await this.#request("/v1/configs/rename", { method: 'POST', body: encodeConfigRenameRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfigMeta(await response.arrayBuffer());
+    return decodeConfig(await response.arrayBuffer());
   }
 
   /**
@@ -1050,14 +1048,14 @@ export class Capi {
 
   /**
    * @param {ConfigMoveRequest} payload
-   * @returns {Promise<ConfigMeta>}
+   * @returns {Promise<Config>}
    */
   async postV1ConfigsMove(payload) {
     const response = await this.#request("/v1/configs/move", { method: 'POST', body: encodeConfigMoveRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfigMeta(await response.arrayBuffer());
+    return decodeConfig(await response.arrayBuffer());
   }
 
   /**
@@ -1141,30 +1139,6 @@ export class Capi {
       return this.errorHandler(response);
     }
     await response.arrayBuffer();
-  }
-
-  /**
-   * @param {AssetCreateRequest} payload
-   * @returns {Promise<Asset>}
-   */
-  async postV1AssetsCreate(payload) {
-    const response = await this.#request("/v1/assets/create", { method: 'POST', body: encodeAssetCreateRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeAsset(await response.arrayBuffer());
-  }
-
-  /**
-   * @param {AssetSetRequest} payload
-   * @returns {Promise<Asset>}
-   */
-  async postV1AssetsSet(payload) {
-    const response = await this.#request("/v1/assets/set", { method: 'POST', body: encodeAssetSetRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeAsset(await response.arrayBuffer());
   }
 
   /**

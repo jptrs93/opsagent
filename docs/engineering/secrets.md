@@ -65,10 +65,10 @@ Values are decrypted during deployment preparation, cached on the node that
 runs the deployment — in memory, and additionally encrypted at rest on a
 secondary — and expanded at process spawn time. They never appear in stored
 deployment config, the UI state stream, the cluster replication feed, or logs.
-The state stream and list APIs carry `SecretMeta` / `ConfigMeta`: the identity
-at the root plus `version_refs`, NEWEST FIRST (`version_refs[0]` is the
-latest). Config version refs include the plaintext value; secret version refs
-never do.
+The state stream and list APIs carry `Secret` / `Config`: the identity at the
+root (`fs` name and directory plus the append-only `space_versions` log) and
+the version log, NEWEST FIRST (`[0]` is the latest). Config `value_versions`
+include the plaintext value; secret `versions` never do.
 
 A signed-in operator can also decrypt a single value on demand via the explicit
 `PostV1SecretsReveal` endpoint (surfaced as the per-row "Reveal" button in the
@@ -100,7 +100,7 @@ Two properties make that narrow permission safe:
   version rather than replacing one, so without this guard a caller could bury
   an operator's credential under a value that neither of them can read back.
   Rotation stays an operator action in the browser.
-- **Nothing is echoed.** The response is `SecretMeta`; the generated buffer is
+- **Nothing is echoed.** The response is `Secret` metadata; the generated buffer is
   zeroed once sealed.
 
 Passwords are drawn from the same alphabet as the browser generator
@@ -128,7 +128,7 @@ Key files:
   copy of the runtime inputs it needs.
 - `backend/storage/primarydb/state/secrets_store.go` — `secrets.Store` on the primary
   `StorageAdapter` (`secret_keyslots`, `secrets`, `secret_versions`, and
-  `system_secrets` tables, plus the `SecretMeta` builders). Sealing happens
+  `system_secrets` tables, plus the wire `Secret` builders). Sealing happens
   through a `secrets.SealFunc` callback inside the write transaction, because
   the id-and-version AAD needs the identity id before the ciphertext can exist.
 - `backend/storage/primarydb/state/values.go` — the shared secrets/configs namespace

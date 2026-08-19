@@ -3,7 +3,7 @@ import {capi} from "../capi/index.js";
 import {handleErr} from "../capi/err.js";
 import {decodeAsset} from "../capi/model.js";
 import {assetEditorOverlay, preloadAssetCodeEditor} from "../components/assetEditor.js";
-import {loadAssetPreview} from "../lib/assetContent.js";
+import {loadAssetPreview, uploadAsset} from "../lib/assetContent.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {formatDate, formatDateTime} from "../lib/date.js";
@@ -486,7 +486,7 @@ export function assetsPage() {
             uploadedKey.val = "";
             const params = target.mode === "version"
                 ? {asset_id: String(target.assetId)}
-                : {name, space_id: String(target.spaceId), directory_id: String(target.directoryId)};
+                : {key: name, unique_key: "1", space_id: String(target.spaceId), directory_id: String(target.directoryId)};
             const version = await uploadAssetFile(target.file, params, loginS.val?.token, (loaded, total) => {
                 uploadLoaded.val = loaded;
                 uploadTotal.val = total || target.file.size;
@@ -1451,12 +1451,12 @@ export function assetsPage() {
             // create request is overridden with whatever it is showing on save.
             createAsset: async (request) => {
                 const {spaceId, directoryId} = createDest.val;
-                const created = await capi.postV1AssetsCreate({...request, spaceId, assetDirectoryId: directoryId});
+                const created = await uploadAsset({key: request.key, space_id: Number(spaceId || 0), directory_id: Number(directoryId || 0)}, request.blob);
                 expandTo(spaceId, directoryId);
                 selectedKey.val = `asset:${created.id}`;
                 return created;
             },
-            saveVersion: (request) => capi.postV1AssetsSet(request),
+            saveVersion: (request) => uploadAsset({asset_id: Number(request.assetId)}, request.blob),
             // The editor is a modal here, so a successful save closes it like
             // the secrets value overlay; the saved asset stays selected in the
             // tree and the inspector carries the update.

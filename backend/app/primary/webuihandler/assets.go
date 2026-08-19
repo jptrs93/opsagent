@@ -23,17 +23,6 @@ var (
 	AssetAlreadyExistsErr = apigen.NewApiErr("Asset key already exists", "asset_key_exists", http.StatusBadRequest)
 )
 
-func validateUploadAssetName(raw string) (string, error) {
-	name := strings.TrimSpace(raw)
-	if name == "" {
-		return "", apigen.NewApiErr("Asset name is required", "asset_name_required", http.StatusBadRequest)
-	}
-	if !state.ValidAssetKey(name) {
-		return "", apigen.NewApiErr("Asset name is invalid", "asset_name_invalid", http.StatusBadRequest)
-	}
-	return name, nil
-}
-
 // uniqueAssetName suffixes name until it is free among the assets of the
 // target directory (0 = spaceID's root).
 func (h *Handler) uniqueAssetName(name string, spaceID, directoryID int32) string {
@@ -90,10 +79,10 @@ func (h *Handler) requireAssetAccess(ctx apigen.Context, verb apigen.AuthzVerb, 
 }
 
 // GetV1AssetsContent streams the raw bytes of one content version
-// (?contentVersionId=N). Metadata travels on the asset shapes; this route is
+// (?content_version_id=N). Metadata travels on the asset shapes; this route is
 // the only way content leaves the server on the web API.
 func (h *Handler) GetV1AssetsContent(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {
-	rawID := strings.TrimSpace(request.URL.Query().Get("contentVersionId"))
+	rawID := strings.TrimSpace(request.URL.Query().Get("content_version_id"))
 	parsed, err := strconv.ParseInt(rawID, 10, 32)
 	if err != nil || parsed <= 0 {
 		return apigen.NewApiErr("Content version id is required", "asset_content_version_id_required", http.StatusBadRequest)
@@ -118,93 +107,73 @@ func (h *Handler) GetV1AssetsContent(ctx apigen.Context, request *http.Request, 
 	return nil
 }
 
-func (h *Handler) PostV1AssetsCreate(ctx apigen.Context, req *apigen.AssetCreateRequest) (*apigen.Asset, error) {
-	key := strings.TrimSpace(req.Key)
-	if key == "" {
-		return nil, AssetKeyRequiredErr
-	}
-	if err := h.requireAccess(ctx, vCreate, eAsset, valueSpace(req.SpaceID), 0); err != nil {
-		return nil, err
-	}
-	asset, err := h.Assets.CreateAsset(ctx, key, req.SpaceID, req.AssetDirectoryID, requestUserID(ctx), req.Blob)
-	if err != nil {
-		return nil, mapAssetStoreErr(err)
-	}
-	return asset, nil
-}
-
-func (h *Handler) PostV1AssetsSet(ctx apigen.Context, req *apigen.AssetSetRequest) (*apigen.Asset, error) {
-	if req.AssetID <= 0 {
-		return nil, AssetIDRequiredErr
-	}
-	if err := h.requireAssetAccess(ctx, vUpdate, req.AssetID); err != nil {
-		return nil, err
-	}
-	asset, err := h.Assets.AppendAssetVersion(ctx, req.AssetID, requestUserID(ctx), req.Blob)
-	if err != nil {
-		return nil, mapAssetStoreErr(err)
-	}
-	return asset, nil
-}
-
 func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {
-	query := request.URL.Query()
-	if request.ContentLength < 0 {
-		return apigen.NewApiErr("Asset upload requires a Content-Length header", "asset_upload_content_length_required", http.StatusBadRequest)
-	}
-	if request.ContentLength > math.MaxInt32 {
-		return apigen.NewApiErr("Asset upload is too large", "asset_upload_too_large", http.StatusBadRequest)
-	}
-
-	// The two target params mean different things. "asset_id" appends the next
-	// version of that exact asset. "name" asks for a new asset and gets a
-	// numeric suffix if that name is taken in the target space's root, which is
-	// what the web UI's file picker wants.
-	var (
-		asset *apigen.Asset
-		err   error
-	)
-	if rawAssetID := strings.TrimSpace(query.Get("asset_id")); rawAssetID != "" {
-		parsed, parseErr := strconv.ParseInt(rawAssetID, 10, 32)
-		if parseErr != nil || parsed <= 0 {
-			return apigen.NewApiErr("Asset id is invalid", "asset_id_invalid", http.StatusBadRequest)
-		}
-		if accessErr := h.requireAssetAccess(ctx, vUpdate, int32(parsed)); accessErr != nil {
-			return accessErr
-		}
-		asset, err = h.Assets.AppendAssetVersionFromReader(ctx, int32(parsed), requestUserID(ctx), request.ContentLength, request.Body)
-	} else {
-		name, nameErr := validateUploadAssetName(query.Get("name"))
-		if nameErr != nil {
-			return nameErr
-		}
-		var spaceID int32
-		if rawSpaceID := strings.TrimSpace(query.Get("space_id")); rawSpaceID != "" {
-			parsed, parseErr := strconv.ParseInt(rawSpaceID, 10, 32)
-			if parseErr != nil {
-				return apigen.NewApiErr("Asset space ID is invalid", "asset_space_id_invalid", http.StatusBadRequest)
-			}
-			spaceID = int32(parsed)
-		}
-		var directoryID int32
-		if rawDirectoryID := strings.TrimSpace(query.Get("directory_id")); rawDirectoryID != "" {
-			parsed, parseErr := strconv.ParseInt(rawDirectoryID, 10, 32)
-			if parseErr != nil || parsed < 0 {
-				return apigen.NewApiErr("Asset directory ID is invalid", "asset_directory_id_invalid", http.StatusBadRequest)
-			}
-			directoryID = int32(parsed)
-		}
-		if accessErr := h.requireAccess(ctx, vCreate, eAsset, valueSpace(spaceID), 0); accessErr != nil {
-			return accessErr
-		}
-		key := h.uniqueAssetName(name, spaceID, directoryID)
-		asset, err = h.Assets.CreateAssetFromReader(ctx, key, spaceID, directoryID, requestUserID(ctx), request.ContentLength, request.Body)
-	}
+	asset, err := h.uploadAsset(ctx, request)
 	if err != nil {
-		return mapAssetStoreErr(err)
+		return err
 	}
 	apigen.Respond(ctx, request, writer, asset, nil)
 	return nil
+}
+
+func (h *Handler) uploadAsset(ctx apigen.Context, request *http.Request) (*apigen.Asset, error) {
+	query := request.URL.Query()
+	if request.ContentLength < 0 {
+		return nil, apigen.NewApiErr("Asset upload requires a Content-Length header", "asset_upload_content_length_required", http.StatusBadRequest)
+	}
+	if request.ContentLength > math.MaxInt32 {
+		return nil, apigen.NewApiErr("Asset upload is too large", "asset_upload_too_large", http.StatusBadRequest)
+	}
+
+	if rawAssetID := strings.TrimSpace(query.Get("asset_id")); rawAssetID != "" {
+		parsed, parseErr := strconv.ParseInt(rawAssetID, 10, 32)
+		if parseErr != nil || parsed <= 0 {
+			return nil, apigen.NewApiErr("Asset id is invalid", "asset_id_invalid", http.StatusBadRequest)
+		}
+		if err := h.requireAssetAccess(ctx, vUpdate, int32(parsed)); err != nil {
+			return nil, err
+		}
+		asset, err := h.Assets.AppendAssetVersionFromReader(ctx, int32(parsed), requestUserID(ctx), request.ContentLength, request.Body)
+		if err != nil {
+			return nil, mapAssetStoreErr(err)
+		}
+		return asset, nil
+	}
+
+	key := strings.TrimSpace(query.Get("key"))
+	if key == "" {
+		return nil, AssetKeyRequiredErr
+	}
+	if !state.ValidAssetKey(key) {
+		return nil, AssetKeyInvalidErr
+	}
+	var spaceID int32
+	if rawSpaceID := strings.TrimSpace(query.Get("space_id")); rawSpaceID != "" {
+		parsed, parseErr := strconv.ParseInt(rawSpaceID, 10, 32)
+		if parseErr != nil {
+			return nil, apigen.NewApiErr("Asset space ID is invalid", "asset_space_id_invalid", http.StatusBadRequest)
+		}
+		spaceID = int32(parsed)
+	}
+	var directoryID int32
+	if rawDirectoryID := strings.TrimSpace(query.Get("directory_id")); rawDirectoryID != "" {
+		parsed, parseErr := strconv.ParseInt(rawDirectoryID, 10, 32)
+		if parseErr != nil || parsed < 0 {
+			return nil, apigen.NewApiErr("Asset directory ID is invalid", "asset_directory_id_invalid", http.StatusBadRequest)
+		}
+		directoryID = int32(parsed)
+	}
+	if err := h.requireAccess(ctx, vCreate, eAsset, valueSpace(spaceID), 0); err != nil {
+		return nil, err
+	}
+	if uniqueKey, _ := strconv.ParseBool(query.Get("unique_key")); uniqueKey {
+		key = h.uniqueAssetName(key, spaceID, directoryID)
+	}
+	asset, err := h.Assets.CreateAssetFromReader(ctx, key, spaceID, directoryID, requestUserID(ctx), request.ContentLength, request.Body)
+	if err != nil {
+		return nil, mapAssetStoreErr(err)
+	}
+	return asset, nil
 }
 
 func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRenameRequest) (*apigen.Asset, error) {

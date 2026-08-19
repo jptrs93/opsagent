@@ -175,11 +175,11 @@ Workers use `EnrollmentV1` only when local cluster CA/cert/key material is missi
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/secrets/list` | — | `SecretList` | ANY_OF default |
-| POST | `/v1/secrets/create` | `SecretCreateRequest` | `SecretMeta` | ANY_OF default |
-| POST | `/v1/secrets/set` | `SecretSetRequest` | `SecretMeta` | ANY_OF default |
-| POST | `/v1/secrets/generate` | `SecretGenerateRequest` | `SecretMeta` | ANY_OF default |
-| POST | `/v1/secrets/rename` | `SecretRenameRequest` | `SecretMeta` | ANY_OF default |
-| POST | `/v1/secrets/move` | `SecretMoveRequest` | `SecretMeta` | ANY_OF default |
+| POST | `/v1/secrets/create` | `SecretCreateRequest` | `Secret` | ANY_OF default |
+| POST | `/v1/secrets/set` | `SecretSetRequest` | `Secret` | ANY_OF default |
+| POST | `/v1/secrets/generate` | `SecretGenerateRequest` | `Secret` | ANY_OF default |
+| POST | `/v1/secrets/rename` | `SecretRenameRequest` | `Secret` | ANY_OF default |
+| POST | `/v1/secrets/move` | `SecretMoveRequest` | `Secret` | ANY_OF default |
 | POST | `/v1/secrets/reveal` | `SecretRevealRequest` | `SecretRevealResponse` | ANY_OF default |
 | POST | `/v1/secrets/delete` | `SecretDeleteRequest` | — | ANY_OF default |
 | POST | `/v1/secrets/status` | — | `SecretsStatusResponse` | ANY_OF default |
@@ -198,10 +198,10 @@ User-managed configs and encrypted secrets are immutable versioned rows. Setting
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/configs/list` | — | `ConfigList` | ANY_OF default |
-| POST | `/v1/configs/create` | `ConfigCreateRequest` | `ConfigMeta` | ANY_OF default |
-| POST | `/v1/configs/set` | `ConfigSetRequest` | `ConfigMeta` | ANY_OF default |
-| POST | `/v1/configs/rename` | `ConfigRenameRequest` | `ConfigMeta` | ANY_OF default |
-| POST | `/v1/configs/move` | `ConfigMoveRequest` | `ConfigMeta` | ANY_OF default |
+| POST | `/v1/configs/create` | `ConfigCreateRequest` | `Config` | ANY_OF default |
+| POST | `/v1/configs/set` | `ConfigSetRequest` | `Config` | ANY_OF default |
+| POST | `/v1/configs/rename` | `ConfigRenameRequest` | `Config` | ANY_OF default |
+| POST | `/v1/configs/move` | `ConfigMoveRequest` | `Config` | ANY_OF default |
 | POST | `/v1/configs/delete` | `ConfigDeleteRequest` | — | ANY_OF default |
 
 ### Value directories
@@ -219,15 +219,13 @@ The shared secrets/configs folder tree; see [secrets.md](secrets.md).
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/assets/list` | — | `AssetList` | ANY_OF default |
-| GET | `/v1/assets/content` | `contentVersionId` query param | raw content bytes | ANY_OF default |
-| POST | `/v1/assets/create` | `AssetCreateRequest` | `Asset` | ANY_OF default |
-| POST | `/v1/assets/set` | `AssetSetRequest` | `Asset` | ANY_OF default |
-| POST | `/v1/assets/upload` | raw file body, `asset_id` or `name` plus `space_id`/`directory_id` query params | `Asset` | ANY_OF default |
+| GET | `/v1/assets/content` | `content_version_id` query param | raw content bytes | ANY_OF default |
+| POST | `/v1/assets/upload` | raw file body, `asset_id` or `key` plus `space_id`/`directory_id`/`unique_key` query params | `Asset` | ANY_OF default |
 | POST | `/v1/assets/rename` | `AssetRenameRequest` | `Asset` | ANY_OF default |
 | POST | `/v1/assets/move` | `AssetMoveRequest` | `Asset` | ANY_OF default |
 | POST | `/v1/assets/delete` | `AssetDeleteRequest` | — | ANY_OF default |
 
-Assets are versioned file blobs split into a stable identity (`assets`, surfaced as `Asset.fs`), an append-only space log (`asset_spaces` → `Asset.space_versions`, newest first), and immutable content version rows (`asset_versions` → `Asset.content_versions`, newest first, each carrying sha256/size/global_seq). `/v1/assets/create` creates a new asset; `/v1/assets/set` targets the stable asset id and appends the next content version. Rename changes the key without creating a version or changing IDs and rejects an existing destination key. List and state stream APIs carry only `Asset` metadata; content bytes are streamed exclusively by `GET /v1/assets/content?contentVersionId=N`. Blobs up to and including 10 MiB are stored inline. Larger blobs use local primary storage while Backup is disabled and S3 while Backup is enabled; changing Backup starts an asynchronous placement transition. Storage placement is transparent to these asset endpoints. Workers stream required asset blobs on demand over the mTLS cluster asset endpoint during preparation. See [Assets](assets.md) for storage modes, transition status, retention, restore, and compatibility.
+Assets are versioned file blobs split into a stable identity (`assets`, surfaced as `Asset.fs`), an append-only space log (`asset_spaces` → `Asset.space_versions`, newest first), and immutable content version rows (`asset_versions` → `Asset.content_versions`, newest first, each carrying sha256/size/global_seq). `/v1/assets/upload` is the single write path for content: `?asset_id=` appends the next content version of that asset, `?key=` creates a new asset. Rename changes the key without creating a version or changing IDs and rejects an existing destination key. List and state stream APIs carry only `Asset` metadata; content bytes are streamed exclusively by `GET /v1/assets/content?content_version_id=N`. Blobs up to and including 10 MiB are stored inline. Larger blobs use local primary storage while Backup is disabled and S3 while Backup is enabled; changing Backup starts an asynchronous placement transition. Storage placement is transparent to these asset endpoints. Workers stream required asset blobs on demand over the mTLS cluster asset endpoint during preparation. See [Assets](assets.md) for storage modes, transition status, retention, restore, and compatibility.
 
 ### Asset directories
 | Method | Path | Request | Response | Policy |

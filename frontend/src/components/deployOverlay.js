@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {loadAssetPreview} from "../lib/assetContent.js";
+import {loadAssetPreview, uploadAsset} from "../lib/assetContent.js";
 import {
     assetMetasS,
     deploymentsS,
@@ -31,8 +31,8 @@ export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed)
             validateSource: request => capi.postV1ReposValidate(request),
             loadDeploymentVersions: request => capi.postV1DeploymentsVersions(request),
             loadAsset: loadAssetPreview,
-            createAsset: request => capi.postV1AssetsCreate(request),
-            saveVersion: request => capi.postV1AssetsSet(request),
+            createAsset: request => uploadAsset({key: request.key, space_id: Number(request.spaceId || 0)}, request.blob),
+            saveVersion: request => uploadAsset({asset_id: Number(request.assetId)}, request.blob),
             updateDeployment: request => capi.postV1DeploymentsUpdate(request),
             moveDeploymentSpace: request => capi.postV1DeploymentsMoveSpace(request),
         },

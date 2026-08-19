@@ -280,23 +280,23 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1SecretsCreate(SecretCreateRequest) returns (SecretMeta) {
+  rpc PostV1SecretsCreate(SecretCreateRequest) returns (Secret) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1SecretsSet(SecretSetRequest) returns (SecretMeta) {
+  rpc PostV1SecretsSet(SecretSetRequest) returns (Secret) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1SecretsGenerate(SecretGenerateRequest) returns (SecretMeta) {
+  rpc PostV1SecretsGenerate(SecretGenerateRequest) returns (Secret) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1SecretsRename(SecretRenameRequest) returns (SecretMeta) {
+  rpc PostV1SecretsRename(SecretRenameRequest) returns (Secret) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1SecretsMove(SecretMoveRequest) returns (SecretMeta) {
+  rpc PostV1SecretsMove(SecretMoveRequest) returns (Secret) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -325,15 +325,15 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1ConfigsCreate(ConfigCreateRequest) returns (ConfigMeta) {
+  rpc PostV1ConfigsCreate(ConfigCreateRequest) returns (Config) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1ConfigsSet(ConfigSetRequest) returns (ConfigMeta) {
+  rpc PostV1ConfigsSet(ConfigSetRequest) returns (Config) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1ConfigsRename(ConfigRenameRequest) returns (ConfigMeta) {
+  rpc PostV1ConfigsRename(ConfigRenameRequest) returns (Config) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -341,7 +341,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1ConfigsMove(ConfigMoveRequest) returns (ConfigMeta) {
+  rpc PostV1ConfigsMove(ConfigMoveRequest) returns (Config) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -374,19 +374,11 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  // Streams raw content bytes for one content version (?contentVersionId=N).
+  // Streams raw content bytes for one content version (?content_version_id=N).
   rpc GetV1AssetsContent(cp.Empty) returns (cp.Empty) {
     option (cp.url) = "/v1/assets/content";
     option (cp.go_custom) = true;
     option (cp.compression) = COMPRESSION_MODE_NEVER;
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
-  }
-
-  rpc PostV1AssetsCreate(AssetCreateRequest) returns (Asset) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
-  }
-
-  rpc PostV1AssetsSet(AssetSetRequest) returns (Asset) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
