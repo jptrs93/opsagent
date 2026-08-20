@@ -265,10 +265,12 @@ func newLogConsumer(spec ContainerSpec) (cio.Creator, error) {
 	if err != nil {
 		return nil, err
 	}
-	// binary-v2 (vs binary) makes the shim require the logger's ready byte,
-	// so a logger that fails at startup fails task creation instead of
-	// leaving the workload writing to a pipe with no reader.
-	uri, err := cio.LogURIGenerator("binary-v2", binary, map[string]string{string(ainit.CommandRawLogConsumer): config})
+	// binary-v2 would make the shim require the logger's ready byte, so a logger
+	// that fails at startup fails task creation instead of leaving the workload
+	// writing to a pipe with no reader. The shim only accepts that scheme from
+	// containerd 2.3.0; containerdDep pins 2.0.5, which rejects task creation
+	// outright with "unknown STDIO scheme". Switch once the runtime pin moves.
+	uri, err := cio.LogURIGenerator("binary", binary, map[string]string{string(ainit.CommandRawLogConsumer): config})
 	if err != nil {
 		return nil, err
 	}
