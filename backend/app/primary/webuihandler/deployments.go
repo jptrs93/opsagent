@@ -539,13 +539,13 @@ func streamLocalLogSearch(req *apigen.LogSearchRequest, till *time.Time, yield f
 	if !yield(&apigen.LogLineBatch{LogDir: apigen.RunOutputDeploymentDir(req.DeploymentID)}, nil) {
 		return
 	}
-	batch := make([]*apigen.LogLine, 0, logSearchBatchSize)
+	batch := make([]*apigen.RawLogLine, 0, logSearchBatchSize)
 	flush := func() bool {
 		if len(batch) == 0 {
 			return true
 		}
 		lines := batch
-		batch = make([]*apigen.LogLine, 0, logSearchBatchSize)
+		batch = make([]*apigen.RawLogLine, 0, logSearchBatchSize)
 		return yield(&apigen.LogLineBatch{Lines: lines}, nil)
 	}
 	for line, err := range logreader.StreamLogs(int(req.DeploymentID), int(req.ConfigVersion), req.TimeStart, till) {
@@ -574,7 +574,7 @@ func filterLogLineBatch(batch *apigen.LogLineBatch, req *apigen.LogSearchRequest
 	if req == nil || (req.SearchStr == "" && req.LevelMin == "") || batch == nil || len(batch.Lines) == 0 {
 		return batch
 	}
-	lines := make([]*apigen.LogLine, 0, len(batch.Lines))
+	lines := make([]*apigen.RawLogLine, 0, len(batch.Lines))
 	for _, line := range batch.Lines {
 		if line != nil && logfilter.Match(line.Line, req.SearchStr, req.LevelMin) {
 			lines = append(lines, line)
@@ -740,8 +740,8 @@ func waitForPrepareOutputFile(ctx context.Context, path string) (*os.File, error
 	}
 }
 
-func toAPILogLine(line logreader.LogLine) *apigen.LogLine {
-	return &apigen.LogLine{
+func toAPILogLine(line logreader.LogLine) *apigen.RawLogLine {
+	return &apigen.RawLogLine{
 		Time:    line.Time,
 		Version: line.Version,
 		Run:     line.Run,

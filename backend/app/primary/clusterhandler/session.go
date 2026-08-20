@@ -56,7 +56,7 @@ type Session struct {
 
 type logChunk struct {
 	data   []byte
-	lines  []*apigen.LogLine
+	lines  []*apigen.RawLogLine
 	logDir string
 	end    bool
 }

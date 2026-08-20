@@ -14,7 +14,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/containerd/errdefs"
 	"github.com/jptrs93/opsagent/backend/ainit"
-	"github.com/jptrs93/opsagent/backend/app/logconsumer"
+	logconsumer "github.com/jptrs93/opsagent/backend/app/logconsumer/v2"
 	"github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -265,7 +265,10 @@ func newLogConsumer(spec ContainerSpec) (cio.Creator, error) {
 	if err != nil {
 		return nil, err
 	}
-	uri, err := cio.LogURIGenerator("binary", binary, map[string]string{string(ainit.CommandRawLogConsumer): config})
+	// binary-v2 (vs binary) makes the shim require the logger's ready byte,
+	// so a logger that fails at startup fails task creation instead of
+	// leaving the workload writing to a pipe with no reader.
+	uri, err := cio.LogURIGenerator("binary-v2", binary, map[string]string{string(ainit.CommandRawLogConsumer): config})
 	if err != nil {
 		return nil, err
 	}

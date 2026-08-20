@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	logv2 "github.com/jptrs93/opsagent/backend/lib/log/v2"
 )
 
 func TestSystemLogBasePathUsesDeploymentZeroDir(t *testing.T) {
@@ -36,8 +38,8 @@ func TestSystemLogWriterWritesMergedBinaryRecords(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 
-	assertBinaryRecords(t, filepath.Join(base, "0", "20260615_1400_0_1.logbin"), []binaryRecord{{time: first.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "first\n"}})
-	assertBinaryRecords(t, filepath.Join(base, "0", "20260615_1430_0_1.logbin"), []binaryRecord{{time: second.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "second\n"}})
+	assertWalRecords(t, filepath.Join(base, "0", "20260615_1400.wal"), []binaryRecord{{time: first.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "first\n"}})
+	assertWalRecords(t, filepath.Join(base, "0", "20260615_1430.wal"), []binaryRecord{{time: second.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "second\n"}})
 }
 
 func TestSystemLogWriterCombinesPartialWrites(t *testing.T) {
@@ -57,7 +59,7 @@ func TestSystemLogWriterCombinesPartialWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertBinaryRecords(t, filepath.Join(base, "0", "20260615_1430_0_1.logbin"), []binaryRecord{{time: now.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "line ends\n"}})
+	assertWalRecords(t, filepath.Join(base, "0", "20260615_1430.wal"), []binaryRecord{{time: now.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "line ends\n"}})
 }
 
 func TestSystemLogWriterFlushesPartialLineOnClose(t *testing.T) {
@@ -74,7 +76,7 @@ func TestSystemLogWriterFlushesPartialLineOnClose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertBinaryRecords(t, filepath.Join(base, "0", "20260615_1430_0_1.logbin"), []binaryRecord{{time: now.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "partial"}})
+	assertWalRecords(t, filepath.Join(base, "0", "20260615_1430.wal"), []binaryRecord{{time: now.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "partial"}})
 }
 
 func TestLogBucketRoundsToHalfHourUTC(t *testing.T) {
@@ -117,7 +119,7 @@ type binaryRecord struct {
 	line    string
 }
 
-func assertBinaryRecords(t *testing.T, path string, want []binaryRecord) {
+func assertWalRecords(t *testing.T, path string, want []binaryRecord) {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -125,31 +127,32 @@ func assertBinaryRecords(t *testing.T, path string, want []binaryRecord) {
 	}
 	var got []binaryRecord
 	for len(data) > 0 {
-		if len(data) < BinaryRecordMinLen {
-			t.Fatalf("%s has truncated header: %d trailing bytes", path, len(data))
+		if len(data) < logv2.RecordMinLen {
+			t.Fatalf("%s has truncated record: %d trailing bytes", path, len(data))
 		}
-		length := int(binary.BigEndian.Uint32(data[:4]))
-		if length < BinaryRecordPayloadLen {
-			t.Fatalf("%s has invalid record length %d", path, length)
+		if [4]byte(data[:4]) != logv2.RecordMagic {
+			t.Fatalf("%s has bad record magic %x", path, data[:4])
 		}
-		recordLen := BinaryRecordLengthLen + length + BinaryRecordTrailerLen
-		if len(data) < recordLen {
-			t.Fatalf("%s has truncated record: got %d bytes, want %d", path, len(data), recordLen)
+		payloadLen := int(binary.BigEndian.Uint32(data[4:8]))
+		total := logv2.RecordOverheadLen + payloadLen
+		if len(data) < total {
+			t.Fatalf("%s has truncated record: got %d bytes, want %d", path, len(data), total)
 		}
-		timestamp := int64(binary.BigEndian.Uint64(data[4:12]))
-		version := int32(binary.BigEndian.Uint32(data[12:16]))
-		run := int32(binary.BigEndian.Uint32(data[16:20]))
-		stream := int8(data[20])
-		lineLen := length - BinaryRecordPayloadLen
-		if gotSuffix := int(binary.BigEndian.Uint32(data[BinaryRecordLengthLen+length : recordLen])); gotSuffix != length {
-			t.Fatalf("suffix length = %d, want %d", gotSuffix, length)
+		payload := data[8 : 8+payloadLen]
+		if binary.BigEndian.Uint32(data[8+payloadLen:12+payloadLen]) != logv2.PayloadCRC(payload) {
+			t.Fatalf("%s has crc mismatch", path)
 		}
-		data = data[21:]
-		if len(data) < lineLen {
-			t.Fatalf("%s has truncated line: got %d bytes, want %d", path, len(data), lineLen)
+		if int(binary.BigEndian.Uint32(data[12+payloadLen:total])) != payloadLen {
+			t.Fatalf("%s has trailer length mismatch", path)
 		}
-		got = append(got, binaryRecord{time: timestamp, version: version, run: run, stream: stream, line: string(data[:lineLen])})
-		data = data[lineLen+BinaryRecordTrailerLen:]
+		got = append(got, binaryRecord{
+			time:    int64(binary.BigEndian.Uint64(payload[:8])),
+			version: int32(binary.BigEndian.Uint32(payload[8:12])),
+			run:     int32(binary.BigEndian.Uint32(payload[12:16])),
+			stream:  int8(payload[16]),
+			line:    string(payload[logv2.RecordPayloadHeaderLen:]),
+		})
+		data = data[total:]
 	}
 	if len(got) != len(want) {
 		t.Fatalf("records = %#v, want %#v", got, want)

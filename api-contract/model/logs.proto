@@ -4,21 +4,24 @@ package opsagent.v1;
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-message LogLine {
-  int64 time = 1;     // Unix nanoseconds.
-  int32 version = 2;  // Deployment config version.
-  int32 run = 3;      // Run/restart number.
-  int32 stream = 4;   // 0 = stdout, 1 = stderr.
-  bytes line = 5;     // Raw log line bytes.
+message RawLogLine {
+  int64 time = 1;              // Unix nanoseconds.
+  int32 version = 2;           // Deployment config version.
+  int32 run = 3;               // Run/restart number.
+  int32 stream = 4;            // 0 = stdout, 1 = stderr.
+  bytes line = 5;              // Raw log line bytes.
+  int32 deployment = 6;        // Producing deployment; not yet wired.
+  int32 node = 7;              // Producing node; not yet wired.
+  int32 instance_ordinal = 8;  // Producing instance; not yet wired.
 }
 
 message LogLineBatch {
-  repeated LogLine lines = 1;
+  repeated RawLogLine lines = 1;
   string log_dir = 2;  // Absolute worker path to this deployment's run log directory.
 }
 
 message StructuredLogLine {
-   int64 time = 1;
+   int64 time = 1;  // Unix nanoseconds.
    int32 source_deployment_id = 2;
    int32 source_deployment_version_id = 3;
    int32 source_run_number = 4;

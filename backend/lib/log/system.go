@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	logv2 "github.com/jptrs93/opsagent/backend/lib/log/v2"
 )
 
 const (
@@ -24,7 +26,7 @@ func NewSystemLogWriter(basePath string) (io.WriteCloser, error) {
 }
 
 func newSystemLogWriterWithClock(basePath string, now func() time.Time) (*systemLogWriter, error) {
-	out, err := NewBinaryWriter(basePath, SystemLogConfigVersion, SystemLogRunNumber)
+	out, err := logv2.NewAppender(basePath, SystemLogConfigVersion, SystemLogRunNumber, logv2.StreamStdout)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +35,7 @@ func newSystemLogWriterWithClock(basePath string, now func() time.Time) (*system
 
 type systemLogWriter struct {
 	mu      sync.Mutex
-	out     *BinaryWriter
+	out     *logv2.Appender
 	now     func() time.Time
 	pending []byte
 }
@@ -51,9 +53,7 @@ func (w *systemLogWriter) Write(p []byte) (int, error) {
 			return len(p), nil
 		}
 		end := start + idx + 1
-		if err := w.writeLine(data[start:end]); err != nil {
-			return 0, err
-		}
+		w.writeLine(data[start:end])
 		start = end
 	}
 	return len(p), nil
@@ -62,17 +62,13 @@ func (w *systemLogWriter) Write(p []byte) (int, error) {
 func (w *systemLogWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	var err error
 	if len(w.pending) > 0 {
-		err = w.writeLine(w.pending)
+		w.writeLine(w.pending)
 		w.pending = nil
 	}
-	if closeErr := w.out.Close(); err == nil {
-		err = closeErr
-	}
-	return err
+	return w.out.Close()
 }
 
-func (w *systemLogWriter) writeLine(line []byte) error {
-	return w.out.WriteLineAt(w.now().UTC(), BinaryStreamStdout, line)
+func (w *systemLogWriter) writeLine(line []byte) {
+	w.out.Append(w.now().UTC(), line)
 }

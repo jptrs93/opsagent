@@ -640,7 +640,7 @@ func printServiceLogDetails(logDir, logFile string) {
 func serviceLogPaths(now time.Time) (string, string) {
 	logDir := filepath.Join(runLogsDir, "0")
 	bucket := serviceLogBucket(now.UTC())
-	return logDir, filepath.Join(logDir, bucket.Format("20060102_1504")+"_0_1.logbin")
+	return logDir, filepath.Join(logDir, bucket.Format("20060102_1504")+".wal")
 }
 
 func serviceLogBucket(t time.Time) time.Time {

@@ -560,17 +560,34 @@ type DeploymentHistory struct {
 	Entries []*DeploymentHistoryEntry `json:"entries,omitempty"`
 }
 
-type LogLine struct {
-	Time    int64  `json:"time"`
-	Version int32  `json:"version"`
-	Run     int32  `json:"run"`
-	Stream  int32  `json:"stream"`
-	Line    []byte `json:"line"`
+type RawLogLine struct {
+	Time            int64  `json:"time"`
+	Version         int32  `json:"version"`
+	Run             int32  `json:"run"`
+	Stream          int32  `json:"stream"`
+	Line            []byte `json:"line"`
+	Deployment      int32  `json:"deployment"`
+	Node            int32  `json:"node"`
+	InstanceOrdinal int32  `json:"instance_ordinal"`
 }
 
 type LogLineBatch struct {
-	Lines  []*LogLine `json:"lines,omitempty"`
-	LogDir string     `json:"log_dir,omitempty"`
+	Lines  []*RawLogLine `json:"lines,omitempty"`
+	LogDir string        `json:"log_dir,omitempty"`
+}
+
+type StructuredLogLine struct {
+	Time                      int64              `json:"time"`
+	SourceDeploymentID        int32              `json:"source_deployment_id"`
+	SourceDeploymentVersionID int32              `json:"source_deployment_version_id"`
+	SourceRunNumber           int32              `json:"source_run_number"`
+	SourceInstanceOrdinal     int32              `json:"source_instance_ordinal"`
+	SourceNode                int32              `json:"source_node"`
+	SourceStream              int32              `json:"source_stream"`
+	IntFields                 map[string]int64   `json:"int_fields,omitempty"`
+	FloatFields               map[string]float64 `json:"float_fields,omitempty"`
+	BoolFields                map[string]bool    `json:"bool_fields,omitempty"`
+	StrFields                 map[string]string  `json:"str_fields,omitempty"`
 }
 
 type PrepareOutputRequest struct {

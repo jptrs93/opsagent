@@ -137,13 +137,13 @@ func streamLogSearch(ctx context.Context, out *outbox, req *apigen.LogSearchRequ
 	}
 	count := 0
 	limit := logSearchLimit(req)
-	batch := make([]*apigen.LogLine, 0, logSearchBatchSize)
+	batch := make([]*apigen.RawLogLine, 0, logSearchBatchSize)
 	flush := func() bool {
 		if len(batch) == 0 {
 			return true
 		}
 		lines := batch
-		batch = make([]*apigen.LogLine, 0, logSearchBatchSize)
+		batch = make([]*apigen.RawLogLine, 0, logSearchBatchSize)
 		return out.Send(&apigen.MsgToMaster{LogLines: apigen.LogLineBatch{Lines: lines}, LogRequestID: requestID})
 	}
 	for line, err := range logreader.StreamLogs(int(req.DeploymentID), int(req.ConfigVersion), req.TimeStart, till) {
@@ -159,7 +159,7 @@ func streamLogSearch(ctx context.Context, out *outbox, req *apigen.LogSearchRequ
 		if !logfilter.Match(line.Line, req.SearchStr, req.LevelMin) {
 			continue
 		}
-		batch = append(batch, &apigen.LogLine{Time: line.Time, Version: line.Version, Run: line.Run, Stream: int32(line.Stream), Line: line.Line})
+		batch = append(batch, &apigen.RawLogLine{Time: line.Time, Version: line.Version, Run: line.Run, Stream: int32(line.Stream), Line: line.Line})
 		if len(batch) >= logSearchBatchSize && !flush() {
 			return
 		}

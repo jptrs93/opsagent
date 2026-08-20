@@ -42,6 +42,38 @@ func TestProcessRawBinaryLinesPreservesStreamAndPartialFinalLine(t *testing.T) {
 	}
 }
 
+func TestProcessRawBinaryLinesSplitsOversizedLines(t *testing.T) {
+	line := strings.Repeat("x", maxLineLen*2+10) + "\n"
+	lines := make(chan rawBinaryLogLine, 4)
+	if err := processRawBinaryLinesWithClock(
+		strings.NewReader(line),
+		backendlog.BinaryStreamStdout,
+		lines,
+		time.Now,
+	); err != nil {
+		t.Fatalf("processing lines: %v", err)
+	}
+	close(lines)
+
+	var got []rawBinaryLogLine
+	for l := range lines {
+		got = append(got, l)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d chunks, want 3", len(got))
+	}
+	var rejoined []byte
+	for i, l := range got {
+		if i < len(got)-1 && len(l.line) != maxLineLen {
+			t.Errorf("chunk %d len = %d, want %d", i, len(l.line), maxLineLen)
+		}
+		rejoined = append(rejoined, l.line...)
+	}
+	if string(rejoined) != line {
+		t.Fatalf("rejoined chunks do not match input (len %d vs %d)", len(rejoined), len(line))
+	}
+}
+
 func TestProcessRawBinaryLinesReturnsReadFailure(t *testing.T) {
 	wantErr := errors.New("read failed")
 	lines := make(chan rawBinaryLogLine, 1)

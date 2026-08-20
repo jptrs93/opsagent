@@ -2,7 +2,6 @@ package logconsumer
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,13 +12,11 @@ import (
 
 	"github.com/containerd/containerd/v2/core/runtime/v2/logging"
 	"github.com/jptrs93/opsagent/backend/ainit"
-	"github.com/jptrs93/opsagent/backend/lib/log"
+	logv2 "github.com/jptrs93/opsagent/backend/lib/log/v2"
 )
 
 const (
-	logOutputQueueSize = 5_000
 	maxLineLen         = 64 * 1024
-	// The shim SIGKILLs the logger 12s after SIGTERM; stay well inside that.
 	shutdownDrainGrace = 2 * time.Second
 )
 
@@ -38,12 +35,6 @@ func RawBinaryConfigArg(deploymentDir string, version int32, run int32) (string,
 	return string(b), nil
 }
 
-type rawBinaryLogLine struct {
-	t      time.Time
-	stream int8
-	line   []byte
-}
-
 func RunRawBinaryProcess(args []string) error {
 	commandName := string(ainit.CommandRawLogConsumer)
 	if len(args) != 3 || args[1] != commandName || args[2] == "" {
@@ -59,90 +50,62 @@ func RunRawBinaryProcess(args []string) error {
 
 func runRawBinaryLogger(rawCfg rawBinaryConfig) {
 	logging.Run(func(ctx context.Context, cfg *logging.Config, ready func() error) error {
-		writer, err := log.NewBinaryWriter(rawCfg.DeploymentDir, rawCfg.Version, rawCfg.Run)
+		stdout, err := logv2.NewAppender(rawCfg.DeploymentDir, rawCfg.Version, rawCfg.Run, logv2.StreamStdout)
 		if err != nil {
 			return err
 		}
-		defer writer.Close()
+		defer stdout.Close()
+		stderr, err := logv2.NewAppender(rawCfg.DeploymentDir, rawCfg.Version, rawCfg.Run, logv2.StreamStderr)
+		if err != nil {
+			return err
+		}
+		defer stderr.Close()
 
-		outlines := make(chan rawBinaryLogLine, logOutputQueueSize)
-		readersDone := make(chan struct{})
-		var wg sync.WaitGroup
-		var stdoutErr error
-		var stderrErr error
 		closeInputs := sync.OnceFunc(func() {
 			closeReader(cfg.Stdout)
 			closeReader(cfg.Stderr)
 		})
-
+		done := make(chan struct{})
+		var wg sync.WaitGroup
+		var stdoutErr error
+		var stderrErr error
 		wg.Go(func() {
-			stdoutErr = processRawBinaryLinesWithClock(cfg.Stdout, log.BinaryStreamStdout, outlines, time.Now)
+			stdoutErr = consumeStream(cfg.Stdout, stdout.Append, time.Now)
 		})
 		wg.Go(func() {
-			stderrErr = processRawBinaryLinesWithClock(cfg.Stderr, log.BinaryStreamStderr, outlines, time.Now)
+			stderrErr = consumeStream(cfg.Stderr, stderr.Append, time.Now)
 		})
-
-		go func() {
-			wg.Wait()
-			close(readersDone)
-			close(outlines)
-		}()
-
-		// SIGTERM (ctx.Done) races the EOF from the shim closing its pipe
-		// write ends; let the readers drain to EOF before force-closing so
-		// the tail of the container's output is not dropped.
 		go func() {
 			<-ctx.Done()
 			select {
-			case <-readersDone:
+			case <-done:
 			case <-time.After(shutdownDrainGrace):
 				closeInputs()
 			}
 		}()
 
-		if err := ready(); err != nil {
+		readyErr := ready()
+		if readyErr != nil {
 			closeInputs()
-			for range outlines {
-			}
-			return err
 		}
-
-		var writeErr error
-		for line := range outlines {
-			if writeErr != nil {
-				continue
-			}
-			if err := writer.WriteLineAt(line.t, line.stream, line.line); err != nil {
-				writeErr = err
-				closeInputs()
-			}
+		wg.Wait()
+		close(done)
+		if readyErr != nil {
+			return readyErr
 		}
-
-		if ctx.Err() != nil && writeErr == nil {
+		if ctx.Err() != nil {
 			return nil
 		}
-		var errs []error
-		if writeErr != nil {
-			errs = append(errs, writeErr)
-		}
-		if stdoutErr != nil && ctx.Err() == nil {
-			errs = append(errs, stdoutErr)
-		}
-		if stderrErr != nil && ctx.Err() == nil {
-			errs = append(errs, stderrErr)
-		}
-		return errors.Join(errs...)
+		return errors.Join(stdoutErr, stderrErr)
 	})
 }
 
-// Lines longer than maxLineLen are split into maxLineLen records, bounding
-// logger memory regardless of what the workload writes.
-func processRawBinaryLinesWithClock(r io.Reader, stream int8, ch chan<- rawBinaryLogLine, now func() time.Time) error {
+func consumeStream(r io.Reader, sink func(time.Time, []byte), now func() time.Time) error {
 	br := bufio.NewReaderSize(r, maxLineLen)
 	for {
 		line, err := br.ReadSlice('\n')
 		if len(line) > 0 {
-			ch <- rawBinaryLogLine{t: now().UTC(), stream: stream, line: bytes.Clone(line)}
+			sink(now().UTC(), line)
 		}
 		switch {
 		case err == nil, errors.Is(err, bufio.ErrBufferFull):

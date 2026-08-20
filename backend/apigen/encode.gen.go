@@ -3125,18 +3125,21 @@ func DecodeDeploymentHistory(b []byte) (*DeploymentHistory, error) {
 	return &m, nil
 }
 
-func (m *LogLine) Encode() []byte {
+func (m *RawLogLine) Encode() []byte {
 	var b []byte
 	b = AppendInt64Field(b, m.Time, 1)
 	b = AppendInt32Field(b, m.Version, 2)
 	b = AppendInt32Field(b, m.Run, 3)
 	b = AppendInt32Field(b, m.Stream, 4)
 	b = AppendBytesField(b, m.Line, 5)
+	b = AppendInt32Field(b, m.Deployment, 6)
+	b = AppendInt32Field(b, m.Node, 7)
+	b = AppendInt32Field(b, m.InstanceOrdinal, 8)
 	return b
 }
 
-func DecodeLogLine(b []byte) (*LogLine, error) {
-	var m LogLine
+func DecodeRawLogLine(b []byte) (*RawLogLine, error) {
+	var m RawLogLine
 	var num Number
 	var typ Type
 	var err error
@@ -3156,6 +3159,12 @@ func DecodeLogLine(b []byte) (*LogLine, error) {
 			b, m.Stream, err = ConsumeVarInt32(b, typ)
 		case 5:
 			b, m.Line, err = ConsumeBytesCopy(b, typ)
+		case 6:
+			b, m.Deployment, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.Node, err = ConsumeVarInt32(b, typ)
+		case 8:
+			b, m.InstanceOrdinal, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3199,14 +3208,85 @@ func DecodeLogLineBatch(b []byte) (*LogLineBatch, error) {
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *LogLine
-				item, err = DecodeLogLine(msgBytes)
+				var item *RawLogLine
+				item, err = DecodeRawLogLine(msgBytes)
 				if err == nil {
 					m.Lines = append(m.Lines, item)
 				}
 			}
 		case 2:
 			b, m.LogDir, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *StructuredLogLine) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.Time, 1)
+	b = AppendInt32Field(b, m.SourceDeploymentID, 2)
+	b = AppendInt32Field(b, m.SourceDeploymentVersionID, 3)
+	b = AppendInt32Field(b, m.SourceRunNumber, 4)
+	b = AppendInt32Field(b, m.SourceInstanceOrdinal, 5)
+	b = AppendInt32Field(b, m.SourceNode, 6)
+	b = AppendInt32Field(b, m.SourceStream, 7)
+	b = AppendMap(b, m.IntFields, 8, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendInt64Field, 2))
+	b = AppendMap(b, m.FloatFields, 9, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendFloat64Field, 2))
+	b = AppendMap(b, m.BoolFields, 10, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendBoolField, 2))
+	b = AppendMap(b, m.StrFields, 11, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendStringField, 2))
+	return b
+}
+
+func DecodeStructuredLogLine(b []byte) (*StructuredLogLine, error) {
+	var m StructuredLogLine
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Time, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.SourceDeploymentID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.SourceDeploymentVersionID, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.SourceRunNumber, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.SourceInstanceOrdinal, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.SourceNode, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.SourceStream, err = ConsumeVarInt32(b, typ)
+		case 8:
+			if m.IntFields == nil {
+				m.IntFields = make(map[string]int64)
+			}
+			b, err = ConsumeMapEntry(b, typ, m.IntFields, ConsumeString, ConsumeVarInt64)
+		case 9:
+			if m.FloatFields == nil {
+				m.FloatFields = make(map[string]float64)
+			}
+			b, err = ConsumeMapEntry(b, typ, m.FloatFields, ConsumeString, ConsumeFloat64)
+		case 10:
+			if m.BoolFields == nil {
+				m.BoolFields = make(map[string]bool)
+			}
+			b, err = ConsumeMapEntry(b, typ, m.BoolFields, ConsumeString, ConsumeBool)
+		case 11:
+			if m.StrFields == nil {
+				m.StrFields = make(map[string]string)
+			}
+			b, err = ConsumeMapEntry(b, typ, m.StrFields, ConsumeString, ConsumeString)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
