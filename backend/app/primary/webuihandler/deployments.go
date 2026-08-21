@@ -13,11 +13,10 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
-	"github.com/jptrs93/opsagent/backend/lib/log/logfilter"
-	"github.com/jptrs93/opsagent/backend/lib/log/logreader"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -424,172 +423,57 @@ func githubReleaseVersionsErr(err error) apigen.ApiErr {
 	return apigen.NewApiErr(githubReleaseVersionsDisplayErr, err.Error(), http.StatusBadGateway)
 }
 
-func (h *Handler) PostV1DeploymentsLogSearch(ctx apigen.Context, req *apigen.LogSearchRequest) iter.Seq2[*apigen.LogLineBatch, error] {
-	return func(yield func(*apigen.LogLineBatch, error) bool) {
-		if req.TimeStart.IsZero() {
-			yield(nil, invalidConfigErrf("timeStart is required"))
-			return
-		}
-		if req.ConfigVersion < 0 {
-			yield(nil, invalidConfigErrf("configVersion must not be negative"))
-			return
-		}
-		var till *time.Time
-		if !req.TimeEnd.IsZero() {
-			till = &req.TimeEnd
-		}
-		if req.DeploymentID == 0 {
-			if req.TargetNodeID <= 0 {
-				yield(nil, MissingKeyErr)
-				return
-			}
-			// Node-level log search reads raw node logs, including system logs, so
-			// it is gated on the node rather than any one deployment.
-			if err := h.requireAccess(ctx, vViewLogs, eNode, 0, int64(req.TargetNodeID)); err != nil {
-				yield(nil, err)
-				return
-			}
-			if req.TargetNodeID != h.NodeID && h.Cluster != nil {
-				stream, err := h.Cluster.RequestLogSearch(req.TargetNodeID, &apigen.MsgToWorker{LogSearchRequest: req})
-				if err != nil {
-					yield(nil, apigen.NewApiErr(fmt.Sprintf("Worker node %d is not connected", req.TargetNodeID), "worker_not_connected", 502))
-					return
-				}
-				defer stream.Close()
-				go func() {
-					<-ctx.Done()
-					stream.Close()
-				}()
-				streamRemoteLogSearch(stream.Seq(), req, yield)
-				return
-			}
-			streamLocalLogSearch(req, till, yield)
-			return
-		}
-
-		cfg := h.findConfigByID(req.DeploymentID)
-		if cfg == nil {
-			yield(nil, DeploymentNotFoundErr)
-			return
-		}
-		if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
-			yield(nil, err)
-			return
-		}
-		if cfg.NodeID > 0 && cfg.NodeID != h.NodeID && h.Cluster != nil {
-			stream, err := h.Cluster.RequestLogSearch(cfg.NodeID, &apigen.MsgToWorker{LogSearchRequest: req})
-			if err != nil {
-				yield(nil, apigen.NewApiErr(fmt.Sprintf("Worker node %d is not connected", cfg.NodeID), "worker_not_connected", 502))
-				return
-			}
-			defer stream.Close()
-			go func() {
-				<-ctx.Done()
-				stream.Close()
-			}()
-			streamRemoteLogSearch(stream.Seq(), req, yield)
-			return
-		}
-
-		streamLocalLogSearch(req, till, yield)
+// logQueryTargetNode authorizes a log query and resolves the node hosting the
+// requested logs: the deployment's node, or target_node_id for the system log
+// (deployment_id = 0), which is gated on the node rather than any one
+// deployment.
+func (h *Handler) logQueryTargetNode(ctx apigen.Context, deploymentID, targetNodeID, configVersion int32) (int32, error) {
+	if configVersion < 0 {
+		return 0, invalidConfigErrf("configVersion must not be negative")
 	}
+	if deploymentID == 0 {
+		if targetNodeID <= 0 {
+			return 0, MissingKeyErr
+		}
+		if err := h.requireAccess(ctx, vViewLogs, eNode, 0, int64(targetNodeID)); err != nil {
+			return 0, err
+		}
+		return targetNodeID, nil
+	}
+	cfg := h.findConfigByID(deploymentID)
+	if cfg == nil {
+		return 0, DeploymentNotFoundErr
+	}
+	if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+		return 0, err
+	}
+	return cfg.NodeID, nil
 }
 
-func streamRemoteLogSearch(seq iter.Seq2[*apigen.LogLineBatch, error], req *apigen.LogSearchRequest, yield func(*apigen.LogLineBatch, error) bool) {
-	count := 0
-	limit := logSearchLimit(req)
-	for batch, err := range seq {
+func (h *Handler) PostV1DeploymentsLogQuery(ctx apigen.Context, req *apigen.LogQueryRequest) (*apigen.LogQueryResponse, error) {
+	nodeID, err := h.logQueryTargetNode(ctx, req.DeploymentID, req.TargetNodeID, req.ConfigVersion)
+	if err != nil {
+		return nil, err
+	}
+	if nodeID > 0 && nodeID != h.NodeID && h.Cluster != nil {
+		resp, err := h.Cluster.RequestLogQuery(ctx, nodeID, req)
 		if err != nil {
-			yield(nil, err)
-			return
+			return nil, workerLogQueryErr(nodeID, err)
 		}
-		if batch == nil || (len(batch.Lines) == 0 && batch.LogDir == "") {
-			continue
-		}
-		if len(batch.Lines) == 0 {
-			if !yield(batch, nil) {
-				return
-			}
-			continue
-		}
-		batch = filterLogLineBatch(batch, req)
-		if len(batch.Lines) == 0 {
-			continue
-		}
-		if limit > 0 && count+len(batch.Lines) > limit {
-			remaining := limit - count
-			if remaining <= 0 {
-				return
-			}
-			batch = &apigen.LogLineBatch{Lines: batch.Lines[:remaining]}
-		}
-		if !yield(batch, nil) {
-			return
-		}
-		count += len(batch.Lines)
-		if limit > 0 && count >= limit {
-			return
-		}
+		return resp, nil
 	}
+	if h.LogManager == nil {
+		return nil, apigen.NewApiErr("Log manager is not running", "log_manager_unavailable", http.StatusInternalServerError)
+	}
+	return h.LogManager.Query(ctx, req)
 }
 
-func streamLocalLogSearch(req *apigen.LogSearchRequest, till *time.Time, yield func(*apigen.LogLineBatch, error) bool) {
-	count := 0
-	limit := logSearchLimit(req)
-	if !yield(&apigen.LogLineBatch{LogDir: apigen.RunOutputDeploymentDir(req.DeploymentID)}, nil) {
-		return
+func workerLogQueryErr(nodeID int32, err error) error {
+	var notConnected *clusterhandler.NodeNotConnectedError
+	if errors.As(err, &notConnected) {
+		return apigen.NewApiErr(fmt.Sprintf("Worker node %d is not connected", nodeID), "worker_not_connected", http.StatusBadGateway)
 	}
-	batch := make([]*apigen.RawLogLine, 0, logSearchBatchSize)
-	flush := func() bool {
-		if len(batch) == 0 {
-			return true
-		}
-		lines := batch
-		batch = make([]*apigen.RawLogLine, 0, logSearchBatchSize)
-		return yield(&apigen.LogLineBatch{Lines: lines}, nil)
-	}
-	for line, err := range logreader.StreamLogs(int(req.DeploymentID), int(req.ConfigVersion), req.TimeStart, till) {
-		if err != nil {
-			yield(nil, err)
-			return
-		}
-		if !logfilter.Match(line.Line, req.SearchStr, req.LevelMin) {
-			continue
-		}
-		apiLine := toAPILogLine(line)
-		batch = append(batch, apiLine)
-		if len(batch) >= logSearchBatchSize && !flush() {
-			return
-		}
-		count++
-		if limit > 0 && count >= limit {
-			flush()
-			return
-		}
-	}
-	flush()
-}
-
-func filterLogLineBatch(batch *apigen.LogLineBatch, req *apigen.LogSearchRequest) *apigen.LogLineBatch {
-	if req == nil || (req.SearchStr == "" && req.LevelMin == "") || batch == nil || len(batch.Lines) == 0 {
-		return batch
-	}
-	lines := make([]*apigen.RawLogLine, 0, len(batch.Lines))
-	for _, line := range batch.Lines {
-		if line != nil && logfilter.Match(line.Line, req.SearchStr, req.LevelMin) {
-			lines = append(lines, line)
-		}
-	}
-	return &apigen.LogLineBatch{Lines: lines, LogDir: batch.LogDir}
-}
-
-const logSearchBatchSize = 256
-
-func logSearchLimit(req *apigen.LogSearchRequest) int {
-	if req == nil || req.LogLineLimit <= 0 {
-		return 0
-	}
-	return int(req.LogLineLimit)
+	return apigen.NewApiErr(fmt.Sprintf("Log query on worker node %d failed: %v", nodeID, err), "worker_log_query_failed", http.StatusBadGateway)
 }
 
 func (h *Handler) PostV1DeploymentsPrepareOutput(ctx apigen.Context, req *apigen.PrepareOutputRequest) iter.Seq2[*apigen.PrepareOutputChunk, error] {
@@ -737,16 +621,6 @@ func waitForPrepareOutputFile(ctx context.Context, path string) (*os.File, error
 				return nil, err
 			}
 		}
-	}
-}
-
-func toAPILogLine(line logreader.LogLine) *apigen.RawLogLine {
-	return &apigen.RawLogLine{
-		Time:    line.Time,
-		Version: line.Version,
-		Run:     line.Run,
-		Stream:  int32(line.Stream),
-		Line:    line.Line,
 	}
 }
 

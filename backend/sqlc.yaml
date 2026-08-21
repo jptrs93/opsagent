@@ -24,3 +24,11 @@ sql:
       go:
         package: "sq"
         out: "storage/secondarydb/sq"
+  - engine: "sqlite"
+    queries: "storage/logdb/sql/queries.sql"
+    schema:
+      - "storage/logdb/sql/schema.sql"
+    gen:
+      go:
+        package: "logdb"
+        out: "storage/logdb"

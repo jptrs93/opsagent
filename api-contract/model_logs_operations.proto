@@ -26,15 +26,76 @@ message DeploymentLogRequest {
   string request_id = 3;  // Unique ID for multiplexing parallel log streams over a single cluster session.
 }
 
-message LogSearchRequest {
+// One predicate of a log query. Filters AND together. A filter with no field
+// matches against the parsed message text. Ops (case-insensitive string
+// semantics): eq | neq | in | exists | not_exists | contains | not_contains.
+message LogFilter {
+  string field = 1;            // Empty = match the message text. "level"/"msg" address the parsed columns.
+  string op = 2;
+  string value = 3;
+  repeated string values = 4;  // For op = in.
+}
+
+// One-shot structured log query: matching records plus the aggregates the
+// logs page needs (per-level histogram over the full range, total match
+// count, per-field sampled value stats) in a single round trip. No
+// pagination.
+message LogQueryRequest {
   int32 deployment_id = 1;
-  int64 time_start = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int64 time_end = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  string level_min = 4;
-  map<string, string> search_keys = 5;
-  string request_id = 6;  // Internal: multiplexes worker log-search streams.
-  int32 log_line_limit = 7;
-  int32 config_version = 8;  // Deployment config version to search (0 = all versions).
-  string search_str = 9;     // Exact case-sensitive substring filter applied per log line.
-  int32 target_node_id = 10; // Required for system log searches (deployment_id = 0).
+  int32 target_node_id = 2;   // Required for system log queries (deployment_id = 0).
+  int32 config_version = 3;   // Deployment config version to search (0 = all versions).
+  int64 time_start = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];  // Inclusive; 0 = time_end - 12h.
+  int64 time_end = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];    // Exclusive; 0 = now, pinned server-side and echoed in stats.
+  repeated LogFilter filters = 6;
+  int32 limit = 7;             // Matching records kept; 0 = server default (10000, also the cap); < 0 = aggregates only.
+  int32 histogram_buckets = 8; // Hint from client pixel width; 0 disables the histogram. Server may clamp.
+  bool include_raw = 9;        // Include original line bytes per record.
+  string order = 10;           // "desc" (default) = newest limit matches; "asc" = oldest limit matches.
+  string request_id = 11;      // Internal: correlates cluster round trips.
+}
+
+message LogQueryStats {
+  int64 time_start = 1 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];  // Effective range queried.
+  int64 time_end = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 scanned_rows = 3;   // Records examined.
+  int64 matched_rows = 4;   // Records matching the filters over the full range.
+  int32 returned_rows = 5;
+  bool truncated = 6;       // matched_rows exceeded the returned records.
+  int32 took_ms = 7;
+  int64 sampled_rows = 8;   // Newest matched records sampled for per-field stats.
+}
+
+message LogHistogramSeries {
+  string level = 1;           // DEBUG/INFO/WARN/ERROR, or "" for lines with no parsed level.
+  repeated int64 counts = 2;  // Matching records per bucket, oldest bucket first.
+}
+
+message LogHistogram {
+  int64 bucket_ms = 1;  // Bucket width in milliseconds.
+  int64 start_time = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];  // Left edge of the first bucket.
+  repeated LogHistogramSeries series = 3;
+}
+
+message LogFieldValueCount {
+  string value = 1;
+  int64 count = 2;
+}
+
+// Sampled value distribution for one parsed field, computed during the main
+// scan over the newest stats.sampled_rows matched records. Fields seen among
+// matched records but not within the sample carry zeroed stats.
+message LogFieldStats {
+  string field = 1;
+  double coverage = 2;                  // Fraction of sampled records carrying the field.
+  int64 distinct = 3;                   // Distinct values among sampled records.
+  repeated LogFieldValueCount top = 4;  // Top values by sampled count, descending.
+  int64 other = 5;                      // Sampled occurrences outside top.
+}
+
+message LogQueryResponse {
+  LogQueryStats stats = 1;
+  LogHistogram histogram = 2;
+  repeated LogFieldStats fields = 3;  // Parsed field keys seen during the scan with sampled stats, sorted by name.
+  repeated LogRecord records = 4;     // Ordered per request order (desc = newest first).
+  repeated string warnings = 5;       // Partial-result notes, e.g. an unreadable archive file skipped.
 }

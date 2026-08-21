@@ -176,8 +176,8 @@ value at any point.
 ## 7. Limits
 
 - **Streaming endpoints are protobuf-only.** `/v1/global/state-stream` and
-  `/v1/deployments/log-search` do not honour `Accept: application/json`. Use the
-  non-streaming endpoints above instead.
+  `/v1/deployments/prepare-output` do not honour `Accept: application/json`.
+  Use the non-streaming endpoints above instead.
 - **Enums are numbers** in JSON, not names.
 - **Destructive operations** — deleting deployments, assets, or spaces —
   require the operator's explicit confirmation first. Ask before attempting one.

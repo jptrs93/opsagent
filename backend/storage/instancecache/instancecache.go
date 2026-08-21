@@ -61,19 +61,19 @@ func (c *Cache) MustFetchScheduledSnapshotAndSubscribe(predicate storage.Schedul
 	defer c.Mu.Unlock()
 	snapshot := c.SnapshotLocked(predicate)
 	sub := c.Subs.Subscribe(InstanceFilter(predicate))
-	return snapshot, sub.Ch, sub.UnsubscribeFunc
+	return snapshot, sub.Ch, sub.Unsubscribe
 }
 
 func (c *Cache) SubscribeScheduledInstanceUpdates(predicate storage.ScheduledInstancePredicate) (chan apigen.ScheduledInstanceState, func()) {
 	sub := c.Subs.Subscribe(InstanceFilter(predicate))
-	return sub.Ch, sub.UnsubscribeFunc
+	return sub.Ch, sub.Unsubscribe
 }
 
 func (c *Cache) MustWriteScheduledInstanceStatus(instanceID int32, f func(*apigen.ScheduledInstanceStatus) bool) {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
 	ctx := context.Background()
-	ctx = logu.ExtendLogContext(ctx, "scheduled_instance", instanceID)
+	ctx = logu.AddKV(ctx, "scheduled_instance", instanceID)
 
 	state := c.Scheduled[instanceID]
 	if state == nil {

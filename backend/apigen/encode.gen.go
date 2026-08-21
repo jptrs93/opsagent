@@ -3175,75 +3175,21 @@ func DecodeRawLogLine(b []byte) (*RawLogLine, error) {
 	return &m, nil
 }
 
-func (m LogLineBatch) IsZero() bool {
-	return len(m.Lines) == 0 &&
-		m.LogDir == ""
-}
-
-func (m *LogLineBatch) Encode() []byte {
-	var b []byte
-	for _, item := range m.Lines {
-		if item == nil {
-			continue
-		}
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.Encode())
-	}
-	b = AppendStringField(b, m.LogDir, 2)
-	return b
-}
-
-func DecodeLogLineBatch(b []byte) (*LogLineBatch, error) {
-	var m LogLineBatch
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *RawLogLine
-				item, err = DecodeRawLogLine(msgBytes)
-				if err == nil {
-					m.Lines = append(m.Lines, item)
-				}
-			}
-		case 2:
-			b, m.LogDir, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *StructuredLogLine) Encode() []byte {
+func (m *LogRecord) Encode() []byte {
 	var b []byte
 	b = AppendInt64Field(b, m.Time, 1)
-	b = AppendInt32Field(b, m.SourceDeploymentID, 2)
-	b = AppendInt32Field(b, m.SourceDeploymentVersionID, 3)
-	b = AppendInt32Field(b, m.SourceRunNumber, 4)
-	b = AppendInt32Field(b, m.SourceInstanceOrdinal, 5)
-	b = AppendInt32Field(b, m.SourceNode, 6)
-	b = AppendInt32Field(b, m.SourceStream, 7)
-	b = AppendMap(b, m.IntFields, 8, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendInt64Field, 2))
-	b = AppendMap(b, m.FloatFields, 9, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendFloat64Field, 2))
-	b = AppendMap(b, m.BoolFields, 10, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendBoolField, 2))
-	b = AppendMap(b, m.StrFields, 11, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendStringField, 2))
+	b = AppendStringField(b, m.Level, 2)
+	b = AppendStringField(b, m.Msg, 3)
+	b = AppendMap(b, m.Fields, 4, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendStringField, 2))
+	b = AppendBytesField(b, m.Raw, 5)
+	b = AppendInt32Field(b, m.Version, 6)
+	b = AppendInt32Field(b, m.Stream, 7)
+	b = AppendInt32Field(b, m.InstanceOrdinal, 8)
 	return b
 }
 
-func DecodeStructuredLogLine(b []byte) (*StructuredLogLine, error) {
-	var m StructuredLogLine
+func DecodeLogRecord(b []byte) (*LogRecord, error) {
+	var m LogRecord
 	var num Number
 	var typ Type
 	var err error
@@ -3256,37 +3202,22 @@ func DecodeStructuredLogLine(b []byte) (*StructuredLogLine, error) {
 		case 1:
 			b, m.Time, err = ConsumeVarInt64(b, typ)
 		case 2:
-			b, m.SourceDeploymentID, err = ConsumeVarInt32(b, typ)
+			b, m.Level, err = ConsumeString(b, typ)
 		case 3:
-			b, m.SourceDeploymentVersionID, err = ConsumeVarInt32(b, typ)
+			b, m.Msg, err = ConsumeString(b, typ)
 		case 4:
-			b, m.SourceRunNumber, err = ConsumeVarInt32(b, typ)
+			if m.Fields == nil {
+				m.Fields = make(map[string]string)
+			}
+			b, err = ConsumeMapEntry(b, typ, m.Fields, ConsumeString, ConsumeString)
 		case 5:
-			b, m.SourceInstanceOrdinal, err = ConsumeVarInt32(b, typ)
+			b, m.Raw, err = ConsumeBytesCopy(b, typ)
 		case 6:
-			b, m.SourceNode, err = ConsumeVarInt32(b, typ)
+			b, m.Version, err = ConsumeVarInt32(b, typ)
 		case 7:
-			b, m.SourceStream, err = ConsumeVarInt32(b, typ)
+			b, m.Stream, err = ConsumeVarInt32(b, typ)
 		case 8:
-			if m.IntFields == nil {
-				m.IntFields = make(map[string]int64)
-			}
-			b, err = ConsumeMapEntry(b, typ, m.IntFields, ConsumeString, ConsumeVarInt64)
-		case 9:
-			if m.FloatFields == nil {
-				m.FloatFields = make(map[string]float64)
-			}
-			b, err = ConsumeMapEntry(b, typ, m.FloatFields, ConsumeString, ConsumeFloat64)
-		case 10:
-			if m.BoolFields == nil {
-				m.BoolFields = make(map[string]bool)
-			}
-			b, err = ConsumeMapEntry(b, typ, m.BoolFields, ConsumeString, ConsumeBool)
-		case 11:
-			if m.StrFields == nil {
-				m.StrFields = make(map[string]string)
-			}
-			b, err = ConsumeMapEntry(b, typ, m.StrFields, ConsumeString, ConsumeString)
+			b, m.InstanceOrdinal, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3446,23 +3377,17 @@ func DecodeDeploymentLogRequest(b []byte) (*DeploymentLogRequest, error) {
 	return &m, nil
 }
 
-func (m *LogSearchRequest) Encode() []byte {
+func (m *LogFilter) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.DeploymentID, 1)
-	b = AppendInt64FromTime(b, m.TimeStart, 2)
-	b = AppendInt64FromTime(b, m.TimeEnd, 3)
-	b = AppendStringField(b, m.LevelMin, 4)
-	b = AppendMap(b, m.SearchKeys, 5, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendStringField, 2))
-	b = AppendStringField(b, m.RequestID, 6)
-	b = AppendInt32Field(b, m.LogLineLimit, 7)
-	b = AppendInt32Field(b, m.ConfigVersion, 8)
-	b = AppendStringField(b, m.SearchStr, 9)
-	b = AppendInt32Field(b, m.TargetNodeID, 10)
+	b = AppendStringField(b, m.Field, 1)
+	b = AppendStringField(b, m.Op, 2)
+	b = AppendStringField(b, m.Value, 3)
+	b = AppendRepeated(b, m.Values, AppendFieldDecorator(AppendStringField, 4))
 	return b
 }
 
-func DecodeLogSearchRequest(b []byte) (*LogSearchRequest, error) {
-	var m LogSearchRequest
+func DecodeLogFilter(b []byte) (*LogFilter, error) {
+	var m LogFilter
 	var num Number
 	var typ Type
 	var err error
@@ -3473,28 +3398,400 @@ func DecodeLogSearchRequest(b []byte) (*LogSearchRequest, error) {
 		}
 		switch num {
 		case 1:
+			b, m.Field, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Op, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Value, err = ConsumeString(b, typ)
+		case 4:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Values = append(m.Values, item)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *LogQueryRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DeploymentID, 1)
+	b = AppendInt32Field(b, m.TargetNodeID, 2)
+	b = AppendInt32Field(b, m.ConfigVersion, 3)
+	b = AppendInt64FromTime(b, m.TimeStart, 4)
+	b = AppendInt64FromTime(b, m.TimeEnd, 5)
+	for _, item := range m.Filters {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	b = AppendInt32Field(b, m.Limit, 7)
+	b = AppendInt32Field(b, m.HistogramBuckets, 8)
+	b = AppendBoolField(b, m.IncludeRaw, 9)
+	b = AppendStringField(b, m.Order, 10)
+	b = AppendStringField(b, m.RequestID, 11)
+	return b
+}
+
+func DecodeLogQueryRequest(b []byte) (*LogQueryRequest, error) {
+	var m LogQueryRequest
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.TimeStart, err = ConsumeTimeFromInt64(b, typ)
-		case 3:
-			b, m.TimeEnd, err = ConsumeTimeFromInt64(b, typ)
-		case 4:
-			b, m.LevelMin, err = ConsumeString(b, typ)
-		case 5:
-			if m.SearchKeys == nil {
-				m.SearchKeys = make(map[string]string)
-			}
-			b, err = ConsumeMapEntry(b, typ, m.SearchKeys, ConsumeString, ConsumeString)
-		case 6:
-			b, m.RequestID, err = ConsumeString(b, typ)
-		case 7:
-			b, m.LogLineLimit, err = ConsumeVarInt32(b, typ)
-		case 8:
-			b, m.ConfigVersion, err = ConsumeVarInt32(b, typ)
-		case 9:
-			b, m.SearchStr, err = ConsumeString(b, typ)
-		case 10:
 			b, m.TargetNodeID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.ConfigVersion, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.TimeStart, err = ConsumeTimeFromInt64(b, typ)
+		case 5:
+			b, m.TimeEnd, err = ConsumeTimeFromInt64(b, typ)
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogFilter
+				item, err = DecodeLogFilter(msgBytes)
+				if err == nil {
+					m.Filters = append(m.Filters, item)
+				}
+			}
+		case 7:
+			b, m.Limit, err = ConsumeVarInt32(b, typ)
+		case 8:
+			b, m.HistogramBuckets, err = ConsumeVarInt32(b, typ)
+		case 9:
+			b, m.IncludeRaw, err = ConsumeBool(b, typ)
+		case 10:
+			b, m.Order, err = ConsumeString(b, typ)
+		case 11:
+			b, m.RequestID, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *LogQueryStats) Encode() []byte {
+	var b []byte
+	b = AppendInt64FromTime(b, m.TimeStart, 1)
+	b = AppendInt64FromTime(b, m.TimeEnd, 2)
+	b = AppendInt64Field(b, m.ScannedRows, 3)
+	b = AppendInt64Field(b, m.MatchedRows, 4)
+	b = AppendInt32Field(b, m.ReturnedRows, 5)
+	b = AppendBoolField(b, m.Truncated, 6)
+	b = AppendInt32Field(b, m.TookMs, 7)
+	b = AppendInt64Field(b, m.SampledRows, 8)
+	return b
+}
+
+func DecodeLogQueryStats(b []byte) (*LogQueryStats, error) {
+	var m LogQueryStats
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.TimeStart, err = ConsumeTimeFromInt64(b, typ)
+		case 2:
+			b, m.TimeEnd, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, m.ScannedRows, err = ConsumeVarInt64(b, typ)
+		case 4:
+			b, m.MatchedRows, err = ConsumeVarInt64(b, typ)
+		case 5:
+			b, m.ReturnedRows, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.Truncated, err = ConsumeBool(b, typ)
+		case 7:
+			b, m.TookMs, err = ConsumeVarInt32(b, typ)
+		case 8:
+			b, m.SampledRows, err = ConsumeVarInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *LogHistogramSeries) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Level, 1)
+	b = AppendRepeatedCompact(b, m.Counts, 2, AppendCompactDecorator(AppendInt64Compact))
+	return b
+}
+
+func DecodeLogHistogramSeries(b []byte) (*LogHistogramSeries, error) {
+	var m LogHistogramSeries
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Level, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Counts, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt64)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *LogHistogram) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.BucketMs, 1)
+	b = AppendInt64FromTime(b, m.StartTime, 2)
+	for _, item := range m.Series {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeLogHistogram(b []byte) (*LogHistogram, error) {
+	var m LogHistogram
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.BucketMs, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.StartTime, err = ConsumeTimeFromInt64(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogHistogramSeries
+				item, err = DecodeLogHistogramSeries(msgBytes)
+				if err == nil {
+					m.Series = append(m.Series, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *LogFieldValueCount) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Value, 1)
+	b = AppendInt64Field(b, m.Count, 2)
+	return b
+}
+
+func DecodeLogFieldValueCount(b []byte) (*LogFieldValueCount, error) {
+	var m LogFieldValueCount
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Value, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Count, err = ConsumeVarInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *LogFieldStats) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Field, 1)
+	b = AppendFloat64Field(b, m.Coverage, 2)
+	b = AppendInt64Field(b, m.Distinct, 3)
+	for _, item := range m.Top {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	b = AppendInt64Field(b, m.Other, 5)
+	return b
+}
+
+func DecodeLogFieldStats(b []byte) (*LogFieldStats, error) {
+	var m LogFieldStats
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Field, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Coverage, err = ConsumeFloat64(b, typ)
+		case 3:
+			b, m.Distinct, err = ConsumeVarInt64(b, typ)
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogFieldValueCount
+				item, err = DecodeLogFieldValueCount(msgBytes)
+				if err == nil {
+					m.Top = append(m.Top, item)
+				}
+			}
+		case 5:
+			b, m.Other, err = ConsumeVarInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *LogQueryResponse) Encode() []byte {
+	var b []byte
+	if m.Stats != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Stats.Encode())
+	}
+	if m.Histogram != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Histogram.Encode())
+	}
+	for _, item := range m.Fields {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	for _, item := range m.Records {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	b = AppendRepeated(b, m.Warnings, AppendFieldDecorator(AppendStringField, 5))
+	return b
+}
+
+func DecodeLogQueryResponse(b []byte) (*LogQueryResponse, error) {
+	var m LogQueryResponse
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogQueryStats
+				item, err = DecodeLogQueryStats(msgBytes)
+				if err == nil {
+					m.Stats = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogHistogram
+				item, err = DecodeLogHistogram(msgBytes)
+				if err == nil {
+					m.Histogram = item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogFieldStats
+				item, err = DecodeLogFieldStats(msgBytes)
+				if err == nil {
+					m.Fields = append(m.Fields, item)
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogRecord
+				item, err = DecodeLogRecord(msgBytes)
+				if err == nil {
+					m.Records = append(m.Records, item)
+				}
+			}
+		case 5:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Warnings = append(m.Warnings, item)
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -8311,22 +8608,22 @@ func (m *MsgToWorker) Encode() []byte {
 		b = AppendBytes(b, m.DeploymentLogRequest.Encode())
 	}
 	b = AppendStringField(b, m.StopLogRequestID, 6)
-	if m.LogSearchRequest != nil {
-		b = AppendTag(b, 7, BytesType)
-		b = AppendBytes(b, m.LogSearchRequest.Encode())
-	}
 	if m.ClusterNetwork != nil {
-		b = AppendTag(b, 8, BytesType)
+		b = AppendTag(b, 7, BytesType)
 		b = AppendBytes(b, m.ClusterNetwork.Encode())
 	}
 	if m.ClusterNetMap != nil {
-		b = AppendTag(b, 9, BytesType)
+		b = AppendTag(b, 8, BytesType)
 		b = AppendBytes(b, m.ClusterNetMap.Encode())
 	}
-	b = AppendInt32Field(b, m.ClusterProtocolVersion, 10)
+	b = AppendInt32Field(b, m.ClusterProtocolVersion, 9)
 	if m.AcmeState != nil {
-		b = AppendTag(b, 11, BytesType)
+		b = AppendTag(b, 10, BytesType)
 		b = AppendBytes(b, m.AcmeState.Encode())
+	}
+	if m.LogQueryRequest != nil {
+		b = AppendTag(b, 11, BytesType)
+		b = AppendBytes(b, m.LogQueryRequest.Encode())
 	}
 	return b
 }
@@ -8393,22 +8690,13 @@ func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
 		case 7:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *LogSearchRequest
-				item, err = DecodeLogSearchRequest(msgBytes)
-				if err == nil {
-					m.LogSearchRequest = item
-				}
-			}
-		case 8:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
 				var item *ClusterNetworkInfo
 				item, err = DecodeClusterNetworkInfo(msgBytes)
 				if err == nil {
 					m.ClusterNetwork = item
 				}
 			}
-		case 9:
+		case 8:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ClusterNetMap
@@ -8417,15 +8705,24 @@ func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
 					m.ClusterNetMap = item
 				}
 			}
-		case 10:
+		case 9:
 			b, m.ClusterProtocolVersion, err = ConsumeVarInt32(b, typ)
-		case 11:
+		case 10:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *AcmeState
 				item, err = DecodeAcmeState(msgBytes)
 				if err == nil {
 					m.AcmeState = item
+				}
+			}
+		case 11:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogQueryRequest
+				item, err = DecodeLogQueryRequest(msgBytes)
+				if err == nil {
+					m.LogQueryRequest = item
 				}
 			}
 		default:
@@ -8479,18 +8776,19 @@ func (m *MsgToMaster) Encode() []byte {
 	b = AppendBytesField(b, m.LogData, 2)
 	b = AppendBoolField(b, m.LogEnd, 3)
 	b = AppendStringField(b, m.LogRequestID, 4)
-	if !m.LogLines.IsZero() {
-		b = AppendTag(b, 5, BytesType)
-		b = AppendBytes(b, m.LogLines.Encode())
-	}
 	if m.NetMapStatus != nil {
-		b = AppendTag(b, 7, BytesType)
+		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, m.NetMapStatus.Encode())
 	}
 	if m.ClusterHello != nil {
-		b = AppendTag(b, 8, BytesType)
+		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, m.ClusterHello.Encode())
 	}
+	if m.LogQueryResponse != nil {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.LogQueryResponse.Encode())
+	}
+	b = AppendStringField(b, m.LogQueryError, 8)
 	return b
 }
 
@@ -8524,22 +8822,13 @@ func DecodeMsgToMaster(b []byte) (*MsgToMaster, error) {
 		case 5:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *LogLineBatch
-				item, err = DecodeLogLineBatch(msgBytes)
-				if err == nil {
-					m.LogLines = *item
-				}
-			}
-		case 7:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
 				var item *NetMapStatus
 				item, err = DecodeNetMapStatus(msgBytes)
 				if err == nil {
 					m.NetMapStatus = item
 				}
 			}
-		case 8:
+		case 6:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *ClusterHello
@@ -8548,6 +8837,17 @@ func DecodeMsgToMaster(b []byte) (*MsgToMaster, error) {
 					m.ClusterHello = item
 				}
 			}
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogQueryResponse
+				item, err = DecodeLogQueryResponse(msgBytes)
+				if err == nil {
+					m.LogQueryResponse = item
+				}
+			}
+		case 8:
+			b, m.LogQueryError, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

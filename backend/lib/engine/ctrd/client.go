@@ -261,7 +261,14 @@ func newLogConsumer(spec ContainerSpec) (cio.Creator, error) {
 	if err != nil {
 		return nil, err
 	}
-	config, err := logconsumer.RawBinaryConfigArg(spec.Output, spec.OutputVersion, spec.OutputRun)
+	config, err := logconsumer.RawBinaryConfigArg(logconsumer.RawBinaryConfig{
+		DeploymentDir:   spec.Output,
+		Version:         spec.OutputVersion,
+		Run:             spec.OutputRun,
+		Deployment:      spec.OutputDeployment,
+		Node:            spec.OutputNode,
+		InstanceOrdinal: spec.OutputOrdinal,
+	})
 	if err != nil {
 		return nil, err
 	}

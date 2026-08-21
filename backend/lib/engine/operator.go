@@ -69,7 +69,7 @@ func (op DeploymentOperator) RunAll(predicate storage.ScheduledInstancePredicate
 	}
 
 	for _, dep := range deps {
-		slog.InfoContext(logu.ExtendLogContext(context.Background(), "scheduled_instance", dep.Instance.ID), "RunAll: launching operator from snapshot",
+		slog.InfoContext(logu.AddKV(context.Background(), "scheduled_instance", dep.Instance.ID), "RunAll: launching operator from snapshot",
 			"deployment", dep.Instance.DeploymentID,
 			"name", configName(&dep.Config),
 			"seqNo", dep.Instance.DeploymentVersion,
@@ -86,7 +86,7 @@ func (op DeploymentOperator) RunAll(predicate storage.ScheduledInstancePredicate
 				return
 			}
 			if _, ok := running[v.Instance.ID]; !ok {
-				slog.InfoContext(logu.ExtendLogContext(context.Background(), "scheduled_instance", v.Instance.ID), "RunAll: launching operator for new scheduled instance",
+				slog.InfoContext(logu.AddKV(context.Background(), "scheduled_instance", v.Instance.ID), "RunAll: launching operator for new scheduled instance",
 					"deployment", v.Instance.DeploymentID,
 					"name", configName(&v.Config),
 					"seqNo", v.Instance.DeploymentVersion,
@@ -102,15 +102,15 @@ func (op DeploymentOperator) RunAll(predicate storage.ScheduledInstancePredicate
 func (op DeploymentOperator) Run(
 	sub *pubsubu.Sub[apigen.ScheduledInstanceState],
 	initial *apigen.ScheduledInstanceState) {
-	defer sub.UnsubscribeFunc()
+	defer sub.Unsubscribe()
 
 	instanceID := initial.Instance.ID
 	config := initial.Config
 	status := initial.Status
 	target := initial.Instance.State
 	depName := configName(&config)
-	ctx := logu.ExtendLogContext(context.Background(), "scheduled_instance", instanceID)
-	ctx = logu.ExtendLogContext(ctx, "dep", config.ID)
+	ctx := logu.AddKV(context.Background(), "scheduled_instance", instanceID)
+	ctx = logu.AddKV(ctx, "dep", config.ID)
 	slog.InfoContext(ctx, "scheduled instance operator started", "name", depName)
 
 	var currentPreparer *prepare.Handle
@@ -289,8 +289,8 @@ func (op DeploymentOperator) startPreparer(instanceID int32, dep *apigen.Deploym
 		return prepare.Finished(dep.Version)
 	}
 	handle, ctx := prepare.NewHandle(dep.Version)
-	ctx = logu.ExtendLogContext(ctx, "scheduled_instance", instanceID)
-	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
+	ctx = logu.AddKV(ctx, "scheduled_instance", instanceID)
+	ctx = logu.AddKV(ctx, "dep", dep.ID)
 	go func() {
 		defer handle.Complete()
 		prepare.WriteStatus(op.Store, instanceID, dep, op.prepare(ctx, instanceID, dep))
@@ -306,7 +306,7 @@ func (op DeploymentOperator) startPreparer(instanceID int32, dep *apigen.Deploym
 // not distributed yet) fails before committing to a build that can take minutes.
 // The stages are otherwise independent.
 func (op DeploymentOperator) prepare(ctx context.Context, instanceID int32, dep *apigen.DeploymentConfig) prepare.StatusUpdate {
-	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
+	ctx = logu.AddKV(ctx, "dep", dep.ID)
 	log, logPath, err := preparerlog.New(ctx, dep)
 	if err != nil {
 		slog.ErrorContext(ctx, "creating prepare log file failed", "path", logPath, "err", err)
@@ -365,8 +365,8 @@ func (op DeploymentOperator) prepareImage(ctx context.Context, instanceID int32,
 }
 
 func (op DeploymentOperator) reAttachPreparer(instanceID int32, dep *apigen.DeploymentConfig, prev apigen.PreparerStatus) *prepare.Handle {
-	ctx := logu.ExtendLogContext(context.Background(), "scheduled_instance", instanceID)
-	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
+	ctx := logu.AddKV(context.Background(), "scheduled_instance", instanceID)
+	ctx = logu.AddKV(ctx, "dep", dep.ID)
 	if prev.DeploymentConfigVersion == dep.Version && prev.Rollup() == apigen.PreparationStatus_READY {
 		// The image check comes first because it is local and decisive: a missing
 		// image genuinely needs the artifact rebuilt. Runtime inputs are checked
@@ -437,8 +437,8 @@ var newRuntimeInputsBackoff = func() *timeu.Backoff {
 // preparer had only one status to write.
 func (op DeploymentOperator) retryRuntimeInputs(instanceID int32, dep *apigen.DeploymentConfig, prev apigen.PreparerStatus) *prepare.Handle {
 	handle, ctx := prepare.NewHandle(dep.Version)
-	ctx = logu.ExtendLogContext(ctx, "scheduled_instance", instanceID)
-	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
+	ctx = logu.AddKV(ctx, "scheduled_instance", instanceID)
+	ctx = logu.AddKV(ctx, "dep", dep.ID)
 	// Callers reach here only for an instance whose rollup is READY and whose
 	// artifact is present, so the image stage is asserted rather than copied
 	// from prev.

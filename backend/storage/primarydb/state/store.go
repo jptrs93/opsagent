@@ -139,7 +139,7 @@ func (s *Service) MustFetchDeploymentConfigSnapshotAndSubscribe(predicate storag
 	defer s.Mu.Unlock()
 	snapshot := s.configSnapshotLocked(predicate)
 	sub := s.configSubs.Subscribe(configFilter(predicate))
-	return snapshot, sub.Ch, sub.UnsubscribeFunc
+	return snapshot, sub.Ch, sub.Unsubscribe
 }
 
 // FetchScheduledSnapshotWithLatestFinal is the display view: every live instance
@@ -161,7 +161,7 @@ func (s *Service) MustFetchScheduledSnapshotWithLatestFinalAndSubscribe(predicat
 	defer s.Mu.Unlock()
 	snapshot := s.instanceSnapshotWithLatestFinalLocked(predicate)
 	sub := s.Subs.Subscribe(instancecache.InstanceFilter(predicate))
-	return snapshot, sub.Ch, sub.UnsubscribeFunc
+	return snapshot, sub.Ch, sub.Unsubscribe
 }
 
 func (s *Service) configSnapshotLocked(predicate storage.DeploymentPredicate) []apigen.DeploymentConfig {

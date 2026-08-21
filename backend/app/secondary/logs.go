@@ -13,8 +13,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
-	"github.com/jptrs93/opsagent/backend/lib/log/logfilter"
-	"github.com/jptrs93/opsagent/backend/lib/log/logreader"
+	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
 
@@ -120,65 +119,24 @@ func streamDeploymentLog(ctx context.Context, out *outbox, store *state.Service,
 	out.Send(&apigen.MsgToMaster{LogEnd: true, LogRequestID: requestID})
 }
 
-func streamLogSearch(ctx context.Context, out *outbox, req *apigen.LogSearchRequest) {
-	requestID := req.RequestID
-	defer func() {
-		out.Send(&apigen.MsgToMaster{LogEnd: true, LogRequestID: requestID})
-	}()
-	if req.TimeStart.IsZero() {
+var logManager *logmanager.Manager
+
+func runLogQuery(ctx context.Context, out *outbox, req *apigen.LogQueryRequest) {
+	if logManager == nil {
+		slog.Error("log query requested before log manager started", "deploymentID", req.DeploymentID)
+		out.Send(&apigen.MsgToMaster{LogQueryError: "log manager is not running", LogRequestID: req.RequestID})
 		return
 	}
-	if !out.Send(&apigen.MsgToMaster{LogLines: apigen.LogLineBatch{LogDir: apigen.RunOutputDeploymentDir(req.DeploymentID)}, LogRequestID: requestID}) {
+	resp, err := logManager.Query(ctx, req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		slog.Error("log query failed", "deploymentID", req.DeploymentID, "err", err)
+		out.Send(&apigen.MsgToMaster{LogQueryError: err.Error(), LogRequestID: req.RequestID})
 		return
 	}
-	var till *time.Time
-	if !req.TimeEnd.IsZero() {
-		till = &req.TimeEnd
-	}
-	count := 0
-	limit := logSearchLimit(req)
-	batch := make([]*apigen.RawLogLine, 0, logSearchBatchSize)
-	flush := func() bool {
-		if len(batch) == 0 {
-			return true
-		}
-		lines := batch
-		batch = make([]*apigen.RawLogLine, 0, logSearchBatchSize)
-		return out.Send(&apigen.MsgToMaster{LogLines: apigen.LogLineBatch{Lines: lines}, LogRequestID: requestID})
-	}
-	for line, err := range logreader.StreamLogs(int(req.DeploymentID), int(req.ConfigVersion), req.TimeStart, till) {
-		if err != nil {
-			slog.Error("failed searching run logs", "deploymentID", req.DeploymentID, "err", err)
-			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-		if !logfilter.Match(line.Line, req.SearchStr, req.LevelMin) {
-			continue
-		}
-		batch = append(batch, &apigen.RawLogLine{Time: line.Time, Version: line.Version, Run: line.Run, Stream: int32(line.Stream), Line: line.Line})
-		if len(batch) >= logSearchBatchSize && !flush() {
-			return
-		}
-		count++
-		if limit > 0 && count >= limit {
-			flush()
-			return
-		}
-	}
-	flush()
-}
-
-const logSearchBatchSize = 256
-
-func logSearchLimit(req *apigen.LogSearchRequest) int {
-	if req == nil || req.LogLineLimit <= 0 {
-		return 0
-	}
-	return int(req.LogLineLimit)
+	out.Send(&apigen.MsgToMaster{LogQueryResponse: resp, LogRequestID: req.RequestID})
 }
 
 func streamPrepareLog(ctx context.Context, out *outbox, req *apigen.PrepareOutputRequest) {

@@ -53,7 +53,7 @@
             version = "1.0.0";
             src = appSrc;
             modRoot = "backend";
-            vendorHash = "sha256-1DcWhA6ENSiaWoN3bnzMaN7tOt1uvlFPYD8Legxe/ac=";
+            vendorHash = null;
             subPackages = [ "." ];
             preBuild = ''
               mkdir -p web/dist

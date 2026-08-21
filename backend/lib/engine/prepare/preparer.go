@@ -94,8 +94,8 @@ func InProgress(p apigen.PreparerStatus) bool {
 // Publishing that identity would bump the clock, wake every subscriber, and push
 // a no-op to the primary, for no observable change.
 func WriteStatus(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentConfig, update StatusUpdate) {
-	ctx := logu.ExtendLogContext(context.Background(), "scheduled_instance", instanceID)
-	ctx = logu.ExtendLogContext(ctx, "dep", dep.ID)
+	ctx := logu.AddKV(context.Background(), "scheduled_instance", instanceID)
+	ctx = logu.AddKV(ctx, "dep", dep.ID)
 	next := apigen.PreparerStatus{
 		DeploymentConfigVersion: dep.Version,
 		Artifact:                update.Artifact,

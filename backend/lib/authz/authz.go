@@ -178,7 +178,7 @@ func Open(store Store) (*Service, error) {
 
 func (s *Service) SubscribeChanges() (*pubsubu.Sub[ChangeKind], func()) {
 	sub := s.subs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
+	return sub, sub.Unsubscribe
 }
 
 func (s *Service) NotifyVisibilityInputsChanged() {

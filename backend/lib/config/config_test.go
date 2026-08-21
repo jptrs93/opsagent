@@ -53,7 +53,7 @@ func TestVersionedConfigSnapshotsRedactMasterPasswordHash(t *testing.T) {
 	}
 
 	sub := service.VersionedSnapshotAndSubscribe()
-	defer sub.UnsubscribeFunc()
+	defer sub.Unsubscribe()
 	if !sub.InitialValueValid {
 		t.Fatal("initial versioned config snapshot is missing")
 	}

@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -12,17 +12,19 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/jptrs93/goutil/logu"
 )
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.LUTC)
+	slog.SetDefault(logu.NewJSONLogger(os.Stdout, slog.LevelInfo))
 	generation := env("OPD_ROLLOVER_GENERATION", "initial")
 	addr := env("OPD_ROLLOVER_ADDR", ":8080")
 	readyPath := os.Getenv("OPENDEPLOY_READINESS_SOCK_PATH")
 	bindBeforeReady := strings.ToLower(env("OPD_ROLLOVER_BIND_BEFORE_READY", "true")) != "false"
 	readyDelay := envDurationMS("OPD_ROLLOVER_READY_DELAY_MS")
 
-	log.Printf("rollover starting generation=%s addr=%s readyPath=%q bindBeforeReady=%t readyDelay=%s", generation, addr, readyPath, bindBeforeReady, readyDelay)
+	logf("rollover starting generation=%s addr=%s readyPath=%q bindBeforeReady=%t readyDelay=%s", generation, addr, readyPath, bindBeforeReady, readyDelay)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -34,7 +36,7 @@ func main() {
 
 	if readyPath != "" {
 		if readyDelay > 0 {
-			log.Printf("rollover readiness delay generation=%s delay=%s", generation, readyDelay)
+			logf("rollover readiness delay generation=%s delay=%s", generation, readyDelay)
 			select {
 			case <-time.After(readyDelay):
 			case <-ctx.Done():
@@ -42,17 +44,17 @@ func main() {
 			}
 		}
 		if err := signalReady(readyPath); err != nil {
-			log.Printf("rollover readiness signal failed generation=%s err=%v", generation, err)
+			logf("rollover readiness signal failed generation=%s err=%v", generation, err)
 			os.Exit(1)
 		}
-		log.Printf("rollover readiness sent generation=%s", generation)
+		logf("rollover readiness sent generation=%s", generation)
 		if server == nil {
 			server = waitListenAndServe(ctx, addr, generation)
 		}
 	}
 
 	<-ctx.Done()
-	log.Printf("rollover stopping generation=%s", generation)
+	logf("rollover stopping generation=%s", generation)
 	if server != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -63,7 +65,7 @@ func main() {
 func listenAndServe(ctx context.Context, addr string, generation string) *http.Server {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Printf("rollover listen failed generation=%s addr=%s err=%v", generation, addr, err)
+		logf("rollover listen failed generation=%s addr=%s err=%v", generation, addr, err)
 		os.Exit(1)
 	}
 	return serve(ctx, listener, generation)
@@ -77,7 +79,7 @@ func waitListenAndServe(ctx context.Context, addr string, generation string) *ht
 		if err == nil {
 			return serve(ctx, listener, generation)
 		}
-		log.Printf("rollover waiting for port generation=%s addr=%s err=%v", generation, addr, err)
+		logf("rollover waiting for port generation=%s addr=%s err=%v", generation, addr, err)
 		select {
 		case <-ticker.C:
 		case <-ctx.Done():
@@ -93,10 +95,10 @@ func serve(ctx context.Context, listener net.Listener, generation string) *http.
 		_, _ = fmt.Fprintf(w, "rollover generation=%s\n", generation)
 	})
 	server := &http.Server{Handler: mux}
-	log.Printf("rollover listen successful generation=%s addr=%s actual=%s", generation, listener.Addr().String(), listener.Addr().String())
+	logf("rollover listen successful generation=%s addr=%s actual=%s", generation, listener.Addr().String(), listener.Addr().String())
 	go func() {
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Printf("rollover serve failed generation=%s err=%v", generation, err)
+			logf("rollover serve failed generation=%s err=%v", generation, err)
 		}
 	}()
 	go func() {
@@ -132,8 +134,17 @@ func envDurationMS(key string) time.Duration {
 	}
 	ms, err := strconv.Atoi(value)
 	if err != nil || ms < 0 {
-		log.Printf("rollover invalid duration key=%s value=%q", key, value)
+		logf("rollover invalid duration key=%s value=%q", key, value)
 		return 0
 	}
 	return time.Duration(ms) * time.Millisecond
+}
+
+func logf(format string, args ...any) {
+	slog.Info(fmt.Sprintf(format, args...))
+}
+
+func fatalf(format string, args ...any) {
+	slog.Error(fmt.Sprintf(format, args...))
+	os.Exit(1)
 }

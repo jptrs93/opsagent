@@ -489,6 +489,12 @@ func (r *containerRunner) run() {
 			OutputVersion:  r.status.DeploymentConfigVersion,
 			OutputRun:      runNumber,
 			ResolvConfPath: resolvConfPath,
+
+			OutputDeployment: r.deploymentID,
+			OutputNode:       r.nodeID,
+			// The scheduler only ever assigns defaultInstanceOrdinal today; this
+			// becomes a real per-instance value when multi-instance lands.
+			OutputOrdinal: 0,
 		}
 		if cn != nil {
 			spec.NetnsPath = cn.NetnsPath

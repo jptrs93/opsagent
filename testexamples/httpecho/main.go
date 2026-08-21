@@ -4,15 +4,18 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/jptrs93/goutil/logu"
 )
 
 func main() {
+	slog.SetDefault(logu.NewJSONLogger(os.Stdout, slog.LevelInfo))
 	backend := requireEnv("OPENDEPLOY_HTTP_BACKEND")
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -36,16 +39,16 @@ func main() {
 		addr = "[::]:" + port
 	}
 	server := &http.Server{Addr: addr, Handler: mux}
-	log.Printf("httpecho listening backend=%s address=%s", backend, server.Addr)
+	logf("httpecho listening backend=%s address=%s", backend, server.Addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("serve: %v", err)
+		fatalf("serve: %v", err)
 	}
 }
 
 func requireEnv(name string) string {
 	value := os.Getenv(name)
 	if value == "" {
-		log.Fatalf("%s is required", name)
+		fatalf("%s is required", name)
 	}
 	return value
 }
@@ -150,7 +153,7 @@ func serveUpgrade(w http.ResponseWriter, r *http.Request, backend string) {
 	}
 	conn, rw, err := hijacker.Hijack()
 	if err != nil {
-		log.Printf("hijack: %v", err)
+		logf("hijack: %v", err)
 		return
 	}
 	defer conn.Close()
@@ -165,4 +168,13 @@ func serveUpgrade(w http.ResponseWriter, r *http.Request, backend string) {
 			return
 		}
 	}
+}
+
+func logf(format string, args ...any) {
+	slog.Info(fmt.Sprintf(format, args...))
+}
+
+func fatalf(format string, args ...any) {
+	slog.Error(fmt.Sprintf(format, args...))
+	os.Exit(1)
 }

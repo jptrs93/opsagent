@@ -34,7 +34,7 @@ import {
   decodeExportedConfigBlob,
   decodeGithubCredentials,
   decodeGlobalState,
-  decodeLogLineBatch,
+  decodeLogQueryResponse,
   decodeLoginResponse,
   decodeMsgToWorker,
   decodeNodeEnrollmentInfo,
@@ -88,7 +88,7 @@ import {
   encodeDeploymentVersionsRequest,
   encodeEnrollmentAcceptRequest,
   encodeEnrollmentWorkerMsg,
-  encodeLogSearchRequest,
+  encodeLogQueryRequest,
   encodeMasterPasswordRequest,
   encodeMasterPasswordSaveRequest,
   encodeMasterPasswordVerifyRequest,
@@ -703,21 +703,15 @@ export class Capi {
   }
 
   /**
-   * @param {LogSearchRequest} payload
-   * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {AsyncIterable<LogLineBatch>}
+   * @param {LogQueryRequest} payload
+   * @returns {Promise<LogQueryResponse>}
    */
-  postV1DeploymentsLogSearch(payload, options = {}) {
-    const self = this;
-    return {
-      [Symbol.asyncIterator]: async function* () {
-        const response = await self.#request("/v1/deployments/log-search", { method: 'POST', body: encodeLogSearchRequest(payload), signal: options.signal });
-        if (!response.ok) {
-          return self.errorHandler(response);
-        }
-        yield* readLengthPrefixedFrames(response.body, decodeLogLineBatch);
-      },
-    };
+  async postV1DeploymentsLogQuery(payload) {
+    const response = await this.#request("/v1/deployments/log-query", { method: 'POST', body: encodeLogQueryRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeLogQueryResponse(await response.arrayBuffer());
   }
 
   /**

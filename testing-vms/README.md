@@ -64,7 +64,7 @@ go run ./testing-vms/test-orchestrator repo-mirror-down
 
 The main run fails early in `OPD_REMOTE=mock` if the repo mirror is not healthy. Normal cleanup and reset leave the repo mirror and shared test certificates intact.
 
-The pgBackRest module defaults to `ghcr.io/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v5`; override it with `OPD_DECLARATIVE_POSTGRES_IMAGE`. Mock mode caches and republishes it through the local registry. Re-run `repo-mirror-up` after changing the configured image or updating a checkout whose default OCI fixture list changed.
+The pgBackRest module defaults to `ghcr.io/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v13`; override it with `OPD_DECLARATIVE_POSTGRES_IMAGE`. Mock mode caches and republishes it through the local registry. Re-run `repo-mirror-up` after changing the configured image or updating a checkout whose default OCI fixture list changed.
 
 The published declarative PostgreSQL image is currently amd64-only. ARM test nodes install `qemu-user-static` and `binfmt-support` so containerd can execute that fixture without changing the architecture of the OpenDeploy cluster.
 

@@ -131,6 +131,6 @@ func useSystemd(dep *apigen.DeploymentConfig) bool {
 }
 
 func deploymentLogContext(instanceID int32, dep *apigen.DeploymentConfig) context.Context {
-	ctx := logu.ExtendLogContext(context.Background(), "scheduled_instance", instanceID)
-	return logu.ExtendLogContext(ctx, "dep", dep.ID)
+	ctx := logu.AddKV(context.Background(), "scheduled_instance", instanceID)
+	return logu.AddKV(ctx, "dep", dep.ID)
 }

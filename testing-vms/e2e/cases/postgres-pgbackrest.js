@@ -8,6 +8,7 @@ import {
   deploymentOutputOccurrenceCount,
   expectDeploymentOutput,
   expectDeploymentOutputOccurrences,
+  expectDeploymentOutputRecords,
   expectDeploymentRunning,
   NETWORKING_VIRTUAL,
   rotateSecret,
@@ -150,10 +151,10 @@ export const pgBackRestCases = [
         env: clientEnv({host: names.postgres, write: 'before-backup', expected: ['before-backup']}),
         expectedEnv: {},
       });
-      await expectDeploymentOutput(ctx.page, names.client, [
-        'msg="postgresclient wrote persistent value" value=before-backup',
-        'msg="postgresclient persistent row" value=before-backup',
-        'msg="postgresclient verified persistent rows" count=1',
+      await expectDeploymentOutputRecords(ctx.page, names.client, [
+        ['postgresclient wrote persistent value', {value: 'before-backup'}],
+        ['postgresclient persistent row', {value: 'before-backup'}],
+        ['postgresclient verified persistent rows', {count: '1'}],
       ]);
     },
   },
@@ -189,11 +190,11 @@ export const pgBackRestCases = [
         }),
       });
       await expectDeploymentRunning(ctx.page, names.client);
-      await expectDeploymentOutput(ctx.page, names.client, [
-        'msg="postgresclient wrote persistent value" value=after-backup',
-        'msg="postgresclient persistent row" value=before-backup',
-        'msg="postgresclient persistent row" value=after-backup',
-        'msg="postgresclient verified persistent rows" count=2',
+      await expectDeploymentOutputRecords(ctx.page, names.client, [
+        ['postgresclient wrote persistent value', {value: 'after-backup'}],
+        ['postgresclient persistent row', {value: 'before-backup'}],
+        ['postgresclient persistent row', {value: 'after-backup'}],
+        ['postgresclient verified persistent rows', {count: '2'}],
       ]);
       const completedBackupsAfterWrite = await deploymentOutputOccurrenceCount(ctx.page, names.postgres, backupCompleted);
       await expectDeploymentOutputOccurrences(ctx.page, names.postgres, backupCompleted, completedBackupsAfterWrite + 1);
@@ -230,11 +231,11 @@ export const pgBackRestCases = [
         }),
       });
       await expectDeploymentRunning(ctx.page, names.client);
-      await expectDeploymentOutput(ctx.page, names.client, [
-        `msg="postgresclient starting" host=${names.restoredPostgres}.space-1.internal`,
-        'msg="postgresclient persistent row" value=before-backup',
-        'msg="postgresclient persistent row" value=after-backup',
-        'msg="postgresclient verified persistent rows" count=2',
+      await expectDeploymentOutputRecords(ctx.page, names.client, [
+        ['postgresclient starting', {host: `${names.restoredPostgres}.space-1.internal`}],
+        ['postgresclient persistent row', {value: 'before-backup'}],
+        ['postgresclient persistent row', {value: 'after-backup'}],
+        ['postgresclient verified persistent rows', {count: '2'}],
       ]);
 
       // The restore gate must be disabled after the first successful start so
@@ -261,11 +262,11 @@ export const pgBackRestCases = [
       await expectDeploymentRunning(ctx.page, names.restoredPostgres);
       await expectDeploymentRunning(ctx.page, names.client);
       const fingerprint = crypto.createHash('sha256').update(rotatedPassword).digest('hex').slice(0, 12);
-      await expectDeploymentOutput(ctx.page, names.client, [
-        `msg="postgresclient connected credential" sha256=${fingerprint}`,
-        'msg="postgresclient persistent row" value=before-backup',
-        'msg="postgresclient persistent row" value=after-backup',
-        'msg="postgresclient verified persistent rows" count=2',
+      await expectDeploymentOutputRecords(ctx.page, names.client, [
+        ['postgresclient connected credential', {sha256: fingerprint}],
+        ['postgresclient persistent row', {value: 'before-backup'}],
+        ['postgresclient persistent row', {value: 'after-backup'}],
+        ['postgresclient verified persistent rows', {count: '2'}],
       ]);
     },
   },

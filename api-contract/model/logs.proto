@@ -15,21 +15,14 @@ message RawLogLine {
   int32 instance_ordinal = 8;  // Producing instance; not yet wired.
 }
 
-message LogLineBatch {
-  repeated RawLogLine lines = 1;
-  string log_dir = 2;  // Absolute worker path to this deployment's run log directory.
-}
-
-message StructuredLogLine {
-   int64 time = 1;  // Unix nanoseconds.
-   int32 source_deployment_id = 2;
-   int32 source_deployment_version_id = 3;
-   int32 source_run_number = 4;
-   int32 source_instance_ordinal = 5;
-   int32 source_node = 6;
-   int32 source_stream = 7;   // 0 = stdout, 1 = stderr.
-   map<string, int64> int_fields = 8;
-   map<string, double> float_fields = 9;
-   map<string, bool> bool_fields = 10;
-   map<string, string> str_fields = 11;
+// One parsed log record as returned by the structured query endpoint.
+message LogRecord {
+  int64 time = 1;                  // Unix nanoseconds. Never a JSON/JS number-safe value; treat as opaque precision beyond ms.
+  string level = 2;                // Normalized DEBUG/INFO/WARN/ERROR, or "" when the line carries no level.
+  string msg = 3;                  // Parsed message text; the whole line for unstructured lines.
+  map<string, string> fields = 4;  // Remaining parsed JSON fields as flat strings.
+  bytes raw = 5;                   // Original line bytes; only set when include_raw was requested.
+  int32 version = 6;               // Deployment config version.
+  int32 stream = 7;                // 0 = stdout, 1 = stderr.
+  int32 instance_ordinal = 8;
 }

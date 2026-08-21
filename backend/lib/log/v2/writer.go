@@ -11,9 +11,7 @@ import (
 
 type Appender struct {
 	deploymentDir string
-	version       int32
-	run           int32
-	stream        int8
+	meta          RecordMeta
 	current       time.Time
 	file          *os.File
 	dropped       int64
@@ -22,11 +20,11 @@ type Appender struct {
 	dropErr       error
 }
 
-func NewAppender(deploymentDir string, version int32, run int32, stream int8) (*Appender, error) {
+func NewAppender(deploymentDir string, meta RecordMeta) (*Appender, error) {
 	if deploymentDir == "" {
 		return nil, fmt.Errorf("wal deployment dir is empty")
 	}
-	a := &Appender{deploymentDir: deploymentDir, version: version, run: run, stream: stream}
+	a := &Appender{deploymentDir: deploymentDir, meta: meta}
 	if err := os.MkdirAll(deploymentDir, 0o750); err != nil {
 		return nil, err
 	}
@@ -49,7 +47,7 @@ func (a *Appender) Append(t time.Time, line []byte) {
 		a.dropped = 0
 		a.dropErr = nil
 	}
-	if err := a.writeRecord(EncodeRecord(t, a.version, a.run, a.stream, line)); err != nil {
+	if err := a.writeRecord(EncodeRecord(t, a.meta, line)); err != nil {
 		a.noteDrop(t, err)
 	}
 }
@@ -72,7 +70,7 @@ func (a *Appender) writeMarker(t time.Time) error {
 		a.dropStart.UTC().Format(time.RFC3339Nano),
 		a.dropLast.UTC().Format(time.RFC3339Nano),
 		a.dropErr)
-	return a.writeRecord(EncodeRecord(t, a.version, a.run, a.stream, []byte(msg)))
+	return a.writeRecord(EncodeRecord(t, a.meta, []byte(msg)))
 }
 
 func (a *Appender) writeRecord(record []byte) error {

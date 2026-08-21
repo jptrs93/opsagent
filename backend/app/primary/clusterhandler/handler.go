@@ -473,14 +473,16 @@ func (p *Handler) RequestLogs(nodeID int32, req *apigen.MsgToWorker) (io.ReadClo
 	return sess.requestLogs(req)
 }
 
-func (p *Handler) RequestLogSearch(nodeID int32, req *apigen.MsgToWorker) (*LogSearchStream, error) {
+// RequestLogQuery runs a one-shot structured log query on a worker and
+// returns its complete response.
+func (p *Handler) RequestLogQuery(ctx context.Context, nodeID int32, req *apigen.LogQueryRequest) (*apigen.LogQueryResponse, error) {
 	p.mu.RLock()
 	sess, ok := p.sessions[nodeID]
 	p.mu.RUnlock()
 	if !ok {
 		return nil, &NodeNotConnectedError{NodeID: nodeID}
 	}
-	return sess.requestLogSearch(req)
+	return sess.requestLogQuery(ctx, req)
 }
 
 func (p *Handler) ConnectedNodes() map[int32]time.Time {

@@ -120,11 +120,32 @@ func TestSessionRoutingUsesNodeID(t *testing.T) {
 		t.Fatalf("request ID = %q, want worker CN prefix", req.DeploymentLogRequest.RequestID)
 	}
 
-	search, err := handler.RequestLogSearch(node.ID, &apigen.MsgToWorker{LogSearchRequest: &apigen.LogSearchRequest{}})
-	if err != nil {
-		t.Fatalf("request log search: %v", err)
+	queryReq := &apigen.LogQueryRequest{DeploymentID: 7}
+	type queryResult struct {
+		resp *apigen.LogQueryResponse
+		err  error
 	}
-	defer search.Close()
+	resCh := make(chan queryResult, 1)
+	go func() {
+		resp, err := handler.RequestLogQuery(context.Background(), node.ID, queryReq)
+		resCh <- queryResult{resp, err}
+	}()
+	// Drain frames the way the session send-loop would until the query frame
+	// appears, then reply as the worker.
+	var frame *apigen.MsgToWorker
+	for frame = <-sess.outbox; frame.LogQueryRequest == nil; frame = <-sess.outbox {
+	}
+	if !strings.HasPrefix(frame.LogQueryRequest.RequestID, "worker-cn-") {
+		t.Fatalf("log query frame = %+v, want worker CN request ID", frame)
+	}
+	sess.handleIncoming(&apigen.MsgToMaster{
+		LogQueryResponse: &apigen.LogQueryResponse{Stats: &apigen.LogQueryStats{MatchedRows: 3}},
+		LogRequestID:     frame.LogQueryRequest.RequestID,
+	})
+	res := <-resCh
+	if res.err != nil || res.resp == nil || res.resp.Stats.MatchedRows != 3 {
+		t.Fatalf("log query result = %+v, err = %v", res.resp, res.err)
+	}
 
 	_, err = handler.RequestLogs(node.ID+1, &apigen.MsgToWorker{DeploymentLogRequest: &apigen.DeploymentLogRequest{}})
 	var notConnected *NodeNotConnectedError

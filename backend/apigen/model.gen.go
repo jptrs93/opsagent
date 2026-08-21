@@ -571,23 +571,15 @@ type RawLogLine struct {
 	InstanceOrdinal int32  `json:"instance_ordinal"`
 }
 
-type LogLineBatch struct {
-	Lines  []*RawLogLine `json:"lines,omitempty"`
-	LogDir string        `json:"log_dir,omitempty"`
-}
-
-type StructuredLogLine struct {
-	Time                      int64              `json:"time"`
-	SourceDeploymentID        int32              `json:"source_deployment_id"`
-	SourceDeploymentVersionID int32              `json:"source_deployment_version_id"`
-	SourceRunNumber           int32              `json:"source_run_number"`
-	SourceInstanceOrdinal     int32              `json:"source_instance_ordinal"`
-	SourceNode                int32              `json:"source_node"`
-	SourceStream              int32              `json:"source_stream"`
-	IntFields                 map[string]int64   `json:"int_fields,omitempty"`
-	FloatFields               map[string]float64 `json:"float_fields,omitempty"`
-	BoolFields                map[string]bool    `json:"bool_fields,omitempty"`
-	StrFields                 map[string]string  `json:"str_fields,omitempty"`
+type LogRecord struct {
+	Time            int64             `json:"time"`
+	Level           string            `json:"level,omitempty"`
+	Msg             string            `json:"msg,omitempty"`
+	Fields          map[string]string `json:"fields,omitempty"`
+	Raw             []byte            `json:"raw"`
+	Version         int32             `json:"version"`
+	Stream          int32             `json:"stream"`
+	InstanceOrdinal int32             `json:"instance_ordinal"`
 }
 
 type PrepareOutputRequest struct {
@@ -610,17 +602,68 @@ type DeploymentLogRequest struct {
 	RequestID      string                `json:"request_id,omitempty"`
 }
 
-type LogSearchRequest struct {
-	DeploymentID  int32             `json:"deployment_id"`
-	TimeStart     time.Time         `json:"time_start"`
-	TimeEnd       time.Time         `json:"time_end"`
-	LevelMin      string            `json:"level_min,omitempty"`
-	SearchKeys    map[string]string `json:"search_keys,omitempty"`
-	RequestID     string            `json:"request_id,omitempty"`
-	LogLineLimit  int32             `json:"log_line_limit"`
-	ConfigVersion int32             `json:"config_version"`
-	SearchStr     string            `json:"search_str,omitempty"`
-	TargetNodeID  int32             `json:"target_node_id"`
+type LogFilter struct {
+	Field  string   `json:"field,omitempty"`
+	Op     string   `json:"op,omitempty"`
+	Value  string   `json:"value,omitempty"`
+	Values []string `json:"values,omitempty"`
+}
+
+type LogQueryRequest struct {
+	DeploymentID     int32        `json:"deployment_id"`
+	TargetNodeID     int32        `json:"target_node_id"`
+	ConfigVersion    int32        `json:"config_version"`
+	TimeStart        time.Time    `json:"time_start"`
+	TimeEnd          time.Time    `json:"time_end"`
+	Filters          []*LogFilter `json:"filters,omitempty"`
+	Limit            int32        `json:"limit"`
+	HistogramBuckets int32        `json:"histogram_buckets"`
+	IncludeRaw       bool         `json:"include_raw"`
+	Order            string       `json:"order,omitempty"`
+	RequestID        string       `json:"request_id,omitempty"`
+}
+
+type LogQueryStats struct {
+	TimeStart    time.Time `json:"time_start"`
+	TimeEnd      time.Time `json:"time_end"`
+	ScannedRows  int64     `json:"scanned_rows"`
+	MatchedRows  int64     `json:"matched_rows"`
+	ReturnedRows int32     `json:"returned_rows"`
+	Truncated    bool      `json:"truncated"`
+	TookMs       int32     `json:"took_ms"`
+	SampledRows  int64     `json:"sampled_rows"`
+}
+
+type LogHistogramSeries struct {
+	Level  string  `json:"level,omitempty"`
+	Counts []int64 `json:"counts,omitempty"`
+}
+
+type LogHistogram struct {
+	BucketMs  int64                 `json:"bucket_ms"`
+	StartTime time.Time             `json:"start_time"`
+	Series    []*LogHistogramSeries `json:"series,omitempty"`
+}
+
+type LogFieldValueCount struct {
+	Value string `json:"value,omitempty"`
+	Count int64  `json:"count"`
+}
+
+type LogFieldStats struct {
+	Field    string                `json:"field,omitempty"`
+	Coverage float64               `json:"coverage"`
+	Distinct int64                 `json:"distinct"`
+	Top      []*LogFieldValueCount `json:"top,omitempty"`
+	Other    int64                 `json:"other"`
+}
+
+type LogQueryResponse struct {
+	Stats     *LogQueryStats   `json:"stats"`
+	Histogram *LogHistogram    `json:"histogram"`
+	Fields    []*LogFieldStats `json:"fields,omitempty"`
+	Records   []*LogRecord     `json:"records,omitempty"`
+	Warnings  []string         `json:"warnings,omitempty"`
 }
 
 type Secret struct {
@@ -1309,11 +1352,11 @@ type MsgToWorker struct {
 	RunLogRequest              *RunOutputRequest          `json:"run_log_request"`
 	DeploymentLogRequest       *DeploymentLogRequest      `json:"deployment_log_request"`
 	StopLogRequestID           string                     `json:"stop_log_request_id,omitempty"`
-	LogSearchRequest           *LogSearchRequest          `json:"log_search_request"`
 	ClusterNetwork             *ClusterNetworkInfo        `json:"cluster_network"`
 	ClusterNetMap              *ClusterNetMap             `json:"cluster_net_map"`
 	ClusterProtocolVersion     int32                      `json:"cluster_protocol_version"`
 	AcmeState                  *AcmeState                 `json:"acme_state"`
+	LogQueryRequest            *LogQueryRequest           `json:"log_query_request"`
 }
 
 type ClusterHello struct {
@@ -1322,13 +1365,14 @@ type ClusterHello struct {
 }
 
 type MsgToMaster struct {
-	StatusWrite  *ScheduledInstanceStatus `json:"status_write"`
-	LogData      []byte                   `json:"log_data"`
-	LogEnd       bool                     `json:"log_end"`
-	LogRequestID string                   `json:"log_request_id,omitempty"`
-	LogLines     LogLineBatch             `json:"log_lines"`
-	NetMapStatus *NetMapStatus            `json:"net_map_status"`
-	ClusterHello *ClusterHello            `json:"cluster_hello"`
+	StatusWrite      *ScheduledInstanceStatus `json:"status_write"`
+	LogData          []byte                   `json:"log_data"`
+	LogEnd           bool                     `json:"log_end"`
+	LogRequestID     string                   `json:"log_request_id,omitempty"`
+	NetMapStatus     *NetMapStatus            `json:"net_map_status"`
+	ClusterHello     *ClusterHello            `json:"cluster_hello"`
+	LogQueryResponse *LogQueryResponse        `json:"log_query_response"`
+	LogQueryError    string                   `json:"log_query_error,omitempty"`
 }
 
 type ClusterSecretsRequest struct {

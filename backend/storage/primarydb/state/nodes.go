@@ -191,7 +191,7 @@ func (s *Service) ListClusterNodes() []*apigen.ClusterNode {
 
 func (s *Service) SubscribeNodeUpdates() (*pubsubu.Sub[apigen.ClusterNode], func()) {
 	sub := s.nodeSubs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
+	return sub, sub.Unsubscribe
 }
 
 func (s *Service) ListNodeStatuses() []*apigen.ClusterNodeStatus {
@@ -355,5 +355,5 @@ func (s *Service) updateAllNodeAllowedSpaces(fn func([]int32) []int32) {
 
 func (s *Service) SubscribeNodeStatusUpdates() (*pubsubu.Sub[apigen.ClusterNodeStatus], func()) {
 	sub := s.nodeStatusSubs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
+	return sub, sub.Unsubscribe
 }

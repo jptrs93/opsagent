@@ -110,8 +110,15 @@ export async function expectOpenDeployLogs(page) {
     return match?.value || '';
   });
   await deploymentSelect.selectOption(deploymentValue);
-  await page.getByTestId('logs-search-button').click();
   await expectOutputText(page, 'opendeploy starting primary');
+
+  // Filtered search: every matching record must carry the search phrase.
+  await expectFilteredLogSearch(page, 'starting primary');
+  // Same filter through an explicit quick range.
+  await page.getByTestId('logs-time-button').click();
+  await page.getByRole('button', {name: 'Last hour'}).click();
+  await expectFilteredLogSearch(page, 'starting primary');
+  await resetLogSearchFilters(page);
 
   const netproxyValue = await deploymentSelect.locator('option').evaluateAll(options => {
     const match = options.find(o => o.value && (o.textContent || '').trim().endsWith(' / opendeploy-net'));
@@ -119,8 +126,56 @@ export async function expectOpenDeployLogs(page) {
   });
   expect(netproxyValue, 'expected opendeploy-net deployment option').not.toBe('');
   await deploymentSelect.selectOption(netproxyValue);
-  await page.getByTestId('logs-search-button').click();
   await expectOutputText(page, 'starting opendeploy-net');
+}
+
+// The results table is virtualised, so full-result assertions read the page's
+// __logsResult test hook rather than the DOM.
+async function logsResultText(page) {
+  return await page.evaluate(() =>
+    (window.__logsResult?.records || []).map(r => r.msg).join('\n'));
+}
+
+// Clicking search only issues the request. The hook is cleared first so a
+// later read cannot observe the previous search's records: the page drops
+// stale responses by generation, so whatever repopulates it belongs to this
+// search.
+async function setLogsQuery(page, query) {
+  const input = page.getByTestId('logs-query-input');
+  await input.fill(query);
+  await page.evaluate(() => { window.__logsResult = null; });
+  await page.getByTestId('logs-search-button').click();
+}
+
+const quoteLogsPhrase = (text) => `"${text}"`;
+
+async function expectFilteredLogSearch(page, searchStr) {
+  await setLogsQuery(page, quoteLogsPhrase(searchStr));
+  // Not expectOutputText: the pre-search view usually already contains the
+  // phrase, so visible text is no evidence that this search has landed. Wait
+  // on the hook itself. -1 means the response is still in flight; 0 means it
+  // landed empty, so re-issue the search the way expectOutputText does in
+  // case the records have not been ingested yet.
+  await expect.poll(async () => {
+    const count = await page.evaluate(() => window.__logsResult?.records?.length ?? -1);
+    if (count === 0) {
+      await page.evaluate(() => { window.__logsResult = null; });
+      await page.getByTestId('logs-search-button').click();
+    }
+    return count;
+  }, {
+    message: `expected filtered log search for ${searchStr} to return records`,
+    timeout: LOG_OUTPUT_TIMEOUT,
+  }).toBeGreaterThan(0);
+  const lines = (await logsResultText(page)).split('\n').filter(line => line.trim() !== '');
+  expect(lines.length, 'expected filtered log search to return records').toBeGreaterThan(0);
+  for (const line of lines) {
+    expect(line.toLowerCase(), `expected every matching record to contain ${searchStr}`).toContain(searchStr.toLowerCase());
+  }
+}
+
+async function resetLogSearchFilters(page) {
+  await setLogsQuery(page, '');
 }
 
 export async function acceptWaitingWorker(page, {machineID, workerName, expectNoPending = false} = {}) {
@@ -649,13 +704,15 @@ export async function createPostgresClientDeployment(page, {
     },
     expectedEnv: {},
   });
-  const expectedHost = postgresHost?.type === 'address' ? 'fd' : postgresHost;
-  await expectDeploymentOutput(page, name, [
-    `msg="postgresclient starting" host=${expectedHost}`,
-    'msg="postgresclient row" id=1 name=alpha',
-    'msg="postgresclient row" id=2 name=bravo',
-    'msg="postgresclient row" id=3 name=charlie',
-    'msg="postgresclient verified rows" count=3',
+  // An address-typed host resolves to a ULA the test cannot predict, so only
+  // its fd prefix is asserted.
+  const expectedHost = postgresHost?.type === 'address' ? /^fd/ : postgresHost;
+  await expectDeploymentOutputRecords(page, name, [
+    ['postgresclient starting', {host: expectedHost}],
+    ['postgresclient row', {id: '1', name: 'alpha'}],
+    ['postgresclient row', {id: '2', name: 'bravo'}],
+    ['postgresclient row', {id: '3', name: 'charlie'}],
+    ['postgresclient verified rows', {count: '3'}],
   ]);
 }
 
@@ -1349,7 +1406,7 @@ export async function expectDeploymentOutputOccurrences(page, name, text, count)
 export async function expectDeploymentOutputDistinctMatches(page, name, pattern, count) {
   await openDeploymentOutput(page, name);
   await expect.poll(async () => {
-    const output = await page.getByTestId('logs-output').textContent() || '';
+    const output = await logsResultText(page);
     const distinct = new Set([...output.matchAll(pattern)].map(match => match[1] ?? match[0]));
     if (distinct.size < count) await page.getByTestId('logs-search-button').click();
     return distinct.size;
@@ -1369,7 +1426,7 @@ async function openDeploymentOutput(page, name) {
 }
 
 async function outputOccurrenceCount(page, text) {
-  const output = await page.getByTestId('logs-output').textContent() || '';
+  const output = await logsResultText(page);
   return output.split(text).length - 1;
 }
 
@@ -1591,7 +1648,7 @@ async function openDeploymentLogsSearch(page, row) {
   await expect(byTestId(page, 'nav-logs', page.getByText('Logs'))).toBeVisible();
   await expect(page.getByTestId('logs-space-select')).toBeVisible();
   await expect(page.getByTestId('logs-deployment-select')).not.toHaveValue('');
-  await expect(page.getByTestId('logs-output')).toBeVisible();
+  await expect(page.getByTestId('logs-results')).toBeVisible();
 }
 
 async function showOpendeployDeployments(page) {
@@ -1840,17 +1897,66 @@ async function setDeploymentAssetMount(dialog, {asset, path: mountPath}) {
   await expect(pane).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
 
+// JSON log lines are shredded server side into a message and a field map, so
+// the raw line is never on the wire — assertions on structured output address
+// msg and fields rather than matching the JSON text.
+async function logsResultRecords(page) {
+  return await page.evaluate(() =>
+    (window.__logsResult?.records || []).map(r => ({msg: r.msg || '', fields: r.fields || {}})));
+}
+
+// matchesRecord takes an exact string, or a RegExp where a looser match is
+// wanted. Every field value arrives as a string, numbers included: the app's
+// {"count":3} reads back as fields.count === '3'.
+function matchesRecord(record, msg, fields) {
+  if (record.msg !== msg) return false;
+  return Object.entries(fields).every(([key, want]) => {
+    const got = record.fields[key];
+    if (got === undefined) return false;
+    return want instanceof RegExp ? want.test(got) : got === want;
+  });
+}
+
+function describeRecord(msg, fields) {
+  const parts = Object.entries(fields).map(([k, v]) => `${k}=${v instanceof RegExp ? v.source : v}`);
+  return parts.length ? `${msg} (${parts.join(' ')})` : msg;
+}
+
+async function expectOutputRecord(page, msg, fields) {
+  const deadline = Date.now() + LOG_OUTPUT_TIMEOUT;
+  while (Date.now() < deadline) {
+    const records = await logsResultRecords(page);
+    if (records.some(record => matchesRecord(record, msg, fields))) return;
+    await page.getByTestId('logs-search-button').click();
+    await page.waitForTimeout(LOG_OUTPUT_POLL_TIMEOUT);
+  }
+  const records = await logsResultRecords(page);
+  expect(
+    records.some(record => matchesRecord(record, msg, fields)),
+    `expected log output to contain record ${describeRecord(msg, fields)}, got ${JSON.stringify(records)}`,
+  ).toBe(true);
+}
+
+// expectDeploymentOutputRecords is the structured-log counterpart of
+// expectDeploymentOutput: each entry is [msg, fields].
+export async function expectDeploymentOutputRecords(page, name, expectedRecords) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = byTestId(page, `deployment-row-${name}`, page.locator('tr').filter({hasText: name}));
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await openDeploymentLogsSearch(page, row);
+  for (const [msg, fields = {}] of expectedRecords) {
+    await expectOutputRecord(page, msg, fields);
+  }
+}
+
 async function expectOutputText(page, text) {
   const deadline = Date.now() + LOG_OUTPUT_TIMEOUT;
   while (Date.now() < deadline) {
-    try {
-      await expect(page.getByTestId('logs-output')).toContainText(text, {timeout: LOG_OUTPUT_POLL_TIMEOUT});
-      return;
-    } catch {
-      await page.getByTestId('logs-search-button').click();
-    }
+    if ((await logsResultText(page)).includes(text)) return;
+    await page.getByTestId('logs-search-button').click();
+    await page.waitForTimeout(LOG_OUTPUT_POLL_TIMEOUT);
   }
-  await expect(page.getByTestId('logs-output')).toContainText(text, {timeout: 1});
+  expect(await logsResultText(page), `expected log output to contain ${text}`).toContain(text);
 }
 
 function trackRepoValidateRequests(page) {

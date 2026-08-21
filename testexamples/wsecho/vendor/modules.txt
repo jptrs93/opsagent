@@ -1,0 +1,5 @@
+# github.com/jptrs93/goutil v0.22.0
+## explicit; go 1.25.0
+github.com/jptrs93/goutil/contextu
+github.com/jptrs93/goutil/logu
+github.com/jptrs93/goutil/timeu

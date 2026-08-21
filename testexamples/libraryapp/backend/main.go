@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/testexamples/libraryapp/backend/apigen"
 )
 
@@ -48,6 +49,7 @@ type handler struct {
 }
 
 func main() {
+	slog.SetDefault(logu.NewJSONLogger(os.Stdout, slog.LevelInfo))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

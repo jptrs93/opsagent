@@ -1,10 +1,12 @@
 package logconsumer
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 type sunkLine struct {
@@ -56,13 +58,78 @@ func TestConsumeStreamSplitsOversizedLines(t *testing.T) {
 	}
 	var rejoined string
 	for i, l := range got {
-		if i < len(got)-1 && len(l.line) != maxLineLen {
-			t.Errorf("chunk %d len = %d, want %d", i, len(l.line), maxLineLen)
+		if i < len(got)-1 && len(l.line) != lineReadBufLen {
+			t.Errorf("chunk %d len = %d, want %d", i, len(l.line), lineReadBufLen)
+		}
+		if len(l.line) > maxLineLen {
+			t.Errorf("chunk %d len = %d exceeds maxLineLen %d", i, len(l.line), maxLineLen)
 		}
 		rejoined += l.line
 	}
 	if rejoined != line {
 		t.Fatalf("rejoined chunks do not match input (len %d vs %d)", len(rejoined), len(line))
+	}
+}
+
+func TestConsumeStreamDoesNotSplitMidRune(t *testing.T) {
+	input := strings.Repeat("x", maxLineLen-2) + strings.Repeat("界", maxLineLen/2) + "\n"
+	var got []sunkLine
+	if err := consumeStream(strings.NewReader(input), collectSink(&got), time.Now); err != nil {
+		t.Fatalf("consuming stream: %v", err)
+	}
+	if len(got) < 2 {
+		t.Fatalf("got %d chunks, want the input split", len(got))
+	}
+	var rejoined string
+	for i, l := range got {
+		if !utf8.ValidString(l.line) {
+			t.Errorf("chunk %d is not valid utf-8", i)
+		}
+		if len(l.line) > maxLineLen {
+			t.Errorf("chunk %d len = %d exceeds maxLineLen %d", i, len(l.line), maxLineLen)
+		}
+		rejoined += l.line
+	}
+	if rejoined != input {
+		t.Fatalf("rejoined chunks do not match input (len %d vs %d)", len(rejoined), len(input))
+	}
+}
+
+func TestConsumeStreamPassesThroughInvalidBytes(t *testing.T) {
+	input := append(bytes.Repeat([]byte{0xff}, maxLineLen*2+10), '\n')
+	var got []sunkLine
+	if err := consumeStream(bytes.NewReader(input), collectSink(&got), time.Now); err != nil {
+		t.Fatalf("consuming stream: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d chunks, want 3", len(got))
+	}
+	var rejoined []byte
+	for _, l := range got {
+		rejoined = append(rejoined, l.line...)
+	}
+	if !bytes.Equal(rejoined, input) {
+		t.Fatalf("rejoined chunks do not match input (len %d vs %d)", len(rejoined), len(input))
+	}
+}
+
+func TestTrimPartialRune(t *testing.T) {
+	tests := map[string]struct {
+		in   []byte
+		want int
+	}{
+		"complete rune":      {in: []byte("ab界"), want: 5},
+		"truncated rune":     {in: []byte("ab界")[:4], want: 2},
+		"lead byte only":     {in: []byte("ab界")[:3], want: 2},
+		"invalid byte":       {in: []byte{'a', 0xff}, want: 2},
+		"continuation bytes": {in: []byte{0x80, 0x80, 0x80, 0x80}, want: 4},
+		"ascii":              {in: []byte("abc"), want: 3},
+		"empty":              {in: nil, want: 0},
+	}
+	for name, tc := range tests {
+		if got := len(trimPartialRune(tc.in)); got != tc.want {
+			t.Errorf("%s: kept %d bytes, want %d", name, got, tc.want)
+		}
 	}
 }
 

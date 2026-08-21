@@ -74,7 +74,7 @@ func (s *Service) MustFetchEnrollmentSnapshotAndSubscribe() ([]*apigen.Enrollmen
 		return nil, nil, nil, err
 	}
 	sub := s.enrollmentSubs.Subscribe(nil)
-	return items, sub.Ch, sub.UnsubscribeFunc, nil
+	return items, sub.Ch, sub.Unsubscribe, nil
 }
 
 func (s *Service) listEnrollmentRequestsLocked() ([]*apigen.EnrollmentRequestStatus, error) {

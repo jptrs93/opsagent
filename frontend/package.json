@@ -8,6 +8,7 @@
     "dev:deployment-editor": "vite --open /fixtures/deployment-editor/",
     "dev:deployment-status": "vite --open /fixtures/deployment-status/",
     "dev:env-vars": "vite --open /fixtures/env-vars/",
+    "dev:logs-redesign": "vite --open /fixtures/logs-redesign/",
     "dev:mounted-assets": "vite --open /fixtures/mounted-assets/",
     "dev:secret-editor": "vite --open /fixtures/secret-editor/",
     "dev:sessions-redesign": "vite --open /fixtures/sessions-redesign/",

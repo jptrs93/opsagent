@@ -27,7 +27,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 		secretStatusSub, secretStatusUnsub := h.Store.SubscribeSecretsStatusUpdates()
 		defer secretStatusUnsub()
 		configSub := h.ConfigService.VersionedSnapshotAndSubscribe()
-		defer configSub.UnsubscribeFunc()
+		defer configSub.Unsubscribe()
 		secretMetaSub, secretMetaUnsub := h.Store.SubscribeSecretUpdates()
 		defer secretMetaUnsub()
 		userConfigSub, userConfigUnsub := h.Store.SubscribeConfigUpdates()

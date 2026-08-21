@@ -4,7 +4,8 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"log"
+	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/jptrs93/goutil/logu"
 )
 
 const (
@@ -21,19 +24,19 @@ const (
 )
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.LUTC)
-	log.Printf("bind443 starting network=%s addr=%s uid=%d gid=%d", network, addr, os.Getuid(), os.Getgid())
+	slog.SetDefault(logu.NewJSONLogger(os.Stdout, slog.LevelInfo))
+	logf("bind443 starting network=%s addr=%s uid=%d gid=%d", network, addr, os.Getuid(), os.Getgid())
 	logPort443Listeners("before-listen")
 
 	listener, err := net.Listen(network, addr)
 	if err != nil {
-		log.Printf("bind443 listen failed network=%s addr=%s err=%v", network, addr, err)
+		logf("bind443 listen failed network=%s addr=%s err=%v", network, addr, err)
 		logPort443Listeners("listen-failed")
 		os.Exit(1)
 	}
 	defer listener.Close()
 
-	log.Printf("bind443 listen successful network=%s addr=%s actual=%s", network, addr, listener.Addr())
+	logf("bind443 listen successful network=%s addr=%s actual=%s", network, addr, listener.Addr())
 	logPort443Listeners("listen-success")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -46,10 +49,10 @@ func main() {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("bind443 stopping")
+			logf("bind443 stopping")
 			return
 		case now := <-ticker.C:
-			log.Printf("bind443 still listening addr=%s time=%s", listener.Addr(), now.UTC().Format(time.RFC3339))
+			logf("bind443 still listening addr=%s time=%s", listener.Addr(), now.UTC().Format(time.RFC3339))
 		}
 	}
 }
@@ -70,7 +73,7 @@ type socketProcess struct {
 func logPort443Listeners(phase string) {
 	listeners := append(readTCPListeners("/proc/net/tcp", "tcp4"), readTCPListeners("/proc/net/tcp6", "tcp6")...)
 	if len(listeners) == 0 {
-		log.Printf("bind443 port scan phase=%s result=no-listeners", phase)
+		logf("bind443 port scan phase=%s result=no-listeners", phase)
 		return
 	}
 
@@ -78,12 +81,12 @@ func logPort443Listeners(phase string) {
 	for _, listener := range listeners {
 		owners := processes[listener.inode]
 		if len(owners) == 0 {
-			log.Printf("bind443 port scan phase=%s proto=%s local=%s uid=%s inode=%s visible_process=none note=socket-owner-not-visible-in-this-pid-namespace",
+			logf("bind443 port scan phase=%s proto=%s local=%s uid=%s inode=%s visible_process=none note=socket-owner-not-visible-in-this-pid-namespace",
 				phase, listener.proto, listener.local, listener.uid, listener.inode)
 			continue
 		}
 		for _, owner := range owners {
-			log.Printf("bind443 port scan phase=%s proto=%s local=%s uid=%s inode=%s pid=%s comm=%q cmdline=%q",
+			logf("bind443 port scan phase=%s proto=%s local=%s uid=%s inode=%s pid=%s comm=%q cmdline=%q",
 				phase, listener.proto, listener.local, listener.uid, listener.inode, owner.pid, owner.comm, owner.cmdline)
 		}
 	}
@@ -92,7 +95,7 @@ func logPort443Listeners(phase string) {
 func readTCPListeners(path, proto string) []tcpListener {
 	file, err := os.Open(path)
 	if err != nil {
-		log.Printf("bind443 port scan read failed path=%s err=%v", path, err)
+		logf("bind443 port scan read failed path=%s err=%v", path, err)
 		return nil
 	}
 	defer file.Close()
@@ -114,7 +117,7 @@ func readTCPListeners(path, proto string) []tcpListener {
 		listeners = append(listeners, tcpListener{proto: proto, local: local, uid: uid, inode: inode})
 	}
 	if err := scanner.Err(); err != nil {
-		log.Printf("bind443 port scan scanner failed path=%s err=%v", path, err)
+		logf("bind443 port scan scanner failed path=%s err=%v", path, err)
 	}
 	return listeners
 }
@@ -123,7 +126,7 @@ func socketProcesses() map[string][]socketProcess {
 	result := map[string][]socketProcess{}
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		log.Printf("bind443 process scan failed path=/proc err=%v", err)
+		logf("bind443 process scan failed path=/proc err=%v", err)
 		return result
 	}
 	for _, entry := range entries {
@@ -176,10 +179,19 @@ func acceptLoop(listener net.Listener) {
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			log.Printf("bind443 accept failed err=%v", err)
+			logf("bind443 accept failed err=%v", err)
 			continue
 		}
-		log.Printf("bind443 accepted connection remote=%s local=%s", conn.RemoteAddr(), conn.LocalAddr())
+		logf("bind443 accepted connection remote=%s local=%s", conn.RemoteAddr(), conn.LocalAddr())
 		_ = conn.Close()
 	}
+}
+
+func logf(format string, args ...any) {
+	slog.Info(fmt.Sprintf(format, args...))
+}
+
+func fatalf(format string, args ...any) {
+	slog.Error(fmt.Sprintf(format, args...))
+	os.Exit(1)
 }

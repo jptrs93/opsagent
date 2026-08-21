@@ -265,13 +265,13 @@ func loadConfig(resolveLatestRelease bool) (*config, error) {
 	c.RepoRegistryPort = env("OPD_REPO_REGISTRY_PORT", "5000")
 	if c.RemoteMode == "real" {
 		c.PostgresImage = env("OPD_POSTGRES_IMAGE", "docker.io/library/postgres:18")
-		c.DeclarativePostgresSourceImage = env("OPD_DECLARATIVE_POSTGRES_IMAGE", "ghcr.io/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v5")
+		c.DeclarativePostgresSourceImage = env("OPD_DECLARATIVE_POSTGRES_IMAGE", "ghcr.io/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v13")
 		c.DeclarativePostgresImage = c.DeclarativePostgresSourceImage
 		c.MinioImage = env("OPD_MINIO_IMAGE", "docker.io/bitnamilegacy/minio:latest")
 	} else {
 		c.PostgresImage = env("OPD_POSTGRES_IMAGE", c.RepoRegistryHost+":"+c.RepoRegistryPort+"/library/postgres:18")
-		c.DeclarativePostgresSourceImage = env("OPD_DECLARATIVE_POSTGRES_IMAGE", "ghcr.io/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v5")
-		c.DeclarativePostgresImage = env("OPD_DECLARATIVE_POSTGRES_MIRROR_IMAGE", c.RepoRegistryHost+":"+c.RepoRegistryPort+"/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v5")
+		c.DeclarativePostgresSourceImage = env("OPD_DECLARATIVE_POSTGRES_IMAGE", "ghcr.io/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v13")
+		c.DeclarativePostgresImage = env("OPD_DECLARATIVE_POSTGRES_MIRROR_IMAGE", c.RepoRegistryHost+":"+c.RepoRegistryPort+"/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v13")
 		c.MinioImage = env("OPD_MINIO_IMAGE", c.RepoRegistryHost+":"+c.RepoRegistryPort+"/bitnamilegacy/minio:latest")
 	}
 	c.RepoMirrorOCI = env("OPD_REPO_MIRROR_OCI_IMAGES", "docker.io/library/postgres:18="+c.PostgresImage+" "+c.DeclarativePostgresSourceImage+"="+c.DeclarativePostgresImage+" docker.io/bitnamilegacy/minio:latest="+c.MinioImage)

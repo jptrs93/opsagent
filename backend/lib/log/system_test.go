@@ -112,11 +112,12 @@ func TestFileModeForDir(t *testing.T) {
 }
 
 type binaryRecord struct {
-	time    int64
-	version int32
-	run     int32
-	stream  int8
-	line    string
+	time       int64
+	version    int32
+	run        int32
+	deployment int32
+	stream     int8
+	line       string
 }
 
 func assertWalRecords(t *testing.T, path string, want []binaryRecord) {
@@ -130,27 +131,30 @@ func assertWalRecords(t *testing.T, path string, want []binaryRecord) {
 		if len(data) < logv2.RecordMinLen {
 			t.Fatalf("%s has truncated record: %d trailing bytes", path, len(data))
 		}
-		if [4]byte(data[:4]) != logv2.RecordMagic {
-			t.Fatalf("%s has bad record magic %x", path, data[:4])
+		if data[0] != logv2.RecordMagic {
+			t.Fatalf("%s has bad record magic %x", path, data[0])
 		}
-		payloadLen := int(binary.BigEndian.Uint32(data[4:8]))
+		payloadLen := int(binary.BigEndian.Uint32(data[logv2.RecordMagicLen:logv2.RecordHeaderLen]))
 		total := logv2.RecordOverheadLen + payloadLen
 		if len(data) < total {
 			t.Fatalf("%s has truncated record: got %d bytes, want %d", path, len(data), total)
 		}
-		payload := data[8 : 8+payloadLen]
-		if binary.BigEndian.Uint32(data[8+payloadLen:12+payloadLen]) != logv2.PayloadCRC(payload) {
+		payload := data[logv2.RecordHeaderLen : logv2.RecordHeaderLen+payloadLen]
+		crcAt := logv2.RecordHeaderLen + payloadLen
+		if binary.BigEndian.Uint32(data[crcAt:crcAt+logv2.RecordCRCLen]) != logv2.PayloadCRC(payload) {
 			t.Fatalf("%s has crc mismatch", path)
 		}
-		if int(binary.BigEndian.Uint32(data[12+payloadLen:total])) != payloadLen {
+		if int(binary.BigEndian.Uint32(data[crcAt+logv2.RecordCRCLen:total])) != payloadLen {
 			t.Fatalf("%s has trailer length mismatch", path)
 		}
+		nanos, meta := logv2.DecodePayloadHeader(payload)
 		got = append(got, binaryRecord{
-			time:    int64(binary.BigEndian.Uint64(payload[:8])),
-			version: int32(binary.BigEndian.Uint32(payload[8:12])),
-			run:     int32(binary.BigEndian.Uint32(payload[12:16])),
-			stream:  int8(payload[16]),
-			line:    string(payload[logv2.RecordPayloadHeaderLen:]),
+			time:       nanos,
+			version:    meta.Version,
+			run:        meta.Run,
+			deployment: meta.Deployment,
+			stream:     meta.Stream,
+			line:       string(payload[logv2.RecordPayloadHeaderLen:]),
 		})
 		data = data[total:]
 	}

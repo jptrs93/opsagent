@@ -1,2 +1,4 @@
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
+github.com/jptrs93/goutil v0.22.0 h1:Ud5Zkqx95cO6oFfoaVRImi69mMSvqqqxy67Ssh5F8pM=
+github.com/jptrs93/goutil v0.22.0/go.mod h1:jbGbwA/V/eRePJCj0AX7/BL5pNVccYcn4GmDf6Dnpi0=

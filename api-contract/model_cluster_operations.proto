@@ -25,15 +25,15 @@ message MsgToWorker {
   PrepareOutputRequest prepare_log_request = 3;
   RunOutputRequest run_log_request = 4;
   DeploymentLogRequest deployment_log_request = 5;
-  string stop_log_request_id = 6;  // Cancel an active log stream by its request_id.
-  LogSearchRequest log_search_request = 7;
+  string stop_log_request_id = 6;  // Cancel an active log stream or query by its request_id.
   // Cluster-wide network parameters, sent at the head of every session before
   // the scheduled-instances snapshot. Workers persist it and program the local
   // dataplane from it on boot before reaching the primary.
-  ClusterNetworkInfo cluster_network = 8;
-  ClusterNetMap cluster_net_map = 9;
-  int32 cluster_protocol_version = 10;
-  AcmeState acme_state = 11;
+  ClusterNetworkInfo cluster_network = 7;
+  ClusterNetMap cluster_net_map = 8;
+  int32 cluster_protocol_version = 9;
+  AcmeState acme_state = 10;
+  LogQueryRequest log_query_request = 11;  // One-shot structured log query; reply is log_query_response.
 }
 
 // ClusterHello is the first frame sent by a worker on each authenticated
@@ -47,12 +47,11 @@ message MsgToMaster {
   ScheduledInstanceStatus status_write = 1;
   bytes log_data = 2;
   bool log_end = 3;
-  string log_request_id = 4;  // Tags log_data/log_end with the originating request_id.
-  LogLineBatch log_lines = 5 [(cp.go_value) = true];
-  reserved 6;
-  reserved "local_route_report";
-  NetMapStatus net_map_status = 7;
-  ClusterHello cluster_hello = 8;
+  string log_request_id = 4;  // Tags log_data/log_end/log query replies with the originating request_id.
+  NetMapStatus net_map_status = 5;
+  ClusterHello cluster_hello = 6;
+  LogQueryResponse log_query_response = 7;
+  string log_query_error = 8;  // Worker-side failure for the query tagged by log_request_id.
 }
 
 message ClusterSecretsRequest {

@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log/slog"
+
+	"github.com/jptrs93/goutil/logu"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,7 +15,7 @@ import (
 const crashCountPath = "/data/crashcount.txt"
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger := logu.NewJSONLogger(os.Stdout, slog.LevelInfo)
 
 	count, err := readCrashCount()
 	if err != nil {

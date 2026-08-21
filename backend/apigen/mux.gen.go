@@ -111,7 +111,7 @@ type ApiServerHandler interface {
 	PostV1DeploymentsRecentlyDeleted(Context, *RecentlyDeletedDeploymentsRequest) (*RecentlyDeletedDeployments, error)
 	PostV1DeploymentsHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
 	PostV1DeploymentsVersions(Context, *DeploymentVersionsRequest) (*DeploymentVersions, error)
-	PostV1DeploymentsLogSearch(Context, *LogSearchRequest) iter.Seq2[*LogLineBatch, error]
+	PostV1DeploymentsLogQuery(Context, *LogQueryRequest) (*LogQueryResponse, error)
 	PostV1DeploymentsPrepareOutput(Context, *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error]
 	PostV1ReposValidate(Context, *RepoValidateRequest) (*RepoValidateResponse, error)
 	PostV1NodesRename(Context, *NodeRenameRequest) (*ClusterNode, error)
@@ -604,29 +604,17 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/deployments/versions", buildHandlerFunc(config, verifyAuth, postV1DeploymentsVersionsAccessPolicy, postAuthHandlerPostV1DeploymentsVersions, compressionModeAuto, false))
-	postV1DeploymentsLogSearchAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
-	postAuthHandlerPostV1DeploymentsLogSearch := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeLogSearchRequest)
+	postV1DeploymentsLogQueryAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1DeploymentsLogQuery := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeLogQueryRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-		seq := h.PostV1DeploymentsLogSearch(authCtx, req)
-		stream := NewStreamWriter(w)
-		var streamErr error
-		for resp, yieldErr := range seq {
-			if yieldErr != nil {
-				streamErr = fmt.Errorf("streaming err: %w", yieldErr)
-				break
-			}
-			if werr := stream.Write(resp.Encode()); werr != nil {
-				streamErr = fmt.Errorf("writing stream resp: %w", werr)
-				break
-			}
-		}
-		stream.Finish(authCtx, streamErr)
+		res, err := h.PostV1DeploymentsLogQuery(authCtx, req)
+		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("POST /v1/deployments/log-search", buildHandlerFunc(config, verifyAuth, postV1DeploymentsLogSearchAccessPolicy, postAuthHandlerPostV1DeploymentsLogSearch, compressionModeAuto, true))
+	m.HandleFunc("POST /v1/deployments/log-query", buildHandlerFunc(config, verifyAuth, postV1DeploymentsLogQueryAccessPolicy, postAuthHandlerPostV1DeploymentsLogQuery, compressionModeAuto, false))
 	postV1DeploymentsPrepareOutputAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1DeploymentsPrepareOutput := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodePrepareOutputRequest)

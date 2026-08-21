@@ -9,19 +9,23 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/jptrs93/goutil/logu"
 )
 
 func main() {
-	fmt.Printf("nixdockerbuild1 env OPENDEPLOY_E2E_MESSAGE=%s\n", os.Getenv("OPENDEPLOY_E2E_MESSAGE"))
-	fmt.Printf("nixdockerbuild1 env OPENDEPLOY_E2E_COLOR=%s\n", os.Getenv("OPENDEPLOY_E2E_COLOR"))
-	fmt.Printf("nixdockerbuild1 env OPENDEPLOY_E2E_CONFIG=%s\n", os.Getenv("OPENDEPLOY_E2E_CONFIG"))
-	fmt.Printf("nixdockerbuild1 env OPENDEPLOY_E2E_SECRET=%s\n", os.Getenv("OPENDEPLOY_E2E_SECRET"))
+	slog.SetDefault(logu.NewJSONLogger(os.Stdout, slog.LevelInfo))
+	logf("nixdockerbuild1 env OPENDEPLOY_E2E_MESSAGE=%s", os.Getenv("OPENDEPLOY_E2E_MESSAGE"))
+	logf("nixdockerbuild1 env OPENDEPLOY_E2E_COLOR=%s", os.Getenv("OPENDEPLOY_E2E_COLOR"))
+	logf("nixdockerbuild1 env OPENDEPLOY_E2E_CONFIG=%s", os.Getenv("OPENDEPLOY_E2E_CONFIG"))
+	logf("nixdockerbuild1 env OPENDEPLOY_E2E_SECRET=%s", os.Getenv("OPENDEPLOY_E2E_SECRET"))
 	printAssetMount("/tmp")
 	checkIPv4Egress()
 	printIssuedTLS()
@@ -29,7 +33,7 @@ func main() {
 	go checkIssuedTLSClient()
 
 	for count := 1; ; count++ {
-		fmt.Printf("nixdockerbuild1 count=%d time=%s\n", count, time.Now().Format(time.RFC3339))
+		logf("nixdockerbuild1 count=%d time=%s", count, time.Now().Format(time.RFC3339))
 		time.Sleep(10 * time.Second)
 	}
 }
@@ -43,16 +47,16 @@ func checkIPv4Egress() {
 	client := &http.Client{Timeout: 10 * time.Second}
 	response, err := client.Get(url)
 	if err != nil {
-		fmt.Printf("nixdockerbuild1 ipv4 egress error=%v\n", err)
+		logf("nixdockerbuild1 ipv4 egress error=%v", err)
 		return
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		fmt.Printf("nixdockerbuild1 ipv4 egress error=%v\n", err)
+		logf("nixdockerbuild1 ipv4 egress error=%v", err)
 		return
 	}
-	fmt.Printf("nixdockerbuild1 ipv4 egress observed source=%s status=%d\n", strings.TrimSpace(string(body)), response.StatusCode)
+	logf("nixdockerbuild1 ipv4 egress observed source=%s status=%d", strings.TrimSpace(string(body)), response.StatusCode)
 }
 
 func issuedTLSDir() string {
@@ -66,66 +70,66 @@ func printIssuedTLS() {
 	}
 	caPEM, err := os.ReadFile(filepath.Join(dir, "ca.crt"))
 	if err != nil {
-		fmt.Printf("nixdockerbuild1 issuedtls dir error=%v\n", err)
+		logf("nixdockerbuild1 issuedtls dir error=%v", err)
 		return
 	}
 	files := map[string][]byte{"ca.crt": caPEM}
-	fmt.Printf("nixdockerbuild1 issuedtls file ca.crt ok=true bytes=%d\n", len(caPEM))
+	logf("nixdockerbuild1 issuedtls file ca.crt ok=true bytes=%d", len(caPEM))
 	leafMissing := 0
 	for _, name := range []string{"public.crt", "private.key"} {
 		content, err := os.ReadFile(filepath.Join(dir, name))
 		if os.IsNotExist(err) {
-			fmt.Printf("nixdockerbuild1 issuedtls file %s present=false\n", name)
+			logf("nixdockerbuild1 issuedtls file %s present=false", name)
 			leafMissing++
 			continue
 		}
 		if err != nil {
-			fmt.Printf("nixdockerbuild1 issuedtls dir error=%v\n", err)
+			logf("nixdockerbuild1 issuedtls dir error=%v", err)
 			return
 		}
 		files[name] = content
-		fmt.Printf("nixdockerbuild1 issuedtls file %s ok=true bytes=%d\n", name, len(content))
+		logf("nixdockerbuild1 issuedtls file %s ok=true bytes=%d", name, len(content))
 	}
 	if leafMissing == 2 {
-		fmt.Printf("nixdockerbuild1 issuedtls mode=ca-only\n")
+		logf("nixdockerbuild1 issuedtls mode=ca-only")
 		return
 	}
 	if leafMissing != 0 {
-		fmt.Printf("nixdockerbuild1 issuedtls error=partial leaf material\n")
+		logf("nixdockerbuild1 issuedtls error=partial leaf material")
 		return
 	}
 	if _, err := tls.X509KeyPair(files["public.crt"], files["private.key"]); err != nil {
-		fmt.Printf("nixdockerbuild1 issuedtls keypair error=%v\n", err)
+		logf("nixdockerbuild1 issuedtls keypair error=%v", err)
 		return
 	}
-	fmt.Printf("nixdockerbuild1 issuedtls keypair=ok\n")
+	logf("nixdockerbuild1 issuedtls keypair=ok")
 	block, _ := pem.Decode(files["public.crt"])
 	if block == nil {
-		fmt.Printf("nixdockerbuild1 issuedtls cert error=not pem\n")
+		logf("nixdockerbuild1 issuedtls cert error=not pem")
 		return
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		fmt.Printf("nixdockerbuild1 issuedtls cert error=%v\n", err)
+		logf("nixdockerbuild1 issuedtls cert error=%v", err)
 		return
 	}
-	fmt.Printf("nixdockerbuild1 issuedtls subject=%s\n", cert.Subject.CommonName)
+	logf("nixdockerbuild1 issuedtls subject=%s", cert.Subject.CommonName)
 	for _, name := range cert.DNSNames {
-		fmt.Printf("nixdockerbuild1 issuedtls san dns=%s\n", name)
+		logf("nixdockerbuild1 issuedtls san dns=%s", name)
 	}
-	fmt.Printf("nixdockerbuild1 issuedtls san ipcount=%d\n", len(cert.IPAddresses))
+	logf("nixdockerbuild1 issuedtls san ipcount=%d", len(cert.IPAddresses))
 	fingerprint := sha256.Sum256(cert.Raw)
-	fmt.Printf("nixdockerbuild1 issuedtls fingerprint=%s\n", hex.EncodeToString(fingerprint[:]))
+	logf("nixdockerbuild1 issuedtls fingerprint=%s", hex.EncodeToString(fingerprint[:]))
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(files["ca.crt"]) {
-		fmt.Printf("nixdockerbuild1 issuedtls ca error=not pem\n")
+		logf("nixdockerbuild1 issuedtls ca error=not pem")
 		return
 	}
 	if _, err := cert.Verify(x509.VerifyOptions{Roots: roots, DNSName: cert.Subject.CommonName}); err != nil {
-		fmt.Printf("nixdockerbuild1 issuedtls chain error=%v\n", err)
+		logf("nixdockerbuild1 issuedtls chain error=%v", err)
 		return
 	}
-	fmt.Printf("nixdockerbuild1 issuedtls chain verified=true name=%s\n", cert.Subject.CommonName)
+	logf("nixdockerbuild1 issuedtls chain verified=true name=%s", cert.Subject.CommonName)
 }
 
 func serveIssuedTLS() {
@@ -140,7 +144,7 @@ func serveIssuedTLS() {
 	})
 	for {
 		err := http.ListenAndServeTLS(":"+port, filepath.Join(dir, "public.crt"), filepath.Join(dir, "private.key"), mux)
-		fmt.Printf("nixdockerbuild1 issuedtls serve error=%v\n", err)
+		logf("nixdockerbuild1 issuedtls serve error=%v", err)
 		time.Sleep(5 * time.Second)
 	}
 }
@@ -155,7 +159,7 @@ func checkIssuedTLSClient() {
 	}
 	for {
 		if err := issuedTLSClientRequest(host, port, serverName, dir); err != nil {
-			fmt.Printf("nixdockerbuild1 issuedtls client error=%v\n", err)
+			logf("nixdockerbuild1 issuedtls client error=%v", err)
 			time.Sleep(5 * time.Second)
 			continue
 		}
@@ -185,24 +189,24 @@ func issuedTLSClientRequest(host, port, serverName, dir string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("nixdockerbuild1 issuedtls client verified=true status=%d body=%s\n", response.StatusCode, strings.TrimSpace(string(body)))
+	logf("nixdockerbuild1 issuedtls client verified=true status=%d body=%s", response.StatusCode, strings.TrimSpace(string(body)))
 	return nil
 }
 
 func printAssetMount(root string) {
 	info, err := os.Stat(root)
 	if err != nil {
-		fmt.Printf("nixdockerbuild1 asset root %s error=%v\n", root, err)
+		logf("nixdockerbuild1 asset root %s error=%v", root, err)
 		return
 	}
 	if !info.IsDir() {
-		fmt.Printf("nixdockerbuild1 asset root %s is not a directory\n", root)
+		logf("nixdockerbuild1 asset root %s is not a directory", root)
 		return
 	}
 
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			fmt.Printf("nixdockerbuild1 asset walk %s error=%v\n", path, err)
+			logf("nixdockerbuild1 asset walk %s error=%v", path, err)
 			return nil
 		}
 		if d.IsDir() {
@@ -212,16 +216,25 @@ func printAssetMount(root string) {
 		if relErr != nil {
 			rel = path
 		}
-		fmt.Printf("nixdockerbuild1 asset file %s\n", rel)
+		logf("nixdockerbuild1 asset file %s", rel)
 		content, readErr := os.ReadFile(path)
 		if readErr != nil {
-			fmt.Printf("nixdockerbuild1 asset read %s error=%v\n", rel, readErr)
+			logf("nixdockerbuild1 asset read %s error=%v", rel, readErr)
 			return nil
 		}
-		fmt.Printf("nixdockerbuild1 asset content %s=%s\n", rel, strings.TrimSpace(string(content)))
+		logf("nixdockerbuild1 asset content %s=%s", rel, strings.TrimSpace(string(content)))
 		return nil
 	})
 	if err != nil {
-		fmt.Printf("nixdockerbuild1 asset walk root error=%v\n", err)
+		logf("nixdockerbuild1 asset walk root error=%v", err)
 	}
+}
+
+func logf(format string, args ...any) {
+	slog.Info(fmt.Sprintf(format, args...))
+}
+
+func fatalf(format string, args ...any) {
+	slog.Error(fmt.Sprintf(format, args...))
+	os.Exit(1)
 }

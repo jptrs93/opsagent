@@ -9,6 +9,13 @@ cross-node compaction passes. Files are stored locally on each node first; an
 S3-backed location comes later and uses the identical key scheme, so every
 naming decision here must hold without cross-node coordination.
 
+The concrete build-out lives in
+[logmanager-implementation-plan.md](logmanager-implementation-plan.md):
+package layout, the sqlite catalog schema, commit ordering and crash windows,
+query planning, and milestones. It revises a few decisions here (commit point,
+level numbering, watermark routing) and says so explicitly; where the two
+disagree, the implementation plan wins.
+
 ## Existing substrate
 
 - Raw logs are written by the per-container log consumer into per-deployment
@@ -68,6 +75,25 @@ this document says "logbin", read "the deployment WAL".
   stamp then write, and those steps race across writers), so readers must
   not binary-search or early-terminate on time; version/run/stream
   filtering moves from filenames to record fields.
+
+## Direction: the WAL is an ingestion boundary
+
+The end-state framing is that the per-deployment WAL is a standard ingestion
+boundary, and everything downstream of it is a *log ingestor backend* —
+ours or someone else's. A shared per-node ingestor would tail the deployment
+WALs, track a consumed index per file, and call `consume(line)` (or a batch
+variant) as a standardised interface; our compaction pipeline is then just
+one implementation of that interface, and shipping lines to an external
+system (Loki, OpenObserve, S3 firehose) is another.
+
+For our own native backend we deliberately special-case: we do **not**
+introduce the interface or a tailing layer. The native backend already has
+the WAL as its live store, so it reads WAL files directly for both the tail
+query path and compaction input. The interface abstraction is only worth its
+cost when a second, external consumer shows up. What we preserve of the
+general direction is the *shape*: a consumed-index per WAL file (see
+`wal_progress` below) is exactly the state a generic tailing ingestor needs,
+so promoting the native path to the standard interface later is mechanical.
 
 ## File and directory layout
 

@@ -177,7 +177,7 @@ func (s *Service) MustWriteReplicatedScheduledInstanceStatus(st *apigen.Schedule
 		return
 	}
 	ctx := context.Background()
-	ctx = logu.ExtendLogContext(ctx, "scheduled_instance", st.ScheduledInstanceID)
+	ctx = logu.AddKV(ctx, "scheduled_instance", st.ScheduledInstanceID)
 
 	s.Mu.Lock()
 	defer s.Mu.Unlock()

@@ -5,14 +5,18 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/jptrs93/goutil/logu"
 )
 
 const defaultAssetPath = "/tmp/opendeploy-e2e-large-asset.bin"
 
 func main() {
+	slog.SetDefault(logu.NewJSONLogger(os.Stdout, slog.LevelInfo))
 	path := strings.TrimSpace(os.Getenv("OPENDEPLOY_E2E_ASSET_PATH"))
 	if path == "" {
 		path = defaultAssetPath
@@ -21,20 +25,18 @@ func main() {
 
 	actual, size, err := hashFile(path)
 	if err != nil {
-		fmt.Printf("largeassetverify asset read error path=%s err=%v\n", path, err)
-		os.Exit(1)
+		fatalf("largeassetverify asset read error path=%s err=%v", path, err)
 	}
 
-	fmt.Printf("largeassetverify asset read path=%s bytes=%d\n", path, size)
-	fmt.Printf("largeassetverify asset sha256=%s\n", actual)
+	logf("largeassetverify asset read path=%s bytes=%d", path, size)
+	logf("largeassetverify asset sha256=%s", actual)
 	if expected != "" && actual != expected {
-		fmt.Printf("largeassetverify asset verified false expected=%s actual=%s\n", expected, actual)
-		os.Exit(1)
+		fatalf("largeassetverify asset verified false expected=%s actual=%s", expected, actual)
 	}
-	fmt.Println("largeassetverify asset verified true")
+	logf("largeassetverify asset verified true")
 
 	for count := 1; ; count++ {
-		fmt.Printf("largeassetverify count=%d time=%s\n", count, time.Now().Format(time.RFC3339))
+		logf("largeassetverify count=%d time=%s", count, time.Now().Format(time.RFC3339))
 		time.Sleep(10 * time.Second)
 	}
 }
@@ -52,4 +54,13 @@ func hashFile(path string) (string, int64, error) {
 		return "", 0, err
 	}
 	return hex.EncodeToString(h.Sum(nil)), size, nil
+}
+
+func logf(format string, args ...any) {
+	slog.Info(fmt.Sprintf(format, args...))
+}
+
+func fatalf(format string, args ...any) {
+	slog.Error(fmt.Sprintf(format, args...))
+	os.Exit(1)
 }

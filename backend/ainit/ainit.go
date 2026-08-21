@@ -9,6 +9,7 @@ import (
 	"github.com/jptrs93/goutil/envu"
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/fileu"
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/lib/log"
 )
 
@@ -36,7 +37,7 @@ func init() {
 		w = erru.Must(log.NewSystemLogWriter(basePath))
 	}
 	logLevel := envu.MustGetOrDefault[slog.Level]("LOG_LEVEL", slog.LevelInfo)
-	slog.SetDefault(slog.New(log.NewSlogHandler(w, logLevel)))
+	slog.SetDefault(slog.New(logu.NewJSONLogHandler(w, logLevel)))
 }
 
 func ensureStaticDirs(command Command, cfg *StaticConfiguration, dataDir string) {
@@ -46,6 +47,7 @@ func ensureStaticDirs(command Command, cfg *StaticConfiguration, dataDir string)
 	cfg.ReleasesDir = dataDir + "-releases"
 	cfg.PrepareOutputDir = dataDir + "-build-logs"
 	cfg.RunOutputDir = dataDir + "-run-logs"
+	cfg.LogArchiveDir = dataDir + "-log-archive"
 	cfg.LargeAssetsDir = path.Join(dataDir, "large-assets")
 	cfg.GitCacheDir = path.Join(dataDir, "git-cache")
 	cfg.GitMetadataDir = path.Join(cfg.GitCacheDir, "metadata")
@@ -65,6 +67,7 @@ func ensureStaticDirs(command Command, cfg *StaticConfiguration, dataDir string)
 	fileu.MustEnsureDirWithPerm(cfg.AssetCacheDir, 0o755)
 	fileu.MustEnsureDirWithPerm(cfg.PrepareOutputDir, 0o750)
 	fileu.MustEnsureDirWithPerm(cfg.RunOutputDir, 0o750)
+	fileu.MustEnsureDirWithPerm(cfg.LogArchiveDir, 0o750)
 	fileu.MustEnsureDirWithPerm(cfg.VolumesDir, 0o755)
 	fileu.MustEnsureDirWithPerm(cfg.ReleasesDir, 0o755)
 	fileu.MustEnsureDirWithPerm(cfg.LargeAssetsDir, 0o750)
@@ -82,6 +85,7 @@ type StaticConfiguration struct {
 	DataDir           string
 	AssetCacheDir     string
 	RunOutputDir      string
+	LogArchiveDir     string
 	PrepareOutputDir  string
 	VolumesDir        string
 	ReleasesDir       string

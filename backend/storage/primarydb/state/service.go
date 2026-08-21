@@ -213,7 +213,7 @@ func (s *Service) ListUsersPublic() []*apigen.User {
 
 func (s *Service) SubscribeUserUpdates() (*pubsubu.Sub[apigen.User], func()) {
 	sub := s.userSubs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
+	return sub, sub.Unsubscribe
 }
 
 func (s *Service) NotifyBackupStatusUpdate(status apigen.BackupStatus) {
@@ -231,7 +231,7 @@ func (s *Service) CurrentBackupStatus() apigen.BackupStatus {
 
 func (s *Service) SubscribeBackupStatusUpdates() (*pubsubu.Sub[apigen.BackupStatus], func()) {
 	sub := s.backupStatusSubs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
+	return sub, sub.Unsubscribe
 }
 
 func (s *Service) NotifySecretsStatusUpdate(status apigen.SecretsStatusResponse) {
@@ -240,7 +240,7 @@ func (s *Service) NotifySecretsStatusUpdate(status apigen.SecretsStatusResponse)
 
 func (s *Service) SubscribeSecretsStatusUpdates() (*pubsubu.Sub[apigen.SecretsStatusResponse], func()) {
 	sub := s.secretStatusSubs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
+	return sub, sub.Unsubscribe
 }
 
 func (s *Service) NotifySecretUpdate(sec *apigen.Secret) {
@@ -262,7 +262,7 @@ func (s *Service) NotifySecretDeleted(sec *apigen.Secret) {
 
 func (s *Service) SubscribeSecretUpdates() (*pubsubu.Sub[apigen.Secret], func()) {
 	sub := s.secretMetaSubs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
+	return sub, sub.Unsubscribe
 }
 
 func (s *Service) NotifyConfigUpdate(c *apigen.Config) {
@@ -284,7 +284,7 @@ func (s *Service) NotifyConfigDeleted(c *apigen.Config) {
 
 func (s *Service) SubscribeConfigUpdates() (*pubsubu.Sub[apigen.Config], func()) {
 	sub := s.userConfigSubs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
+	return sub, sub.Unsubscribe
 }
 
 func (s *Service) NotifyValueDirectoryUpdate(dir apigen.ValueDirectory) {
@@ -293,7 +293,7 @@ func (s *Service) NotifyValueDirectoryUpdate(dir apigen.ValueDirectory) {
 
 func (s *Service) SubscribeValueDirectoryUpdates() (*pubsubu.Sub[apigen.ValueDirectory], func()) {
 	sub := s.valueDirSubs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
+	return sub, sub.Unsubscribe
 }
 
 func (s *Service) NotifyAssetDirectoryUpdate(dir apigen.AssetDirectory) {
@@ -302,7 +302,7 @@ func (s *Service) NotifyAssetDirectoryUpdate(dir apigen.AssetDirectory) {
 
 func (s *Service) SubscribeAssetDirectoryUpdates() (*pubsubu.Sub[apigen.AssetDirectory], func()) {
 	sub := s.assetDirSubs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
+	return sub, sub.Unsubscribe
 }
 
 func (s *Service) ListSpaces() []*apigen.Space {
@@ -359,7 +359,7 @@ func (s *Service) CountDeploymentsForSpace(id int32) (int64, error) {
 
 func (s *Service) SubscribeSpaceUpdates() (*pubsubu.Sub[apigen.Space], func()) {
 	sub := s.spaceSubs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
+	return sub, sub.Unsubscribe
 }
 
 func (s *Service) FetchUserByID(id int32) (*apigen.InternalUser, error) {
@@ -569,7 +569,7 @@ func (s *Service) RevokeAgentSession(id string, userID int32, status apigen.Agen
 // not filtered here: subscribers must drop the ones whose UserID is not theirs.
 func (s *Service) SubscribeAgentSessionUpdates() (*pubsubu.Sub[AgentSessionRecord], func()) {
 	sub := s.agentSessionSubs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
+	return sub, sub.Unsubscribe
 }
 
 // notifyAgentSession re-reads the row so subscribers always see the persisted

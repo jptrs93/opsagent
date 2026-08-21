@@ -18,7 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -26,6 +26,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jptrs93/goutil/logu"
 )
 
 const websocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -69,6 +71,7 @@ func stateFor(streamID string) *connState {
 }
 
 func main() {
+	slog.SetDefault(logu.NewJSONLogger(os.Stdout, slog.LevelInfo))
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws/echo", serveEcho)
 	mux.HandleFunc("/ws/push", servePush)
@@ -78,9 +81,9 @@ func main() {
 		addr = "[::]:" + port
 	}
 	server := &http.Server{Addr: addr, Handler: mux}
-	log.Printf("wsecho listening address=%s", server.Addr)
+	logf("wsecho listening address=%s", server.Addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("serve: %v", err)
+		fatalf("serve: %v", err)
 	}
 }
 
@@ -335,4 +338,13 @@ func servePush(w http.ResponseWriter, r *http.Request) {
 	_ = writeFrame(rw.Writer, opcodeClose, closePayload(1000, "push complete"))
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	<-done
+}
+
+func logf(format string, args ...any) {
+	slog.Info(fmt.Sprintf(format, args...))
+}
+
+func fatalf(format string, args ...any) {
+	slog.Error(fmt.Sprintf(format, args...))
+	os.Exit(1)
 }

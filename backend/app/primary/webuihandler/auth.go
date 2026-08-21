@@ -190,7 +190,7 @@ func (h *Handler) VerifyAuth(ctx context.Context, _ http.ResponseWriter, r *http
 		user = &delegated
 	}
 	sub, _ := claims["sub"].(string)
-	res.Ctx = logu.ExtendLogContext(res.Ctx, "user", sub)
+	res.Ctx = logu.AddKV(res.Ctx, "user", sub)
 	scopes := jwtu.ScopesFromClaims(claims)
 	res.User = user
 	res.Token = tokenString

@@ -83,7 +83,7 @@ func (s *Service) NotifyAssetDeleted(a *apigen.Asset) {
 
 func (s *Service) SubscribeAssetUpdates() (*pubsubu.Sub[apigen.Asset], func()) {
 	sub := s.assetSubs.Subscribe(nil)
-	return sub, sub.UnsubscribeFunc
+	return sub, sub.Unsubscribe
 }
 
 // GetAssetRow returns the stable asset identity row.

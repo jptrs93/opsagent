@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+
+	"github.com/jptrs93/goutil/logu"
 	"net"
 	"os"
 	"strconv"
@@ -23,7 +25,7 @@ import (
 const appName = "postgresclient"
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger := logu.NewJSONLogger(os.Stdout, slog.LevelInfo)
 	cfg := configFromEnv()
 	logger.Info("postgresclient starting", "host", cfg.Host, "port", cfg.Port, "database", cfg.Database, "user", cfg.User)
 	passwordHash := sha256.Sum256([]byte(cfg.Password))

@@ -837,42 +837,23 @@ func (c *ApiServerCapi) PostV1DeploymentsVersions(ctx context.Context, req *Depl
 	return DecodeDeploymentVersions(body)
 }
 
-func (c *ApiServerCapi) PostV1DeploymentsLogSearch(ctx context.Context, req *LogSearchRequest) iter.Seq2[*LogLineBatch, error] {
-	return func(yield func(*LogLineBatch, error) bool) {
-		if req == nil {
-			yield(nil, fmt.Errorf("PostV1DeploymentsLogSearch request is nil"))
-			return
-		}
-		resp, err := c.do(ctx, "POST", "/v1/deployments/log-search", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf-stream")
-		if err != nil {
-			yield(nil, err)
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			yield(nil, c.ErrorHandler(ctx, resp))
-			return
-		}
-		reader := NewStreamReader(resp.Body, 0)
-		for {
-			payload, ok, err := reader.Next()
-			if err != nil {
-				yield(nil, err)
-				return
-			}
-			if !ok {
-				return
-			}
-			item, err := DecodeLogLineBatch(payload)
-			if err != nil {
-				yield(nil, err)
-				return
-			}
-			if !yield(item, nil) {
-				return
-			}
-		}
+func (c *ApiServerCapi) PostV1DeploymentsLogQuery(ctx context.Context, req *LogQueryRequest) (*LogQueryResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1DeploymentsLogQuery request is nil")
 	}
+	resp, err := c.do(ctx, "POST", "/v1/deployments/log-query", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeLogQueryResponse(body)
 }
 
 func (c *ApiServerCapi) PostV1DeploymentsPrepareOutput(ctx context.Context, req *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error] {

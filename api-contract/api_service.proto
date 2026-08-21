@@ -227,8 +227,8 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1DeploymentsLogSearch(LogSearchRequest) returns (stream LogLineBatch) {
-    option (cp.url) = "/v1/deployments/log-search";
+  rpc PostV1DeploymentsLogQuery(LogQueryRequest) returns (LogQueryResponse) {
+    option (cp.url) = "/v1/deployments/log-query";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 

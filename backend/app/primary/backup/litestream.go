@@ -63,7 +63,7 @@ func StartReplication(ctx context.Context, configService *config.Service, secret
 	filter.SetInitial(sub.InitialValue)
 	go func() {
 		defer close(done)
-		defer sub.UnsubscribeFunc()
+		defer sub.Unsubscribe()
 		var cancel context.CancelFunc
 		var currentDone chan struct{}
 		stopCurrent := func() {

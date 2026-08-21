@@ -42,6 +42,11 @@ type ContainerSpec struct {
 	Output        string   // stdout/stderr deployment log directory
 	OutputVersion int32    // deployment config version for stdout/stderr records
 	OutputRun     int32    // deployment run number for stdout/stderr records
+	// Stamped into every wal record so the log data is self describing and
+	// needs no directory or catalog context to attribute a line.
+	OutputDeployment int32
+	OutputNode       int32
+	OutputOrdinal    int32
 
 	// NetnsPath joins the container to a pre-created network namespace (the
 	// virtual network). Empty = host networking.

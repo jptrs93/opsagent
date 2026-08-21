@@ -10,7 +10,7 @@ import (
 
 func watchServerConfig(ctx context.Context, cs *config.Service, initial apigen.PrimaryConfig) error {
 	sub := cs.SnapshotAndSubscribe(serverConfigChanged)
-	defer sub.UnsubscribeFunc()
+	defer sub.Unsubscribe()
 	if serverConfigChanged(initial, sub.InitialValue) {
 		slog.Info("primary server config changed; restarting")
 		return ErrRestartRequired

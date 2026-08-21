@@ -17,6 +17,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
+	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -57,6 +58,9 @@ type Handler struct {
 
 	// Cluster is used to inspect worker connections and proxy remote logs.
 	Cluster *clusterhandler.Handler
+
+	// LogManager serves log searches for deployments running on this node.
+	LogManager *logmanager.Manager
 
 	// Enrollment owns the enrollment stream and operator enrollment actions.
 	Enrollment *enrollmenthandler.Handler

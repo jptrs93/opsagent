@@ -17,16 +17,19 @@ import (
 	"errors"
 	"fmt"
 	"iter"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/jptrs93/opsagent/testexamples/protostream/gen"
+
+	"github.com/jptrs93/goutil/logu"
 )
 
 func main() {
+	slog.SetDefault(logu.NewJSONLogger(os.Stdout, slog.LevelInfo))
 	addr := "[::]:8080"
 	if port := os.Getenv("PORT"); port != "" {
 		addr = "[::]:" + port
@@ -39,9 +42,9 @@ func main() {
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)
 	server.Protocols = protocols
-	log.Printf("protostream listening address=%s", server.Addr)
+	logf("protostream listening address=%s", server.Addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("serve: %v", err)
+		fatalf("serve: %v", err)
 	}
 }
 
@@ -231,4 +234,13 @@ func (h *handler) PostV1StreamReport(ctx context.Context, req *gen.StreamReportR
 		state.mu.Unlock()
 	}
 	return report, nil
+}
+
+func logf(format string, args ...any) {
+	slog.Info(fmt.Sprintf(format, args...))
+}
+
+func fatalf(format string, args ...any) {
+	slog.Error(fmt.Sprintf(format, args...))
+	os.Exit(1)
 }

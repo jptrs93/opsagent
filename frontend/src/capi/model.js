@@ -403,23 +403,15 @@
  * @property {number} instanceOrdinal
  */
 /**
- * @typedef {Object} LogLineBatch
- * @property {RawLogLine[]} lines
- * @property {string} logDir
- */
-/**
- * @typedef {Object} StructuredLogLine
+ * @typedef {Object} LogRecord
  * @property {number} time
- * @property {number} sourceDeploymentId
- * @property {number} sourceDeploymentVersionId
- * @property {number} sourceRunNumber
- * @property {number} sourceInstanceOrdinal
- * @property {number} sourceNode
- * @property {number} sourceStream
- * @property {Object.<string, number>} intFields
- * @property {Object.<string, number>} floatFields
- * @property {Object.<string, boolean>} boolFields
- * @property {Object.<string, string>} strFields
+ * @property {string} level
+ * @property {string} msg
+ * @property {Object.<string, string>} fields
+ * @property {Uint8Array} raw
+ * @property {number} version
+ * @property {number} stream
+ * @property {number} instanceOrdinal
  */
 /**
  * @typedef {Object} PrepareOutputRequest
@@ -442,17 +434,68 @@
  * @property {string} requestId
  */
 /**
- * @typedef {Object} LogSearchRequest
+ * @typedef {Object} LogFilter
+ * @property {string} field
+ * @property {string} op
+ * @property {string} value
+ * @property {string[]} values
+ */
+/**
+ * @typedef {Object} LogQueryRequest
  * @property {number} deploymentId
+ * @property {number} targetNodeId
+ * @property {number} configVersion
  * @property {Date} timeStart
  * @property {Date} timeEnd
- * @property {string} levelMin
- * @property {Object.<string, string>} searchKeys
+ * @property {LogFilter[]} filters
+ * @property {number} limit
+ * @property {number} histogramBuckets
+ * @property {boolean} includeRaw
+ * @property {string} order
  * @property {string} requestId
- * @property {number} logLineLimit
- * @property {number} configVersion
- * @property {string} searchStr
- * @property {number} targetNodeId
+ */
+/**
+ * @typedef {Object} LogQueryStats
+ * @property {Date} timeStart
+ * @property {Date} timeEnd
+ * @property {number} scannedRows
+ * @property {number} matchedRows
+ * @property {number} returnedRows
+ * @property {boolean} truncated
+ * @property {number} tookMs
+ * @property {number} sampledRows
+ */
+/**
+ * @typedef {Object} LogHistogramSeries
+ * @property {string} level
+ * @property {number[]} counts
+ */
+/**
+ * @typedef {Object} LogHistogram
+ * @property {number} bucketMs
+ * @property {Date} startTime
+ * @property {LogHistogramSeries[]} series
+ */
+/**
+ * @typedef {Object} LogFieldValueCount
+ * @property {string} value
+ * @property {number} count
+ */
+/**
+ * @typedef {Object} LogFieldStats
+ * @property {string} field
+ * @property {number} coverage
+ * @property {number} distinct
+ * @property {LogFieldValueCount[]} top
+ * @property {number} other
+ */
+/**
+ * @typedef {Object} LogQueryResponse
+ * @property {LogQueryStats} stats
+ * @property {LogHistogram} histogram
+ * @property {LogFieldStats[]} fields
+ * @property {LogRecord[]} records
+ * @property {string[]} warnings
  */
 /**
  * @typedef {Object} Secret
@@ -1141,11 +1184,11 @@
  * @property {RunOutputRequest} runLogRequest
  * @property {DeploymentLogRequest} deploymentLogRequest
  * @property {string} stopLogRequestId
- * @property {LogSearchRequest} logSearchRequest
  * @property {ClusterNetworkInfo} clusterNetwork
  * @property {ClusterNetMap} clusterNetMap
  * @property {number} clusterProtocolVersion
  * @property {AcmeState} acmeState
+ * @property {LogQueryRequest} logQueryRequest
  */
 /**
  * @typedef {Object} ClusterHello
@@ -1158,9 +1201,10 @@
  * @property {Uint8Array} logData
  * @property {boolean} logEnd
  * @property {string} logRequestId
- * @property {LogLineBatch} logLines
  * @property {NetMapStatus} netMapStatus
  * @property {ClusterHello} clusterHello
+ * @property {LogQueryResponse} logQueryResponse
+ * @property {string} logQueryError
  */
 /**
  * @typedef {Object} ClusterSecretsRequest
@@ -6207,135 +6251,23 @@ export function decodeRawLogLine(buffer) {
 
 
 /**
- * @param {LogLineBatch} message
+ * @param {LogRecord} message
  * @param {Writer} writer
  */
-export function writeLogLineBatch(message, writer) {
-    if (message.lines && message.lines.length > 0) {
-        for (const item of message.lines) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeRawLogLine(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.logDir !== undefined && message.logDir !== null && message.logDir !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.logDir);
-    }
-}
-
-
-/**
- * @param {LogLineBatch} message
- * @returns {Uint8Array}
- */
-export function encodeLogLineBatch(message) {
-    const writer = Writer.create();
-    writeLogLineBatch(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {LogLineBatch}
- */
-function decodeLogLineBatchMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {lines: [], logDir: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.lines.push(decodeRawLogLineMessage(reader, reader.uint32()));
-                break;
-            }
-            case 2: {
-                message.logDir = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {LogLineBatch}
- */
-export function decodeLogLineBatch(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeLogLineBatchMessage(reader);
-}
-
-
-
-/**
- * @param {StructuredLogLine} message
- * @param {Writer} writer
- */
-export function writeStructuredLogLine(message, writer) {
+export function writeLogRecord(message, writer) {
     if (message.time !== undefined && message.time !== null && message.time !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int64(message.time);
     }
-    if (message.sourceDeploymentId !== undefined && message.sourceDeploymentId !== null && message.sourceDeploymentId !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.sourceDeploymentId);
+    if (message.level !== undefined && message.level !== null && message.level !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.level);
     }
-    if (message.sourceDeploymentVersionId !== undefined && message.sourceDeploymentVersionId !== null && message.sourceDeploymentVersionId !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.sourceDeploymentVersionId);
+    if (message.msg !== undefined && message.msg !== null && message.msg !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.msg);
     }
-    if (message.sourceRunNumber !== undefined && message.sourceRunNumber !== null && message.sourceRunNumber !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.sourceRunNumber);
-    }
-    if (message.sourceInstanceOrdinal !== undefined && message.sourceInstanceOrdinal !== null && message.sourceInstanceOrdinal !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.sourceInstanceOrdinal);
-    }
-    if (message.sourceNode !== undefined && message.sourceNode !== null && message.sourceNode !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.sourceNode);
-    }
-    if (message.sourceStream !== undefined && message.sourceStream !== null && message.sourceStream !== 0) {
-        writer.uint32(tag(7, WIRE.VARINT)).int32(message.sourceStream);
-    }
-    if (message.intFields && Object.keys(message.intFields).length > 0) {
-        for (const [rawKey, value] of Object.entries(message.intFields)) {
+    if (message.fields && Object.keys(message.fields).length > 0) {
+        for (const [rawKey, value] of Object.entries(message.fields)) {
             const key = rawKey;
-            writer.uint32(tag(8, WIRE.LDELIM)).fork();
-            writer.uint32(tag(1, WIRE.LDELIM)).string(key);
-            if (value !== undefined && value !== null && value !== 0) {
-                writer.uint32(tag(2, WIRE.VARINT)).int64(value);
-            }
-            writer.ldelim();
-        }
-    }
-    if (message.floatFields && Object.keys(message.floatFields).length > 0) {
-        for (const [rawKey, value] of Object.entries(message.floatFields)) {
-            const key = rawKey;
-            writer.uint32(tag(9, WIRE.LDELIM)).fork();
-            writer.uint32(tag(1, WIRE.LDELIM)).string(key);
-            if (value !== undefined && value !== null && value !== 0) {
-                writer.uint32(tag(2, WIRE.FIXED64)).double(value);
-            }
-            writer.ldelim();
-        }
-    }
-    if (message.boolFields && Object.keys(message.boolFields).length > 0) {
-        for (const [rawKey, value] of Object.entries(message.boolFields)) {
-            const key = rawKey;
-            writer.uint32(tag(10, WIRE.LDELIM)).fork();
-            writer.uint32(tag(1, WIRE.LDELIM)).string(key);
-            if (value === true) {
-                writer.uint32(tag(2, WIRE.VARINT)).bool(value);
-            }
-            writer.ldelim();
-        }
-    }
-    if (message.strFields && Object.keys(message.strFields).length > 0) {
-        for (const [rawKey, value] of Object.entries(message.strFields)) {
-            const key = rawKey;
-            writer.uint32(tag(11, WIRE.LDELIM)).fork();
+            writer.uint32(tag(4, WIRE.LDELIM)).fork();
             writer.uint32(tag(1, WIRE.LDELIM)).string(key);
             if (value !== undefined && value !== null && value !== "") {
                 writer.uint32(tag(2, WIRE.LDELIM)).string(value);
@@ -6343,16 +6275,28 @@ export function writeStructuredLogLine(message, writer) {
             writer.ldelim();
         }
     }
+    if (message.raw && message.raw.length > 0) {
+        writer.uint32(tag(5, WIRE.LDELIM)).bytes(message.raw);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.version);
+    }
+    if (message.stream !== undefined && message.stream !== null && message.stream !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.stream);
+    }
+    if (message.instanceOrdinal !== undefined && message.instanceOrdinal !== null && message.instanceOrdinal !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int32(message.instanceOrdinal);
+    }
 }
 
 
 /**
- * @param {StructuredLogLine} message
+ * @param {LogRecord} message
  * @returns {Uint8Array}
  */
-export function encodeStructuredLogLine(message) {
+export function encodeLogRecord(message) {
     const writer = Writer.create();
-    writeStructuredLogLine(message, writer);
+    writeLogRecord(message, writer);
     return writer.finish();
 }
 
@@ -6360,11 +6304,11 @@ export function encodeStructuredLogLine(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {StructuredLogLine}
+ * @returns {LogRecord}
  */
-function decodeStructuredLogLineMessage(reader, length) {
+function decodeLogRecordMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {time: 0, sourceDeploymentId: 0, sourceDeploymentVersionId: 0, sourceRunNumber: 0, sourceInstanceOrdinal: 0, sourceNode: 0, sourceStream: 0, intFields: {}, floatFields: {}, boolFields: {}, strFields: {} };
+    const message = {time: 0, level: "", msg: "", fields: {}, raw: new Uint8Array(0), version: 0, stream: 0, instanceOrdinal: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6373,93 +6317,14 @@ function decodeStructuredLogLineMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.sourceDeploymentId = reader.int32();
+                message.level = reader.string();
                 break;
             }
             case 3: {
-                message.sourceDeploymentVersionId = reader.int32();
+                message.msg = reader.string();
                 break;
             }
             case 4: {
-                message.sourceRunNumber = reader.int32();
-                break;
-            }
-            case 5: {
-                message.sourceInstanceOrdinal = reader.int32();
-                break;
-            }
-            case 6: {
-                message.sourceNode = reader.int32();
-                break;
-            }
-            case 7: {
-                message.sourceStream = reader.int32();
-                break;
-            }
-            case 8: {
-                const end2 = reader.uint32() + reader.pos;
-                let key = "";
-                let value = 0;
-                while (reader.pos < end2) {
-                    const tag2 = reader.uint32();
-                    switch (tag2 >>> 3) {
-                        case 1:
-                            key = reader.string();
-                            break;
-                        case 2:
-                            value = readInt64(reader, "int64");
-                            break;
-                        default:
-                            reader.skipType(tag2 & 7);
-                    }
-                }
-                if (!message.intFields) { message.intFields = {}; }
-                message.intFields[String(key)] = value;
-                break;
-            }
-            case 9: {
-                const end2 = reader.uint32() + reader.pos;
-                let key = "";
-                let value = 0;
-                while (reader.pos < end2) {
-                    const tag2 = reader.uint32();
-                    switch (tag2 >>> 3) {
-                        case 1:
-                            key = reader.string();
-                            break;
-                        case 2:
-                            value = reader.double();
-                            break;
-                        default:
-                            reader.skipType(tag2 & 7);
-                    }
-                }
-                if (!message.floatFields) { message.floatFields = {}; }
-                message.floatFields[String(key)] = value;
-                break;
-            }
-            case 10: {
-                const end2 = reader.uint32() + reader.pos;
-                let key = "";
-                let value = false;
-                while (reader.pos < end2) {
-                    const tag2 = reader.uint32();
-                    switch (tag2 >>> 3) {
-                        case 1:
-                            key = reader.string();
-                            break;
-                        case 2:
-                            value = reader.bool();
-                            break;
-                        default:
-                            reader.skipType(tag2 & 7);
-                    }
-                }
-                if (!message.boolFields) { message.boolFields = {}; }
-                message.boolFields[String(key)] = value;
-                break;
-            }
-            case 11: {
                 const end2 = reader.uint32() + reader.pos;
                 let key = "";
                 let value = "";
@@ -6476,8 +6341,24 @@ function decodeStructuredLogLineMessage(reader, length) {
                             reader.skipType(tag2 & 7);
                     }
                 }
-                if (!message.strFields) { message.strFields = {}; }
-                message.strFields[String(key)] = value;
+                if (!message.fields) { message.fields = {}; }
+                message.fields[String(key)] = value;
+                break;
+            }
+            case 5: {
+                message.raw = reader.bytes();
+                break;
+            }
+            case 6: {
+                message.version = reader.int32();
+                break;
+            }
+            case 7: {
+                message.stream = reader.int32();
+                break;
+            }
+            case 8: {
+                message.instanceOrdinal = reader.int32();
                 break;
             }
             default:
@@ -6490,11 +6371,11 @@ function decodeStructuredLogLineMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {StructuredLogLine}
+ * @returns {LogRecord}
  */
-export function decodeStructuredLogLine(buffer) {
+export function decodeLogRecord(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeStructuredLogLineMessage(reader);
+    return decodeLogRecordMessage(reader);
 }
 
 
@@ -6756,58 +6637,34 @@ export function decodeDeploymentLogRequest(buffer) {
 
 
 /**
- * @param {LogSearchRequest} message
+ * @param {LogFilter} message
  * @param {Writer} writer
  */
-export function writeLogSearchRequest(message, writer) {
-    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
+export function writeLogFilter(message, writer) {
+    if (message.field !== undefined && message.field !== null && message.field !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.field);
     }
-    if (message.timeStart instanceof Date && message.timeStart.getTime() !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.timeStart.getTime()));
+    if (message.op !== undefined && message.op !== null && message.op !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.op);
     }
-    if (message.timeEnd instanceof Date && message.timeEnd.getTime() !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.timeEnd.getTime()));
+    if (message.value !== undefined && message.value !== null && message.value !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
     }
-    if (message.levelMin !== undefined && message.levelMin !== null && message.levelMin !== "") {
-        writer.uint32(tag(4, WIRE.LDELIM)).string(message.levelMin);
-    }
-    if (message.searchKeys && Object.keys(message.searchKeys).length > 0) {
-        for (const [rawKey, value] of Object.entries(message.searchKeys)) {
-            const key = rawKey;
-            writer.uint32(tag(5, WIRE.LDELIM)).fork();
-            writer.uint32(tag(1, WIRE.LDELIM)).string(key);
-            if (value !== undefined && value !== null && value !== "") {
-                writer.uint32(tag(2, WIRE.LDELIM)).string(value);
-            }
-            writer.ldelim();
+    if (message.values && message.values.length > 0) {
+        for (const item of message.values) {
+            writer.uint32(tag(4, WIRE.LDELIM)).string(item);
         }
-    }
-    if (message.requestId !== undefined && message.requestId !== null && message.requestId !== "") {
-        writer.uint32(tag(6, WIRE.LDELIM)).string(message.requestId);
-    }
-    if (message.logLineLimit !== undefined && message.logLineLimit !== null && message.logLineLimit !== 0) {
-        writer.uint32(tag(7, WIRE.VARINT)).int32(message.logLineLimit);
-    }
-    if (message.configVersion !== undefined && message.configVersion !== null && message.configVersion !== 0) {
-        writer.uint32(tag(8, WIRE.VARINT)).int32(message.configVersion);
-    }
-    if (message.searchStr !== undefined && message.searchStr !== null && message.searchStr !== "") {
-        writer.uint32(tag(9, WIRE.LDELIM)).string(message.searchStr);
-    }
-    if (message.targetNodeId !== undefined && message.targetNodeId !== null && message.targetNodeId !== 0) {
-        writer.uint32(tag(10, WIRE.VARINT)).int32(message.targetNodeId);
     }
 }
 
 
 /**
- * @param {LogSearchRequest} message
+ * @param {LogFilter} message
  * @returns {Uint8Array}
  */
-export function encodeLogSearchRequest(message) {
+export function encodeLogFilter(message) {
     const writer = Writer.create();
-    writeLogSearchRequest(message, writer);
+    writeLogFilter(message, writer);
     return writer.finish();
 }
 
@@ -6815,69 +6672,28 @@ export function encodeLogSearchRequest(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {LogSearchRequest}
+ * @returns {LogFilter}
  */
-function decodeLogSearchRequestMessage(reader, length) {
+function decodeLogFilterMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, timeStart: new Date(0), timeEnd: new Date(0), levelMin: "", searchKeys: {}, requestId: "", logLineLimit: 0, configVersion: 0, searchStr: "", targetNodeId: 0 };
+    const message = {field: "", op: "", value: "", values: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.deploymentId = reader.int32();
+                message.field = reader.string();
                 break;
             }
             case 2: {
-                message.timeStart = new Date(readInt64(reader, "int64"));
+                message.op = reader.string();
                 break;
             }
             case 3: {
-                message.timeEnd = new Date(readInt64(reader, "int64"));
+                message.value = reader.string();
                 break;
             }
             case 4: {
-                message.levelMin = reader.string();
-                break;
-            }
-            case 5: {
-                const end2 = reader.uint32() + reader.pos;
-                let key = "";
-                let value = "";
-                while (reader.pos < end2) {
-                    const tag2 = reader.uint32();
-                    switch (tag2 >>> 3) {
-                        case 1:
-                            key = reader.string();
-                            break;
-                        case 2:
-                            value = reader.string();
-                            break;
-                        default:
-                            reader.skipType(tag2 & 7);
-                    }
-                }
-                if (!message.searchKeys) { message.searchKeys = {}; }
-                message.searchKeys[String(key)] = value;
-                break;
-            }
-            case 6: {
-                message.requestId = reader.string();
-                break;
-            }
-            case 7: {
-                message.logLineLimit = reader.int32();
-                break;
-            }
-            case 8: {
-                message.configVersion = reader.int32();
-                break;
-            }
-            case 9: {
-                message.searchStr = reader.string();
-                break;
-            }
-            case 10: {
-                message.targetNodeId = reader.int32();
+                message.values.push(reader.string());
                 break;
             }
             default:
@@ -6890,11 +6706,641 @@ function decodeLogSearchRequestMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {LogSearchRequest}
+ * @returns {LogFilter}
  */
-export function decodeLogSearchRequest(buffer) {
+export function decodeLogFilter(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeLogSearchRequestMessage(reader);
+    return decodeLogFilterMessage(reader);
+}
+
+
+
+/**
+ * @param {LogQueryRequest} message
+ * @param {Writer} writer
+ */
+export function writeLogQueryRequest(message, writer) {
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
+    }
+    if (message.targetNodeId !== undefined && message.targetNodeId !== null && message.targetNodeId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.targetNodeId);
+    }
+    if (message.configVersion !== undefined && message.configVersion !== null && message.configVersion !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.configVersion);
+    }
+    if (message.timeStart instanceof Date && message.timeStart.getTime() !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.timeStart.getTime()));
+    }
+    if (message.timeEnd instanceof Date && message.timeEnd.getTime() !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.timeEnd.getTime()));
+    }
+    if (message.filters && message.filters.length > 0) {
+        for (const item of message.filters) {
+            writer.uint32(tag(6, WIRE.LDELIM)).fork();
+            writeLogFilter(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.limit !== undefined && message.limit !== null && message.limit !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.limit);
+    }
+    if (message.histogramBuckets !== undefined && message.histogramBuckets !== null && message.histogramBuckets !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int32(message.histogramBuckets);
+    }
+    if (message.includeRaw === true) {
+        writer.uint32(tag(9, WIRE.VARINT)).bool(message.includeRaw);
+    }
+    if (message.order !== undefined && message.order !== null && message.order !== "") {
+        writer.uint32(tag(10, WIRE.LDELIM)).string(message.order);
+    }
+    if (message.requestId !== undefined && message.requestId !== null && message.requestId !== "") {
+        writer.uint32(tag(11, WIRE.LDELIM)).string(message.requestId);
+    }
+}
+
+
+/**
+ * @param {LogQueryRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeLogQueryRequest(message) {
+    const writer = Writer.create();
+    writeLogQueryRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {LogQueryRequest}
+ */
+function decodeLogQueryRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {deploymentId: 0, targetNodeId: 0, configVersion: 0, timeStart: new Date(0), timeEnd: new Date(0), filters: [], limit: 0, histogramBuckets: 0, includeRaw: false, order: "", requestId: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.deploymentId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.targetNodeId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.configVersion = reader.int32();
+                break;
+            }
+            case 4: {
+                message.timeStart = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 5: {
+                message.timeEnd = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 6: {
+                message.filters.push(decodeLogFilterMessage(reader, reader.uint32()));
+                break;
+            }
+            case 7: {
+                message.limit = reader.int32();
+                break;
+            }
+            case 8: {
+                message.histogramBuckets = reader.int32();
+                break;
+            }
+            case 9: {
+                message.includeRaw = reader.bool();
+                break;
+            }
+            case 10: {
+                message.order = reader.string();
+                break;
+            }
+            case 11: {
+                message.requestId = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {LogQueryRequest}
+ */
+export function decodeLogQueryRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeLogQueryRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {LogQueryStats} message
+ * @param {Writer} writer
+ */
+export function writeLogQueryStats(message, writer) {
+    if (message.timeStart instanceof Date && message.timeStart.getTime() !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(Math.trunc(message.timeStart.getTime()));
+    }
+    if (message.timeEnd instanceof Date && message.timeEnd.getTime() !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.timeEnd.getTime()));
+    }
+    if (message.scannedRows !== undefined && message.scannedRows !== null && message.scannedRows !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(message.scannedRows);
+    }
+    if (message.matchedRows !== undefined && message.matchedRows !== null && message.matchedRows !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(message.matchedRows);
+    }
+    if (message.returnedRows !== undefined && message.returnedRows !== null && message.returnedRows !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.returnedRows);
+    }
+    if (message.truncated === true) {
+        writer.uint32(tag(6, WIRE.VARINT)).bool(message.truncated);
+    }
+    if (message.tookMs !== undefined && message.tookMs !== null && message.tookMs !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.tookMs);
+    }
+    if (message.sampledRows !== undefined && message.sampledRows !== null && message.sampledRows !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int64(message.sampledRows);
+    }
+}
+
+
+/**
+ * @param {LogQueryStats} message
+ * @returns {Uint8Array}
+ */
+export function encodeLogQueryStats(message) {
+    const writer = Writer.create();
+    writeLogQueryStats(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {LogQueryStats}
+ */
+function decodeLogQueryStatsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {timeStart: new Date(0), timeEnd: new Date(0), scannedRows: 0, matchedRows: 0, returnedRows: 0, truncated: false, tookMs: 0, sampledRows: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.timeStart = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 2: {
+                message.timeEnd = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 3: {
+                message.scannedRows = readInt64(reader, "int64");
+                break;
+            }
+            case 4: {
+                message.matchedRows = readInt64(reader, "int64");
+                break;
+            }
+            case 5: {
+                message.returnedRows = reader.int32();
+                break;
+            }
+            case 6: {
+                message.truncated = reader.bool();
+                break;
+            }
+            case 7: {
+                message.tookMs = reader.int32();
+                break;
+            }
+            case 8: {
+                message.sampledRows = readInt64(reader, "int64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {LogQueryStats}
+ */
+export function decodeLogQueryStats(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeLogQueryStatsMessage(reader);
+}
+
+
+
+/**
+ * @param {LogHistogramSeries} message
+ * @param {Writer} writer
+ */
+export function writeLogHistogramSeries(message, writer) {
+    if (message.level !== undefined && message.level !== null && message.level !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.level);
+    }
+    if (message.counts) {
+        const packedWriter = Writer.create();
+        for (const item of message.counts) {
+            packedWriter.int64(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(2, WIRE.LDELIM)).bytes(packedWriter.finish());
+        }
+    }
+}
+
+
+/**
+ * @param {LogHistogramSeries} message
+ * @returns {Uint8Array}
+ */
+export function encodeLogHistogramSeries(message) {
+    const writer = Writer.create();
+    writeLogHistogramSeries(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {LogHistogramSeries}
+ */
+function decodeLogHistogramSeriesMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {level: "", counts: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.level = reader.string();
+                break;
+            }
+            case 2: {
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.counts.push(readInt64(reader, "int64"));
+                }
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {LogHistogramSeries}
+ */
+export function decodeLogHistogramSeries(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeLogHistogramSeriesMessage(reader);
+}
+
+
+
+/**
+ * @param {LogHistogram} message
+ * @param {Writer} writer
+ */
+export function writeLogHistogram(message, writer) {
+    if (message.bucketMs !== undefined && message.bucketMs !== null && message.bucketMs !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.bucketMs);
+    }
+    if (message.startTime instanceof Date && message.startTime.getTime() !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.startTime.getTime()));
+    }
+    if (message.series && message.series.length > 0) {
+        for (const item of message.series) {
+            writer.uint32(tag(3, WIRE.LDELIM)).fork();
+            writeLogHistogramSeries(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {LogHistogram} message
+ * @returns {Uint8Array}
+ */
+export function encodeLogHistogram(message) {
+    const writer = Writer.create();
+    writeLogHistogram(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {LogHistogram}
+ */
+function decodeLogHistogramMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {bucketMs: 0, startTime: new Date(0), series: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.bucketMs = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.startTime = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 3: {
+                message.series.push(decodeLogHistogramSeriesMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {LogHistogram}
+ */
+export function decodeLogHistogram(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeLogHistogramMessage(reader);
+}
+
+
+
+/**
+ * @param {LogFieldValueCount} message
+ * @param {Writer} writer
+ */
+export function writeLogFieldValueCount(message, writer) {
+    if (message.value !== undefined && message.value !== null && message.value !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.value);
+    }
+    if (message.count !== undefined && message.count !== null && message.count !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.count);
+    }
+}
+
+
+/**
+ * @param {LogFieldValueCount} message
+ * @returns {Uint8Array}
+ */
+export function encodeLogFieldValueCount(message) {
+    const writer = Writer.create();
+    writeLogFieldValueCount(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {LogFieldValueCount}
+ */
+function decodeLogFieldValueCountMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {value: "", count: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.value = reader.string();
+                break;
+            }
+            case 2: {
+                message.count = readInt64(reader, "int64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {LogFieldValueCount}
+ */
+export function decodeLogFieldValueCount(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeLogFieldValueCountMessage(reader);
+}
+
+
+
+/**
+ * @param {LogFieldStats} message
+ * @param {Writer} writer
+ */
+export function writeLogFieldStats(message, writer) {
+    if (message.field !== undefined && message.field !== null && message.field !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.field);
+    }
+    if (message.coverage !== undefined && message.coverage !== null && message.coverage !== 0) {
+        writer.uint32(tag(2, WIRE.FIXED64)).double(message.coverage);
+    }
+    if (message.distinct !== undefined && message.distinct !== null && message.distinct !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(message.distinct);
+    }
+    if (message.top && message.top.length > 0) {
+        for (const item of message.top) {
+            writer.uint32(tag(4, WIRE.LDELIM)).fork();
+            writeLogFieldValueCount(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.other !== undefined && message.other !== null && message.other !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(message.other);
+    }
+}
+
+
+/**
+ * @param {LogFieldStats} message
+ * @returns {Uint8Array}
+ */
+export function encodeLogFieldStats(message) {
+    const writer = Writer.create();
+    writeLogFieldStats(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {LogFieldStats}
+ */
+function decodeLogFieldStatsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {field: "", coverage: 0, distinct: 0, top: [], other: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.field = reader.string();
+                break;
+            }
+            case 2: {
+                message.coverage = reader.double();
+                break;
+            }
+            case 3: {
+                message.distinct = readInt64(reader, "int64");
+                break;
+            }
+            case 4: {
+                message.top.push(decodeLogFieldValueCountMessage(reader, reader.uint32()));
+                break;
+            }
+            case 5: {
+                message.other = readInt64(reader, "int64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {LogFieldStats}
+ */
+export function decodeLogFieldStats(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeLogFieldStatsMessage(reader);
+}
+
+
+
+/**
+ * @param {LogQueryResponse} message
+ * @param {Writer} writer
+ */
+export function writeLogQueryResponse(message, writer) {
+    if (message.stats !== undefined && message.stats !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeLogQueryStats(message.stats, writer);
+        writer.ldelim();
+    }
+    if (message.histogram !== undefined && message.histogram !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeLogHistogram(message.histogram, writer);
+        writer.ldelim();
+    }
+    if (message.fields && message.fields.length > 0) {
+        for (const item of message.fields) {
+            writer.uint32(tag(3, WIRE.LDELIM)).fork();
+            writeLogFieldStats(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.records && message.records.length > 0) {
+        for (const item of message.records) {
+            writer.uint32(tag(4, WIRE.LDELIM)).fork();
+            writeLogRecord(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.warnings && message.warnings.length > 0) {
+        for (const item of message.warnings) {
+            writer.uint32(tag(5, WIRE.LDELIM)).string(item);
+        }
+    }
+}
+
+
+/**
+ * @param {LogQueryResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeLogQueryResponse(message) {
+    const writer = Writer.create();
+    writeLogQueryResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {LogQueryResponse}
+ */
+function decodeLogQueryResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {stats: undefined, histogram: undefined, fields: [], records: [], warnings: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.stats = decodeLogQueryStatsMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.histogram = decodeLogHistogramMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.fields.push(decodeLogFieldStatsMessage(reader, reader.uint32()));
+                break;
+            }
+            case 4: {
+                message.records.push(decodeLogRecordMessage(reader, reader.uint32()));
+                break;
+            }
+            case 5: {
+                message.warnings.push(reader.string());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {LogQueryResponse}
+ */
+export function decodeLogQueryResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeLogQueryResponseMessage(reader);
 }
 
 
@@ -15185,27 +15631,27 @@ export function writeMsgToWorker(message, writer) {
     if (message.stopLogRequestId !== undefined && message.stopLogRequestId !== null && message.stopLogRequestId !== "") {
         writer.uint32(tag(6, WIRE.LDELIM)).string(message.stopLogRequestId);
     }
-    if (message.logSearchRequest !== undefined && message.logSearchRequest !== null) {
-        writer.uint32(tag(7, WIRE.LDELIM)).fork();
-        writeLogSearchRequest(message.logSearchRequest, writer);
-        writer.ldelim();
-    }
     if (message.clusterNetwork !== undefined && message.clusterNetwork !== null) {
-        writer.uint32(tag(8, WIRE.LDELIM)).fork();
+        writer.uint32(tag(7, WIRE.LDELIM)).fork();
         writeClusterNetworkInfo(message.clusterNetwork, writer);
         writer.ldelim();
     }
     if (message.clusterNetMap !== undefined && message.clusterNetMap !== null) {
-        writer.uint32(tag(9, WIRE.LDELIM)).fork();
+        writer.uint32(tag(8, WIRE.LDELIM)).fork();
         writeClusterNetMap(message.clusterNetMap, writer);
         writer.ldelim();
     }
     if (message.clusterProtocolVersion !== undefined && message.clusterProtocolVersion !== null && message.clusterProtocolVersion !== 0) {
-        writer.uint32(tag(10, WIRE.VARINT)).int32(message.clusterProtocolVersion);
+        writer.uint32(tag(9, WIRE.VARINT)).int32(message.clusterProtocolVersion);
     }
     if (message.acmeState !== undefined && message.acmeState !== null) {
-        writer.uint32(tag(11, WIRE.LDELIM)).fork();
+        writer.uint32(tag(10, WIRE.LDELIM)).fork();
         writeAcmeState(message.acmeState, writer);
+        writer.ldelim();
+    }
+    if (message.logQueryRequest !== undefined && message.logQueryRequest !== null) {
+        writer.uint32(tag(11, WIRE.LDELIM)).fork();
+        writeLogQueryRequest(message.logQueryRequest, writer);
         writer.ldelim();
     }
 }
@@ -15229,7 +15675,7 @@ export function encodeMsgToWorker(message) {
  */
 function decodeMsgToWorkerMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", logSearchRequest: undefined, clusterNetwork: undefined, clusterNetMap: undefined, clusterProtocolVersion: 0, acmeState: undefined };
+    const message = {scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", clusterNetwork: undefined, clusterNetMap: undefined, clusterProtocolVersion: 0, acmeState: undefined, logQueryRequest: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15258,23 +15704,23 @@ function decodeMsgToWorkerMessage(reader, length) {
                 break;
             }
             case 7: {
-                message.logSearchRequest = decodeLogSearchRequestMessage(reader, reader.uint32());
-                break;
-            }
-            case 8: {
                 message.clusterNetwork = decodeClusterNetworkInfoMessage(reader, reader.uint32());
                 break;
             }
-            case 9: {
+            case 8: {
                 message.clusterNetMap = decodeClusterNetMapMessage(reader, reader.uint32());
                 break;
             }
-            case 10: {
+            case 9: {
                 message.clusterProtocolVersion = reader.int32();
                 break;
             }
-            case 11: {
+            case 10: {
                 message.acmeState = decodeAcmeStateMessage(reader, reader.uint32());
+                break;
+            }
+            case 11: {
+                message.logQueryRequest = decodeLogQueryRequestMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -15378,20 +15824,23 @@ export function writeMsgToMaster(message, writer) {
     if (message.logRequestId !== undefined && message.logRequestId !== null && message.logRequestId !== "") {
         writer.uint32(tag(4, WIRE.LDELIM)).string(message.logRequestId);
     }
-    if (message.logLines !== undefined && message.logLines !== null) {
-        writer.uint32(tag(5, WIRE.LDELIM)).fork();
-        writeLogLineBatch(message.logLines, writer);
-        writer.ldelim();
-    }
     if (message.netMapStatus !== undefined && message.netMapStatus !== null) {
-        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
         writeNetMapStatus(message.netMapStatus, writer);
         writer.ldelim();
     }
     if (message.clusterHello !== undefined && message.clusterHello !== null) {
-        writer.uint32(tag(8, WIRE.LDELIM)).fork();
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
         writeClusterHello(message.clusterHello, writer);
         writer.ldelim();
+    }
+    if (message.logQueryResponse !== undefined && message.logQueryResponse !== null) {
+        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writeLogQueryResponse(message.logQueryResponse, writer);
+        writer.ldelim();
+    }
+    if (message.logQueryError !== undefined && message.logQueryError !== null && message.logQueryError !== "") {
+        writer.uint32(tag(8, WIRE.LDELIM)).string(message.logQueryError);
     }
 }
 
@@ -15414,7 +15863,7 @@ export function encodeMsgToMaster(message) {
  */
 function decodeMsgToMasterMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {statusWrite: undefined, logData: new Uint8Array(0), logEnd: false, logRequestId: "", logLines: undefined, netMapStatus: undefined, clusterHello: undefined };
+    const message = {statusWrite: undefined, logData: new Uint8Array(0), logEnd: false, logRequestId: "", netMapStatus: undefined, clusterHello: undefined, logQueryResponse: undefined, logQueryError: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15435,15 +15884,19 @@ function decodeMsgToMasterMessage(reader, length) {
                 break;
             }
             case 5: {
-                message.logLines = decodeLogLineBatchMessage(reader, reader.uint32());
-                break;
-            }
-            case 7: {
                 message.netMapStatus = decodeNetMapStatusMessage(reader, reader.uint32());
                 break;
             }
-            case 8: {
+            case 6: {
                 message.clusterHello = decodeClusterHelloMessage(reader, reader.uint32());
+                break;
+            }
+            case 7: {
+                message.logQueryResponse = decodeLogQueryResponseMessage(reader, reader.uint32());
+                break;
+            }
+            case 8: {
+                message.logQueryError = reader.string();
                 break;
             }
             default:

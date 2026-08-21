@@ -199,8 +199,8 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 		msgType = "scheduled_instance_update"
 	case msg.DeploymentLogRequest != nil:
 		msgType = "deployment_log_request"
-	case msg.LogSearchRequest != nil:
-		msgType = "log_search_request"
+	case msg.LogQueryRequest != nil:
+		msgType = "log_query_request"
 	case msg.StopLogRequestID != "":
 		msgType = "stop_log_request"
 	case msg.PrepareLogRequest != nil:
@@ -263,12 +263,12 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 			defer tracker.remove(requestID)
 			streamDeploymentLog(streamCtx, out, store, msg.DeploymentLogRequest)
 		}()
-	case msg.LogSearchRequest != nil:
-		requestID := msg.LogSearchRequest.RequestID
-		streamCtx := tracker.start(ctx, requestID)
+	case msg.LogQueryRequest != nil:
+		requestID := msg.LogQueryRequest.RequestID
+		queryCtx := tracker.start(ctx, requestID)
 		go func() {
 			defer tracker.remove(requestID)
-			streamLogSearch(streamCtx, out, msg.LogSearchRequest)
+			runLogQuery(queryCtx, out, msg.LogQueryRequest)
 		}()
 	case msg.PrepareLogRequest != nil:
 		go streamPrepareLog(ctx, out, msg.PrepareLogRequest)

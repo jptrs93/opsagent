@@ -55,10 +55,10 @@ type Session struct {
 }
 
 type logChunk struct {
-	data   []byte
-	lines  []*apigen.RawLogLine
-	logDir string
-	end    bool
+	data      []byte
+	queryResp *apigen.LogQueryResponse
+	errMsg    string
+	end       bool
 }
 
 func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID int32, identifier string, predicate storage.ScheduledInstancePredicate, store *state.Service, networkMaps networkMapProvider) *Session {
@@ -228,8 +228,10 @@ func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 		}
 	case len(msg.LogData) > 0:
 		s.routeLogChunk(msg.LogRequestID, logChunk{data: msg.LogData})
-	case !msg.LogLines.IsZero():
-		s.routeLogChunk(msg.LogRequestID, logChunk{lines: msg.LogLines.Lines, logDir: msg.LogLines.LogDir})
+	case msg.LogQueryResponse != nil:
+		s.routeLogChunk(msg.LogRequestID, logChunk{queryResp: msg.LogQueryResponse})
+	case msg.LogQueryError != "":
+		s.routeLogChunk(msg.LogRequestID, logChunk{errMsg: msg.LogQueryError})
 	case msg.LogEnd:
 		s.routeLogChunk(msg.LogRequestID, logChunk{end: true})
 	}
@@ -323,102 +325,59 @@ func (s *Session) requestLogs(req *apigen.MsgToWorker) (io.ReadCloser, error) {
 	return &logReader{session: s, requestID: id, ch: ch, closeCh: make(chan struct{})}, nil
 }
 
-func (s *Session) requestLogSearch(req *apigen.MsgToWorker) (*LogSearchStream, error) {
-	id := fmt.Sprintf("%s-%d", s.identifier, s.nextLogID.Add(1))
-	if req.LogSearchRequest == nil {
-		return nil, fmt.Errorf("log search request is nil")
-	}
-	req.LogSearchRequest.RequestID = id
+// logQueryTimeout bounds a one-shot log query round trip to a worker. The
+// worker scans its full requested range before replying, so this is a whole
+//-query budget, not an idle timeout.
+const logQueryTimeout = 60 * time.Second
 
-	ch := make(chan logChunk, logStreamBufferSize)
+// requestOneShot sends req tagged with a fresh request id (installed via
+// setID) and waits for the single reply chunk routed back under that id.
+func (s *Session) requestOneShot(ctx context.Context, req *apigen.MsgToWorker, setID func(id string)) (logChunk, error) {
+	id := fmt.Sprintf("%s-%d", s.identifier, s.nextLogID.Add(1))
+	setID(id)
+	ch := make(chan logChunk, 1)
 	s.logMu.Lock()
 	s.logStreams[id] = ch
 	s.logMu.Unlock()
-
-	if !s.send(req) {
+	cleanup := func() {
 		s.logMu.Lock()
 		delete(s.logStreams, id)
 		s.logMu.Unlock()
-		close(ch)
-		return nil, fmt.Errorf("worker %s is not connected", s.identifier)
 	}
-
-	return &LogSearchStream{session: s, requestID: id, ch: ch, closeCh: make(chan struct{})}, nil
-}
-
-type LogSearchStream struct {
-	session   *Session
-	requestID string
-	ch        chan logChunk
-	done      bool
-	closeCh   chan struct{}
-	closeOnce sync.Once
-}
-
-func (r *LogSearchStream) Seq() iter.Seq2[*apigen.LogLineBatch, error] {
-	return func(yield func(*apigen.LogLineBatch, error) bool) {
-		for {
-			select {
-			case chunk, ok := <-r.ch:
-				if !ok || chunk.end {
-					r.done = true
-					return
-				}
-				batch := r.drainBatch(chunk)
-				if !batch.IsZero() && !yield(batch, nil) {
-					return
-				}
-				if r.done {
-					return
-				}
-			case <-r.closeCh:
-				r.done = true
-				return
-			case <-time.After(30 * time.Second):
-				r.done = true
-				return
-			}
+	if !s.send(req) {
+		cleanup()
+		return logChunk{}, fmt.Errorf("worker %s is not connected", s.identifier)
+	}
+	select {
+	case chunk, ok := <-ch:
+		cleanup()
+		if !ok {
+			return logChunk{}, fmt.Errorf("worker %s disconnected", s.identifier)
 		}
+		return chunk, nil
+	case <-ctx.Done():
+		cleanup()
+		s.send(&apigen.MsgToWorker{StopLogRequestID: id})
+		return logChunk{}, ctx.Err()
+	case <-time.After(logQueryTimeout):
+		cleanup()
+		s.send(&apigen.MsgToWorker{StopLogRequestID: id})
+		return logChunk{}, fmt.Errorf("log query to worker %s timed out", s.identifier)
 	}
 }
 
-func (r *LogSearchStream) drainBatch(first logChunk) *apigen.LogLineBatch {
-	batch := &apigen.LogLineBatch{}
-	batch.Lines = append(batch.Lines, first.lines...)
-	batch.LogDir = first.logDir
-	for {
-		select {
-		case chunk, ok := <-r.ch:
-			if !ok || chunk.end {
-				r.done = true
-				return batch
-			}
-			batch.Lines = append(batch.Lines, chunk.lines...)
-			if batch.LogDir == "" {
-				batch.LogDir = chunk.logDir
-			}
-		default:
-			return batch
-		}
+func (s *Session) requestLogQuery(ctx context.Context, req *apigen.LogQueryRequest) (*apigen.LogQueryResponse, error) {
+	chunk, err := s.requestOneShot(ctx, &apigen.MsgToWorker{LogQueryRequest: req}, func(id string) { req.RequestID = id })
+	if err != nil {
+		return nil, err
 	}
-}
-
-func (r *LogSearchStream) Close() error {
-	r.closeOnce.Do(func() {
-		r.done = true
-		close(r.closeCh)
-
-		r.session.logMu.Lock()
-		delete(r.session.logStreams, r.requestID)
-		r.session.logMu.Unlock()
-
-		stop := &apigen.MsgToWorker{StopLogRequestID: r.requestID}
-		if !r.session.send(stop) {
-			slog.Warn("failed sending stop log request to worker (session ended)",
-				"machine", r.session.identifier, "requestID", r.requestID)
-		}
-	})
-	return nil
+	if chunk.errMsg != "" {
+		return nil, fmt.Errorf("%s", chunk.errMsg)
+	}
+	if chunk.queryResp == nil {
+		return nil, fmt.Errorf("worker %s sent an unexpected log query reply", s.identifier)
+	}
+	return chunk.queryResp, nil
 }
 
 type logReader struct {

@@ -26,7 +26,12 @@ func NewSystemLogWriter(basePath string) (io.WriteCloser, error) {
 }
 
 func newSystemLogWriterWithClock(basePath string, now func() time.Time) (*systemLogWriter, error) {
-	out, err := logv2.NewAppender(basePath, SystemLogConfigVersion, SystemLogRunNumber, logv2.StreamStdout)
+	out, err := logv2.NewAppender(basePath, logv2.RecordMeta{
+		Version:    SystemLogConfigVersion,
+		Run:        SystemLogRunNumber,
+		Deployment: SystemLogDeploymentID,
+		Stream:     logv2.StreamStdout,
+	})
 	if err != nil {
 		return nil, err
 	}
