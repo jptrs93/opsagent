@@ -162,7 +162,7 @@ func (s *Store) writeVersion(ctx context.Context, sizeBytes int64, r io.Reader, 
 	if err != nil {
 		if created {
 			if reclaimErr := s.reclaimStoreContent(sha); reclaimErr != nil {
-				slog.Warn("reclaim asset content after failed write", "sha256", sha, "err", reclaimErr)
+				slog.WarnContext(ctx, fmt.Sprintf("reclaiming asset content sha256=%s after failed write failed", sha), "err", reclaimErr)
 			}
 		}
 		return nil, err
@@ -180,7 +180,7 @@ func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Rea
 	s.DB.InsertAssetStoreRow(storeID, "", sizeBytes, nil, 0, 0)
 	discardStaging := func() {
 		if err := os.Remove(localPath(storeID)); err != nil && !os.IsNotExist(err) {
-			slog.Warn("remove staged large asset", "store_id", storeID, "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("removing staged large asset %s failed", storeID), "err", err)
 		}
 		s.DB.DeleteAssetStoreRow(storeID)
 	}
@@ -228,7 +228,7 @@ func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Rea
 		}
 		s.DB.CompleteAssetStoreRow(storeID, sha, 0, 1)
 		if err := os.Remove(localPath(storeID)); err != nil && !os.IsNotExist(err) {
-			slog.Warn("remove staged large asset", "store_id", storeID, "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("removing staged large asset %s failed", storeID), "err", err)
 		}
 	} else {
 		if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
@@ -241,7 +241,7 @@ func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Rea
 	version, err := insert(sha)
 	if err != nil {
 		if reclaimErr := s.reclaimStoreContent(sha); reclaimErr != nil {
-			slog.Warn("reclaim asset content after failed write", "sha256", sha, "err", reclaimErr)
+			slog.WarnContext(ctx, fmt.Sprintf("reclaiming asset content sha256=%s after failed write failed", sha), "err", reclaimErr)
 		}
 		return nil, err
 	}

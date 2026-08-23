@@ -124,7 +124,7 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 		defer s.cancel()
 		for msg, err := range reqs {
 			if err != nil {
-				slog.Info("worker stream read error", "machine", s.identifier, "err", err)
+				slog.InfoContext(s.sessCtx, "worker stream read error", "err", err)
 				return
 			}
 			s.handleIncoming(msg)
@@ -215,11 +215,8 @@ func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 	case msg.StatusWrite != nil:
 		s.handleStatusWrite(msg.StatusWrite)
 	case msg.NetMapStatus != nil:
-		slog.Info("worker network map status",
-			"node_id", s.NodeID,
-			"persisted_seq", msg.NetMapStatus.PersistedSeq,
-			"applied_seq", msg.NetMapStatus.AppliedSeq,
-			"error", msg.NetMapStatus.ReconciliationError)
+		slog.InfoContext(s.sessCtx, fmt.Sprintf("worker network map status persistedSeq=%d appliedSeq=%d error=%q",
+			msg.NetMapStatus.PersistedSeq, msg.NetMapStatus.AppliedSeq, msg.NetMapStatus.ReconciliationError))
 		// Only a clean apply counts. A worker reporting a reconciliation error
 		// still has whatever its kernel held before, so treating it as caught up
 		// would retire a placement that node can still be routing to.
@@ -239,13 +236,13 @@ func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 
 func (s *Session) handleClusterHello(hello *apigen.ClusterHello) {
 	if hello.ClusterProtocolVersion != apigen.ClusterProtocolVersion {
-		slog.Warn("worker cluster protocol mismatch", "node_id", s.NodeID, "got", hello.ClusterProtocolVersion, "want", apigen.ClusterProtocolVersion)
+		slog.WarnContext(s.sessCtx, fmt.Sprintf("worker cluster protocol mismatch got=%v want=%v", hello.ClusterProtocolVersion, apigen.ClusterProtocolVersion))
 		s.cancel()
 		return
 	}
 	underlayAddress, err := s.store.NormalizeNodeUnderlay(s.identifier, hello.UnderlayAddress)
 	if err != nil {
-		slog.Warn("worker sent invalid underlay address", "node_id", s.NodeID, "underlay_address", hello.UnderlayAddress, "err", err)
+		slog.WarnContext(s.sessCtx, fmt.Sprintf("worker sent invalid underlay address %q", hello.UnderlayAddress), "err", err)
 		return
 	}
 	for _, node := range s.store.ListNodes() {
@@ -258,7 +255,7 @@ func (s *Session) handleClusterHello(hello *apigen.ClusterHello) {
 		s.store.MustSetNodeAddresses(s.NodeID, []string{underlayAddress})
 		return
 	}
-	slog.Warn("worker cluster hello references unknown node", "node_id", s.NodeID)
+	slog.WarnContext(s.sessCtx, fmt.Sprintf("worker cluster hello references unknown node %d", s.NodeID))
 }
 
 func (s *Session) routeLogChunk(requestID string, chunk logChunk) {
@@ -271,7 +268,7 @@ func (s *Session) routeLogChunk(requestID string, chunk logChunk) {
 	select {
 	case ch <- chunk:
 	default:
-		slog.Warn("log data dropped (channel full)", "machine", s.identifier, "requestID", requestID)
+		slog.WarnContext(s.sessCtx, fmt.Sprintf("log data dropped (channel full) requestID=%s", requestID))
 	}
 }
 
@@ -294,7 +291,7 @@ func (s *Session) handleStatusWrite(st *apigen.ScheduledInstanceStatus) {
 		return
 	}
 	if !buildAllowedRefs(s.store.FetchScheduledSnapshot(s.predicate)).scheduledInstanceAllowed(st.ScheduledInstanceID) {
-		slog.Warn("rejecting cross-machine worker status write", "machine", s.identifier, "scheduled_instance_id", st.ScheduledInstanceID)
+		slog.WarnContext(s.sessCtx, "rejecting cross-machine worker status write", "scheduled_instance", st.ScheduledInstanceID)
 		return
 	}
 	s.store.MustWriteReplicatedScheduledInstanceStatus(st)
@@ -327,7 +324,7 @@ func (s *Session) requestLogs(req *apigen.MsgToWorker) (io.ReadCloser, error) {
 
 // logQueryTimeout bounds a one-shot log query round trip to a worker. The
 // worker scans its full requested range before replying, so this is a whole
-//-query budget, not an idle timeout.
+// -query budget, not an idle timeout.
 const logQueryTimeout = 60 * time.Second
 
 // requestOneShot sends req tagged with a fresh request id (installed via
@@ -432,8 +429,7 @@ func (r *logReader) Close() error {
 
 		stop := &apigen.MsgToWorker{StopLogRequestID: r.requestID}
 		if !r.session.send(stop) {
-			slog.Warn("failed sending stop log request to worker (session ended)",
-				"machine", r.session.identifier, "requestID", r.requestID)
+			slog.WarnContext(r.session.sessCtx, fmt.Sprintf("failed sending stop log request to worker (session ended) requestID=%s", r.requestID))
 		}
 	})
 	return nil

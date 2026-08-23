@@ -29,12 +29,14 @@
 package localinputs
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
@@ -50,6 +52,9 @@ type DB interface {
 
 // Store implements runtimeinputs.Persistence.
 type Store struct {
+	// ctx is the component root logging context, derived from the caller's
+	// context at Open.
+	ctx context.Context
 	db  DB
 	key []byte
 }
@@ -61,18 +66,19 @@ type Store struct {
 // primary: a node that has never had a key and one whose key was lost want the
 // same thing, because every value the key protects can be refetched. Rows sealed
 // under a superseded key simply stop opening and are dropped by Load.
-func Open(db DB, provider machinekey.Provider) (*Store, error) {
+func Open(ctx context.Context, db DB, provider machinekey.Provider) (*Store, error) {
+	ctx = logu.AddTag(ctx, "LocalInputs")
 	key, err := provider.Load()
 	if err != nil || len(key) != machinekey.KeyLen {
 		if err == nil {
 			err = fmt.Errorf("machine key is %d bytes, want %d", len(key), machinekey.KeyLen)
 		}
-		slog.Info("localinputs: establishing a new machine key", "reason", err)
+		slog.InfoContext(ctx, "localinputs: establishing a new machine key", "err", err)
 		if key, err = provider.Establish(); err != nil {
 			return nil, fmt.Errorf("establishing machine key: %w", err)
 		}
 	}
-	return &Store{db: db, key: key}, nil
+	return &Store{ctx: ctx, db: db, key: key}, nil
 }
 
 // LoadRuntimeInputs returns every locally stored secret and config value.
@@ -104,7 +110,7 @@ func (s *Store) LoadRuntimeInputs() (secrets, configs map[int32]string, err erro
 		}
 	}
 	if dropped > 0 {
-		slog.Warn("localinputs: dropped undecryptable local runtime inputs; they will be refetched from the primary", "count", dropped)
+		slog.WarnContext(s.ctx, fmt.Sprintf("localinputs: dropped %d undecryptable local runtime inputs; they will be refetched from the primary", dropped))
 	}
 	return secrets, configs, nil
 }
@@ -179,7 +185,7 @@ func (s *Store) LoadIssuedTLS() (map[int32]*runtimeinputs.IssuedTLSValue, error)
 		out[int32(row.RefID)] = &value
 	}
 	if dropped > 0 {
-		slog.Warn("localinputs: dropped unreadable local issued TLS entries; they will be refetched from the primary", "count", dropped)
+		slog.WarnContext(s.ctx, fmt.Sprintf("localinputs: dropped %d unreadable local issued TLS entries; they will be refetched from the primary", dropped))
 	}
 	return out, nil
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -30,6 +31,7 @@ type ReconcileStatus struct {
 }
 
 func (s *Store) StartReconciler(ctx context.Context) <-chan struct{} {
+	ctx = logu.AddTag(ctx, "AssetStore")
 	done := make(chan struct{})
 	startupCutoff := time.Now()
 	go func() {
@@ -51,7 +53,7 @@ func (s *Store) StartReconciler(ctx context.Context) <-chan struct{} {
 				err = s.SweepUnreferencedStoreRows(time.Now().Add(-storeRowSweepGrace))
 			}
 			if err != nil && ctx.Err() == nil {
-				slog.Error("reconcile large asset storage", "err", err)
+				slog.ErrorContext(ctx, "reconcile large asset storage", "err", err)
 				timer := time.NewTimer(retryDelay)
 				select {
 				case <-ctx.Done():
@@ -96,7 +98,7 @@ func (s *Store) SweepUnreferencedStoreRows(cutoff time.Time) error {
 func (s *Store) Reconcile(ctx context.Context) (int, error) {
 	migration, ok := s.DB.GetUnfinishedAssetMigration()
 	if !ok {
-		s.cleanupInactiveLocalFiles()
+		s.cleanupInactiveLocalFiles(ctx)
 		return 0, nil
 	}
 	oldSettings, newSettings, targetS3, err := s.migrationSettings(migration)
@@ -133,7 +135,7 @@ func (s *Store) Reconcile(ctx context.Context) (int, error) {
 	pending := s.pendingForMode(targetS3)
 	if pending == 0 {
 		s.DB.FinishAssetMigration(migration.ID)
-		s.cleanupInactiveLocalFiles()
+		s.cleanupInactiveLocalFiles(ctx)
 	}
 	return pending, nil
 }
@@ -223,7 +225,7 @@ func (s *Store) migrateRowToS3(ctx context.Context, storeID string, target *apig
 	}
 	s.DB.SetAssetStoreRemoteStatus(storeID, 1)
 	if err := os.Remove(localPath(storeID)); err != nil && !os.IsNotExist(err) {
-		slog.Warn("remove migrated local large asset", "store_id", storeID, "err", err)
+		slog.WarnContext(ctx, fmt.Sprintf("removing migrated local large asset %s failed", storeID), "err", err)
 	}
 	s.DB.SetAssetStoreLocalStatus(storeID, 0)
 	s.notifyContentMoved(row.Sha256)
@@ -317,7 +319,7 @@ func (s *Store) pendingForMode(targetS3 bool) int {
 	return pending
 }
 
-func (s *Store) cleanupInactiveLocalFiles() {
+func (s *Store) cleanupInactiveLocalFiles(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	active := map[string]struct{}{}
@@ -328,7 +330,7 @@ func (s *Store) cleanupInactiveLocalFiles() {
 	}
 	entries, err := os.ReadDir(ainit.StaticConfig.LargeAssetsDir)
 	if err != nil {
-		slog.Warn("list local large assets for cleanup", "err", err)
+		slog.WarnContext(ctx, "list local large assets for cleanup", "err", err)
 		return
 	}
 	for _, entry := range entries {
@@ -339,7 +341,7 @@ func (s *Store) cleanupInactiveLocalFiles() {
 			continue
 		}
 		if err := os.Remove(filepath.Join(ainit.StaticConfig.LargeAssetsDir, entry.Name())); err != nil && !os.IsNotExist(err) {
-			slog.Warn("remove inactive local large asset", "name", entry.Name(), "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("removing inactive local large asset %s failed", entry.Name()), "err", err)
 		}
 	}
 }

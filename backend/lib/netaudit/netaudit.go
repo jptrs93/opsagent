@@ -10,6 +10,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 )
 
@@ -27,6 +28,7 @@ func Run(ctx context.Context, m *network.Manager, interval time.Duration) {
 	if !supported {
 		return
 	}
+	ctx = logu.AddTag(ctx, "NetAudit")
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {

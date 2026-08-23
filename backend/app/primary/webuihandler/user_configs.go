@@ -175,8 +175,9 @@ func (h *Handler) PostV1ConfigsDelete(ctx apigen.Context, req *apigen.ConfigDele
 	if len(ids) == 0 {
 		return UserConfigNotFoundErr
 	}
-	if h.settingsUseConfigID(ids) || h.deploymentUsesConfigID(ids) {
-		return ReferenceInUseErr
+	details := append(h.settingsConfigRefDetails(ids), h.deploymentRefDetails(ids, runtimeinputs.ConfigRefs)...)
+	if len(details) > 0 {
+		return referenceInUseDetailErr("Config", details)
 	}
 	meta, ok := h.Store.DeleteConfig(req.ConfigID)
 	if !ok {

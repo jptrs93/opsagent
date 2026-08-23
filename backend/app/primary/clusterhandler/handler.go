@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/issuedtls"
 	"github.com/jptrs93/opsagent/backend/lib/network"
@@ -175,7 +176,7 @@ func (p *Handler) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w h
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", strconv.FormatInt(sizeBytes, 10))
 	if _, err := io.Copy(w, body); err != nil {
-		slog.ErrorContext(authCtx, "stream cluster asset", "asset_version_id", assetVersionID, "err", err)
+		slog.ErrorContext(authCtx, fmt.Sprintf("stream cluster asset %d failed", assetVersionID), "err", err)
 	}
 	return nil
 }
@@ -404,7 +405,7 @@ func (p *Handler) GetV1ClusterRenewCertificate(authCtx apigen.Context) (*apigen.
 	if err != nil {
 		return nil, err
 	}
-	slog.InfoContext(authCtx, "renewed worker cluster certificate", "machine", machine, "notAfter", notAfter)
+	slog.InfoContext(authCtx, fmt.Sprintf("renewed worker cluster certificate machine=%s notAfter=%v", machine, notAfter))
 	return &apigen.ClusterRenewCertificateResponse{
 		CertPem:   workerCert,
 		CaCertPem: caCert,
@@ -426,7 +427,7 @@ func (p *Handler) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*a
 		}
 		predicate := scheduledInstancePredicateForNode(nodeID)
 
-		sessCtx, cancel := context.WithCancel(authCtx)
+		sessCtx, cancel := context.WithCancel(logu.AddKV(authCtx, "node", machine))
 		defer cancel()
 
 		sess := newSession(sessCtx, cancel, nodeID, machine, predicate, p.store, p.networkMaps)

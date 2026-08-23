@@ -20,7 +20,7 @@ func TestAcceptClusterNetMapSessionSemantics(t *testing.T) {
 	prefix := network.GeneratePrefix()
 
 	first := testClusterNetMap(t, prefix, 5)
-	status, err := acceptClusterNetMap(store, first, 1, prefix, true)
+	status, err := acceptClusterNetMap(context.Background(), store, first, 1, prefix, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,15 +30,15 @@ func TestAcceptClusterNetMapSessionSemantics(t *testing.T) {
 
 	duplicate := testClusterNetMap(t, prefix, 5)
 	duplicate.Nodes[0], duplicate.Nodes[1] = duplicate.Nodes[1], duplicate.Nodes[0]
-	if _, err := acceptClusterNetMap(store, duplicate, 1, prefix, false); err != nil {
+	if _, err := acceptClusterNetMap(context.Background(), store, duplicate, 1, prefix, false); err != nil {
 		t.Fatalf("idempotent map rejected: %v", err)
 	}
 	stale := testClusterNetMap(t, prefix, 4)
-	if _, err := acceptClusterNetMap(store, stale, 1, prefix, false); !errors.Is(err, ErrStaleClusterNetMap) {
+	if _, err := acceptClusterNetMap(context.Background(), store, stale, 1, prefix, false); !errors.Is(err, ErrStaleClusterNetMap) {
 		t.Fatalf("stale error = %v", err)
 	}
 	higher := testClusterNetMap(t, prefix, 8)
-	if _, err := acceptClusterNetMap(store, higher, 1, prefix, false); err != nil {
+	if _, err := acceptClusterNetMap(context.Background(), store, higher, 1, prefix, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -47,10 +47,10 @@ func TestAcceptClusterNetMapSessionSemantics(t *testing.T) {
 	// is authoritative even so.
 	rolledBack := testClusterNetMap(t, prefix, 2)
 	rolledBack.Nodes[1].UnderlayAddress = "192.0.2.9"
-	if _, err := acceptClusterNetMap(store, rolledBack, 1, prefix, true); err != nil {
+	if _, err := acceptClusterNetMap(context.Background(), store, rolledBack, 1, prefix, true); err != nil {
 		t.Fatalf("session snapshot with a lower stamp rejected: %v", err)
 	}
-	cached, _, ok, err := cachedClusterNetMap(store, 1, prefix)
+	cached, _, ok, err := cachedClusterNetMap(context.Background(), store, 1, prefix)
 	if err != nil || !ok {
 		t.Fatalf("cached map: ok=%v err=%v", ok, err)
 	}
@@ -155,7 +155,7 @@ func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
 	unreadable.Routes[0].LogicalPrefix = addr.String()
 	store.MustSetLocalKV(storage.LocalKVWorkerClusterNetMap, unreadable.Encode())
 
-	cached, _, ok, err := cachedClusterNetMap(store, 1, prefix)
+	cached, _, ok, err := cachedClusterNetMap(context.Background(), store, 1, prefix)
 	if err != nil {
 		t.Fatalf("unreadable cached map surfaced an error: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
 	}
 
 	next := testClusterNetMap(t, prefix, 8)
-	status, err := acceptClusterNetMap(store, next, 1, prefix, false)
+	status, err := acceptClusterNetMap(context.Background(), store, next, 1, prefix, false)
 	if err != nil {
 		t.Fatalf("republished map rejected after discarding the unreadable cache: %v", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -359,10 +360,11 @@ func (s *Service) EnsureSystemDeployment(nodeID int32, opendeployVersion string)
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
+	ctx := logu.AddTag(context.Background(), "Store")
 	for _, cfg := range s.configCache {
 		if storage.DeploymentKeyMatches(*cfg, nodeID, OpendeploySpaceID, internaldeploy.SelfName) && !cfg.Deleted {
 			if !internaldeploy.IsSelfSpec(&cfg.Spec) {
-				slog.Warn("repairing system deployment spec", "nodeID", nodeID, "deploymentID", cfg.ID)
+				slog.WarnContext(ctx, "repairing system deployment spec", "dep", cfg.ID, "node", nodeID)
 				s.repairDeploymentSpecLocked(cfg.ID, internaldeploy.SelfSpec(), "system")
 			}
 			return
@@ -374,7 +376,7 @@ func (s *Service) EnsureSystemDeployment(nodeID int32, opendeployVersion string)
 		panic(fmt.Sprintf("initialize system deployment state: %v", err))
 	}
 	s.mustCreateDeploymentLocked(OpendeploySpaceID, internaldeploy.SelfName, nodeID, spec.Encode(), 0, "system deployment")
-	slog.Info("created system deployment", "nodeID", nodeID, "version", opendeployVersion)
+	slog.InfoContext(ctx, fmt.Sprintf("created system deployment at version %s", opendeployVersion), "node", nodeID)
 }
 
 // EnsureNetproxyDeployment creates the per-node opendeploy-net internal
@@ -391,13 +393,14 @@ func (s *Service) EnsureNetproxyDeployment(nodeID int32, initialVersion string) 
 
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
+	ctx := logu.AddTag(context.Background(), "Store")
 	for _, cfg := range s.configCache {
 		if storage.DeploymentKeyMatches(*cfg, nodeID, OpendeploySpaceID, internaldeploy.NetproxyName) && !cfg.Deleted {
 			if err := desiredSpec.SetWorkloadState(cfg.WorkloadVersion(), cfg.WorkloadRunning()); err != nil {
 				panic(fmt.Sprintf("compare netproxy deployment state: %v", err))
 			}
 			if !bytes.Equal(cfg.Spec.Encode(), desiredSpec.Encode()) {
-				slog.Warn("repairing netproxy deployment spec", "nodeID", nodeID, "deploymentID", cfg.ID)
+				slog.WarnContext(ctx, "repairing netproxy deployment spec", "dep", cfg.ID, "node", nodeID)
 				s.repairDeploymentSpecLocked(cfg.ID, desiredSpec, "netproxy")
 				cfg = s.configCache[cfg.ID]
 			}
@@ -410,7 +413,7 @@ func (s *Service) EnsureNetproxyDeployment(nodeID int32, initialVersion string) 
 		panic(fmt.Sprintf("initialize netproxy deployment state: %v", err))
 	}
 	cfg := s.mustCreateDeploymentLocked(OpendeploySpaceID, internaldeploy.NetproxyName, nodeID, spec.Encode(), 0, "netproxy deployment")
-	slog.Info("created netproxy deployment", "nodeID", nodeID, "version", desiredVersion)
+	slog.InfoContext(ctx, fmt.Sprintf("created netproxy deployment at version %s", desiredVersion), "node", nodeID)
 	return cfg
 }
 

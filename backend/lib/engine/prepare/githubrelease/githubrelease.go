@@ -31,7 +31,7 @@ func New(releasesDir string, client *github.Client) *Preparer {
 func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.ImageStatus) {
 	version := dep.WorkloadVersion()
 	logPath := dep.PrepareOutputPath()
-	slog.InfoContext(ctx, "github release download starting", "log_path", logPath)
+	slog.InfoContext(ctx, fmt.Sprintf("github release download starting, logging to %s", logPath))
 	gh := dep.Spec.SystemdSpec.Source
 	assetPath, err := p.downloadReleaseAsset(ctx, gh.Repo, gh.Asset, version, log)
 	if err != nil {

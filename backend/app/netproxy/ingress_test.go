@@ -189,12 +189,10 @@ func TestIngressForwardsInspectedClientHello(t *testing.T) {
 	}
 	gotLog := logOutput.String()
 	for _, want := range []string{
-		"msg=\"TLS ingress connection routed\"",
-		"port=8443",
-		"hostname=db.example.com",
-		"client_address=pipe",
-		"backend_address=127.0.0.1:",
-		"active_connections=1",
+		"TLS ingress connection routed db.example.com:8443",
+		"client=pipe",
+		"backend=127.0.0.1:",
+		"active=1",
 	} {
 		if !strings.Contains(gotLog, want) {
 			t.Errorf("log output %q does not contain %q", gotLog, want)

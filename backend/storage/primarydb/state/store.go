@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"sort"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/instancecache"
@@ -231,13 +232,14 @@ func (s *Service) configForInstanceLocked(inst *apigen.ScheduledInstance) *apige
 }
 
 func (s *Service) loadConfigVersionLocked(deploymentID, version int32) *apigen.DeploymentConfig {
-	row, err := s.q.GetDeploymentVersion(context.Background(), pq.GetDeploymentVersionParams{
+	ctx := logu.AddTag(context.Background(), "Store")
+	row, err := s.q.GetDeploymentVersion(ctx, pq.GetDeploymentVersionParams{
 		DeploymentID: int64(deploymentID),
 		Version:      int64(version),
 	})
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			slog.Warn("load config version", "deployment_id", deploymentID, "version", version, "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("load config version %d failed", version), "dep", deploymentID, "err", err)
 		}
 		return nil
 	}

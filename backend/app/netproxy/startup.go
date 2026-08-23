@@ -2,11 +2,13 @@ package netproxy
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/app/netproxy/netstatewatch"
 	"golang.org/x/sync/errgroup"
@@ -24,7 +26,8 @@ func Run(ctx context.Context) error {
 	if listen == "" {
 		listen = ":53"
 	}
-	slog.Info("starting opendeploy-net", "state_path", statePath, "dns_listen", listen)
+	ctx = logu.AddTag(ctx, "NetProxy")
+	slog.InfoContext(ctx, fmt.Sprintf("starting opendeploy-net statePath=%s dnsListen=%s", statePath, listen))
 	states := netstatewatch.New(statePath)
 	certs := newCertStore(filepath.Join(filepath.Dir(statePath), CertBundleFileName))
 	g, ctx := errgroup.WithContext(ctx)

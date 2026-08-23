@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/network"
@@ -33,6 +34,7 @@ func (o *outbox) Send(msg *apigen.MsgToMaster) bool {
 // primary has been applied to the store; the boot sync gate releases the
 // deployment operator on it.
 func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Service, primaryHTTPClient *http.Client, acme *acmestate.Holder, notifySynced func()) {
+	ctx = logu.AddTag(ctx, "ClusterSession")
 	capi := apigen.NewOpsagentClusterV1Capi(
 		"https://"+cfg.PrimaryClusterAddr,
 		apigen.WithOpsagentClusterV1CapiHTTPClient(primaryHTTPClient),
@@ -58,12 +60,8 @@ func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Ser
 			// transient blip reconnects promptly.
 			backoff = time.Second
 		}
-		slog.Warn("slave disconnected from primary; reconnecting",
-			"addr", cfg.PrimaryClusterAddr,
-			"peer", cfg.PrimaryName,
-			"connected_for", time.Since(connectedAt).Round(time.Second),
-			"retry_in", backoff,
-			"err", err)
+		slog.WarnContext(ctx, fmt.Sprintf("slave disconnected from primary; reconnecting addr=%s peer=%s connected_for=%s retry_in=%s",
+			cfg.PrimaryClusterAddr, cfg.PrimaryName, time.Since(connectedAt).Round(time.Second), backoff), "err", err)
 
 		select {
 		case <-ctx.Done():
@@ -130,9 +128,9 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 		ClusterProtocolVersion: apigen.ClusterProtocolVersion,
 	}})
 	if prefix, ok := network.Default.PrefixValue(); ok {
-		status, err := cachedClusterNetMapStatus(store, nodeID, prefix, "")
+		status, err := cachedClusterNetMapStatus(sessCtx, store, nodeID, prefix, "")
 		if err != nil {
-			slog.Warn("loading cached network map status failed", "err", err)
+			slog.WarnContext(sessCtx, "loading cached network map status failed", "err", err)
 		} else if status != nil {
 			out.Send(&apigen.MsgToMaster{NetMapStatus: status})
 		}
@@ -177,7 +175,7 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 		}
 		if !connected {
 			connected = true
-			slog.Info("slave connected to primary", "peer", capi.BaseURL)
+			slog.InfoContext(sessCtx, fmt.Sprintf("slave connected to primary %s", capi.BaseURL))
 		}
 		dispatchFromPrimary(sessCtx, out, store, tracker, sess, msg, nodeID, acme, notifySynced)
 	}
@@ -214,19 +212,19 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 	case msg.AcmeState != nil:
 		msgType = "acme_state"
 	}
-	slog.Info("received message from primary", "type", msgType)
+	slog.InfoContext(ctx, fmt.Sprintf("received message from primary type=%s", msgType))
 
 	switch {
 	case msg.ScheduledInstancesSnapshot != nil:
-		applySnapshot(out, store, msg.ScheduledInstancesSnapshot, nodeID)
+		applySnapshot(ctx, out, store, msg.ScheduledInstancesSnapshot, nodeID)
 		if notifySynced != nil {
 			notifySynced()
 		}
 	case msg.ScheduledInstanceUpdate != nil:
-		applyInstanceUpdate(store, msg.ScheduledInstanceUpdate, nodeID)
+		applyInstanceUpdate(ctx, store, msg.ScheduledInstanceUpdate, nodeID)
 	case msg.ClusterNetwork != nil:
 		if err := applyClusterNetwork(store, msg.ClusterNetwork); err != nil {
-			slog.Warn("installing cluster network failed", "err", err)
+			slog.WarnContext(ctx, "installing cluster network failed", "err", err)
 		}
 	case msg.AcmeState != nil:
 		store.MustSetLocalKV(storage.LocalKVAcmeState, msg.AcmeState.Encode())
@@ -235,17 +233,17 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 		}
 	case msg.ClusterNetMap != nil:
 		expectedPrefix, _ := network.Default.PrefixValue()
-		status, err := acceptClusterNetMap(store, msg.ClusterNetMap, nodeID, expectedPrefix, sess.netMapSnapshotPending)
+		status, err := acceptClusterNetMap(ctx, store, msg.ClusterNetMap, nodeID, expectedPrefix, sess.netMapSnapshotPending)
 		if err != nil {
-			slog.Warn("accepting cluster network map failed", "err", err)
-			status, _ = cachedClusterNetMapStatus(store, nodeID, expectedPrefix, err.Error())
+			slog.WarnContext(ctx, "accepting cluster network map failed", "err", err)
+			status, _ = cachedClusterNetMapStatus(ctx, store, nodeID, expectedPrefix, err.Error())
 			if status == nil {
 				status = &apigen.NetMapStatus{ReconciliationError: err.Error()}
 			}
 		} else {
 			sess.netMapSnapshotPending = false
 			if err := reconcileClusterNetMap(msg.ClusterNetMap, nodeID, expectedPrefix); err != nil {
-				slog.Warn("reconciling cluster network map failed", "err", err)
+				slog.WarnContext(ctx, "reconciling cluster network map failed", "err", err)
 				status.ReconciliationError = err.Error()
 			} else {
 				status.AppliedSeq = status.PersistedSeq
@@ -320,8 +318,8 @@ func statusPushLoop(ctx context.Context, out *outbox, ch <-chan apigen.Scheduled
 // instance; the secondary scans its local history for rows above that value and
 // streams them back as individual StatusWrites so the primary can insert each
 // one at its canonical clock.
-func applySnapshot(out *outbox, store *state.Service, snap *apigen.ScheduledInstanceSnapshot, nodeID int32) {
-	slog.Info("applying scheduled instances snapshot from primary", "count", len(snap.Items))
+func applySnapshot(ctx context.Context, out *outbox, store *state.Service, snap *apigen.ScheduledInstanceSnapshot, nodeID int32) {
+	slog.InfoContext(ctx, fmt.Sprintf("applying scheduled instances snapshot from primary count=%d", len(snap.Items)))
 	present := make(map[int32]struct{}, len(snap.Items))
 	for _, item := range snap.Items {
 		if item == nil || item.Instance.ID == 0 || item.Instance.NodeID != nodeID {
@@ -335,8 +333,7 @@ func applySnapshot(out *outbox, store *state.Service, snap *apigen.ScheduledInst
 	// locally and missing from it has been dropped by the primary. Prune before the
 	// replay below, which returns early once the session's outbox closes.
 	if pruned := store.MustFinalizeScheduledInstancesAbsent(present); len(pruned) > 0 {
-		slog.Info("finalizing scheduled instances absent from the primary snapshot",
-			"scheduled_instance_ids", pruned)
+		slog.InfoContext(ctx, fmt.Sprintf("finalizing scheduled instances absent from the primary snapshot ids=%v", pruned))
 	}
 
 	for _, item := range snap.Items {
@@ -351,8 +348,8 @@ func applySnapshot(out *outbox, store *state.Service, snap *apigen.ScheduledInst
 		if len(backlog) == 0 {
 			continue
 		}
-		slog.Info("replaying status history to primary",
-			"scheduled_instance_id", item.Instance.ID, "from", primaryClock, "count", len(backlog))
+		slog.InfoContext(ctx, fmt.Sprintf("replaying %d status history entries to primary from %s", len(backlog), primaryClock),
+			"scheduled_instance", item.Instance.ID)
 		for _, st := range backlog {
 			if !out.Send(&apigen.MsgToMaster{StatusWrite: st}) {
 				return
@@ -361,14 +358,12 @@ func applySnapshot(out *outbox, store *state.Service, snap *apigen.ScheduledInst
 	}
 }
 
-func applyInstanceUpdate(store *state.Service, state *apigen.ScheduledInstanceState, nodeID int32) {
+func applyInstanceUpdate(ctx context.Context, store *state.Service, state *apigen.ScheduledInstanceState, nodeID int32) {
 	if state == nil || state.Instance.ID == 0 || state.Instance.NodeID != nodeID {
 		return
 	}
-	slog.Info("applying scheduled instance update from primary",
-		"scheduled_instance_id", state.Instance.ID,
-		"deployment_id", state.Instance.DeploymentID,
-		"deployment_version", state.Instance.DeploymentVersion,
-		"target_state", state.Instance.State)
+	slog.InfoContext(ctx, fmt.Sprintf("applying scheduled instance update from primary deploymentVersion=%d targetState=%v",
+		state.Instance.DeploymentVersion, state.Instance.State),
+		"scheduled_instance", state.Instance.ID, "dep", state.Instance.DeploymentID)
 	store.MustWriteScheduledInstanceAssignment(state)
 }

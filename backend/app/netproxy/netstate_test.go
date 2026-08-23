@@ -51,7 +51,7 @@ func TestInitialArtifactSequenceContinuesPersistedSequenceAhead(t *testing.T) {
 	if err := WriteNetState(path, &apigen.NetState{Seq: future}); err != nil {
 		t.Fatalf("writing netstate: %v", err)
 	}
-	if got := initialArtifactSequence(path, netStateSeq); got != future {
+	if got := initialArtifactSequence(context.Background(), path, netStateSeq); got != future {
 		t.Fatalf("initial sequence = %d, want persisted %d", got, future)
 	}
 }
@@ -59,7 +59,7 @@ func TestInitialArtifactSequenceContinuesPersistedSequenceAhead(t *testing.T) {
 func TestInitialArtifactSequenceFloorsAtWallClock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "netstate.pb")
 	before := time.Now().UnixMilli()
-	if got := initialArtifactSequence(path, netStateSeq); got < before {
+	if got := initialArtifactSequence(context.Background(), path, netStateSeq); got < before {
 		t.Fatalf("initial sequence without snapshot = %d, want >= %d", got, before)
 	}
 	// A persisted sequence behind the clock is floored too: netproxy's own seq
@@ -68,7 +68,7 @@ func TestInitialArtifactSequenceFloorsAtWallClock(t *testing.T) {
 	if err := WriteNetState(path, &apigen.NetState{Seq: 41}); err != nil {
 		t.Fatalf("writing netstate: %v", err)
 	}
-	if got := initialArtifactSequence(path, netStateSeq); got < before {
+	if got := initialArtifactSequence(context.Background(), path, netStateSeq); got < before {
 		t.Fatalf("initial sequence with stale snapshot = %d, want >= %d", got, before)
 	}
 }

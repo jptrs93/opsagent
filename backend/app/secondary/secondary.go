@@ -3,6 +3,7 @@ package secondary
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -61,7 +62,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	store := state.Open(filepath.Join(cfg.DataDir, "secondary.db"))
 	certManager, err := newClusterCertManager(cfg.ClusterCertPath, cfg.ClusterKeyPath)
 	if err != nil {
-		slog.Warn("loading cluster cert for renewal failed; certificate renewal is disabled", "err", err)
+		slog.WarnContext(ctx, "loading cluster cert for renewal failed; certificate renewal is disabled", "err", err)
 	} else {
 		cfg.TLS.GetClientCertificate = certManager.getClientCertificate
 	}
@@ -72,11 +73,11 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	}
 	githubCredentials := NewPrimaryGithubCredentialsProvider(primaryURL, primaryHTTPClient)
 	network.SetDefault(network.New(cfg.ClusterPrefix, cfg.NetDeploymentID))
-	if clusterMap, _, ok, err := cachedClusterNetMap(store, cfg.NodeID, cfg.ClusterPrefix); err != nil {
-		slog.Warn("loading cached cluster network map failed", "err", err)
+	if clusterMap, _, ok, err := cachedClusterNetMap(ctx, store, cfg.NodeID, cfg.ClusterPrefix); err != nil {
+		slog.WarnContext(ctx, "loading cached cluster network map failed", "err", err)
 	} else if ok {
 		if err := reconcileClusterNetMap(clusterMap, cfg.NodeID, cfg.ClusterPrefix); err != nil {
-			slog.Warn("reconciling cached cluster network map failed", "err", err)
+			slog.WarnContext(ctx, "reconciling cached cluster network map failed", "err", err)
 		}
 	}
 
@@ -90,15 +91,15 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	// NewPersistent still returns a usable RuntimeInputs, it just starts empty and
 	// refetches, which is the pre-persistence behaviour.
 	var inputPersistence runtimeinputs.Persistence
-	localInputs, err := localinputs.Open(store, &machinekey.File{Path: filepath.Join(cfg.DataDir, machinekey.FileName)})
+	localInputs, err := localinputs.Open(ctx, store, &machinekey.File{Path: filepath.Join(cfg.DataDir, machinekey.FileName)})
 	if err != nil {
-		slog.Warn("opening local runtime input store failed; runtime inputs will be fetched from the primary on every restart", "err", err)
+		slog.WarnContext(ctx, "opening local runtime input store failed; runtime inputs will be fetched from the primary on every restart", "err", err)
 	} else {
 		inputPersistence = localInputs
 	}
 	runtimeInputs, err := runtimeinputs.NewPersistent(assetProvider, secretProvider, configProvider, inputPersistence)
 	if err != nil {
-		slog.Warn("loading persisted runtime inputs failed; they will be refetched from the primary", "err", err)
+		slog.WarnContext(ctx, "loading persisted runtime inputs failed; they will be refetched from the primary", "err", err)
 	}
 	runtimeInputs.SetIssuedTLSProvider(NewPrimaryIssuedTLSProvider(primaryURL, primaryHTTPClient))
 	gitManager := git.NewManager(cfg.GitCacheDir, githubCredentials)
@@ -110,7 +111,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	acmeHolder := acmestate.NewHolder()
 	if b, ok := store.FetchLocalKV(storage.LocalKVAcmeState); ok {
 		if persisted, err := apigen.DecodeAcmeState(b); err != nil {
-			slog.Warn("decoding persisted ACME state failed", "err", err)
+			slog.WarnContext(ctx, "decoding persisted ACME state failed", "err", err)
 		} else {
 			acmeHolder.Set(persisted)
 		}
@@ -130,7 +131,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 		select {
 		case <-synced:
 		case <-time.After(bootSyncTimeout):
-			slog.Warn("no primary snapshot received; starting deployment operator from cached assignments", "waited", bootSyncTimeout)
+			slog.WarnContext(ctx, fmt.Sprintf("no primary snapshot received after %s; starting deployment operator from cached assignments", bootSyncTimeout))
 		case <-ctx.Done():
 			return
 		}

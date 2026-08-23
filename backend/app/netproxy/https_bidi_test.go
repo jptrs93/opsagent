@@ -62,7 +62,7 @@ func TestH2CBidiServerHalfClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	certs := newCertStore(bundlePath)
-	if err := certs.reload(); err != nil {
+	if err := certs.reload(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 

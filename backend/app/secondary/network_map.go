@@ -2,6 +2,7 @@ package secondary
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -28,7 +29,7 @@ var (
 // (and stamps) backwards. Within a session the stream is ordered and stamps
 // only grow, so a lower stamp can only be a coalescing artifact and is
 // rejected as stale.
-func acceptClusterNetMap(store *state.Service, candidate *apigen.ClusterNetMap, nodeID int32, expectedPrefix network.Prefix, sessionSnapshot bool) (*apigen.NetMapStatus, error) {
+func acceptClusterNetMap(ctx context.Context, store *state.Service, candidate *apigen.ClusterNetMap, nodeID int32, expectedPrefix network.Prefix, sessionSnapshot bool) (*apigen.NetMapStatus, error) {
 	next, prefix, err := validateClusterNetMap(candidate, nodeID, expectedPrefix)
 	if err != nil {
 		return nil, err
@@ -37,7 +38,7 @@ func acceptClusterNetMap(store *state.Service, candidate *apigen.ClusterNetMap, 
 	clusterNetMapMu.Lock()
 	defer clusterNetMapMu.Unlock()
 	if !sessionSnapshot {
-		current, _, cached, err := cachedClusterNetMap(store, nodeID, expectedPrefix)
+		current, _, cached, err := cachedClusterNetMap(ctx, store, nodeID, expectedPrefix)
 		if err != nil {
 			return nil, err
 		}
@@ -66,18 +67,18 @@ func acceptClusterNetMap(store *state.Service, candidate *apigen.ClusterNetMap, 
 // error is unrecoverable in both directions: it panics the worker before it can
 // connect, and it makes acceptClusterNetMap reject the very map that would
 // replace it.
-func cachedClusterNetMap(store *state.Service, nodeID int32, expectedPrefix network.Prefix) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
+func cachedClusterNetMap(ctx context.Context, store *state.Service, nodeID int32, expectedPrefix network.Prefix) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
 	encoded, ok := store.FetchLocalKV(storage.LocalKVWorkerClusterNetMap)
 	if !ok {
 		return nil, network.Prefix{}, false, nil
 	}
 	wire, err := apigen.DecodeClusterNetMap(encoded)
 	if err != nil {
-		return discardCachedClusterNetMap(store, fmt.Errorf("decoding cached cluster network map: %w", err))
+		return discardCachedClusterNetMap(ctx, store, fmt.Errorf("decoding cached cluster network map: %w", err))
 	}
 	normalized, prefix, err := validateClusterNetMap(wire, nodeID, expectedPrefix)
 	if err != nil {
-		return discardCachedClusterNetMap(store, fmt.Errorf("validating cached cluster network map: %w", err))
+		return discardCachedClusterNetMap(ctx, store, fmt.Errorf("validating cached cluster network map: %w", err))
 	}
 	return normalized, prefix, true, nil
 }
@@ -85,16 +86,16 @@ func cachedClusterNetMap(store *state.Service, nodeID int32, expectedPrefix netw
 // discardCachedClusterNetMap drops an unusable cached map and reports it as
 // absent. Only a store failure is an error: the content is already known to be
 // worthless, so failing to delete it costs nothing but a repeat of this warning.
-func discardCachedClusterNetMap(store *state.Service, cause error) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
-	slog.Warn("discarding unusable cached cluster network map; waiting for the primary to republish", "err", cause)
+func discardCachedClusterNetMap(ctx context.Context, store *state.Service, cause error) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
+	slog.WarnContext(ctx, "discarding unusable cached cluster network map; waiting for the primary to republish", "err", cause)
 	if err := store.DeleteLocalKV(storage.LocalKVWorkerClusterNetMap); err != nil {
 		return nil, network.Prefix{}, false, fmt.Errorf("discarding unusable cached cluster network map: %w", err)
 	}
 	return nil, network.Prefix{}, false, nil
 }
 
-func cachedClusterNetMapStatus(store *state.Service, nodeID int32, expectedPrefix network.Prefix, reconcileErr string) (*apigen.NetMapStatus, error) {
-	current, _, ok, err := cachedClusterNetMap(store, nodeID, expectedPrefix)
+func cachedClusterNetMapStatus(ctx context.Context, store *state.Service, nodeID int32, expectedPrefix network.Prefix, reconcileErr string) (*apigen.NetMapStatus, error) {
+	current, _, ok, err := cachedClusterNetMap(ctx, store, nodeID, expectedPrefix)
 	if err != nil || !ok {
 		return nil, err
 	}

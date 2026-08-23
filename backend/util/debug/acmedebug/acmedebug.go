@@ -1,6 +1,8 @@
 package acmedebug
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -36,43 +38,34 @@ func (t loggingACMETransport) RoundTrip(req *http.Request) (*http.Response, erro
 		next = http.DefaultTransport
 	}
 
+	ctx := context.Background()
 	method := ""
 	url := ""
 	if req != nil {
+		ctx = req.Context()
 		method = req.Method
 		url = sanitizedHTTPURL(req)
 	}
-	slog.Info("acme http request started", "method", method, "url", url)
+	slog.InfoContext(ctx, fmt.Sprintf("acme http request started %s %s", method, url))
 
 	resp, err := next.RoundTrip(req)
 	if err != nil {
-		slog.Warn("acme http request failed",
-			"method", method,
-			"url", url,
-			"duration", time.Since(start),
-			"err", err,
-		)
+		slog.WarnContext(ctx, fmt.Sprintf("acme http request failed %s %s duration=%s", method, url, time.Since(start)), "err", err)
 		return nil, err
 	}
 
-	attrs := []any{
-		"method", method,
-		"url", url,
-		"status", resp.Status,
-		"status_code", resp.StatusCode,
-		"duration", time.Since(start),
-	}
+	msg := fmt.Sprintf("acme http request completed %s %s status=%q duration=%s", method, url, resp.Status, time.Since(start))
 	if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
-		attrs = append(attrs, "retry_after", retryAfter)
+		msg += fmt.Sprintf(" retry_after=%s", retryAfter)
 	}
 	if resp.Header.Get("Replay-Nonce") != "" {
-		attrs = append(attrs, "replay_nonce", "present")
+		msg += " replay_nonce=present"
 	}
 
 	if resp.StatusCode >= 400 {
-		slog.Warn("acme http request completed", attrs...)
+		slog.WarnContext(ctx, msg)
 	} else {
-		slog.Info("acme http request completed", attrs...)
+		slog.InfoContext(ctx, msg)
 	}
 	return resp, nil
 }

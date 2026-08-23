@@ -152,7 +152,7 @@ func (h *Handler) PostV1AgentSessionsCreate(ctx apigen.Context) (*apigen.AgentSe
 	if err := h.Store.InsertAgentSession(rec); err != nil {
 		return nil, fmt.Errorf("storing agent session: %w", err)
 	}
-	slog.InfoContext(ctx, "started agent session", "session", sessionID, "ttl", agentSessionTTL.String(), "scopes", scopes)
+	slog.InfoContext(ctx, fmt.Sprintf("started agent session ttl=%s scopes=%v", agentSessionTTL, scopes), "session", sessionID)
 	return &apigen.AgentSessionCreated{
 		Token:   token,
 		Session: agentSessionToProto(rec),
@@ -210,7 +210,7 @@ func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apige
 	if err := h.Store.InsertAgentSession(rec); err != nil {
 		return nil, fmt.Errorf("storing agent session request: %w", err)
 	}
-	slog.InfoContext(ctx, "agent session requested", "session", sessionID, "user", user.ID, "address", rec.RequestingAddress)
+	slog.InfoContext(ctx, fmt.Sprintf("agent session requested address=%s", rec.RequestingAddress), "session", sessionID, "user", user.ID)
 	return &apigen.AgentSessionRequest{
 		ID:               sessionID,
 		ApprovalCode:     code,
@@ -282,7 +282,7 @@ func (h *Handler) mintApprovedAgentSession(ctx apigen.Context, rec state.AgentSe
 		slog.WarnContext(ctx, "discarded agent session token lost to a concurrent pickup", "session", rec.ID)
 		return &apigen.AgentSessionPickup{Status: apigen.AgentSessionStatus_AGENT_SESSION_APPROVED}, nil
 	}
-	slog.InfoContext(ctx, "agent session collected", "session", rec.ID, "ttl", agentSessionTTL.String(), "scopes", rec.Scopes)
+	slog.InfoContext(ctx, fmt.Sprintf("agent session collected ttl=%s scopes=%v", agentSessionTTL, rec.Scopes), "session", rec.ID)
 	return &apigen.AgentSessionPickup{
 		Status:    apigen.AgentSessionStatus_AGENT_SESSION_APPROVED,
 		Token:     token,
@@ -330,7 +330,7 @@ func (h *Handler) PostV1AgentSessionsApprove(ctx apigen.Context, req *apigen.Age
 	if err != nil {
 		return nil, fmt.Errorf("fetching approved agent session: %w", err)
 	}
-	slog.InfoContext(ctx, "approved agent session", "session", rec.ID, "address", rec.RequestingAddress, "scopes", scopes)
+	slog.InfoContext(ctx, fmt.Sprintf("approved agent session address=%s scopes=%v", rec.RequestingAddress, scopes), "session", rec.ID)
 	return agentSessionToProto(updated), nil
 }
 
@@ -370,7 +370,7 @@ func (h *Handler) PostV1AgentSessionsRevoke(ctx apigen.Context, req *apigen.Agen
 	if err := h.Store.RevokeAgentSession(req.ID, ctx.User.ID, status, time.Now()); err != nil {
 		return fmt.Errorf("revoking agent session: %w", err)
 	}
-	slog.InfoContext(ctx, "stopped agent session", "session", req.ID, "status", status)
+	slog.InfoContext(ctx, fmt.Sprintf("stopped agent session status=%v", status), "session", req.ID)
 	return nil
 }
 

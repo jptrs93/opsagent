@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
@@ -19,6 +20,7 @@ import (
 // publication and may be shared by subscribers.
 type Watcher struct {
 	path string
+	ctx  context.Context
 
 	mu          sync.Mutex
 	snapshot    *apigen.NetState
@@ -28,6 +30,7 @@ type Watcher struct {
 func New(path string) *Watcher {
 	return &Watcher{
 		path:        filepath.Clean(path),
+		ctx:         logu.AddTag(context.Background(), "NetstateWatch"),
 		subscribers: make(map[chan *apigen.NetState]struct{}),
 	}
 }
@@ -55,6 +58,7 @@ func (w *Watcher) SnapshotAndSubscribe() (*apigen.NetState, <-chan *apigen.NetSt
 // with write-rename. Watching the file itself would stop observing updates
 // after its first replacement.
 func (w *Watcher) Run(ctx context.Context) error {
+	w.ctx = logu.AddTag(ctx, "NetstateWatch")
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return fmt.Errorf("creating netstate watcher: %w", err)
@@ -64,7 +68,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 		return fmt.Errorf("watching netstate directory: %w", err)
 	}
 	if err := w.reload(); err != nil && !errors.Is(err, os.ErrNotExist) {
-		slog.Warn("loading initial netstate failed", "path", w.path, "err", err)
+		slog.WarnContext(w.ctx, fmt.Sprintf("loading initial netstate %s failed", w.path), "err", err)
 	}
 
 	for {
@@ -84,7 +88,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 				continue
 			}
 			if err := w.reload(); err != nil {
-				slog.Warn("reloading netstate failed", "path", w.path, "err", err)
+				slog.WarnContext(w.ctx, fmt.Sprintf("reloading netstate %s failed", w.path), "err", err)
 			}
 		}
 	}
@@ -129,12 +133,6 @@ func (w *Watcher) publish(next *apigen.NetState) {
 			endpointCount += len(service.Endpoints)
 		}
 	}
-	slog.Info("netstate loaded",
-		"seq", next.Seq,
-		"nodeIdentifier", next.NodeIdentifier,
-		"dns_services", len(next.DnsServices),
-		"dns_endpoints", endpointCount,
-		"upstream_resolvers", len(next.UpstreamResolvers),
-		"ingress_routes", len(next.Ingress),
-	)
+	slog.InfoContext(w.ctx, fmt.Sprintf("netstate loaded seq=%d node=%s dnsServices=%d dnsEndpoints=%d upstreamResolvers=%d ingressRoutes=%d",
+		next.Seq, next.NodeIdentifier, len(next.DnsServices), endpointCount, len(next.UpstreamResolvers), len(next.Ingress)))
 }

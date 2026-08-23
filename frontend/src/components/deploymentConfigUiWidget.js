@@ -73,6 +73,7 @@ export function deploymentConfigUiWidget(args) {
             configRefs,
             deployments,
             spaces,
+            deploymentId: mode === 'update' ? deployment?.id : null,
             previewAsset: asset => { previewAsset.val = asset; },
         }),
         commandPane(form),

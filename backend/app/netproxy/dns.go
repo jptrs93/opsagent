@@ -14,6 +14,7 @@ import (
 	"github.com/miekg/dns"
 	"golang.org/x/time/rate"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
@@ -25,7 +26,9 @@ func RunDNS(ctx context.Context, states netStateSubscriber, listen string) error
 	if listen == "" {
 		listen = ":53"
 	}
+	ctx = logu.AddTag(ctx, "DNS")
 	s := &dnsServer{
+		ctx:            ctx,
 		warningLimiter: newOperationalWarningLimiter(),
 		forwardSlots:   make(chan struct{}, maxConcurrentDNSForwards),
 	}
@@ -54,7 +57,7 @@ func RunDNS(ctx context.Context, states netStateSubscriber, listen string) error
 		case <-started:
 			startedCount++
 			if startedCount == 2 {
-				slog.Info("DNS listeners started", "address", listen, "networks", "udp,tcp")
+				slog.InfoContext(ctx, fmt.Sprintf("DNS udp+tcp listeners started on %s", listen))
 			}
 		case err := <-errCh:
 			_ = udp.Shutdown()
@@ -68,6 +71,7 @@ func RunDNS(ctx context.Context, states netStateSubscriber, listen string) error
 }
 
 type dnsServer struct {
+	ctx            context.Context
 	state          atomic.Pointer[apigen.NetState]
 	warningLimiter *rate.Limiter
 	forwardSlots   chan struct{}
@@ -175,7 +179,7 @@ func (s *dnsServer) forward(w dns.ResponseWriter, r *dns.Msg) bool {
 			defer func() { <-s.forwardSlots }()
 		default:
 			if allowOperationalWarning(s.warningLimiter) {
-				slog.Warn("DNS forwarding concurrency limit reached", "limit", cap(s.forwardSlots))
+				slog.WarnContext(s.ctx, fmt.Sprintf("DNS forwarding concurrency limit of %d reached", cap(s.forwardSlots)))
 			}
 			return false
 		}
@@ -190,16 +194,16 @@ func (s *dnsServer) forward(w dns.ResponseWriter, r *dns.Msg) bool {
 			continue
 		}
 		if err := w.WriteMsg(res); err != nil {
-			slog.Debug("writing forwarded DNS response failed", "err", err)
+			slog.DebugContext(s.ctx, "writing forwarded DNS response failed", "err", err)
 		}
 		return true
 	}
 	if lastErr != nil && allowOperationalWarning(s.warningLimiter) {
-		attrs := []any{"resolver_count", len(state.UpstreamResolvers), "err", lastErr}
+		question := ""
 		if len(r.Question) > 0 {
-			attrs = append(attrs, "name", r.Question[0].Name, "type", r.Question[0].Qtype)
+			question = fmt.Sprintf(" name=%s type=%d", r.Question[0].Name, r.Question[0].Qtype)
 		}
-		slog.Warn("forwarding DNS query to all upstream resolvers failed", attrs...)
+		slog.WarnContext(s.ctx, fmt.Sprintf("forwarding DNS query to all %d upstream resolvers failed%s", len(state.UpstreamResolvers), question), "err", lastErr)
 	}
 	return false
 }

@@ -68,7 +68,7 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 	log.Write("reusable image not found; building %s", localImageRef)
 
 	logPath := dep.PrepareOutputPath()
-	slog.InfoContext(ctx, "nix docker build starting", "log_path", logPath)
+	slog.InfoContext(ctx, fmt.Sprintf("nix docker build starting, logging to %s", logPath))
 	log.Write("checking out repository %s at version %s", nix.Repo, version)
 	checkoutStarted := time.Now()
 	repoDir, err := p.gitManager.EnsureCheckout(ctx, nix.Repo, version, log.Output())
@@ -158,7 +158,7 @@ func (p *Preparer) importStream(ctx context.Context, streamPath string, localIma
 
 func runCmdCapture(ctx context.Context, dir string, log *preparerlog.Log, name string, args ...string) ([]string, error) {
 	cmdStr := sanitizeCommandForLogs(name, args)
-	slog.InfoContext(ctx, "exec", "cmd", cmdStr, "dir", dir)
+	slog.InfoContext(ctx, fmt.Sprintf("exec %q in %s", cmdStr, dir))
 	log.Write("running command: %s", cmdStr)
 
 	cmd := exec.Command(name, args...)
@@ -168,17 +168,17 @@ func runCmdCapture(ctx context.Context, dir string, log *preparerlog.Log, name s
 
 	stdout, stderr, _, closePipes, err := cmdu.InitStdPipes(cmd)
 	if err != nil {
-		slog.ErrorContext(ctx, "initializing std pipes failed", "cmd", cmdStr, "err", err)
+		slog.ErrorContext(ctx, fmt.Sprintf("initializing std pipes for %q failed", cmdStr), "err", err)
 		return nil, fmt.Errorf("initializing std pipes: %w", err)
 	}
 	defer closePipes()
 
 	if err := cmd.Start(); err != nil {
-		slog.ErrorContext(ctx, "cmd start failed", "cmd", cmdStr, "err", err)
+		slog.ErrorContext(ctx, fmt.Sprintf("starting %q failed", cmdStr), "err", err)
 		log.Error("starting command: %v", err)
 		return nil, fmt.Errorf("start %s: %w", cmdStr, err)
 	}
-	slog.InfoContext(ctx, "cmd started", "cmd", cmdStr, "pid", cmd.Process.Pid)
+	slog.InfoContext(ctx, fmt.Sprintf("started %q pid=%d", cmdStr, cmd.Process.Pid))
 
 	stopCancellationWatch := watchCommandCancellation(ctx, cmd, cmdStr, log)
 	defer stopCancellationWatch()
@@ -200,7 +200,7 @@ func runCmdCapture(ctx context.Context, dir string, log *preparerlog.Log, name s
 			}
 		}
 		if scanErr := scanner.Err(); scanErr != nil {
-			slog.ErrorContext(ctx, "scanner error", "cmd", cmdStr, "stream", prefix, "err", scanErr)
+			slog.ErrorContext(ctx, fmt.Sprintf("reading %s of %q failed", prefix, cmdStr), "err", scanErr)
 			log.Error("reading command %s: %v", prefix, scanErr)
 		}
 	}
@@ -219,7 +219,7 @@ func runCmdCapture(ctx context.Context, dir string, log *preparerlog.Log, name s
 		log.Error("%s", exitErr)
 		return stdoutLines, fmt.Errorf("%s: %w", cmdStr, err)
 	}
-	slog.InfoContext(ctx, "cmd completed", "cmd", cmdStr)
+	slog.InfoContext(ctx, fmt.Sprintf("completed %q", cmdStr))
 	return stdoutLines, nil
 }
 
@@ -233,10 +233,10 @@ func watchCommandCancellation(ctx context.Context, cmd *exec.Cmd, cmdStr string,
 			if cmd.Process == nil {
 				return
 			}
-			slog.WarnContext(ctx, "interrupting command due to cancellation", "cmd", cmdStr)
+			slog.WarnContext(ctx, fmt.Sprintf("interrupting %q due to cancellation", cmdStr))
 			log.Write("interrupting command due to cancellation")
 			if err := cmd.Process.Signal(os.Interrupt); err != nil {
-				slog.WarnContext(ctx, "failed to send interrupt signal", "cmd", cmdStr, "err", err)
+				slog.WarnContext(ctx, fmt.Sprintf("sending interrupt signal to %q failed", cmdStr), "err", err)
 			}
 
 			timer := time.NewTimer(3 * time.Second)
@@ -244,10 +244,10 @@ func watchCommandCancellation(ctx context.Context, cmd *exec.Cmd, cmdStr string,
 			select {
 			case <-done:
 			case <-timer.C:
-				slog.WarnContext(ctx, "force killing command after interrupt grace period", "cmd", cmdStr)
+				slog.WarnContext(ctx, fmt.Sprintf("force killing %q after interrupt grace period", cmdStr))
 				log.Write("force killing command after interrupt grace period")
 				if err := cmd.Process.Kill(); err != nil {
-					slog.WarnContext(ctx, "failed to kill command", "cmd", cmdStr, "err", err)
+					slog.WarnContext(ctx, fmt.Sprintf("killing %q failed", cmdStr), "err", err)
 				}
 			}
 		case <-done:

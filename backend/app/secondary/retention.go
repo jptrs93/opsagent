@@ -2,10 +2,12 @@ package secondary
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/jptrs93/goutil/contextu"
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
@@ -26,6 +28,7 @@ var retentionInterval = 5 * time.Minute
 // needs, so that removing a deployment from a node eventually removes its
 // credentials from that node's disk too.
 func runRuntimeInputRetention(ctx context.Context, store *state.Service, inputs *runtimeinputs.RuntimeInputs, predicate storage.ScheduledInstancePredicate, acme *acmestate.Holder) {
+	ctx = logu.AddTag(ctx, "Retention")
 	for {
 		contextu.Sleep(ctx, retentionInterval)
 		if ctx.Err() != nil {
@@ -47,8 +50,8 @@ func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runti
 	// there is no sound way to attribute one to the instance that is settled.
 	for i := range states {
 		if !instanceQuiescent(&states[i]) {
-			slog.DebugContext(ctx, "retention: skipping sweep, instance is mid-transition",
-				"scheduled_instance", states[i].Instance.ID, "configVersion", states[i].Config.Version)
+			slog.DebugContext(ctx, fmt.Sprintf("retention: skipping sweep, instance is mid-transition configVersion=%d", states[i].Config.Version),
+				"scheduled_instance", states[i].Instance.ID)
 			return
 		}
 	}
@@ -81,25 +84,25 @@ func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runti
 	if removed, err := inputs.Retain(secrets, configs); err != nil {
 		slog.WarnContext(ctx, "retention: dropping unreferenced runtime inputs failed", "err", err)
 	} else if removed > 0 {
-		slog.InfoContext(ctx, "retention: dropped unreferenced runtime inputs", "count", removed)
+		slog.InfoContext(ctx, fmt.Sprintf("retention: dropped %d unreferenced runtime inputs", removed))
 	}
 
 	if removed, err := runtimeinputs.RetainAssets(assets); err != nil {
 		slog.WarnContext(ctx, "retention: dropping unreferenced cached assets failed", "err", err)
 	} else if removed > 0 {
-		slog.InfoContext(ctx, "retention: dropped unreferenced cached assets", "count", removed)
+		slog.InfoContext(ctx, fmt.Sprintf("retention: dropped %d unreferenced cached assets", removed))
 	}
 
 	if removed, err := inputs.RetainIssuedTLS(issued); err != nil {
 		slog.WarnContext(ctx, "retention: dropping unreferenced issued TLS failed", "err", err)
 	} else if removed > 0 {
-		slog.InfoContext(ctx, "retention: dropped unreferenced issued TLS", "count", removed)
+		slog.InfoContext(ctx, fmt.Sprintf("retention: dropped %d unreferenced issued TLS", removed))
 	}
 
 	if removed, err := runtimeinputs.RetainIssuedTLSDirs(issued); err != nil {
 		slog.WarnContext(ctx, "retention: dropping unreferenced issued TLS files failed", "err", err)
 	} else if removed > 0 {
-		slog.InfoContext(ctx, "retention: dropped unreferenced issued TLS files", "count", removed)
+		slog.InfoContext(ctx, fmt.Sprintf("retention: dropped %d unreferenced issued TLS files", removed))
 	}
 }
 

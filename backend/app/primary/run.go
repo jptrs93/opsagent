@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/backup"
@@ -31,6 +32,7 @@ import (
 var ErrRestartRequired = errors.New("primary restart required")
 
 func Run(parentCtx context.Context, embeddedFS fs.FS) error {
+	parentCtx = logu.AddTag(parentCtx, "Primary")
 	lifecycleCtx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
 	g, ctx := errgroup.WithContext(lifecycleCtx)
@@ -60,7 +62,7 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	}
 	primaryNode = primaryRuntime.store.MustSetNodeAddresses(primaryNode.ID, []string{underlayAddress})
 	nodeIdentifier := primaryNode.Identifier
-	slog.Info(fmt.Sprintf("opendeploy starting primary version=%v nodeIdentifier=%v", version.Version, nodeIdentifier))
+	slog.InfoContext(ctx, fmt.Sprintf("opendeploy starting primary version=%v nodeIdentifier=%v", version.Version, nodeIdentifier))
 	webUIHandler, err := webuihandler.New(staticFS, primaryNode.ID, primaryRuntime.webUIHandlerDependencies())
 	if err != nil {
 		return fmt.Errorf("creating web UI handler: %w", err)

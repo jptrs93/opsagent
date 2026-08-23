@@ -1,6 +1,7 @@
 package localinputs
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,7 +35,7 @@ func (m *memDB) DeleteLocalRuntimeInput(kind, refID int64) {
 
 func openStore(t *testing.T, db DB, dir string) *Store {
 	t.Helper()
-	store, err := Open(db, &machinekey.File{Path: filepath.Join(dir, machinekey.FileName)})
+	store, err := Open(context.Background(), db, &machinekey.File{Path: filepath.Join(dir, machinekey.FileName)})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

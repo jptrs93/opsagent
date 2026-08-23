@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	logv2 "github.com/jptrs93/opsagent/backend/lib/log/v2"
 	"github.com/jptrs93/opsagent/backend/storage/logdb"
 )
@@ -28,6 +29,9 @@ var (
 
 // should be started for every existing log deployment directory manages the logs of a single deployment
 type LogStreamCollector struct {
+	// ctx is the component root logging context, tagged at construction and
+	// carrying the deployment id.
+	ctx               context.Context
 	deploymentID      int32
 	liveSpool         *LiveSegmentSpool
 	db                *logdb.Queries
@@ -39,6 +43,7 @@ type LogStreamCollector struct {
 
 func NewLogStreamCollector(deploymentID int32, db *logdb.Queries) *LogStreamCollector {
 	return &LogStreamCollector{
+		ctx:          logu.AddKV(logu.AddTag(context.Background(), "LogCollector"), "dep", deploymentID),
 		deploymentID: deploymentID,
 		liveSpool:    newLiveSegmentSpool(),
 		db:           db,
@@ -57,14 +62,14 @@ func (i *LogStreamCollector) AlignCollecting(runningCountChange int) {
 	}
 	i.collectorRunning = true
 	var producerCtx context.Context
-	producerCtx, i.producerCtxCancel = newProducerCtx(context.Background(), i.producerCount > 0)
+	producerCtx, i.producerCtxCancel = newProducerCtx(i.ctx, i.producerCount > 0)
 	go i.runCollector(producerCtx)
 }
 
 func (i *LogStreamCollector) runCollector(producerCtx context.Context) {
 	for {
 		if err := i.RunCollectorOnce(producerCtx); err != nil {
-			slog.WarnContext(producerCtx, "log stream collector failed", "deployment_id", i.deploymentID, "err", err)
+			slog.WarnContext(producerCtx, "log stream collector failed", "err", err)
 			time.Sleep(collectorRetryInterval)
 			continue
 		}
@@ -75,7 +80,7 @@ func (i *LogStreamCollector) runCollector(producerCtx context.Context) {
 			return
 		}
 		i.producerCtxCancel()
-		producerCtx, i.producerCtxCancel = context.WithCancel(context.Background())
+		producerCtx, i.producerCtxCancel = context.WithCancel(i.ctx)
 		i.mu.Unlock()
 	}
 }

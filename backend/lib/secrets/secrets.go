@@ -23,6 +23,7 @@
 package secrets
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base32"
 	"errors"
@@ -35,6 +36,7 @@ import (
 
 	"golang.org/x/crypto/argon2"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
@@ -155,6 +157,8 @@ type Store interface {
 // machinekey.Provider supplied the KEK, so Phase 3 (TPM sealing) plugs in
 // without touching the DB format. See docs/engineering/secrets.md.
 type Manager struct {
+	// ctx is the component root logging context, tagged at construction.
+	ctx        context.Context
 	store      Store
 	machineKey machinekey.Provider
 
@@ -175,8 +179,8 @@ func Initialize(dataDir string, store Store) (*Manager, error) {
 	if err := m.initFirstRun(); err != nil {
 		return nil, fmt.Errorf("initializing secrets store: %w", err)
 	}
-	slog.Info("secrets store initialized")
-	slog.Warn("secrets recovery code not configured — generate one so secrets can be recovered if this machine is lost")
+	slog.InfoContext(m.ctx, "secrets store initialized")
+	slog.WarnContext(m.ctx, "secrets recovery code not configured — generate one so secrets can be recovered if this machine is lost")
 	return m, nil
 }
 
@@ -193,23 +197,24 @@ func Open(dataDir string, store Store) (*Manager, error) {
 		if len(slots) == 0 {
 			return nil, fmt.Errorf("secrets store is not initialized")
 		}
-		slog.Warn("secrets store has no machine keyslot; locked until recovery unlock")
+		slog.WarnContext(m.ctx, "secrets store has no machine keyslot; locked until recovery unlock")
 		return m, nil
 	}
 
 	if err := m.unlockWithMachineKey(slots); err != nil {
-		slog.Warn("secrets store locked: could not unlock with machine key; use the recovery code to unlock", "err", err)
+		slog.WarnContext(m.ctx, "secrets store locked: could not unlock with machine key; use the recovery code to unlock", "err", err)
 		return m, nil
 	}
-	slog.Info("secrets store unlocked")
+	slog.InfoContext(m.ctx, "secrets store unlocked")
 	if _, ok := findSlot(slots, slotRecovery); !ok {
-		slog.Warn("secrets recovery code not configured — generate one so secrets can be recovered if this machine is lost")
+		slog.WarnContext(m.ctx, "secrets recovery code not configured — generate one so secrets can be recovered if this machine is lost")
 	}
 	return m, nil
 }
 
 func newManager(dataDir string, store Store) *Manager {
 	return &Manager{
+		ctx:         logu.AddTag(context.Background(), "Secrets"),
 		store:       store,
 		machineKey:  &machinekey.File{Path: filepath.Join(dataDir, machinekey.FileName)},
 		cache:       make(map[int32]Record),
@@ -238,7 +243,7 @@ func (m *Manager) Resolve(id int32) (string, bool) {
 	}
 	pt, err := m.openRecordLocked(rec)
 	if err != nil {
-		slog.Error("decrypting secret failed", "id", id, "name", rec.Name, "err", err)
+		slog.ErrorContext(m.ctx, fmt.Sprintf("decrypting secret id=%d name=%s failed", id, rec.Name), "err", err)
 		return "", false
 	}
 	return string(pt), true
@@ -465,7 +470,7 @@ func (m *Manager) Rename(secretID int32, newName string) error {
 			m.cache[id] = rec
 		}
 	}
-	slog.Info("renamed secret", "id", secretID, "newName", newName)
+	slog.InfoContext(m.ctx, fmt.Sprintf("renamed secret %d to %s", secretID, newName))
 	return nil
 }
 
@@ -489,7 +494,7 @@ func (m *Manager) MoveSpace(secretID, newSpaceID, directoryID, author int32) err
 			m.cache[id] = rec
 		}
 	}
-	slog.Info("moved secret to space", "id", secretID, "spaceID", newSpaceID)
+	slog.InfoContext(m.ctx, fmt.Sprintf("moved secret %d to space %d", secretID, newSpaceID))
 	return nil
 }
 
@@ -591,7 +596,7 @@ func (m *Manager) Unlock(code string) error {
 	}
 	m.smk = smk
 	m.version = rec.SMKVersion
-	slog.Info("secrets store unlocked via recovery code; machine key re-established")
+	slog.InfoContext(m.ctx, "secrets store unlocked via recovery code; machine key re-established")
 	return nil
 }
 

@@ -12,7 +12,8 @@ import {deploymentConfigOverlay} from "../components/deploymentJsonOverlay.js";
 import {recentlyDeletedOverlay} from "../components/recentlyDeletedOverlay.js";
 import {capi} from "../capi/index.js";
 import {nodeDisplayName} from "../lib/machines.js";
-import {deploymentWorkload} from "../lib/deploymentConfig.js";
+import {containerWorkload, deploymentWorkload} from "../lib/deploymentConfig.js";
+import {deploymentUsages} from "../lib/referenceUsage.js";
 
 const { div, h2, p, button, input, table, thead, tbody, tr, th, td, span, colgroup, col } = van.tags;
 
@@ -100,10 +101,23 @@ const formatDeploymentLabel = (deployment) => {
     return parts.length > 0 ? parts.join(' / ') : `#${deployment.id}`;
 };
 
+// addressReferrers lists deployments whose env vars resolve the address of
+// deploymentId — the same references the server refuses deletion over. Env
+// address refs are fully visible client-side, so the dialog can warn before
+// the delete is even attempted.
+const addressReferrers = (deploymentId) =>
+    deploymentUsages(deploymentsS.val, spacesS.val, machinesS.val, (candidate) => {
+        const envVars = containerWorkload(candidate?.config)?.runtime?.envVars || {};
+        return Object.values(envVars).some(
+            (value) => Number(value?.addressDeploymentId || 0) === Number(deploymentId),
+        );
+    });
+
 function deleteDeploymentOverlay(deployment, close) {
     const saving = van.state(false);
     const error = van.state('');
     const label = formatDeploymentLabel(deployment);
+    const referrers = addressReferrers(deployment.id);
 
     const confirmDelete = async () => {
         if (saving.val) return;
@@ -128,6 +142,11 @@ function deleteDeploymentOverlay(deployment, close) {
             {class: "card w-full max-w-md flex flex-col gap-4 shadow-2xl"},
             h2({class: "text-base font-semibold"}, "Delete deployment"),
             p({class: "text-sm text-gray-300"}, `Are you sure you want to delete ${label}? This removes it from the deployment list.`),
+            referrers.length === 0 ? '' : div(
+                {class: "text-sm text-amber-400 flex flex-col gap-1", "data-testid": "deployment-delete-referrers"},
+                p(`Deletion will fail: its address is referenced by ${referrers.length === 1 ? 'this deployment' : 'these deployments'}:`),
+                ...referrers.map((ref) => p({class: "pl-4"}, `${ref.space} / ${ref.node} / ${ref.name}`)),
+            ),
             () => error.val ? p({class: "text-sm text-red-400"}, error.val) : '',
             div({class: "flex items-center justify-end gap-2"},
                 button({

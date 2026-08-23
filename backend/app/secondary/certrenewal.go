@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
@@ -96,13 +97,14 @@ func (m *clusterCertManager) install(certPEM []byte) (time.Time, error) {
 }
 
 func runClusterCertRenewal(ctx context.Context, m *clusterCertManager, primaryURL string, client *http.Client) {
+	ctx = logu.AddTag(ctx, "CertRenewal")
 	capi := apigen.NewOpsagentClusterV1Capi(primaryURL, apigen.WithOpsagentClusterV1CapiHTTPClient(client))
 	ticker := time.NewTicker(certRenewCheckInterval)
 	defer ticker.Stop()
 	for {
 		if time.Until(m.expiry()) < certRenewWindow {
 			if err := renewClusterCert(ctx, m, capi); err != nil {
-				slog.Warn("renewing worker cluster certificate failed; will retry", "err", err, "notAfter", m.expiry())
+				slog.WarnContext(ctx, fmt.Sprintf("renewing worker cluster certificate failed; will retry notAfter=%s", m.expiry()), "err", err)
 			}
 		}
 		select {
@@ -127,6 +129,6 @@ func renewClusterCert(ctx context.Context, m *clusterCertManager, capi *apigen.O
 	if err != nil {
 		return err
 	}
-	slog.Info("renewed worker cluster certificate", "notAfter", notAfter)
+	slog.InfoContext(ctx, fmt.Sprintf("renewed worker cluster certificate notAfter=%s", notAfter))
 	return nil
 }

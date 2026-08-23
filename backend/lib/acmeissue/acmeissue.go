@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
@@ -68,6 +69,7 @@ func (m *Manager) Wake() {
 }
 
 func (m *Manager) Run(ctx context.Context) {
+	ctx = logu.AddTag(ctx, "AcmeIssue")
 	ticker := time.NewTicker(reconcileInterval)
 	defer ticker.Stop()
 	m.reconcile(ctx)
@@ -139,12 +141,12 @@ func (m *Manager) reconcile(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			slog.Warn("ACME issuance failed", "hostname", hostname, "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("ACME issuance failed for %s", hostname), "err", err)
 			continue
 		}
 		if meta, ok := m.Secrets.LatestMetaByName(CertSecretName(hostname)); ok {
 			bindings[hostname] = meta.ID
-			slog.Info("ACME certificate issued", "hostname", hostname, "secret_version_id", meta.ID)
+			slog.InfoContext(ctx, fmt.Sprintf("ACME certificate issued for %s secret_version_id=%d", hostname, meta.ID))
 		}
 	}
 	clear(m.challenges)

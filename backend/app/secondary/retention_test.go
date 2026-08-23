@@ -18,7 +18,7 @@ func retentionTestStore(t *testing.T) (*state.Service, *runtimeinputs.RuntimeInp
 	t.Helper()
 	dir := t.TempDir()
 	store := state.Open(filepath.Join(dir, "secondary.db"))
-	persistence, err := localinputs.Open(store, &machinekey.File{Path: filepath.Join(dir, machinekey.FileName)})
+	persistence, err := localinputs.Open(context.Background(), store, &machinekey.File{Path: filepath.Join(dir, machinekey.FileName)})
 	if err != nil {
 		t.Fatalf("localinputs.Open: %v", err)
 	}

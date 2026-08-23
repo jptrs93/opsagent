@@ -327,8 +327,9 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 		return SecretReservedNameErr
 	}
 	ids := int32Set(h.Store.SecretVersionIDs(req.SecretID))
-	if h.settingsUseSecretID(ids) || h.deploymentUsesSecretID(ids) {
-		return ReferenceInUseErr
+	details := append(h.settingsSecretRefDetails(ids), h.deploymentRefDetails(ids, runtimeinputs.SecretRefs)...)
+	if len(details) > 0 {
+		return referenceInUseDetailErr("Secret", details)
 	}
 	if err := h.Secrets.Delete(req.SecretID); err != nil {
 		return mapSecretErr(err)

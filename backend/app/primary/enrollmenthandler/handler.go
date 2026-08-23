@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
@@ -74,6 +75,7 @@ var EnrollmentNotFoundErr = apigen.NewApiErr("Enrollment request not found", "en
 var EnrollmentFingerprintNotConfiguredErr = apigen.NewApiErr("Enrollment TLS fingerprint is not configured", "enrollment_fingerprint_not_configured", http.StatusServiceUnavailable)
 
 func (h *Handler) VerifyEnrollmentRequest(ctx context.Context, _ http.ResponseWriter, r *http.Request, _ apigen.AccessPolicy) (apigen.Context, error) {
+	ctx = logu.AddTag(ctx, "Enrollment")
 	return apigen.Context{Ctx: context.WithValue(ctx, enrollmentRequestIPKey{}, remoteIP(r))}, nil
 }
 
@@ -192,7 +194,7 @@ func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.E
 	var netMap *apigen.ClusterNetMap
 	if h.networkMaps != nil {
 		if err := h.networkMaps.Refresh(); err != nil {
-			slog.Error("refreshing enrollment network map failed", "node_id", nodeID, "err", err)
+			slog.ErrorContext(ctx, fmt.Sprintf("refreshing enrollment network map for node %d failed", nodeID), "err", err)
 		} else {
 			netMap = h.networkMaps.SnapshotForNode(nodeID)
 		}

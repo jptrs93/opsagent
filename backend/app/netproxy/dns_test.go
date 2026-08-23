@@ -2,6 +2,7 @@ package netproxy
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"net"
 	"strings"
@@ -19,7 +20,7 @@ func TestDNSForwardLogsRateLimitedUpstreamFailure(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
-	server := &dnsServer{warningLimiter: rate.NewLimiter(0, 1)}
+	server := &dnsServer{ctx: context.Background(), warningLimiter: rate.NewLimiter(0, 1)}
 	server.state.Store(&apigen.NetState{UpstreamResolvers: []string{"127.0.0.1:notaport"}})
 	request := new(dns.Msg)
 	request.SetQuestion("example.com.", dns.TypeAAAA)
@@ -28,10 +29,10 @@ func TestDNSForwardLogsRateLimitedUpstreamFailure(t *testing.T) {
 	server.forward(nil, request)
 
 	got := output.String()
-	if count := strings.Count(got, "forwarding DNS query to all upstream resolvers failed"); count != 1 {
+	if count := strings.Count(got, "forwarding DNS query to all 1 upstream resolvers failed"); count != 1 {
 		t.Fatalf("warning count = %d, want 1; output: %q", count, got)
 	}
-	for _, want := range []string{"resolver_count=1", "name=example.com.", "type=28"} {
+	for _, want := range []string{"name=example.com.", "type=28"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("log output %q does not contain %q", got, want)
 		}
@@ -45,6 +46,7 @@ func TestDNSForwardRejectsWorkAtConcurrencyLimit(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
 	server := &dnsServer{
+		ctx:            context.Background(),
 		warningLimiter: rate.NewLimiter(rate.Inf, 1),
 		forwardSlots:   make(chan struct{}, 1),
 	}
@@ -56,7 +58,7 @@ func TestDNSForwardRejectsWorkAtConcurrencyLimit(t *testing.T) {
 	if server.forward(nil, request) {
 		t.Fatal("forward succeeded while all concurrency slots were occupied")
 	}
-	if got := output.String(); !strings.Contains(got, "DNS forwarding concurrency limit reached") || !strings.Contains(got, "limit=1") {
+	if got := output.String(); !strings.Contains(got, "DNS forwarding concurrency limit of 1 reached") {
 		t.Fatalf("unexpected log output: %q", got)
 	}
 }

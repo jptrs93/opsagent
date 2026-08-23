@@ -10,6 +10,7 @@ import (
 
 	"github.com/benbjohnson/litestream"
 	"github.com/benbjohnson/litestream/s3"
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/goutil/timeu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -57,6 +58,7 @@ func StopReplicationForAssetMigration(ctx context.Context) error {
 }
 
 func StartReplication(ctx context.Context, configService *config.Service, secretSource secretStore, publisher statusPublisher, assets assetBackupReadiness) <-chan struct{} {
+	ctx = logu.AddTag(ctx, "Backup")
 	done := make(chan struct{})
 	filter := newBackupConfigFilter(configService, secretSource)
 	sub := configService.SnapshotAndSubscribe(filter.Filter)
@@ -77,8 +79,8 @@ func StartReplication(ctx context.Context, configService *config.Service, secret
 		apply := func(cfg apigen.PrimaryConfig) {
 			stopCurrent()
 			if !configured(configService, &cfg.Settings) {
-				if err := StopReplicationForAssetMigration(context.Background()); err != nil {
-					slog.Error("stop backup replication", "err", err)
+				if err := StopReplicationForAssetMigration(context.WithoutCancel(ctx)); err != nil {
+					slog.ErrorContext(ctx, "stop backup replication", "err", err)
 				}
 				runCtx, c := context.WithCancel(ctx)
 				cancel = c
@@ -184,8 +186,8 @@ func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.ClusterSett
 
 func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.ClusterSettings, secretSource secretStore, publisher statusPublisher, assets assetBackupReadiness) {
 	defer func() {
-		if err := stopReplication(context.Background()); err != nil {
-			slog.Error("stop backup replication", "err", err)
+		if err := stopReplication(context.WithoutCancel(ctx)); err != nil {
+			slog.ErrorContext(ctx, "stop backup replication", "err", err)
 		}
 		publishBackupStatus(publisher, withAssetStatus(apigen.BackupStatus{Configured: true, Error: "backup replication is not running"}, assets))
 	}()
@@ -208,16 +210,16 @@ func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.Clust
 		}
 		backupCfg, err := resolvedBackupConfigFromDynamic(loader, cfg, secretSource)
 		if err != nil {
-			slog.Error("backup replication config invalid", "err", err)
+			slog.ErrorContext(ctx, "backup replication config invalid", "err", err)
 			publishBackupStatus(publisher, withAssetStatus(apigen.BackupStatus{Configured: true, Error: err.Error()}, assets))
 			backoff.WaitWithContext(ctx)
 			continue
 		}
 		if err := startReplication(ctx, backupCfg); err != nil {
-			slog.Error("start backup replication", "err", err)
+			slog.ErrorContext(ctx, "start backup replication", "err", err)
 			publishBackupStatus(publisher, withAssetStatus(apigen.BackupStatus{Configured: true, Error: err.Error()}, assets))
-			if stopErr := stopReplication(context.Background()); stopErr != nil {
-				slog.Error("stop failed backup replication", "err", stopErr)
+			if stopErr := stopReplication(context.WithoutCancel(ctx)); stopErr != nil {
+				slog.ErrorContext(ctx, "stop failed backup replication", "err", stopErr)
 			}
 			backoff.WaitWithContext(ctx)
 			continue
@@ -268,7 +270,7 @@ func startReplication(ctx context.Context, cfg resolvedBackupConfig) error {
 	}
 	activeStore = store
 	activeConfig = cfg
-	slog.Info("started primary database backup replication", "bucket", cfg.Bucket, "path", cfg.Path)
+	slog.InfoContext(ctx, fmt.Sprintf("started primary database backup replication bucket=%s path=%s", cfg.Bucket, cfg.Path))
 	return nil
 }
 
@@ -368,7 +370,7 @@ func closeActiveStore(ctx context.Context) error {
 	}
 	activeStore = nil
 	activeConfig = resolvedBackupConfig{}
-	slog.Info("stopped primary database backup replication")
+	slog.InfoContext(ctx, "stopped primary database backup replication")
 	return nil
 }
 

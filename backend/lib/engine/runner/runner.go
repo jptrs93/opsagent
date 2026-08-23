@@ -7,6 +7,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/jptrs93/goutil/logu"
@@ -51,7 +52,8 @@ func Create(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, in
 	if status != nil {
 		preparer = status.Preparer
 	}
-	slog.InfoContext(deploymentLogContext(instanceID, dep), "runner.Create", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion, "systemd", useSystemd(dep))
+	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf("runner.Create artifact=%q configSeqNo=%d systemd=%v",
+		preparer.Artifact, preparer.DeploymentConfigVersion, useSystemd(dep)))
 	switch {
 	case useSystemd(dep):
 		return newSystemdRunnerWithRestart(store, instanceID, dep, preparer)
@@ -64,7 +66,8 @@ func CreateRolloverCandidate(store storage.OperatorStore, inputs *runtimeinputs.
 	if status != nil {
 		preparer = status.Preparer
 	}
-	slog.InfoContext(deploymentLogContext(instanceID, dep), "runner.CreateRolloverCandidate", "artifact", preparer.Artifact, "deploymentConfigVersion", preparer.DeploymentConfigVersion)
+	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf("runner.CreateRolloverCandidate artifact=%q configSeqNo=%d",
+		preparer.Artifact, preparer.DeploymentConfigVersion))
 	return newRolloverContainerRunner(store, inputs, instanceID, dep, preparer)
 }
 
@@ -78,7 +81,8 @@ func CreateRolloverCandidate(store storage.OperatorStore, inputs *runtimeinputs.
 // Only a non-empty previous status reattaches to the already-running unit.
 func ReAttachRunning(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
 	if useSystemd(dep) && dep.WorkloadVersion() != version.Version {
-		slog.InfoContext(deploymentLogContext(instanceID, dep), "runner.ReAttachRunning: desired systemd build differs from current process", "desired", dep.WorkloadVersion(), "current", version.Version)
+		slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf(
+			"runner.ReAttachRunning: desired systemd build %s differs from current process %s", dep.WorkloadVersion(), version.Version))
 		return Stopped()
 	}
 	if prev.IsZero() {
@@ -89,9 +93,8 @@ func ReAttachRunning(store storage.OperatorStore, inputs *runtimeinputs.RuntimeI
 		slog.InfoContext(deploymentLogContext(instanceID, dep), "runner.ReAttachRunning: no previous runner, returning stopped")
 		return Stopped()
 	}
-	slog.InfoContext(deploymentLogContext(instanceID, dep), "runner.ReAttachRunning: reattaching",
-		"prevStatus", prev.Status, "prevPid", prev.RunningPid,
-		"prevArtifact", prev.RunningArtifact, "prevSeqNo", prev.DeploymentConfigVersion)
+	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf(
+		"runner.ReAttachRunning: reattaching prev=[%s]", fmtRunnerStatus(prev)))
 	switch {
 	case useSystemd(dep):
 		return reAttachSystemdRunner(store, instanceID, dep, prev)
@@ -107,9 +110,8 @@ func ReAttachStopped(store storage.OperatorStore, inputs *runtimeinputs.RuntimeI
 		slog.InfoContext(deploymentLogContext(instanceID, dep), "runner.ReAttachStopped: no previous runner, returning stopped")
 		return Stopped()
 	}
-	slog.InfoContext(deploymentLogContext(instanceID, dep), "runner.ReAttachStopped: reconciling stopped deployment",
-		"prevStatus", prev.Status, "prevPid", prev.RunningPid,
-		"prevArtifact", prev.RunningArtifact, "prevSeqNo", prev.DeploymentConfigVersion)
+	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf(
+		"runner.ReAttachStopped: reconciling stopped deployment prev=[%s]", fmtRunnerStatus(prev)))
 	if useSystemd(dep) {
 		return Stopped()
 	}
@@ -130,7 +132,17 @@ func useSystemd(dep *apigen.DeploymentConfig) bool {
 	return dep.Spec.SystemdSpec != nil
 }
 
+func fmtRunnerStatus(r apigen.RunnerStatus) string {
+	if r.IsZero() {
+		return "<nil>"
+	}
+	return fmt.Sprintf("seqNo=%d status=%v pid=%d artifact=%q", r.DeploymentConfigVersion, r.Status, r.RunningPid, r.RunningArtifact)
+}
+
+// deploymentLogContext is the root log context for everything a runner does:
+// the component tag plus the instance/deployment identity keys.
 func deploymentLogContext(instanceID int32, dep *apigen.DeploymentConfig) context.Context {
-	ctx := logu.AddKV(context.Background(), "scheduled_instance", instanceID)
+	ctx := logu.AddTag(context.Background(), "Runner")
+	ctx = logu.AddKV(ctx, "scheduled_instance", instanceID)
 	return logu.AddKV(ctx, "dep", dep.ID)
 }

@@ -1,6 +1,7 @@
 package webuihandler
 
 import (
+	"context"
 	"crypto/subtle"
 	"errors"
 	"fmt"
@@ -56,11 +57,11 @@ func (h *Handler) startPersonalSession(ctx apigen.Context, user *apigen.Internal
 		return nil, fmt.Errorf("storing personal session: %w", err)
 	}
 	h.Store.TouchUserLastLogin(user.ID)
-	slog.InfoContext(ctx, "started personal session", "session", sessionID, "user", user.ID, "address", rec.RequestingAddress)
+	slog.InfoContext(ctx, fmt.Sprintf("started personal session address=%s", rec.RequestingAddress), "session", sessionID, "user", user.ID)
 	return newLoginResponse(user, token, defaultUserScopes, expiry), nil
 }
 
-func (h *Handler) verifyPersonalSession(claims map[string]any, token string) error {
+func (h *Handler) verifyPersonalSession(ctx context.Context, claims map[string]any, token string) error {
 	sessionID, _ := claims["sid"].(string)
 	if sessionID == "" {
 		return nil
@@ -80,7 +81,7 @@ func (h *Handler) verifyPersonalSession(claims map[string]any, token string) err
 	}
 	if now := time.Now(); now.Sub(rec.LastActiveAt) >= personalSessionActivityTouchInterval {
 		if err := h.Store.TouchPersonalSessionActivity(rec.ID, now); err != nil {
-			slog.Warn("failed to touch personal session activity", "session", rec.ID, "err", err)
+			slog.WarnContext(ctx, "failed to touch personal session activity", "session", rec.ID, "err", err)
 		}
 	}
 	return nil

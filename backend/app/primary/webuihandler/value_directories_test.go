@@ -3,6 +3,7 @@ package webuihandler
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -271,11 +272,17 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 	}); !errors.Is(err, MoveReferencesOutsideSpaceErr) {
 		t.Fatalf("cert-referenced secret move err = %v, want MoveReferencesOutsideSpaceErr", err)
 	}
-	// It blocks deletion too, exactly like an env pin.
+	// It blocks deletion too, exactly like an env pin — and the refusal names
+	// the pinning deployment so the UI can say what to detach first.
 	if err := h.PostV1SecretsDelete(testCtx(user), &apigen.SecretDeleteRequest{
 		SecretID: certSecret.ID,
 	}); !errors.Is(err, ReferenceInUseErr) {
 		t.Fatalf("cert-referenced secret delete err = %v, want ReferenceInUseErr", err)
+	} else {
+		var apiErr apigen.ApiErr
+		if !errors.As(err, &apiErr) || !strings.HasSuffix(apiErr.DisplayErr, "/ web") {
+			t.Fatalf("cert-referenced secret delete display = %q, want referencing deployment named", apiErr.DisplayErr)
+		}
 	}
 
 	// A value whose only references live in the destination space may move

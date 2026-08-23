@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -33,6 +34,7 @@ type EnrollmentConfig struct {
 }
 
 func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
+	ctx = logu.AddTag(ctx, "Enrollment")
 	if strings.TrimSpace(cfg.PrimaryEnrollmentAddr) == "" {
 		return fmt.Errorf("primary enrollment address is empty")
 	}
@@ -63,12 +65,8 @@ func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
 		if time.Since(connectedAt) > maxBackoff {
 			backoff = time.Second
 		}
-		slog.Warn("worker enrollment disconnected; reconnecting",
-			"addr", cfg.PrimaryEnrollmentAddr,
-			"requestingMachineID", machineID,
-			"connected_for", time.Since(connectedAt).Round(time.Second),
-			"retry_in", backoff,
-			"err", err)
+		slog.WarnContext(ctx, fmt.Sprintf("worker enrollment disconnected; reconnecting addr=%s requestingMachineID=%s connected_for=%s retry_in=%s",
+			cfg.PrimaryEnrollmentAddr, machineID, time.Since(connectedAt).Round(time.Second), backoff), "err", err)
 		timer := time.NewTimer(backoff)
 		select {
 		case <-timer.C:
@@ -106,23 +104,23 @@ func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, ma
 			continue
 		}
 		if msg.RequestStatus != nil {
-			slog.Info("worker enrollment request registered", "id", msg.RequestStatus.ID, "status", msg.RequestStatus.Status)
+			slog.InfoContext(ctx, fmt.Sprintf("worker enrollment request registered id=%d status=%v", msg.RequestStatus.ID, msg.RequestStatus.Status))
 		}
 		if msg.Accepted != nil {
-			if err := cacheEnrollmentBootstrapState(cfg, msg.Accepted); err != nil {
+			if err := cacheEnrollmentBootstrapState(ctx, cfg, msg.Accepted); err != nil {
 				return err
 			}
 			if err := writeEnrollmentTLSBundle(cfg, msg.Accepted, keyPEM); err != nil {
 				return err
 			}
-			slog.Info("worker enrollment accepted", "id", msg.Accepted.ID, "machine", msg.Accepted.WorkerName)
+			slog.InfoContext(ctx, fmt.Sprintf("worker enrollment accepted id=%d machine=%s", msg.Accepted.ID, msg.Accepted.WorkerName))
 			return nil
 		}
 	}
 	return fmt.Errorf("enrollment stream ended before acceptance")
 }
 
-func cacheEnrollmentBootstrapState(cfg EnrollmentConfig, accepted *apigen.EnrollmentAccepted) error {
+func cacheEnrollmentBootstrapState(ctx context.Context, cfg EnrollmentConfig, accepted *apigen.EnrollmentAccepted) error {
 	if accepted == nil {
 		return fmt.Errorf("accepted enrollment response is missing")
 	}
@@ -153,7 +151,7 @@ func cacheEnrollmentBootstrapState(cfg EnrollmentConfig, accepted *apigen.Enroll
 	cacheEnrollmentInstance(store, accepted.NodeNetDeployment)
 	if accepted.ClusterNetMap != nil {
 		nodeID := accepted.NodeNetDeployment.Instance.NodeID
-		if _, err := acceptClusterNetMap(store, accepted.ClusterNetMap, nodeID, prefix, true); err != nil {
+		if _, err := acceptClusterNetMap(ctx, store, accepted.ClusterNetMap, nodeID, prefix, true); err != nil {
 			return fmt.Errorf("accepting enrollment cluster network map: %w", err)
 		}
 	}

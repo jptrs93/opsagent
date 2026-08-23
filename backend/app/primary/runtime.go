@@ -154,7 +154,7 @@ func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string
 	predicate := storage.ScheduledInstancePredicate(func(state apigen.ScheduledInstanceState) bool {
 		return state.Instance.NodeID == nodeID
 	})
-	go scheduler.New(r.store, networkMaps).Run()
+	go scheduler.New(r.store, networkMaps).Run(ctx)
 	go r.acmeIssuer.Run(ctx)
 	go netproxy.RunNetStateWriter(ctx, r.store, predicate, nodeIdentifier, ainit.StaticConfig.NetproxyStatePath, netproxy.CertSecretResolverFunc(r.secrets.Resolve), r.acmeHolder, nil)
 	go netaudit.Run(ctx, network.Default, netaudit.DefaultInterval)

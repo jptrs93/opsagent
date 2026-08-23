@@ -1,11 +1,34 @@
 package webuihandler
 
 import (
+	"fmt"
+	"sort"
+	"strings"
+
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 )
 
 var ReferenceInUseErr = apigen.NewApiErr("Referenced value is still in use", "reference_in_use", 400)
+
+// referenceInUseDetailErr is ReferenceInUseErr with a display message naming
+// what still pins the value, e.g. "Secret still in use: referenced by
+// deployment global / dev-machine / api". ApiErr.Is matches on the internal
+// code, so errors.Is against the bare sentinel still holds.
+func referenceInUseDetailErr(subject string, details []string) error {
+	if len(details) == 0 {
+		return ReferenceInUseErr
+	}
+	const maxShown = 5
+	if len(details) > maxShown {
+		details = append(details[:maxShown:maxShown], fmt.Sprintf("%d more", len(details)-maxShown))
+	}
+	return apigen.NewApiErr(
+		subject+" still in use: referenced by "+strings.Join(details, "; "),
+		ReferenceInUseErr.InternalErr,
+		ReferenceInUseErr.Code,
+	)
+}
 
 // MoveReferencesOutsideSpaceErr refuses a cross-space move while the value is
 // pinned from outside the destination space — by a deployment in another
@@ -84,76 +107,121 @@ func (h *Handler) referencesOutsideSpace(ids map[int32]struct{}, refs func(*apig
 	return false
 }
 
-func (h *Handler) deploymentUsesSecretID(ids map[int32]struct{}) bool {
-	return len(h.referencingDeployments(ids, runtimeinputs.SecretRefs)) > 0
-}
-
-func (h *Handler) deploymentUsesConfigID(ids map[int32]struct{}) bool {
-	return len(h.referencingDeployments(ids, runtimeinputs.ConfigRefs)) > 0
-}
-
-func (h *Handler) deploymentUsesAssetID(ids map[int32]struct{}) bool {
-	return len(h.referencingDeployments(ids, assetRefIDs)) > 0
-}
-
 func (h *Handler) deploymentUsesAddressID(ids map[int32]struct{}) bool {
 	return len(h.referencingDeployments(ids, addressRefIDs)) > 0
 }
 
-func (h *Handler) settingsUseSecretID(ids map[int32]struct{}) bool {
-	if h.ConfigService == nil {
-		return false
+// deploymentRefDetails renders "deployment <space> / <node> / <name>" lines
+// for every deployment pinning one of ids — the human-readable half of the
+// reference_in_use refusal.
+func (h *Handler) deploymentRefDetails(ids map[int32]struct{}, refs func(*apigen.DeploymentConfig) []int32) []string {
+	cfgs := h.referencingDeployments(ids, refs)
+	if len(cfgs) == 0 {
+		return nil
 	}
-	for _, settings := range h.settingsForReferenceChecks() {
-		for _, id := range []int32{
-			settings.HttpsWeb.TlsCertPem.VersionID,
-			settings.Repo.GithubToken.VersionID,
-			settings.Backup.S3SecretAccessKey.VersionID,
-			settings.LargeAssets.S3SecretAccessKey.VersionID,
-		} {
-			if _, ok := ids[id]; ok {
-				return true
-			}
+	spaces := map[int32]string{}
+	for _, space := range h.Store.ListSpaces() {
+		spaces[space.ID] = space.Name
+	}
+	nodes := map[int32]string{}
+	for _, node := range h.Store.ListNodes() {
+		nodes[node.ID] = node.Name
+	}
+	details := make([]string, 0, len(cfgs))
+	for _, cfg := range cfgs {
+		space := spaces[cfg.SpaceID]
+		if space == "" {
+			space = fmt.Sprintf("space %d", cfg.SpaceID)
 		}
+		node := nodes[cfg.NodeID]
+		if node == "" {
+			node = fmt.Sprintf("node %d", cfg.NodeID)
+		}
+		details = append(details, "deployment "+space+" / "+node+" / "+cfg.Name)
 	}
-	return false
+	sort.Strings(details)
+	return details
+}
+
+func (h *Handler) settingsUseSecretID(ids map[int32]struct{}) bool {
+	return len(h.settingsSecretRefDetails(ids)) > 0
 }
 
 func (h *Handler) settingsUseConfigID(ids map[int32]struct{}) bool {
+	return len(h.settingsConfigRefDetails(ids)) > 0
+}
+
+// settingsSecretRefDetails renders "cluster settings (<field>)" lines for
+// every settings field pinning one of ids, deduped across the live settings
+// and any unfinished asset-migration snapshots.
+func (h *Handler) settingsSecretRefDetails(ids map[int32]struct{}) []string {
 	if h.ConfigService == nil {
-		return false
+		return nil
 	}
+	var out []string
+	seen := map[string]bool{}
 	for _, settings := range h.settingsForReferenceChecks() {
-		refs := []apigen.ConfigRef{
-			settings.HttpWeb.Enabled.ConfigRef,
-			settings.HttpWeb.Listen.ConfigRef,
-			settings.HttpsWeb.Enabled.ConfigRef,
-			settings.HttpsWeb.Listen.ConfigRef,
-			settings.HttpsWeb.TlsSelfManaged.ConfigRef,
-			settings.HttpsWeb.AcmeHosts.ConfigRef,
-			settings.HttpsWeb.AcmeEmail.ConfigRef,
-			settings.Cluster.Listen.ConfigRef,
-			settings.Cluster.EnrollmentListen.ConfigRef,
-			settings.Backup.Enabled.ConfigRef,
-			settings.Backup.S3AccessKeyID.ConfigRef,
-			settings.Backup.S3Bucket.ConfigRef,
-			settings.Backup.S3Path.ConfigRef,
-			settings.Backup.S3Region.ConfigRef,
-			settings.Backup.S3Endpoint.ConfigRef,
-			settings.LargeAssets.UseSeparateS3.ConfigRef,
-			settings.LargeAssets.S3AccessKeyID.ConfigRef,
-			settings.LargeAssets.S3Bucket.ConfigRef,
-			settings.LargeAssets.S3Path.ConfigRef,
-			settings.LargeAssets.S3Region.ConfigRef,
-			settings.LargeAssets.S3Endpoint.ConfigRef,
+		refs := []struct {
+			field     string
+			versionID int32
+		}{
+			{"HTTPS web TLS certificate", settings.HttpsWeb.TlsCertPem.VersionID},
+			{"GitHub token", settings.Repo.GithubToken.VersionID},
+			{"backup S3 secret access key", settings.Backup.S3SecretAccessKey.VersionID},
+			{"large-assets S3 secret access key", settings.LargeAssets.S3SecretAccessKey.VersionID},
 		}
 		for _, ref := range refs {
-			if _, ok := ids[ref.VersionID]; ok {
-				return true
+			if _, ok := ids[ref.versionID]; ok && !seen[ref.field] {
+				seen[ref.field] = true
+				out = append(out, "cluster settings ("+ref.field+")")
 			}
 		}
 	}
-	return false
+	return out
+}
+
+// settingsConfigRefDetails is settingsSecretRefDetails for config references.
+func (h *Handler) settingsConfigRefDetails(ids map[int32]struct{}) []string {
+	if h.ConfigService == nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, settings := range h.settingsForReferenceChecks() {
+		refs := []struct {
+			field string
+			ref   apigen.ConfigRef
+		}{
+			{"HTTP web enabled", settings.HttpWeb.Enabled.ConfigRef},
+			{"HTTP web listen", settings.HttpWeb.Listen.ConfigRef},
+			{"HTTPS web enabled", settings.HttpsWeb.Enabled.ConfigRef},
+			{"HTTPS web listen", settings.HttpsWeb.Listen.ConfigRef},
+			{"HTTPS web self-managed TLS", settings.HttpsWeb.TlsSelfManaged.ConfigRef},
+			{"HTTPS web ACME hosts", settings.HttpsWeb.AcmeHosts.ConfigRef},
+			{"HTTPS web ACME email", settings.HttpsWeb.AcmeEmail.ConfigRef},
+			{"cluster listen", settings.Cluster.Listen.ConfigRef},
+			{"cluster enrollment listen", settings.Cluster.EnrollmentListen.ConfigRef},
+			{"backup enabled", settings.Backup.Enabled.ConfigRef},
+			{"backup S3 access key id", settings.Backup.S3AccessKeyID.ConfigRef},
+			{"backup S3 bucket", settings.Backup.S3Bucket.ConfigRef},
+			{"backup S3 path", settings.Backup.S3Path.ConfigRef},
+			{"backup S3 region", settings.Backup.S3Region.ConfigRef},
+			{"backup S3 endpoint", settings.Backup.S3Endpoint.ConfigRef},
+			{"large-assets separate S3", settings.LargeAssets.UseSeparateS3.ConfigRef},
+			{"large-assets S3 access key id", settings.LargeAssets.S3AccessKeyID.ConfigRef},
+			{"large-assets S3 bucket", settings.LargeAssets.S3Bucket.ConfigRef},
+			{"large-assets S3 path", settings.LargeAssets.S3Path.ConfigRef},
+			{"large-assets S3 region", settings.LargeAssets.S3Region.ConfigRef},
+			{"large-assets S3 endpoint", settings.LargeAssets.S3Endpoint.ConfigRef},
+		}
+		for _, ref := range refs {
+			if _, ok := ids[ref.ref.VersionID]; ok && !seen[ref.field] {
+				seen[ref.field] = true
+				out = append(out, "cluster settings ("+ref.field+")")
+			}
+		}
+	}
+	return out
 }
 
 func (h *Handler) settingsForReferenceChecks() []apigen.ClusterSettings {

@@ -135,6 +135,12 @@ function wrapRecord(r) {
     };
 }
 
+// Rows are fixed-height, so an unwrapped cell must render as exactly one line.
+// `white-space: pre` keeps intra-line spacing (worth having for log text) but
+// still breaks on newlines, which would grow the cell past the row and overlap
+// its neighbours — so embedded newlines become a visible marker instead.
+const singleLine = (s) => s.includes('\n') ? s.replace(/\r?\n/g, ' ↵ ') : s;
+
 function recordField(rec, key) {
     if (key === 'time') return fmtRowTime(rec.ts);
     if (key === 'level') return rec.level;
@@ -856,8 +862,8 @@ export function logsPage(selectedDeploymentId) {
             : div({class: `${base} text-gray-700`}, "—");
         if (key === 'msg') return div({
             class: `${base} font-mono text-gray-200 ${wrap.val ? 'line-clamp-3 whitespace-pre-wrap break-all' : 'truncate whitespace-pre'}`,
-            title: wrap.val ? '' : rec.msg,
-        }, rec.msg);
+            title: rec.msg,
+        }, wrap.val ? rec.msg : singleLine(rec.msg));
         const value = recordField(rec, key);
         if (value === undefined || value === '') return div({class: `${base} text-gray-700`}, "—");
         return div({class: `${base} truncate whitespace-nowrap ${d.num ? 'text-right tabular-nums' : ''} ${d.mono ? 'font-mono' : ''} text-gray-300`}, String(value));
@@ -953,7 +959,7 @@ export function logsPage(selectedDeploymentId) {
         const tint = rec.level === 'ERROR' ? '#c42121' : rec.level === 'WARN' ? '#c67b04' : '';
         return div(
             {"data-testid": "logs-row",
-                class: `grid cursor-pointer items-start border-b border-gray-800/40 text-[11px] leading-[15px] ${isExp ? 'bg-gray-800/70' : 'hover:bg-gray-800/40'}`,
+                class: `grid cursor-pointer items-start overflow-hidden border-b border-gray-800/40 text-[11px] leading-[15px] ${isExp ? 'bg-gray-800/70' : 'hover:bg-gray-800/40'}`,
                 style: `position:absolute;top:${y}px;left:0;right:0;height:${rowH}px;grid-template-columns:${template}`,
                 onclick: () => toggleExpand(pos)},
             tint ? span({style: `position:absolute;left:0;top:0;bottom:0;width:2px;background:${tint};opacity:.7`}) : '',

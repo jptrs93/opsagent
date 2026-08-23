@@ -81,13 +81,13 @@ func TestPublishLogsAcceptedNetstateSummary(t *testing.T) {
 
 	got := output.String()
 	for _, want := range []string{
-		"msg=\"netstate loaded\"",
+		"netstate loaded",
 		"seq=7",
-		"nodeIdentifier=primary",
-		"dns_services=1",
-		"dns_endpoints=2",
-		"upstream_resolvers=1",
-		"ingress_routes=1",
+		"node=primary",
+		"dnsServices=1",
+		"dnsEndpoints=2",
+		"upstreamResolvers=1",
+		"ingressRoutes=1",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("log output %q does not contain %q", got, want)

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
 	"github.com/jptrs93/opsagent/backend/lib/config"
@@ -24,6 +25,7 @@ func RunPrimary(
 	material *certu.Material,
 	listenSetting apigen.StringSetting,
 ) error {
+	ctx = logu.AddTag(ctx, "ClusterServer")
 	tlsCfg := certu.MustLoadTLSConfigFromPEM(material.CACert, material.PrimaryCert, material.PrimaryKey)
 	listen := loader.MustLoadConfigStringValue(listenSetting)
 
@@ -47,7 +49,7 @@ func RunPrimary(
 			PingTimeout:     10 * time.Second, // tear down if no ACK within 10s (~15s total to detect a dead worker)
 		},
 	}
-	slog.Info(fmt.Sprintf("starting primary cluster addr=%v", listen))
+	slog.InfoContext(ctx, fmt.Sprintf("starting primary cluster addr=%v", listen))
 	return runManagedPrimaryServer(ctx, "cluster", srv, func() error {
 		return srv.ListenAndServeTLS("", "")
 	})
@@ -62,6 +64,7 @@ func RunEnrollment(
 	listenSetting apigen.StringSetting,
 	middlewares ...apigen.MiddlewareFunc,
 ) error {
+	ctx = logu.AddTag(ctx, "ClusterServer")
 	listen := loader.MustLoadConfigStringValue(listenSetting)
 	streamMiddlewares := []apigen.MiddlewareFunc{
 		func(next apigen.HandlerFunc) apigen.HandlerFunc {
@@ -83,7 +86,7 @@ func RunEnrollment(
 		TLSConfig:   certu.MustLoadServerTLSConfigFromPEM(material.PrimaryCert, material.PrimaryKey),
 		BaseContext: primaryServerBaseContext(ctx),
 	}
-	slog.Info(fmt.Sprintf("starting primary enrollment addr=%v", listen))
+	slog.InfoContext(ctx, fmt.Sprintf("starting primary enrollment addr=%v", listen))
 	return runManagedPrimaryServer(ctx, "enrollment", srv, func() error {
 		return srv.ListenAndServeTLS("", "")
 	})
@@ -101,13 +104,13 @@ func runManagedPrimaryServer(ctx context.Context, name string, srv *http.Server,
 	case <-ctx.Done():
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), primaryServerShutdownTimeout)
 		defer shutdownCancel()
-		slog.Info(fmt.Sprintf("stopping primary server server=%v", name))
+		slog.InfoContext(ctx, fmt.Sprintf("stopping primary server server=%v", name))
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			slog.Warn(fmt.Sprintf("primary server graceful shutdown failed; closing server=%v", name), "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("primary server graceful shutdown failed; closing server=%v", name), "err", err)
 			_ = srv.Close()
 		}
 		if err := managedPrimaryServerResult(ctx, name, <-serveDone); err != nil {
-			slog.Warn(fmt.Sprintf("primary server ended during shutdown server=%v", name), "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("primary server ended during shutdown server=%v", name), "err", err)
 		}
 		return nil
 	}

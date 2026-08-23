@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
@@ -184,6 +185,9 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 
 func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
 	cfg := dep.Spec.Container().Runtime
+	// Layering the container id onto the cancellation context keeps it on every
+	// log line without repeating it per call; cancel() still reaches the child.
+	ctx = logu.AddKV(ctx, "container", containerID(dep.ID, configVersion))
 	r := &containerRunner{
 		ctx:                 ctx,
 		cancel:              cancel,
@@ -312,7 +316,7 @@ func (r *containerRunner) Stop() {
 		// Graceful: SIGTERM, give the container time to exit (the run loop's
 		// monitor wakes on real exit and writes STOPPED), then SIGKILL.
 		if err := task.Kill(context.Background(), syscall.SIGTERM); err != nil {
-			slog.WarnContext(r.ctx, "sending SIGTERM to container failed", "containerID", r.containerID, "err", err)
+			slog.WarnContext(r.ctx, "sending SIGTERM to container failed", "err", err)
 		}
 		select {
 		case <-r.done:
@@ -321,7 +325,7 @@ func (r *containerRunner) Stop() {
 		case <-time.After(3 * time.Second):
 		}
 		if err := task.Kill(context.Background(), syscall.SIGKILL); err != nil {
-			slog.WarnContext(r.ctx, "sending SIGKILL to container failed", "containerID", r.containerID, "err", err)
+			slog.WarnContext(r.ctx, "sending SIGKILL to container failed", "err", err)
 		}
 	}
 	r.cancel()
@@ -351,7 +355,7 @@ func (r *containerRunner) run() {
 				return
 			}
 			if err := r.recoverContainerNet(); err != nil {
-				slog.ErrorContext(r.ctx, "recovering adopted container network failed", "containerID", r.containerID, "err", err)
+				slog.ErrorContext(r.ctx, "recovering adopted container network failed", "err", err)
 				r.stopAdoptedTask(task)
 				r.cleanupDeploymentNetState()
 				hadProcess = true
@@ -430,7 +434,7 @@ func (r *containerRunner) run() {
 		runNumber := r.status.NumberOfRestarts + 1
 		outputDir := apigen.RunOutputDeploymentDir(r.deploymentID)
 		if mkdirErr := os.MkdirAll(outputDir, 0o750); mkdirErr != nil {
-			slog.ErrorContext(r.ctx, "creating run log dir failed", "err", mkdirErr, "path", outputDir)
+			slog.ErrorContext(r.ctx, fmt.Sprintf("creating run log dir %s failed", outputDir), "err", mkdirErr)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 			crashCount++
 			if !r.sleepBackoff(crashCount) {
@@ -465,7 +469,7 @@ func (r *containerRunner) run() {
 		}
 		cn, resolvConfPath, err = r.setupContainerNet(runNumber)
 		if err != nil {
-			slog.ErrorContext(r.ctx, "setting up container network failed", "err", err, "containerID", r.containerID)
+			slog.ErrorContext(r.ctx, "setting up container network failed", "err", err)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 			crashCount++
 			if !r.sleepBackoff(crashCount) {
@@ -505,7 +509,7 @@ func (r *containerRunner) run() {
 				closeReady()
 			}
 			r.cleanupContainerNet(cn)
-			slog.ErrorContext(r.ctx, "starting container failed", "err", err, "image", spec.Image, "containerID", r.containerID)
+			slog.ErrorContext(r.ctx, fmt.Sprintf("starting container failed image=%q", spec.Image), "err", err)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 			if errors.Is(err, ctrd.ErrImageUnavailable) {
 				r.notifyArtifactMissing()
@@ -531,7 +535,7 @@ func (r *containerRunner) run() {
 			// for a cross-node takeover runs a full runner here and must leave the
 			// route alone until the primary promotes it.
 			if err := r.claimInboundAddress(cn); err != nil {
-				slog.ErrorContext(r.ctx, "publishing container network failed", "err", err, "containerID", r.containerID)
+				slog.ErrorContext(r.ctx, "publishing container network failed", "err", err)
 				_ = task.Kill(context.Background(), syscall.SIGTERM)
 				r.deleteTask(task)
 				r.cleanupContainerNet(cn)
@@ -567,8 +571,7 @@ func (r *containerRunner) run() {
 				r.notifyReady(nil)
 				r.updateStatus(apigen.RunningStatus_RUNNING, int32(task.Pid()))
 			} else {
-				slog.WarnContext(r.ctx, "rollover candidate did not report ready",
-					"containerID", r.containerID, "err", readyErr)
+				slog.WarnContext(r.ctx, "rollover candidate did not report ready", "err", readyErr)
 				if !taskExited {
 					_ = task.Kill(context.Background(), syscall.SIGTERM)
 				}
@@ -633,7 +636,7 @@ func (r *containerRunner) notifyArtifactMissing() {
 func (r *containerRunner) monitorTask(task *ctrd.Task) {
 	exitCh, err := task.Wait(r.ctx)
 	if err != nil {
-		slog.WarnContext(r.ctx, "waiting on container task failed", "containerID", r.containerID, "err", err)
+		slog.WarnContext(r.ctx, "waiting on container task failed", "err", err)
 		return
 	}
 	select {
@@ -648,7 +651,7 @@ func (r *containerRunner) stopAdoptedTask(task *ctrd.Task) {
 	}
 	r.logContainerEvent("stop", r.currentRunNumber(), r.mounts)
 	if err := task.Kill(context.Background(), syscall.SIGTERM); err != nil {
-		slog.WarnContext(r.ctx, "sending SIGTERM to adopted container failed", "containerID", r.containerID, "err", err)
+		slog.WarnContext(r.ctx, "sending SIGTERM to adopted container failed", "err", err)
 	}
 	exitDone := make(chan struct{})
 	go func() {
@@ -659,7 +662,7 @@ func (r *containerRunner) stopAdoptedTask(task *ctrd.Task) {
 	case <-exitDone:
 	case <-time.After(3 * time.Second):
 		if err := task.Kill(context.Background(), syscall.SIGKILL); err != nil {
-			slog.WarnContext(r.ctx, "sending SIGKILL to adopted container failed", "containerID", r.containerID, "err", err)
+			slog.WarnContext(r.ctx, "sending SIGKILL to adopted container failed", "err", err)
 		}
 		select {
 		case <-exitDone:
@@ -761,7 +764,7 @@ func formatMountPaths(mounts []ctrd.Mount) string {
 
 func (r *containerRunner) sleepBackoff(crashCount int) bool {
 	delay := computeContainerBackoff(crashCount)
-	slog.InfoContext(r.ctx, "backoff sleep before container respawn", "delay", delay, "crashes", crashCount)
+	slog.InfoContext(r.ctx, fmt.Sprintf("backoff sleep %s before container respawn after %d crashes", delay, crashCount))
 	select {
 	case <-r.ctx.Done():
 		return false
@@ -864,7 +867,7 @@ func (r *containerRunner) waitForReadiness(ready <-chan error, closeReady func()
 		if err != nil {
 			return readinessRetry, false, fmt.Errorf("readiness signal failed: %w", err)
 		}
-		slog.InfoContext(r.ctx, "container readiness signal received", "containerID", r.containerID)
+		slog.InfoContext(r.ctx, "container readiness signal received")
 		return readinessSignalled, false, nil
 	case <-exitDone:
 		return readinessRetry, true, fmt.Errorf("container exited before readiness signal")
@@ -923,12 +926,11 @@ func (r *containerRunner) ensureDataVolume() {
 		return
 	}
 	if err := os.MkdirAll(r.dataVolumeHost, 0o755); err != nil {
-		slog.WarnContext(r.ctx, "creating data volume dir failed", "path", r.dataVolumeHost, "err", err)
+		slog.WarnContext(r.ctx, fmt.Sprintf("creating data volume dir %s failed", r.dataVolumeHost), "err", err)
 		return
 	}
 	if err := chownToUser(r.dataVolumeHost, r.dataVolumeUser); err != nil {
-		slog.WarnContext(r.ctx, "chowning data volume dir failed (non-root container users may be unable to write)",
-			"path", r.dataVolumeHost, "user", r.dataVolumeUser, "err", err)
+		slog.WarnContext(r.ctx, fmt.Sprintf("chowning data volume dir %s to user %s failed (non-root container users may be unable to write)", r.dataVolumeHost, r.dataVolumeUser), "err", err)
 	}
 }
 
@@ -978,16 +980,14 @@ func (r *containerRunner) ensureIssuedTLS() error {
 			return fmt.Errorf("chmod %s: %w", tmp, err)
 		}
 		if err := chownToUser(tmp, r.user); err != nil {
-			slog.WarnContext(r.ctx, "chowning issued TLS file failed (non-root container users may be unable to read)",
-				"path", tmp, "user", r.user, "err", err)
+			slog.WarnContext(r.ctx, fmt.Sprintf("chowning issued TLS file %s to user %s failed (non-root container users may be unable to read)", tmp, r.user), "err", err)
 		}
 		if err := os.Rename(tmp, path); err != nil {
 			return fmt.Errorf("replacing %s: %w", path, err)
 		}
 	}
 	if err := chownToUser(dir, r.user); err != nil {
-		slog.WarnContext(r.ctx, "chowning issued TLS dir failed (non-root container users may be unable to read)",
-			"path", dir, "user", r.user, "err", err)
+		slog.WarnContext(r.ctx, fmt.Sprintf("chowning issued TLS dir %s to user %s failed (non-root container users may be unable to read)", dir, r.user), "err", err)
 	}
 	return nil
 }
@@ -997,7 +997,7 @@ func (r *containerRunner) deleteTask(task *ctrd.Task) {
 		return
 	}
 	if err := task.Delete(context.Background()); err != nil {
-		slog.WarnContext(r.ctx, "deleting container failed", "containerID", r.containerID, "err", err)
+		slog.WarnContext(r.ctx, "deleting container failed", "err", err)
 	}
 }
 
@@ -1099,7 +1099,7 @@ func (r *containerRunner) recoverContainerNet() error {
 	if err := r.claimInboundAddress(cn); err != nil {
 		return fmt.Errorf("publishing recovered container network: %w", err)
 	}
-	slog.InfoContext(r.ctx, "adopted container network recovered", "containerID", r.containerID, "inbound", cn.InboundAddr, "outbound", cn.OutboundAddr, "v4", cn.V4, "veth", cn.HostVeth)
+	slog.InfoContext(r.ctx, fmt.Sprintf("adopted container network recovered inbound=%s outbound=%s v4=%s veth=%s", cn.InboundAddr, cn.OutboundAddr, cn.V4, cn.HostVeth))
 	return nil
 }
 
@@ -1193,7 +1193,7 @@ func (r *containerRunner) cleanupContainerNet(cn *network.ContainerNet) {
 		return
 	}
 	if err := network.Default.ClearHostPorts(r.deploymentID, cn.ContainerID); err != nil {
-		slog.WarnContext(r.ctx, "clearing host ports failed", "containerID", cn.ContainerID, "err", err)
+		slog.WarnContext(r.ctx, "clearing host ports failed", "err", err)
 	}
 	network.Default.DropCurrentNet(r.deploymentID, cn.ContainerID)
 	network.Default.TeardownContainerNet(cn)
@@ -1215,7 +1215,7 @@ func (r *containerRunner) cleanupDeploymentNetState() {
 		return
 	}
 	if err := network.Default.ClearHostPorts(r.deploymentID, r.containerID); err != nil {
-		slog.WarnContext(r.ctx, "clearing host ports failed", "containerID", r.containerID, "err", err)
+		slog.WarnContext(r.ctx, "clearing host ports failed", "err", err)
 	}
 	network.Default.DropCurrentNet(r.deploymentID, r.containerID)
 	network.Default.CleanupContainerNets(r.deploymentID, nil)

@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"golang.org/x/time/rate"
 )
@@ -37,6 +38,7 @@ type netStateSubscriber interface {
 // NetState snapshots. It reads the ClientHello to select a route by SNI, then
 // either forwards the TLS stream unchanged or terminates it locally.
 func RunTLSIngress(ctx context.Context, states netStateSubscriber, certs *certStore) error {
+	ctx = logu.AddTag(ctx, "Ingress")
 	s := &ingressServer{
 		ctx:            ctx,
 		listeners:      make(map[uint16]net.Listener),
@@ -193,14 +195,14 @@ func (s *ingressServer) install(next *ingressState) error {
 		}
 		s.httpListener = listener
 		go s.serveHTTPRedirect(listener)
-		slog.Info("HTTP ingress redirect listener started")
+		slog.InfoContext(s.ctx, "HTTP ingress redirect listener started")
 	}
 
 	s.state.Store(next)
 	for port, listener := range opened {
 		s.listeners[port] = listener
 		go s.serve(port, listener)
-		slog.Info("TLS ingress listener started", "port", port)
+		slog.InfoContext(s.ctx, fmt.Sprintf("TLS ingress listener started on port %d", port))
 	}
 	for port, listener := range s.listeners {
 		if _, ok := wanted[port]; ok {
@@ -208,12 +210,12 @@ func (s *ingressServer) install(next *ingressState) error {
 		}
 		delete(s.listeners, port)
 		_ = listener.Close()
-		slog.Info("TLS ingress listener stopped", "port", port)
+		slog.InfoContext(s.ctx, fmt.Sprintf("TLS ingress listener stopped on port %d", port))
 	}
 	if !wantHTTP && s.httpListener != nil {
 		_ = s.httpListener.Close()
 		s.httpListener = nil
-		slog.Info("HTTP ingress redirect listener stopped")
+		slog.InfoContext(s.ctx, "HTTP ingress redirect listener stopped")
 	}
 	return nil
 }
@@ -236,7 +238,7 @@ func (s *ingressServer) serveHTTPRedirect(listener net.Listener) {
 	}()
 	err := server.Serve(listener)
 	if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) && s.ctx.Err() == nil {
-		slog.Warn("HTTP ingress redirect server stopped", "err", err)
+		slog.WarnContext(s.ctx, "HTTP ingress redirect server stopped", "err", err)
 	}
 }
 
@@ -248,7 +250,7 @@ func (s *ingressServer) serve(port uint16, listener net.Listener) {
 				return
 			}
 			if temporary, ok := err.(interface{ Temporary() bool }); ok && temporary.Temporary() {
-				slog.Warn("accepting TLS ingress connection failed", "port", port, "err", err)
+				slog.WarnContext(s.ctx, fmt.Sprintf("accepting TLS ingress connection on port %d failed", port), "err", err)
 				time.Sleep(50 * time.Millisecond)
 				continue
 			}
@@ -272,7 +274,7 @@ func (s *ingressServer) handle(port uint16, client net.Conn) {
 	_ = client.SetReadDeadline(time.Now().Add(clientHelloTimeout))
 	preface, hostname, err := readTLSClientHello(client)
 	if err != nil {
-		slog.Debug("reading TLS ingress ClientHello failed", "port", port, "err", err)
+		slog.DebugContext(s.ctx, fmt.Sprintf("reading TLS ingress ClientHello on port %d failed", port), "err", err)
 		return
 	}
 	_ = client.SetReadDeadline(time.Time{})
@@ -288,35 +290,30 @@ func (s *ingressServer) handle(port uint16, client net.Conn) {
 			s.https.terminate(client, preface)
 			return
 		}
-		slog.Debug("TLS ingress route has no ready backends", "port", port, "hostname", hostname)
+		slog.DebugContext(s.ctx, fmt.Sprintf("TLS ingress route %s:%d has no ready backends", hostname, port))
 		return
 	}
 	if len(route.backends) == 0 {
-		slog.Debug("TLS ingress route has no ready backends", "port", port, "hostname", hostname)
+		slog.DebugContext(s.ctx, fmt.Sprintf("TLS ingress route %s:%d has no ready backends", hostname, port))
 		return
 	}
 
 	backend, err := route.dial(s.ctx)
 	if err != nil {
 		if allowOperationalWarning(s.warningLimiter) {
-			slog.Warn("dialing all TLS ingress backends failed", "port", port, "hostname", hostname, "backend_count", len(route.backends), "err", err)
+			slog.WarnContext(s.ctx, fmt.Sprintf("dialing all %d TLS ingress backends for %s:%d failed", len(route.backends), hostname, port), "err", err)
 		}
 		return
 	}
 	defer backend.Close()
 	if _, err := backend.Write(preface); err != nil {
-		slog.Debug("writing TLS ClientHello to ingress backend failed", "port", port, "hostname", hostname, "err", err)
+		slog.DebugContext(s.ctx, fmt.Sprintf("writing TLS ClientHello to ingress backend for %s:%d failed", hostname, port), "err", err)
 		return
 	}
 	activeConnections := s.activeConnections.Add(1)
 	defer s.activeConnections.Add(-1)
-	slog.Info("TLS ingress connection routed",
-		"port", port,
-		"hostname", hostname,
-		"client_address", client.RemoteAddr(),
-		"backend_address", backend.RemoteAddr(),
-		"active_connections", activeConnections,
-	)
+	slog.InfoContext(s.ctx, fmt.Sprintf("TLS ingress connection routed %s:%d client=%s backend=%s active=%d",
+		hostname, port, client.RemoteAddr(), backend.RemoteAddr(), activeConnections))
 	relayTCP(s.ctx, client, backend)
 }
 

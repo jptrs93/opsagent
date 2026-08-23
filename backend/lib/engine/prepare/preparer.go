@@ -5,6 +5,7 @@ package prepare
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 
@@ -94,13 +95,17 @@ func InProgress(p apigen.PreparerStatus) bool {
 // Publishing that identity would bump the clock, wake every subscriber, and push
 // a no-op to the primary, for no observable change.
 func WriteStatus(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentConfig, update StatusUpdate) {
-	ctx := logu.AddKV(context.Background(), "scheduled_instance", instanceID)
+	ctx := logu.AddTag(context.Background(), "Preparer")
+	ctx = logu.AddKV(ctx, "scheduled_instance", instanceID)
 	ctx = logu.AddKV(ctx, "dep", dep.ID)
 	next := apigen.PreparerStatus{
 		DeploymentConfigVersion: dep.Version,
 		Artifact:                update.Artifact,
 		Inputs:                  update.Inputs,
 		Image:                   update.Image,
+	}
+	fmtNext := func() string {
+		return fmt.Sprintf("seqNo=%d status=%v inputs=%v image=%v artifact=%q", dep.Version, next.Rollup(), next.Inputs, next.Image, next.Artifact)
 	}
 	store.MustWriteScheduledInstanceStatus(instanceID, func(s *apigen.ScheduledInstanceStatus) bool {
 		if !s.Preparer.IsZero() && s.Preparer.DeploymentConfigVersion > dep.Version {
@@ -109,10 +114,10 @@ func WriteStatus(store storage.OperatorStore, instanceID int32, dep *apigen.Depl
 		// A zero status is never republished as unchanged: it means nothing has
 		// been recorded for this instance yet, so the first write must land.
 		if !s.Preparer.IsZero() && s.Preparer == next {
-			slog.DebugContext(ctx, "preparer.writePrepareStatus: unchanged, not publishing", "deploymentConfigVersion", dep.Version, "status", next.Rollup(), "inputs", next.Inputs, "image", next.Image, "artifact", next.Artifact)
+			slog.DebugContext(ctx, "preparer.writePrepareStatus: unchanged, not publishing "+fmtNext())
 			return false
 		}
-		slog.InfoContext(ctx, "preparer.writePrepareStatus", "deploymentConfigVersion", dep.Version, "status", next.Rollup(), "inputs", next.Inputs, "image", next.Image, "artifact", next.Artifact)
+		slog.InfoContext(ctx, "preparer.writePrepareStatus "+fmtNext())
 		s.BumpUpdatedAt()
 		s.ScheduledInstanceID = instanceID
 		s.DeploymentID = dep.ID

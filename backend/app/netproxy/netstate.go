@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/network"
@@ -39,15 +40,16 @@ func (f CertSecretResolverFunc) ResolveSecret(id int32) (string, bool) { return 
 // content changed; the first write after startup is unconditional so the
 // ingress port forwarding is reconciled from an unknown machine state.
 func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predicate storage.ScheduledInstancePredicate, nodeIdentifier, path string, certs CertSecretResolver, acme *acmestate.Holder, ensureSecrets func(context.Context, []int32) error) {
+	ctx = logu.AddTag(ctx, "NetStateWriter")
 	bundlePath := filepath.Join(filepath.Dir(path), CertBundleFileName)
-	netSeq := initialArtifactSequence(path, func(b []byte) (int64, error) {
+	netSeq := initialArtifactSequence(ctx, path, func(b []byte) (int64, error) {
 		state, err := apigen.DecodeNetState(b)
 		if err != nil {
 			return 0, err
 		}
 		return state.Seq, nil
 	})
-	bundleSeq := initialArtifactSequence(bundlePath, func(b []byte) (int64, error) {
+	bundleSeq := initialArtifactSequence(ctx, bundlePath, func(b []byte) (int64, error) {
 		bundle, err := apigen.DecodeCertBundle(b)
 		if err != nil {
 			return 0, err
@@ -71,7 +73,7 @@ func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predic
 			bundleSeq++
 			bundle.Seq = bundleSeq
 			if err := WriteCertBundle(bundlePath, bundle); err != nil {
-				slog.Warn("writing netproxy cert bundle failed", "path", bundlePath, "err", err)
+				slog.WarnContext(ctx, fmt.Sprintf("writing netproxy cert bundle %s failed", bundlePath), "err", err)
 			} else {
 				lastBundle = b
 			}
@@ -81,12 +83,12 @@ func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predic
 			netSeq++
 			state.Seq = netSeq
 			if err := WriteNetState(path, state); err != nil {
-				slog.Warn("writing netproxy netstate failed", "path", path, "err", err)
+				slog.WarnContext(ctx, fmt.Sprintf("writing netproxy netstate %s failed", path), "err", err)
 				return
 			}
 			lastState = b
 			if err := network.Default.SetNetproxyIngress(state.Ingress); err != nil {
-				slog.Warn("reconciling netproxy ingress forwarding failed", "err", err)
+				slog.WarnContext(ctx, "reconciling netproxy ingress forwarding failed", "err", err)
 			}
 		}
 	}
@@ -117,19 +119,19 @@ func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predic
 // survive an agent state-dir wipe, so restarting the count from the file (or
 // zero) would leave a running netproxy silently dropping every update until
 // its own restart.
-func initialArtifactSequence(path string, seqOf func([]byte) (int64, error)) int64 {
+func initialArtifactSequence(ctx context.Context, path string, seqOf func([]byte) (int64, error)) int64 {
 	now := time.Now().UnixMilli()
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return now
 	}
 	if err != nil {
-		slog.Warn("reading existing netproxy state file failed", "path", path, "err", err)
+		slog.WarnContext(ctx, fmt.Sprintf("reading existing netproxy state file %s failed", path), "err", err)
 		return now
 	}
 	seq, err := seqOf(b)
 	if err != nil {
-		slog.Warn("decoding existing netproxy state file failed", "path", path, "err", err)
+		slog.WarnContext(ctx, fmt.Sprintf("decoding existing netproxy state file %s failed", path), "err", err)
 		return now
 	}
 	return max(seq, now)
@@ -297,7 +299,7 @@ func RenderCertBundle(ctx context.Context, seq int64, items []apigen.ScheduledIn
 			ids = append(ids, id)
 		}
 		if err := ensureSecrets(ctx, ids); err != nil {
-			slog.Warn("fetching netproxy cert secrets failed", "err", err)
+			slog.WarnContext(ctx, "fetching netproxy cert secrets failed", "err", err)
 		}
 	}
 	bundle := &apigen.CertBundle{Seq: seq}
@@ -312,7 +314,7 @@ func RenderCertBundle(ctx context.Context, seq int64, items []apigen.ScheduledIn
 		}
 		value, ok := certs.ResolveSecret(wanted[id])
 		if !ok {
-			slog.Warn("netproxy cert secret is not resolvable yet", "cert_id", id)
+			slog.WarnContext(ctx, fmt.Sprintf("netproxy cert secret %s is not resolvable yet", id))
 			continue
 		}
 		bundle.Certs = append(bundle.Certs, &apigen.CertBundleEntry{CertID: id, Pem: []byte(value)})

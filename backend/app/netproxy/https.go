@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"log/slog"
@@ -130,7 +131,7 @@ func (s *httpsServer) run() {
 	}()
 	err := s.server.Serve(s.connections)
 	if err != nil && !errors.Is(err, http.ErrServerClosed) && s.ctx.Err() == nil {
-		slog.Warn("HTTPS ingress server stopped", "err", err)
+		slog.WarnContext(s.ctx, "HTTPS ingress server stopped", "err", err)
 	}
 }
 
@@ -201,14 +202,8 @@ func (s *httpsServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *httpsServer) logResponse(r *http.Request, status int, start time.Time) {
-	slog.Info("HTTPS ingress non-ok response",
-		"host", r.Host,
-		"method", r.Method,
-		"path", r.URL.Path,
-		"status", status,
-		"duration_ms", time.Since(start).Milliseconds(),
-		"client_address", r.RemoteAddr,
-	)
+	slog.InfoContext(s.ctx, fmt.Sprintf("HTTPS ingress non-ok response %s %s%s status=%d duration_ms=%d client=%s",
+		r.Method, r.Host, r.URL.Path, status, time.Since(start).Milliseconds(), r.RemoteAddr))
 }
 
 func (s *httpsServer) buildRoute(route *apigen.HttpsNetIngress) *httpsRoute {
@@ -260,7 +255,7 @@ func (s *httpsServer) buildRoute(route *apigen.HttpsNetIngress) *httpsRoute {
 				return
 			}
 			if allowOperationalWarning(nil) {
-				slog.Warn("HTTPS ingress backend request failed", "host", r.Host, "path", r.URL.Path, "err", err)
+				slog.WarnContext(s.ctx, fmt.Sprintf("HTTPS ingress backend request for %s%s failed", r.Host, r.URL.Path), "err", err)
 			}
 			w.WriteHeader(http.StatusBadGateway)
 		},

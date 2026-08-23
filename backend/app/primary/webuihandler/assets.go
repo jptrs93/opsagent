@@ -2,6 +2,7 @@ package webuihandler
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -102,7 +103,7 @@ func (h *Handler) GetV1AssetsContent(ctx apigen.Context, request *http.Request, 
 	writer.Header().Set("Content-Type", "application/octet-stream")
 	writer.Header().Set("Content-Length", strconv.FormatInt(sizeBytes, 10))
 	if _, err := io.Copy(writer, body); err != nil {
-		slog.ErrorContext(ctx, "stream asset content", "content_version_id", parsed, "err", err)
+		slog.ErrorContext(ctx, fmt.Sprintf("stream asset content %d failed", parsed), "err", err)
 	}
 	return nil
 }
@@ -267,8 +268,8 @@ func (h *Handler) PostV1AssetsDelete(ctx apigen.Context, req *apigen.AssetDelete
 	if err := h.requireAssetAccess(ctx, vDelete, req.AssetID); err != nil {
 		return err
 	}
-	if h.deploymentUsesAssetID(h.assetVersionIDSet(req.AssetID)) {
-		return ReferenceInUseErr
+	if details := h.deploymentRefDetails(h.assetVersionIDSet(req.AssetID), assetRefIDs); len(details) > 0 {
+		return referenceInUseDetailErr("Asset", details)
 	}
 	if err := h.Assets.DeleteAsset(ctx, req.AssetID); err != nil {
 		return mapAssetStoreErr(err)

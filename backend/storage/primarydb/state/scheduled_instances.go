@@ -118,7 +118,7 @@ func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentVersion,
 func (s *Service) SetScheduledInstanceState(instanceID int32, state apigen.ScheduledInstanceTarget) int64 {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	ctx := context.Background()
+	ctx := logu.AddTag(context.Background(), "Store")
 	cached := s.Scheduled[instanceID]
 	var inst *apigen.ScheduledInstance
 	if cached != nil {
@@ -126,7 +126,7 @@ func (s *Service) SetScheduledInstanceState(instanceID int32, state apigen.Sched
 	} else {
 		row, err := s.q.GetScheduledInstance(ctx, int64(instanceID))
 		if err != nil {
-			slog.Warn("SetScheduledInstanceState: unknown instance", "id", instanceID, "err", err)
+			slog.WarnContext(ctx, "SetScheduledInstanceState: unknown instance", "scheduled_instance", instanceID, "err", err)
 			return 0
 		}
 		inst = scheduledInstanceRowToProto(row)
@@ -176,7 +176,7 @@ func (s *Service) MustWriteReplicatedScheduledInstanceStatus(st *apigen.Schedule
 	if st == nil || st.ScheduledInstanceID == 0 || st.UpdatedAt.IsZero() {
 		return
 	}
-	ctx := context.Background()
+	ctx := logu.AddTag(context.Background(), "Store")
 	ctx = logu.AddKV(ctx, "scheduled_instance", st.ScheduledInstanceID)
 
 	s.Mu.Lock()
@@ -204,11 +204,8 @@ func (s *Service) MustWriteReplicatedScheduledInstanceStatus(st *apigen.Schedule
 				retained.Status = *st
 				s.Subs.Notify(*retained)
 			}
-			slog.InfoContext(ctx, "replicated scheduled instance status",
-				"updatedAt", st.UpdatedAt,
-				"preparerStatus", st.Preparer.Rollup(),
-				"runnerStatus", st.Runner.Status,
-			)
+			slog.InfoContext(ctx, fmt.Sprintf("replicated scheduled instance status updatedAt=%v preparerStatus=%v runnerStatus=%v",
+				st.UpdatedAt, st.Preparer.Rollup(), st.Runner.Status))
 			return
 		}
 		entry = s.instanceStateLocked(inst)
@@ -225,11 +222,8 @@ func (s *Service) MustWriteReplicatedScheduledInstanceStatus(st *apigen.Schedule
 		entry.Status = *st
 		s.NotifyInstanceLocked(st.ScheduledInstanceID)
 	}
-	slog.InfoContext(ctx, "replicated scheduled instance status",
-		"updatedAt", st.UpdatedAt,
-		"preparerStatus", st.Preparer.Rollup(),
-		"runnerStatus", st.Runner.Status,
-	)
+	slog.InfoContext(ctx, fmt.Sprintf("replicated scheduled instance status updatedAt=%v preparerStatus=%v runnerStatus=%v",
+		st.UpdatedAt, st.Preparer.Rollup(), st.Runner.Status))
 }
 
 func (s *Service) MustFetchDeploymentStatusHistory(deploymentID int32) []*apigen.ScheduledInstanceStatus {

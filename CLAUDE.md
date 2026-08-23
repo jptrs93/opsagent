@@ -18,6 +18,7 @@ docs/                Project documentation.
 - [docs/engineering/auth.md](docs/engineering/auth.md) — Authentication, passkeys, master password bootstrap, and access control.
 - [docs/engineering/assets.md](docs/engineering/assets.md) — Versioned file assets, large-asset storage and backup semantics, and read-only container mounts.
 - [docs/engineering/frontend.md](docs/engineering/frontend.md) — Frontend architecture, rendering, state, and styling.
+- [docs/engineering/logging.md](docs/engineering/logging.md) — Logging conventions: sparse attrs (err + identity keys), slog Context variants everywhere, per-component tagged root contexts, and the tag registry. Follow when writing any backend log line.
 - [docs/engineering/engine.md](docs/engineering/engine.md) — Deployment operator, preparers (nix build, github release, container image), runners (os process, systemd, container).
 - [docs/engineering/networking.md](docs/engineering/networking.md) — Current machine-local virtual networking implementation: ULA addressing, netns/veth setup, nftables host ports, netproxy DNS, and rollover route flips.
 - [docs/engineering/secrets.md](docs/engineering/secrets.md) — Encrypted versioned secrets store, typed secret/config env refs, key hierarchy, and the machine-key boundary (incl. Phase 2/3 plans).

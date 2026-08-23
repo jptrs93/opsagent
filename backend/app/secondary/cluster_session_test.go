@@ -50,7 +50,7 @@ func TestApplySnapshotPrunesInstancesMissingFromSnapshot(t *testing.T) {
 	out := &outbox{ch: make(chan *apigen.MsgToMaster, 16), ctx: ctx}
 
 	// Two assignments arrive, then the primary reconnects knowing only about 41.
-	applySnapshot(out, store, &apigen.ScheduledInstanceSnapshot{
+	applySnapshot(ctx, out, store, &apigen.ScheduledInstanceSnapshot{
 		Items: []*apigen.ScheduledInstanceState{
 			testAssignment(41, 8, nodeID),
 			testAssignment(42, 9, nodeID),
@@ -60,7 +60,7 @@ func TestApplySnapshotPrunesInstancesMissingFromSnapshot(t *testing.T) {
 		t.Fatalf("instances after first snapshot = %v, want 41 and 42", got)
 	}
 
-	applySnapshot(out, store, &apigen.ScheduledInstanceSnapshot{
+	applySnapshot(ctx, out, store, &apigen.ScheduledInstanceSnapshot{
 		Items: []*apigen.ScheduledInstanceState{testAssignment(41, 8, nodeID)},
 	}, nodeID)
 
@@ -82,12 +82,12 @@ func TestApplySnapshotKeepsInstancesForOtherNodes(t *testing.T) {
 	defer cancel()
 	out := &outbox{ch: make(chan *apigen.MsgToMaster, 16), ctx: ctx}
 
-	applySnapshot(out, store, &apigen.ScheduledInstanceSnapshot{
+	applySnapshot(ctx, out, store, &apigen.ScheduledInstanceSnapshot{
 		Items: []*apigen.ScheduledInstanceState{testAssignment(41, 8, nodeID)},
 	}, nodeID)
 
 	// A snapshot naming this node's instance plus one for a different node.
-	applySnapshot(out, store, &apigen.ScheduledInstanceSnapshot{
+	applySnapshot(ctx, out, store, &apigen.ScheduledInstanceSnapshot{
 		Items: []*apigen.ScheduledInstanceState{
 			testAssignment(41, 8, nodeID),
 			testAssignment(99, 12, nodeID+1),

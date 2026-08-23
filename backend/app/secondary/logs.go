@@ -11,6 +11,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
@@ -95,6 +96,7 @@ func preparingVersion(statuses []apigen.ScheduledInstanceStatus, version int32) 
 }
 
 func streamDeploymentLog(ctx context.Context, out *outbox, store *state.Service, req *apigen.DeploymentLogRequest) {
+	ctx = logu.AddTag(ctx, "LogShipper")
 	requestID := req.RequestID
 	if req.RunnerOutput != nil {
 		r := req.RunnerOutput
@@ -122,8 +124,9 @@ func streamDeploymentLog(ctx context.Context, out *outbox, store *state.Service,
 var logManager *logmanager.Manager
 
 func runLogQuery(ctx context.Context, out *outbox, req *apigen.LogQueryRequest) {
+	ctx = logu.AddTag(ctx, "LogShipper")
 	if logManager == nil {
-		slog.Error("log query requested before log manager started", "deploymentID", req.DeploymentID)
+		slog.ErrorContext(ctx, "log query requested before log manager started", "dep", req.DeploymentID)
 		out.Send(&apigen.MsgToMaster{LogQueryError: "log manager is not running", LogRequestID: req.RequestID})
 		return
 	}
@@ -132,7 +135,7 @@ func runLogQuery(ctx context.Context, out *outbox, req *apigen.LogQueryRequest) 
 		if ctx.Err() != nil {
 			return
 		}
-		slog.Error("log query failed", "deploymentID", req.DeploymentID, "err", err)
+		slog.ErrorContext(ctx, "log query failed", "dep", req.DeploymentID, "err", err)
 		out.Send(&apigen.MsgToMaster{LogQueryError: err.Error(), LogRequestID: req.RequestID})
 		return
 	}
@@ -140,10 +143,12 @@ func runLogQuery(ctx context.Context, out *outbox, req *apigen.LogQueryRequest) 
 }
 
 func streamPrepareLog(ctx context.Context, out *outbox, req *apigen.PrepareOutputRequest) {
+	ctx = logu.AddTag(ctx, "LogShipper")
 	streamFile(ctx, out, req.OutputPath(), "", nil)
 }
 
 func streamRunLog(ctx context.Context, out *outbox, req *apigen.RunOutputRequest) {
+	ctx = logu.AddTag(ctx, "LogShipper")
 	streamLatestRunLog(ctx, out, req, "", nil)
 }
 
@@ -154,7 +159,7 @@ func streamLatestRunLog(ctx context.Context, out *outbox, req *apigen.RunOutputR
 
 	path, f, err := waitForLatestRunLogFile(ctx, req)
 	if err != nil {
-		slog.Error("run log file not found for streaming", "deploymentID", req.DeploymentID, "version", req.Version, "err", err)
+		slog.ErrorContext(ctx, fmt.Sprintf("run log file not found for streaming version=%d", req.Version), "dep", req.DeploymentID, "err", err)
 		return
 	}
 	defer f.Close()
@@ -180,7 +185,7 @@ func streamLatestRunLog(ctx context.Context, out *outbox, req *apigen.RunOutputR
 	}
 
 	if err := drain(); err != nil {
-		slog.Error("failed streaming run log file", "path", path, "err", err)
+		slog.ErrorContext(ctx, fmt.Sprintf("failed streaming run log file %s", path), "err", err)
 		return
 	}
 	if keepTailing == nil {
@@ -195,7 +200,7 @@ func streamLatestRunLog(ctx context.Context, out *outbox, req *apigen.RunOutputR
 			return
 		case <-ticker.C:
 			if err := drain(); err != nil {
-				slog.Error("failed streaming run log file", "path", path, "err", err)
+				slog.ErrorContext(ctx, fmt.Sprintf("failed streaming run log file %s", path), "err", err)
 				return
 			}
 			if latest, err := latestRunLogFile(req.DeploymentID, req.Version); err == nil && latest != path {
@@ -293,7 +298,7 @@ func streamFile(ctx context.Context, out *outbox, path string, requestID string,
 
 	f, err := waitForLogFile(ctx, path)
 	if err != nil {
-		slog.Error("log file not found for streaming", "path", path, "err", err)
+		slog.ErrorContext(ctx, fmt.Sprintf("log file not found for streaming %s", path), "err", err)
 		return
 	}
 	defer f.Close()
@@ -319,7 +324,7 @@ func streamFile(ctx context.Context, out *outbox, path string, requestID string,
 	}
 
 	if err := drain(); err != nil {
-		slog.Error("failed streaming log file", "path", path, "err", err)
+		slog.ErrorContext(ctx, fmt.Sprintf("failed streaming log file %s", path), "err", err)
 		return
 	}
 	if keepTailing == nil {
@@ -335,7 +340,7 @@ func streamFile(ctx context.Context, out *outbox, path string, requestID string,
 			return
 		case <-ticker.C:
 			if err := drain(); err != nil {
-				slog.Error("failed streaming log file", "path", path, "err", err)
+				slog.ErrorContext(ctx, fmt.Sprintf("failed streaming log file %s", path), "err", err)
 				return
 			}
 			if !keepTailing() {

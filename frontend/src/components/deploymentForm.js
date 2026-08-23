@@ -1555,6 +1555,20 @@ function envGroupHeaderRow(group, isCollapsed, onToggle) {
     );
 }
 
+// Header toggle choices persist per deployment, so reopening an editor keeps
+// its grouping view; creates (no id yet) share one bucket.
+const ENV_TOGGLES_KEY = deploymentId => `opsagent_env_toggles_${deploymentId || 'create'}`;
+
+function loadEnvToggles(deploymentId) {
+    try {
+        return JSON.parse(localStorage.getItem(ENV_TOGGLES_KEY(deploymentId))) || {};
+    } catch { return {}; }
+}
+
+function saveEnvToggles(deploymentId, values) {
+    try { localStorage.setItem(ENV_TOGGLES_KEY(deploymentId), JSON.stringify(values)); } catch {}
+}
+
 // envVarsPane is the right-hand editor pane. It is always mounted and toggled
 // via a CSS class (a binding that returns null would be GC'd by VanJS and never
 // re-open).
@@ -1564,8 +1578,13 @@ export function envVarsPane(form, opts = {}) {
     const configRefs = () => stateValue(opts.configRefs) || [];
     const deployments = () => stateValue(opts.deployments) || [];
     const spaces = () => stateValue(opts.spaces) || [];
-    const groupByPrefix = van.state(false);
-    const booleanToggles = van.state(false);
+    const storedToggles = loadEnvToggles(opts.deploymentId);
+    const groupByPrefix = van.state(Boolean(storedToggles.groupByPrefix));
+    const booleanToggles = van.state(Boolean(storedToggles.booleanToggles));
+    van.derive(() => saveEnvToggles(opts.deploymentId, {
+        groupByPrefix: groupByPrefix.val,
+        booleanToggles: booleanToggles.val,
+    }));
     const collapsedGroups = van.state(new Set());
     const toggleGroupCollapsed = prefix => {
         const next = new Set(collapsedGroups.val);

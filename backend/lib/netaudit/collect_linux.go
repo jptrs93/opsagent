@@ -4,6 +4,7 @@ package netaudit
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/netip"
 	"time"
@@ -23,15 +24,15 @@ const nftTableName = "opendeploy"
 func auditOnce(ctx context.Context, m *network.Manager) {
 	first, err := collectAndCompare(m)
 	if err != nil {
-		slog.Warn("netaudit: reading kernel network state failed", "err", err)
+		slog.WarnContext(ctx, "netaudit: reading kernel network state failed", "err", err)
 		return
 	}
 	if first.NotInstalled {
-		slog.Debug("netaudit: no managed kernel state installed yet")
+		slog.DebugContext(ctx, "netaudit: no managed kernel state installed yet")
 		return
 	}
 	if first.InSync() {
-		logInSync(m)
+		logInSync(ctx, m)
 		return
 	}
 	select {
@@ -41,25 +42,19 @@ func auditOnce(ctx context.Context, m *network.Manager) {
 	}
 	second, err := collectAndCompare(m)
 	if err != nil {
-		slog.Warn("netaudit: reading kernel network state failed on recheck", "err", err)
+		slog.WarnContext(ctx, "netaudit: reading kernel network state failed on recheck", "err", err)
 		return
 	}
 	if second.NotInstalled || second.InSync() {
-		slog.Debug("netaudit: transient divergence resolved on recheck",
-			"missing_nft", first.MissingNft, "unexpected_nft", first.UnexpectedNft,
-			"missing_routes", first.MissingRoutes, "unexpected_routes", first.UnexpectedRoutes)
+		slog.DebugContext(ctx, fmt.Sprintf(
+			"netaudit: transient divergence resolved on recheck missing_nft=%v unexpected_nft=%v missing_routes=%v unexpected_routes=%v",
+			first.MissingNft, first.UnexpectedNft, first.MissingRoutes, first.UnexpectedRoutes))
 		return
 	}
-	slog.Warn("netaudit: kernel network state diverged from desired",
-		"missing_nft", second.MissingNft,
-		"unexpected_nft", second.UnexpectedNft,
-		"unrecognized_nft", second.UnrecognizedNft,
-		"missing_masquerade", second.MissingMasquerade,
-		"missing_routes", second.MissingRoutes,
-		"wrong_link_routes", second.WrongLinkRoutes,
-		"unexpected_routes", second.UnexpectedRoutes,
-		"missing_fallback_route", second.MissingFallbackRoute,
-	)
+	slog.WarnContext(ctx, fmt.Sprintf(
+		"netaudit: kernel network state diverged from desired missing_nft=%v unexpected_nft=%v unrecognized_nft=%v missing_masquerade=%v missing_routes=%v wrong_link_routes=%v unexpected_routes=%v missing_fallback_route=%v",
+		second.MissingNft, second.UnexpectedNft, second.UnrecognizedNft, second.MissingMasquerade,
+		second.MissingRoutes, second.WrongLinkRoutes, second.UnexpectedRoutes, second.MissingFallbackRoute))
 }
 
 func collectAndCompare(m *network.Manager) (Diff, error) {
@@ -71,12 +66,10 @@ func collectAndCompare(m *network.Manager) (Diff, error) {
 	return Compare(desired, kernel), nil
 }
 
-func logInSync(m *network.Manager) {
+func logInSync(ctx context.Context, m *network.Manager) {
 	desired := m.AuditSnapshot()
-	slog.Info("netaudit: kernel network state in sync",
-		"host_port_rules", len(desired.HostPortRules),
-		"workload_routes", len(desired.WorkloadRoutes),
-	)
+	slog.InfoContext(ctx, fmt.Sprintf("netaudit: kernel network state in sync host_port_rules=%d workload_routes=%d",
+		len(desired.HostPortRules), len(desired.WorkloadRoutes)))
 }
 
 func collectKernel(desired network.AuditState) (KernelState, error) {

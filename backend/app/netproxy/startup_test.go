@@ -26,7 +26,7 @@ func TestRunLogsStartupAndDNSReadiness(t *testing.T) {
 	go func() { done <- Run(ctx) }()
 
 	waitForLogMessage(t, lines, "starting opendeploy-net")
-	waitForLogMessage(t, lines, "DNS listeners started")
+	waitForLogMessage(t, lines, "DNS udp+tcp listeners started")
 	cancel()
 	select {
 	case err := <-done:

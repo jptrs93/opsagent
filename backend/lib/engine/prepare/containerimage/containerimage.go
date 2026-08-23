@@ -4,6 +4,7 @@ package containerimage
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -20,16 +21,16 @@ func Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog
 	logPath := dep.PrepareOutputPath()
 	ref, err := imageref.Ref(container.Source.RemoteImage.Image, version)
 	if err != nil {
-		slog.ErrorContext(ctx, "container image ref invalid", "image", container.Source.RemoteImage.Image, "err", err)
+		slog.ErrorContext(ctx, fmt.Sprintf("container image ref %q invalid", container.Source.RemoteImage.Image), "err", err)
 		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
-	slog.InfoContext(ctx, "image pull starting", "ref", ref, "log_path", logPath)
+	slog.InfoContext(ctx, fmt.Sprintf("image pull of %s starting, logging to %s", ref, logPath))
 
 	log.Write("pulling image %s", ref)
 
 	resolved, err := ctrd.Default.Pull(ctx, ref)
 	if err != nil {
-		slog.ErrorContext(ctx, "image pull failed", "ref", ref, "err", err)
+		slog.ErrorContext(ctx, fmt.Sprintf("image pull of %s failed", ref), "err", err)
 		log.Error("pulling image: %v", err)
 		return "", apigen.ImageStatus_IMAGE_FAILED
 	}

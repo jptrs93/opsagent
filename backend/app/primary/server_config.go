@@ -12,7 +12,7 @@ func watchServerConfig(ctx context.Context, cs *config.Service, initial apigen.P
 	sub := cs.SnapshotAndSubscribe(serverConfigChanged)
 	defer sub.Unsubscribe()
 	if serverConfigChanged(initial, sub.InitialValue) {
-		slog.Info("primary server config changed; restarting")
+		slog.InfoContext(ctx, "primary server config changed; restarting")
 		return ErrRestartRequired
 	}
 	select {
@@ -22,7 +22,7 @@ func watchServerConfig(ctx context.Context, cs *config.Service, initial apigen.P
 		if !ok {
 			return nil
 		}
-		slog.Info("primary server config changed; restarting")
+		slog.InfoContext(ctx, "primary server config changed; restarting")
 		return ErrRestartRequired
 	}
 }

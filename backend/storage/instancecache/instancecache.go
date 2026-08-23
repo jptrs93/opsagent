@@ -72,7 +72,7 @@ func (c *Cache) SubscribeScheduledInstanceUpdates(predicate storage.ScheduledIns
 func (c *Cache) MustWriteScheduledInstanceStatus(instanceID int32, f func(*apigen.ScheduledInstanceStatus) bool) {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
-	ctx := context.Background()
+	ctx := logu.AddTag(context.Background(), "Store")
 	ctx = logu.AddKV(ctx, "scheduled_instance", instanceID)
 
 	state := c.Scheduled[instanceID]
@@ -96,11 +96,8 @@ func (c *Cache) MustWriteScheduledInstanceStatus(instanceID int32, f func(*apige
 	c.PersistStatus(ctx, &current)
 
 	state.Status = current
-	slog.InfoContext(ctx, "scheduled instance status published",
-		"updatedAt", current.UpdatedAt,
-		"preparerStatus", current.Preparer.Rollup(),
-		"runnerStatus", current.Runner.Status,
-	)
+	slog.InfoContext(ctx, fmt.Sprintf("scheduled instance status published updatedAt=%v preparerStatus=%v runnerStatus=%v",
+		current.UpdatedAt, current.Preparer.Rollup(), current.Runner.Status))
 	c.NotifyInstanceLocked(instanceID)
 }
 
@@ -165,14 +162,12 @@ func (c *Cache) NotifyInstanceLocked(id int32) {
 	if state.Config.Name != "" {
 		name = fmt.Sprintf("%d:%d:%s", state.Config.SpaceID, state.Config.NodeID, state.Config.Name)
 	}
-	slog.Info("store: notify scheduled instance",
+	ctx := logu.AddTag(context.Background(), "Store")
+	slog.InfoContext(ctx, fmt.Sprintf("store: notify scheduled instance name=%s configVersion=%d targetState=%v hasPreparer=%t hasRunner=%t",
+		name, state.Instance.DeploymentVersion, state.Instance.State,
+		!state.Status.Preparer.IsZero(), !state.Status.Runner.IsZero()),
 		"scheduled_instance", id,
-		"deployment", state.Instance.DeploymentID,
-		"name", name,
-		"configVersion", state.Instance.DeploymentVersion,
-		"targetState", state.Instance.State,
-		"hasPreparer", !state.Status.Preparer.IsZero(),
-		"hasRunner", !state.Status.Runner.IsZero(),
+		"dep", state.Instance.DeploymentID,
 	)
 	c.Subs.Notify(state)
 }

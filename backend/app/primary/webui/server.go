@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
@@ -24,6 +25,7 @@ import (
 const primaryServerShutdownTimeout = 20 * time.Second
 
 func RunPrimaryHTTPWebUI(ctx context.Context, cs *config.Service, webHandler http.Handler) error {
+	ctx = logu.AddTag(ctx, "WebUI")
 	cfg := cs.Snapshot().Settings
 	if !cs.MustLoadConfigBoolValue(cfg.HttpWeb.Enabled) {
 		return nil
@@ -42,11 +44,12 @@ func RunPrimaryHTTPWebUI(ctx context.Context, cs *config.Service, webHandler htt
 		Handler:     webHandler,
 		BaseContext: primaryServerBaseContext(ctx),
 	}
-	slog.Info(fmt.Sprintf("starting HTTP Web UI server server=web-http addr=%v", listen))
+	slog.InfoContext(ctx, fmt.Sprintf("starting HTTP Web UI server server=web-http addr=%v", listen))
 	return runManagedWebUIServer(ctx, "web-http", srv, func() error { return srv.Serve(ln) })
 }
 
 func RunPrimaryHTTPSWebUI(ctx context.Context, cs *config.Service, secretsMgr *secrets.Manager, webHandler http.Handler) error {
+	ctx = logu.AddTag(ctx, "WebUI")
 	cfg := cs.Snapshot().Settings
 	if !cs.MustLoadConfigBoolValue(cfg.HttpsWeb.Enabled) {
 		return nil
@@ -70,7 +73,7 @@ func RunPrimaryHTTPSWebUI(ctx context.Context, cs *config.Service, secretsMgr *s
 		TLSConfig:   tlsConfig,
 		BaseContext: primaryServerBaseContext(ctx),
 	}
-	slog.Info(fmt.Sprintf("starting HTTPS Web UI server server=web-https addr=%v", listen))
+	slog.InfoContext(ctx, fmt.Sprintf("starting HTTPS Web UI server server=web-https addr=%v", listen))
 	return runManagedWebUIServer(ctx, "web-https", srv, func() error { return srv.ServeTLS(ln, "", "") })
 }
 
@@ -86,13 +89,13 @@ func runManagedWebUIServer(ctx context.Context, name string, srv *http.Server, s
 	case <-ctx.Done():
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), primaryServerShutdownTimeout)
 		defer shutdownCancel()
-		slog.Info(fmt.Sprintf("stopping Web UI server server=%v", name))
+		slog.InfoContext(ctx, fmt.Sprintf("stopping Web UI server server=%v", name))
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			slog.Warn(fmt.Sprintf("Web UI server graceful shutdown failed; closing server=%v", name), "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("Web UI server graceful shutdown failed; closing server=%v", name), "err", err)
 			_ = srv.Close()
 		}
 		if err := managedWebUIServerResult(ctx, name, <-serveDone); err != nil {
-			slog.Warn(fmt.Sprintf("Web UI server ended during shutdown server=%v", name), "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("Web UI server ended during shutdown server=%v", name), "err", err)
 		}
 		return nil
 	}

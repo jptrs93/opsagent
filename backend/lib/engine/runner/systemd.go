@@ -137,15 +137,15 @@ func (r *systemdRunner) installAndRestart() {
 		r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 		return
 	}
-	slog.InfoContext(r.ctx, "systemd runner symlinked artifact", "binPath", r.unitBinPath, "artifact", r.status.RunningArtifact)
+	slog.InfoContext(r.ctx, fmt.Sprintf("systemd runner symlinked artifact %s to %s", r.status.RunningArtifact, r.unitBinPath))
 
 	out, err := systemctlRestartCommand(r.ctx, r.unitName)
 	if err != nil {
-		slog.ErrorContext(r.ctx, "systemctl restart failed", "err", err, "unitName", r.unitName, "output", out)
+		slog.ErrorContext(r.ctx, fmt.Sprintf("systemctl restart of %s failed output=%q", r.unitName, out), "err", err)
 		r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 		return
 	}
-	slog.InfoContext(r.ctx, "systemd runner restart issued", "unitName", r.unitName)
+	slog.InfoContext(r.ctx, fmt.Sprintf("systemd runner restart of %s issued", r.unitName))
 }
 
 func resolveSystemdRunnerArtifact(binPath string) string {

@@ -178,7 +178,7 @@ func (h *Handler) VerifyAuth(ctx context.Context, _ http.ResponseWriter, r *http
 	if err := h.verifyAgentSession(claims, tokenString); err != nil {
 		return res, err
 	}
-	if err := h.verifyPersonalSession(claims, tokenString); err != nil {
+	if err := h.verifyPersonalSession(ctx, claims, tokenString); err != nil {
 		return res, err
 	}
 	// Agent-session tokens act with delegated authority: authz rules without

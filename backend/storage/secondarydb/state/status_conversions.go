@@ -1,10 +1,12 @@
 package state
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/sq"
 )
@@ -57,7 +59,8 @@ func scheduledInstanceStatusRowToProto(r sq.ScheduledInstanceStatus) *apigen.Sch
 		if len(r.RunnerExtraBlob) > 0 {
 			extra, err := apigen.DecodeRunnerStatus(r.RunnerExtraBlob)
 			if err != nil {
-				slog.Warn("decoding runner status extra blob", "scheduled_instance_id", r.ScheduledInstanceID, "err", err)
+				slog.WarnContext(logu.AddTag(context.Background(), "Store"), "decoding runner status extra blob",
+					"scheduled_instance", r.ScheduledInstanceID, "err", err)
 			} else {
 				st.Runner.NetworkDiagnostics = extra.NetworkDiagnostics
 			}

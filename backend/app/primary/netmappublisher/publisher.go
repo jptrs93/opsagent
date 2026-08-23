@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -84,6 +85,7 @@ func (p *Publisher) Close() {
 }
 
 func (p *Publisher) Run(ctx context.Context) {
+	ctx = logu.AddTag(ctx, "NetmapPublisher")
 	defer p.Close()
 	for {
 		select {
@@ -99,7 +101,7 @@ func (p *Publisher) Run(ctx context.Context) {
 			}
 		}
 		if err := p.Refresh(); err != nil {
-			slog.Error("refreshing cluster network map failed", "err", err)
+			slog.ErrorContext(ctx, "refreshing cluster network map failed", "err", err)
 		}
 	}
 }

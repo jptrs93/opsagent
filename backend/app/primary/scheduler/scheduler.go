@@ -11,10 +11,13 @@
 package scheduler
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 	"sort"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -43,6 +46,7 @@ type routeBarrier interface {
 }
 
 type Scheduler struct {
+	ctx     context.Context
 	store   *state.Service
 	barrier routeBarrier
 
@@ -65,10 +69,16 @@ type drainWait struct {
 }
 
 func New(store *state.Service, barrier routeBarrier) *Scheduler {
-	return &Scheduler{store: store, barrier: barrier, draining: make(map[int32]drainWait)}
+	return &Scheduler{
+		ctx:      logu.AddTag(context.Background(), "Scheduler"),
+		store:    store,
+		barrier:  barrier,
+		draining: make(map[int32]drainWait),
+	}
 }
 
-func (s *Scheduler) Run() {
+func (s *Scheduler) Run(ctx context.Context) {
+	s.ctx = logu.AddTag(ctx, "Scheduler")
 	configs, configCh, unsubConfigs := s.store.MustFetchDeploymentConfigSnapshotAndSubscribe(nil)
 	defer unsubConfigs()
 	instances, instanceCh, unsubInstances := s.store.MustFetchScheduledSnapshotAndSubscribe(nil)
@@ -129,7 +139,7 @@ func (s *Scheduler) onConfig(cfg apigen.DeploymentConfig) {
 		return
 	}
 	if cfg.NodeID <= 0 {
-		slog.Warn("scheduler: skipping config without node", "deployment_id", cfg.ID, "version", cfg.Version)
+		slog.WarnContext(s.ctx, fmt.Sprintf("scheduler: skipping config without node version=%d", cfg.Version), "dep", cfg.ID)
 		return
 	}
 
@@ -161,11 +171,9 @@ func (s *Scheduler) onConfig(cfg apigen.DeploymentConfig) {
 			// own routes, and only a replacement reporting RUNNING may move those.
 			if inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY {
 				s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
-				slog.Info("scheduler: terminating a standby superseded by a newer config",
+				slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: terminating a standby superseded by a newer config instanceVersion=%d configVersion=%d", inst.DeploymentVersion, cfg.Version),
 					"scheduled_instance", inst.ID,
-					"deployment_id", cfg.ID,
-					"instance_version", inst.DeploymentVersion,
-					"config_version", cfg.Version,
+					"dep", cfg.ID,
 				)
 			}
 			continue
@@ -202,12 +210,10 @@ func (s *Scheduler) onConfig(cfg apigen.DeploymentConfig) {
 	if !created {
 		return
 	}
-	slog.Info("scheduler: created scheduled instance",
+	slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: created scheduled instance version=%d state=%v", cfg.Version, initial),
 		"scheduled_instance", inst.ID,
-		"deployment_id", cfg.ID,
-		"version", cfg.Version,
-		"node_id", cfg.NodeID,
-		"state", initial,
+		"dep", cfg.ID,
+		"node", cfg.NodeID,
 	)
 }
 
@@ -274,10 +280,10 @@ func (s *Scheduler) promoteIfReady(state apigen.ScheduledInstanceState) {
 	}
 	s.drainSuperseded(inst)
 	s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	slog.Info("scheduler: scheduled instance took over serving",
+	slog.InfoContext(s.ctx, "scheduler: scheduled instance took over serving",
 		"scheduled_instance", inst.ID,
-		"deployment_id", inst.DeploymentID,
-		"node_id", inst.NodeID,
+		"dep", inst.DeploymentID,
+		"node", inst.NodeID,
 	)
 }
 
@@ -295,10 +301,9 @@ func (s *Scheduler) promoteStandbyForFailedServing(failed apigen.ScheduledInstan
 		}
 		s.beginDraining(failed.ID)
 		s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-		slog.Info("scheduler: promoted standby over a failed serving instance",
+		slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: promoted standby over a failed serving instance failed=%d", failed.ID),
 			"scheduled_instance", inst.ID,
-			"failed", failed.ID,
-			"deployment_id", failed.DeploymentID,
+			"dep", failed.DeploymentID,
 		)
 		return
 	}
@@ -319,10 +324,9 @@ func (s *Scheduler) drainSuperseded(current apigen.ScheduledInstance) {
 			continue
 		}
 		s.beginDraining(inst.ID)
-		slog.Info("scheduler: draining superseded scheduled instance",
+		slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: draining superseded scheduled instance replacement=%d", current.ID),
 			"scheduled_instance", inst.ID,
-			"replacement", current.ID,
-			"deployment_id", current.DeploymentID,
+			"dep", current.DeploymentID,
 		)
 	}
 }
@@ -347,7 +351,7 @@ func (s *Scheduler) adoptDraining(instanceID int32) {
 		return
 	}
 	s.draining[instanceID] = drainWait{deadline: time.Now().Add(drainTimeout), adopted: true}
-	slog.Info("scheduler: adopted an untracked draining scheduled instance",
+	slog.InfoContext(s.ctx, "scheduler: adopted an untracked draining scheduled instance",
 		"scheduled_instance", instanceID)
 }
 
@@ -379,17 +383,14 @@ func (s *Scheduler) retireDrainedInstances() {
 			continue
 		}
 		if expired && !applied && !wait.adopted {
-			slog.Warn("scheduler: retiring drained instance before every node acknowledged",
-				"scheduled_instance", instanceID,
-				"sequence", wait.sequence,
-				"waited", drainTimeout)
+			slog.WarnContext(s.ctx, fmt.Sprintf("scheduler: retiring drained instance before every node acknowledged sequence=%d waited=%v", wait.sequence, drainTimeout),
+				"scheduled_instance", instanceID)
 		}
 		delete(s.draining, instanceID)
 		s.setState(instanceID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
-		slog.Info("scheduler: drained scheduled instance retired",
+		slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: drained scheduled instance retired sequence=%d", wait.sequence),
 			"scheduled_instance", instanceID,
-			"deployment_id", inst.DeploymentID,
-			"sequence", wait.sequence)
+			"dep", inst.DeploymentID)
 	}
 }
 
@@ -417,9 +418,9 @@ func terminalRunnerStatus(status apigen.RunningStatus) bool {
 // layer retains the last incarnation of each ordinal for display.
 func (s *Scheduler) finalize(inst apigen.ScheduledInstance) {
 	s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
-	slog.Info("scheduler: finalized scheduled instance",
+	slog.InfoContext(s.ctx, "scheduler: finalized scheduled instance",
 		"scheduled_instance", inst.ID,
-		"deployment_id", inst.DeploymentID,
+		"dep", inst.DeploymentID,
 	)
 }
 
@@ -446,9 +447,9 @@ func (s *Scheduler) terminateDeployment(deploymentID int32) {
 	for _, inst := range active {
 		if inst.State.WantsRunning() {
 			s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
-			slog.Info("scheduler: terminate scheduled instance (desired stopped)",
+			slog.InfoContext(s.ctx, "scheduler: terminate scheduled instance (desired stopped)",
 				"scheduled_instance", inst.ID,
-				"deployment_id", deploymentID,
+				"dep", deploymentID,
 			)
 		}
 	}

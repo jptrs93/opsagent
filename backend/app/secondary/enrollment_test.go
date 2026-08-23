@@ -75,7 +75,7 @@ func TestEnrollReturnsWhenContextCanceled(t *testing.T) {
 func TestCacheEnrollmentBootstrapStateRequiresNetwork(t *testing.T) {
 	accepted := enrollmentAcceptedWithBootstrap(t, "worker-1")
 	accepted.ClusterNetwork = nil
-	if err := cacheEnrollmentBootstrapState(EnrollmentConfig{DataDir: t.TempDir()}, accepted); err == nil {
+	if err := cacheEnrollmentBootstrapState(context.Background(), EnrollmentConfig{DataDir: t.TempDir()}, accepted); err == nil {
 		t.Fatal("cacheEnrollmentBootstrapState succeeded without network")
 	}
 }
@@ -84,11 +84,11 @@ func TestMustLoadRuntimeConfigLoadsCachedBootstrapState(t *testing.T) {
 	dataDir := t.TempDir()
 	accepted := enrollmentAcceptedWithBootstrap(t, "worker-1")
 
-	if err := cacheEnrollmentBootstrapState(EnrollmentConfig{DataDir: dataDir}, accepted); err != nil {
+	if err := cacheEnrollmentBootstrapState(context.Background(), EnrollmentConfig{DataDir: dataDir}, accepted); err != nil {
 		t.Fatalf("cacheEnrollmentBootstrapState: %v", err)
 	}
 	caPath, certPath, keyPath := writeRuntimeTLS(t, dataDir, "worker-1")
-	cfg := MustLoadRuntimeConfig(ainit.StaticConfiguration{
+	cfg := MustLoadRuntimeConfig(context.Background(), ainit.StaticConfiguration{
 		DataDir:            dataDir,
 		GitCacheDir:        filepath.Join(dataDir, "git-cache"),
 		ReleasesDir:        dataDir + "-releases",
@@ -117,12 +117,12 @@ func TestCacheEnrollmentBootstrapStatePersistsNetworkMap(t *testing.T) {
 			{NodeID: 2, UnderlayAddress: "192.0.2.2"},
 		},
 	}
-	if err := cacheEnrollmentBootstrapState(EnrollmentConfig{DataDir: dataDir}, accepted); err != nil {
+	if err := cacheEnrollmentBootstrapState(context.Background(), EnrollmentConfig{DataDir: dataDir}, accepted); err != nil {
 		t.Fatal(err)
 	}
 	store := state.Open(filepath.Join(dataDir, "secondary.db"))
 	defer store.Close()
-	cached, _, ok, err := cachedClusterNetMap(store, 2, network.Prefix{})
+	cached, _, ok, err := cachedClusterNetMap(context.Background(), store, 2, network.Prefix{})
 	if err != nil || !ok {
 		t.Fatalf("cached map: ok=%v err=%v", ok, err)
 	}
@@ -139,7 +139,7 @@ func TestMustLoadRuntimeConfigRequiresCachedBootstrapState(t *testing.T) {
 			t.Fatal("MustLoadRuntimeConfig did not panic without cached bootstrap state")
 		}
 	}()
-	MustLoadRuntimeConfig(ainit.StaticConfiguration{DataDir: dataDir}, caPath, certPath, keyPath)
+	MustLoadRuntimeConfig(context.Background(), ainit.StaticConfiguration{DataDir: dataDir}, caPath, certPath, keyPath)
 }
 
 func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.EnrollmentAccepted {

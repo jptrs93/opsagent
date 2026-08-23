@@ -1,9 +1,12 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"net/netip"
 	"sync"
+
+	"github.com/jptrs93/goutil/logu"
 )
 
 // Manager is the machine-local networking reconciler: it owns per-container
@@ -17,6 +20,7 @@ var Default = New(Prefix{}, 0)
 
 func New(prefix Prefix, netproxyDeploymentID int32) *Manager {
 	return &Manager{
+		ctx:                  logu.AddTag(context.Background(), "Network"),
 		prefix:               prefix,
 		hasPrefix:            !prefix.IsZero(),
 		netproxyDeploymentID: netproxyDeploymentID,
@@ -32,6 +36,8 @@ func SetDefault(manager *Manager) {
 }
 
 type Manager struct {
+	// ctx is the component root logging context, tagged at construction.
+	ctx         context.Context
 	mu          sync.Mutex
 	containerMu sync.Mutex
 	prefix      Prefix

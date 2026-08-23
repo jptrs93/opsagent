@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -208,7 +209,7 @@ func (s *Service) RenameConfig(configID int32, newName string) (*apigen.Config, 
 	}
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	ctx := context.Background()
+	ctx := logu.AddTag(context.Background(), "Store")
 	row, err := s.q.GetConfigRowByID(ctx, int64(configID))
 	if err == sql.ErrNoRows {
 		return nil, ErrValueNotFound
@@ -223,7 +224,7 @@ func (s *Service) RenameConfig(configID int32, newName string) (*apigen.Config, 
 		if err := s.q.RenameConfigRow(ctx, pq.RenameConfigRowParams{Name: newName, ID: row.ID}); err != nil {
 			panic(fmt.Sprintf("RenameConfigRow: %v", err))
 		}
-		slog.Info("renamed config", "id", configID, "name", row.Name, "newName", newName)
+		slog.InfoContext(ctx, fmt.Sprintf("renamed config %d from %s to %s", configID, row.Name, newName))
 	}
 	c, ok := s.GetConfig(configID)
 	if !ok {

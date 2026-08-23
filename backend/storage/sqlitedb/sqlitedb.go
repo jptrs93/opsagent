@@ -5,6 +5,7 @@
 package sqlitedb
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/jptrs93/goutil/logu"
 	_ "modernc.org/sqlite"
 )
 
@@ -54,7 +56,8 @@ func ApplyMigrations(db *sql.DB, migrations string) {
 			// rows would match. Treat those "already applied" errors as no-ops;
 			// anything else is a real failure.
 			if isAlreadyAppliedErr(err) {
-				slog.Debug("skipping already-applied migration", "err", err, "stmt", strings.TrimSpace(stmt))
+				slog.DebugContext(logu.AddTag(context.Background(), "Store"),
+					fmt.Sprintf("skipping already-applied migration stmt=%q", strings.TrimSpace(stmt)), "err", err)
 				continue
 			}
 			panic(fmt.Sprintf("migration failed: %v\nstmt: %s", err, stmt))

@@ -50,7 +50,7 @@ func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.V
 	if needBranchListing {
 		branches, err := h.GitVersions.ListBranches(ctx, repo)
 		if err != nil {
-			slog.Warn("listing git branches", "err", err)
+			slog.WarnContext(ctx, "listing git branches", "err", err)
 			errMessage := fmt.Sprintf("Failed checking repository branches: %v", err)
 			res.AvailableBranches = apigen.AvailableBranches{Loaded: true, Errormessage: &errMessage}
 			if src.CheckRepo {
@@ -81,7 +81,7 @@ func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.V
 	if src.RefreshAvailableCommits {
 		commits, err := h.GitVersions.ListCommits(ctx, repo, selectedBranch, 25)
 		if err != nil {
-			slog.Warn("listing git repo commits", "branch", selectedBranch, "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("listing git repo commits branch=%s", selectedBranch), "err", err)
 			errMessage := fmt.Sprintf("Failed listing branch '%v' commits: %v", selectedBranch, err)
 			res.AvailableCommits = apigen.AvailableCommits{Loaded: true, Branch: selectedBranch, Errormessage: &errMessage}
 		} else {
@@ -95,7 +95,7 @@ func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.V
 		if selectedBranch != "" {
 			commits, err := h.GitVersions.ListCommits(ctx, repo, selectedBranch, 1)
 			if err != nil {
-				slog.Warn("resolving selected branch head", "branch", selectedBranch, "err", err)
+				slog.WarnContext(ctx, fmt.Sprintf("resolving selected branch head branch=%s", selectedBranch), "err", err)
 				res.NixFlakeFile = validationErr(fmt.Sprintf("Failed resolving branch '%v' head: %v", selectedBranch, err))
 			} else if len(commits) == 0 || commits[0] == nil {
 				res.NixFlakeFile = validationErr(fmt.Sprintf("No commits found for branch '%v'.", selectedBranch))
@@ -105,7 +105,7 @@ func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.V
 		} else {
 			resolvedCommit, _, err := h.GitVersions.DefaultCommit(ctx, repo)
 			if err != nil {
-				slog.Warn("resolving git remote HEAD", "err", err)
+				slog.WarnContext(ctx, "resolving git remote HEAD", "err", err)
 				res.NixFlakeFile = validationErr(fmt.Sprintf("Failed resolving the repository default commit: %v", err))
 			} else {
 				commitID = resolvedCommit
@@ -119,7 +119,7 @@ func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.V
 		res.CheckedFlakePath = src.SelectedFlakePath
 		commitValid, err := h.GitVersions.ValidateNixSource(ctx, repo, commitID, src.SelectedFlakePath)
 		if err != nil {
-			slog.Warn("validating exact Nix source", "commit", commitID, "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("validating exact Nix source commit=%s", commitID), "err", err)
 			if src.CheckRepo {
 				if commitValid {
 					res.GitRepository = validationOK("Repo accessible.")
@@ -144,7 +144,7 @@ func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.V
 		res.CheckedRepoUrl = repo
 		res.CheckedCommit = src.SelectedCommit
 		if err := h.GitVersions.ValidateCommit(ctx, repo, commitID); err != nil {
-			slog.Warn("validating exact git commit", "commit", commitID, "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("validating exact git commit commit=%s", commitID), "err", err)
 			if src.CheckRepo {
 				res.GitRepository = validationErr(fmt.Sprintf("Could not verify repository access: %v", err))
 			}
@@ -160,7 +160,7 @@ func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.V
 		res.CheckedFlakePath = src.SelectedFlakePath
 		commitValid, err := h.GitVersions.ValidateNixSource(ctx, repo, commitID, src.SelectedFlakePath)
 		if err != nil {
-			slog.Warn("validating exact Nix source", "commit", commitID, "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("validating exact Nix source commit=%s", commitID), "err", err)
 			if src.CheckRepo {
 				if commitValid {
 					res.GitRepository = validationOK("Repo accessible.")
@@ -214,7 +214,7 @@ func (h *Handler) validateContainerImageSource(ctx apigen.Context, src *apigen.V
 	image := src.Image
 	tags, err := versionprovider.ListContainerImageTags(ctx, image)
 	if err != nil {
-		slog.Warn("container image validation failed", "image", image, "err", err)
+		slog.WarnContext(ctx, fmt.Sprintf("container image validation failed image=%s", image), "err", err)
 		return &apigen.RepoValidateResponse{ContainerImage: &apigen.ValidateContainerImageSourceResponse{Image: validationErr("Image not accessible: " + containerImageRef(image))}}, nil
 	}
 	res := apigen.ValidateContainerImageSourceResponse{Image: validationOK("Image accessible: " + containerImageRef(image))}

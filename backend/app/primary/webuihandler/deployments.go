@@ -299,8 +299,8 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 	} else if !h.canDeleteDeployment(cfg, statuses) {
 		return invalidConfigErrf("deployment must be stopped before deletion")
 	}
-	if h.deploymentUsesAddressID(int32Set([]int32{cfg.ID})) {
-		return ReferenceInUseErr
+	if details := h.deploymentRefDetails(int32Set([]int32{cfg.ID}), addressRefIDs); len(details) > 0 {
+		return referenceInUseDetailErr("Deployment address", details)
 	}
 	spec, err := cloneDeploymentSpec(&cfg.Spec)
 	if err != nil {

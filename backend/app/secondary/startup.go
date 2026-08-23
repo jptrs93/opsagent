@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
@@ -17,8 +18,9 @@ import (
 )
 
 func Run(ctx context.Context) {
+	ctx = logu.AddTag(ctx, "Worker")
 	cfg := ainit.StaticConfig
-	slog.Info(fmt.Sprintf("opendeploy secondary booting version=%v dataDir=%v", version.Version, cfg.DataDir))
+	slog.InfoContext(ctx, fmt.Sprintf("opendeploy secondary booting version=%v dataDir=%v", version.Version, cfg.DataDir))
 	if cfg.PrimaryClusterAddr == "" || cfg.PrimaryEnrollmentAddr == "" {
 		panic("OPENDEPLOY_PRIMARY_CLUSTER_ADDR and OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR must be set when running secondary")
 	}
@@ -35,7 +37,7 @@ func Run(ctx context.Context) {
 		if cfg.PrimaryEnrollmentFingerprint == "" {
 			panic("OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT must be set before worker enrollment")
 		}
-		slog.Info(fmt.Sprintf("worker cluster certs missing; starting enrollment enrollmentAddr=%v", cfg.PrimaryEnrollmentAddr))
+		slog.InfoContext(ctx, fmt.Sprintf("worker cluster certs missing; starting enrollment enrollmentAddr=%v", cfg.PrimaryEnrollmentAddr))
 		if err := Enroll(ctx, EnrollmentConfig{
 			PrimaryEnrollmentAddr:        cfg.PrimaryEnrollmentAddr,
 			PrimaryEnrollmentFingerprint: cfg.PrimaryEnrollmentFingerprint,
@@ -49,12 +51,12 @@ func Run(ctx context.Context) {
 			panic(fmt.Sprintf("worker enrollment: %v", err))
 		}
 	}
-	runtimeCfg := MustLoadRuntimeConfig(cfg, caPath, certPath, keyPath)
-	slog.Info(fmt.Sprintf("opendeploy starting secondary version=%v nodeIdentifier=%v clusterAddr=%v primaryName=%v", version.Version, runtimeCfg.NodeIdentifier, runtimeCfg.PrimaryClusterAddr, runtimeCfg.PrimaryName))
+	runtimeCfg := MustLoadRuntimeConfig(ctx, cfg, caPath, certPath, keyPath)
+	slog.InfoContext(ctx, fmt.Sprintf("opendeploy starting secondary version=%v nodeIdentifier=%v clusterAddr=%v primaryName=%v", version.Version, runtimeCfg.NodeIdentifier, runtimeCfg.PrimaryClusterAddr, runtimeCfg.PrimaryName))
 	run(ctx, runtimeCfg)
 }
 
-func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyPath string) runtimeConfig {
+func MustLoadRuntimeConfig(ctx context.Context, cfg ainit.StaticConfiguration, caPath, certPath, keyPath string) runtimeConfig {
 	tlsCfg := certu.MustLoadTLSConfig(caPath, certPath, keyPath)
 	nodeIdentifier := certu.MustCertLoadCommonName(certPath)
 	dbPath := filepath.Join(cfg.DataDir, "secondary.db")
@@ -77,7 +79,7 @@ func MustLoadRuntimeConfig(cfg ainit.StaticConfiguration, caPath, certPath, keyP
 	}
 
 	var prefix network.Prefix
-	if _, mapPrefix, ok, err := cachedClusterNetMap(store, nodeID, network.Prefix{}); err != nil {
+	if _, mapPrefix, ok, err := cachedClusterNetMap(ctx, store, nodeID, network.Prefix{}); err != nil {
 		panic(err)
 	} else if ok {
 		prefix = mapPrefix

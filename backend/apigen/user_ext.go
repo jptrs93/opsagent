@@ -1,8 +1,8 @@
 package apigen
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -26,7 +26,7 @@ func (m *InternalUser) WebAuthnCredentials() []webauthn.Credential {
 		var out webauthn.Credential
 		err := json.Unmarshal(c.Data, &out)
 		if err != nil {
-			slog.Warn(fmt.Sprintf("unmarshalling user %v webauthn.Credential: %v", m.ID, err))
+			slog.WarnContext(context.Background(), "unmarshalling webauthn.Credential failed", "user", m.ID, "err", err)
 		} else {
 			res = append(res, out)
 		}

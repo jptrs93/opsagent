@@ -3,6 +3,7 @@
 package network
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -133,7 +134,7 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 		PeerName:  peerName,
 	}
 	if err := netlink.LinkAdd(veth); err != nil {
-		deleteNamedNetns(spec.ContainerID)
+		deleteNamedNetns(m.ctx, spec.ContainerID)
 		return nil, fmt.Errorf("creating veth %s: %w", hostVeth, err)
 	}
 	peer, err := netlink.LinkByName(peerName)
@@ -173,8 +174,8 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 		return cleanup(fmt.Errorf("adding host route for %v: %w", spec.OutboundAddr, err))
 	}
 
-	slog.Info("container netns configured",
-		"container", spec.ContainerID, "outbound", spec.OutboundAddr, "inbound", spec.InboundAddr, "v4", contV4, "veth", hostVeth)
+	slog.InfoContext(m.ctx, fmt.Sprintf("container netns configured container=%s outbound=%s inbound=%s v4=%s veth=%s",
+		spec.ContainerID, spec.OutboundAddr, spec.InboundAddr, contV4, hostVeth))
 	cn := &ContainerNet{
 		ContainerID:   spec.ContainerID,
 		DeploymentID:  spec.DeploymentID,
@@ -269,7 +270,8 @@ func (m *Manager) Activate(candidate *ContainerNet) error {
 		return fmt.Errorf("activate: routing inbound address: %w", err)
 	}
 
-	slog.Info("activated container network", "container", candidate.ContainerID, "inbound", candidate.InboundAddr, "outbound", candidate.OutboundAddr)
+	slog.InfoContext(m.ctx, fmt.Sprintf("activated container network container=%s inbound=%s outbound=%s",
+		candidate.ContainerID, candidate.InboundAddr, candidate.OutboundAddr))
 	return nil
 }
 
@@ -309,12 +311,12 @@ func (m *Manager) teardownContainerNet(containerID string, deploymentID int32, h
 		link, err := netlink.LinkByName(hostVeth)
 		if err == nil && (hostVethIndex == 0 || link.Attrs().Index == hostVethIndex) {
 			if err := netlink.LinkDel(link); err != nil {
-				slog.Warn("deleting container veth", "veth", hostVeth, "container", containerID, "err", err)
+				slog.WarnContext(m.ctx, fmt.Sprintf("deleting container veth %s of container %s", hostVeth, containerID), "err", err)
 			}
 		}
 	}
 	delete(m.containerNets, containerID)
-	deleteNamedNetns(containerID)
+	deleteNamedNetns(m.ctx, containerID)
 }
 
 // CleanupContainerNets removes stale netns and veth state for a deployment,
@@ -337,7 +339,7 @@ func (m *Manager) cleanupContainerNets(deploymentID int32, keep []*ContainerNet)
 			if !strings.HasPrefix(name, prefix) || retained.keepsContainer(name) {
 				continue
 			}
-			slog.Info("cleaning up stale container netns", "netns", name)
+			slog.InfoContext(m.ctx, fmt.Sprintf("cleaning up stale container netns %s", name))
 			m.teardownContainerNet(name, deploymentID, "", 0)
 		}
 	}
@@ -347,16 +349,16 @@ func (m *Manager) cleanupContainerNets(deploymentID int32, keep []*ContainerNet)
 		if linkErr != nil || retained.keepsHostVeth(hostVeth) {
 			continue
 		}
-		slog.Info("cleaning up stale container veth", "veth", link.Attrs().Name)
+		slog.InfoContext(m.ctx, fmt.Sprintf("cleaning up stale container veth %s", link.Attrs().Name))
 		if err := netlink.LinkDel(link); err != nil {
-			slog.Warn("deleting stale container veth", "veth", link.Attrs().Name, "err", err)
+			slog.WarnContext(m.ctx, fmt.Sprintf("deleting stale container veth %s", link.Attrs().Name), "err", err)
 		}
 	}
 }
 
-func deleteNamedNetns(containerID string) {
+func deleteNamedNetns(ctx context.Context, containerID string) {
 	if err := netns.DeleteNamed(containerID); err != nil && !errors.Is(err, os.ErrNotExist) {
-		slog.Warn("deleting netns", "container", containerID, "err", err)
+		slog.WarnContext(ctx, fmt.Sprintf("deleting netns of container %s", containerID), "err", err)
 	}
 }
 
