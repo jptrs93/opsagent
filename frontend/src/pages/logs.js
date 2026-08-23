@@ -67,8 +67,14 @@ const PRESETS = [
 ];
 const DEFAULT_PRESET = '12h';
 
-const ROW_H = 22;
-const ROW_H_WRAP = 54;
+// A row is as tall as the lines its message occupies: leading per line plus the
+// cell's py-[3px] and the row's border-b. Unwrapped rows are always one line;
+// wrapped ones run from one line up to WRAP_MAX_LINES.
+const LINE_H = 15;
+const CELL_PAD_Y = 6;
+const ROW_BORDER = 1;
+const WRAP_MAX_LINES = 3;
+const rowHeight = (lines) => lines * LINE_H + CELL_PAD_Y + ROW_BORDER;
 const DETAIL_H = 320;
 const HEADER_H = 25;
 const OVERSCAN = 12;
@@ -140,6 +146,38 @@ function wrapRecord(r) {
 // still breaks on newlines, which would grow the cell past the row and overlap
 // its neighbours — so embedded newlines become a visible marker instead.
 const singleLine = (s) => s.includes('\n') ? s.replace(/\r?\n/g, ' ↵ ') : s;
+
+// Wrapped row heights are computed rather than measured: the message column is
+// monospaced and breaks on any character (break-all), so a record's line count
+// follows from its text and the column width in characters. Measuring 10k rows
+// in the DOM is not an option, and a uniform worst-case height would make every
+// row three lines tall.
+function segColumns(seg) {
+    if (!seg.includes('\t')) return seg.length;
+    let w = 0;
+    for (const ch of seg) w += ch === '\t' ? 8 - (w % 8) : 1;
+    return w;
+}
+
+function wrappedLines(text, cols) {
+    if (cols <= 0) return 1;
+    let lines = 0;
+    for (const seg of text.split('\n')) {
+        lines += Math.max(1, Math.ceil(segColumns(seg) / cols));
+        if (lines >= WRAP_MAX_LINES) return WRAP_MAX_LINES;
+    }
+    return Math.max(1, lines);
+}
+
+// posAt returns the last row whose top offset is at or above y.
+function posAt(offsets, len, y) {
+    let lo = 0, hi = len - 1;
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (offsets[mid] <= y) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+}
 
 function recordField(rec, key) {
     if (key === 'time') return fmtRowTime(rec.ts);
@@ -833,10 +871,27 @@ export function logsPage(selectedDeploymentId) {
     const headerRow = div({class: "sticky top-0 z-20 grid border-b border-gray-700 bg-gray-950"});
     const rowsHost = div({class: "relative"});
     const inner = div({}, headerRow, rowsHost);
+
+    // Off-screen probe for the message cell's character width. It mirrors the
+    // real nesting — .font-mono is a base-layer 0.92em rule, so it must resolve
+    // against an inherited text-[11px] parent the way a cell does, not against
+    // a text size set on the same element.
+    const charProbe = span({class: "font-mono", style: "white-space:pre"}, 'x'.repeat(100));
+    const probeHost = div(
+        {class: "text-[11px] leading-[15px]", style: "position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none"},
+        charProbe,
+    );
+    let charW = 0;
+    const charWidth = () => {
+        const w = charProbe.getBoundingClientRect().width / 100;
+        if (w > 0) charW = w;
+        return charW || 6.1;   // pre-layout fallback; refined on the next render
+    };
+
     scroller = div({
         "data-testid": "logs-results",
         class: "app-scroll min-h-0 flex-1 overflow-auto bg-gray-950",
-    }, inner);
+    }, probeHost, inner);
 
     const headerCell = (key) => {
         const d = COLUMN_DEFS[key] || {label: key};
@@ -853,15 +908,19 @@ export function logsPage(selectedDeploymentId) {
         );
     };
 
-    const cellEl = (key, rec) => {
+    const cellEl = (key, rec, lines) => {
         const d = COLUMN_DEFS[key] || {};
         const base = "overflow-hidden border-r border-gray-800/25 px-2 py-[3px] last:border-r-0";
         if (key === 'time') return div({class: `${base} whitespace-nowrap font-mono tabular-nums text-gray-400`}, fmtRowTime(rec.ts));
         if (key === 'level') return rec.level
             ? div({class: `${base} font-medium ${levelMeta(rec.level).text}`}, rec.level)
             : div({class: `${base} text-gray-700`}, "—");
+        // The inline clamp pins the message to the lines the row was sized for,
+        // so a mis-estimate ellipsizes cleanly instead of leaving a clipped
+        // sliver of a fourth line.
         if (key === 'msg') return div({
             class: `${base} font-mono text-gray-200 ${wrap.val ? 'line-clamp-3 whitespace-pre-wrap break-all' : 'truncate whitespace-pre'}`,
+            style: wrap.val ? `-webkit-line-clamp:${lines}` : '',
             title: rec.msg,
         }, wrap.val ? rec.msg : singleLine(rec.msg));
         const value = recordField(rec, key);
@@ -953,7 +1012,7 @@ export function logsPage(selectedDeploymentId) {
         );
     };
 
-    const rowEl = (pos, y, rowH, cols, template, rec) => {
+    const rowEl = (pos, y, rowH, lines, cols, template, rec) => {
         const exp = expanded.val;
         const isExp = exp && exp.pos === pos;
         const tint = rec.level === 'ERROR' ? '#c42121' : rec.level === 'WARN' ? '#c67b04' : '';
@@ -963,8 +1022,49 @@ export function logsPage(selectedDeploymentId) {
                 style: `position:absolute;top:${y}px;left:0;right:0;height:${rowH}px;grid-template-columns:${template}`,
                 onclick: () => toggleExpand(pos)},
             tint ? span({style: `position:absolute;left:0;top:0;bottom:0;width:2px;background:${tint};opacity:.7`}) : '',
-            ...cols.map(k => cellEl(k, rec)),
+            ...cols.map(k => cellEl(k, rec, lines)),
         );
+    };
+
+    // msgColumns is the message column's width in characters: the grid gives it
+    // whatever the fixed columns leave over (floored at its minmax minimum),
+    // less px-2 and the cell's right border.
+    const msgColumns = (cols) => {
+        const i = cols.indexOf('msg');
+        if (i < 0) return 0;
+        let fixed = 0;
+        for (const k of cols) {
+            const d = COLUMN_DEFS[k] || {px: 110};
+            if (!d.flex) fixed += d.px;
+        }
+        const innerW = Math.max(scroller.clientWidth, colMinWidth(cols));
+        const cellW = Math.max(COLUMN_DEFS.msg.minPx, innerW - fixed);
+        const textW = cellW - 16 - (i === cols.length - 1 ? 0 : 1);
+        return Math.max(1, Math.floor(textW / charWidth()));
+    };
+
+    // rowLayout caches the prefix sum of row heights. It is rebuilt only when
+    // something that can change a height changes — result set, columns, wrap,
+    // or the resulting message width — never per scroll frame.
+    let layout = null;
+    const rowLayout = () => {
+        const res = result.val;
+        const records = res?.records || [];
+        const cols = columns.val;
+        const wrapped = wrap.val;
+        const msgCols = wrapped ? msgColumns(cols) : 0;
+        const sig = `${cols.join(',')}|${wrapped}|${msgCols}`;
+        if (layout && layout.res === res && layout.sig === sig) return layout;
+        const len = records.length;
+        const offsets = new Float64Array(len + 1);
+        const lines = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            const n = msgCols > 0 ? wrappedLines(records[i].msg, msgCols) : 1;
+            lines[i] = n;
+            offsets[i + 1] = offsets[i] + rowHeight(n);
+        }
+        layout = {res, sig, offsets, lines};
+        return layout;
     };
 
     let renderQueued = false;
@@ -980,9 +1080,9 @@ export function logsPage(selectedDeploymentId) {
 
         const records = res?.records || [];
         const len = records.length;
-        const rowH = wrap.val ? ROW_H_WRAP : ROW_H;
         const exp = expanded.val;
-        rowsHost.style.height = `${len * rowH + (exp ? DETAIL_H : 0)}px`;
+        const {offsets, lines} = rowLayout();
+        rowsHost.style.height = `${offsets[len] + (exp ? DETAIL_H : 0)}px`;
         if (len === 0) {
             rowsHost.replaceChildren(div(
                 {class: "flex h-24 items-center justify-center text-xs text-gray-600"},
@@ -990,20 +1090,25 @@ export function logsPage(selectedDeploymentId) {
             ));
             return;
         }
+        // Work in row-space: below the open detail pane, scroll offsets carry
+        // its height, so take that back off before locating the window.
         const stAdj = Math.max(0, scroller.scrollTop - HEADER_H);
-        let first = Math.floor((exp && stAdj > (exp.pos + 1) * rowH ? stAdj - DETAIL_H : stAdj) / rowH) - OVERSCAN;
-        first = Math.max(0, first);
-        const visible = Math.ceil(scroller.clientHeight / rowH) + 2 * OVERSCAN + Math.ceil(DETAIL_H / rowH);
-        const last = Math.min(len, first + visible);
+        const topY = exp && stAdj > offsets[exp.pos + 1] ? Math.max(0, stAdj - DETAIL_H) : stAdj;
+        const botY = topY + scroller.clientHeight + (exp ? DETAIL_H : 0);
+        const first = Math.max(0, posAt(offsets, len, topY) - OVERSCAN);
+        const last = Math.min(len, posAt(offsets, len, botY) + 1 + OVERSCAN);
 
         const children = [];
         for (let pos = first; pos < last; pos++) {
-            const y = pos * rowH + (exp && pos > exp.pos ? DETAIL_H : 0);
+            const y = offsets[pos] + (exp && pos > exp.pos ? DETAIL_H : 0);
             // records are newest first: position 0 is the newest match.
-            children.push(rowEl(pos, y, rowH, cols, template, records[pos]));
+            children.push(rowEl(pos, y, offsets[pos + 1] - offsets[pos], lines[pos], cols, template, records[pos]));
         }
-        if (exp && exp.pos < len && exp.pos >= first - Math.ceil(DETAIL_H / rowH) && exp.pos < last) {
-            children.push(detailEl((exp.pos + 1) * rowH, records[exp.pos]));
+        // The pane is taller than a row, so it can be on screen while its own
+        // row has already scrolled past the top.
+        if (exp && exp.pos < len) {
+            const detailY = offsets[exp.pos + 1];
+            if (detailY <= botY && detailY + DETAIL_H >= topY) children.push(detailEl(detailY, records[exp.pos]));
         }
         rowsHost.replaceChildren(...children);
     };
