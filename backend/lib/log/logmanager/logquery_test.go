@@ -306,6 +306,57 @@ func TestQueryFieldStats(t *testing.T) {
 	}
 }
 
+// arrayFixture commits records whose _tags field is a JSON array, split across
+// parquet and the WAL tail so both scan paths shred the same way.
+func arrayFixture(t *testing.T) *Manager {
+	t.Helper()
+	streamTiming(t, time.Millisecond, time.Millisecond, time.Millisecond)
+	db := archiveEnv(t)
+	walDir := walEnv(t)
+	writeBucket(t, walDir, "20260615_1430",
+		record(t, "2026-06-15T14:30:01Z", 1, 1, logv2.StreamStdout, `{"level":"info","msg":"sync started","_tags":["Calendar","RosterRepl"]}`+"\n"),
+		record(t, "2026-06-15T14:30:02Z", 1, 1, logv2.StreamStdout, `{"level":"info","msg":"sync finished","_tags":["Calendar"]}`+"\n"),
+	)
+	c := NewLogStreamCollector(testDeploymentID, db)
+	if err := c.RunCollectorOnce(deadProducer()); err != nil {
+		t.Fatal(err)
+	}
+	writeBucket(t, walDir, "20260615_1500",
+		record(t, "2026-06-15T15:00:01Z", 1, 1, logv2.StreamStdout, `{"level":"info","msg":"price sync","_tags":["PriceList"]}`+"\n"),
+	)
+	fillSpool(t, c)
+	return &Manager{db: c.db, collectors: map[int32]*LogStreamCollector{testDeploymentID: c}}
+}
+
+func TestQueryArrayFieldStatsCountElements(t *testing.T) {
+	m := arrayFixture(t)
+	resp, err := m.Query(context.Background(), wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tags := fieldStatsByName(resp)["_tags"]
+	if tags == nil || tags.Distinct != 3 || tags.Other != 0 {
+		t.Fatalf("_tags stats = %+v", tags)
+	}
+	if len(tags.Top) != 3 || tags.Top[0].Value != "Calendar" || tags.Top[0].Count != 2 {
+		t.Fatalf("top = %#v", tags.Top)
+	}
+}
+
+func TestQueryArrayFieldEqMatchesElements(t *testing.T) {
+	m := arrayFixture(t)
+	got := queryMsgs(t, m, wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID,
+		Filters: []*apigen.LogFilter{{Field: "_tags", Op: "eq", Value: "calendar"}}}))
+	if !equalStrings(got, []string{"sync finished", "sync started"}) {
+		t.Fatalf("eq msgs = %#v", got)
+	}
+	got = queryMsgs(t, m, wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID,
+		Filters: []*apigen.LogFilter{{Field: "_tags", Op: "neq", Value: "calendar"}}}))
+	if !equalStrings(got, []string{"price sync"}) {
+		t.Fatalf("neq msgs = %#v", got)
+	}
+}
+
 func TestQueryFieldStatsSampleBounded(t *testing.T) {
 	old := fieldStatsSample
 	fieldStatsSample = 2

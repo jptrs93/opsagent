@@ -46,6 +46,27 @@ func parseLine(line []byte) (level, msg string, fields map[string]string) {
 	return level, msg, fields
 }
 
+// jsonArrayElements returns the elements of v rendered as strings when v is
+// the shredded form of a JSON array (parseLine keeps arrays as their raw JSON
+// text), or nil for any scalar value. Multi-valued fields like _tags are
+// matched and tallied per element rather than as one opaque list string.
+func jsonArrayElements(v string) []string {
+	if len(v) == 0 || v[0] != '[' {
+		return nil
+	}
+	dec := json.NewDecoder(strings.NewReader(v))
+	dec.UseNumber()
+	var arr []any
+	if dec.Decode(&arr) != nil {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, e := range arr {
+		out = append(out, jsonValueString(e))
+	}
+	return out
+}
+
 func jsonValueString(v any) string {
 	switch t := v.(type) {
 	case string:

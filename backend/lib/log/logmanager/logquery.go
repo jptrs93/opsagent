@@ -79,6 +79,20 @@ func recFieldValue(level, msg string, fields map[string]string, field string) (s
 	}
 }
 
+// valueEquals is the equality used by eq/neq/in: the whole value, or — when
+// the value is a shredded JSON array — any one of its elements.
+func valueEquals(v, want string) bool {
+	if strings.EqualFold(v, want) {
+		return true
+	}
+	for _, e := range jsonArrayElements(v) {
+		if strings.EqualFold(e, want) {
+			return true
+		}
+	}
+	return false
+}
+
 func (f *compiledFilter) match(level, msg string, fields map[string]string) bool {
 	v, ok := recFieldValue(level, msg, fields, f.field)
 	switch f.op {
@@ -87,9 +101,9 @@ func (f *compiledFilter) match(level, msg string, fields map[string]string) bool
 	case "not_exists":
 		return !ok
 	case "eq":
-		return ok && strings.EqualFold(v, f.origValue)
+		return ok && valueEquals(v, f.origValue)
 	case "neq":
-		return !(ok && strings.EqualFold(v, f.origValue))
+		return !(ok && valueEquals(v, f.origValue))
 	case "in":
 		// A missing field compares as "" so an empty want can select records
 		// without the field (e.g. level in ["ERROR", ""] includes unleveled
@@ -98,7 +112,7 @@ func (f *compiledFilter) match(level, msg string, fields map[string]string) bool
 			v = ""
 		}
 		for _, want := range f.values {
-			if strings.EqualFold(v, want) {
+			if valueEquals(v, want) {
 				return true
 			}
 		}
@@ -397,10 +411,20 @@ func accumField(m map[string]*fieldAccum, name, value string, inSample bool) {
 		acc = &fieldAccum{values: map[string]int64{}}
 		m[name] = acc
 	}
-	if inSample {
-		acc.withField++
-		acc.values[value]++
+	if !inSample {
+		return
 	}
+	acc.withField++
+	// A shredded JSON array counts per element, so multi-valued fields like
+	// _tags list each item with its own share instead of one row per distinct
+	// combination.
+	if elems := jsonArrayElements(value); elems != nil {
+		for _, e := range elems {
+			acc.values[e]++
+		}
+		return
+	}
+	acc.values[value]++
 }
 
 func fieldStatsList(m map[string]*fieldAccum, sampled int64) []*apigen.LogFieldStats {
@@ -430,7 +454,13 @@ func fieldStatsList(m map[string]*fieldAccum, sampled int64) []*apigen.LogFieldS
 			}
 			return all[a].value < all[b].value
 		})
-		other := acc.withField
+		// Other is the value occurrences outside the top-N. Summing the counts
+		// (rather than starting from withField) keeps it correct for
+		// multi-valued fields, where one record contributes several tallies.
+		var other int64
+		for _, v := range all {
+			other += v.count
+		}
 		for idx := 0; idx < len(all) && idx < fieldStatsTopN; idx++ {
 			fs.Top = append(fs.Top, &apigen.LogFieldValueCount{Value: all[idx].value, Count: all[idx].count})
 			other -= all[idx].count
