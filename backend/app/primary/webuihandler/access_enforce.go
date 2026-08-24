@@ -10,6 +10,22 @@ import (
 
 var AccessDeniedErr = apigen.NewApiErr("Access denied", "access_denied", http.StatusForbidden)
 
+var DelegationNotPermittedErr = apigen.NewApiErr(
+	"This action cannot be performed by an agent session",
+	"delegation_not_permitted",
+	http.StatusForbidden,
+)
+
+func requireHuman(ctx apigen.Context) error {
+	if ctx.User == nil {
+		return InvalidAuthTokenErr
+	}
+	if ctx.User.Delegated {
+		return DelegationNotPermittedErr
+	}
+	return nil
+}
+
 const (
 	vView     = apigen.AuthzVerb_AUTHZ_VERB_VIEW
 	vViewLogs = apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS

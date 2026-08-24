@@ -86,7 +86,7 @@ func TestAgentSessionHandshakeOverJSON(t *testing.T) {
 	// doing so the moment the operator revokes it.
 	authed := func(t *testing.T) int {
 		t.Helper()
-		req, err := http.NewRequest(http.MethodPost, server.URL+"/v1/agent-sessions/list", strings.NewReader(`{}`))
+		req, err := http.NewRequest(http.MethodPost, server.URL+"/v1/secrets/status", strings.NewReader(`{}`))
 		if err != nil {
 			t.Fatalf("building request: %v", err)
 		}

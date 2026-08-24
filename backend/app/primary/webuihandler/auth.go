@@ -103,6 +103,12 @@ func (h *Handler) verifyMasterPassword(password string) error {
 }
 
 func (h *Handler) PostV1AuthMasterPasswordSave(ctx apigen.Context, req *apigen.MasterPasswordSaveRequest) error {
+	if err := requireHuman(ctx); err != nil {
+		return err
+	}
+	if err := h.requireAccess(ctx, vUpdate, eCluster, 0, 0); err != nil {
+		return err
+	}
 	if req.Password == "" {
 		return MasterPasswordRequiredErr
 	}
@@ -118,6 +124,12 @@ func (h *Handler) PostV1AuthMasterPasswordSave(ctx apigen.Context, req *apigen.M
 }
 
 func (h *Handler) PostV1AuthMasterPasswordVerify(ctx apigen.Context, req *apigen.MasterPasswordVerifyRequest) error {
+	if err := requireHuman(ctx); err != nil {
+		return err
+	}
+	if err := h.requireAccess(ctx, vView, eCluster, 0, 0); err != nil {
+		return err
+	}
 	return h.verifyMasterPassword(req.Password)
 }
 

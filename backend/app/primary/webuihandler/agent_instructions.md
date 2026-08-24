@@ -44,6 +44,16 @@ Store the token and the base URL yourself, however you normally persist state.
 The token is valid for 6 hours and is not recoverable. Never echo it into
 output, commit it, or write it into a file the operator did not ask for.
 
+When your work is finished, end the session yourself — the token stays live for
+the rest of its 6 hours otherwise:
+
+```sh
+curl -sS -X POST '{{.BaseURL}}/v1/agent-sessions/revoke' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  -d '{"id": "<the id>"}'
+```
+
 ## 2. Making requests
 
 Every authenticated call needs three headers:
@@ -58,58 +68,113 @@ Accept: application/json
 binary protobuf, which will look to you like a corrupted response.
 
 Everything below is `POST` with a JSON body unless marked otherwise. JSON field
-names are `snake_case`, matching the examples exactly. Do not retry a `4xx` —
-it will fail again. Retry `5xx` and connection errors.
+names are `snake_case`, matching the examples exactly. Errors come back as
+`{"code": 403, "display_err": "Access denied"}` — `code` repeats the HTTP
+status. Do not retry a `4xx`; it will fail again. Retry `5xx` and connection
+errors.
 
-## 3. Reading state
+## 3. What your session may do
 
-`GET /v1/global/state` is the starting point for everything. It returns the
-deployments, assets, configs, spaces, and secret/config folder tree
-(`value_directories`) your session may see, with the ids the other endpoints
+Your token carries the rights of the operator who approved it, minus what is
+never delegated to an agent. Under the standard access rules that leaves you
+everything in that operator's spaces except:
+
+- **Logs.** Deployment logs and build output are denied outright, because a
+  running workload can echo a secret value into them. `403`.
+- **Secret values.** You may list secret metadata and create new secrets. You
+  may not read, overwrite, rename, move, or delete one. `403`.
+- **The cluster itself.** Nodes, enrollment, cluster settings, access rules and
+  grants, config export, and OpenDeploy's own internal deployments all live at
+  the cluster level (space `0`) and are human-only. They are either invisible
+  to you or `403`.
+
+A denial is `403 Access denied`. Where you cannot even see the entity you get
+`404` instead, so a `404` on something the operator says exists means it is
+outside your session, not missing. Neither is a bug and neither has a
+workaround: ask the operator to do that step in the browser, or to widen your
+access if they meant to.
+
+Separately, anything that touches the operator's own credentials or sessions is
+closed to agent tokens whatever their grants say, and answers
+`403 delegation_not_permitted`: the master password (`/v1/auth/master*`),
+passkey registration, `/v1/personal-sessions/*`, and creating, approving, or
+listing agent sessions. There is no grant that opens these, so do not ask for
+one. The one you keep is `/v1/agent-sessions/revoke` for your own session id.
+
+## 4. Reading state
+
+`GET /v1/global/state` is the starting point for everything. It returns
+`spaces`, `deployment_configs`, `assets`, `configs`, `secrets`,
+`value_directories`, and `asset_directories` — with the ids the other endpoints
 expect. Read it before you change anything. It is filtered to your access, so
-what is absent is either absent or not yours — secret metadata is normally not
-included (see section 6).
+what is absent is either absent or not yours.
 
-`POST /v1/deployments/get` with `{"id": <deployment id>}` returns one
-deployment's live status: whether it is running, what it is preparing, and why
-it last failed.
+Every collection is a wrapper around a list, so the deployments are at
+`deployment_configs.items`, the secrets at `secrets.items`, and so on. Listing
+endpoints return the same `{"items": [...]}` shape.
 
-## 4. Assets
+The same collections have their own endpoints when you want one of them fresh:
+`/v1/assets/list`, `/v1/configs/list`, `/v1/secrets/list`,
+`/v1/value-directories/list`, `/v1/asset-directories/list`.
 
-An asset is a stable identity — its `id` never changes across renames, moves,
-or new content. Content lives in immutable numbered versions; each version row
-has its own `asset_version_id`, which is what deployment specs pin.
+Per deployment:
 
-Assets live in a per-space folder tree (`asset_directories` in global state,
-root = directory `0`); an asset's `asset_directory_id` says which folder holds
-it, and keys are unique per folder, not globally.
+- `POST /v1/deployments/get` `{"id": <id>}` — the config plus its live
+  `instances.items`. Each instance carries `status.preparer` (`inputs`, `image`) and
+  `status.runner` (`status`, `running_version`, `number_of_restarts`). That
+  tells you *which stage* failed, not why: the reason is in the build output or
+  the logs, which you cannot read. Report the stage and ask the operator to look.
+- `POST /v1/deployments/history` `{"deployment_id": <id>}` — past config
+  versions with the status each reached.
+- `POST /v1/deployments/versions` `{"deployment_id": <id>}` — what is
+  *deployable*: git commits for a nix build (optionally
+  `"selected_branch": "main"`), release tags, or image tags. This is where a
+  `target_version` comes from.
+- `POST /v1/deployments/recently-deleted` `{"limit": 25}` — tombstones of
+  deleted deployments, spec intact. Useful as a template for a new one; the id
+  and version in them are dead.
 
-To update an existing asset, upload against its stable id (find it in
-`/v1/global/state`):
+**Nodes are not in global state.** `node_id` is required to create a
+deployment, and the only JSON source for one is the `node_id` of an existing
+deployment in `deployment_configs`. If none of them is the right host, ask the
+operator which node to use.
+
+## 5. Deployments
+
+### Creating
 
 ```sh
-curl -sS -X POST '{{.BaseURL}}/v1/assets/upload?asset_id=12' \
-  -H "Authorization: Bearer $TOKEN" -H 'Accept: application/json' \
-  --data-binary @nginx.conf
+curl -sS -X POST '{{.BaseURL}}/v1/deployments/create' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  -d '{"name": "api", "space_id": 2, "node_id": 1, "spec": { ... }}'
 ```
 
-**Use `?asset_id=`, never `?name=`, for updates.** `?asset_id=` appends a new
-version to that exact asset, which is almost always what you want. `?name=`
-means "create a new asset", and if that name is taken the server silently
-suffixes it — you get a separate asset called `nginx.conf1`, a `200` response,
-and a deployment still pointing at the original. Nothing tells you it went
-wrong. Only use `?name=` (optionally with `&space_id=`) when the operator asked
-for a brand-new asset.
+Write the `spec` by copying a working deployment's spec out of global state (or
+a tombstone from `recently-deleted`) and editing it. It is a large validated
+shape and inventing one field-by-field mostly produces `400`s. `name` is unique
+per (name, space, node) — a clash is `409 duplicate_deployment` — and the node
+must allow the space.
 
-Uploading a new version does not change what deployments serve: their specs pin
-the `asset_version_id` of the version that was selected when the deployment was
-configured. After uploading, update the deployment spec to point at the new
-version's id (the upload response includes it as `id`).
+Before pointing a spec at a repo or image you have not used here before,
+`POST /v1/repos/validate` checks it is reachable:
 
-## 5. Changing a deployment
+```json
+{"nix_docker_build": {"repo_url": "github.com/owner/repo", "selected_branch": "main",
+                      "check_repo": true, "check_branch": true}}
+{"container_image": {"image": "ghcr.io/owner/app", "refresh_versions": true}}
+```
 
-`POST /v1/deployments/update` with `{"deployment_id": <id>, "spec": {...},
-"version": <current + 1>}`.
+### Changing
+
+`POST /v1/deployments/update` with `{"deployment_id": <id>, "version": <current
++ 1>, ...}`. The other fields select what kind of change it is:
+
+- `"target_version": "<id from /v1/deployments/versions>"` — deploy that
+  version and mark the workload running.
+- `"stop": true` — stop it, keeping the current version so a later start can
+  reuse it. `stop` wins if you send both.
+- `"spec": {...}` — replace the configuration.
 
 **`spec` is a full replacement.** There is no merge and no partial update. Any
 field you leave out is *dropped*, and the call still returns `200`. So always:
@@ -126,58 +191,235 @@ After any change, poll `POST /v1/deployments/get` until the deployment
 settles. A `200` from `update` means the config was accepted, not that the
 workload is running.
 
-## 6. Secrets
+### Moving and deleting
 
-**By default you cannot read a secret value.** Under the standard access rules a
-secret you did not create is simply not visible to you: revealing, setting,
-renaming, or deleting one returns `404`, and secrets do not appear in global
-state. Do not treat that as a bug or work around it — ask the operator to do
-those in the browser, or to grant your session more if they mean to.
+`POST /v1/deployments/move-space` `{"deployment_id": <id>, "space_id": <dest>,
+"space_version": <current space_version + 1>}`. Note the guard is
+`space_version`, a separate counter from `version`. Every secret, config, and
+asset the spec references has to be reachable from the destination space.
 
-You *can* create one, because creating it does not require seeing it. The server
-generates the value, stores it encrypted, and returns only metadata — which is
-also the one time you see the ids belonging to it, so keep them:
+`POST /v1/deployments/delete` `{"deployment_id": <id>, "version": <current +
+1>}`. The workload must already be stopped, and nothing else may reference its
+address. Ask the operator first (see section 10).
+
+### Referencing values from a spec
+
+Inside `runtime.env_vars`, each entry is one of:
+
+```json
+{"value": "literal"}
+{"secret_version_id": 12}
+{"config_version_id": 7}
+{"asset": "nginx.conf", "asset_version_id": 41}
+{"address_deployment_id": 9, "address_space_id": 2}
+```
+
+Files are mounted with `runtime.asset_mounts`:
+
+```json
+{"asset_version_id": 41, "container_path": "/etc/nginx/nginx.conf", "permission": 2}
+```
+
+Every one of these pins an immutable **version row id**, never the stable
+identity. Uploading a new asset version or setting a new config value therefore
+changes nothing until you update the spec to pin the new id.
+
+## 6. Assets
+
+An asset is a stable identity — its `id` never changes across renames, moves,
+or new content. Content lives in immutable numbered versions listed newest
+first in `content_versions`; `content_versions[0].id` is what specs pin. The
+name and folder are in `fs` (`fs.key`, `fs.directory_id`), and the space is in
+`space_versions[0].space_id`.
+
+Assets live in a per-space folder tree (`asset_directories` in global state,
+root = directory `0`), and keys are unique per folder, not globally.
+
+To update an existing asset, upload against its stable id:
+
+```sh
+curl -sS -X POST '{{.BaseURL}}/v1/assets/upload?asset_id=12' \
+  -H "Authorization: Bearer $TOKEN" -H 'Accept: application/json' \
+  --data-binary @nginx.conf
+```
+
+**Use `?asset_id=`, never `?key=`, for updates.** `?asset_id=` appends a new
+version to that exact asset, which is almost always what you want. `?key=`
+means "create a new asset" and fails with `400 asset_key_exists` if the key is
+taken in that folder — unless you also pass `unique_key=true`, which suffixes it
+(`nginx.conf1`) and hands you a *different* asset that no deployment is using.
+Only create when the operator asked for a brand-new asset:
+
+```
+POST /v1/assets/upload?key=nginx.conf&space_id=2&directory_id=0
+```
+
+The upload response is the asset, and `content_versions[0].id` is the new
+version id. Uploading does not change what deployments serve; update the spec
+to pin that id (section 5).
+
+Reading and organising:
+
+- `GET /v1/assets/content?content_version_id=41` — the bytes of one version.
+- `POST /v1/assets/rename` `{"asset_id": 12, "new_key": "nginx.conf"}`
+- `POST /v1/assets/move` `{"asset_id": 12, "asset_directory_id": 3, "space_id": 0}`
+  (`space_id: 0` keeps the space; `asset_directory_id: 0` is the space root)
+- `POST /v1/assets/delete` `{"asset_id": 12}` — destructive, see section 10.
+- `/v1/asset-directories/create` `{"space_id": 2, "parent_id": 0, "key": "nginx"}`,
+  plus `/move`, `/rename`, `/delete`. A directory must be empty to delete;
+  contents are never cascaded.
+
+## 7. Configs
+
+A config is a plaintext value with the same identity/version split as an asset:
+stable `id`, `fs.name`, `fs.directory_id`, and `value_versions` newest first
+carrying both the `value` and the `id` that env refs pin. Configs and secrets
+share one folder tree per space (`value_directories`, root = directory `0`).
+Names are unique per folder.
+
+- `POST /v1/configs/create` `{"name": "log-level", "value": "debug", "space_id": 2, "value_directory_id": 0}`
+- `POST /v1/configs/set` — appends the next version of an existing config:
+
+```json
+{"config_id": 7, "value": "info",
+ "update_referencing_deployments": true,
+ "referencing_deployments": [{"id": 3, "version": 12}]}
+```
+
+`update_referencing_deployments` re-pins the deployments that use this config
+to the new version atomically. When you set it you must list **every**
+deployment currently referencing the config with its **current** version;
+anything missing, extra, or stale is `409 referencing_deployments_changed` —
+re-read global state and retry. Leave both fields out to append a version
+without touching any deployment, then update specs yourself.
+
+- `POST /v1/configs/rename` `{"config_id": 7, "new_name": "log-level"}`
+- `POST /v1/configs/move` `{"config_id": 7, "value_directory_id": 3, "space_id": 0}`
+- `POST /v1/configs/delete` `{"config_id": 7}` — destructive, see section 10.
+- `/v1/value-directories/create` `{"space_id": 2, "parent_id": 0, "name": "app"}`,
+  plus `/move`, `/rename`, `/delete` (must be empty).
+
+**Configs are not secrets.** Their values are stored in plaintext and are
+returned in global state. Never put a credential in one — use section 8.
+
+## 8. Secrets
+
+**You can create a secret but never read one.** Secret metadata is visible to
+you in `secrets` (name, folder, version ids — never a value). Everything that
+would expose or destroy a value is denied: `/v1/secrets/reveal`,
+`/v1/secrets/set`, `/v1/secrets/create` (which carries a plaintext value),
+`/v1/secrets/rename`, `/v1/secrets/move`, and `/v1/secrets/delete` all return
+`403`. Ask the operator to do those in the browser.
+
+What you can do is `generate`, because the value is produced inside the server
+and never leaves it:
 
 ```sh
 curl -sS -X POST '{{.BaseURL}}/v1/secrets/generate' \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -H 'Accept: application/json' \
-  -d '{"name": "postgres-password", "password": {"length": 32}}'
+  -d '{"name": "postgres-password", "space_id": 2, "password": {"length": 32}}'
 ```
 
-The response is `{"id": 30, "name": "postgres-password", "version_refs":
-[{"id": 12, "version": 1, ...}], ...}`. Two id spaces: the root `id` is the
-stable secret identity (it survives renames and rotations); each entry in
-`version_refs` is one immutable version, newest first. Deployment env refs pin
-a **version** id — put `version_refs[0].id` into the deployment's env as a
-`secret_version_id` reference and the workload receives the value at spawn
-time:
+The response is the secret metadata:
+
+```json
+{"id": 30, "fs": {"name": "postgres-password", "directory_id": 0},
+ "space_versions": [{"id": 8, "space_id": 2}],
+ "versions": [{"id": 12, "version": 1}]}
+```
+
+The root `id` is the stable identity; each entry in `versions` is one immutable
+version, newest first. This is the one time you see these ids, so keep them.
+Deployment env refs pin a **version**: put `versions[0].id` into the spec as
 
 ```json
 "env_vars": {"POSTGRES_PASSWORD": {"secret_version_id": 12}}
 ```
 
-Send that through `deployment/update` as in section 5. You never handle the
-value at any point.
+and send it through `/v1/deployments/update` as in section 5. The workload
+receives the value at spawn time; you never handle it.
 
 - **`length`** defaults to 32 and must be 16–4096. Out of range is a `400`, not
   a clamp.
 - **`include_symbols`** defaults to false. Leave it that way unless the operator
   asks otherwise — you cannot read the value back to debug a quoting problem in
   a shell or connection string.
-- **The name must be new.** An existing name returns `400`. You cannot rotate a
-  secret, only create one; ask the operator to rotate.
-- **Names are unique per folder, not globally.** Secrets and configs share one
-  folder tree per space (`value_directories` in global state, root = directory
-  `0`). Generated secrets land in the space root; a secret's
-  `value_directory_id` says which folder holds it.
+- **The name must be new.** An existing name in that space root is `400`. You
+  cannot rotate a secret, only create one; ask the operator to rotate.
+- Generated secrets land in the space root. Names are unique per folder, not
+  globally.
 - `password` is one specification among future others. Send exactly one.
 
-## 7. Limits
+`POST /v1/secrets/status` reports whether the store is unlocked. If
+`unlocked` is false, every secret operation fails until the operator unlocks
+it — that is not something you can fix.
 
+## 9. Spaces
+
+Spaces come from `spaces` in global state. You can rename one
+(`/v1/spaces/update` `{"id": 2, "name": "staging"}`) and delete one
+(`/v1/spaces/delete` `{"id": 2}`), but **not create one** — `/v1/spaces/create`
+is `403` for an agent. Deleting a space is the most destructive call in this
+API; treat it as section 10 and expect to be told no.
+
+## 10. Rules that apply everywhere
+
+- **Destructive operations need explicit confirmation first.** Deleting a
+  deployment, asset, config, directory, or space is not something to do because
+  it seemed implied. Ask, quote exactly what will be deleted, and wait.
 - **Streaming endpoints are protobuf-only.** `/v1/global/state-stream` and
-  `/v1/deployments/prepare-output` do not honour `Accept: application/json`.
-  Use the non-streaming endpoints above instead.
+  `/v1/deployments/prepare-output` ignore `Accept: application/json`. Use the
+  non-streaming endpoints above instead. (Prepare output is also denied to you.)
 - **Enums are numbers** in JSON, not names.
-- **Destructive operations** — deleting deployments, assets, or spaces —
-  require the operator's explicit confirmation first. Ask before attempting one.
+- **Ids are per-kind.** Stable identity ids and version row ids are different
+  number spaces; so are a deployment's `version` and its `space_version`.
+
+## 11. Endpoint reference
+
+Everything on the public API, and whether your session can call it. "operator"
+means it exists but is denied to agents — do not retry, ask.
+
+**Reading**
+
+| Endpoint | |
+|---|---|
+| `GET /v1/global/state` | yes |
+| `POST /v1/deployments/get` `/history` `/versions` `/recently-deleted` | yes |
+| `POST /v1/assets/list`, `GET /v1/assets/content` | yes |
+| `POST /v1/configs/list`, `/v1/secrets/list`, `/v1/secrets/status` | yes |
+| `POST /v1/value-directories/list`, `/v1/asset-directories/list` | yes |
+| `POST /v1/repos/validate` | yes |
+| `GET /v1/healthz` | yes, no auth |
+| `POST /v1/deployments/log-query` | operator (logs) |
+| `POST /v1/deployments/prepare-output` | operator (logs), protobuf stream |
+| `POST /v1/global/state-stream` | protobuf stream |
+| `POST /v1/global/exported-config` | operator (cluster) |
+
+**Writing**
+
+| Endpoint | |
+|---|---|
+| `POST /v1/deployments/create` `/update` `/move-space` `/delete` | yes |
+| `POST /v1/assets/upload` `/rename` `/move` `/delete` | yes |
+| `POST /v1/asset-directories/create` `/move` `/rename` `/delete` | yes |
+| `POST /v1/configs/create` `/set` `/rename` `/move` `/delete` | yes |
+| `POST /v1/value-directories/create` `/move` `/rename` `/delete` | yes |
+| `POST /v1/secrets/generate` | yes |
+| `POST /v1/spaces/update` `/delete` | yes |
+| `POST /v1/spaces/create` | operator |
+| `POST /v1/secrets/create` `/set` `/reveal` `/rename` `/move` `/delete` | operator (secret values) |
+| `POST /v1/secrets/unlock` `/rotate-recovery-code` | operator (cluster) |
+| `POST /v1/nodes/rename` `/allowed-spaces`, `/v1/nodes/enrollments/*` | operator (cluster) |
+| `POST /v1/cluster-settings/get` `/update` | operator (cluster) |
+| `POST /v1/access/rule-templates/*` `/grants/*` `/global-rules/*` | operator (cluster) |
+
+**Sessions**
+
+| Endpoint | |
+|---|---|
+| `POST /v1/agent-sessions/request-start` `/get-session` | yes, no auth |
+| `POST /v1/agent-sessions/revoke` (your own id only) | yes |
+| `GET /v1/auth/current-session` | yes |
+| `POST /v1/agent-sessions/approve` `/create` `/list` | human-only |
+| `/v1/auth/master*`, `/v1/auth/passkey/*`, `/v1/personal-sessions/*` | human-only |

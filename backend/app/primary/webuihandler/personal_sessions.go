@@ -110,8 +110,8 @@ func personalSessionToProto(rec state.PersonalSessionRecord, currentID string) *
 }
 
 func (h *Handler) PostV1PersonalSessionsList(ctx apigen.Context) (*apigen.PersonalSessionList, error) {
-	if ctx.User == nil {
-		return nil, InvalidAuthTokenErr
+	if err := requireHuman(ctx); err != nil {
+		return nil, err
 	}
 	records, err := h.Store.ListPersonalSessionsForUser(ctx.User.ID)
 	if err != nil {
@@ -126,8 +126,8 @@ func (h *Handler) PostV1PersonalSessionsList(ctx apigen.Context) (*apigen.Person
 }
 
 func (h *Handler) PostV1PersonalSessionsRevoke(ctx apigen.Context, req *apigen.PersonalSessionRevokeRequest) error {
-	if ctx.User == nil {
-		return InvalidAuthTokenErr
+	if err := requireHuman(ctx); err != nil {
+		return err
 	}
 	if strings.TrimSpace(req.ID) == "" {
 		return PersonalSessionNotFoundErr

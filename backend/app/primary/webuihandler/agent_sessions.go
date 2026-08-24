@@ -119,6 +119,9 @@ func (h *Handler) signAgentToken(userID int32, sessionID string, scopes []string
 // again, so a copy of primary.db — including an off-box backup — carries no
 // usable credential.
 func (h *Handler) PostV1AgentSessionsCreate(ctx apigen.Context) (*apigen.AgentSessionCreated, error) {
+	if err := requireHuman(ctx); err != nil {
+		return nil, err
+	}
 	claims, user, err := h.jwtAuth.VerifyAndResolveUser(ctx.Token)
 	if err != nil {
 		return nil, InvalidAuthTokenErr
@@ -294,8 +297,8 @@ func (h *Handler) mintApprovedAgentSession(ctx apigen.Context, rec state.AgentSe
 // into an approved session. The scopes recorded here are the approver's own, so
 // approving can never grant more than the approver holds.
 func (h *Handler) PostV1AgentSessionsApprove(ctx apigen.Context, req *apigen.AgentSessionApproveRequest) (*apigen.AgentSession, error) {
-	if ctx.User == nil {
-		return nil, InvalidAuthTokenErr
+	if err := requireHuman(ctx); err != nil {
+		return nil, err
 	}
 	claims, _, err := h.jwtAuth.VerifyAndResolveUser(ctx.Token)
 	if err != nil {
@@ -338,8 +341,8 @@ func (h *Handler) PostV1AgentSessionsApprove(ctx apigen.Context, req *apigen.Age
 // There is no cross-user view: every operator holds the same scopes, so this
 // filter is a scoping convenience rather than an isolation boundary.
 func (h *Handler) PostV1AgentSessionsList(ctx apigen.Context) (*apigen.AgentSessionList, error) {
-	if ctx.User == nil {
-		return nil, InvalidAuthTokenErr
+	if err := requireHuman(ctx); err != nil {
+		return nil, err
 	}
 	records, err := h.Store.ListAgentSessionsForUser(ctx.User.ID)
 	if err != nil {
@@ -359,6 +362,9 @@ func (h *Handler) PostV1AgentSessionsRevoke(ctx apigen.Context, req *apigen.Agen
 	if ctx.User == nil {
 		return InvalidAuthTokenErr
 	}
+	if ctx.User.Delegated && strings.TrimSpace(req.ID) != h.agentSessionIDFromToken(ctx.Token) {
+		return AgentSessionNotFoundErr
+	}
 	rec, err := h.fetchOwnAgentSession(ctx, req.ID)
 	if err != nil {
 		return err
@@ -372,6 +378,15 @@ func (h *Handler) PostV1AgentSessionsRevoke(ctx apigen.Context, req *apigen.Agen
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("stopped agent session status=%v", status), "session", req.ID)
 	return nil
+}
+
+func (h *Handler) agentSessionIDFromToken(token string) string {
+	claims, _, err := h.jwtAuth.VerifyAndResolveUser(token)
+	if err != nil {
+		return ""
+	}
+	sessionID, _ := claims["jti"].(string)
+	return sessionID
 }
 
 // fetchOwnAgentSession resolves a session the caller owns. Someone else's id
