@@ -5,6 +5,7 @@ import (
 	"container/heap"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"sort"
@@ -238,6 +239,50 @@ func resolveQueryScope(timeStart, timeEnd time.Time) (from, till time.Time, err 
 	return from, till, nil
 }
 
+type fileScan struct {
+	name   string
+	rows   int64
+	narrow bool
+	dur    time.Duration
+}
+
+type queryTrace struct {
+	snapshotDur time.Duration
+	walDur      time.Duration
+	walRows     int64
+	filesPruned int
+	files       []fileScan
+}
+
+func (t *queryTrace) parquetDur() time.Duration {
+	var d time.Duration
+	for i := range t.files {
+		d += t.files[i].dur
+	}
+	return d
+}
+
+func (t *queryTrace) fileSummary() string {
+	const maxEntries = 24
+	var b strings.Builder
+	for i := range t.files {
+		if i == maxEntries {
+			fmt.Fprintf(&b, " +%d more", len(t.files)-i)
+			break
+		}
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		f := &t.files[i]
+		mode := "full"
+		if f.narrow {
+			mode = "narrow"
+		}
+		fmt.Fprintf(&b, "%s:%s:%dr:%dms", f.name, mode, f.rows, f.dur.Milliseconds())
+	}
+	return b.String()
+}
+
 type narrowRow struct {
 	Time            int64  `parquet:"time"`
 	Version         int32  `parquet:"version"`
@@ -257,8 +302,10 @@ type narrowRow struct {
 // parquet file whether the raw_message column can be skipped; narrow records
 // carry no line bytes. An unreadable archive file is skipped with a warning
 // rather than failing the scan.
-func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, narrowFile func(logdb.LogFile) bool, visit func(*visitRec) bool) ([]string, error) {
+func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, trace *queryTrace, narrowFile func(logdb.LogFile) bool, visit func(*visitRec) bool) ([]string, error) {
+	snapStart := clock()
 	committed, files, err := i.searchSnapshot(ctx)
+	trace.snapshotDur = clock().Sub(snapStart)
 	if err != nil {
 		return nil, err
 	}
@@ -269,34 +316,44 @@ func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, 
 		return n&1023 == 0 && ctx.Err() != nil
 	}
 	if committed.isZero() || tillN > committed.time-reorderGraceWindow.Nanoseconds() {
+		walStart := clock()
 		sealed, cancel := context.WithCancel(context.Background())
 		cancel()
 		for r, err := range StreamDeploymentLogRecords(sealed, i.deploymentID, committed) {
 			if err != nil {
+				trace.walDur = clock().Sub(walStart)
 				return warnings, err
 			}
 			if cancelled() {
+				trace.walDur = clock().Sub(walStart)
 				return warnings, ctx.Err()
 			}
+			trace.walRows++
 			v := visitRec{rec: r.record}
 			if !visit(&v) {
+				trace.walDur = clock().Sub(walStart)
 				return warnings, nil
 			}
 		}
+		trace.walDur = clock().Sub(walStart)
 	}
 	for _, f := range files {
 		if ctx.Err() != nil {
 			return warnings, ctx.Err()
 		}
 		if f.MaxTime < fromN || f.MinTime >= tillN {
+			trace.filesPruned++
 			continue
 		}
 		path := archiveFilePath(i.deploymentID, f)
+		fs := fileScan{name: archiveFileName(int(f.Level), f.MinTime, f.MaxTime, int32(f.Node), f.Seq)}
+		fileStart := clock()
 		fileWarning := func(err error) {
 			warnings = append(warnings, fmt.Sprintf("skipped unreadable archive file %s: %v", archiveFileName(int(f.Level), f.MinTime, f.MaxTime, int32(f.Node), f.Seq), err))
 		}
 		stop := false
 		if narrowFile != nil && narrowFile(f) {
+			fs.narrow = true
 			for row, err := range readArchiveRowsRange(path, fromN, tillN, func(r *narrowRow) int64 { return r.Time }) {
 				if err != nil {
 					fileWarning(err)
@@ -305,6 +362,7 @@ func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, 
 				if cancelled() {
 					return warnings, ctx.Err()
 				}
+				fs.rows++
 				v := visitRec{
 					rec: apigen.RawLogLine{
 						Time:            row.Time,
@@ -336,6 +394,7 @@ func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, 
 				if cancelled() {
 					return warnings, ctx.Err()
 				}
+				fs.rows++
 				v := visitRec{
 					rec:      rowToRawLogLine(row, i.deploymentID),
 					level:    row.Level,
@@ -348,6 +407,8 @@ func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, 
 				}
 			}
 		}
+		fs.dur = clock().Sub(fileStart)
+		trace.files = append(trace.files, fs)
 		if stop {
 			break
 		}
@@ -454,7 +515,8 @@ func (i *LogStreamCollector) runQuery(ctx context.Context, q queryParams) (*apig
 		}
 		return f.MinTime > root.Time
 	}
-	warnings, err := i.scanRange(ctx, fromN, tillN, narrowFile, func(v *visitRec) bool {
+	trace := &queryTrace{}
+	warnings, err := i.scanRange(ctx, fromN, tillN, trace, narrowFile, func(v *visitRec) bool {
 		scanned++
 		if v.rec.Time < fromN || v.rec.Time >= tillN {
 			return true
@@ -577,6 +639,20 @@ func (i *LogStreamCollector) runQuery(ctx context.Context, q queryParams) (*apig
 		}
 		resp.Histogram = h
 	}
+	slog.InfoContext(ctx, "log query",
+		"deployment", i.deploymentID,
+		"range_ms", (tillN-fromN)/1e6,
+		"took_ms", resp.Stats.TookMs,
+		"scanned", scanned,
+		"matched", matched,
+		"snapshot_ms", trace.snapshotDur.Milliseconds(),
+		"wal_ms", trace.walDur.Milliseconds(),
+		"wal_rows", trace.walRows,
+		"parquet_ms", trace.parquetDur().Milliseconds(),
+		"files_scanned", len(trace.files),
+		"files_pruned", trace.filesPruned,
+		"files", trace.fileSummary(),
+	)
 	return resp, nil
 }
 

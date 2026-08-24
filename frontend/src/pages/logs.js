@@ -331,6 +331,7 @@ export function logsPage(selectedDeploymentId) {
         errorMsg.val = '';
         expanded.val = null;
         try {
+            const t0 = performance.now();
             const resp = await capi.postV1DeploymentsLogQuery({
                 ...currentRequest(),
                 timeStart: new Date(startTs),
@@ -339,7 +340,9 @@ export function logsPage(selectedDeploymentId) {
                 histogramBuckets: HISTOGRAM_BUCKETS,
             });
             if (gen !== searchGen) return;
-            result.val = buildResult(resp);
+            const built = buildResult(resp);
+            built.feMs = Math.round(performance.now() - t0);
+            result.val = built;
             // Test hook: the virtualised table only renders a window, so e2e
             // assertions read the full result set from here.
             window.__logsResult = result.val;
@@ -735,7 +738,7 @@ export function logsPage(selectedDeploymentId) {
         if (searching.val) return 'Searching…';
         const res = result.val;
         if (!res) return 'No search yet.';
-        let text = `${res.scanned.toLocaleString()} events scanned in ${res.tookMs} ms · ${res.matched.toLocaleString()} match${res.matched === 1 ? '' : 'es'}`;
+        let text = `${res.scanned.toLocaleString()} events scanned in ${res.tookMs} ms (fe ${res.feMs} ms) · ${res.matched.toLocaleString()} match${res.matched === 1 ? '' : 'es'}`;
         if (res.truncated) text += ` · list shows newest ${res.records.length.toLocaleString()}`;
         if (res.warnings.length) text += ` · ${res.warnings[0]}`;
         return text;
