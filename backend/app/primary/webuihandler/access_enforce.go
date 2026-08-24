@@ -112,6 +112,24 @@ func valueSpace(spaceID int32) int64 {
 	return int64(state.NormalizedUserSpaceID(spaceID))
 }
 
+func (h *Handler) canCreateDeploymentSomewhere(ctx apigen.Context) bool {
+	if h.Authz == nil {
+		return true
+	}
+	if ctx.User == nil {
+		return false
+	}
+	for _, space := range h.Store.ListSpaces() {
+		if space == nil {
+			continue
+		}
+		if h.canAccess(ctx, vCreate, eDeployment, int64(space.ID), 0) {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *Handler) spaceVisible(ctx apigen.Context, spaceID int64) bool {
 	if h.Authz == nil {
 		return true

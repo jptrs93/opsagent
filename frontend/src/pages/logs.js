@@ -48,6 +48,10 @@ const COLUMN_DEFS = {
     service: {label: 'service', px: 90},
     host: {label: 'host', px: 74},
     version: {label: 'version', px: 76},
+    node: {label: 'node', px: 52, num: true},
+    run: {label: 'run', px: 46, num: true},
+    instance: {label: 'inst', px: 46, num: true},
+    stream: {label: 'stream', px: 60},
     logger: {label: 'logger', px: 100},
     method: {label: 'method', px: 68},
     path: {label: 'path', px: 170, mono: true},
@@ -56,6 +60,8 @@ const COLUMN_DEFS = {
     trace_id: {label: 'trace', px: 136, mono: true},
     err: {label: 'err', px: 130, mono: true},
 };
+
+const META_FIELDS = new Set(['version', 'node', 'run', 'instance', 'stream']);
 
 const PRESETS = [
     {key: '15m', label: 'Last 15 minutes', ms: 15 * MIN},
@@ -137,7 +143,11 @@ function wrapRecord(r) {
         msg: r.msg || '',
         fields: r.fields || {},
         version: Number(r.version || 0),
-        stream: Number(r.stream || 0),
+        stream: Number(r.stream || 0) === 1 ? 'stderr' : 'stdout',
+        node: Number(r.node || 0),
+        run: Number(r.run || 0),
+        instance: Number(r.instanceOrdinal || 0),
+        seq: Number(r.seq || 0),
     };
 }
 
@@ -183,7 +193,11 @@ function recordField(rec, key) {
     if (key === 'time') return fmtRowTime(rec.ts);
     if (key === 'level') return rec.level;
     if (key === 'msg') return rec.msg;
-    if (key === 'version') return rec.fields.version ?? (rec.version ? `v${rec.version}` : '');
+    if (key === 'version') return rec.version ? `v${rec.version}` : '';
+    if (key === 'node') return rec.node ? String(rec.node) : '';
+    if (key === 'run') return rec.run ? String(rec.run) : '';
+    if (key === 'instance') return String(rec.instance);
+    if (key === 'stream') return rec.stream;
     return rec.fields[key];
 }
 
@@ -193,6 +207,11 @@ function recordJson(rec) {
     obj.msg = rec.msg;
     for (const [k, v] of Object.entries(rec.fields)) obj[k] = v;
     if (rec.version) obj.config_version = rec.version;
+    if (rec.node) obj.node = rec.node;
+    if (rec.run) obj.run = rec.run;
+    obj.instance = rec.instance;
+    obj.stream = rec.stream;
+    if (rec.seq) obj.seq = rec.seq;
     return JSON.stringify(obj, null, 2);
 }
 
@@ -966,8 +985,12 @@ export function logsPage(selectedDeploymentId) {
         const kvPairs = [
             ['time', new Date(rec.ts).toISOString()],
             ['level', rec.level],
-            ...Object.entries(rec.fields),
-            ['version', rec.version ? `v${rec.version}` : ''],
+            ['version', rec.version ? String(rec.version) : ''],
+            ['node', rec.node ? String(rec.node) : ''],
+            ['run', rec.run ? String(rec.run) : ''],
+            ['instance', String(rec.instance)],
+            ['stream', rec.stream],
+            ...Object.entries(rec.fields).filter(([k]) => !META_FIELDS.has(k)),
             ['msg', rec.msg],
         ];
         return div(

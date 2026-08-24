@@ -32,7 +32,10 @@ const REFHOST_DEPLOYMENT = 'spacemove-refhost';
 const VALUES_SEARCH = 'Search secrets / configs';
 const ASSETS_SEARCH = 'Search assets';
 const MOVE_BLOCKED_MESSAGE = 'Value is referenced from outside the destination space';
-const DELETE_BLOCKED_MESSAGE = 'Referenced value is still in use';
+// Asset-specific: reference-in-use errors name their referrers, so the bare
+// "Referenced value is still in use" sentinel is only surfaced when there are
+// no details to show (see webuihandler/ref_usage.go).
+const DELETE_BLOCKED_MESSAGE = 'Asset still in use: referenced by';
 
 function restrictedPage(ctx) {
   if (!ctx.restricted?.page) throw new Error('restricted user session is not open');

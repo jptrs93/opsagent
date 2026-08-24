@@ -401,6 +401,7 @@
  * @property {number} deployment
  * @property {number} node
  * @property {number} instanceOrdinal
+ * @property {number} seq
  */
 /**
  * @typedef {Object} LogRecord
@@ -412,6 +413,9 @@
  * @property {number} version
  * @property {number} stream
  * @property {number} instanceOrdinal
+ * @property {number} run
+ * @property {number} node
+ * @property {number} seq
  */
 /**
  * @typedef {Object} PrepareOutputRequest
@@ -6174,6 +6178,9 @@ export function writeRawLogLine(message, writer) {
     if (message.instanceOrdinal !== undefined && message.instanceOrdinal !== null && message.instanceOrdinal !== 0) {
         writer.uint32(tag(8, WIRE.VARINT)).int32(message.instanceOrdinal);
     }
+    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).int64(message.seq);
+    }
 }
 
 
@@ -6195,7 +6202,7 @@ export function encodeRawLogLine(message) {
  */
 function decodeRawLogLineMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {time: 0, version: 0, run: 0, stream: 0, line: new Uint8Array(0), deployment: 0, node: 0, instanceOrdinal: 0 };
+    const message = {time: 0, version: 0, run: 0, stream: 0, line: new Uint8Array(0), deployment: 0, node: 0, instanceOrdinal: 0, seq: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6229,6 +6236,10 @@ function decodeRawLogLineMessage(reader, length) {
             }
             case 8: {
                 message.instanceOrdinal = reader.int32();
+                break;
+            }
+            case 9: {
+                message.seq = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -6287,6 +6298,15 @@ export function writeLogRecord(message, writer) {
     if (message.instanceOrdinal !== undefined && message.instanceOrdinal !== null && message.instanceOrdinal !== 0) {
         writer.uint32(tag(8, WIRE.VARINT)).int32(message.instanceOrdinal);
     }
+    if (message.run !== undefined && message.run !== null && message.run !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).int32(message.run);
+    }
+    if (message.node !== undefined && message.node !== null && message.node !== 0) {
+        writer.uint32(tag(10, WIRE.VARINT)).int32(message.node);
+    }
+    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
+        writer.uint32(tag(11, WIRE.VARINT)).int64(message.seq);
+    }
 }
 
 
@@ -6308,7 +6328,7 @@ export function encodeLogRecord(message) {
  */
 function decodeLogRecordMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {time: 0, level: "", msg: "", fields: {}, raw: new Uint8Array(0), version: 0, stream: 0, instanceOrdinal: 0 };
+    const message = {time: 0, level: "", msg: "", fields: {}, raw: new Uint8Array(0), version: 0, stream: 0, instanceOrdinal: 0, run: 0, node: 0, seq: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6359,6 +6379,18 @@ function decodeLogRecordMessage(reader, length) {
             }
             case 8: {
                 message.instanceOrdinal = reader.int32();
+                break;
+            }
+            case 9: {
+                message.run = reader.int32();
+                break;
+            }
+            case 10: {
+                message.node = reader.int32();
+                break;
+            }
+            case 11: {
+                message.seq = readInt64(reader, "int64");
                 break;
             }
             default:

@@ -12,6 +12,7 @@ import (
 type Appender struct {
 	deploymentDir string
 	meta          RecordMeta
+	seq           int64
 	current       time.Time
 	file          *os.File
 	dropped       int64
@@ -47,9 +48,15 @@ func (a *Appender) Append(t time.Time, line []byte) {
 		a.dropped = 0
 		a.dropErr = nil
 	}
-	if err := a.writeRecord(EncodeRecord(t, a.meta, line)); err != nil {
+	if err := a.writeRecord(EncodeRecord(t, a.meta, a.nextSeq(), line)); err != nil {
 		a.noteDrop(t, err)
 	}
+}
+
+func (a *Appender) nextSeq() int64 {
+	s := a.seq
+	a.seq++
+	return s
 }
 
 func (a *Appender) Close() error {
@@ -70,7 +77,7 @@ func (a *Appender) writeMarker(t time.Time) error {
 		a.dropStart.UTC().Format(time.RFC3339Nano),
 		a.dropLast.UTC().Format(time.RFC3339Nano),
 		a.dropErr)
-	return a.writeRecord(EncodeRecord(t, a.meta, []byte(msg)))
+	return a.writeRecord(EncodeRecord(t, a.meta, a.nextSeq(), []byte(msg)))
 }
 
 func (a *Appender) writeRecord(record []byte) error {

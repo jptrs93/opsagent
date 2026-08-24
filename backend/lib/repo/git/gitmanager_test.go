@@ -81,6 +81,23 @@ func TestResolveCloneURLNeverCarriesCredentials(t *testing.T) {
 	}
 }
 
+func TestResolveCloneURLRejectsOptionInjection(t *testing.T) {
+	repos := []string{
+		"--upload-pack=touch /tmp/pwned x://y",
+		"--upload-pack=sh -c \"id\" https://github.com/acme/widget",
+		"-oProxyCommand=touch /tmp/pwned",
+		"ext::sh -c id",
+		"file:///etc/passwd",
+		"ssh://evil/repo",
+	}
+	for _, repo := range repos {
+		got, err := NewManager("", testGithubCredentialsProvider{token: "secret"}).ResolveCloneURL(repo)
+		if err == nil {
+			t.Errorf("ResolveCloneURL(%q) = %q, want error", repo, got)
+		}
+	}
+}
+
 func TestGithubAuthEnvScopesTokenToGithub(t *testing.T) {
 	env := githubAuthEnv("secret")
 	want := []string{

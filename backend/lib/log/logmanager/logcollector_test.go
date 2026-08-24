@@ -13,7 +13,7 @@ const testNodeID int32 = 7
 func record(t *testing.T, at string, version int32, run int32, stream int8, line string) []byte {
 	t.Helper()
 	meta := logv2.RecordMeta{Version: version, Run: run, Deployment: testDeploymentID, Node: testNodeID, Stream: stream}
-	return logv2.EncodeRecord(mustTime(t, at), meta, []byte(line))
+	return logv2.EncodeRecord(mustTime(t, at), meta, 0, []byte(line))
 }
 
 func lines(records []WrappedRecord) []string {

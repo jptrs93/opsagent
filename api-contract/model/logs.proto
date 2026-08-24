@@ -13,6 +13,7 @@ message RawLogLine {
   int32 deployment = 6;        // Producing deployment; not yet wired.
   int32 node = 7;              // Producing node; not yet wired.
   int32 instance_ordinal = 8;  // Producing instance; not yet wired.
+  int64 seq = 9;
 }
 
 // One parsed log record as returned by the structured query endpoint.
@@ -25,4 +26,7 @@ message LogRecord {
   int32 version = 6;               // Deployment config version.
   int32 stream = 7;                // 0 = stdout, 1 = stderr.
   int32 instance_ordinal = 8;
+  int32 run = 9;
+  int32 node = 10;
+  int64 seq = 11;
 }

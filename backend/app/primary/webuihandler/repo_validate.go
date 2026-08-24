@@ -18,6 +18,9 @@ var InvalidSourceTypeErr = apigen.NewApiErr("Invalid source type", "invalid_sour
 var InvalidValidateRequestErr = apigen.NewApiErr("Invalid validate request", "invalid_validate_request", http.StatusBadRequest)
 
 func (h *Handler) PostV1ReposValidate(ctx apigen.Context, req *apigen.RepoValidateRequest) (*apigen.RepoValidateResponse, error) {
+	if !h.canCreateDeploymentSomewhere(ctx) {
+		return nil, AccessDeniedErr
+	}
 	if countValidationSources(req) != 1 {
 		return nil, InvalidSourceTypeErr
 	}

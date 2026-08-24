@@ -1,6 +1,7 @@
 package logmanager
 
 import (
+	"cmp"
 	"path/filepath"
 	"strings"
 	"time"
@@ -41,6 +42,25 @@ type WrappedRecord struct {
 	m      StreamMarker
 	record apigen.RawLogLine
 	size   int64
+}
+
+func cmpRecordKey(a, b *apigen.RawLogLine) int {
+	if a.Time != b.Time {
+		return cmp.Compare(a.Time, b.Time)
+	}
+	if a.Node != b.Node {
+		return cmp.Compare(a.Node, b.Node)
+	}
+	if a.InstanceOrdinal != b.InstanceOrdinal {
+		return cmp.Compare(a.InstanceOrdinal, b.InstanceOrdinal)
+	}
+	if a.Run != b.Run {
+		return cmp.Compare(a.Run, b.Run)
+	}
+	if a.Stream != b.Stream {
+		return cmp.Compare(a.Stream, b.Stream)
+	}
+	return cmp.Compare(a.Seq, b.Seq)
 }
 
 // Streams may return slightly out of order up to seconds range however they guarantee that records for different days will never be out of order.

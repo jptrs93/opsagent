@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,18 +65,105 @@ func compileFilters(fs []*apigen.LogFilter) ([]compiledFilter, error) {
 	return out, nil
 }
 
-// recFieldValue addresses one logical column of a parsed record. An empty
-// field name means the message text; "level" and "msg" address the parsed
-// columns; anything else is a shredded JSON field.
-func recFieldValue(level, msg string, fields map[string]string, field string) (string, bool) {
+func isMetaFieldName(field string) bool {
+	switch field {
+	case "version", "node", "run", "instance", "stream":
+		return true
+	}
+	return false
+}
+
+func streamName(stream int32) string {
+	switch stream {
+	case 0:
+		return "stdout"
+	case 1:
+		return "stderr"
+	default:
+		return strconv.Itoa(int(stream))
+	}
+}
+
+func filtersNarrowSafe(fs []compiledFilter) bool {
+	for i := range fs {
+		switch fs[i].field {
+		case "", "msg", "message", "level":
+		default:
+			if !isMetaFieldName(fs[i].field) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// visitRec is one record as seen by the query scan. level/msg come from the
+// parquet columns when shredded is set and from parseLine otherwise; fields
+// are parsed lazily so records that are only counted never pay for JSON
+// parsing. narrow records carry no line bytes and can never be retained.
+type visitRec struct {
+	rec      apigen.RawLogLine
+	level    string
+	msg      string
+	fields   map[string]string
+	shredded bool
+	parsed   bool
+	narrow   bool
+}
+
+func (v *visitRec) ensureParsed() {
+	if v.parsed {
+		return
+	}
+	v.parsed = true
+	level, msg, fields := parseLine(v.rec.Line)
+	v.fields = fields
+	if !v.shredded {
+		v.level, v.msg = level, msg
+		v.shredded = true
+	}
+}
+
+func (v *visitRec) levelValue() string {
+	if !v.shredded {
+		v.ensureParsed()
+	}
+	return v.level
+}
+
+func (v *visitRec) msgValue() string {
+	if !v.shredded {
+		v.ensureParsed()
+	}
+	return v.msg
+}
+
+// fieldValue addresses one logical column of a record. An empty field name
+// means the message text; "level" and "msg" address the parsed columns;
+// "version", "node", "run", "instance" and "stream" address the record
+// metadata and shadow shredded JSON fields of the same name; anything else is
+// a shredded JSON field.
+func (v *visitRec) fieldValue(field string) (string, bool) {
 	switch field {
 	case "", "msg", "message":
-		return msg, true
+		return v.msgValue(), true
 	case "level":
-		return level, level != ""
+		l := v.levelValue()
+		return l, l != ""
+	case "version":
+		return strconv.Itoa(int(v.rec.Version)), true
+	case "node":
+		return strconv.Itoa(int(v.rec.Node)), true
+	case "run":
+		return strconv.Itoa(int(v.rec.Run)), true
+	case "instance":
+		return strconv.Itoa(int(v.rec.InstanceOrdinal)), true
+	case "stream":
+		return streamName(v.rec.Stream), true
 	default:
-		v, ok := fields[field]
-		return v, ok
+		v.ensureParsed()
+		val, ok := v.fields[field]
+		return val, ok
 	}
 }
 
@@ -93,8 +181,8 @@ func valueEquals(v, want string) bool {
 	return false
 }
 
-func (f *compiledFilter) match(level, msg string, fields map[string]string) bool {
-	v, ok := recFieldValue(level, msg, fields, f.field)
+func (f *compiledFilter) match(rec *visitRec) bool {
+	v, ok := rec.fieldValue(f.field)
 	switch f.op {
 	case "exists":
 		return ok
@@ -150,12 +238,26 @@ func resolveQueryScope(timeStart, timeEnd time.Time) (from, till time.Time, err 
 	return from, till, nil
 }
 
+type narrowRow struct {
+	Time            int64  `parquet:"time"`
+	Version         int32  `parquet:"version"`
+	Run             int32  `parquet:"run"`
+	Node            int32  `parquet:"node"`
+	InstanceOrdinal int32  `parquet:"instance_ordinal"`
+	Stream          int32  `parquet:"stream"`
+	Seq             int64  `parquet:"seq"`
+	Level           string `parquet:"level,optional"`
+	Msg             string `parquet:"msg,optional"`
+}
+
 // scanRange streams every record of the WAL tail plus the time-pruned parquet
 // files, invoking visit per record; visit returns false to stop early. Records
 // outside [fromN, tillN) may still be visited (whole tail buckets, file
-// boundaries) — visitors do their own range check. An unreadable archive file
-// is skipped with a warning rather than failing the scan.
-func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, visit func(rec *apigen.RawLogLine) bool) ([]string, error) {
+// boundaries) — visitors do their own range check. narrowFile decides per
+// parquet file whether the raw_message column can be skipped; narrow records
+// carry no line bytes. An unreadable archive file is skipped with a warning
+// rather than failing the scan.
+func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, narrowFile func(logdb.LogFile) bool, visit func(*visitRec) bool) ([]string, error) {
 	committed, files, err := i.searchSnapshot(ctx)
 	if err != nil {
 		return nil, err
@@ -176,7 +278,8 @@ func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, 
 			if cancelled() {
 				return warnings, ctx.Err()
 			}
-			if !visit(&r.record) {
+			v := visitRec{rec: r.record}
+			if !visit(&v) {
 				return warnings, nil
 			}
 		}
@@ -188,19 +291,61 @@ func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, 
 		if f.MaxTime < fromN || f.MinTime >= tillN {
 			continue
 		}
+		path := archiveFilePath(i.deploymentID, f)
+		fileWarning := func(err error) {
+			warnings = append(warnings, fmt.Sprintf("skipped unreadable archive file %s: %v", archiveFileName(int(f.Level), f.MinTime, f.MaxTime, int32(f.Node), f.Seq), err))
+		}
 		stop := false
-		for row, err := range readArchiveRows(archiveFilePath(i.deploymentID, f), 0) {
-			if err != nil {
-				warnings = append(warnings, fmt.Sprintf("skipped unreadable archive file %s: %v", archiveFileName(int(f.Level), f.MinTime, f.MaxTime, int32(f.Node), f.Seq), err))
-				break
+		if narrowFile != nil && narrowFile(f) {
+			for row, err := range readArchiveRowsRange(path, fromN, tillN, func(r *narrowRow) int64 { return r.Time }) {
+				if err != nil {
+					fileWarning(err)
+					break
+				}
+				if cancelled() {
+					return warnings, ctx.Err()
+				}
+				v := visitRec{
+					rec: apigen.RawLogLine{
+						Time:            row.Time,
+						Version:         row.Version,
+						Run:             row.Run,
+						Node:            row.Node,
+						InstanceOrdinal: row.InstanceOrdinal,
+						Stream:          row.Stream,
+						Seq:             row.Seq,
+						Deployment:      i.deploymentID,
+					},
+					level:    row.Level,
+					msg:      row.Msg,
+					shredded: true,
+					parsed:   true,
+					narrow:   true,
+				}
+				if !visit(&v) {
+					stop = true
+					break
+				}
 			}
-			if cancelled() {
-				return warnings, ctx.Err()
-			}
-			rec := rowToRawLogLine(row, i.deploymentID)
-			if !visit(&rec) {
-				stop = true
-				break
+		} else {
+			for row, err := range readArchiveRowsRange(path, fromN, tillN, func(r *logRow) int64 { return r.Time }) {
+				if err != nil {
+					fileWarning(err)
+					break
+				}
+				if cancelled() {
+					return warnings, ctx.Err()
+				}
+				v := visitRec{
+					rec:      rowToRawLogLine(row, i.deploymentID),
+					level:    row.Level,
+					msg:      row.Msg,
+					shredded: row.Level != "" || row.Msg != "" || len(row.RawMessage) == 0,
+				}
+				if !visit(&v) {
+					stop = true
+					break
+				}
 			}
 		}
 		if stop {
@@ -211,15 +356,15 @@ func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, 
 }
 
 type retainedRec struct {
-	rec    apigen.RawLogLine
-	level  string
-	msg    string
-	fields map[string]string
-	seq    int64
+	rec      apigen.RawLogLine
+	level    string
+	msg      string
+	fields   map[string]string
+	shredded bool
 }
 
 // retainHeap keeps the newest (or oldest) capacity records seen so far. For
-// newest-keep it is a min-heap on (time, seq) so the evictable record is at
+// newest-keep it is a min-heap on the record key so the evictable record is at
 // the root, and vice versa for oldest-keep.
 type retainHeap struct {
 	recs     []retainedRec
@@ -229,23 +374,21 @@ type retainHeap struct {
 
 func (h *retainHeap) Len() int { return len(h.recs) }
 func (h *retainHeap) Less(a, b int) bool {
-	x, y := &h.recs[a], &h.recs[b]
-	lt := x.rec.Time < y.rec.Time || (x.rec.Time == y.rec.Time && x.seq < y.seq)
+	c := cmpRecordKey(&h.recs[a].rec, &h.recs[b].rec)
 	if h.newest {
-		return lt
+		return c < 0
 	}
-	return !lt
+	return c > 0
 }
-func (h *retainHeap) Swap(a, b int)   { h.recs[a], h.recs[b] = h.recs[b], h.recs[a] }
-func (h *retainHeap) Push(x any)      { h.recs = append(h.recs, x.(retainedRec)) }
-func (h *retainHeap) Pop() any        { r := h.recs[len(h.recs)-1]; h.recs = h.recs[:len(h.recs)-1]; return r }
+func (h *retainHeap) Swap(a, b int) { h.recs[a], h.recs[b] = h.recs[b], h.recs[a] }
+func (h *retainHeap) Push(x any)    { h.recs = append(h.recs, x.(retainedRec)) }
+func (h *retainHeap) Pop() any      { r := h.recs[len(h.recs)-1]; h.recs = h.recs[:len(h.recs)-1]; return r }
 func (h *retainHeap) evictable(r *retainedRec) bool {
-	root := &h.recs[0]
-	newer := r.rec.Time > root.rec.Time || (r.rec.Time == root.rec.Time && r.seq > root.seq)
+	c := cmpRecordKey(&r.rec, &h.recs[0].rec)
 	if h.newest {
-		return newer
+		return c > 0
 	}
-	return !newer
+	return c < 0
 }
 
 func (h *retainHeap) offer(r retainedRec) {
@@ -268,12 +411,11 @@ func (h *retainHeap) sorted() []retainedRec {
 	recs := h.recs
 	h.recs = nil
 	sort.Slice(recs, func(a, b int) bool {
-		x, y := &recs[a], &recs[b]
-		lt := x.rec.Time < y.rec.Time || (x.rec.Time == y.rec.Time && x.seq < y.seq)
+		c := cmpRecordKey(&recs[a].rec, &recs[b].rec)
 		if h.newest {
-			return !lt
+			return c > 0
 		}
-		return lt
+		return c < 0
 	})
 	return recs
 }
@@ -294,51 +436,79 @@ func (i *LogStreamCollector) runQuery(ctx context.Context, q queryParams) (*apig
 	counts := make([][]int64, len(levelOrder))
 	ret := &retainHeap{capacity: q.limit, newest: q.newestFirst}
 	fieldAccums := map[string]*fieldAccum{}
-	var scanned, matched, sampled, seq int64
-	warnings, err := i.scanRange(ctx, fromN, tillN, func(rec *apigen.RawLogLine) bool {
+	var scanned, matched, sampled int64
+	narrowOK := filtersNarrowSafe(q.filters)
+	narrowFile := func(f logdb.LogFile) bool {
+		if !narrowOK || sampled < fieldStatsSample {
+			return false
+		}
+		if ret.capacity <= 0 {
+			return true
+		}
+		if len(ret.recs) < ret.capacity {
+			return false
+		}
+		root := &ret.recs[0].rec
+		if q.newestFirst {
+			return f.MaxTime < root.Time
+		}
+		return f.MinTime > root.Time
+	}
+	warnings, err := i.scanRange(ctx, fromN, tillN, narrowFile, func(v *visitRec) bool {
 		scanned++
-		if rec.Time < fromN || rec.Time >= tillN {
+		if v.rec.Time < fromN || v.rec.Time >= tillN {
 			return true
 		}
-		if q.configVersion > 0 && rec.Version != q.configVersion {
+		if q.configVersion > 0 && v.rec.Version != q.configVersion {
 			return true
 		}
-		level, msg, fields := parseLine(rec.Line)
 		for fi := range q.filters {
-			if !q.filters[fi].match(level, msg, fields) {
+			if !q.filters[fi].match(v) {
 				return true
 			}
 		}
 		matched++
 		if bucketN > 0 {
-			li := levelIndex(level)
+			li := levelIndex(v.levelValue())
 			if counts[li] == nil {
 				counts[li] = make([]int64, bucketN)
 			}
-			bi := int((rec.Time - fromN) / (bucketMs * 1e6))
+			bi := int((v.rec.Time - fromN) / (bucketMs * 1e6))
 			if bi >= bucketN {
 				bi = bucketN - 1
 			}
 			counts[li][bi]++
 		}
 		// Value counts come from the newest fieldStatsSample matched records
-		// (the scan visits the WAL tail then parquet newest-first); the field
-		// name union keeps growing over the whole range so later-only fields
-		// still show up in the sidebar, with zeroed stats.
-		inSample := sampled < fieldStatsSample
-		if inSample {
+		// (the scan visits the WAL tail then parquet newest-first); outside the
+		// sample the field name union only grows from records that were parsed
+		// anyway, so no record is parsed just to register a name.
+		if sampled < fieldStatsSample {
 			sampled++
-		}
-		if inSample || len(fieldAccums) < maxFieldNames {
-			if level != "" {
-				accumField(fieldAccums, "level", level, inSample)
+			v.ensureParsed()
+			if lvl := v.levelValue(); lvl != "" {
+				accumField(fieldAccums, "level", lvl, true)
 			}
-			for k, v := range fields {
-				accumField(fieldAccums, k, v, inSample)
+			accumField(fieldAccums, "version", strconv.Itoa(int(v.rec.Version)), true)
+			accumField(fieldAccums, "node", strconv.Itoa(int(v.rec.Node)), true)
+			accumField(fieldAccums, "run", strconv.Itoa(int(v.rec.Run)), true)
+			accumField(fieldAccums, "instance", strconv.Itoa(int(v.rec.InstanceOrdinal)), true)
+			accumField(fieldAccums, "stream", streamName(v.rec.Stream), true)
+			for k, val := range v.fields {
+				if !isMetaFieldName(k) {
+					accumField(fieldAccums, k, val, true)
+				}
+			}
+		} else if v.parsed && len(fieldAccums) < maxFieldNames {
+			for k, val := range v.fields {
+				if !isMetaFieldName(k) {
+					accumField(fieldAccums, k, val, false)
+				}
 			}
 		}
-		seq++
-		ret.offer(retainedRec{rec: *rec, level: level, msg: msg, fields: fields, seq: seq})
+		if !v.narrow {
+			ret.offer(retainedRec{rec: v.rec, level: v.level, msg: v.msg, fields: v.fields, shredded: v.shredded})
+		}
 		return true
 	})
 	if err != nil {
@@ -348,14 +518,30 @@ func (i *LogStreamCollector) runQuery(ctx context.Context, q queryParams) (*apig
 	records := make([]*apigen.LogRecord, 0, len(retained))
 	for idx := range retained {
 		r := &retained[idx]
+		level, msg, fields := r.level, r.msg, r.fields
+		if fields == nil && len(r.rec.Line) > 0 {
+			pl, pm, pf := parseLine(r.rec.Line)
+			fields = pf
+			if !r.shredded {
+				level, msg = pl, pm
+			}
+			for k, val := range fields {
+				if !isMetaFieldName(k) {
+					accumField(fieldAccums, k, val, false)
+				}
+			}
+		}
 		out := &apigen.LogRecord{
 			Time:            r.rec.Time,
-			Level:           r.level,
-			Msg:             r.msg,
-			Fields:          r.fields,
+			Level:           level,
+			Msg:             msg,
+			Fields:          fields,
 			Version:         r.rec.Version,
 			Stream:          r.rec.Stream,
 			InstanceOrdinal: r.rec.InstanceOrdinal,
+			Run:             r.rec.Run,
+			Node:            r.rec.Node,
+			Seq:             r.rec.Seq,
 		}
 		if q.includeRaw {
 			out.Raw = bytes.Clone(r.rec.Line)
@@ -488,6 +674,7 @@ func rowToRawLogLine(row logRow, deploymentID int32) apigen.RawLogLine {
 		Version:         row.Version,
 		Run:             row.Run,
 		Stream:          row.Stream,
+		Seq:             row.Seq,
 		Line:            bytes.Clone(row.RawMessage),
 		Deployment:      deploymentID,
 		Node:            row.Node,

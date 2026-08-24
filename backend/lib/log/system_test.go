@@ -147,7 +147,7 @@ func assertWalRecords(t *testing.T, path string, want []binaryRecord) {
 		if int(binary.BigEndian.Uint32(data[crcAt+logv2.RecordCRCLen:total])) != payloadLen {
 			t.Fatalf("%s has trailer length mismatch", path)
 		}
-		nanos, meta := logv2.DecodePayloadHeader(payload)
+		nanos, _, meta := logv2.DecodePayloadHeader(payload)
 		got = append(got, binaryRecord{
 			time:       nanos,
 			version:    meta.Version,

@@ -72,6 +72,9 @@ func resolveCloneURL(repoURL string) (string, error) {
 	if strings.ContainsAny(repoURL, "\x00\n\r") {
 		return "", fmt.Errorf("repo URL contains invalid characters")
 	}
+	if strings.HasPrefix(repoURL, "-") {
+		return "", fmt.Errorf("repo URL must not begin with %q", "-")
+	}
 	if _, err := os.Stat(repoURL); err == nil {
 		return repoURL, nil
 	}
@@ -80,7 +83,13 @@ func resolveCloneURL(repoURL string) (string, error) {
 	}
 	if strings.Contains(repoURL, "://") {
 		u, err := url.Parse(repoURL)
-		if err == nil && (u.Scheme == "https" || u.Scheme == "http") && !strings.HasSuffix(u.Path, ".git") {
+		if err != nil {
+			return "", fmt.Errorf("cannot parse git repo from %q", redactCredentialURLs(repoURL))
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return "", fmt.Errorf("unsupported git URL scheme %q", u.Scheme)
+		}
+		if !strings.HasSuffix(u.Path, ".git") {
 			u.Path += ".git"
 			repoURL = u.String()
 		}
@@ -146,7 +155,7 @@ func (g *Manager) FetchRepoInfo(ctx context.Context, repoURL string) (*RepoInfo,
 	if err != nil {
 		return nil, err
 	}
-	out, err := g.runGitStdout(ctx, "ls-remote", "--symref", cloneURL, "HEAD")
+	out, err := g.runGitStdout(ctx, "ls-remote", "--symref", "--", cloneURL, "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("ls-remote %s: %w", redactCredentialURLs(repoURL), err)
 	}
@@ -173,7 +182,7 @@ func (g *Manager) ListBranches(ctx context.Context, repoURL string) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-	out, err := g.runGitStdout(ctx, "ls-remote", "--heads", cloneURL)
+	out, err := g.runGitStdout(ctx, "ls-remote", "--heads", "--", cloneURL)
 	if err != nil {
 		return nil, fmt.Errorf("ls-remote --heads %s: %w", redactCredentialURLs(repoURL), err)
 	}
@@ -406,7 +415,7 @@ func (g *Manager) EnsureCheckout(ctx context.Context, repoURL string, ref string
 		}
 	} else {
 		fmt.Fprintf(logFile, "[%s] cloning %s into %s\n", time.Now().Format(time.RFC3339), redactCredentialURLs(repoURL), repoDir)
-		if err := g.runGitLogged(ctx, "", logFile, "clone", "--filter=blob:none", "--no-checkout", cloneURL, repoDir); err != nil {
+		if err := g.runGitLogged(ctx, "", logFile, "clone", "--filter=blob:none", "--no-checkout", "--", cloneURL, repoDir); err != nil {
 			return "", err
 		}
 	}

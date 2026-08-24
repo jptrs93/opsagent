@@ -221,7 +221,7 @@ func TestQueryHistogramAndFieldNames(t *testing.T) {
 	check("INFO", []int64{0, 1, 1, 0})
 	check("DEBUG", []int64{0, 0, 0, 0})
 	check("", []int64{0, 0, 1, 0})
-	wantNames := []string{"duration_ms", "err", "level", "service", "status"}
+	wantNames := []string{"duration_ms", "err", "instance", "level", "node", "run", "service", "status", "stream", "version"}
 	names := make([]string, 0, len(resp.Fields))
 	for _, f := range resp.Fields {
 		names = append(names, f.Field)

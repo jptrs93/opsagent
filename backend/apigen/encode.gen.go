@@ -3135,6 +3135,7 @@ func (m *RawLogLine) Encode() []byte {
 	b = AppendInt32Field(b, m.Deployment, 6)
 	b = AppendInt32Field(b, m.Node, 7)
 	b = AppendInt32Field(b, m.InstanceOrdinal, 8)
+	b = AppendInt64Field(b, m.Seq, 9)
 	return b
 }
 
@@ -3165,6 +3166,8 @@ func DecodeRawLogLine(b []byte) (*RawLogLine, error) {
 			b, m.Node, err = ConsumeVarInt32(b, typ)
 		case 8:
 			b, m.InstanceOrdinal, err = ConsumeVarInt32(b, typ)
+		case 9:
+			b, m.Seq, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3185,6 +3188,9 @@ func (m *LogRecord) Encode() []byte {
 	b = AppendInt32Field(b, m.Version, 6)
 	b = AppendInt32Field(b, m.Stream, 7)
 	b = AppendInt32Field(b, m.InstanceOrdinal, 8)
+	b = AppendInt32Field(b, m.Run, 9)
+	b = AppendInt32Field(b, m.Node, 10)
+	b = AppendInt64Field(b, m.Seq, 11)
 	return b
 }
 
@@ -3218,6 +3224,12 @@ func DecodeLogRecord(b []byte) (*LogRecord, error) {
 			b, m.Stream, err = ConsumeVarInt32(b, typ)
 		case 8:
 			b, m.InstanceOrdinal, err = ConsumeVarInt32(b, typ)
+		case 9:
+			b, m.Run, err = ConsumeVarInt32(b, typ)
+		case 10:
+			b, m.Node, err = ConsumeVarInt32(b, typ)
+		case 11:
+			b, m.Seq, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

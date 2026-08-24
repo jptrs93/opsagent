@@ -224,6 +224,7 @@ func (i *LogStreamCollector) commitSpooledChunk() error {
 				Node:            rec.record.Node,
 				InstanceOrdinal: rec.record.InstanceOrdinal,
 				Stream:          rec.record.Stream,
+				Seq:             rec.record.Seq,
 				Level:           level,
 				Msg:             msg,
 				RawMessage:      rec.record.Line,
@@ -241,9 +242,20 @@ func (i *LogStreamCollector) commitSpooledChunk() error {
 		return fmt.Errorf("no records found streaming spooled range %d/%d+%d..%d/%d+%d",
 			r.start.day, r.start.bucket, r.start.byteOffset, r.end.day, r.end.bucket, r.end.byteOffset)
 	}
-	if err := w.finish(map[string]string{"deployment": strconv.Itoa(int(i.deploymentID))}); err != nil {
+	metadata := map[string]string{"deployment": strconv.Itoa(int(i.deploymentID))}
+	if !w.unsorted {
+		metadata[metadataSortedKey] = metadataSortedVal
+	}
+	if err := w.finish(metadata); err != nil {
 		_ = os.Remove(provisional)
 		return err
+	}
+	if w.unsorted {
+		slog.WarnContext(i.ctx, "archive chunk exceeded the sort buffer out of order; resorting", "rows", w.count)
+		if err := resortArchiveFile(provisional, map[string]string{"deployment": strconv.Itoa(int(i.deploymentID))}); err != nil {
+			_ = os.Remove(provisional)
+			return err
+		}
 	}
 	info, err := os.Stat(provisional)
 	if err != nil {

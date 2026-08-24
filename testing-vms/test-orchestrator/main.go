@@ -1081,7 +1081,7 @@ provision:
       echo "opendeploy-vm-harness package install (%s) took: $((apt_install_end - apt_install_start))s"
       if [[ %q == "node" ]]; then
         mkdir -p /etc/nix
-        printf 'experimental-features = nix-command flakes\nsandbox = false\nallowed-users = *\ntrusted-users = root opendeploy\n' > /etc/nix/nix.conf
+        printf 'experimental-features = nix-command flakes\nsandbox = true\nallowed-users = *\ntrusted-users = root opendeploy\n' > /etc/nix/nix.conf
         systemctl enable --now nix-daemon.service || true
       fi
       touch /var/lib/opendeploy-vm-harness/provisioned-%s

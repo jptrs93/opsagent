@@ -40,7 +40,7 @@ func decodeAll(t *testing.T, data []byte) []decodedRecord {
 		if trailer != payloadLen {
 			t.Fatalf("trailer length %d != payload length %d", trailer, payloadLen)
 		}
-		nanos, meta := DecodePayloadHeader(payload)
+		nanos, _, meta := DecodePayloadHeader(payload)
 		records = append(records, decodedRecord{
 			t:    time.Unix(0, nanos).UTC(),
 			meta: meta,

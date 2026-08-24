@@ -569,6 +569,7 @@ type RawLogLine struct {
 	Deployment      int32  `json:"deployment"`
 	Node            int32  `json:"node"`
 	InstanceOrdinal int32  `json:"instance_ordinal"`
+	Seq             int64  `json:"seq"`
 }
 
 type LogRecord struct {
@@ -580,6 +581,9 @@ type LogRecord struct {
 	Version         int32             `json:"version"`
 	Stream          int32             `json:"stream"`
 	InstanceOrdinal int32             `json:"instance_ordinal"`
+	Run             int32             `json:"run"`
+	Node            int32             `json:"node"`
+	Seq             int64             `json:"seq"`
 }
 
 type PrepareOutputRequest struct {

@@ -1,8 +1,6 @@
 package logmanager
 
 import (
-	"bytes"
-	"cmp"
 	"context"
 	"errors"
 	"io"
@@ -102,11 +100,11 @@ var sortBufBytesThresh = int64(8 << 20)
 
 // sortedByTime must only wrap delimited range reads: it reorders records, and
 // the live tail's consumers (spool ranges, commit markers) require WAL byte
-// order. Records of one bucket are buffered and stable-sorted, which yields a
-// fully time-sorted stream because a record can only live in the bucket its
-// timestamp belongs to. If a single bucket exceeds sortBufBytesThresh the
-// sorted bottom half is yielded early, degrading to a sliding-window
-// approximate sort for that bucket.
+// order. Records of one bucket are buffered and stable-sorted by the record
+// key, which yields a fully key-sorted stream because a record can only live
+// in the bucket its timestamp belongs to. If a single bucket exceeds
+// sortBufBytesThresh the sorted bottom half is yielded early, degrading to a
+// sliding-window approximate sort for that bucket.
 func sortedByTime(seq iter.Seq2[WrappedRecord, error]) iter.Seq2[WrappedRecord, error] {
 	return func(yield func(WrappedRecord, error) bool) {
 		var buf []WrappedRecord
@@ -118,7 +116,7 @@ func sortedByTime(seq iter.Seq2[WrappedRecord, error]) iter.Seq2[WrappedRecord, 
 			}
 			if !sorted {
 				slices.SortStableFunc(buf, func(a, b WrappedRecord) int {
-					return cmp.Compare(a.record.Time, b.record.Time)
+					return cmpRecordKey(&a.record, &b.record)
 				})
 				sorted = true
 			}
@@ -141,7 +139,7 @@ func sortedByTime(seq iter.Seq2[WrappedRecord, error]) iter.Seq2[WrappedRecord, 
 					return
 				}
 			}
-			if len(buf) > 0 && r.record.Time < buf[len(buf)-1].record.Time {
+			if len(buf) > 0 && cmpRecordKey(&r.record, &buf[len(buf)-1].record) < 0 {
 				sorted = false
 			}
 			buf = append(buf, r)
@@ -202,7 +200,7 @@ func streamRecords(producerCtx context.Context, deploymentID int32, m StreamMark
 						}
 						if status == parseInvalid {
 							// locate the next candidate magic
-							i := bytes.IndexByte(buf[start+1:end], logv2.RecordMagic)
+							i := nextMagicIndex(buf[start+1 : end])
 							if i < 0 {
 								offset += int64(end - start)
 								start = 0
