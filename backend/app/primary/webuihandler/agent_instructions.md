@@ -83,10 +83,12 @@ everything in that operator's spaces except:
   running workload can echo a secret value into them. `403`.
 - **Secret values.** You may list secret metadata and create new secrets. You
   may not read, overwrite, rename, move, or delete one. `403`.
-- **The cluster itself.** Nodes, enrollment, cluster settings, access rules and
-  grants, config export, and OpenDeploy's own internal deployments all live at
-  the cluster level (space `0`) and are human-only. They are either invisible
-  to you or `403`.
+- **The cluster itself.** Node management, enrollment, cluster settings,
+  access rules and grants, config export, and OpenDeploy's own internal
+  deployments all live at the cluster level (space `0`) and are human-only.
+  They are either invisible to you or `403`. The one read you keep is
+  `POST /v1/nodes/list`, which returns the nodes hosting your spaces so you
+  can place deployments.
 
 A denial is `403 Access denied`. Where you cannot even see the entity you get
 `404` instead, so a `404` on something the operator says exists means it is
@@ -135,9 +137,11 @@ Per deployment:
   and version in them are dead.
 
 **Nodes are not in global state.** `node_id` is required to create a
-deployment, and the only JSON source for one is the `node_id` of an existing
-deployment in `deployment_configs`. If none of them is the right host, ask the
-operator which node to use.
+deployment; `POST /v1/nodes/list` (empty body) returns the nodes visible to
+you as `{"items": [...]}`, each with its `id`, `name`, and `allowed_spaces` —
+the spaces whose deployments the node accepts (space `0` is always listed and
+is not yours). If none of them is the right host, ask the operator which node
+to use.
 
 ## 5. Deployments
 
@@ -385,6 +389,7 @@ means it exists but is denied to agents — do not retry, ask.
 | Endpoint | |
 |---|---|
 | `GET /v1/global/state` | yes |
+| `POST /v1/nodes/list` | yes |
 | `POST /v1/deployments/get` `/history` `/versions` `/recently-deleted` | yes |
 | `POST /v1/assets/list`, `GET /v1/assets/content` | yes |
 | `POST /v1/configs/list`, `/v1/secrets/list`, `/v1/secrets/status` | yes |

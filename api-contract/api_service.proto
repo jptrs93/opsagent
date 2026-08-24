@@ -241,6 +241,10 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1NodesList(cp.Empty) returns (ClusterNodeList) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   rpc PostV1NodesRename(NodeRenameRequest) returns (ClusterNode) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }

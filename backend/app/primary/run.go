@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -23,6 +24,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/middleware/ratelimit"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
+	"github.com/klauspost/compress/gzhttp"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
 )
@@ -125,6 +127,8 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	m := apigen.CreateApiServerMux(webUIHandler, &apigen.MuxConfig{
 		VerifyAuth:         webUIHandler.VerifyAuth,
 		MaxRequestBodySize: 20_000_000,
+		UnaryCompression:   erru.Must(gzhttp.NewWrapper(gzhttp.MinSize(2048))),
+		StreamCompression:  erru.Must(gzhttp.NewWrapper(gzhttp.MinSize(0))),
 		Middlewares:        middlewares,
 	})
 	g.Go(func() error { return webui.RunPrimaryHTTPWebUI(ctx, primaryRuntime.configService, m) })

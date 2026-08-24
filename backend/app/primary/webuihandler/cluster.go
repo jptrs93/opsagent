@@ -15,6 +15,10 @@ var InvalidNodeRenameErr = apigen.NewApiErr("Node name and identifier are requir
 var NodeNotFoundErr = apigen.NewApiErr("Node not found", "node_not_found", http.StatusNotFound)
 var DuplicateNodeNameErr = apigen.NewApiErr("A node with this display name already exists", "duplicate_node_name", http.StatusConflict)
 
+func (h *Handler) PostV1NodesList(ctx apigen.Context) (*apigen.ClusterNodeList, error) {
+	return &apigen.ClusterNodeList{Items: h.filterNodes(ctx, h.Store.ListClusterNodes())}, nil
+}
+
 func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRequest) (*apigen.ClusterNode, error) {
 	if req == nil {
 		return nil, InvalidNodeRenameErr

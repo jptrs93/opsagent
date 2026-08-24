@@ -19,6 +19,7 @@ import {
   decodeClusterConfigsResponse,
   decodeClusterIssuedTLSResponse,
   decodeClusterNode,
+  decodeClusterNodeList,
   decodeClusterRenewCertificateResponse,
   decodeClusterSecretsResponse,
   decodeClusterSettings,
@@ -742,6 +743,17 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeRepoValidateResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @returns {Promise<ClusterNodeList>}
+   */
+  async postV1NodesList() {
+    const response = await this.#request("/v1/nodes/list", { method: 'POST' });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeClusterNodeList(await response.arrayBuffer());
   }
 
   /**

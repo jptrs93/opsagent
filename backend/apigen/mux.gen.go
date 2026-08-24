@@ -114,6 +114,7 @@ type ApiServerHandler interface {
 	PostV1DeploymentsLogQuery(Context, *LogQueryRequest) (*LogQueryResponse, error)
 	PostV1DeploymentsPrepareOutput(Context, *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error]
 	PostV1ReposValidate(Context, *RepoValidateRequest) (*RepoValidateResponse, error)
+	PostV1NodesList(Context) (*ClusterNodeList, error)
 	PostV1NodesRename(Context, *NodeRenameRequest) (*ClusterNode, error)
 	PostV1NodesAllowedSpaces(Context, *NodeAllowedSpacesRequest) (*ClusterNode, error)
 	GetV1NodesEnrollmentsInfo(Context) (*NodeEnrollmentInfo, error)
@@ -649,6 +650,12 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/repos/validate", buildHandlerFunc(config, verifyAuth, postV1ReposValidateAccessPolicy, postAuthHandlerPostV1ReposValidate, compressionModeAuto, false))
+	postV1NodesListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1NodesList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		res, err := h.PostV1NodesList(authCtx)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/nodes/list", buildHandlerFunc(config, verifyAuth, postV1NodesListAccessPolicy, postAuthHandlerPostV1NodesList, compressionModeAuto, false))
 	postV1NodesRenameAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1NodesRename := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeRenameRequest)

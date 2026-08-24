@@ -913,6 +913,22 @@ func (c *ApiServerCapi) PostV1ReposValidate(ctx context.Context, req *RepoValida
 	return DecodeRepoValidateResponse(body)
 }
 
+func (c *ApiServerCapi) PostV1NodesList(ctx context.Context) (*ClusterNodeList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/nodes/list", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeClusterNodeList(body)
+}
+
 func (c *ApiServerCapi) PostV1NodesRename(ctx context.Context, req *NodeRenameRequest) (*ClusterNode, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1NodesRename request is nil")
