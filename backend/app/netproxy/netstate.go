@@ -148,24 +148,63 @@ func initialArtifactSequence(ctx context.Context, path string, seqOf func([]byte
 // exists but is down instead of leaking the lookup upstream.
 func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledInstanceState, acme *apigen.AcmeState) *apigen.NetState {
 	prefix, _ := network.Default.PrefixValue()
-	services := make([]*apigen.DnsService, 0, len(items))
-	ingress := make([]*apigen.NetIngress, 0)
+	type instanceKey struct{ spaceID, deploymentID, ordinal int32 }
+	virtual := make([]apigen.ScheduledInstanceState, 0, len(items))
+	established := make(map[instanceKey]bool)
 	for _, item := range items {
 		if item.Config.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
-		ready := readyEndpoints(prefix, item)
-		ingress = append(ingress, renderIngress(item, ready)...)
+		virtual = append(virtual, item)
+		switch item.Instance.State {
+		case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
+			apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING:
+			established[instanceKey{item.Config.SpaceID, item.Config.ID, item.Instance.InstanceOrdinal}] = true
+		}
+	}
+	sort.SliceStable(virtual, func(i, j int) bool {
+		if pi, pj := placementPriority(virtual[i].Instance.State), placementPriority(virtual[j].Instance.State); pi != pj {
+			return pi < pj
+		}
+		return virtual[i].Instance.ID < virtual[j].Instance.ID
+	})
+	services := make([]*apigen.DnsService, 0, len(virtual))
+	serviceByName := make(map[string]*apigen.DnsService)
+	ingress := make([]*apigen.NetIngress, 0)
+	ingressByRoute := make(map[string]*apigen.NetIngress)
+	for _, item := range virtual {
+		takeover := established[instanceKey{item.Config.SpaceID, item.Config.ID, item.Instance.InstanceOrdinal}]
+		ready := readyEndpoints(prefix, item, takeover)
+		for _, route := range renderIngress(item, ready) {
+			key := ingressRouteKey(route)
+			existing := ingressByRoute[key]
+			if existing == nil {
+				ingressByRoute[key] = route
+				ingress = append(ingress, route)
+				continue
+			}
+			mergeIngressBackends(existing, route)
+		}
 		name := network.DNSLabel(item.Config.Name)
 		if name == "" {
 			continue
 		}
-		services = append(services, &apigen.DnsService{
-			Name:        name,
-			Environment: network.SpaceDNSName(item.Config.SpaceID),
-			Endpoints:   ready,
-		})
+		env := network.SpaceDNSName(item.Config.SpaceID)
+		svc := serviceByName[env+"|"+name]
+		if svc == nil {
+			svc = &apigen.DnsService{Name: name, Environment: env}
+			serviceByName[env+"|"+name] = svc
+			services = append(services, svc)
+		}
+		svc.Endpoints = appendNewEndpoints(svc.Endpoints, ready)
 	}
+	sort.Slice(services, func(i, j int) bool {
+		if services[i].Environment != services[j].Environment {
+			return services[i].Environment < services[j].Environment
+		}
+		return services[i].Name < services[j].Name
+	})
+	sort.Slice(ingress, func(i, j int) bool { return ingressRouteKey(ingress[i]) < ingressRouteKey(ingress[j]) })
 	var challenges []*apigen.AcmeHttpChallenge
 	if acme != nil {
 		for _, challenge := range acme.Challenges {
@@ -241,6 +280,69 @@ func renderIngress(item apigen.ScheduledInstanceState, endpoints []*apigen.Endpo
 		}
 	}
 	return out
+}
+
+func placementPriority(state apigen.ScheduledInstanceTarget) int {
+	switch state {
+	case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING:
+		return 0
+	case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING:
+		return 1
+	case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY:
+		return 2
+	}
+	return 3
+}
+
+func ingressRouteKey(route *apigen.NetIngress) string {
+	switch route.Kind {
+	case apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH:
+		return "tls|" + route.Hostname + "|" + strconv.Itoa(int(route.TlsPassthrough.HostPort))
+	case apigen.IngressKind_INGRESS_KIND_HTTPS:
+		return "https|" + route.Hostname + "|" + route.Https.PathPrefix
+	}
+	return ""
+}
+
+func mergeIngressBackends(dst, src *apigen.NetIngress) {
+	switch dst.Kind {
+	case apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH:
+		dst.TlsPassthrough.Backends = appendNewBackends(dst.TlsPassthrough.Backends, src.TlsPassthrough.Backends)
+	case apigen.IngressKind_INGRESS_KIND_HTTPS:
+		dst.Https.Backends = appendNewBackends(dst.Https.Backends, src.Https.Backends)
+	}
+}
+
+func appendNewBackends(dst, src []*apigen.IngressBackend) []*apigen.IngressBackend {
+	for _, backend := range src {
+		duplicate := false
+		for _, have := range dst {
+			if have.Address == backend.Address && have.Port == backend.Port {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			dst = append(dst, backend)
+		}
+	}
+	return dst
+}
+
+func appendNewEndpoints(dst, src []*apigen.Endpoint) []*apigen.Endpoint {
+	for _, endpoint := range src {
+		duplicate := false
+		for _, have := range dst {
+			if have.Ordinal == endpoint.Ordinal && have.Address == endpoint.Address {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			dst = append(dst, endpoint)
+		}
+	}
+	return dst
 }
 
 func ingressBackends(endpoints []*apigen.Endpoint, containerPort int32) []*apigen.IngressBackend {
@@ -343,13 +445,22 @@ func WriteNetState(path string, state *apigen.NetState) error {
 }
 
 // readyEndpoints derives the instance's endpoint set, which is empty unless the
-// placement is both serving and running. A standby warming up for a takeover is
-// deliberately absent: it holds no inbound address yet, so publishing it would
-// send traffic to an address that does not route here.
-func readyEndpoints(prefix network.Prefix, item apigen.ScheduledInstanceState) []*apigen.Endpoint {
+// placement is running and is either serving or a standby taking over from a
+// serving or draining placement on this node. Any other standby is deliberately
+// absent: it holds no inbound address yet, so publishing it would send traffic
+// to an address that does not route here.
+func readyEndpoints(prefix network.Prefix, item apigen.ScheduledInstanceState, takeover bool) []*apigen.Endpoint {
 	if prefix.IsZero() || item.Config.ID <= 0 ||
-		item.Instance.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING ||
 		item.Status.Runner.Status != apigen.RunningStatus_RUNNING {
+		return nil
+	}
+	switch item.Instance.State {
+	case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING:
+	case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY:
+		if !takeover {
+			return nil
+		}
+	default:
 		return nil
 	}
 	addr, err := prefix.InboundAddr(item.Config.SpaceID, item.Config.ID, item.Instance.InstanceOrdinal)

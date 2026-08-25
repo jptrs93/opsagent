@@ -299,6 +299,7 @@ func (i *LogStreamCollector) commitSpooledChunk() error {
 		return err
 	}
 	s.committed = r.end
+	s.pruneAggregatesLocked(r.end)
 	s.dropFirstLocked()
 	i.deleteConsumedLogWALs(r.end)
 	return nil

@@ -300,6 +300,131 @@ func TestRenderNetStateDerivesEndpointsFromPlacement(t *testing.T) {
 	}
 }
 
+func TestRenderNetStateStandbyTakeoverContributesEndpoint(t *testing.T) {
+	prefix := network.GeneratePrefix()
+	previousNetwork := network.Default
+	network.SetDefault(network.New(prefix, 99))
+	t.Cleanup(func() { network.SetDefault(previousNetwork) })
+
+	item := func(id int32, state apigen.ScheduledInstanceTarget, running apigen.RunningStatus) apigen.ScheduledInstanceState {
+		return apigen.ScheduledInstanceState{
+			Instance: apigen.ScheduledInstance{ID: id, DeploymentID: 42, NodeID: 1, State: state},
+			Config: apigen.DeploymentConfig{
+				ID:      42,
+				SpaceID: 1, Name: "webapp",
+				Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
+					Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+					Ingress: []*apigen.Ingress{{
+						Kind:     apigen.IngressKind_INGRESS_KIND_HTTPS,
+						Hostname: "app.example.com",
+						HttpsConfig: &apigen.HttpsConfig{
+							ContainerPort: 8080,
+						},
+					}},
+				}},
+			},
+			Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{Status: running}},
+		}
+	}
+	want, err := prefix.InboundAddr(1, 42, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serving := apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
+	draining := apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING
+	standby := apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
+
+	for name, tc := range map[string]struct {
+		items         []apigen.ScheduledInstanceState
+		wantEndpoints int
+	}{
+		"serving with ready standby": {
+			items:         []apigen.ScheduledInstanceState{item(6, standby, apigen.RunningStatus_RUNNING), item(5, serving, apigen.RunningStatus_RUNNING)},
+			wantEndpoints: 1,
+		},
+		"draining with ready standby": {
+			items:         []apigen.ScheduledInstanceState{item(5, draining, apigen.RunningStatus_RUNNING), item(6, standby, apigen.RunningStatus_RUNNING)},
+			wantEndpoints: 1,
+		},
+		"serving with warming standby": {
+			items:         []apigen.ScheduledInstanceState{item(6, standby, apigen.RunningStatus_STARTING), item(5, serving, apigen.RunningStatus_RUNNING)},
+			wantEndpoints: 1,
+		},
+		"lone ready standby": {
+			items:         []apigen.ScheduledInstanceState{item(6, standby, apigen.RunningStatus_RUNNING)},
+			wantEndpoints: 0,
+		},
+		"draining with warming standby": {
+			items:         []apigen.ScheduledInstanceState{item(5, draining, apigen.RunningStatus_RUNNING), item(6, standby, apigen.RunningStatus_STARTING)},
+			wantEndpoints: 0,
+		},
+	} {
+		state := RenderNetState(1, "node-a", tc.items, nil)
+		if len(state.DnsServices) != 1 {
+			t.Fatalf("%s: dns services = %+v, want exactly one merged service", name, state.DnsServices)
+		}
+		endpoints := state.DnsServices[0].Endpoints
+		if len(endpoints) != tc.wantEndpoints {
+			t.Errorf("%s: endpoints = %+v, want %d", name, endpoints, tc.wantEndpoints)
+			continue
+		}
+		if tc.wantEndpoints == 1 && endpoints[0].Address != want.String() {
+			t.Errorf("%s: endpoint address = %s, want %s", name, endpoints[0].Address, want)
+		}
+		if len(state.Ingress) != 1 {
+			t.Fatalf("%s: ingress = %+v, want exactly one merged route", name, state.Ingress)
+		}
+		backends := state.Ingress[0].Https.Backends
+		if len(backends) != tc.wantEndpoints {
+			t.Errorf("%s: backends = %+v, want %d", name, backends, tc.wantEndpoints)
+			continue
+		}
+		if tc.wantEndpoints == 1 && (backends[0].Address != want.String() || backends[0].Port != 8080) {
+			t.Errorf("%s: backend = %+v, want %s:8080", name, backends[0], want)
+		}
+	}
+}
+
+func TestRenderNetStateIsDeterministicAcrossItemOrder(t *testing.T) {
+	prefix := network.GeneratePrefix()
+	previousNetwork := network.Default
+	network.SetDefault(network.New(prefix, 99))
+	t.Cleanup(func() { network.SetDefault(previousNetwork) })
+
+	item := func(id, deploymentID int32, name string, state apigen.ScheduledInstanceTarget) apigen.ScheduledInstanceState {
+		return apigen.ScheduledInstanceState{
+			Instance: apigen.ScheduledInstance{ID: id, DeploymentID: deploymentID, NodeID: 1, State: state},
+			Config: apigen.DeploymentConfig{
+				ID:      deploymentID,
+				SpaceID: 1, Name: name,
+				Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
+					Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+					Ingress: []*apigen.Ingress{{
+						Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+						Hostname: name + ".example.com",
+						TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
+							HostPort:      8443,
+							ContainerPort: 5432,
+						},
+					}},
+				}},
+			},
+			Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING}},
+		}
+	}
+	serving := apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
+	standby := apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
+	a := item(5, 42, "alpha", serving)
+	b := item(6, 42, "alpha", standby)
+	c := item(7, 43, "beta", serving)
+
+	first := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{a, b, c}, nil).Encode()
+	second := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{c, b, a}, nil).Encode()
+	if !slices.Equal(first, second) {
+		t.Fatal("rendered netstate bytes depend on snapshot item order")
+	}
+}
+
 func TestRenderNetStateKeepsIngressWithoutReadyBackend(t *testing.T) {
 	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{{
 		Config: apigen.DeploymentConfig{

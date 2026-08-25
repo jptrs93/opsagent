@@ -36,6 +36,7 @@ var tlsIngressHosts = []string{
 	"stream.ingress.opendeploy.test",
 	"streamh1.ingress.opendeploy.test",
 	"ws.ingress.opendeploy.test",
+	"rollover.ingress.opendeploy.test",
 }
 
 type config struct {

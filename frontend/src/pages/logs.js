@@ -358,11 +358,15 @@ export function logsPage(selectedDeploymentId) {
     const buildResult = (resp) => {
         const stats = resp.stats || {};
         const hist = resp.histogram;
-        const startTs = stats.timeStart instanceof Date ? stats.timeStart.getTime() : 0;
-        const endTs = stats.timeEnd instanceof Date ? stats.timeEnd.getTime() : startTs;
+        let startTs = stats.timeStart instanceof Date ? stats.timeStart.getTime() : 0;
+        let endTs = stats.timeEnd instanceof Date ? stats.timeEnd.getTime() : startTs;
         const bucketMs = Number(hist?.bucketMs || 0);
         const series = hist?.series || [];
         const bucketN = series.length ? series[0].counts.length : 0;
+        if (bucketN && bucketMs && hist.startTime instanceof Date) {
+            startTs = hist.startTime.getTime();
+            endTs = startTs + bucketN * bucketMs;
+        }
         const counts = new Array(bucketN * NL).fill(0);
         for (const s of series) {
             const li = LEVELS.indexOf(s.level || '');

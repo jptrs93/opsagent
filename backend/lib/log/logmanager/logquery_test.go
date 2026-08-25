@@ -2,6 +2,7 @@ package logmanager
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -232,6 +233,66 @@ func TestQueryHistogramAndFieldNames(t *testing.T) {
 	}
 }
 
+func TestSnapBucketMs(t *testing.T) {
+	cases := []struct{ ideal, want int64 }{
+		{1, 10},
+		{10, 10},
+		{11, 20},
+		{999, 1000},
+		{30_001, 60_000},
+		{1_700_000, 1_800_000},
+		{24 * 3_600_000, 24 * 3_600_000},
+		{24*3_600_000 + 1, 48 * 3_600_000},
+		{5 * 24 * 3_600_000, 5 * 24 * 3_600_000},
+	}
+	for _, c := range cases {
+		if got := snapBucketMs(c.ideal); got != c.want {
+			t.Fatalf("snapBucketMs(%d) = %d, want %d", c.ideal, got, c.want)
+		}
+	}
+}
+
+func TestQueryHistogramAlignsBucketEdges(t *testing.T) {
+	m := jsonFixture(t)
+	resp, err := m.Query(context.Background(), &apigen.LogQueryRequest{
+		DeploymentID:     testDeploymentID,
+		TimeStart:        mustTime(t, "2026-06-15T13:59:30Z"),
+		TimeEnd:          mustTime(t, "2026-06-15T16:00:30Z"),
+		HistogramBuckets: 4,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := resp.Histogram
+	if h == nil || h.BucketMs != 3_600_000 {
+		t.Fatalf("histogram = %+v", h)
+	}
+	if !h.StartTime.Equal(mustTime(t, "2026-06-15T13:00:00Z")) {
+		t.Fatalf("start time = %v", h.StartTime)
+	}
+	counts := map[string][]int64{}
+	for _, s := range h.Series {
+		counts[s.Level] = s.Counts
+	}
+	want := map[string][]int64{
+		"ERROR": {0, 1, 0, 0},
+		"WARN":  {0, 1, 0, 0},
+		"INFO":  {0, 1, 1, 0},
+		"":      {0, 0, 1, 0},
+	}
+	for level, w := range want {
+		got := counts[level]
+		if len(got) != len(w) {
+			t.Fatalf("%s counts = %v, want %v", level, got, w)
+		}
+		for i := range w {
+			if got[i] != w[i] {
+				t.Fatalf("%s counts = %v, want %v", level, got, w)
+			}
+		}
+	}
+}
+
 func TestQueryValidation(t *testing.T) {
 	m := searchFixture(t)
 	if _, err := m.Query(context.Background(), wideRange(t, &apigen.LogQueryRequest{
@@ -455,10 +516,10 @@ func TestScanRangeThinAggMatchesVisitingScan(t *testing.T) {
 	fromN := mustTime(t, "2026-06-15T00:00:00Z").UnixNano()
 	tillN := mustTime(t, "2026-06-16T00:00:00Z").UnixNano()
 	counts := make([][]int64, len(levelOrder))
-	agg := &thinAgg{fromN: fromN, tillN: tillN, bucketStep: tillN - fromN, bucketN: 1, counts: counts}
+	agg := &thinAgg{fromN: fromN, tillN: tillN, bucketFrom: fromN, bucketStep: tillN - fromN, bucketN: 1, counts: counts}
 	trace := &queryTrace{}
 	visited := 0
-	warnings, err := c.scanRange(context.Background(), fromN, tillN, trace, func(logdb.LogFile) projection { return projThin }, agg, func(v *visitRec) bool {
+	warnings, err := c.scanRange(context.Background(), fromN, tillN, trace, func(logdb.LogFile) projection { return projThin }, agg, 0, func(v *visitRec) bool {
 		if v.narrow {
 			t.Fatal("thin row visited despite agg fast path")
 		}
@@ -484,12 +545,160 @@ func TestScanRangeThinAggMatchesVisitingScan(t *testing.T) {
 	counts = make([][]int64, len(levelOrder))
 	agg = &thinAgg{fromN: fromN, tillN: tillN, filters: mustCompile(t, "level", "eq", "error"), counts: counts}
 	trace = &queryTrace{}
-	_, err = c.scanRange(context.Background(), fromN, tillN, trace, func(logdb.LogFile) projection { return projThin }, agg, func(v *visitRec) bool { return true })
+	_, err = c.scanRange(context.Background(), fromN, tillN, trace, func(logdb.LogFile) projection { return projThin }, agg, 0, func(v *visitRec) bool { return true })
 	if err != nil {
 		t.Fatal(err)
 	}
 	if agg.scanned != 5 || agg.matched != 2 {
 		t.Fatalf("filtered scanned = %d, matched = %d", agg.scanned, agg.matched)
+	}
+}
+
+func spoolAggFixture(t *testing.T) *Manager {
+	t.Helper()
+	streamTiming(t, time.Millisecond, time.Millisecond, time.Millisecond)
+	db := archiveEnv(t)
+	walDir := walEnv(t)
+	writeBucket(t, walDir, "20260615_1400",
+		record(t, "2026-06-15T14:00:30Z", 1, 1, logv2.StreamStdout, `{"level":"info","msg":"i1"}`+"\n"),
+		record(t, "2026-06-15T14:01:10Z", 1, 1, logv2.StreamStdout, `{"level":"error","msg":"e1"}`+"\n"),
+		record(t, "2026-06-15T14:01:40Z", 1, 1, logv2.StreamStdout, `{"level":"info","msg":"i2"}`+"\n"),
+		record(t, "2026-06-15T14:02:20Z", 1, 1, logv2.StreamStdout, `{"level":"warn","msg":"w1"}`+"\n"),
+		record(t, "2026-06-15T14:03:15Z", 1, 1, logv2.StreamStdout, `{"level":"error","msg":"e2"}`+"\n"),
+		record(t, "2026-06-15T14:05:30Z", 1, 1, logv2.StreamStdout, `{"level":"info","msg":"i3"}`+"\n"),
+		record(t, "2026-06-15T14:06:10Z", 1, 1, logv2.StreamStdout, `{"level":"error","msg":"e4"}`+"\n"),
+		record(t, "2026-06-15T14:07:20Z", 1, 1, logv2.StreamStdout, `{"level":"error","msg":"e5"}`+"\n"),
+		record(t, "2026-06-15T14:10:05Z", 1, 1, logv2.StreamStdout, `{"level":"debug","msg":"d1"}`+"\n"),
+		record(t, "2026-06-15T14:10:06Z", 1, 1, logv2.StreamStdout, `{"level":"error","msg":"e3"}`+"\n"),
+	)
+	c := NewLogStreamCollector(testDeploymentID, db)
+	fillSpool(t, c)
+	return &Manager{db: c.db, collectors: map[int32]*LogStreamCollector{testDeploymentID: c}}
+}
+
+func TestScanRangeWalAggSkips(t *testing.T) {
+	m := spoolAggFixture(t)
+	c := m.collectors[testDeploymentID]
+	fromN := mustTime(t, "2026-06-15T14:00:00Z").UnixNano()
+	tillN := mustTime(t, "2026-06-15T14:20:00Z").UnixNano()
+	counts := make([][]int64, len(levelOrder))
+	agg := &thinAgg{fromN: fromN, tillN: tillN, bucketFrom: fromN, bucketStep: 2 * int64(time.Minute), bucketN: 10, counts: counts}
+	trace := &queryTrace{}
+	var visited []string
+	_, err := c.scanRange(context.Background(), fromN, tillN, trace, nil, agg, 1, func(v *visitRec) bool {
+		visited = append(visited, v.msgValue())
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trace.walAggRows != 7 || trace.walRows != 3 {
+		t.Fatalf("agg rows = %d, raw rows = %d", trace.walAggRows, trace.walRows)
+	}
+	if agg.scanned != 7 || agg.matched != 7 {
+		t.Fatalf("scanned = %d, matched = %d", agg.scanned, agg.matched)
+	}
+	if !equalStrings(visited, []string{"e5", "d1", "e3"}) {
+		t.Fatalf("visited = %v", visited)
+	}
+	if counts[levelIndex("INFO")][0] != 2 || counts[levelIndex("ERROR")][0] != 1 ||
+		counts[levelIndex("WARN")][1] != 1 || counts[levelIndex("ERROR")][1] != 1 ||
+		counts[levelIndex("INFO")][2] != 1 || counts[levelIndex("ERROR")][3] != 1 {
+		t.Fatalf("counts = %#v", counts)
+	}
+}
+
+func TestScanRangeWalAggHeadSegment(t *testing.T) {
+	m := spoolAggFixture(t)
+	c := m.collectors[testDeploymentID]
+	fromN := mustTime(t, "2026-06-15T14:00:30Z").UnixNano()
+	tillN := mustTime(t, "2026-06-15T14:20:00Z").UnixNano()
+	agg := &thinAgg{fromN: fromN, tillN: tillN}
+	trace := &queryTrace{}
+	var visited []string
+	_, err := c.scanRange(context.Background(), fromN, tillN, trace, nil, agg, 1, func(v *visitRec) bool {
+		visited = append(visited, v.msgValue())
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trace.walAggRows != 6 || trace.walRows != 4 {
+		t.Fatalf("agg rows = %d, raw rows = %d", trace.walAggRows, trace.walRows)
+	}
+	if agg.scanned != 6 || agg.matched != 6 {
+		t.Fatalf("scanned = %d, matched = %d", agg.scanned, agg.matched)
+	}
+	if !equalStrings(visited, []string{"i1", "e5", "d1", "e3"}) {
+		t.Fatalf("visited = %v", visited)
+	}
+}
+
+func TestQueryWalAggMatchesFullScan(t *testing.T) {
+	old := fieldStatsSample
+	fieldStatsSample = 1
+	t.Cleanup(func() { fieldStatsSample = old })
+	m := spoolAggFixture(t)
+	req := func() *apigen.LogQueryRequest {
+		return &apigen.LogQueryRequest{
+			DeploymentID:     testDeploymentID,
+			TimeStart:        mustTime(t, "2026-06-15T14:00:00Z"),
+			TimeEnd:          mustTime(t, "2026-06-15T14:20:00Z"),
+			Limit:            -1,
+			HistogramBuckets: 10,
+		}
+	}
+	fast, err := m.Query(context.Background(), req())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fieldStatsSample = 1 << 40
+	full, err := m.Query(context.Background(), req())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fast.Stats.MatchedRows != 10 || full.Stats.MatchedRows != 10 {
+		t.Fatalf("matched = %d vs %d", fast.Stats.MatchedRows, full.Stats.MatchedRows)
+	}
+	if fast.Histogram == nil || full.Histogram == nil || fast.Histogram.BucketMs != 120_000 {
+		t.Fatalf("histograms = %+v vs %+v", fast.Histogram, full.Histogram)
+	}
+	series := func(h *apigen.LogHistogram) map[string][]int64 {
+		out := map[string][]int64{}
+		for _, s := range h.Series {
+			out[s.Level] = s.Counts
+		}
+		return out
+	}
+	if !reflect.DeepEqual(series(fast.Histogram), series(full.Histogram)) {
+		t.Fatalf("series = %#v vs %#v", series(fast.Histogram), series(full.Histogram))
+	}
+}
+
+func TestQueryWalAggFilteredRecords(t *testing.T) {
+	old := fieldStatsSample
+	fieldStatsSample = 1
+	t.Cleanup(func() { fieldStatsSample = old })
+	m := spoolAggFixture(t)
+	resp, err := m.Query(context.Background(), &apigen.LogQueryRequest{
+		DeploymentID: testDeploymentID,
+		TimeStart:    mustTime(t, "2026-06-15T14:00:00Z"),
+		TimeEnd:      mustTime(t, "2026-06-15T14:20:00Z"),
+		Limit:        2,
+		Filters:      []*apigen.LogFilter{{Field: "level", Op: "eq", Value: "error"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Stats.MatchedRows != 5 {
+		t.Fatalf("stats = %+v", resp.Stats)
+	}
+	got := make([]string, 0, len(resp.Records))
+	for _, r := range resp.Records {
+		got = append(got, r.Msg)
+	}
+	if !equalStrings(got, []string{"e3", "e5"}) {
+		t.Fatalf("records = %v", got)
 	}
 }
 
@@ -559,7 +768,7 @@ func TestScanRangeThinProjectionDecodesTimeAndLevel(t *testing.T) {
 	trace := &queryTrace{}
 	levels := map[string]int{}
 	thinRows := 0
-	warnings, err := c.scanRange(context.Background(), fromN, tillN, trace, func(logdb.LogFile) projection { return projThin }, nil, func(v *visitRec) bool {
+	warnings, err := c.scanRange(context.Background(), fromN, tillN, trace, func(logdb.LogFile) projection { return projThin }, nil, 0, func(v *visitRec) bool {
 		if v.narrow {
 			thinRows++
 			levels[v.levelValue()]++

@@ -2,6 +2,7 @@ package logmanager
 
 import (
 	"bytes"
+	"cmp"
 	"container/heap"
 	"context"
 	"fmt"
@@ -24,6 +25,27 @@ const (
 	fieldStatsTopN      = 10
 )
 
+// bucketLadderMs is the set of allowed histogram bucket widths; the requested
+// bucket count only picks a target, the actual width snaps up to the next rung
+// and bucket edges align to multiples of it so edges stay put as the query
+// window slides.
+var bucketLadderMs = []int64{
+	10, 20, 50, 100, 200, 500,
+	1_000, 2_000, 5_000, 10_000, 30_000,
+	60_000, 120_000, 300_000, 600_000, 1_800_000,
+	3_600_000, 3 * 3_600_000, 6 * 3_600_000, 12 * 3_600_000, 24 * 3_600_000,
+}
+
+func snapBucketMs(ideal int64) int64 {
+	for _, w := range bucketLadderMs {
+		if w >= ideal {
+			return w
+		}
+	}
+	const day = 24 * 3_600_000
+	return (ideal + day - 1) / day * day
+}
+
 // levelOrder is the canonical series order for histograms; "" collects lines
 // with no parsed level.
 var levelOrder = []string{"ERROR", "WARN", "INFO", "DEBUG", ""}
@@ -36,7 +58,6 @@ func levelIndex(level string) int {
 	}
 	return len(levelOrder) - 1
 }
-
 
 type compiledFilter struct {
 	field     string
@@ -139,6 +160,7 @@ func (p projection) String() string {
 // response keeps omitting empty series.
 type thinAgg struct {
 	fromN, tillN int64
+	bucketFrom   int64
 	bucketStep   int64
 	bucketN      int
 	filters      []compiledFilter
@@ -193,7 +215,7 @@ func (a *thinAgg) consume(times []int64, levels []parquet.Value, sorted bool) bo
 				c = make([]int64, a.bucketN)
 				a.counts[b.li] = c
 			}
-			bi := int((t - a.fromN) / a.bucketStep)
+			bi := int((t - a.bucketFrom) / a.bucketStep)
 			if bi >= a.bucketN {
 				bi = a.bucketN - 1
 			}
@@ -201,6 +223,101 @@ func (a *thinAgg) consume(times []int64, levels []parquet.Value, sorted bool) bo
 		}
 	}
 	return false
+}
+
+func (a *thinAgg) consumeBulk(minuteStartN int64, level string, n int64) {
+	b := a.bin([]byte(level))
+	if !b.match {
+		return
+	}
+	a.matched += n
+	if a.bucketN > 0 {
+		c := a.counts[b.li]
+		if c == nil {
+			c = make([]int64, a.bucketN)
+			a.counts[b.li] = c
+		}
+		bi := int((minuteStartN - a.bucketFrom) / a.bucketStep)
+		if bi >= a.bucketN {
+			bi = a.bucketN - 1
+		}
+		c[bi] += n
+	}
+}
+
+type walSkipPlan struct {
+	aggLoN     int64
+	aggHiEndN  int64
+	head       bool
+	headSeek   StreamMarker
+	headResume bool
+	tailSeek   StreamMarker
+	aggMinutes []MinuteAggregate
+	levels     []string
+}
+
+func planWalSkip(snap aggSnapshot, committed StreamMarker, fromN, tillN, walNeed int64, agg *thinAgg) *walSkipPlan {
+	minuteN := int64(time.Minute)
+	graceN := reorderGraceWindow.Nanoseconds()
+	if len(snap.minutes) == 0 {
+		return nil
+	}
+	aggLo := (fromN + minuteN - 1) / minuteN
+	if !snap.committed.isZero() {
+		aggLo = max(aggLo, snap.committed.time/minuteN+2)
+	}
+	hi := min((snap.maxAdded-graceN)/minuteN-1, tillN/minuteN-1)
+	if hi < aggLo {
+		return nil
+	}
+	match := make([]bool, len(snap.levels))
+	for id, level := range snap.levels {
+		match[id] = agg.bin([]byte(level)).match
+	}
+	byMinute := func(a MinuteAggregate, target int64) int { return cmp.Compare(a.minute, target) }
+	loI, _ := slices.BinarySearchFunc(snap.minutes, aggLo, byMinute)
+	hiI, found := slices.BinarySearchFunc(snap.minutes, hi, byMinute)
+	if !found {
+		hiI--
+	}
+	excluded := int64(0)
+	cut := hiI
+	for cut >= loI && excluded < walNeed {
+		for id, n := range snap.minutes[cut].levelCounts {
+			if match[id] {
+				excluded += n
+			}
+		}
+		cut--
+	}
+	if excluded < walNeed || cut < loI || cut < 1 {
+		return nil
+	}
+	p := &walSkipPlan{
+		aggLoN:     aggLo * minuteN,
+		aggHiEndN:  (snap.minutes[cut].minute + 1) * minuteN,
+		tailSeek:   snap.minutes[cut-1].start,
+		aggMinutes: snap.minutes[loI : cut+1],
+		levels:     snap.levels,
+	}
+	if fromN < p.aggLoN {
+		p.head = true
+		p.headSeek = committed
+		p.headResume = true
+		j, f := slices.BinarySearchFunc(snap.minutes, fromN/minuteN-2, byMinute)
+		if !f {
+			j--
+		}
+		if j >= 0 {
+			p.headSeek = snap.minutes[j].start
+			p.headResume = false
+		}
+	}
+	return p
+}
+
+func (p *walSkipPlan) covers(t int64) bool {
+	return t >= p.aggLoN && t < p.aggHiEndN
 }
 
 // visitRec is one record as seen by the query scan. level/msg come from the
@@ -355,6 +472,7 @@ type queryTrace struct {
 	snapshotDur time.Duration
 	walDur      time.Duration
 	walRows     int64
+	walAggRows  int64
 	filesPruned int
 	files       []fileScan
 }
@@ -371,7 +489,11 @@ func (t *queryTrace) summary(took time.Duration, scanned int64) string {
 		f := &t.files[i]
 		fmt.Fprintf(&b, "\n%s: %d rows, %v, %s", f.name, f.rows, f.dur.Round(time.Millisecond), f.proj)
 	}
-	fmt.Fprintf(&b, "\nlive wal: %d rows, %v", t.walRows, t.walDur.Round(time.Millisecond))
+	if t.walAggRows > 0 {
+		fmt.Fprintf(&b, "\nlive wal: %d rows, %d agg rows, %v", t.walRows, t.walAggRows, t.walDur.Round(time.Millisecond))
+	} else {
+		fmt.Fprintf(&b, "\nlive wal: %d rows, %v", t.walRows, t.walDur.Round(time.Millisecond))
+	}
 	return b.String()
 }
 
@@ -400,7 +522,7 @@ type narrowRow struct {
 // reads only time and level; neither carries line bytes. When agg is set,
 // thin files skip row visiting and aggregate in bulk via scanArchiveAgg. An unreadable archive file is skipped with a warning
 // rather than failing the scan.
-func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, trace *queryTrace, fileProjection func(logdb.LogFile) projection, agg *thinAgg, visit func(*visitRec) bool) ([]string, error) {
+func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, trace *queryTrace, fileProjection func(logdb.LogFile) projection, agg *thinAgg, walNeed int64, visit func(*visitRec) bool) ([]string, error) {
 	snapStart := clock()
 	committed, files, err := i.searchSnapshot(ctx)
 	trace.snapshotDur = clock().Sub(snapStart)
@@ -417,20 +539,75 @@ func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, 
 		walStart := clock()
 		sealed, cancel := context.WithCancel(context.Background())
 		cancel()
-		for r, err := range StreamDeploymentLogRecords(sealed, i.deploymentID, committed) {
-			if err != nil {
-				trace.walDur = clock().Sub(walStart)
-				return warnings, err
+		var plan *walSkipPlan
+		if agg != nil && walNeed > 0 {
+			if snap, ok := i.liveSpool.aggSnapshot(); ok {
+				plan = planWalSkip(snap, committed, fromN, tillN, walNeed, agg)
 			}
-			if cancelled() {
-				trace.walDur = clock().Sub(walStart)
-				return warnings, ctx.Err()
+		}
+		if plan != nil {
+			for _, a := range plan.aggMinutes {
+				agg.scanned += a.count
+				trace.walAggRows += a.count
+				for id, n := range a.levelCounts {
+					if n > 0 {
+						agg.consumeBulk(a.minute*int64(time.Minute), plan.levels[id], n)
+					}
+				}
 			}
-			trace.walRows++
-			v := visitRec{rec: r.record}
-			if !visit(&v) {
-				trace.walDur = clock().Sub(walStart)
-				return warnings, nil
+		}
+		if plan == nil || plan.head {
+			seek, resume := committed, true
+			if plan != nil {
+				seek, resume = plan.headSeek, plan.headResume
+			}
+			for r, err := range streamRecords(sealed, i.deploymentID, seek, resume) {
+				if err != nil {
+					trace.walDur = clock().Sub(walStart)
+					return warnings, err
+				}
+				if plan != nil {
+					if !r.m.before(plan.tailSeek) {
+						break
+					}
+					if r.record.Time >= plan.aggLoN+reorderGraceWindow.Nanoseconds() {
+						break
+					}
+					if plan.covers(r.record.Time) {
+						continue
+					}
+				}
+				if cancelled() {
+					trace.walDur = clock().Sub(walStart)
+					return warnings, ctx.Err()
+				}
+				trace.walRows++
+				v := visitRec{rec: r.record}
+				if !visit(&v) {
+					trace.walDur = clock().Sub(walStart)
+					return warnings, nil
+				}
+			}
+		}
+		if plan != nil {
+			for r, err := range streamRecords(sealed, i.deploymentID, plan.tailSeek, false) {
+				if err != nil {
+					trace.walDur = clock().Sub(walStart)
+					return warnings, err
+				}
+				if plan.covers(r.record.Time) {
+					continue
+				}
+				if cancelled() {
+					trace.walDur = clock().Sub(walStart)
+					return warnings, ctx.Err()
+				}
+				trace.walRows++
+				v := visitRec{rec: r.record}
+				if !visit(&v) {
+					trace.walDur = clock().Sub(walStart)
+					return warnings, nil
+				}
 			}
 		}
 		trace.walDur = clock().Sub(walStart)
@@ -630,13 +807,13 @@ func (i *LogStreamCollector) runQuery(ctx context.Context, q queryParams) (*apig
 	fromN, tillN := q.from.UnixNano(), q.till.UnixNano()
 	var bucketMs int64
 	bucketN := 0
+	bucketFromN := fromN
 	if q.buckets > 0 {
 		rangeMs := (tillN - fromN + 1e6 - 1) / 1e6
-		bucketMs = (rangeMs + int64(q.buckets) - 1) / int64(q.buckets)
-		if bucketMs < 1 {
-			bucketMs = 1
-		}
-		bucketN = int((rangeMs + bucketMs - 1) / bucketMs)
+		bucketMs = snapBucketMs((rangeMs + int64(q.buckets) - 1) / int64(q.buckets))
+		step := bucketMs * 1e6
+		bucketFromN = fromN - fromN%step
+		bucketN = int((tillN - bucketFromN + step - 1) / step)
 	}
 	counts := make([][]int64, len(levelOrder))
 	ret := &retainHeap{capacity: q.limit, newest: q.newestFirst}
@@ -668,10 +845,17 @@ func (i *LogStreamCollector) runQuery(ctx context.Context, q queryParams) (*apig
 	}
 	var agg *thinAgg
 	if thinOK {
-		agg = &thinAgg{fromN: fromN, tillN: tillN, bucketStep: bucketMs * 1e6, bucketN: bucketN, filters: q.filters, counts: counts}
+		agg = &thinAgg{fromN: fromN, tillN: tillN, bucketFrom: bucketFromN, bucketStep: bucketMs * 1e6, bucketN: bucketN, filters: q.filters, counts: counts}
+	}
+	walNeed := int64(0)
+	if thinOK && (q.limit <= 0 || q.newestFirst) && (bucketN == 0 || bucketMs >= 60_000) {
+		walNeed = fieldStatsSample
+		if int64(q.limit) > walNeed {
+			walNeed = int64(q.limit)
+		}
 	}
 	trace := &queryTrace{}
-	warnings, err := i.scanRange(ctx, fromN, tillN, trace, fileProjection, agg, func(v *visitRec) bool {
+	warnings, err := i.scanRange(ctx, fromN, tillN, trace, fileProjection, agg, walNeed, func(v *visitRec) bool {
 		scanned++
 		if v.rec.Time < fromN || v.rec.Time >= tillN {
 			return true
@@ -690,7 +874,7 @@ func (i *LogStreamCollector) runQuery(ctx context.Context, q queryParams) (*apig
 			if counts[li] == nil {
 				counts[li] = make([]int64, bucketN)
 			}
-			bi := int((v.rec.Time - fromN) / (bucketMs * 1e6))
+			bi := int((v.rec.Time - bucketFromN) / (bucketMs * 1e6))
 			if bi >= bucketN {
 				bi = bucketN - 1
 			}
@@ -785,7 +969,7 @@ func (i *LogStreamCollector) runQuery(ctx context.Context, q queryParams) (*apig
 		Warnings: warnings,
 	}
 	if bucketN > 0 {
-		h := &apigen.LogHistogram{BucketMs: bucketMs, StartTime: q.from}
+		h := &apigen.LogHistogram{BucketMs: bucketMs, StartTime: time.Unix(0, bucketFromN).UTC()}
 		for li, level := range levelOrder {
 			if level == "" && counts[li] == nil {
 				continue // no unleveled lines: omit the "" series entirely

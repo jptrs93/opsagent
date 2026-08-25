@@ -185,10 +185,16 @@ The container receives a generated `resolv.conf` pointing at the machine-local n
 Node-local network state is deliberately separate from the cluster map. The
 cluster map carries cross-node routing; `netstate.pb` carries DNS and ingress,
 derived on each node from the placements it holds. Every virtual-mode
-placement contributes its DNS name to the catalog; only a `RUN_SERVING`
-placement that is actually `RUNNING` contributes an endpoint, which is what
-keeps a name from resolving to, or a proxy from dialling, a container that is
-not up.
+placement contributes its DNS name to the catalog; a placement contributes an
+endpoint only when it is actually `RUNNING` and is either `RUN_SERVING` or a
+`RUN_STANDBY` beside a serving or draining placement of the same instance on
+this node, which is what keeps a name from resolving to, or a proxy from
+dialling, a container that is not up. The rendered snapshot is deterministic
+and duplicate-free: placements are ordered serving, draining, standby, then by
+placement id, and the DNS services and ingress routes an old and a replacement
+placement both render are merged with their backends deduplicated — so the
+promotion's two target-state writes (drain the old, then serve the new) never
+render an empty backend set in between.
 
 The agent writes full node-local `NetState` protobuf snapshots to `/var/lib/opendeploy/netproxy/netstate.pb`. It atomically takes its initial deployment snapshot and subscribes before writing, so a concurrent route or endpoint update cannot be lost during startup. The snapshot contains DNS records and rendered ingress routes. Writes are content-diffed: `netstate.pb` and `certbundle.pb` each carry an independent sequence and are rewritten only when their own rendered content changed, so status heartbeats that change nothing rendered trigger no writes and no nftables reconciliation. Sequences seed at `max(persisted seq, unix-millis)` because netproxy's monotonic gates live in a separate process that survives an agent state-dir wipe. Netproxy watches its directory for the atomic write-rename updates and answers authoritatively for every catalogued name: AAAA records for READY virtual endpoints, and an empty `NOERROR` answer (any record type) for a service that exists on the node but has no live endpoint, so `.internal` names of down services are neither leaked upstream nor denied with `NXDOMAIN`. Names not in the node-local catalog — including `.internal` services on other nodes — are forwarded to the host's upstream resolvers. Resolver discovery ignores loopback stubs that are unreachable from the netproxy namespace and falls back to the systemd-resolved or NetworkManager upstream resolver files. Forwarding is capped at 256 concurrent queries; overload and upstream failure return `SERVFAIL` rather than a cacheable negative answer.
 
@@ -218,7 +224,7 @@ rather than comparing against one constant. They differ only in what network
 state derives from them:
 
 - `RUN_SERVING` owns the instance's `/100` and its stable inbound address. Exactly one placement per `(deployment, ordinal)` holds it.
-- `RUN_STANDBY` is a warming replacement. It owns its own `/120` so its outbound traffic is routable before it ever serves, and it is deliberately absent from DNS and ingress backends.
+- `RUN_STANDBY` is a warming replacement. It owns its own `/120` so its outbound traffic is routable before it ever serves. While warming it is absent from DNS and ingress backends; once it reports `RUNNING` beside a serving or draining placement of the same instance on the same node it contributes the shared inbound address, so the render never drops to zero backends across promotion. A cross-node standby stays absent until it is promoted, because the inbound address does not route to its node yet.
 - `RUN_DRAINING` is a superseded placement that is still running. It keeps its `/120`, so replies to work already in flight still reach it after `I` has moved.
 
 A replacement is created as `RUN_STANDBY` from its very first write whenever a

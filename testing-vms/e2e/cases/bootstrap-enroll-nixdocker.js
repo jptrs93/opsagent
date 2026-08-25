@@ -6,6 +6,7 @@ import {caseDef as nixDockerVirtualNetworkCase} from './nix-docker-virtual-netwo
 import {hostRolloverCase, virtualPortForwardingCase, virtualRolloverCase} from './rollover-networking.js';
 import {expectTLSPassthroughRoutes, tlsPassthroughCases} from './tls-passthrough.js';
 import {expectHTTPSIngressRoutes, httpsIngressCases} from './https-ingress.js';
+import {rolloverIngressCases} from './rollover-ingress.js';
 import {httpsHeaderCases} from './https-headers.js';
 import {expectProtoStreamRoutes, protoStreamCases} from './proto-stream.js';
 import {expectWebSocketRoute, websocketCases} from './websocket.js';
@@ -183,6 +184,7 @@ export const orderedCases = [
   virtualPortForwardingCase,
   ...tlsPassthroughCases,
   ...httpsIngressCases,
+  ...rolloverIngressCases,
   ...httpsHeaderCases,
   ...protoStreamCases,
   ...websocketCases,
