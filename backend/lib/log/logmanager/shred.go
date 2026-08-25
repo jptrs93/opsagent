@@ -89,21 +89,8 @@ func jsonValueString(v any) string {
 	}
 }
 
-// normalizeLevel maps the level spellings in the wild onto the four canonical
-// severities. Anything unrecognized is treated as no level.
 func normalizeLevel(s string) string {
-	switch strings.ToUpper(strings.TrimSpace(s)) {
-	case "TRACE", "TRC", "DBG", "DEBUG":
-		return "DEBUG"
-	case "INFO", "INF":
-		return "INFO"
-	case "WARN", "WARNING", "WRN":
-		return "WARN"
-	case "ERROR", "ERR", "FATAL", "PANIC", "CRIT", "CRITICAL":
-		return "ERROR"
-	default:
-		return ""
-	}
+	return strings.ToUpper(strings.TrimSpace(s))
 }
 
 // shredFields extracts the level and msg columns for the parquet commit path.

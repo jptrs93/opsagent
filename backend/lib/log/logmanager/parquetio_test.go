@@ -1,6 +1,8 @@
 package logmanager
 
 import (
+	"context"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -34,6 +36,40 @@ func TestArchiveWriterRoundTripsAllColumns(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("rows = %+v, want %+v", got, want)
+	}
+}
+
+func TestScanArchiveAggFallsBackOnFilesWithoutLevelColumn(t *testing.T) {
+	type preLevelRow struct {
+		Time       int64  `parquet:"time"`
+		RawMessage []byte `parquet:"raw_message"`
+	}
+	path := filepath.Join(t.TempDir(), "old"+archiveExt)
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := parquet.NewGenericWriter[preLevelRow](f)
+	if _, err := w.Write([]preLevelRow{{Time: 1, RawMessage: []byte("x\n")}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	agg := &thinAgg{tillN: 1 << 62}
+	rows, handled, err := scanArchiveAgg(context.Background(), path, 0, 1<<62, agg)
+	if err != nil || handled || rows != 0 || agg.scanned != 0 {
+		t.Fatalf("rows = %d, handled = %v, err = %v, scanned = %d", rows, handled, err, agg.scanned)
+	}
+	got, err := parquet.ReadFile[logRow](path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Level != "" {
+		t.Fatalf("rows = %+v", got)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/logdb"
+	"github.com/parquet-go/parquet-go"
 )
 
 const (
@@ -35,6 +36,7 @@ func levelIndex(level string) int {
 	}
 	return len(levelOrder) - 1
 }
+
 
 type compiledFilter struct {
 	field     string
@@ -113,6 +115,7 @@ const (
 	projFull projection = iota
 	projNarrow
 	projThin
+	projAgg
 )
 
 func (p projection) String() string {
@@ -121,8 +124,83 @@ func (p projection) String() string {
 		return "narrow"
 	case projThin:
 		return "thin"
+	case projAgg:
+		return "agg"
 	}
 	return "full"
+}
+
+// thinAgg accumulates histogram and match counts straight from the time and
+// level columns, bypassing row visiting entirely. Each distinct level string
+// gets one lazily built bin holding its histogram series index and its
+// verdict from the real compiled-filter match code, so the fast path can
+// never disagree with the row-visiting path. counts shares runQuery's
+// per-level series slice; series stay nil until a row lands in them so the
+// response keeps omitting empty series.
+type thinAgg struct {
+	fromN, tillN int64
+	bucketStep   int64
+	bucketN      int
+	filters      []compiledFilter
+	counts       [][]int64
+	bins         []levelBin
+	scanned      int64
+	matched      int64
+}
+
+type levelBin struct {
+	val   []byte
+	li    int
+	match bool
+}
+
+func (a *thinAgg) bin(val []byte) *levelBin {
+	for i := range a.bins {
+		if bytes.Equal(a.bins[i].val, val) {
+			return &a.bins[i]
+		}
+	}
+	level := string(val)
+	v := visitRec{level: level, shredded: true, parsed: true, narrow: true}
+	match := true
+	for i := range a.filters {
+		if !a.filters[i].match(&v) {
+			match = false
+			break
+		}
+	}
+	a.bins = append(a.bins, levelBin{val: []byte(level), li: levelIndex(level), match: match})
+	return &a.bins[len(a.bins)-1]
+}
+
+func (a *thinAgg) consume(times []int64, levels []parquet.Value, sorted bool) bool {
+	for i, t := range times {
+		if sorted && t >= a.tillN {
+			return true
+		}
+		a.scanned++
+		if t < a.fromN || t >= a.tillN {
+			continue
+		}
+		b := a.bin(levels[i].ByteArray())
+		if !b.match {
+			continue
+		}
+		a.matched++
+		if a.bucketN > 0 {
+			c := a.counts[b.li]
+			if c == nil {
+				c = make([]int64, a.bucketN)
+				a.counts[b.li] = c
+			}
+			bi := int((t - a.fromN) / a.bucketStep)
+			if bi >= a.bucketN {
+				bi = a.bucketN - 1
+			}
+			c[bi]++
+		}
+	}
+	return false
 }
 
 // visitRec is one record as seen by the query scan. level/msg come from the
@@ -319,9 +397,10 @@ type narrowRow struct {
 // outside [fromN, tillN) may still be visited (whole tail buckets, file
 // boundaries) — visitors do their own range check. fileProjection decides per
 // parquet file how many columns to decode: narrow skips raw_message, thin
-// reads only time and level; neither carries line bytes. An unreadable
-// archive file is skipped with a warning rather than failing the scan.
-func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, trace *queryTrace, fileProjection func(logdb.LogFile) projection, visit func(*visitRec) bool) ([]string, error) {
+// reads only time and level; neither carries line bytes. When agg is set,
+// thin files skip row visiting and aggregate in bulk via scanArchiveAgg. An unreadable archive file is skipped with a warning
+// rather than failing the scan.
+func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, trace *queryTrace, fileProjection func(logdb.LogFile) projection, agg *thinAgg, visit func(*visitRec) bool) ([]string, error) {
 	snapStart := clock()
 	committed, files, err := i.searchSnapshot(ctx)
 	trace.snapshotDur = clock().Sub(snapStart)
@@ -376,6 +455,22 @@ func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, 
 		}
 		fs.proj = proj
 		stop := false
+		if proj == projThin && agg != nil {
+			rowsRead, handled, aggErr := scanArchiveAgg(ctx, path, fromN, tillN, agg)
+			if handled {
+				if ctx.Err() != nil {
+					return warnings, ctx.Err()
+				}
+				fs.proj = projAgg
+				fs.rows = rowsRead
+				if aggErr != nil {
+					fileWarning(aggErr)
+				}
+				fs.dur = clock().Sub(fileStart)
+				trace.files = append(trace.files, fs)
+				continue
+			}
+		}
 		switch proj {
 		case projThin:
 			for row, err := range readArchiveRowsRange(path, fromN, tillN, func(r *thinRow) int64 { return r.Time }) {
@@ -571,8 +666,12 @@ func (i *LogStreamCollector) runQuery(ctx context.Context, q queryParams) (*apig
 		}
 		return projNarrow
 	}
+	var agg *thinAgg
+	if thinOK {
+		agg = &thinAgg{fromN: fromN, tillN: tillN, bucketStep: bucketMs * 1e6, bucketN: bucketN, filters: q.filters, counts: counts}
+	}
 	trace := &queryTrace{}
-	warnings, err := i.scanRange(ctx, fromN, tillN, trace, fileProjection, func(v *visitRec) bool {
+	warnings, err := i.scanRange(ctx, fromN, tillN, trace, fileProjection, agg, func(v *visitRec) bool {
 		scanned++
 		if v.rec.Time < fromN || v.rec.Time >= tillN {
 			return true
@@ -631,6 +730,10 @@ func (i *LogStreamCollector) runQuery(ctx context.Context, q queryParams) (*apig
 	})
 	if err != nil {
 		return nil, err
+	}
+	if agg != nil {
+		scanned += agg.scanned
+		matched += agg.matched
 	}
 	retained := ret.sorted()
 	records := make([]*apigen.LogRecord, 0, len(retained))

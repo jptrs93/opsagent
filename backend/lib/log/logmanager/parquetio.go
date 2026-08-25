@@ -2,6 +2,7 @@ package logmanager
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -268,6 +269,169 @@ func archiveGroupMaxTime(rg parquet.RowGroup, timeCol int) (int64, bool) {
 		}
 	}
 	return maxTime, found
+}
+
+// scanArchiveAgg aggregates one archive file directly into agg without
+// yielding rows, reading the time and level column chunks at the page level
+// rather than through row reconstruction. handled is false when the file has
+// no level column, in which case the caller falls back to the row-visiting
+// thin scan. The returned row count matches what the visiting scan would
+// have counted.
+func scanArchiveAgg(ctx context.Context, path string, fromN, tillN int64, agg *thinAgg) (rows int64, handled bool, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, true, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return 0, true, err
+	}
+	pf, err := parquet.OpenFile(f, st.Size())
+	if err != nil {
+		return 0, true, err
+	}
+	levelCol, ok := pf.Schema().Lookup("level")
+	if !ok {
+		return 0, false, nil
+	}
+	timeCol, ok := pf.Schema().Lookup("time")
+	if !ok {
+		return 0, false, nil
+	}
+	sortedVal, _ := pf.Lookup(metadataSortedKey)
+	sorted := sortedVal == metadataSortedVal
+	before := agg.scanned
+	times := make([]int64, writeBatchRows)
+	tbuf := make([]parquet.Value, writeBatchRows)
+	levels := make([]parquet.Value, writeBatchRows)
+	for _, rg := range pf.RowGroups() {
+		if maxTime, ok := archiveGroupMaxTime(rg, timeCol.ColumnIndex); ok && maxTime < fromN {
+			continue
+		}
+		if ctx.Err() != nil {
+			return agg.scanned - before, true, ctx.Err()
+		}
+		done, err := aggRowGroup(rg, timeCol.ColumnIndex, levelCol.ColumnIndex, sorted, agg, times, tbuf, levels)
+		if err != nil {
+			return agg.scanned - before, true, err
+		}
+		if done {
+			break
+		}
+	}
+	return agg.scanned - before, true, nil
+}
+
+func aggRowGroup(rg parquet.RowGroup, timeIdx, levelIdx int, sorted bool, agg *thinAgg, times []int64, tbuf, levels []parquet.Value) (bool, error) {
+	tp := rg.ColumnChunks()[timeIdx].Pages()
+	defer tp.Close()
+	lp := rg.ColumnChunks()[levelIdx].Pages()
+	defer lp.Close()
+	tc := &int64Cursor{pages: tp, vbuf: tbuf}
+	lc := &valueCursor{pages: lp}
+	for {
+		n, err := tc.read(times)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return false, nil
+			}
+			return false, err
+		}
+		for got := 0; got < n; {
+			k, err := lc.read(levels[got:n])
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					return false, errors.New("level column shorter than time column")
+				}
+				return false, err
+			}
+			got += k
+		}
+		if agg.consume(times[:n], levels[:n], sorted) {
+			return true, nil
+		}
+	}
+}
+
+// int64Cursor streams a required int64 column chunk page by page, using the
+// typed reader when the page offers one and boxed values otherwise. read
+// never returns (0, nil): it advances pages until it has values or the chunk
+// ends with io.EOF.
+type int64Cursor struct {
+	pages parquet.Pages
+	ir    parquet.Int64Reader
+	vr    parquet.ValueReader
+	vbuf  []parquet.Value
+}
+
+func (c *int64Cursor) read(buf []int64) (int, error) {
+	for {
+		if c.ir != nil {
+			n, err := c.ir.ReadInt64s(buf)
+			if err != nil && errors.Is(err, io.EOF) {
+				c.ir = nil
+				err = nil
+			}
+			if n > 0 || err != nil {
+				return n, err
+			}
+		} else if c.vr != nil {
+			k := min(len(buf), len(c.vbuf))
+			n, err := c.vr.ReadValues(c.vbuf[:k])
+			for i := 0; i < n; i++ {
+				buf[i] = c.vbuf[i].Int64()
+			}
+			if err != nil && errors.Is(err, io.EOF) {
+				c.vr = nil
+				err = nil
+			}
+			if n > 0 || err != nil {
+				return n, err
+			}
+		}
+		p, err := c.pages.ReadPage()
+		if err != nil {
+			return 0, err
+		}
+		vals := p.Values()
+		if ir, ok := vals.(parquet.Int64Reader); ok {
+			c.ir, c.vr = ir, nil
+		} else {
+			c.ir, c.vr = nil, vals
+		}
+	}
+}
+
+// valueCursor streams a column chunk as boxed values page by page. For a
+// dictionary-encoded chunk the byte-array values point into the dictionary
+// buffer, so no per-value allocation happens; nulls (how optional empty
+// levels are stored) come through as null values. read never returns
+// (0, nil): it advances pages until it has values or the chunk ends with
+// io.EOF.
+type valueCursor struct {
+	pages parquet.Pages
+	vr    parquet.ValueReader
+}
+
+func (c *valueCursor) read(buf []parquet.Value) (int, error) {
+	for {
+		if c.vr != nil {
+			n, err := c.vr.ReadValues(buf)
+			if err != nil && errors.Is(err, io.EOF) {
+				c.vr = nil
+				err = nil
+			}
+			if n > 0 || err != nil {
+				return n, err
+			}
+		}
+		p, err := c.pages.ReadPage()
+		if err != nil {
+			return 0, err
+		}
+		c.vr = p.Values()
+	}
 }
 
 func readArchiveRowsRange[T any](path string, fromN, tillN int64, rowTime func(*T) int64) iter.Seq2[T, error] {

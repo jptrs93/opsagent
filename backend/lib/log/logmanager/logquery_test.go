@@ -449,6 +449,108 @@ func TestQueryThinProjectionAggregates(t *testing.T) {
 	}
 }
 
+func TestScanRangeThinAggMatchesVisitingScan(t *testing.T) {
+	m := thinFixture(t)
+	c := m.collectors[testDeploymentID]
+	fromN := mustTime(t, "2026-06-15T00:00:00Z").UnixNano()
+	tillN := mustTime(t, "2026-06-16T00:00:00Z").UnixNano()
+	counts := make([][]int64, len(levelOrder))
+	agg := &thinAgg{fromN: fromN, tillN: tillN, bucketStep: tillN - fromN, bucketN: 1, counts: counts}
+	trace := &queryTrace{}
+	visited := 0
+	warnings, err := c.scanRange(context.Background(), fromN, tillN, trace, func(logdb.LogFile) projection { return projThin }, agg, func(v *visitRec) bool {
+		if v.narrow {
+			t.Fatal("thin row visited despite agg fast path")
+		}
+		visited++
+		return true
+	})
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("err = %v, warnings = %v", err, warnings)
+	}
+	if len(trace.files) != 2 || trace.files[0].proj != projAgg || trace.files[1].proj != projAgg {
+		t.Fatalf("trace files = %+v", trace.files)
+	}
+	if agg.scanned != 5 || agg.matched != 5 || visited != 1 {
+		t.Fatalf("scanned = %d, matched = %d, visited = %d", agg.scanned, agg.matched, visited)
+	}
+	if counts[levelIndex("ERROR")][0] != 2 || counts[levelIndex("WARN")][0] != 1 || counts[levelIndex("INFO")][0] != 2 {
+		t.Fatalf("counts = %#v", counts)
+	}
+	if counts[levelIndex("")] != nil {
+		t.Fatalf("empty-level series allocated: %#v", counts)
+	}
+
+	counts = make([][]int64, len(levelOrder))
+	agg = &thinAgg{fromN: fromN, tillN: tillN, filters: mustCompile(t, "level", "eq", "error"), counts: counts}
+	trace = &queryTrace{}
+	_, err = c.scanRange(context.Background(), fromN, tillN, trace, func(logdb.LogFile) projection { return projThin }, agg, func(v *visitRec) bool { return true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agg.scanned != 5 || agg.matched != 2 {
+		t.Fatalf("filtered scanned = %d, matched = %d", agg.scanned, agg.matched)
+	}
+}
+
+func mustCompile(t *testing.T, field, op, value string) []compiledFilter {
+	t.Helper()
+	fs, err := compileFilters([]*apigen.LogFilter{{Field: field, Op: op, Value: value}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fs
+}
+
+func TestAggBinsMatchStringFilterSemantics(t *testing.T) {
+	cases := []struct {
+		field, op, value string
+		level            string
+		match            bool
+	}{
+		{"level", "eq", "error", "ERROR", true},
+		{"level", "eq", "Error", "ERROR", true},
+		{"level", "eq", "error", "WARN", false},
+		{"level", "eq", "fatal", "FATAL", true},
+		{"level", "eq", "error", "FATAL", false},
+		{"level", "neq", "error", "FATAL", true},
+		{"level", "neq", "error", "", true},
+		{"level", "exists", "", "FATAL", true},
+		{"level", "exists", "", "", false},
+		{"level", "not_exists", "", "", true},
+		{"level", "contains", "err", "ERROR", true},
+		{"level", "contains", "r", "WARN", true},
+		{"level", "contains", "r", "INFO", false},
+	}
+	for _, tc := range cases {
+		a := &thinAgg{filters: mustCompile(t, tc.field, tc.op, tc.value)}
+		if got := a.bin([]byte(tc.level)).match; got != tc.match {
+			t.Fatalf("%s %s %q on %q: match = %v, want %v", tc.field, tc.op, tc.value, tc.level, got, tc.match)
+		}
+	}
+	a := &thinAgg{}
+	if b := a.bin([]byte("FATAL")); !b.match || b.li != levelIndex("") {
+		t.Fatalf("no-filter FATAL bin = %+v", b)
+	}
+	if b := a.bin(nil); !b.match || b.li != levelIndex("") {
+		t.Fatalf("null-level bin = %+v", b)
+	}
+	if b := a.bin([]byte("ERROR")); b.li != levelIndex("ERROR") {
+		t.Fatalf("ERROR bin = %+v", b)
+	}
+	if len(a.bins) != 3 {
+		t.Fatalf("bins = %d, want 3", len(a.bins))
+	}
+	fs, err := compileFilters([]*apigen.LogFilter{{Field: "level", Op: "in", Values: []string{"ERROR", ""}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := &thinAgg{filters: fs}
+	if !in.bin([]byte("ERROR")).match || !in.bin(nil).match || in.bin([]byte("WARN")).match {
+		t.Fatalf("in bins = %+v", in.bins)
+	}
+}
+
 func TestScanRangeThinProjectionDecodesTimeAndLevel(t *testing.T) {
 	m := thinFixture(t)
 	c := m.collectors[testDeploymentID]
@@ -457,7 +559,7 @@ func TestScanRangeThinProjectionDecodesTimeAndLevel(t *testing.T) {
 	trace := &queryTrace{}
 	levels := map[string]int{}
 	thinRows := 0
-	warnings, err := c.scanRange(context.Background(), fromN, tillN, trace, func(logdb.LogFile) projection { return projThin }, func(v *visitRec) bool {
+	warnings, err := c.scanRange(context.Background(), fromN, tillN, trace, func(logdb.LogFile) projection { return projThin }, nil, func(v *visitRec) bool {
 		if v.narrow {
 			thinRows++
 			levels[v.levelValue()]++
