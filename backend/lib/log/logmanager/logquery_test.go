@@ -7,6 +7,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	logv2 "github.com/jptrs93/opsagent/backend/lib/log/v2"
+	"github.com/jptrs93/opsagent/backend/storage/logdb"
 )
 
 func queryMsgs(t *testing.T, m *Manager, req *apigen.LogQueryRequest) []string {
@@ -378,6 +379,114 @@ func TestQueryFieldStatsSampleBounded(t *testing.T) {
 	}
 	if errField := stats["err"]; errField == nil || errField.Distinct != 0 || errField.Coverage != 0 || len(errField.Top) != 0 {
 		t.Fatalf("err stats = %+v", errField)
+	}
+}
+
+// thinFixture commits two parquet files with mixed levels and leaves one
+// record in the WAL tail, so an aggregates-only query scans both files with
+// the thin time+level projection.
+func thinFixture(t *testing.T) *Manager {
+	t.Helper()
+	streamTiming(t, time.Millisecond, time.Millisecond, time.Millisecond)
+	db := archiveEnv(t)
+	walDir := walEnv(t)
+	writeBucket(t, walDir, "20260615_1400",
+		record(t, "2026-06-15T14:00:01Z", 1, 1, logv2.StreamStdout, `{"level":"error","msg":"e1"}`+"\n"),
+		record(t, "2026-06-15T14:00:02Z", 1, 1, logv2.StreamStdout, `{"level":"info","msg":"i1"}`+"\n"),
+		record(t, "2026-06-15T14:00:03Z", 1, 1, logv2.StreamStdout, `{"level":"info","msg":"i2"}`+"\n"),
+	)
+	c := NewLogStreamCollector(testDeploymentID, db)
+	if err := c.RunCollectorOnce(deadProducer()); err != nil {
+		t.Fatal(err)
+	}
+	writeBucket(t, walDir, "20260615_1430",
+		record(t, "2026-06-15T14:30:01Z", 1, 1, logv2.StreamStdout, `{"level":"warn","msg":"w1"}`+"\n"),
+		record(t, "2026-06-15T14:30:02Z", 1, 1, logv2.StreamStdout, `{"level":"error","msg":"e2"}`+"\n"),
+	)
+	if err := c.RunCollectorOnce(deadProducer()); err != nil {
+		t.Fatal(err)
+	}
+	writeBucket(t, walDir, "20260615_1500",
+		record(t, "2026-06-15T15:00:01Z", 1, 1, logv2.StreamStdout, `{"level":"info","msg":"i3"}`+"\n"),
+	)
+	fillSpool(t, c)
+	return &Manager{db: c.db, collectors: map[int32]*LogStreamCollector{testDeploymentID: c}}
+}
+
+func TestQueryThinProjectionAggregates(t *testing.T) {
+	old := fieldStatsSample
+	fieldStatsSample = 1
+	t.Cleanup(func() { fieldStatsSample = old })
+	m := thinFixture(t)
+	resp, err := m.Query(context.Background(), wideRange(t, &apigen.LogQueryRequest{
+		DeploymentID: testDeploymentID, Limit: -1, HistogramBuckets: 1,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Stats.MatchedRows != 6 || len(resp.Records) != 0 {
+		t.Fatalf("stats = %+v, records = %d", resp.Stats, len(resp.Records))
+	}
+	counts := map[string]int64{}
+	for _, s := range resp.Histogram.Series {
+		for _, c := range s.Counts {
+			counts[s.Level] += c
+		}
+	}
+	if counts["ERROR"] != 2 || counts["WARN"] != 1 || counts["INFO"] != 3 || counts[""] != 0 {
+		t.Fatalf("level counts = %#v", counts)
+	}
+
+	resp, err = m.Query(context.Background(), wideRange(t, &apigen.LogQueryRequest{
+		DeploymentID: testDeploymentID, Limit: -1,
+		Filters: []*apigen.LogFilter{{Field: "level", Op: "eq", Value: "error"}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Stats.MatchedRows != 2 {
+		t.Fatalf("filtered stats = %+v", resp.Stats)
+	}
+}
+
+func TestScanRangeThinProjectionDecodesTimeAndLevel(t *testing.T) {
+	m := thinFixture(t)
+	c := m.collectors[testDeploymentID]
+	fromN := mustTime(t, "2026-06-15T00:00:00Z").UnixNano()
+	tillN := mustTime(t, "2026-06-16T00:00:00Z").UnixNano()
+	trace := &queryTrace{}
+	levels := map[string]int{}
+	thinRows := 0
+	warnings, err := c.scanRange(context.Background(), fromN, tillN, trace, func(logdb.LogFile) projection { return projThin }, func(v *visitRec) bool {
+		if v.narrow {
+			thinRows++
+			levels[v.levelValue()]++
+			if v.rec.Time < fromN || v.rec.Time >= tillN {
+				t.Fatalf("thin row time %d outside range", v.rec.Time)
+			}
+		}
+		return true
+	})
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("err = %v, warnings = %v", err, warnings)
+	}
+	if len(trace.files) != 2 || trace.files[0].proj != projThin || trace.files[1].proj != projThin {
+		t.Fatalf("trace files = %+v", trace.files)
+	}
+	if thinRows != 5 || levels["ERROR"] != 2 || levels["WARN"] != 1 || levels["INFO"] != 2 {
+		t.Fatalf("thin rows = %d, levels = %#v", thinRows, levels)
+	}
+}
+
+func TestQueryThinProjectionNeverDropsRetainedRecords(t *testing.T) {
+	old := fieldStatsSample
+	fieldStatsSample = 1
+	t.Cleanup(func() { fieldStatsSample = old })
+	m := thinFixture(t)
+	got := queryMsgs(t, m, wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: 2,
+		Filters: []*apigen.LogFilter{{Field: "level", Op: "eq", Value: "error"}}}))
+	if !equalStrings(got, []string{"e2", "e1"}) {
+		t.Fatalf("msgs = %#v", got)
 	}
 }
 

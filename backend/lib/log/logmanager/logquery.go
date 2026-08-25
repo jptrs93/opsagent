@@ -98,6 +98,33 @@ func filtersNarrowSafe(fs []compiledFilter) bool {
 	return true
 }
 
+func filtersThinSafe(fs []compiledFilter) bool {
+	for i := range fs {
+		if fs[i].field != "level" {
+			return false
+		}
+	}
+	return true
+}
+
+type projection int
+
+const (
+	projFull projection = iota
+	projNarrow
+	projThin
+)
+
+func (p projection) String() string {
+	switch p {
+	case projNarrow:
+		return "narrow"
+	case projThin:
+		return "thin"
+	}
+	return "full"
+}
+
 // visitRec is one record as seen by the query scan. level/msg come from the
 // parquet columns when shredded is set and from parseLine otherwise; fields
 // are parsed lazily so records that are only counted never pay for JSON
@@ -240,10 +267,10 @@ func resolveQueryScope(timeStart, timeEnd time.Time) (from, till time.Time, err 
 }
 
 type fileScan struct {
-	name   string
-	rows   int64
-	narrow bool
-	dur    time.Duration
+	name string
+	rows int64
+	proj projection
+	dur  time.Duration
 }
 
 type queryTrace struct {
@@ -254,33 +281,25 @@ type queryTrace struct {
 	files       []fileScan
 }
 
-func (t *queryTrace) parquetDur() time.Duration {
-	var d time.Duration
-	for i := range t.files {
-		d += t.files[i].dur
-	}
-	return d
-}
-
-func (t *queryTrace) fileSummary() string {
+func (t *queryTrace) summary(took time.Duration, scanned int64) string {
 	const maxEntries = 24
 	var b strings.Builder
+	fmt.Fprintf(&b, "log query took %v, scanned %d rows, %d files:", took.Round(time.Millisecond), scanned, len(t.files))
 	for i := range t.files {
 		if i == maxEntries {
-			fmt.Fprintf(&b, " +%d more", len(t.files)-i)
+			fmt.Fprintf(&b, "\n+%d more files", len(t.files)-i)
 			break
 		}
-		if i > 0 {
-			b.WriteByte(' ')
-		}
 		f := &t.files[i]
-		mode := "full"
-		if f.narrow {
-			mode = "narrow"
-		}
-		fmt.Fprintf(&b, "%s:%s:%dr:%dms", f.name, mode, f.rows, f.dur.Milliseconds())
+		fmt.Fprintf(&b, "\n%s: %d rows, %v, %s", f.name, f.rows, f.dur.Round(time.Millisecond), f.proj)
 	}
+	fmt.Fprintf(&b, "\nlive wal: %d rows, %v", t.walRows, t.walDur.Round(time.Millisecond))
 	return b.String()
+}
+
+type thinRow struct {
+	Time  int64  `parquet:"time"`
+	Level string `parquet:"level,optional"`
 }
 
 type narrowRow struct {
@@ -298,11 +317,11 @@ type narrowRow struct {
 // scanRange streams every record of the WAL tail plus the time-pruned parquet
 // files, invoking visit per record; visit returns false to stop early. Records
 // outside [fromN, tillN) may still be visited (whole tail buckets, file
-// boundaries) — visitors do their own range check. narrowFile decides per
-// parquet file whether the raw_message column can be skipped; narrow records
-// carry no line bytes. An unreadable archive file is skipped with a warning
-// rather than failing the scan.
-func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, trace *queryTrace, narrowFile func(logdb.LogFile) bool, visit func(*visitRec) bool) ([]string, error) {
+// boundaries) — visitors do their own range check. fileProjection decides per
+// parquet file how many columns to decode: narrow skips raw_message, thin
+// reads only time and level; neither carries line bytes. An unreadable
+// archive file is skipped with a warning rather than failing the scan.
+func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, trace *queryTrace, fileProjection func(logdb.LogFile) projection, visit func(*visitRec) bool) ([]string, error) {
 	snapStart := clock()
 	committed, files, err := i.searchSnapshot(ctx)
 	trace.snapshotDur = clock().Sub(snapStart)
@@ -351,9 +370,39 @@ func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, 
 		fileWarning := func(err error) {
 			warnings = append(warnings, fmt.Sprintf("skipped unreadable archive file %s: %v", archiveFileName(int(f.Level), f.MinTime, f.MaxTime, int32(f.Node), f.Seq), err))
 		}
+		proj := projFull
+		if fileProjection != nil {
+			proj = fileProjection(f)
+		}
+		fs.proj = proj
 		stop := false
-		if narrowFile != nil && narrowFile(f) {
-			fs.narrow = true
+		switch proj {
+		case projThin:
+			for row, err := range readArchiveRowsRange(path, fromN, tillN, func(r *thinRow) int64 { return r.Time }) {
+				if err != nil {
+					fileWarning(err)
+					break
+				}
+				if cancelled() {
+					return warnings, ctx.Err()
+				}
+				fs.rows++
+				v := visitRec{
+					rec: apigen.RawLogLine{
+						Time:       row.Time,
+						Deployment: i.deploymentID,
+					},
+					level:    row.Level,
+					shredded: true,
+					parsed:   true,
+					narrow:   true,
+				}
+				if !visit(&v) {
+					stop = true
+					break
+				}
+			}
+		case projNarrow:
 			for row, err := range readArchiveRowsRange(path, fromN, tillN, func(r *narrowRow) int64 { return r.Time }) {
 				if err != nil {
 					fileWarning(err)
@@ -385,7 +434,7 @@ func (i *LogStreamCollector) scanRange(ctx context.Context, fromN, tillN int64, 
 					break
 				}
 			}
-		} else {
+		default:
 			for row, err := range readArchiveRowsRange(path, fromN, tillN, func(r *logRow) int64 { return r.Time }) {
 				if err != nil {
 					fileWarning(err)
@@ -499,24 +548,31 @@ func (i *LogStreamCollector) runQuery(ctx context.Context, q queryParams) (*apig
 	fieldAccums := map[string]*fieldAccum{}
 	var scanned, matched, sampled int64
 	narrowOK := filtersNarrowSafe(q.filters)
-	narrowFile := func(f logdb.LogFile) bool {
+	thinOK := q.configVersion == 0 && filtersThinSafe(q.filters)
+	fileProjection := func(f logdb.LogFile) projection {
 		if !narrowOK || sampled < fieldStatsSample {
-			return false
+			return projFull
 		}
-		if ret.capacity <= 0 {
-			return true
+		if ret.capacity > 0 {
+			if len(ret.recs) < ret.capacity {
+				return projFull
+			}
+			root := &ret.recs[0].rec
+			if q.newestFirst {
+				if f.MaxTime >= root.Time {
+					return projFull
+				}
+			} else if f.MinTime <= root.Time {
+				return projFull
+			}
 		}
-		if len(ret.recs) < ret.capacity {
-			return false
+		if thinOK {
+			return projThin
 		}
-		root := &ret.recs[0].rec
-		if q.newestFirst {
-			return f.MaxTime < root.Time
-		}
-		return f.MinTime > root.Time
+		return projNarrow
 	}
 	trace := &queryTrace{}
-	warnings, err := i.scanRange(ctx, fromN, tillN, trace, narrowFile, func(v *visitRec) bool {
+	warnings, err := i.scanRange(ctx, fromN, tillN, trace, fileProjection, func(v *visitRec) bool {
 		scanned++
 		if v.rec.Time < fromN || v.rec.Time >= tillN {
 			return true
@@ -639,20 +695,8 @@ func (i *LogStreamCollector) runQuery(ctx context.Context, q queryParams) (*apig
 		}
 		resp.Histogram = h
 	}
-	slog.InfoContext(ctx, "log query",
-		"deployment", i.deploymentID,
-		"range_ms", (tillN-fromN)/1e6,
-		"took_ms", resp.Stats.TookMs,
-		"scanned", scanned,
-		"matched", matched,
-		"snapshot_ms", trace.snapshotDur.Milliseconds(),
-		"wal_ms", trace.walDur.Milliseconds(),
-		"wal_rows", trace.walRows,
-		"parquet_ms", trace.parquetDur().Milliseconds(),
-		"files_scanned", len(trace.files),
-		"files_pruned", trace.filesPruned,
-		"files", trace.fileSummary(),
-	)
+	slog.InfoContext(ctx, trace.summary(time.Duration(resp.Stats.TookMs)*time.Millisecond, scanned),
+		"deployment", i.deploymentID)
 	return resp, nil
 }
 
