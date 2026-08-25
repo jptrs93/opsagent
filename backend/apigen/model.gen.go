@@ -168,10 +168,16 @@ const (
 	AccessPolicyType_ANY_OF                         AccessPolicyType = 3
 )
 
+type IpFilter struct {
+	Allow []string `json:"allow,omitempty"`
+	Deny  []string `json:"deny,omitempty"`
+}
+
 type PortForward struct {
 	Protocol      PortForwardProtocol `json:"protocol"`
 	HostPort      int32               `json:"host_port"`
 	ContainerPort int32               `json:"container_port"`
+	IpFilter      *IpFilter           `json:"ip_filter"`
 }
 
 type ContainerReadinessSignal struct {

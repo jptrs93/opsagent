@@ -1166,13 +1166,18 @@ func (r *containerRunner) hostPortRules(cn *network.ContainerNet) []network.Host
 		if !ok {
 			continue
 		}
-		rules = append(rules, network.HostPortRule{
+		rule := network.HostPortRule{
 			Protocol:   proto,
 			HostPort:   uint16(pf.HostPort),
 			TargetPort: uint16(pf.ContainerPort),
 			TargetV6:   cn.InboundAddr,
 			TargetV4:   cn.V4,
-		})
+		}
+		if pf.IpFilter != nil && len(pf.IpFilter.Allow) > 0 {
+			rule.Filtered = true
+			rule.AllowV4, rule.AllowV6 = network.SplitFilterPrefixes(pf.IpFilter.Allow)
+		}
+		rules = append(rules, rule)
 	}
 	return rules
 }

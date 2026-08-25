@@ -4,6 +4,8 @@ package network
 
 import (
 	"fmt"
+	"net"
+	"net/netip"
 	"sort"
 
 	"github.com/google/nftables"
@@ -58,16 +60,10 @@ func (m *Manager) reconcileNft() error {
 	for _, id := range ids {
 		for _, rule := range m.hostPorts[id].rules {
 			if rule.TargetV4.Is4() {
-				c.AddRule(&nftables.Rule{Table: tbl4, Chain: pre4,
-					Exprs: dnatExprs(rule.Protocol, rule.HostPort, rule.TargetV4.AsSlice(), rule.TargetPort, unix.AF_INET)})
-				c.AddRule(&nftables.Rule{Table: tbl4, Chain: out4,
-					Exprs: dnatExprs(rule.Protocol, rule.HostPort, rule.TargetV4.AsSlice(), rule.TargetPort, unix.AF_INET)})
+				addDNATRules(c, tbl4, pre4, out4, rule, rule.TargetV4, rule.AllowV4, unix.AF_INET)
 			}
 			if rule.TargetV6.Is6() {
-				c.AddRule(&nftables.Rule{Table: tbl6, Chain: pre6,
-					Exprs: dnatExprs(rule.Protocol, rule.HostPort, rule.TargetV6.AsSlice(), rule.TargetPort, unix.AF_INET6)})
-				c.AddRule(&nftables.Rule{Table: tbl6, Chain: out6,
-					Exprs: dnatExprs(rule.Protocol, rule.HostPort, rule.TargetV6.AsSlice(), rule.TargetPort, unix.AF_INET6)})
+				addDNATRules(c, tbl6, pre6, out6, rule, rule.TargetV6, rule.AllowV6, unix.AF_INET6)
 			}
 		}
 	}
@@ -90,6 +86,34 @@ func masqueradeExprs() []expr.Any {
 		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: mask, Xor: []byte{0, 0, 0, 0}},
 		&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: base},
 		&expr.Masq{},
+	}
+}
+
+func addDNATRules(c *nftables.Conn, tbl *nftables.Table, pre, out *nftables.Chain, rule HostPortRule, target netip.Addr, allow []netip.Prefix, family int) {
+	if rule.Filtered {
+		for _, src := range allow {
+			c.AddRule(&nftables.Rule{Table: tbl, Chain: pre,
+				Exprs: append(saddrMatchExprs(src), dnatExprs(rule.Protocol, rule.HostPort, target.AsSlice(), rule.TargetPort, family)...)})
+		}
+	} else {
+		c.AddRule(&nftables.Rule{Table: tbl, Chain: pre,
+			Exprs: dnatExprs(rule.Protocol, rule.HostPort, target.AsSlice(), rule.TargetPort, family)})
+	}
+	c.AddRule(&nftables.Rule{Table: tbl, Chain: out,
+		Exprs: dnatExprs(rule.Protocol, rule.HostPort, target.AsSlice(), rule.TargetPort, family)})
+}
+
+func saddrMatchExprs(prefix netip.Prefix) []expr.Any {
+	addr := prefix.Addr()
+	length := uint32(addr.BitLen() / 8)
+	offset := uint32(12)
+	if addr.Is6() {
+		offset = 8
+	}
+	return []expr.Any{
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: offset, Len: length},
+		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: length, Mask: net.CIDRMask(prefix.Bits(), int(length)*8), Xor: make([]byte, length)},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: addr.AsSlice()},
 	}
 }
 

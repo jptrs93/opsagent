@@ -21,7 +21,7 @@ Implemented today:
 - Workers reconcile fixed IPv6-in-IPv6 or IPv6-in-IPv4 tunnels and remote routed prefixes from accepted maps, then report the applied stamp.
 - The primary consumes those reports as a barrier: a superseded placement keeps running, and keeps its routes, until every node holding network state has applied the map that replaced it.
 - IPv4 egress is masqueraded from a fixed machine-local private range.
-- `portForwarding` publishes virtual-mode container TCP/UDP ports through nftables DNAT on the machine's host interfaces.
+- `portForwarding` publishes virtual-mode container TCP/UDP ports through nftables DNAT on the machine's host interfaces, optionally restricted to an allow list of source IPs/CIDRs.
 - ROLLOVER in virtual mode starts a candidate with both addresses and promotes it by flipping the stable inbound-address host route. Promotion does not change source-address preference: `O` remains preferred for the promoted run's full lifetime.
 - A placement claims the stable inbound address only when its target state is `RUN_SERVING`, so a replacement warming up on another node cannot hold the same address as the placement it is replacing.
 - Endpoints are derived, not reported. A placement's inbound address is a pure function of its space, deployment, and ordinal, so `netstate.pb` renders DNS and ingress backends from the placement itself and reads status only for whether it is running.
@@ -46,6 +46,26 @@ Deployment networking is configured on `DeploymentSpec.networking`.
 - `NETWORKING_MODE_UNSPECIFIED` is invalid for create/update requests. Deployment specs must set an explicit mode.
 
 `networking.portForwarding` maps one host-interface TCP or UDP port to one container port and requires virtual mode. TCP and UDP claims are independent, so the same numeric host port can be published once for TCP and once for UDP.
+
+Each port forward can carry an `ipFilter` restricting which sources are
+forwarded. `ipFilter.allow` is a list of source IPs or CIDR prefixes, IPv4 or
+IPv6; entries are validated at config save (no zones, no IPv4-mapped forms, no
+host bits set) and normalized to canonical form. An unset filter or empty
+allow list forwards from anywhere. A non-empty allow list applies per address
+family: only matching sources get the prerouting DNAT rule — one nftables rule
+per allowed prefix — and a family with no allow entries publishes nothing on
+that family, so an IPv4-only allow list closes the port's IPv6 side.
+Non-allowed traffic is simply never DNATed and sees the port as if the forward
+did not exist. The filter applies to external inbound traffic only: the
+output-chain rule for host-local clients stays unconditional. Because DNAT is
+flow-scoped, tightening a filter does not terminate already-established
+connections, the same as removing a forward entirely. `ipFilter.deny` exists
+in the schema (deny is defined to win over allow) but is not implemented and
+is rejected on config writes, so a restriction can never be saved silently
+unenforced. In the mixed-version window an older agent decodes the spec but
+ignores `ipFilter` and publishes the port unfiltered — upgrade agents before
+relying on a filter. The HCL form is
+`port_forward("tcp", 5432, { allow = ["203.0.113.7", "198.51.100.0/24"] })`.
 
 `networking.ingress` also requires virtual mode. The supported kinds are
 `TLS_PASSTHROUGH` and `HTTPS` (see Ingress Shape below). A `TLS_PASSTHROUGH`

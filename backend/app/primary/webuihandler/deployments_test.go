@@ -852,6 +852,30 @@ func TestValidateDeploymentSpecAcceptsVirtualPortForwarding(t *testing.T) {
 	}
 }
 
+func TestValidateDeploymentSpecNormalizesPortForwardIpFilter(t *testing.T) {
+	input := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{
+		Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+		PortForwarding: []*apigen.PortForward{{
+			Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080,
+			IpFilter: &apigen.IpFilter{Allow: []string{" 203.0.113.7 ", "198.51.100.0/24", "2001:DB8::/32"}},
+		}},
+	})
+	spec, err := validateDeploymentSpecWithAssets(&input, nil)
+	if err != nil {
+		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
+	}
+	got := spec.Networking.PortForwarding[0].IpFilter.Allow
+	want := []string{"203.0.113.7", "198.51.100.0/24", "2001:db8::/32"}
+	if len(got) != len(want) {
+		t.Fatalf("allow = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("allow = %v, want %v", got, want)
+		}
+	}
+}
+
 func TestValidateDeploymentSpecAcceptsTlsPassthroughIngress(t *testing.T) {
 	input := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{
 		Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
@@ -937,6 +961,50 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 				}},
 			},
 			want: "requires virtual mode",
+		},
+		{
+			name: "ip filter deny not supported",
+			networking: apigen.NetworkingConfig{
+				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				PortForwarding: []*apigen.PortForward{{
+					Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080,
+					IpFilter: &apigen.IpFilter{Deny: []string{"203.0.113.7"}},
+				}},
+			},
+			want: "ipFilter.deny is not supported yet",
+		},
+		{
+			name: "ip filter invalid allow entry",
+			networking: apigen.NetworkingConfig{
+				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				PortForwarding: []*apigen.PortForward{{
+					Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080,
+					IpFilter: &apigen.IpFilter{Allow: []string{"office"}},
+				}},
+			},
+			want: "not a valid IP address or CIDR prefix",
+		},
+		{
+			name: "ip filter allow host bits set",
+			networking: apigen.NetworkingConfig{
+				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				PortForwarding: []*apigen.PortForward{{
+					Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080,
+					IpFilter: &apigen.IpFilter{Allow: []string{"10.0.0.1/8"}},
+				}},
+			},
+			want: "host bits set",
+		},
+		{
+			name: "ip filter duplicate allow entry",
+			networking: apigen.NetworkingConfig{
+				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				PortForwarding: []*apigen.PortForward{{
+					Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080,
+					IpFilter: &apigen.IpFilter{Allow: []string{"203.0.113.7/32", "203.0.113.7"}},
+				}},
+			},
+			want: "duplicate entry",
 		},
 		{
 			name: "tls passthrough without config",

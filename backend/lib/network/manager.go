@@ -76,6 +76,9 @@ type HostPortRule struct {
 	TargetPort uint16
 	TargetV6   netip.Addr
 	TargetV4   netip.Addr
+	Filtered   bool
+	AllowV4    []netip.Prefix
+	AllowV6    []netip.Prefix
 }
 
 // ContainerNet describes the netns wiring of one running container.

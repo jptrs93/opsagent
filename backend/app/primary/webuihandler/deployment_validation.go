@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"path"
 	"path/filepath"
 	"strings"
@@ -177,11 +178,36 @@ func validatePortForwarding(portForwarding []*apigen.PortForward) error {
 		if pf.ContainerPort < 1 || pf.ContainerPort > 65535 {
 			return invalidConfigErrf("networking.portForwarding.containerPort must be between 1 and 65535")
 		}
+		if err := validatePortForwardIpFilter(pf.IpFilter); err != nil {
+			return err
+		}
 		key := portForwardKey{protocol: pf.Protocol, hostPort: pf.HostPort}
 		if seen[key] {
 			return invalidConfigErrf("networking.portForwarding: duplicate %s host port %d", portForwardProtocolName(pf.Protocol), pf.HostPort)
 		}
 		seen[key] = true
+	}
+	return nil
+}
+
+func validatePortForwardIpFilter(filter *apigen.IpFilter) error {
+	if filter == nil {
+		return nil
+	}
+	if len(filter.Deny) > 0 {
+		return invalidConfigErrf("networking.portForwarding.ipFilter.deny is not supported yet")
+	}
+	seen := map[netip.Prefix]bool{}
+	for i, entry := range filter.Allow {
+		prefix, err := network.ParseFilterEntry(entry)
+		if err != nil {
+			return invalidConfigErrf("networking.portForwarding.ipFilter.allow: %v", err)
+		}
+		if seen[prefix] {
+			return invalidConfigErrf("networking.portForwarding.ipFilter.allow: duplicate entry %q", network.FilterEntryString(prefix))
+		}
+		seen[prefix] = true
+		filter.Allow[i] = network.FilterEntryString(prefix)
 	}
 	return nil
 }

@@ -2,11 +2,55 @@
 
 package apigen
 
+func (m *IpFilter) Encode() []byte {
+	var b []byte
+	b = AppendRepeated(b, m.Allow, AppendFieldDecorator(AppendStringField, 1))
+	b = AppendRepeated(b, m.Deny, AppendFieldDecorator(AppendStringField, 2))
+	return b
+}
+
+func DecodeIpFilter(b []byte) (*IpFilter, error) {
+	var m IpFilter
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Allow = append(m.Allow, item)
+			}
+		case 2:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Deny = append(m.Deny, item)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *PortForward) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, int32(m.Protocol), 1)
 	b = AppendInt32Field(b, m.HostPort, 2)
 	b = AppendInt32Field(b, m.ContainerPort, 3)
+	if m.IpFilter != nil {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.IpFilter.Encode())
+	}
 	return b
 }
 
@@ -15,6 +59,7 @@ func DecodePortForward(b []byte) (*PortForward, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -31,6 +76,15 @@ func DecodePortForward(b []byte) (*PortForward, error) {
 			b, m.HostPort, err = ConsumeVarInt32(b, typ)
 		case 3:
 			b, m.ContainerPort, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *IpFilter
+				item, err = DecodeIpFilter(msgBytes)
+				if err == nil {
+					m.IpFilter = item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

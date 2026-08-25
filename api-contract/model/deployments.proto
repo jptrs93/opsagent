@@ -40,10 +40,16 @@ enum AcmeChallenge {
   ACME_CHALLENGE_HTTP_01 = 1;
 }
 
+message IpFilter {
+  repeated string allow = 1;
+  repeated string deny = 2;
+}
+
 message PortForward {
   PortForwardProtocol protocol = 1;
   int32 host_port = 2;      // port published on the machine's host interfaces
   int32 container_port = 3; // port inside the virtual-mode container netns
+  IpFilter ip_filter = 4;
 }
 
 message ContainerReadinessSignal {

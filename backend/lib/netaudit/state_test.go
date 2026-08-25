@@ -58,6 +58,46 @@ func TestCompareInSync(t *testing.T) {
 	}
 }
 
+func TestExpectedDNATKeysFiltered(t *testing.T) {
+	rule := hostPortRule(443)
+	rule.Filtered = true
+	rule.AllowV4 = []netip.Prefix{
+		netip.MustParsePrefix("203.0.113.7/32"),
+		netip.MustParsePrefix("198.51.100.0/24"),
+	}
+	keys := expectedDNATKeys([]network.HostPortRule{rule})
+	want := map[string]struct{}{
+		"ip prerouting tcp saddr 203.0.113.7/32 dport 443 -> 10.100.0.2:443":  {},
+		"ip prerouting tcp saddr 198.51.100.0/24 dport 443 -> 10.100.0.2:443": {},
+		"ip output tcp dport 443 -> 10.100.0.2:443":                           {},
+		"ip6 output tcp dport 443 -> [fd5a:1::2]:443":                         {},
+	}
+	if len(keys) != len(want) {
+		t.Fatalf("keys = %v, want %v", keys, want)
+	}
+	for key := range want {
+		if _, ok := keys[key]; !ok {
+			t.Fatalf("missing key %q in %v", key, keys)
+		}
+	}
+}
+
+func TestCompareInSyncFiltered(t *testing.T) {
+	rule := hostPortRule(443)
+	rule.Filtered = true
+	rule.AllowV4 = []netip.Prefix{netip.MustParsePrefix("203.0.113.0/24")}
+	rule.AllowV6 = []netip.Prefix{netip.MustParsePrefix("2001:db8::/32")}
+	desired := network.AuditState{HostPortRules: []network.HostPortRule{rule}}
+	if diff := Compare(desired, kernelWithRules(rule)); !diff.InSync() {
+		t.Fatalf("expected in sync, got %+v", diff)
+	}
+	unfilteredKernel := kernelWithRules(hostPortRule(443))
+	diff := Compare(desired, unfilteredKernel)
+	if len(diff.MissingNft) != 2 || len(diff.UnexpectedNft) != 2 {
+		t.Fatalf("expected filtered prerouting rules to diverge from unfiltered kernel, got %+v", diff)
+	}
+}
+
 func TestCompareMissingAndUnexpectedNft(t *testing.T) {
 	desired := network.AuditState{HostPortRules: []network.HostPortRule{hostPortRule(443)}}
 	kernel := kernelWithRules(hostPortRule(8443))

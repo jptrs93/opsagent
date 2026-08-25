@@ -3,6 +3,8 @@
 package netaudit
 
 import (
+	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/google/nftables/binaryutil"
@@ -33,6 +35,50 @@ func TestParseRuleExprsDNAT(t *testing.T) {
 	}
 	if parsed.Proto != unix.IPPROTO_TCP || parsed.HostPort != 443 || parsed.Target != targetV6 || parsed.TargetPort != 8443 {
 		t.Fatalf("parsed rule fields wrong: %+v", parsed)
+	}
+}
+
+func TestParseRuleExprsDNATWithSourceMatch(t *testing.T) {
+	exprs := append([]expr.Any{
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4},
+		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: []byte{0xff, 0xff, 0xff, 0}, Xor: []byte{0, 0, 0, 0}},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{203, 0, 113, 0}},
+	}, dnatTestExprs(unix.IPPROTO_TCP, 443, targetV4.AsSlice(), 8443, unix.AF_INET)...)
+	parsed, ok := parseRuleExprs(exprs)
+	if !ok || !parsed.DNAT {
+		t.Fatalf("expected recognized DNAT rule, got %+v ok=%v", parsed, ok)
+	}
+	if parsed.Source != netip.MustParsePrefix("203.0.113.0/24") {
+		t.Fatalf("parsed source = %v, want 203.0.113.0/24", parsed.Source)
+	}
+	if parsed.Proto != unix.IPPROTO_TCP || parsed.HostPort != 443 || parsed.Target != targetV4 || parsed.TargetPort != 8443 {
+		t.Fatalf("parsed rule fields wrong: %+v", parsed)
+	}
+}
+
+func TestParseRuleExprsDNATWithV6SourceMatch(t *testing.T) {
+	src := netip.MustParsePrefix("2001:db8::/32")
+	exprs := append([]expr.Any{
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 8, Len: 16},
+		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 16, Mask: net.CIDRMask(32, 128), Xor: make([]byte, 16)},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: src.Addr().AsSlice()},
+	}, dnatTestExprs(unix.IPPROTO_TCP, 443, targetV6.AsSlice(), 8443, unix.AF_INET6)...)
+	parsed, ok := parseRuleExprs(exprs)
+	if !ok || !parsed.DNAT || parsed.Source != src {
+		t.Fatalf("expected recognized DNAT rule with source %v, got %+v ok=%v", src, parsed, ok)
+	}
+}
+
+func TestParseRuleExprsMasqueradeSourceIgnored(t *testing.T) {
+	exprs := []expr.Any{
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4},
+		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: []byte{0xff, 0xff, 0, 0}, Xor: []byte{0, 0, 0, 0}},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{10, 100, 0, 0}},
+		&expr.Masq{},
+	}
+	parsed, ok := parseRuleExprs(exprs)
+	if !ok || !parsed.Masquerade || parsed.Source.IsValid() {
+		t.Fatalf("expected masquerade with no source, got %+v ok=%v", parsed, ok)
 	}
 }
 

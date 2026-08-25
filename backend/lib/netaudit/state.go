@@ -101,24 +101,39 @@ func Compare(desired network.AuditState, kernel KernelState) Diff {
 	return d
 }
 
-// expectedDNATKeys mirrors reconcileNft: each published host port renders a
-// prerouting and an output rule per address family it has a target for.
+// expectedDNATKeys mirrors reconcileNft: each published host port renders an
+// unconditional output rule per address family it has a target for, plus
+// prerouting rules — unconditional when unfiltered, one per allowed source
+// prefix of the family when filtered.
 func expectedDNATKeys(rules []network.HostPortRule) map[string]struct{} {
 	keys := make(map[string]struct{})
 	for _, rule := range rules {
-		for _, chain := range []string{"prerouting", "output"} {
-			if rule.TargetV4.Is4() {
-				keys[dnatKey("ip", chain, rule.Protocol, rule.HostPort, rule.TargetV4, rule.TargetPort)] = struct{}{}
-			}
-			if rule.TargetV6.Is6() {
-				keys[dnatKey("ip6", chain, rule.Protocol, rule.HostPort, rule.TargetV6, rule.TargetPort)] = struct{}{}
-			}
+		if rule.TargetV4.Is4() {
+			addExpectedDNATKeys(keys, "ip", rule, rule.TargetV4, rule.AllowV4)
+		}
+		if rule.TargetV6.Is6() {
+			addExpectedDNATKeys(keys, "ip6", rule, rule.TargetV6, rule.AllowV6)
 		}
 	}
 	return keys
 }
 
-func dnatKey(family, chain string, proto uint8, hostPort uint16, target netip.Addr, targetPort uint16) string {
+func addExpectedDNATKeys(keys map[string]struct{}, family string, rule network.HostPortRule, target netip.Addr, allow []netip.Prefix) {
+	if rule.Filtered {
+		for _, src := range allow {
+			keys[dnatKey(family, "prerouting", rule.Protocol, rule.HostPort, src, target, rule.TargetPort)] = struct{}{}
+		}
+	} else {
+		keys[dnatKey(family, "prerouting", rule.Protocol, rule.HostPort, netip.Prefix{}, target, rule.TargetPort)] = struct{}{}
+	}
+	keys[dnatKey(family, "output", rule.Protocol, rule.HostPort, netip.Prefix{}, target, rule.TargetPort)] = struct{}{}
+}
+
+func dnatKey(family, chain string, proto uint8, hostPort uint16, source netip.Prefix, target netip.Addr, targetPort uint16) string {
+	if source.IsValid() {
+		return fmt.Sprintf("%s %s %s saddr %s dport %d -> %s", family, chain, protoName(proto), source, hostPort,
+			netip.AddrPortFrom(target, targetPort))
+	}
 	return fmt.Sprintf("%s %s %s dport %d -> %s", family, chain, protoName(proto), hostPort,
 		netip.AddrPortFrom(target, targetPort))
 }

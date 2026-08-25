@@ -546,7 +546,11 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
         const protocol = route?.protocol === PROTOCOL_UDP ? "udp" : "tcp";
         const containerPort = Number(route?.containerPort || 0);
         const hostPort = Number(route?.hostPort || 0);
-        const options = hostPort && hostPort !== containerPort ? `, { host_port = ${hostPort} }` : "";
+        const parts = [];
+        if (hostPort && hostPort !== containerPort) parts.push(`host_port = ${hostPort}`);
+        const allow = route?.ipFilter?.allow || [];
+        if (allow.length) parts.push(`allow = [${allow.map(quote).join(", ")}]`);
+        const options = parts.length ? `, { ${parts.join(", ")} }` : "";
         ingress.push(`port_forward(${quote(protocol)}, ${containerPort}${options})`);
     }
     for (const route of networking.ingress || []) {
@@ -975,16 +979,22 @@ function parseIngress(text, diagnostics, attr, networking, catalogs, spaceId) {
                 diagnostics.push(diagnostic(text, containerPort, "Port-forward container port must be an integer from 1 to 65535."));
                 continue;
             }
-            const options = optionsExpression ? validateObject(text, diagnostics, optionsExpression, new Set(["host_port"])) : new Map();
+            const options = optionsExpression ? validateObject(text, diagnostics, optionsExpression, new Set(["host_port", "allow"])) : new Map();
             const hostPortEntry = options.get("host_port");
             const hostPort = hostPortEntry
                 ? integerValue(text, diagnostics, hostPortEntry, "Port-forward host_port", 1, 65535)
                 : containerPort.value;
-            portForwarding.push({
+            const forward = {
                 protocol: protocol.value === "tcp" ? PROTOCOL_TCP : PROTOCOL_UDP,
                 hostPort: hostPort ?? containerPort.value,
                 containerPort: containerPort.value,
-            });
+            };
+            const allowEntry = options.get("allow");
+            if (allowEntry) {
+                const allow = ipFilterAllowList(text, diagnostics, allowEntry);
+                if (allow?.length) forward.ipFilter = {allow};
+            }
+            portForwarding.push(forward);
             continue;
         }
         if (route.kind === "call" && route.name === "tls_passthrough" && route.args.length >= 2 && route.args.length <= 3) {
@@ -1068,6 +1078,38 @@ function parseIngress(text, diagnostics, attr, networking, catalogs, spaceId) {
     if (portForwarding.length) networking.portForwarding = portForwarding;
     if (ingress.length) networking.ingress = ingress;
     return attr.value.items.length;
+}
+
+function ipFilterAllowList(text, diagnostics, entry) {
+    if (entry.value.kind !== "list") {
+        diagnostics.push(diagnostic(text, entry.value, "Port-forward allow must be a list of IP addresses or CIDR prefixes."));
+        return null;
+    }
+    const allow = [];
+    for (const item of entry.value.items) {
+        if (item.kind !== "string" || !validIpFilterEntry(item.value)) {
+            diagnostics.push(diagnostic(text, item, "Allow entries must be quoted IP addresses or CIDR prefixes."));
+            continue;
+        }
+        allow.push(item.value.trim());
+    }
+    return allow;
+}
+
+function validIpFilterEntry(value) {
+    const segments = (value || "").trim().split("/");
+    if (segments.length > 2) return false;
+    const [addr, bits] = segments;
+    const v4 = addr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    let maxBits = 32;
+    if (v4) {
+        if (v4.slice(1).some(octet => Number(octet) > 255)) return false;
+    } else {
+        if (!addr.includes(":") || !/^[0-9a-fA-F:.]{2,45}$/.test(addr)) return false;
+        maxBits = 128;
+    }
+    if (bits === undefined) return true;
+    return /^\d{1,3}$/.test(bits) && Number(bits) <= maxBits;
 }
 
 function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {

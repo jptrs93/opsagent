@@ -750,6 +750,14 @@ function portForwardingSection(form) {
             placeholder: "443",
             oninput: e => update(row, {containerPort: e.target.value}),
         })),
+        td({class: "pr-2 py-1"}, input({
+            type: "text",
+            value: row.allow || '',
+            class: `${textInputClass(false, false)} !px-2 !py-1`,
+            placeholder: "any",
+            title: "Comma-separated source IPs or CIDR prefixes allowed to connect. Empty allows all.",
+            oninput: e => update(row, {allow: e.target.value}),
+        })),
         td({class: "py-1 text-right"}, button({
             type: "button",
             class: "text-gray-500 hover:text-red-300 cursor-pointer",
@@ -778,6 +786,7 @@ function portForwardingSection(form) {
                 th({class: "text-left font-normal text-gray-500 pb-1"}, "Protocol"),
                 th({class: "text-left font-normal text-gray-500 pb-1"}, "Host port"),
                 th({class: "text-left font-normal text-gray-500 pb-1"}, "Container port"),
+                th({class: "text-left font-normal text-gray-500 pb-1"}, "Allowed IPs"),
                 th({class: "w-8"}),
             )),
             rowsBody,
@@ -887,6 +896,7 @@ function newPortForwardingRow(values = {}) {
         protocol: values.protocol || PORT_FORWARD_PROTOCOL_TCP,
         hostPort: values.hostPort ? String(values.hostPort) : '',
         containerPort: values.containerPort ? String(values.containerPort) : '',
+        allow: values.allow || '',
     };
 }
 
@@ -895,6 +905,7 @@ function portForwardingToFormRows(portForwarding) {
         protocol: port.protocol || PORT_FORWARD_PROTOCOL_TCP,
         hostPort: port.hostPort || '',
         containerPort: port.containerPort || '',
+        allow: (port.ipFilter?.allow || []).join(', '),
     }));
 }
 
@@ -1913,11 +1924,16 @@ function formEnvVars(form) {
 function formPortForwarding(form) {
     if (Number(form.networkingMode.val) !== NETWORKING_MODE_VIRTUAL) return [];
     return (form.portForwarding.val || [])
-        .map(port => ({
-            protocol: Number(port.protocol || PORT_FORWARD_PROTOCOL_TCP),
-            hostPort: Number(port.hostPort || 0),
-            containerPort: Number(port.containerPort || 0),
-        }))
+        .map(port => {
+            const forward = {
+                protocol: Number(port.protocol || PORT_FORWARD_PROTOCOL_TCP),
+                hostPort: Number(port.hostPort || 0),
+                containerPort: Number(port.containerPort || 0),
+            };
+            const allow = (port.allow || '').split(',').map(entry => entry.trim()).filter(Boolean);
+            if (allow.length) forward.ipFilter = {allow};
+            return forward;
+        })
         .filter(port => port.hostPort > 0 || port.containerPort > 0);
 }
 
