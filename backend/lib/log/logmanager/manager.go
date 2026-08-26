@@ -18,7 +18,7 @@ import (
 
 var (
 	deploymentScanInterval = fileListInterval
-	defaultSearchLimit     = 10_000
+	defaultSearchLimit     = 5_000
 	defaultSearchWindow    = 12 * time.Hour
 	fieldStatsSample       = int64(5_000)
 )

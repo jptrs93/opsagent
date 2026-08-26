@@ -20,7 +20,7 @@ const {svg: svgEl, rect, line: svgLine} = van.tags("http://www.w3.org/2000/svg")
 
 const SYSTEM_SPACE_ID = 0;
 const SYSTEM_DEPLOYMENT_NAME = 'opendeploy';
-const LOG_LINE_LIMIT = 10000;
+const LOG_LINE_LIMIT = 5000;
 const HISTOGRAM_BUCKETS = 90;
 const MIN = 60_000;
 const HOUR = 3_600_000;
@@ -309,7 +309,7 @@ export function logsPage(selectedDeploymentId) {
     const result = van.state(null);
     const searching = van.state(false);
     const errorMsg = van.state('');
-    const expanded = van.state(null);       // {pos} — display position (newest first)
+    const expanded = van.state(null);       // {pos} — display position (oldest first)
     const detailTab = van.state('fields');
     const context = van.state(null);        // {rec}
     const sidebarOpen = van.state(true);
@@ -386,7 +386,7 @@ export function logsPage(selectedDeploymentId) {
             // assertions read the full result set from here.
             window.__logsResult = result.val;
             searching.val = false;
-            if (scroller) scroller.scrollTop = 0;
+            pendingScrollBottom = true;
         } catch (e) {
             if (gen !== searchGen) return;
             searching.val = false;
@@ -413,7 +413,7 @@ export function logsPage(selectedDeploymentId) {
             for (let b = 0; b < bucketN; b++) counts[b * NL + li] += Number(s.counts[b] || 0);
         }
         return {
-            records: (resp.records || []).map(wrapRecord),  // newest first
+            records: (resp.records || []).map(wrapRecord).reverse(),  // oldest first; newest at the bottom
             fields: resp.fields || [],
             sampled: Number(stats.sampledRows || 0),
             warnings: resp.warnings || [],
@@ -1228,6 +1228,7 @@ export function logsPage(selectedDeploymentId) {
     };
 
     let renderQueued = false;
+    let pendingScrollBottom = false;
     const renderRows = () => {
         renderQueued = false;
         const res = result.val;
@@ -1243,6 +1244,10 @@ export function logsPage(selectedDeploymentId) {
         const exp = expanded.val;
         const {offsets, lines} = rowLayout();
         rowsHost.style.height = `${offsets[len] + (exp ? DETAIL_H : 0)}px`;
+        if (pendingScrollBottom) {
+            pendingScrollBottom = false;
+            scroller.scrollTop = scroller.scrollHeight;
+        }
         if (len === 0) {
             rowsHost.replaceChildren(div(
                 {class: "flex h-24 items-center justify-center text-xs text-gray-600"},
@@ -1261,7 +1266,7 @@ export function logsPage(selectedDeploymentId) {
         const children = [];
         for (let pos = first; pos < last; pos++) {
             const y = offsets[pos] + (exp && pos > exp.pos ? DETAIL_H : 0);
-            // records are newest first: position 0 is the newest match.
+            // records are oldest first: the last position is the newest match.
             children.push(rowEl(pos, y, offsets[pos + 1] - offsets[pos], lines[pos], cols, template, records[pos]));
         }
         // The pane is taller than a row, so it can be on screen while its own

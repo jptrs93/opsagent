@@ -3134,6 +3134,7 @@ func (m *DeploymentRunReport) Encode() []byte {
 	b = AppendInt32FieldOpt(b, m.ExitCode, 9)
 	b = AppendRepeated(b, m.LogLines, AppendFieldDecorator(AppendStringField, 10))
 	b = AppendRepeated(b, m.Warnings, AppendFieldDecorator(AppendStringField, 11))
+	b = AppendInt32Field(b, int32(m.Status), 12)
 	return b
 }
 
@@ -3177,6 +3178,12 @@ func DecodeDeploymentRunReport(b []byte) (*DeploymentRunReport, error) {
 			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
 			if err == nil {
 				m.Warnings = append(m.Warnings, item)
+			}
+		case 12:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Status = RunningStatus(raw)
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)

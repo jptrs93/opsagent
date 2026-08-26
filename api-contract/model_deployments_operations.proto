@@ -191,4 +191,5 @@ message DeploymentRunReport {
   optional int32 exit_code = 9;
   repeated string log_lines = 10;
   repeated string warnings = 11;
+  RunningStatus status = 12;
 }

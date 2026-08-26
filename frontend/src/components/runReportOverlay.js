@@ -9,7 +9,11 @@ import {caretRightIcon} from "../lib/icons.js";
 const {div, h2, span, pre, button, p} = van.tags;
 
 const STATUS_RUNNING = 2;
+const STATUS_STOPPED = 3;
 const STATUS_STARTING = 4;
+const STATUS_CRASHED = 5;
+
+const STATUS_NAMES = {[STATUS_RUNNING]: 'Running', [STATUS_STOPPED]: 'Stopped', [STATUS_STARTING]: 'Starting', [STATUS_CRASHED]: 'Crashed'};
 
 const formatDuration = (started, stopped) => {
     if (!(started instanceof Date) || started.getTime() <= 0) return '';
@@ -135,7 +139,7 @@ export function runReportOverlay(target, onClose) {
     const exitChip = (r) => {
         if (r.running) {
             return span({class: "inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-2 py-0.5 text-[11px] text-green-300"},
-                span({class: "inline-block h-1.5 w-1.5 rounded-full bg-green-500"}), "Running");
+                span({class: "inline-block h-1.5 w-1.5 rounded-full bg-green-500"}), STATUS_NAMES[r.status] || 'Running');
         }
         if (r.exitCode === undefined || r.exitCode === null) {
             return span({class: "rounded-full bg-gray-700/40 px-2 py-0.5 font-mono text-[11px] text-gray-400"}, "exit unknown");
@@ -154,7 +158,9 @@ export function runReportOverlay(target, onClose) {
             fact("Instance", `#${selected.val?.instanceId ?? '-'} · ord ${r.instanceOrdinal}`),
             fact("Run", String(r.run)),
             fact("Started", formatHistoryTime(r.startedAt) || '-'),
-            fact("Stopped", formatHistoryTime(r.stoppedAt) || '-'),
+            !r.running && (r.status === STATUS_STOPPED || r.status === STATUS_CRASHED) && formatHistoryTime(r.stoppedAt)
+                ? fact(STATUS_NAMES[r.status], formatHistoryTime(r.stoppedAt))
+                : '',
             formatDuration(r.startedAt, r.stoppedAt) ? fact("Duration", formatDuration(r.startedAt, r.stoppedAt)) : '',
             exitChip(r)),
         (r.warnings || []).length > 0
@@ -162,7 +168,7 @@ export function runReportOverlay(target, onClose) {
                 ...(r.warnings || []).map((w) => p({class: "text-[11px] text-amber-400"}, w)))
             : '',
         r.running
-            ? p({class: "px-4 py-6 text-sm text-gray-500"}, "Run is still in progress — logs are shown once it finishes.")
+            ? p({class: "px-4 py-6 text-sm text-gray-500"}, "Run is still in progress — log tail only shown for ended deployments.")
             : (r.logLines || []).length > 0
                 ? div({class: "flex min-h-0 flex-1 flex-col"},
                     p({class: "flex-none px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500"},

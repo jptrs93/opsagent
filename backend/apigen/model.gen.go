@@ -560,17 +560,18 @@ type DeploymentRunReportRequest struct {
 }
 
 type DeploymentRunReport struct {
-	DeploymentID      int32     `json:"deployment_id"`
-	DeploymentVersion int32     `json:"deployment_version"`
-	NodeID            int32     `json:"node_id"`
-	InstanceOrdinal   int32     `json:"instance_ordinal"`
-	Run               int32     `json:"run"`
-	Running           bool      `json:"running"`
-	StartedAt         time.Time `json:"started_at"`
-	StoppedAt         time.Time `json:"stopped_at"`
-	ExitCode          *int32    `json:"exit_code,omitempty"`
-	LogLines          []string  `json:"log_lines,omitempty"`
-	Warnings          []string  `json:"warnings,omitempty"`
+	DeploymentID      int32         `json:"deployment_id"`
+	DeploymentVersion int32         `json:"deployment_version"`
+	NodeID            int32         `json:"node_id"`
+	InstanceOrdinal   int32         `json:"instance_ordinal"`
+	Run               int32         `json:"run"`
+	Running           bool          `json:"running"`
+	StartedAt         time.Time     `json:"started_at"`
+	StoppedAt         time.Time     `json:"stopped_at"`
+	ExitCode          *int32        `json:"exit_code,omitempty"`
+	LogLines          []string      `json:"log_lines,omitempty"`
+	Warnings          []string      `json:"warnings,omitempty"`
+	Status            RunningStatus `json:"status"`
 }
 
 type RawLogLine struct {

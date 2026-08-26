@@ -403,6 +403,7 @@
  * @property {number} exitCode
  * @property {string[]} logLines
  * @property {string[]} warnings
+ * @property {number} status
  */
 /**
  * @typedef {Object} RawLogLine
@@ -6191,6 +6192,9 @@ export function writeDeploymentRunReport(message, writer) {
             writer.uint32(tag(11, WIRE.LDELIM)).string(item);
         }
     }
+    if (message.status !== undefined && message.status !== null && message.status !== 0) {
+        writer.uint32(tag(12, WIRE.VARINT)).int32(message.status);
+    }
 }
 
 
@@ -6212,7 +6216,7 @@ export function encodeDeploymentRunReport(message) {
  */
 function decodeDeploymentRunReportMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, deploymentVersion: 0, nodeId: 0, instanceOrdinal: 0, run: 0, running: false, startedAt: new Date(0), stoppedAt: new Date(0), exitCode: undefined, logLines: [], warnings: [] };
+    const message = {deploymentId: 0, deploymentVersion: 0, nodeId: 0, instanceOrdinal: 0, run: 0, running: false, startedAt: new Date(0), stoppedAt: new Date(0), exitCode: undefined, logLines: [], warnings: [], status: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6258,6 +6262,10 @@ function decodeDeploymentRunReportMessage(reader, length) {
             }
             case 11: {
                 message.warnings.push(reader.string());
+                break;
+            }
+            case 12: {
+                message.status = reader.int32();
                 break;
             }
             default:

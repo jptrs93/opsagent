@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -47,6 +48,7 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 
 	var startedAt, stoppedAt time.Time
 	var exitCode *int32
+	var finalStatus apigen.RunningStatus
 	found := false
 	for _, st := range h.Store.MustFetchInstanceStatusHistory(inst.ID) {
 		r := st.Runner
@@ -60,6 +62,7 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 		if stoppedAt.IsZero() && (r.Status == apigen.RunningStatus_STOPPED || r.Status == apigen.RunningStatus_CRASHED) {
 			stoppedAt = st.UpdatedAt
 			exitCode = r.ExitCode
+			finalStatus = r.Status
 		}
 	}
 
@@ -73,6 +76,10 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 		StartedAt:         startedAt,
 		StoppedAt:         stoppedAt,
 		ExitCode:          exitCode,
+		Status:            finalStatus,
+	}
+	if running {
+		report.Status = latest.Status
 	}
 	if !found {
 		report.Warnings = append(report.Warnings, fmt.Sprintf("no status history recorded for run %d", req.Run))
@@ -90,7 +97,7 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 			{Field: "run", Op: "eq", Value: strconv.Itoa(int(req.Run))},
 			{Field: "instance", Op: "eq", Value: strconv.Itoa(int(inst.InstanceOrdinal))},
 		},
-		Limit:      100,
+		Limit:      20,
 		Order:      "desc",
 		IncludeRaw: true,
 	}
@@ -115,11 +122,11 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 	report.LogLines = make([]string, 0, len(resp.Records))
 	for i := len(resp.Records) - 1; i >= 0; i-- {
 		rec := resp.Records[i]
+		line := rec.Msg
 		if len(rec.Raw) > 0 {
-			report.LogLines = append(report.LogLines, string(rec.Raw))
-		} else {
-			report.LogLines = append(report.LogLines, rec.Msg)
+			line = string(rec.Raw)
 		}
+		report.LogLines = append(report.LogLines, strings.TrimRight(line, "\r\n"))
 	}
 	return report, nil
 }
