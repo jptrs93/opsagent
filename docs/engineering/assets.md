@@ -64,7 +64,7 @@ Changing Backup atomically appends the new application-config version and a pend
 - All subsequent settings saves are rejected until the migration is finished. Internal config writes such as master-password rotation remain available.
 - When no store rows remain in the source mode, the worker marks the migration `finished`. Completed rows remain as migration history.
 
-Large-asset transition status is included in `BackupStatus`, including the target mode, pending count, running state, and transition error. Database replication does not start or report in sync until the durable migration row is finished. When Backup is disabled, Litestream is stopped before any asset location changes to local storage.
+Large-asset transition status is included in `BackupStatus`, including the target mode, pending count, running state, and transition error. Database replication is otherwise decoupled from asset migration: Litestream starts, stops, and reports sync state purely from the Backup setting, regardless of where large assets currently live. Ensuring large assets are actually in S3 is the cluster admin's responsibility — a database backup taken while file-backed assets are still local-only (Backup freshly enabled with the migration pending or failing) references content that exists only on the primary's disk, so restoring that backup onto a replacement machine yields unresolvable large assets. The `BackupStatus` asset fields exist to make that window visible.
 
 ### Interrupted uploads
 

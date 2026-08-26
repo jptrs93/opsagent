@@ -285,9 +285,9 @@ function backupStatusBadge(status) {
     const label = backupStatusLabel(status);
     const klass = status?.error || status?.assetError
         ? "bg-red-950 text-red-300 border-red-800"
-        : status?.inSync
+        : status?.inSync && !status?.assetMigrationRunning
             ? "bg-green-950 text-green-300 border-green-800"
-            : status?.configured
+            : status?.configured || status?.assetMigrationRunning
                 ? "bg-yellow-950 text-yellow-300 border-yellow-800"
                 : "bg-gray-800 text-gray-300 border-gray-700";
     return span({class: klass + " px-2 py-0.5 rounded border text-xs font-medium", "data-testid": "backup-replication-status"}, label);

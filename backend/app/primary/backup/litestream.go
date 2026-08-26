@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/benbjohnson/litestream"
-	"github.com/benbjohnson/litestream/s3"
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/goutil/timeu"
 	"github.com/jptrs93/opsagent/backend/ainit"
@@ -19,22 +17,10 @@ import (
 )
 
 var (
-	activeMu                        sync.Mutex
-	activeStore                     *litestream.Store
-	activeConfig                    resolvedBackupConfig
-	assetMigrationBlocksReplication bool
+	activeMu      sync.Mutex
+	activeProcess *replicatorProcess
+	activeConfig  S3Config
 )
-
-var errAssetMigrationBlocksReplication = fmt.Errorf("asset migration blocks backup replication")
-
-type resolvedBackupConfig struct {
-	AccessKeyID     string
-	SecretAccessKey string
-	Bucket          string
-	Path            string
-	Region          string
-	Endpoint        string
-}
 
 type secretStore interface {
 	MetaByID(id int32) (secrets.Meta, bool)
@@ -45,19 +31,11 @@ type statusPublisher interface {
 	NotifyBackupStatusUpdate(apigen.BackupStatus)
 }
 
-type assetBackupReadiness interface {
-	ReadyForDatabaseBackup() (bool, string)
+type assetStatusSource interface {
 	AssetStorageStatus() (targetS3 bool, pending int, running bool, err string)
 }
 
-func StopReplicationForAssetMigration(ctx context.Context) error {
-	activeMu.Lock()
-	defer activeMu.Unlock()
-	assetMigrationBlocksReplication = true
-	return closeActiveStore(ctx)
-}
-
-func StartReplication(ctx context.Context, configService *config.Service, secretSource secretStore, publisher statusPublisher, assets assetBackupReadiness) <-chan struct{} {
+func StartReplication(ctx context.Context, configService *config.Service, secretSource secretStore, publisher statusPublisher, assets assetStatusSource) <-chan struct{} {
 	ctx = logu.AddTag(ctx, "Backup")
 	done := make(chan struct{})
 	filter := newBackupConfigFilter(configService, secretSource)
@@ -79,7 +57,7 @@ func StartReplication(ctx context.Context, configService *config.Service, secret
 		apply := func(cfg apigen.PrimaryConfig) {
 			stopCurrent()
 			if !configured(configService, &cfg.Settings) {
-				if err := StopReplicationForAssetMigration(context.WithoutCancel(ctx)); err != nil {
+				if err := stopReplication(context.WithoutCancel(ctx)); err != nil {
 					slog.ErrorContext(ctx, "stop backup replication", "err", err)
 				}
 				runCtx, c := context.WithCancel(ctx)
@@ -91,7 +69,6 @@ func StartReplication(ctx context.Context, configService *config.Service, secret
 				}(currentDone)
 				return
 			}
-			allowReplicationAfterAssetMigration()
 			runCtx, c := context.WithCancel(ctx)
 			cancel = c
 			replicationDone := make(chan struct{})
@@ -184,7 +161,7 @@ func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.ClusterSett
 	return signal
 }
 
-func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.ClusterSettings, secretSource secretStore, publisher statusPublisher, assets assetBackupReadiness) {
+func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.ClusterSettings, secretSource secretStore, publisher statusPublisher, assets assetStatusSource) {
 	defer func() {
 		if err := stopReplication(context.WithoutCancel(ctx)); err != nil {
 			slog.ErrorContext(ctx, "stop backup replication", "err", err)
@@ -194,20 +171,6 @@ func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.Clust
 
 	backoff := timeu.NewExpBackoff(time.Minute, 5*time.Minute)
 	for ctx.Err() == nil {
-		if assets != nil {
-			ready, _ := assets.ReadyForDatabaseBackup()
-			if !ready {
-				publishBackupStatus(publisher, withAssetStatus(apigen.BackupStatus{Configured: true}, assets))
-				timer := time.NewTimer(2 * time.Second)
-				select {
-				case <-ctx.Done():
-					timer.Stop()
-					continue
-				case <-timer.C:
-					continue
-				}
-			}
-		}
 		backupCfg, err := resolvedBackupConfigFromDynamic(loader, cfg, secretSource)
 		if err != nil {
 			slog.ErrorContext(ctx, "backup replication config invalid", "err", err)
@@ -215,7 +178,8 @@ func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.Clust
 			backoff.WaitWithContext(ctx)
 			continue
 		}
-		if err := startReplication(ctx, backupCfg); err != nil {
+		proc, err := startReplication(ctx, backupCfg)
+		if err != nil {
 			slog.ErrorContext(ctx, "start backup replication", "err", err)
 			publishBackupStatus(publisher, withAssetStatus(apigen.BackupStatus{Configured: true, Error: err.Error()}, assets))
 			if stopErr := stopReplication(context.WithoutCancel(ctx)); stopErr != nil {
@@ -224,94 +188,87 @@ func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.Clust
 			backoff.WaitWithContext(ctx)
 			continue
 		}
-		pollBackupStatus(ctx, publisher, assets)
+		monitorReplication(ctx, proc, publisher, assets)
+		if ctx.Err() != nil {
+			continue
+		}
+		exitMsg := "backup replication process exited"
+		if proc.exitErr != nil {
+			exitMsg = fmt.Sprintf("backup replication process exited: %v", proc.exitErr)
+		}
+		slog.ErrorContext(ctx, "backup replication process exited", "err", proc.exitErr)
+		publishBackupStatus(publisher, withAssetStatus(apigen.BackupStatus{Configured: true, Error: exitMsg}, assets))
+		if stopErr := stopReplication(context.WithoutCancel(ctx)); stopErr != nil {
+			slog.ErrorContext(ctx, "stop exited backup replication", "err", stopErr)
+		}
+		backoff.WaitWithContext(ctx)
 	}
 }
 
-func startReplication(ctx context.Context, cfg resolvedBackupConfig) error {
+func startReplication(ctx context.Context, cfg S3Config) (*replicatorProcess, error) {
 	activeMu.Lock()
 	defer activeMu.Unlock()
-	if assetMigrationBlocksReplication {
-		return errAssetMigrationBlocksReplication
+	if activeProcess != nil && activeConfig == cfg && !activeProcess.exited() {
+		return activeProcess, nil
 	}
-
-	if activeStore != nil && activeConfig == cfg {
-		return nil
-	}
-	if activeStore != nil {
-		if err := closeActiveStore(ctx); err != nil {
-			return err
+	if activeProcess != nil {
+		if err := closeActiveProcess(ctx); err != nil {
+			return nil, err
 		}
 	}
 
 	dbPath := filepath.Join(ainit.StaticConfig.DataDir, "primary.db")
-
-	client := s3.NewReplicaClient()
-	client.AccessKeyID = cfg.AccessKeyID
-	client.SecretAccessKey = cfg.SecretAccessKey
-	client.Bucket = cfg.Bucket
-	client.Path = cfg.Path
-	client.Region = cfg.Region
-	client.Endpoint = cfg.Endpoint
-	if cfg.Endpoint != "" {
-		client.ForcePathStyle = true
+	proc, err := spawnReplicator(ctx, dbPath, cfg)
+	if err != nil {
+		return nil, err
 	}
-
-	db := litestream.NewDB(dbPath)
-	replica := litestream.NewReplicaWithClient(db, client)
-	db.Replica = replica
-
-	store := litestream.NewStore([]*litestream.DB{db}, litestream.CompactionLevels{
-		{Level: 0},
-		{Level: 1, Interval: 10 * time.Second},
-	})
-	if err := store.Open(ctx); err != nil {
-		return fmt.Errorf("open backup replication: %w", err)
-	}
-	activeStore = store
+	activeProcess = proc
 	activeConfig = cfg
 	slog.InfoContext(ctx, fmt.Sprintf("started primary database backup replication bucket=%s path=%s", cfg.Bucket, cfg.Path))
-	return nil
-}
-
-func allowReplicationAfterAssetMigration() {
-	activeMu.Lock()
-	assetMigrationBlocksReplication = false
-	activeMu.Unlock()
+	return proc, nil
 }
 
 func CurrentStatus(ctx context.Context) apigen.BackupStatus {
 	activeMu.Lock()
 	defer activeMu.Unlock()
 
-	if activeConfig == (resolvedBackupConfig{}) {
+	if activeConfig == (S3Config{}) {
 		return apigen.BackupStatus{}
 	}
 	status := apigen.BackupStatus{Configured: true}
-	if activeStore == nil {
+	if activeProcess == nil {
 		status.Error = "backup replication is not running"
 		return status
 	}
-	dbPath := filepath.Join(ainit.StaticConfig.DataDir, "primary.db")
-	db := activeStore.FindDB(dbPath)
-	if db == nil {
-		status.Error = "primary database is not registered with backup replication"
+	if activeProcess.exited() {
+		status.Error = "backup replication process exited"
+		if activeProcess.exitErr != nil {
+			status.Error = fmt.Sprintf("backup replication process exited: %v", activeProcess.exitErr)
+		}
 		return status
 	}
-	status.Running = true
-	status.LastSuccessfulSyncAt = db.LastSuccessfulSyncAt()
-	syncStatus, err := db.SyncStatus(ctx)
-	if err != nil {
-		status.Error = err.Error()
+	reported, seen := activeProcess.lastStatus()
+	if !seen {
 		return status
 	}
-	status.LocalTxid = uint64(syncStatus.LocalTXID)
-	status.RemoteTxid = uint64(syncStatus.RemoteTXID)
-	status.InSync = syncStatus.InSync
+	status.Running = reported.Running
+	status.LastSuccessfulSyncAt = reported.LastSuccessfulSyncAt
+	status.LocalTxid = reported.LocalTxid
+	status.RemoteTxid = reported.RemoteTxid
+	status.InSync = reported.InSync
+	status.Error = reported.Error
 	return status
 }
 
-func pollBackupStatus(ctx context.Context, publisher statusPublisher, assets assetBackupReadiness) {
+func pollBackupStatus(ctx context.Context, publisher statusPublisher, assets assetStatusSource) {
+	publishBackupStatusUntil(ctx, nil, publisher, assets)
+}
+
+func monitorReplication(ctx context.Context, proc *replicatorProcess, publisher statusPublisher, assets assetStatusSource) {
+	publishBackupStatusUntil(ctx, proc.done, publisher, assets)
+}
+
+func publishBackupStatusUntil(ctx context.Context, done <-chan struct{}, publisher statusPublisher, assets assetStatusSource) {
 	var last apigen.BackupStatus
 	publishIfChanged := func() {
 		status := withAssetStatus(CurrentStatus(ctx), assets)
@@ -327,13 +284,15 @@ func pollBackupStatus(ctx context.Context, publisher statusPublisher, assets ass
 		select {
 		case <-ctx.Done():
 			return
+		case <-done:
+			return
 		case <-ticker.C:
 			publishIfChanged()
 		}
 	}
 }
 
-func withAssetStatus(status apigen.BackupStatus, assets assetBackupReadiness) apigen.BackupStatus {
+func withAssetStatus(status apigen.BackupStatus, assets assetStatusSource) apigen.BackupStatus {
 	if assets == nil {
 		return status
 	}
@@ -342,9 +301,6 @@ func withAssetStatus(status apigen.BackupStatus, assets assetBackupReadiness) ap
 	status.AssetPending = uint32(pending)
 	status.AssetMigrationRunning = running
 	status.AssetError = assetErr
-	if running || pending > 0 {
-		status.InSync = false
-	}
 	return status
 }
 
@@ -357,19 +313,20 @@ func publishBackupStatus(publisher statusPublisher, status apigen.BackupStatus) 
 func stopReplication(ctx context.Context) error {
 	activeMu.Lock()
 	defer activeMu.Unlock()
-	return closeActiveStore(ctx)
+	return closeActiveProcess(ctx)
 }
 
-func closeActiveStore(ctx context.Context) error {
-	if activeStore == nil {
+func closeActiveProcess(ctx context.Context) error {
+	if activeProcess == nil {
 		return nil
 	}
-	store := activeStore
-	if err := store.Close(ctx); err != nil {
+	proc := activeProcess
+	err := proc.stop()
+	activeProcess = nil
+	activeConfig = S3Config{}
+	if err != nil {
 		return err
 	}
-	activeStore = nil
-	activeConfig = resolvedBackupConfig{}
 	slog.InfoContext(ctx, "stopped primary database backup replication")
 	return nil
 }
@@ -378,31 +335,26 @@ func configured(loader config.Loader, cfg *apigen.ClusterSettings) bool {
 	return loader.MustLoadConfigBoolValue(cfg.Backup.Enabled)
 }
 
-func resolvedBackupConfigFromDynamic(loader config.Loader, cfg *apigen.ClusterSettings, secretSource secretStore) (resolvedBackupConfig, error) {
+func resolvedBackupConfigFromDynamic(loader config.Loader, cfg *apigen.ClusterSettings, secretSource secretStore) (S3Config, error) {
 	secretAccessKey, err := revealSecretRef(secretSource, cfg.Backup.S3SecretAccessKey)
 	if err != nil {
-		return resolvedBackupConfig{}, fmt.Errorf("reveal backup S3 secret access key: %w", err)
+		return S3Config{}, fmt.Errorf("reveal backup S3 secret access key: %w", err)
 	}
-	accessKeyID := loader.MustLoadConfigStringValue(cfg.Backup.S3AccessKeyID)
-	bucket := loader.MustLoadConfigStringValue(cfg.Backup.S3Bucket)
-	path := loader.MustLoadConfigStringValue(cfg.Backup.S3Path)
-	region := loader.MustLoadConfigStringValue(cfg.Backup.S3Region)
-	endpoint := loader.MustLoadConfigStringValue(cfg.Backup.S3Endpoint)
-	backupCfg := resolvedBackupConfig{
-		AccessKeyID:     accessKeyID,
+	backupCfg := S3Config{
+		AccessKeyID:     loader.MustLoadConfigStringValue(cfg.Backup.S3AccessKeyID),
 		SecretAccessKey: secretAccessKey,
-		Bucket:          bucket,
-		Path:            path,
-		Region:          region,
-		Endpoint:        endpoint,
+		Bucket:          loader.MustLoadConfigStringValue(cfg.Backup.S3Bucket),
+		Path:            loader.MustLoadConfigStringValue(cfg.Backup.S3Path),
+		Region:          loader.MustLoadConfigStringValue(cfg.Backup.S3Region),
+		Endpoint:        loader.MustLoadConfigStringValue(cfg.Backup.S3Endpoint),
 	}
 	if err := validateConfig(backupCfg); err != nil {
-		return resolvedBackupConfig{}, err
+		return S3Config{}, err
 	}
 	return backupCfg, nil
 }
 
-func validateConfig(cfg resolvedBackupConfig) error {
+func validateConfig(cfg S3Config) error {
 	if cfg.AccessKeyID == "" {
 		return fmt.Errorf("OPENDEPLOY_BACKUP_S3_ACCESS_KEY_ID is required when backup is configured")
 	}

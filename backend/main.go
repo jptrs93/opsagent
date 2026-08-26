@@ -15,6 +15,7 @@ import (
 	logconsumer "github.com/jptrs93/opsagent/backend/app/logconsumer/v2"
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
 	"github.com/jptrs93/opsagent/backend/app/primary"
+	"github.com/jptrs93/opsagent/backend/app/primary/backup"
 	"github.com/jptrs93/opsagent/backend/app/secondary"
 )
 
@@ -44,6 +45,14 @@ func main() {
 			os.Exit(1)
 		}
 		slog.InfoContext(ctx, "opendeploy net stopped")
+	case ainit.CommandLitestream:
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := backup.RunChildProcess(ctx); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
+			stop() // Clean up before os.Exit, which skips deferred calls.
+			os.Exit(1)
+		}
 	case ainit.CommandPrimary:
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()

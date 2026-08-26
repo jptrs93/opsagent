@@ -46,7 +46,6 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	if err != nil {
 		return fmt.Errorf("creating primary runtime: %w", err)
 	}
-	primaryRuntime.assets.BeforeLocalMigration = backup.StopReplicationForAssetMigration
 	clusterMaterial, err := certu.LoadPrimary(primaryRuntime.secrets)
 	if err != nil {
 		return fmt.Errorf("loading cluster TLS material: %w", err)

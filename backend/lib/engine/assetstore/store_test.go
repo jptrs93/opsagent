@@ -210,9 +210,6 @@ func TestMigrationRemainsActiveUntilReconcileFinishesIt(t *testing.T) {
 	if !status.Running || !status.TargetS3 || status.Pending != 0 {
 		t.Fatalf("status before reconcile = %+v", status)
 	}
-	if ready, _ := store.ReadyForDatabaseBackup(); ready {
-		t.Fatal("database backup was ready before the migration row finished")
-	}
 	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
 		t.Fatalf("Reconcile: pending=%d err=%v", pending, err)
 	}

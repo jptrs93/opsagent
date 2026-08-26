@@ -28,12 +28,11 @@ var ErrLargeAssetS3Config = errors.New("large asset S3 settings are not configur
 var ErrAssetS3ConfigChangeRequiresLocal = errors.New("large asset S3 configuration cannot change while S3 assets or pending uploads exist")
 
 type Store struct {
-	DB                   *state.Service
-	Config               func() *apigen.ClusterSettings
-	Loader               config.Loader
-	Secrets              secretStore
-	MigrationWake        <-chan struct{}
-	BeforeLocalMigration func(context.Context) error
+	DB            *state.Service
+	Config        func() *apigen.ClusterSettings
+	Loader        config.Loader
+	Secrets       secretStore
+	MigrationWake <-chan struct{}
 
 	mu sync.Mutex
 }

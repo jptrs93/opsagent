@@ -17,6 +17,7 @@ const (
 	CommandUninstall      Command = "uninstall"
 	CommandRawLogConsumer Command = "raw-binary-log-consumer"
 	CommandNetproxy       Command = "dataplane"
+	CommandLitestream     Command = "litestream"
 	commandTest           Command = "test"
 )
 
@@ -54,6 +55,8 @@ func initArgs() {
 		Args.Command = CommandRawLogConsumer
 	case CommandNetproxy:
 		Args.Command = CommandNetproxy
+	case CommandLitestream:
+		Args.Command = CommandLitestream
 	default:
 		usage(os.Stderr, Args.Program)
 		fmt.Fprintf(os.Stderr, "\nunknown command: %s\n", os.Args[1])

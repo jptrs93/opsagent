@@ -107,12 +107,6 @@ func (s *Store) Reconcile(ctx context.Context) (int, error) {
 		return s.pendingForMode(targetS3), err
 	}
 	s.DB.StartAssetMigration(migration.ID)
-	if !targetS3 && s.BeforeLocalMigration != nil {
-		if err := s.BeforeLocalMigration(ctx); err != nil {
-			s.DB.RecordAssetMigrationError(migration.ID, err)
-			return s.pendingForMode(targetS3), err
-		}
-	}
 
 	for _, row := range s.DB.ListAssetStoreRowMetas() {
 		if ctx.Err() != nil {
@@ -173,23 +167,6 @@ func (s *Store) ReconcileStatus() ReconcileStatus {
 		status.Error = err.Error()
 	}
 	return status
-}
-
-func (s *Store) ReadyForDatabaseBackup() (bool, string) {
-	status := s.ReconcileStatus()
-	if !status.TargetS3 {
-		return false, "large asset storage is switching to local mode"
-	}
-	if status.Running && status.Pending == 0 && status.Error == "" {
-		return false, "large asset storage migration is finishing"
-	}
-	if status.Pending > 0 || status.Error != "" {
-		if status.Error != "" {
-			return false, status.Error
-		}
-		return false, fmt.Sprintf("waiting for %d large asset(s) to migrate to S3", status.Pending)
-	}
-	return true, ""
 }
 
 func (s *Store) AssetStorageStatus() (bool, int, bool, string) {

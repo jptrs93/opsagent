@@ -8,9 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/benbjohnson/litestream"
-	"github.com/benbjohnson/litestream/s3"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/backup"
 	"github.com/jptrs93/opsagent/backend/app/primarybootstrap"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
@@ -86,23 +85,16 @@ func restorePrimaryBackup(opts restoreOptions, install installOptions, own owner
 	cleanupRestoreArtifacts(tmpPath)
 	defer cleanupRestoreArtifacts(tmpPath)
 
-	client := s3.NewReplicaClient()
-	client.AccessKeyID = opts.AccessKeyID
-	client.SecretAccessKey = opts.SecretAccessKey
-	client.Bucket = opts.Bucket
-	client.Path = opts.Path
-	client.Region = opts.Region
-	client.Endpoint = opts.Endpoint
-	if opts.Endpoint != "" {
-		client.ForcePathStyle = true
+	restoreCfg := backup.S3Config{
+		AccessKeyID:     opts.AccessKeyID,
+		SecretAccessKey: opts.SecretAccessKey,
+		Bucket:          opts.Bucket,
+		Path:            opts.Path,
+		Region:          opts.Region,
+		Endpoint:        opts.Endpoint,
 	}
-
-	db := litestream.NewDB(dbPath)
-	replica := litestream.NewReplicaWithClient(db, client)
-	restoreOpts := litestream.NewRestoreOptions()
-	restoreOpts.OutputPath = tmpPath
-	if err := replica.Restore(context.Background(), restoreOpts); err != nil {
-		return fmt.Errorf("restore primary database: %w", err)
+	if err := backup.Restore(context.Background(), restoreCfg, dbPath, tmpPath); err != nil {
+		return err
 	}
 	if err := os.Rename(tmpPath, dbPath); err != nil {
 		return fmt.Errorf("install restored primary database: %w", err)
