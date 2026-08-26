@@ -420,13 +420,7 @@
  * @property {Uint8Array} data
  */
 /**
- * @typedef {Object} RunOutputRequest
- * @property {number} deploymentId
- * @property {number} version
- */
-/**
  * @typedef {Object} DeploymentLogRequest
- * @property {RunOutputRequest} runnerOutput
  * @property {PrepareOutputRequest} preparerOutput
  * @property {string} requestId
  */
@@ -1177,8 +1171,6 @@
  * @typedef {Object} MsgToWorker
  * @property {ScheduledInstanceSnapshot} scheduledInstancesSnapshot
  * @property {ScheduledInstanceState} scheduledInstanceUpdate
- * @property {PrepareOutputRequest} prepareLogRequest
- * @property {RunOutputRequest} runLogRequest
  * @property {DeploymentLogRequest} deploymentLogRequest
  * @property {string} stopLogRequestId
  * @property {ClusterNetworkInfo} clusterNetwork
@@ -6450,78 +6442,10 @@ export function decodePrepareOutputChunk(buffer) {
 
 
 /**
- * @param {RunOutputRequest} message
- * @param {Writer} writer
- */
-export function writeRunOutputRequest(message, writer) {
-    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentId);
-    }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
-    }
-}
-
-
-/**
- * @param {RunOutputRequest} message
- * @returns {Uint8Array}
- */
-export function encodeRunOutputRequest(message) {
-    const writer = Writer.create();
-    writeRunOutputRequest(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {RunOutputRequest}
- */
-function decodeRunOutputRequestMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, version: 0 };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 3: {
-                message.deploymentId = reader.int32();
-                break;
-            }
-            case 2: {
-                message.version = reader.int32();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {RunOutputRequest}
- */
-export function decodeRunOutputRequest(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeRunOutputRequestMessage(reader);
-}
-
-
-
-/**
  * @param {DeploymentLogRequest} message
  * @param {Writer} writer
  */
 export function writeDeploymentLogRequest(message, writer) {
-    if (message.runnerOutput !== undefined && message.runnerOutput !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeRunOutputRequest(message.runnerOutput, writer);
-        writer.ldelim();
-    }
     if (message.preparerOutput !== undefined && message.preparerOutput !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
         writePrepareOutputRequest(message.preparerOutput, writer);
@@ -6551,14 +6475,10 @@ export function encodeDeploymentLogRequest(message) {
  */
 function decodeDeploymentLogRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {runnerOutput: undefined, preparerOutput: undefined, requestId: "" };
+    const message = {preparerOutput: undefined, requestId: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.runnerOutput = decodeRunOutputRequestMessage(reader, reader.uint32());
-                break;
-            }
             case 2: {
                 message.preparerOutput = decodePrepareOutputRequestMessage(reader, reader.uint32());
                 break;
@@ -15563,16 +15483,6 @@ export function writeMsgToWorker(message, writer) {
         writeScheduledInstanceState(message.scheduledInstanceUpdate, writer);
         writer.ldelim();
     }
-    if (message.prepareLogRequest !== undefined && message.prepareLogRequest !== null) {
-        writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writePrepareOutputRequest(message.prepareLogRequest, writer);
-        writer.ldelim();
-    }
-    if (message.runLogRequest !== undefined && message.runLogRequest !== null) {
-        writer.uint32(tag(4, WIRE.LDELIM)).fork();
-        writeRunOutputRequest(message.runLogRequest, writer);
-        writer.ldelim();
-    }
     if (message.deploymentLogRequest !== undefined && message.deploymentLogRequest !== null) {
         writer.uint32(tag(5, WIRE.LDELIM)).fork();
         writeDeploymentLogRequest(message.deploymentLogRequest, writer);
@@ -15625,7 +15535,7 @@ export function encodeMsgToWorker(message) {
  */
 function decodeMsgToWorkerMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, prepareLogRequest: undefined, runLogRequest: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", clusterNetwork: undefined, clusterNetMap: undefined, clusterProtocolVersion: 0, acmeState: undefined, logQueryRequest: undefined };
+    const message = {scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", clusterNetwork: undefined, clusterNetMap: undefined, clusterProtocolVersion: 0, acmeState: undefined, logQueryRequest: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15635,14 +15545,6 @@ function decodeMsgToWorkerMessage(reader, length) {
             }
             case 2: {
                 message.scheduledInstanceUpdate = decodeScheduledInstanceStateMessage(reader, reader.uint32());
-                break;
-            }
-            case 3: {
-                message.prepareLogRequest = decodePrepareOutputRequestMessage(reader, reader.uint32());
-                break;
-            }
-            case 4: {
-                message.runLogRequest = decodeRunOutputRequestMessage(reader, reader.uint32());
                 break;
             }
             case 5: {

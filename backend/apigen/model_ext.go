@@ -59,20 +59,12 @@ func prepareOutputFile(deploymentID int32, version int32) string {
 	return filepath.Join(ainit.StaticConfig.PrepareOutputDir, fmt.Sprintf("%d", deploymentID), fmt.Sprintf("%d.log", version))
 }
 
-func RunOutputFile(deploymentID int32, version int32) string {
-	return filepath.Join(ainit.StaticConfig.RunOutputDir, fmt.Sprintf("%d", deploymentID), fmt.Sprintf("%d.log", version))
-}
-
-func RunOutputDeploymentDir(deploymentID int32) string {
-	return filepath.Join(ainit.StaticConfig.RunOutputDir, fmt.Sprintf("%d", deploymentID))
+func LogWALDeploymentDir(deploymentID int32) string {
+	return filepath.Join(ainit.StaticConfig.LogWALDir, fmt.Sprintf("%d", deploymentID))
 }
 
 func (d *DeploymentConfig) PrepareOutputPath() string {
 	return prepareOutputFile(d.ID, d.Version)
-}
-
-func (d *DeploymentConfig) RunOutputPath() string {
-	return RunOutputFile(d.ID, d.Version)
 }
 
 func (d *DeploymentConfig) WorkloadVersion() string {
@@ -136,10 +128,6 @@ func (s *DeploymentSpec) Container() *ContainerSpec {
 
 func (r *PrepareOutputRequest) OutputPath() string {
 	return prepareOutputFile(r.DeploymentID, r.Version)
-}
-
-func (r *RunOutputRequest) OutputPath() string {
-	return RunOutputFile(r.DeploymentID, r.Version)
 }
 
 // --- String methods for status enums ---

@@ -588,13 +588,7 @@ type PrepareOutputChunk struct {
 	Data []byte `json:"data"`
 }
 
-type RunOutputRequest struct {
-	DeploymentID int32 `json:"deployment_id"`
-	Version      int32 `json:"version"`
-}
-
 type DeploymentLogRequest struct {
-	RunnerOutput   *RunOutputRequest     `json:"runner_output"`
 	PreparerOutput *PrepareOutputRequest `json:"preparer_output"`
 	RequestID      string                `json:"request_id,omitempty"`
 }
@@ -1345,8 +1339,6 @@ type GithubCredentials struct {
 type MsgToWorker struct {
 	ScheduledInstancesSnapshot *ScheduledInstanceSnapshot `json:"scheduled_instances_snapshot"`
 	ScheduledInstanceUpdate    *ScheduledInstanceState    `json:"scheduled_instance_update"`
-	PrepareLogRequest          *PrepareOutputRequest      `json:"prepare_log_request"`
-	RunLogRequest              *RunOutputRequest          `json:"run_log_request"`
 	DeploymentLogRequest       *DeploymentLogRequest      `json:"deployment_log_request"`
 	StopLogRequestID           string                     `json:"stop_log_request_id,omitempty"`
 	ClusterNetwork             *ClusterNetworkInfo        `json:"cluster_network"`

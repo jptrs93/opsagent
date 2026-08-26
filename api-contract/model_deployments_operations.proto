@@ -4,6 +4,7 @@ package opsagent.v1;
 
 import "api-contract/model/deployments.proto";
 import "api-contract/options.proto";
+import "api-contract/model/scheduled_instances.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 

@@ -96,7 +96,7 @@ func (m *Manager) alignProducers(producing map[int32]int32, items []apigen.Sched
 }
 
 func (m *Manager) startNewCollectors() {
-	entries, err := os.ReadDir(ainit.StaticConfig.RunOutputDir)
+	entries, err := os.ReadDir(ainit.StaticConfig.LogWALDir)
 	if err != nil {
 		return
 	}

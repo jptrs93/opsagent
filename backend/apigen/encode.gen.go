@@ -3261,44 +3261,8 @@ func DecodePrepareOutputChunk(b []byte) (*PrepareOutputChunk, error) {
 	return &m, nil
 }
 
-func (m *RunOutputRequest) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.DeploymentID, 3)
-	b = AppendInt32Field(b, m.Version, 2)
-	return b
-}
-
-func DecodeRunOutputRequest(b []byte) (*RunOutputRequest, error) {
-	var m RunOutputRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 3:
-			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 func (m *DeploymentLogRequest) Encode() []byte {
 	var b []byte
-	if m.RunnerOutput != nil {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.RunnerOutput.Encode())
-	}
 	if m.PreparerOutput != nil {
 		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, m.PreparerOutput.Encode())
@@ -3319,15 +3283,6 @@ func DecodeDeploymentLogRequest(b []byte) (*DeploymentLogRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *RunOutputRequest
-				item, err = DecodeRunOutputRequest(msgBytes)
-				if err == nil {
-					m.RunnerOutput = item
-				}
-			}
 		case 2:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -8567,14 +8522,6 @@ func (m *MsgToWorker) Encode() []byte {
 		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, m.ScheduledInstanceUpdate.Encode())
 	}
-	if m.PrepareLogRequest != nil {
-		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.PrepareLogRequest.Encode())
-	}
-	if m.RunLogRequest != nil {
-		b = AppendTag(b, 4, BytesType)
-		b = AppendBytes(b, m.RunLogRequest.Encode())
-	}
 	if m.DeploymentLogRequest != nil {
 		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, m.DeploymentLogRequest.Encode())
@@ -8628,24 +8575,6 @@ func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
 				item, err = DecodeScheduledInstanceState(msgBytes)
 				if err == nil {
 					m.ScheduledInstanceUpdate = item
-				}
-			}
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *PrepareOutputRequest
-				item, err = DecodePrepareOutputRequest(msgBytes)
-				if err == nil {
-					m.PrepareLogRequest = item
-				}
-			}
-		case 4:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *RunOutputRequest
-				item, err = DecodeRunOutputRequest(msgBytes)
-				if err == nil {
-					m.RunLogRequest = item
 				}
 			}
 		case 5:

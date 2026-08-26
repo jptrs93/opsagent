@@ -17,9 +17,9 @@ import (
 
 func walEnv(t *testing.T) string {
 	t.Helper()
-	old := ainit.StaticConfig.RunOutputDir
-	ainit.StaticConfig.RunOutputDir = t.TempDir()
-	t.Cleanup(func() { ainit.StaticConfig.RunOutputDir = old })
+	old := ainit.StaticConfig.LogWALDir
+	ainit.StaticConfig.LogWALDir = t.TempDir()
+	t.Cleanup(func() { ainit.StaticConfig.LogWALDir = old })
 	dir := walDeploymentDir(testDeploymentID)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
@@ -107,7 +107,7 @@ func TestStreamRecordsReadsBucketsInOrder(t *testing.T) {
 		record(t, "2026-06-15T15:00:01Z", 2, 3, logv2.StreamStdout, "gamma\n"),
 	)
 
-	got := drainStream(t, deadProducer(), testDeploymentID,StreamMarker{})
+	got := drainStream(t, deadProducer(), testDeploymentID, StreamMarker{})
 	if want := []string{"alpha\n", "beta\n", "gamma\n"}; !equalStrings(lines(got), want) {
 		t.Fatalf("lines = %#v, want %#v", lines(got), want)
 	}
@@ -131,15 +131,15 @@ func TestStreamRecordsResumeSkipsCommittedRecord(t *testing.T) {
 		record(t, "2026-06-15T14:32:01Z", 1, 1, logv2.StreamStdout, "gamma\n"),
 	)
 
-	all := drainStream(t, deadProducer(), testDeploymentID,StreamMarker{})
+	all := drainStream(t, deadProducer(), testDeploymentID, StreamMarker{})
 	if len(all) != 3 {
 		t.Fatalf("len = %d, want 3", len(all))
 	}
-	got := drainStream(t, deadProducer(), testDeploymentID,all[0].m)
+	got := drainStream(t, deadProducer(), testDeploymentID, all[0].m)
 	if want := []string{"beta\n", "gamma\n"}; !equalStrings(lines(got), want) {
 		t.Fatalf("lines = %#v, want %#v", lines(got), want)
 	}
-	if last := drainStream(t, deadProducer(), testDeploymentID,all[2].m); len(last) != 0 {
+	if last := drainStream(t, deadProducer(), testDeploymentID, all[2].m); len(last) != 0 {
 		t.Fatalf("resuming from the final marker re-emitted %#v", lines(last))
 	}
 }
@@ -156,8 +156,8 @@ func TestStreamRecordsResumeOffsetAppliesOnlyToMarkerFile(t *testing.T) {
 		record(t, "2026-06-15T15:01:01Z", 1, 1, logv2.StreamStdout, "delta\n"),
 	)
 
-	all := drainStream(t, deadProducer(), testDeploymentID,StreamMarker{})
-	got := drainStream(t, deadProducer(), testDeploymentID,all[0].m)
+	all := drainStream(t, deadProducer(), testDeploymentID, StreamMarker{})
+	got := drainStream(t, deadProducer(), testDeploymentID, all[0].m)
 	if want := []string{"beta\n", "gamma\n", "delta\n"}; !equalStrings(lines(got), want) {
 		t.Fatalf("lines = %#v, want %#v", lines(got), want)
 	}
@@ -211,7 +211,7 @@ func TestStreamRecordsHandlesMaxSizeLinesAcrossBuffer(t *testing.T) {
 	)
 
 	done := make(chan []string, 1)
-	go func() { done <- lines(drainStream(t, deadProducer(), testDeploymentID,StreamMarker{})) }()
+	go func() { done <- lines(drainStream(t, deadProducer(), testDeploymentID, StreamMarker{})) }()
 	select {
 	case got := <-done:
 		if !equalStrings(got, want) {
@@ -230,7 +230,7 @@ func TestStreamRecordsClosesEveryBucketFile(t *testing.T) {
 	}
 
 	before := openFDCount(t)
-	if got := drainStream(t, deadProducer(), testDeploymentID,StreamMarker{}); len(got) != 4 {
+	if got := drainStream(t, deadProducer(), testDeploymentID, StreamMarker{}); len(got) != 4 {
 		t.Fatalf("len = %d, want 4", len(got))
 	}
 	if after := openFDCount(t); after > before {
@@ -313,7 +313,7 @@ func TestStreamRecordsResyncsPastTornRecords(t *testing.T) {
 		truncated[:len(truncated)/2],
 	)
 
-	got := drainStream(t, deadProducer(), testDeploymentID,StreamMarker{})
+	got := drainStream(t, deadProducer(), testDeploymentID, StreamMarker{})
 	if want := []string{"alpha\n", "beta\n"}; !equalStrings(lines(got), want) {
 		t.Fatalf("lines = %#v, want %#v", lines(got), want)
 	}
@@ -332,7 +332,7 @@ func TestStreamRecordsRejectsFalseMagicCandidates(t *testing.T) {
 		record(t, "2026-06-15T14:30:02Z", 1, 1, logv2.StreamStdout, "beta\n"),
 	)
 
-	got := drainStream(t, deadProducer(), testDeploymentID,StreamMarker{})
+	got := drainStream(t, deadProducer(), testDeploymentID, StreamMarker{})
 	if want := []string{string(line), "beta\n"}; !equalStrings(lines(got), want) {
 		t.Fatalf("lines = %#v, want %#v", lines(got), want)
 	}
@@ -351,7 +351,7 @@ func TestStreamRecordsKeepsOffsetsAcrossDiscardedBuffer(t *testing.T) {
 		record(t, "2026-06-15T14:30:02Z", 1, 1, logv2.StreamStdout, "beta\n"),
 	)
 
-	got := drainStream(t, deadProducer(), testDeploymentID,StreamMarker{})
+	got := drainStream(t, deadProducer(), testDeploymentID, StreamMarker{})
 	if want := []string{"alpha\n", "beta\n"}; !equalStrings(lines(got), want) {
 		t.Fatalf("lines = %#v, want %#v", lines(got), want)
 	}
@@ -371,7 +371,7 @@ func TestStreamRecordsRangeIsInclusiveBothEnds(t *testing.T) {
 		record(t, "2026-06-15T15:00:01Z", 1, 1, logv2.StreamStdout, "gamma\n"),
 		record(t, "2026-06-15T15:01:01Z", 1, 1, logv2.StreamStdout, "delta\n"),
 	)
-	all := drainStream(t, deadProducer(), testDeploymentID,StreamMarker{})
+	all := drainStream(t, deadProducer(), testDeploymentID, StreamMarker{})
 	if len(all) != 4 {
 		t.Fatalf("len = %d, want 4", len(all))
 	}
@@ -405,7 +405,7 @@ func TestStreamRecordsRangeStopsWithoutTailing(t *testing.T) {
 		record(t, "2026-06-15T14:30:01Z", 1, 1, logv2.StreamStdout, "alpha\n"),
 		record(t, "2026-06-15T14:31:01Z", 1, 1, logv2.StreamStdout, "beta\n"),
 	)
-	all := drainStream(t, deadProducer(), testDeploymentID,StreamMarker{})
+	all := drainStream(t, deadProducer(), testDeploymentID, StreamMarker{})
 
 	done := make(chan []string, 1)
 	go func() {

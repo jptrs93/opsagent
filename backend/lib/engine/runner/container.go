@@ -432,9 +432,9 @@ func (r *containerRunner) run() {
 			continue
 		}
 		runNumber := r.status.NumberOfRestarts + 1
-		outputDir := apigen.RunOutputDeploymentDir(r.deploymentID)
-		if mkdirErr := os.MkdirAll(outputDir, 0o750); mkdirErr != nil {
-			slog.ErrorContext(r.ctx, fmt.Sprintf("creating run log dir %s failed", outputDir), "err", mkdirErr)
+		logDir := apigen.LogWALDeploymentDir(r.deploymentID)
+		if mkdirErr := os.MkdirAll(logDir, 0o750); mkdirErr != nil {
+			slog.ErrorContext(r.ctx, fmt.Sprintf("creating log wal dir %s failed", logDir), "err", mkdirErr)
 			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 			crashCount++
 			if !r.sleepBackoff(crashCount) {
@@ -489,16 +489,16 @@ func (r *containerRunner) run() {
 			DevShmSizeKB:   r.devShmSizeKB,
 			FileDescLimit:  r.fileDescLimit,
 			Mounts:         mounts,
-			Output:         outputDir,
-			OutputVersion:  r.status.DeploymentConfigVersion,
-			OutputRun:      runNumber,
+			LogDir:         logDir,
+			LogVersion:     r.status.DeploymentConfigVersion,
+			LogRun:         runNumber,
 			ResolvConfPath: resolvConfPath,
 
-			OutputDeployment: r.deploymentID,
-			OutputNode:       r.nodeID,
+			LogDeployment: r.deploymentID,
+			LogNode:       r.nodeID,
 			// The scheduler only ever assigns defaultInstanceOrdinal today; this
 			// becomes a real per-instance value when multi-instance lands.
-			OutputOrdinal: 0,
+			LogOrdinal: 0,
 		}
 		if cn != nil {
 			spec.NetnsPath = cn.NetnsPath

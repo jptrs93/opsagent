@@ -201,10 +201,6 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 		msgType = "log_query_request"
 	case msg.StopLogRequestID != "":
 		msgType = "stop_log_request"
-	case msg.PrepareLogRequest != nil:
-		msgType = "prepare_log_request"
-	case msg.RunLogRequest != nil:
-		msgType = "run_log_request"
 	case msg.ClusterNetwork != nil:
 		msgType = "cluster_network"
 	case msg.ClusterNetMap != nil:
@@ -259,7 +255,7 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 		streamCtx := tracker.start(ctx, requestID)
 		go func() {
 			defer tracker.remove(requestID)
-			streamDeploymentLog(streamCtx, out, store, msg.DeploymentLogRequest)
+			streamPrepareOutput(streamCtx, out, store, msg.DeploymentLogRequest)
 		}()
 	case msg.LogQueryRequest != nil:
 		requestID := msg.LogQueryRequest.RequestID
@@ -268,10 +264,6 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 			defer tracker.remove(requestID)
 			runLogQuery(queryCtx, out, msg.LogQueryRequest)
 		}()
-	case msg.PrepareLogRequest != nil:
-		go streamPrepareLog(ctx, out, msg.PrepareLogRequest)
-	case msg.RunLogRequest != nil:
-		go streamRunLog(ctx, out, msg.RunLogRequest)
 	}
 }
 

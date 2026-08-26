@@ -33,7 +33,7 @@ func init() {
 		w = os.Stdout
 	} else {
 		// Main opendeploy agents (primary, secondary) log into the run-logs tree as deployment 0
-		basePath := log.SystemLogBasePath(StaticConfig.RunOutputDir)
+		basePath := log.SystemLogBasePath(StaticConfig.LogWALDir)
 		w = erru.Must(log.NewSystemLogWriter(basePath))
 	}
 	logLevel := envu.MustGetOrDefault[slog.Level]("LOG_LEVEL", slog.LevelInfo)
@@ -46,7 +46,7 @@ func ensureStaticDirs(command Command, cfg *StaticConfiguration, dataDir string)
 	cfg.VolumesDir = dataDir + "-volumes"
 	cfg.ReleasesDir = dataDir + "-releases"
 	cfg.PrepareOutputDir = dataDir + "-build-logs"
-	cfg.RunOutputDir = dataDir + "-run-logs"
+	cfg.LogWALDir = dataDir + "-run-logs"
 	cfg.LogArchiveDir = dataDir + "-log-archive"
 	cfg.LargeAssetsDir = path.Join(dataDir, "large-assets")
 	cfg.GitCacheDir = path.Join(dataDir, "git-cache")
@@ -66,7 +66,7 @@ func ensureStaticDirs(command Command, cfg *StaticConfiguration, dataDir string)
 	fileu.MustEnsureDirWithPerm(cfg.DataDir, 0o750)
 	fileu.MustEnsureDirWithPerm(cfg.AssetCacheDir, 0o755)
 	fileu.MustEnsureDirWithPerm(cfg.PrepareOutputDir, 0o750)
-	fileu.MustEnsureDirWithPerm(cfg.RunOutputDir, 0o750)
+	fileu.MustEnsureDirWithPerm(cfg.LogWALDir, 0o750)
 	fileu.MustEnsureDirWithPerm(cfg.LogArchiveDir, 0o750)
 	fileu.MustEnsureDirWithPerm(cfg.VolumesDir, 0o755)
 	fileu.MustEnsureDirWithPerm(cfg.ReleasesDir, 0o755)
@@ -84,7 +84,7 @@ func ensureStaticDirs(command Command, cfg *StaticConfiguration, dataDir string)
 type StaticConfiguration struct {
 	DataDir           string
 	AssetCacheDir     string
-	RunOutputDir      string
+	LogWALDir         string
 	LogArchiveDir     string
 	PrepareOutputDir  string
 	VolumesDir        string

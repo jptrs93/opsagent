@@ -14,7 +14,7 @@ This file tracks the work deliberately left out of phase 1.
 
 Container stdout/stderr are received by a per-task binary log consumer. It
 writes merged half-hourly UTC files to
-`RunOutputDir/{deploymentID}/{YYYYMMDD_HHMM}_{version}_{run}.logbin`.
+`LogWALDir/{deploymentID}/{YYYYMMDD_HHMM}_{version}_{run}.logbin`.
 `version` is the deployment configuration version and `run` is its restart
 sequence, so concurrently running rollover candidates write separate files.
 

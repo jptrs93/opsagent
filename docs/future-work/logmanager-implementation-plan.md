@@ -103,7 +103,7 @@ existing call sites (`app/primary/webuihandler/deployments.go:551`,
 ## Compaction pass
 
 The loop runs every `passInterval` (default 60s), and per pass iterates
-deployment dirs under `RunOutputDir` sequentially. Sequential is deliberate:
+deployment dirs under `LogWALDir` sequentially. Sequential is deliberate:
 compaction is I/O-bound background work with no latency requirement, and a
 single worker makes the "one writer" invariant trivially true.
 

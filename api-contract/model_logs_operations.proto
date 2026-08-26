@@ -15,13 +15,7 @@ message PrepareOutputChunk {
   bytes data = 1;
 }
 
-message RunOutputRequest {
-  int32 deployment_id = 3;
-  int32 version = 2;  // config version whose log to stream (0 = latest)
-}
-
 message DeploymentLogRequest {
-  RunOutputRequest runner_output = 1;
   PrepareOutputRequest preparer_output = 2;
   string request_id = 3;  // Unique ID for multiplexing parallel log streams over a single cluster session.
 }
