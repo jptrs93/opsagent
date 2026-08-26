@@ -6,12 +6,12 @@
   "scripts": {
     "dev": "vite",
     "dev:deployment-editor": "vite --open /fixtures/deployment-editor/",
-    "dev:deployment-status": "vite --open /fixtures/deployment-status/",
     "dev:env-vars": "vite --open /fixtures/env-vars/",
     "dev:logs-redesign": "vite --open /fixtures/logs-redesign/",
     "dev:mounted-assets": "vite --open /fixtures/mounted-assets/",
     "dev:secret-editor": "vite --open /fixtures/secret-editor/",
     "dev:sessions-redesign": "vite --open /fixtures/sessions-redesign/",
+    "dev:status-redesign": "vite --open /fixtures/status-redesign/",
     "check:secret-editor": "node fixtures/secret-editor/stateCheck.js",
     "check:deployment-editor": "node fixtures/deployment-editor/deploymentSourceCheck.js && node fixtures/deployment-editor/roundTripCheck.js",
     "test": "node --test src/state/deploymentMerge.test.js src/lib/agentSessions.test.js src/lib/envVarGrouping.test.js src/lib/nodeSpaces.test.js src/lib/valueExplorer.test.js src/lib/assetExplorer.test.js src/lib/authz.test.js src/hcl/index.test.js",

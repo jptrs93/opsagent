@@ -787,13 +787,10 @@ export async function deleteDeployment(page, {name, machine = 'worker-1'} = {}) 
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   const row = deploymentRow(page, {name, machine});
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
-  await row.getByTitle('More actions').evaluate(button => {
-    button.click();
-    const menuDelete = [...document.body.querySelectorAll('button')]
-      .find(candidate => candidate.textContent?.trim() === 'Delete');
-    if (!menuDelete) throw new Error('deployment Delete action was not available');
-    menuDelete.click();
-  });
+  await row.locator('td').first().click();
+  const inspector = page.getByTestId('deployment-inspector');
+  await expect(inspector).toBeVisible();
+  await inspector.getByRole('button', {name: 'Delete', exact: true}).click();
   const overlay = page.getByTestId('deployment-delete-overlay');
   await expect(overlay).toBeVisible();
   const response = page.waitForResponse(res => {
@@ -1659,12 +1656,18 @@ async function expectOpenDeployDeploymentVersion(page, {name, machine, version})
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   await showOpendeployDeployments(page);
   const row = page.getByTestId(`deployment-row-${name}`);
-  // Sublines are keyed by node; the attribute-prefix match also covers a
-  // transient rollover subline that carries an instance-ordinal suffix.
-  await expect(row.locator(`[data-testid^="deployment-version-${name}-${machine}"]`).last())
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await row.locator('td').first().click();
+  const inspector = page.getByTestId('deployment-inspector');
+  await expect(inspector).toBeVisible();
+  // Instance rows are keyed by node; the attribute-prefix match also covers a
+  // transient rollover instance that carries an instance-ordinal suffix.
+  await expect(inspector.locator(`[data-testid^="deployment-version-${name}-${machine}"]`).last())
     .toContainText(version, {timeout: UPGRADE_TIMEOUT});
-  await expect(row.locator(`[data-testid^="deployment-runner-status-${name}-${machine}"]`).last())
+  await expect(inspector.locator(`[data-testid^="deployment-runner-status-${name}-${machine}"]`).last())
     .toHaveText('Running', {timeout: UPGRADE_TIMEOUT});
+  await inspector.getByLabel('Close inspector').click();
+  await expect(inspector).toBeHidden();
 }
 
 async function expectMachineConnected(page, machine) {
@@ -1734,11 +1737,16 @@ async function openDeploymentLogsSearch(page, row) {
 }
 
 async function showOpendeployDeployments(page) {
-  const toggle = page.getByRole('button', {name: 'Show _system'});
-  if (await toggle.count() === 0) return;
-  if (await toggle.getAttribute('aria-pressed') !== 'true') {
-    await toggle.click();
+  const filter = page.getByLabel('Filter spaces');
+  if (await filter.count() === 0) return;
+  await filter.click();
+  const item = page.getByRole('menuitemcheckbox').filter({hasText: '_system'});
+  await expect(item).toBeVisible();
+  if (await item.getAttribute('aria-checked') !== 'true') {
+    await item.click();
   }
+  await page.mouse.click(2, 2);
+  await expect(item).toBeHidden();
 }
 
 function deploymentRow(page, {name, machine, space} = {}) {

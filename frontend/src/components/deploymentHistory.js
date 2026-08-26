@@ -5,7 +5,7 @@ import {resolveUserDisplayName} from "../lib/users.js";
 import {deploymentWorkload} from "../lib/deploymentConfig.js";
 import {rollupLabel, rollupOf, inputsLabel, imageLabel, InputsStatus, ImageStatus} from "../lib/preparerStatus.js";
 
-const { div, h2, span, button, p } = van.tags;
+const {button, col, colgroup, div, input, label, p, span, table, tbody, td, th, thead, tr} = van.tags;
 
 const runnerStatusLabels = {
     0: 'unknown',
@@ -98,10 +98,24 @@ function describeStatusEntry(status, prev) {
 
 const tsMs = (t) => (t instanceof Date ? t.getTime() : 0);
 
-export function deploymentHistory(deploymentId, label, onClose, onRevertTargetVersion = () => {}) {
+// History shows only config rows by default; status rows are opt-in. Module
+// state so the toggle survives switching deployments and reopening the
+// inspector.
+const showStatusRows = van.state(false);
+
+const miniTh = (text, extra = "") => th(
+    {class: `border-b border-gray-700/70 border-r border-r-gray-800/40 last:border-r-0 bg-gray-950/40 px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-gray-500 ${extra}`},
+    text);
+const miniTd = (extra, ...children) => td(
+    {class: `border-b border-gray-800/50 border-r border-r-gray-800/30 last:border-r-0 px-2 py-[3px] whitespace-nowrap overflow-hidden ${extra}`},
+    ...children);
+
+// deploymentHistoryPanel renders one deployment's audit trail as the inspector
+// History tab: a dense Time | Type | V | By | Change table with an inline
+// revert link on non-latest config rows.
+export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () => {}) {
     const entries = van.state(null);
     const error = van.state('');
-    const showStatusUpdates = van.state(true);
 
     const load = async () => {
         try {
@@ -116,130 +130,121 @@ export function deploymentHistory(deploymentId, label, onClose, onRevertTargetVe
 
     setTimeout(load, 0);
 
-    return div(
-        {class: "min-h-0 bg-gray-900 flex flex-col h-full"},
-        div(
-            {class: "flex items-center justify-between p-3 border-b border-gray-700"},
-            h2({class: "text-sm font-semibold text-gray-300"}, `History: ${label || `#${deploymentId}`}`),
-            div(
-                {class: "flex items-center gap-2"},
-                () => error.val ? span({class: "text-xs text-red-400"}, error.val) : span(),
-                button({
-                    class: () => `flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs transition-colors cursor-pointer ${showStatusUpdates.val ? 'border-brand bg-brand/20 text-blue-200' : 'border-gray-600 bg-gray-800 text-gray-400'}`,
-                    onclick: () => { showStatusUpdates.val = !showStatusUpdates.val; },
-                    type: "button",
-                    "aria-pressed": () => showStatusUpdates.val ? "true" : "false",
-                    title: "Toggle status update history lines",
-                },
-                    span({class: () => `h-3.5 w-6 rounded-full relative transition-colors ${showStatusUpdates.val ? 'bg-brand' : 'bg-gray-600'}`},
-                        span({class: () => `absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white transition-all ${showStatusUpdates.val ? 'left-3' : 'left-0.5'}`}),
-                    ),
-                    span("Show status updates"),
-                ),
-                button({
-                    class: "text-gray-400 hover:text-gray-200 text-sm px-2",
-                    onclick: onClose,
-                }, "Close"),
-            ),
-        ),
-        div(
-            {class: "app-scroll flex-1 min-h-0 overflow-auto p-2"},
-            () => {
-                if (entries.val === null) {
-                    return p({class: "p-4 text-sm text-gray-500"}, "Loading...");
-                }
-                if (entries.val.length === 0) {
-                    return p({class: "p-4 text-sm text-gray-500"}, "No history.");
-                }
+    const buildRows = () => {
+        // Drop placeholder status rows with a zero updated_at clock (inserted
+        // to satisfy the status-never-nil invariant — they carry no
+        // preparer/runner data and render as meaningless lines).
+        const visibleEntries = entries.val.filter(e => !e.status || tsMs(e.status.updatedAt) > 0);
+        const configEntries = visibleEntries.filter(e => e.config);
+        const configsSorted = [...configEntries].sort((a, b) => a.config.version - b.config.version);
+        const currentConfigVersion = configsSorted.length > 0
+            ? configsSorted[configsSorted.length - 1].config.version
+            : 0;
+        const prevByVersion = {};
+        let prevConfig = null;
+        for (const e of configsSorted) {
+            prevByVersion[e.config.version] = prevConfig;
+            prevConfig = e.config;
+        }
 
-                // Drop placeholder status rows with a zero updated_at clock
-                // (inserted to satisfy the status-never-nil invariant — they
-                // carry no preparer/runner data and render as meaningless
-                // "status update" lines).
-                const visibleEntries = entries.val.filter(e => !e.status || tsMs(e.status.updatedAt) > 0);
-                const renderEntries = showStatusUpdates.val
-                    ? visibleEntries
-                    : visibleEntries.filter(e => e.config);
-                const configEntries = visibleEntries.filter(e => e.config);
-                const configByVersion = {};
-                const configsSorted = [...configEntries].sort((a, b) => a.config.version - b.config.version);
-                const currentConfigVersion = configsSorted.length > 0
-                    ? configsSorted[configsSorted.length - 1].config.version
-                    : 0;
-                let prevConfig = null;
-                for (const e of configsSorted) {
-                    configByVersion[e.config.version] = { config: e.config, prev: prevConfig };
-                    prevConfig = e.config;
-                }
-
-                // Entries are newest-first. Walk chronologically (reverse) to
-                // record each status entry's prior status for diff rendering.
-                const prevStatusByEntry = new Map();
-                let lastStatus = null;
-                for (let i = visibleEntries.length - 1; i >= 0; i--) {
-                    const e = visibleEntries[i];
-                    if (e.status) {
-                        prevStatusByEntry.set(e, lastStatus);
-                        lastStatus = e.status;
-                    }
-                }
-
-                const entryTime = (e) => {
-                    const t = e.config ? e.config.updatedAt : e.status.updatedAt;
-                    return tsMs(t);
-                };
-                const stableWindowMs = 10 * 60 * 1000;
-
-                const lines = renderEntries.map((e, i) => {
-                    const isConfig = !!e.config;
-                    const ts = entryTime(e) > 0
-                        ? formatHistoryTime(isConfig ? e.config.updatedAt : e.status.updatedAt)
-                        : '';
-
-                    if (isConfig) {
-                        const info = configByVersion[e.config.version];
-                        const desc = describeConfigEntry(e.config, info?.prev);
-                        const userName = resolveUserDisplayName(e.config.author);
-                        const user = userName ? ` [${userName}]` : '';
-                        const targetVersion = deploymentWorkload(e.config)?.version || '';
-                        const canRevertTargetVersion = targetVersion && e.config.version !== currentConfigVersion;
-                        return div(
-                            {class: "px-3 py-0.5 text-xs font-mono text-orange-400"},
-                            span(ts),
-                            span("  "),
-                            span(`v${e.config.version} `),
-                            span(desc),
-                            user ? span({class: "text-orange-300"}, user) : '',
-                            canRevertTargetVersion ? button({
-                                type: "button",
-                                class: "ml-2 p-0 text-xs font-mono text-blue-400 underline hover:text-blue-300 cursor-pointer",
-                                onclick: () => onRevertTargetVersion(deploymentId, e.config),
-                            }, "revert to this version") : '',
-                        );
-                    } else {
-                        const prev = prevStatusByEntry.get(e);
-                        const desc = describeStatusEntry(e.status, prev);
-                        const transitionedToRunning = runnerChanged(e.status, prev)
-                            && e.status.runner && e.status.runner.status === 2;
-                        const nextTs = i > 0 ? entryTime(renderEntries[i - 1]) : 0;
-                        const curTs = entryTime(e);
-                        const stable = i === 0 || (nextTs > 0 && curTs > 0 && nextTs - curTs > stableWindowMs);
-                        const color = transitionedToRunning && stable ? "text-green-500" : "text-gray-500";
-                        return div(
-                            {class: `px-3 py-0.5 text-xs font-mono ${color}`},
-                            span(ts),
-                            span("  "),
-                            span(desc),
-                        );
-                    }
-                }).filter(Boolean);
-
-                if (lines.length === 0) {
-                    return p({class: "p-4 text-sm text-gray-500"}, showStatusUpdates.val ? "No history." : "No config changes.");
-                }
-
-                return div({class: "flex flex-col"}, ...lines);
+        // Entries are newest-first. Walk chronologically (reverse) to record
+        // each status entry's prior status for diff rendering.
+        const prevStatusByEntry = new Map();
+        let lastStatus = null;
+        for (let i = visibleEntries.length - 1; i >= 0; i--) {
+            const e = visibleEntries[i];
+            if (e.status) {
+                prevStatusByEntry.set(e, lastStatus);
+                lastStatus = e.status;
             }
-        )
+        }
+
+        return visibleEntries.map((e) => {
+            if (e.config) {
+                const targetVersion = deploymentWorkload(e.config)?.version || '';
+                return {
+                    at: e.config.updatedAt,
+                    kind: 'config',
+                    v: e.config.version,
+                    by: resolveUserDisplayName(e.config.author) || '',
+                    change: describeConfigEntry(e.config, prevByVersion[e.config.version]),
+                    config: e.config,
+                    canRevert: Boolean(targetVersion) && e.config.version !== currentConfigVersion,
+                };
+            }
+            return {
+                at: e.status.updatedAt,
+                kind: 'status',
+                v: null,
+                by: '',
+                change: describeStatusEntry(e.status, prevStatusByEntry.get(e)),
+                config: null,
+                canRevert: false,
+            };
+        });
+    };
+
+    const historyTable = () => {
+        if (entries.val === null) {
+            return p({class: "p-4 text-sm text-gray-500"}, "Loading...");
+        }
+        const allRows = buildRows();
+        const rows = showStatusRows.val ? allRows : allRows.filter((r) => r.kind === 'config');
+        if (rows.length === 0) {
+            return p({class: "p-4 text-sm text-gray-500"}, showStatusRows.val ? "No history." : "No config changes.");
+        }
+        return table(
+            {class: "w-full table-fixed border-collapse text-xs"},
+            colgroup(
+                col({style: "width:7.2rem"}),
+                col({style: "width:3.2rem"}),
+                col({style: "width:5.4rem"}),
+                col({style: "width:3rem"}),
+                col(),
+            ),
+            thead(tr(miniTh("Time"), miniTh("Type"), miniTh("V"), miniTh("By"), miniTh("Change"))),
+            tbody(...rows.map((entry) => tr(
+                {class: "hover:bg-gray-700/35"},
+                miniTd("font-mono text-gray-500 tabular-nums", formatHistoryTime(entry.at)),
+                miniTd(entry.kind === 'config' ? "text-orange-300" : "text-gray-500", entry.kind),
+                miniTd("font-mono text-gray-500 tabular-nums",
+                    entry.v === null ? "" : span(`v${entry.v}`),
+                    entry.canRevert
+                        ? span(" ",
+                            button({
+                                type: "button",
+                                title: "Revert target version to this config's version",
+                                class: "p-0 text-[11px] text-blue-400 underline hover:text-blue-300 cursor-pointer",
+                                onclick: () => onRevertTargetVersion(deploymentId, entry.config),
+                            }, "revert"))
+                        : ""),
+                miniTd("truncate text-gray-500", entry.by),
+                miniTd(`font-mono truncate ${entry.kind === 'config' ? 'text-orange-300' : 'text-gray-400'}`,
+                    span({title: entry.change}, entry.change)),
+            ))),
+        );
+    };
+
+    const countLine = () => {
+        if (entries.val === null) return '';
+        const allRows = buildRows();
+        const rows = showStatusRows.val ? allRows : allRows.filter((r) => r.kind === 'config');
+        return `${rows.length} entries`;
+    };
+
+    return div(
+        {class: "flex min-h-0 flex-1 flex-col"},
+        div({class: "flex flex-none items-center justify-between px-3 py-1.5"},
+            span({class: "text-[11px] text-gray-500"},
+                () => error.val ? span({class: "text-red-400"}, error.val) : countLine()),
+            label({class: "flex cursor-pointer items-center gap-1.5 text-[11px] text-gray-400 select-none"},
+                input({
+                    type: "checkbox",
+                    class: "accent-blue-500",
+                    checked: showStatusRows,
+                    onchange: (e) => { showStatusRows.val = e.target.checked; },
+                }),
+                "Status rows")),
+        div({class: "app-scroll flex-1 min-h-0 overflow-auto"}, historyTable),
     );
 }
