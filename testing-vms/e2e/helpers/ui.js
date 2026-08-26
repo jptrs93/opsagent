@@ -545,6 +545,68 @@ export async function expectIssuedTLSHclDiagnostics(page, {name, machine = 'work
   });
 }
 
+export function withPortForwardAllow(text, allow) {
+  const lines = text.split('\n');
+  const index = lines.findIndex(line => line.includes('port_forward('));
+  if (index < 0) throw new Error('port_forward route not found in deployment HCL');
+  const match = lines[index].match(/^(\s*)port_forward\(("[^"]+"),\s*(\d+)(?:,\s*\{\s*(.*?)\s*\})?\)(,?)\s*$/);
+  if (!match) throw new Error(`unrecognized port_forward line: ${lines[index].trim()}`);
+  const [, indent, protocol, containerPort, optionsBody = '', comma] = match;
+  const kept = optionsBody
+    .replace(/allow\s*=\s*\[[^\]]*\]/, '')
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
+  if (allow.length) kept.push(`allow = [${allow.map(entry => JSON.stringify(entry)).join(', ')}]`);
+  const options = kept.length ? `, { ${kept.join(', ')} }` : '';
+  lines[index] = `${indent}port_forward(${protocol}, ${containerPort}${options})${comma}`;
+  return lines.join('\n');
+}
+
+export async function setPortForwardAllowList(page, {name, machine = 'worker-1', allow = [], expectRendered = []} = {}) {
+  const {dialog, editor} = await openDeploymentHclEditor(page, {name, machine});
+
+  await step(`set port forward allow list ${name}`, async () => {
+    const text = await readDeploymentHcl(editor);
+    for (const entry of expectRendered) {
+      expect(text, `expected rendered HCL to contain allow entry ${entry}`).toContain(JSON.stringify(entry));
+    }
+    await writeDeploymentHcl(editor, withPortForwardAllow(text, allow));
+    await expect(dialog.getByText('HCL valid', {exact: true})).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  });
+
+  await step(`submit port forward allow list ${name}`, async () => {
+    const submit = dialog.getByRole('button', {name: 'Update deployment'});
+    await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
+    const updateResponse = page.waitForResponse(response => {
+      const request = response.request();
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
+    }, {timeout: LONG_UI_TIMEOUT});
+    await submit.click();
+    expect((await updateResponse).ok()).toBe(true);
+    await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  });
+}
+
+export async function expectPortForwardAllowDiagnostics(page, {name, machine = 'worker-1', checks = []} = {}) {
+  const {dialog, editor} = await openDeploymentHclEditor(page, {name, machine});
+  const original = await readDeploymentHcl(editor);
+
+  for (const {allow, diagnostic} of checks) {
+    await step(`expect diagnostic: ${diagnostic}`, async () => {
+      await writeDeploymentHcl(editor, withPortForwardAllow(original, allow));
+      await expect(dialog.getByText(diagnostic).first()).toBeVisible({timeout: LONG_UI_TIMEOUT});
+      await writeDeploymentHcl(editor, original);
+      await expect(dialog.getByText(diagnostic)).toHaveCount(0, {timeout: LONG_UI_TIMEOUT});
+    });
+  }
+
+  await step(`cancel update dialog ${name}`, async () => {
+    await dialog.getByRole('button', {name: 'Cancel'}).click();
+    await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  });
+}
+
 export async function expectDeploymentHttpsIngressRows(page, {name, machine = 'worker-2', count} = {}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   const row = deploymentRow(page, {name, machine});
@@ -1442,6 +1504,26 @@ export async function expectHTTPText(url, expectedText, {timeout = DEPLOYMENT_RU
   }, {message: `expected ${url} to contain ${expectedText}`, timeout}).toContain(expectedText);
 }
 
+// expectHTTPBlocked waits for the URL to stop answering, then requires it to
+// stay unreachable for holdMs so a transient recreate gap cannot pass as an
+// applied source filter.
+export async function expectHTTPBlocked(url, {timeout = DEPLOYMENT_RUNNING_TIMEOUT, holdMs = 4000} = {}) {
+  const probe = async () => {
+    try {
+      await fetch(url, {cache: 'no-store', signal: AbortSignal.timeout(2000)});
+      return 'reachable';
+    } catch {
+      return 'blocked';
+    }
+  };
+  await expect.poll(probe, {message: `expected ${url} to become unreachable`, timeout}).toBe('blocked');
+  const deadline = Date.now() + holdMs;
+  while (Date.now() < deadline) {
+    expect(await probe(), `expected ${url} to stay unreachable`).toBe('blocked');
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+}
+
 export async function expectTLSIngress(hostname, {backend, certificateBundle, timeout = DEPLOYMENT_RUNNING_TIMEOUT} = {}) {
   if (!backend || !certificateBundle) throw new Error('TLS ingress backend and certificate bundle are required');
   const expectedBody = `backend=${backend}\nsni=${hostname}\n`;
@@ -1782,6 +1864,11 @@ async function setDeploymentPortForwarding(dialog, portForwarding) {
     await containerPortInput.pressSequentially(String(rule.containerPort));
     await expect(containerPortInput).toBeFocused();
     await expect(containerPortInput).toHaveValue(String(rule.containerPort));
+    if (rule.allow !== undefined) {
+      const allowInput = row.locator('input').nth(2);
+      await allowInput.fill(rule.allow);
+      await expect(allowInput).toHaveValue(rule.allow);
+    }
   }
   await pane.getByTitle('Close').click();
   await expect(pane).toBeHidden({timeout: LONG_UI_TIMEOUT});

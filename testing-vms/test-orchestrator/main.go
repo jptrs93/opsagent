@@ -113,6 +113,7 @@ type config struct {
 	PlaywrightBaseURLSet      bool
 	PlaywrightHostPort        string
 	PlaywrightSecondaryPorts  string
+	PlaywrightFilteredPorts   string
 	PlaywrightTLSIngressPort  string
 	PlaywrightHTTPIngressPort string
 	PlaywrightTunnelCmds      []*exec.Cmd
@@ -304,6 +305,12 @@ func loadConfig(resolveLatestRelease bool) (*config, error) {
 	c.PlaywrightDockerImage = env("OPD_PLAYWRIGHT_DOCKER_IMAGE", "mcr.microsoft.com/playwright:v1.57.0-noble")
 	c.PlaywrightHostPort = env("OPD_PLAYWRIGHT_HOST_PORT", "8443")
 	c.PlaywrightSecondaryPorts = env("OPD_PLAYWRIGHT_SECONDARY_PORTS", "18181 18182")
+	// Ports whose DNAT rules carry a source allow list. Tunneled via the
+	// primary VM so probes reach the secondary over the Lima network and
+	// traverse its prerouting chain with the primary's source address; the
+	// direct secondary tunnel dials locally and would bypass the filter
+	// through the unconditional output-chain rule.
+	c.PlaywrightFilteredPorts = env("OPD_PLAYWRIGHT_FILTERED_PORTS", "18183")
 	c.PlaywrightTLSIngressPort = env("OPD_PLAYWRIGHT_TLS_INGRESS_PORT", "18443")
 	// Not 18080: the ipv4 egress listener binds that port inside worker-2 and
 	// Lima auto-forwards guest listeners to the same host port.
@@ -2202,6 +2209,13 @@ func (c *config) ensurePlaywrightSecondaryTunnels() error {
 		}
 		c.PlaywrightTunnelCmds = append(c.PlaywrightTunnelCmds, cmd)
 	}
+	for _, port := range words(c.PlaywrightFilteredPorts) {
+		cmd, err := c.startSSHTunnel(c.PrimaryName, port, secondaryIP, port)
+		if err != nil {
+			return err
+		}
+		c.PlaywrightTunnelCmds = append(c.PlaywrightTunnelCmds, cmd)
+	}
 	return nil
 }
 
@@ -2381,6 +2395,10 @@ func (c *config) runPlaywrightFlows() error {
 	if err != nil {
 		return err
 	}
+	primaryIPv4, err := c.vmIPv4(c.PrimaryName)
+	if err != nil {
+		return err
+	}
 	worker2IPv4, err := c.vmIPv4(c.Secondary2Name)
 	if err != nil {
 		return err
@@ -2420,6 +2438,7 @@ func (c *config) runPlaywrightFlows() error {
 		"OPD_WORKER_2_MACHINE_ID":         worker2MachineID,
 		"OPD_IPV4_EGRESS_URL":             fmt.Sprintf("http://%s:%d/", worker2IPv4, ipv4EgressListenerPort),
 		"OPD_IPV4_EGRESS_EXPECTED_SOURCE": worker1IPv4,
+		"OPD_FILTERED_PORT_CLIENT_IP":     primaryIPv4,
 		"OPD_SETUP_PASSWORD":              envFile["OPD_SETUP_PASSWORD"],
 		"OPD_INSTALL_VERSION":             envFile["OPD_INSTALL_VERSION"],
 		"OPD_UPGRADE_VERSION":             upgradeVersion,
