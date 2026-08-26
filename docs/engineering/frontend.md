@@ -74,7 +74,6 @@ Deployment node selectors render `ClusterNode.name` and submit `ClusterNode.id` 
 - Port forwarding uses `port_forward("tcp"|"udp", container_port[, { host_port = number }])`; the host port defaults to the container port, matching the options-object style used by `tls_passthrough`.
 - Code mode commits only valid documents. Invalid source remains private to Code mode, allowing UI mode to continue from the last valid shared document.
 - CodeMirror is dynamically imported on first use so the normal form path does not include it in the initial bundle.
-- Use `pnpm run dev:deployment-editor` for the mock fixture and `pnpm run check:deployment-editor` for source-policy, codec, and payload round-trip checks.
 
 ## Rendering pattern
 
