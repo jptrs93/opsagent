@@ -9,6 +9,7 @@ import {deployOverlay} from "../components/deployOverlay.js";
 import {openDeployGroupUpdateOverlay} from "../components/openDeployGroupUpdateOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
 import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
+import {runReportOverlay} from "../components/runReportOverlay.js";
 import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
 import {deploymentConfigOverlay} from "../components/deploymentJsonOverlay.js";
 import {recentlyDeletedOverlay} from "../components/recentlyDeletedOverlay.js";
@@ -30,6 +31,7 @@ const OPENDEPLOY_SPACE_ID = 0;
 const STATUS_NO_DEPLOYMENT = 1;
 const STATUS_RUNNING = 2;
 const STATUS_STOPPED = 3;
+const STATUS_STARTING = 4;
 const openDeployRepo = 'github.com/jptrs93/opsagent';
 
 const isOpenDeployDeployment = deployment => {
@@ -303,6 +305,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             const sourceView = deploymentSourceView(state.config);
             return {
                 instanceId: instance.id || 0,
+                deploymentVersion: instance.deploymentVersion || 0,
                 node: nodeDisplayName(instanceNodeId, machines),
                 runnerPresent: Boolean(state.status?.runner),
                 existingStatus: instanceNodeMissing && instanceStatus === STATUS_RUNNING ? 0 : instanceStatus,
@@ -545,6 +548,17 @@ export function statusPage(onOpenLogs = () => {}) {
         overlayNode.val = prepareOutputOverlay(deployment.id, formatDeploymentLabel(deployment), closeOverlay);
     };
 
+    const onShowRunReport = (member, instance) => {
+        const runCount = (instance.numberOfRestarts || 0) + 1;
+        const inProgress = instance.existingStatus === STATUS_RUNNING || instance.existingStatus === STATUS_STARTING;
+        const run = inProgress && runCount > 1 ? runCount - 1 : runCount;
+        overlayNode.val = runReportOverlay({
+            deploymentId: member.id,
+            version: instance.deploymentVersion || member.currentVersion || 0,
+            preselect: instance.instanceId ? {instanceId: instance.instanceId, run} : null,
+        }, closeOverlay);
+    };
+
     const onUpdate = (deployment) => {
         if (deployment.isSystemGroup) {
             overlayNode.val = openDeployGroupUpdateOverlay(deployment, closeOverlay);
@@ -772,7 +786,21 @@ export function statusPage(onOpenLogs = () => {}) {
             .filter((t) => t instanceof Date && t.getTime() > 0)
             .sort((a, b) => b - a)[0];
         return div({class: "flex items-baseline gap-1.5 overflow-hidden whitespace-nowrap"},
-            span({class: total > 0 ? "text-gray-300" : "text-gray-500"}, String(total)),
+            total > 0
+                ? button({
+                    type: "button",
+                    class: "cursor-pointer p-0 text-gray-300 underline hover:text-white",
+                    title: "View run report",
+                    "data-testid": `deployment-restarts-open-${row.name}`,
+                    onclick: (e) => {
+                        e.stopPropagation();
+                        const target = subs
+                            .filter((s) => (s.instance.numberOfRestarts || 0) > 0)
+                            .sort((a, b) => (b.instance.lastRestartAt?.getTime?.() || 0) - (a.instance.lastRestartAt?.getTime?.() || 0))[0];
+                        if (target) onShowRunReport(target.member, target.instance);
+                    },
+                }, String(total))
+                : span({class: "text-gray-500"}, String(total)),
             last ? span({class: "truncate text-[11px] text-gray-500"}, formatDateTime(last, "")) : "");
     };
 
@@ -1125,8 +1153,16 @@ export function statusPage(onOpenLogs = () => {}) {
                                 onclick: () => onShowPrepareOutput(sub.member),
                             }, phase.label)
                             : span({class: "text-gray-500", "data-testid": `deployment-prepare-status-${sub.testSuffix}`}, '-')),
-                    miniTd({class: "text-right tabular-nums " + ((sub.instance.numberOfRestarts || 0) > 0 ? "text-gray-300" : "text-gray-600")},
-                        String(sub.instance.numberOfRestarts || 0)),
+                    miniTd({class: "text-right tabular-nums"},
+                        (sub.instance.numberOfRestarts || 0) > 0
+                            ? button({
+                                type: "button",
+                                class: "cursor-pointer p-0 tabular-nums text-gray-300 underline hover:text-white",
+                                title: "View run report",
+                                "data-testid": `instance-rst-open-${sub.testSuffix}`,
+                                onclick: () => onShowRunReport(sub.member, sub.instance),
+                            }, String(sub.instance.numberOfRestarts))
+                            : span({class: "text-gray-600"}, String(sub.instance.numberOfRestarts || 0))),
                 );
             })),
         );

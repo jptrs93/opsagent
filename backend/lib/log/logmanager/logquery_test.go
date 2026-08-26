@@ -1,14 +1,15 @@
 package logmanager
 
 import (
+	"bytes"
 	"context"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	logv2 "github.com/jptrs93/opsagent/backend/lib/log/v2"
-	"github.com/jptrs93/opsagent/backend/storage/logdb"
 )
 
 func queryMsgs(t *testing.T, m *Manager, req *apigen.LogQueryRequest) []string {
@@ -510,47 +511,68 @@ func TestQueryThinProjectionAggregates(t *testing.T) {
 	}
 }
 
-func TestScanRangeThinAggMatchesVisitingScan(t *testing.T) {
-	m := thinFixture(t)
-	c := m.collectors[testDeploymentID]
-	fromN := mustTime(t, "2026-06-15T00:00:00Z").UnixNano()
-	tillN := mustTime(t, "2026-06-16T00:00:00Z").UnixNano()
-	counts := make([][]int64, len(levelOrder))
-	agg := &thinAgg{fromN: fromN, tillN: tillN, bucketFrom: fromN, bucketStep: tillN - fromN, bucketN: 1, counts: counts}
-	trace := &queryTrace{}
-	visited := 0
-	warnings, err := c.scanRange(context.Background(), fromN, tillN, trace, func(logdb.LogFile) projection { return projThin }, agg, 0, func(v *visitRec) bool {
-		if v.narrow {
-			t.Fatal("thin row visited despite agg fast path")
-		}
-		visited++
-		return true
-	})
-	if err != nil || len(warnings) != 0 {
-		t.Fatalf("err = %v, warnings = %v", err, warnings)
+func TestTwoPassMatchesFullScan(t *testing.T) {
+	cases := []struct {
+		name string
+		fix  func(*testing.T) *Manager
+		req  func(*testing.T) *apigen.LogQueryRequest
+	}{
+		{"wide", jsonFixture, func(t *testing.T) *apigen.LogQueryRequest {
+			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, HistogramBuckets: 6})
+		}},
+		{"levelEq", thinFixture, func(t *testing.T) *apigen.LogQueryRequest {
+			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: 2, HistogramBuckets: 4,
+				Filters: []*apigen.LogFilter{{Field: "level", Op: "eq", Value: "error"}}})
+		}},
+		{"levelIn", jsonFixture, func(t *testing.T) *apigen.LogQueryRequest {
+			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: 3,
+				Filters: []*apigen.LogFilter{{Field: "level", Op: "in", Values: []string{"ERROR", ""}}}})
+		}},
+		{"msgContains", jsonFixture, func(t *testing.T) *apigen.LogQueryRequest {
+			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: 5,
+				Filters: []*apigen.LogFilter{{Op: "contains", Value: "query"}}})
+		}},
+		{"asc", searchFixture, func(t *testing.T) *apigen.LogQueryRequest {
+			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: 2, Order: "asc"})
+		}},
+		{"configVersion", searchFixture, func(t *testing.T) *apigen.LogQueryRequest {
+			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, ConfigVersion: 1})
+		}},
+		{"metaFilter", searchFixture, func(t *testing.T) *apigen.LogQueryRequest {
+			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID,
+				Filters: []*apigen.LogFilter{{Field: "version", Op: "eq", Value: "2"}}})
+		}},
+		{"streamFilter", jsonFixture, func(t *testing.T) *apigen.LogQueryRequest {
+			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID,
+				Filters: []*apigen.LogFilter{{Field: "stream", Op: "eq", Value: "stderr"}}})
+		}},
+		{"includeRaw", jsonFixture, func(t *testing.T) *apigen.LogQueryRequest {
+			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: 3, IncludeRaw: true})
+		}},
+		{"aggOnly", spoolAggFixture, func(t *testing.T) *apigen.LogQueryRequest {
+			return &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: -1, HistogramBuckets: 10,
+				TimeStart: mustTime(t, "2026-06-15T14:00:00Z"), TimeEnd: mustTime(t, "2026-06-15T14:20:00Z")}
+		}},
 	}
-	if len(trace.files) != 2 || trace.files[0].proj != projAgg || trace.files[1].proj != projAgg {
-		t.Fatalf("trace files = %+v", trace.files)
-	}
-	if agg.scanned != 5 || agg.matched != 5 || visited != 1 {
-		t.Fatalf("scanned = %d, matched = %d, visited = %d", agg.scanned, agg.matched, visited)
-	}
-	if counts[levelIndex("ERROR")][0] != 2 || counts[levelIndex("WARN")][0] != 1 || counts[levelIndex("INFO")][0] != 2 {
-		t.Fatalf("counts = %#v", counts)
-	}
-	if counts[levelIndex("")] != nil {
-		t.Fatalf("empty-level series allocated: %#v", counts)
-	}
-
-	counts = make([][]int64, len(levelOrder))
-	agg = &thinAgg{fromN: fromN, tillN: tillN, filters: mustCompile(t, "level", "eq", "error"), counts: counts}
-	trace = &queryTrace{}
-	_, err = c.scanRange(context.Background(), fromN, tillN, trace, func(logdb.LogFile) projection { return projThin }, agg, 0, func(v *visitRec) bool { return true })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if agg.scanned != 5 || agg.matched != 2 {
-		t.Fatalf("filtered scanned = %d, matched = %d", agg.scanned, agg.matched)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := c.fix(t)
+			fast, err := m.Query(context.Background(), c.req(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			forceFullScan = true
+			t.Cleanup(func() { forceFullScan = false })
+			full, err := m.Query(context.Background(), c.req(t))
+			forceFullScan = false
+			if err != nil {
+				t.Fatal(err)
+			}
+			fast.Stats.TookMs, full.Stats.TookMs = 0, 0
+			if !reflect.DeepEqual(fast, full) {
+				t.Fatalf("two-pass = %+v\nfull = %+v", fast, full)
+			}
+		})
 	}
 }
 
@@ -576,61 +598,84 @@ func spoolAggFixture(t *testing.T) *Manager {
 	return &Manager{db: c.db, collectors: map[int32]*LogStreamCollector{testDeploymentID: c}}
 }
 
-func TestScanRangeWalAggSkips(t *testing.T) {
+func TestWalScanSkipsAggregatedRegion(t *testing.T) {
 	m := spoolAggFixture(t)
 	c := m.collectors[testDeploymentID]
 	fromN := mustTime(t, "2026-06-15T14:00:00Z").UnixNano()
 	tillN := mustTime(t, "2026-06-15T14:20:00Z").UnixNano()
 	counts := make([][]int64, len(levelOrder))
 	agg := &thinAgg{fromN: fromN, tillN: tillN, bucketFrom: fromN, bucketStep: 2 * int64(time.Minute), bucketN: 10, counts: counts}
+	ret := &retainHeap{capacity: 1, newest: true}
+	q := &queryParams{newestFirst: true}
 	trace := &queryTrace{}
-	var visited []string
-	_, err := c.scanRange(context.Background(), fromN, tillN, trace, nil, agg, 1, func(v *visitRec) bool {
-		visited = append(visited, v.msgValue())
-		return true
-	})
-	if err != nil {
+	if err := c.engine().scanWalTwoPass(context.Background(), StreamMarker{}, q, agg, ret, 1, trace); err != nil {
 		t.Fatal(err)
 	}
 	if trace.walAggRows != 7 || trace.walRows != 3 {
 		t.Fatalf("agg rows = %d, raw rows = %d", trace.walAggRows, trace.walRows)
 	}
-	if agg.scanned != 7 || agg.matched != 7 {
+	if agg.scanned != 10 || agg.matched != 10 {
 		t.Fatalf("scanned = %d, matched = %d", agg.scanned, agg.matched)
-	}
-	if !equalStrings(visited, []string{"e5", "d1", "e3"}) {
-		t.Fatalf("visited = %v", visited)
 	}
 	if counts[levelIndex("INFO")][0] != 2 || counts[levelIndex("ERROR")][0] != 1 ||
 		counts[levelIndex("WARN")][1] != 1 || counts[levelIndex("ERROR")][1] != 1 ||
-		counts[levelIndex("INFO")][2] != 1 || counts[levelIndex("ERROR")][3] != 1 {
+		counts[levelIndex("INFO")][2] != 1 || counts[levelIndex("ERROR")][3] != 2 ||
+		counts[levelIndex("DEBUG")][5] != 1 || counts[levelIndex("ERROR")][5] != 1 {
 		t.Fatalf("counts = %#v", counts)
+	}
+	retained := ret.sorted()
+	if len(retained) != 1 || retained[0].msg != "e3" {
+		t.Fatalf("retained = %+v", retained)
 	}
 }
 
-func TestScanRangeWalAggHeadSegment(t *testing.T) {
+func TestWalScanAggHeadSegment(t *testing.T) {
 	m := spoolAggFixture(t)
 	c := m.collectors[testDeploymentID]
 	fromN := mustTime(t, "2026-06-15T14:00:30Z").UnixNano()
 	tillN := mustTime(t, "2026-06-15T14:20:00Z").UnixNano()
 	agg := &thinAgg{fromN: fromN, tillN: tillN}
+	ret := &retainHeap{capacity: 1, newest: true}
+	q := &queryParams{newestFirst: true}
 	trace := &queryTrace{}
-	var visited []string
-	_, err := c.scanRange(context.Background(), fromN, tillN, trace, nil, agg, 1, func(v *visitRec) bool {
-		visited = append(visited, v.msgValue())
-		return true
-	})
-	if err != nil {
+	if err := c.engine().scanWalTwoPass(context.Background(), StreamMarker{}, q, agg, ret, 1, trace); err != nil {
 		t.Fatal(err)
 	}
 	if trace.walAggRows != 6 || trace.walRows != 4 {
 		t.Fatalf("agg rows = %d, raw rows = %d", trace.walAggRows, trace.walRows)
 	}
-	if agg.scanned != 6 || agg.matched != 6 {
+	if agg.scanned != 10 || agg.matched != 10 {
 		t.Fatalf("scanned = %d, matched = %d", agg.scanned, agg.matched)
 	}
-	if !equalStrings(visited, []string{"i1", "e5", "d1", "e3"}) {
-		t.Fatalf("visited = %v", visited)
+	retained := ret.sorted()
+	if len(retained) != 1 || retained[0].rec.Time != mustTime(t, "2026-06-15T14:10:06Z").UnixNano() {
+		t.Fatalf("retained = %+v", retained)
+	}
+}
+
+func TestWalScanBulkVisitsMatchMinutesOnly(t *testing.T) {
+	m := spoolAggFixture(t)
+	c := m.collectors[testDeploymentID]
+	fromN := mustTime(t, "2026-06-15T14:00:00Z").UnixNano()
+	tillN := mustTime(t, "2026-06-15T14:20:00Z").UnixNano()
+	counts := make([][]int64, len(levelOrder))
+	filters := mustCompile(t, "level", "eq", "warn")
+	agg := &thinAgg{fromN: fromN, tillN: tillN, filters: filters, counts: counts}
+	ret := &retainHeap{capacity: 5, newest: true}
+	q := &queryParams{newestFirst: true, filters: filters}
+	trace := &queryTrace{}
+	if err := c.engine().scanWalTwoPass(context.Background(), StreamMarker{}, q, agg, ret, 5000, trace); err != nil {
+		t.Fatal(err)
+	}
+	if trace.walAggRows != 8 || trace.walRows != 3 {
+		t.Fatalf("agg rows = %d, raw rows = %d", trace.walAggRows, trace.walRows)
+	}
+	if agg.scanned != 10 || agg.matched != 1 {
+		t.Fatalf("scanned = %d, matched = %d", agg.scanned, agg.matched)
+	}
+	retained := ret.sorted()
+	if len(retained) != 1 || retained[0].msg != "w1" {
+		t.Fatalf("retained = %+v", retained)
 	}
 }
 
@@ -760,36 +805,51 @@ func TestAggBinsMatchStringFilterSemantics(t *testing.T) {
 	}
 }
 
-func TestScanRangeThinProjectionDecodesTimeAndLevel(t *testing.T) {
+func TestScanArchiveColumnsDecodesLevelsAndPositions(t *testing.T) {
 	m := thinFixture(t)
-	c := m.collectors[testDeploymentID]
-	fromN := mustTime(t, "2026-06-15T00:00:00Z").UnixNano()
-	tillN := mustTime(t, "2026-06-16T00:00:00Z").UnixNano()
-	trace := &queryTrace{}
+	files := listFiles(t, m.db)
+	if len(files) != 2 {
+		t.Fatalf("files = %d", len(files))
+	}
 	levels := map[string]int{}
-	thinRows := 0
-	warnings, err := c.scanRange(context.Background(), fromN, tillN, trace, func(logdb.LogFile) projection { return projThin }, nil, 0, func(v *visitRec) bool {
-		if v.narrow {
-			thinRows++
-			levels[v.levelValue()]++
-			if v.rec.Time < fromN || v.rec.Time >= tillN {
-				t.Fatalf("thin row time %d outside range", v.rec.Time)
+	rows := 0
+	for _, f := range files {
+		filePositions := map[int64][]byte{}
+		handled, err := scanArchiveColumns(context.Background(), archiveFilePath(testDeploymentID, f), 0, columnNeeds{ints: true}, func(b *cheapBatch, n int, baseRow int64, sorted bool) bool {
+			for i := 0; i < n; i++ {
+				rows++
+				levels[string(b.levels[i].ByteArray())]++
+				filePositions[baseRow+int64(i)] = bytes.Clone(b.levels[i].ByteArray())
+				if b.times[i] == 0 {
+					t.Fatal("time column not decoded")
+				}
+			}
+			return false
+		})
+		if err != nil || !handled {
+			t.Fatalf("handled = %v, err = %v", handled, err)
+		}
+		idxs := make([]int64, 0, len(filePositions))
+		for idx := range filePositions {
+			idxs = append(idxs, idx)
+		}
+		slices.Sort(idxs)
+		fetched, err := fetchArchiveRows(archiveFilePath(testDeploymentID, f), idxs)
+		if err != nil || len(fetched) != len(idxs) {
+			t.Fatalf("fetched = %d, err = %v", len(fetched), err)
+		}
+		for k, idx := range idxs {
+			if fetched[k].Level != string(filePositions[idx]) {
+				t.Fatalf("row %d level = %q, want %q", idx, fetched[k].Level, filePositions[idx])
 			}
 		}
-		return true
-	})
-	if err != nil || len(warnings) != 0 {
-		t.Fatalf("err = %v, warnings = %v", err, warnings)
 	}
-	if len(trace.files) != 2 || trace.files[0].proj != projThin || trace.files[1].proj != projThin {
-		t.Fatalf("trace files = %+v", trace.files)
-	}
-	if thinRows != 5 || levels["ERROR"] != 2 || levels["WARN"] != 1 || levels["INFO"] != 2 {
-		t.Fatalf("thin rows = %d, levels = %#v", thinRows, levels)
+	if rows != 5 || levels["ERROR"] != 2 || levels["WARN"] != 1 || levels["INFO"] != 2 {
+		t.Fatalf("rows = %d, levels = %#v", rows, levels)
 	}
 }
 
-func TestQueryThinProjectionNeverDropsRetainedRecords(t *testing.T) {
+func TestQueryCaptureNeverDropsRetainedRecords(t *testing.T) {
 	old := fieldStatsSample
 	fieldStatsSample = 1
 	t.Cleanup(func() { fieldStatsSample = old })

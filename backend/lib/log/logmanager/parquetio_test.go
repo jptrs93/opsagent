@@ -39,7 +39,7 @@ func TestArchiveWriterRoundTripsAllColumns(t *testing.T) {
 	}
 }
 
-func TestScanArchiveAggFallsBackOnFilesWithoutLevelColumn(t *testing.T) {
+func TestScanArchiveColumnsFallsBackOnFilesWithoutLevelColumn(t *testing.T) {
 	type preLevelRow struct {
 		Time       int64  `parquet:"time"`
 		RawMessage []byte `parquet:"raw_message"`
@@ -59,10 +59,12 @@ func TestScanArchiveAggFallsBackOnFilesWithoutLevelColumn(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	agg := &thinAgg{tillN: 1 << 62}
-	rows, handled, err := scanArchiveAgg(context.Background(), path, 0, 1<<62, agg)
-	if err != nil || handled || rows != 0 || agg.scanned != 0 {
-		t.Fatalf("rows = %d, handled = %v, err = %v, scanned = %d", rows, handled, err, agg.scanned)
+	handled, err := scanArchiveColumns(context.Background(), path, 0, columnNeeds{}, func(b *cheapBatch, n int, baseRow int64, sorted bool) bool {
+		t.Fatal("consume called for file missing the level column")
+		return true
+	})
+	if err != nil || handled {
+		t.Fatalf("handled = %v, err = %v", handled, err)
 	}
 	got, err := parquet.ReadFile[logRow](path)
 	if err != nil {

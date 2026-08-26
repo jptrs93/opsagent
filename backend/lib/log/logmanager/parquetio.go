@@ -1,6 +1,7 @@
 package logmanager
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -271,87 +272,320 @@ func archiveGroupMaxTime(rg parquet.RowGroup, timeCol int) (int64, bool) {
 	return maxTime, found
 }
 
-// scanArchiveAgg aggregates one archive file directly into agg without
-// yielding rows, reading the time and level column chunks at the page level
-// rather than through row reconstruction. handled is false when the file has
-// no level column, in which case the caller falls back to the row-visiting
-// thin scan. The returned row count matches what the visiting scan would
-// have counted.
-func scanArchiveAgg(ctx context.Context, path string, fromN, tillN int64, agg *thinAgg) (rows int64, handled bool, err error) {
+type columnNeeds struct {
+	msg  bool
+	ints bool
+}
+
+type cheapBatch struct {
+	times     []int64
+	levels    []parquet.Value
+	msgs      []parquet.Value
+	versions  []int32
+	nodes     []int32
+	instances []int32
+	runs      []int32
+	streams   []int32
+	seqs      []int64
+}
+
+type cheapCols struct {
+	time, level, msg                     int
+	version, node, instance, run, stream int
+	seq                                  int
+}
+
+func scanArchiveColumns(ctx context.Context, path string, fromN int64, needs columnNeeds, consume func(b *cheapBatch, n int, baseRow int64, sorted bool) bool) (handled bool, err error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return 0, true, err
+		return true, err
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
-		return 0, true, err
+		return true, err
 	}
 	pf, err := parquet.OpenFile(f, st.Size())
 	if err != nil {
-		return 0, true, err
+		return true, err
 	}
-	levelCol, ok := pf.Schema().Lookup("level")
-	if !ok {
-		return 0, false, nil
+	schema := pf.Schema()
+	lookup := func(name string) (int, bool) {
+		c, ok := schema.Lookup(name)
+		return c.ColumnIndex, ok
 	}
-	timeCol, ok := pf.Schema().Lookup("time")
-	if !ok {
-		return 0, false, nil
+	var cols cheapCols
+	var ok bool
+	if cols.time, ok = lookup("time"); !ok {
+		return false, nil
+	}
+	if cols.level, ok = lookup("level"); !ok {
+		return false, nil
+	}
+	if needs.msg {
+		if cols.msg, ok = lookup("msg"); !ok {
+			return false, nil
+		}
+	}
+	if needs.ints {
+		for _, c := range []struct {
+			name string
+			dst  *int
+		}{
+			{"version", &cols.version}, {"node", &cols.node}, {"instance_ordinal", &cols.instance},
+			{"run", &cols.run}, {"stream", &cols.stream}, {"seq", &cols.seq},
+		} {
+			if *c.dst, ok = lookup(c.name); !ok {
+				return false, nil
+			}
+		}
 	}
 	sortedVal, _ := pf.Lookup(metadataSortedKey)
 	sorted := sortedVal == metadataSortedVal
-	before := agg.scanned
-	times := make([]int64, writeBatchRows)
-	tbuf := make([]parquet.Value, writeBatchRows)
-	levels := make([]parquet.Value, writeBatchRows)
+	b := &cheapBatch{
+		times:  make([]int64, writeBatchRows),
+		levels: make([]parquet.Value, writeBatchRows),
+	}
+	if needs.msg {
+		b.msgs = make([]parquet.Value, writeBatchRows)
+	}
+	if needs.ints {
+		b.versions = make([]int32, writeBatchRows)
+		b.nodes = make([]int32, writeBatchRows)
+		b.instances = make([]int32, writeBatchRows)
+		b.runs = make([]int32, writeBatchRows)
+		b.streams = make([]int32, writeBatchRows)
+		b.seqs = make([]int64, writeBatchRows)
+	}
+	base := int64(0)
 	for _, rg := range pf.RowGroups() {
-		if maxTime, ok := archiveGroupMaxTime(rg, timeCol.ColumnIndex); ok && maxTime < fromN {
+		nrows := rg.NumRows()
+		if maxTime, ok := archiveGroupMaxTime(rg, cols.time); ok && maxTime < fromN {
+			base += nrows
 			continue
 		}
 		if ctx.Err() != nil {
-			return agg.scanned - before, true, ctx.Err()
+			return true, ctx.Err()
 		}
-		done, err := aggRowGroup(rg, timeCol.ColumnIndex, levelCol.ColumnIndex, sorted, agg, times, tbuf, levels)
+		done, err := scanColumnsRowGroup(rg, cols, needs, base, sorted, b, consume)
 		if err != nil {
-			return agg.scanned - before, true, err
+			return true, err
 		}
 		if done {
-			break
+			return true, nil
 		}
+		base += nrows
 	}
-	return agg.scanned - before, true, nil
+	return true, nil
 }
 
-func aggRowGroup(rg parquet.RowGroup, timeIdx, levelIdx int, sorted bool, agg *thinAgg, times []int64, tbuf, levels []parquet.Value) (bool, error) {
-	tp := rg.ColumnChunks()[timeIdx].Pages()
+func scanColumnsRowGroup(rg parquet.RowGroup, cols cheapCols, needs columnNeeds, base int64, sorted bool, b *cheapBatch, consume func(b *cheapBatch, n int, baseRow int64, sorted bool) bool) (bool, error) {
+	chunks := rg.ColumnChunks()
+	tp := chunks[cols.time].Pages()
 	defer tp.Close()
-	lp := rg.ColumnChunks()[levelIdx].Pages()
+	tc := &int64Cursor{pages: tp, vbuf: make([]parquet.Value, writeBatchRows)}
+	lp := chunks[cols.level].Pages()
 	defer lp.Close()
-	tc := &int64Cursor{pages: tp, vbuf: tbuf}
 	lc := &valueCursor{pages: lp}
+	var mc *valueCursor
+	var vc, nc, ic, rc, sc *int32Cursor
+	var qc *int64Cursor
+	if needs.msg {
+		mp := chunks[cols.msg].Pages()
+		defer mp.Close()
+		mc = &valueCursor{pages: mp}
+	}
+	if needs.ints {
+		open32 := func(idx int) *int32Cursor {
+			p := chunks[idx].Pages()
+			return &int32Cursor{pages: p, vbuf: make([]parquet.Value, writeBatchRows)}
+		}
+		vc, nc, ic, rc, sc = open32(cols.version), open32(cols.node), open32(cols.instance), open32(cols.run), open32(cols.stream)
+		defer vc.pages.Close()
+		defer nc.pages.Close()
+		defer ic.pages.Close()
+		defer rc.pages.Close()
+		defer sc.pages.Close()
+		qp := chunks[cols.seq].Pages()
+		defer qp.Close()
+		qc = &int64Cursor{pages: qp, vbuf: make([]parquet.Value, writeBatchRows)}
+	}
+	fillValues := func(c *valueCursor, dst []parquet.Value, n int, name string) error {
+		for got := 0; got < n; {
+			k, err := c.read(dst[got:n])
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					return fmt.Errorf("%s column shorter than time column", name)
+				}
+				return err
+			}
+			got += k
+		}
+		return nil
+	}
+	fillInt32 := func(c *int32Cursor, dst []int32, n int, name string) error {
+		for got := 0; got < n; {
+			k, err := c.read(dst[got:n])
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					return fmt.Errorf("%s column shorter than time column", name)
+				}
+				return err
+			}
+			got += k
+		}
+		return nil
+	}
+	fillInt64 := func(c *int64Cursor, dst []int64, n int, name string) error {
+		for got := 0; got < n; {
+			k, err := c.read(dst[got:n])
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					return fmt.Errorf("%s column shorter than time column", name)
+				}
+				return err
+			}
+			got += k
+		}
+		return nil
+	}
+	consumed := int64(0)
 	for {
-		n, err := tc.read(times)
+		n, err := tc.read(b.times)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return false, nil
 			}
 			return false, err
 		}
-		for got := 0; got < n; {
-			k, err := lc.read(levels[got:n])
-			if err != nil {
-				if errors.Is(err, io.EOF) {
-					return false, errors.New("level column shorter than time column")
-				}
+		if err := fillValues(lc, b.levels, n, "level"); err != nil {
+			return false, err
+		}
+		if mc != nil {
+			if err := fillValues(mc, b.msgs, n, "msg"); err != nil {
 				return false, err
 			}
-			got += k
 		}
-		if agg.consume(times[:n], levels[:n], sorted) {
+		if vc != nil {
+			if err := fillInt32(vc, b.versions, n, "version"); err != nil {
+				return false, err
+			}
+			if err := fillInt32(nc, b.nodes, n, "node"); err != nil {
+				return false, err
+			}
+			if err := fillInt32(ic, b.instances, n, "instance_ordinal"); err != nil {
+				return false, err
+			}
+			if err := fillInt32(rc, b.runs, n, "run"); err != nil {
+				return false, err
+			}
+			if err := fillInt32(sc, b.streams, n, "stream"); err != nil {
+				return false, err
+			}
+			if err := fillInt64(qc, b.seqs, n, "seq"); err != nil {
+				return false, err
+			}
+		}
+		if consume(b, n, base+consumed, sorted) {
 			return true, nil
 		}
+		consumed += int64(n)
 	}
+}
+
+var fetchColumnSetters = []struct {
+	name string
+	set  func(*logRow, parquet.Value)
+}{
+	{"time", func(r *logRow, v parquet.Value) { r.Time = v.Int64() }},
+	{"version", func(r *logRow, v parquet.Value) { r.Version = v.Int32() }},
+	{"run", func(r *logRow, v parquet.Value) { r.Run = v.Int32() }},
+	{"node", func(r *logRow, v parquet.Value) { r.Node = v.Int32() }},
+	{"instance_ordinal", func(r *logRow, v parquet.Value) { r.InstanceOrdinal = v.Int32() }},
+	{"stream", func(r *logRow, v parquet.Value) { r.Stream = v.Int32() }},
+	{"seq", func(r *logRow, v parquet.Value) { r.Seq = v.Int64() }},
+	{"level", func(r *logRow, v parquet.Value) { r.Level = string(v.ByteArray()) }},
+	{"msg", func(r *logRow, v parquet.Value) { r.Msg = string(v.ByteArray()) }},
+	{"raw_message", func(r *logRow, v parquet.Value) { r.RawMessage = bytes.Clone(v.ByteArray()) }},
+}
+
+func fetchArchiveRows(path string, rowIdxs []int64) ([]logRow, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	pf, err := parquet.OpenFile(f, st.Size())
+	if err != nil {
+		return nil, err
+	}
+	schema := pf.Schema()
+	cols := make([]int, len(fetchColumnSetters))
+	for i, s := range fetchColumnSetters {
+		c, ok := schema.Lookup(s.name)
+		if !ok {
+			return nil, fmt.Errorf("missing column %s", s.name)
+		}
+		cols[i] = c.ColumnIndex
+	}
+	out := make([]logRow, len(rowIdxs))
+	base := int64(0)
+	ti := 0
+	var vbuf [1]parquet.Value
+	for _, rg := range pf.RowGroups() {
+		nrows := rg.NumRows()
+		if ti >= len(rowIdxs) {
+			break
+		}
+		lo := ti
+		for ti < len(rowIdxs) && rowIdxs[ti] < base+nrows {
+			ti++
+		}
+		if lo == ti {
+			base += nrows
+			continue
+		}
+		chunks := rg.ColumnChunks()
+		for ci := range fetchColumnSetters {
+			pages := chunks[cols[ci]].Pages()
+			ferr := func() error {
+				for k := lo; k < ti; k++ {
+					if err := pages.SeekToRow(rowIdxs[k] - base); err != nil {
+						return err
+					}
+					p, err := pages.ReadPage()
+					if err != nil {
+						return err
+					}
+					n, err := p.Values().ReadValues(vbuf[:])
+					if n == 0 {
+						if err != nil && !errors.Is(err, io.EOF) {
+							return err
+						}
+						return fmt.Errorf("row %d out of range", rowIdxs[k])
+					}
+					fetchColumnSetters[ci].set(&out[k], vbuf[0])
+				}
+				return nil
+			}()
+			cerr := pages.Close()
+			if ferr != nil {
+				return nil, ferr
+			}
+			if cerr != nil {
+				return nil, cerr
+			}
+		}
+		base += nrows
+	}
+	if ti != len(rowIdxs) {
+		return nil, fmt.Errorf("rows out of range: located %d of %d", ti, len(rowIdxs))
+	}
+	return out, nil
 }
 
 // int64Cursor streams a required int64 column chunk page by page, using the
@@ -396,6 +630,51 @@ func (c *int64Cursor) read(buf []int64) (int, error) {
 		}
 		vals := p.Values()
 		if ir, ok := vals.(parquet.Int64Reader); ok {
+			c.ir, c.vr = ir, nil
+		} else {
+			c.ir, c.vr = nil, vals
+		}
+	}
+}
+
+type int32Cursor struct {
+	pages parquet.Pages
+	ir    parquet.Int32Reader
+	vr    parquet.ValueReader
+	vbuf  []parquet.Value
+}
+
+func (c *int32Cursor) read(buf []int32) (int, error) {
+	for {
+		if c.ir != nil {
+			n, err := c.ir.ReadInt32s(buf)
+			if err != nil && errors.Is(err, io.EOF) {
+				c.ir = nil
+				err = nil
+			}
+			if n > 0 || err != nil {
+				return n, err
+			}
+		} else if c.vr != nil {
+			k := min(len(buf), len(c.vbuf))
+			n, err := c.vr.ReadValues(c.vbuf[:k])
+			for i := 0; i < n; i++ {
+				buf[i] = c.vbuf[i].Int32()
+			}
+			if err != nil && errors.Is(err, io.EOF) {
+				c.vr = nil
+				err = nil
+			}
+			if n > 0 || err != nil {
+				return n, err
+			}
+		}
+		p, err := c.pages.ReadPage()
+		if err != nil {
+			return 0, err
+		}
+		vals := p.Values()
+		if ir, ok := vals.(parquet.Int32Reader); ok {
 			c.ir, c.vr = ir, nil
 		} else {
 			c.ir, c.vr = nil, vals

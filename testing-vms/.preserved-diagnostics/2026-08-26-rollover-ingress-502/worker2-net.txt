@@ -1,0 +1,92 @@
+fd37:ee1:8248::200:0:200/120 dev odt1 proto 200 metric 1024 pref medium
+fd37:ee1:8248::200:0:0/100 dev odt1 proto 200 metric 1024 pref medium
+fd37:ee1:8248::400:0:400/120 dev odt2 proto 200 metric 1024 pref medium
+fd37:ee1:8248::400:0:0/100 dev odt2 proto 200 metric 1024 pref medium
+fd37:ee1:8248::600:0:0 dev od6s0 proto 200 metric 1024 pref medium
+fd37:ee1:8248::600:0:601 dev od6s0 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:800:0:800/120 dev odt2 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:800::/100 dev odt2 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:a00:0:c00/120 dev odt2 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:a00::/100 dev odt2 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:b00:0:d00/120 dev odt2 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:b00::/100 dev odt2 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:c00:0:f00/120 dev odt2 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:c00::/100 dev odt2 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:d00:: dev od13s0 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:d00:0:1301 dev od13s0 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:e00:: dev od14s0 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:e00:0:1701 dev od14s0 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:f00:: dev od15s0 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:f00:0:1501 dev od15s0 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:1000:: dev od16s0 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:1000:0:1a01 dev od16s0 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:1100:: dev od17s0 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:1100:0:1e01 dev od17s0 proto 200 metric 1024 pref medium
+fd37:ee1:8248:1:0:1200:0:2001 dev od18s1 proto 200 metric 1024 pref medium
+unreachable fd37:ee1:8248::/48 dev lo proto 200 metric 1024 pref medium
+fe80::/64 dev eth0 proto kernel metric 256 pref medium
+fe80::/64 dev odt1 proto kernel metric 256 pref medium
+fe80::/64 dev odt2 proto kernel metric 256 pref medium
+fe80::/64 dev od6s0 proto kernel metric 256 pref medium
+fe80::/64 dev od13s0 proto kernel metric 256 pref medium
+fe80::/64 dev od15s0 proto kernel metric 256 pref medium
+fe80::/64 dev od14s0 proto kernel metric 256 pref medium
+fe80::/64 dev od16s0 proto kernel metric 256 pref medium
+fe80::/64 dev od17s0 proto kernel metric 256 pref medium
+fe80::/64 dev od18s1 proto kernel metric 256 pref medium
+=== netns
+opendeploy-18-v2 (id: 7)
+opendeploy-17-v5 (id: 5)
+opendeploy-16-v2 (id: 4)
+opendeploy-14-v4 (id: 2)
+opendeploy-15-v2 (id: 3)
+opendeploy-13-v2 (id: 1)
+opendeploy-6-v1 (id: 0)
+=== addrs
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 state UNKNOWN qlen 1000
+    inet6 ::1/128 scope host noprefixroute 
+       valid_lft forever preferred_lft forever
+2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP qlen 1000
+    inet6 fe80::5055:55ff:fe3c:8b5f/64 scope link 
+       valid_lft forever preferred_lft forever
+4: odt1@NONE: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 1420 state UNKNOWN 
+    inet6 fe80::c0a8:6809/64 scope link 
+       valid_lft forever preferred_lft forever
+5: odt2@NONE: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 1420 state UNKNOWN 
+    inet6 fe80::c0a8:6809/64 scope link 
+       valid_lft forever preferred_lft forever
+7: od6s0@if6: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 state UP 
+    inet6 fe80::1002:56ff:fe11:a03e/64 scope link 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1/64 scope link nodad 
+       valid_lft forever preferred_lft forever
+15: od13s0@if14: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 state UP 
+    inet6 fe80::a1ff:fe7f:154/64 scope link 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1/64 scope link nodad 
+       valid_lft forever preferred_lft forever
+19: od15s0@if18: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 state UP 
+    inet6 fe80::1876:18ff:feac:bdf1/64 scope link 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1/64 scope link nodad 
+       valid_lft forever preferred_lft forever
+23: od14s0@if22: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 state UP 
+    inet6 fe80::a897:79ff:fecf:bbd9/64 scope link 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1/64 scope link nodad 
+       valid_lft forever preferred_lft forever
+29: od16s0@if28: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 state UP 
+    inet6 fe80::a079:eaff:fe72:8a84/64 scope link 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1/64 scope link nodad 
+       valid_lft forever preferred_lft forever
+37: od17s0@if36: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 state UP 
+    inet6 fe80::e04f:36ff:feac:fc5c/64 scope link 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1/64 scope link nodad 
+       valid_lft forever preferred_lft forever
+41: od18s1@if40: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 state UP 
+    inet6 fe80::c4f9:d1ff:fe15:7044/64 scope link 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1/64 scope link nodad 
+       valid_lft forever preferred_lft forever

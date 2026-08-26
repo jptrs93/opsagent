@@ -1,0 +1,27 @@
+=== sockets per netns
+--- opendeploy-18-v2
+LISTEN 0      4096               *:8080            *:*    users:(("rollover",pid=21571,fd=3))
+--- opendeploy-17-v5
+LISTEN 0      4096               *:8080            *:*    users:(("httpecho",pid=17999,fd=3))
+--- opendeploy-16-v2
+LISTEN 0      4096               *:8080            *:*    users:(("httpecho",pid=17622,fd=3))
+--- opendeploy-14-v4
+LISTEN 0      4096               *:8443            *:*    users:(("tlspassthrough",pid=14066,fd=3))
+--- opendeploy-15-v2
+LISTEN 0      4096               *:8443            *:*    users:(("tlspassthrough",pid=13878,fd=3))
+--- opendeploy-13-v2
+LISTEN 0      4096               *:8443            *:*    users:(("tlspassthrough",pid=13689,fd=3))
+--- opendeploy-6-v1
+LISTEN 0      4096               *:443             *:*    users:(("opendeploy",pid=9871,fd=9))
+LISTEN 0      4096               *:53              *:*    users:(("opendeploy",pid=9871,fd=8))
+LISTEN 0      4096               *:80              *:*    users:(("opendeploy",pid=9871,fd=10))
+
+=== probe instance addr
+rollover generation=ingress-v1
+
+http_code=200
+
+=== probe service addr
+curl: (7) Failed to connect to fd37:ee1:8248:1:0:1200:: port 8080 after 0 ms: Couldn't connect to server
+
+http_code=000

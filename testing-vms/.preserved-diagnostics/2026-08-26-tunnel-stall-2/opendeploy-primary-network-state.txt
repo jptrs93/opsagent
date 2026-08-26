@@ -1,0 +1,164 @@
+
+===== date
+Wed Aug 26 10:38:34 UTC 2026
+
+===== interfaces
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00 promiscuity 0  allmulti 0 minmtu 0 maxmtu 0 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host noprefixroute 
+       valid_lft forever preferred_lft forever
+2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000
+    link/ether 52:55:55:28:b9:0c brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 68 maxmtu 1500 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 65536 tso_max_segs 65535 gro_max_size 65536 parentbus virtio parentdev virtio0 
+    inet 192.168.104.6/24 metric 200 brd 192.168.104.255 scope global dynamic eth0
+       valid_lft 3277sec preferred_lft 3277sec
+    inet6 fe80::5055:55ff:fe28:b90c/64 scope link 
+       valid_lft forever preferred_lft forever
+4: od2s0@if3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 qdisc noqueue state UP group default 
+    link/ether 8a:b7:1c:f5:5f:87 brd ff:ff:ff:ff:ff:ff link-netns opendeploy-2-v1 promiscuity 0  allmulti 0 minmtu 68 maxmtu 65535 
+    veth numtxqueues 4 numrxqueues 4 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+    inet 10.201.0.17/30 brd 10.201.0.19 scope global od2s0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::88b7:1cff:fef5:5f87/64 scope link 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1/64 scope link nodad 
+       valid_lft forever preferred_lft forever
+
+===== routes v4
+default via 192.168.104.2 dev eth0 proto dhcp src 192.168.104.6 metric 200 
+10.201.0.16/30 dev od2s0 proto kernel scope link src 10.201.0.17 
+192.168.104.0/24 dev eth0 proto kernel scope link src 192.168.104.6 metric 200 
+192.168.104.2 dev eth0 proto dhcp scope link src 192.168.104.6 metric 200 
+
+===== routes v6
+fd19:8695:8e78::200:0:0 dev od2s0 proto 200 metric 1024 pref medium
+fd19:8695:8e78::200:0:201 dev od2s0 proto 200 metric 1024 pref medium
+unreachable fd19:8695:8e78::/48 dev lo proto 200 metric 1024 pref medium
+fe80::/64 dev eth0 proto kernel metric 256 pref medium
+fe80::/64 dev od2s0 proto kernel metric 256 pref medium
+
+===== neighbors v4
+192.168.104.5 dev eth0 lladdr 52:55:55:c6:6a:6a REACHABLE 
+192.168.104.9 dev eth0 lladdr 52:55:55:3c:8b:5f REACHABLE 
+192.168.104.2 dev eth0 lladdr 5a:94:ef:e4:0c:dd REACHABLE 
+192.168.104.7 dev eth0 lladdr 52:55:55:b3:81:f4 REACHABLE 
+fe80::eb:8bff:feb8:1ac1 dev od2s0 lladdr 02:eb:8b:b8:1a:c1 STALE 
+
+===== neighbors v6
+fe80::eb:8bff:feb8:1ac1 dev od2s0 lladdr 02:eb:8b:b8:1a:c1 STALE 
+
+===== netns
+opendeploy-2-v1 (id: 0)
+
+===== listening sockets
+State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                                                 
+LISTEN 0      4096   127.0.0.53%lo:53         0.0.0.0:*    users:(("systemd-resolve",pid=8313,fd=18))             
+LISTEN 0      4096       127.0.0.1:39929      0.0.0.0:*    users:(("containerd",pid=9619,fd=11))                  
+LISTEN 0      4096      127.0.0.54:53         0.0.0.0:*    users:(("systemd-resolve",pid=8313,fd=20))             
+LISTEN 0      4096         0.0.0.0:22         0.0.0.0:*    users:(("sshd",pid=8303,fd=3),("systemd",pid=1,fd=103))
+LISTEN 0      4096               *:9444             *:*    users:(("opendeploy",pid=9681,fd=19))                  
+LISTEN 0      4096               *:9443             *:*    users:(("opendeploy",pid=9681,fd=18))                  
+LISTEN 0      4096            [::]:22            [::]:*    users:(("sshd",pid=8303,fd=4),("systemd",pid=1,fd=104))
+LISTEN 0      4096               *:443              *:*    users:(("opendeploy",pid=9681,fd=17))                  
+State  Recv-Q Send-Q      Local Address:Port Peer Address:PortProcess                                    
+UNCONN 0      0                 0.0.0.0:5353      0.0.0.0:*    users:(("systemd-resolve",pid=8313,fd=11))
+UNCONN 0      0              127.0.0.54:53        0.0.0.0:*    users:(("systemd-resolve",pid=8313,fd=19))
+UNCONN 0      0           127.0.0.53%lo:53        0.0.0.0:*    users:(("systemd-resolve",pid=8313,fd=17))
+UNCONN 0      0      192.168.104.6%eth0:68        0.0.0.0:*    users:(("systemd-network",pid=8319,fd=22))
+UNCONN 0      0                    [::]:5353         [::]:*    users:(("systemd-resolve",pid=8313,fd=12))
+
+===== nftables
+table ip nat {
+	chain LIMADNS {
+	}
+
+	chain PREROUTING {
+		type nat hook prerouting priority dstnat; policy accept;
+		counter packets 9 bytes 556 jump LIMADNS
+	}
+
+	chain OUTPUT {
+		type nat hook output priority dstnat; policy accept;
+		counter packets 112 bytes 6819 jump LIMADNS
+	}
+}
+table ip opendeploy {
+	chain postrouting {
+		type nat hook postrouting priority srcnat; policy accept;
+		ip saddr 10.201.0.0/16 ip daddr != 10.201.0.0/16 masquerade
+	}
+
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+	}
+
+	chain output {
+		type nat hook output priority dstnat; policy accept;
+	}
+}
+table ip6 opendeploy {
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+	}
+
+	chain output {
+		type nat hook output priority dstnat; policy accept;
+	}
+}
+
+===== conntrack
+tcp      6 0 CLOSE src=192.168.104.6 dst=192.168.104.5 sport=59822 dport=443 src=192.168.104.5 dst=192.168.104.6 sport=443 dport=59822 [ASSURED] mark=0 use=1
+udp      17 29 src=127.0.0.1 dst=127.0.0.53 sport=51520 dport=53 src=127.0.0.53 dst=127.0.0.1 sport=53 dport=51520 mark=0 use=1
+tcp      6 1 TIME_WAIT src=127.0.0.1 dst=127.0.0.1 sport=50946 dport=9444 src=127.0.0.1 dst=127.0.0.1 sport=9444 dport=50946 [ASSURED] mark=0 use=1
+unknown  2 481 src=10.201.0.17 dst=224.0.0.22 [UNREPLIED] src=224.0.0.22 dst=10.201.0.17 mark=0 use=1
+tcp      6 89 TIME_WAIT src=192.168.104.6 dst=192.168.104.7 sport=59034 dport=18183 src=192.168.104.7 dst=192.168.104.6 sport=18183 dport=59034 [ASSURED] mark=0 use=1
+tcp      6 7 TIME_WAIT src=127.0.0.1 dst=127.0.0.1 sport=34374 dport=443 src=127.0.0.1 dst=127.0.0.1 sport=443 dport=34374 [ASSURED] mark=0 use=1
+tcp      6 0 CLOSE src=192.168.104.6 dst=192.168.104.5 sport=59800 dport=443 src=192.168.104.5 dst=192.168.104.6 sport=443 dport=59800 [ASSURED] mark=0 use=1
+tcp      6 0 CLOSE src=192.168.104.6 dst=192.168.104.5 sport=59814 dport=443 src=192.168.104.5 dst=192.168.104.6 sport=443 dport=59814 [ASSURED] mark=0 use=1
+tcp      6 0 CLOSE src=192.168.104.6 dst=192.168.104.5 sport=59818 dport=443 src=192.168.104.5 dst=192.168.104.6 sport=443 dport=59818 [ASSURED] mark=0 use=1
+tcp      6 431969 ESTABLISHED src=192.168.104.2 dst=192.168.104.6 sport=44584 dport=22 src=192.168.104.6 dst=192.168.104.2 sport=22 dport=44584 [ASSURED] mark=0 use=1
+tcp      6 0 CLOSE src=192.168.104.6 dst=192.168.104.5 sport=59838 dport=443 src=192.168.104.5 dst=192.168.104.6 sport=443 dport=59838 [ASSURED] mark=0 use=1
+tcp      6 3 TIME_WAIT src=127.0.0.1 dst=127.0.0.1 sport=50956 dport=9444 src=127.0.0.1 dst=127.0.0.1 sport=9444 dport=50956 [ASSURED] mark=0 use=1
+tcp      6 116 TIME_WAIT src=127.0.0.1 dst=127.0.0.1 sport=35476 dport=443 src=127.0.0.1 dst=127.0.0.1 sport=443 dport=35476 [ASSURED] mark=0 use=1
+tcp      6 431999 ESTABLISHED src=192.168.104.6 dst=192.168.104.2 sport=22 dport=34591 src=192.168.104.2 dst=192.168.104.6 sport=34591 dport=22 [ASSURED] mark=0 use=1
+tcp      6 0 CLOSE src=192.168.104.6 dst=192.168.104.5 sport=59772 dport=443 src=192.168.104.5 dst=192.168.104.6 sport=443 dport=59772 [ASSURED] mark=0 use=1
+tcp      6 0 CLOSE src=192.168.104.6 dst=192.168.104.5 sport=59786 dport=443 src=192.168.104.5 dst=192.168.104.6 sport=443 dport=59786 [ASSURED] mark=0 use=1
+tcp      6 24 TIME_WAIT src=127.0.0.1 dst=127.0.0.1 sport=35474 dport=443 src=127.0.0.1 dst=127.0.0.1 sport=443 dport=35474 [ASSURED] mark=0 use=1
+tcp      6 431996 ESTABLISHED src=192.168.104.2 dst=192.168.104.6 sport=64935 dport=22 src=192.168.104.6 dst=192.168.104.2 sport=22 dport=64935 [ASSURED] mark=0 use=1
+tcp      6 431998 ESTABLISHED src=192.168.104.7 dst=192.168.104.6 sport=44764 dport=9443 src=192.168.104.6 dst=192.168.104.7 sport=9443 dport=44764 [ASSURED] mark=0 use=1
+tcp      6 11 TIME_WAIT src=127.0.0.1 dst=127.0.0.1 sport=50596 dport=443 src=127.0.0.1 dst=127.0.0.1 sport=443 dport=50596 [ASSURED] mark=0 use=1
+tcp      6 431998 ESTABLISHED src=192.168.104.9 dst=192.168.104.6 sport=56882 dport=9443 src=192.168.104.6 dst=192.168.104.9 sport=9443 dport=56882 [ASSURED] mark=0 use=1
+tcp      6 0 CLOSE src=192.168.104.6 dst=192.168.104.5 sport=59760 dport=443 src=192.168.104.5 dst=192.168.104.6 sport=443 dport=59760 [ASSURED] mark=0 use=1
+tcp      6 1 CLOSE src=192.168.104.6 dst=192.168.104.5 sport=55356 dport=443 src=192.168.104.5 dst=192.168.104.6 sport=443 dport=55356 [ASSURED] mark=0 use=1
+
+===== netns opendeploy-2-v1 addresses
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+3: eth0@if4: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 qdisc noqueue state UP group default 
+    link/ether 02:eb:8b:b8:1a:c1 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 10.201.0.18/30 brd 10.201.0.19 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet6 fd19:8695:8e78::200:0:0/128 scope global nodad deprecated dynamic 
+       valid_lft 2147483529sec preferred_lft 0sec
+    inet6 fd19:8695:8e78::200:0:201/128 scope global nodad 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::eb:8bff:feb8:1ac1/64 scope link 
+       valid_lft forever preferred_lft forever
+
+===== netns opendeploy-2-v1 routes
+default via 10.201.0.17 dev eth0 
+10.201.0.16/30 dev eth0 proto kernel scope link src 10.201.0.18 
+fd19:8695:8e78::200:0:201 dev eth0 proto kernel metric 256 pref medium
+fe80::/64 dev eth0 proto kernel metric 256 pref medium
+default via fe80::1 dev eth0 metric 1024 pref medium
+
+===== netns opendeploy-2-v1 sockets
+State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+LISTEN 0      4096               *:53              *:*    users:(("opendeploy",pid=9757,fd=7))
+State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+UNCONN 0      0                  *:53              *:*    users:(("opendeploy",pid=9757,fd=8))

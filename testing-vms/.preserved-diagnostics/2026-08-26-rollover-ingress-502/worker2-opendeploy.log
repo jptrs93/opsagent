@@ -1,0 +1,12 @@
+Aug 26 20:40:27 lima-opendeploy-secondary-2 systemd[1]: Started opendeploy.service - OpenDeploy deployment management server.
+Aug 26 20:40:27 lima-opendeploy-secondary-2 systemd[1]: Stopping opendeploy.service - OpenDeploy deployment management server...
+Aug 26 20:40:27 lima-opendeploy-secondary-2 opendeploy[9606]: panic: worker enrollment: context canceled
+Aug 26 20:40:27 lima-opendeploy-secondary-2 opendeploy[9606]: goroutine 1 [running]:
+Aug 26 20:40:27 lima-opendeploy-secondary-2 opendeploy[9606]: github.com/jptrs93/opsagent/backend/app/secondary.Run({0x1851798?, 0x50430ed6eb40?})
+Aug 26 20:40:27 lima-opendeploy-secondary-2 opendeploy[9606]:         github.com/jptrs93/opsagent/backend/app/secondary/startup.go:51 +0x568
+Aug 26 20:40:27 lima-opendeploy-secondary-2 opendeploy[9606]: main.main()
+Aug 26 20:40:27 lima-opendeploy-secondary-2 opendeploy[9606]:         github.com/jptrs93/opsagent/backend/main.go:72 +0x450
+Aug 26 20:40:27 lima-opendeploy-secondary-2 systemd[1]: opendeploy.service: Main process exited, code=exited, status=2/INVALIDARGUMENT
+Aug 26 20:40:27 lima-opendeploy-secondary-2 systemd[1]: opendeploy.service: Failed with result 'exit-code'.
+Aug 26 20:40:27 lima-opendeploy-secondary-2 systemd[1]: Stopped opendeploy.service - OpenDeploy deployment management server.
+Aug 26 20:40:27 lima-opendeploy-secondary-2 systemd[1]: Started opendeploy.service - OpenDeploy deployment management server.

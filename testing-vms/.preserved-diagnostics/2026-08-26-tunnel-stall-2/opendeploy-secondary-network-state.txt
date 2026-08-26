@@ -1,0 +1,391 @@
+
+===== date
+Wed Aug 26 10:38:35 UTC 2026
+
+===== interfaces
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00 promiscuity 0  allmulti 0 minmtu 0 maxmtu 0 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host noprefixroute 
+       valid_lft forever preferred_lft forever
+2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000
+    link/ether 52:55:55:b3:81:f4 brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 68 maxmtu 1500 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 65536 tso_max_segs 65535 gro_max_size 65536 parentbus virtio parentdev virtio0 
+    inet 192.168.104.7/24 metric 200 brd 192.168.104.255 scope global dynamic eth0
+       valid_lft 3270sec preferred_lft 3270sec
+    inet6 fe80::5055:55ff:feb3:81f4/64 scope link 
+       valid_lft forever preferred_lft forever
+3: sit0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN group default qlen 1000
+    link/sit 0.0.0.0 brd 0.0.0.0 promiscuity 0  allmulti 0 minmtu 1280 maxmtu 65555 
+    sit ip6ip remote any local any ttl 64 nopmtudisc 6rd-prefix 2002::/16 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 65536 tso_max_segs 65535 gro_max_size 65536 
+4: odt1@NONE: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 1420 qdisc noqueue state UNKNOWN group default 
+    link/sit 192.168.104.7 peer 192.168.104.6 promiscuity 0  allmulti 0 minmtu 1280 maxmtu 65555 
+    sit ip6ip remote 192.168.104.6 local 192.168.104.7 ttl 64 pmtudisc 6rd-prefix 2002::/16 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 65536 tso_max_segs 65535 gro_max_size 65536 
+    alias opendeploy:tunnel:1
+    inet6 fe80::c0a8:6807/64 scope link 
+       valid_lft forever preferred_lft forever
+5: odt3@NONE: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 1420 qdisc noqueue state UNKNOWN group default 
+    link/sit 192.168.104.7 peer 192.168.104.9 promiscuity 0  allmulti 0 minmtu 1280 maxmtu 65555 
+    sit ip6ip remote 192.168.104.9 local 192.168.104.7 ttl 64 pmtudisc 6rd-prefix 2002::/16 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 65536 tso_max_segs 65535 gro_max_size 65536 
+    alias opendeploy:tunnel:3
+    inet6 fe80::c0a8:6807/64 scope link 
+       valid_lft forever preferred_lft forever
+7: od4s0@if6: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 qdisc noqueue state UP group default 
+    link/ether 42:b9:f9:ac:bc:b3 brd ff:ff:ff:ff:ff:ff link-netns opendeploy-4-v1 promiscuity 0  allmulti 0 minmtu 68 maxmtu 65535 
+    veth numtxqueues 4 numrxqueues 4 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+    inet 10.201.0.33/30 brd 10.201.0.35 scope global od4s0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::40b9:f9ff:feac:bcb3/64 scope link 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1/64 scope link nodad 
+       valid_lft forever preferred_lft forever
+9: od8s0@if8: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 qdisc noqueue state UP group default 
+    link/ether 6a:79:de:de:f1:f0 brd ff:ff:ff:ff:ff:ff link-netns opendeploy-8-v1 promiscuity 0  allmulti 0 minmtu 68 maxmtu 65535 
+    veth numtxqueues 4 numrxqueues 4 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+    inet 10.201.0.65/30 brd 10.201.0.67 scope global od8s0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::6879:deff:fede:f1f0/64 scope link 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1/64 scope link nodad 
+       valid_lft forever preferred_lft forever
+13: od10s1@if12: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 qdisc noqueue state UP group default 
+    link/ether ca:74:63:14:53:81 brd ff:ff:ff:ff:ff:ff link-netns opendeploy-10-v2 promiscuity 0  allmulti 0 minmtu 68 maxmtu 65535 
+    veth numtxqueues 4 numrxqueues 4 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+    inet 10.201.0.85/30 brd 10.201.0.87 scope global od10s1
+       valid_lft forever preferred_lft forever
+    inet6 fe80::c874:63ff:fe14:5381/64 scope link 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1/64 scope link nodad 
+       valid_lft forever preferred_lft forever
+15: od11s0@if14: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 qdisc noqueue state UP group default 
+    link/ether 8e:ba:d2:dc:56:b0 brd ff:ff:ff:ff:ff:ff link-netns opendeploy-11-v1 promiscuity 0  allmulti 0 minmtu 68 maxmtu 65535 
+    veth numtxqueues 4 numrxqueues 4 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+    inet 10.201.0.89/30 brd 10.201.0.91 scope global od11s0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::8cba:d2ff:fedc:56b0/64 scope link 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1/64 scope link nodad 
+       valid_lft forever preferred_lft forever
+19: od12s0@if18: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 qdisc noqueue state UP group default 
+    link/ether b2:9d:2a:85:1f:a8 brd ff:ff:ff:ff:ff:ff link-netns opendeploy-12-v2 promiscuity 0  allmulti 0 minmtu 68 maxmtu 65535 
+    veth numtxqueues 4 numrxqueues 4 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+    inet 10.201.0.97/30 brd 10.201.0.99 scope global od12s0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::b09d:2aff:fe85:1fa8/64 scope link 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1/64 scope link nodad 
+       valid_lft forever preferred_lft forever
+
+===== routes v4
+default via 192.168.104.2 dev eth0 proto dhcp src 192.168.104.7 metric 200 
+10.201.0.32/30 dev od4s0 proto kernel scope link src 10.201.0.33 
+10.201.0.64/30 dev od8s0 proto kernel scope link src 10.201.0.65 
+10.201.0.84/30 dev od10s1 proto kernel scope link src 10.201.0.85 
+10.201.0.88/30 dev od11s0 proto kernel scope link src 10.201.0.89 
+10.201.0.96/30 dev od12s0 proto kernel scope link src 10.201.0.97 
+192.168.104.0/24 dev eth0 proto kernel scope link src 192.168.104.7 metric 200 
+192.168.104.2 dev eth0 proto dhcp scope link src 192.168.104.7 metric 200 
+
+===== routes v6
+fd19:8695:8e78::200:0:200/120 dev odt1 proto 200 metric 1024 pref medium
+fd19:8695:8e78::200:0:0/100 dev odt1 proto 200 metric 1024 pref medium
+fd19:8695:8e78::400:0:0 dev od4s0 proto 200 metric 1024 pref medium
+fd19:8695:8e78::400:0:401 dev od4s0 proto 200 metric 1024 pref medium
+fd19:8695:8e78::600:0:600/120 dev odt3 proto 200 metric 1024 pref medium
+fd19:8695:8e78::600:0:0/100 dev odt3 proto 200 metric 1024 pref medium
+fd19:8695:8e78:1:0:800:: dev od8s0 proto 200 metric 1024 pref medium
+fd19:8695:8e78:1:0:800:0:801 dev od8s0 proto 200 metric 1024 pref medium
+fd19:8695:8e78:1:0:a00:: dev od10s1 proto 200 metric 1024 pref medium
+fd19:8695:8e78:1:0:a00:0:c01 dev od10s1 proto 200 metric 1024 pref medium
+fd19:8695:8e78:1:0:b00:: dev od11s0 proto 200 metric 1024 pref medium
+fd19:8695:8e78:1:0:b00:0:d01 dev od11s0 proto 200 metric 1024 pref medium
+fd19:8695:8e78:1:0:c00:: dev od12s0 proto 200 metric 1024 pref medium
+fd19:8695:8e78:1:0:c00:0:f01 dev od12s0 proto 200 metric 1024 pref medium
+fd19:8695:8e78:1:0:d00:0:1000/120 dev odt3 proto 200 metric 1024 pref medium
+fd19:8695:8e78:1:0:d00::/100 dev odt3 proto 200 metric 1024 pref medium
+fd19:8695:8e78:1:0:e00:0:1100/120 dev odt3 proto 200 metric 1024 pref medium
+fd19:8695:8e78:1:0:e00::/100 dev odt3 proto 200 metric 1024 pref medium
+fd19:8695:8e78:1:0:f00:0:1200/120 dev odt3 proto 200 metric 1024 pref medium
+fd19:8695:8e78:1:0:f00::/100 dev odt3 proto 200 metric 1024 pref medium
+unreachable fd19:8695:8e78::/48 dev lo proto 200 metric 1024 pref medium
+fe80::/64 dev eth0 proto kernel metric 256 pref medium
+fe80::/64 dev odt1 proto kernel metric 256 pref medium
+fe80::/64 dev odt3 proto kernel metric 256 pref medium
+fe80::/64 dev od4s0 proto kernel metric 256 pref medium
+fe80::/64 dev od8s0 proto kernel metric 256 pref medium
+fe80::/64 dev od10s1 proto kernel metric 256 pref medium
+fe80::/64 dev od11s0 proto kernel metric 256 pref medium
+fe80::/64 dev od12s0 proto kernel metric 256 pref medium
+
+===== neighbors v4
+192.168.104.5 dev eth0 lladdr 52:55:55:c6:6a:6a REACHABLE 
+192.168.104.9 dev eth0 lladdr 52:55:55:3c:8b:5f STALE 
+10.201.0.66 dev od8s0 lladdr a6:d4:7b:78:ce:32 STALE 
+10.201.0.98 dev od12s0 lladdr e2:b7:53:bc:9a:51 STALE 
+192.168.104.2 dev eth0 lladdr 5a:94:ef:e4:0c:dd DELAY 
+10.201.0.90 dev od11s0 lladdr a2:75:d2:cc:9f:06 STALE 
+192.168.104.6 dev eth0 lladdr 52:55:55:28:b9:0c REACHABLE 
+10.201.0.86 dev od10s1 lladdr fa:8e:22:e8:f4:95 STALE 
+fe80::e0b7:53ff:febc:9a51 dev od12s0 lladdr e2:b7:53:bc:9a:51 STALE 
+fe80::f88e:22ff:fee8:f495 dev od10s1 lladdr fa:8e:22:e8:f4:95 STALE 
+fe80::a075:d2ff:fecc:9f06 dev od11s0 lladdr a2:75:d2:cc:9f:06 STALE 
+fe80::a4d4:7bff:fe78:ce32 dev od8s0 lladdr a6:d4:7b:78:ce:32 STALE 
+fe80::423:55ff:fe62:1ad6 dev od4s0 lladdr 06:23:55:62:1a:d6 STALE 
+
+===== neighbors v6
+fe80::e0b7:53ff:febc:9a51 dev od12s0 lladdr e2:b7:53:bc:9a:51 STALE 
+fe80::f88e:22ff:fee8:f495 dev od10s1 lladdr fa:8e:22:e8:f4:95 STALE 
+fe80::a075:d2ff:fecc:9f06 dev od11s0 lladdr a2:75:d2:cc:9f:06 STALE 
+fe80::a4d4:7bff:fe78:ce32 dev od8s0 lladdr a6:d4:7b:78:ce:32 STALE 
+fe80::423:55ff:fe62:1ad6 dev od4s0 lladdr 06:23:55:62:1a:d6 STALE 
+
+===== netns
+opendeploy-12-v2 (id: 4)
+opendeploy-11-v1 (id: 2)
+opendeploy-10-v2 (id: 3)
+opendeploy-8-v1 (id: 1)
+opendeploy-4-v1 (id: 0)
+
+===== listening sockets
+State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                                                 
+LISTEN 0      4096      127.0.0.54:53         0.0.0.0:*    users:(("systemd-resolve",pid=8233,fd=20))             
+LISTEN 0      4096         0.0.0.0:22         0.0.0.0:*    users:(("sshd",pid=8221,fd=3),("systemd",pid=1,fd=141))
+LISTEN 0      4096       127.0.0.1:43703      0.0.0.0:*    users:(("containerd",pid=9553,fd=11))                  
+LISTEN 0      4096   127.0.0.53%lo:53         0.0.0.0:*    users:(("systemd-resolve",pid=8233,fd=18))             
+LISTEN 0      4096               *:18180            *:*    users:(("rollover",pid=16785,fd=5))                    
+LISTEN 0      4096            [::]:22            [::]:*    users:(("sshd",pid=8221,fd=4),("systemd",pid=1,fd=142))
+State  Recv-Q Send-Q      Local Address:Port Peer Address:PortProcess                                    
+UNCONN 0      0              127.0.0.54:53        0.0.0.0:*    users:(("systemd-resolve",pid=8233,fd=19))
+UNCONN 0      0           127.0.0.53%lo:53        0.0.0.0:*    users:(("systemd-resolve",pid=8233,fd=17))
+UNCONN 0      0      192.168.104.7%eth0:68        0.0.0.0:*    users:(("systemd-network",pid=8239,fd=22))
+UNCONN 0      0                 0.0.0.0:5353      0.0.0.0:*    users:(("systemd-resolve",pid=8233,fd=11))
+UNCONN 0      0                    [::]:5353         [::]:*    users:(("systemd-resolve",pid=8233,fd=12))
+
+===== nftables
+table ip nat {
+	chain LIMADNS {
+	}
+
+	chain PREROUTING {
+		type nat hook prerouting priority dstnat; policy accept;
+		counter packets 14 bytes 1068 jump LIMADNS
+	}
+
+	chain OUTPUT {
+		type nat hook output priority dstnat; policy accept;
+		counter packets 27 bytes 1799 jump LIMADNS
+	}
+}
+table ip opendeploy {
+	chain postrouting {
+		type nat hook postrouting priority srcnat; policy accept;
+		ip saddr 10.201.0.0/16 ip daddr != 10.201.0.0/16 masquerade
+	}
+
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+		fib daddr type local tcp dport 18181 dnat to 10.201.0.86:8080
+		fib daddr type local tcp dport 18182 dnat to 10.201.0.90:8080
+		ip saddr 192.168.104.6 fib daddr type local tcp dport 18183 dnat to 10.201.0.98:8080
+	}
+
+	chain output {
+		type nat hook output priority dstnat; policy accept;
+		fib daddr type local tcp dport 18181 dnat to 10.201.0.86:8080
+		fib daddr type local tcp dport 18182 dnat to 10.201.0.90:8080
+		fib daddr type local tcp dport 18183 dnat to 10.201.0.98:8080
+	}
+}
+table ip6 opendeploy {
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+		fib daddr type local tcp dport 18181 dnat to [fd19:8695:8e78:1:0:a00::]:8080
+		fib daddr type local tcp dport 18182 dnat to [fd19:8695:8e78:1:0:b00::]:8080
+	}
+
+	chain output {
+		type nat hook output priority dstnat; policy accept;
+		fib daddr type local tcp dport 18181 dnat to [fd19:8695:8e78:1:0:a00::]:8080
+		fib daddr type local tcp dport 18182 dnat to [fd19:8695:8e78:1:0:b00::]:8080
+		fib daddr type local tcp dport 18183 dnat to [fd19:8695:8e78:1:0:c00::]:8080
+	}
+}
+
+===== conntrack
+tcp      6 8 CLOSE src=192.168.104.7 dst=192.168.104.5 sport=49258 dport=443 src=192.168.104.5 dst=192.168.104.7 sport=443 dport=49258 [ASSURED] mark=0 use=1
+unknown  2 558 src=10.201.0.89 dst=224.0.0.22 [UNREPLIED] src=224.0.0.22 dst=10.201.0.89 mark=0 use=1
+tcp      6 431961 ESTABLISHED src=192.168.104.2 dst=192.168.104.7 sport=28522 dport=22 src=192.168.104.7 dst=192.168.104.2 sport=22 dport=28522 [ASSURED] mark=0 use=1
+unknown  2 508 src=10.201.0.33 dst=224.0.0.22 [UNREPLIED] src=224.0.0.22 dst=10.201.0.33 mark=0 use=1
+tcp      6 89 TIME_WAIT src=192.168.104.6 dst=192.168.104.7 sport=59034 dport=18183 src=10.201.0.98 dst=192.168.104.6 sport=8080 dport=59034 [ASSURED] mark=0 use=1
+tcp      6 431960 ESTABLISHED src=192.168.104.2 dst=192.168.104.7 sport=32788 dport=22 src=192.168.104.7 dst=192.168.104.2 sport=22 dport=32788 [ASSURED] mark=0 use=1
+tcp      6 80 TIME_WAIT src=192.168.104.7 dst=192.168.104.7 sport=52852 dport=18181 src=10.201.0.86 dst=192.168.104.7 sport=8080 dport=52852 [ASSURED] mark=0 use=1
+udp      17 29 src=127.0.0.1 dst=127.0.0.53 sport=51436 dport=53 src=127.0.0.53 dst=127.0.0.1 sport=53 dport=51436 mark=0 use=1
+tcp      6 431998 ESTABLISHED src=192.168.104.7 dst=192.168.104.6 sport=44764 dport=9443 src=192.168.104.6 dst=192.168.104.7 sport=9443 dport=44764 [ASSURED] mark=0 use=1
+tcp      6 431999 ESTABLISHED src=192.168.104.2 dst=192.168.104.7 sport=25612 dport=22 src=192.168.104.7 dst=192.168.104.2 sport=22 dport=25612 [ASSURED] mark=0 use=1
+unknown  2 537 src=10.201.0.65 dst=224.0.0.22 [UNREPLIED] src=224.0.0.22 dst=10.201.0.65 mark=0 use=1
+tcp      6 254 ESTABLISHED src=::1 dst=::1 sport=60744 dport=18180 [UNREPLIED] src=::1 dst=::1 sport=18180 dport=60744 mark=0 use=1
+tcp      6 81 TIME_WAIT src=192.168.104.7 dst=192.168.104.7 sport=35830 dport=18182 src=10.201.0.90 dst=192.168.104.7 sport=8080 dport=35830 [ASSURED] mark=0 use=1
+tcp      6 73 TIME_WAIT src=192.168.104.7 dst=192.168.104.7 sport=52840 dport=18181 src=10.201.0.82 dst=192.168.104.7 sport=8080 dport=52840 [ASSURED] mark=0 use=1
+tcp      6 56 TIME_WAIT src=10.201.0.66 dst=192.168.104.9 sport=60734 dport=18080 src=192.168.104.9 dst=192.168.104.7 sport=18080 dport=60734 [ASSURED] mark=0 use=1
+unknown  2 565 src=10.201.0.97 dst=224.0.0.22 [UNREPLIED] src=224.0.0.22 dst=10.201.0.97 mark=0 use=1
+unknown  2 553 src=10.201.0.85 dst=224.0.0.22 [UNREPLIED] src=224.0.0.22 dst=10.201.0.85 mark=0 use=1
+
+===== netns opendeploy-12-v2 addresses
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: sit0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN group default qlen 1000
+    link/sit 0.0.0.0 brd 0.0.0.0
+18: eth0@if19: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 qdisc noqueue state UP group default 
+    link/ether e2:b7:53:bc:9a:51 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 10.201.0.98/30 brd 10.201.0.99 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet6 fd19:8695:8e78:1:0:c00::/128 scope global nodad deprecated dynamic 
+       valid_lft 2147483613sec preferred_lft 0sec
+    inet6 fd19:8695:8e78:1:0:c00:0:f01/128 scope global nodad 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::e0b7:53ff:febc:9a51/64 scope link 
+       valid_lft forever preferred_lft forever
+
+===== netns opendeploy-12-v2 routes
+default via 10.201.0.97 dev eth0 
+10.201.0.96/30 dev eth0 proto kernel scope link src 10.201.0.98 
+fd19:8695:8e78:1:0:c00:0:f01 dev eth0 proto kernel metric 256 pref medium
+fe80::/64 dev eth0 proto kernel metric 256 pref medium
+default via fe80::1 dev eth0 metric 1024 pref medium
+
+===== netns opendeploy-12-v2 sockets
+State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+LISTEN 0      4096               *:8080            *:*    users:(("rollover",pid=17233,fd=3))
+State Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+
+===== netns opendeploy-11-v1 addresses
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: sit0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN group default qlen 1000
+    link/sit 0.0.0.0 brd 0.0.0.0
+14: eth0@if15: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 qdisc noqueue state UP group default 
+    link/ether a2:75:d2:cc:9f:06 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 10.201.0.90/30 brd 10.201.0.91 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet6 fd19:8695:8e78:1:0:b00::/128 scope global nodad deprecated dynamic 
+       valid_lft 2147483605sec preferred_lft 0sec
+    inet6 fd19:8695:8e78:1:0:b00:0:d01/128 scope global nodad 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::a075:d2ff:fecc:9f06/64 scope link 
+       valid_lft forever preferred_lft forever
+
+===== netns opendeploy-11-v1 routes
+default via 10.201.0.89 dev eth0 
+10.201.0.88/30 dev eth0 proto kernel scope link src 10.201.0.90 
+fd19:8695:8e78:1:0:b00:0:d01 dev eth0 proto kernel metric 256 pref medium
+fe80::/64 dev eth0 proto kernel metric 256 pref medium
+default via fe80::1 dev eth0 metric 1024 pref medium
+
+===== netns opendeploy-11-v1 sockets
+State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+LISTEN 0      4096               *:8080            *:*    users:(("rollover",pid=17064,fd=3))
+State Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+
+===== netns opendeploy-10-v2 addresses
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: sit0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN group default qlen 1000
+    link/sit 0.0.0.0 brd 0.0.0.0
+12: eth0@if13: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 qdisc noqueue state UP group default 
+    link/ether fa:8e:22:e8:f4:95 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 10.201.0.86/30 brd 10.201.0.87 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet6 fd19:8695:8e78:1:0:a00::/128 scope global nodad deprecated dynamic 
+       valid_lft 2147483600sec preferred_lft 0sec
+    inet6 fd19:8695:8e78:1:0:a00:0:c01/128 scope global nodad 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::f88e:22ff:fee8:f495/64 scope link 
+       valid_lft forever preferred_lft forever
+
+===== netns opendeploy-10-v2 routes
+default via 10.201.0.85 dev eth0 
+10.201.0.84/30 dev eth0 proto kernel scope link src 10.201.0.86 
+fd19:8695:8e78:1:0:a00:0:c01 dev eth0 proto kernel metric 256 pref medium
+fe80::/64 dev eth0 proto kernel metric 256 pref medium
+default via fe80::1 dev eth0 metric 1024 pref medium
+
+===== netns opendeploy-10-v2 sockets
+State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+LISTEN 0      4096               *:8080            *:*    users:(("rollover",pid=16964,fd=3))
+State Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+
+===== netns opendeploy-8-v1 addresses
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: sit0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN group default qlen 1000
+    link/sit 0.0.0.0 brd 0.0.0.0
+8: eth0@if9: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 qdisc noqueue state UP group default 
+    link/ether a6:d4:7b:78:ce:32 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 10.201.0.66/30 brd 10.201.0.67 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet6 fd19:8695:8e78:1:0:800::/128 scope global nodad deprecated dynamic 
+       valid_lft 2147483584sec preferred_lft 0sec
+    inet6 fd19:8695:8e78:1:0:800:0:801/128 scope global nodad 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::a4d4:7bff:fe78:ce32/64 scope link 
+       valid_lft forever preferred_lft forever
+
+===== netns opendeploy-8-v1 routes
+default via 10.201.0.65 dev eth0 
+10.201.0.64/30 dev eth0 proto kernel scope link src 10.201.0.66 
+fd19:8695:8e78:1:0:800:0:801 dev eth0 proto kernel metric 256 pref medium
+fe80::/64 dev eth0 proto kernel metric 256 pref medium
+default via fe80::1 dev eth0 metric 1024 pref medium
+
+===== netns opendeploy-8-v1 sockets
+State Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+State Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+
+===== netns opendeploy-4-v1 addresses
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: sit0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN group default qlen 1000
+    link/sit 0.0.0.0 brd 0.0.0.0
+6: eth0@if7: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1420 qdisc noqueue state UP group default 
+    link/ether 06:23:55:62:1a:d6 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 10.201.0.34/30 brd 10.201.0.35 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet6 fd19:8695:8e78::400:0:0/128 scope global nodad deprecated dynamic 
+       valid_lft 2147483556sec preferred_lft 0sec
+    inet6 fd19:8695:8e78::400:0:401/128 scope global nodad 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::423:55ff:fe62:1ad6/64 scope link 
+       valid_lft forever preferred_lft forever
+
+===== netns opendeploy-4-v1 routes
+default via 10.201.0.33 dev eth0 
+10.201.0.32/30 dev eth0 proto kernel scope link src 10.201.0.34 
+fd19:8695:8e78::400:0:401 dev eth0 proto kernel metric 256 pref medium
+fe80::/64 dev eth0 proto kernel metric 256 pref medium
+default via fe80::1 dev eth0 metric 1024 pref medium
+
+===== netns opendeploy-4-v1 sockets
+State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+LISTEN 0      4096               *:53              *:*    users:(("opendeploy",pid=9812,fd=8))
+State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+UNCONN 0      0                  *:53              *:*    users:(("opendeploy",pid=9812,fd=7))

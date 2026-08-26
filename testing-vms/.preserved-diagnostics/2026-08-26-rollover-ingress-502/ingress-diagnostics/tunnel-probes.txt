@@ -1,0 +1,13 @@
+captured at 2026-08-26T10:45:45Z
+
+local TLS ingress tunnel listener (127.0.0.1:18443): accepts (note: an ssh -L listener accepts even when the remote leg is dead)
+local HTTP ingress tunnel listener (127.0.0.1:18980): accepts (note: an ssh -L listener accepts even when the remote leg is dead)
+
+direct probe https://192.168.104.9:443/ from inside opendeploy-secondary-2: http_code=000 exit=35
+direct probe http://192.168.104.9:80/ from inside opendeploy-secondary-2: http_code=301 exit=0
+
+
+cross-VM probe https://192.168.104.9:443/ from opendeploy-primary: http_code=000 exit=35
+cross-VM probe http://192.168.104.9:80/ from opendeploy-primary: http_code=301 exit=0
+
+curl exit=7 means refused (healthy fail-closed), exit=28 means timed out (blackhole)
