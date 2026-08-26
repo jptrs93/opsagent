@@ -14,9 +14,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/engine"
-	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubrelease"
-	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubreleaseimage"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixdocker"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/opendeployrelease"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/localinputs"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
@@ -103,10 +102,9 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	}
 	runtimeInputs.SetIssuedTLSProvider(NewPrimaryIssuedTLSProvider(primaryURL, primaryHTTPClient))
 	gitManager := git.NewManager(cfg.GitCacheDir, githubCredentials)
-	githubClient := githubrepo.NewClient(githubCredentials)
-	githubReleasePreparer := githubrelease.New(cfg.ReleasesDir, githubClient)
+	githubClient := githubrepo.NewClient()
+	opendeployReleasePreparer := opendeployrelease.New(cfg.ReleasesDir, githubClient)
 	nixDockerPreparer := nixdocker.New(gitManager)
-	githubReleaseImagePreparer := githubreleaseimage.New(cfg.ReleasesDir, githubClient)
 
 	acmeHolder := acmestate.NewHolder()
 	if b, ok := store.FetchLocalKV(storage.LocalKVAcmeState); ok {
@@ -136,11 +134,10 @@ func run(ctx context.Context, cfg runtimeConfig) {
 			return
 		}
 		engine.DeploymentOperator{
-			Store:              store,
-			GithubRelease:      githubReleasePreparer,
-			NixDocker:          nixDockerPreparer,
-			GithubReleaseImage: githubReleaseImagePreparer,
-			RuntimeInputs:      runtimeInputs,
+			Store:             store,
+			OpendeployRelease: opendeployReleasePreparer,
+			NixDocker:         nixDockerPreparer,
+			RuntimeInputs:     runtimeInputs,
 		}.RunAll(scheduledInstancePredicateForNode(cfg.NodeID))
 	}()
 

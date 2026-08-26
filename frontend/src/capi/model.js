@@ -94,7 +94,7 @@
  * @property {ContainerSpec} container3Spec
  * @property {MicroVMSpec} microVmSpec
  * @property {VMSpec} vmSpec
- * @property {SystemdSpec} systemdSpec
+ * @property {OpendeploySpec} opendeploySpec
  */
 /**
  * @typedef {Object} MicroVMSpec
@@ -103,21 +103,8 @@
  * @typedef {Object} VMSpec
  */
 /**
- * @typedef {Object} SystemdSpec
- * @property {GithubRelease} source
- * @property {SystemdRuntime} runtime
+ * @typedef {Object} OpendeploySpec
  * @property {string} version
- * @property {boolean} running
- */
-/**
- * @typedef {Object} GithubRelease
- * @property {string} repo
- * @property {string} asset
- */
-/**
- * @typedef {Object} SystemdRuntime
- * @property {string} name
- * @property {string} binPath
  */
 /**
  * @typedef {Object} ContainerSpec
@@ -2548,9 +2535,9 @@ export function writeDeploymentSpec(message, writer) {
         writeVMSpec(message.vmSpec, writer);
         writer.ldelim();
     }
-    if (message.systemdSpec !== undefined && message.systemdSpec !== null) {
+    if (message.opendeploySpec !== undefined && message.opendeploySpec !== null) {
         writer.uint32(tag(7, WIRE.LDELIM)).fork();
-        writeSystemdSpec(message.systemdSpec, writer);
+        writeOpendeploySpec(message.opendeploySpec, writer);
         writer.ldelim();
     }
 }
@@ -2574,7 +2561,7 @@ export function encodeDeploymentSpec(message) {
  */
 function decodeDeploymentSpecMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {networking: undefined, container1Spec: undefined, container2Spec: undefined, container3Spec: undefined, microVmSpec: undefined, vmSpec: undefined, systemdSpec: undefined };
+    const message = {networking: undefined, container1Spec: undefined, container2Spec: undefined, container3Spec: undefined, microVmSpec: undefined, vmSpec: undefined, opendeploySpec: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2603,7 +2590,7 @@ function decodeDeploymentSpecMessage(reader, length) {
                 break;
             }
             case 7: {
-                message.systemdSpec = decodeSystemdSpecMessage(reader, reader.uint32());
+                message.opendeploySpec = decodeOpendeploySpecMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -2724,36 +2711,23 @@ export function decodeVMSpec(buffer) {
 
 
 /**
- * @param {SystemdSpec} message
+ * @param {OpendeploySpec} message
  * @param {Writer} writer
  */
-export function writeSystemdSpec(message, writer) {
-    if (message.source !== undefined && message.source !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeGithubRelease(message.source, writer);
-        writer.ldelim();
-    }
-    if (message.runtime !== undefined && message.runtime !== null) {
-        writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeSystemdRuntime(message.runtime, writer);
-        writer.ldelim();
-    }
+export function writeOpendeploySpec(message, writer) {
     if (message.version !== undefined && message.version !== null && message.version !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.version);
-    }
-    if (message.running === true) {
-        writer.uint32(tag(4, WIRE.VARINT)).bool(message.running);
     }
 }
 
 
 /**
- * @param {SystemdSpec} message
+ * @param {OpendeploySpec} message
  * @returns {Uint8Array}
  */
-export function encodeSystemdSpec(message) {
+export function encodeOpendeploySpec(message) {
     const writer = Writer.create();
-    writeSystemdSpec(message, writer);
+    writeOpendeploySpec(message, writer);
     return writer.finish();
 }
 
@@ -2761,30 +2735,18 @@ export function encodeSystemdSpec(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {SystemdSpec}
+ * @returns {OpendeploySpec}
  */
-function decodeSystemdSpecMessage(reader, length) {
+function decodeOpendeploySpecMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {source: undefined, runtime: undefined, version: "", running: false };
+    const message = {version: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.source = decodeGithubReleaseMessage(reader, reader.uint32());
-                break;
-            }
-            case 2: {
-                message.runtime = decodeSystemdRuntimeMessage(reader, reader.uint32());
-                break;
-            }
             case 3: {
                 message.version = reader.string();
                 break;
             }
-            case 4: {
-                message.running = reader.bool();
-                break;
-            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -2795,137 +2757,11 @@ function decodeSystemdSpecMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {SystemdSpec}
+ * @returns {OpendeploySpec}
  */
-export function decodeSystemdSpec(buffer) {
+export function decodeOpendeploySpec(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeSystemdSpecMessage(reader);
-}
-
-
-
-/**
- * @param {GithubRelease} message
- * @param {Writer} writer
- */
-export function writeGithubRelease(message, writer) {
-    if (message.repo !== undefined && message.repo !== null && message.repo !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repo);
-    }
-    if (message.asset !== undefined && message.asset !== null && message.asset !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.asset);
-    }
-}
-
-
-/**
- * @param {GithubRelease} message
- * @returns {Uint8Array}
- */
-export function encodeGithubRelease(message) {
-    const writer = Writer.create();
-    writeGithubRelease(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {GithubRelease}
- */
-function decodeGithubReleaseMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {repo: "", asset: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.repo = reader.string();
-                break;
-            }
-            case 2: {
-                message.asset = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {GithubRelease}
- */
-export function decodeGithubRelease(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeGithubReleaseMessage(reader);
-}
-
-
-
-/**
- * @param {SystemdRuntime} message
- * @param {Writer} writer
- */
-export function writeSystemdRuntime(message, writer) {
-    if (message.name !== undefined && message.name !== null && message.name !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
-    }
-    if (message.binPath !== undefined && message.binPath !== null && message.binPath !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.binPath);
-    }
-}
-
-
-/**
- * @param {SystemdRuntime} message
- * @returns {Uint8Array}
- */
-export function encodeSystemdRuntime(message) {
-    const writer = Writer.create();
-    writeSystemdRuntime(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {SystemdRuntime}
- */
-function decodeSystemdRuntimeMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", binPath: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.name = reader.string();
-                break;
-            }
-            case 2: {
-                message.binPath = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {SystemdRuntime}
- */
-export function decodeSystemdRuntime(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeSystemdRuntimeMessage(reader);
+    return decodeOpendeploySpecMessage(reader);
 }
 
 

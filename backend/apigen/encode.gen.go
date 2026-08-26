@@ -676,7 +676,7 @@ func (m DeploymentSpec) IsZero() bool {
 		m.Container3Spec == nil &&
 		m.MicroVmSpec == nil &&
 		m.VmSpec == nil &&
-		m.SystemdSpec == nil
+		m.OpendeploySpec == nil
 }
 
 func (m *DeploymentSpec) Encode() []byte {
@@ -705,9 +705,9 @@ func (m *DeploymentSpec) Encode() []byte {
 		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, m.VmSpec.Encode())
 	}
-	if m.SystemdSpec != nil {
+	if m.OpendeploySpec != nil {
 		b = AppendTag(b, 7, BytesType)
-		b = AppendBytes(b, m.SystemdSpec.Encode())
+		b = AppendBytes(b, m.OpendeploySpec.Encode())
 	}
 	return b
 }
@@ -781,10 +781,10 @@ func DecodeDeploymentSpec(b []byte) (*DeploymentSpec, error) {
 		case 7:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *SystemdSpec
-				item, err = DecodeSystemdSpec(msgBytes)
+				var item *OpendeploySpec
+				item, err = DecodeOpendeploySpec(msgBytes)
 				if err == nil {
-					m.SystemdSpec = item
+					m.OpendeploySpec = item
 				}
 			}
 		default:
@@ -849,119 +849,25 @@ func DecodeVMSpec(b []byte) (*VMSpec, error) {
 	return &m, nil
 }
 
-func (m *SystemdSpec) Encode() []byte {
+func (m *OpendeploySpec) Encode() []byte {
 	var b []byte
-	if m.Source != nil {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.Source.Encode())
-	}
-	if m.Runtime != nil {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.Runtime.Encode())
-	}
 	b = AppendStringField(b, m.Version, 3)
-	b = AppendBoolField(b, m.Running, 4)
 	return b
 }
 
-func DecodeSystemdSpec(b []byte) (*SystemdSpec, error) {
-	var m SystemdSpec
+func DecodeOpendeploySpec(b []byte) (*OpendeploySpec, error) {
+	var m OpendeploySpec
 	var num Number
 	var typ Type
 	var err error
-	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *GithubRelease
-				item, err = DecodeGithubRelease(msgBytes)
-				if err == nil {
-					m.Source = item
-				}
-			}
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SystemdRuntime
-				item, err = DecodeSystemdRuntime(msgBytes)
-				if err == nil {
-					m.Runtime = item
-				}
-			}
 		case 3:
 			b, m.Version, err = ConsumeString(b, typ)
-		case 4:
-			b, m.Running, err = ConsumeBool(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *GithubRelease) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Repo, 1)
-	b = AppendStringField(b, m.Asset, 2)
-	return b
-}
-
-func DecodeGithubRelease(b []byte) (*GithubRelease, error) {
-	var m GithubRelease
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Repo, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Asset, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SystemdRuntime) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Name, 1)
-	b = AppendStringField(b, m.BinPath, 2)
-	return b
-}
-
-func DecodeSystemdRuntime(b []byte) (*SystemdRuntime, error) {
-	var m SystemdRuntime
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Name, err = ConsumeString(b, typ)
-		case 2:
-			b, m.BinPath, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

@@ -3,5 +3,9 @@ export function containerWorkload(config) {
 }
 
 export function deploymentWorkload(config) {
-    return containerWorkload(config) || config?.spec?.systemdSpec || null;
+    const container = containerWorkload(config);
+    if (container) return container;
+    const opendeploy = config?.spec?.opendeploySpec;
+    if (opendeploy) return {...opendeploy, running: true};
+    return null;
 }

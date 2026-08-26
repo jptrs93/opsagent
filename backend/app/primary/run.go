@@ -110,18 +110,10 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		ratelimit.PerIP(rate.Limit(40), 100, time.Minute),
 		ratelimit.PerIPAndPrefix("/v1/auth", rate.Limit(1), 10, time.Minute),
 		ratelimit.PerIPAndPrefix("/v1/auth/master", rate.Limit(0.2), 10, time.Minute),
-		// The agent-session family is reachable without a credential. The broad
-		// budget accommodates a 5s get-session poll while an operator decides;
-		// the tight one on request-start is what stops a single address from
-		// repeatedly occupying an operator's only open request slot. Nested
-		// prefixes stack, as with /v1/auth above.
+		// The agent-session family is reachable without a credential.
 		ratelimit.PerIPAndPrefix("/v1/agent-sessions", rate.Limit(2), 30, time.Minute),
 		ratelimit.PerIPAndPrefix("/v1/agent-sessions/instructions", rate.Limit(0.2), 5, time.Minute),
 		ratelimit.PerIPAndPrefix("/v1/agent-sessions/request-start", rate.Limit(0.05), 3, 10*time.Minute),
-		// Secret generation writes a row nothing ever collects, and the caller
-		// cannot read back what it made, so a retry loop here is both plausible
-		// and silent. A burst of 10 refilling at 6/min covers wiring up a
-		// deployment's credentials in one go while capping a loop's damage.
 		ratelimit.PerIPAndPrefix("/v1/secrets/generate", rate.Limit(0.1), 10, time.Minute),
 	}
 	m := apigen.CreateApiServerMux(webUIHandler, &apigen.MuxConfig{

@@ -73,7 +73,7 @@ func (m *Manager) runProducerAlignment(ctx context.Context, store scheduledInsta
 func (m *Manager) alignProducers(producing map[int32]int32, items []apigen.ScheduledInstanceState) {
 	desired := map[int32]int32{}
 	for _, it := range items {
-		if it.Config.Spec.SystemdSpec != nil {
+		if it.Config.Spec.OpendeploySpec != nil {
 			continue
 		}
 		switch it.Status.Runner.Status {

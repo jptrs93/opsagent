@@ -11,14 +11,13 @@ Key files:
 - `backend/lib/engine/prepare/preparer.go` — in-flight handle lifecycle and shared preparation helpers.
 - `backend/lib/engine/prepare/nixdocker/` — builds a Nix flake that streams an OCI/Docker image and imports it into containerd.
 - `backend/lib/engine/prepare/containerimage/` — pulls an ordinary registry image into containerd.
-- `backend/lib/engine/prepare/githubrelease/` — internal-only OpenDeploy executable release preparation.
-- `backend/lib/engine/prepare/githubreleaseimage/` — builds the internal `opendeploy-net` image from an OpenDeploy release binary.
+- `backend/lib/engine/prepare/opendeployrelease/` — internal-only OpenDeploy release preparation: the self-deployment executable and the `opendeploy-net` image built from it.
 - `backend/lib/repo/git/` — Git repo/branch/commit and checkout service used by validation, version discovery, and Nix Docker builds.
 - `backend/lib/repo/github/` — authenticated GitHub release and asset download client.
 - `backend/lib/engine/ctrd/` — containerd client wrapper behind Linux build tags.
 - `backend/lib/engine/runner/runner.go` — `Runner` interface and factories.
 - `backend/lib/engine/runner/container.go` — public containerd runner.
-- `backend/lib/engine/runner/systemd.go` — internal-only runner for the OpenDeploy self-deployment.
+- `backend/lib/engine/runner/opendeploy.go` — internal-only runner for the OpenDeploy self-deployment.
 - `backend/lib/network/` — machine-local virtual networking, host routes, nftables egress NAT, and host-port DNAT.
 
 ## Data Model
@@ -31,10 +30,10 @@ workload is stored in `spec.container1Spec`, with its artifact source in
 
 Internal exceptions:
 
-- `spec.systemdSpec` is retained for the OpenDeploy self-deployment.
+- `spec.opendeploySpec` is retained for the OpenDeploy self-deployment. It carries only the desired release version; the release source, systemd unit, and install path are compile-time constants.
 - Public create/update validation rejects the internal branch, and public state/history responses redact its `runtime` while retaining source and workload state.
 
-`PreparerStatus.Artifact` is the resolved runtime artifact. For public deployments this is always a local containerd image ref. For the internal system deployment it is the downloaded OpenDeploy binary path consumed by the internal systemd runner.
+`PreparerStatus.Artifact` is the resolved runtime artifact. For public deployments this is always a local containerd image ref. For the internal system deployment it is the downloaded OpenDeploy binary path consumed by the internal opendeploy runner.
 
 Preparation is reported as two stages. `PreparerStatus.Inputs` tracks resolving assets, secrets, and configs; `PreparerStatus.Image` tracks producing the artifact (nix build, remote image pull, or GitHub release download). Those two are the only stored and transmitted preparer state.
 
@@ -77,13 +76,13 @@ Clone URLs are credential-free. The GitHub token is supplied per invocation thro
 
 `containerimage.Preparer` pulls `container1Spec.source.remoteImage.image` plus the workload version tag/digest into containerd and unpacks it. Pulls are anonymous in the current phase.
 
-`githubrelease.Preparer` is internal-only. It downloads the executable used by the OpenDeploy self-deployment. `githubreleaseimage.Preparer` independently downloads the architecture-specific OpenDeploy binary and packages it into the internal `opendeploy-net` OCI image. Both consume the shared `repo/github.Client`; neither concrete preparer depends on the other.
+`opendeployrelease.Preparer` is internal-only. `PrepareBinary` downloads the architecture-specific executable used by the OpenDeploy self-deployment; `PrepareImage` downloads the same release binary and packages it into the internal `opendeploy-net` OCI image. Both share one release download path on top of `repo/github.Client`, which is unauthenticated: the OpenDeploy release repository is public, so the GitHub token is only distributed to workers with Nix-built deployments.
 
 Asset, secret, and config preparation dependencies are grouped in one instance-owned `runtimeinputs.RuntimeInputs`. It owns the validated in-memory secret and config caches as well as the providers that populate them. The operator uses this service before artifact preparation and explicitly passes the same instance to container runners for typed env-ref expansion at spawn and respawn. Every deployment strategy passes through this common stage before artifact preparation. On process-start reattachment, the operator rechecks runtime inputs and verifies that a persisted container image is locally present and unpacked before reusing it.
 
 When reattachment finds a prepared instance whose inputs are unavailable, the operator retries the inputs in the background rather than re-preparing: re-preparing fetches the same inputs from the same place and would publish a terminal failure nothing retries out of. The retry publishes the inputs stage so the stuck instance is visible, while the recorded artifact and the `READY` rollup both survive it.
 
-Primary backup restore preserves desired config and append-only status history, but runtime observations belong to the machine that produced the backup. The installer clears the mutable current preparer and runner fields for non-system deployments assigned to the replacement primary. Their unchanged config versions are then prepared normally on first startup. The OpenDeploy systemd self-deployment is excluded because the installer has already installed and started that binary; worker statuses are retained because surviving workers reconcile their own local runtime state.
+Primary backup restore preserves desired config and append-only status history, but runtime observations belong to the machine that produced the backup. The installer clears the mutable current preparer and runner fields for non-system deployments assigned to the replacement primary. Their unchanged config versions are then prepared normally on first startup. The OpenDeploy self-deployment is excluded because the installer has already installed and started that binary; worker statuses are retained because surviving workers reconcile their own local runtime state.
 
 Prepare output is written to `{PrepareOutputDir}/{deploymentID}/{version}.log`.
 OpenDeploy-generated entries use `==> message` and failures use `==> ERROR: message`; subprocess output is streamed unchanged between those entries.
@@ -134,7 +133,7 @@ The runner only consumes networking primitives. It derives `I` from cluster pref
 
 Cross-machine IP-in-IP routing, ingress, and policy enforcement are outside the current runner path.
 
-`systemdRunner` is internal-only for the OpenDeploy self-deployment. It symlinks the downloaded binary to the configured bin path, writes `STARTING`, and asks systemd to restart the unit. The old process does not poll systemd after requesting restart; the restarted process marks itself `RUNNING` when the operator reattaches. Public API validation rejects systemd runner config.
+`opendeployRunner` is internal-only for the OpenDeploy self-deployment. It symlinks the downloaded binary to the fixed bin path, writes `STARTING`, and asks systemd to restart the unit. The old process does not poll systemd after requesting restart; the restarted process marks itself `RUNNING` when the operator reattaches. Public API validation rejects opendeploy spec config.
 
 ## Containerd Runtime
 

@@ -256,8 +256,8 @@ const deploymentSourceView = (config) => {
     if (source.nixDockerBuild) {
         return {variant: 'nixDockerBuild', repo: source.nixDockerBuild.repo || ''};
     }
-    if (spec.systemdSpec?.source) {
-        return {variant: 'githubRelease', repo: spec.systemdSpec.source.repo || ''};
+    if (spec.opendeploySpec) {
+        return {variant: 'githubRelease', repo: openDeployRepo};
     }
     if (source.remoteImage) {
         return {variant: 'containerImage', repo: source.remoteImage.image || ''};
@@ -284,7 +284,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
         const prep = d.status?.preparer || {};
         const {variant, repo} = deploymentSourceView(d.config);
 
-        const runnerType = spec.systemdSpec ? 'systemd' : 'container';
+        const runnerType = spec.opendeploySpec ? 'opendeploy' : 'container';
         const spaceId = identity.spaceId || 0;
         const nodeId = Number(d.config.nodeId || 0);
         const node = nodeDisplayName(nodeId, machines);

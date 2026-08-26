@@ -12,16 +12,15 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 )
 
 const defaultAPIBaseURL = "https://api.github.com"
 
 var ErrReleaseNotFound = errors.New("release not found")
 
+// Client reads public GitHub release data without authentication; it is only
+// used for the public OpenDeploy release repository.
 type Client struct {
-	credentials        githubcredentials.Provider
 	apiBaseURL         string
 	assetDownloadMutex sync.Mutex
 }
@@ -35,10 +34,9 @@ func WithAPIBaseURL(baseURL string) Option {
 	}
 }
 
-func NewClient(provider githubcredentials.Provider, options ...Option) *Client {
+func NewClient(options ...Option) *Client {
 	c := &Client{
-		credentials: provider,
-		apiBaseURL:  defaultAPIBaseURL,
+		apiBaseURL: defaultAPIBaseURL,
 	}
 	for _, option := range options {
 		option(c)
@@ -112,7 +110,7 @@ func (c *Client) ReleaseByTag(ctx context.Context, repo, tag string) (*Release, 
 }
 
 func (c *Client) getJSON(ctx context.Context, url string, out any, releaseByTag bool) error {
-	req, err := c.authenticatedRequest(ctx, url, "application/vnd.github+json")
+	req, err := newRequest(ctx, url, "application/vnd.github+json")
 	if err != nil {
 		return err
 	}
@@ -131,52 +129,24 @@ func (c *Client) getJSON(ctx context.Context, url string, out any, releaseByTag 
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-func (c *Client) authenticatedRequest(ctx context.Context, url, accept string) (*http.Request, error) {
+func newRequest(ctx context.Context, url, accept string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", accept)
-	creds, err := c.credentials.LoadCredentials(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if creds.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+creds.Token)
-	}
 	return req, nil
 }
 
-// DownloadAsset follows API redirects without forwarding GitHub credentials to
-// the asset host, and atomically replaces dstPath after a successful download.
+// DownloadAsset atomically replaces dstPath after a successful download.
 func (c *Client) DownloadAsset(ctx context.Context, assetAPIURL, dstPath string) error {
-	client := *http.DefaultClient
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-
-	req, err := c.authenticatedRequest(ctx, assetAPIURL, "application/octet-stream")
+	req, err := newRequest(ctx, assetAPIURL, "application/octet-stream")
 	if err != nil {
 		return err
 	}
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
-	}
-	for redirects := 0; resp.StatusCode >= 300 && resp.StatusCode < 400 && redirects < 5; redirects++ {
-		location := resp.Header.Get("Location")
-		resp.Body.Close()
-		if location == "" {
-			return fmt.Errorf("redirect without location")
-		}
-		req, err = http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
-		if err != nil {
-			return err
-		}
-		resp, err = client.Do(req)
-		if err != nil {
-			return err
-		}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

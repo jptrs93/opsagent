@@ -11,7 +11,7 @@ func (h *Handler) GetV1GlobalState(ctx apigen.Context) (*apigen.GlobalState, err
 	configs := h.filterDeploymentConfigs(ctx, h.Store.ListActiveDeploymentConfigs())
 	configItems := make([]*apigen.DeploymentConfig, 0, len(configs))
 	for _, cfg := range configs {
-		configItems = append(configItems, redactDeploymentConfig(cfg))
+		configItems = append(configItems, cfg)
 	}
 	slices.SortFunc(configItems, func(a, b *apigen.DeploymentConfig) int {
 		return cmp.Compare(a.ID, b.ID)
@@ -50,10 +50,10 @@ func (h *Handler) PostV1DeploymentsGet(ctx apigen.Context, req *apigen.Deploymen
 	})
 	instances := make([]*apigen.ScheduledInstanceState, 0, len(states))
 	for i := range states {
-		instances = append(instances, redactScheduledInstanceState(&states[i]))
+		instances = append(instances, &states[i])
 	}
 	return &apigen.DeploymentState{
-		Config:    redactDeploymentConfig(cfg),
+		Config:    cfg,
 		Instances: &apigen.ScheduledInstanceSnapshot{Items: instances},
 	}, nil
 }

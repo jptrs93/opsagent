@@ -42,10 +42,10 @@ export class DeploymentCreationUpdate {
         this.mode = editorMode;
         this.existingState = deployment;
         this.form = deploymentConfig ? deploymentConfigToForm(deploymentConfig) : emptyDeploymentForm();
-        const workload = deploymentConfig?.spec?.container1Spec || deploymentConfig?.spec?.systemdSpec;
+        const workload = deploymentConfig?.spec?.container1Spec || deploymentConfig?.spec?.opendeploySpec;
         const initialRunning = editorMode === 'create'
             ? (deployment ? Boolean(deployment.desiredRunning) : true)
-            : (workload ? Boolean(workload.running) : Boolean(deployment?.desiredRunning));
+            : (deploymentConfig?.spec?.opendeploySpec ? true : (workload ? Boolean(workload.running) : Boolean(deployment?.desiredRunning)));
         this.desiredRunning = van.state(initialRunning);
         this.documentRevision = van.state(0);
         this.initialSpecKey = JSON.stringify(formToSpec(this.form));
@@ -635,7 +635,7 @@ export class DeploymentCreationUpdate {
         const previousSource = this.persistedSource();
         const identity = document?.identity || {};
         const spec = document?.spec || {};
-        const workload = spec.container1Spec || spec.systemdSpec || {};
+        const workload = spec.container1Spec || spec.opendeploySpec || {};
         replaceDeploymentFormFromConfig(this.form, {
             id: Number(this.form.deploymentId.val || 0),
             name: identity.name || '',
@@ -661,7 +661,7 @@ export class DeploymentCreationUpdate {
             this.containerImage.tags.val = [];
         }
         this.invalidateExactValidation();
-        this.desiredRunning.val = Boolean(workload.running);
+        this.desiredRunning.val = spec.opendeploySpec ? true : Boolean(workload.running);
         const version = (workload.version || '').trim();
         if (this.form.sourceType.val === SOURCE_DOCKER_IMAGE) {
             this.containerImage.selectedTag.val = version;

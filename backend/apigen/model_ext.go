@@ -99,8 +99,8 @@ func (s *DeploymentSpec) WorkloadVersion() string {
 	if container := s.Container(); container != nil {
 		return container.Version
 	}
-	if s.SystemdSpec != nil {
-		return s.SystemdSpec.Version
+	if s.OpendeploySpec != nil {
+		return s.OpendeploySpec.Version
 	}
 	return ""
 }
@@ -109,7 +109,7 @@ func (s *DeploymentSpec) WorkloadRunning() bool {
 	if container := s.Container(); container != nil {
 		return container.Running
 	}
-	return s.SystemdSpec != nil && s.SystemdSpec.Running
+	return s.OpendeploySpec != nil
 }
 
 func (s *DeploymentSpec) SetWorkloadState(version string, running bool) error {
@@ -118,9 +118,8 @@ func (s *DeploymentSpec) SetWorkloadState(version string, running bool) error {
 		container.Running = running
 		return nil
 	}
-	if s.SystemdSpec != nil {
-		s.SystemdSpec.Version = version
-		s.SystemdSpec.Running = running
+	if s.OpendeploySpec != nil {
+		s.OpendeploySpec.Version = version
 		return nil
 	}
 	return fmt.Errorf("deployment spec has no supported workload")

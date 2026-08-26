@@ -1,4 +1,4 @@
-package githubreleaseimage
+package opendeployrelease
 
 import (
 	"archive/tar"

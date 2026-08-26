@@ -18,7 +18,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
-	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
@@ -44,7 +43,6 @@ type Handler struct {
 	Assets                *assetstore.Store
 	ConfigService         *config.Service
 	Config                *apigen.ClusterSettings
-	Github                githubcredentials.Provider
 	GitVersions           GitSourceProvider
 	GithubReleaseVersions *versionprovider.GithubReleaseVersionProvider
 
@@ -73,7 +71,6 @@ type Dependencies struct {
 	Store                 *state.Service
 	Assets                *assetstore.Store
 	ConfigService         *config.Service
-	Github                githubcredentials.Provider
 	GitVersions           GitSourceProvider
 	GithubReleaseVersions *versionprovider.GithubReleaseVersionProvider
 	Secrets               *secrets.Manager
@@ -139,7 +136,6 @@ func New(staticFS fs.FS, nodeID int32, deps Dependencies) (*Handler, error) {
 		Assets:                deps.Assets,
 		ConfigService:         deps.ConfigService,
 		Config:                &snapshot.Settings,
-		Github:                deps.Github,
 		GitVersions:           deps.GitVersions,
 		GithubReleaseVersions: deps.GithubReleaseVersions,
 		Secrets:               deps.Secrets,

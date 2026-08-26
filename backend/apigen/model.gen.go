@@ -262,7 +262,7 @@ type DeploymentSpec struct {
 	Container3Spec *ContainerSpec   `json:"container3_spec"`
 	MicroVmSpec    *MicroVMSpec     `json:"micro_vm_spec"`
 	VmSpec         *VMSpec          `json:"vm_spec"`
-	SystemdSpec    *SystemdSpec     `json:"systemd_spec"`
+	OpendeploySpec *OpendeploySpec  `json:"opendeploy_spec"`
 }
 
 type MicroVMSpec struct {
@@ -271,21 +271,8 @@ type MicroVMSpec struct {
 type VMSpec struct {
 }
 
-type SystemdSpec struct {
-	Source  *GithubRelease  `json:"source"`
-	Runtime *SystemdRuntime `json:"runtime"`
-	Version string          `json:"version,omitempty"`
-	Running bool            `json:"running"`
-}
-
-type GithubRelease struct {
-	Repo  string `json:"repo,omitempty"`
-	Asset string `json:"asset,omitempty"`
-}
-
-type SystemdRuntime struct {
-	Name    string `json:"name,omitempty"`
-	BinPath string `json:"bin_path,omitempty"`
+type OpendeploySpec struct {
+	Version string `json:"version,omitempty"`
 }
 
 type ContainerSpec struct {

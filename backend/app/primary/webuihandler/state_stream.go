@@ -99,7 +99,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 			configs := h.filterDeploymentConfigs(ctx, h.Store.ListActiveDeploymentConfigs())
 			configItems := make([]*apigen.DeploymentConfig, 0, len(configs))
 			for _, cfg := range configs {
-				configItems = append(configItems, redactDeploymentConfig(cfg))
+				configItems = append(configItems, cfg)
 			}
 			snapshot := h.Store.FetchScheduledSnapshotWithLatestFinal(nil)
 			items := make([]*apigen.ScheduledInstanceState, 0, len(snapshot))
@@ -108,7 +108,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !ok || !h.canAccess(ctx, vView, eDeployment, int64(spaceID), int64(snapshot[i].Instance.DeploymentID)) {
 					continue
 				}
-				items = append(items, redactScheduledInstanceState(&snapshot[i]))
+				items = append(items, &snapshot[i])
 			}
 			agentSessions := &apigen.AgentSessionList{}
 			if ctx.User != nil {
@@ -174,8 +174,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !known || !h.canAccess(ctx, vView, eDeployment, int64(spaceID), int64(state.Instance.DeploymentID)) {
 					continue
 				}
-				update := redactScheduledInstanceState(&state)
-				if !yield(&apigen.State{ScheduledInstanceUpdate: update}, nil) {
+				if !yield(&apigen.State{ScheduledInstanceUpdate: &state}, nil) {
 					return
 				}
 			case cfg, ok := <-configUpdatesCh:
@@ -186,7 +185,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !h.canAccess(ctx, vView, eDeployment, int64(cfg.SpaceID), int64(cfg.ID)) {
 					continue
 				}
-				if !yield(&apigen.State{DeploymentConfigUpdate: redactDeploymentConfig(&cfg)}, nil) {
+				if !yield(&apigen.State{DeploymentConfigUpdate: &cfg}, nil) {
 					return
 				}
 			case u, ok := <-userSub.Ch:

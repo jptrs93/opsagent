@@ -251,7 +251,7 @@ func buildAllowedRefs(snapshot []apigen.ScheduledInstanceState) clusterAllowedRe
 			refs.deploymentIDs[cfg.ID] = struct{}{}
 		}
 		container := cfg.Spec.Container()
-		if (container != nil && container.Source.NixDockerBuild != nil) || cfg.Spec.SystemdSpec != nil {
+		if container != nil && container.Source.NixDockerBuild != nil {
 			refs.usesGithub = true
 		}
 		if container == nil {

@@ -74,9 +74,10 @@ self-deployment. Public create/update validation rejects it.
 |---|---|---|
 | `runtime` | `user`, `envVars`, `overrideCommand`, `overrideWorkingDir`, `defaultVolume`, `crossDeploymentMounts`, `mounts`, `assetMounts`, `devShmSizeKb`, `fileDescriptorLimit` | Runs the selected source as a container via containerd with OpenDeploy-supervised crash/backoff. Networking is controlled by `spec.networking`. `envVars` contains typed literal, pinned secret/config, asset, or address references. A deployment may reference secrets only from its own space or the global space; creates, updates, and space moves reject other pins with `secret_reference_outside_space`, and the editor applies the same own-or-global scoping to `secret("name")`, `config("name")`, and `asset("name")` with the deployment's own space shadowing a same-named global item (an explicit `{ space = "name" }` option targets one of the two spaces exactly; the server enforces own-or-global locality for secret, config, and asset pins). `defaultVolume` controls the per-deployment data volume. `crossDeploymentMounts` references another same-node deployment by ID; `mounts` is the raw host-path escape hatch. Mount permissions are explicit `READ_WRITE`, `READ_ONLY`, or, where supported, `READ_EXECUTE`. Upgrade strategy and readiness are fields on `container1Spec`. Linux only. |
 
-`systemdSpec` remains an internal-only workload for the `OPENDEPLOY`
-self-deployment. Public create/update validation rejects it, and public state
-responses redact its runtime details.
+`opendeploySpec` remains an internal-only workload for the `OPENDEPLOY`
+self-deployment. It carries only the desired release version; public
+create/update validation rejects it, and the self-deployment cannot be
+stopped.
 
 ### Networking
 
@@ -138,10 +139,10 @@ Each deployment's runtime state is structured into sections owned by different c
 
 ### Workload desired state
 
-Set by user actions (deploy or stop). The selected `ContainerSpec` or
-`SystemdSpec` contains the target `version` and `running` boolean. Audit fields
-(`updated_at`, `author`) and the config revision remain on the parent
-`DeploymentConfig`.
+Set by user actions (deploy or stop). The selected `ContainerSpec` contains
+the target `version` and `running` boolean; `OpendeploySpec` carries only the
+target `version` and is always running. Audit fields (`updated_at`, `author`)
+and the config revision remain on the parent `DeploymentConfig`.
 
 Nix desired versions, when set, are full immutable commit hashes. Branch selection and the 25 most recent commits are discovery aids and are not persisted as source authority. Creating a running Nix deployment, starting one, changing its target commit, or changing its Nix source while it remains running performs synchronous remote commit and flake verification before persistence. Stopped Nix deployments still require structurally valid source fields but may omit the desired version and do not require remote accessibility until they transition to running.
 

@@ -12,7 +12,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
 
-const systemdTestInstanceID int32 = 1
+const opendeployTestInstanceID int32 = 1
 
 type fakeOperatorStore struct {
 	mu       sync.Mutex
@@ -44,10 +44,10 @@ func (s *fakeOperatorStore) runnerStatuses() []apigen.RunnerStatus {
 	return out
 }
 
-func TestSystemdReAttachPublishesSelfObservedRunning(t *testing.T) {
-	binPath, artifactPath := systemdTestSymlink(t)
+func TestOpendeployAttachKeepsPreviousStatusFields(t *testing.T) {
+	artifactPath := opendeployTestSymlink(t)
 	store := &fakeOperatorStore{}
-	dep := systemdTestDeployment(binPath)
+	dep := opendeployTestDeployment()
 	prev := apigen.RunnerStatus{
 		DeploymentConfigVersion: 5,
 		RunningArtifact:         "/old/artifact",
@@ -56,7 +56,7 @@ func TestSystemdReAttachPublishesSelfObservedRunning(t *testing.T) {
 		NumberOfRestarts:        2,
 	}
 
-	r := reAttachSystemdRunner(store, systemdTestInstanceID, dep, prev)
+	r := attachOpendeployRunner(store, opendeployTestInstanceID, dep, prev)
 	r.Stop()
 
 	statuses := store.runnerStatuses()
@@ -81,12 +81,12 @@ func TestSystemdReAttachPublishesSelfObservedRunning(t *testing.T) {
 	}
 }
 
-func TestObserveExistingSystemdRunnerPublishesCurrentProcessRunning(t *testing.T) {
-	binPath, artifactPath := systemdTestSymlink(t)
+func TestOpendeployAttachWithoutPreviousStatusPublishesCurrentProcessRunning(t *testing.T) {
+	artifactPath := opendeployTestSymlink(t)
 	store := &fakeOperatorStore{}
-	dep := systemdTestDeployment(binPath)
+	dep := opendeployTestDeployment()
 
-	r := observeExistingSystemdRunner(store, systemdTestInstanceID, dep)
+	r := attachOpendeployRunner(store, opendeployTestInstanceID, dep, apigen.RunnerStatus{})
 	r.Stop()
 
 	statuses := store.runnerStatuses()
@@ -108,12 +108,12 @@ func TestObserveExistingSystemdRunnerPublishesCurrentProcessRunning(t *testing.T
 	}
 }
 
-func TestReAttachRunningObservesOnlyMatchingSystemdBuild(t *testing.T) {
-	binPath, _ := systemdTestSymlink(t)
+func TestReAttachRunningAttachesOnlyMatchingOpendeployBuild(t *testing.T) {
+	opendeployTestSymlink(t)
 	matchingStore := &fakeOperatorStore{}
-	matching := systemdTestDeployment(binPath)
-	matching.Spec.SystemdSpec.Version = version.Version
-	matchingRunner := ReAttachRunning(matchingStore, nil, systemdTestInstanceID, matching, apigen.RunnerStatus{})
+	matching := opendeployTestDeployment()
+	matching.Spec.OpendeploySpec.Version = version.Version
+	matchingRunner := ReAttachRunning(matchingStore, nil, opendeployTestInstanceID, matching, apigen.RunnerStatus{})
 	matchingRunner.Stop()
 	statuses := matchingStore.runnerStatuses()
 	if len(statuses) != 1 || statuses[0].Status != apigen.RunningStatus_RUNNING {
@@ -121,10 +121,10 @@ func TestReAttachRunningObservesOnlyMatchingSystemdBuild(t *testing.T) {
 	}
 
 	mismatchedStore := &fakeOperatorStore{}
-	mismatched := systemdTestDeployment(binPath)
-	mismatched.Spec.SystemdSpec.Version = version.Version + "-next"
+	mismatched := opendeployTestDeployment()
+	mismatched.Spec.OpendeploySpec.Version = version.Version + "-next"
 	stale := apigen.RunnerStatus{DeploymentConfigVersion: mismatched.Version, Status: apigen.RunningStatus_STARTING}
-	mismatchedRunner := ReAttachRunning(mismatchedStore, nil, systemdTestInstanceID, mismatched, stale)
+	mismatchedRunner := ReAttachRunning(mismatchedStore, nil, opendeployTestInstanceID, mismatched, stale)
 	mismatchedRunner.Stop()
 	if statuses := mismatchedStore.runnerStatuses(); len(statuses) != 0 {
 		t.Fatalf("mismatched build published statuses: %+v", statuses)
@@ -134,9 +134,10 @@ func TestReAttachRunningObservesOnlyMatchingSystemdBuild(t *testing.T) {
 	}
 }
 
-func TestSystemdRestartLeavesStatusStartingForRestartedProcess(t *testing.T) {
+func TestOpendeployRestartLeavesStatusStartingForRestartedProcess(t *testing.T) {
 	tmp := t.TempDir()
 	binPath := filepath.Join(tmp, "bin", "opendeploy")
+	overrideOpendeployBinPath(t, binPath)
 	artifactPath := filepath.Join(tmp, "releases", "opendeploy")
 	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -149,7 +150,7 @@ func TestSystemdRestartLeavesStatusStartingForRestartedProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &fakeOperatorStore{}
-	dep := systemdTestDeployment(binPath)
+	dep := opendeployTestDeployment()
 	dep.Version = 9
 	preparerStatus := apigen.PreparerStatus{
 		DeploymentConfigVersion: dep.Version,
@@ -164,7 +165,7 @@ func TestSystemdRestartLeavesStatusStartingForRestartedProcess(t *testing.T) {
 	}
 	defer func() { systemctlRestartCommand = prevRestart }()
 
-	r := newSystemdRunnerWithRestart(store, systemdTestInstanceID, dep, preparerStatus)
+	r := newOpendeployRunnerWithRestart(store, opendeployTestInstanceID, dep, preparerStatus)
 	r.Stop()
 
 	if restartCalls != 1 {
@@ -189,18 +190,22 @@ func TestSystemdRestartLeavesStatusStartingForRestartedProcess(t *testing.T) {
 	}
 }
 
-func systemdTestDeployment(binPath string) *apigen.DeploymentConfig {
+func opendeployTestDeployment() *apigen.DeploymentConfig {
 	return &apigen.DeploymentConfig{
 		ID:      1,
 		Version: 7,
-		Spec: apigen.DeploymentSpec{SystemdSpec: &apigen.SystemdSpec{
-			Source:  &apigen.GithubRelease{},
-			Runtime: &apigen.SystemdRuntime{Name: "opendeploy", BinPath: binPath},
-		}},
+		Spec:    apigen.DeploymentSpec{OpendeploySpec: &apigen.OpendeploySpec{}},
 	}
 }
 
-func systemdTestSymlink(t *testing.T) (string, string) {
+func overrideOpendeployBinPath(t *testing.T, binPath string) {
+	t.Helper()
+	prev := opendeployBinPath
+	opendeployBinPath = binPath
+	t.Cleanup(func() { opendeployBinPath = prev })
+}
+
+func opendeployTestSymlink(t *testing.T) string {
 	t.Helper()
 	tmp := t.TempDir()
 	artifactPath := filepath.Join(tmp, "releases", "opendeploy")
@@ -217,9 +222,10 @@ func systemdTestSymlink(t *testing.T) (string, string) {
 	if err := os.Symlink(artifactPath, binPath); err != nil {
 		t.Fatal(err)
 	}
+	overrideOpendeployBinPath(t, binPath)
 	resolvedArtifactPath, err := filepath.EvalSymlinks(artifactPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return binPath, resolvedArtifactPath
+	return resolvedArtifactPath
 }

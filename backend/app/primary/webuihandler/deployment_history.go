@@ -24,7 +24,7 @@ func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.Deplo
 
 	entries := make([]*apigen.DeploymentHistoryEntry, 0, len(configs)+len(statuses))
 	for _, c := range configs {
-		entries = append(entries, &apigen.DeploymentHistoryEntry{Config: redactDeploymentConfig(c)})
+		entries = append(entries, &apigen.DeploymentHistoryEntry{Config: c})
 	}
 	for _, s := range statuses {
 		entries = append(entries, &apigen.DeploymentHistoryEntry{Status: s})

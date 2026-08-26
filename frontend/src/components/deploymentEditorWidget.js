@@ -66,7 +66,7 @@ export function deploymentEditorWidget(opts) {
         }
     }
 
-    const canEditState = mode === 'create' || deployment?.runnerType !== 'systemd';
+    const canEditState = mode === 'create' || deployment?.runnerType !== 'opendeploy';
     const requestDescription = van.state('');
     const errorMsg = van.state('');
     let requestSeq = 0;

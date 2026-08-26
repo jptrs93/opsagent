@@ -136,7 +136,7 @@ const actions = {
         const config = structuredClone(current);
         config.version = request.version;
         if (request.spec) config.spec = structuredClone(request.spec);
-        const workload = config.spec?.container1Spec || config.spec?.systemdSpec;
+        const workload = config.spec?.container1Spec || config.spec?.opendeploySpec;
         if (workload) {
             if (request.stop) workload.running = false;
             if (request.targetVersion) {

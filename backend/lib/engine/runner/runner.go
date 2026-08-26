@@ -1,8 +1,8 @@
 // Package runner spawns and monitors deployment artifacts. The operator
 // creates a Runner when a deployment should start and calls Stop when it
 // should stop or be replaced. Container runners own crash-restart with
-// exponential backoff. Systemd is retained for the internal OPENDEPLOY
-// deployment only.
+// exponential backoff. The opendeploy runner handles only the internal
+// self deployment.
 package runner
 
 import (
@@ -52,11 +52,10 @@ func Create(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, in
 	if status != nil {
 		preparer = status.Preparer
 	}
-	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf("runner.Create artifact=%q configSeqNo=%d systemd=%v",
-		preparer.Artifact, preparer.DeploymentConfigVersion, useSystemd(dep)))
-	switch {
-	case useSystemd(dep):
-		return newSystemdRunnerWithRestart(store, instanceID, dep, preparer)
+	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf("runner.Create artifact=%q configSeqNo=%d opendeploy=%v",
+		preparer.Artifact, preparer.DeploymentConfigVersion, isOpendeploy(dep)))
+	if isOpendeploy(dep) {
+		return newOpendeployRunnerWithRestart(store, instanceID, dep, preparer)
 	}
 	return newContainerRunner(store, inputs, instanceID, dep, preparer)
 }
@@ -75,30 +74,26 @@ func CreateRolloverCandidate(store storage.OperatorStore, inputs *runtimeinputs.
 // running. Container runners adopt an existing task by id, or start a fresh task
 // when there is nothing to adopt.
 //
-// For systemd/OpenDeploy self-deployments, an empty previous status means this
-// scheduled instance has never installed/restarted for its config version. Return
-// Stopped so the operator waits for prepare and then Create (install+restart).
-// Only a non-empty previous status reattaches to the already-running unit.
+// The opendeploy self deployment reattaches only when the current process is
+// the desired build; otherwise Stopped is returned so the operator waits for
+// prepare and then Create (install+restart).
 func ReAttachRunning(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) Runner {
-	if useSystemd(dep) && dep.WorkloadVersion() != version.Version {
+	if isOpendeploy(dep) {
+		if dep.WorkloadVersion() != version.Version {
+			slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf(
+				"runner.ReAttachRunning: desired opendeploy build %s differs from current process %s", dep.WorkloadVersion(), version.Version))
+			return Stopped()
+		}
 		slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf(
-			"runner.ReAttachRunning: desired systemd build %s differs from current process %s", dep.WorkloadVersion(), version.Version))
-		return Stopped()
+			"runner.ReAttachRunning: attaching current opendeploy build prev=[%s]", fmtRunnerStatus(prev)))
+		return attachOpendeployRunner(store, instanceID, dep, prev)
 	}
 	if prev.IsZero() {
-		if useSystemd(dep) {
-			slog.InfoContext(deploymentLogContext(instanceID, dep), "runner.ReAttachRunning: observing matching current systemd build")
-			return observeExistingSystemdRunner(store, instanceID, dep)
-		}
 		slog.InfoContext(deploymentLogContext(instanceID, dep), "runner.ReAttachRunning: no previous runner, returning stopped")
 		return Stopped()
 	}
 	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf(
 		"runner.ReAttachRunning: reattaching prev=[%s]", fmtRunnerStatus(prev)))
-	switch {
-	case useSystemd(dep):
-		return reAttachSystemdRunner(store, instanceID, dep, prev)
-	}
 	return reAttachContainerRunner(store, inputs, instanceID, dep, prev, containerStartupReattachRunning)
 }
 
@@ -112,7 +107,7 @@ func ReAttachStopped(store storage.OperatorStore, inputs *runtimeinputs.RuntimeI
 	}
 	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf(
 		"runner.ReAttachStopped: reconciling stopped deployment prev=[%s]", fmtRunnerStatus(prev)))
-	if useSystemd(dep) {
+	if isOpendeploy(dep) {
 		return Stopped()
 	}
 	return reAttachContainerRunner(store, inputs, instanceID, dep, prev, containerStartupReattachStopped)
@@ -128,8 +123,8 @@ func (stoppedRunner) Version() int32                   { return -1 }
 func (stoppedRunner) ArtifactMissing() <-chan struct{} { return nil }
 func (stoppedRunner) Serve() error                     { return nil }
 
-func useSystemd(dep *apigen.DeploymentConfig) bool {
-	return dep.Spec.SystemdSpec != nil
+func isOpendeploy(dep *apigen.DeploymentConfig) bool {
+	return dep.Spec.OpendeploySpec != nil
 }
 
 func fmtRunnerStatus(r apigen.RunnerStatus) string {

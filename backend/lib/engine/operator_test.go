@@ -11,7 +11,9 @@ import (
 	"github.com/jptrs93/goutil/timeu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/opendeployrelease"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
+	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
@@ -241,23 +243,22 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 		}
 	})
 
-	t.Run("empty systemd status starts prepare", func(t *testing.T) {
+	t.Run("empty opendeploy status starts prepare", func(t *testing.T) {
 		oldOutputDir := ainit.StaticConfig.PrepareOutputDir
 		ainit.StaticConfig.PrepareOutputDir = t.TempDir()
 		defer func() { ainit.StaticConfig.PrepareOutputDir = oldOutputDir }()
 
 		store := &recordingOperatorStore{}
 		op := DeploymentOperator{
-			Store:         store,
-			RuntimeInputs: runtimeinputs.New(nil, nil, nil),
+			Store:             store,
+			RuntimeInputs:     runtimeinputs.New(nil, nil, nil),
+			OpendeployRelease: opendeployrelease.New(t.TempDir(), githubrepo.NewClient(githubrepo.WithAPIBaseURL("http://127.0.0.1:1"))),
 		}
 		dep := &apigen.DeploymentConfig{
 			ID:      1,
 			Version: 4,
 			Spec: apigen.DeploymentSpec{
-				SystemdSpec: &apigen.SystemdSpec{
-					Source:  &apigen.GithubRelease{},
-					Runtime: &apigen.SystemdRuntime{Name: "opendeploy.service"},
+				OpendeploySpec: &apigen.OpendeploySpec{
 					Version: "v1",
 				},
 			},
@@ -269,7 +270,7 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 		}
 		// Empty status must not be treated as already-installed; prepare should run.
 		if store.preparerStatus().IsZero() {
-			t.Fatal("expected preparer status write from startPreparer, got empty (systemd empty-status shortcut still active?)")
+			t.Fatal("expected preparer status write from startPreparer, got empty (opendeploy empty-status shortcut still active?)")
 		}
 	})
 }

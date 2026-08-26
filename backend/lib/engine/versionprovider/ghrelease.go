@@ -6,7 +6,6 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
-	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 )
 
 // GithubReleaseVersionProvider lists release tags from the GitHub API.
@@ -14,11 +13,7 @@ type GithubReleaseVersionProvider struct {
 	client *githubrepo.Client
 }
 
-func NewGithubReleaseVersionProvider(provider githubcredentials.Provider) *GithubReleaseVersionProvider {
-	return NewGithubReleaseVersionProviderWithClient(githubrepo.NewClient(provider))
-}
-
-func NewGithubReleaseVersionProviderWithClient(client *githubrepo.Client) *GithubReleaseVersionProvider {
+func NewGithubReleaseVersionProvider(client *githubrepo.Client) *GithubReleaseVersionProvider {
 	return &GithubReleaseVersionProvider{client: client}
 }
 

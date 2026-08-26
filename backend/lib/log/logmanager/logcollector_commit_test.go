@@ -50,13 +50,13 @@ func (f *fakeInstanceStore) set(items ...apigen.ScheduledInstanceState) {
 	}
 }
 
-func instanceState(instanceID, deploymentID int32, status apigen.RunningStatus, systemd bool) apigen.ScheduledInstanceState {
+func instanceState(instanceID, deploymentID int32, status apigen.RunningStatus, opendeploy bool) apigen.ScheduledInstanceState {
 	var st apigen.ScheduledInstanceState
 	st.Instance.ID = instanceID
 	st.Instance.DeploymentID = deploymentID
 	st.Status.Runner.Status = status
-	if systemd {
-		st.Config.Spec.SystemdSpec = &apigen.SystemdSpec{}
+	if opendeploy {
+		st.Config.Spec.OpendeploySpec = &apigen.OpendeploySpec{}
 	}
 	return st
 }
@@ -790,7 +790,7 @@ func TestManagerAlignsCollectorsFromInstanceStream(t *testing.T) {
 		return c.producerCount == 2 && c.collectorRunning
 	})
 	if m.collector(43) != nil {
-		t.Fatal("systemd instance armed a collector")
+		t.Fatal("opendeploy instance armed a collector")
 	}
 	if m.collector(44) != nil {
 		t.Fatal("stopped instance armed a collector")

@@ -14,9 +14,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/containerimage"
-	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubrelease"
-	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubreleaseimage"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixdocker"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/opendeployrelease"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/preparerlog"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/engine/runner"
@@ -27,12 +26,11 @@ import (
 )
 
 type DeploymentOperator struct {
-	Store              storage.OperatorStore
-	GithubRelease      *githubrelease.Preparer
-	NixDocker          *nixdocker.Preparer
-	GithubReleaseImage *githubreleaseimage.Preparer
-	RuntimeInputs      *runtimeinputs.RuntimeInputs
-	ImageReady         func(context.Context, string) error
+	Store             storage.OperatorStore
+	OpendeployRelease *opendeployrelease.Preparer
+	NixDocker         *nixdocker.Preparer
+	RuntimeInputs     *runtimeinputs.RuntimeInputs
+	ImageReady        func(context.Context, string) error
 }
 
 func preparerReady(status *apigen.ScheduledInstanceStatus, seqNo int32) bool {
@@ -331,12 +329,12 @@ func (op DeploymentOperator) prepareImage(ctx context.Context, instanceID int32,
 	)
 	container := dep.Spec.Container()
 	switch {
-	case dep.Spec.SystemdSpec != nil && dep.Spec.SystemdSpec.Source != nil:
-		started, run = apigen.ImageStatus_IMAGE_DOWNLOADING, op.GithubRelease.Prepare
+	case dep.Spec.OpendeploySpec != nil:
+		started, run = apigen.ImageStatus_IMAGE_DOWNLOADING, op.OpendeployRelease.PrepareBinary
 	case container != nil && container.Source.NixDockerBuild != nil:
 		started, run = apigen.ImageStatus_IMAGE_BUILDING, op.NixDocker.Prepare
 	case container != nil && container.Source.RemoteImage != nil && container.Source.RemoteImage.Image == internaldeploy.NetproxyImage:
-		started, run = apigen.ImageStatus_IMAGE_DOWNLOADING, op.GithubReleaseImage.Prepare
+		started, run = apigen.ImageStatus_IMAGE_DOWNLOADING, op.OpendeployRelease.PrepareImage
 	case container != nil && container.Source.RemoteImage != nil:
 		started, run = apigen.ImageStatus_IMAGE_PULLING, containerimage.Prepare
 	default:
@@ -365,7 +363,7 @@ func (op DeploymentOperator) reAttachPreparer(instanceID int32, dep *apigen.Depl
 		// The image check comes first because it is local and decisive: a missing
 		// image genuinely needs the artifact rebuilt. Runtime inputs are checked
 		// after, so that a primary that is briefly unreachable cannot mask it.
-		if dep.Spec.SystemdSpec == nil {
+		if dep.Spec.OpendeploySpec == nil {
 			imageReady := op.ImageReady
 			if imageReady == nil {
 				imageReady = ctrd.Default.ImageReady
@@ -385,12 +383,12 @@ func (op DeploymentOperator) reAttachPreparer(instanceID int32, dep *apigen.Depl
 		slog.InfoContext(ctx, fmt.Sprintf("reAttachPreparer: no version to prepare configSeqNo=%d", dep.Version))
 		return prepare.Finished(dep.Version)
 	}
-	if dep.Spec.SystemdSpec != nil && prev.IsZero() && dep.WorkloadVersion() == version.Version {
-		slog.InfoContext(ctx, fmt.Sprintf("reAttachPreparer: current systemd build already installed configSeqNo=%d workloadVersion=%s", dep.Version, dep.WorkloadVersion()))
+	if dep.Spec.OpendeploySpec != nil && prev.IsZero() && dep.WorkloadVersion() == version.Version {
+		slog.InfoContext(ctx, fmt.Sprintf("reAttachPreparer: current opendeploy build already installed configSeqNo=%d workloadVersion=%s", dep.Version, dep.WorkloadVersion()))
 		return prepare.Finished(dep.Version)
 	}
 	// Empty/mismatched preparer status means this scheduled instance has not
-	// completed prepare yet. Always prepare — including systemd/OpenDeploy
+	// completed prepare yet. Always prepare — including OpenDeploy
 	// self-upgrades — so a new instance cannot ack RUNNING without install.
 	return op.startPreparer(instanceID, dep)
 }

@@ -100,8 +100,8 @@ func validateDeploymentSpecWithResolvers(spec *apigen.DeploymentSpec, assets dep
 	if err != nil {
 		return nil, invalidConfigErrf("spec is invalid: %v", err)
 	}
-	if out.SystemdSpec != nil {
-		return nil, invalidConfigErrf("systemdSpec is internal-only")
+	if out.OpendeploySpec != nil {
+		return nil, invalidConfigErrf("opendeploySpec is internal-only")
 	}
 	if out.Container1Spec == nil {
 		return nil, invalidConfigErrf("container1Spec is required")
@@ -773,8 +773,8 @@ func sameDesiredVersionSource(a, b *apigen.DeploymentSpec) bool {
 		return aNix.Repo == bNix.Repo && aFlake == bFlake
 	case aContainer != nil && bContainer != nil && aContainer.Source.RemoteImage != nil && bContainer.Source.RemoteImage != nil:
 		return aContainer.Source.RemoteImage.Image == bContainer.Source.RemoteImage.Image
-	case a.SystemdSpec != nil && b.SystemdSpec != nil && a.SystemdSpec.Source != nil && b.SystemdSpec.Source != nil:
-		return a.SystemdSpec.Source.Repo == b.SystemdSpec.Source.Repo && a.SystemdSpec.Source.Asset == b.SystemdSpec.Source.Asset
+	case a.OpendeploySpec != nil && b.OpendeploySpec != nil:
+		return true
 	default:
 		return false
 	}

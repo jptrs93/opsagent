@@ -1,11 +1,17 @@
 package internaldeploy
 
-import "github.com/jptrs93/opsagent/backend/apigen"
+import (
+	"runtime"
+
+	"github.com/jptrs93/opsagent/backend/apigen"
+)
 
 const (
 	SpaceID       int32 = 0
 	Repo                = "github.com/jptrs93/opsagent"
 	SelfName            = "opendeploy"
+	SelfUnit            = SelfName + ".service"
+	ReleaseAsset        = "opendeploy-linux-" + runtime.GOARCH
 	NetproxyName        = "opendeploy-net"
 	NetproxyImage       = "opendeploy-net"
 )

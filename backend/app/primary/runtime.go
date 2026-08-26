@@ -20,9 +20,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine"
 	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
 	"github.com/jptrs93/opsagent/backend/lib/engine/configdist"
-	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubrelease"
-	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/githubreleaseimage"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixdocker"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/opendeployrelease"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/engine/secretdist"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
@@ -100,7 +99,7 @@ func newRuntime() (*runtime, error) {
 		},
 	})
 	gitManager := repogit.NewManager(ainit.StaticConfig.GitCacheDir, githubCredentials)
-	githubClient := githubrepo.NewClient(githubCredentials)
+	githubClient := githubrepo.NewClient()
 	acmeHolder := acmestate.NewHolder()
 	acmeIssuer := acmeissue.New(secretsMgr, func() []apigen.DeploymentConfig {
 		return store.FetchDeploymentSnapshot(nil)
@@ -112,14 +111,13 @@ func newRuntime() (*runtime, error) {
 		configService:         configService,
 		github:                githubCredentials,
 		gitVersions:           versionprovider.NewGitVersionProvider(gitManager),
-		githubReleaseVersions: versionprovider.NewGithubReleaseVersionProviderWithClient(githubClient),
+		githubReleaseVersions: versionprovider.NewGithubReleaseVersionProvider(githubClient),
 		secrets:               secretsMgr,
 		operator: engine.DeploymentOperator{
-			Store:              store,
-			GithubRelease:      githubrelease.New(ainit.StaticConfig.ReleasesDir, githubClient),
-			NixDocker:          nixdocker.New(gitManager),
-			GithubReleaseImage: githubreleaseimage.New(ainit.StaticConfig.ReleasesDir, githubClient),
-			RuntimeInputs:      runtimeInputs,
+			Store:             store,
+			OpendeployRelease: opendeployrelease.New(ainit.StaticConfig.ReleasesDir, githubClient),
+			NixDocker:         nixdocker.New(gitManager),
+			RuntimeInputs:     runtimeInputs,
 		},
 		acmeHolder: acmeHolder,
 		acmeIssuer: acmeIssuer,
@@ -132,7 +130,6 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 		Store:                 r.store,
 		Assets:                r.assets,
 		ConfigService:         r.configService,
-		Github:                r.github,
 		GitVersions:           r.gitVersions,
 		GithubReleaseVersions: r.githubReleaseVersions,
 		Secrets:               r.secrets,

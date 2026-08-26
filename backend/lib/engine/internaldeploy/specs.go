@@ -1,8 +1,6 @@
 package internaldeploy
 
 import (
-	"runtime"
-
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
@@ -23,16 +21,7 @@ func IsInternalConfig(cfg *apigen.DeploymentConfig) bool {
 // SelfSpec is the desired spec of the per-node opendeploy system deployment.
 func SelfSpec() *apigen.DeploymentSpec {
 	return &apigen.DeploymentSpec{
-		SystemdSpec: &apigen.SystemdSpec{
-			Source: &apigen.GithubRelease{
-				Repo:  Repo,
-				Asset: "opendeploy-linux-" + runtime.GOARCH,
-			},
-			Runtime: &apigen.SystemdRuntime{
-				Name:    SelfName,
-				BinPath: SelfBinPath,
-			},
-		},
+		OpendeploySpec: &apigen.OpendeploySpec{},
 		Networking: apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST,
 		},
@@ -43,15 +32,7 @@ func SelfSpec() *apigen.DeploymentSpec {
 // workload state. Used to detect and repair administrator edits to the system
 // deployment.
 func IsSelfSpec(spec *apigen.DeploymentSpec) bool {
-	if spec == nil || spec.SystemdSpec == nil || spec.SystemdSpec.Source == nil || spec.SystemdSpec.Runtime == nil {
-		return false
-	}
-	gh := spec.SystemdSpec.Source
-	sys := spec.SystemdSpec.Runtime
-	return gh.Repo == Repo &&
-		gh.Asset == "opendeploy-linux-"+runtime.GOARCH &&
-		sys.Name == SelfName &&
-		sys.BinPath == SelfBinPath &&
+	return spec != nil && spec.OpendeploySpec != nil &&
 		spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_HOST
 }
 

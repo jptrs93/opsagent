@@ -130,7 +130,7 @@ function selectedDeployment(items, id) {
 
 function isSystemDeployment(item) {
     return item?.config?.name === SYSTEM_DEPLOYMENT_NAME && (
-        deploymentSpaceID(item) === SYSTEM_SPACE_ID || Boolean(item?.config?.spec?.systemdSpec)
+        deploymentSpaceID(item) === SYSTEM_SPACE_ID || Boolean(item?.config?.spec?.opendeploySpec)
     );
 }
 

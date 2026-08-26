@@ -121,6 +121,9 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	if !req.Spec.IsZero() && internaldeploy.IsInternalConfig(cfg) {
 		return nil, invalidConfigErrf("opendeploy system deployment identity and spec are internal-only")
 	}
+	if req.Stop && internaldeploy.IsSelfConfig(cfg) {
+		return nil, invalidConfigErrf("the opendeploy system deployment cannot be stopped")
+	}
 
 	var spec *apigen.DeploymentSpec
 	if !req.Spec.IsZero() {
@@ -360,7 +363,7 @@ func (h *Handler) PostV1DeploymentsVersions(ctx apigen.Context, req *apigen.Depl
 	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return nil, err
 	}
-	if internaldeploy.IsNetproxyConfig(cfg) {
+	if internaldeploy.IsInternalConfig(cfg) {
 		if h.GithubReleaseVersions == nil {
 			return nil, githubReleaseVersionsErr(fmt.Errorf("github release version loading is not configured"))
 		}
@@ -392,18 +395,6 @@ func (h *Handler) PostV1DeploymentsVersions(ctx apigen.Context, req *apigen.Depl
 				SelectedBranch: branch,
 				Commits:        commits,
 			},
-		}, nil
-	case cfg.Spec.SystemdSpec != nil && cfg.Spec.SystemdSpec.Source != nil:
-		if h.GithubReleaseVersions == nil {
-			return nil, githubReleaseVersionsErr(fmt.Errorf("github release version loading is not configured"))
-		}
-		releases, err := h.GithubReleaseVersions.ListReleases(ctx, cfg.Spec.SystemdSpec.Source.Repo)
-		if err != nil {
-			return nil, githubReleaseVersionsErr(fmt.Errorf("listing releases: %w", err))
-		}
-		return &apigen.DeploymentVersions{
-			DeploymentID:  req.DeploymentID,
-			GithubRelease: &apigen.DeploymentGithubReleaseVersions{Releases: releases},
 		}, nil
 	case container != nil && container.Source.RemoteImage != nil:
 		tags, err := versionprovider.ListContainerImageTags(ctx, container.Source.RemoteImage.Image)

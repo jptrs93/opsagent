@@ -67,26 +67,6 @@ func TestGetV1GlobalStateReturnsEachSection(t *testing.T) {
 	}
 }
 
-func TestGetV1GlobalStateRedactsSystemdRuntime(t *testing.T) {
-	h := newGlobalStateTestHandler(t)
-	spec := apigen.DeploymentSpec{
-		SystemdSpec:    &apigen.SystemdSpec{Runtime: &apigen.SystemdRuntime{Name: "svc", BinPath: "/usr/local/bin/svc"}},
-		Networking:     hostNetworking(),
-		Container1Spec: nil,
-	}
-	createTestDeployment(h.Store, "node-a", 0, "svc", &spec)
-
-	res, err := h.GetV1GlobalState(apigen.Context{Ctx: context.Background()})
-	if err != nil {
-		t.Fatalf("GetV1GlobalState: %v", err)
-	}
-	for _, d := range res.DeploymentConfigs.Items {
-		if d.Spec.SystemdSpec != nil && d.Spec.SystemdSpec.Runtime != nil {
-			t.Fatalf("systemd runtime must be redacted, got %+v", d.Spec.SystemdSpec.Runtime)
-		}
-	}
-}
-
 func TestGetV1GlobalStateExcludesDeletedDeployments(t *testing.T) {
 	h := newGlobalStateTestHandler(t)
 	cfg := createTestDeployment(h.Store, "node-a", 0, "gone", ptr(remoteDeploymentSpec("nginx", hostNetworking())))

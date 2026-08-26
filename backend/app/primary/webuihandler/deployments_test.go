@@ -16,7 +16,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
-	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
@@ -424,8 +423,8 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := githubrepo.NewClient(githubcredentials.SecretProvider{}, githubrepo.WithAPIBaseURL(server.URL))
-	provider := versionprovider.NewGithubReleaseVersionProviderWithClient(client)
+	client := githubrepo.NewClient(githubrepo.WithAPIBaseURL(server.URL))
+	provider := versionprovider.NewGithubReleaseVersionProvider(client)
 	tests := []struct {
 		name             string
 		createDeployment func(*testing.T, *state.Service) *apigen.DeploymentConfig
@@ -754,16 +753,13 @@ func TestValidateDeploymentSpecRejectsInvalidHostMounts(t *testing.T) {
 	}
 }
 
-func TestValidateDeploymentSpecRejectsSystemdRunner(t *testing.T) {
+func TestValidateDeploymentSpecRejectsOpendeploySpec(t *testing.T) {
 	_, err := validateDeploymentSpecWithAssets(&apigen.DeploymentSpec{
-		SystemdSpec: &apigen.SystemdSpec{
-			Source:  &apigen.GithubRelease{Repo: "github.com/acme/web"},
-			Runtime: &apigen.SystemdRuntime{Name: "opendeploy", BinPath: "/var/lib/opendeploy/bin/opendeploy"},
-		},
-		Networking: hostNetworking(),
+		OpendeploySpec: &apigen.OpendeploySpec{},
+		Networking:     hostNetworking(),
 	}, nil)
 	if err == nil {
-		t.Fatal("expected validateDeploymentSpecWithAssets to reject systemd runner")
+		t.Fatal("expected validateDeploymentSpecWithAssets to reject an opendeploy spec")
 	}
 }
 

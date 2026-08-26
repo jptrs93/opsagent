@@ -79,8 +79,7 @@ message HttpsConfig {
   CertSource cert_source = 7;
 }
 
-// TlsPassthroughConfig configures a TLS connection forwarded by SNI without
-// terminating TLS. host_port zero uses the default HTTPS port (443).
+// TlsPassthroughConfig configures a TLS connection forwarded by SNI without terminating TLS. host_port zero uses the default HTTPS port (443).
 message TlsPassthroughConfig {
   int32 host_port = 1;
   int32 container_port = 2;
@@ -148,9 +147,7 @@ message DeploymentConfig {
 message DeploymentSpec {
   NetworkingConfig networking = 1 [(cp.go_value) = true];
 
-  // Exactly one workload field must currently be set. Future multi-container
-  // support may allow multiple container fields, but container fields must
-  // never be combined with microVM, VM, or systemd fields.
+  // Exactly one type of workload spec field must currently be set.
   ContainerSpec container_1_spec = 2;
 
   ContainerSpec container_2_spec = 3; // todo: for future multi container support only
@@ -158,28 +155,17 @@ message DeploymentSpec {
 
   MicroVMSpec micro_vm_spec = 5; // todo: future implementation
   VMSpec vm_spec = 6;            // todo: future implementation
-  SystemdSpec systemd_spec = 7;  // internal opendeploy deployments only
+  OpendeploySpec opendeploy_spec = 7; // the internal opendeploy self deployment only
 }
 
 message MicroVMSpec {}
 
 message VMSpec {}
 
-message SystemdSpec {
-  GithubRelease source = 1;
-  SystemdRuntime runtime = 2;
+message OpendeploySpec {
+  reserved 1, 2, 4;
+  reserved "source", "runtime", "running";
   string version = 3;
-  bool running = 4;
-}
-
-message GithubRelease {
-  string repo = 1;
-  string asset = 2;  // asset name (optional; falls back to the architecture-specific asset or first asset)
-}
-
-message SystemdRuntime{
-  string name = 1;     // systemd unit name
-  string bin_path = 2; // where the artifact is installed on disk
 }
 
 message ContainerSpec {

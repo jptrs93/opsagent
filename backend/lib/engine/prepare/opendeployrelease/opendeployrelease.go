@@ -1,13 +1,13 @@
-// Package githubreleaseimage prepares OpenDeploy's internal netproxy image
-// from an opendeploy binary published in a GitHub release.
-package githubreleaseimage
+// Package opendeployrelease prepares the two opendeploy system deployments
+// from an opendeploy binary published in a GitHub release: the host binary for
+// the self deployment and the opendeploy-net container image.
+package opendeployrelease
 
 import (
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -17,28 +17,31 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/repo/github"
 )
 
-// Preparer downloads an OpenDeploy release binary and imports it as the
-// internal opendeploy-net container image.
 type Preparer struct {
 	releasesDir string
-	github      *github.Client
+	client      *github.Client
 }
 
-func New(releasesDir string, githubClient *github.Client) *Preparer {
+func New(releasesDir string, client *github.Client) *Preparer {
 	return &Preparer{
 		releasesDir: filepath.Clean(releasesDir),
-		github:      githubClient,
+		client:      client,
 	}
 }
 
-func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.ImageStatus) {
-	version := dep.WorkloadVersion()
-	if strings.TrimSpace(version) == "" {
-		log.Error("opendeploy-net requires an explicit desired version")
+func (p *Preparer) PrepareBinary(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.ImageStatus) {
+	assetPath, err := p.downloadReleaseBinary(ctx, dep.WorkloadVersion(), log)
+	if err != nil {
+		log.Error("downloading release asset: %v", err)
 		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
+	log.Write("download complete: %s", assetPath)
+	return assetPath, apigen.ImageStatus_IMAGE_READY
+}
 
-	assetPath, err := p.downloadReleaseAsset(ctx, version, log)
+func (p *Preparer) PrepareImage(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.ImageStatus) {
+	version := dep.WorkloadVersion()
+	assetPath, err := p.downloadReleaseBinary(ctx, version, log)
 	if err != nil {
 		log.Error("downloading OpenDeploy release binary: %v", err)
 		return "", apigen.ImageStatus_IMAGE_FAILED
@@ -64,37 +67,39 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, lo
 	return resolved, apigen.ImageStatus_IMAGE_READY
 }
 
-func (p *Preparer) downloadReleaseAsset(ctx context.Context, version string, log *preparerlog.Log) (string, error) {
+func (p *Preparer) downloadReleaseBinary(ctx context.Context, version string, log *preparerlog.Log) (string, error) {
 	ownerRepo, err := github.RepoOwnerName(internaldeploy.Repo)
 	if err != nil {
 		return "", fmt.Errorf("parsing repo: %w", err)
 	}
+
 	log.Write("fetching release %s tag %s", ownerRepo, version)
-	release, err := p.github.ReleaseByTag(ctx, internaldeploy.Repo, version)
+	release, err := p.client.ReleaseByTag(ctx, internaldeploy.Repo, version)
 	if err != nil {
 		return "", fmt.Errorf("fetching release: %w", err)
 	}
-	assetName := "opendeploy-linux-" + runtime.GOARCH
-	asset := pickAsset(release.Assets)
+
+	asset := findAsset(release.Assets)
 	if asset == nil {
-		return "", fmt.Errorf("asset %q not found in release %s; available: %v", assetName, version, assetNames(release.Assets))
+		return "", fmt.Errorf("asset %q not found in release %s; available: %v", internaldeploy.ReleaseAsset, version, assetNames(release.Assets))
 	}
 	log.Write("selected asset %s (%d bytes)", asset.Name, asset.Size)
 
-	dstDir := filepath.Join(p.releasesDir, ownerRepo, version)
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+	dstDir, err := p.prepareReleaseDir(ownerRepo, version)
+	if err != nil {
 		return "", fmt.Errorf("creating release dir: %w", err)
 	}
 	dstPath := filepath.Join(dstDir, asset.Name)
-	unlock := p.github.LockAssetDownload()
+	unlock := p.client.LockAssetDownload()
 	defer unlock()
+
 	if info, err := os.Stat(dstPath); err == nil && info.Size() == asset.Size && info.Mode().Perm()&0o111 != 0 {
 		log.Write("using cached asset %s", dstPath)
 		return dstPath, nil
 	}
 
 	log.Write("downloading asset to %s", dstPath)
-	if err := p.github.DownloadAsset(ctx, asset.URL, dstPath); err != nil {
+	if err := p.client.DownloadAsset(ctx, asset.URL, dstPath); err != nil {
 		return "", fmt.Errorf("download failed: %w", err)
 	}
 	if err := os.Chmod(dstPath, 0o755); err != nil {
@@ -103,10 +108,39 @@ func (p *Preparer) downloadReleaseAsset(ctx context.Context, version string, log
 	return dstPath, nil
 }
 
-func pickAsset(assets []github.Asset) *github.Asset {
-	name := "opendeploy-linux-" + runtime.GOARCH
+// prepareReleaseDir creates the per-release download dir and keeps every new
+// component traversable so non-owner runAs users can execute the artifact.
+func (p *Preparer) prepareReleaseDir(ownerRepo, tag string) (string, error) {
+	dstDir := filepath.Join(p.releasesDir, ownerRepo, tag)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return "", err
+	}
+	for dir := dstDir; ; dir = filepath.Dir(dir) {
+		if err := ensureReleaseDirMode(dir); err != nil {
+			return "", err
+		}
+		if dir == p.releasesDir {
+			break
+		}
+	}
+	return dstDir, nil
+}
+
+func ensureReleaseDirMode(dir string) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	// Existing release dirs may be root-owned from installer-driven upgrades.
+	if info.Mode().Perm()&0o755 == 0o755 {
+		return nil
+	}
+	return os.Chmod(dir, 0o755)
+}
+
+func findAsset(assets []github.Asset) *github.Asset {
 	for i := range assets {
-		if assets[i].Name == name {
+		if assets[i].Name == internaldeploy.ReleaseAsset {
 			return &assets[i]
 		}
 	}

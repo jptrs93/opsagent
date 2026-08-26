@@ -7,25 +7,15 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 )
 
-type testCredentialsProvider struct {
-	token string
-}
-
-func (p testCredentialsProvider) LoadCredentials(context.Context) (*githubcredentials.GithubCredentials, error) {
-	return &githubcredentials.GithubCredentials{Token: p.token}, nil
-}
-
-func TestListReleasesAuthenticatesRequest(t *testing.T) {
+func TestListReleases(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got, want := r.URL.RequestURI(), "/repos/acme/widget/releases?per_page=50"; got != want {
 			t.Errorf("request URI = %q, want %q", got, want)
 		}
-		if got, want := r.Header.Get("Authorization"), "Bearer secret"; got != want {
-			t.Errorf("Authorization = %q, want %q", got, want)
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Errorf("Authorization = %q, want empty", got)
 		}
 		if got, want := r.Header.Get("Accept"), "application/vnd.github+json"; got != want {
 			t.Errorf("Accept = %q, want %q", got, want)
@@ -34,7 +24,7 @@ func TestListReleasesAuthenticatesRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(testCredentialsProvider{token: "secret"}, WithAPIBaseURL(server.URL))
+	client := NewClient(WithAPIBaseURL(server.URL))
 	releases, err := client.ListReleases(context.Background(), "https://github.com/acme/widget.git", 50)
 	if err != nil {
 		t.Fatalf("ListReleases: %v", err)
@@ -44,32 +34,24 @@ func TestListReleasesAuthenticatesRequest(t *testing.T) {
 	}
 }
 
-func TestDownloadAssetStripsAuthAfterRedirect(t *testing.T) {
-	var redirectedAuth string
+func TestDownloadAssetFollowsRedirect(t *testing.T) {
 	assetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		redirectedAuth = r.Header.Get("Authorization")
 		_, _ = w.Write([]byte("artifact"))
 	}))
 	defer assetServer.Close()
 
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got, want := r.Header.Get("Authorization"), "Bearer secret"; got != want {
-			t.Errorf("initial Authorization = %q, want %q", got, want)
-		}
 		if got, want := r.Header.Get("Accept"), "application/octet-stream"; got != want {
-			t.Errorf("initial Accept = %q, want %q", got, want)
+			t.Errorf("Accept = %q, want %q", got, want)
 		}
 		http.Redirect(w, r, assetServer.URL+"/artifact", http.StatusFound)
 	}))
 	defer apiServer.Close()
 
 	dstPath := filepath.Join(t.TempDir(), "artifact")
-	client := NewClient(testCredentialsProvider{token: "secret"})
+	client := NewClient()
 	if err := client.DownloadAsset(context.Background(), apiServer.URL+"/asset", dstPath); err != nil {
 		t.Fatalf("DownloadAsset: %v", err)
-	}
-	if redirectedAuth != "" {
-		t.Fatalf("redirected Authorization = %q, want empty", redirectedAuth)
 	}
 	contents, err := os.ReadFile(dstPath)
 	if err != nil {
