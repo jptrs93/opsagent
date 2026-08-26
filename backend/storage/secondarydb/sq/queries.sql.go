@@ -50,8 +50,9 @@ INSERT INTO scheduled_instance_status (
     preparer_config_version, preparer_artifact,
     preparer_inputs_status, preparer_image_status,
     runner_config_version, runner_pid, runner_artifact, runner_status,
-    runner_num_restarts, runner_last_restart_at, runner_extra_blob
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    runner_num_restarts, runner_last_restart_at, runner_extra_blob,
+    runner_exit_code
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(scheduled_instance_id, updated_at) DO UPDATE SET
     deployment_id = excluded.deployment_id,
     preparer_config_version = excluded.preparer_config_version,
@@ -64,7 +65,8 @@ ON CONFLICT(scheduled_instance_id, updated_at) DO UPDATE SET
     runner_status = excluded.runner_status,
     runner_num_restarts = excluded.runner_num_restarts,
     runner_last_restart_at = excluded.runner_last_restart_at,
-    runner_extra_blob = excluded.runner_extra_blob
+    runner_extra_blob = excluded.runner_extra_blob,
+    runner_exit_code = excluded.runner_exit_code
 `
 
 type InsertScheduledInstanceStatusParams struct {
@@ -82,6 +84,7 @@ type InsertScheduledInstanceStatusParams struct {
 	RunnerNumRestarts     sql.NullInt64
 	RunnerLastRestartAt   sql.NullInt64
 	RunnerExtraBlob       []byte
+	RunnerExitCode        sql.NullInt64
 }
 
 func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, arg InsertScheduledInstanceStatusParams) error {
@@ -100,6 +103,7 @@ func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, arg InsertS
 		arg.RunnerNumRestarts,
 		arg.RunnerLastRestartAt,
 		arg.RunnerExtraBlob,
+		arg.RunnerExitCode,
 	)
 	return err
 }
@@ -109,7 +113,8 @@ SELECT s.scheduled_instance_id, s.updated_at, s.deployment_id,
        s.preparer_config_version, s.preparer_artifact,
        s.preparer_inputs_status, s.preparer_image_status,
        s.runner_config_version, s.runner_pid, s.runner_artifact, s.runner_status,
-       s.runner_num_restarts, s.runner_last_restart_at, s.runner_extra_blob
+       s.runner_num_restarts, s.runner_last_restart_at, s.runner_extra_blob,
+       s.runner_exit_code
 FROM scheduled_instance_status s
 JOIN (
     SELECT scheduled_instance_id, MAX(updated_at) AS updated_at
@@ -142,6 +147,7 @@ func (q *Queries) ListLatestScheduledInstanceStatuses(ctx context.Context) ([]Sc
 			&i.RunnerNumRestarts,
 			&i.RunnerLastRestartAt,
 			&i.RunnerExtraBlob,
+			&i.RunnerExitCode,
 		); err != nil {
 			return nil, err
 		}
@@ -221,7 +227,8 @@ SELECT scheduled_instance_id, updated_at, deployment_id,
        preparer_config_version, preparer_artifact,
        preparer_inputs_status, preparer_image_status,
        runner_config_version, runner_pid, runner_artifact, runner_status,
-       runner_num_restarts, runner_last_restart_at, runner_extra_blob
+       runner_num_restarts, runner_last_restart_at, runner_extra_blob,
+       runner_exit_code
 FROM scheduled_instance_status
 WHERE scheduled_instance_id = ? AND updated_at > ?
 ORDER BY updated_at ASC
@@ -256,6 +263,7 @@ func (q *Queries) ListScheduledInstanceStatusHistorySince(ctx context.Context, a
 			&i.RunnerNumRestarts,
 			&i.RunnerLastRestartAt,
 			&i.RunnerExtraBlob,
+			&i.RunnerExitCode,
 		); err != nil {
 			return nil, err
 		}

@@ -129,4 +129,5 @@ message RunnerStatus {
   string running_version = 8;
   // Networking diagnostics surfaced on the status card (e.g. an IPv4-only listener that is unreachable at its instance address).
   repeated string network_diagnostics = 10;
+  optional int32 exit_code = 11;
 }

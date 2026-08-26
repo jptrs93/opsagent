@@ -27,6 +27,7 @@ import {
   decodeConfigList,
   decodeDeploymentConfig,
   decodeDeploymentHistory,
+  decodeDeploymentRunReport,
   decodeDeploymentState,
   decodeDeploymentVersions,
   decodeEnrollmentPrimaryMsg,
@@ -84,6 +85,7 @@ import {
   encodeDeploymentDeleteRequest,
   encodeDeploymentGetRequest,
   encodeDeploymentHistoryRequest,
+  encodeDeploymentRunReportRequest,
   encodeDeploymentSpaceMoveRequest,
   encodeDeploymentUpdateRequest,
   encodeDeploymentVersionsRequest,
@@ -713,6 +715,18 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeLogQueryResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {DeploymentRunReportRequest} payload
+   * @returns {Promise<DeploymentRunReport>}
+   */
+  async postV1DeploymentsRunReport(payload) {
+    const response = await this.#request("/v1/deployments/run-report", { method: 'POST', body: encodeDeploymentRunReportRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeDeploymentRunReport(await response.arrayBuffer());
   }
 
   /**

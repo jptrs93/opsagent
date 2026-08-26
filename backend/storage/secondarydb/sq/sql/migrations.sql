@@ -8,3 +8,5 @@
 -- of legacy primary-side tables off worker databases), were removed after
 -- every active cluster had been rolled forward. Upgrading a database from
 -- before then requires stepping through a release that still carried them.
+
+ALTER TABLE scheduled_instance_status ADD COLUMN runner_exit_code INTEGER;

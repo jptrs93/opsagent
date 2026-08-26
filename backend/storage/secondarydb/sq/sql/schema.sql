@@ -79,5 +79,6 @@ CREATE TABLE IF NOT EXISTS scheduled_instance_status (
     runner_num_restarts     INTEGER,
     runner_last_restart_at  INTEGER,  -- epoch ms
     runner_extra_blob       BLOB    NOT NULL DEFAULT x'',
+    runner_exit_code        INTEGER,
     PRIMARY KEY (scheduled_instance_id, updated_at)
 );

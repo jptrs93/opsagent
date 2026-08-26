@@ -109,7 +109,7 @@ export function logScopePicker({scopeS, ordinalsS, versionsS, ensureVersions, fe
             "data-testid": "logs-scope-button",
             type: "button",
             disabled: () => Boolean(disabledS && disabledS.val),
-            class: "input flex items-center gap-1.5 whitespace-nowrap py-1 text-xs text-gray-200 cursor-pointer hover:bg-gray-700 disabled:cursor-default disabled:opacity-50 disabled:hover:bg-gray-800",
+            class: "input flex h-[30px] items-center gap-1.5 whitespace-nowrap text-xs text-gray-200 cursor-pointer hover:bg-gray-700 disabled:cursor-default disabled:opacity-50 disabled:hover:bg-gray-800",
             onclick: () => {
                 open.val = !open.val;
                 if (open.val) {

@@ -397,6 +397,7 @@ type RunnerStatus struct {
 	LastRestartAt           time.Time     `json:"last_restart_at"`
 	RunningVersion          string        `json:"running_version,omitempty"`
 	NetworkDiagnostics      []string      `json:"network_diagnostics,omitempty"`
+	ExitCode                *int32        `json:"exit_code,omitempty"`
 }
 
 type DeploymentUpdateRequest struct {
@@ -551,6 +552,25 @@ type DeploymentHistoryEntry struct {
 
 type DeploymentHistory struct {
 	Entries []*DeploymentHistoryEntry `json:"entries,omitempty"`
+}
+
+type DeploymentRunReportRequest struct {
+	ScheduledInstanceID int32 `json:"scheduled_instance_id"`
+	Run                 int32 `json:"run"`
+}
+
+type DeploymentRunReport struct {
+	DeploymentID      int32     `json:"deployment_id"`
+	DeploymentVersion int32     `json:"deployment_version"`
+	NodeID            int32     `json:"node_id"`
+	InstanceOrdinal   int32     `json:"instance_ordinal"`
+	Run               int32     `json:"run"`
+	Running           bool      `json:"running"`
+	StartedAt         time.Time `json:"started_at"`
+	StoppedAt         time.Time `json:"stopped_at"`
+	ExitCode          *int32    `json:"exit_code,omitempty"`
+	LogLines          []string  `json:"log_lines,omitempty"`
+	Warnings          []string  `json:"warnings,omitempty"`
 }
 
 type RawLogLine struct {

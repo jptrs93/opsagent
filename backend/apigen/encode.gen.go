@@ -1766,7 +1766,8 @@ func (m RunnerStatus) IsZero() bool {
 		m.NumberOfRestarts == 0 &&
 		m.LastRestartAt.IsZero() &&
 		m.RunningVersion == "" &&
-		len(m.NetworkDiagnostics) == 0
+		len(m.NetworkDiagnostics) == 0 &&
+		m.ExitCode == nil
 }
 
 func (m *RunnerStatus) Encode() []byte {
@@ -1779,6 +1780,7 @@ func (m *RunnerStatus) Encode() []byte {
 	b = AppendInt64FromTime(b, m.LastRestartAt, 7)
 	b = AppendStringField(b, m.RunningVersion, 8)
 	b = AppendRepeated(b, m.NetworkDiagnostics, AppendFieldDecorator(AppendStringField, 10))
+	b = AppendInt32FieldOpt(b, m.ExitCode, 11)
 	return b
 }
 
@@ -1817,6 +1819,8 @@ func DecodeRunnerStatus(b []byte) (*RunnerStatus, error) {
 			if err == nil {
 				m.NetworkDiagnostics = append(m.NetworkDiagnostics, item)
 			}
+		case 11:
+			b, m.ExitCode, err = ConsumeVarInt32Opt(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3074,6 +3078,105 @@ func DecodeDeploymentHistory(b []byte) (*DeploymentHistory, error) {
 				if err == nil {
 					m.Entries = append(m.Entries, item)
 				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *DeploymentRunReportRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ScheduledInstanceID, 1)
+	b = AppendInt32Field(b, m.Run, 2)
+	return b
+}
+
+func DecodeDeploymentRunReportRequest(b []byte) (*DeploymentRunReportRequest, error) {
+	var m DeploymentRunReportRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ScheduledInstanceID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Run, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *DeploymentRunReport) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DeploymentID, 1)
+	b = AppendInt32Field(b, m.DeploymentVersion, 2)
+	b = AppendInt32Field(b, m.NodeID, 3)
+	b = AppendInt32Field(b, m.InstanceOrdinal, 4)
+	b = AppendInt32Field(b, m.Run, 5)
+	b = AppendBoolField(b, m.Running, 6)
+	b = AppendInt64FromTime(b, m.StartedAt, 7)
+	b = AppendInt64FromTime(b, m.StoppedAt, 8)
+	b = AppendInt32FieldOpt(b, m.ExitCode, 9)
+	b = AppendRepeated(b, m.LogLines, AppendFieldDecorator(AppendStringField, 10))
+	b = AppendRepeated(b, m.Warnings, AppendFieldDecorator(AppendStringField, 11))
+	return b
+}
+
+func DecodeDeploymentRunReport(b []byte) (*DeploymentRunReport, error) {
+	var m DeploymentRunReport
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.DeploymentVersion, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.InstanceOrdinal, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.Run, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.Running, err = ConsumeBool(b, typ)
+		case 7:
+			b, m.StartedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 8:
+			b, m.StoppedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 9:
+			b, m.ExitCode, err = ConsumeVarInt32Opt(b, typ)
+		case 10:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.LogLines = append(m.LogLines, item)
+			}
+		case 11:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Warnings = append(m.Warnings, item)
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)

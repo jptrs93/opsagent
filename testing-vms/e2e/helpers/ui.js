@@ -91,12 +91,16 @@ export async function configureGithubToken(page, token) {
 
 export async function expectOpenDeployLogs(page) {
   await byTestId(page, 'nav-logs', page.getByText('Logs')).click();
-  const spaceSelect = page.getByTestId('logs-space-select');
-  await expect(spaceSelect).toBeVisible();
-  await expect.poll(async () => {
-    return await spaceSelect.locator('option').evaluateAll(options => options.map(o => o.value));
-  }, {message: 'expected default space option', timeout: LONG_UI_TIMEOUT}).toContain('0');
-  await spaceSelect.selectOption('0');
+  // The multi-select space filter defaults to every space visible; make sure
+  // the system space is checked so the opendeploy deployments are listed.
+  const spaceFilter = page.getByTestId('logs-space-filter');
+  await expect(spaceFilter).toBeVisible();
+  await spaceFilter.click();
+  const systemRow = page.getByTestId('logs-space-filter-row-0');
+  await expect(systemRow).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  if (await systemRow.getAttribute('aria-checked') !== 'true') await systemRow.click();
+  await page.mouse.click(2, 2);
+  await expect(systemRow).toBeHidden();
 
   const deploymentSelect = page.getByTestId('logs-deployment-select');
   await expect.poll(async () => {
@@ -1731,7 +1735,7 @@ async function openDeploymentLogsSearch(page, row) {
   // all of them open the same deployment's run output, so take the newest.
   await row.getByTitle('View run output').last().click();
   await expect(byTestId(page, 'nav-logs', page.getByText('Logs'))).toBeVisible();
-  await expect(page.getByTestId('logs-space-select')).toBeVisible();
+  await expect(page.getByTestId('logs-space-filter')).toBeVisible();
   await expect(page.getByTestId('logs-deployment-select')).not.toHaveValue('');
   await expect(page.getByTestId('logs-results')).toBeVisible();
 }

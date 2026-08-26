@@ -248,6 +248,7 @@ type ScheduledInstanceStatus struct {
 	RunnerNumRestarts     sql.NullInt64
 	RunnerLastRestartAt   sql.NullInt64
 	RunnerExtraBlob       []byte
+	RunnerExitCode        sql.NullInt64
 }
 
 type ScheduledInstanceVersion struct {

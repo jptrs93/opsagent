@@ -10,9 +10,10 @@ import {
     xIcon,
 } from "../lib/icons.js";
 import {loginS} from "../state/login.js";
-import {deploymentsS, machinesS, spacesS} from "../state/deployments.js";
+import {deploymentsS, machinesS} from "../state/deployments.js";
 import {nodeDisplayName} from "../lib/machines.js";
 import {logScopePicker} from "../components/logScopePicker.js";
+import {spacesFilter} from "../components/spacesFilter.js";
 
 const {button, div, input, option, p, pre, select, span} = van.tags;
 const {svg: svgEl, rect, line: svgLine} = van.tags("http://www.w3.org/2000/svg");
@@ -100,6 +101,20 @@ const OVERSCAN = 12;
 
 const CONTEXT_WINDOW = 30 * MIN;
 const CONTEXT_LIMIT = 100;
+
+const HIDDEN_SPACES_KEY = 'opsagent_logs_hidden_spaces';
+
+function loadHiddenSpaces() {
+    try {
+        const raw = localStorage.getItem(HIDDEN_SPACES_KEY);
+        if (raw) return new Set(JSON.parse(raw).map(Number));
+    } catch {}
+    return new Set();
+}
+
+function saveHiddenSpaces(set) {
+    try { localStorage.setItem(HIDDEN_SPACES_KEY, JSON.stringify([...set])); } catch {}
+}
 
 function fmtRowTime(ts) {
     const d = new Date(ts);
@@ -280,7 +295,7 @@ function tokensToRequest(tokens) {
 
 export function logsPage(selectedDeploymentId) {
     // --- state -------------------------------------------------------------
-    const spaceId = van.state('');
+    const hiddenSpaces = van.state(loadHiddenSpaces());
     const deploymentId = van.state(selectedDeploymentId.val || 0);
     const queryText = van.state('');
     // workloadScope narrows the search to a config version / instance ordinal /
@@ -447,21 +462,16 @@ export function logsPage(selectedDeploymentId) {
 
     // --- deployment scope ----------------------------------------------------
 
-    const spaceSelect = select({
-        "data-testid": "logs-space-select",
-        class: "input h-[26px] min-w-28 py-1 text-xs",
-        onchange: (e) => {
-            spaceId.val = e.target.value;
-            const current = selectedDeployment(liveDeployments(), Number(deploymentId.val || 0));
-            if (current && spaceId.val !== '' && deploymentSpaceID(current) !== Number(spaceId.val)) {
-                deploymentId.val = 0;
-            }
-        },
+    const spaceFilter = spacesFilter({
+        hiddenS: hiddenSpaces,
+        onChange: saveHiddenSpaces,
+        testid: "logs-space-filter",
+        buttonClass: "input inline-flex h-[30px] items-center gap-1.5 text-xs text-gray-200 cursor-pointer hover:bg-gray-700",
     });
 
     const deploymentSelect = select({
         "data-testid": "logs-deployment-select",
-        class: "input h-[26px] min-w-48 py-1 text-xs",
+        class: "input h-[30px] min-w-48 py-1 text-xs",
         onchange: (e) => {
             deploymentId.val = Number(e.target.value || 0);
             if (deploymentId.val) void runSearch();
@@ -469,10 +479,20 @@ export function logsPage(selectedDeploymentId) {
     });
 
     // rawVal: reacting to deploymentId here would snap a manual dropdown
-    // switch back to the deployment the page was opened for.
+    // switch back to the deployment the page was opened for. Navigating to a
+    // deployment in a hidden space unhides that space, else the reset-on-
+    // filter derive would immediately clear the selection.
     van.derive(() => {
         if (selectedDeploymentId.val && selectedDeploymentId.val !== deploymentId.rawVal) {
             deploymentId.val = selectedDeploymentId.val;
+            const item = selectedDeployment((deploymentsS.rawVal || []), selectedDeploymentId.val);
+            const sid = deploymentSpaceID(item);
+            if (item && hiddenSpaces.rawVal.has(sid)) {
+                const next = new Set(hiddenSpaces.rawVal);
+                next.delete(sid);
+                hiddenSpaces.val = next;
+                saveHiddenSpaces(next);
+            }
         }
     });
 
@@ -536,18 +556,7 @@ export function logsPage(selectedDeploymentId) {
 
     van.derive(() => {
         const items = liveDeployments();
-        const activeSpaceIDs = new Set(items.map(deploymentSpaceID));
-        const spaces = (spacesS.val || []).filter(space => activeSpaceIDs.has(space.id));
-        spaceSelect.replaceChildren(
-            option({value: ""}, "All spaces"),
-            ...spaces.map(space => option({value: String(space.id)}, space.name || `space ${space.id}`)),
-        );
-        spaceSelect.value = spaceId.val;
-    });
-
-    van.derive(() => {
-        const items = liveDeployments();
-        const filtered = spaceId.val !== '' ? items.filter(item => deploymentSpaceID(item) === Number(spaceId.val)) : items;
+        const filtered = items.filter(item => !hiddenSpaces.val.has(deploymentSpaceID(item)));
         if (deploymentId.val && filtered.length > 0 && !selectedDeployment(filtered, Number(deploymentId.val))) {
             deploymentId.val = 0;
         }
@@ -571,7 +580,7 @@ export function logsPage(selectedDeploymentId) {
 
     const queryInput = input({
         "data-testid": "logs-query-input",
-        class: "input search-input-iconed w-full py-1 pr-2 font-mono text-xs bg-gray-900",
+        class: "input search-input-iconed h-[30px] w-full py-1 pr-2 font-mono text-xs bg-gray-900",
         placeholder: 'free text and field filters — e.g. level:error "pool exhausted" status:500 err:* -host:node-2',
         value: () => queryText.val,
         oninput: (e) => { queryText.val = e.target.value; },
@@ -642,7 +651,7 @@ export function logsPage(selectedDeploymentId) {
         button({
             "data-testid": "logs-time-button",
             type: "button",
-            class: "input flex items-center gap-1.5 whitespace-nowrap py-1 text-xs text-gray-200 cursor-pointer hover:bg-gray-700",
+            class: "input flex h-[30px] items-center gap-1.5 whitespace-nowrap text-xs text-gray-200 cursor-pointer hover:bg-gray-700",
             onclick: () => { timeOpen.val = !timeOpen.val; },
         }, () => rangeLabel(), chevronDownIcon({class: "w-3 h-3 text-gray-500"})),
         () => !timeOpen.val ? '' : div(
@@ -673,7 +682,7 @@ export function logsPage(selectedDeploymentId) {
         {class: "flex-none border-b border-gray-700"},
         div(
             {class: "flex items-center gap-1.5 px-2 py-1.5"},
-            spaceSelect,
+            spaceFilter,
             deploymentSelect,
             logScopePicker({
                 scopeS: workloadScope,
@@ -695,7 +704,7 @@ export function logsPage(selectedDeploymentId) {
             button({
                 "data-testid": "logs-search-button",
                 type: "button",
-                class: "cursor-pointer rounded-[0.3rem] border border-brand bg-brand px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-default disabled:opacity-50",
+                class: "inline-flex h-[30px] cursor-pointer items-center rounded-[0.3rem] border border-brand bg-brand px-3 text-xs font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-default disabled:opacity-50",
                 disabled: () => searching.val,
                 onclick: () => void runSearch(),
             }, () => searching.val ? 'Searching…' : 'Search'),

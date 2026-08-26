@@ -229,6 +229,7 @@
  * @property {Date} lastRestartAt
  * @property {string} runningVersion
  * @property {string[]} networkDiagnostics
+ * @property {number} exitCode
  */
 /**
  * @typedef {Object} DeploymentUpdateRequest
@@ -383,6 +384,25 @@
 /**
  * @typedef {Object} DeploymentHistory
  * @property {DeploymentHistoryEntry[]} entries
+ */
+/**
+ * @typedef {Object} DeploymentRunReportRequest
+ * @property {number} scheduledInstanceId
+ * @property {number} run
+ */
+/**
+ * @typedef {Object} DeploymentRunReport
+ * @property {number} deploymentId
+ * @property {number} deploymentVersion
+ * @property {number} nodeId
+ * @property {number} instanceOrdinal
+ * @property {number} run
+ * @property {boolean} running
+ * @property {Date} startedAt
+ * @property {Date} stoppedAt
+ * @property {number} exitCode
+ * @property {string[]} logLines
+ * @property {string[]} warnings
  */
 /**
  * @typedef {Object} RawLogLine
@@ -4101,6 +4121,9 @@ export function writeRunnerStatus(message, writer) {
             writer.uint32(tag(10, WIRE.LDELIM)).string(item);
         }
     }
+    if (message.exitCode !== undefined && message.exitCode !== null) {
+        writer.uint32(tag(11, WIRE.VARINT)).int32(message.exitCode);
+    }
 }
 
 
@@ -4122,7 +4145,7 @@ export function encodeRunnerStatus(message) {
  */
 function decodeRunnerStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentConfigVersion: 0, runningPid: 0, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: new Date(0), runningVersion: "", networkDiagnostics: [] };
+    const message = {deploymentConfigVersion: 0, runningPid: 0, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: new Date(0), runningVersion: "", networkDiagnostics: [], exitCode: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4156,6 +4179,10 @@ function decodeRunnerStatusMessage(reader, length) {
             }
             case 10: {
                 message.networkDiagnostics.push(reader.string());
+                break;
+            }
+            case 11: {
+                message.exitCode = reader.int32();
                 break;
             }
             default:
@@ -6055,6 +6082,199 @@ function decodeDeploymentHistoryMessage(reader, length) {
 export function decodeDeploymentHistory(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeDeploymentHistoryMessage(reader);
+}
+
+
+
+/**
+ * @param {DeploymentRunReportRequest} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentRunReportRequest(message, writer) {
+    if (message.scheduledInstanceId !== undefined && message.scheduledInstanceId !== null && message.scheduledInstanceId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.scheduledInstanceId);
+    }
+    if (message.run !== undefined && message.run !== null && message.run !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.run);
+    }
+}
+
+
+/**
+ * @param {DeploymentRunReportRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentRunReportRequest(message) {
+    const writer = Writer.create();
+    writeDeploymentRunReportRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentRunReportRequest}
+ */
+function decodeDeploymentRunReportRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {scheduledInstanceId: 0, run: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.scheduledInstanceId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.run = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentRunReportRequest}
+ */
+export function decodeDeploymentRunReportRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentRunReportRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {DeploymentRunReport} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentRunReport(message, writer) {
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
+    }
+    if (message.deploymentVersion !== undefined && message.deploymentVersion !== null && message.deploymentVersion !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.deploymentVersion);
+    }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.nodeId);
+    }
+    if (message.instanceOrdinal !== undefined && message.instanceOrdinal !== null && message.instanceOrdinal !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.instanceOrdinal);
+    }
+    if (message.run !== undefined && message.run !== null && message.run !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.run);
+    }
+    if (message.running === true) {
+        writer.uint32(tag(6, WIRE.VARINT)).bool(message.running);
+    }
+    if (message.startedAt instanceof Date && message.startedAt.getTime() !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int64(Math.trunc(message.startedAt.getTime()));
+    }
+    if (message.stoppedAt instanceof Date && message.stoppedAt.getTime() !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int64(Math.trunc(message.stoppedAt.getTime()));
+    }
+    if (message.exitCode !== undefined && message.exitCode !== null) {
+        writer.uint32(tag(9, WIRE.VARINT)).int32(message.exitCode);
+    }
+    if (message.logLines && message.logLines.length > 0) {
+        for (const item of message.logLines) {
+            writer.uint32(tag(10, WIRE.LDELIM)).string(item);
+        }
+    }
+    if (message.warnings && message.warnings.length > 0) {
+        for (const item of message.warnings) {
+            writer.uint32(tag(11, WIRE.LDELIM)).string(item);
+        }
+    }
+}
+
+
+/**
+ * @param {DeploymentRunReport} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentRunReport(message) {
+    const writer = Writer.create();
+    writeDeploymentRunReport(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentRunReport}
+ */
+function decodeDeploymentRunReportMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {deploymentId: 0, deploymentVersion: 0, nodeId: 0, instanceOrdinal: 0, run: 0, running: false, startedAt: new Date(0), stoppedAt: new Date(0), exitCode: undefined, logLines: [], warnings: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.deploymentId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.deploymentVersion = reader.int32();
+                break;
+            }
+            case 3: {
+                message.nodeId = reader.int32();
+                break;
+            }
+            case 4: {
+                message.instanceOrdinal = reader.int32();
+                break;
+            }
+            case 5: {
+                message.run = reader.int32();
+                break;
+            }
+            case 6: {
+                message.running = reader.bool();
+                break;
+            }
+            case 7: {
+                message.startedAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 8: {
+                message.stoppedAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 9: {
+                message.exitCode = reader.int32();
+                break;
+            }
+            case 10: {
+                message.logLines.push(reader.string());
+                break;
+            }
+            case 11: {
+                message.warnings.push(reader.string());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentRunReport}
+ */
+export function decodeDeploymentRunReport(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentRunReportMessage(reader);
 }
 
 

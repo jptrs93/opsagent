@@ -232,6 +232,11 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1DeploymentsRunReport(DeploymentRunReportRequest) returns (DeploymentRunReport) {
+    option (cp.url) = "/v1/deployments/run-report";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   rpc PostV1DeploymentsPrepareOutput(PrepareOutputRequest) returns (stream PrepareOutputChunk) {
     option (cp.url) = "/v1/deployments/prepare-output";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };

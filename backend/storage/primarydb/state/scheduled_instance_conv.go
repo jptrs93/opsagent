@@ -52,6 +52,10 @@ func scheduledInstanceStatusRowToProto(r pq.ScheduledInstanceStatus) *apigen.Sch
 		if r.RunnerLastRestartAt.Valid {
 			st.Runner.LastRestartAt = time.UnixMilli(r.RunnerLastRestartAt.Int64)
 		}
+		if r.RunnerExitCode.Valid {
+			code := int32(r.RunnerExitCode.Int64)
+			st.Runner.ExitCode = &code
+		}
 		if len(r.RunnerExtraBlob) > 0 {
 			extra, err := apigen.DecodeRunnerStatus(r.RunnerExtraBlob)
 			if err != nil {
@@ -86,6 +90,9 @@ func scheduledInstanceStatusProtoToInsertParams(st *apigen.ScheduledInstanceStat
 		p.RunnerNumRestarts = sql.NullInt64{Int64: int64(st.Runner.NumberOfRestarts), Valid: true}
 		if !st.Runner.LastRestartAt.IsZero() {
 			p.RunnerLastRestartAt = sql.NullInt64{Int64: st.Runner.LastRestartAt.UnixMilli(), Valid: true}
+		}
+		if st.Runner.ExitCode != nil {
+			p.RunnerExitCode = sql.NullInt64{Int64: int64(*st.Runner.ExitCode), Valid: true}
 		}
 		p.RunnerExtraBlob = runnerStatusExtraBlob(st.Runner)
 	}

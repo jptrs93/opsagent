@@ -173,3 +173,22 @@ message DeploymentHistoryEntry {
 message DeploymentHistory {
   repeated DeploymentHistoryEntry entries = 1;
 }
+
+message DeploymentRunReportRequest {
+  int32 scheduled_instance_id = 1;
+  int32 run = 2;
+}
+
+message DeploymentRunReport {
+  int32 deployment_id = 1;
+  int32 deployment_version = 2;
+  int32 node_id = 3;
+  int32 instance_ordinal = 4;
+  int32 run = 5;
+  bool running = 6;
+  int64 started_at = 7 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 stopped_at = 8 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  optional int32 exit_code = 9;
+  repeated string log_lines = 10;
+  repeated string warnings = 11;
+}

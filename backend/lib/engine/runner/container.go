@@ -364,7 +364,7 @@ func (r *containerRunner) run() {
 				if r.usesLatestNetworkConfig() {
 					r.updateStatus(apigen.RunningStatus_RUNNING, int32(task.Pid()))
 				}
-				r.monitorTask(task)
+				r.status.ExitCode = r.monitorTask(task)
 				r.deleteTask(task)
 				r.setTask(nil)
 				r.cleanupContainerNetState()
@@ -406,6 +406,7 @@ func (r *containerRunner) run() {
 		}
 		hadProcess = true
 		r.status.LastRestartAt = time.Now()
+		r.status.ExitCode = nil
 
 		// Resolve typed env references at spawn time (values not persisted/logged;
 		// updates picked up on respawn).
@@ -558,9 +559,10 @@ func (r *containerRunner) run() {
 		}
 		startedAt := time.Now()
 
+		var exitCode *int32
 		exitDone := make(chan struct{})
 		go func() {
-			r.monitorTask(task)
+			exitCode = r.monitorTask(task)
 			close(exitDone)
 		}()
 
@@ -600,6 +602,7 @@ func (r *containerRunner) run() {
 		}
 
 		<-exitDone
+		r.status.ExitCode = exitCode
 		if closeReady != nil {
 			closeReady()
 		}
@@ -633,15 +636,22 @@ func (r *containerRunner) notifyArtifactMissing() {
 	}
 }
 
-func (r *containerRunner) monitorTask(task *ctrd.Task) {
+func (r *containerRunner) monitorTask(task *ctrd.Task) *int32 {
 	exitCh, err := task.Wait(r.ctx)
 	if err != nil {
 		slog.WarnContext(r.ctx, "waiting on container task failed", "err", err)
-		return
+		return nil
 	}
 	select {
-	case <-exitCh:
+	case es := <-exitCh:
+		if es.Err != nil {
+			slog.WarnContext(r.ctx, "reading container exit status failed", "err", es.Err)
+			return nil
+		}
+		code := int32(es.Code)
+		return &code
 	case <-r.ctx.Done():
+		return nil
 	}
 }
 

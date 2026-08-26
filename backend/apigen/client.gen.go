@@ -856,6 +856,25 @@ func (c *ApiServerCapi) PostV1DeploymentsLogQuery(ctx context.Context, req *LogQ
 	return DecodeLogQueryResponse(body)
 }
 
+func (c *ApiServerCapi) PostV1DeploymentsRunReport(ctx context.Context, req *DeploymentRunReportRequest) (*DeploymentRunReport, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1DeploymentsRunReport request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/deployments/run-report", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeDeploymentRunReport(body)
+}
+
 func (c *ApiServerCapi) PostV1DeploymentsPrepareOutput(ctx context.Context, req *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error] {
 	return func(yield func(*PrepareOutputChunk, error) bool) {
 		if req == nil {

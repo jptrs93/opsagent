@@ -239,6 +239,21 @@ func (s *Service) MustFetchDeploymentStatusHistory(deploymentID int32) []*apigen
 	return out
 }
 
+func (s *Service) MustFetchInstanceStatusHistory(instanceID int32) []*apigen.ScheduledInstanceStatus {
+	ctx := context.Background()
+	rows, err := s.q.ListScheduledInstanceStatusHistorySince(ctx, pq.ListScheduledInstanceStatusHistorySinceParams{
+		ScheduledInstanceID: int64(instanceID),
+	})
+	if err != nil {
+		panic(fmt.Sprintf("ListScheduledInstanceStatusHistorySince: %v", err))
+	}
+	out := make([]*apigen.ScheduledInstanceStatus, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, scheduledInstanceStatusRowToProto(r))
+	}
+	return out
+}
+
 func (s *Service) ListNonFinalScheduledInstancesForDeployment(deploymentID int32) []*apigen.ScheduledInstance {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()

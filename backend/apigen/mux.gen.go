@@ -112,6 +112,7 @@ type ApiServerHandler interface {
 	PostV1DeploymentsHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
 	PostV1DeploymentsVersions(Context, *DeploymentVersionsRequest) (*DeploymentVersions, error)
 	PostV1DeploymentsLogQuery(Context, *LogQueryRequest) (*LogQueryResponse, error)
+	PostV1DeploymentsRunReport(Context, *DeploymentRunReportRequest) (*DeploymentRunReport, error)
 	PostV1DeploymentsPrepareOutput(Context, *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error]
 	PostV1ReposValidate(Context, *RepoValidateRequest) (*RepoValidateResponse, error)
 	PostV1NodesList(Context) (*ClusterNodeList, error)
@@ -616,6 +617,17 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/deployments/log-query", buildHandlerFunc(config, verifyAuth, postV1DeploymentsLogQueryAccessPolicy, postAuthHandlerPostV1DeploymentsLogQuery, compressionModeAuto, false))
+	postV1DeploymentsRunReportAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1DeploymentsRunReport := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentRunReportRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1DeploymentsRunReport(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/deployments/run-report", buildHandlerFunc(config, verifyAuth, postV1DeploymentsRunReportAccessPolicy, postAuthHandlerPostV1DeploymentsRunReport, compressionModeAuto, false))
 	postV1DeploymentsPrepareOutputAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1DeploymentsPrepareOutput := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodePrepareOutputRequest)
