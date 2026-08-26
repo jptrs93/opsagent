@@ -364,10 +364,14 @@ func (s *Session) requestOneShot(ctx context.Context, req *apigen.MsgToWorker, s
 }
 
 func (s *Session) requestLogQuery(ctx context.Context, req *apigen.LogQueryRequest) (*apigen.LogQueryResponse, error) {
+	start := time.Now()
 	chunk, err := s.requestOneShot(ctx, &apigen.MsgToWorker{LogQueryRequest: req}, func(id string) { req.RequestID = id })
+	elapsed := time.Since(start).Round(time.Millisecond)
 	if err != nil {
+		slog.InfoContext(s.sessCtx, fmt.Sprintf("worker log query failed after %s requestID=%s", elapsed, req.RequestID), "dep", req.DeploymentID, "err", err)
 		return nil, err
 	}
+	slog.InfoContext(s.sessCtx, fmt.Sprintf("worker log query round trip %s requestID=%s", elapsed, req.RequestID), "dep", req.DeploymentID)
 	if chunk.errMsg != "" {
 		return nil, fmt.Errorf("%s", chunk.errMsg)
 	}

@@ -12,6 +12,7 @@ import {
 import {loginS} from "../state/login.js";
 import {deploymentsS, machinesS, spacesS} from "../state/deployments.js";
 import {nodeDisplayName} from "../lib/machines.js";
+import {logScopePicker} from "../components/logScopePicker.js";
 
 const {button, div, input, option, p, pre, select, span} = van.tags;
 const {svg: svgEl, rect, line: svgLine} = van.tags("http://www.w3.org/2000/svg");
@@ -63,19 +64,31 @@ const COLUMN_DEFS = {
 
 const META_FIELDS = new Set(['version', 'node', 'run', 'instance', 'stream']);
 
+const DAY = 24 * HOUR;
+// Ordered column-major for the two-column picker: minutes/hours down the left
+// column, days down the right.
 const PRESETS = [
+    {key: '5m', label: 'Last 5 minutes', ms: 5 * MIN},
     {key: '15m', label: 'Last 15 minutes', ms: 15 * MIN},
+    {key: '30m', label: 'Last 30 minutes', ms: 30 * MIN},
     {key: '1h', label: 'Last hour', ms: HOUR},
+    {key: '3h', label: 'Last 3 hours', ms: 3 * HOUR},
     {key: '6h', label: 'Last 6 hours', ms: 6 * HOUR},
     {key: '12h', label: 'Last 12 hours', ms: 12 * HOUR},
     {key: '24h', label: 'Last 24 hours', ms: 24 * HOUR},
-    {key: '48h', label: 'Last 48 hours', ms: 48 * HOUR},
+    {key: '2d', label: 'Last 2 days', ms: 2 * DAY},
+    {key: '4d', label: 'Last 4 days', ms: 4 * DAY},
+    {key: '7d', label: 'Last 7 days', ms: 7 * DAY},
+    {key: '14d', label: 'Last 14 days', ms: 14 * DAY},
+    {key: '21d', label: 'Last 21 days', ms: 21 * DAY},
+    {key: '30d', label: 'Last 30 days', ms: 30 * DAY},
 ];
 const DEFAULT_PRESET = '12h';
 
 // A row is as tall as the lines its message occupies: leading per line plus the
-// cell's py-[3px] and the row's border-b. Unwrapped rows are always one line;
-// wrapped ones run from one line up to WRAP_MAX_LINES.
+// cell's py-[3px] and the row's border-b. Embedded newlines always count;
+// wrapping adds the soft-wrapped lines on top. Either way a row runs from one
+// line up to WRAP_MAX_LINES.
 const LINE_H = 15;
 const CELL_PAD_Y = 6;
 const ROW_BORDER = 1;
@@ -151,11 +164,14 @@ function wrapRecord(r) {
     };
 }
 
-// Rows are fixed-height, so an unwrapped cell must render as exactly one line.
-// `white-space: pre` keeps intra-line spacing (worth having for log text) but
-// still breaks on newlines, which would grow the cell past the row and overlap
-// its neighbours — so embedded newlines become a visible marker instead.
-const singleLine = (s) => s.includes('\n') ? s.replace(/\r?\n/g, ' ↵ ') : s;
+// Unwrapped cells still break on embedded newlines — only soft-wrapping of
+// long lines is opt-in — so their height is the newline count, capped like
+// wrapped rows.
+const newlineLines = (text) => {
+    let n = 1, i = -1;
+    while (n < WRAP_MAX_LINES && (i = text.indexOf('\n', i + 1)) !== -1) n++;
+    return n;
+};
 
 // Wrapped row heights are computed rather than measured: the message column is
 // monospaced and breaks on any character (break-all), so a record's line count
@@ -267,6 +283,10 @@ export function logsPage(selectedDeploymentId) {
     const spaceId = van.state('');
     const deploymentId = van.state(selectedDeploymentId.val || 0);
     const queryText = van.state('');
+    // workloadScope narrows the search to a config version / instance ordinal /
+    // run; version and run 0 and instance null mean "all".
+    const workloadScope = van.state({version: 0, instance: null, run: 0});
+    const workloadVersionsS = van.state(null);
     const range = van.state({kind: 'preset', key: DEFAULT_PRESET});
     const levelOn = van.state(Object.fromEntries(LEVELS.map(l => [l, true])));
     const columns = van.state(['time', 'msg', 'level']);
@@ -313,11 +333,15 @@ export function logsPage(selectedDeploymentId) {
 
     const currentRequest = () => {
         const {filters, configVersion} = tokensToRequest(parseQuery(queryText.val));
+        const scope = workloadScope.val;
+        if (scope.instance != null) filters.push({field: 'instance', op: 'eq', value: String(scope.instance)});
+        if (scope.run) filters.push({field: 'run', op: 'eq', value: String(scope.run)});
         const enabled = LEVELS.filter(l => levelOn.val[l]);
         if (enabled.length < NL) {
             filters.push({field: 'level', op: 'in', values: enabled});
         }
-        return {...scopePayload(), configVersion, filters};
+        // An explicit version:N token in the query text outranks the picker.
+        return {...scopePayload(), configVersion: configVersion || Number(scope.version || 0), filters};
     };
 
     const runSearch = async () => {
@@ -425,7 +449,7 @@ export function logsPage(selectedDeploymentId) {
 
     const spaceSelect = select({
         "data-testid": "logs-space-select",
-        class: "input min-w-28 py-1 text-xs",
+        class: "input h-[26px] min-w-28 py-1 text-xs",
         onchange: (e) => {
             spaceId.val = e.target.value;
             const current = selectedDeployment(liveDeployments(), Number(deploymentId.val || 0));
@@ -437,17 +461,77 @@ export function logsPage(selectedDeploymentId) {
 
     const deploymentSelect = select({
         "data-testid": "logs-deployment-select",
-        class: "input min-w-48 py-1 text-xs",
+        class: "input h-[26px] min-w-48 py-1 text-xs",
         onchange: (e) => {
             deploymentId.val = Number(e.target.value || 0);
             if (deploymentId.val) void runSearch();
         },
     });
 
+    // rawVal: reacting to deploymentId here would snap a manual dropdown
+    // switch back to the deployment the page was opened for.
     van.derive(() => {
-        if (selectedDeploymentId.val && selectedDeploymentId.val !== deploymentId.val) {
+        if (selectedDeploymentId.val && selectedDeploymentId.val !== deploymentId.rawVal) {
             deploymentId.val = selectedDeploymentId.val;
         }
+    });
+
+    // --- version / instance / run scope --------------------------------------
+
+    const workloadOrdinals = van.derive(() => {
+        const item = selectedDeployment(liveDeployments(), Number(deploymentId.val || 0));
+        const ordinals = [...new Set((item?.scheduledInstances || []).map(s => Number(s.instance?.instanceOrdinal || 0)))].sort((a, b) => a - b);
+        return ordinals.length ? ordinals : [0];
+    });
+
+    let versionsForDeployment = 0;
+    const ensureWorkloadVersions = async () => {
+        const id = Number(deploymentId.val || 0);
+        if (!id) { workloadVersionsS.val = []; return; }
+        if (versionsForDeployment === id && workloadVersionsS.val) return;
+        versionsForDeployment = id;
+        workloadVersionsS.val = null;
+        const current = Number(selectedDeployment(liveDeployments(), id)?.config?.version || 0);
+        try {
+            const resp = await capi.postV1DeploymentsHistory({deploymentId: id});
+            if (versionsForDeployment !== id) return;
+            const versions = new Set((resp.entries || []).map(e => Number(e.config?.version || 0)));
+            if (current) versions.add(current);
+            workloadVersionsS.val = [...versions].filter(v => v > 0).sort((a, b) => b - a);
+        } catch {
+            if (versionsForDeployment !== id) return;
+            versionsForDeployment = 0;   // allow a retry on the next open
+            workloadVersionsS.val = current ? [current] : [];
+        }
+    };
+
+    // Run numbers only exist in the log store, so they come from an
+    // aggregates-only query's sampled field stats over the current range.
+    const fetchWorkloadRuns = async (version, instance) => {
+        const {startTs, endTs} = resolveRange();
+        const filters = [];
+        if (instance != null) filters.push({field: 'instance', op: 'eq', value: String(instance)});
+        const resp = await capi.postV1DeploymentsLogQuery({
+            ...scopePayload(),
+            configVersion: Number(version || 0),
+            filters,
+            timeStart: new Date(startTs),
+            timeEnd: new Date(endTs),
+            limit: -1,
+            histogramBuckets: 0,
+        });
+        const stats = (resp.fields || []).find(f => f.field === 'run');
+        const runs = [...new Set((stats?.top || []).map(e => Number(e.value)))]
+            .filter(n => Number.isFinite(n) && n > 0)
+            .sort((a, b) => b - a);
+        return {runs, distinct: Number(stats?.distinct || 0)};
+    };
+
+    van.derive(() => {
+        void deploymentId.val;
+        workloadScope.val = {version: 0, instance: null, run: 0};
+        workloadVersionsS.val = null;
+        versionsForDeployment = 0;
     });
 
     van.derive(() => {
@@ -506,21 +590,45 @@ export function logsPage(selectedDeploymentId) {
         span({class: "w-4"}, () => range.val.kind === 'preset' && range.val.key === preset.key ? checkIcon({class: "w-3.5 h-3.5 text-brand"}) : ''),
         preset.label);
 
+    // The custom inputs need [color-scheme:dark]: without it the browser
+    // renders the native picker chrome for a light page, which on this surface
+    // leaves the calendar control invisible.
+    // The inputs stay plain DOM state read back at apply time: binding their
+    // values through van states makes them dependencies of the enclosing
+    // dropdown binding, which then rebuilds — and resets both fields — on
+    // every edit. That is what made the pickers unusable before.
     const customRange = () => {
-        const startS = van.state(toLocalInputValue(resolveRange().startTs));
-        const endS = van.state(toLocalInputValue(resolveRange().endTs));
+        const rangeError = van.state('');
+        const dtInput = (testid, ts) => input({
+            "data-testid": testid,
+            class: "input min-w-0 flex-1 py-1 text-xs [color-scheme:dark]",
+            type: "datetime-local",
+            value: toLocalInputValue(ts),
+            oninput: () => { rangeError.val = ''; },
+        });
+        const {startTs, endTs} = resolveRange();
+        const startInput = dtInput("logs-custom-start", startTs);
+        const endInput = dtInput("logs-custom-end", endTs);
+        const dtField = (label, el) => div(
+            {class: "flex items-center gap-2"},
+            span({class: "w-8 flex-none text-[10px] text-gray-500"}, label),
+            el,
+        );
         return div(
             {class: "border-t border-gray-800 p-3 flex flex-col gap-1.5"},
             span({class: "text-[10px] uppercase tracking-wide text-gray-500"}, "custom range"),
-            input({class: "input py-1 text-xs", type: "datetime-local", value: startS.val, oninput: (e) => { startS.val = e.target.value; }}),
-            input({class: "input py-1 text-xs", type: "datetime-local", value: endS.val, oninput: (e) => { endS.val = e.target.value; }}),
+            dtField("from", startInput),
+            dtField("to", endInput),
+            () => rangeError.val ? span({class: "text-[10px] text-red-400"}, rangeError.val) : '',
             button({
+                "data-testid": "logs-custom-apply",
                 type: "button",
-                class: "btn-secondary mt-1 py-1 text-xs",
+                class: "mt-1 cursor-pointer rounded-[0.3rem] border border-gray-600 bg-gray-700 py-1 text-xs text-gray-200 transition-colors hover:bg-gray-600",
                 onclick: () => {
-                    const start = new Date(startS.val).getTime();
-                    const end = new Date(endS.val).getTime();
-                    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
+                    const start = new Date(startInput.value).getTime();
+                    const end = new Date(endInput.value).getTime();
+                    if (!Number.isFinite(start) || !Number.isFinite(end)) { rangeError.val = 'Enter a complete start and end date.'; return; }
+                    if (end <= start) { rangeError.val = 'End must be after start.'; return; }
                     range.val = {kind: 'custom', startTs: start, endTs: end};
                     timeOpen.val = false;
                     void runSearch();
@@ -540,8 +648,8 @@ export function logsPage(selectedDeploymentId) {
         () => !timeOpen.val ? '' : div(
             div({class: "fixed inset-0 z-20", onclick: () => { timeOpen.val = false; }}),
             div(
-                {class: "absolute right-0 top-full z-30 mt-1 w-64 rounded border border-gray-700 bg-gray-900 py-1 shadow-xl"},
-                ...PRESETS.map(presetRow),
+                {class: "absolute right-0 top-full z-30 mt-1 w-[22rem] rounded border border-gray-700 bg-gray-900 py-1 shadow-xl"},
+                div({class: "grid grid-flow-col grid-cols-2 grid-rows-[repeat(7,auto)]"}, ...PRESETS.map(presetRow)),
                 customRange(),
             ),
         ),
@@ -567,16 +675,27 @@ export function logsPage(selectedDeploymentId) {
             {class: "flex items-center gap-1.5 px-2 py-1.5"},
             spaceSelect,
             deploymentSelect,
+            logScopePicker({
+                scopeS: workloadScope,
+                ordinalsS: workloadOrdinals,
+                versionsS: workloadVersionsS,
+                ensureVersions: ensureWorkloadVersions,
+                fetchRuns: fetchWorkloadRuns,
+                disabledS: van.derive(() => !Number(deploymentId.val || 0)),
+                onChange: () => { if (Number(deploymentId.val || 0)) void runSearch(); },
+            }),
             div(
                 {class: "relative min-w-0 flex-1"},
                 span({class: "pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-gray-500"}, searchIcon({class: "w-3.5 h-3.5"})),
                 queryInput,
             ),
             timePicker,
+            // Not btn-primary: its un-layered padding beats utility overrides,
+            // and the border keeps the button the same box as the .input row.
             button({
                 "data-testid": "logs-search-button",
                 type: "button",
-                class: "btn-primary px-3 py-1 text-xs disabled:opacity-50",
+                class: "cursor-pointer rounded-[0.3rem] border border-brand bg-brand px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-default disabled:opacity-50",
                 disabled: () => searching.val,
                 onclick: () => void runSearch(),
             }, () => searching.val ? 'Searching…' : 'Search'),
@@ -941,14 +1060,16 @@ export function logsPage(selectedDeploymentId) {
         if (key === 'level') return rec.level
             ? div({class: `${base} font-medium ${levelMeta(rec.level).text}`}, rec.level)
             : div({class: `${base} text-gray-700`}, "—");
-        // The inline clamp pins the message to the lines the row was sized for,
-        // so a mis-estimate ellipsizes cleanly instead of leaving a clipped
-        // sliver of a fourth line.
+        // Newlines always render as line breaks (the row is sized for them);
+        // wrap only adds soft-wrapping of long lines. The inline clamp pins
+        // the message to the lines the row was sized for, so a mis-estimate
+        // ellipsizes cleanly instead of leaving a clipped sliver of an extra
+        // line.
         if (key === 'msg') return div({
-            class: `${base} font-mono text-gray-200 ${wrap.val ? 'line-clamp-3 whitespace-pre-wrap break-all' : 'truncate whitespace-pre'}`,
-            style: wrap.val ? `-webkit-line-clamp:${lines}` : '',
+            class: `${base} font-mono text-gray-200 line-clamp-3 ${wrap.val ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}`,
+            style: `-webkit-line-clamp:${lines}`,
             title: rec.msg,
-        }, wrap.val ? rec.msg : singleLine(rec.msg));
+        }, rec.msg);
         const value = recordField(rec, key);
         if (value === undefined || value === '') return div({class: `${base} text-gray-700`}, "—");
         return div({class: `${base} truncate whitespace-nowrap ${d.num ? 'text-right tabular-nums' : ''} ${d.mono ? 'font-mono' : ''} text-gray-300`}, String(value));
@@ -963,7 +1084,7 @@ export function logsPage(selectedDeploymentId) {
     const detailFieldRow = (rec, key, value) => div(
         {class: "group grid grid-cols-[9rem_minmax(0,1fr)_auto] items-baseline gap-2 rounded px-1 py-0.5 hover:bg-gray-800/40"},
         span({class: "truncate font-mono text-[11px] text-gray-500"}, key),
-        span({class: "break-all font-mono text-[11px] text-gray-200"}, String(value)),
+        span({class: "whitespace-pre-wrap break-all font-mono text-[11px] text-gray-200"}, String(value)),
         key === 'time' || key === 'msg' ? span() : div(
             {class: "hidden gap-0.5 group-hover:flex"},
             button({
@@ -1089,7 +1210,7 @@ export function logsPage(selectedDeploymentId) {
         const offsets = new Float64Array(len + 1);
         const lines = new Uint8Array(len);
         for (let i = 0; i < len; i++) {
-            const n = msgCols > 0 ? wrappedLines(records[i].msg, msgCols) : 1;
+            const n = msgCols > 0 ? wrappedLines(records[i].msg, msgCols) : newlineLines(records[i].msg);
             lines[i] = n;
             offsets[i + 1] = offsets[i] + rowHeight(n);
         }

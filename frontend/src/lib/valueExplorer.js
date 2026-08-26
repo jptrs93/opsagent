@@ -120,9 +120,11 @@ const compareBy = (sort, usesByKey) => {
 //     folders whose subtree has no survivors: a folder that expands to nothing
 //     is worse than a folder that is not there. Unnarrowed, empty folders stay
 //     visible with a count of 0 (you just created one; it has to be reachable).
-//   - query matches item names and config values; a folder whose own name
-//     matches keeps its whole subtree. An active query force-expands whatever
-//     survives, since matches hidden inside collapsed folders read as none.
+//   - query matches item names and config values, and folder names. A folder
+//     whose own name matches is a result in its own right: it survives on that
+//     alone, even when it is empty or holds nothing else that matches, and it
+//     keeps its whole subtree. An active query force-expands whatever survives,
+//     since matches hidden inside collapsed folders read as none.
 //
 // Counts on space and folder rows follow the composed filter. hiddenByType is
 // the count of items in visible spaces removed by the type filter alone.
@@ -156,17 +158,22 @@ export function buildRows({spaces, dirs, items, hiddenSpaceIds, types = null, qu
         (item.kind === "config" && item.value.toLowerCase().includes(q));
 
     const visited = new Set();
+    // `kept` reports whether the subtree produced any row at all, which is not
+    // the same as `count > 0`: a folder retained purely because its own name
+    // matches counts zero items but must still hold its ancestors open.
     const walk = (spaceId, parentId, depth, ancestorMatch) => {
         const key = `${spaceId}:${parentId}`;
-        if (visited.has(key)) return {count: 0, rows: []};
+        if (visited.has(key)) return {count: 0, rows: [], kept: false};
         visited.add(key);
         const rows = [];
         let count = 0;
+        let kept = false;
         for (const dir of [...(childDirs.get(key) || [])].sort(cmpDirs)) {
-            const dirMatch = ancestorMatch || (q !== "" && (dir.name || "").toLowerCase().includes(q));
-            const sub = walk(spaceId, Number(dir.id), depth + 1, dirMatch);
-            if (narrowed && sub.count === 0) continue;
+            const selfMatch = q !== "" && (dir.name || "").toLowerCase().includes(q);
+            const sub = walk(spaceId, Number(dir.id), depth + 1, ancestorMatch || selfMatch);
+            if (narrowed && !selfMatch && !sub.kept) continue;
             count += sub.count;
+            kept = true;
             const dirKey = `dir:${dir.id}`;
             const open = q ? true : expanded.has(dirKey);
             rows.push({type: "dir", dir, key: dirKey, depth, count: sub.count, expanded: open});
@@ -176,9 +183,10 @@ export function buildRows({spaces, dirs, items, hiddenSpaceIds, types = null, qu
             if (typeSet !== null && !typeSet.has(item.kind)) continue;
             if (!ancestorMatch && !matchesQuery(item)) continue;
             count += 1;
+            kept = true;
             rows.push({type: "item", item, key: itemKey(item), depth});
         }
-        return {count, rows};
+        return {count, rows, kept};
     };
 
     const rows = [];
@@ -191,7 +199,7 @@ export function buildRows({spaces, dirs, items, hiddenSpaceIds, types = null, qu
         if (hiddenSpaceIds.has(spaceId)) continue;
         const sub = walk(spaceId, 0, 1, false);
         const spaceKey = `space:${spaceId}`;
-        const open = q ? sub.count > 0 : expanded.has(spaceKey);
+        const open = q ? sub.kept : expanded.has(spaceKey);
         rows.push({type: "space", space, key: spaceKey, depth: 0, count: sub.count, expanded: open});
         if (open) rows.push(...sub.rows);
     }

@@ -107,6 +107,30 @@ test("a folder whose own name matches keeps its whole subtree", () => {
     assert.deepEqual(rows.filter((r) => r.type === "item").map((r) => r.key), ["secret:3"]);
 });
 
+test("a folder whose own name matches survives on that alone, holding nothing", () => {
+    const dirs = [...DIRS, dir(13, 1, "archive")];
+    const {rows} = build({dirs, query: "archive"});
+    assert.deepEqual(rows.map((r) => r.key), ["space:1", "dir:13", "space:2"]);
+    assert.equal(rows.find((r) => r.key === "dir:13").count, 0);
+});
+
+test("a matching folder holds its unmatched ancestors open", () => {
+    // stripe/archive matches; nothing under it does, and stripe itself does not.
+    const dirs = [...DIRS, dir(13, 1, "archive", 11)];
+    const {rows} = build({dirs, query: "archive"});
+    assert.deepEqual(rows.map((r) => r.key), ["space:1", "dir:11", "dir:13", "space:2"]);
+});
+
+test("a name match outranks the type filter for the folder itself", () => {
+    // stripe holds only a secret, so a config-only filter empties it — but the
+    // folder is a search result in its own right, so it stays, showing 0.
+    const {rows} = build({query: "stripe", types: new Set(["config"])});
+    const stripe = rows.find((r) => r.key === "dir:11");
+    assert.ok(stripe);
+    assert.equal(stripe.count, 0);
+    assert.ok(!rows.some((r) => r.type === "item"));
+});
+
 test("sorting orders siblings within each folder; folders reorder only under name", () => {
     const byVersion = build({sort: {key: "version", dir: "desc"}, expanded: new Set(["space:1", "dir:10"])});
     const inPostgres = byVersion.rows.filter((r) => r.depth === 2).map((r) => r.key);
