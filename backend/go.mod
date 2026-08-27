@@ -1,6 +1,6 @@
 module github.com/jptrs93/opsagent/backend
 
-go 1.26.3
+go 1.27.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.0

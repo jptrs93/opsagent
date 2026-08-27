@@ -13,8 +13,10 @@ Shipped so far: route-protocol ownership (documented value `200` with
 structural ownership checks), the `ClusterNetMap`/`NetMapStatus` protocol with
 `derived_from_seq` stamping and session-based acceptance, worker persistence
 of accepted maps, fixed `ip6tnl`/SIT tunnel and remote routed-prefix
-reconciliation on workers, and the map-application barrier used by cross-node
-rollover. Routes are prefixes (`/100` per serving instance, `/120` per
+reconciliation on workers, the map-application barrier used by cross-node
+rollover, and the primary's in-process application of its own targeted map
+(same tunnel/route reconciliation, applied stamps recorded into the same
+barrier). Routes are prefixes (`/100` per serving instance, `/120` per
 placement) derived purely from scheduled-instance assignments, which removed
 the earlier plan's need for runner-status-derived routes and worker
 candidate-route reports.
@@ -41,9 +43,6 @@ traversal, and encrypted transport are outside this plan.
 
 The following do not exist yet:
 
-- Applying equivalent remote topology on the primary node. Worker-to-worker
-  routing is implemented, but primary-hosted workloads do not receive remote
-  routes.
 - Source anti-spoofing and destination ingress policy.
 - Cross-node DNS data. `netstate.pb` is derived node-locally, so `.internal`
   names resolve only for deployments on the resolving node.
@@ -89,16 +88,15 @@ until authenticated transport is added.
 ## Implementation sequence
 
 Milestones 0–3 of the original plan (route ownership, the network-map API and
-persistence, and fixed tunnel reconciliation on workers) have shipped; the
-former runtime route-reporting milestone was made unnecessary by deriving
-prefix routes from assignments alone.
-
-### Milestone: primary-node topology
-
-- Apply the primary's own targeted cluster map on the primary node so
-  primary-hosted workloads reach and are reachable from remote placements.
+persistence, and fixed tunnel reconciliation on workers) have shipped, as has
+the primary-node topology milestone (the primary applies its own targeted map
+in-process); the former runtime route-reporting milestone was made unnecessary
+by deriving prefix routes from assignments alone.
 
 ### Milestone: logical network policy
+
+Planned in detail in
+[`network-policy-implementation-plan.md`](network-policy-implementation-plan.md).
 
 - Add nftables source anti-spoofing per local attachment.
 - Add same-space destination ingress policy.

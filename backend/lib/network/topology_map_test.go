@@ -1,15 +1,14 @@
-package secondary
+package network
 
 import (
 	"net/netip"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/network"
 )
 
 func TestTopologyFromClusterNetMapUsesOnlyRemoteRouteHosts(t *testing.T) {
-	prefix := network.GeneratePrefix()
+	prefix := GeneratePrefix()
 	localPrefix, err := prefix.InstanceCIDR(1, 10, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -30,7 +29,7 @@ func TestTopologyFromClusterNetMapUsesOnlyRemoteRouteHosts(t *testing.T) {
 		},
 	}
 
-	topology, err := topologyFromClusterNetMap(clusterMap, 1, prefix)
+	topology, err := TopologyFromClusterNetMap(clusterMap, 1, prefix)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,12 +45,12 @@ func TestTopologyFromClusterNetMapUsesOnlyRemoteRouteHosts(t *testing.T) {
 }
 
 func TestTopologyFromClusterNetMapRejectsMissingRouteHostUnderlay(t *testing.T) {
-	prefix := network.GeneratePrefix()
+	prefix := GeneratePrefix()
 	destination, err := prefix.InstanceCIDR(1, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = topologyFromClusterNetMap(&apigen.ClusterNetMap{
+	_, err = TopologyFromClusterNetMap(&apigen.ClusterNetMap{
 		Nodes: []*apigen.ClusterNetMapNode{
 			{NodeID: 1, UnderlayAddress: "192.0.2.1"},
 			{NodeID: 2},

@@ -6,9 +6,10 @@ package netmappublisher
 // draining placement, above all — waits for the write sequence that encodes it
 // to be applied everywhere rather than guessing at a propagation delay.
 
-// RecordApplied notes how far one connected worker has applied, as the
-// derived_from_seq stamp of the newest map it reports cleanly applied. Workers
-// report this unprompted after accepting each map, so the barrier advances on
+// RecordApplied notes how far one node has applied, as the derived_from_seq
+// stamp of the newest map it reports cleanly applied. Workers report this
+// unprompted after accepting each map, and the primary's in-process applier
+// records after reconciling its own targeted map, so the barrier advances on
 // its own.
 func (p *Publisher) RecordApplied(nodeID int32, appliedSeq int64) {
 	if nodeID <= 0 {
@@ -38,16 +39,16 @@ func (p *Publisher) ForgetNode(nodeID int32) {
 }
 
 // DecisionInForce reports whether the routing implied by the sequenced write
-// at seq has been rendered and applied by every worker known to hold a map.
+// at seq has been rendered and applied by every node known to hold a map.
 //
 // Two conditions compose it. First, a render must have seen state@seq: until
 // then the current map may predate the decision entirely. Second, every
-// reporting worker must have applied the current map's stamp. When the render
-// at seq changed no routes, the current map keeps its older stamp, workers
+// reporting node must have applied the current map's stamp. When the render
+// at seq changed no routes, the current map keeps its older stamp, nodes
 // already applied it, and the wait is satisfied immediately — that is what
 // makes a same-node rollover need no propagation wait, with no special case.
 //
-// Workers that have never reported are not counted. A worker only reports after
+// Nodes that have never reported are not counted. A node only reports after
 // accepting a map, so one that has never reported holds no routes at all and
 // therefore cannot be routing to a placement the barrier is trying to retire.
 // Counting them would wedge the barrier behind any node that connects without

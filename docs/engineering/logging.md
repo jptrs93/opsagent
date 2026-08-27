@@ -95,6 +95,7 @@ One tag per component boundary; PascalCase. Current tags:
 | `Backup` | `app/primary/backup` |
 | `ClusterServer` | `app/primary/clusterserver`, `app/primary/clusterhandler` |
 | `NetmapPublisher` | `app/primary/netmappublisher` |
+| `NetmapApplier` | `app/primary/netmapapply.go` (primary's in-process map applier) |
 | `WebUI` | `app/primary/webui` |
 | `Secrets` | `lib/secrets` |
 | `Network` | `lib/network` |

@@ -127,9 +127,9 @@ Settings (cluster-scoped): ingress machine designation.
 ## Remaining implementation phases
 
 Phases 1 and 2 of the original plan (the machine-local virtual network, and
-worker-to-worker fixed-tunnel routing with netmap distribution) have shipped,
-except that the primary node does not yet apply its own targeted map. Phase 3
-ingress has shipped node-locally (TLS passthrough, HTTPS termination, ACME).
+cross-node fixed-tunnel routing with netmap distribution, applied on workers
+and the primary alike) have shipped. Phase 3 ingress has shipped node-locally
+(TLS passthrough, HTTPS termination, ACME).
 
 ### Ingress completion
 

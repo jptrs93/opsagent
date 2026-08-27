@@ -11,16 +11,16 @@
       let
         pkgs = import nixpkgs { inherit system; };
 
-        go = pkgs.go_1_26;
+        go = pkgs.go_1_27;
         nodejs = pkgs.nodejs_24;
         pnpm = pkgs.pnpm_10;
 
-        frontendDeps = pkgs.fetchPnpmDeps {
+        frontendDeps = pnpm.fetchDeps {
           pname = "opsagent-frontend";
           version = "0.0.1";
           src = ./frontend;
-          fetcherVersion = 2;
-          hash = "sha256-wwbrvDjqkWHc5TFpPlIvAFoEAgIPicyEg3u3ESQ/D/8=";
+          fetcherVersion = 3;
+          hash = "sha256-56/Bj6DXnszte1Q7X3gIKkJ1jha+X9HhgThmQj5BaLo=";
         };
 
         frontend = pkgs.stdenvNoCC.mkDerivation {
@@ -29,7 +29,7 @@
 
           src = ./frontend;
 
-          nativeBuildInputs = [ nodejs pnpm pkgs.pnpmConfigHook ];
+          nativeBuildInputs = [ nodejs pnpm pnpm.configHook ];
 
           pnpmDeps = frontendDeps;
 
@@ -45,7 +45,7 @@
       {
         packages.frontend = frontend;
 
-        packages.default = pkgs.buildGoModule {
+        packages.default = pkgs.buildGo127Module {
           pname = "opsagent";
           version = "0.0.1";
 
@@ -53,7 +53,7 @@
 
           modRoot = "backend";
 
-          vendorHash = "sha256-7exvIo7CmgGLGmip9pejND3ud4w5BEzU7RpIxr4ehgI=";
+          vendorHash = "sha256-HnKSFAFeliXwbKw5ZTzelCCbZLJoPFHhjj1fmhQuC6I=";
 
           subPackages = [ "." ];
 

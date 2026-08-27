@@ -20,6 +20,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const TopologySupported = true
+
 const (
 	// vethMTU leaves room for either an IPv4 or IPv6 outer tunnel header on a
 	// normal 1500-byte underlay.

@@ -20,6 +20,8 @@ type ContainerNetSpec struct {
 	SetUnprivilegedPortStart bool
 }
 
+const TopologySupported = false
+
 func (m *Manager) EnsureBase() error {
 	return fmt.Errorf("virtual networking requires linux")
 }

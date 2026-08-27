@@ -2,7 +2,7 @@
 
 ## Overview
 
-OpenDeploy implements virtual networking for container deployments in-process in the agent, with the Linux kernel as the dataplane. Worker nodes reconcile fixed IP-in-IP tunnels and remote workload routes from the cluster network map. Primary-node remote routing, complete candidate-route reporting, L7 ingress, and network policy remain future work; see `docs/future-work/networking.md`.
+OpenDeploy implements virtual networking for container deployments in-process in the agent, with the Linux kernel as the dataplane. All nodes, including the primary, reconcile fixed IP-in-IP tunnels and remote workload routes from the cluster network map. Cross-node DNS and network policy remain future work; see `docs/future-work/networking.md`.
 
 ## Current Scope
 
@@ -19,6 +19,7 @@ Implemented today:
 - Cluster routes are prefixes, not addresses, and are derived from scheduled instance assignments alone. No runner status is read, so container restarts and crashes never move a route or republish the map.
 - Workers validate and persist accepted maps before exposing their prefix to runtime networking. Acceptance is session-based: the first map accepted after connect replaces the cache unconditionally, later in-session maps must carry a higher stamp. Wrong targets, mixed underlay families, and invalid route layouts are rejected; cached maps survive primary outages and agent restarts.
 - Workers reconcile fixed IPv6-in-IPv6 or IPv6-in-IPv4 tunnels and remote routed prefixes from accepted maps, then report the applied stamp.
+- The primary applies its own targeted map through an in-process applier: it subscribes directly to the publisher, reconciles the same tunnels and remote routes as workers, retries failed reconciliation on a timer (there is no session reconnect to redeliver a map in-process), and records its applied stamp into the same barrier only after a successful kernel apply. It never persists maps — the primary re-renders from its database on every boot.
 - The primary consumes those reports as a barrier: a superseded placement keeps running, and keeps its routes, until every node holding network state has applied the map that replaced it.
 - IPv4 egress is masqueraded from a fixed machine-local private range.
 - `portForwarding` publishes virtual-mode container TCP/UDP ports through nftables DNAT on the machine's host interfaces, optionally restricted to an allow list of source IPs/CIDRs.
@@ -31,7 +32,6 @@ Implemented today:
 
 Not implemented yet:
 
-- Applying the targeted cluster map on the primary node; worker-to-worker routing is implemented, but primary-hosted workloads do not yet receive equivalent remote routes.
 - Cross-node DNS. `netstate.pb` is derived node-locally from the placements a node holds, so `.internal` names resolve only for deployments running on the resolving node.
 - Source anti-spoofing and destination ingress policy.
 - A separate address allocation and design for future service virtual addresses, plus socket-level load balancing. The workload address ABI allocates only `I` and `O`.

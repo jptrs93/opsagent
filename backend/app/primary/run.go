@@ -21,6 +21,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/clientaddr"
+	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/ratelimit"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
@@ -76,6 +77,9 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		return fmt.Errorf("creating network map publisher: %w", err)
 	}
 	go networkMaps.Run(ctx)
+	if network.TopologySupported {
+		go newNetMapApplier(primaryNode.ID, primaryRuntime.configService.NetworkPrefix(), networkMaps).run(ctx)
+	}
 	primaryRuntime.start(ctx, primaryNode.ID, nodeIdentifier, networkMaps)
 	assetReconcileDone := primaryRuntime.assets.StartReconciler(ctx)
 	backupDone := backup.StartReplication(ctx, primaryRuntime.configService, primaryRuntime.secrets, primaryRuntime.store, primaryRuntime.assets)
