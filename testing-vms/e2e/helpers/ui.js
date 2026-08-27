@@ -8,7 +8,12 @@ import {expectTLSProbeRejected} from './httpsClient.js';
 
 const LONG_UI_TIMEOUT = 15_000;
 const OPTIONAL_VALIDATION_TIMEOUT = LONG_UI_TIMEOUT;
-const VALIDATE_REQUEST_TIMEOUT = 5_000;
+// Commit discovery fetches from the repo remote, and the first fetch against a
+// fresh cluster is cold: measured at ~4.5s on the mock mirror, which does not
+// support `--filter`, against 0.02s for every fetch after it. A 5s budget sat
+// on that cliff and failed the first deployment of a run. The polls here exit
+// as soon as the expected count is reached, so headroom costs nothing.
+const VALIDATE_REQUEST_TIMEOUT = 30_000;
 const LOG_OUTPUT_TIMEOUT = 120_000;
 const LOG_OUTPUT_POLL_TIMEOUT = 1_500;
 const DEPLOYMENT_RUNNING_TIMEOUT = 180_000;

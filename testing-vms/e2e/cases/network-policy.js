@@ -8,6 +8,7 @@ import {
   expectDeploymentNetworkPolicies,
   expectNetworkPolicyDangling,
   spaceIdByName,
+  stopDeployment,
   updateNetworkPolicy,
   NETWORKING_VIRTUAL,
 } from '../helpers/ui.js';
@@ -312,6 +313,8 @@ export const networkPolicyCases = [
         destination: serverDeploymentLabel(ctx),
         ports: `tcp/${SERVER_PORT}`,
       });
+      // The inspector only offers Delete once the deployment is stopped.
+      await stopDeployment(ctx.page, {name: GHOST, machine: WORKER});
       await deleteDeployment(ctx.page, {name: GHOST, machine: WORKER});
       await expectNetworkPolicyDangling(ctx.page, policyId);
       await expectProbeDenied(ctx.page, {deployment: PROBE, label: 'p8080'});

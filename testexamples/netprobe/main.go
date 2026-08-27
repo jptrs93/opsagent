@@ -112,12 +112,22 @@ func main() {
 // <ULA:48><space:16><deployment:24><ordinal:12><placementSlot:20><runSlot:8>
 // — are zero; the other global address is this run's outbound `O`.
 func logAddresses(name string) {
-	addrs, err := net.InterfaceAddrs()
+	inbound, outbound, err := workloadAddrs()
 	if err != nil {
 		logf("netprobe address lookup failed name=%s err=%v", name, err)
 		return
 	}
-	var inbound, outbound string
+	logf("netprobe address name=%s inbound=%s outbound=%s", name, addrString(inbound), addrString(outbound))
+}
+
+// workloadAddrs returns this run's stable inbound address and its run-scoped
+// outbound address. Either is zero when the workload is not on a virtual
+// network — the host-networking case, where there is no such pair.
+func workloadAddrs() (inbound, outbound netip.Addr, err error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return netip.Addr{}, netip.Addr{}, err
+	}
 	for _, entry := range addrs {
 		prefix, ok := entry.(*net.IPNet)
 		if !ok {
@@ -128,12 +138,19 @@ func logAddresses(name string) {
 			continue
 		}
 		if isInboundAddr(addr) {
-			inbound = addr.String()
+			inbound = addr
 		} else {
-			outbound = addr.String()
+			outbound = addr
 		}
 	}
-	logf("netprobe address name=%s inbound=%s outbound=%s", name, inbound, outbound)
+	return inbound, outbound, nil
+}
+
+func addrString(addr netip.Addr) string {
+	if !addr.IsValid() {
+		return ""
+	}
+	return addr.String()
 }
 
 func isInboundAddr(addr netip.Addr) bool {
@@ -269,8 +286,30 @@ func serveSSE(w http.ResponseWriter, r *http.Request, name, port string) {
 	}
 }
 
+// serveUDP binds the stable inbound address `I` rather than the wildcard
+// address, because a wildcard-bound UDP socket has no local address to reply
+// from. The kernel would run source address selection per datagram and pick
+// the run-scoped outbound `O`, which the platform marks preferred; a client
+// that dialled `I` on a connected socket then discards the reply, because it
+// did not come from the peer it connected to. Binding `I` gives the socket a
+// local address, so every reply carries the address the client addressed.
+//
+// The alternative is `IPV6_RECVPKTINFO` plus a reply from the received
+// destination address, which is what a server needing to answer on several
+// addresses must do. This workload only ever answers on `I`, so the bind is
+// sufficient. See docs/future-work/udp-reply-source-address.md.
 func serveUDP(name, port string) {
-	addr, err := net.ResolveUDPAddr("udp", "[::]:"+port)
+	host := "::"
+	if inbound, _, err := workloadAddrs(); err != nil {
+		logf("netprobe address lookup failed name=%s protocol=udp port=%s err=%v", name, port, err)
+	} else if inbound.IsValid() {
+		host = inbound.String()
+	} else {
+		// No virtual network: there is no inbound address to bind, and no
+		// source-selection ambiguity to avoid either.
+		logf("netprobe no inbound address name=%s protocol=udp port=%s bind=wildcard", name, port)
+	}
+	addr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(host, port))
 	if err != nil {
 		fatalf("netprobe resolve failed protocol=udp port=%s err=%v", port, err)
 	}
@@ -278,7 +317,7 @@ func serveUDP(name, port string) {
 	if err != nil {
 		fatalf("netprobe listen failed protocol=udp port=%s err=%v", port, err)
 	}
-	logf("netprobe listening name=%s protocol=udp port=%s", name, port)
+	logf("netprobe listening name=%s protocol=udp port=%s bind=%s", name, port, host)
 	buf := make([]byte, 2048)
 	for {
 		n, from, err := conn.ReadFromUDP(buf)
