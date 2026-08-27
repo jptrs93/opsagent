@@ -25,11 +25,11 @@ All three milestones are implemented (see the shipped-state summary in
 netaudit coverage and unit tests, the global `network_policies` entity with
 CRUD API, authorization, and both FE surfaces, and override distribution via
 `ClusterNetMap.policy_rules` applied on workers and the primary. The boundary
-is verified end-to-end in the VM suite (`e2e/cases/network-policy.js`): a
-cross-space flow denied by default, allowed by an override rule without
-restarting either workload, and denied again after the rule is removed. The
-residual coverage gaps are listed under each milestone. Deny enforcement,
-device grants, and the other future items remain future work.
+is verified end-to-end in the VM suite across same-node, cross-node,
+primary-node, kernel and interaction coverage — the inventory and the reasoning
+behind each case is in
+[`network-policy-e2e-coverage.md`](network-policy-e2e-coverage.md). Deny
+enforcement, device grants, and the other future items remain future work.
 The pre-implementation state, for reference: nftables usage was
 NAT-only, forwarding was enabled host-wide with nothing filtering forwarded
 traffic, and no policy shape existed in any proto.
@@ -291,13 +291,13 @@ never at broken connectivity.
   divergence-recheck model).
 - Unit tests: rendered ruleset as a pure function of attachment set and
   prefix, including rollover (two attachments, shared `I`).
-- VM end-to-end: same-node cross-space traffic is denied by default
-  (`network-policy-cross-space-denied`). Same-space traffic, DNS, and ingress
-  backend dials are covered implicitly — the rest of the suite runs over the
-  virtual network with the boundary enforced.
-- Still uncovered end-to-end: cross-node cross-space denial, spoofed source
-  dropped, PMTU (ICMPv6 packet-too-big) traversal, and v4
-  container-to-container drops.
+- VM end-to-end: cross-space denial and its same-space control on both the
+  same-node and cross-node paths, DNS crossing the boundary while the payload
+  does not, global-space destinations, egress, and ingress backend dials into a
+  non-global space. Spoofed sources, the v4 close, drop-counter attribution,
+  skeleton persistence, netaudit divergence, and re-derivation after an agent
+  restart are asserted against the kernel in the post-flow orchestrator step.
+  PMTU traversal is covered by the cross-node bulk-response case.
 
 ### Milestone: policy entity — SHIPPED
 
@@ -315,12 +315,11 @@ never at broken connectivity.
   policy-table updates.
 - `SetPolicyRules` on the manager; wired from worker session and primary
   applier; merged into the chain render as rule 6.
-- VM end-to-end: a space-peer source rule to a deployment-peer destination on
-  tcp/8080 flips a probe from failing to succeeding with neither workload
-  restarted, and deleting it restores the deny for fresh connections
-  (`network-policy-allow-applied`, `network-policy-revoked`).
-- Still uncovered end-to-end: a deployment-peer rule following a source space
-  move, and cross-node override enforcement.
+- VM end-to-end: allow, edit and revoke with neither workload restarted; port,
+  port-range and protocol scoping; deployment-peer and space-peer sources and
+  destinations; a deployment-peer rule following a source space move; a
+  dangling rule opening nothing; cross-node and primary-node enforcement; and
+  the flow-scoped meaning of a revoke (established connections survive).
 
 ### Future, out of scope here
 

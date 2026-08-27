@@ -5,11 +5,14 @@ import {
   bootstrapFirstUser,
   createAsset,
   createExplorerFolder,
+  createNetworkPolicy,
   createNixDockerDeployment,
   createValueInSelection,
   deleteDeployment,
   deleteExplorerSelection,
+  deleteNetworkPolicy,
   expectDeploymentOutput,
+  expectNetworkPolicyCount,
   expectDeploymentRunning,
   expectExplorerPath,
   moveExplorerSelection,
@@ -433,6 +436,30 @@ export const accessEnforcementCases = [
         await expect(row.getByText('Access denied')).toBeVisible({timeout: LONG_UI_TIMEOUT});
         await row.getByRole('button', {name: `Discard node name change for ${machineID}`, exact: true}).click();
       });
+    },
+  },
+  {
+    id: 'access-restricted-network-policy-consent',
+    title: 'verify network policy visibility and destination consent for a space admin',
+    description: 'Policies are visible only to sessions that can see a peer, and writing one requires update access on the destination space — so the space admin can see and remove a rule pointed at its own space, which is the consent the authorization model is built on.',
+    requires: ['access-restricted-space-visible', 'network-policy-kernel-check-state'],
+    async run(ctx) {
+      const page = restrictedPage(ctx);
+      await test.step('policies with no visible peer are hidden', () => expectNetworkPolicyCount(page, 0));
+
+      const policyId = await test.step('admin writes a rule into the restricted space', () => createNetworkPolicy(ctx.page, {
+        sourceKind: 'space',
+        source: 'global',
+        destinationKind: 'space',
+        destination: RESTRICTED_SPACE,
+        ports: 'tcp/8080',
+      }));
+
+      // The destination is visible to this session, so the rule is — even
+      // though its source space is not.
+      await test.step('the rule becomes visible through its destination', () => expectNetworkPolicyCount(page, 1));
+      await test.step('the destination space admin may remove it', () => deleteNetworkPolicy(page, policyId));
+      await test.step('the admin session sees the deletion', () => expectNetworkPolicyCount(ctx.page, 0));
     },
   },
   {

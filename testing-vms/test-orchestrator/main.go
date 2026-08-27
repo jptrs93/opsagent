@@ -37,6 +37,7 @@ var tlsIngressHosts = []string{
 	"streamh1.ingress.opendeploy.test",
 	"ws.ingress.opendeploy.test",
 	"rollover.ingress.opendeploy.test",
+	"netpol.ingress.opendeploy.test",
 }
 
 type config struct {
@@ -304,7 +305,9 @@ func loadConfig(resolveLatestRelease bool) (*config, error) {
 	c.LimaAmd64Image = env("OPD_LIMA_IMAGE_AMD64", filepath.Join(c.MockArtifactDir, "lima", "ubuntu-24.04-server-cloudimg-amd64.img"))
 	c.PlaywrightDockerImage = env("OPD_PLAYWRIGHT_DOCKER_IMAGE", "mcr.microsoft.com/playwright:v1.57.0-noble")
 	c.PlaywrightHostPort = env("OPD_PLAYWRIGHT_HOST_PORT", "8443")
-	c.PlaywrightSecondaryPorts = env("OPD_PLAYWRIGHT_SECONDARY_PORTS", "18181 18182")
+	// 18184 publishes a network-policy workload in a non-global space, so the
+	// suite can check that externally DNATed traffic still reaches it.
+	c.PlaywrightSecondaryPorts = env("OPD_PLAYWRIGHT_SECONDARY_PORTS", "18181 18182 18184")
 	// Ports whose DNAT rules carry a source allow list. Tunneled via the
 	// primary VM so probes reach the secondary over the Lima network and
 	// traverse its prerouting chain with the primary's source address; the
@@ -432,6 +435,11 @@ func (c *config) run() error {
 	}
 	if err := c.runPlaywrightFlows(); err != nil {
 		logf("VM e2e run failed; results copied to %s", c.ResultsDir)
+		return err
+	}
+	// After the flows: these assertions read kernel state directly, and the
+	// last two of them deliberately break it.
+	if err := c.step("network policy kernel checks", "anti-spoofing, IPv4 close, drop counters, netaudit", c.networkPolicyKernelChecks); err != nil {
 		return err
 	}
 	if c.BackupRestore {
@@ -2444,6 +2452,7 @@ func (c *config) runPlaywrightFlows() error {
 		"OPD_UPGRADE_VERSION":             upgradeVersion,
 		"OPD_BACKUP_RESTORE":              boolString(c.BackupRestore),
 		"OPD_BACKUP_RESTORE_STATE":        "/work/test-results/backup-restore.env",
+		"OPD_NETPOLICY_STATE":             "/work/test-results/netpolicy.env",
 		"OPD_POSTGRES_IMAGE":              c.PostgresImage,
 		"OPD_DECLARATIVE_POSTGRES_IMAGE":  c.DeclarativePostgresImage,
 		"OPD_MINIO_IMAGE":                 c.MinioImage,

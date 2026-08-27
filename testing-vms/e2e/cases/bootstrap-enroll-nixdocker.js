@@ -13,6 +13,8 @@ import {expectProtoStreamRoutes, protoStreamCases} from './proto-stream.js';
 import {expectWebSocketRoute, websocketCases} from './websocket.js';
 import {issuedTLSCases} from './issued-tls.js';
 import {networkPolicyCases} from './network-policy.js';
+import {networkPolicyCrossNodeCases} from './network-policy-cross-node.js';
+import {networkPolicyInteractionCases} from './network-policy-interactions.js';
 import {pgBackRestCases} from './postgres-pgbackrest.js';
 import {installVirtualAuthenticator} from '../helpers/webauthn.js';
 import {
@@ -193,6 +195,8 @@ export const orderedCases = [
   ...websocketCases,
   ...issuedTLSCases,
   ...networkPolicyCases,
+  ...networkPolicyCrossNodeCases,
+  ...networkPolicyInteractionCases,
   {
     id: 'private-github-deployment',
     title: 'create private github deployment',

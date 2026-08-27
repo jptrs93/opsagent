@@ -74,3 +74,25 @@ directions, and that a value referenced only from another space may move
 toward it; verifies a mounted asset also refuses delete; and checks the
 restricted user's Move dialog offers only its visible spaces while folder
 moves offer no space picker at all.
+
+`cases/network-policy.js`, `cases/network-policy-cross-node.js`, and
+`cases/network-policy-interactions.js` cover the logical network policy
+boundary. They deploy `testexamples/netprobe`, which acts as a server (several
+TCP ports plus UDP, with `/bulk` and `/sse`) and as a client that reports DNS,
+connect and request as separate stages — a dropped packet is silent, so a
+policy denial can only look like a connect timeout, and an assertion that
+accepted any error would also pass when the name never resolved or the server
+never started. Every denial is paired with a positive control on the same path.
+Cross-node cases target literal addresses read out of the server's own output
+(`netprobe address … inbound=…`), because `.internal` names resolve only on the
+node holding the deployment and an `address()` env ref cannot cross a space
+boundary. Coverage and the reasoning behind each case are documented in
+`docs/future-work/network-policy-e2e-coverage.md`.
+
+Kernel-level policy assertions — anti-spoofing, the machine-local IPv4 close,
+drop-counter attribution, netaudit divergence, and re-derivation after an agent
+restart — run as an orchestrator step after all flows, not as Playwright cases:
+they read nftables counters, enter workload network namespaces, restart the
+agent, and deliberately break kernel state. `network-policy-kernel-check-state`
+hands them the workloads' deployment ids through `test-results/netpolicy.env`,
+and their output lands in `test-results/network-policy-checks/`.
