@@ -2,7 +2,7 @@
 
 ## Overview
 
-OpenDeploy implements virtual networking for container deployments in-process in the agent, with the Linux kernel as the dataplane. All nodes, including the primary, reconcile fixed IP-in-IP tunnels and remote workload routes from the cluster network map. Cross-node DNS and network policy remain future work; see `docs/future-work/networking.md`.
+OpenDeploy implements virtual networking for container deployments in-process in the agent, with the Linux kernel as the dataplane. All nodes, including the primary, reconcile fixed IP-in-IP tunnels and remote workload routes from the cluster network map, and enforce the logical network policy boundary (source anti-spoofing and destination-side default rules plus explicit override policies) through nftables filter chains. Cross-node DNS remains future work; see `docs/future-work/networking.md`.
 
 ## Current Scope
 
@@ -29,11 +29,11 @@ Implemented today:
 - The space in that function is the placement's own pin, captured at scheduling time as a `deployment_space_versions` row reference and overlaid onto the config identity every derivation reads. A deployment space move therefore never mutates live network state: the scheduler replaces placements through the rollover path, and old-space and new-space placements coexist (each self-consistently addressed, named, and certified for its own space) until the flip.
 - A per-machine internal netproxy deployment runs the built-in DNS process and answers `.internal` AAAA records from endpoint state.
 - Virtual-mode deployments can declare `TLS_PASSTHROUGH` and `HTTPS` ingress routes. The local agent renders them and their READY IPv6 backends into `netstate.pb`, derives netproxy TCP forwarding from their host-port set, and netproxy forwards TLS streams by SNI without termination or terminates HTTPS itself (see Ingress Shape).
+- The logical network policy boundary: per-attachment source anti-spoofing, destination-side default connectivity rules (same-space, global-space, DNS, `_system` egress paths), explicit cross-space override policies stored as global entities and distributed via the cluster network map, and the machine-local IPv4 close (see Network Policy).
 
 Not implemented yet:
 
 - Cross-node DNS. `netstate.pb` is derived node-locally from the placements a node holds, so `.internal` names resolve only for deployments running on the resolving node.
-- Source anti-spoofing and destination ingress policy.
 - A separate address allocation and design for future service virtual addresses, plus socket-level load balancing. The workload address ABI allocates only `I` and `O`.
 - Cross-machine `ingress` routes: ingress state is derived node-locally, so a route only serves backends running on the same node.
 
@@ -155,7 +155,7 @@ For virtual-mode containers, the runner asks `backend/lib/network` to create net
 
 When an agent restarts, containerd tasks and their network namespaces can remain running. Reattachment opens the surviving named namespace and identifies its deterministic host veth by the mutual peer indexes of namespace `eth0` and the host link. Veth aliases are not used for ownership. Recovery restores the run's `O` route and, for the current run, its `I` route, then records the host ifindex before removing unretained slots, so a current task is never deleted as stale and delayed teardown cannot delete a link whose name has since been reused. A task on the current config republishes its host-port state; the internal netproxy also republishes across its version-only upgrades. Older application tasks retain recovered metadata for safe teardown but wait for their prepared replacement before using a newer networking config. If required reconstruction fails, the adopted task is replaced rather than left running without its forwarding rules.
 
-Kernel state is written event-wise and assumed to persist, so `backend/lib/netaudit` audits it every 60 seconds: it compares the manager's desired DNAT/masquerade rules and `/128` workload routes against the live nftables ruleset and protocol-200 route table, rechecking once after 2 seconds before reporting. It is strictly log-only (`netaudit: kernel network state in sync` / `diverged`) — divergence is evidence of a bug or external interference and must stay visible, not be silently repaired.
+Kernel state is written event-wise and assumed to persist, so `backend/lib/netaudit` audits it every 60 seconds: it compares the manager's desired DNAT/masquerade rules, filter rules, set/map elements, and `/128` workload routes against the live nftables ruleset and protocol-200 route table, rechecking once after 2 seconds before reporting. It is strictly log-only (`netaudit: kernel network state in sync` / `diverged`) — divergence is evidence of a bug or external interference and must stay visible, not be silently repaired.
 
 The map is a pure derivation and is not persisted on the primary. Every render
 reads its inputs and the global write sequence in one storage critical section
@@ -199,6 +199,96 @@ snapshot when it returns.
 Each node gets an `opendeploy-net` deployment when it is first created or enrolled, initially using the primary release available at that time. Agent upgrades and primary restarts do not change an existing netproxy's desired version or running state. Administrators update netproxy deployments explicitly and are responsible for selecting versions compatible with the agents and rendered netstate format.
 
 The container receives a generated `resolv.conf` pointing at the machine-local netproxy DNS address once the netproxy deployment id is known. The netproxy deployment itself uses the host resolver to avoid a DNS dependency cycle.
+
+## Network Policy
+
+The logical policy boundary is enforced with a fixed nftables rule program
+whose per-workload variability lives entirely in named sets and a verdict map,
+applied in the same atomic netlink transaction as the NAT rules — there is
+never a window with DNAT or routes but no policy. The forward-chain policy is
+`accept`; enforcement is explicit rules scoped to opendeploy veths and the
+cluster `/48`, so host traffic, host firewalls, and non-cluster flows are
+untouched. The original design and its fixed decisions are recorded in
+`docs/future-work/network-policy-implementation-plan.md`.
+
+The static skeleton (both `opendeploy` tables, their base chains, the empty
+sets, the masquerade rule, and the fixed forward-chain program) is recreated on
+the first reconcile after agent start and persists for the process lifetime, so
+the counters on its drop rules survive steady-state reconciles. The ip6 forward
+chain is: conntrack `established,related` accept; `oifname @blocked_out`
+counted drop; `iifname @managed iifname . ip6 saddr != @src_ok` counted drop;
+`ip6 daddr vmap @dst_dispatch`. The anti-spoofing root of trust for every
+address-based rule is the `src_ok` concatenated set holding each attachment's
+`(veth, I)` and `(veth, O)` pairs — a packet entering from a managed veth with
+any other source drops. `dst_dispatch` maps each locally attached workload
+address (`I` and `O` `/128`s, mirroring the local workload routes) to a jump
+into that deployment's `wl_dst_<deploymentID>` chain.
+
+The default rules are implicit system intent, written directly into the render
+(`RenderFilterState` in `backend/lib/network/filter.go`) and never distributed.
+Per locally attached destination deployment `D` in space `S`, the
+`wl_dst_<deploymentID>` chain evaluates: same-space `/64` accept, `_system`
+(space 0) `/64` accept, DNS `udp/53` + `tcp/53` accept on the netproxy
+deployment's own chain only, explicit override rules, then a counted drop of
+any remaining cluster-`/48` source. A global-space (space 1) destination
+accepts every cluster source instead. Non-cluster sources fall through and are
+accepted: externally DNAT'd `portForwarding` and terminated ingress traffic are
+governed by their own publication mechanisms. Egress stays open. An attachment
+whose address identity cannot be decoded fails closed: it joins `managed` with
+no `src_ok` pairs (all its ingress drops) and joins `blocked_out` (all egress
+toward it drops). The machine-local IPv4 path is closed the same way with the
+ip-table `managed`/`src_ok` sets: a drop of any traffic from a workload veth
+into the machine-local v4 range plus per-attachment v4 anti-spoofing, so v4
+remains an egress-only path.
+
+Destination policy binds to delivery into local attachments (the `daddr`
+dispatch map only ever holds locally routed workload addresses), never to
+blanket prefix pairs, so a cross-node packet transits the sender's forward
+chain toward its tunnel unfiltered and is evaluated once, at the destination
+node, after decapsulation — same-node and cross-node paths see identical
+policy. Enforcement is stateful: an allow means "may initiate connections
+toward"; replies and ICMPv6 errors ride conntrack.
+
+Override policies are global first-class entities (`network_policies` table)
+with per-row optimistic-concurrency versions, an append-only version log
+carrying the acting user, and soft delete; they are not part of any deployment
+spec, HCL form, or config history. Peers are single-id anchors — a whole space,
+or a deployment whose space resolves at render time so space moves follow
+automatically. Every write advances the global write sequence in its own
+transaction because policies are netmap render inputs. Writes require update
+access on the destination's space (destination consent); naming a cross-space
+source requires view access on that space; rules whose source and destination
+resolve to the same space are rejected as redundant with the same-space
+default. The `DENY` action exists in the schema and API but is rejected on
+writes until enforced, and its evaluation order is fixed in the plan document.
+The FE presents policies globally on the Network page (the edit surface, which
+also flags dangling rules referencing deleted entities) and as a derived
+read-only view on the deployment inspector.
+
+Rules are distributed as resolved-identity tuples (`policy_rules` on
+`ClusterNetMap`): the publisher subscribes to policy-table updates and renders
+each stored peer to `(space, deployment)` wire form, with `deployment = 0`
+meaning the whole space. Workers validate the rules during map acceptance and
+apply them via `Manager.SetPolicyRules` after topology reconciliation; the
+primary's in-process applier does the same. The manager merges the rules
+matching each locally attached destination into that deployment's `wl_dst`
+chain as source-prefix (`/64` space or `/88` deployment) accepts with optional
+protocol/port matches. Old agents drop the unknown field and simply keep not
+enforcing overrides; a rule anchored to a deleted entity compiles to
+permanently vacant prefixes — fail-closed until cleaned up.
+
+Filter state is re-derived, not persisted: on agent restart the first nftables
+reconcile recreates the skeleton and renders only recovered attachments, so
+between that reconcile and each container's recovery its set elements are
+briefly absent (the same window in which its DNAT rules are republished). Every
+attachment create, recover, and teardown triggers a reconcile. Steady-state
+reconciles flush and refill the set/map elements, rewrite the DNAT rules only
+when their rendered content changed, and rebuild only the `wl_dst` chains whose
+rendered rules changed, so the netlink batch stays small under attachment
+churn. Any reconcile error marks the skeleton unready — the next attempt (an
+immediate caller retry or the scheduled background retry) rebuilds everything
+from scratch — and a failed reconcile leaves the previous complete ruleset in
+place and fails container setup rather than running an attachment unfiltered.
 
 ## Netproxy Services
 

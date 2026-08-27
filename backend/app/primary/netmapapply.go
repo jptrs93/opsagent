@@ -18,6 +18,7 @@ type netMapApplier struct {
 	snapshotAndSubscribe func(nodeID int32) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func())
 	recordApplied        func(nodeID int32, appliedSeq int64)
 	reconcile            func(network.Topology) error
+	setPolicyRules       func([]network.PolicyRule) error
 	retryDelay           time.Duration
 }
 
@@ -28,6 +29,7 @@ func newNetMapApplier(nodeID int32, prefix network.Prefix, maps *netmappublisher
 		snapshotAndSubscribe: maps.SnapshotAndSubscribe,
 		recordApplied:        maps.RecordApplied,
 		reconcile:            network.Default.ReconcileTopology,
+		setPolicyRules:       network.Default.SetPolicyRules,
 		retryDelay:           15 * time.Second,
 	}
 }
@@ -68,5 +70,8 @@ func (a *netMapApplier) apply(clusterMap *apigen.ClusterNetMap) error {
 	if err != nil {
 		return err
 	}
-	return a.reconcile(topology)
+	if err := a.reconcile(topology); err != nil {
+		return err
+	}
+	return a.setPolicyRules(network.PolicyRulesFromNetMap(clusterMap.PolicyRules))
 }

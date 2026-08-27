@@ -124,6 +124,10 @@ type ApiServerHandler interface {
 	PostV1SpacesCreate(Context, *SpaceSetRequest) (*Space, error)
 	PostV1SpacesUpdate(Context, *SpaceSetRequest) (*Space, error)
 	PostV1SpacesDelete(Context, *SpaceDeleteRequest) error
+	PostV1NetworkPoliciesList(Context) (*NetworkPolicyList, error)
+	PostV1NetworkPoliciesCreate(Context, *NetworkPolicyCreateRequest) (*NetworkPolicy, error)
+	PostV1NetworkPoliciesUpdate(Context, *NetworkPolicyUpdateRequest) (*NetworkPolicy, error)
+	PostV1NetworkPoliciesDelete(Context, *NetworkPolicyDeleteRequest) error
 	PostV1SecretsList(Context) (*SecretList, error)
 	PostV1SecretsCreate(Context, *SecretCreateRequest) (*Secret, error)
 	PostV1SecretsSet(Context, *SecretSetRequest) (*Secret, error)
@@ -750,6 +754,49 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/spaces/delete", buildHandlerFunc(config, verifyAuth, postV1SpacesDeleteAccessPolicy, postAuthHandlerPostV1SpacesDelete, compressionModeAuto, false))
+	postV1NetworkPoliciesListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1NetworkPoliciesList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		res, err := h.PostV1NetworkPoliciesList(authCtx)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/network-policies/list", buildHandlerFunc(config, verifyAuth, postV1NetworkPoliciesListAccessPolicy, postAuthHandlerPostV1NetworkPoliciesList, compressionModeAuto, false))
+	postV1NetworkPoliciesCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1NetworkPoliciesCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNetworkPolicyCreateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1NetworkPoliciesCreate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/network-policies/create", buildHandlerFunc(config, verifyAuth, postV1NetworkPoliciesCreateAccessPolicy, postAuthHandlerPostV1NetworkPoliciesCreate, compressionModeAuto, false))
+	postV1NetworkPoliciesUpdateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1NetworkPoliciesUpdate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNetworkPolicyUpdateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1NetworkPoliciesUpdate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/network-policies/update", buildHandlerFunc(config, verifyAuth, postV1NetworkPoliciesUpdateAccessPolicy, postAuthHandlerPostV1NetworkPoliciesUpdate, compressionModeAuto, false))
+	postV1NetworkPoliciesDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1NetworkPoliciesDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNetworkPolicyDeleteRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1NetworkPoliciesDelete(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/network-policies/delete", buildHandlerFunc(config, verifyAuth, postV1NetworkPoliciesDeleteAccessPolicy, postAuthHandlerPostV1NetworkPoliciesDelete, compressionModeAuto, false))
 	postV1SecretsListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1SecretsList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		res, err := h.PostV1SecretsList(authCtx)

@@ -47,13 +47,13 @@ func auditOnce(ctx context.Context, m *network.Manager) {
 	}
 	if second.NotInstalled || second.InSync() {
 		slog.DebugContext(ctx, fmt.Sprintf(
-			"netaudit: transient divergence resolved on recheck missing_nft=%v unexpected_nft=%v missing_routes=%v unexpected_routes=%v",
-			first.MissingNft, first.UnexpectedNft, first.MissingRoutes, first.UnexpectedRoutes))
+			"netaudit: transient divergence resolved on recheck missing_nft=%v unexpected_nft=%v missing_filter=%v unexpected_filter=%v missing_elements=%v unexpected_elements=%v missing_routes=%v unexpected_routes=%v",
+			first.MissingNft, first.UnexpectedNft, first.MissingFilter, first.UnexpectedFilter, first.MissingElements, first.UnexpectedElements, first.MissingRoutes, first.UnexpectedRoutes))
 		return
 	}
 	slog.WarnContext(ctx, fmt.Sprintf(
-		"netaudit: kernel network state diverged from desired missing_nft=%v unexpected_nft=%v unrecognized_nft=%v missing_masquerade=%v missing_routes=%v wrong_link_routes=%v unexpected_routes=%v missing_fallback_route=%v",
-		second.MissingNft, second.UnexpectedNft, second.UnrecognizedNft, second.MissingMasquerade,
+		"netaudit: kernel network state diverged from desired missing_nft=%v unexpected_nft=%v unrecognized_nft=%v missing_filter=%v unexpected_filter=%v missing_elements=%v unexpected_elements=%v missing_masquerade=%v missing_routes=%v wrong_link_routes=%v unexpected_routes=%v missing_fallback_route=%v",
+		second.MissingNft, second.UnexpectedNft, second.UnrecognizedNft, second.MissingFilter, second.UnexpectedFilter, second.MissingElements, second.UnexpectedElements, second.MissingMasquerade,
 		second.MissingRoutes, second.WrongLinkRoutes, second.UnexpectedRoutes, second.MissingFallbackRoute))
 }
 
@@ -68,14 +68,16 @@ func collectAndCompare(m *network.Manager) (Diff, error) {
 
 func logInSync(ctx context.Context, m *network.Manager) {
 	desired := m.AuditSnapshot()
-	slog.InfoContext(ctx, fmt.Sprintf("netaudit: kernel network state in sync host_port_rules=%d workload_routes=%d",
-		len(desired.HostPortRules), len(desired.WorkloadRoutes)))
+	slog.InfoContext(ctx, fmt.Sprintf("netaudit: kernel network state in sync host_port_rules=%d workload_routes=%d filter_attachments=%d",
+		len(desired.HostPortRules), len(desired.WorkloadRoutes), len(desired.FilterNets)))
 }
 
 func collectKernel(desired network.AuditState) (KernelState, error) {
 	kernel := KernelState{
-		DNAT:   map[string]int{},
-		Routes: map[netip.Addr]int{},
+		DNAT:     map[string]int{},
+		Filter:   map[string]int{},
+		Elements: map[string]int{},
+		Routes:   map[netip.Addr]int{},
 	}
 	if err := collectNft(&kernel); err != nil {
 		return KernelState{}, err
@@ -87,7 +89,10 @@ func collectKernel(desired network.AuditState) (KernelState, error) {
 }
 
 func collectNft(kernel *KernelState) error {
-	c := &nftables.Conn{}
+	c, err := network.NewNftConn()
+	if err != nil {
+		return err
+	}
 	for _, family := range []struct {
 		family nftables.TableFamily
 		name   string
@@ -111,6 +116,9 @@ func collectNft(kernel *KernelState) error {
 			continue
 		}
 		*family.found = true
+		if err := collectSetElements(c, kernel, table, family.name); err != nil {
+			return err
+		}
 		chains, err := c.ListChainsOfTableFamily(family.family)
 		if err != nil {
 			return err
@@ -124,6 +132,15 @@ func collectNft(kernel *KernelState) error {
 				return err
 			}
 			for _, rule := range rules {
+				if isFilterChain(chain.Name) {
+					parsed, ok := parseFilterRuleExprs(rule.Exprs)
+					if !ok {
+						kernel.Unrecognized = append(kernel.Unrecognized, family.name+" "+chain.Name)
+						continue
+					}
+					kernel.Filter[parsed.Key(family.name, chain.Name)]++
+					continue
+				}
 				parsed, ok := parseRuleExprs(rule.Exprs)
 				switch {
 				case !ok:
@@ -134,6 +151,28 @@ func collectNft(kernel *KernelState) error {
 					kernel.DNAT[dnatKey(family.name, chain.Name, parsed.Proto, parsed.HostPort, parsed.Source, parsed.Target, parsed.TargetPort)]++
 				}
 			}
+		}
+	}
+	return nil
+}
+
+func collectSetElements(c *nftables.Conn, kernel *KernelState, table *nftables.Table, familyName string) error {
+	sets, err := c.GetSets(table)
+	if err != nil {
+		return err
+	}
+	for _, set := range sets {
+		elems, err := c.GetSetElements(set)
+		if err != nil {
+			return err
+		}
+		for _, elem := range elems {
+			key, ok := parseSetElement(familyName, set.Name, elem)
+			if !ok {
+				kernel.Unrecognized = append(kernel.Unrecognized, familyName+" set "+set.Name)
+				continue
+			}
+			kernel.Elements[key]++
 		}
 	}
 	return nil

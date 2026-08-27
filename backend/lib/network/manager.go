@@ -3,8 +3,10 @@ package network
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"sync"
+	"time"
 
 	"github.com/jptrs93/goutil/logu"
 )
@@ -25,6 +27,7 @@ func New(prefix Prefix, netproxyDeploymentID int32) *Manager {
 		hasPrefix:            !prefix.IsZero(),
 		netproxyDeploymentID: netproxyDeploymentID,
 		containerNets:        map[string]*ContainerNet{},
+		filterNets:           map[string]*ContainerNet{},
 		hostPorts:            map[int32]hostPortsEntry{},
 		netproxyIngressPorts: map[uint16]struct{}{},
 		current:              map[int32]*ContainerNet{},
@@ -46,6 +49,10 @@ type Manager struct {
 	// guarded by containerMu and lets stale cleanup preserve concurrent runners.
 	containerNets map[string]*ContainerNet
 
+	filterNets map[string]*ContainerNet
+
+	policyRules []PolicyRule
+
 	// netproxyDeploymentID identifies this machine's netproxy system
 	// deployment; the local DNS address derives from it.
 	netproxyDeploymentID int32
@@ -63,8 +70,43 @@ type Manager struct {
 	// route after publication or promotion.
 	current map[int32]*ContainerNet
 
-	baseOnce sync.Once
-	baseErr  error
+	// baseDone latches EnsureBase success only; a failed attempt is retried on
+	// the next call rather than cached for the process lifetime.
+	baseMu   sync.Mutex
+	baseDone bool
+
+	// retryPending dedupes scheduled reconcile retries. Guarded by mu.
+	retryPending bool
+
+	nftSkeletonReady bool
+	nftNatHash       uint64
+	nftDstChains     map[string]uint64
+}
+
+const reconcileRetryDelay = 5 * time.Second
+
+// scheduleReconcileRetryLocked arranges a background rebuild after a failed
+// one. Two failure modes require it: a rejected batch following a
+// desired-state removal (the removal is authoritative and cannot be rolled
+// back, so the kernel keeps publishing stale rules until a rebuild succeeds),
+// and a batch the kernel actually committed although Flush reported an error
+// (netlink ack loss), which leaves the kernel out of sync with the rolled-back
+// desired state. Rebuilding from desired state converges both. Caller holds
+// m.mu.
+func (m *Manager) scheduleReconcileRetryLocked() {
+	if m.retryPending {
+		return
+	}
+	m.retryPending = true
+	time.AfterFunc(reconcileRetryDelay, func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		m.retryPending = false
+		if err := m.reconcileNft(); err != nil {
+			slog.WarnContext(m.ctx, "retrying nftables rebuild failed", "err", err)
+			m.scheduleReconcileRetryLocked()
+		}
+	})
 }
 
 // HostPortRule publishes one container port on the machine's host interfaces.
@@ -234,6 +276,44 @@ func (m *Manager) DNSAddr() (netip.Addr, bool) {
 	}
 	addr, err := m.prefix.InboundAddr(0, m.netproxyDeploymentID, 0)
 	return addr, err == nil
+}
+
+func (m *Manager) syncFilterNets() error {
+	nets := make(map[string]*ContainerNet, len(m.containerNets))
+	for id, cn := range m.containerNets {
+		nets[id] = cn
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	previous := m.filterNets
+	m.filterNets = nets
+	if err := m.reconcileNft(); err != nil {
+		m.filterNets = previous
+		m.scheduleReconcileRetryLocked()
+		return err
+	}
+	return nil
+}
+
+func (m *Manager) filterNetList() []*ContainerNet {
+	nets := make([]*ContainerNet, 0, len(m.filterNets))
+	for _, cn := range m.filterNets {
+		nets = append(nets, cn)
+	}
+	return nets
+}
+
+func (m *Manager) SetPolicyRules(rules []PolicyRule) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	previous := m.policyRules
+	m.policyRules = rules
+	if err := m.reconcileNft(); err != nil {
+		m.policyRules = previous
+		m.scheduleReconcileRetryLocked()
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) IsNetproxyDeployment(id int32) bool {

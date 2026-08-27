@@ -51,28 +51,13 @@ type ContainerNetSpec struct {
 	SetUnprivilegedPortStart bool
 }
 
-// EnsureBase applies machine-wide prerequisites once per process: forwarding
-// sysctls and the base nftables ruleset (egress masquerade).
+// EnsureBase applies machine-wide prerequisites: forwarding sysctls and the
+// base nftables ruleset (egress masquerade). Success is latched; a failed
+// attempt is returned and retried on the next call, so a transient error at
+// boot cannot disable networking for the process lifetime.
 func (m *Manager) EnsureBase() error {
-	m.baseOnce.Do(func() {
-		// Enabling IPv6 forwarding host-wide flips accept_ra semantics on all
-		// interfaces (RA-configured hosts need accept_ra=2); machines relying on
-		// SLAAC uplinks should pre-set that. Static-config servers are unaffected.
-		for _, s := range [][2]string{
-			{"/proc/sys/net/ipv6/conf/all/forwarding", "1"},
-			{"/proc/sys/net/ipv4/ip_forward", "1"},
-		} {
-			if err := os.WriteFile(s[0], []byte(s[1]), 0); err != nil {
-				m.baseErr = fmt.Errorf("setting %s: %w", s[0], err)
-				return
-			}
-		}
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		m.baseErr = m.reconcileNft()
-	})
-	if m.baseErr != nil {
-		return m.baseErr
+	if err := m.ensureBase(); err != nil {
+		return err
 	}
 	prefix, ok := m.PrefixValue()
 	if ok {
@@ -80,6 +65,33 @@ func (m *Manager) EnsureBase() error {
 			return fmt.Errorf("installing cluster fallback route: %w", err)
 		}
 	}
+	return nil
+}
+
+func (m *Manager) ensureBase() error {
+	m.baseMu.Lock()
+	defer m.baseMu.Unlock()
+	if m.baseDone {
+		return nil
+	}
+	// Enabling IPv6 forwarding host-wide flips accept_ra semantics on all
+	// interfaces (RA-configured hosts need accept_ra=2); machines relying on
+	// SLAAC uplinks should pre-set that. Static-config servers are unaffected.
+	for _, s := range [][2]string{
+		{"/proc/sys/net/ipv6/conf/all/forwarding", "1"},
+		{"/proc/sys/net/ipv4/ip_forward", "1"},
+	} {
+		if err := os.WriteFile(s[0], []byte(s[1]), 0); err != nil {
+			return fmt.Errorf("setting %s: %w", s[0], err)
+		}
+	}
+	m.mu.Lock()
+	err := m.reconcileNft()
+	m.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	m.baseDone = true
 	return nil
 }
 
@@ -191,6 +203,9 @@ func (m *Manager) SetupContainerNet(spec ContainerNetSpec) (*ContainerNet, error
 		Slot:          slot,
 	}
 	m.containerNets[cn.ContainerID] = cn
+	if err := m.syncFilterNets(); err != nil {
+		return cleanup(fmt.Errorf("applying container filter rules: %w", err))
+	}
 	return cn, nil
 }
 
@@ -244,6 +259,10 @@ func (m *Manager) RecoverContainerNet(containerID string, deploymentID int32, in
 	}
 	m.containerNets[cn.ContainerID] = cn
 	m.cleanupContainerNets(deploymentID, []*ContainerNet{cn})
+	if err := m.syncFilterNets(); err != nil {
+		delete(m.containerNets, containerID)
+		return nil, fmt.Errorf("applying container filter rules: %w", err)
+	}
 	return cn, nil
 }
 
@@ -317,8 +336,14 @@ func (m *Manager) teardownContainerNet(containerID string, deploymentID int32, h
 			}
 		}
 	}
+	_, tracked := m.containerNets[containerID]
 	delete(m.containerNets, containerID)
 	deleteNamedNetns(m.ctx, containerID)
+	if tracked {
+		if err := m.syncFilterNets(); err != nil {
+			slog.WarnContext(m.ctx, fmt.Sprintf("rebuilding nftables ruleset after teardown of container %s", containerID), "err", err)
+		}
+	}
 }
 
 // CleanupContainerNets removes stale netns and veth state for a deployment,

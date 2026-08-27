@@ -188,6 +188,21 @@ type GlobalSeq struct {
 	Value int64
 }
 
+type NetworkPolicy struct {
+	ID        int64
+	DeletedAt int64
+}
+
+type NetworkPolicyVersion struct {
+	ID        int64
+	PolicyID  int64
+	Version   int64
+	CreatedAt int64
+	Author    int64
+	DataBlob  []byte
+	GlobalSeq int64
+}
+
 type NodeRow struct {
 	ID            int64
 	EnrollmentID  sql.NullInt64

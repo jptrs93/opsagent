@@ -1,6 +1,6 @@
 # Networking
 
-Design for the built-in networking layer: per-workload addressing, cross-machine routing, service discovery, ingress, network policy, and load balancing. Machine-local virtual networking, worker-to-worker fixed-tunnel routing, node-local DNS, and node-local ingress (TLS passthrough and HTTPS termination with central ACME issuance) are implemented — see `docs/engineering/networking.md`. Remaining work covers primary-node remote routing, cross-node DNS, network policy, multi-node ingress, load balancing, and multi-instance deployments; see `docs/future-work/cross-node-routing-implementation-plan.md` for the ordered cross-node implementation plan.
+Design for the built-in networking layer: per-workload addressing, cross-machine routing, service discovery, ingress, network policy, and load balancing. Machine-local virtual networking, worker-to-worker and primary fixed-tunnel routing, node-local DNS, node-local ingress (TLS passthrough and HTTPS termination with central ACME issuance), and the network policy boundary (anti-spoofing, default same-space/global/system rules, and global override policies) are implemented — see `docs/engineering/networking.md`. Remaining work covers cross-node DNS, multi-node ingress, load balancing, and multi-instance deployments; see `docs/future-work/cross-node-routing-implementation-plan.md` for the ordered cross-node implementation plan.
 
 ## Goals and principles
 
@@ -58,6 +58,11 @@ with central ACME issuance and route/collision validation. Remaining work:
 
 ## Network policy
 
+Implemented — see the Network Policy section of `docs/engineering/networking.md`
+and `network-policy-implementation-plan.md`. Override policies shipped as
+global first-class entities (space or deployment peers) rather than the
+deployment-config `allowedFrom` list sketched below; the design intent stands.
+
 OpenDeploy has one cluster logical workload network. Each space has a derived `/64` logical subprefix, but isolation is enforced by policy rather than separate VRFs, tunnel fabrics, or independently generated ULA networks.
 
 Default stance:
@@ -114,13 +119,9 @@ eBPF flow metrics (who talks to whom, bytes, connect failures) as the first eBPF
 ## Configuration surface additions
 
 `portForwarding` and `ingress` are implemented on the deployment `networking`
-section. Future additions:
-
-```
-networking:
-  allowedFrom:    [other-deployment]   # cross-space allowlist; same-space is allowed by default
-  # future: trafficPolicy, replica-related knobs
-```
+section. Cross-space allow rules shipped as global network policy entities
+(their own page and storage), not as a deployment-config `allowedFrom` list.
+Future additions: trafficPolicy and replica-related knobs.
 
 Settings (cluster-scoped): ingress machine designation.
 
@@ -140,10 +141,10 @@ Usable outcome: `ingress: {hostname}` gives a deployment a public HTTPS endpoint
 
 ### Explicit policy and flow observability
 
-- Explicit cross-space `allowedFrom` rules compiled to receiver-side nftables filters, distributed in the netmap.
-- eBPF flow metrics (first eBPF adoption; read-only).
+- Explicit cross-space policy rules compiled to receiver-side nftables filters, distributed in the netmap — shipped as global network policy entities.
+- eBPF flow metrics (first eBPF adoption; read-only) — remaining.
 
-Usable outcome: deployment-to-deployment cross-space access control from the side panel; traffic visibility in the UI.
+Usable outcome: cross-space access control from the Network page (shipped); traffic visibility in the UI (remaining).
 
 ### Multi-instance and load balancing
 

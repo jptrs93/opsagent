@@ -41,6 +41,35 @@ message ClusterNetMap {
   repeated ClusterNetMapNode nodes = 5;
   repeated ClusterNetMapRoute routes = 6;
   int64 derived_from_seq = 7;
+  repeated NetPolicyRule policy_rules = 8;
+}
+
+// NetPolicyRule is one explicit override allow rule rendered from the policy
+// table: the source peer may initiate connections toward the destination peer.
+// Field 4 is reserved for the future action enum (deny support).
+message NetPolicyRule {
+  reserved 4;
+  reserved "action";
+  NetPolicyPeer source = 1;
+  NetPolicyPeer destination = 2;
+  repeated NetPortMatch ports = 3; // empty = all ports and protocols
+}
+
+message NetPolicyPeer {
+  int32 space_id = 1;
+  int32 deployment_id = 2; // 0 = the whole space
+}
+
+message NetPortMatch {
+  NetProtocol protocol = 1;
+  int32 port = 2;
+  int32 port_end = 3; // 0 = single port
+}
+
+enum NetProtocol {
+  NET_PROTOCOL_UNSPECIFIED = 0;
+  NET_PROTOCOL_TCP = 1;
+  NET_PROTOCOL_UDP = 2;
 }
 
 message ClusterNetMapNode {

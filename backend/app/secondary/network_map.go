@@ -133,6 +133,7 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 		UlaPrefix:      slices.Clone(candidate.UlaPrefix),
 		Nodes:          make([]*apigen.ClusterNetMapNode, 0, len(candidate.Nodes)),
 		Routes:         make([]*apigen.ClusterNetMapRoute, 0, len(candidate.Routes)),
+		PolicyRules:    make([]*apigen.NetPolicyRule, 0, len(candidate.PolicyRules)),
 	}
 	knownNodes := make(map[int32]struct{}, len(candidate.Nodes))
 	targetPresent := false
@@ -193,5 +194,16 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 		}
 		return cmp.Compare(a.HostingNodeID, b.HostingNodeID)
 	})
+
+	for _, rule := range candidate.PolicyRules {
+		if err := network.ValidateNetMapPolicyRule(rule); err != nil {
+			return nil, network.Prefix{}, fmt.Errorf("cluster network map policy rule: %w", err)
+		}
+		normalized.PolicyRules = append(normalized.PolicyRules, &apigen.NetPolicyRule{
+			Source:      &apigen.NetPolicyPeer{SpaceID: rule.Source.SpaceID, DeploymentID: rule.Source.DeploymentID},
+			Destination: &apigen.NetPolicyPeer{SpaceID: rule.Destination.SpaceID, DeploymentID: rule.Destination.DeploymentID},
+			Ports:       slices.Clone(rule.Ports),
+		})
+	}
 	return normalized, prefix, nil
 }

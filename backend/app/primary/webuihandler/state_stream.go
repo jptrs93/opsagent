@@ -54,6 +54,8 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 		defer agentSessionUnsub()
 		authzSub, authzUnsub := h.Authz.SubscribeChanges()
 		defer authzUnsub()
+		networkPolicySub, networkPolicyUnsub := h.Store.SubscribeNetworkPolicyUpdates()
+		defer networkPolicyUnsub()
 
 		latestConfig := configSub.InitialValue
 
@@ -140,6 +142,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				NodesSnapshot:              &apigen.ClusterNodeList{Items: h.filterNodes(ctx, h.Store.ListClusterNodes())},
 				NodeStatusesSnapshot:       &apigen.ClusterNodeStatusList{Items: h.filterNodeStatuses(ctx, h.Store.ListNodeStatuses())},
 				AgentSessionsSnapshot:      agentSessions,
+				NetworkPoliciesSnapshot:    &apigen.NetworkPolicyList{Items: h.visibleNetworkPolicies(ctx)},
 			}
 			if seesCluster() {
 				backupStatus := h.Store.CurrentBackupStatus()
@@ -331,6 +334,13 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 					continue
 				}
 				if !yield(&apigen.State{AgentSessionUpdate: agentSessionToProto(rec)}, nil) {
+					return
+				}
+			case _, ok := <-networkPolicySub.Ch:
+				if !ok {
+					return
+				}
+				if !yield(&apigen.State{NetworkPoliciesSnapshot: &apigen.NetworkPolicyList{Items: h.visibleNetworkPolicies(ctx)}}, nil) {
 					return
 				}
 			case _, ok := <-authzSub.Ch:

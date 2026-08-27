@@ -73,8 +73,7 @@ func TestGlobalSeqAdvancesOnNodeRegistryWrites(t *testing.T) {
 	defer store.Close()
 	counter := func() int64 {
 		t.Helper()
-		_, _, seq := store.FetchNetworkMapInputs()
-		return seq
+		return store.FetchNetworkMapInputs().Seq
 	}
 
 	before := counter()

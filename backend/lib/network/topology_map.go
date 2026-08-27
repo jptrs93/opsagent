@@ -5,6 +5,7 @@ import (
 	"net/netip"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"golang.org/x/sys/unix"
 )
 
 func TopologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, prefix Prefix) (Topology, error) {
@@ -57,4 +58,84 @@ func TopologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, p
 		topology.Tunnels = append(topology.Tunnels, Tunnel{NodeID: remoteNodeID, Local: local, Remote: remote})
 	}
 	return topology, nil
+}
+
+func PolicyRulesFromNetMap(rules []*apigen.NetPolicyRule) []PolicyRule {
+	out := make([]PolicyRule, 0, len(rules))
+	for _, rule := range rules {
+		converted, err := policyRuleFromWire(rule)
+		if err != nil {
+			continue
+		}
+		out = append(out, converted)
+	}
+	return out
+}
+
+func policyRuleFromWire(rule *apigen.NetPolicyRule) (PolicyRule, error) {
+	if rule == nil {
+		return PolicyRule{}, fmt.Errorf("policy rule is nil")
+	}
+	source, err := policyPeerFromWire(rule.Source)
+	if err != nil {
+		return PolicyRule{}, fmt.Errorf("policy rule source: %w", err)
+	}
+	destination, err := policyPeerFromWire(rule.Destination)
+	if err != nil {
+		return PolicyRule{}, fmt.Errorf("policy rule destination: %w", err)
+	}
+	converted := PolicyRule{Source: source, Destination: destination}
+	for _, port := range rule.Ports {
+		match, err := portMatchFromWire(port)
+		if err != nil {
+			return PolicyRule{}, err
+		}
+		converted.Ports = append(converted.Ports, match)
+	}
+	return converted, nil
+}
+
+func policyPeerFromWire(peer *apigen.NetPolicyPeer) (PolicyPeer, error) {
+	if peer == nil {
+		return PolicyPeer{}, fmt.Errorf("peer is nil")
+	}
+	if peer.SpaceID < 0 || peer.SpaceID > MaxSpaceID {
+		return PolicyPeer{}, fmt.Errorf("space id %d is outside 0..%d", peer.SpaceID, MaxSpaceID)
+	}
+	if peer.DeploymentID < 0 || peer.DeploymentID > MaxDeploymentID {
+		return PolicyPeer{}, fmt.Errorf("deployment id %d is outside 0..%d", peer.DeploymentID, MaxDeploymentID)
+	}
+	return PolicyPeer{SpaceID: peer.SpaceID, DeploymentID: peer.DeploymentID}, nil
+}
+
+func portMatchFromWire(port *apigen.NetPortMatch) (PortMatch, error) {
+	if port == nil {
+		return PortMatch{}, fmt.Errorf("port match is nil")
+	}
+	var protocol uint8
+	switch port.Protocol {
+	case apigen.NetProtocol_NET_PROTOCOL_TCP:
+		protocol = unix.IPPROTO_TCP
+	case apigen.NetProtocol_NET_PROTOCOL_UDP:
+		protocol = unix.IPPROTO_UDP
+	default:
+		return PortMatch{}, fmt.Errorf("port match has invalid protocol %d", port.Protocol)
+	}
+	if port.Port < 1 || port.Port > 65535 {
+		return PortMatch{}, fmt.Errorf("port %d is outside 1..65535", port.Port)
+	}
+	if port.PortEnd != 0 && (port.PortEnd < port.Port || port.PortEnd > 65535) {
+		return PortMatch{}, fmt.Errorf("port range end %d is invalid for start %d", port.PortEnd, port.Port)
+	}
+	return PortMatch{Protocol: protocol, Port: uint16(port.Port), PortEnd: uint16(port.PortEnd)}, nil
+}
+
+func ValidateNetMapPolicyRule(rule *apigen.NetPolicyRule) error {
+	_, err := policyRuleFromWire(rule)
+	return err
+}
+
+func ValidateNetPortMatch(port *apigen.NetPortMatch) error {
+	_, err := portMatchFromWire(port)
+	return err
 }

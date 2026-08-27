@@ -36,6 +36,9 @@ export const primaryConfigS = van.state(null);
 export const authzTemplatesS = van.state([]);
 export const authzGrantsS = van.state([]);
 export const authzGlobalRulesS = van.state([]);
+// networkPoliciesS arrives as a full snapshot on every change, like the authz
+// collections.
+export const networkPoliciesS = van.state([]);
 const SEEDED_SPACES = [{id: 0, name: '_system'}, {id: 1, name: 'global'}];
 
 export const spacesS = van.state(SEEDED_SPACES);
@@ -118,6 +121,7 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         authzTemplatesS.val = [];
         authzGrantsS.val = [];
         authzGlobalRulesS.val = [];
+        networkPoliciesS.val = [];
         spacesS.val = SEEDED_SPACES;
     }
     setStreamState('offline', 'offline');
@@ -298,6 +302,10 @@ const handleStateMessage = (message) => {
 
     if (message.authzGlobalRulesSnapshot) {
         authzGlobalRulesS.val = message.authzGlobalRulesSnapshot.items || [];
+    }
+
+    if (message.networkPoliciesSnapshot) {
+        networkPoliciesS.val = message.networkPoliciesSnapshot.items || [];
     }
 };
 

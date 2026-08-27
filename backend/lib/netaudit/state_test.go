@@ -30,6 +30,8 @@ func kernelWithRules(rules ...network.HostPortRule) KernelState {
 		TableV6:    true,
 		Masquerade: true,
 		DNAT:       map[string]int{},
+		Filter:     network.FilterState{}.RuleKeys(),
+		Elements:   map[string]int{},
 		Routes:     map[netip.Addr]int{},
 	}
 	for key := range expectedDNATKeys(rules) {
@@ -134,6 +136,99 @@ func TestCompareRoutes(t *testing.T) {
 	diff := Compare(desired, kernel)
 	if len(diff.MissingRoutes) != 1 || len(diff.WrongLinkRoutes) != 1 || len(diff.UnexpectedRoutes) != 1 {
 		t.Fatalf("expected one route in each divergence class, got %+v", diff)
+	}
+}
+
+func filterDesired(t *testing.T) network.AuditState {
+	t.Helper()
+	prefix, err := network.ParsePrefix([]byte{0xfd, 0x11, 0x22, 0x33, 0x44, 0x55})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inbound, err := prefix.InboundAddr(5, 7, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outbound, err := prefix.OutboundAddr(5, 7, 0, 12, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, contV4, err := network.V4Pair(7, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return network.AuditState{
+		Prefix:    prefix,
+		HasPrefix: true,
+		FilterNets: []*network.ContainerNet{{
+			ContainerID:  "c1",
+			DeploymentID: 7,
+			HostVeth:     "od7s0",
+			InboundAddr:  inbound,
+			OutboundAddr: outbound,
+			V4:           contV4,
+		}},
+	}
+}
+
+func TestCompareFilterInSync(t *testing.T) {
+	desired := filterDesired(t)
+	kernel := kernelWithRules()
+	kernel.Filter = desired.FilterState().RuleKeys()
+	kernel.Elements = desired.FilterState().ElementKeys()
+	if diff := Compare(desired, kernel); !diff.InSync() {
+		t.Fatalf("expected in sync, got %+v", diff)
+	}
+}
+
+func TestCompareFilterMissingAndUnexpected(t *testing.T) {
+	desired := filterDesired(t)
+	kernel := kernelWithRules()
+	kernel.Filter = desired.FilterState().RuleKeys()
+	kernel.Elements = desired.FilterState().ElementKeys()
+	dropKey := "ip6 forward iifname @managed iifname . saddr != @src_ok counter drop"
+	if _, ok := kernel.Filter[dropKey]; !ok {
+		t.Fatalf("expected key %q in %v", dropKey, kernel.Filter)
+	}
+	delete(kernel.Filter, dropKey)
+	kernel.Filter["ip6 wl_dst_7 saddr fd00::/48 accept"] = 1
+	diff := Compare(desired, kernel)
+	if len(diff.MissingFilter) != 1 || diff.MissingFilter[0] != dropKey {
+		t.Fatalf("missing filter = %v, want [%s]", diff.MissingFilter, dropKey)
+	}
+	if len(diff.UnexpectedFilter) != 1 || diff.UnexpectedFilter[0] != "ip6 wl_dst_7 saddr fd00::/48 accept" {
+		t.Fatalf("unexpected filter = %v", diff.UnexpectedFilter)
+	}
+}
+
+func TestCompareElementsMissingAndUnexpected(t *testing.T) {
+	desired := filterDesired(t)
+	kernel := kernelWithRules()
+	kernel.Filter = desired.FilterState().RuleKeys()
+	kernel.Elements = desired.FilterState().ElementKeys()
+	managedKey := "ip6 set managed od7s0"
+	if _, ok := kernel.Elements[managedKey]; !ok {
+		t.Fatalf("expected element %q in %v", managedKey, kernel.Elements)
+	}
+	delete(kernel.Elements, managedKey)
+	kernel.Elements["ip6 set managed od99s0"] = 1
+	diff := Compare(desired, kernel)
+	if len(diff.MissingElements) != 1 || diff.MissingElements[0] != managedKey {
+		t.Fatalf("missing elements = %v, want [%s]", diff.MissingElements, managedKey)
+	}
+	if len(diff.UnexpectedElements) != 1 || diff.UnexpectedElements[0] != "ip6 set managed od99s0" {
+		t.Fatalf("unexpected elements = %v", diff.UnexpectedElements)
+	}
+}
+
+func TestCompareFilterDesiredWithoutTablesNotInstalledFalse(t *testing.T) {
+	desired := filterDesired(t)
+	diff := Compare(desired, KernelState{})
+	if diff.NotInstalled {
+		t.Fatalf("filter attachments desired but tables absent must not report NotInstalled: %+v", diff)
+	}
+	if len(diff.MissingFilter) == 0 {
+		t.Fatalf("expected missing filter rules, got %+v", diff)
 	}
 }
 

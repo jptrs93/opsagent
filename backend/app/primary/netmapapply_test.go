@@ -31,8 +31,9 @@ func testNetMapApplier(t *testing.T, reconcile func(network.Topology) error) (*n
 			}
 			applied <- appliedSeq
 		},
-		reconcile:  reconcile,
-		retryDelay: 5 * time.Millisecond,
+		reconcile:      reconcile,
+		setPolicyRules: func([]network.PolicyRule) error { return nil },
+		retryDelay:     5 * time.Millisecond,
 	}, updates, applied
 }
 
@@ -84,6 +85,47 @@ func TestNetMapApplierAppliesSnapshotAndUpdates(t *testing.T) {
 		if topology.LocalNodeID != 1 || topology.Prefix != applier.prefix {
 			t.Fatalf("topology = %+v", topology)
 		}
+	}
+}
+
+func TestNetMapApplierAppliesPolicyRules(t *testing.T) {
+	var rules [][]network.PolicyRule
+	applier, updates, applied := testNetMapApplier(t, func(network.Topology) error { return nil })
+	applier.setPolicyRules = func(r []network.PolicyRule) error {
+		rules = append(rules, r)
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		applier.run(ctx)
+	}()
+
+	waitApplied(t, applied, 5)
+	next := targetedNetMap(applier.prefix, 1, 9)
+	next.PolicyRules = []*apigen.NetPolicyRule{{
+		Source:      &apigen.NetPolicyPeer{SpaceID: 2},
+		Destination: &apigen.NetPolicyPeer{SpaceID: 3, DeploymentID: 7},
+		Ports:       []*apigen.NetPortMatch{{Protocol: apigen.NetProtocol_NET_PROTOCOL_TCP, Port: 443}},
+	}}
+	updates <- next
+	waitApplied(t, applied, 9)
+	cancel()
+	<-done
+
+	if len(rules) != 2 || len(rules[0]) != 0 || len(rules[1]) != 1 {
+		t.Fatalf("policy rule applications = %v", rules)
+	}
+	got := rules[1][0]
+	want := network.PolicyRule{
+		Source:      network.PolicyPeer{SpaceID: 2},
+		Destination: network.PolicyPeer{SpaceID: 3, DeploymentID: 7},
+		Ports:       []network.PortMatch{{Protocol: 6, Port: 443}},
+	}
+	if got.Source != want.Source || got.Destination != want.Destination || len(got.Ports) != 1 || got.Ports[0] != want.Ports[0] {
+		t.Fatalf("applied rule = %+v, want %+v", got, want)
 	}
 }
 

@@ -11,6 +11,10 @@ import (
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
 
+func renderNI(prefix network.Prefix, nodes []*state.Node, instances []apigen.ScheduledInstanceState) (*apigen.ClusterNetMap, error) {
+	return render(prefix, state.NetworkMapInputs{Nodes: nodes, Instances: instances})
+}
+
 func TestPublisherStampsAndCoalescesLatestMap(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	prefix := network.GeneratePrefix()
@@ -89,11 +93,11 @@ func TestRenderIsDeterministic(t *testing.T) {
 	}
 	nodesB := []*state.Node{nodesA[1], nodesA[0]}
 	instancesB := []apigen.ScheduledInstanceState{instancesA[1], instancesA[0]}
-	a, err := render(prefix, nodesA, instancesA)
+	a, err := renderNI(prefix, nodesA, instancesA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := render(prefix, nodesB, instancesB)
+	b, err := renderNI(prefix, nodesB, instancesB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +121,7 @@ func TestRenderOmitsHostNetworkingAndNonRunnableStates(t *testing.T) {
 	finalized := servingInstance(103, 13, 1, 3)
 	finalized.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED
 
-	got, err := render(prefix, nodes, []apigen.ScheduledInstanceState{
+	got, err := renderNI(prefix, nodes, []apigen.ScheduledInstanceState{
 		host, terminating, finalized, servingInstance(100, 10, 1, 3),
 	})
 	if err != nil {
@@ -146,14 +150,14 @@ func TestRenderIgnoresRunnerStatus(t *testing.T) {
 	noStatus := servingInstance(100, 10, 1, 3)
 	noStatus.Status = apigen.ScheduledInstanceStatus{}
 
-	base, err := render(prefix, nodes, []apigen.ScheduledInstanceState{quiet})
+	base, err := renderNI(prefix, nodes, []apigen.ScheduledInstanceState{quiet})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for name, item := range map[string]apigen.ScheduledInstanceState{
 		"restarted": restarted, "crashed": crashed, "starting": starting, "no status": noStatus,
 	} {
-		got, err := render(prefix, nodes, []apigen.ScheduledInstanceState{item})
+		got, err := renderNI(prefix, nodes, []apigen.ScheduledInstanceState{item})
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -191,7 +195,7 @@ func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 	old := servingInstance(100, 10, 1, 3)
 	replacement := servingInstance(101, 10, 2, 3)
 	replacement.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
-	warming, err := render(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
+	warming, err := renderNI(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +209,7 @@ func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 	// placement keeps its own prefix pointed at the node still running it.
 	old.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING
 	replacement.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
-	promoted, err := render(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
+	promoted, err := renderNI(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +221,7 @@ func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 
 	// Retired: nothing left of the old placement.
 	old.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE
-	retired, err := render(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
+	retired, err := renderNI(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,13 +242,13 @@ func TestRenderSameNodeRolloverChangesNothing(t *testing.T) {
 	replacement := servingInstance(101, 10, 1, 3)
 	replacement.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
 
-	before, err := render(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
+	before, err := renderNI(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
 	if err != nil {
 		t.Fatal(err)
 	}
 	old.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING
 	replacement.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
-	after, err := render(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
+	after, err := renderNI(prefix, nodes, []apigen.ScheduledInstanceState{old, replacement})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +265,7 @@ func TestRenderRejectsTwoServingPlacements(t *testing.T) {
 	}
 	first := servingInstance(100, 10, 1, 3)
 	second := servingInstance(101, 10, 2, 3)
-	if _, err := render(prefix, nodes, []apigen.ScheduledInstanceState{first, second}); err == nil {
+	if _, err := renderNI(prefix, nodes, []apigen.ScheduledInstanceState{first, second}); err == nil {
 		t.Fatal("two serving placements of one ordinal accepted: the map cannot express it")
 	}
 }
@@ -270,7 +274,7 @@ func TestRenderRejectsUnknownNode(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	nodes := []*state.Node{{ID: 1, Addresses: []string{"192.0.2.1"}}}
 	orphan := servingInstance(100, 10, 9, 3)
-	if _, err := render(prefix, nodes, []apigen.ScheduledInstanceState{orphan}); err == nil {
+	if _, err := renderNI(prefix, nodes, []apigen.ScheduledInstanceState{orphan}); err == nil {
 		t.Fatal("placement on an unknown node accepted")
 	}
 }

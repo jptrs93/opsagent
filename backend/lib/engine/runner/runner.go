@@ -40,7 +40,14 @@ type Runner interface {
 type RolloverCandidate interface {
 	Runner
 	WaitReady() error
-	Promote() error
+	// Promote makes the candidate the placement's current run. When serving is
+	// true it also claims the instance's stable inbound address and host
+	// ports. Under ROLLOVER strategy even a placement's initial start goes
+	// through the candidate path, so a standby (or a placement superseded
+	// while its candidate warmed) reaches promotion too; those must not claim
+	// the deployment-scoped route — Serve makes the claim later, when the
+	// target becomes RUN_SERVING.
+	Promote(serving bool) error
 }
 
 // Create picks the correct runner variant for the deployment and starts it.

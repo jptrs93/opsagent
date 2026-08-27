@@ -33,6 +33,7 @@ func (m *Manager) ApplyHostPorts(deploymentID int32, containerID string, rules [
 		} else {
 			delete(m.hostPorts, deploymentID)
 		}
+		m.scheduleReconcileRetryLocked()
 		return err
 	}
 	return nil
@@ -52,7 +53,14 @@ func (m *Manager) ClearHostPorts(deploymentID int32, containerID string) error {
 	if deploymentID == m.netproxyDeploymentID {
 		delete(m.current, deploymentID)
 	}
-	return m.reconcileNft()
+	// The removal is authoritative — the container is going away regardless —
+	// so a failed rebuild is not rolled back. Without a retry the kernel would
+	// keep forwarding the cleared ports until the next unrelated rebuild.
+	if err := m.reconcileNft(); err != nil {
+		m.scheduleReconcileRetryLocked()
+		return err
+	}
+	return nil
 }
 
 // SetNetproxyIngress updates the rendered ingress listener set. It is derived
@@ -64,7 +72,13 @@ func (m *Manager) SetNetproxyIngress(ingress []*apigen.NetIngress) error {
 	defer m.mu.Unlock()
 	m.netproxyIngressPorts = ports
 	m.reconcileNetproxyHostPortsLocked()
-	return m.reconcileNft()
+	// The rendered listener set is authoritative derived state; converge the
+	// kernel by retrying rather than rolling back.
+	if err := m.reconcileNft(); err != nil {
+		m.scheduleReconcileRetryLocked()
+		return err
+	}
+	return nil
 }
 
 func netproxyIngressPorts(ingress []*apigen.NetIngress) map[uint16]struct{} {
@@ -116,6 +130,7 @@ func (m *Manager) PublishNetproxy(cn *ContainerNet) error {
 		} else {
 			delete(m.hostPorts, m.netproxyDeploymentID)
 		}
+		m.scheduleReconcileRetryLocked()
 		return err
 	}
 	return nil

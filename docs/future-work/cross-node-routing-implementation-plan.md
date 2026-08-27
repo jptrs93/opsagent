@@ -43,7 +43,6 @@ traversal, and encrypted transport are outside this plan.
 
 The following do not exist yet:
 
-- Source anti-spoofing and destination ingress policy.
 - Cross-node DNS data. `netstate.pb` is derived node-locally, so `.internal`
   names resolve only for deployments on the resolving node.
 - Cross-node integration tests and operational diagnostics.
@@ -51,7 +50,11 @@ The following do not exist yet:
 ## Security gate
 
 Cross-node routing must not be enabled as a generally available feature until
-the logical policy boundary exists.
+the logical policy boundary exists. The boundary is implemented — source
+anti-spoofing, destination ingress policy, and explicit override policies per
+[`network-policy-implementation-plan.md`](network-policy-implementation-plan.md)
+— and its same-node behaviour is verified end-to-end in the VM suite. The
+cross-node leg of that verification is still outstanding.
 
 ### Source anti-spoofing
 
@@ -93,16 +96,16 @@ the primary-node topology milestone (the primary applies its own targeted map
 in-process); the former runtime route-reporting milestone was made unnecessary
 by deriving prefix routes from assignments alone.
 
-### Milestone: logical network policy
+### Milestone: logical network policy — SHIPPED
 
-Planned in detail in
-[`network-policy-implementation-plan.md`](network-policy-implementation-plan.md).
-
-- Add nftables source anti-spoofing per local attachment.
-- Add same-space destination ingress policy.
-- Add required OpenDeploy system paths.
-- Ensure same-host and cross-host packets use equivalent policy.
-- Add explicit cross-space policy only after the default boundary is correct.
+Implemented per
+[`network-policy-implementation-plan.md`](network-policy-implementation-plan.md):
+nftables source anti-spoofing per local attachment, same-space destination
+ingress policy with the OpenDeploy system paths, identical policy for
+same-host and cross-host packets, and explicit cross-space override policies.
+VM end-to-end coverage exists for the same-node path (default deny, override
+allow without restart, deny restored on removal); the cross-node equivalent
+belongs to the end-to-end verification milestone below.
 
 ### Milestone: DNS and product integration
 

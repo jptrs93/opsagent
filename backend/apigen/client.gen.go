@@ -1090,6 +1090,75 @@ func (c *ApiServerCapi) PostV1SpacesDelete(ctx context.Context, req *SpaceDelete
 	return nil
 }
 
+func (c *ApiServerCapi) PostV1NetworkPoliciesList(ctx context.Context) (*NetworkPolicyList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/network-policies/list", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeNetworkPolicyList(body)
+}
+
+func (c *ApiServerCapi) PostV1NetworkPoliciesCreate(ctx context.Context, req *NetworkPolicyCreateRequest) (*NetworkPolicy, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1NetworkPoliciesCreate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/network-policies/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeNetworkPolicy(body)
+}
+
+func (c *ApiServerCapi) PostV1NetworkPoliciesUpdate(ctx context.Context, req *NetworkPolicyUpdateRequest) (*NetworkPolicy, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1NetworkPoliciesUpdate request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/network-policies/update", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeNetworkPolicy(body)
+}
+
+func (c *ApiServerCapi) PostV1NetworkPoliciesDelete(ctx context.Context, req *NetworkPolicyDeleteRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1NetworkPoliciesDelete request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/network-policies/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
 func (c *ApiServerCapi) PostV1SecretsList(ctx context.Context) (*SecretList, error) {
 	resp, err := c.do(ctx, "POST", "/v1/secrets/list", nil, "application/protobuf", "application/protobuf")
 	if err != nil {

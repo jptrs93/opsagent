@@ -16,6 +16,12 @@ type KernelState struct {
 	Masquerade       bool
 	// DNAT holds one key per DNAT rule found in the opendeploy tables.
 	DNAT map[string]int
+	// Filter holds one key per filter rule found in the opendeploy tables'
+	// forward and workload chains.
+	Filter map[string]int
+	// Elements holds one key per set/map element found in the opendeploy
+	// tables' named sets.
+	Elements map[string]int
 	// Unrecognized counts rules in the opendeploy tables that are neither the
 	// masquerade rule nor a DNAT rule of the manager's shape.
 	Unrecognized []string
@@ -32,6 +38,10 @@ type Diff struct {
 	MissingNft           []string
 	UnexpectedNft        []string
 	UnrecognizedNft      []string
+	MissingFilter        []string
+	UnexpectedFilter     []string
+	MissingElements      []string
+	UnexpectedElements   []string
 	MissingMasquerade    bool
 	MissingRoutes        []string
 	WrongLinkRoutes      []string
@@ -42,13 +52,15 @@ type Diff struct {
 func (d Diff) InSync() bool {
 	return !d.MissingMasquerade && !d.MissingFallbackRoute &&
 		len(d.MissingNft) == 0 && len(d.UnexpectedNft) == 0 && len(d.UnrecognizedNft) == 0 &&
+		len(d.MissingFilter) == 0 && len(d.UnexpectedFilter) == 0 &&
+		len(d.MissingElements) == 0 && len(d.UnexpectedElements) == 0 &&
 		len(d.MissingRoutes) == 0 && len(d.WrongLinkRoutes) == 0 && len(d.UnexpectedRoutes) == 0
 }
 
 // Compare reduces desired and kernel state to a reportable diff.
 func Compare(desired network.AuditState, kernel KernelState) Diff {
 	var d Diff
-	if !kernel.TableV4 && !kernel.TableV6 && len(desired.HostPortRules) == 0 && len(desired.WorkloadRoutes) == 0 {
+	if !kernel.TableV4 && !kernel.TableV6 && len(desired.HostPortRules) == 0 && len(desired.WorkloadRoutes) == 0 && len(desired.FilterNets) == 0 {
 		d.NotInstalled = true
 		return d
 	}
@@ -73,6 +85,10 @@ func Compare(desired network.AuditState, kernel KernelState) Diff {
 	d.UnrecognizedNft = append(d.UnrecognizedNft, kernel.Unrecognized...)
 	d.MissingMasquerade = !kernel.Masquerade
 
+	filterState := desired.FilterState()
+	d.MissingFilter, d.UnexpectedFilter = diffCounts(filterState.RuleKeys(), kernel.Filter)
+	d.MissingElements, d.UnexpectedElements = diffCounts(filterState.ElementKeys(), kernel.Elements)
+
 	desiredRoutes := make(map[netip.Addr]int, len(desired.WorkloadRoutes))
 	for _, route := range desired.WorkloadRoutes {
 		desiredRoutes[route.Addr] = route.LinkIndex
@@ -95,10 +111,32 @@ func Compare(desired network.AuditState, kernel KernelState) Diff {
 	// only expect it once workload routes are desired.
 	d.MissingFallbackRoute = desired.HasPrefix && len(desired.WorkloadRoutes) > 0 && !kernel.FallbackRoute
 
-	for _, list := range [][]string{d.MissingNft, d.UnexpectedNft, d.UnrecognizedNft, d.MissingRoutes, d.WrongLinkRoutes, d.UnexpectedRoutes} {
+	for _, list := range [][]string{d.MissingNft, d.UnexpectedNft, d.UnrecognizedNft, d.MissingFilter, d.UnexpectedFilter, d.MissingElements, d.UnexpectedElements, d.MissingRoutes, d.WrongLinkRoutes, d.UnexpectedRoutes} {
 		sort.Strings(list)
 	}
 	return d
+}
+
+func diffCounts(expected, actual map[string]int) (missing, unexpected []string) {
+	remaining := make(map[string]int, len(actual))
+	for key, count := range actual {
+		remaining[key] = count
+	}
+	for key, count := range expected {
+		for range count {
+			if remaining[key] > 0 {
+				remaining[key]--
+				continue
+			}
+			missing = append(missing, key)
+		}
+	}
+	for key, count := range remaining {
+		for range count {
+			unexpected = append(unexpected, key)
+		}
+	}
+	return missing, unexpected
 }
 
 // expectedDNATKeys mirrors reconcileNft: each published host port renders an

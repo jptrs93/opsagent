@@ -12,6 +12,7 @@ import {httpsHeaderCases} from './https-headers.js';
 import {expectProtoStreamRoutes, protoStreamCases} from './proto-stream.js';
 import {expectWebSocketRoute, websocketCases} from './websocket.js';
 import {issuedTLSCases} from './issued-tls.js';
+import {networkPolicyCases} from './network-policy.js';
 import {pgBackRestCases} from './postgres-pgbackrest.js';
 import {installVirtualAuthenticator} from '../helpers/webauthn.js';
 import {
@@ -191,6 +192,7 @@ export const orderedCases = [
   ...protoStreamCases,
   ...websocketCases,
   ...issuedTLSCases,
+  ...networkPolicyCases,
   {
     id: 'private-github-deployment',
     title: 'create private github deployment',

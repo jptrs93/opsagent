@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model/networking.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+// NetworkPolicy is one global override connectivity rule. Policies are
+// first-class entities with their own storage and history; they are not part
+// of any deployment spec. Peers are single-id anchors: a deployment peer's
+// space resolves at render time, so space moves follow automatically.
+message NetworkPolicy {
+  int32 id = 1;
+  int32 version = 2;
+  NetworkPolicyAction action = 3;
+  NetworkPolicyPeerRef source = 4;
+  NetworkPolicyPeerRef destination = 5;
+  repeated NetPortMatch ports = 6; // empty = all ports and protocols
+  bool deleted = 7;
+}
+
+// DENY is schema-reserved and rejected on writes until enforced.
+enum NetworkPolicyAction {
+  NETWORK_POLICY_ACTION_UNSPECIFIED = 0;
+  NETWORK_POLICY_ACTION_ALLOW = 1;
+  NETWORK_POLICY_ACTION_DENY = 2;
+}
+
+message NetworkPolicyPeerRef {
+  NetworkPolicyPeerKind kind = 1;
+  int32 id = 2;
+}
+
+enum NetworkPolicyPeerKind {
+  NETWORK_POLICY_PEER_KIND_UNSPECIFIED = 0;
+  NETWORK_POLICY_PEER_KIND_SPACE = 1;
+  NETWORK_POLICY_PEER_KIND_DEPLOYMENT = 2;
+}

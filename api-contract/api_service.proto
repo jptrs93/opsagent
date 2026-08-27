@@ -17,6 +17,8 @@ import "api-contract/model_enrollment_operations.proto";
 import "api-contract/model_global_operations.proto";
 import "api-contract/model/logs.proto";
 import "api-contract/model_logs_operations.proto";
+import "api-contract/model/network_policies.proto";
+import "api-contract/model_network_policies_operations.proto";
 import "api-contract/model/nodes.proto";
 import "api-contract/model_nodes_operations.proto";
 import "api-contract/model/primary_config.proto";
@@ -280,6 +282,26 @@ service ApiServer {
   }
 
   rpc PostV1SpacesDelete(SpaceDeleteRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1NetworkPoliciesList(cp.Empty) returns (NetworkPolicyList) {
+    option (cp.url) = "/v1/network-policies/list";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1NetworkPoliciesCreate(NetworkPolicyCreateRequest) returns (NetworkPolicy) {
+    option (cp.url) = "/v1/network-policies/create";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1NetworkPoliciesUpdate(NetworkPolicyUpdateRequest) returns (NetworkPolicy) {
+    option (cp.url) = "/v1/network-policies/update";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1NetworkPoliciesDelete(NetworkPolicyDeleteRequest) returns (cp.Empty) {
+    option (cp.url) = "/v1/network-policies/delete";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 

@@ -13,6 +13,8 @@ import "api-contract/model/deployments.proto";
 import "api-contract/model_directories_operations.proto";
 import "api-contract/model/enrollment.proto";
 import "api-contract/model_enrollment_operations.proto";
+import "api-contract/model/network_policies.proto";
+import "api-contract/model_network_policies_operations.proto";
 import "api-contract/model/nodes.proto";
 import "api-contract/model_nodes_operations.proto";
 import "api-contract/model/primary_config.proto";
@@ -70,6 +72,9 @@ message State {
   AuthzRuleTemplateList authz_rule_templates_snapshot = 32;
   AuthzGrantList authz_grants_snapshot = 33;
   AuthzGlobalRuleList authz_global_rules_snapshot = 34;
+  // Network policies are small and mutate rarely; each change re-emits the
+  // full snapshot like the authz collections.
+  NetworkPolicyList network_policies_snapshot = 35;
 }
 
 message GlobalState {

@@ -87,7 +87,8 @@ type Service struct {
 	// Carries the storage record rather than the proto, because subscribers have
 	// to filter by user id before yielding: an agent session belongs to one
 	// operator, unlike everything else broadcast here.
-	agentSessionSubs *pubsubu.PubSub[AgentSessionRecord]
+	agentSessionSubs  *pubsubu.PubSub[AgentSessionRecord]
+	networkPolicySubs *pubsubu.PubSub[apigen.NetworkPolicy]
 }
 
 func Open(dbPath string) *Service {
@@ -110,6 +111,7 @@ func Open(dbPath string) *Service {
 		nodeSubs:           &pubsubu.PubSub[apigen.ClusterNode]{},
 		nodeStatusSubs:     &pubsubu.PubSub[apigen.ClusterNodeStatus]{},
 		agentSessionSubs:   &pubsubu.PubSub[AgentSessionRecord]{},
+		networkPolicySubs:  &pubsubu.PubSub[apigen.NetworkPolicy]{},
 	}
 	s.Cache = instancecache.New(s.persistStatus)
 	s.loadCache()

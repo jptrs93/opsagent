@@ -165,19 +165,41 @@ func (s *Service) listNodesLocked() []*Node {
 	return out
 }
 
-// FetchNetworkMapInputs returns node and scheduled-instance state from one
+// NetworkMapInputs is one consistent render input snapshot: nodes, scheduled
+// instances, override policies, the deployment-to-space resolution for policy
+// peers, and the global write sequence the snapshot reflects.
+type NetworkMapInputs struct {
+	Nodes            []*Node
+	Instances        []apigen.ScheduledInstanceState
+	Policies         []*apigen.NetworkPolicy
+	DeploymentSpaces map[int32]int32
+	Seq              int64
+}
+
+// FetchNetworkMapInputs returns all network-map render inputs from one
 // storage critical section so the publisher never renders a mixed-time
-// snapshot, together with the global write sequence the snapshot reflects.
-// Every map-input write advances that sequence in its own transaction, so a
-// render at seq N is a pure function of state@N.
-func (s *Service) FetchNetworkMapInputs() ([]*Node, []apigen.ScheduledInstanceState, int64) {
+// snapshot. Every map-input write advances the global sequence in its own
+// transaction, so a render at seq N is a pure function of state@N.
+func (s *Service) FetchNetworkMapInputs() NetworkMapInputs {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	seq, err := s.q.GetGlobalSeq(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("get global seq: %v", err))
 	}
-	return s.listNodesLocked(), s.SnapshotLocked(nil), seq
+	spaces := make(map[int32]int32, len(s.configCache))
+	for id, cfg := range s.configCache {
+		if cfg != nil && !cfg.Deleted {
+			spaces[id] = cfg.SpaceID
+		}
+	}
+	return NetworkMapInputs{
+		Nodes:            s.listNodesLocked(),
+		Instances:        s.SnapshotLocked(nil),
+		Policies:         s.listNetworkPoliciesLocked(false),
+		DeploymentSpaces: spaces,
+		Seq:              seq,
+	}
 }
 
 func (s *Service) ListClusterNodes() []*apigen.ClusterNode {

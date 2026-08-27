@@ -159,6 +159,30 @@ const (
 	AuthzEntity_AUTHZ_ENTITY_ACCESS     AuthzEntity = 9
 )
 
+type NetProtocol int32
+
+const (
+	NetProtocol_NET_PROTOCOL_UNSPECIFIED NetProtocol = 0
+	NetProtocol_NET_PROTOCOL_TCP         NetProtocol = 1
+	NetProtocol_NET_PROTOCOL_UDP         NetProtocol = 2
+)
+
+type NetworkPolicyAction int32
+
+const (
+	NetworkPolicyAction_NETWORK_POLICY_ACTION_UNSPECIFIED NetworkPolicyAction = 0
+	NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW       NetworkPolicyAction = 1
+	NetworkPolicyAction_NETWORK_POLICY_ACTION_DENY        NetworkPolicyAction = 2
+)
+
+type NetworkPolicyPeerKind int32
+
+const (
+	NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_UNSPECIFIED NetworkPolicyPeerKind = 0
+	NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_SPACE       NetworkPolicyPeerKind = 1
+	NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_DEPLOYMENT  NetworkPolicyPeerKind = 2
+)
+
 type AccessPolicyType int32
 
 const (
@@ -1276,6 +1300,24 @@ type ClusterNetMap struct {
 	Nodes          []*ClusterNetMapNode  `json:"nodes,omitempty"`
 	Routes         []*ClusterNetMapRoute `json:"routes,omitempty"`
 	DerivedFromSeq int64                 `json:"derived_from_seq"`
+	PolicyRules    []*NetPolicyRule      `json:"policy_rules,omitempty"`
+}
+
+type NetPolicyRule struct {
+	Source      *NetPolicyPeer  `json:"source"`
+	Destination *NetPolicyPeer  `json:"destination"`
+	Ports       []*NetPortMatch `json:"ports,omitempty"`
+}
+
+type NetPolicyPeer struct {
+	SpaceID      int32 `json:"space_id"`
+	DeploymentID int32 `json:"deployment_id"`
+}
+
+type NetPortMatch struct {
+	Protocol NetProtocol `json:"protocol"`
+	Port     int32       `json:"port"`
+	PortEnd  int32       `json:"port_end"`
 }
 
 type ClusterNetMapNode struct {
@@ -1350,6 +1392,45 @@ type TlsPassthroughNetIngress struct {
 type IngressBackend struct {
 	Address string `json:"address,omitempty"`
 	Port    int32  `json:"port"`
+}
+
+type NetworkPolicy struct {
+	ID          int32                 `json:"id"`
+	Version     int32                 `json:"version"`
+	Action      NetworkPolicyAction   `json:"action"`
+	Source      *NetworkPolicyPeerRef `json:"source"`
+	Destination *NetworkPolicyPeerRef `json:"destination"`
+	Ports       []*NetPortMatch       `json:"ports,omitempty"`
+	Deleted     bool                  `json:"deleted"`
+}
+
+type NetworkPolicyPeerRef struct {
+	Kind NetworkPolicyPeerKind `json:"kind"`
+	ID   int32                 `json:"id"`
+}
+
+type NetworkPolicyList struct {
+	Items []*NetworkPolicy `json:"items,omitempty"`
+}
+
+type NetworkPolicyCreateRequest struct {
+	Action      NetworkPolicyAction   `json:"action"`
+	Source      *NetworkPolicyPeerRef `json:"source"`
+	Destination *NetworkPolicyPeerRef `json:"destination"`
+	Ports       []*NetPortMatch       `json:"ports,omitempty"`
+}
+
+type NetworkPolicyUpdateRequest struct {
+	ID          int32                 `json:"id"`
+	Version     int32                 `json:"version"`
+	Action      NetworkPolicyAction   `json:"action"`
+	Source      *NetworkPolicyPeerRef `json:"source"`
+	Destination *NetworkPolicyPeerRef `json:"destination"`
+	Ports       []*NetPortMatch       `json:"ports,omitempty"`
+}
+
+type NetworkPolicyDeleteRequest struct {
+	ID int32 `json:"id"`
 }
 
 type GithubCredentials struct {
@@ -1616,6 +1697,7 @@ type State struct {
 	AuthzRuleTemplatesSnapshot *AuthzRuleTemplateList     `json:"authz_rule_templates_snapshot"`
 	AuthzGrantsSnapshot        *AuthzGrantList            `json:"authz_grants_snapshot"`
 	AuthzGlobalRulesSnapshot   *AuthzGlobalRuleList       `json:"authz_global_rules_snapshot"`
+	NetworkPoliciesSnapshot    *NetworkPolicyList         `json:"network_policies_snapshot"`
 }
 
 type GlobalState struct {

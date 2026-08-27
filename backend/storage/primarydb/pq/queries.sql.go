@@ -36,6 +36,32 @@ func (q *Queries) AppendAuthzRuleTemplateVersion(ctx context.Context, arg Append
 	return err
 }
 
+const appendNetworkPolicyVersion = `-- name: AppendNetworkPolicyVersion :exec
+INSERT INTO network_policy_versions (policy_id, version, created_at, author, data_blob, global_seq)
+SELECT ?1, COALESCE(MAX(version), 0) + 1, ?2, ?3, ?4, ?5
+FROM network_policy_versions
+WHERE policy_id = ?1
+`
+
+type AppendNetworkPolicyVersionParams struct {
+	PolicyID  int64
+	CreatedAt int64
+	Author    int64
+	DataBlob  []byte
+	GlobalSeq int64
+}
+
+func (q *Queries) AppendNetworkPolicyVersion(ctx context.Context, arg AppendNetworkPolicyVersionParams) error {
+	_, err := q.db.ExecContext(ctx, appendNetworkPolicyVersion,
+		arg.PolicyID,
+		arg.CreatedAt,
+		arg.Author,
+		arg.DataBlob,
+		arg.GlobalSeq,
+	)
+	return err
+}
+
 const appendScheduledInstanceVersion = `-- name: AppendScheduledInstanceVersion :exec
 INSERT INTO scheduled_instance_versions (scheduled_instance_id, version, created_at, state, global_seq)
 SELECT ?1, COALESCE(MAX(version), 0) + 1, ?2, ?3, ?4
@@ -319,6 +345,22 @@ func (q *Queries) CreateDeployment(ctx context.Context, arg CreateDeploymentPara
 	var deployment_id int64
 	err := row.Scan(&deployment_id)
 	return deployment_id, err
+}
+
+const createNetworkPolicyRow = `-- name: CreateNetworkPolicyRow :one
+
+INSERT INTO network_policies (deleted_at) VALUES (0) RETURNING id
+`
+
+// Network policy content lives in network_policy_versions; the list read is
+// hand-written in network_policies.go (identity joined with the latest
+// version row). Every content write advances the global sequence in the same
+// tx because policies are cluster network map render inputs.
+func (q *Queries) CreateNetworkPolicyRow(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, createNetworkPolicyRow)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const createSpace = `-- name: CreateSpace :one
@@ -2854,6 +2896,20 @@ type SetGlobalAccessRuleDeletedAtParams struct {
 
 func (q *Queries) SetGlobalAccessRuleDeletedAt(ctx context.Context, arg SetGlobalAccessRuleDeletedAtParams) error {
 	_, err := q.db.ExecContext(ctx, setGlobalAccessRuleDeletedAt, arg.DeletedAt, arg.ID)
+	return err
+}
+
+const setNetworkPolicyDeletedAt = `-- name: SetNetworkPolicyDeletedAt :exec
+UPDATE network_policies SET deleted_at = ? WHERE id = ?
+`
+
+type SetNetworkPolicyDeletedAtParams struct {
+	DeletedAt int64
+	ID        int64
+}
+
+func (q *Queries) SetNetworkPolicyDeletedAt(ctx context.Context, arg SetNetworkPolicyDeletedAtParams) error {
+	_, err := q.db.ExecContext(ctx, setNetworkPolicyDeletedAt, arg.DeletedAt, arg.ID)
 	return err
 }
 

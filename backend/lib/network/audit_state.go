@@ -1,6 +1,9 @@
 package network
 
-import "net/netip"
+import (
+	"net/netip"
+	"slices"
+)
 
 // AuditRoute is one /128 workload route the manager believes is installed:
 // a container's outbound address, or the stable inbound address of the run
@@ -13,10 +16,17 @@ type AuditRoute struct {
 // AuditState is a point-in-time snapshot of the kernel networking state the
 // manager believes it has installed, consumed by the netaudit package.
 type AuditState struct {
-	HostPortRules  []HostPortRule
-	WorkloadRoutes []AuditRoute
-	Prefix         Prefix
-	HasPrefix      bool
+	HostPortRules        []HostPortRule
+	WorkloadRoutes       []AuditRoute
+	Prefix               Prefix
+	HasPrefix            bool
+	NetproxyDeploymentID int32
+	FilterNets           []*ContainerNet
+	PolicyRules          []PolicyRule
+}
+
+func (s AuditState) FilterState() FilterState {
+	return RenderFilterState(s.Prefix, s.HasPrefix, s.NetproxyDeploymentID, s.FilterNets, s.PolicyRules)
 }
 
 // AuditSnapshot captures the manager's desired kernel state. The two mutexes
@@ -27,6 +37,9 @@ func (m *Manager) AuditSnapshot() AuditState {
 	var s AuditState
 	m.mu.Lock()
 	s.Prefix, s.HasPrefix = m.prefix, m.hasPrefix
+	s.NetproxyDeploymentID = m.netproxyDeploymentID
+	s.FilterNets = m.filterNetList()
+	s.PolicyRules = slices.Clone(m.policyRules)
 	for _, entry := range m.hostPorts {
 		s.HostPortRules = append(s.HostPortRules, entry.rules...)
 	}

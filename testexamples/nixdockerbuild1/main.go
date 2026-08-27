@@ -31,6 +31,7 @@ func main() {
 	printIssuedTLS()
 	go serveIssuedTLS()
 	go checkIssuedTLSClient()
+	go probeInternalURL()
 
 	for count := 1; ; count++ {
 		logf("nixdockerbuild1 count=%d time=%s", count, time.Now().Format(time.RFC3339))
@@ -57,6 +58,28 @@ func checkIPv4Egress() {
 		return
 	}
 	logf("nixdockerbuild1 ipv4 egress observed source=%s status=%d", strings.TrimSpace(string(body)), response.StatusCode)
+}
+
+func probeInternalURL() {
+	url := os.Getenv("OPENDEPLOY_E2E_PROBE_URL")
+	if url == "" {
+		return
+	}
+	client := &http.Client{
+		Timeout:   3 * time.Second,
+		Transport: &http.Transport{DisableKeepAlives: true},
+	}
+	for {
+		response, err := client.Get(url)
+		if err != nil {
+			logf("nixdockerbuild1 probe url=%s result=error err=%v", url, err)
+		} else {
+			body, _ := io.ReadAll(response.Body)
+			response.Body.Close()
+			logf("nixdockerbuild1 probe url=%s result=ok status=%d bytes=%d", url, response.StatusCode, len(body))
+		}
+		time.Sleep(5 * time.Second)
+	}
 }
 
 func issuedTLSDir() string {

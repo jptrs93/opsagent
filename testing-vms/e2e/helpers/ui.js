@@ -2110,3 +2110,46 @@ function selectField(dialog, label) {
 function escapeRegExp(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+export async function createSpaceViaUI(page, name) {
+  await page.getByTestId('nav-spaces').click();
+  await page.getByRole('button', {name: 'Add space'}).click();
+  await page.getByPlaceholder('New space name').fill(name);
+  await page.getByRole('button', {name: 'Save', exact: true}).click();
+  const row = page.locator('[data-testid^="space-row-"]')
+    .filter({has: page.getByLabel(`Space name ${name}`, {exact: true})});
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  return Number((await row.getAttribute('data-testid')).replace('space-row-', ''));
+}
+
+export async function createNetworkPolicy(page, {
+  sourceKind = 'space',
+  source,
+  destinationKind = 'space',
+  destination,
+  ports = '',
+} = {}) {
+  await page.getByTestId('nav-network').click();
+  await page.getByRole('button', {name: 'Add policy'}).click();
+  const form = page.getByTestId('network-policy-form');
+  await expect(form).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await form.getByLabel('Source kind', {exact: true}).selectOption({label: sourceKind});
+  await form.getByLabel(`Source ${sourceKind}`, {exact: true}).selectOption({label: source});
+  await form.getByLabel('Destination kind', {exact: true}).selectOption({label: destinationKind});
+  await form.getByLabel(`Destination ${destinationKind}`, {exact: true}).selectOption({label: destination});
+  if (ports) await form.getByLabel('Ports', {exact: true}).fill(ports);
+  await page.getByRole('button', {name: 'Create', exact: true}).click();
+  await expect(form).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  const row = page.locator('[data-testid^="network-policy-row-"]')
+    .filter({hasText: source.split(' ')[0]})
+    .filter({hasText: destination.split(' ')[0]});
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  return Number((await row.getAttribute('data-testid')).replace('network-policy-row-', ''));
+}
+
+export async function deleteNetworkPolicy(page, policyId) {
+  await page.getByTestId('nav-network').click();
+  await page.getByLabel(`Delete policy ${policyId}`, {exact: true}).click();
+  await page.getByRole('button', {name: 'Confirm', exact: true}).click();
+  await expect(page.getByTestId(`network-policy-row-${policyId}`)).toHaveCount(0, {timeout: LONG_UI_TIMEOUT});
+}

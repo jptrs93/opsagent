@@ -1108,6 +1108,24 @@
  * @property {ClusterNetMapNode[]} nodes
  * @property {ClusterNetMapRoute[]} routes
  * @property {number} derivedFromSeq
+ * @property {NetPolicyRule[]} policyRules
+ */
+/**
+ * @typedef {Object} NetPolicyRule
+ * @property {NetPolicyPeer} source
+ * @property {NetPolicyPeer} destination
+ * @property {NetPortMatch[]} ports
+ */
+/**
+ * @typedef {Object} NetPolicyPeer
+ * @property {number} spaceId
+ * @property {number} deploymentId
+ */
+/**
+ * @typedef {Object} NetPortMatch
+ * @property {number} protocol
+ * @property {number} port
+ * @property {number} portEnd
  */
 /**
  * @typedef {Object} ClusterNetMapNode
@@ -1182,6 +1200,45 @@
  * @typedef {Object} IngressBackend
  * @property {string} address
  * @property {number} port
+ */
+/**
+ * @typedef {Object} NetworkPolicy
+ * @property {number} id
+ * @property {number} version
+ * @property {number} action
+ * @property {NetworkPolicyPeerRef} source
+ * @property {NetworkPolicyPeerRef} destination
+ * @property {NetPortMatch[]} ports
+ * @property {boolean} deleted
+ */
+/**
+ * @typedef {Object} NetworkPolicyPeerRef
+ * @property {number} kind
+ * @property {number} id
+ */
+/**
+ * @typedef {Object} NetworkPolicyList
+ * @property {NetworkPolicy[]} items
+ */
+/**
+ * @typedef {Object} NetworkPolicyCreateRequest
+ * @property {number} action
+ * @property {NetworkPolicyPeerRef} source
+ * @property {NetworkPolicyPeerRef} destination
+ * @property {NetPortMatch[]} ports
+ */
+/**
+ * @typedef {Object} NetworkPolicyUpdateRequest
+ * @property {number} id
+ * @property {number} version
+ * @property {number} action
+ * @property {NetworkPolicyPeerRef} source
+ * @property {NetworkPolicyPeerRef} destination
+ * @property {NetPortMatch[]} ports
+ */
+/**
+ * @typedef {Object} NetworkPolicyDeleteRequest
+ * @property {number} id
  */
 /**
  * @typedef {Object} GithubCredentials
@@ -1448,6 +1505,7 @@
  * @property {AuthzRuleTemplateList} authzRuleTemplatesSnapshot
  * @property {AuthzGrantList} authzGrantsSnapshot
  * @property {AuthzGlobalRuleList} authzGlobalRulesSnapshot
+ * @property {NetworkPolicyList} networkPoliciesSnapshot
  */
 /**
  * @typedef {Object} GlobalState
@@ -14681,6 +14739,13 @@ export function writeClusterNetMap(message, writer) {
     if (message.derivedFromSeq !== undefined && message.derivedFromSeq !== null && message.derivedFromSeq !== 0) {
         writer.uint32(tag(7, WIRE.VARINT)).int64(message.derivedFromSeq);
     }
+    if (message.policyRules && message.policyRules.length > 0) {
+        for (const item of message.policyRules) {
+            writer.uint32(tag(8, WIRE.LDELIM)).fork();
+            writeNetPolicyRule(item, writer);
+            writer.ldelim();
+        }
+    }
 }
 
 
@@ -14702,7 +14767,7 @@ export function encodeClusterNetMap(message) {
  */
 function decodeClusterNetMapMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {targetNodeId: 0, ulaPrefix: new Uint8Array(0), nodes: [], routes: [], derivedFromSeq: 0 };
+    const message = {targetNodeId: 0, ulaPrefix: new Uint8Array(0), nodes: [], routes: [], derivedFromSeq: 0, policyRules: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -14726,6 +14791,10 @@ function decodeClusterNetMapMessage(reader, length) {
                 message.derivedFromSeq = readInt64(reader, "int64");
                 break;
             }
+            case 8: {
+                message.policyRules.push(decodeNetPolicyRuleMessage(reader, reader.uint32()));
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -14741,6 +14810,217 @@ function decodeClusterNetMapMessage(reader, length) {
 export function decodeClusterNetMap(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeClusterNetMapMessage(reader);
+}
+
+
+
+/**
+ * @param {NetPolicyRule} message
+ * @param {Writer} writer
+ */
+export function writeNetPolicyRule(message, writer) {
+    if (message.source !== undefined && message.source !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeNetPolicyPeer(message.source, writer);
+        writer.ldelim();
+    }
+    if (message.destination !== undefined && message.destination !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeNetPolicyPeer(message.destination, writer);
+        writer.ldelim();
+    }
+    if (message.ports && message.ports.length > 0) {
+        for (const item of message.ports) {
+            writer.uint32(tag(3, WIRE.LDELIM)).fork();
+            writeNetPortMatch(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {NetPolicyRule} message
+ * @returns {Uint8Array}
+ */
+export function encodeNetPolicyRule(message) {
+    const writer = Writer.create();
+    writeNetPolicyRule(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NetPolicyRule}
+ */
+function decodeNetPolicyRuleMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {source: undefined, destination: undefined, ports: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.source = decodeNetPolicyPeerMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.destination = decodeNetPolicyPeerMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.ports.push(decodeNetPortMatchMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NetPolicyRule}
+ */
+export function decodeNetPolicyRule(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNetPolicyRuleMessage(reader);
+}
+
+
+
+/**
+ * @param {NetPolicyPeer} message
+ * @param {Writer} writer
+ */
+export function writeNetPolicyPeer(message, writer) {
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.deploymentId);
+    }
+}
+
+
+/**
+ * @param {NetPolicyPeer} message
+ * @returns {Uint8Array}
+ */
+export function encodeNetPolicyPeer(message) {
+    const writer = Writer.create();
+    writeNetPolicyPeer(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NetPolicyPeer}
+ */
+function decodeNetPolicyPeerMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {spaceId: 0, deploymentId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.deploymentId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NetPolicyPeer}
+ */
+export function decodeNetPolicyPeer(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNetPolicyPeerMessage(reader);
+}
+
+
+
+/**
+ * @param {NetPortMatch} message
+ * @param {Writer} writer
+ */
+export function writeNetPortMatch(message, writer) {
+    if (message.protocol !== undefined && message.protocol !== null && message.protocol !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.protocol);
+    }
+    if (message.port !== undefined && message.port !== null && message.port !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.port);
+    }
+    if (message.portEnd !== undefined && message.portEnd !== null && message.portEnd !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.portEnd);
+    }
+}
+
+
+/**
+ * @param {NetPortMatch} message
+ * @returns {Uint8Array}
+ */
+export function encodeNetPortMatch(message) {
+    const writer = Writer.create();
+    writeNetPortMatch(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NetPortMatch}
+ */
+function decodeNetPortMatchMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {protocol: 0, port: 0, portEnd: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.protocol = reader.int32();
+                break;
+            }
+            case 2: {
+                message.port = reader.int32();
+                break;
+            }
+            case 3: {
+                message.portEnd = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NetPortMatch}
+ */
+export function decodeNetPortMatch(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNetPortMatchMessage(reader);
 }
 
 
@@ -15629,6 +15909,475 @@ function decodeIngressBackendMessage(reader, length) {
 export function decodeIngressBackend(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeIngressBackendMessage(reader);
+}
+
+
+
+/**
+ * @param {NetworkPolicy} message
+ * @param {Writer} writer
+ */
+export function writeNetworkPolicy(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    }
+    if (message.action !== undefined && message.action !== null && message.action !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.action);
+    }
+    if (message.source !== undefined && message.source !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeNetworkPolicyPeerRef(message.source, writer);
+        writer.ldelim();
+    }
+    if (message.destination !== undefined && message.destination !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeNetworkPolicyPeerRef(message.destination, writer);
+        writer.ldelim();
+    }
+    if (message.ports && message.ports.length > 0) {
+        for (const item of message.ports) {
+            writer.uint32(tag(6, WIRE.LDELIM)).fork();
+            writeNetPortMatch(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.deleted === true) {
+        writer.uint32(tag(7, WIRE.VARINT)).bool(message.deleted);
+    }
+}
+
+
+/**
+ * @param {NetworkPolicy} message
+ * @returns {Uint8Array}
+ */
+export function encodeNetworkPolicy(message) {
+    const writer = Writer.create();
+    writeNetworkPolicy(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NetworkPolicy}
+ */
+function decodeNetworkPolicyMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, version: 0, action: 0, source: undefined, destination: undefined, ports: [], deleted: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.version = reader.int32();
+                break;
+            }
+            case 3: {
+                message.action = reader.int32();
+                break;
+            }
+            case 4: {
+                message.source = decodeNetworkPolicyPeerRefMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.destination = decodeNetworkPolicyPeerRefMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.ports.push(decodeNetPortMatchMessage(reader, reader.uint32()));
+                break;
+            }
+            case 7: {
+                message.deleted = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NetworkPolicy}
+ */
+export function decodeNetworkPolicy(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNetworkPolicyMessage(reader);
+}
+
+
+
+/**
+ * @param {NetworkPolicyPeerRef} message
+ * @param {Writer} writer
+ */
+export function writeNetworkPolicyPeerRef(message, writer) {
+    if (message.kind !== undefined && message.kind !== null && message.kind !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.kind);
+    }
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.id);
+    }
+}
+
+
+/**
+ * @param {NetworkPolicyPeerRef} message
+ * @returns {Uint8Array}
+ */
+export function encodeNetworkPolicyPeerRef(message) {
+    const writer = Writer.create();
+    writeNetworkPolicyPeerRef(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NetworkPolicyPeerRef}
+ */
+function decodeNetworkPolicyPeerRefMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {kind: 0, id: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.kind = reader.int32();
+                break;
+            }
+            case 2: {
+                message.id = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NetworkPolicyPeerRef}
+ */
+export function decodeNetworkPolicyPeerRef(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNetworkPolicyPeerRefMessage(reader);
+}
+
+
+
+/**
+ * @param {NetworkPolicyList} message
+ * @param {Writer} writer
+ */
+export function writeNetworkPolicyList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeNetworkPolicy(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {NetworkPolicyList} message
+ * @returns {Uint8Array}
+ */
+export function encodeNetworkPolicyList(message) {
+    const writer = Writer.create();
+    writeNetworkPolicyList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NetworkPolicyList}
+ */
+function decodeNetworkPolicyListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeNetworkPolicyMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NetworkPolicyList}
+ */
+export function decodeNetworkPolicyList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNetworkPolicyListMessage(reader);
+}
+
+
+
+/**
+ * @param {NetworkPolicyCreateRequest} message
+ * @param {Writer} writer
+ */
+export function writeNetworkPolicyCreateRequest(message, writer) {
+    if (message.action !== undefined && message.action !== null && message.action !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.action);
+    }
+    if (message.source !== undefined && message.source !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeNetworkPolicyPeerRef(message.source, writer);
+        writer.ldelim();
+    }
+    if (message.destination !== undefined && message.destination !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeNetworkPolicyPeerRef(message.destination, writer);
+        writer.ldelim();
+    }
+    if (message.ports && message.ports.length > 0) {
+        for (const item of message.ports) {
+            writer.uint32(tag(4, WIRE.LDELIM)).fork();
+            writeNetPortMatch(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {NetworkPolicyCreateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeNetworkPolicyCreateRequest(message) {
+    const writer = Writer.create();
+    writeNetworkPolicyCreateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NetworkPolicyCreateRequest}
+ */
+function decodeNetworkPolicyCreateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {action: 0, source: undefined, destination: undefined, ports: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.action = reader.int32();
+                break;
+            }
+            case 2: {
+                message.source = decodeNetworkPolicyPeerRefMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.destination = decodeNetworkPolicyPeerRefMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.ports.push(decodeNetPortMatchMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NetworkPolicyCreateRequest}
+ */
+export function decodeNetworkPolicyCreateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNetworkPolicyCreateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {NetworkPolicyUpdateRequest} message
+ * @param {Writer} writer
+ */
+export function writeNetworkPolicyUpdateRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    }
+    if (message.action !== undefined && message.action !== null && message.action !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.action);
+    }
+    if (message.source !== undefined && message.source !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeNetworkPolicyPeerRef(message.source, writer);
+        writer.ldelim();
+    }
+    if (message.destination !== undefined && message.destination !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeNetworkPolicyPeerRef(message.destination, writer);
+        writer.ldelim();
+    }
+    if (message.ports && message.ports.length > 0) {
+        for (const item of message.ports) {
+            writer.uint32(tag(6, WIRE.LDELIM)).fork();
+            writeNetPortMatch(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {NetworkPolicyUpdateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeNetworkPolicyUpdateRequest(message) {
+    const writer = Writer.create();
+    writeNetworkPolicyUpdateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NetworkPolicyUpdateRequest}
+ */
+function decodeNetworkPolicyUpdateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, version: 0, action: 0, source: undefined, destination: undefined, ports: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.version = reader.int32();
+                break;
+            }
+            case 3: {
+                message.action = reader.int32();
+                break;
+            }
+            case 4: {
+                message.source = decodeNetworkPolicyPeerRefMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.destination = decodeNetworkPolicyPeerRefMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.ports.push(decodeNetPortMatchMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NetworkPolicyUpdateRequest}
+ */
+export function decodeNetworkPolicyUpdateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNetworkPolicyUpdateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {NetworkPolicyDeleteRequest} message
+ * @param {Writer} writer
+ */
+export function writeNetworkPolicyDeleteRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+}
+
+
+/**
+ * @param {NetworkPolicyDeleteRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeNetworkPolicyDeleteRequest(message) {
+    const writer = Writer.create();
+    writeNetworkPolicyDeleteRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NetworkPolicyDeleteRequest}
+ */
+function decodeNetworkPolicyDeleteRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NetworkPolicyDeleteRequest}
+ */
+export function decodeNetworkPolicyDeleteRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNetworkPolicyDeleteRequestMessage(reader);
 }
 
 
@@ -18555,6 +19304,11 @@ export function writeState(message, writer) {
         writeAuthzGlobalRuleList(message.authzGlobalRulesSnapshot, writer);
         writer.ldelim();
     }
+    if (message.networkPoliciesSnapshot !== undefined && message.networkPoliciesSnapshot !== null) {
+        writer.uint32(tag(35, WIRE.LDELIM)).fork();
+        writeNetworkPolicyList(message.networkPoliciesSnapshot, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -18576,7 +19330,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentConfigsSnapshot: undefined, deploymentConfigUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, agentSessionsSnapshot: undefined, agentSessionUpdate: undefined, valueDirectoriesSnapshot: undefined, valueDirectoryUpdate: undefined, assetDirectoriesSnapshot: undefined, assetDirectoryUpdate: undefined, authzRuleTemplatesSnapshot: undefined, authzGrantsSnapshot: undefined, authzGlobalRulesSnapshot: undefined };
+    const message = {heartbeat: false, deploymentConfigsSnapshot: undefined, deploymentConfigUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, agentSessionsSnapshot: undefined, agentSessionUpdate: undefined, valueDirectoriesSnapshot: undefined, valueDirectoryUpdate: undefined, assetDirectoriesSnapshot: undefined, assetDirectoryUpdate: undefined, authzRuleTemplatesSnapshot: undefined, authzGrantsSnapshot: undefined, authzGlobalRulesSnapshot: undefined, networkPoliciesSnapshot: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -18714,6 +19468,10 @@ function decodeStateMessage(reader, length) {
             }
             case 34: {
                 message.authzGlobalRulesSnapshot = decodeAuthzGlobalRuleListMessage(reader, reader.uint32());
+                break;
+            }
+            case 35: {
+                message.networkPoliciesSnapshot = decodeNetworkPolicyListMessage(reader, reader.uint32());
                 break;
             }
             default:

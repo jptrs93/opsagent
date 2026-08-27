@@ -14,14 +14,25 @@ distribution and application on workers and the primary — is documented in
 
 ## Current state
 
-Nothing is enforced today. The only nftables usage is NAT
-(`lib/network/nft_linux.go`): DNAT for `portForwarding` (with `ipFilter`
-source allow-lists) and the v4 egress masquerade. There are no filter-type
-chains, no forward-hook rules, and no drop verdicts. `EnsureBase` enables
-IPv4/IPv6 forwarding host-wide with nothing filtering forwarded traffic, so
-workload-to-workload reachability is unrestricted — same-space and
-cross-space, same-node and cross-node — and nothing validates workload source
-addresses. No policy shape exists in any proto.
+The nftables chain shape described in this plan (per-veth `wl_src` chains and
+per-attachment `oifname` jumps) has since been replaced by a static rule
+program with named sets and a `daddr` verdict map; the policy semantics are
+unchanged and the shipped shape is documented in
+`docs/engineering/networking.md`.
+
+All three milestones are implemented (see the shipped-state summary in
+`docs/engineering/networking.md`): the default boundary filter chains with
+netaudit coverage and unit tests, the global `network_policies` entity with
+CRUD API, authorization, and both FE surfaces, and override distribution via
+`ClusterNetMap.policy_rules` applied on workers and the primary. The boundary
+is verified end-to-end in the VM suite (`e2e/cases/network-policy.js`): a
+cross-space flow denied by default, allowed by an override rule without
+restarting either workload, and denied again after the rule is removed. The
+residual coverage gaps are listed under each milestone. Deny enforcement,
+device grants, and the other future items remain future work.
+The pre-implementation state, for reference: nftables usage was
+NAT-only, forwarding was enabled host-wide with nothing filtering forwarded
+traffic, and no policy shape existed in any proto.
 
 ## Fixed design decisions
 
@@ -268,44 +279,48 @@ never at broken connectivity.
 
 ## Milestones
 
-### Milestone: default boundary
+### Milestone: default boundary — SHIPPED
 
-- Filter-chain rendering in `nft_linux.go` from manager state: anti-spoofing,
-  conntrack accept, default rules 1–5 and 7, the v4 close, per-family, in the
-  existing atomic rebuild. Enforced immediately.
-- netaudit extended to cover filter chains (desired vs kernel, same
+- Filter-chain rendering from manager state: anti-spoofing, conntrack accept,
+  default rules 1–5 and 7, the v4 close, per-family, compiled in
+  `nft_linux.go` from `RenderFilterState` in `lib/network/filter.go`. Enforced
+  immediately. The live dataplane uses a static forward-chain program plus
+  named sets and a `daddr` verdict map rather than the per-veth `wl_src`
+  chains sketched below.
+- netaudit covers filter rules and set/map elements (desired vs kernel, same
   divergence-recheck model).
 - Unit tests: rendered ruleset as a pure function of attachment set and
   prefix, including rollover (two attachments, shared `I`).
-- VM end-to-end coverage from the cross-node plan's verification list:
-  same-space allowed, cross-space denied, both same-node and cross-node;
-  spoofed source dropped; DNS and ingress backend dials unaffected; PMTU
-  (ICMPv6 packet-too-big) traverses; v4 container-to-container dropped.
+- VM end-to-end: same-node cross-space traffic is denied by default
+  (`network-policy-cross-space-denied`). Same-space traffic, DNS, and ingress
+  backend dials are covered implicitly — the rest of the suite runs over the
+  virtual network with the boundary enforced.
+- Still uncovered end-to-end: cross-node cross-space denial, spoofed source
+  dropped, PMTU (ICMPv6 packet-too-big) traversal, and v4
+  container-to-container drops.
 
-No wire changes. This alone closes the cross-node security gate for the
-default boundary.
-
-### Milestone: policy entity
+### Milestone: policy entity — SHIPPED
 
 - The `network_policies` table with version, history log, soft delete, and
   global-sequence stamping; the schema-reserved DENY action with write
   rejection.
 - CRUD API with destination-consent authorization and peer validation.
-- FE: the global policies page (source of truth) and the derived
-  policies view on the deployment side panel.
-- No enforcement effect yet.
+- FE: the global policies page (source of truth, Network in the sidebar) and
+  the derived policies view on the deployment inspector.
 
-### Milestone: override distribution and enforcement
+### Milestone: override distribution and enforcement — SHIPPED
 
 - `NetPolicyRule` on `ClusterNetMap`; primary render from the policy table
   (deployment-peer spaces resolved at render time); publisher subscription to
   policy-table updates.
 - `SetPolicyRules` on the manager; wired from worker session and primary
   applier; merged into the chain render as rule 6.
-- End-to-end: cross-space flow denied, allowed after rule addition without
-  workload restart, denied again after removal (established flows excepted),
-  deployment-peer rule follows a source space move, space-peer rule allows
-  all members of the source space.
+- VM end-to-end: a space-peer source rule to a deployment-peer destination on
+  tcp/8080 flips a probe from failing to succeeding with neither workload
+  restarted, and deleting it restores the deny for fresh connections
+  (`network-policy-allow-applied`, `network-policy-revoked`).
+- Still uncovered end-to-end: a deployment-peer rule following a source space
+  move, and cross-node override enforcement.
 
 ### Future, out of scope here
 

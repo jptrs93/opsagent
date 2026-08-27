@@ -252,6 +252,27 @@ func (r *containerRunner) Serve() error {
 	return r.claimInboundAddressLocked(r.getContainerNet())
 }
 
+// instanceTargetReader is the optional store capability used to re-verify a
+// claim against the placement's current target. Both role stores provide it
+// through the shared instance cache; test fakes without it skip the check.
+type instanceTargetReader interface {
+	FetchScheduledInstance(instanceID int32) *apigen.ScheduledInstance
+}
+
+// placementIsServing re-reads this placement's target at claim time. The
+// operator's in-memory target can lag a supersession the scheduler has
+// already written (subscription delivery is asynchronous), and a stale claim
+// is destroyed with the superseded placement's veth on terminate, leaving the
+// deployment's inbound address unrouted with nothing left to repair it.
+func (r *containerRunner) placementIsServing() bool {
+	reader, ok := r.store.(instanceTargetReader)
+	if !ok {
+		return true
+	}
+	inst := reader.FetchScheduledInstance(r.scheduledInstanceID)
+	return inst != nil && inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
+}
+
 // claimInboundAddressLocked installs the host route for the stable inbound
 // address and takes over the deployment's published host ports. Caller must
 // hold servingMu.
@@ -263,6 +284,9 @@ func (r *containerRunner) claimInboundAddressLocked(cn *network.ContainerNet) er
 	// from the replacement that superseded it, even though both belong to the
 	// same serving placement.
 	if !r.usesLatestNetworkConfig() {
+		return nil
+	}
+	if !r.placementIsServing() {
 		return nil
 	}
 	old := network.Default.CurrentNet(r.deploymentID)
@@ -292,11 +316,18 @@ func (r *containerRunner) claimInboundAddress(cn *network.ContainerNet) error {
 	return r.claimInboundAddressLocked(cn)
 }
 
-// Promote is the rollover candidate's readiness handoff. A candidate is by
-// construction the replacement on this node, so promotion claims the instance
-// address. The run loop has already cleared the readiness gate and published
-// RUNNING by this point — that write is what told the scheduler to promote.
-func (r *containerRunner) Promote() error {
+// Promote is the rollover candidate's readiness handoff. The run loop has
+// already cleared the readiness gate and published RUNNING by this point —
+// that write is what tells the scheduler a standby can be made serving. The
+// address claim is gated on the placement's target: promoting a candidate
+// whose placement is not serving (a standby's initial start, or a placement
+// superseded while its candidate warmed) must not steal the deployment-scoped
+// inbound route — the superseded placement's teardown would then delete the
+// route with its veth, leaving the address unrouted.
+func (r *containerRunner) Promote(serving bool) error {
+	if !serving {
+		return nil
+	}
 	r.servingMu.Lock()
 	defer r.servingMu.Unlock()
 	r.serving = true

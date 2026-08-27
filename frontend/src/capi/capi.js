@@ -39,6 +39,8 @@ import {
   decodeLogQueryResponse,
   decodeLoginResponse,
   decodeMsgToWorker,
+  decodeNetworkPolicy,
+  decodeNetworkPolicyList,
   decodeNodeEnrollmentInfo,
   decodePersonalSessionList,
   decodePrepareOutputChunk,
@@ -96,6 +98,9 @@ import {
   encodeMasterPasswordSaveRequest,
   encodeMasterPasswordVerifyRequest,
   encodeMsgToMaster,
+  encodeNetworkPolicyCreateRequest,
+  encodeNetworkPolicyDeleteRequest,
+  encodeNetworkPolicyUpdateRequest,
   encodeNodeAllowedSpacesRequest,
   encodeNodeRenameRequest,
   encodePersonalSessionRevokeRequest,
@@ -858,6 +863,53 @@ export class Capi {
    */
   async postV1SpacesDelete(payload) {
     const response = await this.#request("/v1/spaces/delete", { method: 'POST', body: encodeSpaceDeleteRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
+  }
+
+  /**
+   * @returns {Promise<NetworkPolicyList>}
+   */
+  async postV1NetworkPoliciesList() {
+    const response = await this.#request("/v1/network-policies/list", { method: 'POST' });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeNetworkPolicyList(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {NetworkPolicyCreateRequest} payload
+   * @returns {Promise<NetworkPolicy>}
+   */
+  async postV1NetworkPoliciesCreate(payload) {
+    const response = await this.#request("/v1/network-policies/create", { method: 'POST', body: encodeNetworkPolicyCreateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeNetworkPolicy(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {NetworkPolicyUpdateRequest} payload
+   * @returns {Promise<NetworkPolicy>}
+   */
+  async postV1NetworkPoliciesUpdate(payload) {
+    const response = await this.#request("/v1/network-policies/update", { method: 'POST', body: encodeNetworkPolicyUpdateRequest(payload) });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeNetworkPolicy(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {NetworkPolicyDeleteRequest} payload
+   * @returns {Promise<void>}
+   */
+  async postV1NetworkPoliciesDelete(payload) {
+    const response = await this.#request("/v1/network-policies/delete", { method: 'POST', body: encodeNetworkPolicyDeleteRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

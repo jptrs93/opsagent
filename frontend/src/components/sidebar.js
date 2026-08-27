@@ -46,6 +46,7 @@ export function sidebar(activePage) {
             item("Secrets / Configs", "secrets"),
             item("Assets", "assets"),
             item("Spaces", "spaces"),
+            item("Network", "network"),
         ),
         div({class: "flex-1"}),
         div(

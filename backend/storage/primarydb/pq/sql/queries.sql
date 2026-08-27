@@ -626,3 +626,20 @@ UPDATE global_access_rules SET deleted_at = ? WHERE id = ?;
 
 -- name: CountGlobalAccessRuleRowsByName :one
 SELECT COUNT(*) FROM global_access_rules WHERE name = ?;
+
+-- Network policy content lives in network_policy_versions; the list read is
+-- hand-written in network_policies.go (identity joined with the latest
+-- version row). Every content write advances the global sequence in the same
+-- tx because policies are cluster network map render inputs.
+
+-- name: CreateNetworkPolicyRow :one
+INSERT INTO network_policies (deleted_at) VALUES (0) RETURNING id;
+
+-- name: AppendNetworkPolicyVersion :exec
+INSERT INTO network_policy_versions (policy_id, version, created_at, author, data_blob, global_seq)
+SELECT @policy_id, COALESCE(MAX(version), 0) + 1, @created_at, @author, @data_blob, @global_seq
+FROM network_policy_versions
+WHERE policy_id = @policy_id;
+
+-- name: SetNetworkPolicyDeletedAt :exec
+UPDATE network_policies SET deleted_at = ? WHERE id = ?;

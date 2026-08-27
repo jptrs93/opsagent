@@ -7986,6 +7986,13 @@ func (m *ClusterNetMap) Encode() []byte {
 		b = AppendBytes(b, item.Encode())
 	}
 	b = AppendInt64Field(b, m.DerivedFromSeq, 7)
+	for _, item := range m.PolicyRules {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 8, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
 	return b
 }
 
@@ -8025,6 +8032,155 @@ func DecodeClusterNetMap(b []byte) (*ClusterNetMap, error) {
 			}
 		case 7:
 			b, m.DerivedFromSeq, err = ConsumeVarInt64(b, typ)
+		case 8:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetPolicyRule
+				item, err = DecodeNetPolicyRule(msgBytes)
+				if err == nil {
+					m.PolicyRules = append(m.PolicyRules, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NetPolicyRule) Encode() []byte {
+	var b []byte
+	if m.Source != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Source.Encode())
+	}
+	if m.Destination != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Destination.Encode())
+	}
+	for _, item := range m.Ports {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeNetPolicyRule(b []byte) (*NetPolicyRule, error) {
+	var m NetPolicyRule
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetPolicyPeer
+				item, err = DecodeNetPolicyPeer(msgBytes)
+				if err == nil {
+					m.Source = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetPolicyPeer
+				item, err = DecodeNetPolicyPeer(msgBytes)
+				if err == nil {
+					m.Destination = item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetPortMatch
+				item, err = DecodeNetPortMatch(msgBytes)
+				if err == nil {
+					m.Ports = append(m.Ports, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NetPolicyPeer) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.SpaceID, 1)
+	b = AppendInt32Field(b, m.DeploymentID, 2)
+	return b
+}
+
+func DecodeNetPolicyPeer(b []byte) (*NetPolicyPeer, error) {
+	var m NetPolicyPeer
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NetPortMatch) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, int32(m.Protocol), 1)
+	b = AppendInt32Field(b, m.Port, 2)
+	b = AppendInt32Field(b, m.PortEnd, 3)
+	return b
+}
+
+func DecodeNetPortMatch(b []byte) (*NetPortMatch, error) {
+	var m NetPortMatch
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Protocol = NetProtocol(raw)
+			}
+		case 2:
+			b, m.Port, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.PortEnd, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -8580,6 +8736,357 @@ func DecodeIngressBackend(b []byte) (*IngressBackend, error) {
 			b, m.Address, err = ConsumeString(b, typ)
 		case 2:
 			b, m.Port, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NetworkPolicy) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt32Field(b, m.Version, 2)
+	b = AppendInt32Field(b, int32(m.Action), 3)
+	if m.Source != nil {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.Source.Encode())
+	}
+	if m.Destination != nil {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.Destination.Encode())
+	}
+	for _, item := range m.Ports {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	b = AppendBoolField(b, m.Deleted, 7)
+	return b
+}
+
+func DecodeNetworkPolicy(b []byte) (*NetworkPolicy, error) {
+	var m NetworkPolicy
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 3:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Action = NetworkPolicyAction(raw)
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetworkPolicyPeerRef
+				item, err = DecodeNetworkPolicyPeerRef(msgBytes)
+				if err == nil {
+					m.Source = item
+				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetworkPolicyPeerRef
+				item, err = DecodeNetworkPolicyPeerRef(msgBytes)
+				if err == nil {
+					m.Destination = item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetPortMatch
+				item, err = DecodeNetPortMatch(msgBytes)
+				if err == nil {
+					m.Ports = append(m.Ports, item)
+				}
+			}
+		case 7:
+			b, m.Deleted, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NetworkPolicyPeerRef) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, int32(m.Kind), 1)
+	b = AppendInt32Field(b, m.ID, 2)
+	return b
+}
+
+func DecodeNetworkPolicyPeerRef(b []byte) (*NetworkPolicyPeerRef, error) {
+	var m NetworkPolicyPeerRef
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Kind = NetworkPolicyPeerKind(raw)
+			}
+		case 2:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NetworkPolicyList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeNetworkPolicyList(b []byte) (*NetworkPolicyList, error) {
+	var m NetworkPolicyList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetworkPolicy
+				item, err = DecodeNetworkPolicy(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NetworkPolicyCreateRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, int32(m.Action), 1)
+	if m.Source != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Source.Encode())
+	}
+	if m.Destination != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Destination.Encode())
+	}
+	for _, item := range m.Ports {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeNetworkPolicyCreateRequest(b []byte) (*NetworkPolicyCreateRequest, error) {
+	var m NetworkPolicyCreateRequest
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Action = NetworkPolicyAction(raw)
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetworkPolicyPeerRef
+				item, err = DecodeNetworkPolicyPeerRef(msgBytes)
+				if err == nil {
+					m.Source = item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetworkPolicyPeerRef
+				item, err = DecodeNetworkPolicyPeerRef(msgBytes)
+				if err == nil {
+					m.Destination = item
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetPortMatch
+				item, err = DecodeNetPortMatch(msgBytes)
+				if err == nil {
+					m.Ports = append(m.Ports, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NetworkPolicyUpdateRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt32Field(b, m.Version, 2)
+	b = AppendInt32Field(b, int32(m.Action), 3)
+	if m.Source != nil {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.Source.Encode())
+	}
+	if m.Destination != nil {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.Destination.Encode())
+	}
+	for _, item := range m.Ports {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeNetworkPolicyUpdateRequest(b []byte) (*NetworkPolicyUpdateRequest, error) {
+	var m NetworkPolicyUpdateRequest
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 3:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Action = NetworkPolicyAction(raw)
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetworkPolicyPeerRef
+				item, err = DecodeNetworkPolicyPeerRef(msgBytes)
+				if err == nil {
+					m.Source = item
+				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetworkPolicyPeerRef
+				item, err = DecodeNetworkPolicyPeerRef(msgBytes)
+				if err == nil {
+					m.Destination = item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetPortMatch
+				item, err = DecodeNetPortMatch(msgBytes)
+				if err == nil {
+					m.Ports = append(m.Ports, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NetworkPolicyDeleteRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	return b
+}
+
+func DecodeNetworkPolicyDeleteRequest(b []byte) (*NetworkPolicyDeleteRequest, error) {
+	var m NetworkPolicyDeleteRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -10697,6 +11204,10 @@ func (m *State) Encode() []byte {
 		b = AppendTag(b, 34, BytesType)
 		b = AppendBytes(b, m.AuthzGlobalRulesSnapshot.Encode())
 	}
+	if m.NetworkPoliciesSnapshot != nil {
+		b = AppendTag(b, 35, BytesType)
+		b = AppendBytes(b, m.NetworkPoliciesSnapshot.Encode())
+	}
 	return b
 }
 
@@ -11009,6 +11520,15 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeAuthzGlobalRuleList(msgBytes)
 				if err == nil {
 					m.AuthzGlobalRulesSnapshot = item
+				}
+			}
+		case 35:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NetworkPolicyList
+				item, err = DecodeNetworkPolicyList(msgBytes)
+				if err == nil {
+					m.NetworkPoliciesSnapshot = item
 				}
 			}
 		default:

@@ -244,8 +244,12 @@ func (op DeploymentOperator) Run(
 				}
 				continue
 			}
-			slog.InfoContext(ctx, fmt.Sprintf("Run: rollover candidate ready, promoting candidate configSeqNo=%d", result.version))
-			if err := candidate.Promote(); err != nil {
+			// The claim is made only for a serving placement; a standby's
+			// candidate still becomes the current runner and claims later via
+			// Serve when the scheduler flips the target to RUN_SERVING.
+			serving := target == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
+			slog.InfoContext(ctx, fmt.Sprintf("Run: rollover candidate ready, promoting candidate configSeqNo=%d serving=%v", result.version, serving))
+			if err := candidate.Promote(serving); err != nil {
 				slog.WarnContext(ctx, fmt.Sprintf("Run: rollover candidate promotion failed configSeqNo=%d", result.version), "err", err)
 				candidate.Stop()
 				candidate = nil

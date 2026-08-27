@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model/network_policies.proto";
+import "api-contract/model/networking.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message NetworkPolicyList {
+  repeated NetworkPolicy items = 1;
+}
+
+message NetworkPolicyCreateRequest {
+  NetworkPolicyAction action = 1;
+  NetworkPolicyPeerRef source = 2;
+  NetworkPolicyPeerRef destination = 3;
+  repeated NetPortMatch ports = 4;
+}
+
+message NetworkPolicyUpdateRequest {
+  int32 id = 1;
+  int32 version = 2;
+  NetworkPolicyAction action = 3;
+  NetworkPolicyPeerRef source = 4;
+  NetworkPolicyPeerRef destination = 5;
+  repeated NetPortMatch ports = 6;
+}
+
+message NetworkPolicyDeleteRequest {
+  int32 id = 1;
+}

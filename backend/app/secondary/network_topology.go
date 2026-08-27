@@ -12,5 +12,8 @@ func reconcileClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, pref
 	if err != nil {
 		return err
 	}
-	return network.Default.ReconcileTopology(topology)
+	if err := network.Default.ReconcileTopology(topology); err != nil {
+		return err
+	}
+	return network.Default.SetPolicyRules(network.PolicyRulesFromNetMap(clusterMap.PolicyRules))
 }

@@ -40,6 +40,7 @@ type Publisher struct {
 	subscribers     map[*subscriber]struct{}
 	nodeUpdates     <-chan apigen.ClusterNode
 	instanceUpdates <-chan apigen.ScheduledInstanceState
+	policyUpdates   <-chan apigen.NetworkPolicy
 	unsubscribe     []func()
 	closeOnce       sync.Once
 
@@ -59,13 +60,15 @@ func New(store *state.Service, prefix network.Prefix) (*Publisher, error) {
 	}
 	nodeSub, unsubscribeNodes := store.SubscribeNodeUpdates()
 	_, instanceUpdates, unsubscribeInstances := store.MustFetchScheduledSnapshotAndSubscribe(nil)
+	policySub, unsubscribePolicies := store.SubscribeNetworkPolicyUpdates()
 	p := &Publisher{
 		store:           store,
 		prefix:          prefix,
 		subscribers:     make(map[*subscriber]struct{}),
 		nodeUpdates:     nodeSub.Ch,
 		instanceUpdates: instanceUpdates,
-		unsubscribe:     []func(){unsubscribeNodes, unsubscribeInstances},
+		policyUpdates:   policySub.Ch,
+		unsubscribe:     []func(){unsubscribeNodes, unsubscribeInstances, unsubscribePolicies},
 		applied:         make(map[int32]int64),
 		ackUpdates:      make(chan struct{}, 1),
 	}
@@ -99,6 +102,10 @@ func (p *Publisher) Run(ctx context.Context) {
 			if !ok {
 				return
 			}
+		case _, ok := <-p.policyUpdates:
+			if !ok {
+				return
+			}
 		}
 		if err := p.Refresh(); err != nil {
 			slog.ErrorContext(ctx, "refreshing cluster network map failed", "err", err)
@@ -111,8 +118,9 @@ func (p *Publisher) Run(ctx context.Context) {
 func (p *Publisher) Refresh() error {
 	p.refreshMu.Lock()
 	defer p.refreshMu.Unlock()
-	nodes, instances, seq := p.store.FetchNetworkMapInputs()
-	next, err := render(p.prefix, nodes, instances)
+	inputs := p.store.FetchNetworkMapInputs()
+	seq := inputs.Seq
+	next, err := render(p.prefix, inputs)
 	if err != nil {
 		return err
 	}
@@ -187,6 +195,7 @@ func mapForNode(source *apigen.ClusterNetMap, nodeID int32) *apigen.ClusterNetMa
 	next.UlaPrefix = slices.Clone(source.UlaPrefix)
 	next.Nodes = slices.Clone(source.Nodes)
 	next.Routes = slices.Clone(source.Routes)
+	next.PolicyRules = slices.Clone(source.PolicyRules)
 	return &next
 }
 
@@ -196,7 +205,8 @@ func canonicalContent(source *apigen.ClusterNetMap) []byte {
 	return canonical.Encode()
 }
 
-func render(prefix network.Prefix, nodes []*state.Node, instances []apigen.ScheduledInstanceState) (*apigen.ClusterNetMap, error) {
+func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.ClusterNetMap, error) {
+	nodes, instances := inputs.Nodes, inputs.Instances
 	netNodes := make([]*apigen.ClusterNetMapNode, 0, len(nodes))
 	knownNodes := make(map[int32]struct{}, len(nodes))
 	underlayBits := 0
@@ -284,5 +294,90 @@ func render(prefix network.Prefix, nodes []*state.Node, instances []apigen.Sched
 		}
 		return cmp.Compare(a.HostingNodeID, b.HostingNodeID)
 	})
-	return &apigen.ClusterNetMap{UlaPrefix: prefix.Bytes(), Nodes: netNodes, Routes: routes}, nil
+	return &apigen.ClusterNetMap{
+		UlaPrefix:   prefix.Bytes(),
+		Nodes:       netNodes,
+		Routes:      routes,
+		PolicyRules: renderPolicyRules(inputs.Policies, inputs.DeploymentSpaces),
+	}, nil
+}
+
+// renderPolicyRules resolves stored single-id peer anchors to wire tuples: a
+// deployment peer becomes (current space, deployment id), a space peer becomes
+// (space, 0). A rule referencing a deleted deployment cannot be resolved and
+// is not distributed — the deleted deployment's addresses are vacant anyway.
+func renderPolicyRules(policies []*apigen.NetworkPolicy, deploymentSpaces map[int32]int32) []*apigen.NetPolicyRule {
+	rules := make([]*apigen.NetPolicyRule, 0, len(policies))
+	for _, policy := range policies {
+		if policy == nil || policy.Action != apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW {
+			continue
+		}
+		source, ok := resolvePolicyPeer(policy.Source, deploymentSpaces)
+		if !ok {
+			continue
+		}
+		destination, ok := resolvePolicyPeer(policy.Destination, deploymentSpaces)
+		if !ok {
+			continue
+		}
+		ports := make([]*apigen.NetPortMatch, 0, len(policy.Ports))
+		for _, port := range policy.Ports {
+			if port == nil {
+				continue
+			}
+			ports = append(ports, &apigen.NetPortMatch{Protocol: port.Protocol, Port: port.Port, PortEnd: port.PortEnd})
+		}
+		rules = append(rules, &apigen.NetPolicyRule{Source: source, Destination: destination, Ports: ports})
+	}
+	slices.SortFunc(rules, comparePolicyRules)
+	return rules
+}
+
+func resolvePolicyPeer(ref *apigen.NetworkPolicyPeerRef, deploymentSpaces map[int32]int32) (*apigen.NetPolicyPeer, bool) {
+	if ref == nil {
+		return nil, false
+	}
+	switch ref.Kind {
+	case apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_SPACE:
+		return &apigen.NetPolicyPeer{SpaceID: ref.ID}, true
+	case apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_DEPLOYMENT:
+		spaceID, ok := deploymentSpaces[ref.ID]
+		if !ok {
+			return nil, false
+		}
+		return &apigen.NetPolicyPeer{SpaceID: spaceID, DeploymentID: ref.ID}, true
+	default:
+		return nil, false
+	}
+}
+
+func comparePolicyRules(a, b *apigen.NetPolicyRule) int {
+	if c := comparePolicyPeers(a.Source, b.Source); c != 0 {
+		return c
+	}
+	if c := comparePolicyPeers(a.Destination, b.Destination); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(len(a.Ports), len(b.Ports)); c != 0 {
+		return c
+	}
+	for i := range a.Ports {
+		if c := cmp.Compare(a.Ports[i].Protocol, b.Ports[i].Protocol); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.Ports[i].Port, b.Ports[i].Port); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.Ports[i].PortEnd, b.Ports[i].PortEnd); c != 0 {
+			return c
+		}
+	}
+	return 0
+}
+
+func comparePolicyPeers(a, b *apigen.NetPolicyPeer) int {
+	if c := cmp.Compare(a.SpaceID, b.SpaceID); c != 0 {
+		return c
+	}
+	return cmp.Compare(a.DeploymentID, b.DeploymentID)
 }

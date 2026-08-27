@@ -5,6 +5,7 @@ import {
 } from "../lib/icons.js";
 import {deploymentsS, deploymentsStreamS, machinesS, spacesS} from "../state/deployments.js";
 import {deploymentHistoryPanel} from "../components/deploymentHistory.js";
+import {deploymentNetworkPolicies} from "../components/networkPolicySummary.js";
 import {deployOverlay} from "../components/deployOverlay.js";
 import {openDeployGroupUpdateOverlay} from "../components/openDeployGroupUpdateOverlay.js";
 import {createOverlay} from "../components/createOverlay.js";
@@ -1181,7 +1182,11 @@ export function statusPage(onOpenLogs = () => {}) {
             sectionLabel("Overview"),
             factsTable(row),
             sectionLabel(`Instances · ${subInstances(row).length}`),
-            div({class: "px-2 pb-2"}, instancesTable(row))),
+            div({class: "px-2 pb-2"}, instancesTable(row)),
+            ...(row.isSystemGroup ? [] : [
+                sectionLabel("Network policies"),
+                div({class: "px-2 pb-2"}, deploymentNetworkPolicies(row.id, row.spaceId)),
+            ])),
         div({class: "flex flex-none flex-wrap gap-1.5 border-t border-gray-800 px-3 py-2.5"},
             inspectorActionButton("Update", () => onUpdate(row), "bg-brand text-white hover:bg-blue-600"),
             ...(row.isSystemGroup ? [] : [
