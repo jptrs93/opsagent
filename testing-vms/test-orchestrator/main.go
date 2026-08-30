@@ -1088,7 +1088,16 @@ provision:
     if [[ ! -f /var/lib/opendeploy-vm-harness/provisioned-%s ]]; then
       provision_start=$(date +%%s)
       apt_update_start=$(date +%%s)
-      apt-get update
+      # Retried: ports.ubuntu.com intermittently serves an index whose size
+      # disagrees with the Release file mid mirror-sync, and apt exits
+      # non-zero. Under set -e that aborts provisioning, the node comes up
+      # without nix, and the run only discovers it many minutes later as an
+      # empty "preparation failed" on the first deployment scheduled there.
+      for apt_attempt in 1 2 3; do
+        if apt-get update; then break; fi
+        echo "opendeploy-vm-harness apt-get update attempt $apt_attempt failed; retrying"
+        sleep 5
+      done
       apt_update_end=$(date +%%s)
       echo "opendeploy-vm-harness apt-get update (%s) took: $((apt_update_end - apt_update_start))s"
       apt_install_start=$(date +%%s)
@@ -1129,7 +1138,29 @@ func (c *config) startVM(name, role string) error {
 		return err
 	}
 	logf("Creating Lima VM %s (%s)", name, role)
-	return run("limactl", "start", "--tty=false", "--timeout=30m", "--name="+name, yamlPath)
+	if err := run("limactl", "start", "--tty=false", "--timeout=30m", "--name="+name, yamlPath); err != nil {
+		return err
+	}
+	return c.verifyProvisioned(name, role)
+}
+
+// verifyProvisioned fails fast on a half-provisioned VM. Lima reports a failed
+// per-boot provision script as a warning and still exits 0, so limactl start
+// succeeding says nothing about the node having the toolchain. Without this the
+// run continues for ten-plus minutes and then reports an empty "preparation
+// failed" against whichever deployment is scheduled there first.
+func (c *config) verifyProvisioned(name, role string) error {
+	if err := c.vmQuietRun(name, "test", "-f", "/var/lib/opendeploy-vm-harness/provisioned-"+role); err != nil {
+		return fmt.Errorf("%s: provisioning did not complete (no provisioned-%s marker); see /var/log/cloud-init-output.log in the VM: %w", name, role, err)
+	}
+	if role == "node" {
+		// The apt nix-bin package puts the binary in /usr/bin, not under the
+		// /nix profile dir that the unit's PATH also lists.
+		if err := c.vmQuietRun(name, "test", "-x", "/usr/bin/nix"); err != nil {
+			return fmt.Errorf("%s: nix is missing after provisioning; nix-docker deployments scheduled here would fail to build: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func (c *config) startAllVMs() error {

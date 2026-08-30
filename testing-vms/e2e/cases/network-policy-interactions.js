@@ -21,7 +21,7 @@ import {
   expectProbeDenied,
   expectProbeNotDenied,
   expectStreamAdvanced,
-  INBOUND_ADDRESS_PATTERN,
+  inboundAddressPattern,
   internalUrl,
   probeDeniedCount,
   streamTickCount,
@@ -170,6 +170,11 @@ export const networkPolicyInteractionCases = [
         },
       });
       await expectProbeAllowed(ctx.page, {deployment: PROBE, label: 'p8080'});
+      // The stream target only takes effect on the restart the update above
+      // triggers, and p8080 succeeding says nothing about the SSE connection
+      // having been made yet. Wait for the first tick rather than reading the
+      // count bare, which races the restart.
+      await expectStreamAdvanced(ctx.page, {deployment: PROBE, label: 'sse', from: 0, ticks: 1});
       const ticksBefore = await streamTickCount(ctx.page, {deployment: PROBE, label: 'sse'});
       expect(ticksBefore, 'expected the stream to be established before the revoke').toBeGreaterThan(0);
 
@@ -194,7 +199,7 @@ export const networkPolicyInteractionCases = [
         NETPOL_PROBE_ID: await deploymentIdByName(ctx.page, PROBE),
         NETPOL_SERVER_PORT: SERVER_PORT,
         NETPOL_SERVER_ADDRESS: ctx.netpolServerAddress
-          ?? await readDeploymentOutputMatch(ctx.page, SERVER, INBOUND_ADDRESS_PATTERN),
+          ?? await readDeploymentOutputMatch(ctx.page, SERVER, inboundAddressPattern(SERVER)),
         NETPOL_SPACE_NAME: NETPOL_SPACE,
       };
       writeNetworkPolicyState(state);

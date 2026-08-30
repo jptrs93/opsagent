@@ -86,13 +86,14 @@ Policy always evaluates the unchanged logical source and destination addresses. 
 
 ## Load balancing
 
-kube-proxy exists to translate stable virtual addresses to ephemeral endpoints. Stable inbound instance addresses remove that need for direct instance traffic. Balancing arrives in stages; users only ever set a replica count.
+kube-proxy exists to translate stable virtual addresses to ephemeral endpoints. Stable inbound instance addresses remove that need for direct instance traffic. Balancing arrives in stages; users only ever set a replica count. The agreed rung-by-rung design — service virtual addresses, the connect hook, the sender-side DNAT fallback for Kata, and the attachment NAT boundary — is recorded in `service-balancing-and-attachment-nat.md`.
 
 1. **DNS over ready endpoint sets.** Health-aware by construction: not-ready instances do not resolve. Known limits (client caching, long-lived connection pinning) are acceptable for internal traffic.
-2. **Possible eBPF socket-level balancing** (`cgroup/connect6` hook via `cilium/ebpf`). A future service virtual address could be rewritten at `connect()` to a chosen READY `I`, per connection, before any packet exists. No service DNAT or conntrack would be required; ordinary logical routing would then select a local attachment or fixed node tunnel. This depends on a separate future service-address allocation and design because the current workload ABI allocates only `I` and `O`. Kata guests also require a different interception design.
-3. **L7 east-west through the embedded proxy** (opt-in, per deployment): retries, traffic splitting, per-route metrics for HTTP workloads. Ingress traffic already gets endpoint-set balancing from stage 1.
+2. **eBPF socket-level balancing** (`cgroup/connect6` hook via `cilium/ebpf`). A future service virtual address is rewritten at `connect()` to a chosen READY `I`, per connection, before any packet exists — no translation state, the socket itself holds the decision. Depends on the separate service-address allocation design (the workload ABI allocates only `I` and `O`). Host-visible syscalls only: Kata guests fall through to the next rung.
+3. **Sender-side service DNAT** at the source attachment boundary, for workloads the connect hook cannot see (Kata guests, unconnected UDP). The wire still carries real instance addresses; conntrack pins each flow's backend at flow birth. Confined to flows addressed to the service range — direct-address traffic keeps the stateless guarantee.
+4. **L7 east-west through the embedded proxy** (opt-in, per deployment): retries, traffic splitting, per-route metrics for HTTP workloads. Ingress traffic already gets endpoint-set balancing from stage 1.
 
-Interim DNAT-based virtual IPs are explicitly rejected. No service virtual address exists until a separate allocation and implementation is designed.
+Interim DNAT-based virtual IPs remain rejected: no VIP ships before the service-address design, translation is never the universal east-west path, and a service address never transits a link. The scoped sender-side DNAT rung above is the deliberate exception, not a reversal — see `service-balancing-and-attachment-nat.md` for the reconciliation.
 
 Traffic policy (future, with daemon sets): per-deployment `trafficPolicy: spread | prefer-local | local-only`, resolved by DNS answer ordering and, in stage 2, by local-preference in the socket hook. Machine locality is already in the endpoint record.
 
@@ -111,6 +112,45 @@ to rolling recreate, one ordinal at a time, behind the endpoint set:
 Surge mode (no capacity dip) applies the single-instance candidate flow per ordinal — same primitive.
 
 Daemon sets are the rolling recreate loop iterated over machines; each replacement is machine-local.
+
+## Dataplane acceleration (later)
+
+The candidate fastpath, if forwarding CPU or packets-per-second ever matter, is
+an nftables **flowtable**: a kernel-resident per-flow cache hooked at device
+ingress. A flow's first packets traverse the full slow path (conntrack birth,
+policy chains, NAT decision, route lookup); a `flow add @ft` statement on the
+established-accept rule then snapshots the complete forwarding decision —
+output device, next hop, conntrack NAT fixups, MTU — and subsequent packets
+are matched by hash at ingress and transmitted directly, skipping conntrack
+hooks, the forward chain, and the FIB lookup. Expiry or anything non-trivial
+(TCP FIN/RST, PMTU events) falls back to the classic path.
+
+Why it fits: policy already evaluates at flow birth and rides conntrack
+thereafter, so the flowtable accelerates exactly and only packets the
+established-accept rule would pass — semantics are unchanged by construction.
+Conntrack remains the sole owner of flow state; the flowtable is a revocable
+cache, and disabling it changes performance, never behavior. Flows carrying
+conntrack NAT bindings (port forwards, IPv4 egress, and the conditional-SNAT /
+service-DNAT flows of `service-balancing-and-attachment-nat.md`) are
+accelerated with their rewrites applied in the fastpath. Offload is per-flow
+opt-in via the `flow add` rule, so it can be scoped (e.g. tunnel-crossing
+flows only).
+
+Costs: offloaded packets no longer traverse the forward chain, so its
+counters go dark for them and packet-path debugging must include
+`nft list flowtables` / flow dumps; netaudit must audit the flowtable as one
+more desired-state object; software flowtables work over veths and ip6tnl
+devices (the `offload` hardware flag needs supporting physical NICs and does
+not apply to those hops). Expected software-fastpath gain is roughly 2–3×
+forwarding pps.
+
+An XDP accelerator (per-device program using the conntrack kfuncs, redirecting
+established flows before skb allocation) is the same architecture — netfilter
+owns state, eBPF is the established-flow cache — with larger wins but a
+hand-written second dataplane (route caching, NAT fixup, tunnel encap in BPF).
+Ordering: flowtables first; XDP only if profiling demands it. Both preserve
+the principle that kernel-native accelerators built against conntrack
+accelerate this design without changing state ownership.
 
 ## Observability (later)
 
@@ -152,5 +192,5 @@ Coupled to the scheduler/replicas backlog item; networking consumes placements a
 
 - Endpoint sets with n > 1; rolling recreate and surge upgrade strategies; per-instance runner status/history keyed by `(deployment, ordinal)`.
 - DNS multi-AAAA balancing (stage 1) arrives automatically.
-- A separately allocated service virtual address design and a Kata-compatible balancing mechanism; eBPF `connect6` is one runc-specific option. Traffic policy for daemon sets remains part of this phase.
+- A separately allocated service virtual address design; eBPF `connect6` for runc with sender-side service DNAT as the Kata-compatible fallback (see `service-balancing-and-attachment-nat.md`). Traffic policy for daemon sets remains part of this phase.
 - L7 east-west through the proxy (stage 3), opt-in.

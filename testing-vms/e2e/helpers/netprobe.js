@@ -34,8 +34,12 @@ export function addressUrl({address, port = 8080, path = '/'}) {
 }
 
 // The address line netprobe logs at startup; group B reads the server's own
-// inbound address out of its output.
-export const INBOUND_ADDRESS_PATTERN = /netprobe address name=\S+ inbound=([0-9a-f:]+)/;
+// inbound address out of its output. The name must be anchored: the logs pane
+// can hold output from more than one deployment, so a `name=\S+` wildcard will
+// silently match whichever workload's address line lands in the result first
+// and hand back a different deployment's address.
+export const inboundAddressPattern = (name) =>
+  new RegExp(`netprobe address name=${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} inbound=([0-9a-f:]+)`);
 
 export function targets(entries) {
   return Object.entries(entries).map(([label, url]) => `${label}=${url}`).join(',');
@@ -54,14 +58,20 @@ export async function expectProbeAllowed(page, {deployment, label, rounds = 2}) 
 // (the boundary drops payload, not name resolution — DNS to the netproxy is a
 // default rule that crosses spaces).
 export async function expectProbeDenied(page, {deployment, label, rounds = 2, expectDns = true, stage = 'connect'}) {
-  const okBefore = await deploymentOutputOccurrenceCount(page, deployment, okLine(label));
   const deniedBefore = await deploymentOutputOccurrenceCount(page, deployment, deniedLine(label, stage));
+  // Baseline successes only once the boundary has demonstrably closed, not
+  // before the policy write. A policy change reaches the node's nftables
+  // asynchronously, so probe ticks landing in the propagation window succeed
+  // legitimately; counting those against the boundary makes this a race that
+  // depends on where a 5s probe interval falls relative to propagation.
+  await expectDeploymentOutputOccurrences(page, deployment, deniedLine(label, stage), deniedBefore + 1);
+  const okClosed = await deploymentOutputOccurrenceCount(page, deployment, okLine(label));
   await expectDeploymentOutputOccurrences(page, deployment, deniedLine(label, stage), deniedBefore + rounds);
   const okAfter = await deploymentOutputOccurrenceCount(page, deployment, okLine(label));
   // Not equality: the log window these counts come from rolls, so an older
   // success can age out between the two reads. A boundary that was actually
   // open would add successes faster than the window drops them.
-  expect(okAfter, `probe ${label} must not succeed while denied`).toBeLessThanOrEqual(okBefore);
+  expect(okAfter, `probe ${label} must not succeed while denied`).toBeLessThanOrEqual(okClosed);
   if (expectDns) await expectDeploymentOutput(page, deployment, [dnsOkLine(label)]);
 }
 

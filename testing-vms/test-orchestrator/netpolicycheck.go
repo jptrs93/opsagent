@@ -63,6 +63,32 @@ counter_for() {
     | grep -F -- "$3" | grep -o 'counter packets [0-9]*' | awk '{print $3}' | head -1
 }
 
+# log_mark: a timestamp comparable with the agent's log lines, which carry
+# local time in the same layout.
+log_mark() { date '+%Y-%m-%dT%H:%M:%S'; }
+
+# agent_log_since <mark> <pattern>: the agent's own log lines matching pattern
+# and written at or after mark.
+#
+# The agent writes slog output to its run-log store, not to journald — run-log
+# directory 0 is the agent itself, the rest are deployment ids. Only stderr
+# (panics) reaches the journal, so journalctl -u opendeploy never sees an audit
+# report however correctly the audit fires. The WAL is a binary container
+# around JSON lines, hence the tr.
+#
+# Filtering by time rather than counting: the store rotates into half-hourly
+# buckets and archives the old ones, so a count taken before an event can be
+# HIGHER than the count after it, and "wait for the count to grow" would hang
+# until the deadline however correctly the audit fires.
+agent_log_since() {
+  cat /var/lib/opendeploy-run-logs/0/*.wal 2>/dev/null \
+    | tr -c '[:print:]\n' '\n' | grep -a "$2" \
+    | awk -v m="$1" 'match($0, /"time":"[^"]+"/) {
+        t = substr($0, RSTART + 8, RLENGTH - 9)
+        if (substr(t, 1, 19) >= m) print
+      }'
+}
+
 # connect <netns> <dst> <port> [src]
 connect() {
   local ns="$1"; shift
@@ -103,7 +129,12 @@ SPOOF="$(python3 -c 'import ipaddress,sys; n=ipaddress.ip_network(sys.argv[1]+"/
 BEFORE="$(counter_for ip6 forward '@src_ok')"
 [ -n "$BEFORE" ] || fail "no counted anti-spoofing rule in the ip6 forward chain"
 
-ip netns exec "$PEER_NS" ip -6 addr add "$SPOOF"/128 dev eth0 || fail "adding the spoofed address failed"
+# nodad: without it the address stays tentative while duplicate address
+# detection runs, and binding a tentative source fails with EADDRNOTAVAIL —
+# which connect reports as rc=2, indistinguishable here from "the boundary let
+# it through". The packet has to actually reach the veth for this check to say
+# anything about anti-spoofing.
+ip netns exec "$PEER_NS" ip -6 addr add "$SPOOF"/128 dev eth0 nodad || fail "adding the spoofed address failed"
 connect "$PEER_NS" "$NETPOL_SERVER_ADDRESS" "$NETPOL_SERVER_PORT" "$SPOOF"
 RC=$?
 ip netns exec "$PEER_NS" ip -6 addr del "$SPOOF"/128 dev eth0 || true
@@ -155,8 +186,18 @@ echo "$FORWARD" | grep -q '@blocked_out' || fail "blocked_out drop missing from 
 echo "$FORWARD" | grep -q '@src_ok' || fail "anti-spoofing drop missing from the ip6 forward chain"
 echo "$FORWARD" | grep -q 'vmap @dst_dispatch' || fail "destination dispatch missing from the ip6 forward chain"
 
-nft list set ip6 opendeploy managed | grep -q "od${NETPOL_SERVER_ID}s" || fail "server veth missing from the managed set"
-nft list set ip6 opendeploy src_ok | grep -q "od${NETPOL_SERVER_ID}s" || fail "server veth missing from the src_ok set"
+# The veth slot suffix moves with rollovers (s0 for the first live network, s1
+# for a concurrent candidate), so discover the live name rather than assuming
+# one. src_ok is a concatenated set and renders its ifnames; the plain ifname
+# set does not.
+SERVER_VETH="$(nft list set ip6 opendeploy src_ok | grep -oE "od${NETPOL_SERVER_ID}s[0-9]+" | head -1)"
+[ -n "$SERVER_VETH" ] || fail "server veth missing from the src_ok set"
+# Ask the kernel for membership instead of grepping the listing: nft 1.0.9
+# renders every element of a bare 'type ifname' set as "", so a grep over
+# 'list set managed' can never match however correct the set is. 'get element'
+# succeeds only if the key is really there (ENOENT otherwise).
+nft get element ip6 opendeploy managed { "$SERVER_VETH" } >/dev/null 2>&1 \
+  || fail "server veth $SERVER_VETH missing from the managed set"
 nft list map ip6 opendeploy dst_dispatch | grep -q "$NETPOL_SERVER_ADDRESS" || fail "server inbound address missing from the dispatch map"
 
 # The counters carry the whole run's history: a skeleton rebuilt on every
@@ -172,7 +213,9 @@ echo "static program intact; anti-spoofing counter $SPOOF_COUNT"
 		script: `
 RULES_BEFORE="$(nft list chain ip6 opendeploy "$SERVER_CHAIN" | grep -c -E 'accept|drop')"
 [ "$RULES_BEFORE" -gt 0 ] || fail "$SERVER_CHAIN has no rules to flush"
-SINCE="$(date '+%Y-%m-%d %H:%M:%S')"
+# Mark the log before the flush: the store carries the whole run, so presence
+# alone would be satisfied by a report from an earlier check.
+MARK="$(log_mark)"
 nft flush chain ip6 opendeploy "$SERVER_CHAIN" || fail "flushing $SERVER_CHAIN failed"
 echo "flushed $SERVER_CHAIN ($RULES_BEFORE rules)"
 
@@ -180,7 +223,7 @@ echo "flushed $SERVER_CHAIN ($RULES_BEFORE rules)"
 FOUND=""
 DEADLINE=$((SECONDS+240))
 while [ $SECONDS -lt $DEADLINE ]; do
-  LINE="$(journalctl -u opendeploy --since "$SINCE" --no-pager 2>/dev/null | grep 'kernel network state diverged' | tail -1)"
+  LINE="$(agent_log_since "$MARK" 'kernel network state diverged' | tail -1)"
   if [ -n "$LINE" ]; then FOUND="$LINE"; break; fi
   if [ "$(nft list chain ip6 opendeploy "$SERVER_CHAIN" | grep -c -E 'accept|drop')" -gt 0 ]; then
     inconclusive "an unrelated reconcile rebuilt $SERVER_CHAIN before the audit ran"
@@ -201,7 +244,7 @@ echo "netaudit reported divergence and left the chain alone"
 		name:        "agent-restart-rederives-filter",
 		description: "filter state is re-derived from recovered attachments after an agent restart",
 		script: `
-SINCE="$(date '+%Y-%m-%d %H:%M:%S')"
+MARK="$(log_mark)"
 systemctl restart opendeploy || fail "restarting the agent failed"
 
 DEADLINE=$((SECONDS+180))
@@ -222,7 +265,7 @@ connect "$PEER_NS" "$NETPOL_SERVER_ADDRESS" "$NETPOL_SERVER_PORT" \
 DEADLINE=$((SECONDS+180))
 SYNC=""
 while [ $SECONDS -lt $DEADLINE ]; do
-  SYNC="$(journalctl -u opendeploy --since "$SINCE" --no-pager 2>/dev/null | grep 'kernel network state in sync' | tail -1)"
+  SYNC="$(agent_log_since "$MARK" 'kernel network state in sync' | tail -1)"
   [ -n "$SYNC" ] && break
   sleep 5
 done

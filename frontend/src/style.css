@@ -53,6 +53,22 @@
     padding-left: 1.75rem;
 }
 
+/* Page toolbars sit on a single 30px baseline so the search input, filter
+   dropdowns and action buttons all line up. Height rather than a py-* utility:
+   .text-input's px/py is un-layered and beats layered utilities, so padding
+   overrides from a utility class never apply. */
+.toolbar-input {
+    height: 30px;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+.toolbar-button {
+    @apply flex h-[30px] items-center gap-1.5 whitespace-nowrap rounded-lg border border-gray-600
+    px-3 text-xs text-gray-300 transition-colors cursor-pointer hover:bg-surface-hover
+    disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent;
+}
+
 .btn-primary {
     @apply px-4 py-2 rounded-lg bg-brand text-white font-medium
     hover:bg-blue-600 transition-colors cursor-pointer;

@@ -957,13 +957,13 @@ export function statusPage(onOpenLogs = () => {}) {
         );
     };
 
-    const filterButton = ({menu, dirty, label, ariaLabel}) => button({
+    const filterButton = ({menu, label, ariaLabel}) => button({
         type: "button",
         "aria-haspopup": "true",
         "aria-expanded": () => String(openMenu.val === menu),
         "aria-label": ariaLabel,
-        class: () => `inline-flex items-center gap-1.5 rounded px-2 py-1.5 text-xs cursor-pointer border transition-colors ` +
-            (dirty() ? "text-gray-100 border-brand" : "text-gray-400 border-gray-600 hover:bg-surface-hover hover:text-gray-100"),
+        class: "inline-flex h-[30px] items-center gap-1.5 rounded border border-gray-600 px-2 text-xs " +
+            "text-gray-400 hover:bg-surface-hover hover:text-gray-100 transition-colors cursor-pointer",
         onclick: (e) => {
             e.stopPropagation();
             openMenu.val = openMenu.val === menu ? null : menu;
@@ -1012,25 +1012,21 @@ export function statusPage(onOpenLogs = () => {}) {
         ] : []),
     );
 
-    const toolbarButtonClass = "flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-gray-600 px-3 py-1.5 text-xs text-gray-300 hover:bg-surface-hover transition-colors cursor-pointer";
-
     const toolbar = () => div(
         {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
         div({class: "relative"},
             searchIcon({class: "pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500"}),
             input({
-                class: "text-input search-input search-input-iconed",
+                class: "text-input search-input search-input-iconed toolbar-input",
                 type: "search",
                 placeholder: "Search deployments",
                 "aria-label": "Search deployments",
-                style: "height:30px;padding-top:0;padding-bottom:0;",
                 value: search,
                 oninput: (e) => { search.val = e.target.value; },
             })),
         span({class: "relative inline-flex"},
             filterButton({
                 menu: "spaces",
-                dirty: spacesDirty,
                 ariaLabel: "Filter spaces",
                 label: () => [
                     span({class: "inline-flex items-center gap-1"}, ...visibleSpaces().map((s) => spaceDot(s.id))),
@@ -1042,20 +1038,20 @@ export function statusPage(onOpenLogs = () => {}) {
         button({
             type: "button",
             "data-testid": "recently-deleted-button",
-            class: toolbarButtonClass,
+            class: "toolbar-button",
             title: "Deployments deleted recently",
             onclick: openRecentlyDeletedOverlay,
         }, "Recently deleted"),
         div({class: "flex-1"}),
         button({
             type: "button",
-            class: toolbarButtonClass,
+            class: "toolbar-button",
             onclick: openExportOverlay,
         }, "Export"),
         button({
             type: "button",
             "data-testid": "add-deployment-button",
-            class: toolbarButtonClass,
+            class: "toolbar-button",
             onclick: openCreateOverlay,
         }, plusIcon({class: "w-3.5 h-3.5"}), "Add deployment"),
     );

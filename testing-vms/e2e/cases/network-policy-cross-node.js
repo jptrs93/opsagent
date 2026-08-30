@@ -12,7 +12,7 @@ import {
   expectProbeBytes,
   expectProbeDenied,
   FLAKE,
-  INBOUND_ADDRESS_PATTERN,
+  inboundAddressPattern,
   targets,
 } from '../helpers/netprobe.js';
 import {NETPOL_SPACE, SERVER, SERVER_PORT, serverDeploymentLabel} from './network-policy.js';
@@ -41,7 +41,7 @@ export const networkPolicyCrossNodeCases = [
     description: 'A peer in the dedicated space on the other worker reaches the server over the node tunnel with no policy, establishing that the cross-node path itself works before anything asserts a denial on it.',
     requires: ['network-policy-server-created'],
     async run(ctx) {
-      ctx.netpolServerAddress = await readDeploymentOutputMatch(ctx.page, SERVER, INBOUND_ADDRESS_PATTERN);
+      ctx.netpolServerAddress = await readDeploymentOutputMatch(ctx.page, SERVER, inboundAddressPattern(SERVER));
       await createNixDockerDeployment(ctx.page, {
         name: REMOTE_PEER,
         machine: REMOTE_NODE,

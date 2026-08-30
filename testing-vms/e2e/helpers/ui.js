@@ -1760,6 +1760,18 @@ async function openDeploymentLogsSearch(page, row) {
   await expect(page.getByTestId('logs-space-filter')).toBeVisible();
   await expect(page.getByTestId('logs-deployment-select')).not.toHaveValue('');
   await expect(page.getByTestId('logs-results')).toBeVisible();
+  // Opening the pane does not replace the hook, so a read taken straight after
+  // switching deployments can still observe the previous deployment's records —
+  // counts and matches would then belong to a workload nobody asked about.
+  // Clear and re-issue: the page drops stale responses by generation, so
+  // whatever repopulates the hook belongs to the deployment now selected. -1
+  // means the response is still in flight; 0 is a legitimate empty result.
+  await page.evaluate(() => { window.__logsResult = null; });
+  await page.getByTestId('logs-search-button').click();
+  await expect.poll(
+    async () => page.evaluate(() => window.__logsResult?.records?.length ?? -1),
+    {message: 'expected the run output search to land for the deployment just opened', timeout: LOG_OUTPUT_TIMEOUT},
+  ).toBeGreaterThanOrEqual(0);
 }
 
 async function showOpendeployDeployments(page) {

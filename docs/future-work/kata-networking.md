@@ -196,11 +196,16 @@ runc-centric because the host sees container `connect()` calls. With Kata, the
 workload `connect()` happens inside the guest kernel, so host `cgroup/connect6`
 does not naturally see it.
 
+The Kata-compatible mechanism is sender-side service DNAT at the attachment
+boundary, layered under the connect hook and self-dispatching by destination
+address — see `service-balancing-and-attachment-nat.md`, which records the
+agreed design (this section's "deliberate tradeoff" is that design's DNAT
+rung, scoped to the service range only).
+
 Preferred long-term stance:
 
 - DNS endpoint-set balancing is the default internal service discovery mechanism.
-- No service virtual address is allocated until there is a separate design with a Kata-compatible implementation.
-- Host DNAT service VIPs are possible but should be a deliberate performance and semantics tradeoff.
+- No service virtual address is allocated until there is a separate design; the implementation is the connect hook for host-visible workloads with the sender-side DNAT rung as the Kata-compatible fallback.
 - Guest eBPF is not a good default because it couples OpenDeploy to guest images and guest kernel capabilities.
 - L7 proxying remains opt-in for HTTP semantics.
 
@@ -300,6 +305,6 @@ The existing plan should eventually be revised in these areas:
 - Whether to run the first Kata release as a fixed cluster runtime mode or a fixed machine runtime mode.
 - Whether runc remains available for host-network and privileged infrastructure workloads.
 - Whether DNS should be host-side from the first networking release.
-- Whether `I` and `O`, including `I` with `preferred_lft=0`, can be reliably preconfigured through Kata's current netns mirroring path.
+- Whether `I` and `O`, including `I` with `preferred_lft=0`, can be reliably preconfigured through Kata's current netns mirroring path. Downgraded from a correctness requirement to a performance question by the conditional-SNAT attachment boundary (`service-balancing-and-attachment-nat.md`): a guest that sources `I` on initiated flows is SNATed to its `O` at flow birth, so mirroring fidelity buys per-flow statelessness rather than gating Kata support.
 - Whether `portForwarding` should use per-flow DNAT only or nftables maps with deterministic ownership.
 - Whether direct TCP rollover should accept broken existing connections or offer an optional DNAT-backed graceful mode.

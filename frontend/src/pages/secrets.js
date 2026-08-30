@@ -598,13 +598,13 @@ export function secretsPage() {
 
     // label is a function so the button face stays live (space dots, dimmed
     // type icons) without rebuilding the toolbar and losing search focus.
-    const filterButton = ({menu, dirty, label, ariaLabel}) => button({
+    const filterButton = ({menu, label, ariaLabel}) => button({
         type: "button",
         "aria-haspopup": "true",
         "aria-expanded": () => String(openMenu.val === menu),
         "aria-label": ariaLabel,
-        class: () => `inline-flex items-center gap-1.5 rounded px-2 py-1.5 text-xs cursor-pointer border transition-colors ` +
-            (dirty() ? "text-gray-100 border-brand" : "text-gray-400 border-gray-600 hover:bg-surface-hover hover:text-gray-100"),
+        class: "inline-flex h-[30px] items-center gap-1.5 rounded border border-gray-600 px-2 text-xs " +
+            "text-gray-400 hover:bg-surface-hover hover:text-gray-100 transition-colors cursor-pointer",
         onclick: (e) => {
             e.stopPropagation();
             openMenu.val = openMenu.val === menu ? null : menu;
@@ -719,7 +719,7 @@ export function secretsPage() {
         div({class: "relative"},
             searchIcon({class: "pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500"}),
             input({
-                class: "text-input search-input search-input-iconed",
+                class: "text-input search-input search-input-iconed toolbar-input",
                 type: "search",
                 placeholder: "Search secrets / configs",
                 "aria-label": "Search secrets and configs",
@@ -729,7 +729,6 @@ export function secretsPage() {
         span({class: "relative inline-flex"},
             filterButton({
                 menu: "spaces",
-                dirty: spacesDirty,
                 ariaLabel: "Filter spaces",
                 label: () => [
                     span({class: "inline-flex items-center gap-1"}, ...visibleSpaces().map((s) => spaceDot(s.id))),
@@ -741,7 +740,6 @@ export function secretsPage() {
         span({class: "relative inline-flex"},
             filterButton({
                 menu: "types",
-                dirty: typesDirty,
                 ariaLabel: "Filter types",
                 label: () => [
                     typeIcon("secret", types.val.has("secret") ? "" : "opacity-25"),
@@ -754,7 +752,6 @@ export function secretsPage() {
         span({class: "relative inline-flex"},
             filterButton({
                 menu: "cols",
-                dirty: colsDirty,
                 ariaLabel: "Choose columns",
                 label: () => [columnsIcon({class: "w-3.5 h-3.5"}), "Columns", chevronDownIcon({class: "w-3 h-3"})],
             }),
@@ -762,22 +759,20 @@ export function secretsPage() {
         div({class: "flex-1"}),
         button({
             type: "button",
-            class: "flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-gray-600 px-3 py-1.5 text-sm text-gray-300 hover:bg-surface-hover transition-colors cursor-pointer",
+            class: "toolbar-button",
             onclick: openNewFolder,
-        }, folderIcon({class: "w-4 h-4"}), "New folder"),
+        }, folderIcon({class: "w-3.5 h-3.5"}), "New folder"),
         button({
             type: "button",
-            class: "flex items-center gap-1 whitespace-nowrap rounded-lg bg-gray-700 px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer",
+            class: "toolbar-button",
             onclick: () => openCreate("config"),
-        }, plusIcon(), "New config"),
+        }, plusIcon({class: "w-3.5 h-3.5"}), "New config"),
         button({
             type: "button",
             disabled: () => !secretsUnlocked(),
-            class: () => `flex items-center gap-1 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm transition-colors ${secretsUnlocked()
-                ? "bg-brand text-white hover:bg-blue-600 cursor-pointer"
-                : "bg-gray-700 text-gray-400 opacity-50 cursor-not-allowed"}`,
+            class: "toolbar-button",
             onclick: () => { if (secretsUnlocked()) openCreate("secret"); },
-        }, plusIcon(), "New secret"),
+        }, plusIcon({class: "w-3.5 h-3.5"}), "New secret"),
     );
 
 

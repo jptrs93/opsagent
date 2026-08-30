@@ -214,9 +214,6 @@ export function spacesPage() {
         );
     };
 
-    const spaceActionClass = "flex items-center gap-1 whitespace-nowrap text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
-        "text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer";
-
     const addSpaceRow = () => addingSpace.val ? div(
         {class: "flex flex-none flex-col gap-2 border-b border-gray-700 px-3 py-2 sm:flex-row sm:items-center"},
         input({
@@ -244,7 +241,7 @@ export function spacesPage() {
     const toolbar = () => div(
         {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
         input({
-            class: "text-input search-input",
+            class: "text-input search-input toolbar-input",
             type: "search",
             placeholder: "Search spaces",
             "aria-label": "Search spaces",
@@ -255,7 +252,7 @@ export function spacesPage() {
         button({
             type: "button",
             disabled: () => addingSpace.val,
-            class: () => `${spaceActionClass} ${addingSpace.val ? "opacity-50 cursor-not-allowed" : ""}`,
+            class: "toolbar-button",
             onclick: () => {
                 if (addingSpace.val) return;
                 newSpaceName.val = "";
