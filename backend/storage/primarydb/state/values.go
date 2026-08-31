@@ -8,9 +8,9 @@ package state
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
@@ -20,10 +20,6 @@ var (
 	ErrValueNameInvalid   = errors.New("value name is not a valid file name")
 )
 
-// ValidValueName reports whether name can be a file name in the shared
-// secrets/configs namespace. Same rule as asset keys: path separators are
-// excluded because the full path is the join of the directory ancestry and
-// the name.
 func ValidValueName(name string) bool {
 	if name == "" || name == "." || name == ".." || len(name) > 255 {
 		return false
@@ -31,44 +27,30 @@ func ValidValueName(name string) bool {
 	return !strings.ContainsAny(name, "/\\\x00")
 }
 
-// valueSiblingNameTakenLocked reports whether name is already used by another
-// secret, config, or directory under (spaceID, directoryID). Caller must hold
-// s.Mu: the law spans three tables, so only the mutex makes the
-// check-and-write atomic. excludeSecretID/excludeConfigID/excludeDirectoryID
-// exempt the row being renamed or moved (0 = exempt nothing).
 func (s *Service) valueSiblingNameTakenLocked(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, name string, excludeSecretID, excludeConfigID, excludeDirectoryID int64) bool {
-	secretCount, err := q.CountSecretSiblingsWithName(ctx, pq.CountSecretSiblingsWithNameParams{
+	secretCount := erru.Must(q.CountSecretSiblingsWithName(ctx, pq.CountSecretSiblingsWithNameParams{
 		SpaceID:          spaceID,
 		ValueDirectoryID: directoryID,
 		Name:             name,
 		ID:               excludeSecretID,
-	})
-	if err != nil {
-		panic(fmt.Sprintf("CountSecretSiblingsWithName: %v", err))
-	}
+	}))
 	if secretCount > 0 {
 		return true
 	}
-	configCount, err := q.CountConfigSiblingsWithName(ctx, pq.CountConfigSiblingsWithNameParams{
+	configCount := erru.Must(q.CountConfigSiblingsWithName(ctx, pq.CountConfigSiblingsWithNameParams{
 		SpaceID:          spaceID,
 		ValueDirectoryID: directoryID,
 		Name:             name,
 		ID:               excludeConfigID,
-	})
-	if err != nil {
-		panic(fmt.Sprintf("CountConfigSiblingsWithName: %v", err))
-	}
+	}))
 	if configCount > 0 {
 		return true
 	}
-	dirCount, err := q.CountValueDirectorySiblingsWithName(ctx, pq.CountValueDirectorySiblingsWithNameParams{
+	dirCount := erru.Must(q.CountValueDirectorySiblingsWithName(ctx, pq.CountValueDirectorySiblingsWithNameParams{
 		SpaceID:  spaceID,
 		ParentID: directoryID,
 		Name:     name,
 		ID:       excludeDirectoryID,
-	})
-	if err != nil {
-		panic(fmt.Sprintf("CountValueDirectorySiblingsWithName: %v", err))
-	}
+	}))
 	return dirCount > 0
 }

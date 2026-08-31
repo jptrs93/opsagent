@@ -322,8 +322,6 @@ func (s *Service) MoveDeploymentSpace(deploymentID, newSpaceID, expectedSpaceVer
 	return &cp, nil
 }
 
-// MustCreateDeploymentForNode creates a deployment with an explicit canonical
-// node assignment.
 func (s *Service) MustCreateDeploymentForNode(ctx apigen.Context, spaceID int32, name string, nodeID int32, spec *apigen.DeploymentSpec) *apigen.Deployment {
 	if nodeID <= 0 {
 		panic("deployment node ID must be positive")
