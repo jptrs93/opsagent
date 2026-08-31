@@ -2,7 +2,7 @@
 
 ## Overview
 
-OpenDeploy implements virtual networking for container deployments in-process in the agent, with the Linux kernel as the dataplane. All nodes, including the primary, reconcile the WireGuard node transport and remote workload routes from the cluster network map, and enforce the logical network policy boundary (source anti-spoofing and destination-side default rules plus explicit override policies) through nftables filter chains. Cross-node DNS remains future work; see `docs/future-work/networking.md`.
+OpenDeploy implements virtual networking for container deployments in-process in the agent, with the Linux kernel as the dataplane. All nodes, including the primary, reconcile the WireGuard node transport and remote workload routes from the cluster network map, and enforce the logical network policy boundary (source anti-spoofing and destination-side default rules plus explicit override policies) through nftables filter chains. The cluster map also carries the cluster-wide DNS catalog, so every node resolves every `.internal` service.
 
 ## Current Scope
 
@@ -26,17 +26,16 @@ Implemented today:
 - `portForwarding` publishes virtual-mode container TCP/UDP ports through nftables DNAT on the machine's host interfaces, optionally restricted to an allow list of source IPs/CIDRs.
 - ROLLOVER in virtual mode starts a candidate with both addresses and promotes it by flipping the stable inbound-address host route. Promotion does not change source-address preference: `O` remains preferred for the promoted run's full lifetime.
 - A placement claims the stable inbound address only when its target state is `RUN_SERVING`, so a replacement warming up on another node cannot hold the same address as the placement it is replacing.
-- Endpoints are derived, not reported. A placement's inbound address is a pure function of its space, deployment, and ordinal, so `netstate.pb` renders DNS and ingress backends from the placement itself and reads status only for whether it is running.
+- Endpoints are derived, not reported, and health-free. A placement's inbound address is a pure function of its space, deployment, and ordinal, and it is published exactly when the placement is target-`RUN_SERVING` — the same condition that emits the instance's `/100` route — so DNS and ingress never read runner status. A crashed workload keeps its records; health becomes a load-balancing concern (see `docs/future-work/service-balancing-and-attachment-nat.md`), not a naming one.
 - The space in that function is the placement's own pin, captured at scheduling time as a `deployment_space_versions` row reference and overlaid onto the config identity every derivation reads. A deployment space move therefore never mutates live network state: the scheduler replaces placements through the rollover path, and old-space and new-space placements coexist (each self-consistently addressed, named, and certified for its own space) until the flip.
-- A per-machine internal netproxy deployment runs the built-in DNS process and answers `.internal` AAAA records from endpoint state.
-- Virtual-mode deployments can declare `TLS_PASSTHROUGH` and `HTTPS` ingress routes. The local agent renders them and their READY IPv6 backends into `netstate.pb`, derives netproxy TCP forwarding from their host-port set, and netproxy forwards TLS streams by SNI without termination or terminates HTTPS itself (see Ingress Shape).
+- A per-machine internal netproxy deployment runs the built-in DNS process and answers `.internal` AAAA records for the whole cluster from the map's DNS catalog.
+- Virtual-mode deployments can declare `TLS_PASSTHROUGH` and `HTTPS` ingress routes. The local agent renders them and their catalog-derived IPv6 backends into `netstate.pb`, derives netproxy TCP forwarding from their host-port set, and netproxy forwards TLS streams by SNI without termination or terminates HTTPS itself (see Ingress Shape).
 - The logical network policy boundary: per-attachment source anti-spoofing, destination-side default connectivity rules (same-space, global-space, DNS, `_system` egress paths), explicit cross-space override policies stored as global entities and distributed via the cluster network map, and the machine-local IPv4 close (see Network Policy).
 
 Not implemented yet:
 
-- Cross-node DNS. `netstate.pb` is derived node-locally from the placements a node holds, so `.internal` names resolve only for deployments running on the resolving node.
 - A separate address allocation and design for future service virtual addresses, plus socket-level load balancing. The workload address ABI allocates only `I` and `O`.
-- Cross-machine `ingress` routes: ingress state is derived node-locally, so a route only serves backends running on the same node.
+- Cross-machine `ingress` route definitions: ingress backends come from the cluster catalog and may live on any node, but the routes themselves (and their host ports) are still rendered only on nodes holding a placement of the declaring deployment.
 
 ## Configuration
 
@@ -74,7 +73,7 @@ route carries a hostname and a `tlsPassthroughConfig` containing
 `containerPort` plus optional `hostPort` (zero/default is `443`). The route and
 raw TCP forwarding cannot claim the same host port on a node; multiple distinct
 hostnames can share one ingress host port. Netproxy reads the TLS ClientHello to
-match SNI, then forwards the original TCP stream to a READY backend. The primary
+match SNI, then forwards the original TCP stream to an established backend. The primary
 node reserves `:443` for the Web UI until both can share one listener.
 
 Virtual networking supports ROLLOVER without host-port bind contention because candidate containers bind inside their own network namespace. Host networking also supports ROLLOVER, but it is cooperative: the candidate must not bind conflicting host ports before signaling readiness, then waits for the old runner to stop and release the port.
@@ -293,34 +292,47 @@ place and fails container setup rather than running an attachment unfiltered.
 
 ## Netproxy Services
 
-Node-local network state is deliberately separate from the cluster map. The
-cluster map carries cross-node routing; `netstate.pb` carries DNS and ingress,
-derived on each node from the placements it holds. Every virtual-mode
-placement contributes its DNS name to the catalog; a placement contributes an
-endpoint only when it is actually `RUNNING` and is either `RUN_SERVING` or a
-`RUN_STANDBY` beside a serving or draining placement of the same instance on
-this node, which is what keeps a name from resolving to, or a proxy from
-dialling, a container that is not up. The rendered snapshot is deterministic
-and duplicate-free: placements are ordered serving, draining, standby, then by
-placement id, and the DNS services and ingress routes an old and a replacement
-placement both render are merged with their backends deduplicated — so the
-promotion's two target-state writes (drain the old, then serve the new) never
-render an empty backend set in between.
+Node-local network state is deliberately separate from the cluster map, but
+the map is now its DNS input. The cluster map carries cross-node routing plus
+the cluster-wide DNS catalog: one entry per virtual-mode deployment with a
+scheduled instance (name, space, deployment id) listing its established
+ordinals. An ordinal is established when it has a target-`RUN_SERVING`
+placement, or when a standby+draining pair exists. The promotion commits
+atomically, so no store snapshot shows that pair without a serving placement;
+the pair rule is defense-in-depth that keeps the render correct against any
+writer not routed through the atomic flip, and it is load-bearing in the
+map-less fallback below, whose input is the re-serialized per-instance stream
+rather than an atomic snapshot. The catalog is
+deliberately locality-free —
+DNS answers carry no node information and no per-node ordering; locality, like
+health, is a load-balancing concern, not a naming one. `netstate.pb`
+renders its DNS services and ingress backends from that catalog — the whole
+render is a pure function of target state, with runner status not an input —
+and falls back to deriving the same shape from the node's own placements when
+no catalog has ever been received (an old primary, or a cached pre-catalog
+map). Ingress route definitions and the cert bundle still come from the local
+placements. Outside the promotion window an ordinal's endpoint is published
+exactly when its `/100` route exists, so a name can never resolve to an
+address that does not route; a crashed container keeps its records. The
+rendered snapshot is
+deterministic and duplicate-free: the DNS services and ingress routes an old
+and a replacement placement both render are merged with their backends
+deduplicated.
 
-The agent writes full node-local `NetState` protobuf snapshots to `/var/lib/opendeploy/netproxy/netstate.pb`. It atomically takes its initial deployment snapshot and subscribes before writing, so a concurrent route or endpoint update cannot be lost during startup. The snapshot contains DNS records and rendered ingress routes. Writes are content-diffed: `netstate.pb` and `certbundle.pb` each carry an independent sequence and are rewritten only when their own rendered content changed, so status heartbeats that change nothing rendered trigger no writes and no nftables reconciliation. Sequences seed at `max(persisted seq, unix-millis)` because netproxy's monotonic gates live in a separate process that survives an agent state-dir wipe. Netproxy watches its directory for the atomic write-rename updates and answers authoritatively for every catalogued name: AAAA records for READY virtual endpoints, and an empty `NOERROR` answer (any record type) for a service that exists on the node but has no live endpoint, so `.internal` names of down services are neither leaked upstream nor denied with `NXDOMAIN`. Names not in the node-local catalog — including `.internal` services on other nodes — are forwarded to the host's upstream resolvers. Resolver discovery ignores loopback stubs that are unreachable from the netproxy namespace and falls back to the systemd-resolved or NetworkManager upstream resolver files. Forwarding is capped at 256 concurrent queries; overload and upstream failure return `SERVFAIL` rather than a cacheable negative answer.
+The agent writes full node-local `NetState` protobuf snapshots to `/var/lib/opendeploy/netproxy/netstate.pb`. It atomically takes its initial deployment snapshot and subscribes before writing, so a concurrent route or endpoint update cannot be lost during startup. The snapshot contains DNS records and rendered ingress routes. Writes are content-diffed: `netstate.pb` and `certbundle.pb` each carry an independent sequence and are rewritten only when their own rendered content changed, so status heartbeats that change nothing rendered trigger no writes and no nftables reconciliation. Sequences seed at `max(persisted seq, unix-millis)` because netproxy's monotonic gates live in a separate process that survives an agent state-dir wipe. Netproxy watches its directory for the atomic write-rename updates and answers authoritatively for every catalogued name: AAAA records for established virtual endpoints anywhere in the cluster, and an empty `NOERROR` answer (any record type) for a service that exists but has no established ordinal, so `.internal` names of unestablished services are neither leaked upstream nor denied with `NXDOMAIN`. Names not in the catalog are forwarded to the host's upstream resolvers. Resolver discovery ignores loopback stubs that are unreachable from the netproxy namespace and falls back to the systemd-resolved or NetworkManager upstream resolver files. Forwarding is capped at 256 concurrent queries; overload and upstream failure return `SERVFAIL` rather than a cacheable negative answer.
 
 For TLS passthrough, netproxy listens on each rendered ingress TCP host port. It
-reads a bounded TLS ClientHello to select an exact SNI route, dials a READY
-backend's stable inbound address `I`, and relays the bytes unchanged. Connections
-without usable SNI, unknown names, malformed ClientHellos, or routes without a
-READY backend are closed. Backends see netproxy as the peer; PROXY protocol is
+reads a bounded TLS ClientHello to select an exact SNI route, dials an
+established backend's stable inbound address `I`, and relays the bytes unchanged. Connections
+without usable SNI, unknown names, malformed ClientHellos, or routes without an
+established backend are closed. Backends see netproxy as the peer; PROXY protocol is
 not used in v1. The internal netproxy deployment has a 65,536 file-descriptor
 limit because every routed connection holds one client and one backend socket.
 
 DNS names are derived from deployment and space identity:
 
-- `{name}.space-{spaceId}.internal` returns READY inbound addresses `I`.
-- `{ordinal}.{name}.space-{spaceId}.internal` returns one READY inbound address `I`.
+- `{name}.space-{spaceId}.internal` returns the established inbound addresses `I`.
+- `{ordinal}.{name}.space-{spaceId}.internal` returns one established inbound address `I`.
 
 Names are normalized to lowercase DNS labels, with underscores converted to dashes.
 
@@ -335,7 +347,7 @@ rather than comparing against one constant. They differ only in what network
 state derives from them:
 
 - `RUN_SERVING` owns the instance's `/100` and its stable inbound address. Exactly one placement per `(deployment, ordinal)` holds it.
-- `RUN_STANDBY` is a warming replacement. It owns its own `/120` so its outbound traffic is routable before it ever serves. While warming it is absent from DNS and ingress backends; once it reports `RUNNING` beside a serving or draining placement of the same instance on the same node it contributes the shared inbound address, so the render never drops to zero backends across promotion. A cross-node standby stays absent until it is promoted, because the inbound address does not route to its node yet.
+- `RUN_STANDBY` is a warming replacement. It owns its own `/120` so its outbound traffic is routable before it ever serves. A lone standby is absent from DNS and ingress backends, because the inbound address does not route to it yet; a standby beside a draining placement of the same ordinal still counts as established, so a render fed by a non-atomic input stream never drops to zero backends across promotion.
 - `RUN_DRAINING` is a superseded placement that is still running. It keeps its `/120`, so replies to work already in flight still reach it after `I` has moved.
 
 A replacement is created as `RUN_STANDBY` from its very first write whenever a
@@ -366,8 +378,16 @@ A replacement on another node is an ordinary placement running a full runner
 there, not a rollover candidate. The handoff is driven centrally:
 
 1. The standby starts on the new node. It owns its `/120` immediately, so its outbound traffic is routable, but it does **not** claim `I`.
-2. It reports `RUNNING`. The scheduler moves the old placement to `RUN_DRAINING` and the standby to `RUN_SERVING` in one step, which re-renders the map with `/100` pointing at the new node.
+2. It reports `RUNNING`. The scheduler moves the old placement to `RUN_DRAINING` and the standby to `RUN_SERVING` in one atomic store commit (`FlipScheduledInstanceServing`: one lock hold, one transaction, per-row sequence numbers), which re-renders the map with `/100` pointing at the new node. No snapshot fetched from the store can observe the flip half-applied, so no rendered map ever transiently drops the ordinal's `/100` or its DNS record.
 3. The scheduler waits for its own decision's write sequence to be in force — rendered, and the resulting map applied by every node holding network state — then tells the drained placement to terminate. A timeout backstops a node that is connected but wedged.
+
+Snapshot atomicity ends at the store: the cluster stream re-serializes state as
+per-instance messages, so a worker's local cache still applies the flip as two
+steps. The invariant that keeps this sound is that aggregate views derive from
+atomic documents — a store snapshot fetched in one critical section on the
+primary, the published cluster map everywhere else — while the per-instance
+stream only feeds actuators, which are intermediate-tolerant by design (a
+draining runner keeps its routes; a runner claims `I` only on `RUN_SERVING`).
 
 Claiming `I` locally is gated on target state, not on local readiness: a runner
 installs the host route for `I` only once its placement is `RUN_SERVING`

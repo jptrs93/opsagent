@@ -170,6 +170,79 @@ func (s *Service) SetScheduledInstanceState(instanceID int32, state apigen.Sched
 	return allocated
 }
 
+func (s *Service) FlipScheduledInstanceServing(drainIDs []int32, serveID int32) int64 {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	ctx := logu.AddTag(context.Background(), "Store")
+	type transition struct {
+		id    int32
+		state apigen.ScheduledInstanceTarget
+		inst  *apigen.ScheduledInstance
+	}
+	writes := make([]transition, 0, len(drainIDs)+1)
+	resolve := func(id int32, state apigen.ScheduledInstanceTarget) {
+		cached := s.Scheduled[id]
+		var inst *apigen.ScheduledInstance
+		if cached != nil {
+			inst = &cached.Instance
+		} else {
+			row, err := s.q.GetScheduledInstance(ctx, int64(id))
+			if err != nil {
+				slog.WarnContext(ctx, "FlipScheduledInstanceServing: unknown instance", "scheduled_instance", id, "err", err)
+				return
+			}
+			inst = scheduledInstanceRowToProto(row)
+		}
+		if inst.State == state {
+			return
+		}
+		writes = append(writes, transition{id: id, state: state, inst: inst})
+	}
+	for _, id := range drainIDs {
+		resolve(id, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING)
+	}
+	resolve(serveID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	if len(writes) == 0 {
+		return 0
+	}
+	var allocated int64
+	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		for _, w := range writes {
+			seq, err := q.NextGlobalSeq(ctx)
+			if err != nil {
+				return err
+			}
+			allocated = seq
+			if err := q.AppendScheduledInstanceVersion(ctx, pq.AppendScheduledInstanceVersionParams{
+				ScheduledInstanceID: int64(w.id),
+				CreatedAt:           time.Now().UnixMilli(),
+				State:               int64(w.state),
+				GlobalSeq:           seq,
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		panic(fmt.Sprintf("AppendScheduledInstanceVersion: %v", err))
+	}
+	for _, w := range writes {
+		updated := *w.inst
+		updated.State = w.state
+		entry := s.Scheduled[w.id]
+		if entry == nil {
+			entry = s.instanceStateLocked(&updated)
+		} else {
+			entry.Instance = updated
+		}
+		s.Scheduled[w.id] = entry
+	}
+	for _, w := range writes {
+		s.NotifyInstanceLocked(w.id)
+	}
+	return allocated
+}
+
 // MustWriteReplicatedScheduledInstanceStatus persists a worker status write
 // using the worker's UpdatedAt as the authoritative identity.
 func (s *Service) MustWriteReplicatedScheduledInstanceStatus(st *apigen.ScheduledInstanceStatus) {

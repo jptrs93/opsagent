@@ -261,8 +261,8 @@ func (s *Scheduler) onInstance(state apigen.ScheduledInstanceState) {
 }
 
 // promoteIfReady hands the instance's inbound address to a standby that has
-// reported RUNNING, moving the placement it supersedes into draining. The two
-// writes are what a route flip consists of: nothing else moves an address.
+// reported RUNNING, moving the placement it supersedes into draining. The flip
+// is a single store commit: nothing else moves an address.
 func (s *Scheduler) promoteIfReady(state apigen.ScheduledInstanceState) {
 	inst := state.Instance
 	if inst.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY {
@@ -278,8 +278,14 @@ func (s *Scheduler) promoteIfReady(state apigen.ScheduledInstanceState) {
 		state.Status.Runner.Status != apigen.RunningStatus_RUNNING {
 		return
 	}
-	s.drainSuperseded(inst)
-	s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	drains := s.supersededInstanceIDs(inst)
+	s.flipServing(drains, inst.ID)
+	for _, id := range drains {
+		slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: draining superseded scheduled instance replacement=%d", inst.ID),
+			"scheduled_instance", id,
+			"dep", inst.DeploymentID,
+		)
+	}
 	slog.InfoContext(s.ctx, "scheduler: scheduled instance took over serving",
 		"scheduled_instance", inst.ID,
 		"dep", inst.DeploymentID,
@@ -299,8 +305,7 @@ func (s *Scheduler) promoteStandbyForFailedServing(failed apigen.ScheduledInstan
 			inst.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY {
 			continue
 		}
-		s.beginDraining(failed.ID)
-		s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+		s.flipServing([]int32{failed.ID}, inst.ID)
 		slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: promoted standby over a failed serving instance failed=%d", failed.ID),
 			"scheduled_instance", inst.ID,
 			"dep", failed.DeploymentID,
@@ -313,8 +318,19 @@ func (s *Scheduler) promoteStandbyForFailedServing(failed apigen.ScheduledInstan
 // Draining keeps the container running and its own routes published, so replies
 // to work already in flight still reach it after the address moves.
 func (s *Scheduler) drainSuperseded(current apigen.ScheduledInstance) {
+	for _, id := range s.supersededInstanceIDs(current) {
+		s.beginDraining(id)
+		slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: draining superseded scheduled instance replacement=%d", current.ID),
+			"scheduled_instance", id,
+			"dep", current.DeploymentID,
+		)
+	}
+}
+
+func (s *Scheduler) supersededInstanceIDs(current apigen.ScheduledInstance) []int32 {
 	active := s.store.ListNonFinalScheduledInstancesForDeployment(current.DeploymentID)
 	sort.Slice(active, func(i, j int) bool { return active[i].ID < active[j].ID })
+	ids := make([]int32, 0, len(active))
 	for _, inst := range active {
 		if inst.ID >= current.ID || inst.InstanceOrdinal != current.InstanceOrdinal {
 			continue
@@ -323,11 +339,17 @@ func (s *Scheduler) drainSuperseded(current apigen.ScheduledInstance) {
 			inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
 			continue
 		}
-		s.beginDraining(inst.ID)
-		slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: draining superseded scheduled instance replacement=%d", current.ID),
-			"scheduled_instance", inst.ID,
-			"dep", current.DeploymentID,
-		)
+		ids = append(ids, inst.ID)
+	}
+	return ids
+}
+
+func (s *Scheduler) flipServing(drainIDs []int32, serveID int32) {
+	delete(s.draining, serveID)
+	seq := s.store.FlipScheduledInstanceServing(drainIDs, serveID)
+	deadline := time.Now().Add(drainTimeout)
+	for _, id := range drainIDs {
+		s.draining[id] = drainWait{sequence: seq, deadline: deadline}
 	}
 }
 
