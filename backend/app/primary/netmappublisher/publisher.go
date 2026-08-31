@@ -231,7 +231,11 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.Clust
 			}
 		}
 		knownNodes[node.ID] = struct{}{}
-		netNodes = append(netNodes, &apigen.ClusterNetMapNode{NodeID: node.ID, UnderlayAddress: underlay})
+		wgListenPort := int32(0)
+		if node.WGPublicKey != "" {
+			wgListenPort = int32(network.DefaultWGListenPort)
+		}
+		netNodes = append(netNodes, &apigen.ClusterNetMapNode{NodeID: node.ID, UnderlayAddress: underlay, WgPublicKey: node.WGPublicKey, WgListenPort: wgListenPort})
 	}
 	slices.SortFunc(netNodes, func(a, b *apigen.ClusterNetMapNode) int { return cmp.Compare(a.NodeID, b.NodeID) })
 

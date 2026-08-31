@@ -66,12 +66,5 @@ func (a *netMapApplier) run(ctx context.Context) {
 }
 
 func (a *netMapApplier) apply(clusterMap *apigen.ClusterNetMap) error {
-	topology, err := network.TopologyFromClusterNetMap(clusterMap, a.nodeID, a.prefix)
-	if err != nil {
-		return err
-	}
-	if err := a.reconcile(topology); err != nil {
-		return err
-	}
-	return a.setPolicyRules(network.PolicyRulesFromNetMap(clusterMap.PolicyRules))
+	return network.ApplyClusterNetMap(clusterMap, a.nodeID, a.prefix, a.reconcile, a.setPolicyRules)
 }

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenDeploy — Data model</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">OpenDeploy <span class="sep">/</span> <span class="sub">Data model</span></div>
+  <div class="zoomctl">
+    <button id="zoom-out" title="Zoom out" aria-label="Zoom out">&minus;</button>
+    <span id="zoom-pct">100%</span>
+    <button id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+    <button id="zoom-fit" class="txt" title="Fit diagram to window">Fit</button>
+  </div>
+</header>
+
+<div class="main">
+  <aside class="sidebar" id="sidebar">
+    <p class="placeholder">Navigation will live here.</p>
+  </aside>
+  <div class="splitter" id="splitter" title="Drag to resize"></div>
+  <div class="canvas" id="canvas">
+    <div class="legend">
+      <div class="row"><span class="swatch line-derive"></span> derived from</div>
+      <div class="row"><span class="swatch line-ref"></span> reference</div>
+      <div class="row hint">scroll to zoom &middot; drag background to pan &middot; drag a card header to move it</div>
+      <div class="row hint">click a highlighted type to collapse or expand it</div>
+    </div>
+  </div>
+</div>
+
+<script src="graph.js"></script>
+<script src="model.js"></script>
+</body>
+</html>

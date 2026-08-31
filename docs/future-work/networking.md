@@ -31,9 +31,12 @@ Still open here:
   later scale requires incremental and sharded distribution, and a flow-based
   tunnel or bounded-degree gateway topology in place of the `N * (N - 1)`
   fixed-tunnel mesh.
-- NAT traversal and relaying are out of scope. The base transport remains
-  unauthenticated and unencrypted until an optional secure underlay transport
-  exists.
+- NAT traversal and relaying are out of scope for the current transport. The
+  base transport remains unauthenticated and unencrypted; the planned
+  replacement is WireGuard with static node keys — cryptographic node-level
+  source attribution via cryptokey routing, one interface with peer entries
+  in place of the per-peer netdev mesh, and UDP underlay transport — per
+  `wireguard-transport-implementation-plan.md`.
 
 ## Service discovery (DNS)
 

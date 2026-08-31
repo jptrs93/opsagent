@@ -97,11 +97,18 @@ func TestGlobalSeqAdvancesOnNodeRegistryWrites(t *testing.T) {
 		t.Fatal("re-writing an unchanged underlay consumed a sequence")
 	}
 
-	if _, err := store.SetNodeAllowedSpaces(node.Identifier, []int32{1}); err != nil {
+	if _, err := store.SetNodeAllowedSpaces(node.Identifier, []int32{1, 5}); err != nil {
 		t.Fatal(err)
 	}
 	if counter() <= before {
 		t.Fatal("changing allowed spaces did not advance the global sequence")
+	}
+	before = counter()
+	if _, err := store.SetNodeAllowedSpaces(node.Identifier, []int32{1, 5}); err != nil {
+		t.Fatal(err)
+	}
+	if counter() != before {
+		t.Fatal("re-writing unchanged allowed spaces consumed a sequence")
 	}
 
 	before = counter()

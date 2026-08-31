@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/goutil/logu"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 // Manager is the machine-local networking reconciler: it owns per-container
@@ -81,6 +82,14 @@ type Manager struct {
 	nftSkeletonReady bool
 	nftNatHash       uint64
 	nftDstChains     map[string]uint64
+
+	// wgPrivateKey is the node-local transport key loaded at boot; nil until
+	// SetWGPrivateKey. Guarded by mu.
+	wgPrivateKey *wgtypes.Key
+
+	// wgDesired is the WireGuard state of the last successfully reconciled
+	// topology, kept for netaudit. Guarded by mu.
+	wgDesired *WGAuditState
 }
 
 const reconcileRetryDelay = 5 * time.Second
@@ -170,12 +179,42 @@ func validateContainerAddressIdentity(prefix Prefix, deploymentID int32, inbound
 	return nil
 }
 
-// Tunnel describes one fixed protocol-41 tunnel to a remote cluster node.
-// Local and Remote must belong to the same underlay address family.
+// DefaultWGListenPort is the cluster-wide WireGuard UDP listen port stamped
+// into the network map. Deliberately not the stock 51820, so a host already
+// running its own WireGuard does not collide with the managed device.
+const DefaultWGListenPort uint16 = 51833
+
+// SetWGPrivateKey installs the node-local WireGuard private key loaded at
+// boot. The key never appears in the network map; the map only says which
+// nodes have registered public keys, and the reconciler pairs that with this
+// identity to decide the per-peer transport.
+func (m *Manager) SetWGPrivateKey(key wgtypes.Key) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.wgPrivateKey = &key
+}
+
+func (m *Manager) wgPrivateKeyValue() (wgtypes.Key, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.wgPrivateKey == nil {
+		return wgtypes.Key{}, false
+	}
+	return *m.wgPrivateKey, true
+}
+
+// Tunnel describes the transport pairing to one remote cluster node: the
+// underlay endpoints, and the remote's WireGuard capability from the network
+// map. Both ends derive the same pairwise rule — both nodes keyed means
+// WireGuard, otherwise a fixed protocol-41 tunnel — so RemoteWGKey empty
+// selects ip6tnl/SIT. Local and Remote must belong to the same underlay
+// address family.
 type Tunnel struct {
-	NodeID int32
-	Local  netip.Addr
-	Remote netip.Addr
+	NodeID       int32
+	Local        netip.Addr
+	Remote       netip.Addr
+	RemoteWGKey  string // base64 public key; "" = no WireGuard capability
+	RemoteWGPort uint16
 }
 
 // RemoteRoute selects a tunnel for one routed logical prefix: either a whole
@@ -190,8 +229,13 @@ type RemoteRoute struct {
 type Topology struct {
 	Prefix      Prefix
 	LocalNodeID int32
-	Tunnels     []Tunnel
-	Routes      []RemoteRoute
+	// LocalWGCapable reports whether the map carries a registered WireGuard
+	// key for the local node; the reconciler additionally requires the local
+	// private key before treating any pair as WireGuard-capable.
+	LocalWGCapable bool
+	LocalWGPort    uint16
+	Tunnels        []Tunnel
+	Routes         []RemoteRoute
 }
 
 type retainedContainerNets struct {

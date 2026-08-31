@@ -11,52 +11,101 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-const (
-	EnrollmentStatusWaiting      = "waiting"
-	EnrollmentStatusDisconnected = "disconnected"
-	EnrollmentStatusAccepted     = "accepted"
-)
-
 var ErrEnrollmentRequestChanged = errors.New("enrollment request changed")
 
-func (s *Service) MustUpsertEnrollmentRequest(requestingIPAddress, requestingMachineID, opendeployVersion, underlayAddress string) *apigen.EnrollmentRequestStatus {
+func (s *Service) MustUpsertEnrollmentRequest(remoteAddress, requestingMachineID, opendeployVersion, underlayAddress, wgPublicKey string) (*apigen.EnrollmentRequestStatus, int64) {
 	s.Mu.Lock()
-	defer s.Mu.Unlock()
-
-	row, err := s.q.UpsertEnrollmentRequest(context.Background(), pq.UpsertEnrollmentRequestParams{
-		Now:                 time.Now().UnixMilli(),
-		RequestingIPAddress: requestingIPAddress,
-		RequestingMachineID: requestingMachineID,
-		OpendeployVersion:   opendeployVersion,
-		UnderlayAddress:     underlayAddress,
-		Status:              EnrollmentStatusWaiting,
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	var row pq.NodeCurrentRow
+	err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		var err error
+		row, err = q.GetNodeRowByIdentifier(ctx, requestingMachineID)
+		if errors.Is(err, sql.ErrNoRows) {
+			seq, err := q.NextGlobalSeq(ctx)
+			if err != nil {
+				return err
+			}
+			row, err = q.InsertNodeRow(ctx, pq.InsertNodeParams{
+				CreatedAt:     now,
+				Name:          requestingMachineID,
+				Identifier:    requestingMachineID,
+				Status:        int64(apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED),
+				RolesJSON:     nodeRolesJSON([]int32{NodeRoleSecondary}),
+				AddressesJSON: nodeAddressesJSON([]string{underlayAddress}),
+				WgPublicKey:   wgPublicKey,
+				GlobalSeq:     seq,
+			})
+			if err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		} else if !isMemberStatus(apigen.NodeLifecycleStatus(row.Status)) {
+			row, _, err = appendNodeVersion(ctx, q, row, 0, func(spec *nodeVersionSpec) {
+				spec.Status = apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED
+				spec.RolesJSON = nodeRolesJSON([]int32{NodeRoleSecondary})
+				spec.AddressesJSON = nodeAddressesJSON([]string{underlayAddress})
+				if wgPublicKey != "" {
+					spec.WGPublicKey = wgPublicKey
+				}
+			})
+			if err != nil {
+				return err
+			}
+		}
+		if err := q.UpsertNodeObservedMeta(ctx, pq.UpsertNodeObservedMetaParams{
+			NodeID:            row.ID,
+			LastConnectedAt:   now,
+			IsConnected:       1,
+			OpendeployVersion: opendeployVersion,
+			RemoteAddress:     remoteAddress,
+			EnrollmentPending: 1,
+		}); err != nil {
+			return err
+		}
+		row, err = q.GetNodeRowByID(ctx, row.ID)
+		return err
 	})
+	s.Mu.Unlock()
 	if err != nil {
 		panic(fmt.Sprintf("upsert enrollment request: %v", err))
 	}
-	status := enrollmentRequestRowToProto(row)
+	status := enrollmentRequestFromRow(row)
 	s.enrollmentSubs.Notify(*status)
-	return status
+	return status, row.Version
 }
 
 func (s *Service) MustMarkEnrollmentDisconnected(id int32, requestingMachineID string) {
 	s.Mu.Lock()
-	defer s.Mu.Unlock()
-
-	row, err := s.q.TransitionEnrollmentStatus(context.Background(), pq.TransitionEnrollmentStatusParams{
-		Now:                 time.Now().UnixMilli(),
-		ID:                  int64(id),
-		RequestingMachineID: requestingMachineID,
-		FromStatus:          EnrollmentStatusWaiting,
-		ToStatus:            EnrollmentStatusDisconnected,
+	ctx := context.Background()
+	var row pq.NodeCurrentRow
+	err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		var err error
+		row, err = q.GetNodeRowByID(ctx, int64(id))
+		if err != nil {
+			return err
+		}
+		if row.Identifier != requestingMachineID {
+			return sql.ErrNoRows
+		}
+		if _, err := q.SetNodeConnectionStatus(ctx, pq.SetNodeConnectionStatusParams{
+			Connected:  0,
+			Identifier: requestingMachineID,
+		}); err != nil {
+			return err
+		}
+		row, err = q.GetNodeRowByID(ctx, int64(id))
+		return err
 	})
+	s.Mu.Unlock()
 	if errors.Is(err, sql.ErrNoRows) {
 		return
 	}
 	if err != nil {
 		panic(fmt.Sprintf("mark enrollment disconnected: %v", err))
 	}
-	s.enrollmentSubs.Notify(*enrollmentRequestRowToProto(row))
+	s.enrollmentSubs.Notify(*enrollmentRequestFromRow(row))
 }
 
 func (s *Service) ListEnrollmentRequests() ([]*apigen.EnrollmentRequestStatus, error) {
@@ -78,63 +127,68 @@ func (s *Service) MustFetchEnrollmentSnapshotAndSubscribe() ([]*apigen.Enrollmen
 }
 
 func (s *Service) listEnrollmentRequestsLocked() ([]*apigen.EnrollmentRequestStatus, error) {
-	rows, err := s.q.ListEnrollmentRequestRows(context.Background())
+	rows, err := s.q.ListEnrollmentNodeRows(context.Background(), enrollmentNodeStatuses)
 	if err != nil {
 		return nil, err
 	}
 	var items []*apigen.EnrollmentRequestStatus
 	for _, row := range rows {
-		items = append(items, enrollmentRequestRowToProto(row))
+		items = append(items, enrollmentRequestFromRow(row))
 	}
 	return items, nil
 }
 
-func (s *Service) AcceptEnrollmentRequest(id int32, workerName, requestingMachineID, underlayAddress string, expectedUpdatedAt time.Time) (*apigen.EnrollmentRequestStatus, error) {
+func (s *Service) AcceptEnrollmentRequest(id int32, workerName, requestingMachineID, underlayAddress, wgPublicKey string, expectedVersion int64) (*apigen.EnrollmentRequestStatus, error) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
-	var request pq.EnrollmentRequest
+	var row pq.NodeCurrentRow
 	var node *Node
 	err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		var err error
-		request, err = q.AcceptEnrollmentRequestRow(ctx, pq.AcceptEnrollmentRequestParams{
-			Now:                 now,
-			ID:                  int64(id),
-			RequestingMachineID: requestingMachineID,
-			UnderlayAddress:     underlayAddress,
-			ExpectedUpdatedAt:   expectedUpdatedAt.UnixMilli(),
-			FromStatus:          EnrollmentStatusWaiting,
-			ToStatus:            EnrollmentStatusAccepted,
-		})
+		current, err := q.GetNodeRowByID(ctx, int64(id))
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrEnrollmentRequestChanged
 		}
 		if err != nil {
 			return err
 		}
-		if _, err := q.NextGlobalSeq(ctx); err != nil {
+		if current.Identifier != requestingMachineID || current.Version != expectedVersion {
+			return ErrEnrollmentRequestChanged
+		}
+		if err := q.UpdateNodeAccepted(ctx, workerName, now, int64(id)); err != nil {
 			return err
 		}
-		nodeRow, err := q.UpsertEnrolledNodeRow(ctx, pq.UpsertEnrolledNodeRowParams{
-			EnrollmentID:  int64(id),
-			EnrolledAt:    time.Now().UnixMilli(),
-			Name:          workerName,
-			Identifier:    request.RequestingMachineID,
-			RolesJSON:     nodeRolesJSON([]int32{NodeRoleSecondary}),
-			AddressesJSON: nodeAddressesJSON([]string{request.UnderlayAddress}),
+		current, err = q.GetNodeRowByID(ctx, int64(id))
+		if err != nil {
+			return err
+		}
+		row, _, err = appendNodeVersion(ctx, q, current, 0, func(spec *nodeVersionSpec) {
+			spec.Status = apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL
+			spec.RolesJSON = nodeRolesJSON([]int32{NodeRoleSecondary})
+			spec.AddressesJSON = nodeAddressesJSON([]string{underlayAddress})
+			if wgPublicKey != "" {
+				spec.WGPublicKey = wgPublicKey
+			}
 		})
 		if err != nil {
 			return err
 		}
-		node = nodeRowToNode(nodeRow)
+		if err := q.ClearNodeEnrollmentPending(ctx, int64(id)); err != nil {
+			return err
+		}
+		row, err = q.GetNodeRowByID(ctx, int64(id))
+		if err != nil {
+			return err
+		}
+		node = nodeRowToNode(row)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	status := enrollmentRequestRowToProto(request)
+	status := enrollmentRequestFromRow(row)
 	s.enrollmentSubs.Notify(*status)
 	s.nodeSubs.Notify(*nodeToAPI(node))
 	return status, nil

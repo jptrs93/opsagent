@@ -159,6 +159,20 @@ const (
 	AuthzEntity_AUTHZ_ENTITY_ACCESS     AuthzEntity = 9
 )
 
+type NodeLifecycleStatus int32
+
+const (
+	NodeLifecycleStatus_NODE_STATUS_UNKNOWN             NodeLifecycleStatus = 0
+	NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED       NodeLifecycleStatus = 1
+	NodeLifecycleStatus_NODE_ENROLLMENT_CANCELLED       NodeLifecycleStatus = 2
+	NodeLifecycleStatus_NODE_ENROLLMENT_REQUEST_EXPIRED NodeLifecycleStatus = 3
+	NodeLifecycleStatus_NODE_MEMBER_NORMAL              NodeLifecycleStatus = 4
+	NodeLifecycleStatus_NODE_MEMBER_UNHEALTHY           NodeLifecycleStatus = 5
+	NodeLifecycleStatus_NODE_MEMBER_DRAINING            NodeLifecycleStatus = 6
+	NodeLifecycleStatus_NODE_MEMBER_MISSING             NodeLifecycleStatus = 7
+	NodeLifecycleStatus_NODE_MEMBER_EVICTED             NodeLifecycleStatus = 8
+)
+
 type NetProtocol int32
 
 const (
@@ -1243,15 +1257,15 @@ type AuthzGlobalRuleDeleteRequest struct {
 }
 
 type ClusterNode struct {
-	ID            int32     `json:"id"`
-	EnrollmentID  int32     `json:"enrollment_id"`
-	Name          string    `json:"name,omitempty"`
-	Identifier    string    `json:"identifier,omitempty"`
-	Roles         []int32   `json:"roles,omitempty"`
-	WgPublicKey   string    `json:"wg_public_key,omitempty"`
-	Addresses     []string  `json:"addresses,omitempty"`
-	EnrolledAt    time.Time `json:"enrolled_at"`
-	AllowedSpaces []int32   `json:"allowed_spaces,omitempty"`
+	ID            int32               `json:"id"`
+	Name          string              `json:"name,omitempty"`
+	Identifier    string              `json:"identifier,omitempty"`
+	Roles         []int32             `json:"roles,omitempty"`
+	WgPublicKey   string              `json:"wg_public_key,omitempty"`
+	Addresses     []string            `json:"addresses,omitempty"`
+	EnrolledAt    time.Time           `json:"enrolled_at"`
+	Status        NodeLifecycleStatus `json:"status"`
+	AllowedSpaces []int32             `json:"allowed_spaces,omitempty"`
 }
 
 type ClusterNodeStatus struct {
@@ -1259,6 +1273,21 @@ type ClusterNodeStatus struct {
 	NodeID          int32     `json:"node_id"`
 	LastConnectedAt time.Time `json:"last_connected_at"`
 	IsConnected     bool      `json:"is_connected"`
+}
+
+type EnrollmentRequestStatus struct {
+	ID                  int32               `json:"id"`
+	CreatedAt           time.Time           `json:"created_at"`
+	RequestingIpAddress string              `json:"requesting_ip_address,omitempty"`
+	RequestingMachineID string              `json:"requesting_machine_id,omitempty"`
+	OpendeployVersion   string              `json:"opendeploy_version,omitempty"`
+	UnderlayAddress     string              `json:"underlay_address,omitempty"`
+	Status              NodeLifecycleStatus `json:"status"`
+	IsConnected         bool                `json:"is_connected"`
+}
+
+type NodeEnrollmentInfo struct {
+	EnrollmentTlsSpkiSha256 string `json:"enrollment_tls_spki_sha256,omitempty"`
 }
 
 type NodeRenameRequest struct {
@@ -1323,6 +1352,8 @@ type NetPortMatch struct {
 type ClusterNetMapNode struct {
 	NodeID          int32  `json:"node_id"`
 	UnderlayAddress string `json:"underlay_address,omitempty"`
+	WgPublicKey     string `json:"wg_public_key,omitempty"`
+	WgListenPort    int32  `json:"wg_listen_port"`
 }
 
 type ClusterNetMapRoute struct {
@@ -1453,6 +1484,7 @@ type MsgToWorker struct {
 type ClusterHello struct {
 	UnderlayAddress        string `json:"underlay_address,omitempty"`
 	ClusterProtocolVersion int32  `json:"cluster_protocol_version"`
+	WgPublicKey            string `json:"wg_public_key,omitempty"`
 }
 
 type MsgToMaster struct {
@@ -1511,21 +1543,6 @@ type ClusterRenewCertificateResponse struct {
 	NotAfter  int64  `json:"not_after"`
 }
 
-type EnrollmentRequestStatus struct {
-	ID                  int32     `json:"id"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
-	RequestingIpAddress string    `json:"requesting_ip_address,omitempty"`
-	RequestingMachineID string    `json:"requesting_machine_id,omitempty"`
-	Status              string    `json:"status,omitempty"`
-	OpendeployVersion   string    `json:"opendeploy_version,omitempty"`
-	UnderlayAddress     string    `json:"underlay_address,omitempty"`
-}
-
-type NodeEnrollmentInfo struct {
-	EnrollmentTlsSpkiSha256 string `json:"enrollment_tls_spki_sha256,omitempty"`
-}
-
 type EnrollmentWorkerMsg struct {
 	Hello *EnrollmentHello `json:"hello"`
 }
@@ -1535,6 +1552,7 @@ type EnrollmentHello struct {
 	WorkerCertificateRequest []byte `json:"worker_certificate_request"`
 	OpendeployVersion        string `json:"opendeploy_version,omitempty"`
 	UnderlayAddress          string `json:"underlay_address,omitempty"`
+	WgPublicKey              string `json:"wg_public_key,omitempty"`
 }
 
 type EnrollmentPrimaryMsg struct {

@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/jptrs93/opsagent/backend/lib/network"
 )
@@ -29,6 +30,23 @@ type KernelState struct {
 	Routes map[netip.Addr]int
 	// FallbackRoute reports the cluster-prefix unreachable route.
 	FallbackRoute bool
+	// WG is the managed WireGuard device's live configuration, nil when the
+	// device does not exist.
+	WG *KernelWGState
+}
+
+// KernelWGState reduces the live WireGuard device to the shape the manager
+// installs. Handshake and traffic counters are deliberately absent — sessions
+// are traffic-driven and an idle peer legitimately has none.
+type KernelWGState struct {
+	PublicKey  string
+	ListenPort uint16
+	Peers      map[string]KernelWGPeer // keyed by peer public key
+}
+
+type KernelWGPeer struct {
+	Endpoint   string
+	AllowedIPs string // canonical sorted comma-joined prefixes
 }
 
 // Diff is the reportable difference between desired and kernel state.
@@ -47,6 +65,18 @@ type Diff struct {
 	WrongLinkRoutes      []string
 	UnexpectedRoutes     []string
 	MissingFallbackRoute bool
+
+	MissingWGDevice    bool
+	UnexpectedWGDevice bool
+	// WGDeviceDrift covers local key and listen port mismatches.
+	WGDeviceDrift []string
+	// MissingWGPeers/UnexpectedWGPeers report peer set membership by public
+	// key; WGPeerDrift reports endpoint or allowed-ips divergence on peers
+	// present on both sides. Allowed-ips drift is the one that weakens the
+	// node-level source check, so it is reported distinctly.
+	MissingWGPeers    []string
+	UnexpectedWGPeers []string
+	WGPeerDrift       []string
 }
 
 func (d Diff) InSync() bool {
@@ -54,13 +84,16 @@ func (d Diff) InSync() bool {
 		len(d.MissingNft) == 0 && len(d.UnexpectedNft) == 0 && len(d.UnrecognizedNft) == 0 &&
 		len(d.MissingFilter) == 0 && len(d.UnexpectedFilter) == 0 &&
 		len(d.MissingElements) == 0 && len(d.UnexpectedElements) == 0 &&
-		len(d.MissingRoutes) == 0 && len(d.WrongLinkRoutes) == 0 && len(d.UnexpectedRoutes) == 0
+		len(d.MissingRoutes) == 0 && len(d.WrongLinkRoutes) == 0 && len(d.UnexpectedRoutes) == 0 &&
+		!d.MissingWGDevice && !d.UnexpectedWGDevice && len(d.WGDeviceDrift) == 0 &&
+		len(d.MissingWGPeers) == 0 && len(d.UnexpectedWGPeers) == 0 && len(d.WGPeerDrift) == 0
 }
 
 // Compare reduces desired and kernel state to a reportable diff.
 func Compare(desired network.AuditState, kernel KernelState) Diff {
 	var d Diff
-	if !kernel.TableV4 && !kernel.TableV6 && len(desired.HostPortRules) == 0 && len(desired.WorkloadRoutes) == 0 && len(desired.FilterNets) == 0 {
+	if !kernel.TableV4 && !kernel.TableV6 && kernel.WG == nil &&
+		len(desired.HostPortRules) == 0 && len(desired.WorkloadRoutes) == 0 && len(desired.FilterNets) == 0 && desired.WG == nil {
 		d.NotInstalled = true
 		return d
 	}
@@ -111,10 +144,58 @@ func Compare(desired network.AuditState, kernel KernelState) Diff {
 	// only expect it once workload routes are desired.
 	d.MissingFallbackRoute = desired.HasPrefix && len(desired.WorkloadRoutes) > 0 && !kernel.FallbackRoute
 
-	for _, list := range [][]string{d.MissingNft, d.UnexpectedNft, d.UnrecognizedNft, d.MissingFilter, d.UnexpectedFilter, d.MissingElements, d.UnexpectedElements, d.MissingRoutes, d.WrongLinkRoutes, d.UnexpectedRoutes} {
+	compareWG(&d, desired.WG, kernel.WG)
+
+	for _, list := range [][]string{d.MissingNft, d.UnexpectedNft, d.UnrecognizedNft, d.MissingFilter, d.UnexpectedFilter, d.MissingElements, d.UnexpectedElements, d.MissingRoutes, d.WrongLinkRoutes, d.UnexpectedRoutes, d.WGDeviceDrift, d.MissingWGPeers, d.UnexpectedWGPeers, d.WGPeerDrift} {
 		sort.Strings(list)
 	}
 	return d
+}
+
+func compareWG(d *Diff, desired *network.WGAuditState, kernel *KernelWGState) {
+	if desired == nil {
+		d.UnexpectedWGDevice = kernel != nil
+		return
+	}
+	if kernel == nil {
+		d.MissingWGDevice = true
+		return
+	}
+	if kernel.PublicKey != desired.PublicKey {
+		d.WGDeviceDrift = append(d.WGDeviceDrift, fmt.Sprintf("public key %s want %s", kernel.PublicKey, desired.PublicKey))
+	}
+	if kernel.ListenPort != desired.ListenPort {
+		d.WGDeviceDrift = append(d.WGDeviceDrift, fmt.Sprintf("listen port %d want %d", kernel.ListenPort, desired.ListenPort))
+	}
+	seen := make(map[string]struct{}, len(desired.Peers))
+	for _, peer := range desired.Peers {
+		seen[peer.PublicKey] = struct{}{}
+		live, ok := kernel.Peers[peer.PublicKey]
+		if !ok {
+			d.MissingWGPeers = append(d.MissingWGPeers, fmt.Sprintf("node %d %s", peer.NodeID, peer.PublicKey))
+			continue
+		}
+		if live.Endpoint != peer.Endpoint.String() {
+			d.WGPeerDrift = append(d.WGPeerDrift, fmt.Sprintf("node %d endpoint %s want %s", peer.NodeID, live.Endpoint, peer.Endpoint))
+		}
+		if want := joinPrefixes(peer.AllowedIPs); live.AllowedIPs != want {
+			d.WGPeerDrift = append(d.WGPeerDrift, fmt.Sprintf("node %d allowed-ips [%s] want [%s]", peer.NodeID, live.AllowedIPs, want))
+		}
+	}
+	for key := range kernel.Peers {
+		if _, ok := seen[key]; !ok {
+			d.UnexpectedWGPeers = append(d.UnexpectedWGPeers, key)
+		}
+	}
+}
+
+func joinPrefixes(prefixes []netip.Prefix) string {
+	parts := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		parts = append(parts, prefix.String())
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
 }
 
 func diffCounts(expected, actual map[string]int) (missing, unexpected []string) {

@@ -21,17 +21,52 @@ const (
 )
 
 type Node struct {
-	ID           int32
-	EnrollmentID *int32
-	Name         string
-	Identifier   string
-	Roles        []int32
-	Addresses    []string
-	WGPublicKey  string
-	EnrolledAt   time.Time
+	ID          int32
+	Name        string
+	Identifier  string
+	Status      apigen.NodeLifecycleStatus
+	Roles       []int32
+	Addresses   []string
+	WGPublicKey string
+	CreatedAt   time.Time
+	EnrolledAt  time.Time
 	// Spaces whose deployments may be placed here. Always contains
 	// OpendeploySpaceID; see normalizeAllowedSpaces.
 	AllowedSpaces []int32
+}
+
+var memberNodeStatuses = []int64{
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_UNHEALTHY),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_DRAINING),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_MISSING),
+}
+
+var enrollmentNodeStatuses = []int64{
+	int64(apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED),
+	int64(apigen.NodeLifecycleStatus_NODE_ENROLLMENT_CANCELLED),
+	int64(apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUEST_EXPIRED),
+}
+
+var allNodeStatuses = []int64{
+	int64(apigen.NodeLifecycleStatus_NODE_STATUS_UNKNOWN),
+	int64(apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED),
+	int64(apigen.NodeLifecycleStatus_NODE_ENROLLMENT_CANCELLED),
+	int64(apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUEST_EXPIRED),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_UNHEALTHY),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_DRAINING),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_MISSING),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED),
+}
+
+func isMemberStatus(status apigen.NodeLifecycleStatus) bool {
+	for _, s := range memberNodeStatuses {
+		if int64(status) == s {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeAllowedSpaces is the single point where the invariant holds: the
@@ -67,15 +102,21 @@ func (s *Service) EnsurePrimaryNode(name, identifier string) *Node {
 	row, err := s.q.GetNodeRowByIdentifier(ctx, identifier)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = s.q.Tx(ctx, func(q *pq.Queries) error {
-			if _, err := q.NextGlobalSeq(ctx); err != nil {
+			seq, err := q.NextGlobalSeq(ctx)
+			if err != nil {
 				return err
 			}
+			now := time.Now().UnixMilli()
 			var txErr error
-			row, txErr = q.InsertNodeRow(ctx, pq.InsertNodeRowParams{
-				EnrolledAt: time.Now().UnixMilli(),
-				Name:       name,
-				Identifier: identifier,
-				RolesJSON:  nodeRolesJSON([]int32{NodeRolePrimary}),
+			row, txErr = q.InsertNodeRow(ctx, pq.InsertNodeParams{
+				CreatedAt:     now,
+				EnrolledAt:    now,
+				Name:          name,
+				Identifier:    identifier,
+				Status:        int64(apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL),
+				RolesJSON:     nodeRolesJSON([]int32{NodeRolePrimary}),
+				AddressesJSON: nodeAddressesJSON([]string{}),
+				GlobalSeq:     seq,
 			})
 			return txErr
 		})
@@ -89,33 +130,96 @@ func (s *Service) EnsurePrimaryNode(name, identifier string) *Node {
 	return node
 }
 
-func (s *Service) MustSetNodeAddresses(id int32, addresses []string) *Node {
+// nodeVersionSpec is the versioned slice of node state, in the JSON-string
+// shapes the node_versions row stores, so change detection is plain string
+// comparison against the current row.
+type nodeVersionSpec struct {
+	Status            apigen.NodeLifecycleStatus
+	RolesJSON         string
+	AddressesJSON     string
+	WGPublicKey       string
+	AllowedSpacesJSON string
+}
+
+func nodeVersionSpecOf(row pq.NodeCurrentRow) nodeVersionSpec {
+	return nodeVersionSpec{
+		Status:            apigen.NodeLifecycleStatus(row.Status),
+		RolesJSON:         row.Roles,
+		AddressesJSON:     row.Addresses,
+		WGPublicKey:       row.WgPublicKey,
+		AllowedSpacesJSON: row.AllowedSpaces,
+	}
+}
+
+// appendNodeVersion applies mutate to current's versioned state and, if it
+// changed, allocates the global write sequence and appends the stamped
+// version row in the same transaction. An unchanged spec is a pure no-op, so
+// callers get diff-gating and the map-input seq invariant without holding
+// either themselves.
+func appendNodeVersion(ctx context.Context, q *pq.Queries, current pq.NodeCurrentRow, author int32, mutate func(*nodeVersionSpec)) (pq.NodeCurrentRow, bool, error) {
+	spec := nodeVersionSpecOf(current)
+	mutate(&spec)
+	if spec == nodeVersionSpecOf(current) {
+		return current, false, nil
+	}
+	seq, err := q.NextGlobalSeq(ctx)
+	if err != nil {
+		return current, false, err
+	}
+	row, err := q.InsertNodeVersionRow(ctx, pq.InsertNodeVersionParams{
+		NodeID:            current.ID,
+		CreatedAt:         time.Now().UnixMilli(),
+		Author:            int64(author),
+		Status:            int64(spec.Status),
+		RolesJSON:         spec.RolesJSON,
+		AddressesJSON:     spec.AddressesJSON,
+		WgPublicKey:       spec.WGPublicKey,
+		AllowedSpacesJSON: spec.AllowedSpacesJSON,
+		GlobalSeq:         seq,
+	})
+	return row, err == nil, err
+}
+
+// mustAppendNodeVersion runs one versioned-state mutation for a node in its
+// own transaction, notifying subscribers only when a version was appended.
+func (s *Service) mustAppendNodeVersion(id int32, what string, mutate func(*nodeVersionSpec)) *Node {
 	s.Mu.Lock()
 	ctx := context.Background()
-	addressesJSON := nodeAddressesJSON(addresses)
-	var row pq.NodeRow
+	var row pq.NodeCurrentRow
+	changed := false
 	err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		current, err := q.GetNodeRowByID(ctx, int64(id))
 		if err != nil {
 			return err
 		}
-		if current.Addresses == addressesJSON {
-			row = current
-			return nil
-		}
-		if _, err := q.NextGlobalSeq(ctx); err != nil {
-			return err
-		}
-		row, err = q.UpdateNodeAddresses(ctx, addressesJSON, int64(id))
+		row, changed, err = appendNodeVersion(ctx, q, current, 0, mutate)
 		return err
 	})
 	s.Mu.Unlock()
 	if err != nil {
-		panic(fmt.Sprintf("set node addresses: %v", err))
+		panic(fmt.Sprintf("%s: %v", what, err))
 	}
 	node := nodeRowToNode(row)
-	s.nodeSubs.Notify(*nodeToAPI(node))
+	if changed {
+		s.nodeSubs.Notify(*nodeToAPI(node))
+	}
 	return node
+}
+
+func (s *Service) MustSetNodeAddresses(id int32, addresses []string) *Node {
+	return s.mustAppendNodeVersion(id, "set node addresses", func(spec *nodeVersionSpec) {
+		spec.AddressesJSON = nodeAddressesJSON(addresses)
+	})
+}
+
+// MustSetNodeWGPublicKey records a node's current WireGuard public key. An
+// unchanged key is a pure no-op (workers re-report on every cluster-stream
+// connect); a change appends a version row, which doubles as the key audit
+// history an unexpected change would be investigated through.
+func (s *Service) MustSetNodeWGPublicKey(id int32, wgPublicKey string) *Node {
+	return s.mustAppendNodeVersion(id, "set node wireguard public key", func(spec *nodeVersionSpec) {
+		spec.WGPublicKey = wgPublicKey
+	})
 }
 
 // NormalizeNodeUnderlay canonicalizes a worker's underlay address and ensures
@@ -154,7 +258,7 @@ func (s *Service) ListNodes() []*Node {
 }
 
 func (s *Service) listNodesLocked() []*Node {
-	rows, err := s.q.ListNodeRows(context.Background())
+	rows, err := s.q.ListNodeRows(context.Background(), memberNodeStatuses)
 	if err != nil {
 		panic(fmt.Sprintf("list nodes: %v", err))
 	}
@@ -272,7 +376,7 @@ func (s *Service) NodeIdentifierByID(nodeID int32) (string, error) {
 func (s *Service) PrimaryNodeID() (int32, error) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	nodeID, err := s.q.GetNodeIDWithRole(context.Background(), int64(NodeRolePrimary))
+	nodeID, err := s.q.GetNodeIDWithRole(context.Background(), int64(NodeRolePrimary), memberNodeStatuses)
 	return int32(nodeID), err
 }
 
@@ -293,21 +397,26 @@ func (s *Service) RenameNode(identifier, name string) (*apigen.ClusterNode, erro
 func (s *Service) SetNodeAllowedSpaces(identifier string, spaces []int32) (*apigen.ClusterNode, error) {
 	s.Mu.Lock()
 	ctx := context.Background()
-	var row pq.NodeRow
+	var row pq.NodeCurrentRow
+	changed := false
 	err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		if _, err := q.NextGlobalSeq(ctx); err != nil {
+		current, err := q.GetNodeRowByIdentifier(ctx, identifier)
+		if err != nil {
 			return err
 		}
-		var txErr error
-		row, txErr = q.UpdateNodeAllowedSpacesByIdentifier(ctx, allowedSpacesJSON(spaces), identifier)
-		return txErr
+		row, changed, err = appendNodeVersion(ctx, q, current, 0, func(spec *nodeVersionSpec) {
+			spec.AllowedSpacesJSON = allowedSpacesJSON(spaces)
+		})
+		return err
 	})
 	s.Mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
 	result := nodeToAPI(nodeRowToNode(row))
-	s.nodeSubs.Notify(*result)
+	if changed {
+		s.nodeSubs.Notify(*result)
+	}
 	return result, nil
 }
 
@@ -339,29 +448,22 @@ func (s *Service) RemoveSpaceFromAllNodes(spaceID int32) {
 func (s *Service) updateAllNodeAllowedSpaces(fn func([]int32) []int32) {
 	s.Mu.Lock()
 	ctx := context.Background()
-	nodes := s.listNodesLocked()
-	updated := make([]*Node, 0, len(nodes))
+	var updated []*Node
 	err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		bumped := false
-		for _, node := range nodes {
-			if node == nil {
-				continue
-			}
-			next := allowedSpacesJSON(fn(node.AllowedSpaces))
-			if next == allowedSpacesJSON(node.AllowedSpaces) {
-				continue
-			}
-			if !bumped {
-				if _, err := q.NextGlobalSeq(ctx); err != nil {
-					return err
-				}
-				bumped = true
-			}
-			row, err := q.UpdateNodeAllowedSpacesByID(ctx, next, int64(node.ID))
+		rows, err := q.ListNodeRows(ctx, allNodeStatuses)
+		if err != nil {
+			return err
+		}
+		for _, current := range rows {
+			row, changed, err := appendNodeVersion(ctx, q, current, 0, func(spec *nodeVersionSpec) {
+				spec.AllowedSpacesJSON = allowedSpacesJSON(fn(parseAllowedSpaces(current.AllowedSpaces)))
+			})
 			if err != nil {
 				return err
 			}
-			updated = append(updated, nodeRowToNode(row))
+			if changed && isMemberStatus(apigen.NodeLifecycleStatus(row.Status)) {
+				updated = append(updated, nodeRowToNode(row))
+			}
 		}
 		return nil
 	})

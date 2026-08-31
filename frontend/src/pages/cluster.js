@@ -8,6 +8,8 @@ import {allowedSpaceNames, editableSpaceIDs, isFixedSpace} from "../lib/nodeSpac
 
 const { button, code, div, input, label, p, span, table, tbody, td, th, thead, tr } = van.tags;
 
+const NODE_ENROLLMENT_REQUESTED = 1;
+
 const formatTime = (t) => {
     if (!t) return '-';
     const d = t instanceof Date ? t : new Date(t);
@@ -61,6 +63,7 @@ export function clusterPage() {
                 headerCell("Node", "pr-3 w-[24rem]"),
                 headerCell("Role"),
                 headerCell("Address"),
+                headerCell("Transport key"),
                 headerCell("Spaces"),
                 headerCell("Status"),
                 headerCell("Connected since", ""))),
@@ -80,7 +83,7 @@ export function clusterPage() {
                 thead(tr({class: "text-left text-gray-500 border-b border-gray-800"},
                     headerCell("Request", "pr-6"),
                     headerCell("Remote IP", "pr-6"),
-                    headerCell("Updated", "pr-6"),
+                    headerCell("Requested", "pr-6"),
                     headerCell("Accept as", ""))),
                 tbody(...pending.map(req => enrollmentRow(req)))));
 
@@ -109,7 +112,7 @@ export function clusterPage() {
                     if (!a.isPrimary && b.isPrimary) return 1;
                     return a.name.localeCompare(b.name);
                 });
-                const pending = enrollmentsS.val.filter(e => e.status === "waiting");
+                const pending = enrollmentsS.val.filter(e => e.status === NODE_ENROLLMENT_REQUESTED && e.isConnected);
 
                 return div(
                     {class: "flex flex-col"},
@@ -269,6 +272,8 @@ function machineRow(machine) {
                 : span({class: "text-gray-300"}, "secondary")
         ),
         td({class: "py-1 pr-3 font-mono text-gray-300"}, (machine.addresses || []).join(", ") || "-"),
+        td({class: "py-1 pr-3 font-mono text-gray-300", title: machine.wgPublicKey || "No WireGuard key registered; pairs with this node use ip6tnl"},
+            machine.wgPublicKey ? machine.wgPublicKey.slice(0, 8) + "…" : "-"),
         td({class: "py-1 pr-3"}, allowedSpacesCell(machine)),
         td({class: "py-1 pr-3"},
             machine.connected
@@ -428,7 +433,7 @@ function enrollmentRow(req) {
 			req.opendeployVersion ? div({class: "text-xs text-gray-400 font-mono"}, req.opendeployVersion) : '',
 		),
         td({class: "py-3 pr-6 text-gray-300"}, req.requestingIpAddress || "-"),
-        td({class: "py-3 pr-6 text-gray-400"}, formatTime(req.updatedAt)),
+        td({class: "py-3 pr-6 text-gray-400"}, formatTime(req.createdAt)),
         td({class: "py-3"},
             div({class: "flex flex-col gap-2"},
                 div({class: "flex gap-2"},

@@ -9,22 +9,19 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-// nodeRowToNode parses a raw nodes row — roles, addresses, and allowed_spaces
-// are JSON strings in the DB — into the domain Node.
-func nodeRowToNode(r pq.NodeRow) *Node {
-	var eid *int32
-	if r.EnrollmentID.Valid {
-		v := int32(r.EnrollmentID.Int64)
-		eid = &v
-	}
+// nodeRowToNode parses a joined identity-plus-latest-version row — roles,
+// addresses, and allowed_spaces are JSON strings in the DB — into the domain
+// Node.
+func nodeRowToNode(r pq.NodeCurrentRow) *Node {
 	return &Node{
 		ID:            int32(r.ID),
-		EnrollmentID:  eid,
 		Name:          r.Name,
 		Identifier:    r.Identifier,
+		Status:        apigen.NodeLifecycleStatus(r.Status),
 		Roles:         parseNodeRoles(r.Roles),
 		Addresses:     parseNodeAddresses(r.Addresses),
 		WGPublicKey:   r.WgPublicKey,
+		CreatedAt:     time.UnixMilli(r.CreatedAt),
 		EnrolledAt:    time.UnixMilli(r.EnrolledAt),
 		AllowedSpaces: parseAllowedSpaces(r.AllowedSpaces),
 	}
@@ -47,13 +44,9 @@ func nodeToAPI(node *Node) *apigen.ClusterNode {
 	if node == nil {
 		return nil
 	}
-	enrollmentID := int32(0)
-	if node.EnrollmentID != nil {
-		enrollmentID = *node.EnrollmentID
-	}
 	return &apigen.ClusterNode{
 		ID:            node.ID,
-		EnrollmentID:  enrollmentID,
+		Status:        node.Status,
 		Name:          node.Name,
 		Identifier:    node.Identifier,
 		Roles:         node.Roles,

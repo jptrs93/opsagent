@@ -437,8 +437,12 @@ func (c *config) run() error {
 		logf("VM e2e run failed; results copied to %s", c.ResultsDir)
 		return err
 	}
-	// After the flows: these assertions read kernel state directly, and the
-	// last two of them deliberately break it.
+	// After the flows: these assertions read kernel state directly. The
+	// WireGuard checks come first because the last two network policy checks
+	// deliberately break kernel state.
+	if err := c.step("wireguard transport checks", "device config, key custody, no leftover tunnels, transfer", c.wireGuardTransportChecks); err != nil {
+		return err
+	}
 	if err := c.step("network policy kernel checks", "anti-spoofing, IPv4 close, drop counters, netaudit", c.networkPolicyKernelChecks); err != nil {
 		return err
 	}
@@ -1048,7 +1052,7 @@ func (c *config) vmExists(name string) bool {
 
 func (c *config) writeLimaYAML(name, role, cpus, memory, disk, yamlPath string) error {
 	packages := map[string]string{
-		"node":        "sudo ca-certificates curl git openssl python3 nix-bin nix-setup-systemd tcpdump conntrack nftables",
+		"node":        "sudo ca-certificates curl git openssl python3 nix-bin nix-setup-systemd tcpdump conntrack nftables wireguard-tools",
 		"repo-mirror": "sudo ca-certificates curl git openssl tar gzip docker-registry skopeo",
 	}[role]
 	if packages == "" {

@@ -5,22 +5,36 @@ package network
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
+	"golang.zx2c4.com/wireguard/wgctrl"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 const (
 	tunnelAliasPrefix = "opendeploy:tunnel:"
 	tunnelMTU         = 1420
+	WGLinkName        = "odwg0"
+	wgLinkAlias       = "opendeploy:wg"
+	// wgMTU matches tunnelMTU: WireGuard over an IPv6 underlay costs 80 bytes
+	// (60 over IPv4), so 1420 is safe for both families and keeps the inner
+	// path MTU identical across the transport migration.
+	wgMTU = 1420
 )
 
-// ReconcileTopology converges fixed protocol-41 tunnels and remote workload
-// routes without touching locally attached workload routes or foreign links.
+// ReconcileTopology converges the cross-node transport — one WireGuard device
+// with a peer entry per keyed pair, fixed protocol-41 tunnels for pairs where
+// either side lacks a key — plus remote workload routes, without touching
+// locally attached workload routes or foreign links. Both ends derive the same
+// pairwise transport rule from the map, so the two directions of a pair always
+// agree.
 func (m *Manager) ReconcileTopology(topology Topology) error {
 	if err := validateTopology(topology); err != nil {
 		return err
@@ -29,15 +43,40 @@ func (m *Manager) ReconcileTopology(topology Topology) error {
 		return err
 	}
 
-	desiredTunnels := make(map[int32]Tunnel, len(topology.Tunnels))
-	for _, tunnel := range topology.Tunnels {
-		desiredTunnels[tunnel.NodeID] = tunnel
+	privateKey, hasPrivateKey := m.wgPrivateKeyValue()
+	wgActive := topology.LocalWGCapable && hasPrivateKey && topology.LocalWGPort > 0
+
+	wgPairs := make(map[int32]Tunnel)
+	tunnelPairs := make(map[int32]Tunnel)
+	for _, pair := range topology.Tunnels {
+		if wgActive && pair.RemoteWGKey != "" {
+			wgPairs[pair.NodeID] = pair
+		} else {
+			tunnelPairs[pair.NodeID] = pair
+		}
 	}
+
+	// The WireGuard device is reconciled before routes so route replacement
+	// can point at it atomically; ip6tnl teardown happens after routes so a
+	// pair migrating to WireGuard never has a routed prefix without a link.
+	wgIndex := 0
+	var wgAudit *WGAuditState
+	if wgActive {
+		index, audit, err := reconcileWGDevice(privateKey, topology.LocalWGPort, wgPairs, topology.Routes)
+		if err != nil {
+			return err
+		}
+		wgIndex = index
+		wgAudit = audit
+	} else if err := deleteWGDevice(); err != nil {
+		return err
+	}
+
 	owned, err := listOwnedTunnels()
 	if err != nil {
 		return err
 	}
-	for nodeID, desired := range desiredTunnels {
+	for nodeID, desired := range tunnelPairs {
 		if current, ok := owned[nodeID]; ok && !tunnelMatches(current, desired) {
 			if err := netlink.LinkDel(current); err != nil && !errors.Is(err, unix.ESRCH) {
 				return fmt.Errorf("replacing tunnel for node %d: %w", nodeID, err)
@@ -61,31 +100,147 @@ func (m *Manager) ReconcileTopology(topology Topology) error {
 
 	desiredRoutes := make(map[netip.Prefix]int, len(topology.Routes))
 	for _, route := range topology.Routes {
+		if _, viaWG := wgPairs[route.NodeID]; viaWG {
+			desiredRoutes[route.Prefix] = wgIndex
+			continue
+		}
 		link, ok := owned[route.NodeID]
 		if !ok {
-			return fmt.Errorf("route %s has no tunnel for node %d", route.Prefix, route.NodeID)
+			return fmt.Errorf("route %s has no transport for node %d", route.Prefix, route.NodeID)
 		}
 		desiredRoutes[route.Prefix] = link.Attrs().Index
 	}
-	if err := reconcileRemoteWorkloadRoutes(topology.Prefix, desiredRoutes, ownedTunnelIndexes(owned)); err != nil {
+	ownedIndexes := ownedTunnelIndexes(owned)
+	if wgIndex != 0 {
+		ownedIndexes[wgIndex] = struct{}{}
+	}
+	if err := reconcileRemoteWorkloadRoutes(topology.Prefix, desiredRoutes, ownedIndexes); err != nil {
 		return err
 	}
 
-	// Routes have been removed before their unused tunnel is deleted.
-	used := make(map[int32]struct{}, len(topology.Routes))
-	for _, route := range topology.Routes {
-		used[route.NodeID] = struct{}{}
-	}
+	// Routes have been moved or removed before their unused tunnel is deleted.
 	for nodeID, link := range owned {
-		if _, wanted := desiredTunnels[nodeID]; wanted {
-			continue
-		}
-		if _, referenced := used[nodeID]; referenced {
+		if _, wanted := tunnelPairs[nodeID]; wanted {
 			continue
 		}
 		if err := netlink.LinkDel(link); err != nil && !errors.Is(err, unix.ESRCH) {
 			return fmt.Errorf("deleting stale tunnel for node %d: %w", nodeID, err)
 		}
+	}
+
+	m.mu.Lock()
+	m.wgDesired = wgAudit
+	m.mu.Unlock()
+	return nil
+}
+
+// reconcileWGDevice ensures the managed WireGuard link exists and holds the
+// full desired configuration: local key, listen port, and one peer per keyed
+// pair whose allowed-ips are exactly the routed prefixes the map assigns to
+// that node. Cryptokey routing then enforces node-level source attribution:
+// the kernel drops decrypted packets whose source lies outside the sending
+// node's routed prefixes.
+func reconcileWGDevice(privateKey wgtypes.Key, listenPort uint16, wgPairs map[int32]Tunnel, routes []RemoteRoute) (int, *WGAuditState, error) {
+	link, err := netlink.LinkByName(WGLinkName)
+	if _, missing := err.(netlink.LinkNotFoundError); missing {
+		attrs := netlink.NewLinkAttrs()
+		attrs.Name = WGLinkName
+		attrs.Alias = wgLinkAlias
+		attrs.MTU = wgMTU
+		if err := netlink.LinkAdd(&netlink.Wireguard{LinkAttrs: attrs}); err != nil {
+			return 0, nil, fmt.Errorf("creating WireGuard device: %w", err)
+		}
+		link, err = netlink.LinkByName(WGLinkName)
+	}
+	if err != nil {
+		return 0, nil, fmt.Errorf("resolving WireGuard device: %w", err)
+	}
+	if _, ok := link.(*netlink.Wireguard); !ok {
+		return 0, nil, fmt.Errorf("link %s exists but is not a WireGuard device", WGLinkName)
+	}
+	if link.Attrs().Alias != wgLinkAlias {
+		if err := netlink.LinkSetAlias(link, wgLinkAlias); err != nil {
+			return 0, nil, fmt.Errorf("setting WireGuard device alias: %w", err)
+		}
+	}
+	if err := netlink.LinkSetMTU(link, wgMTU); err != nil {
+		return 0, nil, fmt.Errorf("setting WireGuard device MTU: %w", err)
+	}
+	if err := netlink.LinkSetUp(link); err != nil {
+		return 0, nil, fmt.Errorf("bringing WireGuard device up: %w", err)
+	}
+
+	allowedByNode := make(map[int32][]netip.Prefix)
+	for _, route := range routes {
+		if _, ok := wgPairs[route.NodeID]; ok {
+			allowedByNode[route.NodeID] = append(allowedByNode[route.NodeID], route.Prefix)
+		}
+	}
+	nodeIDs := slices.Sorted(maps.Keys(wgPairs))
+	peers := make([]wgtypes.PeerConfig, 0, len(wgPairs))
+	audit := &WGAuditState{PublicKey: privateKey.PublicKey().String(), ListenPort: listenPort}
+	for _, nodeID := range nodeIDs {
+		pair := wgPairs[nodeID]
+		publicKey, err := wgtypes.ParseKey(pair.RemoteWGKey)
+		if err != nil {
+			return 0, nil, fmt.Errorf("parsing WireGuard key for node %d: %w", nodeID, err)
+		}
+		prefixes := allowedByNode[nodeID]
+		slices.SortFunc(prefixes, func(a, b netip.Prefix) int { return strings.Compare(a.String(), b.String()) })
+		allowedIPs := make([]net.IPNet, 0, len(prefixes))
+		for _, prefix := range prefixes {
+			allowedIPs = append(allowedIPs, net.IPNet{
+				IP:   prefix.Addr().AsSlice(),
+				Mask: net.CIDRMask(prefix.Bits(), prefix.Addr().BitLen()),
+			})
+		}
+		endpoint := &net.UDPAddr{IP: pair.Remote.AsSlice(), Port: int(pair.RemoteWGPort)}
+		peers = append(peers, wgtypes.PeerConfig{
+			PublicKey:         publicKey,
+			Endpoint:          endpoint,
+			ReplaceAllowedIPs: true,
+			AllowedIPs:        allowedIPs,
+		})
+		audit.Peers = append(audit.Peers, WGAuditPeer{
+			NodeID:     nodeID,
+			PublicKey:  publicKey.String(),
+			Endpoint:   netip.AddrPortFrom(pair.Remote, pair.RemoteWGPort),
+			AllowedIPs: prefixes,
+		})
+	}
+
+	client, err := wgctrl.New()
+	if err != nil {
+		return 0, nil, fmt.Errorf("opening WireGuard control socket: %w", err)
+	}
+	defer client.Close()
+	port := int(listenPort)
+	if err := client.ConfigureDevice(WGLinkName, wgtypes.Config{
+		PrivateKey:   &privateKey,
+		ListenPort:   &port,
+		ReplacePeers: true,
+		Peers:        peers,
+	}); err != nil {
+		return 0, nil, fmt.Errorf("configuring WireGuard device: %w", err)
+	}
+	return link.Attrs().Index, audit, nil
+}
+
+// deleteWGDevice removes the managed WireGuard link when the local node has no
+// active WireGuard identity, tolerating its absence.
+func deleteWGDevice() error {
+	link, err := netlink.LinkByName(WGLinkName)
+	if _, missing := err.(netlink.LinkNotFoundError); missing {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("resolving WireGuard device: %w", err)
+	}
+	if _, ok := link.(*netlink.Wireguard); !ok {
+		return fmt.Errorf("link %s exists but is not a WireGuard device", WGLinkName)
+	}
+	if err := netlink.LinkDel(link); err != nil && !errors.Is(err, unix.ESRCH) {
+		return fmt.Errorf("deleting WireGuard device: %w", err)
 	}
 	return nil
 }
@@ -99,6 +254,9 @@ func validateTopology(topology Topology) error {
 		if tunnel.NodeID <= 0 || tunnel.NodeID == topology.LocalNodeID || !tunnel.Local.IsValid() || !tunnel.Remote.IsValid() ||
 			tunnel.Local.Zone() != "" || tunnel.Remote.Zone() != "" || tunnel.Local.BitLen() != tunnel.Remote.BitLen() {
 			return fmt.Errorf("invalid tunnel for node %d", tunnel.NodeID)
+		}
+		if tunnel.RemoteWGKey != "" && tunnel.RemoteWGPort == 0 {
+			return fmt.Errorf("node %d has WireGuard key but no listen port", tunnel.NodeID)
 		}
 		if _, exists := tunnels[tunnel.NodeID]; exists {
 			return fmt.Errorf("duplicate tunnel for node %d", tunnel.NodeID)

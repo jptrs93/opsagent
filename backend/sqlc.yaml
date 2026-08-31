@@ -11,6 +11,7 @@ sql:
       - "storage/primarydb/pq/sql/schema_configs.sql"
       - "storage/primarydb/pq/sql/schema_assets.sql"
       - "storage/primarydb/pq/sql/schema_network_policies.sql"
+      - "storage/primarydb/pq/sql/schema_nodes.sql"
     gen:
       go:
         package: "pq"

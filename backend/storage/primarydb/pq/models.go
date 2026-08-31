@@ -163,17 +163,6 @@ type DeploymentVersion struct {
 	GlobalSeq    int64
 }
 
-type EnrollmentRequest struct {
-	ID                  int64
-	CreatedAt           int64
-	UpdatedAt           int64
-	RequestingIpAddress string
-	RequestingMachineID string
-	OpendeployVersion   string
-	UnderlayAddress     string
-	Status              string
-}
-
 type GlobalAccessRule struct {
 	ID        int64
 	Name      string
@@ -204,22 +193,35 @@ type NetworkPolicyVersion struct {
 }
 
 type NodeRow struct {
+	ID         int64
+	CreatedAt  int64
+	EnrolledAt int64
+	Name       string
+	Identifier string
+}
+
+type NodeStatus struct {
+	ID                int64
+	NodeID            int64
+	LastConnectedAt   int64
+	IsConnected       int64
+	OpendeployVersion string
+	RemoteAddress     string
+	EnrollmentPending int64
+}
+
+type NodeVersion struct {
 	ID            int64
-	EnrollmentID  sql.NullInt64
-	EnrolledAt    int64
-	Name          string
-	Identifier    string
+	NodeID        int64
+	Version       int64
+	CreatedAt     int64
+	Author        int64
+	Status        int64
 	Roles         string
 	Addresses     string
 	WgPublicKey   string
 	AllowedSpaces string
-}
-
-type NodeStatus struct {
-	ID              int64
-	NodeID          int64
-	LastConnectedAt int64
-	IsConnected     int64
+	GlobalSeq     int64
 }
 
 type PersonalSession struct {

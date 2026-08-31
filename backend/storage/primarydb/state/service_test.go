@@ -259,8 +259,8 @@ func TestEnsurePrimaryNodeCreatesPrimaryRole(t *testing.T) {
 	if node.Name != "primary" || node.Identifier != "primary-id" {
 		t.Fatalf("node identity = name %q identifier %q, want primary/primary-id", node.Name, node.Identifier)
 	}
-	if node.EnrollmentID != nil {
-		t.Fatalf("primary enrollment id = %v, want nil", *node.EnrollmentID)
+	if node.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL {
+		t.Fatalf("primary status = %v, want member normal", node.Status)
 	}
 	if len(node.Roles) != 1 || node.Roles[0] != NodeRolePrimary {
 		t.Fatalf("primary roles = %+v, want primary", node.Roles)
@@ -272,15 +272,20 @@ func TestEnsurePrimaryNodeUsesCertificateIdentifier(t *testing.T) {
 	store := Open(dbPath)
 	defer store.Close()
 	seedDB := sqlitedb.MustOpen(dbPath)
-	if _, err := seedDB.Exec(`
-		INSERT INTO nodes (enrollment_id, enrolled_at, name, identifier, roles, addresses, wg_public_key)
-		VALUES (NULL, 0, 'coflip-prod', 'coflip-prod', '[1]', '[]', '')`); err != nil {
-		t.Fatalf("seed secondary node: %v", err)
-	}
-	if _, err := seedDB.Exec(`
-		INSERT INTO nodes (enrollment_id, enrolled_at, name, identifier, roles, addresses, wg_public_key)
-		VALUES (NULL, 0, 'primary', 'primary', '[0]', '[]', '')`); err != nil {
-		t.Fatalf("seed primary node: %v", err)
+	for _, seed := range []struct{ name, roles string }{
+		{"coflip-prod", "[1]"},
+		{"primary", "[0]"},
+	} {
+		if _, err := seedDB.Exec(`
+			INSERT INTO nodes (created_at, enrolled_at, name, identifier)
+			VALUES (0, 0, ?1, ?1)`, seed.name); err != nil {
+			t.Fatalf("seed node %s: %v", seed.name, err)
+		}
+		if _, err := seedDB.Exec(`
+			INSERT INTO node_versions (node_id, version, created_at, status, roles, addresses, wg_public_key, allowed_spaces, global_seq)
+			SELECT id, 1, 0, 4, ?2, '[]', '', '[0]', 0 FROM nodes WHERE identifier = ?1`, seed.name, seed.roles); err != nil {
+			t.Fatalf("seed node version %s: %v", seed.name, err)
+		}
 	}
 	if err := seedDB.Close(); err != nil {
 		t.Fatal(err)
@@ -294,14 +299,24 @@ func TestEnsurePrimaryNodeUsesCertificateIdentifier(t *testing.T) {
 
 func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
-	req := store.MustUpsertEnrollmentRequest("127.0.0.1", "requesting-id", "v0.0.200", "10.0.0.2")
+	const wgPublicKey = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+	req, expectedVersion := store.MustUpsertEnrollmentRequest("127.0.0.1", "requesting-id", "v0.0.200", "10.0.0.2", wgPublicKey)
+	if req.Status != apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED || !req.IsConnected {
+		t.Fatalf("request = %+v, want connected enrollment-requested", req)
+	}
+	if req.RequestingIpAddress != "127.0.0.1" || req.OpendeployVersion != "v0.0.200" {
+		t.Fatalf("request observed meta = %+v, want 127.0.0.1/v0.0.200", req)
+	}
+	if members := store.ListNodes(); len(members) != 0 {
+		t.Fatalf("requested node listed as member: %+v", members)
+	}
 
-	status, err := store.AcceptEnrollmentRequest(req.ID, "worker-1", req.RequestingMachineID, req.UnderlayAddress, req.UpdatedAt)
+	status, err := store.AcceptEnrollmentRequest(req.ID, "worker-1", req.RequestingMachineID, req.UnderlayAddress, wgPublicKey, expectedVersion)
 	if err != nil {
 		t.Fatalf("AcceptEnrollmentRequest: %v", err)
 	}
-	if status.Status != EnrollmentStatusAccepted {
-		t.Fatalf("status = %q, want accepted", status.Status)
+	if status.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL {
+		t.Fatalf("status = %v, want member normal", status.Status)
 	}
 	if status.UnderlayAddress != "10.0.0.2" {
 		t.Fatalf("underlay address = %q, want 10.0.0.2", status.UnderlayAddress)
@@ -314,8 +329,11 @@ func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 	if node.Name != "worker-1" || node.Identifier != "requesting-id" {
 		t.Fatalf("node identity = name %q identifier %q, want worker-1/requesting-id", node.Name, node.Identifier)
 	}
-	if node.EnrollmentID == nil || *node.EnrollmentID != req.ID {
-		t.Fatalf("node enrollment id = %v, want %d", node.EnrollmentID, req.ID)
+	if node.ID != req.ID {
+		t.Fatalf("node id = %d, want request id %d", node.ID, req.ID)
+	}
+	if node.EnrolledAt.IsZero() || node.CreatedAt.IsZero() {
+		t.Fatalf("node timestamps = %+v, want created and enrolled set", node)
 	}
 	if len(node.Roles) != 1 || node.Roles[0] != NodeRoleSecondary {
 		t.Fatalf("node roles = %+v, want secondary", node.Roles)
@@ -323,17 +341,68 @@ func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 	if len(node.Addresses) != 1 || node.Addresses[0] != "10.0.0.2" {
 		t.Fatalf("node addresses = %v, want [10.0.0.2]", node.Addresses)
 	}
+	if node.WGPublicKey != wgPublicKey {
+		t.Fatalf("node wg public key = %q, want %q", node.WGPublicKey, wgPublicKey)
+	}
+}
+
+func TestSetNodeWGPublicKeyIsDiffGatedAndVersioned(t *testing.T) {
+	store := Open(filepath.Join(t.TempDir(), "primary.db"))
+	defer store.Close()
+	node := store.EnsurePrimaryNode("primary", "primary-id")
+
+	const keyA = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+	const keyB = "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI="
+
+	before := store.FetchNetworkMapInputs().Seq
+	updated := store.MustSetNodeWGPublicKey(node.ID, keyA)
+	if updated.WGPublicKey != keyA {
+		t.Fatalf("node wg key = %q, want %q", updated.WGPublicKey, keyA)
+	}
+	afterSet := store.FetchNetworkMapInputs().Seq
+	if afterSet != before+1 {
+		t.Fatalf("seq after set = %d, want %d", afterSet, before+1)
+	}
+
+	store.MustSetNodeWGPublicKey(node.ID, keyA)
+	if seq := store.FetchNetworkMapInputs().Seq; seq != afterSet {
+		t.Fatalf("unchanged key advanced seq to %d", seq)
+	}
+
+	store.MustSetNodeWGPublicKey(node.ID, keyB)
+	if seq := store.FetchNetworkMapInputs().Seq; seq != afterSet+1 {
+		t.Fatalf("seq after change = %d, want %d", seq, afterSet+1)
+	}
+
+	versions, err := store.q.ListNodeVersionRows(context.Background(), int64(node.ID))
+	if err != nil {
+		t.Fatalf("querying node versions: %v", err)
+	}
+	if len(versions) != 3 || versions[0].WgPublicKey != "" || versions[1].WgPublicKey != keyA || versions[2].WgPublicKey != keyB {
+		t.Fatalf("version history = %+v, want keys ['' %s %s]", versions, keyA, keyB)
+	}
+	for i, version := range versions {
+		if version.Version != int64(i+1) {
+			t.Fatalf("version numbers = %+v, want dense from 1", versions)
+		}
+		if version.GlobalSeq <= 0 || (i > 0 && version.GlobalSeq <= versions[i-1].GlobalSeq) {
+			t.Fatalf("version seq stamps = %+v, want positive and increasing", versions)
+		}
+	}
 }
 
 func TestAcceptEnrollmentRequestRejectsReplacedSessionRevision(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	first := store.MustUpsertEnrollmentRequest("127.0.0.1", "requesting-id", "v1", "10.0.0.2")
-	second := store.MustUpsertEnrollmentRequest("127.0.0.2", "requesting-id", "v2", "10.0.0.3")
-	if !second.UpdatedAt.After(first.UpdatedAt) {
-		t.Fatalf("replacement revision %s did not advance past %s", second.UpdatedAt, first.UpdatedAt)
+	first, firstVersion := store.MustUpsertEnrollmentRequest("127.0.0.1", "requesting-id", "v1", "10.0.0.2", "")
+	second, secondVersion := store.MustUpsertEnrollmentRequest("127.0.0.2", "requesting-id", "v2", "10.0.0.3", "")
+	if second.ID != first.ID {
+		t.Fatalf("replacement request id = %d, want %d", second.ID, first.ID)
 	}
-	_, err := store.AcceptEnrollmentRequest(first.ID, "worker-1", first.RequestingMachineID, first.UnderlayAddress, first.UpdatedAt)
+	if secondVersion <= firstVersion {
+		t.Fatalf("replacement revision %d did not advance past %d", secondVersion, firstVersion)
+	}
+	_, err := store.AcceptEnrollmentRequest(first.ID, "worker-1", first.RequestingMachineID, first.UnderlayAddress, "", firstVersion)
 	if !errors.Is(err, ErrEnrollmentRequestChanged) {
 		t.Fatalf("accept error = %v, want ErrEnrollmentRequestChanged", err)
 	}

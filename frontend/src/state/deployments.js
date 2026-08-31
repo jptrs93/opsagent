@@ -356,6 +356,8 @@ const refreshMachinesFromNodes = () => {
             connected: status.isConnected === true,
             connectedAt: status.lastConnectedAt,
             addresses: node.addresses || [],
+            // Base64 WireGuard public key; empty until the node registers one.
+            wgPublicKey: node.wgPublicKey || "",
             // Spaces whose deployments may be placed here. The server always
             // includes the opendeploy space, so an empty list means the node
             // record has not arrived yet, not that nothing is allowed.

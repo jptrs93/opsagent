@@ -13,6 +13,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/lib/wgkey"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
@@ -160,7 +161,17 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 			underlayBits = addr.BitLen()
 			underlay = addr.String()
 		}
-		normalized.Nodes = append(normalized.Nodes, &apigen.ClusterNetMapNode{NodeID: node.NodeID, UnderlayAddress: underlay})
+		wgPublicKey, err := wgkey.ValidatePublic(node.WgPublicKey)
+		if err != nil {
+			return nil, network.Prefix{}, fmt.Errorf("node %d has invalid WireGuard public key: %w", node.NodeID, err)
+		}
+		wgListenPort := node.WgListenPort
+		if wgPublicKey == "" {
+			wgListenPort = 0
+		} else if wgListenPort < 1 || wgListenPort > 65535 {
+			return nil, network.Prefix{}, fmt.Errorf("node %d has WireGuard key but invalid listen port %d", node.NodeID, node.WgListenPort)
+		}
+		normalized.Nodes = append(normalized.Nodes, &apigen.ClusterNetMapNode{NodeID: node.NodeID, UnderlayAddress: underlay, WgPublicKey: wgPublicKey, WgListenPort: wgListenPort})
 	}
 	if !targetPresent {
 		return nil, network.Prefix{}, fmt.Errorf("cluster network map does not contain target node %d", nodeID)

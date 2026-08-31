@@ -24,10 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
     last_login_at INTEGER NOT NULL DEFAULT 0   -- epoch ms; 0 = never logged in
 );
 
-CREATE TABLE IF NOT EXISTS public_keys (
-    kid       TEXT PRIMARY KEY,
-    key_bytes BLOB NOT NULL
-);
+
 
 CREATE TABLE IF NOT EXISTS agent_sessions (
     id           TEXT    PRIMARY KEY,          -- the token's jti claim
@@ -68,38 +65,4 @@ CREATE TABLE IF NOT EXISTS system_config_revisions (
     config_blob BLOB    NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS enrollment_requests (
-    id                       INTEGER PRIMARY KEY,
-    created_at               INTEGER NOT NULL,  -- epoch ms
-    updated_at               INTEGER NOT NULL,  -- epoch ms
-    requesting_ip_address    TEXT    NOT NULL DEFAULT '',
-    requesting_machine_id    TEXT    NOT NULL,
-    opendeploy_version       TEXT    NOT NULL DEFAULT '',
-    underlay_address         TEXT    NOT NULL DEFAULT '',
-    status                   TEXT    NOT NULL DEFAULT 'waiting'
-);
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_enrollment_requests_machine_id ON enrollment_requests(requesting_machine_id);
-
-CREATE TABLE IF NOT EXISTS nodes (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    enrollment_id INTEGER,                       -- NULL on the primary
-    enrolled_at   INTEGER NOT NULL DEFAULT 0,    -- epoch ms
-    name          TEXT    NOT NULL,
-    identifier    TEXT    NOT NULL DEFAULT '',
-    roles         TEXT    NOT NULL DEFAULT '[]', -- JSON array of integer role ids
-    addresses     TEXT    NOT NULL DEFAULT '[]', -- JSON array of node addresses
-    wg_public_key TEXT    NOT NULL DEFAULT '',
-    allowed_spaces TEXT   NOT NULL DEFAULT '[0]', -- JSON array of placeable space ids
-    UNIQUE(name),
-    UNIQUE(identifier),
-    UNIQUE(enrollment_id)
-);
-
-CREATE TABLE IF NOT EXISTS node_statuses (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    node_id           INTEGER NOT NULL,
-    last_connected_at INTEGER NOT NULL DEFAULT 0,  -- epoch ms
-    is_connected      INTEGER NOT NULL DEFAULT 0,
-    UNIQUE(node_id)
-);

@@ -11,7 +11,6 @@ import "api-contract/model/configs.proto";
 import "api-contract/model_configs_operations.proto";
 import "api-contract/model/deployments.proto";
 import "api-contract/model_directories_operations.proto";
-import "api-contract/model/enrollment.proto";
 import "api-contract/model_enrollment_operations.proto";
 import "api-contract/model/network_policies.proto";
 import "api-contract/model_network_policies_operations.proto";

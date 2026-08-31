@@ -13,6 +13,22 @@ type AuditRoute struct {
 	LinkIndex int
 }
 
+// WGAuditPeer is one desired WireGuard peer of the last applied topology.
+type WGAuditPeer struct {
+	NodeID     int32
+	PublicKey  string
+	Endpoint   netip.AddrPort
+	AllowedIPs []netip.Prefix
+}
+
+// WGAuditState is the WireGuard device state the manager believes it has
+// installed: local identity, listen port, and the full peer set.
+type WGAuditState struct {
+	PublicKey  string
+	ListenPort uint16
+	Peers      []WGAuditPeer
+}
+
 // AuditState is a point-in-time snapshot of the kernel networking state the
 // manager believes it has installed, consumed by the netaudit package.
 type AuditState struct {
@@ -23,6 +39,10 @@ type AuditState struct {
 	NetproxyDeploymentID int32
 	FilterNets           []*ContainerNet
 	PolicyRules          []PolicyRule
+	// WG is nil until a topology with an active WireGuard device has been
+	// applied; a nil WG with a live device is itself a divergence the audit
+	// does not chase (the next reconcile owns it).
+	WG *WGAuditState
 }
 
 func (s AuditState) FilterState() FilterState {
@@ -40,6 +60,11 @@ func (m *Manager) AuditSnapshot() AuditState {
 	s.NetproxyDeploymentID = m.netproxyDeploymentID
 	s.FilterNets = m.filterNetList()
 	s.PolicyRules = slices.Clone(m.policyRules)
+	if m.wgDesired != nil {
+		wg := *m.wgDesired
+		wg.Peers = slices.Clone(m.wgDesired.Peers)
+		s.WG = &wg
+	}
 	for _, entry := range m.hostPorts {
 		s.HostPortRules = append(s.HostPortRules, entry.rules...)
 	}

@@ -6,15 +6,27 @@ import "api-contract/options.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
+enum NodeLifecycleStatus {
+  NODE_STATUS_UNKNOWN = 0;
+  NODE_ENROLLMENT_REQUESTED = 1;
+  NODE_ENROLLMENT_CANCELLED = 2;
+  NODE_ENROLLMENT_REQUEST_EXPIRED = 3;
+  NODE_MEMBER_NORMAL = 4;
+  NODE_MEMBER_UNHEALTHY = 5;
+  NODE_MEMBER_DRAINING = 6;
+  NODE_MEMBER_MISSING = 7;
+  NODE_MEMBER_EVICTED = 8;
+}
+
 message ClusterNode {
   int32 id = 1;
-  int32 enrollment_id = 2;
   string name = 3;
   string identifier = 4;
   repeated int32 roles = 5;
   string wg_public_key = 6;
   repeated string addresses = 7;
   int64 enrolled_at = 8 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  NodeLifecycleStatus status = 10;
   // Spaces whose deployments may be placed on this node. The opendeploy space
   // is always present: it is unioned in on every read and write, so the list
   // cannot exclude it however it was written. A node starts out allowing every
@@ -28,4 +40,19 @@ message ClusterNodeStatus {
   int32 node_id = 2;
   int64 last_connected_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   bool is_connected = 4;
+}
+
+message EnrollmentRequestStatus {
+  int32 id = 1;
+  int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string requesting_ip_address = 4;
+  string requesting_machine_id = 5;
+  string opendeploy_version = 7;
+  string underlay_address = 8;
+  NodeLifecycleStatus status = 9;
+  bool is_connected = 10;
+}
+
+message NodeEnrollmentInfo {
+  string enrollment_tls_spki_sha256 = 1;
 }

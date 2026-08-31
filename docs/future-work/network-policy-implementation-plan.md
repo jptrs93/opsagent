@@ -28,7 +28,10 @@ CRUD API, authorization, and both FE surfaces, and override distribution via
 is verified end-to-end in the VM suite across same-node, cross-node,
 primary-node, kernel and interaction coverage — the inventory and the reasoning
 behind each case is in
-[`network-policy-e2e-coverage.md`](network-policy-e2e-coverage.md). Deny
+[`network-policy-e2e-coverage.md`](network-policy-e2e-coverage.md). Every
+active cluster has upgraded through the arming release, so the one-time
+rollout considerations (default deny converting an open fabric, the
+mixed-version window in which old agents did not enforce) are history. Deny
 enforcement, device grants, and the other future items remain future work.
 The pre-implementation state, for reference: nftables usage was
 NAT-only, forwarding was enabled host-wide with nothing filtering forwarded
@@ -261,65 +264,18 @@ filter chains in the shared nftables rebuild.
 
 Mixed-version behavior is safe by construction: old agents' decoders drop the
 unknown field and re-encode without it, so they accept the map and simply keep
-not enforcing — the current behavior, never a broken map. Override rules are
-not effective until every agent is upgraded; release notes state this, the
-same discipline as `ipFilter`.
-
-## Rollout
-
-Enforcement ships on, unconditionally — no setting, no audit mode. Arming
-default deny converts a fully open fabric in one upgrade; any cross-space
-flow not covered by the defaults breaks at that release and needs an
-an override rule. Pre-alpha, this is accepted and called out in the
-release notes; the drop-rule counters provide after-the-fact diagnosis. The
-only rollout ordering that matters is within a cluster: upgrade all agents
-through the release normally — an old agent simply keeps not enforcing until
-upgraded, and allows it cannot decode leave it at default-deny-less openness,
-never at broken connectivity.
+not enforcing — never a broken map. An agent ignoring an allow merely
+preserves default deny; this is why allows need no distribution gate while
+deny does (see the deny discipline above).
 
 ## Milestones
 
-### Milestone: default boundary — SHIPPED
-
-- Filter-chain rendering from manager state: anti-spoofing, conntrack accept,
-  default rules 1–5 and 7, the v4 close, per-family, compiled in
-  `nft_linux.go` from `RenderFilterState` in `lib/network/filter.go`. Enforced
-  immediately. The live dataplane uses a static forward-chain program plus
-  named sets and a `daddr` verdict map rather than the per-veth `wl_src`
-  chains sketched below.
-- netaudit covers filter rules and set/map elements (desired vs kernel, same
-  divergence-recheck model).
-- Unit tests: rendered ruleset as a pure function of attachment set and
-  prefix, including rollover (two attachments, shared `I`).
-- VM end-to-end: cross-space denial and its same-space control on both the
-  same-node and cross-node paths, DNS crossing the boundary while the payload
-  does not, global-space destinations, egress, and ingress backend dials into a
-  non-global space. Spoofed sources, the v4 close, drop-counter attribution,
-  skeleton persistence, netaudit divergence, and re-derivation after an agent
-  restart are asserted against the kernel in the post-flow orchestrator step.
-  PMTU traversal is covered by the cross-node bulk-response case.
-
-### Milestone: policy entity — SHIPPED
-
-- The `network_policies` table with version, history log, soft delete, and
-  global-sequence stamping; the schema-reserved DENY action with write
-  rejection.
-- CRUD API with destination-consent authorization and peer validation.
-- FE: the global policies page (source of truth, Network in the sidebar) and
-  the derived policies view on the deployment inspector.
-
-### Milestone: override distribution and enforcement — SHIPPED
-
-- `NetPolicyRule` on `ClusterNetMap`; primary render from the policy table
-  (deployment-peer spaces resolved at render time); publisher subscription to
-  policy-table updates.
-- `SetPolicyRules` on the manager; wired from worker session and primary
-  applier; merged into the chain render as rule 6.
-- VM end-to-end: allow, edit and revoke with neither workload restarted; port,
-  port-range and protocol scoping; deployment-peer and space-peer sources and
-  destinations; a deployment-peer rule following a source space move; a
-  dangling rule opening nothing; cross-node and primary-node enforcement; and
-  the flow-scoped meaning of a revoke (established connections survive).
+All three milestones — the default boundary, the policy entity, and override
+distribution and enforcement — are shipped and rolled out to every active
+cluster. Enforcement shipped on, unconditionally: no setting, no audit mode.
+The shipped state is documented in `docs/engineering/networking.md` and the
+end-to-end coverage inventory in
+[`network-policy-e2e-coverage.md`](network-policy-e2e-coverage.md).
 
 ### Future, out of scope here
 

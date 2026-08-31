@@ -1052,13 +1052,13 @@
 /**
  * @typedef {Object} ClusterNode
  * @property {number} id
- * @property {number} enrollmentId
  * @property {string} name
  * @property {string} identifier
  * @property {number[]} roles
  * @property {string} wgPublicKey
  * @property {string[]} addresses
  * @property {Date} enrolledAt
+ * @property {number} status
  * @property {number[]} allowedSpaces
  */
 /**
@@ -1067,6 +1067,21 @@
  * @property {number} nodeId
  * @property {Date} lastConnectedAt
  * @property {boolean} isConnected
+ */
+/**
+ * @typedef {Object} EnrollmentRequestStatus
+ * @property {number} id
+ * @property {Date} createdAt
+ * @property {string} requestingIpAddress
+ * @property {string} requestingMachineId
+ * @property {string} opendeployVersion
+ * @property {string} underlayAddress
+ * @property {number} status
+ * @property {boolean} isConnected
+ */
+/**
+ * @typedef {Object} NodeEnrollmentInfo
+ * @property {string} enrollmentTlsSpkiSha256
  */
 /**
  * @typedef {Object} NodeRenameRequest
@@ -1131,6 +1146,8 @@
  * @typedef {Object} ClusterNetMapNode
  * @property {number} nodeId
  * @property {string} underlayAddress
+ * @property {string} wgPublicKey
+ * @property {number} wgListenPort
  */
 /**
  * @typedef {Object} ClusterNetMapRoute
@@ -1261,6 +1278,7 @@
  * @typedef {Object} ClusterHello
  * @property {string} underlayAddress
  * @property {number} clusterProtocolVersion
+ * @property {string} wgPublicKey
  */
 /**
  * @typedef {Object} MsgToMaster
@@ -1319,21 +1337,6 @@
  * @property {number} notAfter
  */
 /**
- * @typedef {Object} EnrollmentRequestStatus
- * @property {number} id
- * @property {Date} createdAt
- * @property {Date} updatedAt
- * @property {string} requestingIpAddress
- * @property {string} requestingMachineId
- * @property {string} status
- * @property {string} opendeployVersion
- * @property {string} underlayAddress
- */
-/**
- * @typedef {Object} NodeEnrollmentInfo
- * @property {string} enrollmentTlsSpkiSha256
- */
-/**
  * @typedef {Object} EnrollmentWorkerMsg
  * @property {EnrollmentHello} hello
  */
@@ -1343,6 +1346,7 @@
  * @property {Uint8Array} workerCertificateRequest
  * @property {string} opendeployVersion
  * @property {string} underlayAddress
+ * @property {string} wgPublicKey
  */
 /**
  * @typedef {Object} EnrollmentPrimaryMsg
@@ -14058,9 +14062,6 @@ export function writeClusterNode(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
     }
-    if (message.enrollmentId !== undefined && message.enrollmentId !== null && message.enrollmentId !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.enrollmentId);
-    }
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.name);
     }
@@ -14086,6 +14087,9 @@ export function writeClusterNode(message, writer) {
     }
     if (message.enrolledAt instanceof Date && message.enrolledAt.getTime() !== 0) {
         writer.uint32(tag(8, WIRE.VARINT)).int64(Math.trunc(message.enrolledAt.getTime()));
+    }
+    if (message.status !== undefined && message.status !== null && message.status !== 0) {
+        writer.uint32(tag(10, WIRE.VARINT)).int32(message.status);
     }
     if (message.allowedSpaces) {
         const packedWriter = Writer.create();
@@ -14117,16 +14121,12 @@ export function encodeClusterNode(message) {
  */
 function decodeClusterNodeMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, enrollmentId: 0, name: "", identifier: "", roles: [], wgPublicKey: "", addresses: [], enrolledAt: new Date(0), allowedSpaces: [] };
+    const message = {id: 0, name: "", identifier: "", roles: [], wgPublicKey: "", addresses: [], enrolledAt: new Date(0), status: 0, allowedSpaces: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.id = reader.int32();
-                break;
-            }
-            case 2: {
-                message.enrollmentId = reader.int32();
                 break;
             }
             case 3: {
@@ -14154,6 +14154,10 @@ function decodeClusterNodeMessage(reader, length) {
             }
             case 8: {
                 message.enrolledAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 10: {
+                message.status = reader.int32();
                 break;
             }
             case 9: {
@@ -14255,6 +14259,167 @@ function decodeClusterNodeStatusMessage(reader, length) {
 export function decodeClusterNodeStatus(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeClusterNodeStatusMessage(reader);
+}
+
+
+
+/**
+ * @param {EnrollmentRequestStatus} message
+ * @param {Writer} writer
+ */
+export function writeEnrollmentRequestStatus(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.requestingIpAddress !== undefined && message.requestingIpAddress !== null && message.requestingIpAddress !== "") {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.requestingIpAddress);
+    }
+    if (message.requestingMachineId !== undefined && message.requestingMachineId !== null && message.requestingMachineId !== "") {
+        writer.uint32(tag(5, WIRE.LDELIM)).string(message.requestingMachineId);
+    }
+    if (message.opendeployVersion !== undefined && message.opendeployVersion !== null && message.opendeployVersion !== "") {
+        writer.uint32(tag(7, WIRE.LDELIM)).string(message.opendeployVersion);
+    }
+    if (message.underlayAddress !== undefined && message.underlayAddress !== null && message.underlayAddress !== "") {
+        writer.uint32(tag(8, WIRE.LDELIM)).string(message.underlayAddress);
+    }
+    if (message.status !== undefined && message.status !== null && message.status !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).int32(message.status);
+    }
+    if (message.isConnected === true) {
+        writer.uint32(tag(10, WIRE.VARINT)).bool(message.isConnected);
+    }
+}
+
+
+/**
+ * @param {EnrollmentRequestStatus} message
+ * @returns {Uint8Array}
+ */
+export function encodeEnrollmentRequestStatus(message) {
+    const writer = Writer.create();
+    writeEnrollmentRequestStatus(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {EnrollmentRequestStatus}
+ */
+function decodeEnrollmentRequestStatusMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, createdAt: new Date(0), requestingIpAddress: "", requestingMachineId: "", opendeployVersion: "", underlayAddress: "", status: 0, isConnected: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 4: {
+                message.requestingIpAddress = reader.string();
+                break;
+            }
+            case 5: {
+                message.requestingMachineId = reader.string();
+                break;
+            }
+            case 7: {
+                message.opendeployVersion = reader.string();
+                break;
+            }
+            case 8: {
+                message.underlayAddress = reader.string();
+                break;
+            }
+            case 9: {
+                message.status = reader.int32();
+                break;
+            }
+            case 10: {
+                message.isConnected = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {EnrollmentRequestStatus}
+ */
+export function decodeEnrollmentRequestStatus(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeEnrollmentRequestStatusMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeEnrollmentInfo} message
+ * @param {Writer} writer
+ */
+export function writeNodeEnrollmentInfo(message, writer) {
+    if (message.enrollmentTlsSpkiSha256 !== undefined && message.enrollmentTlsSpkiSha256 !== null && message.enrollmentTlsSpkiSha256 !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.enrollmentTlsSpkiSha256);
+    }
+}
+
+
+/**
+ * @param {NodeEnrollmentInfo} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeEnrollmentInfo(message) {
+    const writer = Writer.create();
+    writeNodeEnrollmentInfo(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeEnrollmentInfo}
+ */
+function decodeNodeEnrollmentInfoMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {enrollmentTlsSpkiSha256: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.enrollmentTlsSpkiSha256 = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeEnrollmentInfo}
+ */
+export function decodeNodeEnrollmentInfo(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeEnrollmentInfoMessage(reader);
 }
 
 
@@ -15036,6 +15201,12 @@ export function writeClusterNetMapNode(message, writer) {
     if (message.underlayAddress !== undefined && message.underlayAddress !== null && message.underlayAddress !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.underlayAddress);
     }
+    if (message.wgPublicKey !== undefined && message.wgPublicKey !== null && message.wgPublicKey !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.wgPublicKey);
+    }
+    if (message.wgListenPort !== undefined && message.wgListenPort !== null && message.wgListenPort !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.wgListenPort);
+    }
 }
 
 
@@ -15057,7 +15228,7 @@ export function encodeClusterNetMapNode(message) {
  */
 function decodeClusterNetMapNodeMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {nodeId: 0, underlayAddress: "" };
+    const message = {nodeId: 0, underlayAddress: "", wgPublicKey: "", wgListenPort: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15067,6 +15238,14 @@ function decodeClusterNetMapNodeMessage(reader, length) {
             }
             case 2: {
                 message.underlayAddress = reader.string();
+                break;
+            }
+            case 3: {
+                message.wgPublicKey = reader.string();
+                break;
+            }
+            case 4: {
+                message.wgListenPort = reader.int32();
                 break;
             }
             default:
@@ -16582,6 +16761,9 @@ export function writeClusterHello(message, writer) {
     if (message.clusterProtocolVersion !== undefined && message.clusterProtocolVersion !== null && message.clusterProtocolVersion !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.clusterProtocolVersion);
     }
+    if (message.wgPublicKey !== undefined && message.wgPublicKey !== null && message.wgPublicKey !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.wgPublicKey);
+    }
 }
 
 
@@ -16603,7 +16785,7 @@ export function encodeClusterHello(message) {
  */
 function decodeClusterHelloMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {underlayAddress: "", clusterProtocolVersion: 0 };
+    const message = {underlayAddress: "", clusterProtocolVersion: 0, wgPublicKey: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -16613,6 +16795,10 @@ function decodeClusterHelloMessage(reader, length) {
             }
             case 2: {
                 message.clusterProtocolVersion = reader.int32();
+                break;
+            }
+            case 3: {
+                message.wgPublicKey = reader.string();
                 break;
             }
             default:
@@ -17341,167 +17527,6 @@ export function decodeClusterRenewCertificateResponse(buffer) {
 
 
 /**
- * @param {EnrollmentRequestStatus} message
- * @param {Writer} writer
- */
-export function writeEnrollmentRequestStatus(message, writer) {
-    if (message.id !== undefined && message.id !== null && message.id !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
-    }
-    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
-    }
-    if (message.updatedAt instanceof Date && message.updatedAt.getTime() !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.updatedAt.getTime()));
-    }
-    if (message.requestingIpAddress !== undefined && message.requestingIpAddress !== null && message.requestingIpAddress !== "") {
-        writer.uint32(tag(4, WIRE.LDELIM)).string(message.requestingIpAddress);
-    }
-    if (message.requestingMachineId !== undefined && message.requestingMachineId !== null && message.requestingMachineId !== "") {
-        writer.uint32(tag(5, WIRE.LDELIM)).string(message.requestingMachineId);
-    }
-    if (message.status !== undefined && message.status !== null && message.status !== "") {
-        writer.uint32(tag(6, WIRE.LDELIM)).string(message.status);
-    }
-    if (message.opendeployVersion !== undefined && message.opendeployVersion !== null && message.opendeployVersion !== "") {
-        writer.uint32(tag(7, WIRE.LDELIM)).string(message.opendeployVersion);
-    }
-    if (message.underlayAddress !== undefined && message.underlayAddress !== null && message.underlayAddress !== "") {
-        writer.uint32(tag(8, WIRE.LDELIM)).string(message.underlayAddress);
-    }
-}
-
-
-/**
- * @param {EnrollmentRequestStatus} message
- * @returns {Uint8Array}
- */
-export function encodeEnrollmentRequestStatus(message) {
-    const writer = Writer.create();
-    writeEnrollmentRequestStatus(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {EnrollmentRequestStatus}
- */
-function decodeEnrollmentRequestStatusMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, createdAt: new Date(0), updatedAt: new Date(0), requestingIpAddress: "", requestingMachineId: "", status: "", opendeployVersion: "", underlayAddress: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.id = reader.int32();
-                break;
-            }
-            case 2: {
-                message.createdAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 3: {
-                message.updatedAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 4: {
-                message.requestingIpAddress = reader.string();
-                break;
-            }
-            case 5: {
-                message.requestingMachineId = reader.string();
-                break;
-            }
-            case 6: {
-                message.status = reader.string();
-                break;
-            }
-            case 7: {
-                message.opendeployVersion = reader.string();
-                break;
-            }
-            case 8: {
-                message.underlayAddress = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {EnrollmentRequestStatus}
- */
-export function decodeEnrollmentRequestStatus(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeEnrollmentRequestStatusMessage(reader);
-}
-
-
-
-/**
- * @param {NodeEnrollmentInfo} message
- * @param {Writer} writer
- */
-export function writeNodeEnrollmentInfo(message, writer) {
-    if (message.enrollmentTlsSpkiSha256 !== undefined && message.enrollmentTlsSpkiSha256 !== null && message.enrollmentTlsSpkiSha256 !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.enrollmentTlsSpkiSha256);
-    }
-}
-
-
-/**
- * @param {NodeEnrollmentInfo} message
- * @returns {Uint8Array}
- */
-export function encodeNodeEnrollmentInfo(message) {
-    const writer = Writer.create();
-    writeNodeEnrollmentInfo(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {NodeEnrollmentInfo}
- */
-function decodeNodeEnrollmentInfoMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {enrollmentTlsSpkiSha256: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.enrollmentTlsSpkiSha256 = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {NodeEnrollmentInfo}
- */
-export function decodeNodeEnrollmentInfo(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeNodeEnrollmentInfoMessage(reader);
-}
-
-
-
-/**
  * @param {EnrollmentWorkerMsg} message
  * @param {Writer} writer
  */
@@ -17576,6 +17601,9 @@ export function writeEnrollmentHello(message, writer) {
     if (message.underlayAddress !== undefined && message.underlayAddress !== null && message.underlayAddress !== "") {
         writer.uint32(tag(4, WIRE.LDELIM)).string(message.underlayAddress);
     }
+    if (message.wgPublicKey !== undefined && message.wgPublicKey !== null && message.wgPublicKey !== "") {
+        writer.uint32(tag(5, WIRE.LDELIM)).string(message.wgPublicKey);
+    }
 }
 
 
@@ -17597,7 +17625,7 @@ export function encodeEnrollmentHello(message) {
  */
 function decodeEnrollmentHelloMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {requestingMachineId: "", workerCertificateRequest: new Uint8Array(0), opendeployVersion: "", underlayAddress: "" };
+    const message = {requestingMachineId: "", workerCertificateRequest: new Uint8Array(0), opendeployVersion: "", underlayAddress: "", wgPublicKey: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -17615,6 +17643,10 @@ function decodeEnrollmentHelloMessage(reader, length) {
             }
             case 4: {
                 message.underlayAddress = reader.string();
+                break;
+            }
+            case 5: {
+                message.wgPublicKey = reader.string();
                 break;
             }
             default:

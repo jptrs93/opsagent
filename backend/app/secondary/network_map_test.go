@@ -123,6 +123,17 @@ func TestValidateClusterNetMapRejectsInvalidTopology(t *testing.T) {
 			}
 			m.Routes[0].LogicalPrefix = netip.PrefixFrom(addr, network.PlacementPrefixBits).String()
 		},
+		"malformed wg key": func(m *apigen.ClusterNetMap) {
+			m.Nodes[0].WgPublicKey = "not-base64"
+			m.Nodes[0].WgListenPort = 51833
+		},
+		"wg key without port": func(m *apigen.ClusterNetMap) {
+			m.Nodes[0].WgPublicKey = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+		},
+		"wg port out of range": func(m *apigen.ClusterNetMap) {
+			m.Nodes[0].WgPublicKey = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+			m.Nodes[0].WgListenPort = 70000
+		},
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {

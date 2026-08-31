@@ -50,7 +50,7 @@ func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Ser
 			underlayAddress, err = resolveDefaultUnderlayAddress(cfg.PrimaryClusterAddr)
 		}
 		if err == nil {
-			err = runSession(ctx, capi, store, cfg.NodeID, underlayAddress, acme, notifySynced)
+			err = runSession(ctx, capi, store, cfg.NodeID, underlayAddress, cfg.WGPublicKey, acme, notifySynced)
 		}
 		if ctx.Err() != nil {
 			return
@@ -116,7 +116,7 @@ func scheduledInstancePredicateForNode(nodeID int32) storage.ScheduledInstancePr
 	}
 }
 
-func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID int32, underlayAddress string, acme *acmestate.Holder, notifySynced func()) error {
+func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID int32, underlayAddress, wgPublicKey string, acme *acmestate.Holder, notifySynced func()) error {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -126,6 +126,7 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 	out.Send(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{
 		UnderlayAddress:        underlayAddress,
 		ClusterProtocolVersion: apigen.ClusterProtocolVersion,
+		WgPublicKey:            wgPublicKey,
 	}})
 	if prefix, ok := network.Default.PrefixValue(); ok {
 		status, err := cachedClusterNetMapStatus(sessCtx, store, nodeID, prefix, "")

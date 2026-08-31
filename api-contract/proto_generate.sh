@@ -28,7 +28,7 @@ trap 'rm -f "$COMBINED_PROTO"' EXIT
                api-contract/model/networking.proto \
                api-contract/model/network_policies.proto api-contract/model_network_policies_operations.proto \
                api-contract/model_cluster_operations.proto \
-               api-contract/model/enrollment.proto api-contract/model_enrollment_operations.proto \
+               api-contract/model_enrollment_operations.proto \
                api-contract/model/primary_config.proto api-contract/model/backup.proto \
                api-contract/model_global_operations.proto \
                api-contract/api_service.proto api-contract/cluster_service.proto api-contract/enrollment_service.proto; do

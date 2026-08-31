@@ -7602,13 +7602,13 @@ func DecodeAuthzGlobalRuleDeleteRequest(b []byte) (*AuthzGlobalRuleDeleteRequest
 func (m *ClusterNode) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendInt32Field(b, m.EnrollmentID, 2)
 	b = AppendStringField(b, m.Name, 3)
 	b = AppendStringField(b, m.Identifier, 4)
 	b = AppendRepeatedCompact(b, m.Roles, 5, AppendCompactDecorator(AppendInt32Compact))
 	b = AppendStringField(b, m.WgPublicKey, 6)
 	b = AppendRepeated(b, m.Addresses, AppendFieldDecorator(AppendStringField, 7))
 	b = AppendInt64FromTime(b, m.EnrolledAt, 8)
+	b = AppendInt32Field(b, int32(m.Status), 10)
 	b = AppendRepeatedCompact(b, m.AllowedSpaces, 9, AppendCompactDecorator(AppendInt32Compact))
 	return b
 }
@@ -7626,8 +7626,6 @@ func DecodeClusterNode(b []byte) (*ClusterNode, error) {
 		switch num {
 		case 1:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.EnrollmentID, err = ConsumeVarInt32(b, typ)
 		case 3:
 			b, m.Name, err = ConsumeString(b, typ)
 		case 4:
@@ -7644,6 +7642,12 @@ func DecodeClusterNode(b []byte) (*ClusterNode, error) {
 			}
 		case 8:
 			b, m.EnrolledAt, err = ConsumeTimeFromInt64(b, typ)
+		case 10:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Status = NodeLifecycleStatus(raw)
+			}
 		case 9:
 			b, m.AllowedSpaces, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
 		default:
@@ -7684,6 +7688,89 @@ func DecodeClusterNodeStatus(b []byte) (*ClusterNodeStatus, error) {
 			b, m.LastConnectedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 4:
 			b, m.IsConnected, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *EnrollmentRequestStatus) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt64FromTime(b, m.CreatedAt, 2)
+	b = AppendStringField(b, m.RequestingIpAddress, 4)
+	b = AppendStringField(b, m.RequestingMachineID, 5)
+	b = AppendStringField(b, m.OpendeployVersion, 7)
+	b = AppendStringField(b, m.UnderlayAddress, 8)
+	b = AppendInt32Field(b, int32(m.Status), 9)
+	b = AppendBoolField(b, m.IsConnected, 10)
+	return b
+}
+
+func DecodeEnrollmentRequestStatus(b []byte) (*EnrollmentRequestStatus, error) {
+	var m EnrollmentRequestStatus
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 4:
+			b, m.RequestingIpAddress, err = ConsumeString(b, typ)
+		case 5:
+			b, m.RequestingMachineID, err = ConsumeString(b, typ)
+		case 7:
+			b, m.OpendeployVersion, err = ConsumeString(b, typ)
+		case 8:
+			b, m.UnderlayAddress, err = ConsumeString(b, typ)
+		case 9:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Status = NodeLifecycleStatus(raw)
+			}
+		case 10:
+			b, m.IsConnected, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NodeEnrollmentInfo) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.EnrollmentTlsSpkiSha256, 1)
+	return b
+}
+
+func DecodeNodeEnrollmentInfo(b []byte) (*NodeEnrollmentInfo, error) {
+	var m NodeEnrollmentInfo
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.EnrollmentTlsSpkiSha256, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -8195,6 +8282,8 @@ func (m *ClusterNetMapNode) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.NodeID, 1)
 	b = AppendStringField(b, m.UnderlayAddress, 2)
+	b = AppendStringField(b, m.WgPublicKey, 3)
+	b = AppendInt32Field(b, m.WgListenPort, 4)
 	return b
 }
 
@@ -8213,6 +8302,10 @@ func DecodeClusterNetMapNode(b []byte) (*ClusterNetMapNode, error) {
 			b, m.NodeID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.UnderlayAddress, err = ConsumeString(b, typ)
+		case 3:
+			b, m.WgPublicKey, err = ConsumeString(b, typ)
+		case 4:
+			b, m.WgListenPort, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -9257,6 +9350,7 @@ func (m *ClusterHello) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.UnderlayAddress, 1)
 	b = AppendInt32Field(b, m.ClusterProtocolVersion, 2)
+	b = AppendStringField(b, m.WgPublicKey, 3)
 	return b
 }
 
@@ -9275,6 +9369,8 @@ func DecodeClusterHello(b []byte) (*ClusterHello, error) {
 			b, m.UnderlayAddress, err = ConsumeString(b, typ)
 		case 2:
 			b, m.ClusterProtocolVersion, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.WgPublicKey, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -9692,85 +9788,6 @@ func DecodeClusterRenewCertificateResponse(b []byte) (*ClusterRenewCertificateRe
 	return &m, nil
 }
 
-func (m *EnrollmentRequestStatus) Encode() []byte {
-	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendInt64FromTime(b, m.CreatedAt, 2)
-	b = AppendInt64FromTime(b, m.UpdatedAt, 3)
-	b = AppendStringField(b, m.RequestingIpAddress, 4)
-	b = AppendStringField(b, m.RequestingMachineID, 5)
-	b = AppendStringField(b, m.Status, 6)
-	b = AppendStringField(b, m.OpendeployVersion, 7)
-	b = AppendStringField(b, m.UnderlayAddress, 8)
-	return b
-}
-
-func DecodeEnrollmentRequestStatus(b []byte) (*EnrollmentRequestStatus, error) {
-	var m EnrollmentRequestStatus
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 3:
-			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 4:
-			b, m.RequestingIpAddress, err = ConsumeString(b, typ)
-		case 5:
-			b, m.RequestingMachineID, err = ConsumeString(b, typ)
-		case 6:
-			b, m.Status, err = ConsumeString(b, typ)
-		case 7:
-			b, m.OpendeployVersion, err = ConsumeString(b, typ)
-		case 8:
-			b, m.UnderlayAddress, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *NodeEnrollmentInfo) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.EnrollmentTlsSpkiSha256, 1)
-	return b
-}
-
-func DecodeNodeEnrollmentInfo(b []byte) (*NodeEnrollmentInfo, error) {
-	var m NodeEnrollmentInfo
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.EnrollmentTlsSpkiSha256, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 func (m *EnrollmentWorkerMsg) Encode() []byte {
 	var b []byte
 	if m.Hello != nil {
@@ -9817,6 +9834,7 @@ func (m *EnrollmentHello) Encode() []byte {
 	b = AppendBytesField(b, m.WorkerCertificateRequest, 2)
 	b = AppendStringField(b, m.OpendeployVersion, 3)
 	b = AppendStringField(b, m.UnderlayAddress, 4)
+	b = AppendStringField(b, m.WgPublicKey, 5)
 	return b
 }
 
@@ -9839,6 +9857,8 @@ func DecodeEnrollmentHello(b []byte) (*EnrollmentHello, error) {
 			b, m.OpendeployVersion, err = ConsumeString(b, typ)
 		case 4:
 			b, m.UnderlayAddress, err = ConsumeString(b, typ)
+		case 5:
+			b, m.WgPublicKey, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

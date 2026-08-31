@@ -17,6 +17,7 @@ import (
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/lib/wgkey"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
@@ -42,6 +43,13 @@ func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
 	if err != nil {
 		return err
 	}
+	// The WireGuard keypair is minted before the first enrollment attempt so
+	// the public key rides the same mTLS-pinned channel as the CSR; the
+	// private key never leaves cfg.DataDir.
+	nodeKey, err := wgkey.LoadOrGenerate(cfg.DataDir)
+	if err != nil {
+		return err
+	}
 	client, err := enrollmentHTTPClient(cfg.PrimaryEnrollmentFingerprint)
 	if err != nil {
 		return err
@@ -55,7 +63,7 @@ func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
 			return err
 		}
 		connectedAt := time.Now()
-		err := runEnrollmentSession(ctx, capi, machineID, cfg)
+		err := runEnrollmentSession(ctx, capi, machineID, nodeKey.PublicBase64(), cfg)
 		if err == nil {
 			return nil
 		}
@@ -81,7 +89,7 @@ func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
 	}
 }
 
-func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, machineID string, cfg EnrollmentConfig) error {
+func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, machineID, wgPublicKey string, cfg EnrollmentConfig) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	csrPEM, keyPEM, err := certu.GenerateWorkerCertificateRequest(machineID)
@@ -90,7 +98,7 @@ func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, ma
 	}
 
 	reqs := func(yield func(*apigen.EnrollmentWorkerMsg, error) bool) {
-		if !yield(&apigen.EnrollmentWorkerMsg{Hello: &apigen.EnrollmentHello{RequestingMachineID: machineID, WorkerCertificateRequest: csrPEM, OpendeployVersion: strings.TrimSpace(cfg.OpendeployVersion), UnderlayAddress: cfg.UnderlayAddress}}, nil) {
+		if !yield(&apigen.EnrollmentWorkerMsg{Hello: &apigen.EnrollmentHello{RequestingMachineID: machineID, WorkerCertificateRequest: csrPEM, OpendeployVersion: strings.TrimSpace(cfg.OpendeployVersion), UnderlayAddress: cfg.UnderlayAddress, WgPublicKey: wgPublicKey}}, nil) {
 			return
 		}
 		<-ctx.Done()

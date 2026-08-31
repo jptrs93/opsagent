@@ -23,6 +23,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/netaudit"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/repo/git"
+	"github.com/jptrs93/opsagent/backend/lib/wgkey"
 	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
@@ -43,6 +44,9 @@ type runtimeConfig struct {
 	NetproxyStatePath  string
 	ClusterPrefix      network.Prefix
 	NetDeploymentID    int32
+	// WGPublicKey is the node's base64 WireGuard public key, re-reported in
+	// every cluster hello; empty when the key failed to load.
+	WGPublicKey string
 }
 
 // bootSyncTimeout bounds how long a booting worker holds the deployment
@@ -72,6 +76,15 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	}
 	githubCredentials := NewPrimaryGithubCredentialsProvider(primaryURL, primaryHTTPClient)
 	network.SetDefault(network.New(cfg.ClusterPrefix, cfg.NetDeploymentID))
+	// Load-or-generate must precede the cached-map reconcile so a keyed pair
+	// comes back up on WireGuard directly after an offline reboot. Freshly
+	// enrolled workers already hold the file from enrollment.
+	if nodeKey, err := wgkey.LoadOrGenerate(cfg.DataDir); err != nil {
+		slog.WarnContext(ctx, "loading WireGuard node key failed; cross-node transport stays on ip6tnl", "err", err)
+	} else {
+		network.Default.SetWGPrivateKey(nodeKey.Private)
+		cfg.WGPublicKey = nodeKey.PublicBase64()
+	}
 	if clusterMap, _, ok, err := cachedClusterNetMap(ctx, store, cfg.NodeID, cfg.ClusterPrefix); err != nil {
 		slog.WarnContext(ctx, "loading cached cluster network map failed", "err", err)
 	} else if ok {

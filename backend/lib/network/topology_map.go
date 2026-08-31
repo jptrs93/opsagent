@@ -8,14 +8,44 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// ApplyClusterNetMap converts a targeted cluster map into kernel intent and
+// hands it to the given sinks: remote topology first, then policy rules, so a
+// rule referencing a newly routed peer is never enforced against routes that
+// do not exist yet. Only remote paths are applied — local workload routes are
+// installed by the container lifecycle and take precedence if map state lags.
+func ApplyClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, prefix Prefix, reconcile func(Topology) error, setPolicyRules func([]PolicyRule) error) error {
+	topology, err := TopologyFromClusterNetMap(clusterMap, nodeID, prefix)
+	if err != nil {
+		return err
+	}
+	if err := reconcile(topology); err != nil {
+		return err
+	}
+	return setPolicyRules(PolicyRulesFromNetMap(clusterMap.PolicyRules))
+}
+
 func TopologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, prefix Prefix) (Topology, error) {
 	if clusterMap == nil || nodeID <= 0 || prefix.IsZero() {
 		return Topology{}, fmt.Errorf("network map topology is missing map, prefix, or local node")
 	}
-	underlays := make(map[int32]netip.Addr, len(clusterMap.Nodes))
+	type nodeTransport struct {
+		underlay netip.Addr
+		wgKey    string
+		wgPort   uint16
+	}
+	underlays := make(map[int32]nodeTransport, len(clusterMap.Nodes))
+	localWGCapable := false
+	localWGPort := uint16(0)
 	for _, node := range clusterMap.Nodes {
 		if node == nil || node.NodeID <= 0 {
 			return Topology{}, fmt.Errorf("network map topology has invalid node")
+		}
+		if node.WgPublicKey != "" && (node.WgListenPort < 1 || node.WgListenPort > 65535) {
+			return Topology{}, fmt.Errorf("network map topology has invalid WireGuard listen port for node %d", node.NodeID)
+		}
+		if node.NodeID == nodeID && node.WgPublicKey != "" {
+			localWGCapable = true
+			localWGPort = uint16(node.WgListenPort)
 		}
 		if node.UnderlayAddress == "" {
 			continue
@@ -24,10 +54,10 @@ func TopologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, p
 		if err != nil || addr.Zone() != "" {
 			return Topology{}, fmt.Errorf("network map topology has invalid underlay for node %d", node.NodeID)
 		}
-		underlays[node.NodeID] = addr.Unmap()
+		underlays[node.NodeID] = nodeTransport{underlay: addr.Unmap(), wgKey: node.WgPublicKey, wgPort: uint16(node.WgListenPort)}
 	}
 
-	topology := Topology{Prefix: prefix, LocalNodeID: nodeID}
+	topology := Topology{Prefix: prefix, LocalNodeID: nodeID, LocalWGCapable: localWGCapable, LocalWGPort: localWGPort}
 	remoteHosts := make(map[int32]struct{})
 	for _, route := range clusterMap.Routes {
 		if route == nil || route.HostingNodeID == nodeID {
@@ -52,10 +82,16 @@ func TopologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, p
 		if !ok {
 			return Topology{}, fmt.Errorf("remote node %d has no underlay address", remoteNodeID)
 		}
-		if local.BitLen() != remote.BitLen() {
+		if local.underlay.BitLen() != remote.underlay.BitLen() {
 			return Topology{}, fmt.Errorf("remote node %d underlay family differs from local node", remoteNodeID)
 		}
-		topology.Tunnels = append(topology.Tunnels, Tunnel{NodeID: remoteNodeID, Local: local, Remote: remote})
+		topology.Tunnels = append(topology.Tunnels, Tunnel{
+			NodeID:       remoteNodeID,
+			Local:        local.underlay,
+			Remote:       remote.underlay,
+			RemoteWGKey:  remote.wgKey,
+			RemoteWGPort: remote.wgPort,
+		})
 	}
 	return topology, nil
 }

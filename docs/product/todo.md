@@ -9,7 +9,7 @@
 - Decide whether deployment writes should require view access on referenced secrets (a pin by guessed id in an invisible space still works within the own-or-global bound now enforced for secrets, configs, and assets).
 - Add "used by" information for spaces, showing how many deployments each space contains and which deployments they are (assets, configs, and secrets already have usage overlays).
 - Expand the machines page to show more machine details, including network interfaces, IP addresses, CPU cores, architecture, RAM, and disk space.
-- Continue the built-in networking layer. Machine-local virtual networking, worker-to-worker fixed-tunnel routing, node-local DNS, and node-local ingress exist; remaining work includes primary-node remote routing, cross-node DNS, network policy and anti-spoofing, multi-node ingress, and service load balancing. Design in [future-work/networking.md](../future-work/networking.md).
+- Continue the built-in networking layer. Machine-local virtual networking, cluster-wide fixed-tunnel routing (workers and the primary), node-local DNS, node-local ingress, and the network policy boundary with anti-spoofing exist; remaining work includes cross-node DNS, multi-node ingress, and service load balancing. Design in [future-work/networking.md](../future-work/networking.md).
 - Major feature: add resource monitoring for workloads.
 - Add resource requests and limits to deployment configuration.
 - Major feature: allow deployments to be defined without specifying a machine. Add a scheduler that automatically schedules deployments onto machines.

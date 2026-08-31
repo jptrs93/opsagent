@@ -40,6 +40,9 @@ message MsgToWorker {
 message ClusterHello {
   string underlay_address = 1;
   int32 cluster_protocol_version = 2;
+  // Base64 WireGuard public key, re-reported on every connect. Empty means
+  // the worker has no key (older build); it never clears a stored key.
+  string wg_public_key = 3;
 }
 
 message MsgToMaster {

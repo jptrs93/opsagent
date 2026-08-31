@@ -10,13 +10,13 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/lib/wgkey"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
@@ -33,7 +33,8 @@ type enrollmentSession struct {
 	opendeployVersion   string
 	csrPEM              []byte
 	underlayAddress     string
-	requestUpdatedAt    time.Time
+	wgPublicKey         string
+	expectedVersion     int64
 	accepted            chan *apigen.EnrollmentAccepted
 }
 
@@ -73,6 +74,7 @@ var EnrollmentNotConnectedErr = apigen.NewApiErr("Worker is not connected", "enr
 var EnrollmentSigningNotConfiguredErr = apigen.NewApiErr("Cluster CA signing key is not configured", "enrollment_signing_not_configured", http.StatusServiceUnavailable)
 var EnrollmentNotFoundErr = apigen.NewApiErr("Enrollment request not found", "enrollment_not_found", http.StatusNotFound)
 var EnrollmentFingerprintNotConfiguredErr = apigen.NewApiErr("Enrollment TLS fingerprint is not configured", "enrollment_fingerprint_not_configured", http.StatusServiceUnavailable)
+var EnrollmentInvalidWGKeyErr = apigen.NewApiErr("Invalid WireGuard public key", "enrollment_invalid_wg_key", http.StatusBadRequest)
 
 func (h *Handler) VerifyEnrollmentRequest(ctx context.Context, _ http.ResponseWriter, r *http.Request, _ apigen.AccessPolicy) (apigen.Context, error) {
 	ctx = logu.AddTag(ctx, "Enrollment")
@@ -109,15 +111,21 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			yield(nil, err)
 			return
 		}
+		wgPublicKey, err := wgkey.ValidatePublic(hello.WgPublicKey)
+		if err != nil {
+			yield(nil, EnrollmentInvalidWGKeyErr)
+			return
+		}
 
-		status := h.store.MustUpsertEnrollmentRequest(enrollmentRequestIP(ctx), requestingMachineID, opendeployVersion, underlayAddress)
+		status, expectedVersion := h.store.MustUpsertEnrollmentRequest(enrollmentRequestIP(ctx), requestingMachineID, opendeployVersion, underlayAddress, wgPublicKey)
 		sess := &enrollmentSession{
 			id:                  status.ID,
 			requestingMachineID: requestingMachineID,
 			opendeployVersion:   opendeployVersion,
 			csrPEM:              hello.WorkerCertificateRequest,
 			underlayAddress:     underlayAddress,
-			requestUpdatedAt:    status.UpdatedAt,
+			wgPublicKey:         wgPublicKey,
+			expectedVersion:     expectedVersion,
 			accepted:            make(chan *apigen.EnrollmentAccepted, 1),
 		}
 		h.registerEnrollmentSession(sess)
@@ -174,7 +182,7 @@ func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.E
 	if err != nil {
 		return nil, fmt.Errorf("signing worker CSR: %w", err)
 	}
-	status, err := h.store.AcceptEnrollmentRequest(req.ID, workerName, sess.requestingMachineID, sess.underlayAddress, sess.requestUpdatedAt)
+	status, err := h.store.AcceptEnrollmentRequest(req.ID, workerName, sess.requestingMachineID, sess.underlayAddress, sess.wgPublicKey, sess.expectedVersion)
 	if errors.Is(err, state.ErrEnrollmentRequestChanged) {
 		return nil, EnrollmentNotConnectedErr
 	}

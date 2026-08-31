@@ -13,6 +13,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/lib/wgkey"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
@@ -245,9 +246,20 @@ func (s *Session) handleClusterHello(hello *apigen.ClusterHello) {
 		slog.WarnContext(s.sessCtx, fmt.Sprintf("worker sent invalid underlay address %q", hello.UnderlayAddress), "err", err)
 		return
 	}
+	// An empty key is an older build that has never minted one; it never
+	// clears a stored key. The write is diff-gated in the store, so the
+	// re-report on every reconnect is normally a no-op.
+	wgPublicKey, err := wgkey.ValidatePublic(hello.WgPublicKey)
+	if err != nil {
+		slog.WarnContext(s.sessCtx, fmt.Sprintf("worker sent invalid WireGuard public key %q", hello.WgPublicKey), "err", err)
+		return
+	}
 	for _, node := range s.store.ListNodes() {
 		if node == nil || node.ID != s.NodeID {
 			continue
+		}
+		if wgPublicKey != "" && wgPublicKey != node.WGPublicKey {
+			s.store.MustSetNodeWGPublicKey(s.NodeID, wgPublicKey)
 		}
 		if len(node.Addresses) == 1 && node.Addresses[0] == underlayAddress {
 			return
