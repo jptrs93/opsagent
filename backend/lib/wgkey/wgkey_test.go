@@ -43,8 +43,8 @@ func TestLoadOrGenerateRejectsCorruptFile(t *testing.T) {
 }
 
 func TestValidatePublic(t *testing.T) {
-	if got, err := ValidatePublic("  "); err != nil || got != "" {
-		t.Fatalf("blank key: got %q err %v, want empty and no error", got, err)
+	if _, err := ValidatePublic("  "); err == nil {
+		t.Fatal("blank key was accepted")
 	}
 	key, err := LoadOrGenerate(t.TempDir())
 	if err != nil {

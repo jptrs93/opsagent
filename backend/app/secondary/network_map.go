@@ -166,10 +166,8 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 			return nil, network.Prefix{}, fmt.Errorf("node %d has invalid WireGuard public key: %w", node.NodeID, err)
 		}
 		wgListenPort := node.WgListenPort
-		if wgPublicKey == "" {
-			wgListenPort = 0
-		} else if wgListenPort < 1 || wgListenPort > 65535 {
-			return nil, network.Prefix{}, fmt.Errorf("node %d has WireGuard key but invalid listen port %d", node.NodeID, node.WgListenPort)
+		if wgListenPort < 1 || wgListenPort > 65535 {
+			return nil, network.Prefix{}, fmt.Errorf("node %d has invalid WireGuard listen port %d", node.NodeID, node.WgListenPort)
 		}
 		normalized.Nodes = append(normalized.Nodes, &apigen.ClusterNetMapNode{NodeID: node.NodeID, UnderlayAddress: underlay, WgPublicKey: wgPublicKey, WgListenPort: wgListenPort})
 	}

@@ -62,19 +62,7 @@ func TestClusterFallbackRouteConstructor(t *testing.T) {
 	}
 }
 
-func TestTunnelIdentityAndTopologyValidation(t *testing.T) {
-	if got := tunnelName(12345); got != "odt9ix" {
-		t.Fatalf("tunnel name = %q, want odt9ix", got)
-	}
-	if got := tunnelAlias(12345); got != "opendeploy:tunnel:12345" {
-		t.Fatalf("tunnel alias = %q", got)
-	}
-	if nodeID, ok := ownedTunnelNodeID(&netlink.Sittun{LinkAttrs: netlink.LinkAttrs{Name: tunnelName(2), Alias: tunnelAlias(2)}}); !ok || nodeID != 2 {
-		t.Fatalf("owned SIT tunnel = (%d, %t), want (2, true)", nodeID, ok)
-	}
-	if _, ok := ownedTunnelNodeID(&netlink.Sittun{LinkAttrs: netlink.LinkAttrs{Name: tunnelName(2)}}); ok {
-		t.Fatal("unaliased tunnel was accepted as owned")
-	}
+func TestTopologyValidationRequiresWireGuardTransport(t *testing.T) {
 	prefix := GeneratePrefix()
 	addr, err := prefix.InboundAddr(1, 10, 0)
 	if err != nil {
@@ -83,19 +71,37 @@ func TestTunnelIdentityAndTopologyValidation(t *testing.T) {
 	topology := Topology{
 		Prefix:      prefix,
 		LocalNodeID: 1,
-		Tunnels: []Tunnel{{
-			NodeID: 2,
-			Local:  netip.MustParseAddr("192.0.2.1"),
-			Remote: netip.MustParseAddr("192.0.2.2"),
+		LocalWGPort: 51833,
+		Peers: []Peer{{
+			NodeID:   2,
+			Endpoint: netip.MustParseAddr("192.0.2.2"),
+			WGKey:    "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=",
+			WGPort:   51833,
 		}},
 		Routes: []RemoteRoute{{Prefix: netip.PrefixFrom(addr, 128), NodeID: 2}},
 	}
 	if err := validateTopology(topology); err != nil {
 		t.Fatal(err)
 	}
-	topology.Tunnels[0].Remote = netip.MustParseAddr("2001:db8::2")
-	if err := validateTopology(topology); err == nil {
-		t.Fatal("mixed tunnel families were accepted")
+	keyless := topology
+	keyless.Peers = []Peer{{NodeID: 2, Endpoint: topology.Peers[0].Endpoint, WGPort: 51833}}
+	if err := validateTopology(keyless); err == nil {
+		t.Fatal("keyless peer was accepted")
+	}
+	portless := topology
+	portless.Peers = []Peer{{NodeID: 2, Endpoint: topology.Peers[0].Endpoint, WGKey: topology.Peers[0].WGKey}}
+	if err := validateTopology(portless); err == nil {
+		t.Fatal("peer without listen port was accepted")
+	}
+	noLocalPort := topology
+	noLocalPort.LocalWGPort = 0
+	if err := validateTopology(noLocalPort); err == nil {
+		t.Fatal("topology without local listen port was accepted")
+	}
+	unroutedPeer := topology
+	unroutedPeer.Routes = []RemoteRoute{{Prefix: netip.PrefixFrom(addr, 128), NodeID: 3}}
+	if err := validateTopology(unroutedPeer); err == nil {
+		t.Fatal("route referencing an unknown peer was accepted")
 	}
 }
 

@@ -272,7 +272,7 @@ function machineRow(machine) {
                 : span({class: "text-gray-300"}, "secondary")
         ),
         td({class: "py-1 pr-3 font-mono text-gray-300"}, (machine.addresses || []).join(", ") || "-"),
-        td({class: "py-1 pr-3 font-mono text-gray-300", title: machine.wgPublicKey || "No WireGuard key registered; pairs with this node use ip6tnl"},
+        td({class: "py-1 pr-3 font-mono text-gray-300", title: machine.wgPublicKey || "No WireGuard key registered"},
             machine.wgPublicKey ? machine.wgPublicKey.slice(0, 8) + "…" : "-"),
         td({class: "py-1 pr-3"}, allowedSpacesCell(machine)),
         td({class: "py-1 pr-3"},
@@ -403,8 +403,13 @@ function hostPort(host, port) {
     return `${formattedHost}:${port}`;
 }
 
+// Rows are recreated on every enrollment stream update, so a name the user is
+// typing must survive the re-render or a late update silently reverts the
+// accept to the default name.
+const enrollmentNameDrafts = new Map();
+
 function enrollmentRow(req) {
-    const workerName = van.state(`worker-${req.id}`);
+    const workerName = van.state(enrollmentNameDrafts.get(req.id) ?? `worker-${req.id}`);
     const accepting = van.state(false);
     const rowError = van.state(null);
 
@@ -418,6 +423,7 @@ function enrollmentRow(req) {
         rowError.val = null;
         try {
             await capi.postV1NodesEnrollmentsAccept({id: req.id, workerName: name});
+            enrollmentNameDrafts.delete(req.id);
         } catch (e) {
             rowError.val = e.message;
         } finally {
@@ -441,7 +447,10 @@ function enrollmentRow(req) {
                         "data-testid": "enrollment-worker-name-input",
                         class: "text-input w-44",
                         value: workerName,
-                        oninput: e => workerName.val = e.target.value,
+                        oninput: e => {
+                            workerName.val = e.target.value;
+                            enrollmentNameDrafts.set(req.id, e.target.value);
+                        },
                     }),
                     button({
                         type: "button",

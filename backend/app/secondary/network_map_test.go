@@ -125,13 +125,14 @@ func TestValidateClusterNetMapRejectsInvalidTopology(t *testing.T) {
 		},
 		"malformed wg key": func(m *apigen.ClusterNetMap) {
 			m.Nodes[0].WgPublicKey = "not-base64"
-			m.Nodes[0].WgListenPort = 51833
 		},
-		"wg key without port": func(m *apigen.ClusterNetMap) {
-			m.Nodes[0].WgPublicKey = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+		"missing wg key": func(m *apigen.ClusterNetMap) {
+			m.Nodes[0].WgPublicKey = ""
+		},
+		"missing wg port": func(m *apigen.ClusterNetMap) {
+			m.Nodes[0].WgListenPort = 0
 		},
 		"wg port out of range": func(m *apigen.ClusterNetMap) {
-			m.Nodes[0].WgPublicKey = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
 			m.Nodes[0].WgListenPort = 70000
 		},
 	}
@@ -198,8 +199,8 @@ func testClusterNetMap(t *testing.T, prefix network.Prefix, seq int64) *apigen.C
 		TargetNodeID:   1,
 		UlaPrefix:      prefix.Bytes(),
 		Nodes: []*apigen.ClusterNetMapNode{
-			{NodeID: 1, UnderlayAddress: "192.0.2.1"},
-			{NodeID: 2, UnderlayAddress: "192.0.2.2"},
+			{NodeID: 1, UnderlayAddress: "192.0.2.1", WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=", WgListenPort: 51833},
+			{NodeID: 2, UnderlayAddress: "192.0.2.2", WgPublicKey: "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=", WgListenPort: 51833},
 		},
 		Routes: []*apigen.ClusterNetMapRoute{{LogicalPrefix: destination.String(), HostingNodeID: 1}},
 	}

@@ -360,7 +360,7 @@
   <tbody>
     <tr>
       <td>Another deployment in the cluster</td>
-      <td>Routed natively over the private IPv6 network — same node or through the fixed node-to-node tunnels. No NAT; the receiver sees the sender's real cluster address, which is what policy rules match on.</td>
+      <td>Routed natively over the private IPv6 network — same node or through the node-to-node WireGuard transport. No NAT; the receiver sees the sender's real cluster address, which is what policy rules match on.</td>
     </tr>
     <tr>
       <td>The external network</td>
@@ -473,7 +473,7 @@
 
 <div class="stub">
   <h4>Coming soon</h4>
-  <p>This part will cover the design and implementation underneath the user guide: the address derivation scheme and prefix hierarchy, the two-address model in full, the cluster network map and fixed node tunnels, the nftables policy program and anti-spoofing, DNS and ingress internals, and how rollover interacts with routing.</p>
+  <p>This part will cover the design and implementation underneath the user guide: the address derivation scheme and prefix hierarchy, the two-address model in full, the cluster network map and the WireGuard node transport, the nftables policy program and anti-spoofing, DNS and ingress internals, and how rollover interacts with routing.</p>
   <p>Until then, the engineering documentation in the repository (<code class="inl">docs/engineering/networking.md</code>) is the authoritative reference.</p>
 </div>
 </section>

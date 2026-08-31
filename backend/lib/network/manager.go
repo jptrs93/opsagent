@@ -185,9 +185,9 @@ func validateContainerAddressIdentity(prefix Prefix, deploymentID int32, inbound
 const DefaultWGListenPort uint16 = 51833
 
 // SetWGPrivateKey installs the node-local WireGuard private key loaded at
-// boot. The key never appears in the network map; the map only says which
-// nodes have registered public keys, and the reconciler pairs that with this
-// identity to decide the per-peer transport.
+// boot. The key never appears in the network map; the map only carries each
+// node's registered public key, and the reconciler pairs that with this
+// identity to configure the device.
 func (m *Manager) SetWGPrivateKey(key wgtypes.Key) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -203,21 +203,18 @@ func (m *Manager) wgPrivateKeyValue() (wgtypes.Key, bool) {
 	return *m.wgPrivateKey, true
 }
 
-// Tunnel describes the transport pairing to one remote cluster node: the
-// underlay endpoints, and the remote's WireGuard capability from the network
-// map. Both ends derive the same pairwise rule — both nodes keyed means
-// WireGuard, otherwise a fixed protocol-41 tunnel — so RemoteWGKey empty
-// selects ip6tnl/SIT. Local and Remote must belong to the same underlay
-// address family.
-type Tunnel struct {
-	NodeID       int32
-	Local        netip.Addr
-	Remote       netip.Addr
-	RemoteWGKey  string // base64 public key; "" = no WireGuard capability
-	RemoteWGPort uint16
+// Peer describes the WireGuard pairing to one remote cluster node: the
+// underlay endpoint plus the remote's registered public key and listen port
+// from the network map. Every member node is keyed, so a peer without a key
+// is a map rendering bug, not a transport downgrade.
+type Peer struct {
+	NodeID   int32
+	Endpoint netip.Addr
+	WGKey    string // base64 public key
+	WGPort   uint16
 }
 
-// RemoteRoute selects a tunnel for one routed logical prefix: either a whole
+// RemoteRoute selects a peer for one routed logical prefix: either a whole
 // instance (/100) or a whole placement (/120).
 type RemoteRoute struct {
 	Prefix netip.Prefix
@@ -229,13 +226,9 @@ type RemoteRoute struct {
 type Topology struct {
 	Prefix      Prefix
 	LocalNodeID int32
-	// LocalWGCapable reports whether the map carries a registered WireGuard
-	// key for the local node; the reconciler additionally requires the local
-	// private key before treating any pair as WireGuard-capable.
-	LocalWGCapable bool
-	LocalWGPort    uint16
-	Tunnels        []Tunnel
-	Routes         []RemoteRoute
+	LocalWGPort uint16
+	Peers       []Peer
+	Routes      []RemoteRoute
 }
 
 type retainedContainerNets struct {

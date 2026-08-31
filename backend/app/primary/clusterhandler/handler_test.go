@@ -163,7 +163,8 @@ func TestSessionClusterHelloUpdatesAuthenticatedNodeUnderlay(t *testing.T) {
 	store.MustSetNodeAddresses(worker.ID, []string{"192.0.2.2"})
 	sess := newSession(context.Background(), func() {}, worker.ID, worker.Identifier, scheduledInstancePredicateForNode(worker.ID), store, nil)
 
-	sess.handleIncoming(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{UnderlayAddress: " 192.0.2.3 ", ClusterProtocolVersion: apigen.ClusterProtocolVersion}})
+	const helloWGKey = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+	sess.handleIncoming(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{UnderlayAddress: " 192.0.2.3 ", WgPublicKey: helloWGKey, ClusterProtocolVersion: apigen.ClusterProtocolVersion}})
 	if got := nodeAddresses(t, store, worker.ID); len(got) != 1 || got[0] != "192.0.2.3" {
 		t.Fatalf("worker addresses = %v, want [192.0.2.3]", got)
 	}
@@ -171,7 +172,7 @@ func TestSessionClusterHelloUpdatesAuthenticatedNodeUnderlay(t *testing.T) {
 		t.Fatalf("primary addresses = %v, want [192.0.2.1]", got)
 	}
 
-	sess.handleIncoming(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{UnderlayAddress: "2001:db8::3", ClusterProtocolVersion: apigen.ClusterProtocolVersion}})
+	sess.handleIncoming(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{UnderlayAddress: "2001:db8::3", WgPublicKey: helloWGKey, ClusterProtocolVersion: apigen.ClusterProtocolVersion}})
 	if got := nodeAddresses(t, store, worker.ID); len(got) != 1 || got[0] != "192.0.2.3" {
 		t.Fatalf("invalid hello changed worker addresses to %v", got)
 	}

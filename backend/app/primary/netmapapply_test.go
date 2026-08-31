@@ -41,7 +41,7 @@ func targetedNetMap(prefix network.Prefix, nodeID int32, seq int64) *apigen.Clus
 	return &apigen.ClusterNetMap{
 		TargetNodeID:   nodeID,
 		UlaPrefix:      prefix.Bytes(),
-		Nodes:          []*apigen.ClusterNetMapNode{{NodeID: nodeID, UnderlayAddress: "192.0.2.1"}},
+		Nodes:          []*apigen.ClusterNetMapNode{{NodeID: nodeID, UnderlayAddress: "192.0.2.1", WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=", WgListenPort: 51833}},
 		DerivedFromSeq: seq,
 	}
 }

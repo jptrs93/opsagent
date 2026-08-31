@@ -55,12 +55,12 @@ func LoadOrGenerate(dir string) (Key, error) {
 }
 
 // ValidatePublic reports whether s is a well-formed base64 Curve25519 public
-// key and returns its canonical encoding. The empty string is valid and means
-// "no WireGuard capability".
+// key and returns its canonical encoding. Every node must hold a transport
+// key, so the empty string is invalid.
 func ValidatePublic(s string) (string, error) {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
-		return "", nil
+		return "", fmt.Errorf("missing WireGuard public key")
 	}
 	key, err := wgtypes.ParseKey(trimmed)
 	if err != nil {

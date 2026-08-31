@@ -230,12 +230,11 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.Clust
 				underlay = addr.String()
 			}
 		}
-		knownNodes[node.ID] = struct{}{}
-		wgListenPort := int32(0)
-		if node.WGPublicKey != "" {
-			wgListenPort = int32(network.DefaultWGListenPort)
+		if node.WGPublicKey == "" {
+			return nil, fmt.Errorf("node %d has no WireGuard public key", node.ID)
 		}
-		netNodes = append(netNodes, &apigen.ClusterNetMapNode{NodeID: node.ID, UnderlayAddress: underlay, WgPublicKey: node.WGPublicKey, WgListenPort: wgListenPort})
+		knownNodes[node.ID] = struct{}{}
+		netNodes = append(netNodes, &apigen.ClusterNetMapNode{NodeID: node.ID, UnderlayAddress: underlay, WgPublicKey: node.WGPublicKey, WgListenPort: int32(network.DefaultWGListenPort)})
 	}
 	slices.SortFunc(netNodes, func(a, b *apigen.ClusterNetMapNode) int { return cmp.Compare(a.NodeID, b.NodeID) })
 

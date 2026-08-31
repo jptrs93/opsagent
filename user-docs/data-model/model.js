@@ -10,6 +10,8 @@
  *  - the blue "versioned" tag marks a type whose changes are explicitly
  *    version-tracked; the counter itself is implied, never shown as a field
  *  - the amber "id" chip marks a root's identity fields
+ *  - rose field names are server-set: stamped by the server on write, never
+ *    client input (timestamps, author)
  *  - enums are chips, collapsed by default: hover for the values, click to
  *    expand them
  */
@@ -21,7 +23,7 @@
   /* schema helpers */
   function f(name, type, opts) {
     opts = opts || {};
-    return { name: name, type: type, mod: opts.mod, ref: opts.ref, note: opts.note, key: opts.key };
+    return { name: name, type: type, mod: opts.mod, ref: opts.ref, note: opts.note, key: opts.key, srv: opts.srv, versioned: opts.versioned };
   }
   function obj(name, fields, opts) {
     opts = opts || {};
@@ -68,7 +70,7 @@
       f('roles', 'int32', { mod: 'repeated' }),
       f('wgPublicKey', 'string', { note: 'base64 Curve25519' }),
       f('addresses', 'string', { mod: 'repeated' }),
-      f('enrolledAt', 'timestamp'),
+      f('timestamp', 'timestamp', { srv: true }),
       f('allowedSpaces', 'int32', { mod: 'repeated', ref: 'Space.id' }),
     ],
   });
@@ -83,13 +85,13 @@
     desc: 'The user’s declared intent for one deployment — everything on the right is rendered from this.',
     schema: [
       f('id', 'int32', { key: true }),
-      f('name', 'string'),
+      f('name', 'string', { versioned: true }),
       f('spaceAssignment', obj('SpaceAssignment', [
         f('spaceId', 'int32', { ref: 'Space.id' }),
       ], { versioned: true })),
       f('nodeId', 'int32', { ref: 'ClusterNode.id' }),
-      f('author', 'int32', { ref: 'user id' }),
-      f('updatedAt', 'timestamp'),
+      f('author', 'int32', { ref: 'user id', srv: true }),
+      f('timestamp', 'timestamp', { srv: true }),
       f('deleted', 'bool'),
       f('spec', obj('DeploymentSpec', [
         f('networking', obj('NetworkingConfig', [
@@ -172,10 +174,7 @@
             ])),
           ])),
         ]), { note: 'one workload field set' }),
-        f('opendeploySpec', obj('OpendeploySpec', [
-          f('version', 'string'),
-        ]), { note: 'internal self-deployment' }),
-      ])),
+      ], { versioned: true })),
     ],
     note: 'Each write creates a new immutable version; workers act on the latest.',
   });
@@ -186,7 +185,7 @@
     badge: 'derived',
     tone: 'derived',
     x: 680, y: 340, w: 440,
-    desc: 'Complete placement + underlay snapshot rendered by the primary, targeted to one node. Workers persist an accepted map, apply it to the kernel (tunnels, routes, policy), and report both stamps back.',
+    desc: 'Complete placement + underlay snapshot rendered by the primary, targeted to one node. Workers persist an accepted map, apply it to the kernel (WireGuard peers, routes, policy), and report both stamps back.',
     schema: [
       f('targetNodeId', 'int32', { ref: 'ClusterNode.id' }),
       f('derivedFromSeq', 'int64', { note: 'global write seq at render' }),
@@ -194,7 +193,7 @@
       f('nodes', obj('ClusterNetMapNode', [
         f('nodeId', 'int32', { ref: 'ClusterNode.id' }),
         f('underlayAddress', 'string'),
-        f('wgPublicKey', 'string', { note: 'empty = ip6tnl/SIT fallback' }),
+        f('wgPublicKey', 'string', { note: 'always set; WireGuard is the only transport' }),
         f('wgListenPort', 'int32'),
       ]), { mod: 'repeated' }),
       f('routes', obj('ClusterNetMapRoute', [

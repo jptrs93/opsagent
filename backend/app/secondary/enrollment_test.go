@@ -114,7 +114,7 @@ func TestCacheEnrollmentBootstrapStatePersistsNetworkMap(t *testing.T) {
 		TargetNodeID:   2,
 		UlaPrefix:      accepted.ClusterNetwork.UlaPrefix,
 		Nodes: []*apigen.ClusterNetMapNode{
-			{NodeID: 2, UnderlayAddress: "192.0.2.2"},
+			{NodeID: 2, UnderlayAddress: "192.0.2.2", WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=", WgListenPort: 51833},
 		},
 	}
 	if err := cacheEnrollmentBootstrapState(context.Background(), EnrollmentConfig{DataDir: dataDir}, accepted); err != nil {

@@ -46,9 +46,7 @@ func (s *Service) MustUpsertEnrollmentRequest(remoteAddress, requestingMachineID
 				spec.Status = apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED
 				spec.RolesJSON = nodeRolesJSON([]int32{NodeRoleSecondary})
 				spec.AddressesJSON = nodeAddressesJSON([]string{underlayAddress})
-				if wgPublicKey != "" {
-					spec.WGPublicKey = wgPublicKey
-				}
+				spec.WGPublicKey = wgPublicKey
 			})
 			if err != nil {
 				return err
@@ -168,9 +166,7 @@ func (s *Service) AcceptEnrollmentRequest(id int32, workerName, requestingMachin
 			spec.Status = apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL
 			spec.RolesJSON = nodeRolesJSON([]int32{NodeRoleSecondary})
 			spec.AddressesJSON = nodeAddressesJSON([]string{underlayAddress})
-			if wgPublicKey != "" {
-				spec.WGPublicKey = wgPublicKey
-			}
+			spec.WGPublicKey = wgPublicKey
 		})
 		if err != nil {
 			return err

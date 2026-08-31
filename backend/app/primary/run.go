@@ -67,14 +67,14 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	// The primary's WireGuard key follows the same custody rule as workers:
 	// generated locally, private key only ever in the data directory, public
 	// key registered on the node row (a map input, so registration re-renders
-	// the map). A key failure downgrades this node's pairs to ip6tnl rather
-	// than blocking boot.
-	if nodeKey, err := wgkey.LoadOrGenerate(ainit.StaticConfig.DataDir); err != nil {
-		slog.WarnContext(ctx, "loading WireGuard node key failed; cross-node transport stays on ip6tnl", "err", err)
-	} else {
-		network.Default.SetWGPrivateKey(nodeKey.Private)
-		primaryRuntime.store.MustSetNodeWGPublicKey(primaryNode.ID, nodeKey.PublicBase64())
+	// the map). WireGuard is the only cross-node transport, so a key failure
+	// blocks boot.
+	nodeKey, err := wgkey.LoadOrGenerate(ainit.StaticConfig.DataDir)
+	if err != nil {
+		return fmt.Errorf("loading WireGuard node key: %w", err)
 	}
+	network.Default.SetWGPrivateKey(nodeKey.Private)
+	primaryRuntime.store.MustSetNodeWGPublicKey(primaryNode.ID, nodeKey.PublicBase64())
 	nodeIdentifier := primaryNode.Identifier
 	slog.InfoContext(ctx, fmt.Sprintf("opendeploy starting primary version=%v nodeIdentifier=%v", version.Version, nodeIdentifier))
 	webUIHandler, err := webuihandler.New(staticFS, primaryNode.ID, primaryRuntime.webUIHandlerDependencies())

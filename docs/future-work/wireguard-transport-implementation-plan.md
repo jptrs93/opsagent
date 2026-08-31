@@ -1,19 +1,22 @@
 # WireGuard transport implementation plan (phase 1: static keys)
 
-> Status 2026-08-30: milestones "key material" through "audit and diagnostics"
-> are implemented (`backend/lib/wgkey`, registration over enrollment and
-> cluster hello, map distribution, the transport reconciler in
-> `tunnels_linux.go`, the netaudit WireGuard surface, and the FE transport-key
-> column). The e2e milestone is partially done: the orchestrator gained a
-> post-flow "wireguard transport checks" step (device config, key custody, no
-> leftover tunnels, cluster-wide transfer), and a full VM suite run passed
-> with it (all ~130 flows over WireGuard; every node showed 2 peers on 51833
-> with nonzero transfer and no leftover tunnels). The dedicated migration,
-> trust, and key-loss cases remain, as does the engineering-doc update from
-> the completion criteria. Known limitation: a node whose kernel lacks the
-> wireguard module registers a key anyway and then fails transport
-> reconciliation — visible via NetMapStatus and netaudit, but with no
-> automatic fallback to ip6tnl for that node.
+> Status 2026-08-31: fully implemented and rolled out. Phase 1 shipped in
+> v0.0.541 (`backend/lib/wgkey`, registration over enrollment and cluster
+> hello, map distribution, the transport reconciler, the netaudit WireGuard
+> surface, the FE transport-key column, and the e2e "wireguard transport
+> checks" step, verified by a clean full-suite run). After every cluster was
+> rolled forward, the retained `ip6tnl`/SIT fallback was **removed entirely**
+> (the "later cleanup" milestone): WireGuard is the only cross-node transport,
+> the reconciler lives in `transport_linux.go`, and a node key is now a hard
+> invariant — key load failure blocks boot, `wgkey.ValidatePublic` rejects the
+> empty string, and the map renderer, worker map validation, and topology
+> conversion all hard-error on a keyless node. The mixed-version pairwise rule
+> and the empty-key-means-no-capability convention below are historical. The
+> dedicated migration/trust/key-loss e2e cases were never written; migration
+> coverage is moot now, key-loss remains worth a case. Known limitation: a
+> node whose kernel lacks the wireguard module registers a key and then fails
+> transport reconciliation — visible via NetMapStatus and netaudit, with no
+> fallback of any kind.
 
 ## Purpose
 
@@ -181,8 +184,8 @@ node's pairs are fully on WireGuard.
   promotion, per the design discussion.
 - Per-pair preshared keys (post-quantum hedge): explicit non-goal — pairwise
   N² secret distribution cuts against the netmap model.
-- Mixed underlay families per peer; NATed-underlay keepalive defaults;
-  removing the retained `ip6tnl` code.
+- Mixed underlay families per peer; NATed-underlay keepalive defaults.
+  (The retained `ip6tnl` code was removed after the v0.0.541 rollout.)
 - Wire-capture guidance in the engineering docs (underlay captures become
   ciphertext; capture at the WireGuard device or veths instead).
 

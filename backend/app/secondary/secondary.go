@@ -45,7 +45,7 @@ type runtimeConfig struct {
 	ClusterPrefix      network.Prefix
 	NetDeploymentID    int32
 	// WGPublicKey is the node's base64 WireGuard public key, re-reported in
-	// every cluster hello; empty when the key failed to load.
+	// every cluster hello.
 	WGPublicKey string
 }
 
@@ -76,15 +76,16 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	}
 	githubCredentials := NewPrimaryGithubCredentialsProvider(primaryURL, primaryHTTPClient)
 	network.SetDefault(network.New(cfg.ClusterPrefix, cfg.NetDeploymentID))
-	// Load-or-generate must precede the cached-map reconcile so a keyed pair
-	// comes back up on WireGuard directly after an offline reboot. Freshly
-	// enrolled workers already hold the file from enrollment.
-	if nodeKey, err := wgkey.LoadOrGenerate(cfg.DataDir); err != nil {
-		slog.WarnContext(ctx, "loading WireGuard node key failed; cross-node transport stays on ip6tnl", "err", err)
-	} else {
-		network.Default.SetWGPrivateKey(nodeKey.Private)
-		cfg.WGPublicKey = nodeKey.PublicBase64()
+	// Load-or-generate must precede the cached-map reconcile so peers come
+	// back up directly after an offline reboot. Freshly enrolled workers
+	// already hold the file from enrollment. WireGuard is the only cross-node
+	// transport, so a key failure blocks boot.
+	nodeKey, err := wgkey.LoadOrGenerate(cfg.DataDir)
+	if err != nil {
+		panic(fmt.Errorf("loading WireGuard node key: %w", err))
 	}
+	network.Default.SetWGPrivateKey(nodeKey.Private)
+	cfg.WGPublicKey = nodeKey.PublicBase64()
 	if clusterMap, _, ok, err := cachedClusterNetMap(ctx, store, cfg.NodeID, cfg.ClusterPrefix); err != nil {
 		slog.WarnContext(ctx, "loading cached cluster network map failed", "err", err)
 	} else if ok {

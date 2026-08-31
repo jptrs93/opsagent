@@ -34,17 +34,18 @@ func TopologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, p
 		wgPort   uint16
 	}
 	underlays := make(map[int32]nodeTransport, len(clusterMap.Nodes))
-	localWGCapable := false
 	localWGPort := uint16(0)
 	for _, node := range clusterMap.Nodes {
 		if node == nil || node.NodeID <= 0 {
 			return Topology{}, fmt.Errorf("network map topology has invalid node")
 		}
-		if node.WgPublicKey != "" && (node.WgListenPort < 1 || node.WgListenPort > 65535) {
+		if node.WgPublicKey == "" {
+			return Topology{}, fmt.Errorf("network map topology has no WireGuard key for node %d", node.NodeID)
+		}
+		if node.WgListenPort < 1 || node.WgListenPort > 65535 {
 			return Topology{}, fmt.Errorf("network map topology has invalid WireGuard listen port for node %d", node.NodeID)
 		}
-		if node.NodeID == nodeID && node.WgPublicKey != "" {
-			localWGCapable = true
+		if node.NodeID == nodeID {
 			localWGPort = uint16(node.WgListenPort)
 		}
 		if node.UnderlayAddress == "" {
@@ -56,8 +57,11 @@ func TopologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, p
 		}
 		underlays[node.NodeID] = nodeTransport{underlay: addr.Unmap(), wgKey: node.WgPublicKey, wgPort: uint16(node.WgListenPort)}
 	}
+	if localWGPort == 0 {
+		return Topology{}, fmt.Errorf("network map topology is missing local node %d", nodeID)
+	}
 
-	topology := Topology{Prefix: prefix, LocalNodeID: nodeID, LocalWGCapable: localWGCapable, LocalWGPort: localWGPort}
+	topology := Topology{Prefix: prefix, LocalNodeID: nodeID, LocalWGPort: localWGPort}
 	remoteHosts := make(map[int32]struct{})
 	for _, route := range clusterMap.Routes {
 		if route == nil || route.HostingNodeID == nodeID {
@@ -85,12 +89,11 @@ func TopologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, p
 		if local.underlay.BitLen() != remote.underlay.BitLen() {
 			return Topology{}, fmt.Errorf("remote node %d underlay family differs from local node", remoteNodeID)
 		}
-		topology.Tunnels = append(topology.Tunnels, Tunnel{
-			NodeID:       remoteNodeID,
-			Local:        local.underlay,
-			Remote:       remote.underlay,
-			RemoteWGKey:  remote.wgKey,
-			RemoteWGPort: remote.wgPort,
+		topology.Peers = append(topology.Peers, Peer{
+			NodeID:   remoteNodeID,
+			Endpoint: remote.underlay,
+			WGKey:    remote.wgKey,
+			WGPort:   remote.wgPort,
 		})
 	}
 	return topology, nil

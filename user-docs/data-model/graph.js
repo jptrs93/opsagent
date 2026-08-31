@@ -15,7 +15,9 @@
  * omitted) at a fractional position along that side (fromAt/toAt, default .5).
  *
  * A node with `schema` shows a type definition instead of literal JSON.
- * schema is a list of fields: {name, type, mod?, ref?, note?, key?} where
+ * schema is a list of fields: {name, type, mod?, ref?, note?, key?, srv?,
+ * versioned?} where srv marks a server-set field (rendered in the server-set
+ * color), versioned tags the field's value as explicitly version-tracked, and
  * type is a scalar name string, {kind:'object', name, fields, versioned?}
  * (rendered inline, expanded by default, collapsible by clicking the type),
  * or {kind:'enum', name, values:[{name, note?}|string]} (rendered as an enum
@@ -64,7 +66,7 @@
     fields.forEach(function (f) {
       var row = el('div', 'gv-field', container);
       var line = el('div', 'gv-fline', row);
-      el('span', 'f-name', line).textContent = f.name;
+      el('span', f.srv ? 'f-name srv' : 'f-name', line).textContent = f.name;
       if (f.mod) el('span', 'f-mod', line).textContent = f.mod;
       var t = f.type;
       if (typeof t === 'string') {
@@ -85,9 +87,11 @@
           });
         } else {
           row.classList.add('open');
-          if (t.versioned) el('span', 'f-chip c-ver', line).textContent = 'versioned';
           renderFields(kids, t.fields);
         }
+      }
+      if (f.versioned || (typeof t === 'object' && t.versioned)) {
+        el('span', 'f-chip c-ver', line).textContent = 'versioned';
       }
       if (f.key) el('span', 'f-chip c-key', line).textContent = 'id';
       if (f.ref) el('span', 'f-ref', line).textContent = '→ ' + f.ref;

@@ -23,8 +23,8 @@ import (
 const TopologySupported = true
 
 const (
-	// vethMTU leaves room for either an IPv4 or IPv6 outer tunnel header on a
-	// normal 1500-byte underlay.
+	// vethMTU matches wgMTU so the inner path MTU is uniform from workload to
+	// workload across the WireGuard hop.
 	vethMTU = 1420
 
 	containerIface = "eth0"

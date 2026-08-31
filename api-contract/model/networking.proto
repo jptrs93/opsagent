@@ -75,8 +75,8 @@ enum NetProtocol {
 message ClusterNetMapNode {
   int32 node_id = 1;
   string underlay_address = 2;
-  // Base64 Curve25519 WireGuard public key; empty means the node has no
-  // WireGuard capability and pairs with it fall back to ip6tnl/SIT tunnels.
+  // Base64 Curve25519 WireGuard public key. Always set: every member node
+  // registers a key, and WireGuard is the only cross-node transport.
   string wg_public_key = 3;
   int32 wg_listen_port = 4;
 }

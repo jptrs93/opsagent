@@ -2,7 +2,7 @@
 
 ## Overview
 
-OpenDeploy implements virtual networking for container deployments in-process in the agent, with the Linux kernel as the dataplane. All nodes, including the primary, reconcile fixed IP-in-IP tunnels and remote workload routes from the cluster network map, and enforce the logical network policy boundary (source anti-spoofing and destination-side default rules plus explicit override policies) through nftables filter chains. Cross-node DNS remains future work; see `docs/future-work/networking.md`.
+OpenDeploy implements virtual networking for container deployments in-process in the agent, with the Linux kernel as the dataplane. All nodes, including the primary, reconcile the WireGuard node transport and remote workload routes from the cluster network map, and enforce the logical network policy boundary (source anti-spoofing and destination-side default rules plus explicit override policies) through nftables filter chains. Cross-node DNS remains future work; see `docs/future-work/networking.md`.
 
 ## Current Scope
 
@@ -18,8 +18,9 @@ Implemented today:
 - The primary renders deterministic full network maps containing node underlay addresses and virtual-workload routes. Each published map is stamped with `derived_from_seq`, the global write sequence its inputs reflect; the map itself is derived state, never persisted, and re-rendered on every boot. Updates are coalesced for connected workers and a targeted map is included in enrollment when publication succeeds.
 - Cluster routes are prefixes, not addresses, and are derived from scheduled instance assignments alone. No runner status is read, so container restarts and crashes never move a route or republish the map.
 - Workers validate and persist accepted maps before exposing their prefix to runtime networking. Acceptance is session-based: the first map accepted after connect replaces the cache unconditionally, later in-session maps must carry a higher stamp. Wrong targets, mixed underlay families, and invalid route layouts are rejected; cached maps survive primary outages and agent restarts.
-- Workers reconcile fixed IPv6-in-IPv6 or IPv6-in-IPv4 tunnels and remote routed prefixes from accepted maps, then report the applied stamp.
-- The primary applies its own targeted map through an in-process applier: it subscribes directly to the publisher, reconciles the same tunnels and remote routes as workers, retries failed reconciliation on a timer (there is no session reconnect to redeliver a map in-process), and records its applied stamp into the same barrier only after a successful kernel apply. It never persists maps — the primary re-renders from its database on every boot.
+- Cross-node traffic rides a single managed WireGuard device per node (`odwg0`, alias `opendeploy:wg`, MTU 1420, fixed listen port 51833). Each node mints a static Curve25519 keypair at first boot (`<DataDir>/wireguard.key`, 0600); the private key never leaves the machine, and the public key is registered on the node row — carried in enrollment and re-reported in every cluster hello. A key that fails to load or parse blocks boot: WireGuard is the only cross-node transport, and every member node must be keyed (the map renderer, worker map validation, and topology conversion all hard-error on a keyless node).
+- Workers reconcile the WireGuard device, one peer per remote node, and remote routed prefixes from accepted maps, then report the applied stamp. Each peer's allowed-ips are exactly the routed prefixes the map assigns to that node, so cryptokey routing enforces node-level source attribution: the kernel drops decrypted packets whose source lies outside the sending node's routed prefixes.
+- The primary applies its own targeted map through an in-process applier: it subscribes directly to the publisher, reconciles the same WireGuard peers and remote routes as workers, retries failed reconciliation on a timer (there is no session reconnect to redeliver a map in-process), and records its applied stamp into the same barrier only after a successful kernel apply. It never persists maps — the primary re-renders from its database on every boot.
 - The primary consumes those reports as a barrier: a superseded placement keeps running, and keeps its routes, until every node holding network state has applied the map that replaced it.
 - IPv4 egress is masqueraded from a fixed machine-local private range.
 - `portForwarding` publishes virtual-mode container TCP/UDP ports through nftables DNAT on the machine's host interfaces, optionally restricted to an allow list of source IPs/CIDRs.
@@ -244,9 +245,9 @@ remains an egress-only path.
 Destination policy binds to delivery into local attachments (the `daddr`
 dispatch map only ever holds locally routed workload addresses), never to
 blanket prefix pairs, so a cross-node packet transits the sender's forward
-chain toward its tunnel unfiltered and is evaluated once, at the destination
-node, after decapsulation — same-node and cross-node paths see identical
-policy. Enforcement is stateful: an allow means "may initiate connections
+chain toward the WireGuard device unfiltered and is evaluated once, at the
+destination node, after decryption — same-node and cross-node paths see
+identical policy. Enforcement is stateful: an allow means "may initiate connections
 toward"; replies and ICMPv6 errors ride conntrack.
 
 Override policies are global first-class entities (`network_policies` table)
