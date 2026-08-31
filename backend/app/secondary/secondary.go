@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
@@ -20,7 +19,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/localinputs"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
-	"github.com/jptrs93/opsagent/backend/lib/log/logmigrate"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
 	"github.com/jptrs93/opsagent/backend/lib/netaudit"
 	"github.com/jptrs93/opsagent/backend/lib/network"
@@ -132,16 +130,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	}
 	go netproxy.RunNetStateWriter(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID), cfg.NodeIdentifier, cfg.NetproxyStatePath, runtimeInputs, acmeHolder, runtimeInputs.EnsureSecretIDs)
 	go netaudit.Run(ctx, network.Default, netaudit.DefaultInterval)
-	// TEMPORARY until logmigrate is deleted: the one-time format migration
-	// must finish before the log manager starts any collectors (temp-file
-	// sweep and commit renames would race it), but must not hold back the
-	// operator or the cluster session, so the pair runs off the boot path.
-	// Log queries report the manager as unavailable until it is published.
-	// Restore the direct StartManager call when logmigrate goes.
-	go func() {
-		logmigrate.Run(ctx, ainit.StaticConfig.LogWALDir, ainit.StaticConfig.LogArchiveDir)
-		logManager.Store(logmanager.StartManager(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID)))
-	}()
+	logManager = logmanager.StartManager(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID))
 	go runRuntimeInputRetention(ctx, store, runtimeInputs, scheduledInstancePredicateForNode(cfg.NodeID), acmeHolder)
 
 	// Boot sync gate: hold the operator until the primary's first snapshot has

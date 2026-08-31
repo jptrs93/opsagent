@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/parquet-go/parquet-go"
@@ -39,7 +40,7 @@ func TestArchiveWriterRoundTripsAllColumns(t *testing.T) {
 	}
 }
 
-func TestScanArchiveColumnsFallsBackOnFilesWithoutLevelColumn(t *testing.T) {
+func TestScanArchiveColumnsErrorsOnFilesWithMissingColumns(t *testing.T) {
 	type preLevelRow struct {
 		Time       int64  `parquet:"time"`
 		RawMessage []byte `parquet:"raw_message"`
@@ -59,19 +60,12 @@ func TestScanArchiveColumnsFallsBackOnFilesWithoutLevelColumn(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	handled, err := scanArchiveColumns(context.Background(), path, 0, columnNeeds{}, func(b *cheapBatch, n int, baseRow int64, sorted bool) bool {
+	err = scanArchiveColumns(context.Background(), path, 0, columnNeeds{}, func(b *cheapBatch, n int, baseRow int64, sorted bool) bool {
 		t.Fatal("consume called for file missing the level column")
 		return true
 	})
-	if err != nil || handled {
-		t.Fatalf("handled = %v, err = %v", handled, err)
-	}
-	got, err := parquet.ReadFile[logRow](path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].Level != "" {
-		t.Fatalf("rows = %+v", got)
+	if err == nil || !strings.Contains(err.Error(), "missing column level") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

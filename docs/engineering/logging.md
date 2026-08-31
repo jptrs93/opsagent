@@ -102,7 +102,6 @@ One tag per component boundary; PascalCase. Current tags:
 | `NetAudit` | `lib/netaudit` |
 | `AcmeIssue` | `lib/acmeissue` |
 | `LogCollector` | `lib/log/logmanager` |
-| `LogMigrate` | `lib/log/logmigrate` (`Run`) — one-time format migration, removed together with legacy-format compat |
 | `LocalInputs` | `lib/localinputs` (`Open`, tags the worker run ctx) |
 | `Store` | storage layer fallbacks where no caller ctx exists |
 

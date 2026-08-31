@@ -156,8 +156,10 @@ Shipped since: every record carries a per-(run, stream) monotonic `seq`
 stamped by the consumer's appender, making
 `(time, node, instance_ordinal, run, stream, seq)` a globally unique sort key.
 The current WAL frame uses magic `0xfd` with a leading payload format-version
-byte (so future layout changes are non-breaking); legacy `0xfe` frames (no
-seq) remain readable and report seq 0. Parquet files gained a `seq` column,
+byte (so future layout changes are non-breaking); support for the legacy
+`0xfe` frames (no seq) was removed after a one-time on-disk migration
+(`logmigrate`, shipped v0.0.543, deleted once every node reported clean —
+`0xfe` must not be reused as a magic). Parquet files gained a `seq` column,
 rows are strictly key-sorted (the commit writer detects sliding-window
 overflow disorder and resorts via a SortingWriter before rename), and sorted
 files carry a `sorted=1` key-value metadata entry that gates early-break and

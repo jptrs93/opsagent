@@ -423,46 +423,7 @@ func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apig
 			fs.mode = "capture"
 		}
 		fileStart := clock()
-		handled, scanErr := scanArchiveColumns(ctx, path, fromN, needs, ev.consume)
-		if !handled {
-			fs.mode = "full"
-			scanErr = nil
-			for row, rerr := range readArchiveRowsRange(path, fromN, tillN, func(r *logRow) int64 { return r.Time }) {
-				if rerr != nil {
-					scanErr = rerr
-					break
-				}
-				ev.rows++
-				agg.scanned++
-				v := visitRec{
-					rec:      rowToRawLogLine(row, e.deploymentID),
-					level:    row.Level,
-					msg:      row.Msg,
-					shredded: row.Level != "" || row.Msg != "" || len(row.RawMessage) == 0,
-				}
-				if v.rec.Time < fromN || v.rec.Time >= tillN {
-					continue
-				}
-				if q.configVersion > 0 && v.rec.Version != q.configVersion {
-					continue
-				}
-				ok := true
-				for fj := range q.filters {
-					if !q.filters[fj].match(&v) {
-						ok = false
-						break
-					}
-				}
-				if !ok {
-					continue
-				}
-				agg.matched++
-				agg.addBucket(v.rec.Time, levelIndex(v.levelValue()))
-				if capture {
-					ret.offer(retainedRec{rec: v.rec, level: v.level, msg: v.msg, fields: v.fields, shredded: v.shredded, fileIdx: -1})
-				}
-			}
-		}
+		scanErr := scanArchiveColumns(ctx, path, fromN, needs, ev.consume)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}

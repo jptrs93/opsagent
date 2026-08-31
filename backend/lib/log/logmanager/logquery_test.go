@@ -815,7 +815,7 @@ func TestScanArchiveColumnsDecodesLevelsAndPositions(t *testing.T) {
 	rows := 0
 	for _, f := range files {
 		filePositions := map[int64][]byte{}
-		handled, err := scanArchiveColumns(context.Background(), archiveFilePath(testDeploymentID, f), 0, columnNeeds{ints: true}, func(b *cheapBatch, n int, baseRow int64, sorted bool) bool {
+		err := scanArchiveColumns(context.Background(), archiveFilePath(testDeploymentID, f), 0, columnNeeds{ints: true}, func(b *cheapBatch, n int, baseRow int64, sorted bool) bool {
 			for i := 0; i < n; i++ {
 				rows++
 				levels[string(b.levels[i].ByteArray())]++
@@ -826,8 +826,8 @@ func TestScanArchiveColumnsDecodesLevelsAndPositions(t *testing.T) {
 			}
 			return false
 		})
-		if err != nil || !handled {
-			t.Fatalf("handled = %v, err = %v", handled, err)
+		if err != nil {
+			t.Fatal(err)
 		}
 		idxs := make([]int64, 0, len(filePositions))
 		for idx := range filePositions {

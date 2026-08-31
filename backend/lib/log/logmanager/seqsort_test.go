@@ -2,7 +2,6 @@ package logmanager
 
 import (
 	"context"
-	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,42 +13,24 @@ import (
 	"github.com/parquet-go/parquet-go"
 )
 
-func legacyRecord(t *testing.T, at string, m logv2.RecordMeta, line string) []byte {
-	t.Helper()
-	payloadLen := logv2.RecordLegacyPayloadHeaderLen + len(line)
-	rec := make([]byte, logv2.RecordOverheadLen+payloadLen)
-	rec[0] = logv2.RecordMagicLegacy
-	binary.BigEndian.PutUint32(rec[logv2.RecordMagicLen:logv2.RecordHeaderLen], uint32(payloadLen))
-	p := rec[logv2.RecordHeaderLen : logv2.RecordHeaderLen+payloadLen]
-	binary.BigEndian.PutUint64(p[0:], uint64(mustTime(t, at).UnixNano()))
-	binary.BigEndian.PutUint32(p[8:], uint32(m.Version))
-	binary.BigEndian.PutUint32(p[12:], uint32(m.Run))
-	binary.BigEndian.PutUint32(p[16:], uint32(m.Deployment))
-	binary.BigEndian.PutUint32(p[20:], uint32(m.Node))
-	binary.BigEndian.PutUint32(p[24:], uint32(m.InstanceOrdinal))
-	p[28] = byte(m.Stream)
-	copy(p[logv2.RecordLegacyPayloadHeaderLen:], line)
-	crcAt := logv2.RecordHeaderLen + payloadLen
-	binary.BigEndian.PutUint32(rec[crcAt:], logv2.PayloadCRC(p))
-	binary.BigEndian.PutUint32(rec[crcAt+logv2.RecordCRCLen:], uint32(payloadLen))
-	return rec
-}
-
-func TestParseWalRecordBothFormats(t *testing.T) {
+func TestParseWalRecordResyncsPastGarbage(t *testing.T) {
 	meta := logv2.RecordMeta{Version: 3, Run: 2, Deployment: testDeploymentID, Node: testNodeID, InstanceOrdinal: 1, Stream: logv2.StreamStderr}
-	leg := legacyRecord(t, "2026-06-15T14:30:00Z", meta, "old\n")
-	cur := logv2.EncodeRecord(mustTime(t, "2026-06-15T14:30:01Z"), meta, 7, []byte("now\n"))
-	buf := append(append([]byte{0x01}, leg...), cur...)
+	first := logv2.EncodeRecord(mustTime(t, "2026-06-15T14:30:00Z"), meta, 6, []byte("old\n"))
+	second := logv2.EncodeRecord(mustTime(t, "2026-06-15T14:30:01Z"), meta, 7, []byte("now\n"))
+	buf := append(append([]byte{0x01}, first...), second...)
 	if i := nextMagicIndex(buf); i != 1 {
 		t.Fatalf("nextMagicIndex = %d", i)
 	}
+	if _, _, status := parseWalRecord(buf); status != parseInvalid {
+		t.Fatalf("garbage prefix status = %d", status)
+	}
 	rec, size, status := parseWalRecord(buf[1:])
-	if status != parseOK || rec.Seq != 0 || string(rec.Line) != "old\n" || rec.Node != testNodeID || rec.Version != 3 {
-		t.Fatalf("legacy = %+v status %d", rec, status)
+	if status != parseOK || rec.Seq != 6 || string(rec.Line) != "old\n" || rec.Node != testNodeID || rec.Version != 3 {
+		t.Fatalf("first = %+v status %d", rec, status)
 	}
 	rec2, _, status := parseWalRecord(buf[1+size:])
 	if status != parseOK || rec2.Seq != 7 || string(rec2.Line) != "now\n" || rec2.InstanceOrdinal != 1 || rec2.Stream != 1 {
-		t.Fatalf("current = %+v status %d", rec2, status)
+		t.Fatalf("second = %+v status %d", rec2, status)
 	}
 }
 

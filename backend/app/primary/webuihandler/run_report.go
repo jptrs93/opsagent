@@ -106,12 +106,11 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 	}
 	var resp *apigen.LogQueryResponse
 	var err error
-	logManager := h.logManager.Load()
 	switch {
 	case inst.NodeID > 0 && inst.NodeID != h.NodeID && h.Cluster != nil:
 		resp, err = h.Cluster.RequestLogQuery(ctx, inst.NodeID, lq)
-	case logManager != nil:
-		resp, err = logManager.Query(ctx, lq)
+	case h.LogManager != nil:
+		resp, err = h.LogManager.Query(ctx, lq)
 	default:
 		err = fmt.Errorf("log manager is not running")
 	}

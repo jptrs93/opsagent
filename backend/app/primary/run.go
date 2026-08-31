@@ -20,7 +20,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/webui"
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
-	"github.com/jptrs93/opsagent/backend/lib/log/logmigrate"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/clientaddr"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/ratelimit"
 	"github.com/jptrs93/opsagent/backend/lib/network"
@@ -108,18 +107,9 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	clusterHandler := clusterhandler.New(primaryRuntime.store, primaryRuntime.assets, primaryRuntime.github, primaryRuntime.secrets, primaryRuntime.configService.NetworkPrefix(), networkMaps, primaryRuntime.acmeHolder, primaryRuntime.issuedTLS)
 	enrollmentHandler := enrollmenthandler.New(primaryRuntime.store, primaryRuntime.secrets, primaryRuntime.configService, enrollmentFingerprint, networkMaps)
 	webUIHandler.Cluster = clusterHandler
-	// TEMPORARY until logmigrate is deleted: the one-time format migration
-	// must finish before the log manager starts any collectors (temp-file
-	// sweep and commit renames would race it), but must not hold back the
-	// servers below, so the pair runs off the boot path. Log queries report
-	// the manager as unavailable until it is published. Restore the direct
-	// StartManager call when logmigrate goes.
-	go func() {
-		logmigrate.Run(ctx, ainit.StaticConfig.LogWALDir, ainit.StaticConfig.LogArchiveDir)
-		webUIHandler.SetLogManager(logmanager.StartManager(ctx, primaryRuntime.store, func(state apigen.ScheduledInstanceState) bool {
-			return state.Instance.NodeID == primaryNode.ID
-		}))
-	}()
+	webUIHandler.LogManager = logmanager.StartManager(ctx, primaryRuntime.store, func(state apigen.ScheduledInstanceState) bool {
+		return state.Instance.NodeID == primaryNode.ID
+	})
 	webUIHandler.Enrollment = enrollmentHandler
 	enrollmentMiddlewares := []apigen.MiddlewareFunc{
 		ratelimit.PerIP(rate.Limit(0.2), 5, time.Minute),

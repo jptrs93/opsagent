@@ -10,14 +10,13 @@ const (
 	StreamStdout int8 = 0
 	StreamStderr int8 = 1
 
-	// Record magics are never a valid byte in well formed utf-8, in any
-	// position. Log lines are arbitrary bytes though, so they are a resync hint
+	// RecordMagic is never a valid byte in well formed utf-8, in any
+	// position. Log lines are arbitrary bytes though, so it is a resync hint
 	// only: a candidate is confirmed by the length range, the crc and the
-	// trailer. RecordMagicLegacy frames the original layout (no format byte, no
-	// seq); RecordMagic frames the current layout, whose payload leads with a
-	// format version byte so future layout changes do not need another magic.
-	RecordMagicLegacy byte = 0xfe
-	RecordMagic       byte = 0xfd
+	// trailer. The payload leads with a format version byte so future layout
+	// changes do not need another magic. (0xfe framed a pre-seq legacy layout,
+	// retired after the one-time logmigrate pass; do not reuse it.)
+	RecordMagic byte = 0xfd
 
 	RecordFormatVersion byte = 1
 
@@ -36,11 +35,10 @@ const (
 	payloadStreamOff     = payloadOrdinalOff + 4
 	payloadSeqOff        = payloadStreamOff + 1
 
-	RecordPayloadHeaderLen       = payloadSeqOff + 8
-	RecordLegacyPayloadHeaderLen = RecordPayloadHeaderLen - 8 - 1
+	RecordPayloadHeaderLen = payloadSeqOff + 8
 
 	RecordOverheadLen   = RecordHeaderLen + RecordCRCLen + RecordLengthLen
-	RecordMinLen        = RecordOverheadLen + RecordLegacyPayloadHeaderLen
+	RecordMinLen        = RecordOverheadLen + RecordPayloadHeaderLen
 	MaxLineLen          = 64 * 1024
 	RecordMaxPayloadLen = RecordPayloadHeaderLen + MaxLineLen
 	RecordMaxLen        = RecordOverheadLen + RecordMaxPayloadLen
@@ -97,28 +95,6 @@ func DecodePayloadHeader(payload []byte) (int64, int64, RecordMeta) {
 			InstanceOrdinal: int32(binary.BigEndian.Uint32(payload[payloadOrdinalOff:])),
 			Stream:          int8(payload[payloadStreamOff]),
 		}
-}
-
-// DecodeLegacyPayloadHeader reads the fixed header of a RecordMagicLegacy
-// payload (no format byte, no seq). Legacy records report seq 0.
-func DecodeLegacyPayloadHeader(payload []byte) (int64, RecordMeta) {
-	const (
-		timeOff       = 0
-		versionOff    = 8
-		runOff        = 12
-		deploymentOff = 16
-		nodeOff       = 20
-		ordinalOff    = 24
-		streamOff     = 28
-	)
-	return int64(binary.BigEndian.Uint64(payload[timeOff:])), RecordMeta{
-		Version:         int32(binary.BigEndian.Uint32(payload[versionOff:])),
-		Run:             int32(binary.BigEndian.Uint32(payload[runOff:])),
-		Deployment:      int32(binary.BigEndian.Uint32(payload[deploymentOff:])),
-		Node:            int32(binary.BigEndian.Uint32(payload[nodeOff:])),
-		InstanceOrdinal: int32(binary.BigEndian.Uint32(payload[ordinalOff:])),
-		Stream:          int8(payload[streamOff]),
-	}
 }
 
 func PayloadCRC(payload []byte) uint32 {

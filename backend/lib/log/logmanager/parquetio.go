@@ -295,36 +295,38 @@ type cheapCols struct {
 	seq                                  int
 }
 
-func scanArchiveColumns(ctx context.Context, path string, fromN int64, needs columnNeeds, consume func(b *cheapBatch, n int, baseRow int64, sorted bool) bool) (handled bool, err error) {
+func scanArchiveColumns(ctx context.Context, path string, fromN int64, needs columnNeeds, consume func(b *cheapBatch, n int, baseRow int64, sorted bool) bool) error {
 	f, err := os.Open(path)
 	if err != nil {
-		return true, err
+		return err
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
-		return true, err
+		return err
 	}
 	pf, err := parquet.OpenFile(f, st.Size())
 	if err != nil {
-		return true, err
+		return err
 	}
 	schema := pf.Schema()
-	lookup := func(name string) (int, bool) {
+	lookup := func(name string) (int, error) {
 		c, ok := schema.Lookup(name)
-		return c.ColumnIndex, ok
+		if !ok {
+			return 0, fmt.Errorf("missing column %s", name)
+		}
+		return c.ColumnIndex, nil
 	}
 	var cols cheapCols
-	var ok bool
-	if cols.time, ok = lookup("time"); !ok {
-		return false, nil
+	if cols.time, err = lookup("time"); err != nil {
+		return err
 	}
-	if cols.level, ok = lookup("level"); !ok {
-		return false, nil
+	if cols.level, err = lookup("level"); err != nil {
+		return err
 	}
 	if needs.msg {
-		if cols.msg, ok = lookup("msg"); !ok {
-			return false, nil
+		if cols.msg, err = lookup("msg"); err != nil {
+			return err
 		}
 	}
 	if needs.ints {
@@ -335,8 +337,8 @@ func scanArchiveColumns(ctx context.Context, path string, fromN int64, needs col
 			{"version", &cols.version}, {"node", &cols.node}, {"instance_ordinal", &cols.instance},
 			{"run", &cols.run}, {"stream", &cols.stream}, {"seq", &cols.seq},
 		} {
-			if *c.dst, ok = lookup(c.name); !ok {
-				return false, nil
+			if *c.dst, err = lookup(c.name); err != nil {
+				return err
 			}
 		}
 	}
@@ -365,18 +367,18 @@ func scanArchiveColumns(ctx context.Context, path string, fromN int64, needs col
 			continue
 		}
 		if ctx.Err() != nil {
-			return true, ctx.Err()
+			return ctx.Err()
 		}
 		done, err := scanColumnsRowGroup(rg, cols, needs, base, sorted, b, consume)
 		if err != nil {
-			return true, err
+			return err
 		}
 		if done {
-			return true, nil
+			return nil
 		}
 		base += nrows
 	}
-	return true, nil
+	return nil
 }
 
 func scanColumnsRowGroup(rg parquet.RowGroup, cols cheapCols, needs columnNeeds, base int64, sorted bool, b *cheapBatch, consume func(b *cheapBatch, n int, baseRow int64, sorted bool) bool) (bool, error) {
