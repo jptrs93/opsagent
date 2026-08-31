@@ -38,8 +38,8 @@ func TestSystemLogWriterWritesMergedBinaryRecords(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 
-	assertWalRecords(t, filepath.Join(base, "0", "20260615_1400.wal"), []binaryRecord{{time: first.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "first\n"}})
-	assertWalRecords(t, filepath.Join(base, "0", "20260615_1430.wal"), []binaryRecord{{time: second.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "second\n"}})
+	assertWalRecords(t, filepath.Join(base, "0", "20260615_1400.wal"), []binaryRecord{{time: first.UnixNano(), version: 0, run: 1, stream: logv2.StreamStdout, line: "first\n"}})
+	assertWalRecords(t, filepath.Join(base, "0", "20260615_1430.wal"), []binaryRecord{{time: second.UnixNano(), version: 0, run: 1, stream: logv2.StreamStdout, line: "second\n"}})
 }
 
 func TestSystemLogWriterCombinesPartialWrites(t *testing.T) {
@@ -59,7 +59,7 @@ func TestSystemLogWriterCombinesPartialWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertWalRecords(t, filepath.Join(base, "0", "20260615_1430.wal"), []binaryRecord{{time: now.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "line ends\n"}})
+	assertWalRecords(t, filepath.Join(base, "0", "20260615_1430.wal"), []binaryRecord{{time: now.UnixNano(), version: 0, run: 1, stream: logv2.StreamStdout, line: "line ends\n"}})
 }
 
 func TestSystemLogWriterFlushesPartialLineOnClose(t *testing.T) {
@@ -76,39 +76,7 @@ func TestSystemLogWriterFlushesPartialLineOnClose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertWalRecords(t, filepath.Join(base, "0", "20260615_1430.wal"), []binaryRecord{{time: now.UnixNano(), version: 0, run: 1, stream: BinaryStreamStdout, line: "partial"}})
-}
-
-func TestLogBucketRoundsToHalfHourUTC(t *testing.T) {
-	tests := map[string]string{
-		"2026-06-15T14:00:00Z":      "20260615_1400",
-		"2026-06-15T14:29:59Z":      "20260615_1400",
-		"2026-06-15T14:30:00Z":      "20260615_1430",
-		"2026-06-15T14:59:59Z":      "20260615_1430",
-		"2026-06-15T14:45:00+02:00": "20260615_1230",
-	}
-	for input, want := range tests {
-		tm, err := time.Parse(time.RFC3339, input)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := logBucket(tm).Format("20060102_1504"); got != want {
-			t.Fatalf("logBucket(%s) = %q, want %q", input, got, want)
-		}
-	}
-}
-
-func TestFileModeForDir(t *testing.T) {
-	tests := map[os.FileMode]os.FileMode{
-		0o750: 0o640,
-		0o770: 0o660,
-		0o700: 0o600,
-	}
-	for dirMode, want := range tests {
-		if got := fileModeForDir(dirMode); got != want {
-			t.Fatalf("fileModeForDir(%o) = %o, want %o", dirMode, got, want)
-		}
-	}
+	assertWalRecords(t, filepath.Join(base, "0", "20260615_1430.wal"), []binaryRecord{{time: now.UnixNano(), version: 0, run: 1, stream: logv2.StreamStdout, line: "partial"}})
 }
 
 type binaryRecord struct {

@@ -14,7 +14,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/containerd/errdefs"
 	"github.com/jptrs93/opsagent/backend/ainit"
-	logconsumer "github.com/jptrs93/opsagent/backend/app/logconsumer/v2"
+	"github.com/jptrs93/opsagent/backend/app/logconsumer"
 	"github.com/opencontainers/runtime-spec/specs-go"
 )
 

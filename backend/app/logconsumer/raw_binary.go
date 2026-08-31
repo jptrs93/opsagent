@@ -10,38 +10,48 @@ import (
 	"io"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/containerd/containerd/v2/core/runtime/v2/logging"
 	"github.com/jptrs93/opsagent/backend/ainit"
-	"github.com/jptrs93/opsagent/backend/lib/log"
+	logv2 "github.com/jptrs93/opsagent/backend/lib/log/v2"
 )
 
 const (
-	logOutputQueueSize = 5_000
-	maxLineLen         = 64 * 1024
-	// The shim SIGKILLs the logger 12s after SIGTERM; stay well inside that.
+	maxLineLen         = logv2.MaxLineLen
+	lineReadBufLen     = maxLineLen - utf8.UTFMax + 1
 	shutdownDrainGrace = 2 * time.Second
 )
 
-type rawBinaryConfig struct {
-	DeploymentDir string `json:"deployment_dir"`
-	Version       int32  `json:"version"`
-	Run           int32  `json:"run"`
+// RawBinaryConfig is everything the logger needs to stamp records without
+// consulting anything else at runtime; it is handed to the consumer process as
+// a json argv element.
+type RawBinaryConfig struct {
+	DeploymentDir   string `json:"deployment_dir"`
+	Version         int32  `json:"version"`
+	Run             int32  `json:"run"`
+	Deployment      int32  `json:"deployment"`
+	Node            int32  `json:"node"`
+	InstanceOrdinal int32  `json:"instance_ordinal"`
 }
 
-func RawBinaryConfigArg(deploymentDir string, version int32, run int32) (string, error) {
-	cfg := rawBinaryConfig{DeploymentDir: deploymentDir, Version: version, Run: run}
+func (c RawBinaryConfig) recordMeta(stream int8) logv2.RecordMeta {
+	return logv2.RecordMeta{
+		Version:         c.Version,
+		Run:             c.Run,
+		Deployment:      c.Deployment,
+		Node:            c.Node,
+		InstanceOrdinal: c.InstanceOrdinal,
+		Stream:          stream,
+	}
+}
+
+func RawBinaryConfigArg(cfg RawBinaryConfig) (string, error) {
 	b, err := json.Marshal(cfg)
 	if err != nil {
 		return "", err
 	}
 	return string(b), nil
-}
-
-type rawBinaryLogLine struct {
-	t      time.Time
-	stream int8
-	line   []byte
 }
 
 func RunRawBinaryProcess(args []string) error {
@@ -57,96 +67,83 @@ func RunRawBinaryProcess(args []string) error {
 	return nil
 }
 
-func runRawBinaryLogger(rawCfg rawBinaryConfig) {
+func runRawBinaryLogger(rawCfg RawBinaryConfig) {
 	logging.Run(func(ctx context.Context, cfg *logging.Config, ready func() error) error {
-		writer, err := log.NewBinaryWriter(rawCfg.DeploymentDir, rawCfg.Version, rawCfg.Run)
+		stdout, err := logv2.NewAppender(rawCfg.DeploymentDir, rawCfg.recordMeta(logv2.StreamStdout))
 		if err != nil {
 			return err
 		}
-		defer writer.Close()
+		defer stdout.Close()
+		stderr, err := logv2.NewAppender(rawCfg.DeploymentDir, rawCfg.recordMeta(logv2.StreamStderr))
+		if err != nil {
+			return err
+		}
+		defer stderr.Close()
 
-		outlines := make(chan rawBinaryLogLine, logOutputQueueSize)
-		readersDone := make(chan struct{})
-		var wg sync.WaitGroup
-		var stdoutErr error
-		var stderrErr error
 		closeInputs := sync.OnceFunc(func() {
 			closeReader(cfg.Stdout)
 			closeReader(cfg.Stderr)
 		})
-
+		done := make(chan struct{})
+		var wg sync.WaitGroup
+		var stdoutErr error
+		var stderrErr error
 		wg.Go(func() {
-			stdoutErr = processRawBinaryLinesWithClock(cfg.Stdout, log.BinaryStreamStdout, outlines, time.Now)
+			stdoutErr = consumeStream(cfg.Stdout, stdout.Append, time.Now)
 		})
 		wg.Go(func() {
-			stderrErr = processRawBinaryLinesWithClock(cfg.Stderr, log.BinaryStreamStderr, outlines, time.Now)
+			stderrErr = consumeStream(cfg.Stderr, stderr.Append, time.Now)
 		})
-
-		go func() {
-			wg.Wait()
-			close(readersDone)
-			close(outlines)
-		}()
-
-		// SIGTERM (ctx.Done) races the EOF from the shim closing its pipe
-		// write ends; let the readers drain to EOF before force-closing so
-		// the tail of the container's output is not dropped.
 		go func() {
 			<-ctx.Done()
 			select {
-			case <-readersDone:
+			case <-done:
 			case <-time.After(shutdownDrainGrace):
 				closeInputs()
 			}
 		}()
 
-		if err := ready(); err != nil {
+		readyErr := ready()
+		if readyErr != nil {
 			closeInputs()
-			for range outlines {
-			}
-			return err
 		}
-
-		var writeErr error
-		for line := range outlines {
-			if writeErr != nil {
-				continue
-			}
-			if err := writer.WriteLineAt(line.t, line.stream, line.line); err != nil {
-				writeErr = err
-				closeInputs()
-			}
+		wg.Wait()
+		close(done)
+		if readyErr != nil {
+			return readyErr
 		}
-
-		if ctx.Err() != nil && writeErr == nil {
+		if ctx.Err() != nil {
 			return nil
 		}
-		var errs []error
-		if writeErr != nil {
-			errs = append(errs, writeErr)
-		}
-		if stdoutErr != nil && ctx.Err() == nil {
-			errs = append(errs, stdoutErr)
-		}
-		if stderrErr != nil && ctx.Err() == nil {
-			errs = append(errs, stderrErr)
-		}
-		return errors.Join(errs...)
+		return errors.Join(stdoutErr, stderrErr)
 	})
 }
 
-// Lines longer than maxLineLen are split into maxLineLen records, bounding
-// logger memory regardless of what the workload writes.
-func processRawBinaryLinesWithClock(r io.Reader, stream int8, ch chan<- rawBinaryLogLine, now func() time.Time) error {
-	br := bufio.NewReaderSize(r, maxLineLen)
+func consumeStream(r io.Reader, sink func(time.Time, []byte), now func() time.Time) error {
+	br := bufio.NewReaderSize(r, lineReadBufLen)
+	var carry []byte
 	for {
 		line, err := br.ReadSlice('\n')
-		if len(line) > 0 {
-			ch <- rawBinaryLogLine{t: now().UTC(), stream: stream, line: bytes.Clone(line)}
+		chunk := line
+		if len(carry) > 0 {
+			chunk = append(carry, line...)
+			carry = nil
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			if kept := trimPartialRune(chunk); len(kept) < len(chunk) {
+				carry = bytes.Clone(chunk[len(kept):])
+				chunk = kept
+			}
+		}
+		if len(chunk) > 0 {
+			sink(now().UTC(), chunk)
 		}
 		switch {
 		case err == nil, errors.Is(err, bufio.ErrBufferFull):
 		case errors.Is(err, io.EOF):
+			if len(carry) > 0 {
+				sink(now().UTC(), carry)
+			}
 			return nil
 		default:
 			return err
@@ -154,13 +151,26 @@ func processRawBinaryLinesWithClock(r io.Reader, stream int8, ch chan<- rawBinar
 	}
 }
 
-func parseRawBinaryConfigArg(arg string) (rawBinaryConfig, error) {
-	var cfg rawBinaryConfig
+func trimPartialRune(b []byte) []byte {
+	for i := len(b) - 1; i >= 0 && i >= len(b)-utf8.UTFMax; i-- {
+		if !utf8.RuneStart(b[i]) {
+			continue
+		}
+		if utf8.FullRune(b[i:]) {
+			return b
+		}
+		return b[:i]
+	}
+	return b
+}
+
+func parseRawBinaryConfigArg(arg string) (RawBinaryConfig, error) {
+	var cfg RawBinaryConfig
 	if err := json.Unmarshal([]byte(arg), &cfg); err != nil {
-		return rawBinaryConfig{}, fmt.Errorf("parsing raw binary log config: %w", err)
+		return RawBinaryConfig{}, fmt.Errorf("parsing raw binary log config: %w", err)
 	}
 	if cfg.DeploymentDir == "" {
-		return rawBinaryConfig{}, fmt.Errorf("raw binary log config deployment_dir is empty")
+		return RawBinaryConfig{}, fmt.Errorf("raw binary log config deployment_dir is empty")
 	}
 	return cfg, nil
 }

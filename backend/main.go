@@ -12,7 +12,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/app/installer"
-	logconsumer "github.com/jptrs93/opsagent/backend/app/logconsumer/v2"
+	"github.com/jptrs93/opsagent/backend/app/logconsumer"
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
 	"github.com/jptrs93/opsagent/backend/app/primary"
 	"github.com/jptrs93/opsagent/backend/app/primary/backup"
