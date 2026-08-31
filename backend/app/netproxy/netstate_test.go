@@ -98,7 +98,7 @@ func TestRunNetStateWriterProcessesUpdateQueuedWithInitialSnapshot(t *testing.T)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		RunNetStateWriter(ctx, store, nil, "node-a", path, nil, nil, nil)
+		RunNetStateWriter(ctx, store, nil, "node-a", path, nil, nil, nil, nil)
 		close(done)
 	}()
 
@@ -168,7 +168,7 @@ func TestRunNetStateWriterSkipsRewriteWhenContentUnchanged(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		RunNetStateWriter(ctx, store, nil, "node-a", path, nil, nil, nil)
+		RunNetStateWriter(ctx, store, nil, "node-a", path, nil, nil, nil, nil)
 		close(done)
 	}()
 
@@ -220,7 +220,7 @@ func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 		Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{
 			Status: apigen.RunningStatus_RUNNING,
 		}},
-	}}, nil)
+	}}, nil, nil)
 
 	backendAddr, err := prefix.InboundAddr(1, 42, 0)
 	if err != nil {
@@ -244,11 +244,11 @@ func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 	}
 }
 
-// TestRenderNetStateDerivesEndpointsFromPlacement covers the removal of the
-// reported endpoint set. A placement's address is a pure function of its space,
-// deployment, and ordinal, so the only thing status still decides is whether the
-// endpoint is published at all — and only the serving placement that is actually
-// running may be.
+// TestRenderNetStateDerivesEndpointsFromPlacement covers the target-state-only
+// endpoint rule. A placement's address is a pure function of its space,
+// deployment, and ordinal, and it is published exactly when the placement is
+// target-serving — runner status is not an input, so a crashed workload keeps
+// its record.
 func TestRenderNetStateDerivesEndpointsFromPlacement(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	previousNetwork := network.Default
@@ -275,7 +275,7 @@ func TestRenderNetStateDerivesEndpointsFromPlacement(t *testing.T) {
 
 	serving := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{
 		item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_RUNNING),
-	}, nil)
+	}, nil, nil)
 	if len(serving.DnsServices) != 1 || len(serving.DnsServices[0].Endpoints) != 1 {
 		t.Fatalf("dns services = %+v, want one endpoint", serving.DnsServices)
 	}
@@ -283,24 +283,34 @@ func TestRenderNetStateDerivesEndpointsFromPlacement(t *testing.T) {
 		t.Fatalf("endpoint address = %s, want derived %s", got, want)
 	}
 
-	// A placement that is not serving-and-running keeps its DNS name — the DNS
-	// server answers authoritatively for a service that exists but is down
-	// instead of leaking the lookup upstream — but publishes no endpoint, since
-	// its address does not route to this node yet.
-	for name, down := range map[string]apigen.ScheduledInstanceState{
-		"standby":  item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY, apigen.RunningStatus_RUNNING),
-		"draining": item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING, apigen.RunningStatus_RUNNING),
+	// A serving placement publishes its endpoint regardless of runner status;
+	// crashing does not change the record.
+	for name, up := range map[string]apigen.ScheduledInstanceState{
 		"crashed":  item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_CRASHED),
 		"starting": item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_STARTING),
 	} {
-		got := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{down}, nil)
+		got := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{up}, nil, nil)
+		if len(got.DnsServices) != 1 || len(got.DnsServices[0].Endpoints) != 1 {
+			t.Errorf("%s: dns services = %+v, want the service with one endpoint", name, got.DnsServices)
+		}
+	}
+
+	// A placement that is not target-serving keeps its DNS name — the DNS
+	// server answers authoritatively for a service that exists but has no
+	// established ordinal instead of leaking the lookup upstream — but
+	// publishes no endpoint, since its address does not route yet.
+	for name, down := range map[string]apigen.ScheduledInstanceState{
+		"standby":  item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY, apigen.RunningStatus_RUNNING),
+		"draining": item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING, apigen.RunningStatus_RUNNING),
+	} {
+		got := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{down}, nil, nil)
 		if len(got.DnsServices) != 1 || len(got.DnsServices[0].Endpoints) != 0 {
 			t.Errorf("%s: dns services = %+v, want the service with no endpoints", name, got.DnsServices)
 		}
 	}
 }
 
-func TestRenderNetStateStandbyTakeoverContributesEndpoint(t *testing.T) {
+func TestRenderNetStateEndpointFollowsServingPlacement(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	previousNetwork := network.Default
 	network.SetDefault(network.New(prefix, 99))
@@ -342,24 +352,32 @@ func TestRenderNetStateStandbyTakeoverContributesEndpoint(t *testing.T) {
 			items:         []apigen.ScheduledInstanceState{item(6, standby, apigen.RunningStatus_RUNNING), item(5, serving, apigen.RunningStatus_RUNNING)},
 			wantEndpoints: 1,
 		},
-		"draining with ready standby": {
-			items:         []apigen.ScheduledInstanceState{item(5, draining, apigen.RunningStatus_RUNNING), item(6, standby, apigen.RunningStatus_RUNNING)},
-			wantEndpoints: 1,
-		},
 		"serving with warming standby": {
 			items:         []apigen.ScheduledInstanceState{item(6, standby, apigen.RunningStatus_STARTING), item(5, serving, apigen.RunningStatus_RUNNING)},
+			wantEndpoints: 1,
+		},
+		"crashed serving": {
+			items:         []apigen.ScheduledInstanceState{item(5, serving, apigen.RunningStatus_CRASHED)},
 			wantEndpoints: 1,
 		},
 		"lone ready standby": {
 			items:         []apigen.ScheduledInstanceState{item(6, standby, apigen.RunningStatus_RUNNING)},
 			wantEndpoints: 0,
 		},
-		"draining with warming standby": {
-			items:         []apigen.ScheduledInstanceState{item(5, draining, apigen.RunningStatus_RUNNING), item(6, standby, apigen.RunningStatus_STARTING)},
+		"lone draining": {
+			items:         []apigen.ScheduledInstanceState{item(5, draining, apigen.RunningStatus_RUNNING)},
 			wantEndpoints: 0,
 		},
+		"draining with ready standby": {
+			items:         []apigen.ScheduledInstanceState{item(5, draining, apigen.RunningStatus_RUNNING), item(6, standby, apigen.RunningStatus_RUNNING)},
+			wantEndpoints: 1,
+		},
+		"draining with warming standby": {
+			items:         []apigen.ScheduledInstanceState{item(5, draining, apigen.RunningStatus_RUNNING), item(6, standby, apigen.RunningStatus_STARTING)},
+			wantEndpoints: 1,
+		},
 	} {
-		state := RenderNetState(1, "node-a", tc.items, nil)
+		state := RenderNetState(1, "node-a", tc.items, nil, nil)
 		if len(state.DnsServices) != 1 {
 			t.Fatalf("%s: dns services = %+v, want exactly one merged service", name, state.DnsServices)
 		}
@@ -382,6 +400,83 @@ func TestRenderNetStateStandbyTakeoverContributesEndpoint(t *testing.T) {
 		if tc.wantEndpoints == 1 && (backends[0].Address != want.String() || backends[0].Port != 8080) {
 			t.Errorf("%s: backend = %+v, want %s:8080", name, backends[0], want)
 		}
+	}
+}
+
+func TestRenderNetStateUsesClusterMapCatalog(t *testing.T) {
+	prefix := network.GeneratePrefix()
+	previousNetwork := network.Default
+	network.SetDefault(network.New(prefix, 99))
+	t.Cleanup(func() { network.SetDefault(previousNetwork) })
+
+	local := apigen.ScheduledInstanceState{
+		Instance: apigen.ScheduledInstance{ID: 6, DeploymentID: 43, NodeID: 1, State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY},
+		Config: apigen.Deployment{
+			ID:      43,
+			SpaceID: 1, Name: "webapp",
+			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
+				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+				Ingress: []*apigen.Ingress{{
+					Kind:        apigen.IngressKind_INGRESS_KIND_HTTPS,
+					Hostname:    "app.example.com",
+					HttpsConfig: &apigen.HttpsConfig{ContainerPort: 8080},
+				}},
+			}},
+		},
+	}
+	clusterMap := &apigen.ClusterNetMap{DnsServices: []*apigen.ClusterNetMapService{
+		{Name: "database", SpaceID: 1, DeploymentID: 42, Ordinals: []*apigen.ClusterNetMapServiceOrdinal{{Ordinal: 0}}},
+		{Name: "webapp", SpaceID: 1, DeploymentID: 43, Ordinals: []*apigen.ClusterNetMapServiceOrdinal{{Ordinal: 0}}},
+	}}
+	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{local}, nil, clusterMap)
+
+	databaseAddr, err := prefix.InboundAddr(1, 42, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	webappAddr, err := prefix.InboundAddr(1, 43, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.DnsServices) != 2 {
+		t.Fatalf("dns services = %+v, want the full cluster catalog", state.DnsServices)
+	}
+	byName := map[string]*apigen.DnsService{}
+	for _, svc := range state.DnsServices {
+		byName[svc.Name] = svc
+	}
+	remote := byName["database"]
+	if remote == nil || len(remote.Endpoints) != 1 || remote.Endpoints[0].Address != databaseAddr.String() {
+		t.Fatalf("remote service = %+v, want endpoint %s", remote, databaseAddr)
+	}
+	if len(state.Ingress) != 1 {
+		t.Fatalf("ingress = %+v, want the locally configured route", state.Ingress)
+	}
+	backends := state.Ingress[0].Https.Backends
+	if len(backends) != 1 || backends[0].Address != webappAddr.String() || backends[0].Port != 8080 {
+		t.Fatalf("backends = %+v, want catalog-derived %s:8080", backends, webappAddr)
+	}
+}
+
+func TestRenderNetStateFallsBackWithoutCatalog(t *testing.T) {
+	prefix := network.GeneratePrefix()
+	previousNetwork := network.Default
+	network.SetDefault(network.New(prefix, 99))
+	t.Cleanup(func() { network.SetDefault(previousNetwork) })
+
+	local := apigen.ScheduledInstanceState{
+		Instance: apigen.ScheduledInstance{ID: 5, DeploymentID: 42, NodeID: 1, State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING},
+		Config: apigen.Deployment{
+			ID:      42,
+			SpaceID: 1, Name: "database",
+			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
+				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+			}},
+		},
+	}
+	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{local}, nil, &apigen.ClusterNetMap{})
+	if len(state.DnsServices) != 1 || len(state.DnsServices[0].Endpoints) != 1 {
+		t.Fatalf("dns services = %+v, want the locally derived service", state.DnsServices)
 	}
 }
 
@@ -418,8 +513,8 @@ func TestRenderNetStateIsDeterministicAcrossItemOrder(t *testing.T) {
 	b := item(6, 42, "alpha", standby)
 	c := item(7, 43, "beta", serving)
 
-	first := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{a, b, c}, nil).Encode()
-	second := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{c, b, a}, nil).Encode()
+	first := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{a, b, c}, nil, nil).Encode()
+	second := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{c, b, a}, nil, nil).Encode()
 	if !slices.Equal(first, second) {
 		t.Fatal("rendered netstate bytes depend on snapshot item order")
 	}
@@ -440,7 +535,7 @@ func TestRenderNetStateKeepsIngressWithoutReadyBackend(t *testing.T) {
 				}},
 			}},
 		},
-	}}, nil)
+	}}, nil, nil)
 
 	if got := len(state.Ingress); got != 1 {
 		t.Fatalf("ingress count = %d, want 1", got)
@@ -463,7 +558,7 @@ func TestRenderNetStateOmitsIngressOnDNSPort(t *testing.T) {
 				},
 			}},
 		}}},
-	}}, nil)
+	}}, nil, nil)
 
 	if len(state.Ingress) != 0 {
 		t.Fatalf("ingress = %+v, want DNS port route omitted", state.Ingress)

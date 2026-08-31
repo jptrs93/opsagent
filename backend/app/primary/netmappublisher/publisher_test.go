@@ -87,6 +87,61 @@ func TestPublisherStampsAndCoalescesLatestMap(t *testing.T) {
 	}
 }
 
+func TestRenderDnsCatalog(t *testing.T) {
+	prefix := network.GeneratePrefix()
+	nodes := []*state.Node{
+		{ID: 1, Addresses: []string{"192.0.2.1"}, WGPublicKey: testWGKeyA},
+		{ID: 2, Addresses: []string{"192.0.2.2"}, WGPublicKey: testWGKeyB},
+	}
+
+	serving := servingInstance(100, 10, 2, 3)
+	serving.Config.Name = "database"
+	standbyOnly := servingInstance(101, 11, 1, 3)
+	standbyOnly.Config.Name = "webapp"
+	standbyOnly.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
+	promotingOld := servingInstance(104, 14, 1, 3)
+	promotingOld.Config.Name = "promoting"
+	promotingOld.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING
+	promotingNew := servingInstance(105, 14, 1, 3)
+	promotingNew.Config.Name = "promoting"
+	promotingNew.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
+	hostMode := servingInstance(102, 12, 1, 3)
+	hostMode.Config.Name = "hosty"
+	hostMode.Config.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
+	unnamed := servingInstance(103, 13, 1, 3)
+
+	got, err := renderNI(prefix, nodes, []apigen.ScheduledInstanceState{
+		unnamed, hostMode, standbyOnly, serving, promotingOld, promotingNew,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.DnsServices) != 4 {
+		t.Fatalf("dns services = %+v, want database, webapp, promoting, and the fallback-labelled deployment", got.DnsServices)
+	}
+	byName := map[string]*apigen.ClusterNetMapService{}
+	for _, svc := range got.DnsServices {
+		byName[svc.Name] = svc
+	}
+	promoting := byName["promoting"]
+	if promoting == nil || len(promoting.Ordinals) != 1 || promoting.Ordinals[0].Ordinal != 0 {
+		t.Fatalf("promoting service = %+v, want the ordinal held established by its standby+draining pair", promoting)
+	}
+	if fallback := byName["deployment"]; fallback == nil || fallback.DeploymentID != 13 {
+		t.Fatalf("fallback-labelled service = %+v, want the unnamed deployment", fallback)
+	}
+	database := byName["database"]
+	if database == nil || database.SpaceID != 3 || database.DeploymentID != 10 {
+		t.Fatalf("database service = %+v", database)
+	}
+	if len(database.Ordinals) != 1 || database.Ordinals[0].Ordinal != 0 {
+		t.Fatalf("database ordinals = %+v, want ordinal 0", database.Ordinals)
+	}
+	if webapp := byName["webapp"]; webapp == nil || len(webapp.Ordinals) != 0 {
+		t.Fatalf("webapp service = %+v, want no established ordinals", webapp)
+	}
+}
+
 func TestRenderIsDeterministic(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	nodesA := []*state.Node{

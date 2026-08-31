@@ -124,9 +124,9 @@ func (s *dnsServer) handle(w dns.ResponseWriter, r *dns.Msg) {
 	_ = w.WriteMsg(res)
 }
 
-// lookupAAAA resolves name against the local catalog. known reports whether
-// the name belongs to a catalogued service on this node — for those the server
-// is authoritative even with no live endpoints, answering empty NOERROR
+// lookupAAAA resolves name against the catalog. known reports whether the
+// name belongs to a catalogued service — for those the server is
+// authoritative even with no established endpoints, answering empty NOERROR
 // instead of leaking the query upstream.
 func (s *dnsServer) lookupAAAA(name string) (answers []string, known bool) {
 	state := s.state.Load()

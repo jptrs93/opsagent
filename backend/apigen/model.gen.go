@@ -1317,12 +1317,24 @@ type ClusterNetworkInfo struct {
 }
 
 type ClusterNetMap struct {
-	TargetNodeID   int32                 `json:"target_node_id"`
-	UlaPrefix      []byte                `json:"ula_prefix"`
-	Nodes          []*ClusterNetMapNode  `json:"nodes,omitempty"`
-	Routes         []*ClusterNetMapRoute `json:"routes,omitempty"`
-	DerivedFromSeq int64                 `json:"derived_from_seq"`
-	PolicyRules    []*NetPolicyRule      `json:"policy_rules,omitempty"`
+	TargetNodeID   int32                   `json:"target_node_id"`
+	UlaPrefix      []byte                  `json:"ula_prefix"`
+	Nodes          []*ClusterNetMapNode    `json:"nodes,omitempty"`
+	Routes         []*ClusterNetMapRoute   `json:"routes,omitempty"`
+	DerivedFromSeq int64                   `json:"derived_from_seq"`
+	PolicyRules    []*NetPolicyRule        `json:"policy_rules,omitempty"`
+	DnsServices    []*ClusterNetMapService `json:"dns_services,omitempty"`
+}
+
+type ClusterNetMapService struct {
+	Name         string                         `json:"name,omitempty"`
+	SpaceID      int32                          `json:"space_id"`
+	DeploymentID int32                          `json:"deployment_id"`
+	Ordinals     []*ClusterNetMapServiceOrdinal `json:"ordinals,omitempty"`
+}
+
+type ClusterNetMapServiceOrdinal struct {
+	Ordinal int32 `json:"ordinal"`
 }
 
 type NetPolicyRule struct {
@@ -1385,7 +1397,6 @@ type Endpoint struct {
 	Ordinal int32         `json:"ordinal"`
 	Address string        `json:"address,omitempty"`
 	State   EndpointState `json:"state"`
-	NodeID  int32         `json:"node_id"`
 }
 
 type NetIngress struct {

@@ -34,12 +34,22 @@ type CertSecretResolverFunc func(id int32) (string, bool)
 
 func (f CertSecretResolverFunc) ResolveSecret(id int32) (string, bool) { return f(id) }
 
+type ClusterNetMapSource interface {
+	SnapshotAndSubscribe() (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func())
+}
+
+type ClusterNetMapSourceFunc func() (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func())
+
+func (f ClusterNetMapSourceFunc) SnapshotAndSubscribe() (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func()) {
+	return f()
+}
+
 // RunNetStateWriter writes full protobuf netstate snapshots for the local
 // netproxy process. It is intentionally full-state and idempotent. Each output
 // file carries its own sequence and is rewritten only when its rendered
 // content changed; the first write after startup is unconditional so the
 // ingress port forwarding is reconciled from an unknown machine state.
-func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predicate storage.ScheduledInstancePredicate, nodeIdentifier, path string, certs CertSecretResolver, acme *acmestate.Holder, ensureSecrets func(context.Context, []int32) error) {
+func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predicate storage.ScheduledInstancePredicate, nodeIdentifier, path string, certs CertSecretResolver, acme *acmestate.Holder, netMaps ClusterNetMapSource, ensureSecrets func(context.Context, []int32) error) {
 	ctx = logu.AddTag(ctx, "NetStateWriter")
 	bundlePath := filepath.Join(filepath.Dir(path), CertBundleFileName)
 	netSeq := initialArtifactSequence(ctx, path, func(b []byte) (int64, error) {
@@ -63,6 +73,13 @@ func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predic
 		_, acmeUpdates, unsubAcme = acme.SnapshotAndSubscribe()
 		defer unsubAcme()
 	}
+	var clusterMap *apigen.ClusterNetMap
+	var netMapUpdates <-chan *apigen.ClusterNetMap
+	if netMaps != nil {
+		var unsubNetMaps func()
+		clusterMap, netMapUpdates, unsubNetMaps = netMaps.SnapshotAndSubscribe()
+		defer unsubNetMaps()
+	}
 	write := func(items []apigen.ScheduledInstanceState) {
 		var acmeState *apigen.AcmeState
 		if acme != nil {
@@ -78,7 +95,7 @@ func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predic
 				lastBundle = b
 			}
 		}
-		state := RenderNetState(0, nodeIdentifier, items, acmeState)
+		state := RenderNetState(0, nodeIdentifier, items, acmeState, clusterMap)
 		if b := state.Encode(); !bytes.Equal(b, lastState) {
 			netSeq++
 			state.Seq = netSeq
@@ -110,6 +127,15 @@ func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predic
 				continue
 			}
 			write(store.FetchScheduledSnapshot(predicate))
+		case next, ok := <-netMapUpdates:
+			if !ok {
+				netMapUpdates = nil
+				continue
+			}
+			if next != nil {
+				clusterMap = next
+			}
+			write(store.FetchScheduledSnapshot(predicate))
 		}
 	}
 }
@@ -137,45 +163,114 @@ func initialArtifactSequence(ctx context.Context, path string, seqOf func([]byte
 	return max(seq, now)
 }
 
-// RenderNetState derives node-local DNS and ingress from the placements this
-// node holds.
-//
-// Endpoints are derived, not reported: an instance's stable inbound address is
-// a pure function of its space, deployment, and ordinal, so the only thing the
-// runner contributes is whether it is up. Readiness gates the endpoint set,
-// not the service's presence: every virtual-mode placement contributes its DNS
-// name, so the DNS server can answer authoritatively for a service that
-// exists but is down instead of leaking the lookup upstream.
-func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledInstanceState, acme *apigen.AcmeState) *apigen.NetState {
+// RenderNetState derives DNS and ingress as a pure function of target state:
+// an endpoint is published for every ordinal that is supposed to be serving,
+// whether or not its workload is currently up. The cluster map's catalog
+// covers all nodes; without a catalog the render falls back to the placements
+// this node holds. Every catalogued service contributes its DNS name, so the
+// DNS server can answer authoritatively for a service that exists but has no
+// established ordinal instead of leaking the lookup upstream.
+func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledInstanceState, acme *apigen.AcmeState, clusterMap *apigen.ClusterNetMap) *apigen.NetState {
 	prefix, _ := network.Default.PrefixValue()
-	type instanceKey struct{ spaceID, deploymentID, ordinal int32 }
 	virtual := make([]apigen.ScheduledInstanceState, 0, len(items))
-	established := make(map[instanceKey]bool)
 	for _, item := range items {
 		if item.Config.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
 		virtual = append(virtual, item)
-		switch item.Instance.State {
-		case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
-			apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING:
-			established[instanceKey{item.Config.SpaceID, item.Config.ID, item.Instance.InstanceOrdinal}] = true
+	}
+	sort.SliceStable(virtual, func(i, j int) bool { return virtual[i].Instance.ID < virtual[j].Instance.ID })
+
+	services := make([]*apigen.DnsService, 0)
+	serviceByName := make(map[string]*apigen.DnsService)
+	addService := func(name, env string, endpoints []*apigen.Endpoint) {
+		svc := serviceByName[env+"|"+name]
+		if svc == nil {
+			svc = &apigen.DnsService{Name: name, Environment: env}
+			serviceByName[env+"|"+name] = svc
+			services = append(services, svc)
+		}
+		svc.Endpoints = appendNewEndpoints(svc.Endpoints, endpoints)
+	}
+	endpointsByDeployment := make(map[int32][]*apigen.Endpoint)
+	if clusterMap != nil && len(clusterMap.DnsServices) > 0 {
+		for _, service := range clusterMap.DnsServices {
+			if service == nil || service.Name == "" {
+				continue
+			}
+			endpoints := make([]*apigen.Endpoint, 0, len(service.Ordinals))
+			for _, ordinal := range service.Ordinals {
+				if ordinal == nil {
+					continue
+				}
+				addr, err := prefix.InboundAddr(service.SpaceID, service.DeploymentID, ordinal.Ordinal)
+				if err != nil {
+					continue
+				}
+				endpoints = append(endpoints, &apigen.Endpoint{
+					Ordinal: ordinal.Ordinal,
+					Address: addr.String(),
+					State:   apigen.EndpointState_ENDPOINT_READY,
+				})
+			}
+			endpointsByDeployment[service.DeploymentID] = appendNewEndpoints(endpointsByDeployment[service.DeploymentID], endpoints)
+			addService(service.Name, network.SpaceDNSName(service.SpaceID), endpoints)
+		}
+	} else {
+		type ordinalKey struct{ deploymentID, ordinal int32 }
+		type ordinalStates struct{ serving, standby, draining bool }
+		statesByOrdinal := make(map[ordinalKey]*ordinalStates)
+		for _, item := range virtual {
+			if item.Config.ID <= 0 {
+				continue
+			}
+			key := ordinalKey{item.Config.ID, item.Instance.InstanceOrdinal}
+			states := statesByOrdinal[key]
+			if states == nil {
+				states = &ordinalStates{}
+				statesByOrdinal[key] = states
+			}
+			switch item.Instance.State {
+			case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING:
+				states.serving = true
+			case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY:
+				states.standby = true
+			case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING:
+				states.draining = true
+			}
+		}
+		for _, item := range virtual {
+			if item.Config.ID <= 0 {
+				continue
+			}
+			states := statesByOrdinal[ordinalKey{item.Config.ID, item.Instance.InstanceOrdinal}]
+			if !states.serving && !(states.standby && states.draining) {
+				continue
+			}
+			addr, err := prefix.InboundAddr(item.Config.SpaceID, item.Config.ID, item.Instance.InstanceOrdinal)
+			if err != nil {
+				continue
+			}
+			endpoint := &apigen.Endpoint{
+				Ordinal: item.Instance.InstanceOrdinal,
+				Address: addr.String(),
+				State:   apigen.EndpointState_ENDPOINT_READY,
+			}
+			endpointsByDeployment[item.Config.ID] = appendNewEndpoints(endpointsByDeployment[item.Config.ID], []*apigen.Endpoint{endpoint})
+		}
+		for _, item := range virtual {
+			name := network.DNSLabel(item.Config.Name)
+			if name == "" {
+				continue
+			}
+			addService(name, network.SpaceDNSName(item.Config.SpaceID), endpointsByDeployment[item.Config.ID])
 		}
 	}
-	sort.SliceStable(virtual, func(i, j int) bool {
-		if pi, pj := placementPriority(virtual[i].Instance.State), placementPriority(virtual[j].Instance.State); pi != pj {
-			return pi < pj
-		}
-		return virtual[i].Instance.ID < virtual[j].Instance.ID
-	})
-	services := make([]*apigen.DnsService, 0, len(virtual))
-	serviceByName := make(map[string]*apigen.DnsService)
+
 	ingress := make([]*apigen.NetIngress, 0)
 	ingressByRoute := make(map[string]*apigen.NetIngress)
 	for _, item := range virtual {
-		takeover := established[instanceKey{item.Config.SpaceID, item.Config.ID, item.Instance.InstanceOrdinal}]
-		ready := readyEndpoints(prefix, item, takeover)
-		for _, route := range renderIngress(item, ready) {
+		for _, route := range renderIngress(item, endpointsByDeployment[item.Config.ID]) {
 			key := ingressRouteKey(route)
 			existing := ingressByRoute[key]
 			if existing == nil {
@@ -185,18 +280,6 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 			}
 			mergeIngressBackends(existing, route)
 		}
-		name := network.DNSLabel(item.Config.Name)
-		if name == "" {
-			continue
-		}
-		env := network.SpaceDNSName(item.Config.SpaceID)
-		svc := serviceByName[env+"|"+name]
-		if svc == nil {
-			svc = &apigen.DnsService{Name: name, Environment: env}
-			serviceByName[env+"|"+name] = svc
-			services = append(services, svc)
-		}
-		svc.Endpoints = appendNewEndpoints(svc.Endpoints, ready)
 	}
 	sort.Slice(services, func(i, j int) bool {
 		if services[i].Environment != services[j].Environment {
@@ -280,18 +363,6 @@ func renderIngress(item apigen.ScheduledInstanceState, endpoints []*apigen.Endpo
 		}
 	}
 	return out
-}
-
-func placementPriority(state apigen.ScheduledInstanceTarget) int {
-	switch state {
-	case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING:
-		return 0
-	case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING:
-		return 1
-	case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY:
-		return 2
-	}
-	return 3
 }
 
 func ingressRouteKey(route *apigen.NetIngress) string {
@@ -442,37 +513,6 @@ func WriteNetState(path string, state *apigen.NetState) error {
 		return err
 	}
 	return os.Rename(tmp, path)
-}
-
-// readyEndpoints derives the instance's endpoint set, which is empty unless the
-// placement is running and is either serving or a standby taking over from a
-// serving or draining placement on this node. Any other standby is deliberately
-// absent: it holds no inbound address yet, so publishing it would send traffic
-// to an address that does not route here.
-func readyEndpoints(prefix network.Prefix, item apigen.ScheduledInstanceState, takeover bool) []*apigen.Endpoint {
-	if prefix.IsZero() || item.Config.ID <= 0 ||
-		item.Status.Runner.Status != apigen.RunningStatus_RUNNING {
-		return nil
-	}
-	switch item.Instance.State {
-	case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING:
-	case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY:
-		if !takeover {
-			return nil
-		}
-	default:
-		return nil
-	}
-	addr, err := prefix.InboundAddr(item.Config.SpaceID, item.Config.ID, item.Instance.InstanceOrdinal)
-	if err != nil {
-		return nil
-	}
-	return []*apigen.Endpoint{{
-		Ordinal: item.Instance.InstanceOrdinal,
-		Address: addr.String(),
-		NodeID:  item.Instance.NodeID,
-		State:   apigen.EndpointState_ENDPOINT_READY,
-	}}
 }
 
 func hostResolvers() []string {

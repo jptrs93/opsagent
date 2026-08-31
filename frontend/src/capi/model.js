@@ -1117,6 +1117,18 @@
  * @property {ClusterNetMapRoute[]} routes
  * @property {number} derivedFromSeq
  * @property {NetPolicyRule[]} policyRules
+ * @property {ClusterNetMapService[]} dnsServices
+ */
+/**
+ * @typedef {Object} ClusterNetMapService
+ * @property {string} name
+ * @property {number} spaceId
+ * @property {number} deploymentId
+ * @property {ClusterNetMapServiceOrdinal[]} ordinals
+ */
+/**
+ * @typedef {Object} ClusterNetMapServiceOrdinal
+ * @property {number} ordinal
  */
 /**
  * @typedef {Object} NetPolicyRule
@@ -1179,7 +1191,6 @@
  * @property {number} ordinal
  * @property {string} address
  * @property {number} state
- * @property {number} nodeId
  */
 /**
  * @typedef {Object} NetIngress
@@ -14834,6 +14845,13 @@ export function writeClusterNetMap(message, writer) {
             writer.ldelim();
         }
     }
+    if (message.dnsServices && message.dnsServices.length > 0) {
+        for (const item of message.dnsServices) {
+            writer.uint32(tag(9, WIRE.LDELIM)).fork();
+            writeClusterNetMapService(item, writer);
+            writer.ldelim();
+        }
+    }
 }
 
 
@@ -14855,7 +14873,7 @@ export function encodeClusterNetMap(message) {
  */
 function decodeClusterNetMapMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {targetNodeId: 0, ulaPrefix: new Uint8Array(0), nodes: [], routes: [], derivedFromSeq: 0, policyRules: [] };
+    const message = {targetNodeId: 0, ulaPrefix: new Uint8Array(0), nodes: [], routes: [], derivedFromSeq: 0, policyRules: [], dnsServices: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -14883,6 +14901,10 @@ function decodeClusterNetMapMessage(reader, length) {
                 message.policyRules.push(decodeNetPolicyRuleMessage(reader, reader.uint32()));
                 break;
             }
+            case 9: {
+                message.dnsServices.push(decodeClusterNetMapServiceMessage(reader, reader.uint32()));
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -14898,6 +14920,143 @@ function decodeClusterNetMapMessage(reader, length) {
 export function decodeClusterNetMap(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeClusterNetMapMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterNetMapService} message
+ * @param {Writer} writer
+ */
+export function writeClusterNetMapService(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentId);
+    }
+    if (message.ordinals && message.ordinals.length > 0) {
+        for (const item of message.ordinals) {
+            writer.uint32(tag(4, WIRE.LDELIM)).fork();
+            writeClusterNetMapServiceOrdinal(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ClusterNetMapService} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterNetMapService(message) {
+    const writer = Writer.create();
+    writeClusterNetMapService(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterNetMapService}
+ */
+function decodeClusterNetMapServiceMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", spaceId: 0, deploymentId: 0, ordinals: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.deploymentId = reader.int32();
+                break;
+            }
+            case 4: {
+                message.ordinals.push(decodeClusterNetMapServiceOrdinalMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterNetMapService}
+ */
+export function decodeClusterNetMapService(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterNetMapServiceMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterNetMapServiceOrdinal} message
+ * @param {Writer} writer
+ */
+export function writeClusterNetMapServiceOrdinal(message, writer) {
+    if (message.ordinal !== undefined && message.ordinal !== null && message.ordinal !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.ordinal);
+    }
+}
+
+
+/**
+ * @param {ClusterNetMapServiceOrdinal} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterNetMapServiceOrdinal(message) {
+    const writer = Writer.create();
+    writeClusterNetMapServiceOrdinal(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterNetMapServiceOrdinal}
+ */
+function decodeClusterNetMapServiceOrdinalMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {ordinal: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.ordinal = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterNetMapServiceOrdinal}
+ */
+export function decodeClusterNetMapServiceOrdinal(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterNetMapServiceOrdinalMessage(reader);
 }
 
 
@@ -15586,9 +15745,6 @@ export function writeEndpoint(message, writer) {
     if (message.state !== undefined && message.state !== null && message.state !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.state);
     }
-    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.nodeId);
-    }
 }
 
 
@@ -15610,7 +15766,7 @@ export function encodeEndpoint(message) {
  */
 function decodeEndpointMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {ordinal: 0, address: "", state: 0, nodeId: 0 };
+    const message = {ordinal: 0, address: "", state: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15624,10 +15780,6 @@ function decodeEndpointMessage(reader, length) {
             }
             case 4: {
                 message.state = reader.int32();
-                break;
-            }
-            case 5: {
-                message.nodeId = reader.int32();
                 break;
             }
             default:

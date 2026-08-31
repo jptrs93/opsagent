@@ -159,7 +159,7 @@ func cacheEnrollmentBootstrapState(ctx context.Context, cfg EnrollmentConfig, ac
 	cacheEnrollmentInstance(store, accepted.NodeNetDeployment)
 	if accepted.ClusterNetMap != nil {
 		nodeID := accepted.NodeNetDeployment.Instance.NodeID
-		if _, err := acceptClusterNetMap(ctx, store, accepted.ClusterNetMap, nodeID, prefix, true); err != nil {
+		if _, err := acceptClusterNetMap(ctx, store, accepted.ClusterNetMap, nodeID, prefix, true, nil); err != nil {
 			return fmt.Errorf("accepting enrollment cluster network map: %w", err)
 		}
 	}

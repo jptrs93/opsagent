@@ -1,5 +1,12 @@
 # NetState Split Implementation Plan
 
+**Update (2026-08-31):** the fused artifact has since become liveness-free —
+DNS and ingress endpoints are rendered from the cluster map's DNS catalog as a
+pure function of target state, with runner status no longer an input (see
+`docs/engineering/networking.md`, Netproxy Services). That gives `netstate.pb`
+the byte-stable-under-status-churn property this split existed to isolate, so
+the split's remaining motivation has largely dissolved.
+
 **Status: deferred.** Reviewing this plan showed that every consumer-visible
 gain — write churn, the DNS empty-answer fix, cert-bundle seq skew, the
 wiped-state-dir freeze — could be had inside the existing fused `netstate.pb`

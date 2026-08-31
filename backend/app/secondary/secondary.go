@@ -21,6 +21,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
 	"github.com/jptrs93/opsagent/backend/lib/netaudit"
+	"github.com/jptrs93/opsagent/backend/lib/netmapstate"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/repo/git"
 	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
@@ -86,9 +87,11 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	}
 	network.Default.SetWGPrivateKey(nodeKey.Private)
 	cfg.WGPublicKey = nodeKey.PublicBase64()
+	netMapHolder := netmapstate.NewHolder()
 	if clusterMap, _, ok, err := cachedClusterNetMap(ctx, store, cfg.NodeID, cfg.ClusterPrefix); err != nil {
 		slog.WarnContext(ctx, "loading cached cluster network map failed", "err", err)
 	} else if ok {
+		netMapHolder.Set(clusterMap)
 		if err := reconcileClusterNetMap(clusterMap, cfg.NodeID, cfg.ClusterPrefix); err != nil {
 			slog.WarnContext(ctx, "reconciling cached cluster network map failed", "err", err)
 		}
@@ -128,7 +131,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 			acmeHolder.Set(persisted)
 		}
 	}
-	go netproxy.RunNetStateWriter(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID), cfg.NodeIdentifier, cfg.NetproxyStatePath, runtimeInputs, acmeHolder, runtimeInputs.EnsureSecretIDs)
+	go netproxy.RunNetStateWriter(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID), cfg.NodeIdentifier, cfg.NetproxyStatePath, runtimeInputs, acmeHolder, netMapHolder, runtimeInputs.EnsureSecretIDs)
 	go netaudit.Run(ctx, network.Default, netaudit.DefaultInterval)
 	logManager = logmanager.StartManager(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID))
 	go runRuntimeInputRetention(ctx, store, runtimeInputs, scheduledInstancePredicateForNode(cfg.NodeID), acmeHolder)
@@ -155,7 +158,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 		}.RunAll(scheduledInstancePredicateForNode(cfg.NodeID))
 	}()
 
-	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient, acmeHolder, notifySynced)
+	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient, acmeHolder, netMapHolder, notifySynced)
 }
 
 // newPrimaryHTTPClient builds the HTTP/2-only client a worker uses to dial the

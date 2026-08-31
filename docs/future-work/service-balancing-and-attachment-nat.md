@@ -40,7 +40,7 @@ stances. Nothing here is scheduled; prerequisites are listed at the end.
 
 | Rung | Decision binds at | State left behind | Covers |
 |---|---|---|---|
-| DNS over ready endpoints | resolution | client caches (uncontrolled) | everything, weakly |
+| DNS over established endpoints (shipped: health-free, target-state only) | resolution | client caches (uncontrolled) | everything, weakly |
 | `cgroup/connect6` hook | `connect()` | the socket itself (zero marginal state) | host-visible syscalls: runc, connected sockets |
 | Sender-side service DNAT | first packet | conntrack NAT binding per flow | universal: Kata guests, unconnected UDP |
 | L7 via netproxy | per request | proxy connection state | HTTP semantics: retries, splits, drain |

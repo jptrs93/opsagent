@@ -153,7 +153,10 @@ func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string
 	})
 	go scheduler.New(r.store, networkMaps).Run(ctx)
 	go r.acmeIssuer.Run(ctx)
-	go netproxy.RunNetStateWriter(ctx, r.store, predicate, nodeIdentifier, ainit.StaticConfig.NetproxyStatePath, netproxy.CertSecretResolverFunc(r.secrets.Resolve), r.acmeHolder, nil)
+	netMapSource := netproxy.ClusterNetMapSourceFunc(func() (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func()) {
+		return networkMaps.SnapshotAndSubscribe(nodeID)
+	})
+	go netproxy.RunNetStateWriter(ctx, r.store, predicate, nodeIdentifier, ainit.StaticConfig.NetproxyStatePath, netproxy.CertSecretResolverFunc(r.secrets.Resolve), r.acmeHolder, netMapSource, nil)
 	go netaudit.Run(ctx, network.Default, netaudit.DefaultInterval)
 	go r.operator.RunAll(predicate)
 }

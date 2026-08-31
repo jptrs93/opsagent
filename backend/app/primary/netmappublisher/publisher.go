@@ -37,11 +37,12 @@ type Publisher struct {
 	// applied everywhere: if the render at N changed no routes, the map already
 	// in force encodes it.
 	lastRenderedSeq int64
-	subscribers     map[*subscriber]struct{}
-	nodeUpdates     <-chan apigen.ClusterNode
-	instanceUpdates <-chan apigen.ScheduledInstanceState
-	policyUpdates   <-chan apigen.NetworkPolicy
-	unsubscribe     []func()
+	subscribers       map[*subscriber]struct{}
+	nodeUpdates       <-chan apigen.ClusterNode
+	instanceUpdates   <-chan apigen.ScheduledInstanceState
+	policyUpdates     <-chan apigen.NetworkPolicy
+	deploymentUpdates <-chan apigen.Deployment
+	unsubscribe       []func()
 	closeOnce       sync.Once
 
 	// Acknowledgement state is kept under its own lock so recording a worker's
@@ -61,16 +62,18 @@ func New(store *state.Service, prefix network.Prefix) (*Publisher, error) {
 	nodeSub, unsubscribeNodes := store.SubscribeNodeUpdates()
 	_, instanceUpdates, unsubscribeInstances := store.MustFetchScheduledSnapshotAndSubscribe(nil)
 	policySub, unsubscribePolicies := store.SubscribeNetworkPolicyUpdates()
+	_, deploymentUpdates, unsubscribeDeployments := store.MustFetchDeploymentSnapshotAndSubscribe(nil)
 	p := &Publisher{
-		store:           store,
-		prefix:          prefix,
-		subscribers:     make(map[*subscriber]struct{}),
-		nodeUpdates:     nodeSub.Ch,
-		instanceUpdates: instanceUpdates,
-		policyUpdates:   policySub.Ch,
-		unsubscribe:     []func(){unsubscribeNodes, unsubscribeInstances, unsubscribePolicies},
-		applied:         make(map[int32]int64),
-		ackUpdates:      make(chan struct{}, 1),
+		store:             store,
+		prefix:            prefix,
+		subscribers:       make(map[*subscriber]struct{}),
+		nodeUpdates:       nodeSub.Ch,
+		instanceUpdates:   instanceUpdates,
+		policyUpdates:     policySub.Ch,
+		deploymentUpdates: deploymentUpdates,
+		unsubscribe:       []func(){unsubscribeNodes, unsubscribeInstances, unsubscribePolicies, unsubscribeDeployments},
+		applied:           make(map[int32]int64),
+		ackUpdates:        make(chan struct{}, 1),
 	}
 	if err := p.Refresh(); err != nil {
 		p.Close()
@@ -103,6 +106,10 @@ func (p *Publisher) Run(ctx context.Context) {
 				return
 			}
 		case _, ok := <-p.policyUpdates:
+			if !ok {
+				return
+			}
+		case _, ok := <-p.deploymentUpdates:
 			if !ok {
 				return
 			}
@@ -196,6 +203,7 @@ func mapForNode(source *apigen.ClusterNetMap, nodeID int32) *apigen.ClusterNetMa
 	next.Nodes = slices.Clone(source.Nodes)
 	next.Routes = slices.Clone(source.Routes)
 	next.PolicyRules = slices.Clone(source.PolicyRules)
+	next.DnsServices = slices.Clone(source.DnsServices)
 	return &next
 }
 
@@ -256,11 +264,21 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.Clust
 		routesByPrefix[destination] = nodeID
 		return nil
 	}
+	servicesByDeployment := make(map[int32]*apigen.ClusterNetMapService)
+	type ordinalKey struct{ deploymentID, ordinal int32 }
+	type ordinalStates struct{ serving, standby, draining bool }
+	statesByOrdinal := make(map[ordinalKey]*ordinalStates)
 	for _, item := range instances {
 		cfg := item.Config
 		inst := item.Instance
-		if inst.ID <= 0 || cfg.ID <= 0 || !inst.State.WantsRunning() ||
+		if inst.ID <= 0 || cfg.ID <= 0 ||
 			cfg.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+			continue
+		}
+		if servicesByDeployment[cfg.ID] == nil {
+			servicesByDeployment[cfg.ID] = &apigen.ClusterNetMapService{Name: network.DNSLabel(cfg.Name), SpaceID: cfg.SpaceID, DeploymentID: cfg.ID}
+		}
+		if !inst.State.WantsRunning() {
 			continue
 		}
 		if _, ok := knownNodes[inst.NodeID]; !ok {
@@ -273,9 +291,21 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.Clust
 		if err := setRoute(placement, inst.NodeID); err != nil {
 			return nil, err
 		}
-		if inst.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+		key := ordinalKey{cfg.ID, inst.InstanceOrdinal}
+		states := statesByOrdinal[key]
+		if states == nil {
+			states = &ordinalStates{}
+			statesByOrdinal[key] = states
+		}
+		switch inst.State {
+		case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY:
+			states.standby = true
+			continue
+		case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING:
+			states.draining = true
 			continue
 		}
+		states.serving = true
 		instancePrefix, err := prefix.InstanceCIDR(cfg.SpaceID, cfg.ID, inst.InstanceOrdinal)
 		if err != nil {
 			return nil, fmt.Errorf("deriving instance prefix for scheduled instance %d: %w", inst.ID, err)
@@ -287,6 +317,31 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.Clust
 				cfg.ID, inst.InstanceOrdinal, err)
 		}
 	}
+	// An ordinal stays established while a standby+draining pair exists. The
+	// promotion commits atomically, so no snapshot shows that pair without a
+	// serving placement; this keeps the render correct against any writer that
+	// is not routed through the atomic flip.
+	for key, states := range statesByOrdinal {
+		if !states.serving && !(states.standby && states.draining) {
+			continue
+		}
+		service := servicesByDeployment[key.deploymentID]
+		service.Ordinals = append(service.Ordinals, &apigen.ClusterNetMapServiceOrdinal{Ordinal: key.ordinal})
+	}
+	dnsServices := make([]*apigen.ClusterNetMapService, 0, len(servicesByDeployment))
+	for _, service := range servicesByDeployment {
+		slices.SortFunc(service.Ordinals, func(a, b *apigen.ClusterNetMapServiceOrdinal) int { return cmp.Compare(a.Ordinal, b.Ordinal) })
+		dnsServices = append(dnsServices, service)
+	}
+	slices.SortFunc(dnsServices, func(a, b *apigen.ClusterNetMapService) int {
+		if c := cmp.Compare(a.SpaceID, b.SpaceID); c != 0 {
+			return c
+		}
+		if c := strings.Compare(a.Name, b.Name); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.DeploymentID, b.DeploymentID)
+	})
 	routes := make([]*apigen.ClusterNetMapRoute, 0, len(routesByPrefix))
 	for destination, nodeID := range routesByPrefix {
 		routes = append(routes, &apigen.ClusterNetMapRoute{LogicalPrefix: destination.String(), HostingNodeID: nodeID})
@@ -302,6 +357,7 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.Clust
 		Nodes:       netNodes,
 		Routes:      routes,
 		PolicyRules: renderPolicyRules(inputs.Policies, inputs.DeploymentSpaces),
+		DnsServices: dnsServices,
 	}, nil
 }
 

@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/netmapstate"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/wgkey"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -30,7 +31,7 @@ var (
 // (and stamps) backwards. Within a session the stream is ordered and stamps
 // only grow, so a lower stamp can only be a coalescing artifact and is
 // rejected as stale.
-func acceptClusterNetMap(ctx context.Context, store *state.Service, candidate *apigen.ClusterNetMap, nodeID int32, expectedPrefix network.Prefix, sessionSnapshot bool) (*apigen.NetMapStatus, error) {
+func acceptClusterNetMap(ctx context.Context, store *state.Service, candidate *apigen.ClusterNetMap, nodeID int32, expectedPrefix network.Prefix, sessionSnapshot bool, netMaps *netmapstate.Holder) (*apigen.NetMapStatus, error) {
 	next, prefix, err := validateClusterNetMap(candidate, nodeID, expectedPrefix)
 	if err != nil {
 		return nil, err
@@ -55,6 +56,9 @@ func acceptClusterNetMap(ctx context.Context, store *state.Service, candidate *a
 
 	store.MustSetLocalKV(storage.LocalKVWorkerClusterNetMap, next.Encode())
 	network.Default.SetPrefix(prefix)
+	if netMaps != nil {
+		netMaps.Set(next)
+	}
 	return statusForClusterNetMap(next, ""), nil
 }
 
@@ -135,6 +139,7 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 		Nodes:          make([]*apigen.ClusterNetMapNode, 0, len(candidate.Nodes)),
 		Routes:         make([]*apigen.ClusterNetMapRoute, 0, len(candidate.Routes)),
 		PolicyRules:    make([]*apigen.NetPolicyRule, 0, len(candidate.PolicyRules)),
+		DnsServices:    make([]*apigen.ClusterNetMapService, 0, len(candidate.DnsServices)),
 	}
 	knownNodes := make(map[int32]struct{}, len(candidate.Nodes))
 	targetPresent := false
@@ -212,6 +217,25 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 			Source:      &apigen.NetPolicyPeer{SpaceID: rule.Source.SpaceID, DeploymentID: rule.Source.DeploymentID},
 			Destination: &apigen.NetPolicyPeer{SpaceID: rule.Destination.SpaceID, DeploymentID: rule.Destination.DeploymentID},
 			Ports:       slices.Clone(rule.Ports),
+		})
+	}
+
+	for _, service := range candidate.DnsServices {
+		if service == nil || service.Name == "" || service.SpaceID < 0 || service.DeploymentID <= 0 {
+			return nil, network.Prefix{}, fmt.Errorf("cluster network map contains invalid dns service")
+		}
+		ordinals := make([]*apigen.ClusterNetMapServiceOrdinal, 0, len(service.Ordinals))
+		for _, ordinal := range service.Ordinals {
+			if ordinal == nil || ordinal.Ordinal < 0 {
+				return nil, network.Prefix{}, fmt.Errorf("dns service %q contains invalid ordinal", service.Name)
+			}
+			ordinals = append(ordinals, &apigen.ClusterNetMapServiceOrdinal{Ordinal: ordinal.Ordinal})
+		}
+		normalized.DnsServices = append(normalized.DnsServices, &apigen.ClusterNetMapService{
+			Name:         service.Name,
+			SpaceID:      service.SpaceID,
+			DeploymentID: service.DeploymentID,
+			Ordinals:     ordinals,
 		})
 	}
 	return normalized, prefix, nil

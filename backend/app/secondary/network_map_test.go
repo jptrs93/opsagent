@@ -20,7 +20,7 @@ func TestAcceptClusterNetMapSessionSemantics(t *testing.T) {
 	prefix := network.GeneratePrefix()
 
 	first := testClusterNetMap(t, prefix, 5)
-	status, err := acceptClusterNetMap(context.Background(), store, first, 1, prefix, true)
+	status, err := acceptClusterNetMap(context.Background(), store, first, 1, prefix, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,15 +30,15 @@ func TestAcceptClusterNetMapSessionSemantics(t *testing.T) {
 
 	duplicate := testClusterNetMap(t, prefix, 5)
 	duplicate.Nodes[0], duplicate.Nodes[1] = duplicate.Nodes[1], duplicate.Nodes[0]
-	if _, err := acceptClusterNetMap(context.Background(), store, duplicate, 1, prefix, false); err != nil {
+	if _, err := acceptClusterNetMap(context.Background(), store, duplicate, 1, prefix, false, nil); err != nil {
 		t.Fatalf("idempotent map rejected: %v", err)
 	}
 	stale := testClusterNetMap(t, prefix, 4)
-	if _, err := acceptClusterNetMap(context.Background(), store, stale, 1, prefix, false); !errors.Is(err, ErrStaleClusterNetMap) {
+	if _, err := acceptClusterNetMap(context.Background(), store, stale, 1, prefix, false, nil); !errors.Is(err, ErrStaleClusterNetMap) {
 		t.Fatalf("stale error = %v", err)
 	}
 	higher := testClusterNetMap(t, prefix, 8)
-	if _, err := acceptClusterNetMap(context.Background(), store, higher, 1, prefix, false); err != nil {
+	if _, err := acceptClusterNetMap(context.Background(), store, higher, 1, prefix, false, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -47,7 +47,7 @@ func TestAcceptClusterNetMapSessionSemantics(t *testing.T) {
 	// is authoritative even so.
 	rolledBack := testClusterNetMap(t, prefix, 2)
 	rolledBack.Nodes[1].UnderlayAddress = "192.0.2.9"
-	if _, err := acceptClusterNetMap(context.Background(), store, rolledBack, 1, prefix, true); err != nil {
+	if _, err := acceptClusterNetMap(context.Background(), store, rolledBack, 1, prefix, true, nil); err != nil {
 		t.Fatalf("session snapshot with a lower stamp rejected: %v", err)
 	}
 	cached, _, ok, err := cachedClusterNetMap(context.Background(), store, 1, prefix)
@@ -70,7 +70,7 @@ func TestRejectedInitialClusterNetMapReportsError(t *testing.T) {
 	invalid := testClusterNetMap(t, prefix, 1)
 	invalid.TargetNodeID = 2
 	sess := &primarySessionState{netMapSnapshotPending: true}
-	dispatchFromPrimary(context.Background(), out, store, newLogStreamTracker(), sess, &apigen.MsgToWorker{ClusterNetMap: invalid}, 1, nil, nil)
+	dispatchFromPrimary(context.Background(), out, store, newLogStreamTracker(), sess, &apigen.MsgToWorker{ClusterNetMap: invalid}, 1, nil, nil, nil)
 	status := (<-out.ch).NetMapStatus
 	if status == nil || status.ReconciliationError == "" || status.PersistedSeq != 0 {
 		t.Fatalf("rejection status = %+v", status)
@@ -179,7 +179,7 @@ func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
 	}
 
 	next := testClusterNetMap(t, prefix, 8)
-	status, err := acceptClusterNetMap(context.Background(), store, next, 1, prefix, false)
+	status, err := acceptClusterNetMap(context.Background(), store, next, 1, prefix, false, nil)
 	if err != nil {
 		t.Fatalf("republished map rejected after discarding the unreadable cache: %v", err)
 	}
@@ -203,5 +203,9 @@ func testClusterNetMap(t *testing.T, prefix network.Prefix, seq int64) *apigen.C
 			{NodeID: 2, UnderlayAddress: "192.0.2.2", WgPublicKey: "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=", WgListenPort: 51833},
 		},
 		Routes: []*apigen.ClusterNetMapRoute{{LogicalPrefix: destination.String(), HostingNodeID: 1}},
+		DnsServices: []*apigen.ClusterNetMapService{
+			{Name: "opendeploy-net", SpaceID: 0, DeploymentID: 2, Ordinals: []*apigen.ClusterNetMapServiceOrdinal{{Ordinal: 0}}},
+			{Name: "app", SpaceID: 1, DeploymentID: 10, Ordinals: []*apigen.ClusterNetMapServiceOrdinal{{Ordinal: 0}}},
+		},
 	}
 }

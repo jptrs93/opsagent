@@ -11,6 +11,7 @@ import (
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
+	"github.com/jptrs93/opsagent/backend/lib/netmapstate"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
@@ -33,7 +34,7 @@ func (o *outbox) Send(msg *apigen.MsgToMaster) bool {
 // notifySynced (optional) is signalled once the first snapshot from the
 // primary has been applied to the store; the boot sync gate releases the
 // deployment operator on it.
-func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Service, primaryHTTPClient *http.Client, acme *acmestate.Holder, notifySynced func()) {
+func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Service, primaryHTTPClient *http.Client, acme *acmestate.Holder, netMaps *netmapstate.Holder, notifySynced func()) {
 	ctx = logu.AddTag(ctx, "ClusterSession")
 	capi := apigen.NewOpsagentClusterV1Capi(
 		"https://"+cfg.PrimaryClusterAddr,
@@ -50,7 +51,7 @@ func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Ser
 			underlayAddress, err = resolveDefaultUnderlayAddress(cfg.PrimaryClusterAddr)
 		}
 		if err == nil {
-			err = runSession(ctx, capi, store, cfg.NodeID, underlayAddress, cfg.WGPublicKey, acme, notifySynced)
+			err = runSession(ctx, capi, store, cfg.NodeID, underlayAddress, cfg.WGPublicKey, acme, netMaps, notifySynced)
 		}
 		if ctx.Err() != nil {
 			return
@@ -116,7 +117,7 @@ func scheduledInstancePredicateForNode(nodeID int32) storage.ScheduledInstancePr
 	}
 }
 
-func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID int32, underlayAddress, wgPublicKey string, acme *acmestate.Holder, notifySynced func()) error {
+func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID int32, underlayAddress, wgPublicKey string, acme *acmestate.Holder, netMaps *netmapstate.Holder, notifySynced func()) error {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -178,7 +179,7 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 			connected = true
 			slog.InfoContext(sessCtx, fmt.Sprintf("slave connected to primary %s", capi.BaseURL))
 		}
-		dispatchFromPrimary(sessCtx, out, store, tracker, sess, msg, nodeID, acme, notifySynced)
+		dispatchFromPrimary(sessCtx, out, store, tracker, sess, msg, nodeID, acme, netMaps, notifySynced)
 	}
 	return sessErr
 }
@@ -189,7 +190,7 @@ type primarySessionState struct {
 	netMapSnapshotPending bool
 }
 
-func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, sess *primarySessionState, msg *apigen.MsgToWorker, nodeID int32, acme *acmestate.Holder, notifySynced func()) {
+func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, sess *primarySessionState, msg *apigen.MsgToWorker, nodeID int32, acme *acmestate.Holder, netMaps *netmapstate.Holder, notifySynced func()) {
 	msgType := "heartbeat"
 	switch {
 	case msg.ScheduledInstancesSnapshot != nil:
@@ -230,7 +231,7 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 		}
 	case msg.ClusterNetMap != nil:
 		expectedPrefix, _ := network.Default.PrefixValue()
-		status, err := acceptClusterNetMap(ctx, store, msg.ClusterNetMap, nodeID, expectedPrefix, sess.netMapSnapshotPending)
+		status, err := acceptClusterNetMap(ctx, store, msg.ClusterNetMap, nodeID, expectedPrefix, sess.netMapSnapshotPending, netMaps)
 		if err != nil {
 			slog.WarnContext(ctx, "accepting cluster network map failed", "err", err)
 			status, _ = cachedClusterNetMapStatus(ctx, store, nodeID, expectedPrefix, err.Error())

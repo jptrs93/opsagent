@@ -42,6 +42,18 @@ message ClusterNetMap {
   repeated ClusterNetMapRoute routes = 6;
   int64 derived_from_seq = 7;
   repeated NetPolicyRule policy_rules = 8;
+  repeated ClusterNetMapService dns_services = 9;
+}
+
+message ClusterNetMapService {
+  string name = 1;
+  int32 space_id = 2;
+  int32 deployment_id = 3;
+  repeated ClusterNetMapServiceOrdinal ordinals = 4;
+}
+
+message ClusterNetMapServiceOrdinal {
+  int32 ordinal = 1;
 }
 
 // NetPolicyRule is one explicit override allow rule rendered from the policy
@@ -124,7 +136,7 @@ message AcmeHttpChallenge {
 }
 
 // DnsService is one deployment's discovery record set:
-// {name}.{environment}.internal -> READY instance addresses.
+// {name}.{environment}.internal -> established instance addresses.
 message DnsService {
   string name = 1;        // normalized deployment name (underscores -> hyphens)
   string environment = 2; // normalized space name
@@ -137,9 +149,9 @@ message DnsService {
 message Endpoint {
   int32 ordinal = 1;      // instance ordinal (0-based)
   string address = 2;     // stable inbound instance address I (version/run slots 0/0)
-  reserved 3;
+  reserved 3, 5;
+  reserved "node_id";
   EndpointState state = 4;
-  int32 node_id = 5;      // canonical hosting node
 }
 
 enum EndpointState {
@@ -150,7 +162,7 @@ enum EndpointState {
 }
 
 // NetIngress is a node-local, rendered ingress route consumed by netproxy.
-// It contains ready backend endpoints instead of deployment configuration.
+// It contains established backend endpoints instead of deployment configuration.
 message NetIngress {
   IngressKind kind = 1;
   string hostname = 2;

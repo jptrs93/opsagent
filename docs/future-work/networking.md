@@ -1,6 +1,6 @@
 # Networking
 
-Design for the built-in networking layer: per-workload addressing, cross-machine routing, service discovery, ingress, network policy, and load balancing. Machine-local virtual networking, worker-to-worker and primary fixed-tunnel routing, node-local DNS, node-local ingress (TLS passthrough and HTTPS termination with central ACME issuance), and the network policy boundary (anti-spoofing, default same-space/global/system rules, and global override policies) are implemented — see `docs/engineering/networking.md`. Remaining work covers cross-node DNS, multi-node ingress, load balancing, and multi-instance deployments; see `docs/future-work/cross-node-routing-implementation-plan.md` for the ordered cross-node implementation plan.
+Design for the built-in networking layer: per-workload addressing, cross-machine routing, service discovery, ingress, network policy, and load balancing. Machine-local virtual networking, worker-to-worker and primary fixed-tunnel routing, node-local DNS, node-local ingress (TLS passthrough and HTTPS termination with central ACME issuance), and the network policy boundary (anti-spoofing, default same-space/global/system rules, and global override policies) are implemented — see `docs/engineering/networking.md`. Cluster-wide DNS from the map's catalog is implemented; remaining work covers multi-node ingress, load balancing, and multi-instance deployments; see `docs/future-work/cross-node-routing-implementation-plan.md` for the ordered cross-node implementation plan.
 
 ## Goals and principles
 
@@ -40,11 +40,11 @@ Still open here:
 
 ## Service discovery (DNS)
 
-Node-local DNS in the netproxy system deployment is implemented. Remaining
-work is cross-node discovery: `netstate.pb` is derived node-locally from the
-placements a node holds, so `.internal` names resolve only on the node running
-the deployment. Cluster-wide DNS renders every node's ready endpoints into
-each node's netproxy state (part of the cross-node plan's DNS milestone).
+Cluster-wide DNS is implemented: the cluster map carries a DNS catalog (one
+entry per virtual deployment, listing ordinals with a serving placement), each
+node renders it into its netproxy state, and every node resolves every
+`.internal` name. Resolution is health-free by design — records follow target
+state, and health belongs to the load-balancing layer.
 
 Discovery is always on. It is not a feature enabled in the networking panel; a deployment has a name the moment it exists.
 
@@ -98,7 +98,7 @@ kube-proxy exists to translate stable virtual addresses to ephemeral endpoints. 
 
 Interim DNAT-based virtual IPs remain rejected: no VIP ships before the service-address design, translation is never the universal east-west path, and a service address never transits a link. The scoped sender-side DNAT rung above is the deliberate exception, not a reversal — see `service-balancing-and-attachment-nat.md` for the reconciliation.
 
-Traffic policy (future, with daemon sets): per-deployment `trafficPolicy: spread | prefer-local | local-only`, resolved by DNS answer ordering and, in stage 2, by local-preference in the socket hook. Machine locality is already in the endpoint record.
+Traffic policy (future, with daemon sets): per-deployment `trafficPolicy: spread | prefer-local | local-only`, resolved in the balancing rungs (local-preference in the socket hook and below) — never by DNS answer content or ordering; DNS stays locality-free. Machine locality is derivable from the cluster map's routes.
 
 ## Multi-instance upgrades (future)
 

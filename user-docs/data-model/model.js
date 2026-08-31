@@ -256,6 +256,14 @@
           f('portEnd', 'int32', { note: '0 = single port' }),
         ]), { mod: 'repeated', note: 'empty = all' }),
       ]), { mod: 'repeated' }),
+      f('dnsServices', obj('ClusterNetMapService', [
+        f('name', 'string', { note: 'normalized deployment name' }),
+        f('spaceId', 'int32'),
+        f('deploymentId', 'int32', { ref: 'Deployment.id' }),
+        f('ordinals', obj('ClusterNetMapServiceOrdinal', [
+          f('ordinal', 'int32'),
+        ]), { mod: 'repeated', note: 'ordinals with a serving placement' }),
+      ]), { mod: 'repeated', note: 'cluster-wide DNS catalog' }),
     ],
     note: 'Routes carry only /100 (instance) and /120 (placement) prefixes — container restarts never appear in the map.',
   });
@@ -282,7 +290,6 @@
             v('DRAINING', 'removed ahead of SIGTERM'),
             v('DOWN', 'instance not running'),
           ])),
-          f('nodeId', 'int32', { ref: 'ClusterNode.id' }),
         ]), { mod: 'repeated' }),
       ]), { mod: 'repeated' }),
       f('upstreamResolvers', 'string', { mod: 'repeated' }),

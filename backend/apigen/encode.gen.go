@@ -8038,6 +8038,13 @@ func (m *ClusterNetMap) Encode() []byte {
 		b = AppendTag(b, 8, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
+	for _, item := range m.DnsServices {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 9, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
 	return b
 }
 
@@ -8086,6 +8093,96 @@ func DecodeClusterNetMap(b []byte) (*ClusterNetMap, error) {
 					m.PolicyRules = append(m.PolicyRules, item)
 				}
 			}
+		case 9:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNetMapService
+				item, err = DecodeClusterNetMapService(msgBytes)
+				if err == nil {
+					m.DnsServices = append(m.DnsServices, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterNetMapService) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendInt32Field(b, m.SpaceID, 2)
+	b = AppendInt32Field(b, m.DeploymentID, 3)
+	for _, item := range m.Ordinals {
+		if item == nil {
+			continue
+		}
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeClusterNetMapService(b []byte) (*ClusterNetMapService, error) {
+	var m ClusterNetMapService
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNetMapServiceOrdinal
+				item, err = DecodeClusterNetMapServiceOrdinal(msgBytes)
+				if err == nil {
+					m.Ordinals = append(m.Ordinals, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *ClusterNetMapServiceOrdinal) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.Ordinal, 1)
+	return b
+}
+
+func DecodeClusterNetMapServiceOrdinal(b []byte) (*ClusterNetMapServiceOrdinal, error) {
+	var m ClusterNetMapServiceOrdinal
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Ordinal, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -8518,7 +8615,6 @@ func (m *Endpoint) Encode() []byte {
 	b = AppendInt32Field(b, m.Ordinal, 1)
 	b = AppendStringField(b, m.Address, 2)
 	b = AppendInt32Field(b, int32(m.State), 4)
-	b = AppendInt32Field(b, m.NodeID, 5)
 	return b
 }
 
@@ -8543,8 +8639,6 @@ func DecodeEndpoint(b []byte) (*Endpoint, error) {
 			if err == nil {
 				m.State = EndpointState(raw)
 			}
-		case 5:
-			b, m.NodeID, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
