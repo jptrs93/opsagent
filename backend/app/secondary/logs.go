@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/jptrs93/goutil/logu"
@@ -79,16 +80,21 @@ func streamPrepareOutput(ctx context.Context, out *outbox, store *state.Service,
 	out.Send(&apigen.MsgToMaster{LogEnd: true, LogRequestID: requestID})
 }
 
-var logManager *logmanager.Manager
+// logManager is an atomic holder because it is published from a goroutine
+// after the cluster session is already serving queries, behind the one-time
+// logmigrate pass. TEMPORARY: restore a plain variable assigned during boot
+// once logmigrate is deleted.
+var logManager atomic.Pointer[logmanager.Manager]
 
 func runLogQuery(ctx context.Context, out *outbox, req *apigen.LogQueryRequest) {
 	ctx = logu.AddTag(ctx, "LogShipper")
-	if logManager == nil {
+	manager := logManager.Load()
+	if manager == nil {
 		slog.ErrorContext(ctx, "log query requested before log manager started", "dep", req.DeploymentID)
 		out.Send(&apigen.MsgToMaster{LogQueryError: "log manager is not running", LogRequestID: req.RequestID})
 		return
 	}
-	resp, err := logManager.Query(ctx, req)
+	resp, err := manager.Query(ctx, req)
 	if err != nil {
 		if ctx.Err() != nil {
 			return

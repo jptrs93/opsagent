@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -57,14 +58,23 @@ type Handler struct {
 	// Cluster is used to inspect worker connections and proxy remote logs.
 	Cluster *clusterhandler.Handler
 
-	// LogManager serves log searches for deployments running on this node.
-	LogManager *logmanager.Manager
+	// logManager serves log searches for deployments running on this node.
+	// TEMPORARY: an atomic holder because it is assigned after the servers are
+	// already serving, behind the one-time logmigrate pass; restore a plain
+	// field set during boot once logmigrate is deleted.
+	logManager atomic.Pointer[logmanager.Manager]
 
 	// Enrollment owns the enrollment stream and operator enrollment actions.
 	Enrollment *enrollmenthandler.Handler
 
 	// AcmeWake nudges the ACME issuance manager after deployment config writes.
 	AcmeWake func()
+}
+
+// SetLogManager publishes the log manager once it is running; queries before
+// that report it as unavailable. TEMPORARY, see the logManager field.
+func (h *Handler) SetLogManager(m *logmanager.Manager) {
+	h.logManager.Store(m)
 }
 
 type Dependencies struct {

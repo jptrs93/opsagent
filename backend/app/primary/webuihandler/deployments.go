@@ -453,10 +453,11 @@ func (h *Handler) PostV1DeploymentsLogQuery(ctx apigen.Context, req *apigen.LogQ
 		}
 		return resp, nil
 	}
-	if h.LogManager == nil {
+	logManager := h.logManager.Load()
+	if logManager == nil {
 		return nil, apigen.NewApiErr("Log manager is not running", "log_manager_unavailable", http.StatusInternalServerError)
 	}
-	return h.LogManager.Query(ctx, req)
+	return logManager.Query(ctx, req)
 }
 
 func workerLogQueryErr(nodeID int32, err error) error {
