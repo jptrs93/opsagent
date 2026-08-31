@@ -2,7 +2,7 @@ package storage
 
 import "github.com/jptrs93/opsagent/backend/apigen"
 
-type DeploymentPredicate func(apigen.DeploymentConfig) bool
+type DeploymentPredicate func(apigen.Deployment) bool
 
 type ScheduledInstancePredicate func(apigen.ScheduledInstanceState) bool
 
@@ -13,7 +13,7 @@ type DeploymentConfigVersion struct {
 	Version int32
 }
 
-func DeploymentKeyMatches(cfg apigen.DeploymentConfig, nodeID, spaceID int32, name string) bool {
+func DeploymentKeyMatches(cfg apigen.Deployment, nodeID, spaceID int32, name string) bool {
 	return cfg.NodeID == nodeID &&
 		cfg.SpaceID == spaceID &&
 		cfg.Name == name

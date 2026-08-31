@@ -198,15 +198,15 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1DeploymentsCreate(DeploymentCreateRequest) returns (DeploymentConfig) {
+  rpc PostV1DeploymentsCreate(DeploymentCreateRequest) returns (Deployment) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1DeploymentsUpdate(DeploymentUpdateRequest) returns (DeploymentConfig) {
+  rpc PostV1DeploymentsUpdate(DeploymentUpdateRequest) returns (Deployment) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1DeploymentsMoveSpace(DeploymentSpaceMoveRequest) returns (DeploymentConfig) {
+  rpc PostV1DeploymentsMoveSpace(DeploymentSpaceMoveRequest) returns (Deployment) {
     option (cp.url) = "/v1/deployments/move-space";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }

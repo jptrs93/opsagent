@@ -12,11 +12,11 @@ import {createOverlay} from "../components/createOverlay.js";
 import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
 import {runReportOverlay} from "../components/runReportOverlay.js";
 import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
-import {deploymentConfigOverlay} from "../components/deploymentJsonOverlay.js";
+import {deploymentOverlay} from "../components/deploymentJsonOverlay.js";
 import {recentlyDeletedOverlay} from "../components/recentlyDeletedOverlay.js";
 import {capi} from "../capi/index.js";
 import {nodeDisplayName} from "../lib/machines.js";
-import {containerWorkload, deploymentWorkload} from "../lib/deploymentConfig.js";
+import {containerWorkload, deploymentWorkload} from "../lib/deployment.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 import {preparerPhase} from "../lib/preparerStatus.js";
@@ -103,10 +103,10 @@ function saveHiddenSpaces(set) {
     try { localStorage.setItem(HIDDEN_SPACES_KEY, JSON.stringify([...set])); } catch {}
 }
 
-const formatDeploymentLabel = (deployment) => {
-    if (!deployment) return 'unknown deployment';
-    const parts = [deployment.spaceName, deployment.node, deployment.name].filter(Boolean);
-    return parts.length > 0 ? parts.join(' / ') : `#${deployment.id}`;
+const formatDeploymentLabel = (deploymentRow) => {
+    if (!deploymentRow) return 'unknown deployment';
+    const parts = [deploymentRow.spaceName, deploymentRow.node, deploymentRow.name].filter(Boolean);
+    return parts.length > 0 ? parts.join(' / ') : `#${deploymentRow.id}`;
 };
 
 // addressReferrers lists deployments whose env vars resolve the address of
@@ -121,11 +121,11 @@ const addressReferrers = (deploymentId) =>
         );
     });
 
-function deleteDeploymentOverlay(deployment, close) {
+function deleteDeploymentOverlay(deploymentRow, close) {
     const saving = van.state(false);
     const error = van.state('');
-    const label = formatDeploymentLabel(deployment);
-    const referrers = addressReferrers(deployment.id);
+    const label = formatDeploymentLabel(deploymentRow);
+    const referrers = addressReferrers(deploymentRow.id);
 
     const confirmDelete = async () => {
         if (saving.val) return;
@@ -133,8 +133,8 @@ function deleteDeploymentOverlay(deployment, close) {
         saving.val = true;
         try {
             await capi.postV1DeploymentsDelete({
-                deploymentId: deployment.id,
-                version: (deployment.currentVersion || 0) + 1,
+                deploymentId: deploymentRow.id,
+                version: (deploymentRow.currentVersion || 0) + 1,
             });
             close();
         } catch (e) {
@@ -544,9 +544,9 @@ export function statusPage(onOpenLogs = () => {}) {
     const closeOverlay = () => { overlayNode.val = ''; };
     const closeCreateOverlay = () => { createOverlayNode.val = ''; };
 
-    const onShowRunOutput = (deployment) => onOpenLogs(deployment.id);
-    const onShowPrepareOutput = (deployment) => {
-        overlayNode.val = prepareOutputOverlay(deployment.id, formatDeploymentLabel(deployment), closeOverlay);
+    const onShowRunOutput = (deploymentRow) => onOpenLogs(deploymentRow.id);
+    const onShowPrepareOutput = (deploymentRow) => {
+        overlayNode.val = prepareOutputOverlay(deploymentRow.id, formatDeploymentLabel(deploymentRow), closeOverlay);
     };
 
     const onShowRunReport = (member, instance) => {
@@ -560,31 +560,31 @@ export function statusPage(onOpenLogs = () => {}) {
         }, closeOverlay);
     };
 
-    const onUpdate = (deployment) => {
-        if (deployment.isSystemGroup) {
-            overlayNode.val = openDeployGroupUpdateOverlay(deployment, closeOverlay);
+    const onUpdate = (deploymentRow) => {
+        if (deploymentRow.isSystemGroup) {
+            overlayNode.val = openDeployGroupUpdateOverlay(deploymentRow, closeOverlay);
             return;
         }
-        const rawConfig = findRawConfig(deployment.id);
-        overlayNode.val = deployOverlay(deployment, rawConfig, closeOverlay);
+        const rawConfig = findRawConfig(deploymentRow.id);
+        overlayNode.val = deployOverlay(deploymentRow, rawConfig, closeOverlay);
     };
 
-    const onFork = (deployment) => {
-        const rawConfig = findRawConfig(deployment.id);
+    const onFork = (deploymentRow) => {
+        const rawConfig = findRawConfig(deploymentRow.id);
         if (!rawConfig) return;
         createOverlayNode.val = createOverlay(closeCreateOverlay, undefined, {
-            sourceDeployment: deployment,
-            sourceDeploymentConfig: rawConfig,
+            sourceDeploymentRow: deploymentRow,
+            sourceDeployment: rawConfig,
         });
     };
 
-    const onViewConfig = (deployment) => {
-        overlayNode.val = deploymentConfigOverlay(deployment, closeOverlay);
+    const onViewConfig = (deploymentRow) => {
+        overlayNode.val = deploymentOverlay(deploymentRow, closeOverlay);
     };
 
-    const onDelete = (deployment) => {
-        if (!deployment.canDelete && deployment.existingStatus !== STATUS_STOPPED) return;
-        overlayNode.val = deleteDeploymentOverlay(deployment, closeOverlay);
+    const onDelete = (deploymentRow) => {
+        if (!deploymentRow.canDelete && deploymentRow.existingStatus !== STATUS_STOPPED) return;
+        overlayNode.val = deleteDeploymentOverlay(deploymentRow, closeOverlay);
     };
 
     const onRevertHistoryTargetVersion = (deploymentId, historyConfig) => {
@@ -613,7 +613,7 @@ export function statusPage(onOpenLogs = () => {}) {
                 // has since claimed the tuple, create rejects it and the form
                 // reports the conflict.
                 createOverlayNode.val = createOverlay(closeCreateOverlay, undefined, {
-                    sourceDeploymentConfig: config,
+                    sourceDeployment: config,
                     retainIdentity: true,
                 });
             },

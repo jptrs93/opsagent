@@ -25,7 +25,7 @@ import {
   decodeClusterSettings,
   decodeConfig,
   decodeConfigList,
-  decodeDeploymentConfig,
+  decodeDeployment,
   decodeDeploymentHistory,
   decodeDeploymentRunReport,
   decodeDeploymentState,
@@ -628,38 +628,38 @@ export class Capi {
 
   /**
    * @param {DeploymentCreateRequest} payload
-   * @returns {Promise<DeploymentConfig>}
+   * @returns {Promise<Deployment>}
    */
   async postV1DeploymentsCreate(payload) {
     const response = await this.#request("/v1/deployments/create", { method: 'POST', body: encodeDeploymentCreateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeDeploymentConfig(await response.arrayBuffer());
+    return decodeDeployment(await response.arrayBuffer());
   }
 
   /**
    * @param {DeploymentUpdateRequest} payload
-   * @returns {Promise<DeploymentConfig>}
+   * @returns {Promise<Deployment>}
    */
   async postV1DeploymentsUpdate(payload) {
     const response = await this.#request("/v1/deployments/update", { method: 'POST', body: encodeDeploymentUpdateRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeDeploymentConfig(await response.arrayBuffer());
+    return decodeDeployment(await response.arrayBuffer());
   }
 
   /**
    * @param {DeploymentSpaceMoveRequest} payload
-   * @returns {Promise<DeploymentConfig>}
+   * @returns {Promise<Deployment>}
    */
   async postV1DeploymentsMoveSpace(payload) {
     const response = await this.#request("/v1/deployments/move-space", { method: 'POST', body: encodeDeploymentSpaceMoveRequest(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeDeploymentConfig(await response.arrayBuffer());
+    return decodeDeployment(await response.arrayBuffer());
   }
 
   /**

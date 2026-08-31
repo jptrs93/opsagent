@@ -206,10 +206,10 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 	})
 }
 
-func markDeleted(t *testing.T, h *Handler, cfg *apigen.DeploymentConfig) {
+func markDeleted(t *testing.T, h *Handler, cfg *apigen.Deployment) {
 	t.Helper()
 	spec := cfg.Spec
-	_, _, versionOK := h.Store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
+	_, _, versionOK := h.Store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
 		Spec:            &spec,
 		Deleted:         true,

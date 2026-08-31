@@ -16,19 +16,25 @@
  *
  * A node with `schema` shows a type definition instead of literal JSON.
  * schema is a list of fields: {name, type, mod?, ref?, note?, key?, srv?,
- * versioned?} where srv marks a server-set field (rendered in the server-set
- * color), versioned tags the field's value as explicitly version-tracked, and
+ * versioned?} where srv marks a server-set field (greyed out, labeled
+ * "read only" — key fields get the label too),
+ * versioned tags the field's value as explicitly version-tracked, and
  * type is a scalar name string, {kind:'object', name, fields, versioned?}
  * (rendered inline, expanded by default, collapsible by clicking the type),
  * or {kind:'enum', name, values:[{name, note?}|string]} (rendered as an enum
  * chip, collapsed by default; hover for a value summary, click to expand).
- * A node or inline object with `versioned` is tagged as carrying its own
- * explicitly tracked version; the counter itself is implied, never a field.
+ * A node or inline object with `versioned` gets a small "v" marker (hover it
+ * for the explanation) and, inline, renders as its own tinted sub-block; the
+ * version counter itself is implied, never a field.
  */
 (function () {
   'use strict';
 
   var SVG = 'http://www.w3.org/2000/svg';
+
+  var VERSION_TIP = 'Explicitly versioned — changes to this part of the state ' +
+    'tree are tracked with their own version. The counter itself is implied, ' +
+    'not modeled as a field.';
 
   function el(tag, cls, parent) {
     var e = document.createElement(tag);
@@ -66,7 +72,8 @@
     fields.forEach(function (f) {
       var row = el('div', 'gv-field', container);
       var line = el('div', 'gv-fline', row);
-      el('span', f.srv ? 'f-name srv' : 'f-name', line).textContent = f.name;
+      if (f.srv) line.classList.add('srv');
+      el('span', 'f-name', line).textContent = f.name;
       if (f.mod) el('span', 'f-mod', line).textContent = f.mod;
       var t = f.type;
       if (typeof t === 'string') {
@@ -90,12 +97,19 @@
           renderFields(kids, t.fields);
         }
       }
-      if (f.versioned || (typeof t === 'object' && t.versioned)) {
-        el('span', 'f-chip c-ver', line).textContent = 'versioned';
-      }
-      if (f.key) el('span', 'f-chip c-key', line).textContent = 'id';
       if (f.ref) el('span', 'f-ref', line).textContent = '→ ' + f.ref;
       if (f.note) el('span', 'f-note', line).textContent = f.note;
+      // Badges live in a right-aligned group at the end of the line.
+      var right = null;
+      var rb = function () { return right || (right = el('span', 'f-right', line)); };
+      if (f.key) el('span', 'f-chip c-key', rb()).textContent = 'id';
+      if (f.srv || f.key) el('span', 'f-chip c-ro', rb()).textContent = 'read only';
+      if (f.versioned || (typeof t === 'object' && t.versioned)) {
+        row.classList.add('vblock');
+        var vm = el('span', 'gv-v', rb());
+        vm.textContent = 'v';
+        vm.setAttribute('data-tip', VERSION_TIP);
+      }
     });
   }
 
@@ -379,6 +393,22 @@
       refresh();
     });
 
+    // Floating tooltip for "v" markers; a single element at viewport level so
+    // it is never clipped by card or line overflow and ignores world scale.
+    var tip = el('div', 'gv-tip', viewport);
+    tip.hidden = true;
+    viewport.addEventListener('pointerover', function (e) {
+      var marker = e.target.closest('.gv-v');
+      if (!marker) { tip.hidden = true; return; }
+      tip.textContent = marker.getAttribute('data-tip') || '';
+      tip.hidden = false;
+      var vr = viewport.getBoundingClientRect();
+      var mr = marker.getBoundingClientRect();
+      var left = mr.right - vr.left - 230;
+      tip.style.left = Math.max(8, Math.min(left, vr.width - 246)) + 'px';
+      tip.style.top = (mr.bottom - vr.top + 8) + 'px';
+    });
+
     /* ---------- render ---------- */
 
     function render() {
@@ -414,12 +444,14 @@
         var h = el('div', 'gv-card-h', card);
         var title = el('span', 'gv-title', h);
         title.textContent = n.title;
-        if (n.versioned) {
-          el('span', 'gv-vtag', h).textContent = 'versioned';
-        }
         if (n.badge) {
           var badge = el('span', 'gv-badge', h);
           badge.textContent = n.badge;
+        }
+        if (n.versioned) {
+          var vh = el('span', 'gv-v gv-v-hdr', h);
+          vh.textContent = 'v';
+          vh.setAttribute('data-tip', VERSION_TIP);
         }
         if (n.desc) {
           var desc = el('p', 'gv-desc', card);

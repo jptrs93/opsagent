@@ -21,7 +21,7 @@ var ReferencingDeploymentsChangedErr = apigen.NewApiErr(
 	http.StatusConflict,
 )
 
-func requestedDeploymentVersions(update bool, refs []*apigen.DeploymentConfigVersionRef) ([]storage.DeploymentConfigVersion, error) {
+func requestedDeploymentVersions(update bool, refs []*apigen.DeploymentVersionRef) ([]storage.DeploymentConfigVersion, error) {
 	if !update && len(refs) != 0 {
 		return nil, InvalidReferencingDeploymentsErr
 	}

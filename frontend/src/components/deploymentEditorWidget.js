@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import {spinnerButton} from "./spinnerbutton.js";
 import {formInvalidReason} from "./deploymentForm.js";
-import {deploymentConfigUiHasOpenPane, deploymentConfigUiWidget} from "./deploymentConfigUiWidget.js";
+import {deploymentUiHasOpenPane, deploymentUiWidget} from "./deploymentUiWidget.js";
 import {DeploymentCreationUpdate, SOURCE_DOCKER_IMAGE, SOURCE_NIX_DOCKER} from "./deploymentCreationUpdate.js";
 import {imageVersionFromReference} from "./deploymentSource.js";
 
@@ -11,16 +11,16 @@ const stateValue = (value) => value && typeof value === 'object' && 'val' in val
 const asState = (value, fallback) => value && typeof value === 'object' && 'val' in value
     ? value
     : van.state(value ?? fallback);
-let deploymentConfigCodeWidgetLoader;
+let deploymentCodeWidgetLoader;
 
-const loadDeploymentConfigCodeWidget = () => {
-    deploymentConfigCodeWidgetLoader ||= import('./deploymentConfigCodeWidget.js')
-        .then(module => module.deploymentConfigCodeWidget);
-    return deploymentConfigCodeWidgetLoader;
+const loadDeploymentCodeWidget = () => {
+    deploymentCodeWidgetLoader ||= import('./deploymentCodeWidget.js')
+        .then(module => module.deploymentCodeWidget);
+    return deploymentCodeWidgetLoader;
 };
 
-export function preloadDeploymentConfigCodeWidget() {
-    void loadDeploymentConfigCodeWidget().catch(() => {});
+export function preloadDeploymentCodeWidget() {
+    void loadDeploymentCodeWidget().catch(() => {});
 }
 
 export function deploymentEditorWidget(opts) {
@@ -40,12 +40,12 @@ export function deploymentEditorWidget(opts) {
     const configRefs = catalogs.configRefs || [];
     const nodes = asState(catalogs.nodes, []);
     const nodesLoaded = asState(catalogs.nodesLoaded, true);
+    const deploymentRow = opts.deploymentRow || null;
     const deployment = opts.deployment || null;
-    const deploymentConfig = opts.deploymentConfig || null;
     const deploymentUpdate = new DeploymentCreationUpdate({
         mode,
+        deploymentRow,
         deployment,
-        deploymentConfig,
         validateSource: actions.validateSource,
     });
     const form = deploymentUpdate.form;
@@ -66,7 +66,7 @@ export function deploymentEditorWidget(opts) {
         }
     }
 
-    const canEditState = mode === 'create' || deployment?.runnerType !== 'opendeploy';
+    const canEditState = mode === 'create' || deploymentRow?.runnerType !== 'opendeploy';
     const requestDescription = van.state('');
     const errorMsg = van.state('');
     let requestSeq = 0;
@@ -109,12 +109,12 @@ export function deploymentEditorWidget(opts) {
         void deploymentUpdate.validateExactNixSelection();
     }
 
-    if (mode === 'update' && deployment?.variant
-        && (deployment.variant === SOURCE_NIX_DOCKER
-            || (deployment.variant === SOURCE_DOCKER_IMAGE && !imageVersionFromReference(form.containerImage.val)))) {
+    if (mode === 'update' && deploymentRow?.variant
+        && (deploymentRow.variant === SOURCE_NIX_DOCKER
+            || (deploymentRow.variant === SOURCE_DOCKER_IMAGE && !imageVersionFromReference(form.containerImage.val)))) {
         void deploymentUpdate.loadExistingDeploymentVersions(
             actions.loadDeploymentVersions,
-            deployment.id,
+            deploymentRow.id,
             {preserveSelection: true},
         );
     }
@@ -178,10 +178,10 @@ export function deploymentEditorWidget(opts) {
     );
     if (mode === 'create') submitButton.dataset.testid = 'create-deployment-submit';
 
-    const uiWidget = deploymentConfigUiWidget({
+    const uiWidget = deploymentUiWidget({
         mode,
         form,
-        deployment,
+        deploymentRow,
         deploymentUpdate,
         canEditState,
         spaces,
@@ -205,7 +205,7 @@ export function deploymentEditorWidget(opts) {
             preserveSelection: true,
         }),
     });
-    const codeAvailable = () => (mode === 'create' || deployment?.runnerType === 'container')
+    const codeAvailable = () => (mode === 'create' || deploymentRow?.runnerType === 'container')
         && stateValue(nodesLoaded) !== false
         && !requestDescription.val
         && !deploymentUpdate.versionRequestDescription.val;
@@ -219,8 +219,8 @@ export function deploymentEditorWidget(opts) {
         codeEditorStatus.val = 'loading';
         codeEditorError.val = '';
         try {
-            const deploymentConfigCodeWidget = await loadDeploymentConfigCodeWidget();
-            codeWidget = deploymentConfigCodeWidget({
+            const deploymentCodeWidget = await loadDeploymentCodeWidget();
+            codeWidget = deploymentCodeWidget({
                 document: deploymentUpdate.document,
                 catalogs: {spaces, nodes, assets, secretRefs, configRefs, deployments},
                 constraints: mode === 'update' ? {
@@ -252,7 +252,7 @@ export function deploymentEditorWidget(opts) {
         }
     };
     const hasOpenPane = () => editorMode.val === 'ui'
-        && deploymentConfigUiHasOpenPane(form);
+        && deploymentUiHasOpenPane(form);
     const editorHeight = opts.maxHeight || '88vh';
     const modeToggle = editorModeToggle({editorMode, codeAvailable, selectEditorMode});
 

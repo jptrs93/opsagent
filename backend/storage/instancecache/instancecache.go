@@ -183,7 +183,7 @@ func InstanceFilter(predicate storage.ScheduledInstancePredicate) func(apigen.Sc
 
 // WithRunningVersion decorates a status with the config's workload version when
 // the runner is on the current config, so display layers never derive it.
-func WithRunningVersion(cfg *apigen.DeploymentConfig, st apigen.ScheduledInstanceStatus) apigen.ScheduledInstanceStatus {
+func WithRunningVersion(cfg *apigen.Deployment, st apigen.ScheduledInstanceStatus) apigen.ScheduledInstanceStatus {
 	if st.Runner.IsZero() || cfg == nil {
 		return st
 	}

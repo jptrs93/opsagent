@@ -1,22 +1,22 @@
 import van from "vanjs-core";
 import {deploymentsS} from "../state/deployments.js";
-import {cleanDeploymentConfig, deploymentConfigToYaml, orderDeploymentConfig} from "../yaml/deploymentConfig.js";
+import {cleanDeployment, deploymentToYaml, orderDeployment} from "../yaml/deployment.js";
 
 const {div, span, pre, button} = van.tags;
 
-function currentDeploymentConfig(deploymentId) {
+function currentDeployment(deploymentId) {
     return (deploymentsS.val || []).find(item => item.config?.id === deploymentId)?.config || null;
 }
 
-function deploymentConfigJson(deploymentId) {
-    const config = currentDeploymentConfig(deploymentId);
-    const cleaned = cleanDeploymentConfig(config);
-    return JSON.stringify(cleaned ? orderDeploymentConfig(cleaned) : {error: "deployment config not found", deploymentId}, null, 2);
+function deploymentJson(deploymentId) {
+    const config = currentDeployment(deploymentId);
+    const cleaned = cleanDeployment(config);
+    return JSON.stringify(cleaned ? orderDeployment(cleaned) : {error: "deployment config not found", deploymentId}, null, 2);
 }
 
-function deploymentConfigYaml(deploymentId) {
-    const config = currentDeploymentConfig(deploymentId);
-    return deploymentConfigToYaml(config) || deploymentConfigToYaml({error: "deployment config not found", deploymentId});
+function deploymentYaml(deploymentId) {
+    const config = currentDeployment(deploymentId);
+    return deploymentToYaml(config) || deploymentToYaml({error: "deployment config not found", deploymentId});
 }
 
 function titleField(label, value) {
@@ -37,14 +37,14 @@ function modeButton(label, mode, selectedMode) {
     }, label);
 }
 
-export function deploymentConfigOverlay(deployment, onClose) {
+export function deploymentOverlay(deploymentRow, onClose) {
     const copied = van.state(false);
     const selectedMode = van.state('yaml');
-    const deploymentId = deployment.id;
+    const deploymentId = deploymentRow.id;
 
     const outputText = () => selectedMode.val === 'yaml'
-        ? deploymentConfigYaml(deploymentId)
-        : deploymentConfigJson(deploymentId);
+        ? deploymentYaml(deploymentId)
+        : deploymentJson(deploymentId);
 
     const copyConfig = async () => {
         await navigator.clipboard.writeText(outputText());
@@ -63,9 +63,9 @@ export function deploymentConfigOverlay(deployment, onClose) {
                     div({class: "min-w-0"},
                         div(
                             {class: "flex flex-wrap gap-x-3 gap-y-1 text-xs"},
-                            titleField("space", deployment.spaceName),
-                            titleField("name", deployment.name),
-                            titleField("node", deployment.node),
+                            titleField("space", deploymentRow.spaceName),
+                            titleField("name", deploymentRow.name),
+                            titleField("node", deploymentRow.node),
                         ),
                     ),
                     div({class: "flex shrink-0 items-center gap-2"},

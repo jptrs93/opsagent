@@ -39,7 +39,7 @@ var (
 // attachOpendeployRunner publishes the current process as the running
 // opendeploy deployment. Reaching this code proves the service is running;
 // polling systemd only adds transient restart-state races.
-func attachOpendeployRunner(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus) *opendeployRunner {
+func attachOpendeployRunner(store storage.OperatorStore, instanceID int32, dep *apigen.Deployment, prev apigen.RunnerStatus) *opendeployRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	if prev.IsZero() {
 		prev.DeploymentConfigVersion = dep.Version
@@ -66,7 +66,7 @@ func attachOpendeployRunner(store storage.OperatorStore, instanceID int32, dep *
 // process reattaches and publishes RUNNING.
 // Called only from runner.Create when the operator has a new artifact ready.
 // No retries — if install or restart fails, it writes CRASHED and exits.
-func newOpendeployRunnerWithRestart(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *opendeployRunner {
+func newOpendeployRunnerWithRestart(store storage.OperatorStore, instanceID int32, dep *apigen.Deployment, preparerStatus apigen.PreparerStatus) *opendeployRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	r := &opendeployRunner{
 		ctx:                 ctx,

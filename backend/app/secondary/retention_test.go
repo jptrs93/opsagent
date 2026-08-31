@@ -53,8 +53,8 @@ func withRetentionAssetDir(t *testing.T, names ...string) string {
 
 // referencing builds a config that references secret 1 and asset 4, matching the
 // values seeded by retentionTestStore and withRetentionAssetDir.
-func referencingConfig(version int32) apigen.DeploymentConfig {
-	return apigen.DeploymentConfig{
+func referencingConfig(version int32) apigen.Deployment {
+	return apigen.Deployment{
 		ID:      7,
 		NodeID:  23,
 		Version: version,
@@ -68,7 +68,7 @@ func referencingConfig(version int32) apigen.DeploymentConfig {
 	}
 }
 
-func writeInstance(t *testing.T, store *state.Service, instanceID int32, cfg apigen.DeploymentConfig, target apigen.ScheduledInstanceTarget, preparerVersion, runnerVersion int32) {
+func writeInstance(t *testing.T, store *state.Service, instanceID int32, cfg apigen.Deployment, target apigen.ScheduledInstanceTarget, preparerVersion, runnerVersion int32) {
 	t.Helper()
 	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{

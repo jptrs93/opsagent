@@ -104,9 +104,9 @@ type ApiServerHandler interface {
 	PostV1GlobalStateStream(Context) iter.Seq2[*State, error]
 	PostV1GlobalExportedConfig(Context) (*ExportedConfigBlob, error)
 	PostV1DeploymentsGet(Context, *DeploymentGetRequest) (*DeploymentState, error)
-	PostV1DeploymentsCreate(Context, *DeploymentCreateRequest) (*DeploymentConfig, error)
-	PostV1DeploymentsUpdate(Context, *DeploymentUpdateRequest) (*DeploymentConfig, error)
-	PostV1DeploymentsMoveSpace(Context, *DeploymentSpaceMoveRequest) (*DeploymentConfig, error)
+	PostV1DeploymentsCreate(Context, *DeploymentCreateRequest) (*Deployment, error)
+	PostV1DeploymentsUpdate(Context, *DeploymentUpdateRequest) (*Deployment, error)
+	PostV1DeploymentsMoveSpace(Context, *DeploymentSpaceMoveRequest) (*Deployment, error)
 	PostV1DeploymentsDelete(Context, *DeploymentDeleteRequest) error
 	PostV1DeploymentsRecentlyDeleted(Context, *RecentlyDeletedDeploymentsRequest) (*RecentlyDeletedDeployments, error)
 	PostV1DeploymentsHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)

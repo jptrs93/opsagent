@@ -60,7 +60,7 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		t.Fatalf("creating prod secret: %v", err)
 	}
 
-	create := func(name string, spaceID, secretVersionID int32) (*apigen.DeploymentConfig, error) {
+	create := func(name string, spaceID, secretVersionID int32) (*apigen.Deployment, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			NodeID: node.ID,

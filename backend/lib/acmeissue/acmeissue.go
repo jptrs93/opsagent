@@ -38,7 +38,7 @@ const (
 
 type Manager struct {
 	Secrets      *secrets.Manager
-	Snapshot     func() []apigen.DeploymentConfig
+	Snapshot     func() []apigen.Deployment
 	Holder       *acmestate.Holder
 	DirectoryURL string
 
@@ -46,7 +46,7 @@ type Manager struct {
 	challenges map[string]string
 }
 
-func New(secretsMgr *secrets.Manager, snapshot func() []apigen.DeploymentConfig, holder *acmestate.Holder) *Manager {
+func New(secretsMgr *secrets.Manager, snapshot func() []apigen.Deployment, holder *acmestate.Holder) *Manager {
 	directory := os.Getenv("OPENDEPLOY_ACME_DIRECTORY")
 	if directory == "" {
 		directory = acme.LetsEncryptURL
@@ -89,7 +89,7 @@ func CertSecretName(hostname string) string {
 	return certSecretPrefix + hostname
 }
 
-func acmeHostnames(configs []apigen.DeploymentConfig) []string {
+func acmeHostnames(configs []apigen.Deployment) []string {
 	seen := map[string]bool{}
 	for _, cfg := range configs {
 		if cfg.Deleted || cfg.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {

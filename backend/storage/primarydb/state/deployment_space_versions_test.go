@@ -64,7 +64,7 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 	}
 	store = Open(dbPath)
 	defer store.Close()
-	if cur := store.FetchDeploymentConfig(cfg.ID); cur.SpaceID != 2 || cur.SpaceVersion != 2 {
+	if cur := store.FetchDeployment(cfg.ID); cur.SpaceID != 2 || cur.SpaceVersion != 2 {
 		t.Fatalf("reloaded config = space %d spaceV%d, want space 2 spaceV2", cur.SpaceID, cur.SpaceVersion)
 	}
 	if st := findInstanceState(t, store, inst.ID); st.Config.SpaceID != DefaultSpaceID {

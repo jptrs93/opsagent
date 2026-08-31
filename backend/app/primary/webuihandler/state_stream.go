@@ -16,7 +16,7 @@ import (
 // the whole filtered state is simply re-emitted rather than diffed.
 func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.State, error] {
 	return func(yield func(*apigen.State, error) bool) {
-		_, configUpdatesCh, configUpdatesUnsub := h.Store.MustFetchDeploymentConfigSnapshotAndSubscribe(nil)
+		_, configUpdatesCh, configUpdatesUnsub := h.Store.MustFetchDeploymentSnapshotAndSubscribe(nil)
 		defer configUpdatesUnsub()
 		_, updatesCh, updatesUnsub := h.Store.MustFetchScheduledSnapshotWithLatestFinalAndSubscribe(nil)
 		defer updatesUnsub()
@@ -98,8 +98,8 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 			for _, cfg := range h.Store.FetchDeploymentSnapshot(nil) {
 				depSpace[cfg.ID] = cfg.SpaceID
 			}
-			configs := h.filterDeploymentConfigs(ctx, h.Store.ListActiveDeploymentConfigs())
-			configItems := make([]*apigen.DeploymentConfig, 0, len(configs))
+			configs := h.filterDeployments(ctx, h.Store.ListActiveDeployments())
+			configItems := make([]*apigen.Deployment, 0, len(configs))
 			for _, cfg := range configs {
 				configItems = append(configItems, cfg)
 			}
@@ -128,7 +128,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 			}
 			secretStatus := h.secretsStatus()
 			state := &apigen.State{
-				DeploymentConfigsSnapshot:  &apigen.DeploymentConfigSnapshot{Items: configItems},
+				DeploymentConfigsSnapshot:  &apigen.DeploymentSnapshot{Items: configItems},
 				ScheduledInstancesSnapshot: &apigen.ScheduledInstanceSnapshot{Items: items},
 				UsersSnapshot:              h.filterUsers(ctx, h.Store.ListUsersPublic()),
 				EnrollmentsSnapshot:        visibleEnrollments,

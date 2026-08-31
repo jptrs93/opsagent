@@ -46,7 +46,7 @@ func New(gitManager *repogit.Manager) *Preparer {
 	}
 }
 
-func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.ImageStatus) {
+func (p *Preparer) Prepare(ctx context.Context, dep *apigen.Deployment, log *preparerlog.Log) (string, apigen.ImageStatus) {
 	version := dep.WorkloadVersion()
 	select {
 	case p.sem <- struct{}{}:

@@ -25,7 +25,7 @@ func envRefSpec(configIDs map[string]int32, secretIDs map[string]int32) *apigen.
 	return spec
 }
 
-func deploymentEnvRefID(t *testing.T, cfg *apigen.DeploymentConfig, key string, secret bool) int32 {
+func deploymentEnvRefID(t *testing.T, cfg *apigen.Deployment, key string, secret bool) int32 {
 	t.Helper()
 	value := cfg.Spec.Container1Spec.Runtime.EnvVars[key]
 	if value == nil {
@@ -71,7 +71,7 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	secondID := database.ValueVersions[0].ID
 	unrelated := store.SetConfigByName("other", "keep", 1)
 	unrelatedID := latestConfigRef(t, unrelated).ID
-	create := func(name string, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
+	create := func(name string, spec *apigen.DeploymentSpec) *apigen.Deployment {
 		return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, node.ID, spec)
 	}
 	firstDeployment := create("first", envRefSpec(map[string]int32{
@@ -155,7 +155,7 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	create := func(name string, secretVersionID int32) *apigen.DeploymentConfig {
+	create := func(name string, secretVersionID int32) *apigen.Deployment {
 		return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, node.ID, envRefSpec(nil, map[string]int32{"TOKEN": secretVersionID}))
 	}
 	firstDeployment := create("first", first.ID)
@@ -227,13 +227,13 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	create := func(name string) *apigen.DeploymentConfig {
+	create := func(name string) *apigen.Deployment {
 		return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, node.ID, envRefSpec(nil, map[string]int32{"POSTGRES_PASSWORD": first.ID}))
 	}
 	original := create("original")
 	live := create("live")
 
-	_, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, original.ID, DeploymentConfigUpdate{
+	_, _, ok := store.UpdateDeployment(apigen.Context{}, original.ID, DeploymentConfigUpdate{
 		ExpectedVersion: original.Version + 1,
 		Spec:            &original.Spec,
 		Deleted:         true,

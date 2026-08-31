@@ -8,12 +8,12 @@ import (
 )
 
 type exportedConfigBundle struct {
-	Deployments []*apigen.DeploymentConfig `json:"deployments"`
-	Configs     []*apigen.Config           `json:"configs"`
-	Secrets     []*apigen.Secret           `json:"secrets"`
-	Assets      []*apigen.Asset            `json:"assets"`
-	Spaces      []*apigen.Space            `json:"spaces"`
-	Settings    apigen.ClusterSettings     `json:"settings"`
+	Deployments []*apigen.Deployment   `json:"deployments"`
+	Configs     []*apigen.Config       `json:"configs"`
+	Secrets     []*apigen.Secret       `json:"secrets"`
+	Assets      []*apigen.Asset        `json:"assets"`
+	Spaces      []*apigen.Space        `json:"spaces"`
+	Settings    apigen.ClusterSettings `json:"settings"`
 }
 
 func (h *Handler) PostV1GlobalExportedConfig(ctx apigen.Context) (*apigen.ExportedConfigBlob, error) {
@@ -22,8 +22,8 @@ func (h *Handler) PostV1GlobalExportedConfig(ctx apigen.Context) (*apigen.Export
 	if err := h.requireAccess(ctx, vView, eCluster, 0, 0); err != nil {
 		return nil, err
 	}
-	deployments := h.Store.ListActiveDeploymentConfigs()
-	exportedDeployments := make([]*apigen.DeploymentConfig, 0, len(deployments))
+	deployments := h.Store.ListActiveDeployments()
+	exportedDeployments := make([]*apigen.Deployment, 0, len(deployments))
 	for _, deployment := range deployments {
 		if deployment == nil {
 			continue

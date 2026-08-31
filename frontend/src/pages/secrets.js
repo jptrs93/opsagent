@@ -4,7 +4,7 @@ import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {valueOverlay} from "../components/valueOverlay.js";
 import {formatDate, formatDateTime} from "../lib/date.js";
-import {containerWorkload} from "../lib/deploymentConfig.js";
+import {containerWorkload} from "../lib/deployment.js";
 import {
     caretRightIcon, checkIcon, chevronDownIcon, closeIcon, columnsIcon, configSlidersIcon,
     copyIcon, editIcon, eyeOpenIcon, folderIcon, plusIcon, searchIcon, secretKeyIcon,

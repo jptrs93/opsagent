@@ -124,7 +124,7 @@ func containerID(deploymentID int32, configVersion int32) string {
 	return fmt.Sprintf("opendeploy-%d-v%d", deploymentID, configVersion)
 }
 
-func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	configVersion := preparerStatus.DeploymentConfigVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, configVersion)
@@ -133,7 +133,7 @@ func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.Runti
 	return r
 }
 
-func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	configVersion := preparerStatus.DeploymentConfigVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, configVersion)
@@ -150,7 +150,7 @@ func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinpu
 // Suppressing its writes is what used to make a candidate that crashed during
 // startup invisible: nothing was recorded, so nothing was notified, so the
 // operator never woke to build a replacement and the rollout stalled in silence.
-func (r *containerRunner) initFreshRun(dep *apigen.DeploymentConfig, preparerStatus apigen.PreparerStatus, candidate bool) {
+func (r *containerRunner) initFreshRun(dep *apigen.Deployment, preparerStatus apigen.PreparerStatus, candidate bool) {
 	if candidate {
 		timeout := containerReadinessTimeout(dep.Spec.Container().ReadinessSignal)
 		r.readiness = &readinessConfig{timeout: timeout}
@@ -167,7 +167,7 @@ func (r *containerRunner) initFreshRun(dep *apigen.DeploymentConfig, preparerSta
 	r.writeStatus()
 }
 
-func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentConfig, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
+func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, prev.DeploymentConfigVersion)
 	r.status = prev
@@ -183,7 +183,7 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 	return containerReadinessDefaultTimeout
 }
 
-func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentConfig, configVersion int32) *containerRunner {
+func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, configVersion int32) *containerRunner {
 	cfg := dep.Spec.Container().Runtime
 	// Layering the container id onto the cancellation context keeps it on every
 	// log line without repeating it per call; cancel() still reaches the child.
@@ -217,7 +217,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 	return r
 }
 
-func containerDeploymentName(dep *apigen.DeploymentConfig) string {
+func containerDeploymentName(dep *apigen.Deployment) string {
 	if dep == nil {
 		return "<nil>"
 	}
@@ -1304,7 +1304,7 @@ func (r *containerRunner) writeStatus() {
 // data volume (unless disabled) followed by any configured mounts. It also
 // returns the default volume's host path (empty when disabled) so the runner can
 // create + chown it at spawn time.
-func containerMounts(dep *apigen.DeploymentConfig) ([]ctrd.Mount, string) {
+func containerMounts(dep *apigen.Deployment) ([]ctrd.Mount, string) {
 	cfg := dep.Spec.Container().Runtime
 	var mounts []ctrd.Mount
 	var dataHost string

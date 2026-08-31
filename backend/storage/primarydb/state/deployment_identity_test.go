@@ -42,7 +42,7 @@ func TestDeploymentIdentityUniquenessIsGoLevel(t *testing.T) {
 		t.Fatalf("move onto occupied identity err = %v, want %v", err, DuplicateDeploymentIdentityErr)
 	}
 
-	store.UpdateDeploymentConfig(apigen.Context{}, sibling.ID, DeploymentConfigUpdate{
+	store.UpdateDeployment(apigen.Context{}, sibling.ID, DeploymentConfigUpdate{
 		ExpectedVersion: sibling.Version + 1,
 		Spec:            spec,
 		Deleted:         true,

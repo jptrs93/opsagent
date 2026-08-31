@@ -29,7 +29,7 @@ func New(releasesDir string, client *github.Client) *Preparer {
 	}
 }
 
-func (p *Preparer) PrepareBinary(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.ImageStatus) {
+func (p *Preparer) PrepareBinary(ctx context.Context, dep *apigen.Deployment, log *preparerlog.Log) (string, apigen.ImageStatus) {
 	assetPath, err := p.downloadReleaseBinary(ctx, dep.WorkloadVersion(), log)
 	if err != nil {
 		log.Error("downloading release asset: %v", err)
@@ -39,7 +39,7 @@ func (p *Preparer) PrepareBinary(ctx context.Context, dep *apigen.DeploymentConf
 	return assetPath, apigen.ImageStatus_IMAGE_READY
 }
 
-func (p *Preparer) PrepareImage(ctx context.Context, dep *apigen.DeploymentConfig, log *preparerlog.Log) (string, apigen.ImageStatus) {
+func (p *Preparer) PrepareImage(ctx context.Context, dep *apigen.Deployment, log *preparerlog.Log) (string, apigen.ImageStatus) {
 	version := dep.WorkloadVersion()
 	assetPath, err := p.downloadReleaseBinary(ctx, version, log)
 	if err != nil {

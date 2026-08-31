@@ -48,7 +48,7 @@ func crossMountSpec(image string, sourceDeploymentID int32) apigen.DeploymentSpe
 	return spec
 }
 
-func TestDeploymentConfigRefsScopedToOwnOrGlobalSpace(t *testing.T) {
+func TestDeploymentRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
 	prod, err := h.Store.CreateSpace("prod")
 	if err != nil {
@@ -63,7 +63,7 @@ func TestDeploymentConfigRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		t.Fatalf("creating prod config: %v", err)
 	}
 
-	create := func(name string, spaceID, configVersionID int32) (*apigen.DeploymentConfig, error) {
+	create := func(name string, spaceID, configVersionID int32) (*apigen.Deployment, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			NodeID: node.ID,
@@ -98,7 +98,7 @@ func TestDeploymentAssetRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		t.Fatalf("creating prod asset: %v", err)
 	}
 
-	create := func(name string, spaceID, assetVersionID int32) (*apigen.DeploymentConfig, error) {
+	create := func(name string, spaceID, assetVersionID int32) (*apigen.Deployment, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			NodeID: node.ID,
@@ -132,7 +132,7 @@ func TestDeploymentAddressRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	prodSpec := remoteDeploymentSpec("api", virtualNetworking())
 	prodTarget := createTestDeployment(h.Store, "primary", prod.ID, "prod-api", &prodSpec)
 
-	create := func(name string, spaceID int32, target *apigen.DeploymentConfig) (*apigen.DeploymentConfig, error) {
+	create := func(name string, spaceID int32, target *apigen.Deployment) (*apigen.Deployment, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			NodeID: node.ID,
@@ -166,7 +166,7 @@ func TestDeploymentCrossMountSourcesScopedToOwnOrGlobalSpace(t *testing.T) {
 	prodSpec := remoteDeploymentSpec("db", hostNetworking())
 	prodSource := createTestDeployment(h.Store, "primary", prod.ID, "prod-db", &prodSpec)
 
-	create := func(name string, spaceID, sourceID int32) (*apigen.DeploymentConfig, error) {
+	create := func(name string, spaceID, sourceID int32) (*apigen.Deployment, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			NodeID: node.ID,

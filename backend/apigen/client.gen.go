@@ -708,7 +708,7 @@ func (c *ApiServerCapi) PostV1DeploymentsGet(ctx context.Context, req *Deploymen
 	return DecodeDeploymentState(body)
 }
 
-func (c *ApiServerCapi) PostV1DeploymentsCreate(ctx context.Context, req *DeploymentCreateRequest) (*DeploymentConfig, error) {
+func (c *ApiServerCapi) PostV1DeploymentsCreate(ctx context.Context, req *DeploymentCreateRequest) (*Deployment, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1DeploymentsCreate request is nil")
 	}
@@ -724,10 +724,10 @@ func (c *ApiServerCapi) PostV1DeploymentsCreate(ctx context.Context, req *Deploy
 	if err != nil {
 		return nil, err
 	}
-	return DecodeDeploymentConfig(body)
+	return DecodeDeployment(body)
 }
 
-func (c *ApiServerCapi) PostV1DeploymentsUpdate(ctx context.Context, req *DeploymentUpdateRequest) (*DeploymentConfig, error) {
+func (c *ApiServerCapi) PostV1DeploymentsUpdate(ctx context.Context, req *DeploymentUpdateRequest) (*Deployment, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1DeploymentsUpdate request is nil")
 	}
@@ -743,10 +743,10 @@ func (c *ApiServerCapi) PostV1DeploymentsUpdate(ctx context.Context, req *Deploy
 	if err != nil {
 		return nil, err
 	}
-	return DecodeDeploymentConfig(body)
+	return DecodeDeployment(body)
 }
 
-func (c *ApiServerCapi) PostV1DeploymentsMoveSpace(ctx context.Context, req *DeploymentSpaceMoveRequest) (*DeploymentConfig, error) {
+func (c *ApiServerCapi) PostV1DeploymentsMoveSpace(ctx context.Context, req *DeploymentSpaceMoveRequest) (*Deployment, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1DeploymentsMoveSpace request is nil")
 	}
@@ -762,7 +762,7 @@ func (c *ApiServerCapi) PostV1DeploymentsMoveSpace(ctx context.Context, req *Dep
 	if err != nil {
 		return nil, err
 	}
-	return DecodeDeploymentConfig(body)
+	return DecodeDeployment(body)
 }
 
 func (c *ApiServerCapi) PostV1DeploymentsDelete(ctx context.Context, req *DeploymentDeleteRequest) error {

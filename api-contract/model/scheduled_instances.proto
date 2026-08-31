@@ -98,7 +98,7 @@ message ScheduledInstanceStatus {
 // latest observed status for that instance.
 message ScheduledInstanceState {
   ScheduledInstance instance = 1 [(cp.go_value) = true];
-  DeploymentConfig config = 2 [(cp.go_value) = true];
+  Deployment config = 2 [(cp.go_value) = true];
   ScheduledInstanceStatus status = 3 [(cp.go_value) = true];
 }
 

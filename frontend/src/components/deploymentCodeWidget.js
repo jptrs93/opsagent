@@ -132,23 +132,23 @@ function catalogArrays(catalogs) {
     };
 }
 
-function deploymentConfig(item) {
+function deployment(item) {
     return item?.config || item;
 }
 
 function catalogName(item, namespace) {
     if (namespace === "asset") return item?.key;
-    if (namespace === "deployment") return deploymentConfig(item)?.name;
+    if (namespace === "deployment") return deployment(item)?.name;
     return item?.name;
 }
 
 function catalogID(item, namespace) {
-    return namespace === "deployment" ? deploymentConfig(item)?.id : item?.id;
+    return namespace === "deployment" ? deployment(item)?.id : item?.id;
 }
 
 function catalogSpaceID(item, namespace) {
     return namespace === "deployment"
-        ? deploymentConfig(item)?.spaceId
+        ? deployment(item)?.spaceId
         : item?.spaceId;
 }
 
@@ -191,7 +191,7 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
     const options = new Map();
 
     for (const item of collection) {
-        if (item?.deleted || deploymentConfig(item)?.deleted) continue;
+        if (item?.deleted || deployment(item)?.deleted) continue;
         const itemSpaceID = catalogSpaceID(item, type);
         if (type === "deployment" && spaceID !== null
             && itemSpaceID !== undefined && itemSpaceID !== null
@@ -203,7 +203,7 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
             && Number(itemSpaceID) !== Number(spaceID)
             && Number(itemSpaceID) !== GLOBAL_SPACE_ID) continue;
         if (type === "deployment" && nodeID !== null
-            && Number(deploymentConfig(item)?.nodeId) !== Number(nodeID)) continue;
+            && Number(deployment(item)?.nodeId) !== Number(nodeID)) continue;
         const name = catalogName(item, type);
         if (!name) continue;
         const quoted = JSON.stringify(String(name));
@@ -457,10 +457,10 @@ export function syntaxDiagnostics(state) {
     return diagnostics;
 }
 
-export function deploymentConfigCodeWidget(args) {
+export function deploymentCodeWidget(args) {
     const documentModel = args?.document;
     if (typeof documentModel?.read !== "function" || typeof documentModel?.replace !== "function") {
-        throw new Error("deploymentConfigCodeWidget requires document.read() and document.replace(next)");
+        throw new Error("deploymentCodeWidget requires document.read() and document.replace(next)");
     }
 
     const catalogs = args.catalogs || {};

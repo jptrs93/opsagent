@@ -10,7 +10,7 @@
   --derived-bg:#dbeafe; --derived-fg:#1d4ed8; --derived-edge:#b7cff5;
   --local-bg:#ccfbf1; --local-fg:#0f766e; --local-edge:#99e5d8;
   --j-key:#0550ae; --j-str:#0a7d4b; --j-num:#b3591b; --j-kw:#7c3aed;
-  --srv:#a83d8f;
+  --v-bg:#eef4fe; --v-edge:#c9dcf8;
   --shadow:0 2px 10px rgba(18,26,40,.06);
 }
 @media (prefers-color-scheme: dark){
@@ -26,7 +26,7 @@
     --derived-bg:#152647; --derived-fg:#86aef5; --derived-edge:#2a3f6b;
     --local-bg:#0d312c; --local-fg:#5fd3c0; --local-edge:#1c4a43;
     --j-key:#79b8ff; --j-str:#7ee2a8; --j-num:#f0b47b; --j-kw:#c49bff;
-    --srv:#e08fd0;
+    --v-bg:#131e35; --v-edge:#2a4068;
     --shadow:0 2px 10px rgba(0,0,0,.35);
   }
 }
@@ -134,7 +134,6 @@ body{
   border:1px solid var(--line);
   border-radius:12px;
   box-shadow:var(--shadow);
-  overflow:hidden;
 }
 .gv-card-h{
   display:flex;align-items:center;justify-content:space-between;gap:10px;
@@ -145,13 +144,6 @@ body{
 }
 .gv-card-h:active{cursor:grabbing}
 .gv-title{font-weight:700;font-size:13.5px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin-right:auto}
-.gv-vtag{
-  flex:none;
-  font-size:9.5px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;
-  padding:2px 7px;border-radius:99px;
-  color:var(--accent);border:1px solid var(--accent);
-  white-space:nowrap;
-}
 .gv-badge{
   flex:none;
   font-size:9.5px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;
@@ -181,7 +173,7 @@ body{
 }
 .gv-fline{display:flex;align-items:baseline;gap:8px;white-space:nowrap;min-width:0;overflow:hidden}
 .f-name{color:var(--text)}
-.f-name.srv{color:var(--srv)}
+.gv-fline.srv .f-name,.gv-fline.srv .f-type{color:var(--faint)}
 .f-mod{color:var(--faint);font-style:italic}
 .f-type{color:var(--j-key)}
 .f-toggle{
@@ -199,14 +191,49 @@ body{
 }
 .gv-field.open>.gv-fline .tw{transform:translateY(-1px) rotate(90deg)}
 .f-chip{
-  font-size:8px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+  font-size:7px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
   padding:0 5px;border-radius:99px;
-  line-height:1.6;
+  line-height:1.7;
   transform:translateY(-1px);
 }
 .f-chip.c-enum{color:var(--j-kw);border:1px solid var(--j-kw)}
 .f-chip.c-key{color:var(--user-fg);background:var(--user-bg);border:1px solid var(--user-edge)}
-.f-chip.c-ver{color:var(--accent);border:1px solid var(--accent)}
+.f-chip.c-ro{color:var(--faint);border:1px solid var(--line)}
+.f-right{margin-left:auto;display:inline-flex;align-items:center;gap:3px;flex:none;padding-left:8px}
+
+/* versioned marker + tinted sub-block */
+.gv-v{
+  flex:none;position:relative;
+  width:11px;height:11px;border-radius:50%;
+  border:1px solid var(--faint);color:var(--faint);
+  font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  display:inline-flex;align-items:center;justify-content:center;
+  cursor:default;
+  transition:color .12s ease,border-color .12s ease;
+}
+.gv-v:hover{border-color:var(--accent);color:var(--accent)}
+.gv-fline .gv-v{transform:translateY(1px)}
+.gv-v-hdr{width:12px;height:12px;font-size:8.5px;align-self:flex-start;transform:translate(7px,-5px)}
+.gv-tip{
+  position:absolute;z-index:40;
+  width:230px;white-space:normal;
+  background:var(--panel);color:var(--muted);
+  border:1px solid var(--line);border-radius:9px;
+  padding:8px 11px;
+  font:400 11px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  text-align:left;
+  box-shadow:var(--shadow);
+  pointer-events:none;
+}
+.gv-tip[hidden]{display:none}
+.gv-field.vblock{
+  border:1px solid var(--v-edge);
+  background:var(--v-bg);
+  border-radius:8px;
+  padding:3px 4px 4px 8px;
+  margin:4px 0;
+}
+.gv-field.vblock>.gv-fkids{border-left-color:var(--v-edge)}
 .f-ref{color:var(--faint)}
 .f-note{color:var(--faint);font-style:italic;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .gv-fkids{
@@ -244,4 +271,4 @@ body{
 .legend .swatch{width:22px;height:0;flex:none}
 .legend .line-derive{border-top:2px solid var(--accent)}
 .legend .line-ref{border-top:2px dashed var(--faint)}
-.legend .dot-srv{width:8px;height:8px;border-radius:2px;background:var(--srv);margin:0 7px}
+.legend .dot-srv{width:8px;height:8px;border-radius:2px;background:var(--faint);margin:0 7px}

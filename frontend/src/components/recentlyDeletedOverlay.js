@@ -4,7 +4,7 @@ import {machinesS, spacesS} from "../state/deployments.js";
 import {nodeDisplayName} from "../lib/machines.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 import {formatHistoryTime} from "../lib/date.js";
-import {deploymentWorkload} from "../lib/deploymentConfig.js";
+import {deploymentWorkload} from "../lib/deployment.js";
 
 const {div, h2, p, button, table, thead, tbody, tr, th, td} = van.tags;
 

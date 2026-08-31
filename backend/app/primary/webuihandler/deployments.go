@@ -33,7 +33,7 @@ var DeploymentAddressReferencedErr = apigen.NewApiErr("Deployment address is ref
 
 const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHub. Please try again."
 
-func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentConfig, error) {
+func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.Deployment, error) {
 	if req.Name == "" {
 		return nil, invalidConfigErrf("name is required")
 	}
@@ -104,7 +104,7 @@ func (h *Handler) wakeAcme() {
 	}
 }
 
-func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequest) (*apigen.DeploymentConfig, error) {
+func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequest) (*apigen.Deployment, error) {
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
 	}
@@ -196,7 +196,7 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		if err := h.validateRefSpaces(effectiveSpec, cfg.SpaceID); err != nil {
 			return nil, err
 		}
-		current, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, state.DeploymentConfigUpdate{
+		current, _, versionOK := h.Store.UpdateDeployment(ctx, req.DeploymentID, state.DeploymentConfigUpdate{
 			ExpectedVersion: req.Version,
 			Spec:            effectiveSpec,
 			Deleted:         cfg.Deleted,
@@ -215,7 +215,7 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 // guarded by the deployment's space version rather than its config version, is
 // validated like a create into the destination space, and rides the scheduler
 // rollover path: live placements keep their pinned space until replaced.
-func (h *Handler) PostV1DeploymentsMoveSpace(ctx apigen.Context, req *apigen.DeploymentSpaceMoveRequest) (*apigen.DeploymentConfig, error) {
+func (h *Handler) PostV1DeploymentsMoveSpace(ctx apigen.Context, req *apigen.DeploymentSpaceMoveRequest) (*apigen.Deployment, error) {
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
 	}
@@ -312,7 +312,7 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 	if err := spec.SetWorkloadState(spec.WorkloadVersion(), false); err != nil {
 		return invalidConfigErrf("spec: %v", err)
 	}
-	_, _, versionOK := h.Store.UpdateDeploymentConfig(ctx, req.DeploymentID, state.DeploymentConfigUpdate{
+	_, _, versionOK := h.Store.UpdateDeployment(ctx, req.DeploymentID, state.DeploymentConfigUpdate{
 		ExpectedVersion: req.Version,
 		Spec:            spec,
 		Deleted:         true,
@@ -340,11 +340,11 @@ func (h *Handler) PostV1DeploymentsRecentlyDeleted(ctx apigen.Context, req *apig
 	if limit <= 0 || limit > recentlyDeletedMaxLimit {
 		limit = recentlyDeletedDefaultLimit
 	}
-	configs := h.Store.FetchDeletedDeploymentSnapshot(func(cfg apigen.DeploymentConfig) bool {
+	configs := h.Store.FetchDeletedDeploymentSnapshot(func(cfg apigen.Deployment) bool {
 		return !internaldeploy.IsInternalConfig(&cfg) &&
 			h.canAccess(ctx, vView, eDeployment, int64(cfg.SpaceID), int64(cfg.ID))
 	}, limit)
-	items := make([]*apigen.DeploymentConfig, 0, len(configs))
+	items := make([]*apigen.Deployment, 0, len(configs))
 	for i := range configs {
 		items = append(items, &configs[i])
 	}
@@ -615,7 +615,7 @@ func waitForPrepareOutputFile(ctx context.Context, path string) (*os.File, error
 	}
 }
 
-func (h *Handler) findConfigByID(deploymentID int32) *apigen.DeploymentConfig {
+func (h *Handler) findConfigByID(deploymentID int32) *apigen.Deployment {
 	for _, cfg := range h.Store.FetchDeploymentSnapshot(nil) {
 		if cfg.ID == deploymentID {
 			copy := cfg

@@ -94,14 +94,14 @@ func newRuntime() (*runtime, error) {
 	tlsIssuer := &issuedtls.Issuer{Secrets: secretsMgr}
 	runtimeInputs.SetIssuedTLSProvider(&issuedtls.PrimaryProvider{
 		Issuer: tlsIssuer,
-		Snapshot: func() []apigen.DeploymentConfig {
+		Snapshot: func() []apigen.Deployment {
 			return store.FetchDeploymentSnapshot(nil)
 		},
 	})
 	gitManager := repogit.NewManager(ainit.StaticConfig.GitCacheDir, githubCredentials)
 	githubClient := githubrepo.NewClient()
 	acmeHolder := acmestate.NewHolder()
-	acmeIssuer := acmeissue.New(secretsMgr, func() []apigen.DeploymentConfig {
+	acmeIssuer := acmeissue.New(secretsMgr, func() []apigen.Deployment {
 		return store.FetchDeploymentSnapshot(nil)
 	}, acmeHolder)
 

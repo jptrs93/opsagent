@@ -1,7 +1,7 @@
 # Proposed deployment HCL schema
 
 This is an authoring format for `DeploymentCreateRequest` and the editable
-parts of `DeploymentConfig`. Server-owned fields (`id`, config version, audit
+parts of `Deployment`. Server-owned fields (`id`, config version, audit
 metadata, and deletion state) are deliberately excluded.
 
 ```hcl

@@ -32,7 +32,7 @@ type IssuedTLSPersistence interface {
 	RetainIssuedTLS(keep map[int32]struct{}) (int, error)
 }
 
-func IssuedTLSMountOf(cfg *apigen.DeploymentConfig) *apigen.IssuedTLSMount {
+func IssuedTLSMountOf(cfg *apigen.Deployment) *apigen.IssuedTLSMount {
 	if cfg == nil {
 		return nil
 	}
@@ -47,7 +47,7 @@ func (r *RuntimeInputs) SetIssuedTLSProvider(p IssuedTLSProvider) {
 	r.issuedTLS = p
 }
 
-func (r *RuntimeInputs) EnsureIssuedTLSReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
+func (r *RuntimeInputs) EnsureIssuedTLSReady(ctx context.Context, cfg *apigen.Deployment) error {
 	mount := IssuedTLSMountOf(cfg)
 	if mount == nil {
 		return nil

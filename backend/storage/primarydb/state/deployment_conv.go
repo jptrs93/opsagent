@@ -8,9 +8,9 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-func configRowToProto(r pq.DeploymentRow) *apigen.DeploymentConfig {
+func configRowToProto(r pq.DeploymentRow) *apigen.Deployment {
 	spec := mustDecodeDeploymentSpec(r.SpecBlob, r.DeploymentID, r.Version)
-	return &apigen.DeploymentConfig{
+	return &apigen.Deployment{
 		ID:           int32(r.DeploymentID),
 		NodeID:       int32(r.NodeID),
 		SpaceID:      int32(r.SpaceID),
@@ -30,9 +30,9 @@ func configRowToProto(r pq.DeploymentRow) *apigen.DeploymentConfig {
 // tombstone state) come from base — the deployment's current cached config —
 // since the version rows carry only the immutable spec. base may be nil when
 // the identity is not cached; identity fields are then zero-valued.
-func configVersionRowToProto(v pq.DeploymentVersion, base *apigen.DeploymentConfig) *apigen.DeploymentConfig {
+func configVersionRowToProto(v pq.DeploymentVersion, base *apigen.Deployment) *apigen.Deployment {
 	spec := mustDecodeDeploymentSpec(v.SpecBlob, v.DeploymentID, v.Version)
-	cfg := &apigen.DeploymentConfig{
+	cfg := &apigen.Deployment{
 		ID:        int32(v.DeploymentID),
 		Version:   int32(v.Version),
 		UpdatedAt: time.UnixMilli(v.CreatedAt),

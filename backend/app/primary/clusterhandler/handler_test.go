@@ -17,7 +17,7 @@ func TestBuildAllowedRefs(t *testing.T) {
 	configID := int32(9)
 	refs := buildAllowedRefs([]apigen.ScheduledInstanceState{{
 		Instance: apigen.ScheduledInstance{ID: 99},
-		Config: apigen.DeploymentConfig{
+		Config: apigen.Deployment{
 			ID: 42,
 			Spec: apigen.DeploymentSpec{
 				Container1Spec: &apigen.ContainerSpec{

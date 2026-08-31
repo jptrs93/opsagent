@@ -36,7 +36,7 @@ func TestResolveEnv(t *testing.T) {
 		configs: map[int32]string{3: "db.local"},
 	}
 	inputs := runtimeinputs.New(nil, provider, provider)
-	dep := &apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
+	dep := &apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 		Runtime: apigen.ContainerRuntime{EnvVars: in},
 	}}}
 	if err := inputs.EnsureSecretsReady(context.Background(), dep); err != nil {
@@ -136,7 +136,7 @@ func TestResolveEnvAddressRefRejectsOutOfRangeIdentity(t *testing.T) {
 }
 
 func TestContainerMountsIncludesImplicitAssetEnvMount(t *testing.T) {
-	dep := &apigen.DeploymentConfig{
+	dep := &apigen.Deployment{
 		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 			Runtime: apigen.ContainerRuntime{
 				DefaultVolume: apigen.DefaultVolumeMount{Disabled: true},

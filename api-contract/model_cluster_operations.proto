@@ -17,9 +17,6 @@ message GithubCredentials {
 }
 
 // Primary and worker communicate over an HTTP/2 mTLS protobuf stream.
-// Each frame is [unsigned-varint length][protobuf payload].
-// Primary sends MsgToWorker; worker sends MsgToMaster.
-// Dispatch on whichever field is non-nil.
 message MsgToWorker {
   ScheduledInstanceSnapshot scheduled_instances_snapshot = 1;
   ScheduledInstanceState scheduled_instance_update = 2;
@@ -30,6 +27,7 @@ message MsgToWorker {
   // dataplane from it on boot before reaching the primary.
   ClusterNetworkInfo cluster_network = 7;
   ClusterNetMap cluster_net_map = 8;
+
   int32 cluster_protocol_version = 9;
   AcmeState acme_state = 10;
   LogQueryRequest log_query_request = 11;  // One-shot structured log query; reply is log_query_response.

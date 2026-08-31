@@ -190,8 +190,8 @@ func TestOpendeployRestartLeavesStatusStartingForRestartedProcess(t *testing.T) 
 	}
 }
 
-func opendeployTestDeployment() *apigen.DeploymentConfig {
-	return &apigen.DeploymentConfig{
+func opendeployTestDeployment() *apigen.Deployment {
+	return &apigen.Deployment{
 		ID:      1,
 		Version: 7,
 		Spec:    apigen.DeploymentSpec{OpendeploySpec: &apigen.OpendeploySpec{}},

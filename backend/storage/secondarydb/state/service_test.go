@@ -15,7 +15,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "secondary.db")
 	store := Open(dbPath)
 
-	cfg := apigen.DeploymentConfig{
+	cfg := apigen.Deployment{
 		ID:        7,
 		NodeID:    23,
 		SpaceID:   1,
@@ -84,7 +84,7 @@ func TestSecondaryOlderAssignmentDoesNotStompPinnedConfig(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "secondary.db")
 	store := Open(dbPath)
 
-	v1 := apigen.DeploymentConfig{
+	v1 := apigen.Deployment{
 		ID: 12, NodeID: 3, Version: 1,
 		SpaceID: 1, Name: "tls-ingress-one",
 		Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
@@ -164,7 +164,7 @@ func TestSecondaryFinalizeAbsentDropsInstanceDurably(t *testing.T) {
 				ID: id, DeploymentID: deploymentID, DeploymentVersion: 1, NodeID: 5,
 				State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 			},
-			Config: apigen.DeploymentConfig{ID: deploymentID, NodeID: 5, Version: 1, Spec: *nonEmptySpec()},
+			Config: apigen.Deployment{ID: deploymentID, NodeID: 5, Version: 1, Spec: *nonEmptySpec()},
 		})
 	}
 	write(41, 8)

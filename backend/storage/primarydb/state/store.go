@@ -86,7 +86,7 @@ func (s *Service) loadCache() {
 	}
 }
 
-func (s *Service) FetchDeploymentSnapshot(predicate storage.DeploymentPredicate) []apigen.DeploymentConfig {
+func (s *Service) FetchDeploymentSnapshot(predicate storage.DeploymentPredicate) []apigen.Deployment {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	return s.configSnapshotLocked(predicate)
@@ -98,10 +98,10 @@ func (s *Service) FetchDeploymentSnapshot(predicate storage.DeploymentPredicate)
 // live ones; every other snapshot filters them out because a deleted deployment
 // schedules nothing. Deletion order is the config's update time, which for a
 // tombstone is when the delete was written.
-func (s *Service) FetchDeletedDeploymentSnapshot(predicate storage.DeploymentPredicate, limit int) []apigen.DeploymentConfig {
+func (s *Service) FetchDeletedDeploymentSnapshot(predicate storage.DeploymentPredicate, limit int) []apigen.Deployment {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	out := make([]apigen.DeploymentConfig, 0, limit)
+	out := make([]apigen.Deployment, 0, limit)
 	for _, cfg := range s.configCache {
 		if !cfg.Deleted || (predicate != nil && !predicate(*cfg)) {
 			continue
@@ -122,9 +122,9 @@ func (s *Service) FetchDeletedDeploymentSnapshot(predicate storage.DeploymentPre
 	return out
 }
 
-// FetchDeploymentConfig returns the latest desired config, including a deleted
+// FetchDeployment returns the latest desired config, including a deleted
 // tombstone, for scheduler reconciliation.
-func (s *Service) FetchDeploymentConfig(deploymentID int32) *apigen.DeploymentConfig {
+func (s *Service) FetchDeployment(deploymentID int32) *apigen.Deployment {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	cfg := s.configCache[deploymentID]
@@ -135,7 +135,7 @@ func (s *Service) FetchDeploymentConfig(deploymentID int32) *apigen.DeploymentCo
 	return &cp
 }
 
-func (s *Service) MustFetchDeploymentConfigSnapshotAndSubscribe(predicate storage.DeploymentPredicate) ([]apigen.DeploymentConfig, chan apigen.DeploymentConfig, func()) {
+func (s *Service) MustFetchDeploymentSnapshotAndSubscribe(predicate storage.DeploymentPredicate) ([]apigen.Deployment, chan apigen.Deployment, func()) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	snapshot := s.configSnapshotLocked(predicate)
@@ -165,8 +165,8 @@ func (s *Service) MustFetchScheduledSnapshotWithLatestFinalAndSubscribe(predicat
 	return snapshot, sub.Ch, sub.Unsubscribe
 }
 
-func (s *Service) configSnapshotLocked(predicate storage.DeploymentPredicate) []apigen.DeploymentConfig {
-	out := make([]apigen.DeploymentConfig, 0, len(s.configCache))
+func (s *Service) configSnapshotLocked(predicate storage.DeploymentPredicate) []apigen.Deployment {
+	out := make([]apigen.Deployment, 0, len(s.configCache))
 	for _, cfg := range s.configCache {
 		if cfg.Deleted || (predicate != nil && !predicate(*cfg)) {
 			continue
@@ -221,7 +221,7 @@ func (s *Service) instanceStateLocked(inst *apigen.ScheduledInstance) *apigen.Sc
 
 // configForInstanceLocked resolves a pinned config version for primary
 // load/create paths.
-func (s *Service) configForInstanceLocked(inst *apigen.ScheduledInstance) *apigen.DeploymentConfig {
+func (s *Service) configForInstanceLocked(inst *apigen.ScheduledInstance) *apigen.Deployment {
 	if inst == nil {
 		return nil
 	}
@@ -231,7 +231,7 @@ func (s *Service) configForInstanceLocked(inst *apigen.ScheduledInstance) *apige
 	return s.loadConfigVersionLocked(inst.DeploymentID, inst.DeploymentVersion)
 }
 
-func (s *Service) loadConfigVersionLocked(deploymentID, version int32) *apigen.DeploymentConfig {
+func (s *Service) loadConfigVersionLocked(deploymentID, version int32) *apigen.Deployment {
 	ctx := logu.AddTag(context.Background(), "Store")
 	row, err := s.q.GetDeploymentVersion(ctx, pq.GetDeploymentVersionParams{
 		DeploymentID: int64(deploymentID),
@@ -254,11 +254,11 @@ func (s *Service) notifyConfigLocked(id int32) {
 	s.configSubs.Notify(*cfg)
 }
 
-func configFilter(predicate storage.DeploymentPredicate) func(apigen.DeploymentConfig, apigen.DeploymentConfig) bool {
+func configFilter(predicate storage.DeploymentPredicate) func(apigen.Deployment, apigen.Deployment) bool {
 	if predicate == nil {
 		return nil
 	}
-	return func(_, cfg apigen.DeploymentConfig) bool {
+	return func(_, cfg apigen.Deployment) bool {
 		return predicate(cfg)
 	}
 }

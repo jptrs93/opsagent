@@ -293,23 +293,23 @@ function normalizedCatalogs(catalogs) {
     };
 }
 
-function deploymentConfig(item) {
+function deploymentOf(item) {
     return item?.config || item;
 }
 
 function itemSpace(item, type) {
-    if (type === "deployment") return deploymentConfig(item)?.spaceId;
+    if (type === "deployment") return deploymentOf(item)?.spaceId;
     return item?.spaceId;
 }
 
 function itemName(item, type) {
     if (type === "asset") return item?.key;
-    if (type === "deployment") return deploymentConfig(item)?.name;
+    if (type === "deployment") return deploymentOf(item)?.name;
     return item?.name;
 }
 
 function itemID(item, type) {
-    if (type === "deployment") return deploymentConfig(item)?.id;
+    if (type === "deployment") return deploymentOf(item)?.id;
     return item?.id;
 }
 
@@ -319,7 +319,7 @@ function isVersionedResource(type) {
 
 function scopedItems(items, type, spaceId) {
     return items.filter(item => {
-        if (item?.deleted || deploymentConfig(item)?.deleted) return false;
+        if (item?.deleted || deploymentOf(item)?.deleted) return false;
         const candidateSpace = itemSpace(item, type);
         return candidateSpace === undefined || candidateSpace === null || spaceId === undefined || spaceId === null
             || Number(candidateSpace) === Number(spaceId);
@@ -681,12 +681,12 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
         if (ownSpace.length > 0) matches = ownSpace;
     }
     if (type === "deployment" && options.nodeId !== undefined && options.nodeId !== null) {
-        matches = matches.filter(item => Number(deploymentConfig(item)?.nodeId) === Number(options.nodeId));
+        matches = matches.filter(item => Number(deploymentOf(item)?.nodeId) === Number(options.nodeId));
     }
     if (type === "deployment" && options.preferNodeId !== undefined && options.preferNodeId !== null) {
         // Same name may exist on several nodes; the local node shadows the
         // others, but a name unique to another node still resolves.
-        const ownNode = matches.filter(item => Number(deploymentConfig(item)?.nodeId) === Number(options.preferNodeId));
+        const ownNode = matches.filter(item => Number(deploymentOf(item)?.nodeId) === Number(options.preferNodeId));
         if (ownNode.length > 0) matches = ownNode;
     }
     if (isVersionedResource(type)) {
@@ -847,7 +847,7 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime
             const deployment = deploymentReference(text, diagnostics, source, catalogs, nodeId);
             if (!deployment) continue;
             mounts.push({
-                deploymentId: Number(deploymentConfig(deployment).id),
+                deploymentId: Number(deploymentOf(deployment).id),
                 containerPath: pathExpression.value,
                 permission: optionBoolean(text, diagnostics, options, "read_only")
                     ? PERMISSION_READ_ONLY
@@ -953,7 +953,7 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
         if (value.name === "config") setEnv(entry.name, {configVersionId: Number(item.id)});
         if (value.name === "asset") setEnv(entry.name, {asset: item.key, assetVersionId: Number(item.id)});
         if (value.name === "address") {
-            const config = deploymentConfig(item);
+            const config = deploymentOf(item);
             setEnv(entry.name, {addressDeploymentId: Number(config.id), addressSpaceId: Number(config.spaceId)});
         }
     }

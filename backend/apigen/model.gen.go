@@ -6,20 +6,20 @@ import (
 	"time"
 )
 
-type ContainerUpgradeStrategy int32
-
-const (
-	ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED ContainerUpgradeStrategy = 0
-	ContainerUpgradeStrategy_RECREATE                               ContainerUpgradeStrategy = 1
-	ContainerUpgradeStrategy_ROLLOVER                               ContainerUpgradeStrategy = 2
-)
-
 type NetworkingMode int32
 
 const (
 	NetworkingMode_NETWORKING_MODE_UNSPECIFIED NetworkingMode = 0
 	NetworkingMode_NETWORKING_MODE_VIRTUAL     NetworkingMode = 1
 	NetworkingMode_NETWORKING_MODE_HOST        NetworkingMode = 2
+)
+
+type ContainerUpgradeStrategy int32
+
+const (
+	ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED ContainerUpgradeStrategy = 0
+	ContainerUpgradeStrategy_RECREATE                               ContainerUpgradeStrategy = 1
+	ContainerUpgradeStrategy_ROLLOVER                               ContainerUpgradeStrategy = 2
 )
 
 type PortForwardProtocol int32
@@ -45,22 +45,6 @@ const (
 	HttpBackendProtocol_HTTP_BACKEND_PROTOCOL_H2C         HttpBackendProtocol = 1
 )
 
-type AcmeChallenge int32
-
-const (
-	AcmeChallenge_ACME_CHALLENGE_UNSPECIFIED AcmeChallenge = 0
-	AcmeChallenge_ACME_CHALLENGE_HTTP_01     AcmeChallenge = 1
-)
-
-type EndpointState int32
-
-const (
-	EndpointState_ENDPOINT_STATE_UNSPECIFIED EndpointState = 0
-	EndpointState_ENDPOINT_READY             EndpointState = 1
-	EndpointState_ENDPOINT_DRAINING          EndpointState = 2
-	EndpointState_ENDPOINT_DOWN              EndpointState = 3
-)
-
 type FilePermission int32
 
 const (
@@ -68,6 +52,13 @@ const (
 	FilePermission_READ_WRITE                  FilePermission = 1
 	FilePermission_READ_ONLY                   FilePermission = 2
 	FilePermission_READ_EXECUTE                FilePermission = 3
+)
+
+type AcmeChallenge int32
+
+const (
+	AcmeChallenge_ACME_CHALLENGE_UNSPECIFIED AcmeChallenge = 0
+	AcmeChallenge_ACME_CHALLENGE_HTTP_01     AcmeChallenge = 1
 )
 
 type RunningStatus int32
@@ -181,6 +172,15 @@ const (
 	NetProtocol_NET_PROTOCOL_UDP         NetProtocol = 2
 )
 
+type EndpointState int32
+
+const (
+	EndpointState_ENDPOINT_STATE_UNSPECIFIED EndpointState = 0
+	EndpointState_ENDPOINT_READY             EndpointState = 1
+	EndpointState_ENDPOINT_DRAINING          EndpointState = 2
+	EndpointState_ENDPOINT_DOWN              EndpointState = 3
+)
+
 type NetworkPolicyAction int32
 
 const (
@@ -206,80 +206,7 @@ const (
 	AccessPolicyType_ANY_OF                         AccessPolicyType = 3
 )
 
-type IpFilter struct {
-	Allow []string `json:"allow,omitempty"`
-	Deny  []string `json:"deny,omitempty"`
-}
-
-type PortForward struct {
-	Protocol      PortForwardProtocol `json:"protocol"`
-	HostPort      int32               `json:"host_port"`
-	ContainerPort int32               `json:"container_port"`
-	IpFilter      *IpFilter           `json:"ip_filter"`
-}
-
-type ContainerReadinessSignal struct {
-	TimeoutSeconds int32 `json:"timeout_seconds"`
-}
-
-type AcmeCertSource struct {
-	Challenge AcmeChallenge `json:"challenge"`
-}
-
-type SecretCertSource struct {
-	SecretVersionID int32 `json:"secret_version_id"`
-}
-
-type CertSource struct {
-	Acme   *AcmeCertSource   `json:"acme"`
-	Secret *SecretCertSource `json:"secret"`
-}
-
-type HttpsConfig struct {
-	ContainerPort       int32               `json:"container_port"`
-	PathPrefix          string              `json:"path_prefix,omitempty"`
-	StripPrefix         bool                `json:"strip_prefix"`
-	BackendProtocol     HttpBackendProtocol `json:"backend_protocol"`
-	MaxRequestBodyBytes int64               `json:"max_request_body_bytes"`
-	FlushIntervalMs     int32               `json:"flush_interval_ms"`
-	CertSource          *CertSource         `json:"cert_source"`
-}
-
-type TlsPassthroughConfig struct {
-	HostPort      int32 `json:"host_port"`
-	ContainerPort int32 `json:"container_port"`
-}
-
-type Ingress struct {
-	Kind                 IngressKind           `json:"kind"`
-	Hostname             string                `json:"hostname,omitempty"`
-	TlsPassthroughConfig *TlsPassthroughConfig `json:"tls_passthrough_config"`
-	HttpsConfig          *HttpsConfig          `json:"https_config"`
-}
-
-type NetworkingConfig struct {
-	Mode           NetworkingMode `json:"mode"`
-	PortForwarding []*PortForward `json:"port_forwarding,omitempty"`
-	Ingress        []*Ingress     `json:"ingress,omitempty"`
-}
-
-type DeploymentConfigVersionRef struct {
-	ID      int32 `json:"id"`
-	Version int32 `json:"version"`
-}
-
-type DeploymentConfigSnapshot struct {
-	Items []*DeploymentConfig `json:"items,omitempty"`
-}
-
-type Endpoint struct {
-	Ordinal int32         `json:"ordinal"`
-	Address string        `json:"address,omitempty"`
-	State   EndpointState `json:"state"`
-	NodeID  int32         `json:"node_id"`
-}
-
-type DeploymentConfig struct {
+type Deployment struct {
 	ID           int32          `json:"id"`
 	NodeID       int32          `json:"node_id"`
 	SpaceID      int32          `json:"space_id"`
@@ -303,14 +230,10 @@ type DeploymentSpec struct {
 	OpendeploySpec *OpendeploySpec  `json:"opendeploy_spec"`
 }
 
-type MicroVMSpec struct {
-}
-
-type VMSpec struct {
-}
-
-type OpendeploySpec struct {
-	Version string `json:"version,omitempty"`
+type NetworkingConfig struct {
+	Mode           NetworkingMode `json:"mode"`
+	PortForwarding []*PortForward `json:"port_forwarding,omitempty"`
+	Ingress        []*Ingress     `json:"ingress,omitempty"`
 }
 
 type ContainerSpec struct {
@@ -322,19 +245,33 @@ type ContainerSpec struct {
 	ReadinessSignal *ContainerReadinessSignal `json:"readiness_signal"`
 }
 
+type MicroVMSpec struct {
+}
+
+type VMSpec struct {
+}
+
+type OpendeploySpec struct {
+	Version string `json:"version,omitempty"`
+}
+
+type PortForward struct {
+	Protocol      PortForwardProtocol `json:"protocol"`
+	HostPort      int32               `json:"host_port"`
+	ContainerPort int32               `json:"container_port"`
+	IpFilter      *IpFilter           `json:"ip_filter"`
+}
+
+type Ingress struct {
+	Kind                 IngressKind           `json:"kind"`
+	Hostname             string                `json:"hostname,omitempty"`
+	TlsPassthroughConfig *TlsPassthroughConfig `json:"tls_passthrough_config"`
+	HttpsConfig          *HttpsConfig          `json:"https_config"`
+}
+
 type ContainerBundleSource struct {
 	NixDockerBuild *NixDockerBuild    `json:"nix_docker_build"`
 	RemoteImage    *RemoteDockerImage `json:"remote_image"`
-}
-
-type NixDockerBuild struct {
-	Repo   string `json:"repo,omitempty"`
-	Flake  string `json:"flake,omitempty"`
-	Target string `json:"target,omitempty"`
-}
-
-type RemoteDockerImage struct {
-	Image string `json:"image,omitempty"`
 }
 
 type ContainerRuntime struct {
@@ -351,15 +288,38 @@ type ContainerRuntime struct {
 	IssuedTlsMount        *IssuedTLSMount         `json:"issued_tls_mount"`
 }
 
-type DefaultVolumeMount struct {
-	ContainerPath string `json:"container_path,omitempty"`
-	Disabled      bool   `json:"disabled"`
+type ContainerReadinessSignal struct {
+	TimeoutSeconds int32 `json:"timeout_seconds"`
 }
 
-type CrossDeploymentMount struct {
-	DeploymentID  int32          `json:"deployment_id"`
-	ContainerPath string         `json:"container_path,omitempty"`
-	Permission    FilePermission `json:"permission"`
+type IpFilter struct {
+	Allow []string `json:"allow,omitempty"`
+	Deny  []string `json:"deny,omitempty"`
+}
+
+type TlsPassthroughConfig struct {
+	HostPort      int32 `json:"host_port"`
+	ContainerPort int32 `json:"container_port"`
+}
+
+type HttpsConfig struct {
+	ContainerPort       int32               `json:"container_port"`
+	PathPrefix          string              `json:"path_prefix,omitempty"`
+	StripPrefix         bool                `json:"strip_prefix"`
+	BackendProtocol     HttpBackendProtocol `json:"backend_protocol"`
+	MaxRequestBodyBytes int64               `json:"max_request_body_bytes"`
+	FlushIntervalMs     int32               `json:"flush_interval_ms"`
+	CertSource          *CertSource         `json:"cert_source"`
+}
+
+type NixDockerBuild struct {
+	Repo   string `json:"repo,omitempty"`
+	Flake  string `json:"flake,omitempty"`
+	Target string `json:"target,omitempty"`
+}
+
+type RemoteDockerImage struct {
+	Image string `json:"image,omitempty"`
 }
 
 type EnvVarValue struct {
@@ -372,8 +332,13 @@ type EnvVarValue struct {
 	AddressSpaceID      *int32  `json:"address_space_id,omitempty"`
 }
 
-type CustomHostMount struct {
-	HostPath      string         `json:"host_path,omitempty"`
+type DefaultVolumeMount struct {
+	ContainerPath string `json:"container_path,omitempty"`
+	Disabled      bool   `json:"disabled"`
+}
+
+type CrossDeploymentMount struct {
+	DeploymentID  int32          `json:"deployment_id"`
 	ContainerPath string         `json:"container_path,omitempty"`
 	Permission    FilePermission `json:"permission"`
 }
@@ -384,10 +349,38 @@ type AssetMount struct {
 	Permission     FilePermission `json:"permission"`
 }
 
+type CustomHostMount struct {
+	HostPath      string         `json:"host_path,omitempty"`
+	ContainerPath string         `json:"container_path,omitempty"`
+	Permission    FilePermission `json:"permission"`
+}
+
 type IssuedTLSMount struct {
 	ContainerPath string   `json:"container_path,omitempty"`
 	ExtraNames    []string `json:"extra_names,omitempty"`
 	CaOnly        bool     `json:"ca_only"`
+}
+
+type CertSource struct {
+	Acme   *AcmeCertSource   `json:"acme"`
+	Secret *SecretCertSource `json:"secret"`
+}
+
+type AcmeCertSource struct {
+	Challenge AcmeChallenge `json:"challenge"`
+}
+
+type SecretCertSource struct {
+	SecretVersionID int32 `json:"secret_version_id"`
+}
+
+type DeploymentSnapshot struct {
+	Items []*Deployment `json:"items,omitempty"`
+}
+
+type DeploymentVersionRef struct {
+	ID      int32 `json:"id"`
+	Version int32 `json:"version"`
 }
 
 type ScheduledInstance struct {
@@ -411,7 +404,7 @@ type ScheduledInstanceStatus struct {
 
 type ScheduledInstanceState struct {
 	Instance ScheduledInstance       `json:"instance"`
-	Config   DeploymentConfig        `json:"config"`
+	Config   Deployment              `json:"config"`
 	Status   ScheduledInstanceStatus `json:"status"`
 }
 
@@ -468,7 +461,7 @@ type RecentlyDeletedDeploymentsRequest struct {
 }
 
 type RecentlyDeletedDeployments struct {
-	Items []*DeploymentConfig `json:"items,omitempty"`
+	Items []*Deployment `json:"items,omitempty"`
 }
 
 type DeploymentDeleteRequest struct {
@@ -579,12 +572,12 @@ type DeploymentGetRequest struct {
 }
 
 type DeploymentState struct {
-	Config    *DeploymentConfig          `json:"config"`
+	Config    *Deployment                `json:"config"`
 	Instances *ScheduledInstanceSnapshot `json:"instances"`
 }
 
 type DeploymentHistoryEntry struct {
-	Config *DeploymentConfig        `json:"config"`
+	Config *Deployment              `json:"config"`
 	Status *ScheduledInstanceStatus `json:"status"`
 }
 
@@ -757,10 +750,10 @@ type SecretCreateRequest struct {
 }
 
 type SecretSetRequest struct {
-	SecretID                     int32                         `json:"secret_id"`
-	Value                        []byte                        `json:"value"`
-	UpdateReferencingDeployments bool                          `json:"update_referencing_deployments"`
-	ReferencingDeployments       []*DeploymentConfigVersionRef `json:"referencing_deployments,omitempty"`
+	SecretID                     int32                   `json:"secret_id"`
+	Value                        []byte                  `json:"value"`
+	UpdateReferencingDeployments bool                    `json:"update_referencing_deployments"`
+	ReferencingDeployments       []*DeploymentVersionRef `json:"referencing_deployments,omitempty"`
 }
 
 type SecretPasswordSpec struct {
@@ -862,10 +855,10 @@ type ConfigCreateRequest struct {
 }
 
 type ConfigSetRequest struct {
-	ConfigID                     int32                         `json:"config_id"`
-	Value                        string                        `json:"value,omitempty"`
-	UpdateReferencingDeployments bool                          `json:"update_referencing_deployments"`
-	ReferencingDeployments       []*DeploymentConfigVersionRef `json:"referencing_deployments,omitempty"`
+	ConfigID                     int32                   `json:"config_id"`
+	Value                        string                  `json:"value,omitempty"`
+	UpdateReferencingDeployments bool                    `json:"update_referencing_deployments"`
+	ReferencingDeployments       []*DeploymentVersionRef `json:"referencing_deployments,omitempty"`
 }
 
 type ConfigRenameRequest struct {
@@ -1388,6 +1381,13 @@ type DnsService struct {
 	Endpoints   []*Endpoint `json:"endpoints,omitempty"`
 }
 
+type Endpoint struct {
+	Ordinal int32         `json:"ordinal"`
+	Address string        `json:"address,omitempty"`
+	State   EndpointState `json:"state"`
+	NodeID  int32         `json:"node_id"`
+}
+
 type NetIngress struct {
 	Kind           IngressKind               `json:"kind"`
 	Hostname       string                    `json:"hostname,omitempty"`
@@ -1682,8 +1682,8 @@ type BackupStatus struct {
 
 type State struct {
 	Heartbeat                  bool                       `json:"heartbeat"`
-	DeploymentConfigsSnapshot  *DeploymentConfigSnapshot  `json:"deployment_configs_snapshot"`
-	DeploymentConfigUpdate     *DeploymentConfig          `json:"deployment_config_update"`
+	DeploymentConfigsSnapshot  *DeploymentSnapshot        `json:"deployment_configs_snapshot"`
+	DeploymentConfigUpdate     *Deployment                `json:"deployment_config_update"`
 	UsersSnapshot              []*User                    `json:"users_snapshot,omitempty"`
 	UserUpdate                 *User                      `json:"user_update"`
 	EnrollmentsSnapshot        *EnrollmentRequestList     `json:"enrollments_snapshot"`
@@ -1719,13 +1719,13 @@ type State struct {
 }
 
 type GlobalState struct {
-	Spaces            *SpaceList                `json:"spaces"`
-	Assets            *AssetList                `json:"assets"`
-	Configs           *ConfigList               `json:"configs"`
-	Secrets           *SecretList               `json:"secrets"`
-	DeploymentConfigs *DeploymentConfigSnapshot `json:"deployment_configs"`
-	ValueDirectories  *ValueDirectoryList       `json:"value_directories"`
-	AssetDirectories  *AssetDirectoryList       `json:"asset_directories"`
+	Spaces            *SpaceList          `json:"spaces"`
+	Assets            *AssetList          `json:"assets"`
+	Configs           *ConfigList         `json:"configs"`
+	Secrets           *SecretList         `json:"secrets"`
+	DeploymentConfigs *DeploymentSnapshot `json:"deployment_configs"`
+	ValueDirectories  *ValueDirectoryList `json:"value_directories"`
+	AssetDirectories  *AssetDirectoryList `json:"asset_directories"`
 }
 
 type AccessPolicy struct {

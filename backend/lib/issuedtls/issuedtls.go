@@ -18,7 +18,7 @@ type Issuer struct {
 	Secrets *secrets.Manager
 }
 
-func (i *Issuer) Issue(cfg *apigen.DeploymentConfig) (*apigen.ClusterIssuedTLSResponse, error) {
+func (i *Issuer) Issue(cfg *apigen.Deployment) (*apigen.ClusterIssuedTLSResponse, error) {
 	mount := runtimeinputs.IssuedTLSMountOf(cfg)
 	if mount == nil {
 		return nil, fmt.Errorf("deployment %d has no issued TLS mount", cfg.ID)
@@ -64,7 +64,7 @@ func (i *Issuer) Issue(cfg *apigen.DeploymentConfig) (*apigen.ClusterIssuedTLSRe
 
 type PrimaryProvider struct {
 	Issuer   *Issuer
-	Snapshot func() []apigen.DeploymentConfig
+	Snapshot func() []apigen.Deployment
 }
 
 func (p *PrimaryProvider) FetchIssuedTLS(_ context.Context, deploymentID, _ int32) (*runtimeinputs.IssuedTLSValue, error) {

@@ -16,9 +16,9 @@ const {div} = van.tags;
 export function createOverlay(onClose, onCreated, opts = {}) {
     const editor = deploymentEditorWidget({
         mode: 'create',
+        deploymentRow: opts.sourceDeploymentRow || null,
         deployment: opts.sourceDeployment || null,
-        deploymentConfig: opts.sourceDeploymentConfig || null,
-        fork: Boolean(opts.sourceDeploymentConfig),
+        fork: Boolean(opts.sourceDeployment),
         retainIdentity: Boolean(opts.retainIdentity),
         catalogs: {
             spaces: spacesS,

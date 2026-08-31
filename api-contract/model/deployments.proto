@@ -6,130 +6,7 @@ import "api-contract/options.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-enum ContainerUpgradeStrategy {
-  CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED = 0;
-  RECREATE = 1;
-  ROLLOVER = 2;
-}
-
-enum NetworkingMode {
-  NETWORKING_MODE_UNSPECIFIED = 0; // invalid for deployment config writes
-  NETWORKING_MODE_VIRTUAL = 1;     // per-container netns on the virtual IPv6 network
-  NETWORKING_MODE_HOST = 2;        // explicit opt-out: host network namespace
-}
-
-enum PortForwardProtocol {
-  PORT_FORWARD_PROTOCOL_UNSPECIFIED = 0;
-  PORT_FORWARD_PROTOCOL_TCP = 1;
-  PORT_FORWARD_PROTOCOL_UDP = 2;
-}
-
-enum IngressKind {
-  INGRESS_KIND_UNSPECIFIED = 0;
-  INGRESS_KIND_TLS_PASSTHROUGH = 1;
-  INGRESS_KIND_HTTPS = 2;
-}
-
-enum HttpBackendProtocol {
-  HTTP_BACKEND_PROTOCOL_UNSPECIFIED = 0;
-  HTTP_BACKEND_PROTOCOL_H2C = 1;
-}
-
-enum AcmeChallenge {
-  ACME_CHALLENGE_UNSPECIFIED = 0;
-  ACME_CHALLENGE_HTTP_01 = 1;
-}
-
-message IpFilter {
-  repeated string allow = 1;
-  repeated string deny = 2;
-}
-
-message PortForward {
-  PortForwardProtocol protocol = 1;
-  int32 host_port = 2;      // port published on the machine's host interfaces
-  int32 container_port = 3; // port inside the virtual-mode container netns
-  IpFilter ip_filter = 4;
-}
-
-message ContainerReadinessSignal {
-  int32 timeout_seconds = 1; // 0 = default timeout
-}
-
-message AcmeCertSource {
-  AcmeChallenge challenge = 1;
-}
-
-message SecretCertSource {
-  int32 secret_version_id = 1;
-}
-
-message CertSource {
-  AcmeCertSource acme = 1;
-  SecretCertSource secret = 2;
-}
-
-message HttpsConfig {
-  int32 container_port = 1;
-  string path_prefix = 2;
-  bool strip_prefix = 3;
-  HttpBackendProtocol backend_protocol = 4;
-  int64 max_request_body_bytes = 5;
-  int32 flush_interval_ms = 6;
-  CertSource cert_source = 7;
-}
-
-// TlsPassthroughConfig configures a TLS connection forwarded by SNI without terminating TLS. host_port zero uses the default HTTPS port (443).
-message TlsPassthroughConfig {
-  int32 host_port = 1;
-  int32 container_port = 2;
-}
-
-// Ingress is a public route declared by a workload. Each kind owns its
-// configuration so future route kinds do not acquire unrelated fields.
-message Ingress {
-  IngressKind kind = 1;
-  string hostname = 2;
-  TlsPassthroughConfig tls_passthrough_config = 3;
-  HttpsConfig https_config = 4;
-}
-
-message NetworkingConfig {
-  NetworkingMode mode = 1;
-  repeated PortForward port_forwarding = 2; // virtual mode only; DNAT on host interfaces
-  repeated Ingress ingress = 3;
-}
-
-// Identifies the current deployment config version observed by a caller.
-message DeploymentConfigVersionRef {
-  int32 id = 1;
-  int32 version = 2;
-}
-
-message DeploymentConfigSnapshot {
-  repeated DeploymentConfig items = 1;
-}
-
-enum EndpointState {
-  ENDPOINT_STATE_UNSPECIFIED = 0;
-  ENDPOINT_READY = 1;    // in the endpoint set: resolves in DNS, receives traffic
-  ENDPOINT_DRAINING = 2; // removed from the set ahead of SIGTERM
-  ENDPOINT_DOWN = 3;     // instance not running
-}
-
-// Endpoint is one instance of a deployment on the virtual network. Modeled as
-// a set with per-endpoint state from day one (see networking design); every
-// set has exactly one member until multi-instance deployments exist.
-message Endpoint {
-  int32 ordinal = 1;      // instance ordinal (0-based)
-  string address = 2;     // stable inbound instance address I (version/run slots 0/0)
-  reserved 3;
-  reserved "machine"; // superseded by node_id
-  EndpointState state = 4;
-  int32 node_id = 5;      // canonical hosting node
-}
-
-message DeploymentConfig {
+message Deployment {
   reserved 3;
   int32 id = 1;
   int32 node_id = 2;
@@ -158,14 +35,10 @@ message DeploymentSpec {
   OpendeploySpec opendeploy_spec = 7; // the internal opendeploy self deployment only
 }
 
-message MicroVMSpec {}
-
-message VMSpec {}
-
-message OpendeploySpec {
-  reserved 1, 2, 4;
-  reserved "source", "runtime", "running";
-  string version = 3;
+message NetworkingConfig {
+  NetworkingMode mode = 1;
+  repeated PortForward port_forwarding = 2; // virtual mode only; DNAT on host interfaces
+  repeated Ingress ingress = 3;
 }
 
 message ContainerSpec {
@@ -177,25 +50,44 @@ message ContainerSpec {
   ContainerReadinessSignal readiness_signal = 6; // used by ROLLOVER
 }
 
+message MicroVMSpec {}
+
+message VMSpec {}
+
+message OpendeploySpec {
+  reserved 1, 2, 4;
+  reserved "source", "runtime", "running";
+  string version = 3;
+}
+
+enum NetworkingMode {
+  NETWORKING_MODE_UNSPECIFIED = 0; // invalid for deployment config writes
+  NETWORKING_MODE_VIRTUAL = 1;     // per-container netns on the virtual IPv6 network
+  NETWORKING_MODE_HOST = 2;        // explicit opt-out: host network namespace
+}
+
+message PortForward {
+  PortForwardProtocol protocol = 1;
+  int32 host_port = 2;      // port published on the machine's host interfaces
+  int32 container_port = 3; // port inside the virtual-mode container netns
+  IpFilter ip_filter = 4;
+}
+
+// Ingress is a public route declared by a workload. Each kind owns its
+// configuration so future route kinds do not acquire unrelated fields.
+message Ingress {
+  IngressKind kind = 1;
+  string hostname = 2;
+  TlsPassthroughConfig tls_passthrough_config = 3;
+  HttpsConfig https_config = 4;
+}
+
 message ContainerBundleSource {
   NixDockerBuild nix_docker_build = 1;
   RemoteDockerImage remote_image = 2;
 }
 
-message NixDockerBuild {
-  string repo = 1;
-  string flake = 2;   // path to flake.nix relative to repo root
-  string target = 3;  // optional local flake target, e.g. .#radkitRpaClientImage; output must stream an OCI/Docker image tar
-}
-
-message RemoteDockerImage {
-  string image = 1; // image repository ref, e.g. "docker.io/library/nginx". The version tag/digest comes from ContainerSpec.version.
-}
-
 message ContainerRuntime {
-  // 9 and 10 held upgrade_strategy and readiness_signal before they moved to
-  // ContainerSpec; this message is persisted inside spec blobs, so the numbers
-  // must not be reused.
   reserved 9, 10, 11, 12;
   string user = 1;                                // OCI process.user (uid, uid:gid, or name); empty = image default
   map<string, EnvVarValue> env_vars = 2;          // env vars; values can be literal, secret/config/address ref, or asset
@@ -213,15 +105,57 @@ message ContainerRuntime {
   IssuedTLSMount issued_tls_mount = 15;
 }
 
-message DefaultVolumeMount {
-   string container_path = 1;
-   bool disabled = 2;
+enum ContainerUpgradeStrategy {
+  CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED = 0;
+  RECREATE = 1;
+  ROLLOVER = 2;
 }
 
-message CrossDeploymentMount {
-  int32 deployment_id = 1;
-  string container_path = 2;
-  FilePermission permission = 3;
+message ContainerReadinessSignal {
+  int32 timeout_seconds = 1; // 0 = default timeout
+}
+
+enum PortForwardProtocol {
+  PORT_FORWARD_PROTOCOL_UNSPECIFIED = 0;
+  PORT_FORWARD_PROTOCOL_TCP = 1;
+  PORT_FORWARD_PROTOCOL_UDP = 2;
+}
+
+message IpFilter {
+  repeated string allow = 1;
+  repeated string deny = 2;
+}
+
+enum IngressKind {
+  INGRESS_KIND_UNSPECIFIED = 0;
+  INGRESS_KIND_TLS_PASSTHROUGH = 1;
+  INGRESS_KIND_HTTPS = 2;
+}
+
+// TlsPassthroughConfig configures a TLS connection forwarded by SNI without terminating TLS. host_port zero uses the default HTTPS port (443).
+message TlsPassthroughConfig {
+  int32 host_port = 1;
+  int32 container_port = 2;
+}
+
+message HttpsConfig {
+  int32 container_port = 1;
+  string path_prefix = 2;
+  bool strip_prefix = 3;
+  HttpBackendProtocol backend_protocol = 4;
+  int64 max_request_body_bytes = 5;
+  int32 flush_interval_ms = 6;
+  CertSource cert_source = 7;
+}
+
+message NixDockerBuild {
+  string repo = 1;
+  string flake = 2;   // path to flake.nix relative to repo root
+  string target = 3;  // optional local flake target, e.g. .#radkitRpaClientImage; output must stream an OCI/Docker image tar
+}
+
+message RemoteDockerImage {
+  string image = 1; // image repository ref, e.g. "docker.io/library/nginx". The version tag/digest comes from ContainerSpec.version.
 }
 
 message EnvVarValue {
@@ -238,8 +172,13 @@ message EnvVarValue {
   optional int32 address_space_id = 7;
 }
 
-message CustomHostMount {
-  string host_path = 1;      // host path (must already exist; opsagent does not create these)
+message DefaultVolumeMount {
+   string container_path = 1;
+   bool disabled = 2;
+}
+
+message CrossDeploymentMount {
+  int32 deployment_id = 1;
   string container_path = 2;
   FilePermission permission = 3;
 }
@@ -250,10 +189,26 @@ message AssetMount {
   FilePermission permission = 3;
 }
 
+message CustomHostMount {
+  string host_path = 1;      // host path (must already exist; opsagent does not create these)
+  string container_path = 2;
+  FilePermission permission = 3;
+}
+
 message IssuedTLSMount {
   string container_path = 1;
   repeated string extra_names = 2;
   bool ca_only = 3; // mount only the workload CA certificate; no leaf cert/key is issued
+}
+
+enum HttpBackendProtocol {
+  HTTP_BACKEND_PROTOCOL_UNSPECIFIED = 0;
+  HTTP_BACKEND_PROTOCOL_H2C = 1;
+}
+
+message CertSource {
+  AcmeCertSource acme = 1;
+  SecretCertSource secret = 2;
 }
 
 enum FilePermission {
@@ -261,4 +216,29 @@ enum FilePermission {
   READ_WRITE = 1;
   READ_ONLY = 2;
   READ_EXECUTE = 3;
+}
+
+message AcmeCertSource {
+  AcmeChallenge challenge = 1;
+}
+
+message SecretCertSource {
+  int32 secret_version_id = 1;
+}
+
+enum AcmeChallenge {
+  ACME_CHALLENGE_UNSPECIFIED = 0;
+  ACME_CHALLENGE_HTTP_01 = 1;
+}
+
+// Definitions below are not reachable from Deployment.
+
+message DeploymentSnapshot {
+  repeated Deployment items = 1;
+}
+
+// Identifies the current deployment config version observed by a caller.
+message DeploymentVersionRef {
+  int32 id = 1;
+  int32 version = 2;
 }

@@ -141,7 +141,7 @@ func TestDefaultVolumeDest(t *testing.T) {
 }
 
 func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
-	dep := &apigen.DeploymentConfig{
+	dep := &apigen.Deployment{
 		ID: 7,
 		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
 			DefaultVolume: apigen.DefaultVolumeMount{Disabled: true},
@@ -170,7 +170,7 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, opendeployTestInstanceID, &apigen.DeploymentConfig{
+	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, opendeployTestInstanceID, &apigen.Deployment{
 		ID:      7,
 		Version: 3,
 		SpaceID: 5,
@@ -199,7 +199,7 @@ func TestContainerMountsTranslatesMountsAndPermissions(t *testing.T) {
 	ainit.StaticConfig.VolumesDir = "/var/lib/opendeploy-volumes"
 	t.Cleanup(func() { ainit.StaticConfig.VolumesDir = oldVolumesDir })
 
-	dep := &apigen.DeploymentConfig{
+	dep := &apigen.Deployment{
 		ID: 7,
 		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
 			DefaultVolume: apigen.DefaultVolumeMount{ContainerPath: "/state"},
@@ -310,8 +310,8 @@ func TestOnlyServingPlacementClaimsInboundAddress(t *testing.T) {
 	}
 }
 
-func rolloverTestDeployment() *apigen.DeploymentConfig {
-	return &apigen.DeploymentConfig{
+func rolloverTestDeployment() *apigen.Deployment {
+	return &apigen.Deployment{
 		ID:      7,
 		Version: 3,
 		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{

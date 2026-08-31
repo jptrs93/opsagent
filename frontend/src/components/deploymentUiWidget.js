@@ -19,11 +19,11 @@ const {div, span, select, option, button, label, input} = van.tags;
 
 const stateValue = (value) => value && typeof value === 'object' && 'val' in value ? value.val : value;
 
-export function deploymentConfigUiWidget(args) {
+export function deploymentUiWidget(args) {
     const {
         mode,
         form,
-        deployment,
+        deploymentRow,
         deploymentUpdate,
         canEditState,
         spaces,
@@ -57,10 +57,10 @@ export function deploymentConfigUiWidget(args) {
                 sourceController: deploymentUpdate,
                 deployments: stateValue(deployments) || [],
             }),
-            () => mode === 'create' || deployment?.variant ? versionSection({
+            () => mode === 'create' || deploymentRow?.variant ? versionSection({
                 mode,
                 form,
-                deployment,
+                deploymentRow,
                 deploymentUpdate,
                 loadingVersions: deploymentUpdate.loadingVersions,
                 onRefresh,
@@ -73,7 +73,7 @@ export function deploymentConfigUiWidget(args) {
             configRefs,
             deployments,
             spaces,
-            deploymentId: mode === 'update' ? deployment?.id : null,
+            deploymentId: mode === 'update' ? deploymentRow?.id : null,
             previewAsset: asset => { previewAsset.val = asset; },
         }),
         commandPane(form),
@@ -103,7 +103,7 @@ export function deploymentConfigUiWidget(args) {
     );
 }
 
-export function deploymentConfigUiHasOpenPane(form) {
+export function deploymentUiHasOpenPane(form) {
     return (
         form.envPaneOpen.val
         || form.commandPaneOpen.val
@@ -183,7 +183,7 @@ function nixVersionSection(args) {
     const branches = deploymentUpdate.nixDockerBuild.branches.val;
     const branch = deploymentUpdate.nixDockerBuild.selectedBranch.val;
     const commits = deploymentUpdate.nixDockerBuild.commits.val;
-    const deployedVersion = args.deployment?.deployedVersion || '';
+    const deployedVersion = args.deploymentRow?.deployedVersion || '';
     const selectedCommit = deploymentUpdate.nixDockerBuild.selectedCommit.val;
     const hasSelectedCommit = Boolean(selectedCommit && commits.some(v => v?.id === selectedCommit));
     const selectedLabel = deploymentUpdate.documentRevision.val > 0

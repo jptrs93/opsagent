@@ -55,10 +55,10 @@ type Service struct {
 	// is a method on it. Service owns caches, locking, and notification.
 	q *pq.Queries
 
-	// configCache holds the latest desired DeploymentConfig per deployment id.
+	// configCache holds the latest desired Deployment per deployment id.
 	// Used by primary scheduler/APIs only — never as the pinned config source for
 	// a scheduled-instance snapshot.
-	configCache map[int32]*apigen.DeploymentConfig
+	configCache map[int32]*apigen.Deployment
 	// spaceVersionRowIDs holds each deployment's current deployment_space_versions
 	// row id — the pin stamped onto scheduled instances at creation. The space
 	// value and version themselves live on the cached config.
@@ -69,7 +69,7 @@ type Service struct {
 	// it, so it never competes with the live cache for the same ordinal.
 	latestFinalCache map[instanceOrdinalKey]*apigen.ScheduledInstanceState
 
-	configSubs       *pubsubu.PubSub[apigen.DeploymentConfig]
+	configSubs       *pubsubu.PubSub[apigen.Deployment]
 	userSubs         *pubsubu.PubSub[apigen.User]
 	backupStatusMu   sync.RWMutex
 	backupStatus     apigen.BackupStatus
@@ -94,10 +94,10 @@ type Service struct {
 func Open(dbPath string) *Service {
 	s := &Service{
 		q:                  pq.Open(dbPath),
-		configCache:        make(map[int32]*apigen.DeploymentConfig),
+		configCache:        make(map[int32]*apigen.Deployment),
 		spaceVersionRowIDs: make(map[int32]int64),
 		latestFinalCache:   make(map[instanceOrdinalKey]*apigen.ScheduledInstanceState),
-		configSubs:         &pubsubu.PubSub[apigen.DeploymentConfig]{},
+		configSubs:         &pubsubu.PubSub[apigen.Deployment]{},
 		userSubs:           &pubsubu.PubSub[apigen.User]{},
 		backupStatusSubs:   &pubsubu.PubSub[apigen.BackupStatus]{},
 		secretStatusSubs:   &pubsubu.PubSub[apigen.SecretsStatusResponse]{},

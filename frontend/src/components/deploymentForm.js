@@ -93,7 +93,7 @@ export function emptyDeploymentForm() {
     });
 }
 
-export function deploymentConfigToForm(cfg) {
+export function deploymentToForm(cfg) {
     const spec = cfg?.spec || {};
     const container = spec.container1Spec || {};
     const source = container.source || {};
@@ -283,7 +283,7 @@ const DEPLOYMENT_FORM_DOCUMENT_FIELDS = [
 ];
 
 export function replaceDeploymentFormFromConfig(form, config) {
-    const next = deploymentConfigToForm(config);
+    const next = deploymentToForm(config);
     for (const key of DEPLOYMENT_FORM_DOCUMENT_FIELDS) {
         form[key].val = next[key].val;
     }

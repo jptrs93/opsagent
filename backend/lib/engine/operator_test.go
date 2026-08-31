@@ -106,8 +106,8 @@ func fixedRuntimeInputsBackoff(t *testing.T, interval time.Duration) {
 	t.Cleanup(func() { newRuntimeInputsBackoff = old })
 }
 
-func secretRefDeployment(secretID *int32) *apigen.DeploymentConfig {
-	return &apigen.DeploymentConfig{
+func secretRefDeployment(secretID *int32) *apigen.Deployment {
+	return &apigen.Deployment{
 		ID:      12,
 		Version: 4,
 		Spec: apigen.DeploymentSpec{
@@ -226,7 +226,7 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 			RuntimeInputs: runtimeinputs.New(nil, nil, nil),
 			ImageReady:    func(context.Context, string) error { return nil },
 		}
-		dep := &apigen.DeploymentConfig{
+		dep := &apigen.Deployment{
 			Version: 4,
 			Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 				Source:  apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{}},
@@ -254,7 +254,7 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 			RuntimeInputs:     runtimeinputs.New(nil, nil, nil),
 			OpendeployRelease: opendeployrelease.New(t.TempDir(), githubrepo.NewClient(githubrepo.WithAPIBaseURL("http://127.0.0.1:1"))),
 		}
-		dep := &apigen.DeploymentConfig{
+		dep := &apigen.Deployment{
 			ID:      1,
 			Version: 4,
 			Spec: apigen.DeploymentSpec{
@@ -281,7 +281,7 @@ func TestStartPreparerStopsBeforeArtifactWhenRuntimeInputsFail(t *testing.T) {
 	defer func() { ainit.StaticConfig.PrepareOutputDir = oldOutputDir }()
 
 	secretID := int32(7)
-	dep := &apigen.DeploymentConfig{
+	dep := &apigen.Deployment{
 		ID:      11,
 		Version: 3,
 		Spec: apigen.DeploymentSpec{
@@ -324,7 +324,7 @@ func TestInitialTerminateWithoutStatusIsAcknowledged(t *testing.T) {
 			DeploymentID: 11,
 			State:        apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE,
 		},
-		Config: apigen.DeploymentConfig{ID: 11, Version: 3},
+		Config: apigen.Deployment{ID: 11, Version: 3},
 	}
 	done := make(chan struct{})
 	go func() {
@@ -366,7 +366,7 @@ func TestReAttachPreparerRepreparesUnavailableImage(t *testing.T) {
 			return errors.New("image unavailable")
 		},
 	}
-	dep := &apigen.DeploymentConfig{
+	dep := &apigen.Deployment{
 		ID:      12,
 		Version: 4,
 		Spec: apigen.DeploymentSpec{

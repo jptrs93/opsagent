@@ -44,7 +44,7 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
-	var updatedConfigs []*apigen.DeploymentConfig
+	var updatedConfigs []*apigen.Deployment
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		updates, referenceIDs, err := prepareDeploymentReferenceUpdates(ctx, q, referenceType, stableID, updateDeployments, expected)
 		if err != nil {
@@ -59,7 +59,7 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 			return err
 		}
 
-		updatedConfigs = make([]*apigen.DeploymentConfig, 0, len(updates))
+		updatedConfigs = make([]*apigen.Deployment, 0, len(updates))
 		for _, update := range updates {
 			replaceDeploymentReferences(update.spec, referenceType, referenceIDs, newID)
 			next := update.row

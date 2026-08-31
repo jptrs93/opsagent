@@ -94,7 +94,7 @@ stopped.
 
 ### Config versioning
 
-Each deployment's `DeploymentConfig.Version` is a per-deployment
+Each deployment's `Deployment.Version` is a per-deployment
 monotonically increasing integer that bumps on any spec or desired-state
 change. Storage follows the secrets/configs identity + versions split: the
 stable identity (node, space, name, tombstone) lives in `deployments`,
@@ -109,7 +109,7 @@ The deployment's space lives in its own append-only version log,
 space_id`, unique on `(deployment_id, version)`): creation writes version 1,
 and each move appends the next version without bumping the config version. The
 newest row is the current space, and its `version` is exposed as
-`DeploymentConfig.spaceVersion`. A move is its own operation, `POST
+`Deployment.spaceVersion`. A move is its own operation, `POST
 /v1/deployments/move-space`, guarded by the space version the caller observed
 (the request's `spaceVersion` must equal the current one + 1, mirroring the
 config-update guard), so a stale client cannot silently move a deployment
@@ -142,7 +142,7 @@ Each deployment's runtime state is structured into sections owned by different c
 Set by user actions (deploy or stop). The selected `ContainerSpec` contains
 the target `version` and `running` boolean; `OpendeploySpec` carries only the
 target `version` and is always running. Audit fields (`updated_at`, `author`)
-and the config revision remain on the parent `DeploymentConfig`.
+and the config revision remain on the parent `Deployment`.
 
 Nix desired versions, when set, are full immutable commit hashes. Branch selection and the 25 most recent commits are discovery aids and are not persisted as source authority. Creating a running Nix deployment, starting one, changing its target commit, or changing its Nix source while it remains running performs synchronous remote commit and flake verification before persistence. Stopped Nix deployments still require structurally valid source fields but may omit the desired version and do not require remote accessibility until they transition to running.
 
@@ -174,7 +174,7 @@ secrets, and configs) and `image` (producing the artifact). The runner-gating
 rollup (`PREPARING`, `DOWNLOADING`, `PULLING`, `READY`, `FAILED`) is derived
 from the pair, never stored or sent — see [engine.md](../engineering/engine.md).
 On success, contains the resolved `artifact` (local image ref) and the
-`deployment_config_version` from `DeploymentConfig.Version`.
+`deployment_config_version` from `Deployment.Version`.
 
 ### RunnerStatus
 
@@ -184,7 +184,7 @@ Driven by the runner. Tracks the running container task with `running_pid`,
 
 ## Deployment identification
 
-Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployments/create`. Human-readable metadata lives directly on `DeploymentConfig` (`name`, `spaceId`), and application identity is `{nodeId, spaceId, name}`. Active-identity uniqueness is a Go-level check under the store mutex on create and space move (the space lives in the `deployment_space_versions` log, so it cannot be a SQL constraint). All API requests, storage keys, and log file paths use the integer `id`.
+Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployments/create`. Human-readable metadata lives directly on `Deployment` (`name`, `spaceId`), and application identity is `{nodeId, spaceId, name}`. Active-identity uniqueness is a Go-level check under the store mutex on create and space move (the space lives in the `deployment_space_versions` log, so it cannot be a SQL constraint). All API requests, storage keys, and log file paths use the integer `id`.
 
 Deleting a deployment releases its human-readable identity tuple but retains its ID, configuration history, status history, logs, volumes, and other ID-owned records. Creating a deployment later with the same space, node, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
 
@@ -258,7 +258,7 @@ plus "Add deployment" and "Export" on the right. Each row displays:
 2. The user picks a version (and optionally edits the deployment spec) and submits.
 3. The frontend calls `POST /v1/deployments/update` with the target version
    and, if the spec was edited, the new typed `spec`.
-4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the spec with the selected workload's version and `running=true`, and bumps `DeploymentConfig.Version`. Verification failure writes nothing.
+4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the spec with the selected workload's version and `running=true`, and bumps `Deployment.Version`. Verification failure writes nothing.
 5. The operator's reconciliation loop picks up the change and starts a
    preparer.
 6. The preparer resolves runtime inputs, then clones/fetches, pulls, or

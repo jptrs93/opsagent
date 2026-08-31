@@ -32,7 +32,7 @@ the mixed-version rollout window: the old binary drops the new fields on
 decode and writes blobs carrying the data in neither format. Keep old field
 numbers, or dual-write old and new layouts across the transition and fold the
 old layout into the new fields on decode, removing the dual-write only once
-every cluster runs the new release. `DeploymentConfig.legacy_identity`
+every cluster runs the new release. `Deployment.legacy_identity`
 (v0.0.448, removed after fleet convergence — see the reserved field 3) is the
 worked example: it exists because the v0.0.444 identity field move broke
 worker address derivation and virtual networking for every cached workload.
@@ -132,9 +132,9 @@ See [auth.md](auth.md) for the access-control model these routes manage.
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/deployments/get` | `DeploymentGetRequest` | `DeploymentState` | ANY_OF default |
-| POST | `/v1/deployments/create` | `DeploymentCreateRequest` | `DeploymentConfig` | ANY_OF default |
-| POST | `/v1/deployments/update` | `DeploymentUpdateRequest` | `DeploymentConfig` | ANY_OF default |
-| POST | `/v1/deployments/move-space` | `DeploymentSpaceMoveRequest` | `DeploymentConfig` | ANY_OF default |
+| POST | `/v1/deployments/create` | `DeploymentCreateRequest` | `Deployment` | ANY_OF default |
+| POST | `/v1/deployments/update` | `DeploymentUpdateRequest` | `Deployment` | ANY_OF default |
+| POST | `/v1/deployments/move-space` | `DeploymentSpaceMoveRequest` | `Deployment` | ANY_OF default |
 | POST | `/v1/deployments/delete` | `DeploymentDeleteRequest` | — | ANY_OF default |
 | POST | `/v1/deployments/recently-deleted` | `RecentlyDeletedDeploymentsRequest` | `RecentlyDeletedDeployments` | ANY_OF default |
 | POST | `/v1/deployments/history` | `DeploymentHistoryRequest` | `DeploymentHistory` | ANY_OF default |

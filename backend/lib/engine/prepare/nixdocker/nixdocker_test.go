@@ -155,8 +155,8 @@ func TestPrepareFailsOnContainerdCacheCheckError(t *testing.T) {
 	}
 }
 
-func testNixDeployment() *apigen.DeploymentConfig {
-	return &apigen.DeploymentConfig{
+func testNixDeployment() *apigen.Deployment {
+	return &apigen.Deployment{
 		ID:      987654,
 		Version: 3,
 		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{

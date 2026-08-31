@@ -7,7 +7,7 @@ import {loadAssetPreview, uploadAsset} from "../lib/assetContent.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {formatDate, formatDateTime} from "../lib/date.js";
-import {containerWorkload} from "../lib/deploymentConfig.js";
+import {containerWorkload} from "../lib/deployment.js";
 import {
     caretRightIcon, checkIcon, chevronDownIcon, closeIcon, columnsIcon, editIcon,
     fileIcon, folderIcon, plusIcon, searchIcon, sortArrowIcon, uploadIcon,

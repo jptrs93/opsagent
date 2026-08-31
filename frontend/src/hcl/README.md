@@ -1,7 +1,7 @@
 # Deployment HCL language
 
 A self-contained CodeMirror language package for the deployment config dialect
-of HCL, used by `src/components/deploymentConfigCodeWidget.js`. It replaced
+of HCL, used by `src/components/deploymentCodeWidget.js`. It replaced
 the third-party `codemirror-lang-hcl` dependency, whose grammar could not
 parse function calls in object-value position
 (`env_vars = { "KEY" = secret("x") }`, `cert = acme()`) and forced the editor

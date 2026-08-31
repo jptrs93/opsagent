@@ -56,7 +56,7 @@ whole component. Long-lived identity is attached the same way with
 `logu.AddKV` so it never has to be repeated per call:
 
 ```go
-func operatorCtx(instanceID int32, cfg *apigen.DeploymentConfig) context.Context {
+func operatorCtx(instanceID int32, cfg *apigen.Deployment) context.Context {
     ctx := logu.AddTag(context.Background(), "DeploymentOperator")
     ctx = logu.AddKV(ctx, "scheduled_instance", instanceID)
     ctx = logu.AddKV(ctx, "dep", cfg.ID)

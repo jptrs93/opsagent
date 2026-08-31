@@ -12,7 +12,7 @@ import {usersPage} from "./users.js";
 import {settingsPage} from "./settings.js";
 import {sessionsPage} from "./sessions.js";
 import {logsPage} from "./logs.js";
-import {preloadDeploymentConfigCodeWidget} from "../components/deploymentEditorWidget.js";
+import {preloadDeploymentCodeWidget} from "../components/deploymentEditorWidget.js";
 
 const { div, h1, span } = van.tags;
 
@@ -32,7 +32,7 @@ export function dashboard() {
 
     requestAnimationFrame(() => {
         preloadAssetCodeEditor();
-        preloadDeploymentConfigCodeWidget();
+        preloadDeploymentCodeWidget();
     });
 
     return div(

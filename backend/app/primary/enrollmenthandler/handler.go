@@ -229,7 +229,7 @@ func (h *Handler) ensureEnrollmentBootstrapInstances(nodeID int32) (*apigen.Sche
 	predicate := storage.ScheduledInstancePredicate(func(state apigen.ScheduledInstanceState) bool {
 		return state.Instance.NodeID == nodeID
 	})
-	for _, cfg := range h.store.FetchDeploymentSnapshot(func(c apigen.DeploymentConfig) bool { return c.NodeID == nodeID }) {
+	for _, cfg := range h.store.FetchDeploymentSnapshot(func(c apigen.Deployment) bool { return c.NodeID == nodeID }) {
 		if !internaldeploy.IsSelfConfig(&cfg) && !internaldeploy.IsNetproxyConfig(&cfg) {
 			continue
 		}

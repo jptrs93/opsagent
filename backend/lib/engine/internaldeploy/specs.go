@@ -10,11 +10,11 @@ const (
 	netproxyFileDescriptorLimit = 65_536
 )
 
-func IsSelfConfig(cfg *apigen.DeploymentConfig) bool {
+func IsSelfConfig(cfg *apigen.Deployment) bool {
 	return cfg != nil && IsSelfIdentity(cfg.SpaceID, cfg.Name)
 }
 
-func IsInternalConfig(cfg *apigen.DeploymentConfig) bool {
+func IsInternalConfig(cfg *apigen.Deployment) bool {
 	return cfg != nil && IsInternalIdentity(cfg.SpaceID, cfg.Name)
 }
 

@@ -24,7 +24,7 @@ type requiredAssetRef struct {
 	Executable     bool
 }
 
-func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
+func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deployment) error {
 	refs := RequiredAssetRefs(cfg)
 	if len(refs) == 0 {
 		return nil
@@ -82,7 +82,7 @@ func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deplo
 	return nil
 }
 
-func RequiredAssetRefs(cfg *apigen.DeploymentConfig) []requiredAssetRef {
+func RequiredAssetRefs(cfg *apigen.Deployment) []requiredAssetRef {
 	if cfg == nil {
 		return nil
 	}

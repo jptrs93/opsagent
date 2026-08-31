@@ -75,7 +75,7 @@ func TestDrainSupersededOnlyRetiresOlderInstances(t *testing.T) {
 	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	next := *testRunningSpec("v2")
-	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
+	updated, _, versionOK := store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
 		Spec:            &next,
 	})
@@ -118,7 +118,7 @@ func TestStartupReconcileDoesNotLetOlderRunningKillReplacement(t *testing.T) {
 	markRunning(t, store, older.ID, cfg.Version, apigen.RunningStatus_RUNNING)
 
 	next := *testRunningSpec("v2")
-	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
+	updated, _, versionOK := store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
 		Spec:            &next,
 	})
@@ -162,7 +162,7 @@ func TestRolloverReplacementWarmsUpAsStandby(t *testing.T) {
 	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	next := *rolloverSpec("v2")
-	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
+	updated, _, ok := store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
 		Spec:            &next,
 	})
@@ -229,11 +229,11 @@ func TestFailedRolloutDoesNotAccumulateStandbys(t *testing.T) {
 	barrier.held = true
 	s := New(store, barrier)
 
-	push := func(version string) *apigen.DeploymentConfig {
+	push := func(version string) *apigen.Deployment {
 		t.Helper()
 		next := *rolloverSpec(version)
-		current := store.FetchDeploymentConfig(cfg.ID)
-		updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
+		current := store.FetchDeployment(cfg.ID)
+		updated, _, ok := store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 			ExpectedVersion: current.Version + 1,
 			Spec:            &next,
 		})
@@ -331,7 +331,7 @@ func TestStandbyPromotedWhenServingDies(t *testing.T) {
 	older := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	next := *rolloverSpec("v2")
-	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
+	updated, _, ok := store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
 		Spec:            &next,
 	})
@@ -434,7 +434,7 @@ func TestTerminateDeploymentStopsEveryRunnableState(t *testing.T) {
 
 // restartWith mirrors Run()'s startup order: sweep stopped placements, replay
 // instances, then reconcile configs.
-func restartWith(store *state.Service, barrier routeBarrier, cfg *apigen.DeploymentConfig) *Scheduler {
+func restartWith(store *state.Service, barrier routeBarrier, cfg *apigen.Deployment) *Scheduler {
 	s := New(store, barrier)
 	s.finalizeStopped()
 	for _, state := range store.FetchScheduledSnapshot(nil) {
@@ -518,7 +518,7 @@ func TestRestartAdoptsDrainingInstances(t *testing.T) {
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, state.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 
 	next := *rolloverSpec("v2")
-	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
+	updated, _, ok := store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1, Spec: &next,
 	})
 	if !ok {
@@ -571,10 +571,10 @@ func stoppedSpec(version string) *apigen.DeploymentSpec {
 	return spec
 }
 
-func updateSpec(t *testing.T, store *state.Service, cfg *apigen.DeploymentConfig, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
+func updateSpec(t *testing.T, store *state.Service, cfg *apigen.Deployment, spec *apigen.DeploymentSpec) *apigen.Deployment {
 	t.Helper()
 	next := *spec
-	updated, _, ok := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
+	updated, _, ok := store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: cfg.Version + 1,
 		Spec:            &next,
 	})

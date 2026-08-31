@@ -32,7 +32,7 @@ func runningDeploymentSpec() *apigen.DeploymentSpec {
 	}}
 }
 
-func seedDeployment(t *testing.T, store *Service, name string) *apigen.DeploymentConfig {
+func seedDeployment(t *testing.T, store *Service, name string) *apigen.Deployment {
 	t.Helper()
 	node := store.EnsurePrimaryNode("primary", "primary")
 	return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, node.ID, runningDeploymentSpec())

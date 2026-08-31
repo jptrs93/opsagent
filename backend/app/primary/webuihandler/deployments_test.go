@@ -23,9 +23,9 @@ import (
 const testNixCommit = "0123456789abcdef0123456789abcdef01234567"
 const testNixCommit2 = "89abcdef0123456789abcdef0123456789abcdef"
 
-func findSystemDeployment(t *testing.T, store *state.Service, nodeID int32) *apigen.DeploymentConfig {
+func findSystemDeployment(t *testing.T, store *state.Service, nodeID int32) *apigen.Deployment {
 	t.Helper()
-	for _, cfg := range store.ListActiveDeploymentConfigs() {
+	for _, cfg := range store.ListActiveDeployments() {
 		if internaldeploy.IsSelfConfig(cfg) && cfg.NodeID == nodeID {
 			return cfg
 		}
@@ -43,11 +43,11 @@ func seedInstanceRunnerStatus(store *state.Service, deploymentID, version, nodeI
 	})
 }
 
-func seedDeploymentRunnerStatus(store *state.Service, cfg *apigen.DeploymentConfig, status apigen.RunningStatus) {
+func seedDeploymentRunnerStatus(store *state.Service, cfg *apigen.Deployment, status apigen.RunningStatus) {
 	seedInstanceRunnerStatus(store, cfg.ID, cfg.Version, cfg.NodeID, status)
 }
 
-func createTestDeployment(store *state.Service, nodeIdentifier string, spaceID int32, name string, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
+func createTestDeployment(store *state.Service, nodeIdentifier string, spaceID int32, name string, spec *apigen.DeploymentSpec) *apigen.Deployment {
 	node := store.EnsurePrimaryNode(nodeIdentifier, nodeIdentifier)
 	return store.MustCreateDeploymentForNode(apigen.Context{}, spaceID, name, node.ID, spec)
 }
@@ -154,7 +154,7 @@ func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected source verification failure")
 		}
-		if got := len(store.ListActiveDeploymentConfigs()); got != 0 {
+		if got := len(store.ListActiveDeployments()); got != 0 {
 			t.Fatalf("persisted deployments = %d, want 0", got)
 		}
 	})
@@ -185,8 +185,8 @@ func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 		if _, err := h.PostV1DeploymentsCreate(apigen.Context{Ctx: context.Background()}, req); err == nil {
 			t.Fatal("expected mutable version rejection")
 		}
-		if len(provider.validateCalls) != 0 || len(store.ListActiveDeploymentConfigs()) != 0 {
-			t.Fatalf("provider calls/deployments = %v/%d", provider.validateCalls, len(store.ListActiveDeploymentConfigs()))
+		if len(provider.validateCalls) != 0 || len(store.ListActiveDeployments()) != 0 {
+			t.Fatalf("provider calls/deployments = %v/%d", provider.validateCalls, len(store.ListActiveDeployments()))
 		}
 	})
 
@@ -205,8 +205,8 @@ func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 		if cfg.WorkloadVersion() != "" || cfg.WorkloadRunning() {
 			t.Fatalf("workload state = %+v, want stopped with no version", cfg.Spec.Container1Spec)
 		}
-		if len(provider.validateCalls) != 0 || len(store.ListActiveDeploymentConfigs()) != 1 {
-			t.Fatalf("provider calls/deployments = %v/%d", provider.validateCalls, len(store.ListActiveDeploymentConfigs()))
+		if len(provider.validateCalls) != 0 || len(store.ListActiveDeployments()) != 1 {
+			t.Fatalf("provider calls/deployments = %v/%d", provider.validateCalls, len(store.ListActiveDeployments()))
 		}
 	})
 }
@@ -427,13 +427,13 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 	provider := versionprovider.NewGithubReleaseVersionProvider(client)
 	tests := []struct {
 		name             string
-		createDeployment func(*testing.T, *state.Service) *apigen.DeploymentConfig
+		createDeployment func(*testing.T, *state.Service) *apigen.Deployment
 		provider         *versionprovider.GithubReleaseVersionProvider
 		wantInternal     string
 	}{
 		{
 			name: "opendeploy-net special branch",
-			createDeployment: func(_ *testing.T, store *state.Service) *apigen.DeploymentConfig {
+			createDeployment: func(_ *testing.T, store *state.Service) *apigen.Deployment {
 				node := store.EnsurePrimaryNode("primary", "primary")
 				return store.EnsureNetproxyDeployment(node.ID, "v1.2.3")
 			},
@@ -442,7 +442,7 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 		},
 		{
 			name: "GitHub release config branch",
-			createDeployment: func(t *testing.T, store *state.Service) *apigen.DeploymentConfig {
+			createDeployment: func(t *testing.T, store *state.Service) *apigen.Deployment {
 				node := store.EnsurePrimaryNode("primary", "primary")
 				store.EnsureSystemDeployment(node.ID, "v1.2.3")
 				return findSystemDeployment(t, store, node.ID)
@@ -452,7 +452,7 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 		},
 		{
 			name: "unconfigured provider",
-			createDeployment: func(t *testing.T, store *state.Service) *apigen.DeploymentConfig {
+			createDeployment: func(t *testing.T, store *state.Service) *apigen.Deployment {
 				node := store.EnsurePrimaryNode("primary", "primary")
 				store.EnsureSystemDeployment(node.ID, "v1.2.3")
 				return findSystemDeployment(t, store, node.ID)
@@ -509,7 +509,7 @@ func nixDeploymentSpecWithState(repo, flake, version string, running bool) apige
 	}
 }
 
-func newNixDeploymentHandler(t *testing.T, running bool) (*Handler, *apigen.DeploymentConfig, *fakeGitSourceProvider) {
+func newNixDeploymentHandler(t *testing.T, running bool) (*Handler, *apigen.Deployment, *fakeGitSourceProvider) {
 	t.Helper()
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("primary", "primary")
@@ -767,8 +767,8 @@ func TestDeploymentUpdateRejectsSystemDeploymentSpecUpdate(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := store.EnsurePrimaryNode("primary", "primary")
 	store.EnsureSystemDeployment(node.ID, "v0.0.194")
-	var system *apigen.DeploymentConfig
-	for _, cfg := range store.ListActiveDeploymentConfigs() {
+	var system *apigen.Deployment
+	for _, cfg := range store.ListActiveDeployments() {
 		if internaldeploy.IsSelfConfig(cfg) {
 			system = cfg
 			break
@@ -1108,7 +1108,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	}
 	h := &Handler{ConfigService: &config.Service{}, Store: store, Secrets: secretsManager}
 
-	create := func(name string, nodeID int32, networking apigen.NetworkingConfig, env map[string]*apigen.EnvVarValue) *apigen.DeploymentConfig {
+	create := func(name string, nodeID int32, networking apigen.NetworkingConfig, env map[string]*apigen.EnvVarValue) *apigen.Deployment {
 		t.Helper()
 		spec := remoteDeploymentSpec("nginx", networking)
 		spec.Container1Spec.Runtime.EnvVars = env
@@ -1334,7 +1334,7 @@ func TestDeploymentIdentityIsScopedByNodeID(t *testing.T) {
 	nodeB := store.EnsurePrimaryNode("node-b", "node-b-id")
 	h := &Handler{ConfigService: &config.Service{}, Store: store}
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
-	create := func(nodeID, spaceID int32) (*apigen.DeploymentConfig, error) {
+	create := func(nodeID, spaceID int32) (*apigen.Deployment, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: "web",
 			NodeID: nodeID,
@@ -1625,7 +1625,7 @@ func TestDeploymentDeleteRejectedWhileOlderRolloverInstanceRuns(t *testing.T) {
 
 	next := remoteDeploymentSpec("nginx", hostNetworking())
 	next.Container1Spec.Version = "1.27"
-	updated, _, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, created.ID, state.DeploymentConfigUpdate{
+	updated, _, versionOK := store.UpdateDeployment(apigen.Context{}, created.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: created.Version + 1,
 		Spec:            &next,
 	})
@@ -1691,7 +1691,7 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	h := &Handler{ConfigService: &config.Service{}, Store: store}
-	create := func(version string) *apigen.DeploymentConfig {
+	create := func(version string) *apigen.Deployment {
 		t.Helper()
 		spec := remoteDeploymentSpec("nginx", hostNetworking())
 		spec.Container1Spec.Version = version
@@ -1734,7 +1734,7 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 	if len(secondHistory) != 1 || secondHistory[0].Deleted || secondHistory[0].Version != 1 {
 		t.Fatalf("new deployment history = %+v, want independent initial history", secondHistory)
 	}
-	active := store.ListActiveDeploymentConfigs()
+	active := store.ListActiveDeployments()
 	if len(active) != 1 || active[0].ID != second.ID {
 		t.Fatalf("active deployments = %+v, want only new deployment %d", active, second.ID)
 	}

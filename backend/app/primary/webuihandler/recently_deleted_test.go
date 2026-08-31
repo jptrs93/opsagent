@@ -14,7 +14,7 @@ import (
 
 // deleteDeployment removes a deployment through the handler so the tombstone is
 // written exactly as it is in production, tombstone version and all.
-func deleteDeployment(t *testing.T, h *Handler, cfg *apigen.DeploymentConfig) {
+func deleteDeployment(t *testing.T, h *Handler, cfg *apigen.Deployment) {
 	t.Helper()
 	current := h.findConfigByID(cfg.ID)
 	if current == nil {
@@ -29,7 +29,7 @@ func deleteDeployment(t *testing.T, h *Handler, cfg *apigen.DeploymentConfig) {
 	}
 }
 
-func createStoppedDeployment(t *testing.T, h *Handler, nodeID int32, name string) *apigen.DeploymentConfig {
+func createStoppedDeployment(t *testing.T, h *Handler, nodeID int32, name string) *apigen.Deployment {
 	t.Helper()
 	cfg, err := h.PostV1DeploymentsCreate(apigen.Context{Ctx: context.Background()}, nixCreateRequest(nodeID, name, false))
 	if err != nil {
@@ -38,7 +38,7 @@ func createStoppedDeployment(t *testing.T, h *Handler, nodeID int32, name string
 	return cfg
 }
 
-func recentlyDeleted(t *testing.T, h *Handler, limit int32) []*apigen.DeploymentConfig {
+func recentlyDeleted(t *testing.T, h *Handler, limit int32) []*apigen.Deployment {
 	t.Helper()
 	res, err := h.PostV1DeploymentsRecentlyDeleted(apigen.Context{Ctx: context.Background()},
 		&apigen.RecentlyDeletedDeploymentsRequest{Limit: limit})
@@ -48,7 +48,7 @@ func recentlyDeleted(t *testing.T, h *Handler, limit int32) []*apigen.Deployment
 	return res.Items
 }
 
-func deletedNames(items []*apigen.DeploymentConfig) []string {
+func deletedNames(items []*apigen.Deployment) []string {
 	out := make([]string, 0, len(items))
 	for _, cfg := range items {
 		out = append(out, cfg.Name)
@@ -154,7 +154,7 @@ func TestRecentlyDeletedOmitsInternalDeployments(t *testing.T) {
 	// the create API, so a tombstone for one is not forkable. Delete it through
 	// the store directly: the handler refuses internal deletes outright.
 	h.Store.EnsureSystemDeployment(nodeID, "v1.0.0")
-	var internal *apigen.DeploymentConfig
+	var internal *apigen.Deployment
 	for _, cfg := range h.Store.FetchDeploymentSnapshot(nil) {
 		if internaldeploy.IsInternalConfig(&cfg) {
 			internal = &cfg
@@ -164,7 +164,7 @@ func TestRecentlyDeletedOmitsInternalDeployments(t *testing.T) {
 	if internal == nil {
 		t.Fatal("no internal deployment was created")
 	}
-	_, _, ok := h.Store.UpdateDeploymentConfig(apigen.Context{Ctx: context.Background()}, internal.ID, state.DeploymentConfigUpdate{
+	_, _, ok := h.Store.UpdateDeployment(apigen.Context{Ctx: context.Background()}, internal.ID, state.DeploymentConfigUpdate{
 		ExpectedVersion: internal.Version + 1,
 		Spec:            &internal.Spec,
 		Deleted:         true,

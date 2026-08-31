@@ -32,8 +32,8 @@ option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 // heartbeats to keep the HTTP connection alive.
 message State {
   bool heartbeat = 1;
-  DeploymentConfigSnapshot deployment_configs_snapshot = 2;
-  DeploymentConfig deployment_config_update = 3;
+  DeploymentSnapshot deployment_configs_snapshot = 2;
+  Deployment deployment_config_update = 3;
   repeated User users_snapshot = 4;
   User user_update = 5;
   EnrollmentRequestList enrollments_snapshot = 6;
@@ -81,7 +81,7 @@ message GlobalState {
   AssetList assets = 2;
   ConfigList configs = 3;
   SecretList secrets = 4;
-  DeploymentConfigSnapshot deployment_configs = 5;
+  DeploymentSnapshot deployment_configs = 5;
   ValueDirectoryList value_directories = 6;
   AssetDirectoryList asset_directories = 7;
 }

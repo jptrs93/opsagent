@@ -24,7 +24,7 @@ message ConfigSetRequest {
   int32 config_id = 1;
   string value = 2;
   bool update_referencing_deployments = 3;
-  repeated DeploymentConfigVersionRef referencing_deployments = 4;
+  repeated DeploymentVersionRef referencing_deployments = 4;
 }
 
 message ConfigRenameRequest {

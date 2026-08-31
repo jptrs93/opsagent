@@ -144,7 +144,7 @@ func (r *RuntimeInputs) persist(ctx context.Context, secrets, configs map[int32]
 // as a new deployment config version. Combined with Persistence this is what
 // lets a restarted worker start its workloads without reaching the primary at
 // all.
-func (r *RuntimeInputs) EnsureSecretsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
+func (r *RuntimeInputs) EnsureSecretsReady(ctx context.Context, cfg *apigen.Deployment) error {
 	return r.EnsureSecretIDs(ctx, SecretRefs(cfg))
 }
 
@@ -178,7 +178,7 @@ func (r *RuntimeInputs) EnsureSecretIDs(ctx context.Context, ids []int32) error 
 	return nil
 }
 
-func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
+func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.Deployment) error {
 	if err := r.EnsureAssetsReady(ctx, cfg); err != nil {
 		return err
 	}
@@ -193,7 +193,7 @@ func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.DeploymentC
 
 // EnsureConfigsReady is EnsureSecretsReady for plain config values, which share
 // the same immutable-versioned row model.
-func (r *RuntimeInputs) EnsureConfigsReady(ctx context.Context, cfg *apigen.DeploymentConfig) error {
+func (r *RuntimeInputs) EnsureConfigsReady(ctx context.Context, cfg *apigen.Deployment) error {
 	ids := ConfigRefs(cfg)
 	if len(ids) == 0 {
 		return nil
@@ -236,7 +236,7 @@ func (r *RuntimeInputs) ResolveConfig(id int32) (string, bool) {
 	return value, ok
 }
 
-func SecretRefs(cfg *apigen.DeploymentConfig) []int32 {
+func SecretRefs(cfg *apigen.Deployment) []int32 {
 	if cfg == nil {
 		return nil
 	}
@@ -265,7 +265,7 @@ func SecretRefs(cfg *apigen.DeploymentConfig) []int32 {
 	return ids
 }
 
-func ConfigRefs(cfg *apigen.DeploymentConfig) []int32 {
+func ConfigRefs(cfg *apigen.Deployment) []int32 {
 	if cfg == nil {
 		return nil
 	}

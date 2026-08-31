@@ -78,7 +78,7 @@ func TestRunNetStateWriterProcessesUpdateQueuedWithInitialSnapshot(t *testing.T)
 	network.SetDefault(network.New(network.GeneratePrefix(), 99))
 	t.Cleanup(func() { network.SetDefault(previousNetwork) })
 
-	route := apigen.ScheduledInstanceState{Config: apigen.DeploymentConfig{
+	route := apigen.ScheduledInstanceState{Config: apigen.Deployment{
 		Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 			Ingress: []*apigen.Ingress{{
@@ -146,7 +146,7 @@ func TestRunNetStateWriterSkipsRewriteWhenContentUnchanged(t *testing.T) {
 	t.Cleanup(func() { network.SetDefault(previousNetwork) })
 
 	route := func(hostname string) apigen.ScheduledInstanceState {
-		return apigen.ScheduledInstanceState{Config: apigen.DeploymentConfig{
+		return apigen.ScheduledInstanceState{Config: apigen.Deployment{
 			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 				Ingress: []*apigen.Ingress{{
@@ -199,7 +199,7 @@ func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	network.SetDefault(network.New(prefix, 99))
 	state := RenderNetState(7, "node-a", []apigen.ScheduledInstanceState{{
-		Config: apigen.DeploymentConfig{
+		Config: apigen.Deployment{
 			ID:      42,
 			SpaceID: 1, Name: "database",
 			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
@@ -258,7 +258,7 @@ func TestRenderNetStateDerivesEndpointsFromPlacement(t *testing.T) {
 	item := func(state apigen.ScheduledInstanceTarget, running apigen.RunningStatus) apigen.ScheduledInstanceState {
 		return apigen.ScheduledInstanceState{
 			Instance: apigen.ScheduledInstance{ID: 5, DeploymentID: 42, NodeID: 1, State: state},
-			Config: apigen.DeploymentConfig{
+			Config: apigen.Deployment{
 				ID:      42,
 				SpaceID: 1, Name: "database",
 				Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
@@ -309,7 +309,7 @@ func TestRenderNetStateStandbyTakeoverContributesEndpoint(t *testing.T) {
 	item := func(id int32, state apigen.ScheduledInstanceTarget, running apigen.RunningStatus) apigen.ScheduledInstanceState {
 		return apigen.ScheduledInstanceState{
 			Instance: apigen.ScheduledInstance{ID: id, DeploymentID: 42, NodeID: 1, State: state},
-			Config: apigen.DeploymentConfig{
+			Config: apigen.Deployment{
 				ID:      42,
 				SpaceID: 1, Name: "webapp",
 				Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
@@ -394,7 +394,7 @@ func TestRenderNetStateIsDeterministicAcrossItemOrder(t *testing.T) {
 	item := func(id, deploymentID int32, name string, state apigen.ScheduledInstanceTarget) apigen.ScheduledInstanceState {
 		return apigen.ScheduledInstanceState{
 			Instance: apigen.ScheduledInstance{ID: id, DeploymentID: deploymentID, NodeID: 1, State: state},
-			Config: apigen.DeploymentConfig{
+			Config: apigen.Deployment{
 				ID:      deploymentID,
 				SpaceID: 1, Name: name,
 				Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
@@ -427,7 +427,7 @@ func TestRenderNetStateIsDeterministicAcrossItemOrder(t *testing.T) {
 
 func TestRenderNetStateKeepsIngressWithoutReadyBackend(t *testing.T) {
 	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{{
-		Config: apigen.DeploymentConfig{
+		Config: apigen.Deployment{
 			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 				Ingress: []*apigen.Ingress{{
@@ -452,7 +452,7 @@ func TestRenderNetStateKeepsIngressWithoutReadyBackend(t *testing.T) {
 
 func TestRenderNetStateOmitsIngressOnDNSPort(t *testing.T) {
 	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{{
-		Config: apigen.DeploymentConfig{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
+		Config: apigen.Deployment{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 			Ingress: []*apigen.Ingress{{
 				Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,

@@ -79,7 +79,7 @@ func New(store *state.Service, barrier routeBarrier) *Scheduler {
 
 func (s *Scheduler) Run(ctx context.Context) {
 	s.ctx = logu.AddTag(ctx, "Scheduler")
-	configs, configCh, unsubConfigs := s.store.MustFetchDeploymentConfigSnapshotAndSubscribe(nil)
+	configs, configCh, unsubConfigs := s.store.MustFetchDeploymentSnapshotAndSubscribe(nil)
 	defer unsubConfigs()
 	instances, instanceCh, unsubInstances := s.store.MustFetchScheduledSnapshotAndSubscribe(nil)
 	defer unsubInstances()
@@ -125,11 +125,11 @@ func (s *Scheduler) Run(ctx context.Context) {
 	}
 }
 
-func (s *Scheduler) onConfig(cfg apigen.DeploymentConfig) {
+func (s *Scheduler) onConfig(cfg apigen.Deployment) {
 	if cfg.ID == 0 {
 		return
 	}
-	current := s.store.FetchDeploymentConfig(cfg.ID)
+	current := s.store.FetchDeployment(cfg.ID)
 	if current == nil || current.Version != cfg.Version {
 		return
 	}
@@ -224,7 +224,7 @@ func (s *Scheduler) onInstance(state apigen.ScheduledInstanceState) {
 	}
 	switch {
 	case inst.State.WantsRunning():
-		cfg := s.store.FetchDeploymentConfig(inst.DeploymentID)
+		cfg := s.store.FetchDeployment(inst.DeploymentID)
 		if cfg == nil || cfg.Deleted || !cfg.WorkloadRunning() {
 			s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
 			return
@@ -253,7 +253,7 @@ func (s *Scheduler) onInstance(state apigen.ScheduledInstanceState) {
 		}
 		// Reconcile before finalizing so a RECREATE replacement is created in the
 		// same pass: onConfig treats a terminal TERMINATE as no longer blocking.
-		if cfg := s.store.FetchDeploymentConfig(inst.DeploymentID); cfg != nil {
+		if cfg := s.store.FetchDeployment(inst.DeploymentID); cfg != nil {
 			s.onConfig(*cfg)
 		}
 		s.finalize(inst)

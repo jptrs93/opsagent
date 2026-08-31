@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {
-    deploymentConfigToForm,
+    deploymentToForm,
     emptyDeploymentForm,
     formToDeploymentIdentity,
     formToSpec,
@@ -34,27 +34,27 @@ const errorStatus = (key, message) => ({status: 'error', message, key});
 const okStatus = (key, message) => ({status: 'ok', message, key});
 
 export class DeploymentCreationUpdate {
-    constructor({mode = null, deployment = null, deploymentConfig = null, validateSource} = {}) {
+    constructor({mode = null, deploymentRow = null, deployment = null, validateSource} = {}) {
         if (typeof validateSource !== 'function') throw new Error('validateSource is required');
-        const editorMode = mode || (deployment ? 'update' : 'create');
+        const editorMode = mode || (deploymentRow ? 'update' : 'create');
         if (editorMode !== 'create' && editorMode !== 'update') throw new Error(`Unsupported deployment editor mode: ${editorMode}`);
         this.validateSource = validateSource;
         this.mode = editorMode;
-        this.existingState = deployment;
-        this.form = deploymentConfig ? deploymentConfigToForm(deploymentConfig) : emptyDeploymentForm();
-        const workload = deploymentConfig?.spec?.container1Spec || deploymentConfig?.spec?.opendeploySpec;
+        this.existingState = deploymentRow;
+        this.form = deployment ? deploymentToForm(deployment) : emptyDeploymentForm();
+        const workload = deployment?.spec?.container1Spec || deployment?.spec?.opendeploySpec;
         const initialRunning = editorMode === 'create'
-            ? (deployment ? Boolean(deployment.desiredRunning) : true)
-            : (deploymentConfig?.spec?.opendeploySpec ? true : (workload ? Boolean(workload.running) : Boolean(deployment?.desiredRunning)));
+            ? (deploymentRow ? Boolean(deploymentRow.desiredRunning) : true)
+            : (deployment?.spec?.opendeploySpec ? true : (workload ? Boolean(workload.running) : Boolean(deploymentRow?.desiredRunning)));
         this.desiredRunning = van.state(initialRunning);
         this.documentRevision = van.state(0);
         this.initialSpecKey = JSON.stringify(formToSpec(this.form));
         this.initialSource = this.persistedSource();
 
-        const configuredVersion = workload?.version || deployment?.deployedVersion || '';
-        const deployedNixVersion = deployment?.variant === SOURCE_NIX_DOCKER ? configuredVersion : '';
+        const configuredVersion = workload?.version || deploymentRow?.deployedVersion || '';
+        const deployedNixVersion = deploymentRow?.variant === SOURCE_NIX_DOCKER ? configuredVersion : '';
         const explicitImageVersion = imageVersionFromReference(this.form.containerImage.val);
-        const deployedImageVersion = deployment?.variant === SOURCE_DOCKER_IMAGE ? configuredVersion : '';
+        const deployedImageVersion = deploymentRow?.variant === SOURCE_DOCKER_IMAGE ? configuredVersion : '';
         this.nixDockerBuild = {
             selectedBranch: van.state(''),
             selectedCommit: van.state(deployedNixVersion),

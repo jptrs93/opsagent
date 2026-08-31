@@ -41,7 +41,7 @@ var MoveReferencesOutsideSpaceErr = apigen.NewApiErr("Value is referenced from o
 // move protection therefore cannot lag behind what a runner would actually
 // resolve — the env-only scan this replaced missed ingress cert secrets.
 
-func assetRefIDs(cfg *apigen.DeploymentConfig) []int32 {
+func assetRefIDs(cfg *apigen.Deployment) []int32 {
 	refs := runtimeinputs.RequiredAssetRefs(cfg)
 	ids := make([]int32, 0, len(refs))
 	for _, ref := range refs {
@@ -50,7 +50,7 @@ func assetRefIDs(cfg *apigen.DeploymentConfig) []int32 {
 	return ids
 }
 
-func addressRefIDs(cfg *apigen.DeploymentConfig) []int32 {
+func addressRefIDs(cfg *apigen.Deployment) []int32 {
 	container := cfg.Spec.Container()
 	if container == nil {
 		return nil
@@ -64,7 +64,7 @@ func addressRefIDs(cfg *apigen.DeploymentConfig) []int32 {
 	return ids
 }
 
-func crossDeploymentMountSourceIDs(cfg *apigen.DeploymentConfig) []int32 {
+func crossDeploymentMountSourceIDs(cfg *apigen.Deployment) []int32 {
 	container := cfg.Spec.Container()
 	if container == nil {
 		return nil
@@ -80,8 +80,8 @@ func crossDeploymentMountSourceIDs(cfg *apigen.DeploymentConfig) []int32 {
 
 // referencingDeployments returns the non-deleted deployments pinning any of
 // ids, with refs extracting one kind's version ids from a config.
-func (h *Handler) referencingDeployments(ids map[int32]struct{}, refs func(*apigen.DeploymentConfig) []int32) []apigen.DeploymentConfig {
-	var out []apigen.DeploymentConfig
+func (h *Handler) referencingDeployments(ids map[int32]struct{}, refs func(*apigen.Deployment) []int32) []apigen.Deployment {
+	var out []apigen.Deployment
 	for _, cfg := range h.Store.FetchDeploymentSnapshot(nil) {
 		if cfg.Deleted {
 			continue
@@ -98,7 +98,7 @@ func (h *Handler) referencingDeployments(ids map[int32]struct{}, refs func(*apig
 
 // referencesOutsideSpace reports whether any non-deleted deployment outside
 // spaceID pins one of ids — the veto for cross-space moves.
-func (h *Handler) referencesOutsideSpace(ids map[int32]struct{}, refs func(*apigen.DeploymentConfig) []int32, spaceID int32) bool {
+func (h *Handler) referencesOutsideSpace(ids map[int32]struct{}, refs func(*apigen.Deployment) []int32, spaceID int32) bool {
 	for _, cfg := range h.referencingDeployments(ids, refs) {
 		if cfg.SpaceID != spaceID {
 			return true
@@ -114,7 +114,7 @@ func (h *Handler) deploymentUsesAddressID(ids map[int32]struct{}) bool {
 // deploymentRefDetails renders "deployment <space> / <node> / <name>" lines
 // for every deployment pinning one of ids — the human-readable half of the
 // reference_in_use refusal.
-func (h *Handler) deploymentRefDetails(ids map[int32]struct{}, refs func(*apigen.DeploymentConfig) []int32) []string {
+func (h *Handler) deploymentRefDetails(ids map[int32]struct{}, refs func(*apigen.Deployment) []int32) []string {
 	cfgs := h.referencingDeployments(ids, refs)
 	if len(cfgs) == 0 {
 		return nil

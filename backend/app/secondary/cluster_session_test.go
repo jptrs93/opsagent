@@ -15,7 +15,7 @@ func testAssignment(id, deploymentID, nodeID int32) *apigen.ScheduledInstanceSta
 			ID: id, DeploymentID: deploymentID, DeploymentVersion: 1, NodeID: nodeID,
 			State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 		},
-		Config: apigen.DeploymentConfig{
+		Config: apigen.Deployment{
 			ID: deploymentID, NodeID: nodeID, Version: 1,
 			Spec: apigen.DeploymentSpec{
 				Container1Spec: &apigen.ContainerSpec{

@@ -23,7 +23,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 
 	primaryNode := testNode(store, "primary")
 	workerNode := testNode(store, "worker")
-	create := func(nodeID int32, name string, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
+	create := func(nodeID int32, name string, spec *apigen.DeploymentSpec) *apigen.Deployment {
 		return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, nodeID, spec)
 	}
 	containerSpec := testSpecWithState("v1", true)
@@ -31,7 +31,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	worker := create(workerNode.ID, "app", containerSpec)
 	system := store.MustCreateDeploymentForNode(apigen.Context{}, OpendeploySpaceID, internaldeploy.SelfName, primaryNode.ID, testSystemSpecWithState("v1", true))
 
-	seedStatus := func(cfg *apigen.DeploymentConfig, artifact string) *apigen.ScheduledInstance {
+	seedStatus := func(cfg *apigen.Deployment, artifact string) *apigen.ScheduledInstance {
 		inst := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 		store.MustWriteScheduledInstanceStatus(inst.ID, func(status *apigen.ScheduledInstanceStatus) bool {
 			status.BumpUpdatedAt()
@@ -70,7 +70,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	if store.FetchScheduledInstanceStatus(systemInst.ID).Runner.Status != apigen.RunningStatus_RUNNING {
 		t.Fatal("primary system deployment runtime status was cleared")
 	}
-	for _, cfg := range store.ListActiveDeploymentConfigs() {
+	for _, cfg := range store.ListActiveDeployments() {
 		if cfg.ID == primary.ID && cfg.Version != primaryConfigVersion {
 			t.Fatalf("primary config version = %d, want %d", cfg.Version, primaryConfigVersion)
 		}
@@ -93,8 +93,8 @@ func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 
 	store.EnsureSystemDeployment(node.ID, "v0.0.195")
 
-	var repaired *apigen.DeploymentConfig
-	for _, cfg := range store.ListActiveDeploymentConfigs() {
+	var repaired *apigen.Deployment
+	for _, cfg := range store.ListActiveDeployments() {
 		if cfg.ID == created.ID {
 			repaired = cfg
 			break
@@ -425,7 +425,7 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 	if err := nextSpec.SetWorkloadState("v2", true); err != nil {
 		t.Fatal(err)
 	}
-	updated, changed, versionOK := store.UpdateDeploymentConfig(apigen.Context{}, cfg.ID, DeploymentConfigUpdate{
+	updated, changed, versionOK := store.UpdateDeployment(apigen.Context{}, cfg.ID, DeploymentConfigUpdate{
 		ExpectedVersion: 2,
 		Spec:            &nextSpec,
 	})
@@ -502,7 +502,7 @@ func TestRenameNodePreservesIdentifier(t *testing.T) {
 	if node.Name != "control plane" || node.Identifier != "primary-id" {
 		t.Fatalf("renamed node = %+v", node)
 	}
-	configs := store.FetchDeploymentSnapshot(func(cfg apigen.DeploymentConfig) bool {
+	configs := store.FetchDeploymentSnapshot(func(cfg apigen.Deployment) bool {
 		return cfg.NodeID == primaryNode.ID
 	})
 	if len(configs) == 0 || configs[0].NodeID != primaryNode.ID {

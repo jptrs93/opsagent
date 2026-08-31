@@ -30,7 +30,7 @@ var ConfigRefOutsideSpaceErr = apigen.NewApiErr("Deployment references a config 
 
 var AssetRefOutsideSpaceErr = apigen.NewApiErr("Deployment references an asset outside its own or the global space", "asset_reference_outside_space", http.StatusBadRequest)
 
-func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.DeploymentConfig) bool {
+func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.Deployment) bool {
 	if cfg.NodeID <= 0 || cfg.NodeID == h.NodeID || h.Cluster == nil {
 		return false
 	}
@@ -41,7 +41,7 @@ func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.Deploym
 // canDeleteDeployment reports whether every live assignment for the deployment
 // permits deletion. Checking only the newest is not enough: mid-rollover it can
 // be STOPPED while an older instance is still RUNNING.
-func (h *Handler) canDeleteDeployment(cfg *apigen.DeploymentConfig, statuses []apigen.ScheduledInstanceStatus) bool {
+func (h *Handler) canDeleteDeployment(cfg *apigen.Deployment, statuses []apigen.ScheduledInstanceStatus) bool {
 	if len(statuses) == 0 {
 		return !cfg.WorkloadRunning()
 	}
@@ -53,7 +53,7 @@ func (h *Handler) canDeleteDeployment(cfg *apigen.DeploymentConfig, statuses []a
 	return true
 }
 
-func (h *Handler) instancePermitsDelete(cfg *apigen.DeploymentConfig, status apigen.ScheduledInstanceStatus) bool {
+func (h *Handler) instancePermitsDelete(cfg *apigen.Deployment, status apigen.ScheduledInstanceStatus) bool {
 	if status.Runner.Status == apigen.RunningStatus_STOPPED {
 		return true
 	}
@@ -80,7 +80,7 @@ type deploymentSecretResolver interface {
 	MetaByID(id int32) (secrets.Meta, bool)
 }
 
-type deploymentConfigResolver interface {
+type deploymentResolver interface {
 	ResolveConfig(id int32) (string, bool)
 }
 
@@ -92,7 +92,7 @@ func validateDeploymentSpecWithAssets(spec *apigen.DeploymentSpec, assets deploy
 	return validateDeploymentSpecWithResolvers(spec, assets, nil, nil)
 }
 
-func validateDeploymentSpecWithResolvers(spec *apigen.DeploymentSpec, assets deploymentAssetResolver, secretStore deploymentSecretResolver, configs deploymentConfigResolver) (*apigen.DeploymentSpec, error) {
+func validateDeploymentSpecWithResolvers(spec *apigen.DeploymentSpec, assets deploymentAssetResolver, secretStore deploymentSecretResolver, configs deploymentResolver) (*apigen.DeploymentSpec, error) {
 	if spec == nil {
 		return nil, invalidConfigErrf("spec is required")
 	}
@@ -540,7 +540,7 @@ func portForwardProtocolName(protocol apigen.PortForwardProtocol) string {
 	}
 }
 
-func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentSecretResolver, configs deploymentConfigResolver) error {
+func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentSecretResolver, configs deploymentResolver) error {
 	if spec == nil || spec.Container() == nil || len(spec.Container().Runtime.EnvVars) == 0 {
 		return nil
 	}
@@ -585,7 +585,7 @@ func (h *Handler) validateSecretRefSpaces(spec *apigen.DeploymentSpec, spaceID i
 	if spec == nil {
 		return nil
 	}
-	cfg := apigen.DeploymentConfig{Spec: *spec}
+	cfg := apigen.Deployment{Spec: *spec}
 	ids := runtimeinputs.SecretRefs(&cfg)
 	if len(ids) > 0 && h.Secrets == nil {
 		return invalidConfigErrf("secrets cannot be resolved here")
@@ -608,7 +608,7 @@ func (h *Handler) validateConfigRefSpaces(spec *apigen.DeploymentSpec, spaceID i
 	if spec == nil {
 		return nil
 	}
-	cfg := apigen.DeploymentConfig{Spec: *spec}
+	cfg := apigen.Deployment{Spec: *spec}
 	for _, id := range runtimeinputs.ConfigRefs(&cfg) {
 		ref, ok := h.Store.GetConfigVersionByID(id)
 		if !ok {
@@ -627,7 +627,7 @@ func (h *Handler) validateAssetRefSpaces(spec *apigen.DeploymentSpec, spaceID in
 	if spec == nil {
 		return nil
 	}
-	cfg := apigen.DeploymentConfig{Spec: *spec}
+	cfg := apigen.Deployment{Spec: *spec}
 	for _, ref := range runtimeinputs.RequiredAssetRefs(&cfg) {
 		version, ok := h.Store.GetAssetVersionRef(ref.AssetVersionID)
 		if !ok {
@@ -642,11 +642,11 @@ func (h *Handler) validateAssetRefSpaces(spec *apigen.DeploymentSpec, spaceID in
 	return nil
 }
 
-func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID, spaceID int32, spec *apigen.DeploymentSpec, snapshot []apigen.DeploymentConfig) error {
+func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID, spaceID int32, spec *apigen.DeploymentSpec, snapshot []apigen.Deployment) error {
 	if spec == nil || spec.Container() == nil {
 		return nil
 	}
-	configs := make(map[int32]*apigen.DeploymentConfig, len(snapshot))
+	configs := make(map[int32]*apigen.Deployment, len(snapshot))
 	for i := range snapshot {
 		configs[snapshot[i].ID] = &snapshot[i]
 	}

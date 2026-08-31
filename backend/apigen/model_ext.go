@@ -63,19 +63,19 @@ func LogWALDeploymentDir(deploymentID int32) string {
 	return filepath.Join(ainit.StaticConfig.LogWALDir, fmt.Sprintf("%d", deploymentID))
 }
 
-func (d *DeploymentConfig) PrepareOutputPath() string {
+func (d *Deployment) PrepareOutputPath() string {
 	return prepareOutputFile(d.ID, d.Version)
 }
 
-func (d *DeploymentConfig) WorkloadVersion() string {
+func (d *Deployment) WorkloadVersion() string {
 	return d.Spec.WorkloadVersion()
 }
 
-func (d *DeploymentConfig) WorkloadRunning() bool {
+func (d *Deployment) WorkloadRunning() bool {
 	return d.Spec.WorkloadRunning()
 }
 
-func (d *DeploymentConfig) EffectiveUpgradeStrategy() ContainerUpgradeStrategy {
+func (d *Deployment) EffectiveUpgradeStrategy() ContainerUpgradeStrategy {
 	container := d.Spec.Container()
 	if container == nil || container.UpgradeStrategy == ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED {
 		return ContainerUpgradeStrategy_RECREATE
@@ -83,7 +83,7 @@ func (d *DeploymentConfig) EffectiveUpgradeStrategy() ContainerUpgradeStrategy {
 	return container.UpgradeStrategy
 }
 
-func (d *DeploymentConfig) SetWorkloadState(version string, running bool) error {
+func (d *Deployment) SetWorkloadState(version string, running bool) error {
 	return d.Spec.SetWorkloadState(version, running)
 }
 

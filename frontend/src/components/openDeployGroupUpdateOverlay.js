@@ -3,7 +3,7 @@ import {capi} from "../capi/index.js";
 import {refreshIcon} from "../lib/icons.js";
 import {spinnerButton} from "./spinnerbutton.js";
 import {deploymentsS} from "../state/deployments.js";
-import {deploymentWorkload} from "../lib/deploymentConfig.js";
+import {deploymentWorkload} from "../lib/deployment.js";
 import {preparerPhase} from "../lib/preparerStatus.js";
 
 const {button, div, input, label, option, p, select, span, table, thead, tbody, tr, th, td} = van.tags;

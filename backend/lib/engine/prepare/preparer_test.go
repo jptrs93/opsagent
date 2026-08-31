@@ -37,7 +37,7 @@ func (s *countingStore) MustFetchScheduledSnapshotAndSubscribe(storage.Scheduled
 // pushes a no-op to the primary, so it must be dropped.
 func TestWriteStatusDropsUnchangedPreparerStatus(t *testing.T) {
 	store := &countingStore{}
-	dep := &apigen.DeploymentConfig{ID: 11, Version: 4}
+	dep := &apigen.Deployment{ID: 11, Version: 4}
 
 	ready := StatusUpdate{
 		Artifact: "example/app:v1",
@@ -123,7 +123,7 @@ func TestInProgress(t *testing.T) {
 // very first write for an instance, whose stored status is still zero.
 func TestWriteStatusAlwaysPublishesFirstStatus(t *testing.T) {
 	store := &countingStore{}
-	dep := &apigen.DeploymentConfig{ID: 11, Version: 4}
+	dep := &apigen.Deployment{ID: 11, Version: 4}
 
 	WriteStatus(store, 42, dep, StatusUpdate{Inputs: apigen.InputsStatus_INPUTS_RESOLVING})
 	if store.writes != 1 {

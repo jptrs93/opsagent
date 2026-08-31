@@ -13,11 +13,11 @@ import {deploymentEditorWidget} from "./deploymentEditorWidget.js";
 
 const {div} = van.tags;
 
-export function deployOverlay(deployment, deploymentConfig, onClose, onDeployed) {
+export function deployOverlay(deploymentRow, deployment, onClose, onDeployed) {
     const editor = deploymentEditorWidget({
         mode: 'update',
+        deploymentRow,
         deployment,
-        deploymentConfig,
         catalogs: {
             spaces: spacesS,
             nodes: nodesS,

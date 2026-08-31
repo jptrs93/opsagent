@@ -16,10 +16,10 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-func (s *Service) ListActiveDeploymentConfigs() []*apigen.DeploymentConfig {
+func (s *Service) ListActiveDeployments() []*apigen.Deployment {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	out := make([]*apigen.DeploymentConfig, 0, len(s.configCache))
+	out := make([]*apigen.Deployment, 0, len(s.configCache))
 	for _, cfg := range s.configCache {
 		if !cfg.Deleted {
 			out = append(out, cfg)
@@ -28,14 +28,14 @@ func (s *Service) ListActiveDeploymentConfigs() []*apigen.DeploymentConfig {
 	return out
 }
 
-func (s *Service) MustFetchDeploymentHistory(deploymentID int32) []*apigen.DeploymentConfig {
+func (s *Service) MustFetchDeploymentHistory(deploymentID int32) []*apigen.Deployment {
 	ctx := context.Background()
 	rows, err := s.q.ListDeploymentVersions(ctx, int64(deploymentID))
 	if err != nil {
 		panic(fmt.Sprintf("ListDeploymentVersions: %v", err))
 	}
 	base := s.configCache[deploymentID]
-	out := make([]*apigen.DeploymentConfig, 0, len(rows))
+	out := make([]*apigen.Deployment, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, configVersionRowToProto(r, base))
 	}
@@ -52,7 +52,7 @@ type DeploymentConfigUpdate struct {
 	Deleted         bool
 }
 
-func (s *Service) UpdateDeploymentConfig(ctx apigen.Context, deploymentID int32, update DeploymentConfigUpdate) (*apigen.DeploymentConfig, bool, bool) {
+func (s *Service) UpdateDeployment(ctx apigen.Context, deploymentID int32, update DeploymentConfigUpdate) (*apigen.Deployment, bool, bool) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
@@ -97,15 +97,15 @@ func (s *Service) UpdateDeploymentConfig(ctx apigen.Context, deploymentID int32,
 	next.UpdatedAt = now
 	next.Author = userID
 	next.SpecBlob = specBlob
-	cfg := s.mustCommitDeploymentConfigLocked(existing, next, "deployment config update")
+	cfg := s.mustCommitDeploymentLocked(existing, next, "deployment config update")
 	return cfg, true, true
 }
 
-// mustCommitDeploymentConfigLocked writes the version append and any identity
+// mustCommitDeploymentLocked writes the version append and any identity
 // changes between prev and next in one tx — the pair must never be observed
 // half-applied — then refreshes the cache and notifies subscribers. Caller
 // must hold s.Mu.
-func (s *Service) mustCommitDeploymentConfigLocked(prev, next pq.DeploymentRow, label string) *apigen.DeploymentConfig {
+func (s *Service) mustCommitDeploymentLocked(prev, next pq.DeploymentRow, label string) *apigen.Deployment {
 	bgCtx := context.Background()
 	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
 		if next.Version != prev.Version {
@@ -145,13 +145,13 @@ func (s *Service) mustCommitDeploymentConfigLocked(prev, next pq.DeploymentRow, 
 
 // mustAppendConfigVersionLocked appends the next spec version for an existing
 // deployment, leaving identity fields untouched. Caller must hold s.Mu.
-func (s *Service) mustAppendConfigVersionLocked(existing pq.DeploymentRow, specBlob []byte, author int64, label string) *apigen.DeploymentConfig {
+func (s *Service) mustAppendConfigVersionLocked(existing pq.DeploymentRow, specBlob []byte, author int64, label string) *apigen.Deployment {
 	next := existing
 	next.Version = existing.Version + 1
 	next.UpdatedAt = time.Now().UnixMilli()
 	next.Author = author
 	next.SpecBlob = specBlob
-	return s.mustCommitDeploymentConfigLocked(existing, next, label)
+	return s.mustCommitDeploymentLocked(existing, next, label)
 }
 
 func (s *Service) MustSetDeploymentWorkloadState(ctx apigen.Context, deploymentID int32, version string, running bool) {
@@ -204,7 +204,7 @@ func (s *Service) MustUpdateDeploymentSpec(ctx apigen.Context, deploymentID int3
 
 // mustCreateDeploymentLocked inserts a stable identity row and its v1 version
 // row in one tx, then caches and notifies. Caller must hold s.Mu.
-func (s *Service) mustCreateDeploymentLocked(spaceID int32, name string, nodeID int32, specBlob []byte, author int64, label string) *apigen.DeploymentConfig {
+func (s *Service) mustCreateDeploymentLocked(spaceID int32, name string, nodeID int32, specBlob []byte, author int64, label string) *apigen.Deployment {
 	bgCtx := context.Background()
 	now := time.Now().UnixMilli()
 	var dbID, spaceRowID int64
@@ -274,7 +274,7 @@ var SpaceVersionMismatchErr = errors.New("deployment space version mismatch")
 // current space version + 1, mirroring the config-update version guard. A
 // same-space request with a valid guard is a no-op that does not advance the
 // version.
-func (s *Service) MoveDeploymentSpace(deploymentID, newSpaceID, expectedSpaceVersion, author int32) (*apigen.DeploymentConfig, error) {
+func (s *Service) MoveDeploymentSpace(deploymentID, newSpaceID, expectedSpaceVersion, author int32) (*apigen.Deployment, error) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	cfg := s.configCache[deploymentID]
@@ -324,7 +324,7 @@ func (s *Service) MoveDeploymentSpace(deploymentID, newSpaceID, expectedSpaceVer
 
 // MustCreateDeploymentForNode creates a deployment with an explicit canonical
 // node assignment.
-func (s *Service) MustCreateDeploymentForNode(ctx apigen.Context, spaceID int32, name string, nodeID int32, spec *apigen.DeploymentSpec) *apigen.DeploymentConfig {
+func (s *Service) MustCreateDeploymentForNode(ctx apigen.Context, spaceID int32, name string, nodeID int32, spec *apigen.DeploymentSpec) *apigen.Deployment {
 	if nodeID <= 0 {
 		panic("deployment node ID must be positive")
 	}
@@ -381,7 +381,7 @@ func (s *Service) EnsureSystemDeployment(nodeID int32, opendeployVersion string)
 
 // EnsureNetproxyDeployment creates the per-node opendeploy-net internal
 // deployment when missing. Existing desired state is administrator-managed.
-func (s *Service) EnsureNetproxyDeployment(nodeID int32, initialVersion string) *apigen.DeploymentConfig {
+func (s *Service) EnsureNetproxyDeployment(nodeID int32, initialVersion string) *apigen.Deployment {
 	if nodeID <= 0 {
 		panic("deployment node ID must be positive")
 	}

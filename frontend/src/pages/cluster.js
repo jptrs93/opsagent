@@ -3,7 +3,7 @@ import {capi} from "../capi/index.js";
 import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {sectionBand} from "../components/sectionBand.js";
 import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, primaryConfigS, spacesS, userConfigRefsS} from "../state/deployments.js";
-import {deploymentWorkload} from "../lib/deploymentConfig.js";
+import {deploymentWorkload} from "../lib/deployment.js";
 import {allowedSpaceNames, editableSpaceIDs, isFixedSpace} from "../lib/nodeSpaces.js";
 
 const { button, code, div, input, label, p, span, table, tbody, td, th, thead, tr } = van.tags;

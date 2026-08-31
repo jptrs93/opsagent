@@ -7,11 +7,13 @@
  *  - a card = an object with its own referencable identity or artifact life
  *  - an inline block = an owned sub-object (no independent identity;
  *    addressed as <root id> + path); expanded by default, click to collapse
- *  - the blue "versioned" tag marks a type whose changes are explicitly
- *    version-tracked; the counter itself is implied, never shown as a field
+ *  - the small "v" marker (hover it) tags parts of the state tree that are
+ *    explicitly version-tracked; versioned sub-parts render as their own
+ *    tinted block; the counter itself is implied, never shown as a field
  *  - the amber "id" chip marks a root's identity fields
- *  - rose field names are server-set: stamped by the server on write, never
- *    client input (timestamps, author)
+ *  - grey fields with a "read only" badge are server-set: stamped by the
+ *    server, never client input (timestamps, author); id fields keep their
+ *    amber chip but carry the "read only" badge too; badges right-align
  *  - enums are chips, collapsed by default: hover for the values, click to
  *    expand them
  */
@@ -60,18 +62,32 @@
     title: 'ClusterNode',
     badge: 'user updated',
     tone: 'user',
+    versioned: true,
     x: 80, y: 160, w: 400,
-    desc: 'A machine enrolled into the cluster. Written once at enrollment, then edited by operators (name, allowed spaces).',
+    desc: 'A machine enrolled into the cluster: an immutable identity written once at enrollment, plus a versioned config edited by operators.',
     schema: [
       f('id', 'int32', { key: true }),
-      f('enrollmentId', 'int32', { ref: 'enrollment request' }),
-      f('name', 'string'),
+      f('name', 'string', { note: 'unique' }),
       f('identifier', 'string', { note: 'immutable machine identifier' }),
-      f('roles', 'int32', { mod: 'repeated' }),
-      f('wgPublicKey', 'string', { note: 'base64 Curve25519' }),
-      f('addresses', 'string', { mod: 'repeated' }),
       f('timestamp', 'timestamp', { srv: true }),
-      f('allowedSpaces', 'int32', { mod: 'repeated', ref: 'Space.id' }),
+      f('enrolledAt', 'timestamp', { srv: true }),
+      f('config', obj('NodeConfig', [
+        f('author', 'int32', { ref: 'user id', srv: true }),
+        f('status', en('NodeLifecycleStatus', [
+          v('ENROLLMENT_REQUESTED'),
+          v('ENROLLMENT_CANCELLED'),
+          v('ENROLLMENT_REQUEST_EXPIRED'),
+          v('MEMBER_NORMAL'),
+          v('MEMBER_UNHEALTHY'),
+          v('MEMBER_DRAINING'),
+          v('MEMBER_MISSING'),
+          v('MEMBER_EVICTED'),
+        ])),
+        f('roles', 'int32', { mod: 'repeated' }),
+        f('addresses', 'string', { mod: 'repeated' }),
+        f('wgPublicKey', 'string', { note: 'base64 Curve25519' }),
+        f('allowedSpaces', 'int32', { mod: 'repeated', ref: 'Space.id' }),
+      ], { versioned: true })),
     ],
   });
 
@@ -92,7 +108,6 @@
       f('nodeId', 'int32', { ref: 'ClusterNode.id' }),
       f('author', 'int32', { ref: 'user id', srv: true }),
       f('timestamp', 'timestamp', { srv: true }),
-      f('deleted', 'bool'),
       f('spec', obj('DeploymentSpec', [
         f('networking', obj('NetworkingConfig', [
           f('mode', en('NetworkingMode', [
@@ -180,11 +195,37 @@
   });
 
   g.addNode({
+    id: 'schedinst',
+    title: 'ScheduledInstance',
+    badge: 'derived',
+    tone: 'derived',
+    x: 690, y: 150, w: 420,
+    desc: 'One placement of a deployment instance ordinal on a node, created by the scheduler and pinned to one spec version. Cross-node routing is a pure function of these assignments — no status input.',
+    schema: [
+      f('id', 'int32', { key: true }),
+      f('timestamp', 'timestamp', { srv: true }),
+      f('deploymentId', 'int32', { ref: 'Deployment.id' }),
+      f('deploymentVersion', 'int32', { note: 'pins one immutable spec version' }),
+      f('nodeId', 'int32', { ref: 'ClusterNode.id' }),
+      f('instanceOrdinal', 'int32'),
+      f('spaceId', 'int32', { ref: 'Space.id' }),
+      f('state', en('ScheduledInstanceTarget', [
+        v('RUN_SERVING', 'owns the stable inbound address'),
+        v('RUN_STANDBY', 'warming replacement, not yet serving'),
+        v('RUN_DRAINING', 'superseded but still running'),
+        v('TERMINATE', 'node should terminate'),
+        v('FINALIZED', 'termination acknowledged'),
+      ])),
+    ],
+    note: 'Exactly one placement per (deployment, ordinal) is RUN_SERVING at a time.',
+  });
+
+  g.addNode({
     id: 'netmap',
     title: 'ClusterNetMap',
     badge: 'derived',
     tone: 'derived',
-    x: 680, y: 340, w: 440,
+    x: 680, y: 620, w: 440,
     desc: 'Complete placement + underlay snapshot rendered by the primary, targeted to one node. Workers persist an accepted map, apply it to the kernel (WireGuard peers, routes, policy), and report both stamps back.',
     schema: [
       f('targetNodeId', 'int32', { ref: 'ClusterNode.id' }),
@@ -272,13 +313,23 @@
 
   g.addEdge({
     from: 'node', to: 'netmap',
-    kind: 'derive', fromAt: 0.55, toAt: 0.2,
+    kind: 'derive', fromAt: 0.55, toAt: 0.2, labelAt: 0.75,
     label: 'underlay + WG key → nodes[]',
+  });
+  g.addEdge({
+    from: 'deployment', to: 'schedinst',
+    kind: 'derive', fromAt: 0.1, toAt: 0.5,
+    label: ['scheduler creates placements', 'pinned to one spec version'],
+  });
+  g.addEdge({
+    from: 'schedinst', to: 'netmap',
+    kind: 'derive',
+    label: 'placements → routes[]',
   });
   g.addEdge({
     from: 'deployment', to: 'netmap',
     kind: 'derive', fromAt: 0.3, toAt: 0.55,
-    label: ['placements → routes[]', 'policies → policyRules[]'],
+    label: 'policies → policyRules[]',
   });
   g.addEdge({
     from: 'deployment', to: 'netstate',

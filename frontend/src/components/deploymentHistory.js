@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {formatClockTime, formatHistoryTime} from "../lib/date.js";
 import {resolveUserDisplayName} from "../lib/users.js";
-import {deploymentWorkload} from "../lib/deploymentConfig.js";
+import {deploymentWorkload} from "../lib/deployment.js";
 import {rollupLabel, rollupOf, inputsLabel, imageLabel, InputsStatus, ImageStatus} from "../lib/preparerStatus.js";
 
 const {button, col, colgroup, div, input, label, p, span, table, tbody, td, th, thead, tr} = van.tags;

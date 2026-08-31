@@ -131,6 +131,24 @@ message DnsService {
   repeated Endpoint endpoints = 3;
 }
 
+// Endpoint is one instance of a deployment on the virtual network. Modeled as
+// a set with per-endpoint state from day one (see networking design); every
+// set has exactly one member until multi-instance deployments exist.
+message Endpoint {
+  int32 ordinal = 1;      // instance ordinal (0-based)
+  string address = 2;     // stable inbound instance address I (version/run slots 0/0)
+  reserved 3;
+  EndpointState state = 4;
+  int32 node_id = 5;      // canonical hosting node
+}
+
+enum EndpointState {
+  ENDPOINT_STATE_UNSPECIFIED = 0;
+  ENDPOINT_READY = 1;    // in the endpoint set: resolves in DNS, receives traffic
+  ENDPOINT_DRAINING = 2; // removed from the set ahead of SIGTERM
+  ENDPOINT_DOWN = 3;     // instance not running
+}
+
 // NetIngress is a node-local, rendered ingress route consumed by netproxy.
 // It contains ready backend endpoints instead of deployment configuration.
 message NetIngress {
