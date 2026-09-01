@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/pubsubu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -258,10 +259,7 @@ func (s *Service) ListNodes() []*Node {
 }
 
 func (s *Service) listNodesLocked() []*Node {
-	rows, err := s.q.ListNodeRows(context.Background(), memberNodeStatuses)
-	if err != nil {
-		panic(fmt.Sprintf("list nodes: %v", err))
-	}
+	rows := erru.Must(s.q.ListNodeRows(context.Background(), memberNodeStatuses))
 	out := make([]*Node, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, nodeRowToNode(row))
@@ -287,10 +285,7 @@ type NetworkMapInputs struct {
 func (s *Service) FetchNetworkMapInputs() NetworkMapInputs {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	seq, err := s.q.GetGlobalSeq(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("get global seq: %v", err))
-	}
+	seq := erru.Must(s.q.GetGlobalSeq(context.Background()))
 	spaces := make(map[int32]int32, len(s.deploymentCache))
 	for id, cfg := range s.deploymentCache {
 		if cfg != nil && !cfg.Deleted {
@@ -323,10 +318,7 @@ func (s *Service) SubscribeNodeUpdates() (*pubsubu.Sub[apigen.ClusterNode], func
 func (s *Service) ListNodeStatuses() []*apigen.ClusterNodeStatus {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	rows, err := s.q.ListNodeStatusRows(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("list node statuses: %v", err))
-	}
+	rows := erru.Must(s.q.ListNodeStatusRows(context.Background()))
 	out := make([]*apigen.ClusterNodeStatus, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, nodeStatusRowToProto(row))

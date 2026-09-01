@@ -687,40 +687,48 @@ export class DeploymentCreationUpdate {
         };
     }
 
-    // toMovePayload returns a DeploymentSpaceMoveRequest when the form names a
-    // different space than the deployment currently has, else null. Moves are
-    // an independent operation guarded by the deployment's space version.
+    // toMovePayload returns a DeploymentUpdateRequestV2 assigning a new space
+    // when the form names a different space than the deployment currently has,
+    // else null.
     toMovePayload() {
         if (!this.existingState) throw new Error('Cannot produce move payload without existing deployment state');
         const nextSpaceId = Number(this.form.spaceId.val || 0);
         if (!nextSpaceId || nextSpaceId === Number(this.existingState.spaceId || 0)) return null;
         return {
             deploymentId: this.existingState.id,
-            spaceId: nextSpaceId,
-            spaceVersion: Number(this.existingState.spaceVersion || 0) + 1,
+            expectedVersion: Number(this.existingState.version || 0) + 1,
+            assignedSpaceUpdate: {spaceId: nextSpaceId},
         };
     }
 
+    // toUpdatePayload returns a DeploymentUpdateRequestV2 carrying the single
+    // kind of change the form implies, or null when there is nothing to send.
     toUpdatePayload() {
         if (!this.existingState) throw new Error('Cannot produce update payload without existing deployment state');
         const payload = {
             deploymentId: this.existingState.id,
-            specVersion: this.existingState.currentVersion + 1,
+            expectedVersion: Number(this.existingState.version || 0) + 1,
         };
         const nextSpec = formToSpec(this.form);
         if (JSON.stringify(nextSpec) !== this.initialSpecKey) {
-            payload.spec = formToSpec(this.form, {
-                version: this.createDesiredVersion(),
-                running: Boolean(this.desiredRunning.val),
-            });
+            payload.specUpdate = {
+                spec: formToSpec(this.form, {
+                    version: this.createDesiredVersion(),
+                    running: Boolean(this.desiredRunning.val),
+                }),
+            };
+            return payload;
         }
         const targetVersion = this.selectedTargetVersion();
         if (!this.desiredRunning.val && this.existingState.desiredRunning) {
-            payload.stop = true;
-        } else if (this.desiredRunning.val && targetVersion
-            && (targetVersion !== (this.existingState.deployedVersion || '') || !this.existingState.desiredRunning)) {
-            payload.targetVersion = targetVersion;
+            payload.runningOnlyUpdate = {desiredRunning: false};
+            return payload;
         }
-        return payload;
+        if (this.desiredRunning.val && targetVersion
+            && (targetVersion !== (this.existingState.deployedVersion || '') || !this.existingState.desiredRunning)) {
+            payload.versionOnlyUpdate = {targetVersion};
+            return payload;
+        }
+        return null;
     }
 }

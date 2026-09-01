@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/instancecache"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/sq"
@@ -50,10 +51,7 @@ func (s *Service) loadLocalScheduledInstanceCache() {
 	defer s.Mu.Unlock()
 	// The durable assignment source is local_scheduled_instance_cache. Each
 	// blob is a full ScheduledInstanceState with its pinned spec version.
-	rows, err := s.q.ListLocalScheduledInstanceCache(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListLocalScheduledInstanceCache: %v", err))
-	}
+	rows := erru.Must(s.q.ListLocalScheduledInstanceCache(context.Background()))
 	for _, row := range rows {
 		state, err := apigen.DecodeScheduledInstanceState(row.Blob)
 		if err != nil {
@@ -66,10 +64,7 @@ func (s *Service) loadLocalScheduledInstanceCache() {
 		s.Scheduled[cp.Instance.ID] = &cp
 	}
 	// Prefer durable local status rows over the watermark embedded in the assignment blob.
-	statuses, err := s.q.ListLatestScheduledInstanceStatuses(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListLatestScheduledInstanceStatuses: %v", err))
-	}
+	statuses := erru.Must(s.q.ListLatestScheduledInstanceStatuses(context.Background()))
 	for _, row := range statuses {
 		st := scheduledInstanceStatusRowToProto(row)
 		if state, ok := s.Scheduled[st.ScheduledInstanceID]; ok {
@@ -160,13 +155,10 @@ func (s *Service) MustFinalizeScheduledInstancesAbsent(present map[int32]struct{
 func (s *Service) FetchScheduledInstanceStatusHistorySince(instanceID int32, since time.Time) []*apigen.ScheduledInstanceStatus {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	rows, err := s.q.ListScheduledInstanceStatusHistorySince(context.Background(), sq.ListScheduledInstanceStatusHistorySinceParams{
+	rows := erru.Must(s.q.ListScheduledInstanceStatusHistorySince(context.Background(), sq.ListScheduledInstanceStatusHistorySinceParams{
 		ScheduledInstanceID: int64(instanceID),
 		UpdatedAt:           clockToNanos(since),
-	})
-	if err != nil {
-		panic(fmt.Sprintf("FetchScheduledInstanceStatusHistorySince: %v", err))
-	}
+	}))
 	out := make([]*apigen.ScheduledInstanceStatus, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, scheduledInstanceStatusRowToProto(r))

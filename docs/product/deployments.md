@@ -48,10 +48,10 @@ A deployment is created by posting a `DeploymentCreateRequest` to
 }
 ```
 
-The spec of an existing deployment is updated by posting the typed `spec` field
-in `POST /v1/deployments/update`. Its name and `nodeId` placement are fixed at
-creation; its space can be changed through `POST /v1/deployments/move-space`
-(see Config versioning).
+The spec of an existing deployment is updated by posting a `spec_update` in
+`POST /v2/deployments/update`. Its name and `nodeId` placement are fixed at
+creation; its space can be changed through the same endpoint's
+`assigned_space_update` kind (see Config versioning).
 
 `nodeId` is the required canonical placement and references `ClusterNode.id`.
 Every stored deployment has a positive canonical `nodeId`. Deployment history
@@ -114,10 +114,11 @@ It bumps only the top-level version — the spec and other sub-parts are left
 untouched, so `specVersion` remains strictly "times the spec changed" — and
 records the tombstone in the snapshot (`deleted: true`).
 
-A space move is its own operation, `POST /v1/deployments/move-space`,
-guarded by the space version the caller observed (the request's
-`spaceVersion` must equal the current one + 1, mirroring the spec-update
-guard), so a stale client cannot silently move a deployment back. The space
+A space move is its own update kind, `assigned_space_update` in
+`POST /v2/deployments/update`, guarded like every update kind by the
+top-level version the caller observed (the request's `expectedVersion` must
+equal the current one + 1), so a stale client cannot silently move a
+deployment back. The space
 feeds the workload's derived inbound address, DNS name, and issued TLS
 identity, so a live placement is never mutated by a move: each scheduled
 instance snapshots the deployment's space at scheduling time
@@ -194,7 +195,7 @@ Deleting a deployment releases its human-readable identity tuple but retains its
 
 ### Node space policy
 
-Each node carries an `allowed_spaces` list, and a deployment cannot be placed on a node that does not allow its space. Enforced in `validateNodeAllowsSpace`, called from the only two places a (node, space) pair can arise: `PostV1DeploymentsCreate` and `PostV1DeploymentsMoveSpace`. There is no third — neither update nor move-space carries a node field, so a deployment never moves nodes after creation.
+Each node carries an `allowed_spaces` list, and a deployment cannot be placed on a node that does not allow its space. Enforced in `validateNodeAllowsSpace`, called from the only two places a (node, space) pair can arise: `PostV1DeploymentsCreate` and the `assigned_space_update` kind of `PostV2DeploymentsUpdate`. There is no third — no update kind carries a node field, so a deployment never moves nodes after creation.
 
 **The policy defaults fully open and only ever narrows deliberately.** A new node is inserted allowing every space that exists at the time, and creating a space opens it on every existing node (`AllowSpaceOnAllNodes`). Without that second half the list would be a snapshot taken at enrolment, and the first deployment into a newly created space would fail on every node with nothing to explain why. Deleting a space strips it from every list, so ids of spaces that no longer exist do not accumulate.
 
@@ -260,8 +261,10 @@ plus "Add deployment" and "Export" on the right. Each row displays:
    persisted repository and flake path in the frontend. Editing the repository
    or flake path still requires exact frontend preflight validation.
 2. The user picks a version (and optionally edits the deployment spec) and submits.
-3. The frontend calls `POST /v1/deployments/update` with the target version
-   and, if the spec was edited, the new typed `spec`.
+3. The frontend calls `POST /v2/deployments/update` — a `version_only_update`
+   carrying the target version, or a `spec_update` with the new typed `spec`
+   (which carries the workload version and running state inside it) if the
+   spec was edited.
 4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the spec with the selected workload's version and `running=true`, and bumps `Deployment.Version`. Verification failure writes nothing.
 5. The operator's reconciliation loop picks up the change and starts a
    preparer.

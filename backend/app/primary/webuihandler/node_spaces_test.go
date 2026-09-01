@@ -81,10 +81,10 @@ func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 		t.Fatalf("narrowing: %v", err)
 	}
 
-	_, err = h.PostV1DeploymentsMoveSpace(apigen.Context{}, &apigen.DeploymentSpaceMoveRequest{
-		DeploymentID: cfg.ID,
-		SpaceID:      space.ID,
-		SpaceVersion: cfg.SpaceVersion + 1,
+	_, err = h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+		DeploymentID:        cfg.ID,
+		ExpectedVersion:     cfg.Version + 1,
+		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: space.ID},
 	})
 	if err == nil || !strings.Contains(err.Error(), "node_space_not_allowed") {
 		t.Fatalf("err = %v, want node_space_not_allowed", err)

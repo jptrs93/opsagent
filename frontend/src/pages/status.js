@@ -205,15 +205,16 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
         try {
             const request = {
                 deploymentId,
-                specVersion: (current.specVersion || 0) + 1,
+                expectedVersion: (current.version || 0) + 1,
             };
             if (current.spec?.container1Spec) {
-                request.spec = structuredClone(current.spec);
-                request.spec.container1Spec.version = targetVersion;
+                const spec = structuredClone(current.spec);
+                spec.container1Spec.version = targetVersion;
+                request.specUpdate = {spec};
             } else {
-                request.targetVersion = targetVersion;
+                request.versionOnlyUpdate = {targetVersion};
             }
-            await capi.postV1DeploymentsUpdate(request);
+            await capi.postV2DeploymentsUpdate(request);
             close();
         } catch (e) {
             error.val = e?.message || 'Reverting target version failed.';

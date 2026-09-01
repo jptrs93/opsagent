@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
@@ -47,16 +48,13 @@ func (s *Service) CreateDirectory(spaceID, parentID int32, key string, author in
 	if s.assetSiblingKeyTakenLocked(ctx, s.q, space, parent, key, 0, 0) {
 		return AssetDirectory{}, ErrAssetAlreadyExists
 	}
-	d, err := s.q.InsertAssetDirectory(ctx, pq.InsertAssetDirectoryParams{
+	d := erru.Must(s.q.InsertAssetDirectory(ctx, pq.InsertAssetDirectoryParams{
 		SpaceID:   space,
 		Key:       key,
 		ParentID:  parent,
 		CreatedAt: time.Now().UnixMilli(),
 		Author:    int64(author),
-	})
-	if err != nil {
-		panic(fmt.Sprintf("InsertAssetDirectory: %v", err))
-	}
+	}))
 	return d, nil
 }
 
@@ -96,10 +94,7 @@ func assetDirectoryToProto(d AssetDirectory) *apigen.AssetDirectory {
 // ListAssetDirectories returns every directory across all spaces, ordered by
 // space, parent, then key.
 func (s *Service) ListAssetDirectories() []*apigen.AssetDirectory {
-	rows, err := s.q.ListAssetDirectories(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListAssetDirectories: %v", err))
-	}
+	rows := erru.Must(s.q.ListAssetDirectories(context.Background()))
 	out := make([]*apigen.AssetDirectory, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, assetDirectoryToProto(row))
@@ -234,14 +229,8 @@ func (s *Service) DeleteDirectory(directoryID int32) error {
 	if err != nil {
 		panic(fmt.Sprintf("GetAssetDirectoryByID: %v", err))
 	}
-	assets, err := s.q.CountAssetsInDirectory(ctx, d.ID)
-	if err != nil {
-		panic(fmt.Sprintf("CountAssetsInDirectory: %v", err))
-	}
-	children, err := s.q.CountChildAssetDirectories(ctx, d.ID)
-	if err != nil {
-		panic(fmt.Sprintf("CountChildAssetDirectories: %v", err))
-	}
+	assets := erru.Must(s.q.CountAssetsInDirectory(ctx, d.ID))
+	children := erru.Must(s.q.CountChildAssetDirectories(ctx, d.ID))
 	if assets > 0 || children > 0 {
 		return ErrDirectoryNotEmpty
 	}

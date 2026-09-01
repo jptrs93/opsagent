@@ -150,10 +150,10 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
                 phase.val = {state: 'updating', detail: ''};
                 let applied;
                 try {
-                    applied = await capi.postV1DeploymentsUpdate({
+                    applied = await capi.postV2DeploymentsUpdate({
                         deploymentId: member.id,
-                        specVersion: (live.config.specVersion || 0) + 1,
-                        targetVersion: target,
+                        expectedVersion: (live.config.version || 0) + 1,
+                        versionOnlyUpdate: {targetVersion: target},
                     });
                 } catch (error) {
                     phase.val = {state: 'failed', detail: error?.message || 'update request failed'};

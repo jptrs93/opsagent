@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -18,18 +19,9 @@ import (
 // first, ordered by name.
 func (s *Service) ListConfigs() []*apigen.Config {
 	ctx := context.Background()
-	rows, err := s.q.ListConfigRows(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("ListConfigRows: %v", err))
-	}
-	versions, err := s.q.ListConfigVersionRows(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("ListConfigVersionRows: %v", err))
-	}
-	spaceRows, err := s.q.ListConfigSpaceRows(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("ListConfigSpaceRows: %v", err))
-	}
+	rows := erru.Must(s.q.ListConfigRows(ctx))
+	versions := erru.Must(s.q.ListConfigVersionRows(ctx))
+	spaceRows := erru.Must(s.q.ListConfigSpaceRows(ctx))
 	versionsByConfig := make(map[int64][]pq.ConfigVersion, len(rows))
 	for _, v := range versions {
 		versionsByConfig[v.ConfigID] = append(versionsByConfig[v.ConfigID], v)
@@ -60,17 +52,11 @@ func (s *Service) GetConfig(configID int32) (*apigen.Config, bool) {
 	if err != nil {
 		panic(fmt.Sprintf("GetConfigRowByID: %v", err))
 	}
-	versions, err := s.q.ListConfigVersionsByConfigID(ctx, c.ID)
-	if err != nil {
-		panic(fmt.Sprintf("ListConfigVersionsByConfigID: %v", err))
-	}
+	versions := erru.Must(s.q.ListConfigVersionsByConfigID(ctx, c.ID))
 	if len(versions) == 0 {
 		return nil, false
 	}
-	spaces, err := s.q.ListConfigSpaceRowsByConfigID(ctx, c.ID)
-	if err != nil {
-		panic(fmt.Sprintf("ListConfigSpaceRowsByConfigID: %v", err))
-	}
+	spaces := erru.Must(s.q.ListConfigSpaceRowsByConfigID(ctx, c.ID))
 	return configFromParts(c, spaces, versions), true
 }
 
@@ -94,18 +80,12 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, aut
 	now := time.Now().UnixMilli()
 	var configID int64
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		seq, err := q.NextGlobalSeq(ctx)
-		if err != nil {
-			panic(fmt.Sprintf("NextGlobalSeq: %v", err))
-		}
-		id, err := q.InsertConfigRow(ctx, pq.InsertConfigRowParams{
+		seq := erru.Must(q.NextGlobalSeq(ctx))
+		id := erru.Must(q.InsertConfigRow(ctx, pq.InsertConfigRowParams{
 			Name:             name,
 			ValueDirectoryID: dirID,
 			CreatedAt:        now,
-		})
-		if err != nil {
-			panic(fmt.Sprintf("InsertConfigRow: %v", err))
-		}
+		}))
 		if err := q.InsertConfigSpaceRow(ctx, pq.InsertConfigSpaceRowParams{
 			ConfigID:  id,
 			Author:    int64(author),
@@ -113,20 +93,18 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, aut
 			SpaceID:   space,
 			GlobalSeq: seq,
 		}); err != nil {
-			panic(fmt.Sprintf("InsertConfigSpaceRow: %v", err))
+			return err
 		}
 		configID = id
-		if _, err := q.InsertConfigVersion(ctx, pq.InsertConfigVersionParams{
+		_, err := q.InsertConfigVersion(ctx, pq.InsertConfigVersionParams{
 			ConfigID:  id,
 			Version:   1,
 			Value:     value,
 			CreatedAt: now,
 			Author:    int64(author),
 			GlobalSeq: seq,
-		}); err != nil {
-			panic(fmt.Sprintf("InsertConfigVersion: %v", err))
-		}
-		return nil
+		})
+		return err
 	}); err != nil {
 		panic(fmt.Sprintf("create config tx: %v", err))
 	}
@@ -290,10 +268,7 @@ func (s *Service) MoveConfigSpace(configID, newSpaceID, newDirectoryID, author i
 	}
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		if spaceID != row.SpaceID {
-			seq, err := q.NextGlobalSeq(ctx)
-			if err != nil {
-				panic(fmt.Sprintf("NextGlobalSeq: %v", err))
-			}
+			seq := erru.Must(q.NextGlobalSeq(ctx))
 			if err := q.InsertConfigSpaceRow(ctx, pq.InsertConfigSpaceRowParams{
 				ConfigID:  row.ID,
 				Author:    int64(author),
@@ -301,13 +276,10 @@ func (s *Service) MoveConfigSpace(configID, newSpaceID, newDirectoryID, author i
 				SpaceID:   spaceID,
 				GlobalSeq: seq,
 			}); err != nil {
-				panic(fmt.Sprintf("InsertConfigSpaceRow: %v", err))
+				return err
 			}
 		}
-		if err := q.SetConfigValueDirectoryID(ctx, pq.SetConfigValueDirectoryIDParams{ValueDirectoryID: dirID, ID: row.ID}); err != nil {
-			panic(fmt.Sprintf("SetConfigValueDirectoryID: %v", err))
-		}
-		return nil
+		return q.SetConfigValueDirectoryID(ctx, pq.SetConfigValueDirectoryIDParams{ValueDirectoryID: dirID, ID: row.ID})
 	}); err != nil {
 		panic(fmt.Sprintf("config space move tx: %v", err))
 	}
@@ -339,10 +311,7 @@ func (s *Service) DeleteConfig(configID int32) (*apigen.Config, bool) {
 // ConfigVersionIDs returns every version row id of the config — the set a
 // deployment env ref or setting could pin.
 func (s *Service) ConfigVersionIDs(configID int32) []int32 {
-	rows, err := s.q.ListConfigVersionIDsByConfigID(context.Background(), int64(configID))
-	if err != nil {
-		panic(fmt.Sprintf("ListConfigVersionIDsByConfigID: %v", err))
-	}
+	rows := erru.Must(s.q.ListConfigVersionIDsByConfigID(context.Background(), int64(configID)))
 	ids := make([]int32, 0, len(rows))
 	for _, id := range rows {
 		ids = append(ids, int32(id))

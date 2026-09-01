@@ -2,9 +2,9 @@ package state
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
@@ -58,18 +58,12 @@ func nodeToAPI(node *Node) *apigen.ClusterNode {
 }
 
 func nodeRolesJSON(roles []int32) string {
-	b, err := json.Marshal(roles)
-	if err != nil {
-		panic(fmt.Sprintf("marshal node roles: %v", err))
-	}
+	b := erru.Must(json.Marshal(roles))
 	return string(b)
 }
 
 func nodeAddressesJSON(addresses []string) string {
-	b, err := json.Marshal(addresses)
-	if err != nil {
-		panic(fmt.Sprintf("marshal node addresses: %v", err))
-	}
+	b := erru.Must(json.Marshal(addresses))
 	return string(b)
 }
 
@@ -100,9 +94,6 @@ func parseAllowedSpaces(s string) []int32 {
 }
 
 func allowedSpacesJSON(spaces []int32) string {
-	b, err := json.Marshal(normalizeAllowedSpaces(spaces))
-	if err != nil {
-		panic(fmt.Sprintf("marshal node allowed spaces: %v", err))
-	}
+	b := erru.Must(json.Marshal(normalizeAllowedSpaces(spaces)))
 	return string(b)
 }

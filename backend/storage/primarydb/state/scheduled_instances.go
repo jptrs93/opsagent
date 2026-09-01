@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -68,21 +69,14 @@ func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentSpecVers
 	now := time.Now().UnixMilli()
 	var id int64
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		var err error
-		id, err = q.InsertScheduledInstance(ctx, pq.InsertScheduledInstanceParams{
+		id = erru.Must(q.InsertScheduledInstance(ctx, pq.InsertScheduledInstanceParams{
 			DeploymentID:          int64(deploymentID),
 			DeploymentSpecVersion: int64(deploymentSpecVersion),
 			NodeID:                int64(nodeID),
 			InstanceOrdinal:       int64(instanceOrdinal),
 			SpaceID:               int64(spaceID),
-		})
-		if err != nil {
-			return err
-		}
-		seq, err := q.NextGlobalSeq(ctx)
-		if err != nil {
-			return err
-		}
+		}))
+		seq := erru.Must(q.NextGlobalSeq(ctx))
 		return q.AppendScheduledInstanceVersion(ctx, pq.AppendScheduledInstanceVersionParams{
 			ScheduledInstanceID: id,
 			CreatedAt:           now,
@@ -138,10 +132,7 @@ func (s *Service) SetScheduledInstanceState(instanceID int32, state apigen.Sched
 	}
 	var allocated int64
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		seq, err := q.NextGlobalSeq(ctx)
-		if err != nil {
-			return err
-		}
+		seq := erru.Must(q.NextGlobalSeq(ctx))
 		allocated = seq
 		return q.AppendScheduledInstanceVersion(ctx, pq.AppendScheduledInstanceVersionParams{
 			ScheduledInstanceID: int64(instanceID),
@@ -210,10 +201,7 @@ func (s *Service) FlipScheduledInstanceServing(drainIDs []int32, serveID int32) 
 	var allocated int64
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		for _, w := range writes {
-			seq, err := q.NextGlobalSeq(ctx)
-			if err != nil {
-				return err
-			}
+			seq := erru.Must(q.NextGlobalSeq(ctx))
 			allocated = seq
 			if err := q.AppendScheduledInstanceVersion(ctx, pq.AppendScheduledInstanceVersionParams{
 				ScheduledInstanceID: int64(w.id),
@@ -303,10 +291,7 @@ func (s *Service) MustWriteReplicatedScheduledInstanceStatus(st *apigen.Schedule
 
 func (s *Service) MustFetchDeploymentStatusHistory(deploymentID int32) []*apigen.ScheduledInstanceStatus {
 	ctx := context.Background()
-	rows, err := s.q.ListScheduledInstanceStatusHistoryForDeployment(ctx, int64(deploymentID))
-	if err != nil {
-		panic(fmt.Sprintf("ListScheduledInstanceStatusHistoryForDeployment: %v", err))
-	}
+	rows := erru.Must(s.q.ListScheduledInstanceStatusHistoryForDeployment(ctx, int64(deploymentID)))
 	out := make([]*apigen.ScheduledInstanceStatus, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, scheduledInstanceStatusRowToProto(r))
@@ -316,12 +301,9 @@ func (s *Service) MustFetchDeploymentStatusHistory(deploymentID int32) []*apigen
 
 func (s *Service) MustFetchInstanceStatusHistory(instanceID int32) []*apigen.ScheduledInstanceStatus {
 	ctx := context.Background()
-	rows, err := s.q.ListScheduledInstanceStatusHistorySince(ctx, pq.ListScheduledInstanceStatusHistorySinceParams{
+	rows := erru.Must(s.q.ListScheduledInstanceStatusHistorySince(ctx, pq.ListScheduledInstanceStatusHistorySinceParams{
 		ScheduledInstanceID: int64(instanceID),
-	})
-	if err != nil {
-		panic(fmt.Sprintf("ListScheduledInstanceStatusHistorySince: %v", err))
-	}
+	}))
 	out := make([]*apigen.ScheduledInstanceStatus, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, scheduledInstanceStatusRowToProto(r))

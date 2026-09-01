@@ -1793,21 +1793,31 @@ func DecodeRunnerStatus(b []byte) (*RunnerStatus, error) {
 	return &m, nil
 }
 
-func (m *DeploymentUpdateRequest) Encode() []byte {
+func (m *DeploymentUpdateRequestV2) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 1)
-	b = AppendStringField(b, m.TargetVersion, 2)
-	b = AppendBoolField(b, m.Stop, 3)
-	b = AppendInt32Field(b, m.SpecVersion, 4)
-	if !m.Spec.IsZero() {
+	b = AppendInt32Field(b, m.ExpectedVersion, 2)
+	if m.VersionOnlyUpdate != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.VersionOnlyUpdate.Encode())
+	}
+	if m.RunningOnlyUpdate != nil {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.RunningOnlyUpdate.Encode())
+	}
+	if m.SpecUpdate != nil {
 		b = AppendTag(b, 5, BytesType)
-		b = AppendBytes(b, m.Spec.Encode())
+		b = AppendBytes(b, m.SpecUpdate.Encode())
+	}
+	if m.AssignedSpaceUpdate != nil {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.AssignedSpaceUpdate.Encode())
 	}
 	return b
 }
 
-func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
-	var m DeploymentUpdateRequest
+func DecodeDeploymentUpdateRequestV2(b []byte) (*DeploymentUpdateRequestV2, error) {
+	var m DeploymentUpdateRequestV2
 	var num Number
 	var typ Type
 	var err error
@@ -1821,12 +1831,133 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 		case 1:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.TargetVersion, err = ConsumeString(b, typ)
+			b, m.ExpectedVersion, err = ConsumeVarInt32(b, typ)
 		case 3:
-			b, m.Stop, err = ConsumeBool(b, typ)
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *VersionOnlyUpdate
+				item, err = DecodeVersionOnlyUpdate(msgBytes)
+				if err == nil {
+					m.VersionOnlyUpdate = item
+				}
+			}
 		case 4:
-			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *RunningOnlyUpdate
+				item, err = DecodeRunningOnlyUpdate(msgBytes)
+				if err == nil {
+					m.RunningOnlyUpdate = item
+				}
+			}
 		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SpecUpdate
+				item, err = DecodeSpecUpdate(msgBytes)
+				if err == nil {
+					m.SpecUpdate = item
+				}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AssignedSpaceUpdate
+				item, err = DecodeAssignedSpaceUpdate(msgBytes)
+				if err == nil {
+					m.AssignedSpaceUpdate = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *VersionOnlyUpdate) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.TargetVersion, 1)
+	return b
+}
+
+func DecodeVersionOnlyUpdate(b []byte) (*VersionOnlyUpdate, error) {
+	var m VersionOnlyUpdate
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.TargetVersion, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *RunningOnlyUpdate) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.DesiredRunning, 1)
+	return b
+}
+
+func DecodeRunningOnlyUpdate(b []byte) (*RunningOnlyUpdate, error) {
+	var m RunningOnlyUpdate
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DesiredRunning, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SpecUpdate) Encode() []byte {
+	var b []byte
+	if !m.Spec.IsZero() {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Spec.Encode())
+	}
+	return b
+}
+
+func DecodeSpecUpdate(b []byte) (*SpecUpdate, error) {
+	var m SpecUpdate
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *DeploymentSpec
@@ -1845,16 +1976,14 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 	return &m, nil
 }
 
-func (m *DeploymentSpaceMoveRequest) Encode() []byte {
+func (m *AssignedSpaceUpdate) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.DeploymentID, 1)
-	b = AppendInt32Field(b, m.SpaceID, 2)
-	b = AppendInt32Field(b, m.SpaceVersion, 3)
+	b = AppendInt32Field(b, m.SpaceID, 1)
 	return b
 }
 
-func DecodeDeploymentSpaceMoveRequest(b []byte) (*DeploymentSpaceMoveRequest, error) {
-	var m DeploymentSpaceMoveRequest
+func DecodeAssignedSpaceUpdate(b []byte) (*AssignedSpaceUpdate, error) {
+	var m AssignedSpaceUpdate
 	var num Number
 	var typ Type
 	var err error
@@ -1865,11 +1994,7 @@ func DecodeDeploymentSpaceMoveRequest(b []byte) (*DeploymentSpaceMoveRequest, er
 		}
 		switch num {
 		case 1:
-			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
-		case 2:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 3:
-			b, m.SpaceVersion, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

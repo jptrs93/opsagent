@@ -133,8 +133,7 @@ See [auth.md](auth.md) for the access-control model these routes manage.
 |--------|------|---------|----------|--------|
 | POST | `/v1/deployments/get` | `DeploymentGetRequest` | `DeploymentState` | ANY_OF default |
 | POST | `/v1/deployments/create` | `DeploymentCreateRequest` | `Deployment` | ANY_OF default |
-| POST | `/v1/deployments/update` | `DeploymentUpdateRequest` | `Deployment` | ANY_OF default |
-| POST | `/v1/deployments/move-space` | `DeploymentSpaceMoveRequest` | `Deployment` | ANY_OF default |
+| POST | `/v2/deployments/update` | `DeploymentUpdateRequestV2` | `Deployment` | ANY_OF default |
 | POST | `/v1/deployments/delete` | `DeploymentDeleteRequest` | — | ANY_OF default |
 | POST | `/v1/deployments/recently-deleted` | `RecentlyDeletedDeploymentsRequest` | `RecentlyDeletedDeployments` | ANY_OF default |
 | POST | `/v1/deployments/history` | `DeploymentHistoryRequest` | `DeploymentHistory` | ANY_OF default |
@@ -144,6 +143,8 @@ See [auth.md](auth.md) for the access-control model these routes manage.
 | POST | `/v1/deployments/prepare-output` | `PrepareOutputRequest` | stream `PrepareOutputChunk` | ANY_OF default |
 | POST | `/v1/repos/validate` | `RepoValidateRequest` | `RepoValidateResponse` | ANY_OF default |
 
+`/v2/deployments/update` applies exactly one kind of change per request — `version_only_update` (deploy a version, implies running), `running_only_update` (start/stop at the current version; stop preserves the version), `spec_update` (full spec replacement, workload state included), or `assigned_space_update` (space move) — guarded by the root `expected_version`, which must equal the deployment's top-level version + 1. The top-level version bumps on every deployment event, so the one guard covers every kind. cleanproto has no `oneof`, so the kinds are plain optional fields and the handler rejects anything but exactly one.
+
 `/v1/deployments/log-query` is a one-shot structured log search over a single deployment's stored logs (parquet archive plus WAL tail): it returns the newest matching parsed records (capped at 10k), a per-level histogram over the full range, the total match count, and per-field sampled value stats (top-10 values, coverage, and an other bucket over the newest 5k matched records — this feeds the sidebar with no extra request), all in one response. The primary proxies the request over the cluster session to the node hosting the deployment; the node builds the complete response and sends it back as a single message. `deployment_id = 0` with `target_node_id` addresses a node's system log and is authorized against the node instead. The endpoint does not tail live output. See the "Search API sketch" section of `docs/future-work/logmanager-implementation-plan.md` for the design rationale.
 
 `/v1/deployments/run-report` summarizes one run of a scheduled instance: placement identity (deployment version, node, instance ordinal), started/stopped times, the container's exit code, and the last 20 log lines. Runs have no stored entity — the report is reconstructed from the instance's append-only status history: a run's rows are those with `number_of_restarts = run - 1`, its start is `last_restart_at`, and its stop is the `updated_at` HLC of the run's first STOPPED/CRASHED row, which also carries `exit_code`. The exit code is absent when the runner never observed the exit (rows written before the field existed, pre-spawn failures, the internal systemd runner, or an exit during an agent restart); the stop time is the status-write time, so it lags the true exit in the agent-restart case. Log lines are fetched only for finished runs, via an internal log query bounded to the run's time window, filtered by run and instance ordinal, and routed to the scheduled instance's node (which can differ from the deployment config's node during a cross-node move). Log fetch failures and gaps are reported in `warnings` rather than failing the request. Authorized with the same view-logs verb as `/v1/deployments/log-query`.
@@ -152,7 +153,7 @@ See [auth.md](auth.md) for the access-control model these routes manage.
 
 `/v1/deployments/recently-deleted` lists the tombstone config of the most recently deleted deployments, newest deletion first, so the UI can seed a new deployment from one. Deletion writes a spec version rather than removing the row, so these are served from the in-memory config cache that every other snapshot filters. `limit` defaults to 25 and is clamped to 200 — deleted configs are never pruned, so the listing must stay bounded. Internal `opendeploy` deployments are omitted because they are recreated by the primary rather than through `/v1/deployments/create`.
 
-OpenDeploy self-updates go through plain `/v1/deployments/update` calls, one per node. The Web UI's system-deployment upgrade overlay orchestrates the rollout client-side: it updates secondaries one at a time, waits for each node's runner to report the new version, upgrades the primary last, and halts on the first failure. There is no server-side bulk-upgrade endpoint.
+OpenDeploy self-updates go through plain `/v2/deployments/update` calls, one per node. The Web UI's system-deployment upgrade overlay orchestrates the rollout client-side: it updates secondaries one at a time, waits for each node's runner to report the new version, upgrades the primary last, and halts on the first failure. There is no server-side bulk-upgrade endpoint.
 
 ### Nodes
 | Method | Path | Request | Response | Policy |

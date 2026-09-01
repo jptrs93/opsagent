@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
@@ -47,16 +48,13 @@ func (s *Service) CreateValueDirectory(spaceID, parentID int32, name string, aut
 	if s.valueSiblingNameTakenLocked(ctx, s.q, space, parent, name, 0, 0, 0) {
 		return ValueDirectory{}, ErrValueAlreadyExists
 	}
-	d, err := s.q.InsertValueDirectory(ctx, pq.InsertValueDirectoryParams{
+	d := erru.Must(s.q.InsertValueDirectory(ctx, pq.InsertValueDirectoryParams{
 		SpaceID:   space,
 		Name:      name,
 		ParentID:  parent,
 		CreatedAt: time.Now().UnixMilli(),
 		Author:    int64(author),
-	})
-	if err != nil {
-		panic(fmt.Sprintf("InsertValueDirectory: %v", err))
-	}
+	}))
 	return d, nil
 }
 
@@ -96,10 +94,7 @@ func valueDirectoryToProto(d ValueDirectory) *apigen.ValueDirectory {
 // ListValueDirectories returns every directory across all spaces, ordered by
 // space, parent, then name.
 func (s *Service) ListValueDirectories() []*apigen.ValueDirectory {
-	rows, err := s.q.ListValueDirectories(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListValueDirectories: %v", err))
-	}
+	rows := erru.Must(s.q.ListValueDirectories(context.Background()))
 	out := make([]*apigen.ValueDirectory, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, valueDirectoryToProto(row))
@@ -234,18 +229,9 @@ func (s *Service) DeleteValueDirectory(directoryID int32) error {
 	if err != nil {
 		panic(fmt.Sprintf("GetValueDirectoryByID: %v", err))
 	}
-	secretCount, err := s.q.CountSecretsInDirectory(ctx, d.ID)
-	if err != nil {
-		panic(fmt.Sprintf("CountSecretsInDirectory: %v", err))
-	}
-	configCount, err := s.q.CountConfigsInDirectory(ctx, d.ID)
-	if err != nil {
-		panic(fmt.Sprintf("CountConfigsInDirectory: %v", err))
-	}
-	children, err := s.q.CountChildValueDirectories(ctx, d.ID)
-	if err != nil {
-		panic(fmt.Sprintf("CountChildValueDirectories: %v", err))
-	}
+	secretCount := erru.Must(s.q.CountSecretsInDirectory(ctx, d.ID))
+	configCount := erru.Must(s.q.CountConfigsInDirectory(ctx, d.ID))
+	children := erru.Must(s.q.CountChildValueDirectories(ctx, d.ID))
 	if secretCount > 0 || configCount > 0 || children > 0 {
 		return ErrValueDirectoryNotEmpty
 	}

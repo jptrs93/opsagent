@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/pubsubu"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 
@@ -183,10 +184,7 @@ func (s *Service) WriteUser(user *apigen.InternalUser) {
 	}
 	// The upsert keeps the original created_at on credential rewrites, so read
 	// the effective values back for the notification.
-	row, err := s.q.GetUser(ctx, int64(user.ID))
-	if err != nil {
-		panic(fmt.Sprintf("GetUser after upsert: %v", err))
-	}
+	row := erru.Must(s.q.GetUser(ctx, int64(user.ID)))
 	s.userSubs.Notify(apigen.User{ID: user.ID, Name: user.Name, CreatedAt: row.CreatedAt, LastLoginAt: row.LastLoginAt})
 }
 
@@ -200,18 +198,12 @@ func (s *Service) TouchUserLastLogin(userID int32) {
 	}); err != nil {
 		panic(fmt.Sprintf("TouchUserLastLogin: %v", err))
 	}
-	row, err := s.q.GetUser(ctx, int64(userID))
-	if err != nil {
-		panic(fmt.Sprintf("GetUser after login touch: %v", err))
-	}
+	row := erru.Must(s.q.GetUser(ctx, int64(userID)))
 	s.userSubs.Notify(apigen.User{ID: userID, Name: row.Name, CreatedAt: row.CreatedAt, LastLoginAt: row.LastLoginAt})
 }
 
 func (s *Service) ListUsersPublic() []*apigen.User {
-	rows, err := s.q.ListUsers(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListUsersPublic: %v", err))
-	}
+	rows := erru.Must(s.q.ListUsers(context.Background()))
 	out := make([]*apigen.User, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, &apigen.User{ID: int32(row.ID), Name: row.Name, CreatedAt: row.CreatedAt, LastLoginAt: row.LastLoginAt})
@@ -314,10 +306,7 @@ func (s *Service) SubscribeAssetDirectoryUpdates() (*pubsubu.Sub[apigen.AssetDir
 }
 
 func (s *Service) ListSpaces() []*apigen.Space {
-	rows, err := s.q.ListSpaces(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListSpaces: %v", err))
-	}
+	rows := erru.Must(s.q.ListSpaces(context.Background()))
 	out := make([]*apigen.Space, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, spaceRowToProto(row))
@@ -407,10 +396,7 @@ func (s *Service) FetchUserMatching(predicate func(*apigen.InternalUser) bool) (
 }
 
 func (s *Service) UpdateUserMatching(predicate func(*apigen.InternalUser) bool, f func(*apigen.InternalUser)) {
-	user, err := s.FetchUserMatching(predicate)
-	if err != nil {
-		panic(fmt.Sprintf("UpdateUserMatching: %v", err))
-	}
+	user := erru.Must(s.FetchUserMatching(predicate))
 	f(user)
 	s.WriteUser(user)
 }
@@ -601,10 +587,7 @@ func (s *Service) notifyAgentSession(id string) {
 }
 
 func (s *Service) UserCount() int {
-	rows, err := s.q.ListUsers(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("UserCount: %v", err))
-	}
+	rows := erru.Must(s.q.ListUsers(context.Background()))
 	return len(rows)
 }
 

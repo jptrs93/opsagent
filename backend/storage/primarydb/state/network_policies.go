@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/pubsubu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -41,10 +42,7 @@ func (s *Service) ListNetworkPolicies() []*apigen.NetworkPolicy {
 }
 
 func (s *Service) listNetworkPoliciesLocked(includeDeleted bool) []*apigen.NetworkPolicy {
-	rows, err := s.q.ListNetworkPolicyRows(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListNetworkPolicyRows: %v", err))
-	}
+	rows := erru.Must(s.q.ListNetworkPolicyRows(context.Background()))
 	out := make([]*apigen.NetworkPolicy, 0, len(rows))
 	for _, row := range rows {
 		if !includeDeleted && row.DeletedAt != 0 {

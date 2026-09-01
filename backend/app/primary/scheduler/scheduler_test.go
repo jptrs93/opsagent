@@ -75,12 +75,12 @@ func TestDrainSupersededOnlyRetiresOlderInstances(t *testing.T) {
 	older := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	next := *testRunningSpec("v2")
-	updated, _, versionOK := store.UpdateDeploymentSpec(apigen.Context{}, cfg.ID, state.DeploymentSpecUpdate{
-		ExpectedSpecVersion: cfg.SpecVersion + 1,
-		Spec:                &next,
+	updated, err := store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentUpdate{
+		ExpectedVersion: cfg.Version + 1,
+		Spec:            &next,
 	})
-	if !versionOK {
-		t.Fatal("expected config update to succeed")
+	if err != nil {
+		t.Fatal(err)
 	}
 	newer := store.CreateScheduledInstanceForTest(updated.ID, updated.SpecVersion, updated.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
@@ -118,12 +118,12 @@ func TestStartupReconcileDoesNotLetOlderRunningKillReplacement(t *testing.T) {
 	markRunning(t, store, older.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
 
 	next := *testRunningSpec("v2")
-	updated, _, versionOK := store.UpdateDeploymentSpec(apigen.Context{}, cfg.ID, state.DeploymentSpecUpdate{
-		ExpectedSpecVersion: cfg.SpecVersion + 1,
-		Spec:                &next,
+	updated, err := store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentUpdate{
+		ExpectedVersion: cfg.Version + 1,
+		Spec:            &next,
 	})
-	if !versionOK {
-		t.Fatal("expected config update to succeed")
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	s := New(store, newFakeBarrier())
@@ -162,12 +162,12 @@ func TestRolloverReplacementWarmsUpAsStandby(t *testing.T) {
 	older := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	next := *rolloverSpec("v2")
-	updated, _, ok := store.UpdateDeploymentSpec(apigen.Context{}, cfg.ID, state.DeploymentSpecUpdate{
-		ExpectedSpecVersion: cfg.SpecVersion + 1,
-		Spec:                &next,
+	updated, err := store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentUpdate{
+		ExpectedVersion: cfg.Version + 1,
+		Spec:            &next,
 	})
-	if !ok {
-		t.Fatal("expected config update to succeed")
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	barrier := newFakeBarrier()
@@ -233,12 +233,12 @@ func TestFailedRolloutDoesNotAccumulateStandbys(t *testing.T) {
 		t.Helper()
 		next := *rolloverSpec(version)
 		current := store.FetchDeployment(cfg.ID)
-		updated, _, ok := store.UpdateDeploymentSpec(apigen.Context{}, cfg.ID, state.DeploymentSpecUpdate{
-			ExpectedSpecVersion: current.SpecVersion + 1,
-			Spec:                &next,
+		updated, err := store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentUpdate{
+			ExpectedVersion: current.Version + 1,
+			Spec:            &next,
 		})
-		if !ok {
-			t.Fatalf("expected config update to %s to succeed", version)
+		if err != nil {
+			t.Fatal(err)
 		}
 		s.onConfig(*updated)
 		return updated
@@ -331,12 +331,12 @@ func TestStandbyPromotedWhenServingDies(t *testing.T) {
 	older := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	next := *rolloverSpec("v2")
-	updated, _, ok := store.UpdateDeploymentSpec(apigen.Context{}, cfg.ID, state.DeploymentSpecUpdate{
-		ExpectedSpecVersion: cfg.SpecVersion + 1,
-		Spec:                &next,
+	updated, err := store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentUpdate{
+		ExpectedVersion: cfg.Version + 1,
+		Spec:            &next,
 	})
-	if !ok {
-		t.Fatal("expected config update to succeed")
+	if err != nil {
+		t.Fatal(err)
 	}
 	standby := store.CreateScheduledInstanceForTest(updated.ID, updated.SpecVersion, updated.NodeID, 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
@@ -366,7 +366,11 @@ func TestSpaceMoveRidesTheRolloverPath(t *testing.T) {
 	serving := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
-	moved, err := store.MoveDeploymentSpace(cfg.ID, 5, cfg.SpaceVersion+1, 9)
+	newSpace := int32(5)
+	moved, err := store.UpdateDeployment(apigen.Context{User: &apigen.InternalUser{ID: 9}}, cfg.ID, state.DeploymentUpdate{
+		ExpectedVersion: cfg.Version + 1,
+		SpaceID:         &newSpace,
+	})
 	if err != nil {
 		t.Fatalf("move: %v", err)
 	}
@@ -518,11 +522,12 @@ func TestRestartAdoptsDrainingInstances(t *testing.T) {
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, state.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 
 	next := *rolloverSpec("v2")
-	updated, _, ok := store.UpdateDeploymentSpec(apigen.Context{}, cfg.ID, state.DeploymentSpecUpdate{
-		ExpectedSpecVersion: cfg.SpecVersion + 1, Spec: &next,
+	updated, err := store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentUpdate{
+		ExpectedVersion: cfg.Version + 1,
+		Spec:            &next,
 	})
-	if !ok {
-		t.Fatal("config update failed")
+	if err != nil {
+		t.Fatal(err)
 	}
 	// Mid-rollover, as found on disk: the superseded placement draining, its
 	// replacement already serving, both containers up.
@@ -574,12 +579,12 @@ func stoppedSpec(version string) *apigen.DeploymentSpec {
 func updateSpec(t *testing.T, store *state.Service, cfg *apigen.Deployment, spec *apigen.DeploymentSpec) *apigen.Deployment {
 	t.Helper()
 	next := *spec
-	updated, _, ok := store.UpdateDeploymentSpec(apigen.Context{}, cfg.ID, state.DeploymentSpecUpdate{
-		ExpectedSpecVersion: cfg.SpecVersion + 1,
-		Spec:                &next,
+	updated, err := store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentUpdate{
+		ExpectedVersion: cfg.Version + 1,
+		Spec:            &next,
 	})
-	if !ok {
-		t.Fatal("expected config update to succeed")
+	if err != nil {
+		t.Fatal(err)
 	}
 	return updated
 }

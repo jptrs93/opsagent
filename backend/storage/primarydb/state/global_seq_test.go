@@ -15,7 +15,10 @@ func TestGlobalSeqStampsVersionWrites(t *testing.T) {
 	node := testNode(store, "primary")
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "api", node.ID, testSpecWithState("v1", false))
 	mustSetDeploymentWorkloadState(store, apigen.Context{}, cfg.ID, "v2", false)
-	if _, err := store.MoveDeploymentSpace(cfg.ID, 2, cfg.SpaceVersion+1, 0); err != nil {
+	if _, err := store.UpdateDeployment(apigen.Context{}, cfg.ID, DeploymentUpdate{
+		ExpectedVersion: 3,
+		SpaceID:         i32ptr(2),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {

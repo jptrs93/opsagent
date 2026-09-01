@@ -67,7 +67,7 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 			next.SpecVersion++
 			next.UpdatedAt = now
 			next.Author = author
-			event := buildDeploymentEvent(update.prev, true, next, pq.DeploymentEventUpdate, "deployment reference update")
+			event := buildDeploymentEvent(update.prev, true, next, pq.DeploymentEventUpdate)
 			event.GlobalSeq = seq
 			if err := q.InsertDeploymentEvent(ctx, event); err != nil {
 				return fmt.Errorf("update deployment %d reference: %w", next.ID, err)

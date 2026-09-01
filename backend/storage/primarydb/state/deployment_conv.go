@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
@@ -36,14 +37,8 @@ func pinnedSpecEventToProto(e pq.DeploymentEvent, base *apigen.Deployment) *apig
 }
 
 func deploymentSpecsEqual(a, b *apigen.DeploymentSpec) bool {
-	da, err := apigen.DecodeDeploymentSpec(a.Encode())
-	if err != nil {
-		panic(fmt.Sprintf("canonicalise deployment spec: %v", err))
-	}
-	db, err := apigen.DecodeDeploymentSpec(b.Encode())
-	if err != nil {
-		panic(fmt.Sprintf("canonicalise deployment spec: %v", err))
-	}
+	da := erru.Must(apigen.DecodeDeploymentSpec(a.Encode()))
+	db := erru.Must(apigen.DecodeDeploymentSpec(b.Encode()))
 	return reflect.DeepEqual(da, db)
 }
 

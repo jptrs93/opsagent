@@ -202,12 +202,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1DeploymentsUpdate(DeploymentUpdateRequest) returns (Deployment) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
-  }
-
-  rpc PostV1DeploymentsMoveSpace(DeploymentSpaceMoveRequest) returns (Deployment) {
-    option (cp.url) = "/v1/deployments/move-space";
+  rpc PostV2DeploymentsUpdate(DeploymentUpdateRequestV2) returns (Deployment) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 

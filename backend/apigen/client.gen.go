@@ -727,30 +727,11 @@ func (c *ApiServerCapi) PostV1DeploymentsCreate(ctx context.Context, req *Deploy
 	return DecodeDeployment(body)
 }
 
-func (c *ApiServerCapi) PostV1DeploymentsUpdate(ctx context.Context, req *DeploymentUpdateRequest) (*Deployment, error) {
+func (c *ApiServerCapi) PostV2DeploymentsUpdate(ctx context.Context, req *DeploymentUpdateRequestV2) (*Deployment, error) {
 	if req == nil {
-		return nil, fmt.Errorf("PostV1DeploymentsUpdate request is nil")
+		return nil, fmt.Errorf("PostV2DeploymentsUpdate request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/deployments/update", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeDeployment(body)
-}
-
-func (c *ApiServerCapi) PostV1DeploymentsMoveSpace(ctx context.Context, req *DeploymentSpaceMoveRequest) (*Deployment, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1DeploymentsMoveSpace request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/deployments/move-space", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v2/deployments/update", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}

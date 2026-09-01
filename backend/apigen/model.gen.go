@@ -432,18 +432,29 @@ type RunnerStatus struct {
 	ExitCode              *int32        `json:"exit_code,omitempty"`
 }
 
-type DeploymentUpdateRequest struct {
-	DeploymentID  int32          `json:"deployment_id"`
-	TargetVersion string         `json:"target_version,omitempty"`
-	Stop          bool           `json:"stop"`
-	SpecVersion   int32          `json:"spec_version"`
-	Spec          DeploymentSpec `json:"spec"`
+type DeploymentUpdateRequestV2 struct {
+	DeploymentID        int32                `json:"deployment_id"`
+	ExpectedVersion     int32                `json:"expected_version"`
+	VersionOnlyUpdate   *VersionOnlyUpdate   `json:"version_only_update"`
+	RunningOnlyUpdate   *RunningOnlyUpdate   `json:"running_only_update"`
+	SpecUpdate          *SpecUpdate          `json:"spec_update"`
+	AssignedSpaceUpdate *AssignedSpaceUpdate `json:"assigned_space_update"`
 }
 
-type DeploymentSpaceMoveRequest struct {
-	DeploymentID int32 `json:"deployment_id"`
-	SpaceID      int32 `json:"space_id"`
-	SpaceVersion int32 `json:"space_version"`
+type VersionOnlyUpdate struct {
+	TargetVersion string `json:"target_version,omitempty"`
+}
+
+type RunningOnlyUpdate struct {
+	DesiredRunning bool `json:"desired_running"`
+}
+
+type SpecUpdate struct {
+	Spec DeploymentSpec `json:"spec"`
+}
+
+type AssignedSpaceUpdate struct {
+	SpaceID int32 `json:"space_id"`
 }
 
 type DeploymentCreateRequest struct {

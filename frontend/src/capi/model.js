@@ -226,18 +226,29 @@
  * @property {number} exitCode
  */
 /**
- * @typedef {Object} DeploymentUpdateRequest
+ * @typedef {Object} DeploymentUpdateRequestV2
  * @property {number} deploymentId
+ * @property {number} expectedVersion
+ * @property {VersionOnlyUpdate} versionOnlyUpdate
+ * @property {RunningOnlyUpdate} runningOnlyUpdate
+ * @property {SpecUpdate} specUpdate
+ * @property {AssignedSpaceUpdate} assignedSpaceUpdate
+ */
+/**
+ * @typedef {Object} VersionOnlyUpdate
  * @property {string} targetVersion
- * @property {boolean} stop
- * @property {number} specVersion
+ */
+/**
+ * @typedef {Object} RunningOnlyUpdate
+ * @property {boolean} desiredRunning
+ */
+/**
+ * @typedef {Object} SpecUpdate
  * @property {DeploymentSpec} spec
  */
 /**
- * @typedef {Object} DeploymentSpaceMoveRequest
- * @property {number} deploymentId
+ * @typedef {Object} AssignedSpaceUpdate
  * @property {number} spaceId
- * @property {number} spaceVersion
  */
 /**
  * @typedef {Object} DeploymentCreateRequest
@@ -4210,37 +4221,46 @@ export function decodeRunnerStatus(buffer) {
 
 
 /**
- * @param {DeploymentUpdateRequest} message
+ * @param {DeploymentUpdateRequestV2} message
  * @param {Writer} writer
  */
-export function writeDeploymentUpdateRequest(message, writer) {
+export function writeDeploymentUpdateRequestV2(message, writer) {
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.targetVersion !== undefined && message.targetVersion !== null && message.targetVersion !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.targetVersion);
+    if (message.expectedVersion !== undefined && message.expectedVersion !== null && message.expectedVersion !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.expectedVersion);
     }
-    if (message.stop === true) {
-        writer.uint32(tag(3, WIRE.VARINT)).bool(message.stop);
+    if (message.versionOnlyUpdate !== undefined && message.versionOnlyUpdate !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeVersionOnlyUpdate(message.versionOnlyUpdate, writer);
+        writer.ldelim();
     }
-    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.specVersion);
+    if (message.runningOnlyUpdate !== undefined && message.runningOnlyUpdate !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeRunningOnlyUpdate(message.runningOnlyUpdate, writer);
+        writer.ldelim();
     }
-    if (message.spec !== undefined && message.spec !== null) {
+    if (message.specUpdate !== undefined && message.specUpdate !== null) {
         writer.uint32(tag(5, WIRE.LDELIM)).fork();
-        writeDeploymentSpec(message.spec, writer);
+        writeSpecUpdate(message.specUpdate, writer);
+        writer.ldelim();
+    }
+    if (message.assignedSpaceUpdate !== undefined && message.assignedSpaceUpdate !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeAssignedSpaceUpdate(message.assignedSpaceUpdate, writer);
         writer.ldelim();
     }
 }
 
 
 /**
- * @param {DeploymentUpdateRequest} message
+ * @param {DeploymentUpdateRequestV2} message
  * @returns {Uint8Array}
  */
-export function encodeDeploymentUpdateRequest(message) {
+export function encodeDeploymentUpdateRequestV2(message) {
     const writer = Writer.create();
-    writeDeploymentUpdateRequest(message, writer);
+    writeDeploymentUpdateRequestV2(message, writer);
     return writer.finish();
 }
 
@@ -4248,11 +4268,11 @@ export function encodeDeploymentUpdateRequest(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {DeploymentUpdateRequest}
+ * @returns {DeploymentUpdateRequestV2}
  */
-function decodeDeploymentUpdateRequestMessage(reader, length) {
+function decodeDeploymentUpdateRequestV2Message(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, targetVersion: "", stop: false, specVersion: 0, spec: undefined };
+    const message = {deploymentId: 0, expectedVersion: 0, versionOnlyUpdate: undefined, runningOnlyUpdate: undefined, specUpdate: undefined, assignedSpaceUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4261,18 +4281,192 @@ function decodeDeploymentUpdateRequestMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.targetVersion = reader.string();
+                message.expectedVersion = reader.int32();
                 break;
             }
             case 3: {
-                message.stop = reader.bool();
+                message.versionOnlyUpdate = decodeVersionOnlyUpdateMessage(reader, reader.uint32());
                 break;
             }
             case 4: {
-                message.specVersion = reader.int32();
+                message.runningOnlyUpdate = decodeRunningOnlyUpdateMessage(reader, reader.uint32());
                 break;
             }
             case 5: {
+                message.specUpdate = decodeSpecUpdateMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.assignedSpaceUpdate = decodeAssignedSpaceUpdateMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentUpdateRequestV2}
+ */
+export function decodeDeploymentUpdateRequestV2(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentUpdateRequestV2Message(reader);
+}
+
+
+
+/**
+ * @param {VersionOnlyUpdate} message
+ * @param {Writer} writer
+ */
+export function writeVersionOnlyUpdate(message, writer) {
+    if (message.targetVersion !== undefined && message.targetVersion !== null && message.targetVersion !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.targetVersion);
+    }
+}
+
+
+/**
+ * @param {VersionOnlyUpdate} message
+ * @returns {Uint8Array}
+ */
+export function encodeVersionOnlyUpdate(message) {
+    const writer = Writer.create();
+    writeVersionOnlyUpdate(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {VersionOnlyUpdate}
+ */
+function decodeVersionOnlyUpdateMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {targetVersion: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.targetVersion = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {VersionOnlyUpdate}
+ */
+export function decodeVersionOnlyUpdate(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeVersionOnlyUpdateMessage(reader);
+}
+
+
+
+/**
+ * @param {RunningOnlyUpdate} message
+ * @param {Writer} writer
+ */
+export function writeRunningOnlyUpdate(message, writer) {
+    if (message.desiredRunning === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.desiredRunning);
+    }
+}
+
+
+/**
+ * @param {RunningOnlyUpdate} message
+ * @returns {Uint8Array}
+ */
+export function encodeRunningOnlyUpdate(message) {
+    const writer = Writer.create();
+    writeRunningOnlyUpdate(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {RunningOnlyUpdate}
+ */
+function decodeRunningOnlyUpdateMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {desiredRunning: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.desiredRunning = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {RunningOnlyUpdate}
+ */
+export function decodeRunningOnlyUpdate(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeRunningOnlyUpdateMessage(reader);
+}
+
+
+
+/**
+ * @param {SpecUpdate} message
+ * @param {Writer} writer
+ */
+export function writeSpecUpdate(message, writer) {
+    if (message.spec !== undefined && message.spec !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeDeploymentSpec(message.spec, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {SpecUpdate} message
+ * @returns {Uint8Array}
+ */
+export function encodeSpecUpdate(message) {
+    const writer = Writer.create();
+    writeSpecUpdate(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SpecUpdate}
+ */
+function decodeSpecUpdateMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {spec: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
                 message.spec = decodeDeploymentSpecMessage(reader, reader.uint32());
                 break;
             }
@@ -4286,39 +4480,33 @@ function decodeDeploymentUpdateRequestMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {DeploymentUpdateRequest}
+ * @returns {SpecUpdate}
  */
-export function decodeDeploymentUpdateRequest(buffer) {
+export function decodeSpecUpdate(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentUpdateRequestMessage(reader);
+    return decodeSpecUpdateMessage(reader);
 }
 
 
 
 /**
- * @param {DeploymentSpaceMoveRequest} message
+ * @param {AssignedSpaceUpdate} message
  * @param {Writer} writer
  */
-export function writeDeploymentSpaceMoveRequest(message, writer) {
-    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
-    }
+export function writeAssignedSpaceUpdate(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.spaceId);
-    }
-    if (message.spaceVersion !== undefined && message.spaceVersion !== null && message.spaceVersion !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.spaceVersion);
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.spaceId);
     }
 }
 
 
 /**
- * @param {DeploymentSpaceMoveRequest} message
+ * @param {AssignedSpaceUpdate} message
  * @returns {Uint8Array}
  */
-export function encodeDeploymentSpaceMoveRequest(message) {
+export function encodeAssignedSpaceUpdate(message) {
     const writer = Writer.create();
-    writeDeploymentSpaceMoveRequest(message, writer);
+    writeAssignedSpaceUpdate(message, writer);
     return writer.finish();
 }
 
@@ -4326,24 +4514,16 @@ export function encodeDeploymentSpaceMoveRequest(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {DeploymentSpaceMoveRequest}
+ * @returns {AssignedSpaceUpdate}
  */
-function decodeDeploymentSpaceMoveRequestMessage(reader, length) {
+function decodeAssignedSpaceUpdateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, spaceId: 0, spaceVersion: 0 };
+    const message = {spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.deploymentId = reader.int32();
-                break;
-            }
-            case 2: {
                 message.spaceId = reader.int32();
-                break;
-            }
-            case 3: {
-                message.spaceVersion = reader.int32();
                 break;
             }
             default:
@@ -4356,11 +4536,11 @@ function decodeDeploymentSpaceMoveRequestMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {DeploymentSpaceMoveRequest}
+ * @returns {AssignedSpaceUpdate}
  */
-export function decodeDeploymentSpaceMoveRequest(buffer) {
+export function decodeAssignedSpaceUpdate(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentSpaceMoveRequestMessage(reader);
+    return decodeAssignedSpaceUpdateMessage(reader);
 }
 
 

@@ -88,8 +88,7 @@ import {
   encodeDeploymentGetRequest,
   encodeDeploymentHistoryRequest,
   encodeDeploymentRunReportRequest,
-  encodeDeploymentSpaceMoveRequest,
-  encodeDeploymentUpdateRequest,
+  encodeDeploymentUpdateRequestV2,
   encodeDeploymentVersionsRequest,
   encodeEnrollmentAcceptRequest,
   encodeEnrollmentSecondaryMsg,
@@ -639,23 +638,11 @@ export class Capi {
   }
 
   /**
-   * @param {DeploymentUpdateRequest} payload
+   * @param {DeploymentUpdateRequestV2} payload
    * @returns {Promise<Deployment>}
    */
-  async postV1DeploymentsUpdate(payload) {
-    const response = await this.#request("/v1/deployments/update", { method: 'POST', body: encodeDeploymentUpdateRequest(payload) });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeDeployment(await response.arrayBuffer());
-  }
-
-  /**
-   * @param {DeploymentSpaceMoveRequest} payload
-   * @returns {Promise<Deployment>}
-   */
-  async postV1DeploymentsMoveSpace(payload) {
-    const response = await this.#request("/v1/deployments/move-space", { method: 'POST', body: encodeDeploymentSpaceMoveRequest(payload) });
+  async postV2DeploymentsUpdate(payload) {
+    const response = await this.#request("/v2/deployments/update", { method: 'POST', body: encodeDeploymentUpdateRequestV2(payload) });
     if (!response.ok) {
       return this.errorHandler(response);
     }

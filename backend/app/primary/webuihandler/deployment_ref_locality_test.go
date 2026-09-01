@@ -207,8 +207,9 @@ func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating referencing deployment: %v", err)
 	}
-	if _, err := h.PostV1DeploymentsMoveSpace(apigen.Context{}, &apigen.DeploymentSpaceMoveRequest{
-		DeploymentID: referrer.ID, SpaceID: staging.ID, SpaceVersion: referrer.SpaceVersion + 1,
+	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+		DeploymentID: referrer.ID, ExpectedVersion: referrer.Version + 1,
+		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID},
 	}); !isRefOutsideSpaceErr(err, ConfigRefOutsideSpaceErr) {
 		t.Fatalf("move with prod config ref err = %v, want %v", err, ConfigRefOutsideSpaceErr)
 	}
@@ -217,13 +218,15 @@ func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 	source := createTestDeployment(h.Store, "primary", prod.ID, "db", &sourceSpec)
 	mounterSpec := crossMountSpec("nginx", source.ID)
 	createTestDeployment(h.Store, "primary", prod.ID, "mounter", &mounterSpec)
-	if _, err := h.PostV1DeploymentsMoveSpace(apigen.Context{}, &apigen.DeploymentSpaceMoveRequest{
-		DeploymentID: source.ID, SpaceID: staging.ID, SpaceVersion: source.SpaceVersion + 1,
+	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+		DeploymentID: source.ID, ExpectedVersion: source.Version + 1,
+		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID},
 	}); !errors.Is(err, MoveReferencesOutsideSpaceErr) {
 		t.Fatalf("mounted source move to staging err = %v, want %v", err, MoveReferencesOutsideSpaceErr)
 	}
-	if _, err := h.PostV1DeploymentsMoveSpace(apigen.Context{}, &apigen.DeploymentSpaceMoveRequest{
-		DeploymentID: source.ID, SpaceID: state.DefaultSpaceID, SpaceVersion: source.SpaceVersion + 1,
+	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+		DeploymentID: source.ID, ExpectedVersion: source.Version + 1,
+		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: state.DefaultSpaceID},
 	}); err != nil {
 		t.Fatalf("mounted source move to global: %v", err)
 	}

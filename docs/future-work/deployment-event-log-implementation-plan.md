@@ -88,6 +88,13 @@ intent changes only.
   `DeploymentVersions*`, `running_version`) is deliberately untouched — it
   names deployable artifact versions, not state versions.
 
+Follow-up (2026-09-01): `POST /v2/deployments/update` replaced the separate
+update and move-space endpoints with a single request guarded by the
+top-level version (`expected_version`), carrying exactly one update kind
+(`version_only_update`, `running_only_update`, `spec_update`,
+`assigned_space_update`); the store write is the version-CAS'd
+`UpdateDeployment`.
+
 ## Built (2026-09-01)
 
 - Table + index exactly per the target schema; the old tables served as the

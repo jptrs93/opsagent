@@ -8,18 +8,45 @@ import "api-contract/model/scheduled_instances.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-message DeploymentUpdateRequest {
+// DeploymentUpdateRequestV2 applies exactly one kind of change to a
+// deployment, guarded by the top-level version, which bumps on every
+// deployment event regardless of kind. cleanproto does not support oneof, so
+// the kinds are plain optional message fields: exactly one of
+// version_only_update, running_only_update, spec_update, and
+// assigned_space_update must be set.
+message DeploymentUpdateRequestV2 {
   int32 deployment_id = 1;
-  string target_version = 2;
-  bool stop = 3;
-  int32 spec_version = 4;
-  DeploymentSpec spec = 5 [(cp.go_value) = true]; // optional: update deployment spec
+  int32 expected_version = 2; // expected next top-level version, = current version + 1
+
+  VersionOnlyUpdate version_only_update = 3;
+  RunningOnlyUpdate running_only_update = 4;
+  SpecUpdate spec_update = 5;
+  AssignedSpaceUpdate assigned_space_update = 6;
 }
 
-message DeploymentSpaceMoveRequest {
-  int32 deployment_id = 1;
-  int32 space_id = 2;       // destination space
-  int32 space_version = 3;  // expected next space version, = current space_version + 1
+// VersionOnlyUpdate deploys target_version: the workload version is set and
+// the workload is marked running, leaving the rest of the spec untouched.
+message VersionOnlyUpdate {
+  string target_version = 1;
+}
+
+// RunningOnlyUpdate starts or stops the workload at its current version. A
+// stop preserves the version so a subsequent start can reuse it.
+message RunningOnlyUpdate {
+  bool desired_running = 1;
+}
+
+// SpecUpdate replaces the deployment spec wholesale, including the workload
+// version and running state carried inside it.
+message SpecUpdate {
+  DeploymentSpec spec = 1 [(cp.go_value) = true];
+}
+
+// AssignedSpaceUpdate moves the deployment to another space. Validated like a
+// create into the destination space; live placements keep their pinned space
+// until replaced via the scheduler rollover path.
+message AssignedSpaceUpdate {
+  int32 space_id = 1;
 }
 
 message DeploymentCreateRequest {

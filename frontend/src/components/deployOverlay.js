@@ -33,8 +33,7 @@ export function deployOverlay(deploymentRow, deployment, onClose, onDeployed) {
             loadAsset: loadAssetPreview,
             createAsset: request => uploadAsset({key: request.key, space_id: Number(request.spaceId || 0)}, request.blob),
             saveVersion: request => uploadAsset({asset_id: Number(request.assetId)}, request.blob),
-            updateDeployment: request => capi.postV1DeploymentsUpdate(request),
-            moveDeploymentSpace: request => capi.postV1DeploymentsMoveSpace(request),
+            updateDeployment: request => capi.postV2DeploymentsUpdate(request),
         },
         onCancel: onClose,
         onSuccess: () => {

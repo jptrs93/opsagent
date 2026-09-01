@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 
 	"github.com/jptrs93/goutil/pubsubu"
@@ -33,18 +34,9 @@ func ValidAssetKey(key string) bool {
 
 func (s *Service) ListAssets() []*apigen.Asset {
 	ctx := context.Background()
-	rows, err := s.q.ListAssetRows(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("ListAssetRows: %v", err))
-	}
-	joined, err := s.q.ListAssetVersionsJoined(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("ListAssetVersionsJoined: %v", err))
-	}
-	spaceRows, err := s.q.ListAssetSpaceRows(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("ListAssetSpaceRows: %v", err))
-	}
+	rows := erru.Must(s.q.ListAssetRows(ctx))
+	joined := erru.Must(s.q.ListAssetVersionsJoined(ctx))
+	spaceRows := erru.Must(s.q.ListAssetSpaceRows(ctx))
 	versions := make(map[int64][]pq.AssetVersionJoined, len(rows))
 	for _, v := range joined {
 		versions[v.Version.AssetID] = append(versions[v.Version.AssetID], v)
@@ -105,17 +97,11 @@ func (s *Service) GetAsset(assetID int32) (*apigen.Asset, bool) {
 	if !ok {
 		return nil, false
 	}
-	versions, err := s.q.ListAssetVersionsOfAsset(context.Background(), a.ID)
-	if err != nil {
-		panic(fmt.Sprintf("ListAssetVersionsOfAsset: %v", err))
-	}
+	versions := erru.Must(s.q.ListAssetVersionsOfAsset(context.Background(), a.ID))
 	if len(versions) == 0 {
 		return nil, false
 	}
-	spaces, err := s.q.ListAssetSpaceRowsByAssetID(context.Background(), a.ID)
-	if err != nil {
-		panic(fmt.Sprintf("ListAssetSpaceRowsByAssetID: %v", err))
-	}
+	spaces := erru.Must(s.q.ListAssetSpaceRowsByAssetID(context.Background(), a.ID))
 	return assetFromParts(a, spaces, versions), true
 }
 
@@ -174,10 +160,7 @@ func (s *Service) GetAssetVersionJoined(assetVersionID int32) (AssetVersionJoine
 // ListAssetVersionsJoinedOfAsset returns the raw joined version rows of one
 // asset, oldest first.
 func (s *Service) ListAssetVersionsJoinedOfAsset(assetID int32) []AssetVersionJoined {
-	rows, err := s.q.ListAssetVersionsOfAsset(context.Background(), int64(assetID))
-	if err != nil {
-		panic(fmt.Sprintf("ListAssetVersionsOfAsset: %v", err))
-	}
+	rows := erru.Must(s.q.ListAssetVersionsOfAsset(context.Background(), int64(assetID)))
 	return rows
 }
 
@@ -187,27 +170,21 @@ func (s *Service) ListAssetVersionsJoinedOfAsset(assetID int32) []AssetVersionJo
 // atomic. excludeAssetID/excludeDirectoryID exempt the row being renamed or
 // moved (0 = exclude nothing).
 func (s *Service) assetSiblingKeyTakenLocked(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, key string, excludeAssetID, excludeDirectoryID int64) bool {
-	assets, err := q.CountAssetSiblingsWithKey(ctx, pq.CountAssetSiblingsWithKeyParams{
+	assets := erru.Must(q.CountAssetSiblingsWithKey(ctx, pq.CountAssetSiblingsWithKeyParams{
 		SpaceID:          spaceID,
 		AssetDirectoryID: directoryID,
 		Key:              key,
 		ID:               excludeAssetID,
-	})
-	if err != nil {
-		panic(fmt.Sprintf("CountAssetSiblingsWithKey: %v", err))
-	}
+	}))
 	if assets > 0 {
 		return true
 	}
-	dirs, err := q.CountDirectorySiblingsWithKey(ctx, pq.CountDirectorySiblingsWithKeyParams{
+	dirs := erru.Must(q.CountDirectorySiblingsWithKey(ctx, pq.CountDirectorySiblingsWithKeyParams{
 		SpaceID:  spaceID,
 		ParentID: directoryID,
 		Key:      key,
 		ID:       excludeDirectoryID,
-	})
-	if err != nil {
-		panic(fmt.Sprintf("CountDirectorySiblingsWithKey: %v", err))
-	}
+	}))
 	return dirs > 0
 }
 
@@ -258,18 +235,12 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 
 	var assetID int64
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		seq, err := q.NextGlobalSeq(ctx)
-		if err != nil {
-			panic(fmt.Sprintf("NextGlobalSeq: %v", err))
-		}
-		id, err := q.InsertAssetRow(ctx, pq.InsertAssetRowParams{
+		seq := erru.Must(q.NextGlobalSeq(ctx))
+		id := erru.Must(q.InsertAssetRow(ctx, pq.InsertAssetRowParams{
 			Key:              key,
 			AssetDirectoryID: dirID,
 			CreatedAt:        now,
-		})
-		if err != nil {
-			panic(fmt.Sprintf("InsertAssetRow: %v", err))
-		}
+		}))
 		if err := q.InsertAssetSpaceRow(ctx, pq.InsertAssetSpaceRowParams{
 			AssetID:   id,
 			Author:    int64(author),
@@ -277,10 +248,10 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 			SpaceID:   space,
 			GlobalSeq: seq,
 		}); err != nil {
-			panic(fmt.Sprintf("InsertAssetSpaceRow: %v", err))
+			return err
 		}
 		assetID = id
-		if _, err := q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
+		_, err := q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
 			AssetID:   id,
 			Version:   1,
 			CreatedAt: now,
@@ -288,10 +259,8 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 			SizeBytes: sizeBytes,
 			Sha256:    sha256,
 			GlobalSeq: seq,
-		}); err != nil {
-			panic(fmt.Sprintf("InsertAssetVersion: %v", err))
-		}
-		return nil
+		})
+		return err
 	}); err != nil {
 		panic(fmt.Sprintf("asset create tx: %v", err))
 	}
@@ -322,16 +291,10 @@ func (s *Service) AppendAssetVersion(assetID, author int32, sha256 string, sizeB
 	if err != nil {
 		panic(fmt.Sprintf("GetAssetByID: %v", err))
 	}
-	version, err := s.q.GetNextAssetVersionNumber(ctx, a.ID)
-	if err != nil {
-		panic(fmt.Sprintf("GetNextAssetVersionNumber: %v", err))
-	}
+	version := erru.Must(s.q.GetNextAssetVersionNumber(ctx, a.ID))
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		seq, err := q.NextGlobalSeq(ctx)
-		if err != nil {
-			return err
-		}
-		_, err = q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
+		seq := erru.Must(q.NextGlobalSeq(ctx))
+		_, err := q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
 			AssetID:   a.ID,
 			Version:   version,
 			CreatedAt: now,
@@ -467,10 +430,7 @@ func (s *Service) MoveAssetSpace(assetID, newSpaceID, newDirectoryID, author int
 	}
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		if spaceID != a.SpaceID {
-			seq, err := q.NextGlobalSeq(ctx)
-			if err != nil {
-				panic(fmt.Sprintf("NextGlobalSeq: %v", err))
-			}
+			seq := erru.Must(q.NextGlobalSeq(ctx))
 			if err := q.InsertAssetSpaceRow(ctx, pq.InsertAssetSpaceRowParams{
 				AssetID:   a.ID,
 				Author:    int64(author),
@@ -478,13 +438,10 @@ func (s *Service) MoveAssetSpace(assetID, newSpaceID, newDirectoryID, author int
 				SpaceID:   spaceID,
 				GlobalSeq: seq,
 			}); err != nil {
-				panic(fmt.Sprintf("InsertAssetSpaceRow: %v", err))
+				return err
 			}
 		}
-		if err := q.SetAssetDirectoryID(ctx, pq.SetAssetDirectoryIDParams{AssetDirectoryID: dirID, ID: a.ID}); err != nil {
-			panic(fmt.Sprintf("SetAssetDirectoryID: %v", err))
-		}
-		return nil
+		return q.SetAssetDirectoryID(ctx, pq.SetAssetDirectoryIDParams{AssetDirectoryID: dirID, ID: a.ID})
 	}); err != nil {
 		panic(fmt.Sprintf("asset space move tx: %v", err))
 	}

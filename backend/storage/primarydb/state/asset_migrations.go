@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
@@ -25,37 +26,28 @@ func (s *Service) GetUnfinishedAssetMigration() (AssetMigration, bool) {
 
 func (s *Service) StartAssetMigration(id int64) AssetMigration {
 	now := time.Now().UnixMilli()
-	migration, err := s.q.StartAssetMigration(context.Background(), pq.StartAssetMigrationParams{
+	migration := erru.Must(s.q.StartAssetMigration(context.Background(), pq.StartAssetMigrationParams{
 		StartedAt:     now,
 		LastAttemptAt: now,
 		ID:            id,
-	})
-	if err != nil {
-		panic(fmt.Sprintf("StartAssetMigration: %v", err))
-	}
+	}))
 	return migration
 }
 
 func (s *Service) RecordAssetMigrationError(id int64, migrationErr error) AssetMigration {
-	migration, err := s.q.RecordAssetMigrationError(context.Background(), pq.RecordAssetMigrationErrorParams{
+	migration := erru.Must(s.q.RecordAssetMigrationError(context.Background(), pq.RecordAssetMigrationErrorParams{
 		LastAttemptAt: time.Now().UnixMilli(),
 		LastError:     migrationErr.Error(),
 		ID:            id,
-	})
-	if err != nil {
-		panic(fmt.Sprintf("RecordAssetMigrationError: %v", err))
-	}
+	}))
 	return migration
 }
 
 func (s *Service) FinishAssetMigration(id int64) AssetMigration {
-	migration, err := s.q.FinishAssetMigration(context.Background(), pq.FinishAssetMigrationParams{
+	migration := erru.Must(s.q.FinishAssetMigration(context.Background(), pq.FinishAssetMigrationParams{
 		FinishedAt: time.Now().UnixMilli(),
 		ID:         id,
-	})
-	if err != nil {
-		panic(fmt.Sprintf("FinishAssetMigration: %v", err))
-	}
+	}))
 	return migration
 }
 

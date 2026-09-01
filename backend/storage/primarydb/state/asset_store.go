@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
@@ -37,7 +38,7 @@ func (s *Service) InsertAssetStoreRow(id, sha256 string, sizeBytes int64, inline
 	}
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	row, err := s.q.InsertAssetStoreRow(context.Background(), pq.InsertAssetStoreRowParams{
+	row := erru.Must(s.q.InsertAssetStoreRow(context.Background(), pq.InsertAssetStoreRowParams{
 		ID:           id,
 		Sha256:       sha256,
 		SizeBytes:    sizeBytes,
@@ -45,10 +46,7 @@ func (s *Service) InsertAssetStoreRow(id, sha256 string, sizeBytes int64, inline
 		LocalStatus:  localStatus,
 		RemoteStatus: remoteStatus,
 		CreatedAt:    time.Now().UnixMilli(),
-	})
-	if err != nil {
-		panic(fmt.Sprintf("InsertAssetStoreRow: %v", err))
-	}
+	}))
 	return row
 }
 
@@ -114,10 +112,7 @@ func (s *Service) DeleteAssetStoreRow(id string) {
 }
 
 func (s *Service) ListAssetStoreRowMetas() []AssetStoreMeta {
-	rows, err := s.q.ListAssetStoreRowMetas(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListAssetStoreRowMetas: %v", err))
-	}
+	rows := erru.Must(s.q.ListAssetStoreRowMetas(context.Background()))
 	out := make([]AssetStoreMeta, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, AssetStoreMeta{
@@ -136,10 +131,7 @@ func (s *Service) ListAssetStoreRowMetas() []AssetStoreMeta {
 // ListUnreferencedAssetStoreRows returns rows no version links to that were
 // created before cutoff.
 func (s *Service) ListUnreferencedAssetStoreRows(cutoff time.Time) []AssetStoreMeta {
-	rows, err := s.q.ListUnreferencedAssetStoreRows(context.Background(), cutoff.UnixMilli())
-	if err != nil {
-		panic(fmt.Sprintf("ListUnreferencedAssetStoreRows: %v", err))
-	}
+	rows := erru.Must(s.q.ListUnreferencedAssetStoreRows(context.Background(), cutoff.UnixMilli()))
 	out := make([]AssetStoreMeta, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, AssetStoreMeta{
@@ -156,18 +148,12 @@ func (s *Service) ListUnreferencedAssetStoreRows(cutoff time.Time) []AssetStoreM
 }
 
 func (s *Service) CountAssetVersionsBySha(sha256 string) int64 {
-	count, err := s.q.CountAssetVersionsBySha(context.Background(), sha256)
-	if err != nil {
-		panic(fmt.Sprintf("CountAssetVersionsBySha: %v", err))
-	}
+	count := erru.Must(s.q.CountAssetVersionsBySha(context.Background(), sha256))
 	return count
 }
 
 func (s *Service) ListAssetIDsBySha(sha256 string) []int32 {
-	rows, err := s.q.ListAssetIDsBySha(context.Background(), sha256)
-	if err != nil {
-		panic(fmt.Sprintf("ListAssetIDsBySha: %v", err))
-	}
+	rows := erru.Must(s.q.ListAssetIDsBySha(context.Background(), sha256))
 	out := make([]int32, 0, len(rows))
 	for _, id := range rows {
 		out = append(out, int32(id))

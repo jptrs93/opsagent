@@ -425,12 +425,12 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 	if err := nextSpec.SetWorkloadState("v2", true); err != nil {
 		t.Fatal(err)
 	}
-	updated, changed, versionOK := store.UpdateDeploymentSpec(apigen.Context{}, cfg.ID, DeploymentSpecUpdate{
-		ExpectedSpecVersion: 2,
-		Spec:                &nextSpec,
+	updated, err := store.UpdateDeployment(apigen.Context{}, cfg.ID, DeploymentUpdate{
+		ExpectedVersion: 2,
+		Spec:            &nextSpec,
 	})
-	if !changed || !versionOK || updated.NodeID != node.ID {
-		t.Fatalf("updated config = %+v, changed=%v versionOK=%v, want node ID %d", updated, changed, versionOK, node.ID)
+	if err != nil || updated.Version != 2 || updated.NodeID != node.ID {
+		t.Fatalf("updated config = %+v, err=%v, want v2 with node ID %d", updated, err, node.ID)
 	}
 
 	history := store.MustFetchDeploymentHistory(cfg.ID)

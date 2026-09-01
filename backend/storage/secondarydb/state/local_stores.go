@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/sq"
 )
 
@@ -55,7 +56,7 @@ func (s *Service) MustSetLocalKVs(values map[string][]byte) {
 	if err := s.q.Tx(context.Background(), func(q *sq.Queries) error {
 		for key, value := range values {
 			if err := q.UpsertLocalKV(context.Background(), sq.UpsertLocalKVParams{Key: key, Value: value}); err != nil {
-				panic(fmt.Sprintf("UpsertLocalKV %s: %v", key, err))
+				return fmt.Errorf("key %s: %w", key, err)
 			}
 		}
 		return nil
@@ -71,10 +72,7 @@ func (s *Service) MustSetLocalKVs(values map[string][]byte) {
 func (s *Service) ListLocalRuntimeInputs() []LocalRuntimeInput {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	rows, err := s.q.ListLocalRuntimeInputs(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListLocalRuntimeInputs: %v", err))
-	}
+	rows := erru.Must(s.q.ListLocalRuntimeInputs(context.Background()))
 	return rows
 }
 

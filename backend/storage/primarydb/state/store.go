@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"sort"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -28,20 +29,14 @@ func ordinalKeyOf(inst *apigen.ScheduledInstance) instanceOrdinalKey {
 
 func (s *Service) loadCache() {
 	ctx := context.Background()
-	events, err := s.q.ListLatestDeploymentEvents(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("loadCache: ListLatestDeploymentEvents: %v", err))
-	}
+	events := erru.Must(s.q.ListLatestDeploymentEvents(ctx))
 	for _, e := range events {
 		cfg := deploymentEventToProto(e)
 		s.deploymentCache[cfg.ID] = cfg
 		s.latestEvents[cfg.ID] = e
 	}
 
-	instances, err := s.q.ListNonFinalScheduledInstances(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("loadCache: ListNonFinalScheduledInstances: %v", err))
-	}
+	instances := erru.Must(s.q.ListNonFinalScheduledInstances(ctx))
 	byID := make(map[int32]*apigen.ScheduledInstanceState, len(instances))
 	for _, row := range instances {
 		inst := scheduledInstanceRowToProto(row)
@@ -53,10 +48,7 @@ func (s *Service) loadCache() {
 	// Rebuild the retained view. Only the newest incarnation of an ordinal is a
 	// candidate, and only while it is finalized: anything live is already in
 	// the live cache and speaks for the ordinal itself.
-	latest, err := s.q.ListLatestScheduledInstancePerOrdinal(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("loadCache: ListLatestScheduledInstancePerOrdinal: %v", err))
-	}
+	latest := erru.Must(s.q.ListLatestScheduledInstancePerOrdinal(ctx))
 	for _, row := range latest {
 		inst := scheduledInstanceRowToProto(row)
 		if !inst.State.IsFinal() {
@@ -67,10 +59,7 @@ func (s *Service) loadCache() {
 		byID[inst.ID] = state
 	}
 
-	statuses, err := s.q.ListLatestScheduledInstanceStatuses(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("loadCache: ListLatestScheduledInstanceStatuses: %v", err))
-	}
+	statuses := erru.Must(s.q.ListLatestScheduledInstanceStatuses(ctx))
 	for _, row := range statuses {
 		st := scheduledInstanceStatusRowToProto(row)
 		if state, ok := byID[st.ScheduledInstanceID]; ok {

@@ -38,7 +38,10 @@ func TestDeploymentIdentityUniquenessIsGoLevel(t *testing.T) {
 	}()
 
 	sibling := store.MustCreateDeploymentForNode(apigen.Context{}, 2, "web", node.ID, spec)
-	if _, err := store.MoveDeploymentSpace(sibling.ID, 1, sibling.SpaceVersion+1, 0); !errors.Is(err, DuplicateDeploymentIdentityErr) {
+	if _, err := store.UpdateDeployment(apigen.Context{}, sibling.ID, DeploymentUpdate{
+		ExpectedVersion: sibling.Version + 1,
+		SpaceID:         i32ptr(1),
+	}); !errors.Is(err, DuplicateDeploymentIdentityErr) {
 		t.Fatalf("move onto occupied identity err = %v, want %v", err, DuplicateDeploymentIdentityErr)
 	}
 

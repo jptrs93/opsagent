@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -25,10 +26,7 @@ import (
 // convention.
 
 func (s *Service) ListSecretKeyslots() []secrets.Keyslot {
-	rows, err := s.q.ListSecretKeyslots(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListSecretKeyslots: %v", err))
-	}
+	rows := erru.Must(s.q.ListSecretKeyslots(context.Background()))
 	out := make([]secrets.Keyslot, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, secrets.Keyslot{
@@ -59,10 +57,7 @@ func (s *Service) UpsertSecretKeyslot(k secrets.Keyslot) {
 }
 
 func (s *Service) ListSecretVersionRecords() []secrets.Record {
-	rows, err := s.q.ListSecretVersionRecords(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("ListSecretVersionRecords: %v", err))
-	}
+	rows := erru.Must(s.q.ListSecretVersionRecords(context.Background()))
 	out := make([]secrets.Record, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, secrets.Record{
@@ -103,18 +98,12 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, aut
 	var row Secret
 	var version pq.SecretVersion
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		seq, err := q.NextGlobalSeq(ctx)
-		if err != nil {
-			panic(fmt.Sprintf("NextGlobalSeq: %v", err))
-		}
-		id, err := q.InsertSecretRow(ctx, pq.InsertSecretRowParams{
+		seq := erru.Must(q.NextGlobalSeq(ctx))
+		id := erru.Must(q.InsertSecretRow(ctx, pq.InsertSecretRowParams{
 			Name:             name,
 			ValueDirectoryID: dirID,
 			CreatedAt:        now,
-		})
-		if err != nil {
-			panic(fmt.Sprintf("InsertSecretRow: %v", err))
-		}
+		}))
 		if err := q.InsertSecretSpaceRow(ctx, pq.InsertSecretSpaceRowParams{
 			SecretID:  id,
 			Author:    int64(author),
@@ -312,10 +301,7 @@ func (s *Service) MoveSecretSpace(secretID, newSpaceID, newDirectoryID, author i
 	}
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		if spaceID != row.SpaceID {
-			seq, err := q.NextGlobalSeq(ctx)
-			if err != nil {
-				panic(fmt.Sprintf("NextGlobalSeq: %v", err))
-			}
+			seq := erru.Must(q.NextGlobalSeq(ctx))
 			if err := q.InsertSecretSpaceRow(ctx, pq.InsertSecretSpaceRowParams{
 				SecretID:  row.ID,
 				Author:    int64(author),
@@ -323,13 +309,10 @@ func (s *Service) MoveSecretSpace(secretID, newSpaceID, newDirectoryID, author i
 				SpaceID:   spaceID,
 				GlobalSeq: seq,
 			}); err != nil {
-				panic(fmt.Sprintf("InsertSecretSpaceRow: %v", err))
+				return err
 			}
 		}
-		if err := q.SetSecretValueDirectoryID(ctx, pq.SetSecretValueDirectoryIDParams{ValueDirectoryID: dirID, ID: row.ID}); err != nil {
-			panic(fmt.Sprintf("SetSecretValueDirectoryID: %v", err))
-		}
-		return nil
+		return q.SetSecretValueDirectoryID(ctx, pq.SetSecretValueDirectoryIDParams{ValueDirectoryID: dirID, ID: row.ID})
 	}); err != nil {
 		panic(fmt.Sprintf("secret space move tx: %v", err))
 	}
@@ -362,18 +345,9 @@ func (s *Service) DeleteSecret(secretID int32) error {
 // first, ordered by name. Never returns values or ciphertext.
 func (s *Service) ListSecrets() []*apigen.Secret {
 	ctx := context.Background()
-	rows, err := s.q.ListSecretRows(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("ListSecretRows: %v", err))
-	}
-	versions, err := s.q.ListSecretVersionMetas(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("ListSecretVersionMetas: %v", err))
-	}
-	spaceRows, err := s.q.ListSecretSpaceRows(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("ListSecretSpaceRows: %v", err))
-	}
+	rows := erru.Must(s.q.ListSecretRows(ctx))
+	versions := erru.Must(s.q.ListSecretVersionMetas(ctx))
+	spaceRows := erru.Must(s.q.ListSecretSpaceRows(ctx))
 	versionsBySecret := make(map[int64][]pq.ListSecretVersionMetasRow, len(rows))
 	for _, v := range versions {
 		versionsBySecret[v.SecretID] = append(versionsBySecret[v.SecretID], v)
@@ -405,10 +379,7 @@ func (s *Service) GetSecret(secretID int32) (*apigen.Secret, bool) {
 	if err != nil {
 		panic(fmt.Sprintf("GetSecretRowByID: %v", err))
 	}
-	rows, err := s.q.ListSecretVersionsBySecretID(ctx, sec.ID)
-	if err != nil {
-		panic(fmt.Sprintf("ListSecretVersionsBySecretID: %v", err))
-	}
+	rows := erru.Must(s.q.ListSecretVersionsBySecretID(ctx, sec.ID))
 	if len(rows) == 0 {
 		return nil, false
 	}
@@ -416,10 +387,7 @@ func (s *Service) GetSecret(secretID int32) (*apigen.Secret, bool) {
 	for _, r := range rows {
 		versions = append(versions, pq.ListSecretVersionMetasRow(r))
 	}
-	spaces, err := s.q.ListSecretSpaceRowsBySecretID(ctx, sec.ID)
-	if err != nil {
-		panic(fmt.Sprintf("ListSecretSpaceRowsBySecretID: %v", err))
-	}
+	spaces := erru.Must(s.q.ListSecretSpaceRowsBySecretID(ctx, sec.ID))
 	return secretFromParts(sec, spaces, versions), true
 }
 
@@ -453,10 +421,7 @@ func (s *Service) GetSecretInRootByName(spaceID int32, name string) (Secret, boo
 // SecretVersionIDs returns every version row id of the secret — the set a
 // deployment env ref or setting could pin.
 func (s *Service) SecretVersionIDs(secretID int32) []int32 {
-	rows, err := s.q.ListSecretVersionIDsBySecretID(context.Background(), int64(secretID))
-	if err != nil {
-		panic(fmt.Sprintf("ListSecretVersionIDsBySecretID: %v", err))
-	}
+	rows := erru.Must(s.q.ListSecretVersionIDsBySecretID(context.Background(), int64(secretID)))
 	ids := make([]int32, 0, len(rows))
 	for _, id := range rows {
 		ids = append(ids, int32(id))

@@ -157,11 +157,15 @@ export function deploymentEditorWidget(opts) {
         const movePayload = mode === 'create' ? null : deploymentUpdate.toMovePayload();
         try {
             // Move first so spec validation runs against the destination space.
-            if (movePayload) await actions.moveDeploymentSpace(movePayload);
-            const result = mode === 'create'
-                ? await actions.createDeployment(payload)
-                : await actions.updateDeployment(payload);
-            if (mode === 'create' && !result?.id) throw new Error('Create response did not include a deployment ID');
+            const moved = movePayload ? await actions.updateDeployment(movePayload) : null;
+            let result = moved;
+            if (mode === 'create') {
+                result = await actions.createDeployment(payload);
+                if (!result?.id) throw new Error('Create response did not include a deployment ID');
+            } else if (payload) {
+                if (moved) payload.expectedVersion = Number(moved.version || 0) + 1;
+                result = await actions.updateDeployment(payload);
+            }
             notifySuccess(mode, payload, result);
         } catch (e) {
             errorMsg.val = e.message || (mode === 'create' ? 'Failed to create deployment' : 'Deploy failed');
