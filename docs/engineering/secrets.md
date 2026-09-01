@@ -255,7 +255,7 @@ storage.
 
 Because rows are immutable, `EnsureSecretsReady` and `EnsureConfigsReady` request
 only the ids not already held: an id always denotes the same value, and rotation
-mints a new id that arrives as a new deployment config version. A node that
+mints a new id that arrives as a new deployment spec version. A node that
 already holds everything a config references therefore makes no request at all.
 
 The operator injects that same `RuntimeInputs` instance into every container
@@ -338,7 +338,7 @@ answer to "what does this node run".
 The sweep runs only when every instance on the node is settled — desired config
 version equals both the preparer's and the runner's reported version, or the
 instance is not meant to be running. A mid-rollout instance is still running the
-previous config version, whose referenced ids the node can no longer enumerate
+previous spec version, whose referenced ids the node can no longer enumerate
 (it holds only the current assignment blob), so sweeping then could delete an
 input its live container needs to respawn. It is all-or-nothing because ids are
 shared between deployments, leaving no sound way to attribute one to the instance

@@ -23,14 +23,14 @@ import (
 // fact: creating a replacement as RUN_SERVING would hand it the instance's
 // inbound route before its container exists, so a cross-node rollover must
 // create its replacement as RUN_STANDBY from the very first write.
-func (s *Service) EnsureRunScheduledInstance(deploymentID, deploymentVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) (*apigen.ScheduledInstance, bool) {
+func (s *Service) EnsureRunScheduledInstance(deploymentID, deploymentSpecVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) (*apigen.ScheduledInstance, bool) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	spaceID := s.currentSpaceLocked(deploymentID)
 	for _, state := range s.Scheduled {
 		inst := state.Instance
 		if inst.DeploymentID == deploymentID &&
-			inst.DeploymentVersion == deploymentVersion &&
+			inst.DeploymentSpecVersion == deploymentSpecVersion &&
 			inst.NodeID == nodeID &&
 			inst.InstanceOrdinal == instanceOrdinal &&
 			inst.SpaceID == spaceID &&
@@ -39,17 +39,17 @@ func (s *Service) EnsureRunScheduledInstance(deploymentID, deploymentVersion, no
 			return &cp, false
 		}
 	}
-	return s.createScheduledInstanceLocked(deploymentID, deploymentVersion, nodeID, instanceOrdinal, initial), true
+	return s.createScheduledInstanceLocked(deploymentID, deploymentSpecVersion, nodeID, instanceOrdinal, initial), true
 }
 
 // CreateScheduledInstanceForTest unconditionally creates a new incarnation,
 // bypassing the at-most-one-runnable-per-tuple scan in
 // EnsureRunScheduledInstance. It exists only as a fixture for tests in other
 // packages; production code must use EnsureRunScheduledInstance.
-func (s *Service) CreateScheduledInstanceForTest(deploymentID, deploymentVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
+func (s *Service) CreateScheduledInstanceForTest(deploymentID, deploymentSpecVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	return s.createScheduledInstanceLocked(deploymentID, deploymentVersion, nodeID, instanceOrdinal, initial)
+	return s.createScheduledInstanceLocked(deploymentID, deploymentSpecVersion, nodeID, instanceOrdinal, initial)
 }
 
 func (s *Service) currentSpaceLocked(deploymentID int32) int32 {
@@ -59,7 +59,7 @@ func (s *Service) currentSpaceLocked(deploymentID int32) int32 {
 	return 0
 }
 
-func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
+func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentSpecVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
 	ctx := context.Background()
 	if !initial.WantsRunning() {
 		panic(fmt.Sprintf("createScheduledInstance: initial state %v is not runnable", initial))
@@ -71,7 +71,7 @@ func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentVersion,
 		var err error
 		id, err = q.InsertScheduledInstance(ctx, pq.InsertScheduledInstanceParams{
 			DeploymentID:             int64(deploymentID),
-			DeploymentVersion:        int64(deploymentVersion),
+			DeploymentSpecVersion:    int64(deploymentSpecVersion),
 			NodeID:                   int64(nodeID),
 			InstanceOrdinal:          int64(instanceOrdinal),
 			DeploymentSpaceVersionID: s.spaceVersionRowIDs[deploymentID],
@@ -93,14 +93,14 @@ func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentVersion,
 		panic(fmt.Sprintf("InsertScheduledInstance: %v", err))
 	}
 	inst := &apigen.ScheduledInstance{
-		ID:                int32(id),
-		CreatedAt:         millisToTime(now),
-		DeploymentID:      deploymentID,
-		DeploymentVersion: deploymentVersion,
-		NodeID:            nodeID,
-		InstanceOrdinal:   instanceOrdinal,
-		SpaceID:           spaceID,
-		State:             initial,
+		ID:                    int32(id),
+		CreatedAt:             millisToTime(now),
+		DeploymentID:          deploymentID,
+		DeploymentSpecVersion: deploymentSpecVersion,
+		NodeID:                nodeID,
+		InstanceOrdinal:       instanceOrdinal,
+		SpaceID:               spaceID,
+		State:                 initial,
 	}
 	state := s.instanceStateLocked(inst)
 	s.Scheduled[inst.ID] = state

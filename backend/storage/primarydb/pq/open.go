@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"embed"
-	"fmt"
-	"strings"
 
 	"github.com/jptrs93/opsagent/backend/storage/sqlitedb"
 )
@@ -26,9 +24,6 @@ func Open(dbPath string) *Queries {
 	// Go shape migrations (renaming or rewriting an old-shape table) have to
 	// run before ApplySchema: CREATE TABLE IF NOT EXISTS silently no-ops
 	// against the old shape.
-	if _, err := db.Exec("ALTER TABLE deployment_versions RENAME TO deployment_spec_versions"); err != nil && !strings.Contains(err.Error(), "no such table") {
-		panic(fmt.Sprintf("rename deployment_versions: %v", err))
-	}
 	sqlitedb.ApplySchema(db, schemaFiles, "sql/schema*.sql")
 	sqlitedb.ApplyMigrations(db, migrations)
 	return New(db)

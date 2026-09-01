@@ -66,7 +66,7 @@ func (m *memStore) CreateSecretWithVersion(name string, spaceID, directoryID, au
 	m.identities[secretID] = memIdentity{name: name, spaceID: spaceID}
 	return m.insertVersion(secretID, author, seal)
 }
-func (m *memStore) AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal SealFunc, update bool, deployments []storage.DeploymentConfigVersion, afterCommit func(Record)) (Record, []int32, error) {
+func (m *memStore) AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal SealFunc, update bool, deployments []storage.DeploymentSpecVersion, afterCommit func(Record)) (Record, []int32, error) {
 	if _, ok := m.identities[secretID]; !ok {
 		return Record{}, nil, fmt.Errorf("secret %d not found", secretID)
 	}

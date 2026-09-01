@@ -49,11 +49,11 @@ func TestOpendeployAttachKeepsPreviousStatusFields(t *testing.T) {
 	store := &fakeOperatorStore{}
 	dep := opendeployTestDeployment()
 	prev := apigen.RunnerStatus{
-		DeploymentConfigVersion: 5,
-		RunningArtifact:         "/old/artifact",
-		RunningPid:              123,
-		Status:                  apigen.RunningStatus_STARTING,
-		NumberOfRestarts:        2,
+		DeploymentSpecVersion: 5,
+		RunningArtifact:       "/old/artifact",
+		RunningPid:            123,
+		Status:                apigen.RunningStatus_STARTING,
+		NumberOfRestarts:      2,
 	}
 
 	r := attachOpendeployRunner(store, opendeployTestInstanceID, dep, prev)
@@ -67,8 +67,8 @@ func TestOpendeployAttachKeepsPreviousStatusFields(t *testing.T) {
 	if got.Status != apigen.RunningStatus_RUNNING {
 		t.Fatalf("status = %v, want RUNNING", got.Status)
 	}
-	if got.DeploymentConfigVersion != prev.DeploymentConfigVersion {
-		t.Fatalf("deployment config version = %d, want %d", got.DeploymentConfigVersion, prev.DeploymentConfigVersion)
+	if got.DeploymentSpecVersion != prev.DeploymentSpecVersion {
+		t.Fatalf("deployment spec version = %d, want %d", got.DeploymentSpecVersion, prev.DeploymentSpecVersion)
 	}
 	if got.RunningPid != int32(os.Getpid()) {
 		t.Fatalf("running pid = %d, want %d", got.RunningPid, os.Getpid())
@@ -97,8 +97,8 @@ func TestOpendeployAttachWithoutPreviousStatusPublishesCurrentProcessRunning(t *
 	if got.Status != apigen.RunningStatus_RUNNING {
 		t.Fatalf("status = %v, want RUNNING", got.Status)
 	}
-	if got.DeploymentConfigVersion != dep.Version {
-		t.Fatalf("deployment config version = %d, want %d", got.DeploymentConfigVersion, dep.Version)
+	if got.DeploymentSpecVersion != dep.SpecVersion {
+		t.Fatalf("deployment spec version = %d, want %d", got.DeploymentSpecVersion, dep.SpecVersion)
 	}
 	if got.RunningPid != int32(os.Getpid()) {
 		t.Fatalf("running pid = %d, want %d", got.RunningPid, os.Getpid())
@@ -123,14 +123,14 @@ func TestReAttachRunningAttachesOnlyMatchingOpendeployBuild(t *testing.T) {
 	mismatchedStore := &fakeOperatorStore{}
 	mismatched := opendeployTestDeployment()
 	mismatched.Spec.OpendeploySpec.Version = version.Version + "-next"
-	stale := apigen.RunnerStatus{DeploymentConfigVersion: mismatched.Version, Status: apigen.RunningStatus_STARTING}
+	stale := apigen.RunnerStatus{DeploymentSpecVersion: mismatched.SpecVersion, Status: apigen.RunningStatus_STARTING}
 	mismatchedRunner := ReAttachRunning(mismatchedStore, nil, opendeployTestInstanceID, mismatched, stale)
 	mismatchedRunner.Stop()
 	if statuses := mismatchedStore.runnerStatuses(); len(statuses) != 0 {
 		t.Fatalf("mismatched build published statuses: %+v", statuses)
 	}
-	if mismatchedRunner.Version() != -1 {
-		t.Fatalf("mismatched runner version = %d, want stopped sentinel", mismatchedRunner.Version())
+	if mismatchedRunner.SpecVersion() != -1 {
+		t.Fatalf("mismatched runner version = %d, want stopped sentinel", mismatchedRunner.SpecVersion())
 	}
 }
 
@@ -151,10 +151,10 @@ func TestOpendeployRestartLeavesStatusStartingForRestartedProcess(t *testing.T) 
 	}
 	store := &fakeOperatorStore{}
 	dep := opendeployTestDeployment()
-	dep.Version = 9
+	dep.SpecVersion = 9
 	preparerStatus := apigen.PreparerStatus{
-		DeploymentConfigVersion: dep.Version,
-		Artifact:                artifactPath,
+		DeploymentSpecVersion: dep.SpecVersion,
+		Artifact:              artifactPath,
 	}
 
 	restartCalls := 0
@@ -182,8 +182,8 @@ func TestOpendeployRestartLeavesStatusStartingForRestartedProcess(t *testing.T) 
 	if got.Status != apigen.RunningStatus_STARTING {
 		t.Fatalf("status = %v, want STARTING", got.Status)
 	}
-	if got.DeploymentConfigVersion != dep.Version {
-		t.Fatalf("deployment config version = %d, want %d", got.DeploymentConfigVersion, dep.Version)
+	if got.DeploymentSpecVersion != dep.SpecVersion {
+		t.Fatalf("deployment spec version = %d, want %d", got.DeploymentSpecVersion, dep.SpecVersion)
 	}
 	if got.RunningArtifact != artifactPath {
 		t.Fatalf("running artifact = %q, want %q", got.RunningArtifact, artifactPath)
@@ -192,9 +192,9 @@ func TestOpendeployRestartLeavesStatusStartingForRestartedProcess(t *testing.T) 
 
 func opendeployTestDeployment() *apigen.Deployment {
 	return &apigen.Deployment{
-		ID:      1,
-		Version: 7,
-		Spec:    apigen.DeploymentSpec{OpendeploySpec: &apigen.OpendeploySpec{}},
+		ID:          1,
+		SpecVersion: 7,
+		Spec:        apigen.DeploymentSpec{OpendeploySpec: &apigen.OpendeploySpec{}},
 	}
 }
 

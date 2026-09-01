@@ -22,7 +22,7 @@ import (
 // its terminal state to the store. Stop is idempotent.
 type Runner interface {
 	Stop()
-	Version() int32
+	SpecVersion() int32
 	ArtifactMissing() <-chan struct{}
 	// Serve claims the instance's stable inbound address for this placement:
 	// its host route and its published host ports. It is idempotent and safe to
@@ -59,8 +59,8 @@ func Create(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, in
 	if status != nil {
 		preparer = status.Preparer
 	}
-	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf("runner.Create artifact=%q configSeqNo=%d opendeploy=%v",
-		preparer.Artifact, preparer.DeploymentConfigVersion, isOpendeploy(dep)))
+	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf("runner.Create artifact=%q specVersion=%d opendeploy=%v",
+		preparer.Artifact, preparer.DeploymentSpecVersion, isOpendeploy(dep)))
 	if isOpendeploy(dep) {
 		return newOpendeployRunnerWithRestart(store, instanceID, dep, preparer)
 	}
@@ -72,8 +72,8 @@ func CreateRolloverCandidate(store storage.OperatorStore, inputs *runtimeinputs.
 	if status != nil {
 		preparer = status.Preparer
 	}
-	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf("runner.CreateRolloverCandidate artifact=%q configSeqNo=%d",
-		preparer.Artifact, preparer.DeploymentConfigVersion))
+	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf("runner.CreateRolloverCandidate artifact=%q specVersion=%d",
+		preparer.Artifact, preparer.DeploymentSpecVersion))
 	return newRolloverContainerRunner(store, inputs, instanceID, dep, preparer)
 }
 
@@ -126,7 +126,7 @@ func Stopped() Runner { return stoppedRunner{} }
 type stoppedRunner struct{}
 
 func (stoppedRunner) Stop()                            {}
-func (stoppedRunner) Version() int32                   { return -1 }
+func (stoppedRunner) SpecVersion() int32               { return -1 }
 func (stoppedRunner) ArtifactMissing() <-chan struct{} { return nil }
 func (stoppedRunner) Serve() error                     { return nil }
 
@@ -138,7 +138,7 @@ func fmtRunnerStatus(r apigen.RunnerStatus) string {
 	if r.IsZero() {
 		return "<nil>"
 	}
-	return fmt.Sprintf("seqNo=%d status=%v pid=%d artifact=%q", r.DeploymentConfigVersion, r.Status, r.RunningPid, r.RunningArtifact)
+	return fmt.Sprintf("seqNo=%d status=%v pid=%d artifact=%q", r.DeploymentSpecVersion, r.Status, r.RunningPid, r.RunningArtifact)
 }
 
 // deploymentLogContext is the root log context for everything a runner does:

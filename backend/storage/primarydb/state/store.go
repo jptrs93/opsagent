@@ -94,7 +94,7 @@ func (s *Service) FetchDeploymentSnapshot(predicate storage.DeploymentPredicate)
 
 // FetchDeletedDeploymentSnapshot returns the tombstone config of the most
 // recently deleted deployments, newest first, capped at limit. Deletion writes a
-// config version rather than removing the row, so these stay cached alongside
+// spec version rather than removing the row, so these stay cached alongside
 // live ones; every other snapshot filters them out because a deleted deployment
 // schedules nothing. Deletion order is the config's update time, which for a
 // tombstone is when the delete was written.
@@ -219,16 +219,16 @@ func (s *Service) instanceStateLocked(inst *apigen.ScheduledInstance) *apigen.Sc
 	return state
 }
 
-// configForInstanceLocked resolves a pinned config version for primary
+// configForInstanceLocked resolves a pinned spec version for primary
 // load/create paths.
 func (s *Service) configForInstanceLocked(inst *apigen.ScheduledInstance) *apigen.Deployment {
 	if inst == nil {
 		return nil
 	}
-	if cfg := s.deploymentCache[inst.DeploymentID]; cfg != nil && cfg.Version == inst.DeploymentVersion {
+	if cfg := s.deploymentCache[inst.DeploymentID]; cfg != nil && cfg.SpecVersion == inst.DeploymentSpecVersion {
 		return cfg
 	}
-	return s.loadConfigVersionLocked(inst.DeploymentID, inst.DeploymentVersion)
+	return s.loadConfigVersionLocked(inst.DeploymentID, inst.DeploymentSpecVersion)
 }
 
 func (s *Service) loadConfigVersionLocked(deploymentID, version int32) *apigen.Deployment {
@@ -239,7 +239,7 @@ func (s *Service) loadConfigVersionLocked(deploymentID, version int32) *apigen.D
 	})
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			slog.WarnContext(ctx, fmt.Sprintf("load config version %d failed", version), "dep", deploymentID, "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("load spec version %d failed", version), "dep", deploymentID, "err", err)
 		}
 		return nil
 	}

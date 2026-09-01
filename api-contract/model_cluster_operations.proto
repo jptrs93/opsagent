@@ -82,7 +82,7 @@ message ClusterConfigsResponse {
 
 message ClusterIssuedTLSRequest {
   int32 deployment_id = 1;
-  int32 deployment_config_version = 2;
+  int32 deployment_spec_version = 2;
 }
 
 message ClusterIssuedTLSResponse {

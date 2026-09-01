@@ -68,8 +68,8 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 	}
 	m1 := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "web", m1Node.ID, spec)
 	m2 := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "web", m2Node.ID, spec)
-	m1Inst := store.CreateScheduledInstanceForTest(m1.ID, m1.Version, m1Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	m2Inst := store.CreateScheduledInstanceForTest(m2.ID, m2.Version, m2Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	m1Inst := store.CreateScheduledInstanceForTest(m1.ID, m1.SpecVersion, m1Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	m2Inst := store.CreateScheduledInstanceForTest(m2.ID, m2.SpecVersion, m2Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	sess := newSession(context.Background(), func() {}, m1Node.ID, "m1", scheduledInstancePredicateForNode(m1Node.ID), store, nil)
 	crossMachine := &apigen.ScheduledInstanceStatus{

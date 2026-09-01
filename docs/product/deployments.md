@@ -94,7 +94,7 @@ stopped.
 
 ### Config versioning
 
-Each deployment's `Deployment.Version` is a per-deployment
+Each deployment's `Deployment.SpecVersion` is a per-deployment
 monotonically increasing integer that bumps on any spec or desired-state
 change. Storage follows the secrets/configs identity + versions split: the
 stable identity (node, space, name, tombstone) lives in `deployments`,
@@ -107,7 +107,7 @@ a final workload-stopped version before tombstoning the identity
 The deployment's space lives in its own append-only version log,
 `deployment_space_versions` (`id, deployment_id, version, author, created_at,
 space_id`, unique on `(deployment_id, version)`): creation writes version 1,
-and each move appends the next version without bumping the config version. The
+and each move appends the next version without bumping the spec version. The
 newest row is the current space, and its `version` is exposed as
 `Deployment.spaceVersion`. A move is its own operation, `POST
 /v1/deployments/move-space`, guarded by the space version the caller observed
@@ -118,7 +118,7 @@ issued TLS identity, so a live placement is never mutated by a move: each
 scheduled instance pins the `deployment_space_versions` row current at
 scheduling time (`scheduled_instances.deployment_space_version_id`) and keeps
 deriving for that space, while the scheduler compares resolved space values
-and treats a pin/config mismatch exactly like a superseded config version,
+and treats a pin/config mismatch exactly like a superseded spec version,
 replacing the placement through the normal rollover (or recreate) path
 (comparing values rather than rows means an A-B-A move cancels cleanly). A
 move is validated like a create into the destination: the caller needs create
@@ -174,13 +174,13 @@ secrets, and configs) and `image` (producing the artifact). The runner-gating
 rollup (`PREPARING`, `DOWNLOADING`, `PULLING`, `READY`, `FAILED`) is derived
 from the pair, never stored or sent — see [engine.md](../engineering/engine.md).
 On success, contains the resolved `artifact` (local image ref) and the
-`deployment_config_version` from `Deployment.Version`.
+`deployment_spec_version` from `Deployment.SpecVersion`.
 
 ### RunnerStatus
 
 Driven by the runner. Tracks the running container task with `running_pid`,
 `running_artifact`, `status` (`NO_DEPLOYMENT`, `RUNNING`, `STOPPED`, `STARTING`,
-`CRASHED`), `deployment_config_version`, `number_of_restarts`, and `last_restart_at`.
+`CRASHED`), `deployment_spec_version`, `number_of_restarts`, and `last_restart_at`.
 
 ## Deployment identification
 

@@ -115,8 +115,8 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	if err := h.requireEntityAccess(ctx, vUpdate, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return nil, err
 	}
-	if req.Version != cfg.Version+1 {
-		return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
+	if req.SpecVersion != cfg.SpecVersion+1 {
+		return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.SpecVersion, cfg.SpecVersion+1)
 	}
 	if !req.Spec.IsZero() && internaldeploy.IsInternalConfig(cfg) {
 		return nil, invalidConfigErrf("opendeploy system deployment identity and spec are internal-only")
@@ -197,12 +197,12 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 			return nil, err
 		}
 		current, _, versionOK := h.Store.UpdateDeploymentSpec(ctx, req.DeploymentID, state.DeploymentSpecUpdate{
-			ExpectedVersion: req.Version,
-			Spec:            effectiveSpec,
-			Deleted:         cfg.Deleted,
+			ExpectedSpecVersion: req.SpecVersion,
+			Spec:                effectiveSpec,
+			Deleted:             cfg.Deleted,
 		})
 		if !versionOK {
-			return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, current.Version+1)
+			return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.SpecVersion, current.SpecVersion+1)
 		}
 		h.wakeAcme()
 		return current, nil
@@ -212,7 +212,7 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 }
 
 // PostV1DeploymentsMoveSpace moves a deployment to another space. The move is
-// guarded by the deployment's space version rather than its config version, is
+// guarded by the deployment's space version rather than its spec version, is
 // validated like a create into the destination space, and rides the scheduler
 // rollover path: live placements keep their pinned space until replaced.
 func (h *Handler) PostV1DeploymentsMoveSpace(ctx apigen.Context, req *apigen.DeploymentSpaceMoveRequest) (*apigen.Deployment, error) {
@@ -291,8 +291,8 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 	if err := h.requireEntityAccess(ctx, vDelete, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return err
 	}
-	if req.Version != cfg.Version+1 {
-		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
+	if req.SpecVersion != cfg.SpecVersion+1 {
+		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.SpecVersion, cfg.SpecVersion+1)
 	}
 	statuses := h.deploymentStatuses(req.DeploymentID)
 	if internaldeploy.IsInternalConfig(cfg) {
@@ -313,12 +313,12 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 		return invalidConfigErrf("spec: %v", err)
 	}
 	_, _, versionOK := h.Store.UpdateDeploymentSpec(ctx, req.DeploymentID, state.DeploymentSpecUpdate{
-		ExpectedVersion: req.Version,
-		Spec:            spec,
-		Deleted:         true,
+		ExpectedSpecVersion: req.SpecVersion,
+		Spec:                spec,
+		Deleted:             true,
 	})
 	if !versionOK {
-		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
+		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.SpecVersion, cfg.SpecVersion+1)
 	}
 	return nil
 }
@@ -418,9 +418,9 @@ func githubReleaseVersionsErr(err error) apigen.ApiErr {
 // requested logs: the deployment's node, or target_node_id for the system log
 // (deployment_id = 0), which is gated on the node rather than any one
 // deployment.
-func (h *Handler) logQueryTargetNode(ctx apigen.Context, deploymentID, targetNodeID, configVersion int32) (int32, error) {
-	if configVersion < 0 {
-		return 0, invalidConfigErrf("configVersion must not be negative")
+func (h *Handler) logQueryTargetNode(ctx apigen.Context, deploymentID, targetNodeID, specVersion int32) (int32, error) {
+	if specVersion < 0 {
+		return 0, invalidConfigErrf("specVersion must not be negative")
 	}
 	if deploymentID == 0 {
 		if targetNodeID <= 0 {
@@ -442,7 +442,7 @@ func (h *Handler) logQueryTargetNode(ctx apigen.Context, deploymentID, targetNod
 }
 
 func (h *Handler) PostV1DeploymentsLogQuery(ctx apigen.Context, req *apigen.LogQueryRequest) (*apigen.LogQueryResponse, error) {
-	nodeID, err := h.logQueryTargetNode(ctx, req.DeploymentID, req.TargetNodeID, req.ConfigVersion)
+	nodeID, err := h.logQueryTargetNode(ctx, req.DeploymentID, req.TargetNodeID, req.SpecVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -501,13 +501,13 @@ func (h *Handler) PostV1DeploymentsPrepareOutput(ctx apigen.Context, req *apigen
 		}
 
 		localReq := *req
-		if localReq.Version == 0 {
-			localReq.Version = preparerOutputVersion(h.deploymentStatuses(localReq.DeploymentID))
-			if localReq.Version == 0 {
-				localReq.Version = cfg.Version
+		if localReq.SpecVersion == 0 {
+			localReq.SpecVersion = preparerOutputVersion(h.deploymentStatuses(localReq.DeploymentID))
+			if localReq.SpecVersion == 0 {
+				localReq.SpecVersion = cfg.SpecVersion
 			}
 		}
-		if localReq.Version == 0 {
+		if localReq.SpecVersion == 0 {
 			yield(nil, NoPrepareOutputErr)
 			return
 		}
@@ -578,7 +578,7 @@ func streamLocalPrepareOutput(ctx apigen.Context, h *Handler, req *apigen.Prepar
 			if !drain() {
 				return
 			}
-			if !preparingVersion(h.deploymentStatuses(req.DeploymentID), req.Version) {
+			if !preparingVersion(h.deploymentStatuses(req.DeploymentID), req.SpecVersion) {
 				_ = drain()
 				return
 			}
@@ -649,31 +649,31 @@ func (h *Handler) deploymentStatuses(deploymentID int32) []apigen.ScheduledInsta
 	return out
 }
 
-// preparerOutputVersion picks the config version a caller asking for the
+// preparerOutputVersion picks the spec version a caller asking for the
 // "latest" prepare output wants: an in-flight prepare if there is one, else the
 // newest instance that has prepared anything. Returns 0 when none has.
 func preparerOutputVersion(statuses []apigen.ScheduledInstanceStatus) int32 {
 	for i := range statuses {
 		if p := statuses[i].Preparer; !p.IsZero() && prepare.InProgress(p) {
-			return p.DeploymentConfigVersion
+			return p.DeploymentSpecVersion
 		}
 	}
 	for i := range statuses {
 		if p := statuses[i].Preparer; !p.IsZero() {
-			return p.DeploymentConfigVersion
+			return p.DeploymentSpecVersion
 		}
 	}
 	return 0
 }
 
 // preparingVersion reports whether any live instance is still preparing the
-// given config version. An output stream follows one version, not one instance,
+// given spec version. An output stream follows one version, not one instance,
 // so a rollover starting or finishing a different instance's prepare must not
 // terminate it.
 func preparingVersion(statuses []apigen.ScheduledInstanceStatus, version int32) bool {
 	for i := range statuses {
 		p := statuses[i].Preparer
-		if !p.IsZero() && p.DeploymentConfigVersion == version && prepare.InProgress(p) {
+		if !p.IsZero() && p.DeploymentSpecVersion == version && prepare.InProgress(p) {
 			return true
 		}
 	}

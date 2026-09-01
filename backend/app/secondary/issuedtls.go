@@ -20,13 +20,13 @@ func NewPrimaryIssuedTLSProvider(baseURL string, client *http.Client) *PrimaryIs
 	}
 }
 
-func (p *PrimaryIssuedTLSProvider) FetchIssuedTLS(ctx context.Context, deploymentID, configVersion int32) (*runtimeinputs.IssuedTLSValue, error) {
+func (p *PrimaryIssuedTLSProvider) FetchIssuedTLS(ctx context.Context, deploymentID, specVersion int32) (*runtimeinputs.IssuedTLSValue, error) {
 	resp, err := p.capi.GetV1ClusterIssuedTls(ctx, &apigen.ClusterIssuedTLSRequest{
-		DeploymentID:            deploymentID,
-		DeploymentConfigVersion: configVersion,
+		DeploymentID:          deploymentID,
+		DeploymentSpecVersion: specVersion,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("fetching issued TLS from primary: %w", err)
 	}
-	return issuedtls.ValueFromResponse(resp, configVersion), nil
+	return issuedtls.ValueFromResponse(resp, specVersion), nil
 }

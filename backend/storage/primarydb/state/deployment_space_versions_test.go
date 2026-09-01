@@ -17,7 +17,7 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 		t.Fatalf("created config space version = %d, want 1", cfg.SpaceVersion)
 	}
 
-	inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.NodeID, 0,
+	inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	if inst.SpaceID != DefaultSpaceID {
 		t.Fatalf("placement pin = space %d, want space %d", inst.SpaceID, DefaultSpaceID)
@@ -30,9 +30,9 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("move: %v", err)
 	}
-	if moved.SpaceID != 2 || moved.Version != cfg.Version || moved.SpaceVersion != 2 {
-		t.Fatalf("moved config = v%d space %d spaceV%d, want v%d space 2 spaceV2 (no config version bump)",
-			moved.Version, moved.SpaceID, moved.SpaceVersion, cfg.Version)
+	if moved.SpaceID != 2 || moved.SpecVersion != cfg.SpecVersion || moved.SpaceVersion != 2 {
+		t.Fatalf("moved config = v%d space %d spaceV%d, want v%d space 2 spaceV2 (no spec version bump)",
+			moved.SpecVersion, moved.SpaceID, moved.SpaceVersion, cfg.SpecVersion)
 	}
 	if same, err := store.MoveDeploymentSpace(cfg.ID, 2, moved.SpaceVersion+1, 9); err != nil || same.SpaceVersion != 2 {
 		t.Fatalf("same-space move = spaceV%d err %v, want no-op at spaceV2", same.SpaceVersion, err)
@@ -50,7 +50,7 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 		t.Fatalf("pinned view after move = space %d, want space %d", st.Config.SpaceID, DefaultSpaceID)
 	}
 
-	replacement, created := store.EnsureRunScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0,
+	replacement, created := store.EnsureRunScheduledInstance(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
 	if !created {
 		t.Fatal("space move did not require a replacement incarnation")

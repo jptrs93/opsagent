@@ -14,16 +14,16 @@ import (
 )
 
 type IssuedTLSValue struct {
-	CertPEM       []byte    `json:"cert_pem"`
-	KeyPEM        []byte    `json:"key_pem"`
-	CACertPEM     []byte    `json:"ca_cert_pem"`
-	IssuedAt      time.Time `json:"issued_at"`
-	NotAfter      time.Time `json:"not_after"`
-	ConfigVersion int32     `json:"config_version"`
+	CertPEM     []byte    `json:"cert_pem"`
+	KeyPEM      []byte    `json:"key_pem"`
+	CACertPEM   []byte    `json:"ca_cert_pem"`
+	IssuedAt    time.Time `json:"issued_at"`
+	NotAfter    time.Time `json:"not_after"`
+	SpecVersion int32     `json:"spec_version"`
 }
 
 type IssuedTLSProvider interface {
-	FetchIssuedTLS(ctx context.Context, deploymentID, configVersion int32) (*IssuedTLSValue, error)
+	FetchIssuedTLS(ctx context.Context, deploymentID, specVersion int32) (*IssuedTLSValue, error)
 }
 
 type IssuedTLSPersistence interface {
@@ -55,7 +55,7 @@ func (r *RuntimeInputs) EnsureIssuedTLSReady(ctx context.Context, cfg *apigen.De
 	r.mu.RLock()
 	held := r.issuedTLSValues[cfg.ID]
 	r.mu.RUnlock()
-	if held != nil && held.ConfigVersion == cfg.Version {
+	if held != nil && held.SpecVersion == cfg.SpecVersion {
 		return nil
 	}
 	if r.issuedTLS == nil {
@@ -64,7 +64,7 @@ func (r *RuntimeInputs) EnsureIssuedTLSReady(ctx context.Context, cfg *apigen.De
 		}
 		return fmt.Errorf("no issued TLS provider configured")
 	}
-	value, err := r.issuedTLS.FetchIssuedTLS(ctx, cfg.ID, cfg.Version)
+	value, err := r.issuedTLS.FetchIssuedTLS(ctx, cfg.ID, cfg.SpecVersion)
 	if err != nil {
 		if held != nil && time.Now().Before(held.NotAfter) {
 			return nil

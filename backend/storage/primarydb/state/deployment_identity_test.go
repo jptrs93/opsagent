@@ -43,9 +43,9 @@ func TestDeploymentIdentityUniquenessIsGoLevel(t *testing.T) {
 	}
 
 	store.UpdateDeploymentSpec(apigen.Context{}, sibling.ID, DeploymentSpecUpdate{
-		ExpectedVersion: sibling.Version + 1,
-		Spec:            spec,
-		Deleted:         true,
+		ExpectedSpecVersion: sibling.SpecVersion + 1,
+		Spec:                spec,
+		Deleted:             true,
 	})
 	recreated := store.MustCreateDeploymentForNode(apigen.Context{}, 2, "web", node.ID, spec)
 	if recreated.ID == sibling.ID {

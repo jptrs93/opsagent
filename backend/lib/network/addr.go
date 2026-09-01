@@ -11,8 +11,8 @@
 // incarnation that owns a node assignment. Cross-node routing is prefix-based,
 // so the /120 covering a placement's runs is the unit that routes to a node and
 // the run slot never appears in a route. Deriving the slot from the scheduled
-// instance id rather than the config version keeps two live placements of one
-// config version distinct, which happens whenever an instance moves node
+// instance id rather than the spec version keeps two live placements of one
+// spec version distinct, which happens whenever an instance moves node
 // without a version change.
 package network
 

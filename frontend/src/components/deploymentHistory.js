@@ -45,7 +45,7 @@ function preparerChanged(cur, prev) {
     if (!a || !b) return true;
     return a.inputs !== b.inputs
         || a.image !== b.image
-        || a.deploymentConfigVersion !== b.deploymentConfigVersion
+        || a.deploymentSpecVersion !== b.deploymentSpecVersion
         || a.artifact !== b.artifact;
 }
 
@@ -57,7 +57,7 @@ function runnerChanged(cur, prev) {
     const ta = a.lastRestartAt instanceof Date ? a.lastRestartAt.getTime() : 0;
     const tb = b.lastRestartAt instanceof Date ? b.lastRestartAt.getTime() : 0;
     return a.status !== b.status
-        || a.deploymentConfigVersion !== b.deploymentConfigVersion
+        || a.deploymentSpecVersion !== b.deploymentSpecVersion
         || a.runningPid !== b.runningPid
         || a.runningArtifact !== b.runningArtifact
         || a.numberOfRestarts !== b.numberOfRestarts
@@ -136,14 +136,14 @@ export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () 
         // preparer/runner data and render as meaningless lines).
         const visibleEntries = entries.val.filter(e => !e.status || tsMs(e.status.updatedAt) > 0);
         const configEntries = visibleEntries.filter(e => e.config);
-        const configsSorted = [...configEntries].sort((a, b) => a.config.version - b.config.version);
+        const configsSorted = [...configEntries].sort((a, b) => a.config.specVersion - b.config.specVersion);
         const currentConfigVersion = configsSorted.length > 0
-            ? configsSorted[configsSorted.length - 1].config.version
+            ? configsSorted[configsSorted.length - 1].config.specVersion
             : 0;
         const prevByVersion = {};
         let prevConfig = null;
         for (const e of configsSorted) {
-            prevByVersion[e.config.version] = prevConfig;
+            prevByVersion[e.config.specVersion] = prevConfig;
             prevConfig = e.config;
         }
 
@@ -165,11 +165,11 @@ export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () 
                 return {
                     at: e.config.updatedAt,
                     kind: 'config',
-                    v: e.config.version,
+                    v: e.config.specVersion,
                     by: resolveUserDisplayName(e.config.author) || '',
-                    change: describeConfigEntry(e.config, prevByVersion[e.config.version]),
+                    change: describeConfigEntry(e.config, prevByVersion[e.config.specVersion]),
                     config: e.config,
-                    canRevert: Boolean(targetVersion) && e.config.version !== currentConfigVersion,
+                    canRevert: Boolean(targetVersion) && e.config.specVersion !== currentConfigVersion,
                 };
             }
             return {

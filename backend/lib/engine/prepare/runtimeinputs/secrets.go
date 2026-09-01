@@ -141,7 +141,7 @@ func (r *RuntimeInputs) persist(ctx context.Context, secrets, configs map[int32]
 //
 // Skipping ids already held is safe because secret rows are immutable: an id
 // always denotes the same value, and rotation mints a new id that arrives here
-// as a new deployment config version. Combined with Persistence this is what
+// as a new deployment spec version. Combined with Persistence this is what
 // lets a restarted secondary start its workloads without reaching the primary at
 // all.
 func (r *RuntimeInputs) EnsureSecretsReady(ctx context.Context, cfg *apigen.Deployment) error {

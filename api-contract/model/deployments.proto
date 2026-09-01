@@ -16,7 +16,7 @@ message Deployment {
   int64 created_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int64 updated_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 author = 6;
-  int32 version = 7;
+  int32 spec_version = 7;
   DeploymentSpec spec = 8 [(cp.go_value) = true];
   bool deleted = 9;
 }
@@ -237,8 +237,8 @@ message DeploymentSnapshot {
   repeated Deployment items = 1;
 }
 
-// Identifies the current deployment config version observed by a caller.
-message DeploymentVersionRef {
+// Identifies the current deployment spec version observed by a caller.
+message DeploymentSpecVersionRef {
   int32 id = 1;
-  int32 version = 2;
+  int32 spec_version = 2;
 }

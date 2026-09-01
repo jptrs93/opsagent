@@ -58,13 +58,13 @@ func (i *LogStreamCollector) runQuery(ctx context.Context, q queryParams) (*apig
 }
 
 type queryParams struct {
-	from, till    time.Time
-	limit         int
-	newestFirst   bool
-	includeRaw    bool
-	buckets       int
-	configVersion int32
-	filters       []compiledFilter
+	from, till  time.Time
+	limit       int
+	newestFirst bool
+	includeRaw  bool
+	buckets     int
+	specVersion int32
+	filters     []compiledFilter
 }
 
 func resolveQueryScope(timeStart, timeEnd time.Time) (from, till time.Time, err error) {

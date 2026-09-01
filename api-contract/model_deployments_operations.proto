@@ -12,7 +12,7 @@ message DeploymentUpdateRequest {
   int32 deployment_id = 1;
   string target_version = 2;
   bool stop = 3;
-  int32 version = 4;
+  int32 spec_version = 4;
   DeploymentSpec spec = 5 [(cp.go_value) = true]; // optional: update deployment spec
 }
 
@@ -40,13 +40,13 @@ message RecentlyDeletedDeploymentsRequest {
 message RecentlyDeletedDeployments {
   // Final config of each deleted deployment, most recently deleted first. The
   // spec is intact, so a client can seed a new deployment from one; the id and
-  // version belong to the deleted deployment and cannot be reused.
+  // spec version belong to the deleted deployment and cannot be reused.
   repeated Deployment items = 1;
 }
 
 message DeploymentDeleteRequest {
   int32 deployment_id = 1;
-  int32 version = 2; // expected next config version
+  int32 spec_version = 2; // expected next spec version
 }
 
 // Version is the shared display shape for a deployable source item: a git
@@ -181,7 +181,7 @@ message DeploymentRunReportRequest {
 
 message DeploymentRunReport {
   int32 deployment_id = 1;
-  int32 deployment_version = 2;
+  int32 deployment_spec_version = 2;
   int32 node_id = 3;
   int32 instance_ordinal = 4;
   int32 run = 5;

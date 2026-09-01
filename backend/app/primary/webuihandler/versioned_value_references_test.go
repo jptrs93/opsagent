@@ -9,18 +9,18 @@ import (
 )
 
 func TestRequestedDeploymentVersionsValidatesRequestShape(t *testing.T) {
-	refs := []*apigen.DeploymentVersionRef{{ID: 10, Version: 3}}
+	refs := []*apigen.DeploymentSpecVersionRef{{ID: 10, SpecVersion: 3}}
 	if _, err := requestedDeploymentVersions(false, refs); !errors.Is(err, InvalidReferencingDeploymentsErr) {
 		t.Fatalf("list without flag error = %v", err)
 	}
-	if _, err := requestedDeploymentVersions(true, []*apigen.DeploymentVersionRef{
-		{ID: 10, Version: 3},
-		{ID: 10, Version: 3},
+	if _, err := requestedDeploymentVersions(true, []*apigen.DeploymentSpecVersionRef{
+		{ID: 10, SpecVersion: 3},
+		{ID: 10, SpecVersion: 3},
 	}); !errors.Is(err, InvalidReferencingDeploymentsErr) {
 		t.Fatalf("duplicate list error = %v", err)
 	}
 	versions, err := requestedDeploymentVersions(true, refs)
-	if err != nil || len(versions) != 1 || versions[0].ID != 10 || versions[0].Version != 3 {
+	if err != nil || len(versions) != 1 || versions[0].ID != 10 || versions[0].SpecVersion != 3 {
 		t.Fatalf("versions = %+v, err = %v", versions, err)
 	}
 }

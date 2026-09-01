@@ -157,8 +157,8 @@ func TestPrepareFailsOnContainerdCacheCheckError(t *testing.T) {
 
 func testNixDeployment() *apigen.Deployment {
 	return &apigen.Deployment{
-		ID:      987654,
-		Version: 3,
+		ID:          987654,
+		SpecVersion: 3,
 		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 			Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{
 				Repo:   "github.com/acme/platform",

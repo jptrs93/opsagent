@@ -147,7 +147,7 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 	prefix := network.GeneratePrefix()
 	return &apigen.EnrollmentAccepted{
 		ID:             1,
-		NodeName:     machine,
+		NodeName:       machine,
 		ClusterNetwork: &apigen.ClusterNetworkInfo{UlaPrefix: prefix.Bytes()},
 		NodeDeployment: &apigen.ScheduledInstanceState{
 			Instance: apigen.ScheduledInstance{

@@ -89,11 +89,11 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
         .find(d => Number(d.config?.id || 0) === Number(deploymentId)) || null;
 
     // waitForConvergence watches the state stream until the member's runner
-    // reports RUNNING at the target version for the applied config version, or
+    // reports RUNNING at the target version for the applied spec version, or
     // the prepare/run of that config fails. The stream survives the primary's
     // own restart via its reconnect loop, so the primary-last step resolves
     // once the restarted agent reattaches and reports in.
-    const waitForConvergence = async (deploymentId, targetVersion, appliedConfigVersion) => {
+    const waitForConvergence = async (deploymentId, targetVersion, appliedSpecVersion) => {
         const deadline = Date.now() + CONVERGENCE_TIMEOUT_MS;
         while (Date.now() < deadline) {
             if (aborted.val) return {ok: false, detail: 'cancelled'};
@@ -101,14 +101,14 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
             if (live) {
                 const runner = live.status?.runner || {};
                 const preparer = live.status?.preparer || {};
-                const runnerCurrent = Number(runner.deploymentConfigVersion || 0) >= appliedConfigVersion;
+                const runnerCurrent = Number(runner.deploymentSpecVersion || 0) >= appliedSpecVersion;
                 if (runnerCurrent && runner.status === RUNNER_RUNNING && (runner.runningVersion || '') === targetVersion) {
                     return {ok: true};
                 }
                 if (runnerCurrent && runner.status === RUNNER_CRASHED) {
                     return {ok: false, detail: 'runner crashed on the new version'};
                 }
-                if (Number(preparer.deploymentConfigVersion || 0) >= appliedConfigVersion
+                if (Number(preparer.deploymentSpecVersion || 0) >= appliedSpecVersion
                     && preparerPhase(preparer)?.tone === 'failed') {
                     return {ok: false, detail: 'prepare failed for the new version'};
                 }
@@ -152,7 +152,7 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
                 try {
                     applied = await capi.postV1DeploymentsUpdate({
                         deploymentId: member.id,
-                        version: (live.config.version || 0) + 1,
+                        specVersion: (live.config.specVersion || 0) + 1,
                         targetVersion: target,
                     });
                 } catch (error) {
@@ -161,7 +161,7 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
                     return;
                 }
                 phase.val = {state: 'waiting', detail: ''};
-                const result = await waitForConvergence(member.id, target, Number(applied?.version || 0));
+                const result = await waitForConvergence(member.id, target, Number(applied?.specVersion || 0));
                 if (!result.ok) {
                     phase.val = {state: 'failed', detail: result.detail};
                     updateError.val = `Upgrade halted: ${member.node} did not reach ${target} (${result.detail}).`;

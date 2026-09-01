@@ -37,7 +37,7 @@ func (s *countingStore) MustFetchScheduledSnapshotAndSubscribe(storage.Scheduled
 // pushes a no-op to the primary, so it must be dropped.
 func TestWriteStatusDropsUnchangedPreparerStatus(t *testing.T) {
 	store := &countingStore{}
-	dep := &apigen.Deployment{ID: 11, Version: 4}
+	dep := &apigen.Deployment{ID: 11, SpecVersion: 4}
 
 	ready := StatusUpdate{
 		Artifact: "example/app:v1",
@@ -123,7 +123,7 @@ func TestInProgress(t *testing.T) {
 // very first write for an instance, whose stored status is still zero.
 func TestWriteStatusAlwaysPublishesFirstStatus(t *testing.T) {
 	store := &countingStore{}
-	dep := &apigen.Deployment{ID: 11, Version: 4}
+	dep := &apigen.Deployment{ID: 11, SpecVersion: 4}
 
 	WriteStatus(store, 42, dep, StatusUpdate{Inputs: apigen.InputsStatus_INPUTS_RESOLVING})
 	if store.writes != 1 {
@@ -154,8 +154,8 @@ func TestHandleCancelWaitsForCompletion(t *testing.T) {
 
 	handle.Complete()
 	<-cancelled
-	if handle.Version() != 7 {
-		t.Fatalf("Version() = %d, want 7", handle.Version())
+	if handle.SpecVersion() != 7 {
+		t.Fatalf("Version() = %d, want 7", handle.SpecVersion())
 	}
 
 	// Completion is intentionally idempotent for deferred cleanup paths.
@@ -165,7 +165,7 @@ func TestHandleCancelWaitsForCompletion(t *testing.T) {
 func TestFinishedHandleCancelReturns(t *testing.T) {
 	handle := Finished(9)
 	handle.Cancel()
-	if handle.Version() != 9 {
-		t.Fatalf("Version() = %d, want 9", handle.Version())
+	if handle.SpecVersion() != 9 {
+		t.Fatalf("Version() = %d, want 9", handle.SpecVersion())
 	}
 }

@@ -42,7 +42,7 @@ var (
 func attachOpendeployRunner(store storage.OperatorStore, instanceID int32, dep *apigen.Deployment, prev apigen.RunnerStatus) *opendeployRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	if prev.IsZero() {
-		prev.DeploymentConfigVersion = dep.Version
+		prev.DeploymentSpecVersion = dep.SpecVersion
 	}
 	prev.RunningArtifact = resolveOpendeployArtifact()
 	prev.RunningPid = int32(os.Getpid())
@@ -76,12 +76,12 @@ func newOpendeployRunnerWithRestart(store storage.OperatorStore, instanceID int3
 		scheduledInstanceID: instanceID,
 		deploymentID:        dep.ID,
 		status: apigen.RunnerStatus{
-			DeploymentConfigVersion: preparerStatus.DeploymentConfigVersion,
-			RunningPid:              0,
-			RunningArtifact:         preparerStatus.Artifact,
-			Status:                  apigen.RunningStatus_STARTING,
-			NumberOfRestarts:        0,
-			LastRestartAt:           time.Now(),
+			DeploymentSpecVersion: preparerStatus.DeploymentSpecVersion,
+			RunningPid:            0,
+			RunningArtifact:       preparerStatus.Artifact,
+			Status:                apigen.RunningStatus_STARTING,
+			NumberOfRestarts:      0,
+			LastRestartAt:         time.Now(),
 		},
 	}
 	r.writeStatus()
@@ -89,7 +89,7 @@ func newOpendeployRunnerWithRestart(store storage.OperatorStore, instanceID int3
 	return r
 }
 
-func (r *opendeployRunner) Version() int32                   { return r.status.DeploymentConfigVersion }
+func (r *opendeployRunner) SpecVersion() int32               { return r.status.DeploymentSpecVersion }
 func (r *opendeployRunner) ArtifactMissing() <-chan struct{} { return nil }
 
 // Serve is a no-op: the self deployment runs in the host network namespace and
@@ -136,7 +136,7 @@ func (r *opendeployRunner) updateStatus(status apigen.RunningStatus, pid int32) 
 
 func (r *opendeployRunner) writeStatus() {
 	r.store.MustWriteScheduledInstanceStatus(r.scheduledInstanceID, func(s *apigen.ScheduledInstanceStatus) bool {
-		if !s.Runner.IsZero() && s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion {
+		if !s.Runner.IsZero() && s.Runner.DeploymentSpecVersion > r.status.DeploymentSpecVersion {
 			slog.InfoContext(r.ctx, "discarding status update from superseded runner")
 			return false
 		}

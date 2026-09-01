@@ -198,7 +198,7 @@ func (e *queryEngine) scanWalTwoPass(ctx context.Context, committed StreamMarker
 	cancel()
 	minuteN := int64(time.Minute)
 	var plan *walPlan
-	if filtersLevelOnly(q.filters) && q.configVersion == 0 && (agg.bucketN == 0 || agg.bucketStep >= minuteN) {
+	if filtersLevelOnly(q.filters) && q.specVersion == 0 && (agg.bucketN == 0 || agg.bucketStep >= minuteN) {
 		if snap, ok := e.spool.aggSnapshot(); ok {
 			plan = planWal(snap, committed, agg.fromN, agg.tillN, captureK, q.newestFirst, agg)
 		}
@@ -227,7 +227,7 @@ func (e *queryEngine) scanWalTwoPass(ctx context.Context, committed StreamMarker
 			if v.rec.Time < agg.fromN || v.rec.Time >= agg.tillN {
 				return nil
 			}
-			if q.configVersion > 0 && v.rec.Version != q.configVersion {
+			if q.specVersion > 0 && v.rec.Version != q.specVersion {
 				return nil
 			}
 		}
@@ -335,7 +335,7 @@ func (ev *archiveEval) consume(b *cheapBatch, n int, baseRow int64, sorted bool)
 			if ev.needMsg {
 				v.msg = string(b.msgs[i].ByteArray())
 			}
-			if ev.q.configVersion > 0 && v.rec.Version != ev.q.configVersion {
+			if ev.q.specVersion > 0 && v.rec.Version != ev.q.specVersion {
 				continue
 			}
 			ok := true
@@ -395,7 +395,7 @@ func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apig
 	}
 	var warnings []string
 	needMsg := filtersNeedMsg(q.filters)
-	levelOnly := filtersLevelOnly(q.filters) && q.configVersion == 0
+	levelOnly := filtersLevelOnly(q.filters) && q.specVersion == 0
 	metaFiltered := filtersReferenceMeta(q.filters)
 	for fi := range files {
 		f := files[fi]
@@ -415,7 +415,7 @@ func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apig
 				capture = f.MinTime <= root.Time
 			}
 		}
-		needs := columnNeeds{msg: needMsg, ints: capture || metaFiltered || q.configVersion > 0}
+		needs := columnNeeds{msg: needMsg, ints: capture || metaFiltered || q.specVersion > 0}
 		ev := &archiveEval{deploymentID: e.deploymentID, q: &q, agg: agg, ret: ret, levelOnly: levelOnly, needMsg: needMsg, capture: capture, fileIdx: fi}
 		path := archiveFilePath(e.deploymentID, f)
 		fs := fileScan{name: archiveFileName(int(f.Level), f.MinTime, f.MaxTime, int32(f.Node), f.Seq), mode: "agg"}

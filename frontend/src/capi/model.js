@@ -9,7 +9,7 @@
  * @property {Date} createdAt
  * @property {Date} updatedAt
  * @property {number} author
- * @property {number} version
+ * @property {number} specVersion
  * @property {DeploymentSpec} spec
  * @property {boolean} deleted
  */
@@ -172,16 +172,16 @@
  * @property {Deployment[]} items
  */
 /**
- * @typedef {Object} DeploymentVersionRef
+ * @typedef {Object} DeploymentSpecVersionRef
  * @property {number} id
- * @property {number} version
+ * @property {number} specVersion
  */
 /**
  * @typedef {Object} ScheduledInstance
  * @property {number} id
  * @property {Date} createdAt
  * @property {number} deploymentId
- * @property {number} deploymentVersion
+ * @property {number} deploymentSpecVersion
  * @property {number} nodeId
  * @property {number} instanceOrdinal
  * @property {number} state
@@ -207,14 +207,14 @@
  */
 /**
  * @typedef {Object} PreparerStatus
- * @property {number} deploymentConfigVersion
+ * @property {number} deploymentSpecVersion
  * @property {string} artifact
  * @property {number} inputs
  * @property {number} image
  */
 /**
  * @typedef {Object} RunnerStatus
- * @property {number} deploymentConfigVersion
+ * @property {number} deploymentSpecVersion
  * @property {number} runningPid
  * @property {string} runningArtifact
  * @property {number} status
@@ -229,7 +229,7 @@
  * @property {number} deploymentId
  * @property {string} targetVersion
  * @property {boolean} stop
- * @property {number} version
+ * @property {number} specVersion
  * @property {DeploymentSpec} spec
  */
 /**
@@ -260,7 +260,7 @@
 /**
  * @typedef {Object} DeploymentDeleteRequest
  * @property {number} deploymentId
- * @property {number} version
+ * @property {number} specVersion
  */
 /**
  * @typedef {Object} Version
@@ -386,7 +386,7 @@
 /**
  * @typedef {Object} DeploymentRunReport
  * @property {number} deploymentId
- * @property {number} deploymentVersion
+ * @property {number} deploymentSpecVersion
  * @property {number} nodeId
  * @property {number} instanceOrdinal
  * @property {number} run
@@ -427,7 +427,7 @@
 /**
  * @typedef {Object} PrepareOutputRequest
  * @property {number} deploymentId
- * @property {number} version
+ * @property {number} specVersion
  */
 /**
  * @typedef {Object} PrepareOutputChunk
@@ -449,7 +449,7 @@
  * @typedef {Object} LogQueryRequest
  * @property {number} deploymentId
  * @property {number} targetNodeId
- * @property {number} configVersion
+ * @property {number} specVersion
  * @property {Date} timeStart
  * @property {Date} timeEnd
  * @property {LogFilter[]} filters
@@ -547,7 +547,7 @@
  * @property {number} secretId
  * @property {Uint8Array} value
  * @property {boolean} updateReferencingDeployments
- * @property {DeploymentVersionRef[]} referencingDeployments
+ * @property {DeploymentSpecVersionRef[]} referencingDeployments
  */
 /**
  * @typedef {Object} SecretPasswordSpec
@@ -652,7 +652,7 @@
  * @property {number} configId
  * @property {string} value
  * @property {boolean} updateReferencingDeployments
- * @property {DeploymentVersionRef[]} referencingDeployments
+ * @property {DeploymentSpecVersionRef[]} referencingDeployments
  */
 /**
  * @typedef {Object} ConfigRenameRequest
@@ -1331,7 +1331,7 @@
 /**
  * @typedef {Object} ClusterIssuedTLSRequest
  * @property {number} deploymentId
- * @property {number} deploymentConfigVersion
+ * @property {number} deploymentSpecVersion
  */
 /**
  * @typedef {Object} ClusterIssuedTLSResponse
@@ -1584,8 +1584,8 @@ export function writeDeployment(message, writer) {
     if (message.author !== undefined && message.author !== null && message.author !== 0) {
         writer.uint32(tag(6, WIRE.VARINT)).int32(message.author);
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(7, WIRE.VARINT)).int32(message.version);
+    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.specVersion);
     }
     if (message.spec !== undefined && message.spec !== null) {
         writer.uint32(tag(8, WIRE.LDELIM)).fork();
@@ -1616,7 +1616,7 @@ export function encodeDeployment(message) {
  */
 function decodeDeploymentMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, nodeId: 0, spaceId: 0, spaceVersion: 0, name: "", createdAt: new Date(0), updatedAt: new Date(0), author: 0, version: 0, spec: undefined, deleted: false };
+    const message = {id: 0, nodeId: 0, spaceId: 0, spaceVersion: 0, name: "", createdAt: new Date(0), updatedAt: new Date(0), author: 0, specVersion: 0, spec: undefined, deleted: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1653,7 +1653,7 @@ function decodeDeploymentMessage(reader, length) {
                 break;
             }
             case 7: {
-                message.version = reader.int32();
+                message.specVersion = reader.int32();
                 break;
             }
             case 8: {
@@ -3617,26 +3617,26 @@ export function decodeDeploymentSnapshot(buffer) {
 
 
 /**
- * @param {DeploymentVersionRef} message
+ * @param {DeploymentSpecVersionRef} message
  * @param {Writer} writer
  */
-export function writeDeploymentVersionRef(message, writer) {
+export function writeDeploymentSpecVersionRef(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.specVersion);
     }
 }
 
 
 /**
- * @param {DeploymentVersionRef} message
+ * @param {DeploymentSpecVersionRef} message
  * @returns {Uint8Array}
  */
-export function encodeDeploymentVersionRef(message) {
+export function encodeDeploymentSpecVersionRef(message) {
     const writer = Writer.create();
-    writeDeploymentVersionRef(message, writer);
+    writeDeploymentSpecVersionRef(message, writer);
     return writer.finish();
 }
 
@@ -3644,11 +3644,11 @@ export function encodeDeploymentVersionRef(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {DeploymentVersionRef}
+ * @returns {DeploymentSpecVersionRef}
  */
-function decodeDeploymentVersionRefMessage(reader, length) {
+function decodeDeploymentSpecVersionRefMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, version: 0 };
+    const message = {id: 0, specVersion: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3657,7 +3657,7 @@ function decodeDeploymentVersionRefMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.version = reader.int32();
+                message.specVersion = reader.int32();
                 break;
             }
             default:
@@ -3670,11 +3670,11 @@ function decodeDeploymentVersionRefMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {DeploymentVersionRef}
+ * @returns {DeploymentSpecVersionRef}
  */
-export function decodeDeploymentVersionRef(buffer) {
+export function decodeDeploymentSpecVersionRef(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentVersionRefMessage(reader);
+    return decodeDeploymentSpecVersionRefMessage(reader);
 }
 
 
@@ -3693,8 +3693,8 @@ export function writeScheduledInstance(message, writer) {
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.deploymentVersion !== undefined && message.deploymentVersion !== null && message.deploymentVersion !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.deploymentVersion);
+    if (message.deploymentSpecVersion !== undefined && message.deploymentSpecVersion !== null && message.deploymentSpecVersion !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.deploymentSpecVersion);
     }
     if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int32(message.nodeId);
@@ -3729,7 +3729,7 @@ export function encodeScheduledInstance(message) {
  */
 function decodeScheduledInstanceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, createdAt: new Date(0), deploymentId: 0, deploymentVersion: 0, nodeId: 0, instanceOrdinal: 0, state: 0, spaceId: 0 };
+    const message = {id: 0, createdAt: new Date(0), deploymentId: 0, deploymentSpecVersion: 0, nodeId: 0, instanceOrdinal: 0, state: 0, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3746,7 +3746,7 @@ function decodeScheduledInstanceMessage(reader, length) {
                 break;
             }
             case 4: {
-                message.deploymentVersion = reader.int32();
+                message.deploymentSpecVersion = reader.int32();
                 break;
             }
             case 5: {
@@ -4015,8 +4015,8 @@ export function decodeScheduledInstanceSnapshot(buffer) {
  * @param {Writer} writer
  */
 export function writePreparerStatus(message, writer) {
-    if (message.deploymentConfigVersion !== undefined && message.deploymentConfigVersion !== null && message.deploymentConfigVersion !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentConfigVersion);
+    if (message.deploymentSpecVersion !== undefined && message.deploymentSpecVersion !== null && message.deploymentSpecVersion !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentSpecVersion);
     }
     if (message.artifact !== undefined && message.artifact !== null && message.artifact !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.artifact);
@@ -4048,12 +4048,12 @@ export function encodePreparerStatus(message) {
  */
 function decodePreparerStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentConfigVersion: 0, artifact: "", inputs: 0, image: 0 };
+    const message = {deploymentSpecVersion: 0, artifact: "", inputs: 0, image: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.deploymentConfigVersion = reader.int32();
+                message.deploymentSpecVersion = reader.int32();
                 break;
             }
             case 2: {
@@ -4092,8 +4092,8 @@ export function decodePreparerStatus(buffer) {
  * @param {Writer} writer
  */
 export function writeRunnerStatus(message, writer) {
-    if (message.deploymentConfigVersion !== undefined && message.deploymentConfigVersion !== null && message.deploymentConfigVersion !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentConfigVersion);
+    if (message.deploymentSpecVersion !== undefined && message.deploymentSpecVersion !== null && message.deploymentSpecVersion !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentSpecVersion);
     }
     if (message.runningPid !== undefined && message.runningPid !== null && message.runningPid !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.runningPid);
@@ -4142,12 +4142,12 @@ export function encodeRunnerStatus(message) {
  */
 function decodeRunnerStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentConfigVersion: 0, runningPid: 0, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: new Date(0), runningVersion: "", networkDiagnostics: [], exitCode: undefined };
+    const message = {deploymentSpecVersion: 0, runningPid: 0, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: new Date(0), runningVersion: "", networkDiagnostics: [], exitCode: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.deploymentConfigVersion = reader.int32();
+                message.deploymentSpecVersion = reader.int32();
                 break;
             }
             case 2: {
@@ -4215,8 +4215,8 @@ export function writeDeploymentUpdateRequest(message, writer) {
     if (message.stop === true) {
         writer.uint32(tag(3, WIRE.VARINT)).bool(message.stop);
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.version);
+    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.specVersion);
     }
     if (message.spec !== undefined && message.spec !== null) {
         writer.uint32(tag(5, WIRE.LDELIM)).fork();
@@ -4244,7 +4244,7 @@ export function encodeDeploymentUpdateRequest(message) {
  */
 function decodeDeploymentUpdateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, targetVersion: "", stop: false, version: 0, spec: undefined };
+    const message = {deploymentId: 0, targetVersion: "", stop: false, specVersion: 0, spec: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4261,7 +4261,7 @@ function decodeDeploymentUpdateRequestMessage(reader, length) {
                 break;
             }
             case 4: {
-                message.version = reader.int32();
+                message.specVersion = reader.int32();
                 break;
             }
             case 5: {
@@ -4616,8 +4616,8 @@ export function writeDeploymentDeleteRequest(message, writer) {
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.specVersion);
     }
 }
 
@@ -4640,7 +4640,7 @@ export function encodeDeploymentDeleteRequest(message) {
  */
 function decodeDeploymentDeleteRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, version: 0 };
+    const message = {deploymentId: 0, specVersion: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4649,7 +4649,7 @@ function decodeDeploymentDeleteRequestMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.version = reader.int32();
+                message.specVersion = reader.int32();
                 break;
             }
             default:
@@ -6154,8 +6154,8 @@ export function writeDeploymentRunReport(message, writer) {
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.deploymentVersion !== undefined && message.deploymentVersion !== null && message.deploymentVersion !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.deploymentVersion);
+    if (message.deploymentSpecVersion !== undefined && message.deploymentSpecVersion !== null && message.deploymentSpecVersion !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.deploymentSpecVersion);
     }
     if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int32(message.nodeId);
@@ -6212,7 +6212,7 @@ export function encodeDeploymentRunReport(message) {
  */
 function decodeDeploymentRunReportMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, deploymentVersion: 0, nodeId: 0, instanceOrdinal: 0, run: 0, running: false, startedAt: new Date(0), stoppedAt: new Date(0), exitCode: undefined, logLines: [], warnings: [], status: 0 };
+    const message = {deploymentId: 0, deploymentSpecVersion: 0, nodeId: 0, instanceOrdinal: 0, run: 0, running: false, startedAt: new Date(0), stoppedAt: new Date(0), exitCode: undefined, logLines: [], warnings: [], status: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6221,7 +6221,7 @@ function decodeDeploymentRunReportMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.deploymentVersion = reader.int32();
+                message.deploymentSpecVersion = reader.int32();
                 break;
             }
             case 3: {
@@ -6554,8 +6554,8 @@ export function writePrepareOutputRequest(message, writer) {
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.specVersion);
     }
 }
 
@@ -6578,7 +6578,7 @@ export function encodePrepareOutputRequest(message) {
  */
 function decodePrepareOutputRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, version: 0 };
+    const message = {deploymentId: 0, specVersion: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6587,7 +6587,7 @@ function decodePrepareOutputRequestMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.version = reader.int32();
+                message.specVersion = reader.int32();
                 break;
             }
             default:
@@ -6820,8 +6820,8 @@ export function writeLogQueryRequest(message, writer) {
     if (message.targetNodeId !== undefined && message.targetNodeId !== null && message.targetNodeId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.targetNodeId);
     }
-    if (message.configVersion !== undefined && message.configVersion !== null && message.configVersion !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.configVersion);
+    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.specVersion);
     }
     if (message.timeStart instanceof Date && message.timeStart.getTime() !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.timeStart.getTime()));
@@ -6872,7 +6872,7 @@ export function encodeLogQueryRequest(message) {
  */
 function decodeLogQueryRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, targetNodeId: 0, configVersion: 0, timeStart: new Date(0), timeEnd: new Date(0), filters: [], limit: 0, histogramBuckets: 0, includeRaw: false, order: "", requestId: "" };
+    const message = {deploymentId: 0, targetNodeId: 0, specVersion: 0, timeStart: new Date(0), timeEnd: new Date(0), filters: [], limit: 0, histogramBuckets: 0, includeRaw: false, order: "", requestId: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6885,7 +6885,7 @@ function decodeLogQueryRequestMessage(reader, length) {
                 break;
             }
             case 3: {
-                message.configVersion = reader.int32();
+                message.specVersion = reader.int32();
                 break;
             }
             case 4: {
@@ -7918,7 +7918,7 @@ export function writeSecretSetRequest(message, writer) {
     if (message.referencingDeployments && message.referencingDeployments.length > 0) {
         for (const item of message.referencingDeployments) {
             writer.uint32(tag(4, WIRE.LDELIM)).fork();
-            writeDeploymentVersionRef(item, writer);
+            writeDeploymentSpecVersionRef(item, writer);
             writer.ldelim();
         }
     }
@@ -7960,7 +7960,7 @@ function decodeSecretSetRequestMessage(reader, length) {
                 break;
             }
             case 4: {
-                message.referencingDeployments.push(decodeDeploymentVersionRefMessage(reader, reader.uint32()));
+                message.referencingDeployments.push(decodeDeploymentSpecVersionRefMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -9177,7 +9177,7 @@ export function writeConfigSetRequest(message, writer) {
     if (message.referencingDeployments && message.referencingDeployments.length > 0) {
         for (const item of message.referencingDeployments) {
             writer.uint32(tag(4, WIRE.LDELIM)).fork();
-            writeDeploymentVersionRef(item, writer);
+            writeDeploymentSpecVersionRef(item, writer);
             writer.ldelim();
         }
     }
@@ -9219,7 +9219,7 @@ function decodeConfigSetRequestMessage(reader, length) {
                 break;
             }
             case 4: {
-                message.referencingDeployments.push(decodeDeploymentVersionRefMessage(reader, reader.uint32()));
+                message.referencingDeployments.push(decodeDeploymentSpecVersionRefMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -17469,8 +17469,8 @@ export function writeClusterIssuedTLSRequest(message, writer) {
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.deploymentConfigVersion !== undefined && message.deploymentConfigVersion !== null && message.deploymentConfigVersion !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.deploymentConfigVersion);
+    if (message.deploymentSpecVersion !== undefined && message.deploymentSpecVersion !== null && message.deploymentSpecVersion !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.deploymentSpecVersion);
     }
 }
 
@@ -17493,7 +17493,7 @@ export function encodeClusterIssuedTLSRequest(message) {
  */
 function decodeClusterIssuedTLSRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, deploymentConfigVersion: 0 };
+    const message = {deploymentId: 0, deploymentSpecVersion: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -17502,7 +17502,7 @@ function decodeClusterIssuedTLSRequestMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.deploymentConfigVersion = reader.int32();
+                message.deploymentSpecVersion = reader.int32();
                 break;
             }
             default:

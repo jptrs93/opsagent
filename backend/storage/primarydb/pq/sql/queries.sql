@@ -76,7 +76,7 @@ WHERE deployment_id = ? AND version = ?;
 -- pure appends.
 
 -- name: InsertScheduledInstance :one
-INSERT INTO scheduled_instances (deployment_id, deployment_version, node_id, instance_ordinal, deployment_space_version_id)
+INSERT INTO scheduled_instances (deployment_id, deployment_spec_version, node_id, instance_ordinal, deployment_space_version_id)
 VALUES (?, ?, ?, ?, ?)
 RETURNING id;
 
@@ -89,19 +89,19 @@ WHERE scheduled_instance_id = @scheduled_instance_id;
 -- name: InsertScheduledInstanceStatus :exec
 INSERT INTO scheduled_instance_status (
     scheduled_instance_id, updated_at, deployment_id,
-    preparer_config_version, preparer_artifact,
+    preparer_spec_version, preparer_artifact,
     preparer_inputs_status, preparer_image_status,
-    runner_config_version, runner_pid, runner_artifact, runner_status,
+    runner_spec_version, runner_pid, runner_artifact, runner_status,
     runner_num_restarts, runner_last_restart_at, runner_extra_blob,
     runner_exit_code
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(scheduled_instance_id, updated_at) DO UPDATE SET
     deployment_id = excluded.deployment_id,
-    preparer_config_version = excluded.preparer_config_version,
+    preparer_spec_version = excluded.preparer_spec_version,
     preparer_artifact = excluded.preparer_artifact,
     preparer_inputs_status = excluded.preparer_inputs_status,
     preparer_image_status = excluded.preparer_image_status,
-    runner_config_version = excluded.runner_config_version,
+    runner_spec_version = excluded.runner_spec_version,
     runner_pid = excluded.runner_pid,
     runner_artifact = excluded.runner_artifact,
     runner_status = excluded.runner_status,
@@ -112,9 +112,9 @@ ON CONFLICT(scheduled_instance_id, updated_at) DO UPDATE SET
 
 -- name: ListLatestScheduledInstanceStatuses :many
 SELECT s.scheduled_instance_id, s.updated_at, s.deployment_id,
-       s.preparer_config_version, s.preparer_artifact,
+       s.preparer_spec_version, s.preparer_artifact,
        s.preparer_inputs_status, s.preparer_image_status,
-       s.runner_config_version, s.runner_pid, s.runner_artifact, s.runner_status,
+       s.runner_spec_version, s.runner_pid, s.runner_artifact, s.runner_status,
        s.runner_num_restarts, s.runner_last_restart_at, s.runner_extra_blob,
        s.runner_exit_code
 FROM scheduled_instance_status s
@@ -126,9 +126,9 @@ JOIN (
 
 -- name: ListScheduledInstanceStatusHistorySince :many
 SELECT scheduled_instance_id, updated_at, deployment_id,
-       preparer_config_version, preparer_artifact,
+       preparer_spec_version, preparer_artifact,
        preparer_inputs_status, preparer_image_status,
-       runner_config_version, runner_pid, runner_artifact, runner_status,
+       runner_spec_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at, runner_extra_blob,
        runner_exit_code
 FROM scheduled_instance_status
@@ -137,9 +137,9 @@ ORDER BY updated_at ASC;
 
 -- name: ListScheduledInstanceStatusHistoryForDeployment :many
 SELECT scheduled_instance_id, updated_at, deployment_id,
-       preparer_config_version, preparer_artifact,
+       preparer_spec_version, preparer_artifact,
        preparer_inputs_status, preparer_image_status,
-       runner_config_version, runner_pid, runner_artifact, runner_status,
+       runner_spec_version, runner_pid, runner_artifact, runner_status,
        runner_num_restarts, runner_last_restart_at, runner_extra_blob,
        runner_exit_code
 FROM scheduled_instance_status

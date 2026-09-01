@@ -10,3 +10,7 @@
 -- release that still carried them. Databases migrated through v0.0.541 keep
 -- a dead NULL-only nodes.enrollment_id column: its UNIQUE constraint blocks
 -- ALTER TABLE DROP COLUMN, and no query references it.
+
+ALTER TABLE scheduled_instances RENAME COLUMN deployment_version TO deployment_spec_version;
+ALTER TABLE scheduled_instance_status RENAME COLUMN preparer_config_version TO preparer_spec_version;
+ALTER TABLE scheduled_instance_status RENAME COLUMN runner_config_version TO runner_spec_version;

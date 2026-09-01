@@ -40,13 +40,13 @@ export function runReportOverlay(target, onClose) {
     const versionMeta = van.state(null);
     const resolveVersionMeta = async () => {
         const cfg = deployment()?.config;
-        if (cfg?.version === version) {
+        if (cfg?.specVersion === version) {
             versionMeta.val = {at: cfg.updatedAt, by: cfg.author || 0};
             return;
         }
         try {
             const resp = await capi.postV1DeploymentsHistory({deploymentId});
-            const entry = (resp.entries || []).find((e) => e.config?.version === version);
+            const entry = (resp.entries || []).find((e) => e.config?.specVersion === version);
             if (entry) versionMeta.val = {at: entry.config.updatedAt, by: entry.config.author || 0};
         } catch {}
     };
@@ -55,7 +55,7 @@ export function runReportOverlay(target, onClose) {
     const instances = () => {
         const d = deployment();
         return (d?.scheduledInstances || [])
-            .filter((s) => (s.instance?.deploymentVersion || 0) === version && (s.instance?.id || 0) > 0)
+            .filter((s) => (s.instance?.deploymentSpecVersion || 0) === version && (s.instance?.id || 0) > 0)
             .map((s) => ({
                 id: s.instance.id,
                 ordinal: s.instance.instanceOrdinal || 0,

@@ -16,18 +16,18 @@ import (
 
 // Handle owns cancellation and completion for one preparation run.
 type Handle struct {
-	cancel                  context.CancelFunc
-	done                    chan struct{}
-	complete                sync.Once
-	deploymentConfigVersion int32
+	cancel                context.CancelFunc
+	done                  chan struct{}
+	complete              sync.Once
+	deploymentSpecVersion int32
 }
 
 func NewHandle(version int32) (*Handle, context.Context) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Handle{
-		cancel:                  cancel,
-		done:                    make(chan struct{}),
-		deploymentConfigVersion: version,
+		cancel:                cancel,
+		done:                  make(chan struct{}),
+		deploymentSpecVersion: version,
 	}, ctx
 }
 
@@ -52,7 +52,7 @@ func (h *Handle) Cancel() {
 	<-h.done
 }
 
-func (h *Handle) Version() int32 { return h.deploymentConfigVersion }
+func (h *Handle) SpecVersion() int32 { return h.deploymentSpecVersion }
 
 // StatusUpdate is one preparer transition across both preparation stages. The
 // rollup that gates runner start is derived from the pair by
@@ -99,16 +99,16 @@ func WriteStatus(store storage.OperatorStore, instanceID int32, dep *apigen.Depl
 	ctx = logu.AddKV(ctx, "scheduled_instance", instanceID)
 	ctx = logu.AddKV(ctx, "dep", dep.ID)
 	next := apigen.PreparerStatus{
-		DeploymentConfigVersion: dep.Version,
-		Artifact:                update.Artifact,
-		Inputs:                  update.Inputs,
-		Image:                   update.Image,
+		DeploymentSpecVersion: dep.SpecVersion,
+		Artifact:              update.Artifact,
+		Inputs:                update.Inputs,
+		Image:                 update.Image,
 	}
 	fmtNext := func() string {
-		return fmt.Sprintf("seqNo=%d status=%v inputs=%v image=%v artifact=%q", dep.Version, next.Rollup(), next.Inputs, next.Image, next.Artifact)
+		return fmt.Sprintf("seqNo=%d status=%v inputs=%v image=%v artifact=%q", dep.SpecVersion, next.Rollup(), next.Inputs, next.Image, next.Artifact)
 	}
 	store.MustWriteScheduledInstanceStatus(instanceID, func(s *apigen.ScheduledInstanceStatus) bool {
-		if !s.Preparer.IsZero() && s.Preparer.DeploymentConfigVersion > dep.Version {
+		if !s.Preparer.IsZero() && s.Preparer.DeploymentSpecVersion > dep.SpecVersion {
 			return false
 		}
 		// A zero status is never republished as unchanged: it means nothing has

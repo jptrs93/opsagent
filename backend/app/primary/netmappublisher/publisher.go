@@ -36,14 +36,14 @@ type Publisher struct {
 	// is in force once lastRenderedSeq has reached N and the current map is
 	// applied everywhere: if the render at N changed no routes, the map already
 	// in force encodes it.
-	lastRenderedSeq int64
+	lastRenderedSeq   int64
 	subscribers       map[*subscriber]struct{}
 	nodeUpdates       <-chan apigen.ClusterNode
 	instanceUpdates   <-chan apigen.ScheduledInstanceState
 	policyUpdates     <-chan apigen.NetworkPolicy
 	deploymentUpdates <-chan apigen.Deployment
 	unsubscribe       []func()
-	closeOnce       sync.Once
+	closeOnce         sync.Once
 
 	// Acknowledgement state is kept under its own lock so recording a secondary's
 	// applied sequence never contends with rendering or publishing a map.

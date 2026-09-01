@@ -54,25 +54,25 @@ CREATE TABLE IF NOT EXISTS local_scheduled_instance_cache (
 
 -- Append-only observed status for each scheduled instance this node runs.
 -- Latest row per scheduled_instance_id is the current status. Same shape as the
--- primary's table of the same name; the worker's rows are forwarded to the
+-- primary's table of the same name; the secondary's rows are forwarded to the
 -- primary over the cluster stream but this local copy is never replicated.
 --
 -- Unlike the primary, there is no deployment_id index: the per-deployment
--- history query is a primary-side display concern, and every worker read here
+-- history query is a primary-side display concern, and every secondary read here
 -- is covered by the primary key.
 CREATE TABLE IF NOT EXISTS scheduled_instance_status (
     scheduled_instance_id   INTEGER NOT NULL,
     updated_at              INTEGER NOT NULL,  -- HLC clock, unix nanoseconds
     deployment_id           INTEGER NOT NULL DEFAULT 0,
-    preparer_config_version INTEGER,
+    preparer_spec_version   INTEGER,
     preparer_artifact       TEXT,
     -- The two preparation stages. There is no stored rollup: it is derived from
     -- this pair on read, so the two cannot disagree with it. Not nullable, since
     -- zero already means UNKNOWN and presence is decided by
-    -- preparer_config_version.
+    -- preparer_spec_version.
     preparer_inputs_status  INTEGER NOT NULL DEFAULT 0,  -- stage 1: assets/secrets/configs
     preparer_image_status   INTEGER NOT NULL DEFAULT 0,  -- stage 2: build, pull, or download
-    runner_config_version   INTEGER,
+    runner_spec_version     INTEGER,
     runner_pid              INTEGER,
     runner_artifact         TEXT,
     runner_status           INTEGER,

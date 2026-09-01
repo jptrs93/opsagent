@@ -12,11 +12,11 @@ import (
 func testAssignment(id, deploymentID, nodeID int32) *apigen.ScheduledInstanceState {
 	return &apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{
-			ID: id, DeploymentID: deploymentID, DeploymentVersion: 1, NodeID: nodeID,
+			ID: id, DeploymentID: deploymentID, DeploymentSpecVersion: 1, NodeID: nodeID,
 			State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 		},
 		Config: apigen.Deployment{
-			ID: deploymentID, NodeID: nodeID, Version: 1,
+			ID: deploymentID, NodeID: nodeID, SpecVersion: 1,
 			Spec: apigen.DeploymentSpec{
 				Container1Spec: &apigen.ContainerSpec{
 					Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}},

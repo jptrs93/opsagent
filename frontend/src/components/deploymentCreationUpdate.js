@@ -705,7 +705,7 @@ export class DeploymentCreationUpdate {
         if (!this.existingState) throw new Error('Cannot produce update payload without existing deployment state');
         const payload = {
             deploymentId: this.existingState.id,
-            version: this.existingState.currentVersion + 1,
+            specVersion: this.existingState.currentVersion + 1,
         };
         const nextSpec = formToSpec(this.form);
         if (JSON.stringify(nextSpec) !== this.initialSpecKey) {

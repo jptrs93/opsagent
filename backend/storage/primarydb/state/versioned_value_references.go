@@ -34,7 +34,7 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 	referenceType versionedValueReferenceType,
 	stableID int32,
 	updateDeployments bool,
-	expected []storage.DeploymentConfigVersion,
+	expected []storage.DeploymentSpecVersion,
 	author int32,
 	insert func(*pq.Queries, int64) (int32, error),
 	afterCommit func([]int32),
@@ -63,13 +63,13 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 		for _, update := range updates {
 			replaceDeploymentReferences(update.spec, referenceType, referenceIDs, newID)
 			next := update.row
-			next.Version = update.row.Version + 1
+			next.SpecVersion = update.row.SpecVersion + 1
 			next.UpdatedAt = now
 			next.Author = int64(author)
 			next.SpecBlob = update.spec.Encode()
 			if err := q.InsertDeploymentSpecVersion(ctx, pq.InsertDeploymentSpecVersionParams{
 				DeploymentID: next.DeploymentID,
-				Version:      next.Version,
+				Version:      next.SpecVersion,
 				CreatedAt:    next.UpdatedAt,
 				Author:       next.Author,
 				SpecBlob:     next.SpecBlob,
@@ -104,7 +104,7 @@ func prepareDeploymentReferenceUpdates(
 	referenceType versionedValueReferenceType,
 	stableID int32,
 	updateDeployments bool,
-	expected []storage.DeploymentConfigVersion,
+	expected []storage.DeploymentSpecVersion,
 ) ([]deploymentReferenceUpdate, map[int32]struct{}, error) {
 	if !updateDeployments {
 		if len(expected) != 0 {
@@ -132,7 +132,7 @@ func prepareDeploymentReferenceUpdates(
 		}
 		spec, err := apigen.DecodeDeploymentSpec(row.SpecBlob)
 		if err != nil {
-			return nil, nil, fmt.Errorf("decode deployment %d version %d spec: %w", row.DeploymentID, row.Version, err)
+			return nil, nil, fmt.Errorf("decode deployment %d version %d spec: %w", row.DeploymentID, row.SpecVersion, err)
 		}
 		if deploymentUsesReferences(spec, referenceType, referenceIDs) {
 			actual[int32(row.DeploymentID)] = deploymentReferenceUpdate{row: row, spec: spec}
@@ -141,7 +141,7 @@ func prepareDeploymentReferenceUpdates(
 
 	seen := make(map[int32]struct{}, len(expected))
 	for _, item := range expected {
-		if item.ID <= 0 || item.Version <= 0 {
+		if item.ID <= 0 || item.SpecVersion <= 0 {
 			return nil, nil, fmt.Errorf("%w: deployment id and version must be positive", ErrInvalidReferencingDeployments)
 		}
 		if _, duplicate := seen[item.ID]; duplicate {
@@ -149,7 +149,7 @@ func prepareDeploymentReferenceUpdates(
 		}
 		seen[item.ID] = struct{}{}
 		current, ok := actual[item.ID]
-		if !ok || int32(current.row.Version) != item.Version {
+		if !ok || int32(current.row.SpecVersion) != item.SpecVersion {
 			return nil, nil, fmt.Errorf("%w: deployment %d version is stale or no longer references value %d", ErrReferencingDeploymentsChanged, item.ID, stableID)
 		}
 	}
@@ -181,7 +181,7 @@ func versionedValueIDs(ctx context.Context, q *pq.Queries, referenceType version
 
 	rows, err := q.ListConfigVersionIDsByConfigID(ctx, int64(stableID))
 	if err != nil {
-		return nil, fmt.Errorf("list config versions: %w", err)
+		return nil, fmt.Errorf("list spec versions: %w", err)
 	}
 	for _, id := range rows {
 		ids[int32(id)] = struct{}{}

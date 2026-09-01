@@ -86,9 +86,9 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 		"three",
 		9,
 		true,
-		[]storage.DeploymentConfigVersion{
-			{ID: firstDeployment.ID, Version: firstDeployment.Version},
-			{ID: secondDeployment.ID, Version: secondDeployment.Version},
+		[]storage.DeploymentSpecVersion{
+			{ID: firstDeployment.ID, SpecVersion: firstDeployment.SpecVersion},
+			{ID: secondDeployment.ID, SpecVersion: secondDeployment.SpecVersion},
 		},
 	)
 	if err != nil {
@@ -110,11 +110,11 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	if got := deploymentEnvRefID(t, firstCurrent, "OTHER", false); got != unrelatedID {
 		t.Fatalf("unrelated config ref = %d, want %d", got, unrelatedID)
 	}
-	if firstCurrent.Version != firstDeployment.Version+1 || secondCurrent.Version != secondDeployment.Version+1 {
-		t.Fatalf("updated deployment versions = %d, %d", firstCurrent.Version, secondCurrent.Version)
+	if firstCurrent.SpecVersion != firstDeployment.SpecVersion+1 || secondCurrent.SpecVersion != secondDeployment.SpecVersion+1 {
+		t.Fatalf("updated deployment versions = %d, %d", firstCurrent.SpecVersion, secondCurrent.SpecVersion)
 	}
-	if unchangedCurrent.Version != unchangedDeployment.Version {
-		t.Fatalf("unrelated deployment version = %d, want %d", unchangedCurrent.Version, unchangedDeployment.Version)
+	if unchangedCurrent.SpecVersion != unchangedDeployment.SpecVersion {
+		t.Fatalf("unrelated deployment version = %d, want %d", unchangedCurrent.SpecVersion, unchangedDeployment.SpecVersion)
 	}
 	if got := len(store.MustFetchDeploymentHistory(firstDeployment.ID)); got != 2 {
 		t.Fatalf("first deployment history length = %d, want 2", got)
@@ -125,9 +125,9 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 		"must-not-save",
 		9,
 		true,
-		[]storage.DeploymentConfigVersion{
-			{ID: firstDeployment.ID, Version: firstDeployment.Version},
-			{ID: secondDeployment.ID, Version: secondCurrent.Version},
+		[]storage.DeploymentSpecVersion{
+			{ID: firstDeployment.ID, SpecVersion: firstDeployment.SpecVersion},
+			{ID: secondDeployment.ID, SpecVersion: secondCurrent.SpecVersion},
 		},
 	)
 	if !errors.Is(err, ErrReferencingDeploymentsChanged) {
@@ -137,7 +137,7 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	if !ok || latestConfigRef(t, latest).ID != savedRef.ID || latestConfigRef(t, latest).Version != 3 {
 		t.Fatalf("latest config after rollback = %+v, ok=%v", latest, ok)
 	}
-	if store.deploymentCache[firstDeployment.ID].Version != firstCurrent.Version {
+	if store.deploymentCache[firstDeployment.ID].SpecVersion != firstCurrent.SpecVersion {
 		t.Fatal("stale request changed deployment config")
 	}
 }
@@ -161,9 +161,9 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 	firstDeployment := create("first", first.ID)
 	secondDeployment := create("second", second.ID)
 
-	third, updatedIDs, err := store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(3), true, []storage.DeploymentConfigVersion{
-		{ID: firstDeployment.ID, Version: firstDeployment.Version},
-		{ID: secondDeployment.ID, Version: secondDeployment.Version},
+	third, updatedIDs, err := store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(3), true, []storage.DeploymentSpecVersion{
+		{ID: firstDeployment.ID, SpecVersion: firstDeployment.SpecVersion},
+		{ID: secondDeployment.ID, SpecVersion: secondDeployment.SpecVersion},
 	}, nil)
 	if err != nil {
 		t.Fatalf("insert secret with deployment updates: %v", err)
@@ -178,8 +178,8 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 		t.Fatalf("second deployment secret ref = %d, want %d", got, third.ID)
 	}
 
-	_, _, err = store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(4), true, []storage.DeploymentConfigVersion{{
-		ID: firstDeployment.ID, Version: store.deploymentCache[firstDeployment.ID].Version,
+	_, _, err = store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(4), true, []storage.DeploymentSpecVersion{{
+		ID: firstDeployment.ID, SpecVersion: store.deploymentCache[firstDeployment.ID].SpecVersion,
 	}}, nil)
 	if !errors.Is(err, ErrReferencingDeploymentsChanged) {
 		t.Fatalf("incomplete update error = %v, want ErrReferencingDeploymentsChanged", err)
@@ -234,9 +234,9 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	live := create("live")
 
 	_, _, ok := store.UpdateDeploymentSpec(apigen.Context{}, original.ID, DeploymentSpecUpdate{
-		ExpectedVersion: original.Version + 1,
-		Spec:            &original.Spec,
-		Deleted:         true,
+		ExpectedSpecVersion: original.SpecVersion + 1,
+		Spec:                &original.Spec,
+		Deleted:             true,
 	})
 	if !ok {
 		t.Fatal("soft delete failed")
@@ -244,8 +244,8 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 
 	// The UI sends only the live deployment: the frontend filters tombstones out
 	// when assembling referencingDeployments.
-	second, updatedIDs, err := store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(2), true, []storage.DeploymentConfigVersion{
-		{ID: live.ID, Version: live.Version},
+	second, updatedIDs, err := store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(2), true, []storage.DeploymentSpecVersion{
+		{ID: live.ID, SpecVersion: live.SpecVersion},
 	}, nil)
 	if err != nil {
 		t.Fatalf("rotation rejected: %v", err)
@@ -260,8 +260,8 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	if got := deploymentEnvRefID(t, tombstone, "POSTGRES_PASSWORD", true); got != first.ID {
 		t.Fatalf("tombstone secret ref = %d, want it left at %d", got, first.ID)
 	}
-	if tombstone.Version != original.Version+1 {
+	if tombstone.SpecVersion != original.SpecVersion+1 {
 		t.Fatalf("tombstone version = %d, want %d: rotation must not rewrite it",
-			tombstone.Version, original.Version+1)
+			tombstone.SpecVersion, original.SpecVersion+1)
 	}
 }

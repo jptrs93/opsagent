@@ -42,7 +42,7 @@ const (
 )
 
 // containerRunner owns the create/start/monitor/respawn/backoff lifecycle of a
-// single deployment config version's container. The deterministic id includes
+// single deployment spec version's container. The deterministic id includes
 // the version so reattach can find the exact task after an opendeploy restart.
 type containerRunner struct {
 	ctx    context.Context
@@ -58,7 +58,7 @@ type containerRunner struct {
 	nodeID              int32
 	containerID         string
 
-	// derived from the deployment config version; not part of RunnerStatus.
+	// derived from the deployment spec version; not part of RunnerStatus.
 	user           string
 	envVars        map[string]*apigen.EnvVarValue // resolved to "KEY=VALUE" entries at start
 	command        []string                       // argv override; empty = image default
@@ -119,14 +119,14 @@ const (
 	containerStartupReattachStopped
 )
 
-// containerID is the deterministic containerd id for a deployment config version.
+// containerID is the deterministic containerd id for a deployment spec version.
 func containerID(deploymentID int32, configVersion int32) string {
 	return fmt.Sprintf("opendeploy-%d-v%d", deploymentID, configVersion)
 }
 
 func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
-	configVersion := preparerStatus.DeploymentConfigVersion
+	configVersion := preparerStatus.DeploymentSpecVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, configVersion)
 	r.initFreshRun(dep, preparerStatus, false)
 	go r.run()
@@ -135,7 +135,7 @@ func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.Runti
 
 func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
-	configVersion := preparerStatus.DeploymentConfigVersion
+	configVersion := preparerStatus.DeploymentSpecVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, configVersion)
 	r.initFreshRun(dep, preparerStatus, true)
 	go r.run()
@@ -159,17 +159,17 @@ func (r *containerRunner) initFreshRun(dep *apigen.Deployment, preparerStatus ap
 		r.readyCh = make(chan error, 1)
 	}
 	r.status = apigen.RunnerStatus{
-		DeploymentConfigVersion: preparerStatus.DeploymentConfigVersion,
-		RunningArtifact:         preparerStatus.Artifact,
-		Status:                  apigen.RunningStatus_STARTING,
-		LastRestartAt:           time.Now(),
+		DeploymentSpecVersion: preparerStatus.DeploymentSpecVersion,
+		RunningArtifact:       preparerStatus.Artifact,
+		Status:                apigen.RunningStatus_STARTING,
+		LastRestartAt:         time.Now(),
 	}
 	r.writeStatus()
 }
 
 func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
-	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, prev.DeploymentConfigVersion)
+	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, prev.DeploymentSpecVersion)
 	r.status = prev
 	r.startupMode = mode
 	go r.run()
@@ -207,7 +207,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		command:             cfg.OverrideCommand,
 		cwd:                 cfg.OverrideWorkingDir,
 		networking:          dep.Spec.Networking,
-		latestVersion:       dep.Version,
+		latestVersion:       dep.SpecVersion,
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
 	r.issuedTLSMount = cfg.IssuedTlsMount
@@ -227,7 +227,7 @@ func containerDeploymentName(dep *apigen.Deployment) string {
 	return fmt.Sprintf("id=%d", dep.ID)
 }
 
-func (r *containerRunner) Version() int32 { return r.status.DeploymentConfigVersion }
+func (r *containerRunner) SpecVersion() int32 { return r.status.DeploymentSpecVersion }
 
 func (r *containerRunner) ArtifactMissing() <-chan struct{} { return r.artifactMissing }
 
@@ -522,7 +522,7 @@ func (r *containerRunner) run() {
 			FileDescLimit:  r.fileDescLimit,
 			Mounts:         mounts,
 			LogDir:         logDir,
-			LogVersion:     r.status.DeploymentConfigVersion,
+			LogVersion:     r.status.DeploymentSpecVersion,
 			LogRun:         runNumber,
 			ResolvConfPath: resolvConfPath,
 
@@ -821,7 +821,7 @@ type readinessListener struct {
 }
 
 func (r *containerRunner) startReadinessListener(runNumber int32) (*readinessListener, error) {
-	dir := filepath.Join(ainit.StaticConfig.ReadinessDir, strconv.Itoa(int(r.deploymentID)), strconv.Itoa(int(r.status.DeploymentConfigVersion)), strconv.Itoa(int(runNumber)))
+	dir := filepath.Join(ainit.StaticConfig.ReadinessDir, strconv.Itoa(int(r.deploymentID)), strconv.Itoa(int(r.status.DeploymentSpecVersion)), strconv.Itoa(int(runNumber)))
 	if err := os.RemoveAll(dir); err != nil {
 		return nil, err
 	}
@@ -1288,7 +1288,7 @@ func (r *containerRunner) updateStatus(status apigen.RunningStatus, pid int32) {
 
 func (r *containerRunner) writeStatus() {
 	r.store.MustWriteScheduledInstanceStatus(r.scheduledInstanceID, func(s *apigen.ScheduledInstanceStatus) bool {
-		if !s.Runner.IsZero() && s.Runner.DeploymentConfigVersion > r.status.DeploymentConfigVersion {
+		if !s.Runner.IsZero() && s.Runner.DeploymentSpecVersion > r.status.DeploymentSpecVersion {
 			slog.InfoContext(r.ctx, "discarding status update from superseded container runner")
 			return false
 		}

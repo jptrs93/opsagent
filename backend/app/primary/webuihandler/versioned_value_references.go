@@ -21,21 +21,21 @@ var ReferencingDeploymentsChangedErr = apigen.NewApiErr(
 	http.StatusConflict,
 )
 
-func requestedDeploymentVersions(update bool, refs []*apigen.DeploymentVersionRef) ([]storage.DeploymentConfigVersion, error) {
+func requestedDeploymentVersions(update bool, refs []*apigen.DeploymentSpecVersionRef) ([]storage.DeploymentSpecVersion, error) {
 	if !update && len(refs) != 0 {
 		return nil, InvalidReferencingDeploymentsErr
 	}
 	seen := make(map[int32]struct{}, len(refs))
-	out := make([]storage.DeploymentConfigVersion, 0, len(refs))
+	out := make([]storage.DeploymentSpecVersion, 0, len(refs))
 	for _, ref := range refs {
-		if ref == nil || ref.ID <= 0 || ref.Version <= 0 {
+		if ref == nil || ref.ID <= 0 || ref.SpecVersion <= 0 {
 			return nil, InvalidReferencingDeploymentsErr
 		}
 		if _, duplicate := seen[ref.ID]; duplicate {
 			return nil, InvalidReferencingDeploymentsErr
 		}
 		seen[ref.ID] = struct{}{}
-		out = append(out, storage.DeploymentConfigVersion{ID: ref.ID, Version: ref.Version})
+		out = append(out, storage.DeploymentSpecVersion{ID: ref.ID, SpecVersion: ref.SpecVersion})
 	}
 	return out, nil
 }

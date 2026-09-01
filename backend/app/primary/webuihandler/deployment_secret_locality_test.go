@@ -91,14 +91,14 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	}
 	if _, err := h.PostV1DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
 		DeploymentID: clean.ID,
-		Version:      clean.Version + 1,
+		SpecVersion:  clean.SpecVersion + 1,
 		Spec:         secretEnvSpec("nginx", prodSecret.ID),
 	}); !isSecretRefOutsideSpaceErr(err) {
 		t.Fatalf("update adding prod secret err = %v, want %v", err, SecretRefOutsideSpaceErr)
 	}
 	if _, err := h.PostV1DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
 		DeploymentID: clean.ID,
-		Version:      clean.Version + 1,
+		SpecVersion:  clean.SpecVersion + 1,
 		Spec:         secretEnvSpec("nginx", globalSecret.ID),
 	}); err != nil {
 		t.Fatalf("update adding global secret ref: %v", err)

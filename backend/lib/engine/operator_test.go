@@ -108,8 +108,8 @@ func fixedRuntimeInputsBackoff(t *testing.T, interval time.Duration) {
 
 func secretRefDeployment(secretID *int32) *apigen.Deployment {
 	return &apigen.Deployment{
-		ID:      12,
-		Version: 4,
+		ID:          12,
+		SpecVersion: 4,
 		Spec: apigen.DeploymentSpec{
 			Container1Spec: &apigen.ContainerSpec{
 				Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}},
@@ -142,13 +142,13 @@ func TestReAttachPreparerDefersToRetryWhenRuntimeInputsUnavailable(t *testing.T)
 	}
 
 	handle := op.reAttachPreparer(testScheduledInstanceID, dep, apigen.PreparerStatus{
-		DeploymentConfigVersion: dep.Version,
-		Artifact:                "registry.example/app:v1",
-		Inputs:                  apigen.InputsStatus_INPUTS_READY,
-		Image:                   apigen.ImageStatus_IMAGE_READY,
+		DeploymentSpecVersion: dep.SpecVersion,
+		Artifact:              "registry.example/app:v1",
+		Inputs:                apigen.InputsStatus_INPUTS_READY,
+		Image:                 apigen.ImageStatus_IMAGE_READY,
 	})
-	if handle.Version() != dep.Version {
-		t.Fatalf("handle version = %d, want %d", handle.Version(), dep.Version)
+	if handle.SpecVersion() != dep.SpecVersion {
+		t.Fatalf("handle version = %d, want %d", handle.SpecVersion(), dep.SpecVersion)
 	}
 
 	// The retry must actually refill the in-memory cache: nothing else writes to
@@ -193,7 +193,7 @@ func TestReAttachPreparerDefersToRetryWhenRuntimeInputsUnavailable(t *testing.T)
 }
 
 // Cancel must return promptly even mid-backoff, because the operator calls it
-// synchronously when the config version moves on or the instance is finalized.
+// synchronously when the spec version moves on or the instance is finalized.
 func TestRetryRuntimeInputsCancelInterruptsBackoff(t *testing.T) {
 	fixedRuntimeInputsBackoff(t, time.Hour)
 
@@ -227,19 +227,19 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 			ImageReady:    func(context.Context, string) error { return nil },
 		}
 		dep := &apigen.Deployment{
-			Version: 4,
+			SpecVersion: 4,
 			Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 				Source:  apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{}},
 				Version: "v1",
 			}},
 		}
 		handle := op.reAttachPreparer(testScheduledInstanceID, dep, apigen.PreparerStatus{
-			DeploymentConfigVersion: 4,
-			Inputs:                  apigen.InputsStatus_INPUTS_READY,
-			Image:                   apigen.ImageStatus_IMAGE_READY,
+			DeploymentSpecVersion: 4,
+			Inputs:                apigen.InputsStatus_INPUTS_READY,
+			Image:                 apigen.ImageStatus_IMAGE_READY,
 		})
-		if handle.Version() != dep.Version {
-			t.Fatalf("handle version = %d, want %d", handle.Version(), dep.Version)
+		if handle.SpecVersion() != dep.SpecVersion {
+			t.Fatalf("handle version = %d, want %d", handle.SpecVersion(), dep.SpecVersion)
 		}
 	})
 
@@ -255,8 +255,8 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 			OpendeployRelease: opendeployrelease.New(t.TempDir(), githubrepo.NewClient(githubrepo.WithAPIBaseURL("http://127.0.0.1:1"))),
 		}
 		dep := &apigen.Deployment{
-			ID:      1,
-			Version: 4,
+			ID:          1,
+			SpecVersion: 4,
 			Spec: apigen.DeploymentSpec{
 				OpendeploySpec: &apigen.OpendeploySpec{
 					Version: "v1",
@@ -265,8 +265,8 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 		}
 		handle := op.reAttachPreparer(testScheduledInstanceID, dep, apigen.PreparerStatus{})
 		handle.Cancel()
-		if handle.Version() != dep.Version {
-			t.Fatalf("handle version = %d, want %d", handle.Version(), dep.Version)
+		if handle.SpecVersion() != dep.SpecVersion {
+			t.Fatalf("handle version = %d, want %d", handle.SpecVersion(), dep.SpecVersion)
 		}
 		// Empty status must not be treated as already-installed; prepare should run.
 		if store.preparerStatus().IsZero() {
@@ -282,8 +282,8 @@ func TestStartPreparerStopsBeforeArtifactWhenRuntimeInputsFail(t *testing.T) {
 
 	secretID := int32(7)
 	dep := &apigen.Deployment{
-		ID:      11,
-		Version: 3,
+		ID:          11,
+		SpecVersion: 3,
 		Spec: apigen.DeploymentSpec{
 			Container1Spec: &apigen.ContainerSpec{
 				Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}},
@@ -324,7 +324,7 @@ func TestInitialTerminateWithoutStatusIsAcknowledged(t *testing.T) {
 			DeploymentID: 11,
 			State:        apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE,
 		},
-		Config: apigen.Deployment{ID: 11, Version: 3},
+		Config: apigen.Deployment{ID: 11, SpecVersion: 3},
 	}
 	done := make(chan struct{})
 	go func() {
@@ -367,18 +367,18 @@ func TestReAttachPreparerRepreparesUnavailableImage(t *testing.T) {
 		},
 	}
 	dep := &apigen.Deployment{
-		ID:      12,
-		Version: 4,
+		ID:          12,
+		SpecVersion: 4,
 		Spec: apigen.DeploymentSpec{
 			Container1Spec: &apigen.ContainerSpec{Version: "v1", Running: true},
 		},
 	}
 
 	handle := op.reAttachPreparer(testScheduledInstanceID, dep, apigen.PreparerStatus{
-		DeploymentConfigVersion: dep.Version,
-		Artifact:                "example/app:v1",
-		Inputs:                  apigen.InputsStatus_INPUTS_READY,
-		Image:                   apigen.ImageStatus_IMAGE_READY,
+		DeploymentSpecVersion: dep.SpecVersion,
+		Artifact:              "example/app:v1",
+		Inputs:                apigen.InputsStatus_INPUTS_READY,
+		Image:                 apigen.ImageStatus_IMAGE_READY,
 	})
 	handle.Cancel()
 

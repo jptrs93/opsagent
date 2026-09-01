@@ -11,7 +11,7 @@ func (m Deployment) IsZero() bool {
 		m.CreatedAt.IsZero() &&
 		m.UpdatedAt.IsZero() &&
 		m.Author == 0 &&
-		m.Version == 0 &&
+		m.SpecVersion == 0 &&
 		m.Spec.IsZero() &&
 		m.Deleted == false
 }
@@ -26,7 +26,7 @@ func (m *Deployment) Encode() []byte {
 	b = AppendInt64FromTime(b, m.CreatedAt, 4)
 	b = AppendInt64FromTime(b, m.UpdatedAt, 5)
 	b = AppendInt32Field(b, m.Author, 6)
-	b = AppendInt32Field(b, m.Version, 7)
+	b = AppendInt32Field(b, m.SpecVersion, 7)
 	if !m.Spec.IsZero() {
 		b = AppendTag(b, 8, BytesType)
 		b = AppendBytes(b, m.Spec.Encode())
@@ -64,7 +64,7 @@ func DecodeDeployment(b []byte) (*Deployment, error) {
 		case 6:
 			b, m.Author, err = ConsumeVarInt32(b, typ)
 		case 7:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
+			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
 		case 8:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -1385,15 +1385,15 @@ func DecodeDeploymentSnapshot(b []byte) (*DeploymentSnapshot, error) {
 	return &m, nil
 }
 
-func (m *DeploymentVersionRef) Encode() []byte {
+func (m *DeploymentSpecVersionRef) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendInt32Field(b, m.Version, 2)
+	b = AppendInt32Field(b, m.SpecVersion, 2)
 	return b
 }
 
-func DecodeDeploymentVersionRef(b []byte) (*DeploymentVersionRef, error) {
-	var m DeploymentVersionRef
+func DecodeDeploymentSpecVersionRef(b []byte) (*DeploymentSpecVersionRef, error) {
+	var m DeploymentSpecVersionRef
 	var num Number
 	var typ Type
 	var err error
@@ -1406,7 +1406,7 @@ func DecodeDeploymentVersionRef(b []byte) (*DeploymentVersionRef, error) {
 		case 1:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
+			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1421,7 +1421,7 @@ func (m ScheduledInstance) IsZero() bool {
 	return m.ID == 0 &&
 		m.CreatedAt.IsZero() &&
 		m.DeploymentID == 0 &&
-		m.DeploymentVersion == 0 &&
+		m.DeploymentSpecVersion == 0 &&
 		m.NodeID == 0 &&
 		m.InstanceOrdinal == 0 &&
 		m.State == 0 &&
@@ -1433,7 +1433,7 @@ func (m *ScheduledInstance) Encode() []byte {
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendInt64FromTime(b, m.CreatedAt, 2)
 	b = AppendInt32Field(b, m.DeploymentID, 3)
-	b = AppendInt32Field(b, m.DeploymentVersion, 4)
+	b = AppendInt32Field(b, m.DeploymentSpecVersion, 4)
 	b = AppendInt32Field(b, m.NodeID, 5)
 	b = AppendInt32Field(b, m.InstanceOrdinal, 6)
 	b = AppendInt32Field(b, int32(m.State), 7)
@@ -1459,7 +1459,7 @@ func DecodeScheduledInstance(b []byte) (*ScheduledInstance, error) {
 		case 3:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 4:
-			b, m.DeploymentVersion, err = ConsumeVarInt32(b, typ)
+			b, m.DeploymentSpecVersion, err = ConsumeVarInt32(b, typ)
 		case 5:
 			b, m.NodeID, err = ConsumeVarInt32(b, typ)
 		case 6:
@@ -1664,7 +1664,7 @@ func DecodeScheduledInstanceSnapshot(b []byte) (*ScheduledInstanceSnapshot, erro
 }
 
 func (m PreparerStatus) IsZero() bool {
-	return m.DeploymentConfigVersion == 0 &&
+	return m.DeploymentSpecVersion == 0 &&
 		m.Artifact == "" &&
 		m.Inputs == 0 &&
 		m.Image == 0
@@ -1672,7 +1672,7 @@ func (m PreparerStatus) IsZero() bool {
 
 func (m *PreparerStatus) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.DeploymentConfigVersion, 1)
+	b = AppendInt32Field(b, m.DeploymentSpecVersion, 1)
 	b = AppendStringField(b, m.Artifact, 2)
 	b = AppendInt32Field(b, int32(m.Inputs), 4)
 	b = AppendInt32Field(b, int32(m.Image), 5)
@@ -1691,7 +1691,7 @@ func DecodePreparerStatus(b []byte) (*PreparerStatus, error) {
 		}
 		switch num {
 		case 1:
-			b, m.DeploymentConfigVersion, err = ConsumeVarInt32(b, typ)
+			b, m.DeploymentSpecVersion, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.Artifact, err = ConsumeString(b, typ)
 		case 4:
@@ -1717,7 +1717,7 @@ func DecodePreparerStatus(b []byte) (*PreparerStatus, error) {
 }
 
 func (m RunnerStatus) IsZero() bool {
-	return m.DeploymentConfigVersion == 0 &&
+	return m.DeploymentSpecVersion == 0 &&
 		m.RunningPid == 0 &&
 		m.RunningArtifact == "" &&
 		m.Status == 0 &&
@@ -1730,7 +1730,7 @@ func (m RunnerStatus) IsZero() bool {
 
 func (m *RunnerStatus) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.DeploymentConfigVersion, 1)
+	b = AppendInt32Field(b, m.DeploymentSpecVersion, 1)
 	b = AppendInt32Field(b, m.RunningPid, 2)
 	b = AppendStringField(b, m.RunningArtifact, 3)
 	b = AppendInt32Field(b, int32(m.Status), 4)
@@ -1754,7 +1754,7 @@ func DecodeRunnerStatus(b []byte) (*RunnerStatus, error) {
 		}
 		switch num {
 		case 1:
-			b, m.DeploymentConfigVersion, err = ConsumeVarInt32(b, typ)
+			b, m.DeploymentSpecVersion, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.RunningPid, err = ConsumeVarInt32(b, typ)
 		case 3:
@@ -1794,7 +1794,7 @@ func (m *DeploymentUpdateRequest) Encode() []byte {
 	b = AppendInt32Field(b, m.DeploymentID, 1)
 	b = AppendStringField(b, m.TargetVersion, 2)
 	b = AppendBoolField(b, m.Stop, 3)
-	b = AppendInt32Field(b, m.Version, 4)
+	b = AppendInt32Field(b, m.SpecVersion, 4)
 	if !m.Spec.IsZero() {
 		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, m.Spec.Encode())
@@ -1821,7 +1821,7 @@ func DecodeDeploymentUpdateRequest(b []byte) (*DeploymentUpdateRequest, error) {
 		case 3:
 			b, m.Stop, err = ConsumeBool(b, typ)
 		case 4:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
+			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
 		case 5:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -2029,7 +2029,7 @@ func DecodeRecentlyDeletedDeployments(b []byte) (*RecentlyDeletedDeployments, er
 func (m *DeploymentDeleteRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 1)
-	b = AppendInt32Field(b, m.Version, 2)
+	b = AppendInt32Field(b, m.SpecVersion, 2)
 	return b
 }
 
@@ -2047,7 +2047,7 @@ func DecodeDeploymentDeleteRequest(b []byte) (*DeploymentDeleteRequest, error) {
 		case 1:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
+			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3082,7 +3082,7 @@ func DecodeDeploymentRunReportRequest(b []byte) (*DeploymentRunReportRequest, er
 func (m *DeploymentRunReport) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 1)
-	b = AppendInt32Field(b, m.DeploymentVersion, 2)
+	b = AppendInt32Field(b, m.DeploymentSpecVersion, 2)
 	b = AppendInt32Field(b, m.NodeID, 3)
 	b = AppendInt32Field(b, m.InstanceOrdinal, 4)
 	b = AppendInt32Field(b, m.Run, 5)
@@ -3110,7 +3110,7 @@ func DecodeDeploymentRunReport(b []byte) (*DeploymentRunReport, error) {
 		case 1:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.DeploymentVersion, err = ConsumeVarInt32(b, typ)
+			b, m.DeploymentSpecVersion, err = ConsumeVarInt32(b, typ)
 		case 3:
 			b, m.NodeID, err = ConsumeVarInt32(b, typ)
 		case 4:
@@ -3271,7 +3271,7 @@ func DecodeLogRecord(b []byte) (*LogRecord, error) {
 func (m *PrepareOutputRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 3)
-	b = AppendInt32Field(b, m.Version, 2)
+	b = AppendInt32Field(b, m.SpecVersion, 2)
 	return b
 }
 
@@ -3289,7 +3289,7 @@ func DecodePrepareOutputRequest(b []byte) (*PrepareOutputRequest, error) {
 		case 3:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
+			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3418,7 +3418,7 @@ func (m *LogQueryRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 1)
 	b = AppendInt32Field(b, m.TargetNodeID, 2)
-	b = AppendInt32Field(b, m.ConfigVersion, 3)
+	b = AppendInt32Field(b, m.SpecVersion, 3)
 	b = AppendInt64FromTime(b, m.TimeStart, 4)
 	b = AppendInt64FromTime(b, m.TimeEnd, 5)
 	for _, item := range m.Filters {
@@ -3453,7 +3453,7 @@ func DecodeLogQueryRequest(b []byte) (*LogQueryRequest, error) {
 		case 2:
 			b, m.TargetNodeID, err = ConsumeVarInt32(b, typ)
 		case 3:
-			b, m.ConfigVersion, err = ConsumeVarInt32(b, typ)
+			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
 		case 4:
 			b, m.TimeStart, err = ConsumeTimeFromInt64(b, typ)
 		case 5:
@@ -4106,8 +4106,8 @@ func DecodeSecretSetRequest(b []byte) (*SecretSetRequest, error) {
 		case 4:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentVersionRef
-				item, err = DecodeDeploymentVersionRef(msgBytes)
+				var item *DeploymentSpecVersionRef
+				item, err = DecodeDeploymentSpecVersionRef(msgBytes)
 				if err == nil {
 					m.ReferencingDeployments = append(m.ReferencingDeployments, item)
 				}
@@ -4803,8 +4803,8 @@ func DecodeConfigSetRequest(b []byte) (*ConfigSetRequest, error) {
 		case 4:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentVersionRef
-				item, err = DecodeDeploymentVersionRef(msgBytes)
+				var item *DeploymentSpecVersionRef
+				item, err = DecodeDeploymentSpecVersionRef(msgBytes)
 				if err == nil {
 					m.ReferencingDeployments = append(m.ReferencingDeployments, item)
 				}
@@ -9777,7 +9777,7 @@ func DecodeClusterConfigsResponse(b []byte) (*ClusterConfigsResponse, error) {
 func (m *ClusterIssuedTLSRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 1)
-	b = AppendInt32Field(b, m.DeploymentConfigVersion, 2)
+	b = AppendInt32Field(b, m.DeploymentSpecVersion, 2)
 	return b
 }
 
@@ -9795,7 +9795,7 @@ func DecodeClusterIssuedTLSRequest(b []byte) (*ClusterIssuedTLSRequest, error) {
 		case 1:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.DeploymentConfigVersion, err = ConsumeVarInt32(b, typ)
+			b, m.DeploymentSpecVersion, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

@@ -15,7 +15,7 @@ type ScheduledInstanceRow struct {
 	ID                       int64
 	CreatedAt                int64 // first version's created_at
 	DeploymentID             int64
-	DeploymentVersion        int64
+	DeploymentSpecVersion    int64
 	NodeID                   int64
 	InstanceOrdinal          int64
 	DeploymentSpaceVersionID int64
@@ -27,7 +27,7 @@ const scheduledInstanceRowSelect = `
 	SELECT si.id,
 	       (SELECT f.created_at FROM scheduled_instance_versions f
 	        WHERE f.scheduled_instance_id = si.id ORDER BY f.id LIMIT 1),
-	       si.deployment_id, si.deployment_version, si.node_id, si.instance_ordinal,
+	       si.deployment_id, si.deployment_spec_version, si.node_id, si.instance_ordinal,
 	       si.deployment_space_version_id, COALESCE(sp.space_id, 0), v.state
 	FROM scheduled_instances si
 	JOIN scheduled_instance_versions v ON v.id =
@@ -41,7 +41,7 @@ type scheduledInstanceScanner interface {
 
 func scanScheduledInstanceRow(scanner scheduledInstanceScanner) (ScheduledInstanceRow, error) {
 	var r ScheduledInstanceRow
-	err := scanner.Scan(&r.ID, &r.CreatedAt, &r.DeploymentID, &r.DeploymentVersion,
+	err := scanner.Scan(&r.ID, &r.CreatedAt, &r.DeploymentID, &r.DeploymentSpecVersion,
 		&r.NodeID, &r.InstanceOrdinal, &r.DeploymentSpaceVersionID, &r.SpaceID, &r.State)
 	return r, err
 }

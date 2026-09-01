@@ -27,19 +27,19 @@ type LocalScheduledInstanceCache struct {
 }
 
 type ScheduledInstanceStatus struct {
-	ScheduledInstanceID   int64
-	UpdatedAt             int64
-	DeploymentID          int64
-	PreparerConfigVersion sql.NullInt64
-	PreparerArtifact      sql.NullString
-	PreparerInputsStatus  int64
-	PreparerImageStatus   int64
-	RunnerConfigVersion   sql.NullInt64
-	RunnerPid             sql.NullInt64
-	RunnerArtifact        sql.NullString
-	RunnerStatus          sql.NullInt64
-	RunnerNumRestarts     sql.NullInt64
-	RunnerLastRestartAt   sql.NullInt64
-	RunnerExtraBlob       []byte
-	RunnerExitCode        sql.NullInt64
+	ScheduledInstanceID  int64
+	UpdatedAt            int64
+	DeploymentID         int64
+	PreparerSpecVersion  sql.NullInt64
+	PreparerArtifact     sql.NullString
+	PreparerInputsStatus int64
+	PreparerImageStatus  int64
+	RunnerSpecVersion    sql.NullInt64
+	RunnerPid            sql.NullInt64
+	RunnerArtifact       sql.NullString
+	RunnerStatus         sql.NullInt64
+	RunnerNumRestarts    sql.NullInt64
+	RunnerLastRestartAt  sql.NullInt64
+	RunnerExtraBlob      []byte
+	RunnerExitCode       sql.NullInt64
 }

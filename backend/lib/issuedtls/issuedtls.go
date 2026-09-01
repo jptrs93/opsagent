@@ -76,18 +76,18 @@ func (p *PrimaryProvider) FetchIssuedTLS(_ context.Context, deploymentID, _ int3
 		if err != nil {
 			return nil, err
 		}
-		return ValueFromResponse(res, cfg.Version), nil
+		return ValueFromResponse(res, cfg.SpecVersion), nil
 	}
 	return nil, fmt.Errorf("deployment %d not found", deploymentID)
 }
 
-func ValueFromResponse(res *apigen.ClusterIssuedTLSResponse, configVersion int32) *runtimeinputs.IssuedTLSValue {
+func ValueFromResponse(res *apigen.ClusterIssuedTLSResponse, specVersion int32) *runtimeinputs.IssuedTLSValue {
 	return &runtimeinputs.IssuedTLSValue{
-		CertPEM:       res.CertPem,
-		KeyPEM:        res.KeyPem,
-		CACertPEM:     res.CaCertPem,
-		IssuedAt:      time.UnixMilli(res.IssuedAt),
-		NotAfter:      time.UnixMilli(res.NotAfter),
-		ConfigVersion: configVersion,
+		CertPEM:     res.CertPem,
+		KeyPEM:      res.KeyPem,
+		CACertPEM:   res.CaCertPem,
+		IssuedAt:    time.UnixMilli(res.IssuedAt),
+		NotAfter:    time.UnixMilli(res.NotAfter),
+		SpecVersion: specVersion,
 	}
 }

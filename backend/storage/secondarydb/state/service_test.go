@@ -16,37 +16,37 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 	store := Open(dbPath)
 
 	cfg := apigen.Deployment{
-		ID:        7,
-		NodeID:    23,
-		SpaceID:   1,
-		Name:      "api",
-		Version:   3,
-		UpdatedAt: time.UnixMilli(1000),
-		Spec:      *testSpecWithState("v3", true),
+		ID:          7,
+		NodeID:      23,
+		SpaceID:     1,
+		Name:        "api",
+		SpecVersion: 3,
+		UpdatedAt:   time.UnixMilli(1000),
+		Spec:        *testSpecWithState("v3", true),
 	}
 	const instanceID int32 = 11
 	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{
-			ID:                instanceID,
-			NodeID:            23,
-			DeploymentID:      7,
-			DeploymentVersion: 3,
-			State:             apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
+			ID:                    instanceID,
+			NodeID:                23,
+			DeploymentID:          7,
+			DeploymentSpecVersion: 3,
+			State:                 apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 		},
 		Config: cfg,
 	})
 	store.MustWriteScheduledInstanceStatus(instanceID, func(s *apigen.ScheduledInstanceStatus) bool {
 		s.BumpUpdatedAt()
 		s.Preparer = apigen.PreparerStatus{
-			DeploymentConfigVersion: 3,
-			Artifact:                "art",
-			Inputs:                  apigen.InputsStatus_INPUTS_READY,
-			Image:                   apigen.ImageStatus_IMAGE_READY,
+			DeploymentSpecVersion: 3,
+			Artifact:              "art",
+			Inputs:                apigen.InputsStatus_INPUTS_READY,
+			Image:                 apigen.ImageStatus_IMAGE_READY,
 		}
 		s.Runner = apigen.RunnerStatus{
-			DeploymentConfigVersion: 3,
-			Status:                  apigen.RunningStatus_RUNNING,
-			NetworkDiagnostics:      []string{"listener is IPv4-only"},
+			DeploymentSpecVersion: 3,
+			Status:                apigen.RunningStatus_RUNNING,
+			NetworkDiagnostics:    []string{"listener is IPv4-only"},
 		}
 		return true
 	})
@@ -59,7 +59,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 		t.Fatalf("expected 1 scheduled instance, got %d", len(got))
 	}
 	rc := got[0].Config
-	if rc.NodeID != 23 || rc.Version != 3 || rc.SpaceID != 1 || rc.Name != "api" {
+	if rc.NodeID != 23 || rc.SpecVersion != 3 || rc.SpaceID != 1 || rc.Name != "api" {
 		t.Fatalf("config not round-tripped: %+v", rc)
 	}
 	rs := got[0].Status
@@ -78,21 +78,21 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 }
 
 // TestSecondaryOlderAssignmentDoesNotStompPinnedConfig ensures a TERMINATE
-// assignment for an older config version cannot replace the pinned config of a
+// assignment for an older spec version cannot replace the pinned config of a
 // newer scheduled instance for the same deployment.
 func TestSecondaryOlderAssignmentDoesNotStompPinnedConfig(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "secondary.db")
 	store := Open(dbPath)
 
 	v1 := apigen.Deployment{
-		ID: 12, NodeID: 3, Version: 1,
+		ID: 12, NodeID: 3, SpecVersion: 1,
 		SpaceID: 1, Name: "tls-ingress-one",
 		Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 		}},
 	}
 	v2 := v1
-	v2.Version = 2
+	v2.SpecVersion = 2
 	v2.Spec.Networking.Ingress = []*apigen.Ingress{{
 		Kind:                 apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
 		Hostname:             "one.ingress.opendeploy.test",
@@ -101,21 +101,21 @@ func TestSecondaryOlderAssignmentDoesNotStompPinnedConfig(t *testing.T) {
 
 	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{
-			ID: 14, DeploymentID: 12, DeploymentVersion: 1, NodeID: 3,
+			ID: 14, DeploymentID: 12, DeploymentSpecVersion: 1, NodeID: 3,
 			State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 		},
 		Config: v1,
 	})
 	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{
-			ID: 17, DeploymentID: 12, DeploymentVersion: 2, NodeID: 3,
+			ID: 17, DeploymentID: 12, DeploymentSpecVersion: 2, NodeID: 3,
 			State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 		},
 		Config: v2,
 	})
 	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{
-			ID: 14, DeploymentID: 12, DeploymentVersion: 1, NodeID: 3,
+			ID: 14, DeploymentID: 12, DeploymentSpecVersion: 1, NodeID: 3,
 			State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE,
 		},
 		Config: v1,
@@ -137,16 +137,16 @@ func assertPinnedAssignmentConfigs(t *testing.T, snapshot []apigen.ScheduledInst
 		byID[item.Instance.ID] = item
 	}
 	newer := byID[17]
-	if newer.Config.Version != 2 {
-		t.Fatalf("newer instance config version = %d, want 2", newer.Config.Version)
+	if newer.Config.SpecVersion != 2 {
+		t.Fatalf("newer instance spec version = %d, want 2", newer.Config.SpecVersion)
 	}
 	if got := len(newer.Config.Spec.Networking.Ingress); got != 1 {
 		t.Fatalf("newer instance ingress count = %d, want 1 (older TERMINATE stomped pinned config)", got)
 	}
 	older := byID[14]
-	if older.Config.Version != 1 || len(older.Config.Spec.Networking.Ingress) != 0 {
+	if older.Config.SpecVersion != 1 || len(older.Config.Spec.Networking.Ingress) != 0 {
 		t.Fatalf("older terminate instance config = ver %d ingress %d, want v1 with no ingress",
-			older.Config.Version, len(older.Config.Spec.Networking.Ingress))
+			older.Config.SpecVersion, len(older.Config.Spec.Networking.Ingress))
 	}
 }
 
@@ -161,10 +161,10 @@ func TestSecondaryFinalizeAbsentDropsInstanceDurably(t *testing.T) {
 	write := func(id, deploymentID int32) {
 		store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
 			Instance: apigen.ScheduledInstance{
-				ID: id, DeploymentID: deploymentID, DeploymentVersion: 1, NodeID: 5,
+				ID: id, DeploymentID: deploymentID, DeploymentSpecVersion: 1, NodeID: 5,
 				State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 			},
-			Config: apigen.Deployment{ID: deploymentID, NodeID: 5, Version: 1, Spec: *nonEmptySpec()},
+			Config: apigen.Deployment{ID: deploymentID, NodeID: 5, SpecVersion: 1, Spec: *nonEmptySpec()},
 		})
 	}
 	write(41, 8)

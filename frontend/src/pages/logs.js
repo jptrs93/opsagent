@@ -237,7 +237,7 @@ function recordJson(rec) {
     if (rec.level) obj.level = rec.level;
     obj.msg = rec.msg;
     for (const [k, v] of Object.entries(rec.fields)) obj[k] = v;
-    if (rec.version) obj.config_version = rec.version;
+    if (rec.version) obj.spec_version = rec.version;
     if (rec.node) obj.node = rec.node;
     if (rec.run) obj.run = rec.run;
     obj.instance = rec.instance;
@@ -274,14 +274,14 @@ const tokenText = (t) => `${t.neg ? '-' : ''}${t.type === 'pair' ? `${t.key}:${q
 // a parsed field.
 function tokensToRequest(tokens) {
     const filters = [];
-    let configVersion = 0;
+    let specVersion = 0;
     for (const t of tokens) {
         if (t.type === 'text') {
             filters.push({op: t.neg ? 'not_contains' : 'contains', value: t.value});
             continue;
         }
         if (t.key === 'version' && !t.neg && /^\d+$/.test(t.value)) {
-            configVersion = Number(t.value);
+            specVersion = Number(t.value);
             continue;
         }
         if (t.value === '*') {
@@ -290,7 +290,7 @@ function tokensToRequest(tokens) {
         }
         filters.push({field: t.key, op: t.neg ? 'neq' : 'eq', value: t.value});
     }
-    return {filters, configVersion};
+    return {filters, specVersion};
 }
 
 export function logsPage(selectedDeploymentId) {
@@ -347,7 +347,7 @@ export function logsPage(selectedDeploymentId) {
     };
 
     const currentRequest = () => {
-        const {filters, configVersion} = tokensToRequest(parseQuery(queryText.val));
+        const {filters, specVersion} = tokensToRequest(parseQuery(queryText.val));
         const scope = workloadScope.val;
         if (scope.instance != null) filters.push({field: 'instance', op: 'eq', value: String(scope.instance)});
         if (scope.run) filters.push({field: 'run', op: 'eq', value: String(scope.run)});
@@ -356,7 +356,7 @@ export function logsPage(selectedDeploymentId) {
             filters.push({field: 'level', op: 'in', values: enabled});
         }
         // An explicit version:N token in the query text outranks the picker.
-        return {...scopePayload(), configVersion: configVersion || Number(scope.version || 0), filters};
+        return {...scopePayload(), specVersion: specVersion || Number(scope.version || 0), filters};
     };
 
     const runSearch = async () => {
@@ -511,11 +511,11 @@ export function logsPage(selectedDeploymentId) {
         if (versionsForDeployment === id && workloadVersionsS.val) return;
         versionsForDeployment = id;
         workloadVersionsS.val = null;
-        const current = Number(selectedDeployment(liveDeployments(), id)?.config?.version || 0);
+        const current = Number(selectedDeployment(liveDeployments(), id)?.config?.specVersion || 0);
         try {
             const resp = await capi.postV1DeploymentsHistory({deploymentId: id});
             if (versionsForDeployment !== id) return;
-            const versions = new Set((resp.entries || []).map(e => Number(e.config?.version || 0)));
+            const versions = new Set((resp.entries || []).map(e => Number(e.config?.specVersion || 0)));
             if (current) versions.add(current);
             workloadVersionsS.val = [...versions].filter(v => v > 0).sort((a, b) => b - a);
         } catch {
@@ -533,7 +533,7 @@ export function logsPage(selectedDeploymentId) {
         if (instance != null) filters.push({field: 'instance', op: 'eq', value: String(instance)});
         const resp = await capi.postV1DeploymentsLogQuery({
             ...scopePayload(),
-            configVersion: Number(version || 0),
+            specVersion: Number(version || 0),
             filters,
             timeStart: new Date(startTs),
             timeEnd: new Date(endTs),

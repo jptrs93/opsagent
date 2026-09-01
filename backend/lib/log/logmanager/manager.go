@@ -181,13 +181,13 @@ func (m *Manager) Query(ctx context.Context, req *apigen.LogQueryRequest) (*apig
 		return nil, apigen.NewApiErr(fmt.Sprintf("Unknown order %q", req.Order), "invalid_order", http.StatusBadRequest)
 	}
 	return c.runQuery(ctx, queryParams{
-		from:          from,
-		till:          till,
-		limit:         limit,
-		newestFirst:   newestFirst,
-		includeRaw:    req.IncludeRaw,
-		buckets:       buckets,
-		configVersion: req.ConfigVersion,
-		filters:       filters,
+		from:        from,
+		till:        till,
+		limit:       limit,
+		newestFirst: newestFirst,
+		includeRaw:  req.IncludeRaw,
+		buckets:     buckets,
+		specVersion: req.SpecVersion,
+		filters:     filters,
 	})
 }

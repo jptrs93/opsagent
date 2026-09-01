@@ -64,7 +64,7 @@ func LogWALDeploymentDir(deploymentID int32) string {
 }
 
 func (d *Deployment) PrepareOutputPath() string {
-	return prepareOutputFile(d.ID, d.Version)
+	return prepareOutputFile(d.ID, d.SpecVersion)
 }
 
 func (d *Deployment) WorkloadVersion() string {
@@ -127,7 +127,7 @@ func (s *DeploymentSpec) Container() *ContainerSpec {
 }
 
 func (r *PrepareOutputRequest) OutputPath() string {
-	return prepareOutputFile(r.DeploymentID, r.Version)
+	return prepareOutputFile(r.DeploymentID, r.SpecVersion)
 }
 
 // --- String methods for status enums ---

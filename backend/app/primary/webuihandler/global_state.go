@@ -17,13 +17,13 @@ func (h *Handler) GetV1GlobalState(ctx apigen.Context) (*apigen.GlobalState, err
 		return cmp.Compare(a.ID, b.ID)
 	})
 	return &apigen.GlobalState{
-		Spaces:            &apigen.SpaceList{Items: h.filterSpaces(ctx, h.Store.ListSpaces())},
-		Assets:            &apigen.AssetList{Items: h.filterAssets(ctx, h.Store.ListAssets())},
-		Configs:           &apigen.ConfigList{Items: h.filterConfigs(ctx, h.Store.ListConfigs())},
-		Secrets:           &apigen.SecretList{Items: h.filterSecrets(ctx, h.Store.ListSecrets())},
-		Deployments: &apigen.DeploymentSnapshot{Items: configItems},
-		ValueDirectories:  &apigen.ValueDirectoryList{Items: h.filterValueDirectories(ctx, h.Store.ListValueDirectories())},
-		AssetDirectories:  &apigen.AssetDirectoryList{Items: h.filterAssetDirectories(ctx, h.Store.ListAssetDirectories())},
+		Spaces:           &apigen.SpaceList{Items: h.filterSpaces(ctx, h.Store.ListSpaces())},
+		Assets:           &apigen.AssetList{Items: h.filterAssets(ctx, h.Store.ListAssets())},
+		Configs:          &apigen.ConfigList{Items: h.filterConfigs(ctx, h.Store.ListConfigs())},
+		Secrets:          &apigen.SecretList{Items: h.filterSecrets(ctx, h.Store.ListSecrets())},
+		Deployments:      &apigen.DeploymentSnapshot{Items: configItems},
+		ValueDirectories: &apigen.ValueDirectoryList{Items: h.filterValueDirectories(ctx, h.Store.ListValueDirectories())},
+		AssetDirectories: &apigen.AssetDirectoryList{Items: h.filterAssetDirectories(ctx, h.Store.ListAssetDirectories())},
 	}, nil
 }
 

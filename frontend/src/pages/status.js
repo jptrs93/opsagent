@@ -134,7 +134,7 @@ function deleteDeploymentOverlay(deploymentRow, close) {
         try {
             await capi.postV1DeploymentsDelete({
                 deploymentId: deploymentRow.id,
-                version: (deploymentRow.currentVersion || 0) + 1,
+                specVersion: (deploymentRow.currentVersion || 0) + 1,
             });
             close();
         } catch (e) {
@@ -178,7 +178,7 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
     const saving = van.state(false);
     const error = van.state('');
     const targetVersion = deploymentWorkload(historyConfig)?.version || '';
-    const historyVersion = historyConfig?.version || 0;
+    const historyVersion = historyConfig?.specVersion || 0;
     const currentConfig = getCurrentConfig();
     const label = currentConfig
         ? formatDeploymentLabel({
@@ -205,7 +205,7 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
         try {
             const request = {
                 deploymentId,
-                version: (current.version || 0) + 1,
+                specVersion: (current.specVersion || 0) + 1,
             };
             if (current.spec?.container1Spec) {
                 request.spec = structuredClone(current.spec);
@@ -352,7 +352,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             desiredRunning: Boolean(workload.running),
             preparer: prep,
             prepareVersion: deploymentWorkload(d.pinnedConfig)?.version || workload.version || '',
-            currentVersion: d.config.version || 0,
+            currentVersion: d.config.specVersion || 0,
             spaceVersion: d.config.spaceVersion || 0,
             targetState: d.instance?.state || 0,
             scheduledInstances,
@@ -555,7 +555,7 @@ export function statusPage(onOpenLogs = () => {}) {
         const run = inProgress && runCount > 1 ? runCount - 1 : runCount;
         overlayNode.val = runReportOverlay({
             deploymentId: member.id,
-            version: instance.deploymentVersion || member.currentVersion || 0,
+            version: instance.deploymentSpecVersion || member.currentVersion || 0,
             preselect: instance.instanceId ? {instanceId: instance.instanceId, run} : null,
         }, closeOverlay);
     };

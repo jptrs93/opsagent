@@ -244,28 +244,28 @@ type PublicKey struct {
 type ScheduledInstance struct {
 	ID                       int64
 	DeploymentID             int64
-	DeploymentVersion        int64
+	DeploymentSpecVersion    int64
 	NodeID                   int64
 	InstanceOrdinal          int64
 	DeploymentSpaceVersionID int64
 }
 
 type ScheduledInstanceStatus struct {
-	ScheduledInstanceID   int64
-	UpdatedAt             int64
-	DeploymentID          int64
-	PreparerConfigVersion sql.NullInt64
-	PreparerArtifact      sql.NullString
-	PreparerInputsStatus  int64
-	PreparerImageStatus   int64
-	RunnerConfigVersion   sql.NullInt64
-	RunnerPid             sql.NullInt64
-	RunnerArtifact        sql.NullString
-	RunnerStatus          sql.NullInt64
-	RunnerNumRestarts     sql.NullInt64
-	RunnerLastRestartAt   sql.NullInt64
-	RunnerExtraBlob       []byte
-	RunnerExitCode        sql.NullInt64
+	ScheduledInstanceID  int64
+	UpdatedAt            int64
+	DeploymentID         int64
+	PreparerSpecVersion  sql.NullInt64
+	PreparerArtifact     sql.NullString
+	PreparerInputsStatus int64
+	PreparerImageStatus  int64
+	RunnerSpecVersion    sql.NullInt64
+	RunnerPid            sql.NullInt64
+	RunnerArtifact       sql.NullString
+	RunnerStatus         sql.NullInt64
+	RunnerNumRestarts    sql.NullInt64
+	RunnerLastRestartAt  sql.NullInt64
+	RunnerExtraBlob      []byte
+	RunnerExitCode       sql.NullInt64
 }
 
 type ScheduledInstanceVersion struct {

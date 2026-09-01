@@ -47,7 +47,7 @@ func mustSetDeploymentWorkloadState(s *Service, ctx apigen.Context, deploymentID
 	if err != nil {
 		panic(fmt.Sprintf("GetDeployment: %v", err))
 	}
-	spec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
+	spec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.SpecVersion)
 	if err := spec.SetWorkloadState(version, running); err != nil {
 		panic(fmt.Sprintf("update deployment workload state: %v", err))
 	}
@@ -73,8 +73,8 @@ func mustUpdateDeploymentSpec(s *Service, ctx apigen.Context, deploymentID int32
 	if err != nil {
 		panic(fmt.Sprintf("GetDeployment: %v", err))
 	}
-	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), dbID, existing.Version)
-	existingSpec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
+	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), dbID, existing.SpecVersion)
+	existingSpec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.SpecVersion)
 	if err := storedSpec.SetWorkloadState(existingSpec.WorkloadVersion(), existingSpec.WorkloadRunning()); err != nil {
 		panic(fmt.Sprintf("preserve deployment workload state: %v", err))
 	}

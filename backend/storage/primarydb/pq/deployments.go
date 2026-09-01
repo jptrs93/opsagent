@@ -17,7 +17,7 @@ type DeploymentRow struct {
 	SpaceVersion int64 // latest space version's version
 	Name         string
 	DeletedAt    int64
-	Version      int64
+	SpecVersion  int64
 	CreatedAt    int64 // first version's created_at
 	UpdatedAt    int64 // latest version's created_at
 	Author       int64 // latest version's author
@@ -45,7 +45,7 @@ type deploymentScanner interface {
 func scanDeploymentRow(scanner deploymentScanner) (DeploymentRow, error) {
 	var r DeploymentRow
 	err := scanner.Scan(&r.DeploymentID, &r.NodeID, &r.SpaceID, &r.SpaceVersion, &r.Name, &r.DeletedAt,
-		&r.Version, &r.CreatedAt, &r.UpdatedAt, &r.Author, &r.SpecBlob)
+		&r.SpecVersion, &r.CreatedAt, &r.UpdatedAt, &r.Author, &r.SpecBlob)
 	return r, err
 }
 

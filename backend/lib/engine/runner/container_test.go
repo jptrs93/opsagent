@@ -171,9 +171,9 @@ func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, opendeployTestInstanceID, &apigen.Deployment{
-		ID:      7,
-		Version: 3,
-		SpaceID: 5,
+		ID:          7,
+		SpecVersion: 3,
+		SpaceID:     5,
 		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
 			DefaultVolume:       apigen.DefaultVolumeMount{Disabled: true},
 			DevShmSizeKb:        65536,
@@ -312,8 +312,8 @@ func TestOnlyServingPlacementClaimsInboundAddress(t *testing.T) {
 
 func rolloverTestDeployment() *apigen.Deployment {
 	return &apigen.Deployment{
-		ID:      7,
-		Version: 3,
+		ID:          7,
+		SpecVersion: 3,
 		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 			UpgradeStrategy: apigen.ContainerUpgradeStrategy_ROLLOVER,
 			Runtime:         apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}},
@@ -327,7 +327,7 @@ func newTestCandidate(t *testing.T, store storage.OperatorStore) *containerRunne
 	t.Cleanup(cancel)
 	dep := rolloverTestDeployment()
 	r := buildContainerRunner(ctx, cancel, store, nil, opendeployTestInstanceID, dep, 3)
-	r.initFreshRun(dep, apigen.PreparerStatus{DeploymentConfigVersion: 3, Artifact: "example/app:v3"}, true)
+	r.initFreshRun(dep, apigen.PreparerStatus{DeploymentSpecVersion: 3, Artifact: "example/app:v3"}, true)
 	return r
 }
 
@@ -463,7 +463,7 @@ func TestContainerNetAddresses(t *testing.T) {
 	}
 
 	// Two scheduled instances of one deployment must not share an outbound
-	// address. Keying the slot on config version failed here, because moving an
+	// address. Keying the slot on spec version failed here, because moving an
 	// instance to another node creates a second placement at the same version.
 	_, otherPlacement, err := containerNetAddresses(p, 5, 7, 12, 3)
 	if err != nil {

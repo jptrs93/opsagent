@@ -29,7 +29,7 @@ type Cache struct {
 	Mu sync.Mutex
 
 	// Scheduled holds the authoritative runtime view per scheduled instance id:
-	// assignment row, pinned config version, and latest status. Live instances
+	// assignment row, pinned spec version, and latest status. Live instances
 	// only — a finalized instance is removed, and every consumer that reconciles
 	// or routes depends on that.
 	Scheduled map[int32]*apigen.ScheduledInstanceState
@@ -164,7 +164,7 @@ func (c *Cache) NotifyInstanceLocked(id int32) {
 	}
 	ctx := logu.AddTag(context.Background(), "Store")
 	slog.InfoContext(ctx, fmt.Sprintf("store: notify scheduled instance name=%s configVersion=%d targetState=%v hasPreparer=%t hasRunner=%t",
-		name, state.Instance.DeploymentVersion, state.Instance.State,
+		name, state.Instance.DeploymentSpecVersion, state.Instance.State,
 		!state.Status.Preparer.IsZero(), !state.Status.Runner.IsZero()),
 		"scheduled_instance", id,
 		"dep", state.Instance.DeploymentID,
@@ -187,11 +187,11 @@ func WithRunningVersion(cfg *apigen.Deployment, st apigen.ScheduledInstanceStatu
 	if st.Runner.IsZero() || cfg == nil {
 		return st
 	}
-	ver := st.Runner.DeploymentConfigVersion
+	ver := st.Runner.DeploymentSpecVersion
 	if ver == 0 {
 		return st
 	}
-	if ver == cfg.Version {
+	if ver == cfg.SpecVersion {
 		st.Runner.RunningVersion = cfg.WorkloadVersion()
 	}
 	return st

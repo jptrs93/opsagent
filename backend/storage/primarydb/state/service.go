@@ -69,7 +69,7 @@ type Service struct {
 	// it, so it never competes with the live cache for the same ordinal.
 	latestFinalCache map[instanceOrdinalKey]*apigen.ScheduledInstanceState
 
-	deploymentSubs       *pubsubu.PubSub[apigen.Deployment]
+	deploymentSubs   *pubsubu.PubSub[apigen.Deployment]
 	userSubs         *pubsubu.PubSub[apigen.User]
 	backupStatusMu   sync.RWMutex
 	backupStatus     apigen.BackupStatus
@@ -94,10 +94,10 @@ type Service struct {
 func Open(dbPath string) *Service {
 	s := &Service{
 		q:                  pq.Open(dbPath),
-		deploymentCache:        make(map[int32]*apigen.Deployment),
+		deploymentCache:    make(map[int32]*apigen.Deployment),
 		spaceVersionRowIDs: make(map[int32]int64),
 		latestFinalCache:   make(map[instanceOrdinalKey]*apigen.ScheduledInstanceState),
-		deploymentSubs:         &pubsubu.PubSub[apigen.Deployment]{},
+		deploymentSubs:     &pubsubu.PubSub[apigen.Deployment]{},
 		userSubs:           &pubsubu.PubSub[apigen.User]{},
 		backupStatusSubs:   &pubsubu.PubSub[apigen.BackupStatus]{},
 		secretStatusSubs:   &pubsubu.PubSub[apigen.SecretsStatusResponse]{},

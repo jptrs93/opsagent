@@ -128,7 +128,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 			}
 			secretStatus := h.secretsStatus()
 			state := &apigen.State{
-				DeploymentsSnapshot:  &apigen.DeploymentSnapshot{Items: configItems},
+				DeploymentsSnapshot:        &apigen.DeploymentSnapshot{Items: configItems},
 				ScheduledInstancesSnapshot: &apigen.ScheduledInstanceSnapshot{Items: items},
 				UsersSnapshot:              h.filterUsers(ctx, h.Store.ListUsersPublic()),
 				EnrollmentsSnapshot:        visibleEnrollments,

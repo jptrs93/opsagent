@@ -93,8 +93,8 @@ invalid; there is no compatibility decoder, migration route, or dual-layout
 operation.
 
 The placement slot identifies one **scheduled instance** — the placement
-incarnation that owns a node assignment — not a config version. Two live
-placements can share a config version, which happens whenever an instance moves
+incarnation that owns a node assignment — not a spec version. Two live
+placements can share a spec version, which happens whenever an instance moves
 node without a version change, and a version-keyed slot would give them the same
 address and the same route. The scheduled instance id is exactly the identity a
 route must be keyed on, so it is what the slot is derived from.
@@ -115,7 +115,7 @@ both addresses before its process starts: `I` is assigned with
 `O`; initial activation or rollover promotion installs or flips the host route
 for `I` to the current run.
 
-Full deployment config versions and run numbers remain full-width in desired
+Full deployment spec versions and run numbers remain full-width in desired
 state, status, logs, and container IDs. Only their address slots are normalized
 to nonzero values:
 

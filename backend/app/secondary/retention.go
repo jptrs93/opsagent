@@ -41,7 +41,7 @@ func runRuntimeInputRetention(ctx context.Context, store *state.Service, inputs 
 func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runtimeinputs.RuntimeInputs, predicate storage.ScheduledInstancePredicate, acme *acmestate.Holder) {
 	states := store.FetchScheduledSnapshot(predicate)
 
-	// A mid-rollout instance is still running the previous config version, whose
+	// A mid-rollout instance is still running the previous spec version, whose
 	// referenced ids cannot be recovered from here: the node holds only the
 	// current assignment blob, and the status carries the running version number
 	// but not the config it came from. Sweeping then could delete an input that
@@ -50,7 +50,7 @@ func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runti
 	// there is no sound way to attribute one to the instance that is settled.
 	for i := range states {
 		if !instanceQuiescent(&states[i]) {
-			slog.DebugContext(ctx, fmt.Sprintf("retention: skipping sweep, instance is mid-transition configVersion=%d", states[i].Config.Version),
+			slog.DebugContext(ctx, fmt.Sprintf("retention: skipping sweep, instance is mid-transition configVersion=%d", states[i].Config.SpecVersion),
 				"scheduled_instance", states[i].Instance.ID)
 			return
 		}
@@ -110,15 +110,15 @@ func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runti
 // nothing it previously referenced can still be needed.
 //
 // An instance that should not be running is always quiescent: with no container
-// alive there is no older config version left to serve, and its own refs are
+// alive there is no older spec version left to serve, and its own refs are
 // retained regardless because it still contributes them.
 func instanceQuiescent(state *apigen.ScheduledInstanceState) bool {
 	if !state.Instance.State.WantsRunning() {
 		return true
 	}
-	if state.Status.Preparer.DeploymentConfigVersion != state.Config.Version ||
+	if state.Status.Preparer.DeploymentSpecVersion != state.Config.SpecVersion ||
 		state.Status.Preparer.Rollup() != apigen.PreparationStatus_READY {
 		return false
 	}
-	return state.Status.Runner.DeploymentConfigVersion == state.Config.Version
+	return state.Status.Runner.DeploymentSpecVersion == state.Config.SpecVersion
 }

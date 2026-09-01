@@ -37,21 +37,21 @@ func scheduledInstanceStatusRowToProto(r sq.ScheduledInstanceStatus) *apigen.Sch
 	// preparer_config_version is the presence guard: it is written for every
 	// non-zero preparer status, and unlike the stage columns it is nullable, so
 	// it distinguishes "nothing recorded" from a recorded UNKNOWN.
-	if r.PreparerConfigVersion.Valid {
+	if r.PreparerSpecVersion.Valid {
 		st.Preparer = apigen.PreparerStatus{
-			DeploymentConfigVersion: int32(r.PreparerConfigVersion.Int64),
-			Artifact:                r.PreparerArtifact.String,
-			Inputs:                  apigen.InputsStatus(r.PreparerInputsStatus),
-			Image:                   apigen.ImageStatus(r.PreparerImageStatus),
+			DeploymentSpecVersion: int32(r.PreparerSpecVersion.Int64),
+			Artifact:              r.PreparerArtifact.String,
+			Inputs:                apigen.InputsStatus(r.PreparerInputsStatus),
+			Image:                 apigen.ImageStatus(r.PreparerImageStatus),
 		}
 	}
 	if r.RunnerStatus.Valid {
 		st.Runner = apigen.RunnerStatus{
-			DeploymentConfigVersion: int32(r.RunnerConfigVersion.Int64),
-			RunningPid:              int32(r.RunnerPid.Int64),
-			RunningArtifact:         r.RunnerArtifact.String,
-			Status:                  apigen.RunningStatus(r.RunnerStatus.Int64),
-			NumberOfRestarts:        int32(r.RunnerNumRestarts.Int64),
+			DeploymentSpecVersion: int32(r.RunnerSpecVersion.Int64),
+			RunningPid:            int32(r.RunnerPid.Int64),
+			RunningArtifact:       r.RunnerArtifact.String,
+			Status:                apigen.RunningStatus(r.RunnerStatus.Int64),
+			NumberOfRestarts:      int32(r.RunnerNumRestarts.Int64),
 		}
 		if r.RunnerLastRestartAt.Valid {
 			st.Runner.LastRestartAt = time.UnixMilli(r.RunnerLastRestartAt.Int64)
@@ -81,13 +81,13 @@ func scheduledInstanceStatusProtoToInsertParams(st *apigen.ScheduledInstanceStat
 		RunnerExtraBlob:     []byte{},
 	}
 	if !st.Preparer.IsZero() {
-		p.PreparerConfigVersion = sql.NullInt64{Int64: int64(st.Preparer.DeploymentConfigVersion), Valid: true}
+		p.PreparerSpecVersion = sql.NullInt64{Int64: int64(st.Preparer.DeploymentSpecVersion), Valid: true}
 		p.PreparerArtifact = sql.NullString{String: st.Preparer.Artifact, Valid: true}
 		p.PreparerInputsStatus = int64(st.Preparer.Inputs)
 		p.PreparerImageStatus = int64(st.Preparer.Image)
 	}
 	if !st.Runner.IsZero() {
-		p.RunnerConfigVersion = sql.NullInt64{Int64: int64(st.Runner.DeploymentConfigVersion), Valid: true}
+		p.RunnerSpecVersion = sql.NullInt64{Int64: int64(st.Runner.DeploymentSpecVersion), Valid: true}
 		p.RunnerPid = sql.NullInt64{Int64: int64(st.Runner.RunningPid), Valid: true}
 		p.RunnerArtifact = sql.NullString{String: st.Runner.RunningArtifact, Valid: true}
 		p.RunnerStatus = sql.NullInt64{Int64: int64(st.Runner.Status), Valid: true}

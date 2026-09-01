@@ -137,10 +137,10 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, aut
 	return c, nil
 }
 
-// AppendConfigVersionWithDeploymentUpdates appends an immutable config version
+// AppendConfigVersionWithDeploymentUpdates appends an immutable spec version
 // and optionally rolls the caller-asserted deployment references to the new
 // row atomically.
-func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value string, author int32, updateDeployments bool, expected []storage.DeploymentConfigVersion) (*apigen.Config, []int32, error) {
+func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value string, author int32, updateDeployments bool, expected []storage.DeploymentSpecVersion) (*apigen.Config, []int32, error) {
 	ctx := context.Background()
 	insert := func(q *pq.Queries, globalSeq int64) (int32, error) {
 		if _, err := q.GetConfigRowByID(ctx, int64(configID)); err == sql.ErrNoRows {
@@ -150,7 +150,7 @@ func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value
 		}
 		version, err := q.GetNextConfigVersionNumber(ctx, int64(configID))
 		if err != nil {
-			return 0, fmt.Errorf("get next config version: %w", err)
+			return 0, fmt.Errorf("get next spec version: %w", err)
 		}
 		row, err := q.InsertConfigVersion(ctx, pq.InsertConfigVersionParams{
 			ConfigID:  int64(configID),
@@ -161,7 +161,7 @@ func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value
 			GlobalSeq: globalSeq,
 		})
 		if err != nil {
-			return 0, fmt.Errorf("insert config version: %w", err)
+			return 0, fmt.Errorf("insert spec version: %w", err)
 		}
 		return int32(row.ID), nil
 	}
@@ -350,7 +350,7 @@ func (s *Service) ConfigVersionIDs(configID int32) []int32 {
 	return ids
 }
 
-// ConfigVersionRef is one config version row joined with its identity.
+// ConfigVersionRef is one spec version row joined with its identity.
 type ConfigVersionRef struct {
 	ID        int32 // version row id
 	ConfigID  int32
@@ -362,7 +362,7 @@ type ConfigVersionRef struct {
 	Author    int32
 }
 
-// GetConfigVersionByID resolves a pinned config version row id.
+// GetConfigVersionByID resolves a pinned spec version row id.
 func (s *Service) GetConfigVersionByID(id int32) (ConfigVersionRef, bool) {
 	r, err := s.q.GetConfigVersionByID(context.Background(), int64(id))
 	if err == sql.ErrNoRows {

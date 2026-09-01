@@ -215,7 +215,7 @@ type Deployment struct {
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
 	Author       int32          `json:"author"`
-	Version      int32          `json:"version"`
+	SpecVersion  int32          `json:"spec_version"`
 	Spec         DeploymentSpec `json:"spec"`
 	Deleted      bool           `json:"deleted"`
 }
@@ -378,20 +378,20 @@ type DeploymentSnapshot struct {
 	Items []*Deployment `json:"items,omitempty"`
 }
 
-type DeploymentVersionRef struct {
-	ID      int32 `json:"id"`
-	Version int32 `json:"version"`
+type DeploymentSpecVersionRef struct {
+	ID          int32 `json:"id"`
+	SpecVersion int32 `json:"spec_version"`
 }
 
 type ScheduledInstance struct {
-	ID                int32                   `json:"id"`
-	CreatedAt         time.Time               `json:"created_at"`
-	DeploymentID      int32                   `json:"deployment_id"`
-	DeploymentVersion int32                   `json:"deployment_version"`
-	NodeID            int32                   `json:"node_id"`
-	InstanceOrdinal   int32                   `json:"instance_ordinal"`
-	State             ScheduledInstanceTarget `json:"state"`
-	SpaceID           int32                   `json:"space_id"`
+	ID                    int32                   `json:"id"`
+	CreatedAt             time.Time               `json:"created_at"`
+	DeploymentID          int32                   `json:"deployment_id"`
+	DeploymentSpecVersion int32                   `json:"deployment_spec_version"`
+	NodeID                int32                   `json:"node_id"`
+	InstanceOrdinal       int32                   `json:"instance_ordinal"`
+	State                 ScheduledInstanceTarget `json:"state"`
+	SpaceID               int32                   `json:"space_id"`
 }
 
 type ScheduledInstanceStatus struct {
@@ -413,29 +413,29 @@ type ScheduledInstanceSnapshot struct {
 }
 
 type PreparerStatus struct {
-	DeploymentConfigVersion int32        `json:"deployment_config_version"`
-	Artifact                string       `json:"artifact,omitempty"`
-	Inputs                  InputsStatus `json:"inputs"`
-	Image                   ImageStatus  `json:"image"`
+	DeploymentSpecVersion int32        `json:"deployment_spec_version"`
+	Artifact              string       `json:"artifact,omitempty"`
+	Inputs                InputsStatus `json:"inputs"`
+	Image                 ImageStatus  `json:"image"`
 }
 
 type RunnerStatus struct {
-	DeploymentConfigVersion int32         `json:"deployment_config_version"`
-	RunningPid              int32         `json:"running_pid"`
-	RunningArtifact         string        `json:"running_artifact,omitempty"`
-	Status                  RunningStatus `json:"status"`
-	NumberOfRestarts        int32         `json:"number_of_restarts"`
-	LastRestartAt           time.Time     `json:"last_restart_at"`
-	RunningVersion          string        `json:"running_version,omitempty"`
-	NetworkDiagnostics      []string      `json:"network_diagnostics,omitempty"`
-	ExitCode                *int32        `json:"exit_code,omitempty"`
+	DeploymentSpecVersion int32         `json:"deployment_spec_version"`
+	RunningPid            int32         `json:"running_pid"`
+	RunningArtifact       string        `json:"running_artifact,omitempty"`
+	Status                RunningStatus `json:"status"`
+	NumberOfRestarts      int32         `json:"number_of_restarts"`
+	LastRestartAt         time.Time     `json:"last_restart_at"`
+	RunningVersion        string        `json:"running_version,omitempty"`
+	NetworkDiagnostics    []string      `json:"network_diagnostics,omitempty"`
+	ExitCode              *int32        `json:"exit_code,omitempty"`
 }
 
 type DeploymentUpdateRequest struct {
 	DeploymentID  int32          `json:"deployment_id"`
 	TargetVersion string         `json:"target_version,omitempty"`
 	Stop          bool           `json:"stop"`
-	Version       int32          `json:"version"`
+	SpecVersion   int32          `json:"spec_version"`
 	Spec          DeploymentSpec `json:"spec"`
 }
 
@@ -466,7 +466,7 @@ type RecentlyDeletedDeployments struct {
 
 type DeploymentDeleteRequest struct {
 	DeploymentID int32 `json:"deployment_id"`
-	Version      int32 `json:"version"`
+	SpecVersion  int32 `json:"spec_version"`
 }
 
 type Version struct {
@@ -591,18 +591,18 @@ type DeploymentRunReportRequest struct {
 }
 
 type DeploymentRunReport struct {
-	DeploymentID      int32         `json:"deployment_id"`
-	DeploymentVersion int32         `json:"deployment_version"`
-	NodeID            int32         `json:"node_id"`
-	InstanceOrdinal   int32         `json:"instance_ordinal"`
-	Run               int32         `json:"run"`
-	Running           bool          `json:"running"`
-	StartedAt         time.Time     `json:"started_at"`
-	StoppedAt         time.Time     `json:"stopped_at"`
-	ExitCode          *int32        `json:"exit_code,omitempty"`
-	LogLines          []string      `json:"log_lines,omitempty"`
-	Warnings          []string      `json:"warnings,omitempty"`
-	Status            RunningStatus `json:"status"`
+	DeploymentID          int32         `json:"deployment_id"`
+	DeploymentSpecVersion int32         `json:"deployment_spec_version"`
+	NodeID                int32         `json:"node_id"`
+	InstanceOrdinal       int32         `json:"instance_ordinal"`
+	Run                   int32         `json:"run"`
+	Running               bool          `json:"running"`
+	StartedAt             time.Time     `json:"started_at"`
+	StoppedAt             time.Time     `json:"stopped_at"`
+	ExitCode              *int32        `json:"exit_code,omitempty"`
+	LogLines              []string      `json:"log_lines,omitempty"`
+	Warnings              []string      `json:"warnings,omitempty"`
+	Status                RunningStatus `json:"status"`
 }
 
 type RawLogLine struct {
@@ -633,7 +633,7 @@ type LogRecord struct {
 
 type PrepareOutputRequest struct {
 	DeploymentID int32 `json:"deployment_id"`
-	Version      int32 `json:"version"`
+	SpecVersion  int32 `json:"spec_version"`
 }
 
 type PrepareOutputChunk struct {
@@ -655,7 +655,7 @@ type LogFilter struct {
 type LogQueryRequest struct {
 	DeploymentID     int32        `json:"deployment_id"`
 	TargetNodeID     int32        `json:"target_node_id"`
-	ConfigVersion    int32        `json:"config_version"`
+	SpecVersion      int32        `json:"spec_version"`
 	TimeStart        time.Time    `json:"time_start"`
 	TimeEnd          time.Time    `json:"time_end"`
 	Filters          []*LogFilter `json:"filters,omitempty"`
@@ -750,10 +750,10 @@ type SecretCreateRequest struct {
 }
 
 type SecretSetRequest struct {
-	SecretID                     int32                   `json:"secret_id"`
-	Value                        []byte                  `json:"value"`
-	UpdateReferencingDeployments bool                    `json:"update_referencing_deployments"`
-	ReferencingDeployments       []*DeploymentVersionRef `json:"referencing_deployments,omitempty"`
+	SecretID                     int32                       `json:"secret_id"`
+	Value                        []byte                      `json:"value"`
+	UpdateReferencingDeployments bool                        `json:"update_referencing_deployments"`
+	ReferencingDeployments       []*DeploymentSpecVersionRef `json:"referencing_deployments,omitempty"`
 }
 
 type SecretPasswordSpec struct {
@@ -855,10 +855,10 @@ type ConfigCreateRequest struct {
 }
 
 type ConfigSetRequest struct {
-	ConfigID                     int32                   `json:"config_id"`
-	Value                        string                  `json:"value,omitempty"`
-	UpdateReferencingDeployments bool                    `json:"update_referencing_deployments"`
-	ReferencingDeployments       []*DeploymentVersionRef `json:"referencing_deployments,omitempty"`
+	ConfigID                     int32                       `json:"config_id"`
+	Value                        string                      `json:"value,omitempty"`
+	UpdateReferencingDeployments bool                        `json:"update_referencing_deployments"`
+	ReferencingDeployments       []*DeploymentSpecVersionRef `json:"referencing_deployments,omitempty"`
 }
 
 type ConfigRenameRequest struct {
@@ -1536,8 +1536,8 @@ type ClusterConfigsResponse struct {
 }
 
 type ClusterIssuedTLSRequest struct {
-	DeploymentID            int32 `json:"deployment_id"`
-	DeploymentConfigVersion int32 `json:"deployment_config_version"`
+	DeploymentID          int32 `json:"deployment_id"`
+	DeploymentSpecVersion int32 `json:"deployment_spec_version"`
 }
 
 type ClusterIssuedTLSResponse struct {

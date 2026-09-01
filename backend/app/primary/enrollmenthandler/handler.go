@@ -208,14 +208,14 @@ func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.E
 		}
 	}
 	accepted := &apigen.EnrollmentAccepted{
-		ID:                req.ID,
-		NodeName:        nodeName,
-		CaCertificate:     caCert,
+		ID:                   req.ID,
+		NodeName:             nodeName,
+		CaCertificate:        caCert,
 		SecondaryCertificate: secondaryCert,
-		ClusterNetwork:    &apigen.ClusterNetworkInfo{UlaPrefix: h.configService.NetworkPrefix().Bytes()},
-		NodeDeployment:    nodeDeployment,
-		NodeNetDeployment: nodeNetDeployment,
-		ClusterNetMap:     netMap,
+		ClusterNetwork:       &apigen.ClusterNetworkInfo{UlaPrefix: h.configService.NetworkPrefix().Bytes()},
+		NodeDeployment:       nodeDeployment,
+		NodeNetDeployment:    nodeNetDeployment,
+		ClusterNetMap:        netMap,
 	}
 	select {
 	case sess.accepted <- accepted:
@@ -235,7 +235,7 @@ func (h *Handler) ensureEnrollmentBootstrapInstances(nodeID int32) (*apigen.Sche
 		}
 		// A node being enrolled has no placements yet, so its system deployments
 		// start out serving rather than warming up behind something.
-		h.store.EnsureRunScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0,
+		h.store.EnsureRunScheduledInstance(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0,
 			apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	}
 	return enrollmentBootstrapInstances(h.store.FetchScheduledSnapshot(predicate))

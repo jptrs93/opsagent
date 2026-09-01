@@ -22,7 +22,7 @@ func deleteDeployment(t *testing.T, h *Handler, cfg *apigen.Deployment) {
 	}
 	err := h.PostV1DeploymentsDelete(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentDeleteRequest{
 		DeploymentID: current.ID,
-		Version:      current.Version + 1,
+		SpecVersion:  current.SpecVersion + 1,
 	})
 	if err != nil {
 		t.Fatalf("delete %d: %v", cfg.ID, err)
@@ -165,9 +165,9 @@ func TestRecentlyDeletedOmitsInternalDeployments(t *testing.T) {
 		t.Fatal("no internal deployment was created")
 	}
 	_, _, ok := h.Store.UpdateDeploymentSpec(apigen.Context{Ctx: context.Background()}, internal.ID, state.DeploymentSpecUpdate{
-		ExpectedVersion: internal.Version + 1,
-		Spec:            &internal.Spec,
-		Deleted:         true,
+		ExpectedSpecVersion: internal.SpecVersion + 1,
+		Spec:                &internal.Spec,
+		Deleted:             true,
 	})
 	if !ok {
 		t.Fatal("deleting the internal deployment failed")

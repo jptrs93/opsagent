@@ -130,7 +130,7 @@ func (s *Scheduler) onConfig(cfg apigen.Deployment) {
 		return
 	}
 	current := s.store.FetchDeployment(cfg.ID)
-	if current == nil || current.Version != cfg.Version {
+	if current == nil || current.SpecVersion != cfg.SpecVersion {
 		return
 	}
 	cfg = *current
@@ -139,7 +139,7 @@ func (s *Scheduler) onConfig(cfg apigen.Deployment) {
 		return
 	}
 	if cfg.NodeID <= 0 {
-		slog.WarnContext(s.ctx, fmt.Sprintf("scheduler: skipping config without node version=%d", cfg.Version), "dep", cfg.ID)
+		slog.WarnContext(s.ctx, fmt.Sprintf("scheduler: skipping config without node version=%d", cfg.SpecVersion), "dep", cfg.ID)
 		return
 	}
 
@@ -156,7 +156,7 @@ func (s *Scheduler) onConfig(cfg apigen.Deployment) {
 		if inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
 			serving = true
 		}
-		if inst.DeploymentVersion == cfg.Version && inst.NodeID == cfg.NodeID &&
+		if inst.DeploymentSpecVersion == cfg.SpecVersion && inst.NodeID == cfg.NodeID &&
 			inst.SpaceID == cfg.SpaceID && inst.State.WantsRunning() {
 			exact = state
 			continue
@@ -171,7 +171,7 @@ func (s *Scheduler) onConfig(cfg apigen.Deployment) {
 			// own routes, and only a replacement reporting RUNNING may move those.
 			if inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY {
 				s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
-				slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: terminating a standby superseded by a newer config instanceVersion=%d configVersion=%d", inst.DeploymentVersion, cfg.Version),
+				slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: terminating a standby superseded by a newer config instanceSpecVersion=%d specVersion=%d", inst.DeploymentSpecVersion, cfg.SpecVersion),
 					"scheduled_instance", inst.ID,
 					"dep", cfg.ID,
 				)
@@ -206,11 +206,11 @@ func (s *Scheduler) onConfig(cfg apigen.Deployment) {
 	if serving {
 		initial = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
 	}
-	inst, created := s.store.EnsureRunScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, defaultInstanceOrdinal, initial)
+	inst, created := s.store.EnsureRunScheduledInstance(cfg.ID, cfg.SpecVersion, cfg.NodeID, defaultInstanceOrdinal, initial)
 	if !created {
 		return
 	}
-	slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: created scheduled instance version=%d state=%v", cfg.Version, initial),
+	slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: created scheduled instance version=%d state=%v", cfg.SpecVersion, initial),
 		"scheduled_instance", inst.ID,
 		"dep", cfg.ID,
 		"node", cfg.NodeID,
@@ -234,7 +234,7 @@ func (s *Scheduler) onInstance(state apigen.ScheduledInstanceState) {
 			s.retireDrainedInstances()
 			return
 		}
-		if cfg.Version == inst.DeploymentVersion && cfg.NodeID == inst.NodeID &&
+		if cfg.SpecVersion == inst.DeploymentSpecVersion && cfg.NodeID == inst.NodeID &&
 			cfg.SpaceID == inst.SpaceID {
 			s.promoteIfReady(state)
 			return
@@ -274,7 +274,7 @@ func (s *Scheduler) promoteIfReady(state apigen.ScheduledInstanceState) {
 		}
 		return
 	}
-	if state.Status.Runner.DeploymentConfigVersion != inst.DeploymentVersion ||
+	if state.Status.Runner.DeploymentSpecVersion != inst.DeploymentSpecVersion ||
 		state.Status.Runner.Status != apigen.RunningStatus_RUNNING {
 		return
 	}

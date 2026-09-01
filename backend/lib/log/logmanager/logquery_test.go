@@ -132,7 +132,7 @@ func TestQueryAggregatesOnly(t *testing.T) {
 
 func TestQueryConfigVersionFilter(t *testing.T) {
 	m := searchFixture(t)
-	got := queryMsgs(t, m, wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, ConfigVersion: 1}))
+	got := queryMsgs(t, m, wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, SpecVersion: 1}))
 	if !equalStrings(got, []string{"a2", "a1"}) {
 		t.Fatalf("msgs = %#v", got)
 	}
@@ -535,8 +535,8 @@ func TestTwoPassMatchesFullScan(t *testing.T) {
 		{"asc", searchFixture, func(t *testing.T) *apigen.LogQueryRequest {
 			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: 2, Order: "asc"})
 		}},
-		{"configVersion", searchFixture, func(t *testing.T) *apigen.LogQueryRequest {
-			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, ConfigVersion: 1})
+		{"specVersion", searchFixture, func(t *testing.T) *apigen.LogQueryRequest {
+			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, SpecVersion: 1})
 		}},
 		{"metaFilter", searchFixture, func(t *testing.T) *apigen.LogQueryRequest {
 			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID,

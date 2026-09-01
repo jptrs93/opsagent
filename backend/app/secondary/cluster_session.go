@@ -356,8 +356,8 @@ func applyInstanceUpdate(ctx context.Context, store *state.Service, state *apige
 	if state == nil || state.Instance.ID == 0 || state.Instance.NodeID != nodeID {
 		return
 	}
-	slog.InfoContext(ctx, fmt.Sprintf("applying scheduled instance update from primary deploymentVersion=%d targetState=%v",
-		state.Instance.DeploymentVersion, state.Instance.State),
+	slog.InfoContext(ctx, fmt.Sprintf("applying scheduled instance update from primary deploymentSpecVersion=%d targetState=%v",
+		state.Instance.DeploymentSpecVersion, state.Instance.State),
 		"scheduled_instance", state.Instance.ID, "dep", state.Instance.DeploymentID)
 	store.MustWriteScheduledInstanceAssignment(state)
 }

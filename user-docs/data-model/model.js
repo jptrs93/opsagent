@@ -205,7 +205,7 @@
       f('id', 'int32', { key: true }),
       f('timestamp', 'timestamp', { srv: true }),
       f('deploymentId', 'int32', { ref: 'Deployment.id' }),
-      f('deploymentVersion', 'int32', { note: 'pins one immutable spec version' }),
+      f('deploymentSpecVersion', 'int32', { note: 'pins one immutable spec version' }),
       f('nodeId', 'int32', { ref: 'ClusterNode.id' }),
       f('instanceOrdinal', 'int32'),
       f('spaceId', 'int32', { ref: 'Space.id' }),

@@ -48,7 +48,7 @@ func GenerateClusterCA(name string) (certPEM, keyPEM []byte, err error) {
 }
 
 const (
-	caValidity         = 100 * 365 * 24 * time.Hour
+	caValidity            = 100 * 365 * 24 * time.Hour
 	secondaryCertValidity = 365 * 24 * time.Hour
 )
 

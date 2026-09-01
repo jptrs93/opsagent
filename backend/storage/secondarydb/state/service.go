@@ -49,7 +49,7 @@ func (s *Service) loadLocalScheduledInstanceCache() {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	// The durable assignment source is local_scheduled_instance_cache. Each
-	// blob is a full ScheduledInstanceState with its pinned config version.
+	// blob is a full ScheduledInstanceState with its pinned spec version.
 	rows, err := s.q.ListLocalScheduledInstanceCache(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("ListLocalScheduledInstanceCache: %v", err))

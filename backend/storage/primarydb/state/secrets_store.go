@@ -153,7 +153,7 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, aut
 // and optionally rolls the caller-asserted deployment references to the new
 // row atomically. seal is called with the identity id and the next version
 // number inside the transaction.
-func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal secrets.SealFunc, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(secrets.Record)) (secrets.Record, []int32, error) {
+func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal secrets.SealFunc, updateDeployments bool, expected []storage.DeploymentSpecVersion, afterCommit func(secrets.Record)) (secrets.Record, []int32, error) {
 	ctx := context.Background()
 	var record secrets.Record
 	insert := func(q *pq.Queries, globalSeq int64) (int32, error) {

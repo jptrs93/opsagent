@@ -42,12 +42,12 @@ func deploymentStatuses(store *state.Service, deploymentID int32) []apigen.Sched
 func preparerOutputVersion(statuses []apigen.ScheduledInstanceStatus) int32 {
 	for i := range statuses {
 		if p := statuses[i].Preparer; !p.IsZero() && prepare.InProgress(p) {
-			return p.DeploymentConfigVersion
+			return p.DeploymentSpecVersion
 		}
 	}
 	for i := range statuses {
 		if p := statuses[i].Preparer; !p.IsZero() {
-			return p.DeploymentConfigVersion
+			return p.DeploymentSpecVersion
 		}
 	}
 	return 0
@@ -56,7 +56,7 @@ func preparerOutputVersion(statuses []apigen.ScheduledInstanceStatus) int32 {
 func preparingVersion(statuses []apigen.ScheduledInstanceStatus, version int32) bool {
 	for i := range statuses {
 		p := statuses[i].Preparer
-		if !p.IsZero() && p.DeploymentConfigVersion == version && prepare.InProgress(p) {
+		if !p.IsZero() && p.DeploymentSpecVersion == version && prepare.InProgress(p) {
 			return true
 		}
 	}
@@ -68,11 +68,11 @@ func streamPrepareOutput(ctx context.Context, out *outbox, store *state.Service,
 	requestID := req.RequestID
 	if req.PreparerOutput != nil {
 		p := req.PreparerOutput
-		if p.Version == 0 && p.DeploymentID != 0 {
-			p.Version = preparerOutputVersion(deploymentStatuses(store, p.DeploymentID))
+		if p.SpecVersion == 0 && p.DeploymentID != 0 {
+			p.SpecVersion = preparerOutputVersion(deploymentStatuses(store, p.DeploymentID))
 		}
 		streamFile(ctx, out, p.OutputPath(), requestID, func() bool {
-			return preparingVersion(deploymentStatuses(store, p.DeploymentID), p.Version)
+			return preparingVersion(deploymentStatuses(store, p.DeploymentID), p.SpecVersion)
 		})
 		return
 	}

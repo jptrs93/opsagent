@@ -6,7 +6,7 @@
 CREATE TABLE IF NOT EXISTS scheduled_instances (
     id                          INTEGER PRIMARY KEY AUTOINCREMENT,
     deployment_id               INTEGER NOT NULL,
-    deployment_version          INTEGER NOT NULL,
+    deployment_spec_version     INTEGER NOT NULL,
     node_id                     INTEGER NOT NULL,
     instance_ordinal            INTEGER NOT NULL DEFAULT 0,
     deployment_space_version_id INTEGER NOT NULL DEFAULT 0
@@ -33,11 +33,11 @@ CREATE TABLE IF NOT EXISTS scheduled_instance_status (
     scheduled_instance_id   INTEGER NOT NULL,
     updated_at              INTEGER NOT NULL,  -- HLC clock, unix nanoseconds
     deployment_id           INTEGER NOT NULL DEFAULT 0,
-    preparer_config_version INTEGER,
+    preparer_spec_version   INTEGER,
     preparer_artifact       TEXT,
     preparer_inputs_status  INTEGER NOT NULL DEFAULT 0,  -- stage 1: assets/secrets/configs
     preparer_image_status   INTEGER NOT NULL DEFAULT 0,  -- stage 2: build, pull, or download
-    runner_config_version   INTEGER,
+    runner_spec_version     INTEGER,
     runner_pid              INTEGER,
     runner_artifact         TEXT,
     runner_status           INTEGER,

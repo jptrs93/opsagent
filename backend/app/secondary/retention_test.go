@@ -55,10 +55,10 @@ func withRetentionAssetDir(t *testing.T, names ...string) string {
 // values seeded by retentionTestStore and withRetentionAssetDir.
 func referencingConfig(version int32) apigen.Deployment {
 	return apigen.Deployment{
-		ID:      7,
-		NodeID:  23,
-		Version: version,
-		SpaceID: 1, Name: "api",
+		ID:          7,
+		NodeID:      23,
+		SpecVersion: version,
+		SpaceID:     1, Name: "api",
 		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 			Runtime: apigen.ContainerRuntime{
 				AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4}},
@@ -72,18 +72,18 @@ func writeInstance(t *testing.T, store *state.Service, instanceID int32, cfg api
 	t.Helper()
 	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{
-			ID:                instanceID,
-			NodeID:            23,
-			DeploymentID:      cfg.ID,
-			DeploymentVersion: cfg.Version,
-			State:             target,
+			ID:                    instanceID,
+			NodeID:                23,
+			DeploymentID:          cfg.ID,
+			DeploymentSpecVersion: cfg.SpecVersion,
+			State:                 target,
 		},
 		Config: cfg,
 	})
 	store.MustWriteScheduledInstanceStatus(instanceID, func(s *apigen.ScheduledInstanceStatus) bool {
 		s.BumpUpdatedAt()
-		s.Preparer = apigen.PreparerStatus{DeploymentConfigVersion: preparerVersion, Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_READY}
-		s.Runner = apigen.RunnerStatus{DeploymentConfigVersion: runnerVersion, Status: apigen.RunningStatus_RUNNING}
+		s.Preparer = apigen.PreparerStatus{DeploymentSpecVersion: preparerVersion, Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_READY}
+		s.Runner = apigen.RunnerStatus{DeploymentSpecVersion: runnerVersion, Status: apigen.RunningStatus_RUNNING}
 		return true
 	})
 }
@@ -112,7 +112,7 @@ func TestSweepDropsOnlyUnreferencedInputsAndAssets(t *testing.T) {
 	}
 }
 
-// An instance whose runner still trails the desired config version is running a
+// An instance whose runner still trails the desired spec version is running a
 // config whose referenced ids this node can no longer enumerate, so sweeping
 // could delete an input its live container needs to respawn. The sweep must wait
 // — and because ids are shared between deployments, it has to wait for all of
@@ -138,7 +138,7 @@ func TestSweepSkipsEntirelyWhileAnyInstanceIsMidRollout(t *testing.T) {
 }
 
 // An instance being torn down is not going to start a new container, so it
-// cannot be holding a previous config version's inputs open and must not block
+// cannot be holding a previous spec version's inputs open and must not block
 // the sweep for as long as it lingers.
 func TestSweepTreatsTerminatingInstancesAsSettled(t *testing.T) {
 	store, inputs := retentionTestStore(t)

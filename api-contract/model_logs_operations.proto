@@ -8,7 +8,7 @@ option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 message PrepareOutputRequest {
   int32 deployment_id = 3;
-  int32 version = 2;  // config version whose log to stream (0 = latest)
+  int32 spec_version = 2;  // spec version whose prepare log to stream (0 = latest)
 }
 
 message PrepareOutputChunk {
@@ -37,7 +37,7 @@ message LogFilter {
 message LogQueryRequest {
   int32 deployment_id = 1;
   int32 target_node_id = 2;   // Required for system log queries (deployment_id = 0).
-  int32 config_version = 3;   // Deployment config version to search (0 = all versions).
+  int32 spec_version = 3;   // Deployment spec version to search (0 = all versions).
   int64 time_start = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];  // Inclusive; 0 = time_end - 12h.
   int64 time_end = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];    // Exclusive; 0 = now, pinned server-side and echoed in stats.
   repeated LogFilter filters = 6;

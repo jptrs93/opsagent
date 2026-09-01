@@ -72,12 +72,12 @@ enum ScheduledInstanceTarget {
 }
 
 // ScheduledInstance is one placement/runtime incarnation of a deployment
-// instance ordinal on a node, pinned to a specific deployment config version.
+// instance ordinal on a node, pinned to a specific deployment spec version.
 message ScheduledInstance {
   int32 id = 1;
   int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 deployment_id = 3;
-  int32 deployment_version = 4;
+  int32 deployment_spec_version = 4;
   int32 node_id = 5;
   int32 instance_ordinal = 6;
   ScheduledInstanceTarget state = 7;
@@ -94,7 +94,7 @@ message ScheduledInstanceStatus {
 }
 
 // ScheduledInstanceState is the authoritative runtime assignment view: the
-// schedule row, the immutable deployment config version it references, and the
+// schedule row, the immutable deployment spec version it references, and the
 // latest observed status for that instance.
 message ScheduledInstanceState {
   ScheduledInstance instance = 1 [(cp.go_value) = true];
@@ -110,7 +110,7 @@ message ScheduledInstanceSnapshot {
 // from the pair via Rollup(); field 3 held it before it became derived and must
 // not be reused.
 message PreparerStatus {
-  int32 deployment_config_version = 1;
+  int32 deployment_spec_version = 1;
   string artifact = 2;
   reserved 3;
   InputsStatus inputs = 4;
@@ -120,7 +120,7 @@ message PreparerStatus {
 message RunnerStatus {
   // Status blobs are persisted; retired field numbers must not be reused.
   reserved 5, 9;
-  int32 deployment_config_version = 1;
+  int32 deployment_spec_version = 1;
   int32 running_pid = 2;
   string running_artifact= 3;
   RunningStatus status = 4;

@@ -9,7 +9,7 @@ import (
 )
 
 func deploymentRowToProto(r pq.DeploymentRow) *apigen.Deployment {
-	spec := mustDecodeDeploymentSpec(r.SpecBlob, r.DeploymentID, r.Version)
+	spec := mustDecodeDeploymentSpec(r.SpecBlob, r.DeploymentID, r.SpecVersion)
 	return &apigen.Deployment{
 		ID:           int32(r.DeploymentID),
 		NodeID:       int32(r.NodeID),
@@ -17,7 +17,7 @@ func deploymentRowToProto(r pq.DeploymentRow) *apigen.Deployment {
 		SpaceVersion: int32(r.SpaceVersion),
 		Name:         r.Name,
 		CreatedAt:    millisToTime(r.CreatedAt),
-		Version:      int32(r.Version),
+		SpecVersion:  int32(r.SpecVersion),
 		UpdatedAt:    time.UnixMilli(r.UpdatedAt),
 		Author:       int32(r.Author),
 		Spec:         deploymentSpecValue(spec),
@@ -33,11 +33,11 @@ func deploymentRowToProto(r pq.DeploymentRow) *apigen.Deployment {
 func specVersionRowToProto(v pq.DeploymentSpecVersion, base *apigen.Deployment) *apigen.Deployment {
 	spec := mustDecodeDeploymentSpec(v.SpecBlob, v.DeploymentID, v.Version)
 	cfg := &apigen.Deployment{
-		ID:        int32(v.DeploymentID),
-		Version:   int32(v.Version),
-		UpdatedAt: time.UnixMilli(v.CreatedAt),
-		Author:    int32(v.Author),
-		Spec:      deploymentSpecValue(spec),
+		ID:          int32(v.DeploymentID),
+		SpecVersion: int32(v.Version),
+		UpdatedAt:   time.UnixMilli(v.CreatedAt),
+		Author:      int32(v.Author),
+		Spec:        deploymentSpecValue(spec),
 	}
 	if base != nil {
 		cfg.NodeID = base.NodeID

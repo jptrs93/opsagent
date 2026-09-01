@@ -145,7 +145,7 @@ WHERE c.deleted_at = 0 AND c.value_directory_id = ? AND c.name = ? AND c.id != ?
 	return n, err
 }
 
-// ConfigVersionJoinedRow is one config version row joined with its identity.
+// ConfigVersionJoinedRow is one spec version row joined with its identity.
 // Pinned version reads stay resolvable for soft-deleted configs.
 type ConfigVersionJoinedRow struct {
 	ID        int64

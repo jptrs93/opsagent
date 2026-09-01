@@ -43,13 +43,13 @@ func (s *Service) MustFetchDeploymentHistory(deploymentID int32) []*apigen.Deplo
 }
 
 // DeploymentSpecUpdate is a full replacement of the mutable config fields,
-// applied only when ExpectedVersion matches the next version of the stored row.
-// Callers always hold the current row (they need it for ExpectedVersion), so
+// applied only when ExpectedSpecVersion matches the next version of the stored row.
+// Callers always hold the current row (they need it for ExpectedSpecVersion), so
 // unchanged fields are passed through as-is rather than merged from storage.
 type DeploymentSpecUpdate struct {
-	ExpectedVersion int32
-	Spec            *apigen.DeploymentSpec
-	Deleted         bool
+	ExpectedSpecVersion int32
+	Spec                *apigen.DeploymentSpec
+	Deleted             bool
 }
 
 func (s *Service) UpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, update DeploymentSpecUpdate) (*apigen.Deployment, bool, bool) {
@@ -72,7 +72,7 @@ func (s *Service) UpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, u
 	if err != nil {
 		panic(fmt.Sprintf("GetDeployment: %v", err))
 	}
-	if update.ExpectedVersion != int32(existing.Version+1) {
+	if update.ExpectedSpecVersion != int32(existing.SpecVersion+1) {
 		return deploymentRowToProto(existing), false, false
 	}
 
@@ -93,7 +93,7 @@ func (s *Service) UpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, u
 	// unchanged — the tombstone's deletion time is its latest version's
 	// created_at, and the bump keeps the optimistic version guard covering
 	// deletes.
-	next.Version = existing.Version + 1
+	next.SpecVersion = existing.SpecVersion + 1
 	next.UpdatedAt = now
 	next.Author = userID
 	next.SpecBlob = specBlob
@@ -108,14 +108,14 @@ func (s *Service) UpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, u
 func (s *Service) mustCommitDeploymentLocked(prev, next pq.DeploymentRow, label string) *apigen.Deployment {
 	bgCtx := context.Background()
 	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
-		if next.Version != prev.Version {
+		if next.SpecVersion != prev.SpecVersion {
 			seq, err := q.NextGlobalSeq(bgCtx)
 			if err != nil {
 				panic(fmt.Sprintf("NextGlobalSeq (%s): %v", label, err))
 			}
 			if err := q.InsertDeploymentSpecVersion(bgCtx, pq.InsertDeploymentSpecVersionParams{
 				DeploymentID: next.DeploymentID,
-				Version:      next.Version,
+				Version:      next.SpecVersion,
 				CreatedAt:    next.UpdatedAt,
 				Author:       next.Author,
 				SpecBlob:     next.SpecBlob,
@@ -147,7 +147,7 @@ func (s *Service) mustCommitDeploymentLocked(prev, next pq.DeploymentRow, label 
 // deployment, leaving identity fields untouched. Caller must hold s.Mu.
 func (s *Service) mustAppendSpecVersionLocked(existing pq.DeploymentRow, specBlob []byte, author int64, label string) *apigen.Deployment {
 	next := existing
-	next.Version = existing.Version + 1
+	next.SpecVersion = existing.SpecVersion + 1
 	next.UpdatedAt = time.Now().UnixMilli()
 	next.Author = author
 	next.SpecBlob = specBlob
@@ -204,7 +204,7 @@ func (s *Service) mustCreateDeploymentLocked(spaceID int32, name string, nodeID 
 		SpaceID:      int64(spaceID),
 		SpaceVersion: 1,
 		Name:         name,
-		Version:      1,
+		SpecVersion:  1,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 		Author:       author,
@@ -375,8 +375,8 @@ func (s *Service) repairDeploymentSpecLocked(deploymentID int32, spec *apigen.De
 	if err != nil {
 		panic(fmt.Sprintf("GetDeployment (%s repair): %v", label, err))
 	}
-	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), dbID, existing.Version)
-	existingSpec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
+	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), dbID, existing.SpecVersion)
+	existingSpec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.SpecVersion)
 	if err := storedSpec.SetWorkloadState(existingSpec.WorkloadVersion(), existingSpec.WorkloadRunning()); err != nil {
 		panic(fmt.Sprintf("preserve %s deployment workload state: %v", label, err))
 	}

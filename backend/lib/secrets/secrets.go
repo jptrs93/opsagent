@@ -142,7 +142,7 @@ type Store interface {
 	ListSecretVersionRecords() []Record
 	GetSecretIDByName(spaceID int32, name string) (int32, bool)
 	CreateSecretWithVersion(name string, spaceID, directoryID, author int32, seal SealFunc) (Record, error)
-	AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal SealFunc, updateDeployments bool, expected []storage.DeploymentConfigVersion, afterCommit func(Record)) (Record, []int32, error)
+	AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal SealFunc, updateDeployments bool, expected []storage.DeploymentSpecVersion, afterCommit func(Record)) (Record, []int32, error)
 	RenameSecret(secretID int32, newName string) error
 	MoveSecretSpace(secretID, newSpaceID, newDirectoryID, author int32) error
 	DeleteSecret(secretID int32) error
@@ -374,7 +374,7 @@ func (m *Manager) SetByName(name string, value []byte, author int32) (Meta, erro
 
 // SetWithDeploymentUpdates appends an immutable secret version and optionally
 // rolls the caller-asserted deployment references to the new row atomically.
-func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, author int32, updateDeployments bool, deployments []storage.DeploymentConfigVersion, onCommit func(Meta)) (Meta, error) {
+func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, author int32, updateDeployments bool, deployments []storage.DeploymentSpecVersion, onCommit func(Meta)) (Meta, error) {
 	if secretID == 0 {
 		return Meta{}, ErrNotFound
 	}

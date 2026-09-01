@@ -32,11 +32,11 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	system := store.MustCreateDeploymentForNode(apigen.Context{}, OpendeploySpaceID, internaldeploy.SelfName, primaryNode.ID, testSystemSpecWithState("v1", true))
 
 	seedStatus := func(cfg *apigen.Deployment, artifact string) *apigen.ScheduledInstance {
-		inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+		inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 		store.MustWriteScheduledInstanceStatus(inst.ID, func(status *apigen.ScheduledInstanceStatus) bool {
 			status.BumpUpdatedAt()
-			status.Preparer = apigen.PreparerStatus{DeploymentConfigVersion: cfg.Version, Artifact: artifact, Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_READY}
-			status.Runner = apigen.RunnerStatus{DeploymentConfigVersion: cfg.Version, RunningArtifact: artifact, Status: apigen.RunningStatus_RUNNING}
+			status.Preparer = apigen.PreparerStatus{DeploymentSpecVersion: cfg.SpecVersion, Artifact: artifact, Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_READY}
+			status.Runner = apigen.RunnerStatus{DeploymentSpecVersion: cfg.SpecVersion, RunningArtifact: artifact, Status: apigen.RunningStatus_RUNNING}
 			return true
 		})
 		return inst
@@ -46,7 +46,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	seedStatus(system, "/var/lib/opendeploy/releases/v1/opendeploy")
 
 	primaryConfigHistoryCount := len(store.MustFetchDeploymentHistory(primary.ID))
-	primaryConfigVersion := primary.Version
+	primaryConfigVersion := primary.SpecVersion
 
 	count, err := store.InvalidateNodeRuntimeState(primaryNode.ID)
 	if err != nil {
@@ -71,8 +71,8 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 		t.Fatal("primary system deployment runtime status was cleared")
 	}
 	for _, cfg := range store.ListActiveDeployments() {
-		if cfg.ID == primary.ID && cfg.Version != primaryConfigVersion {
-			t.Fatalf("primary config version = %d, want %d", cfg.Version, primaryConfigVersion)
+		if cfg.ID == primary.ID && cfg.SpecVersion != primaryConfigVersion {
+			t.Fatalf("primary spec version = %d, want %d", cfg.SpecVersion, primaryConfigVersion)
 		}
 	}
 	if err := store.Close(); err != nil {
@@ -103,8 +103,8 @@ func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 	if repaired == nil {
 		t.Fatal("repaired deployment not found")
 	}
-	if repaired.Version <= created.Version {
-		t.Fatalf("version = %d, want repaired version above %d", repaired.Version, created.Version)
+	if repaired.SpecVersion <= created.SpecVersion {
+		t.Fatalf("version = %d, want repaired version above %d", repaired.SpecVersion, created.SpecVersion)
 	}
 	if !internaldeploy.IsSelfSpec(&repaired.Spec) {
 		t.Fatalf("spec was not repaired: %+v", repaired.Spec)
@@ -137,8 +137,8 @@ func TestEnsureNetproxyDeploymentCreatesInternalConfig(t *testing.T) {
 		t.Fatalf("file descriptor limit = %d, want %d", got, netproxyFileDescriptorLimit)
 	}
 	again := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
-	if again.Version != cfg.Version {
-		t.Fatalf("ensure bumped unchanged netproxy version from %d to %d", cfg.Version, again.Version)
+	if again.SpecVersion != cfg.SpecVersion {
+		t.Fatalf("ensure bumped unchanged netproxy version from %d to %d", cfg.SpecVersion, again.SpecVersion)
 	}
 }
 
@@ -164,11 +164,11 @@ func TestEnsureNetproxyDeploymentRepairsExistingSpec(t *testing.T) {
 	broken := internaldeploy.NetproxySpec()
 	broken.Container().Runtime.FileDescriptorLimit = 128
 	mustUpdateDeploymentSpec(store, apigen.Context{}, cfg.ID, broken)
-	brokenVersion := store.deploymentCache[cfg.ID].Version
+	brokenVersion := store.deploymentCache[cfg.ID].SpecVersion
 
 	repaired := store.EnsureNetproxyDeployment(node.ID, "v0.0.201")
-	if repaired.Version <= brokenVersion {
-		t.Fatalf("version = %d, want above broken version %d", repaired.Version, brokenVersion)
+	if repaired.SpecVersion <= brokenVersion {
+		t.Fatalf("version = %d, want above broken version %d", repaired.SpecVersion, brokenVersion)
 	}
 	if got := repaired.Spec.Container().Runtime.FileDescriptorLimit; got != netproxyFileDescriptorLimit {
 		t.Fatalf("file descriptor limit = %d, want %d", got, netproxyFileDescriptorLimit)
@@ -185,7 +185,7 @@ func TestEnsureNetproxyDeploymentRepairsSpecOnceConcurrently(t *testing.T) {
 	broken := internaldeploy.NetproxySpec()
 	broken.Container().Runtime.FileDescriptorLimit = 128
 	mustUpdateDeploymentSpec(store, apigen.Context{}, cfg.ID, broken)
-	brokenVersion := store.deploymentCache[cfg.ID].Version
+	brokenVersion := store.deploymentCache[cfg.ID].SpecVersion
 
 	var wg sync.WaitGroup
 	for range 8 {
@@ -194,8 +194,8 @@ func TestEnsureNetproxyDeploymentRepairsSpecOnceConcurrently(t *testing.T) {
 	wg.Wait()
 
 	repaired := store.deploymentCache[cfg.ID]
-	if repaired.Version != brokenVersion+1 {
-		t.Fatalf("version = %d, want one repair above %d", repaired.Version, brokenVersion)
+	if repaired.SpecVersion != brokenVersion+1 {
+		t.Fatalf("version = %d, want one repair above %d", repaired.SpecVersion, brokenVersion)
 	}
 }
 
@@ -204,7 +204,7 @@ func TestEnsureNetproxyDeploymentPreservesDesiredStateConcurrently(t *testing.T)
 	node := testNode(store, "primary")
 	cfg := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
 	mustSetDeploymentWorkloadState(store, apigen.Context{}, cfg.ID, "v0.0.199", false)
-	manualVersion := store.deploymentCache[cfg.ID].Version
+	manualVersion := store.deploymentCache[cfg.ID].SpecVersion
 
 	var wg sync.WaitGroup
 	for range 8 {
@@ -213,8 +213,8 @@ func TestEnsureNetproxyDeploymentPreservesDesiredStateConcurrently(t *testing.T)
 	wg.Wait()
 
 	updated := store.deploymentCache[cfg.ID]
-	if updated.Version != manualVersion {
-		t.Fatalf("version = %d, want unchanged manual version %d", updated.Version, manualVersion)
+	if updated.SpecVersion != manualVersion {
+		t.Fatalf("version = %d, want unchanged manual version %d", updated.SpecVersion, manualVersion)
 	}
 	if updated.WorkloadVersion() != "v0.0.199" || updated.WorkloadRunning() {
 		t.Fatalf("workload state = %q/%v, want stopped v0.0.199", updated.WorkloadVersion(), updated.WorkloadRunning())
@@ -241,8 +241,8 @@ func TestEnsureNetproxyDeploymentPreservesExistingVersion(t *testing.T) {
 	if again.WorkloadVersion() != "v0.0.200" {
 		t.Fatalf("desired version = %q, want preserved v0.0.200", again.WorkloadVersion())
 	}
-	if again.Version != cfg.Version {
-		t.Fatalf("version = %d, want unchanged %d", again.Version, cfg.Version)
+	if again.SpecVersion != cfg.SpecVersion {
+		t.Fatalf("version = %d, want unchanged %d", again.SpecVersion, cfg.SpecVersion)
 	}
 }
 
@@ -426,8 +426,8 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	updated, changed, versionOK := store.UpdateDeploymentSpec(apigen.Context{}, cfg.ID, DeploymentSpecUpdate{
-		ExpectedVersion: 2,
-		Spec:            &nextSpec,
+		ExpectedSpecVersion: 2,
+		Spec:                &nextSpec,
 	})
 	if !changed || !versionOK || updated.NodeID != node.ID {
 		t.Fatalf("updated config = %+v, changed=%v versionOK=%v, want node ID %d", updated, changed, versionOK, node.ID)
@@ -439,7 +439,7 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 	}
 	for _, entry := range history {
 		if entry.NodeID != node.ID {
-			t.Fatalf("history version %d node ID = %d, want %d", entry.Version, entry.NodeID, node.ID)
+			t.Fatalf("history version %d node ID = %d, want %d", entry.SpecVersion, entry.NodeID, node.ID)
 		}
 	}
 }
@@ -523,7 +523,7 @@ func TestEnsureRunScheduledInstanceIsConcurrentAndIdempotent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			inst, _ := store.EnsureRunScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+			inst, _ := store.EnsureRunScheduledInstance(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 			ids <- inst.ID
 		}()
 	}

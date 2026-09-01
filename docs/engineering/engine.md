@@ -55,14 +55,14 @@ Decision flow:
 
 - `config.Deleted` — cancel preparer, stop runner, unsubscribe.
 - `!config.WorkloadRunning()` — stop runner.
-- `config.Version > currentPreparer.Version()` — cancel old prepare and start a new one.
-- `preparerReady(status, config.Version) && config.Version > currentRunner.Version()` — stop old runner and create a new one.
-- A persisted `READY` container image that is absent or not unpacked locally — prepare the same config version again without changing desired-state history.
-- A container spawn that reports a locally unavailable image — stop retrying that image, signal the operator, and prepare the same config version again.
+- `config.SpecVersion > currentPreparer.SpecVersion()` — cancel old prepare and start a new one.
+- `preparerReady(status, config.SpecVersion) && config.SpecVersion > currentRunner.SpecVersion()` — stop old runner and create a new one.
+- A persisted `READY` container image that is absent or not unpacked locally — prepare the same spec version again without changing desired-state history.
+- A container spawn that reports a locally unavailable image — stop retrying that image, signal the operator, and prepare the same spec version again.
 
 `Stop()` is synchronous. The operator waits until the runner has stopped and written terminal status before moving on. Same-version artifact repair waits until the replacement preparation has published a non-`READY` transition before accepting its terminal `READY`, so a queued runner update carrying the stale preparer status cannot restart the missing image.
 
-Container deployments can opt into `container1Spec.upgradeStrategy = ROLLOVER`. The operator starts a candidate runner for the prepared config version, waits for its readiness signal, promotes it, and stops the old runner. The default/unspecified strategy is `RECREATE`, which preserves the stop-then-start behavior above. Virtual networking can promote without host-port bind contention; host networking requires the workload to defer binding conflicting host ports until after readiness.
+Container deployments can opt into `container1Spec.upgradeStrategy = ROLLOVER`. The operator starts a candidate runner for the prepared spec version, waits for its readiness signal, promotes it, and stops the old runner. The default/unspecified strategy is `RECREATE`, which preserves the stop-then-start behavior above. Virtual networking can promote without host-port bind contention; host networking requires the workload to defer binding conflicting host ports until after readiness.
 
 A candidate publishes status to its scheduled instance throughout, the same as any other runner. It has no incumbent to clobber: an instance's config is pinned to its version, so a candidate is only ever created when nothing is running for that instance. It publishes `STARTING` until the readiness signal arrives and `RUNNING` only after, because `RUNNING` is what tells the scheduler it may hand the placement the instance address. A candidate that crashes before signalling is recorded as `CRASHED` and respawned with the usual backoff; the readiness timeout is a deadline across every attempt, and expiring it stops the candidate and releases the operator, which keeps the old runner active. Suppressing these writes previously made a candidate that crashed during startup invisible and, because no status change was published, left the operator with nothing to react to and the rollout stalled.
 
@@ -82,7 +82,7 @@ Asset, secret, and config preparation dependencies are grouped in one instance-o
 
 When reattachment finds a prepared instance whose inputs are unavailable, the operator retries the inputs in the background rather than re-preparing: re-preparing fetches the same inputs from the same place and would publish a terminal failure nothing retries out of. The retry publishes the inputs stage so the stuck instance is visible, while the recorded artifact and the `READY` rollup both survive it.
 
-Primary backup restore preserves desired config and append-only status history, but runtime observations belong to the machine that produced the backup. The installer clears the mutable current preparer and runner fields for non-system deployments assigned to the replacement primary. Their unchanged config versions are then prepared normally on first startup. The OpenDeploy self-deployment is excluded because the installer has already installed and started that binary; worker statuses are retained because surviving workers reconcile their own local runtime state.
+Primary backup restore preserves desired config and append-only status history, but runtime observations belong to the machine that produced the backup. The installer clears the mutable current preparer and runner fields for non-system deployments assigned to the replacement primary. Their unchanged spec versions are then prepared normally on first startup. The OpenDeploy self-deployment is excluded because the installer has already installed and started that binary; secondary statuses are retained because surviving secondaries reconcile their own local runtime state.
 
 Prepare output is written to `{PrepareOutputDir}/{deploymentID}/{version}.log`.
 OpenDeploy-generated entries use `==> message` and failures use `==> ERROR: message`; subprocess output is streamed unchanged between those entries.
@@ -109,7 +109,7 @@ type Runner interface {
 }
 ```
 
-Public deployments run through `containerRunner`. It creates one deterministic containerd container per deployment config version (`opendeploy-{deploymentID}-v{version}`), wires stdout/stderr through a dedicated binary log consumer, waits for task exit, and respawns with exponential backoff on crashes. The consumer writes merged half-hourly UTC files under `{LogWALDir}/{deploymentID}/{YYYYMMDD_HHMM}_{version}_{run}.logbin`. Each binary record carries its timestamp, config version, run number, and stdout/stderr stream. `version` is the deployment configuration version; `run` starts at `1` and increments for each respawn of that version. A rollover candidate has a newer configuration version, so it writes distinct files while it overlaps the old runner. Host-network deployments join the host network namespace. Virtual-network deployments get a pre-created Linux netns from `backend/lib/network`, and the containerd OCI spec joins that namespace.
+Public deployments run through `containerRunner`. It creates one deterministic containerd container per deployment spec version (`opendeploy-{deploymentID}-v{version}`), wires stdout/stderr through a dedicated binary log consumer, waits for task exit, and respawns with exponential backoff on crashes. The consumer writes merged half-hourly UTC files under `{LogWALDir}/{deploymentID}/{YYYYMMDD_HHMM}_{version}_{run}.logbin`. Each binary record carries its timestamp, spec version, run number, and stdout/stderr stream. `version` is the deployment spec version; `run` starts at `1` and increments for each respawn of that version. A rollover candidate has a newer spec version, so it writes distinct files while it overlaps the old runner. Host-network deployments join the host network namespace. Virtual-network deployments get a pre-created Linux netns from `backend/lib/network`, and the containerd OCI spec joins that namespace.
 
 Run-log reads go through `lib/log/logreader`. It identifies all candidate `.logbin` files for a deployment, turns each into a chronological `LogLine` stream, and merges those streams by timestamp for historical searches. It only scans existing files and does not tail active writes.
 

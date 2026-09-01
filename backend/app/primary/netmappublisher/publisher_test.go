@@ -399,16 +399,16 @@ func virtualDeployment(id, nodeID, spaceID int32) apigen.Deployment {
 func servingInstance(instanceID, deploymentID, nodeID, spaceID int32) apigen.ScheduledInstanceState {
 	return apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{
-			ID:                instanceID,
-			DeploymentID:      deploymentID,
-			DeploymentVersion: 1,
-			NodeID:            nodeID,
-			State:             apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
+			ID:                    instanceID,
+			DeploymentID:          deploymentID,
+			DeploymentSpecVersion: 1,
+			NodeID:                nodeID,
+			State:                 apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 		},
 		Config: virtualDeployment(deploymentID, nodeID, spaceID),
 		Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{
-			DeploymentConfigVersion: 1,
-			Status:                  apigen.RunningStatus_RUNNING,
+			DeploymentSpecVersion: 1,
+			Status:                apigen.RunningStatus_RUNNING,
 		}},
 	}
 }

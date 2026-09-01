@@ -6,11 +6,11 @@ type DeploymentPredicate func(apigen.Deployment) bool
 
 type ScheduledInstancePredicate func(apigen.ScheduledInstanceState) bool
 
-// DeploymentConfigVersion is an optimistic assertion about the current
-// version of a deployment config.
-type DeploymentConfigVersion struct {
-	ID      int32
-	Version int32
+// DeploymentSpecVersion is an optimistic assertion about the current
+// spec version of a deployment.
+type DeploymentSpecVersion struct {
+	ID          int32
+	SpecVersion int32
 }
 
 func DeploymentKeyMatches(cfg apigen.Deployment, nodeID, spaceID int32, name string) bool {

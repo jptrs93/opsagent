@@ -15,7 +15,7 @@ import (
 var ErrNotFound = errors.New("container task not found")
 
 // ErrImageUnavailable marks a missing or incomplete local image so the
-// operator can prepare the same desired config version again.
+// operator can prepare the same desired spec version again.
 var ErrImageUnavailable = errors.New("container image unavailable")
 
 // Mount is a single host bind mount into the container.
@@ -30,7 +30,7 @@ const DefaultFileDescriptorLimit = 2048
 // ContainerSpec describes a container to create and start. The default data
 // volume (if any) is already resolved into Mounts by the caller.
 type ContainerSpec struct {
-	ID            string   // deterministic container id (one per deployment config version)
+	ID            string   // deterministic container id (one per deployment spec version)
 	Image         string   // resolved image ref to run (as stored by Pull)
 	User          string   // OCI process.user (uid, uid:gid, or name); empty = image default
 	Env           []string // KEY=VALUE entries
@@ -40,7 +40,7 @@ type ContainerSpec struct {
 	FileDescLimit int64    // optional RLIMIT_NOFILE override; 0 uses DefaultFileDescriptorLimit
 	Mounts        []Mount  // host bind mounts
 	LogDir        string   // stdout/stderr deployment log directory
-	LogVersion    int32    // deployment config version for stdout/stderr records
+	LogVersion    int32    // deployment spec version for stdout/stderr records
 	LogRun        int32    // deployment run number for stdout/stderr records
 	// Stamped into every wal record so the log data is self describing and
 	// needs no directory or catalog context to attribute a line.
