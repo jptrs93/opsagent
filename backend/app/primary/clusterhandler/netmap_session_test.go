@@ -46,7 +46,7 @@ func (p *sessionNetMapProvider) appliedFor(nodeID int32) (int64, bool) {
 	return seq, ok
 }
 
-// TestSessionRecordsOnlyCleanNetMapApplies covers the barrier's input: a worker
+// TestSessionRecordsOnlyCleanNetMapApplies covers the barrier's input: a secondary
 // that reports a reconciliation error still holds whatever its kernel had
 // before, so counting it as caught up would retire a placement it can still be
 // routing to.
@@ -54,12 +54,12 @@ func TestSessionRecordsOnlyCleanNetMapApplies(t *testing.T) {
 	provider := &sessionNetMapProvider{current: &apigen.ClusterNetMap{DerivedFromSeq: 1}}
 	session := &Session{NodeID: 7, networkMaps: provider}
 
-	session.handleIncoming(&apigen.MsgToMaster{NetMapStatus: &apigen.NetMapStatus{AppliedSeq: 4}})
+	session.handleIncoming(&apigen.MsgToPrimary{NetMapStatus: &apigen.NetMapStatus{AppliedSeq: 4}})
 	if seq, ok := provider.appliedFor(7); !ok || seq != 4 {
 		t.Fatalf("clean apply recorded %d (present=%v), want 4", seq, ok)
 	}
 
-	session.handleIncoming(&apigen.MsgToMaster{NetMapStatus: &apigen.NetMapStatus{
+	session.handleIncoming(&apigen.MsgToPrimary{NetMapStatus: &apigen.NetMapStatus{
 		AppliedSeq: 9, ReconciliationError: "installing remote route: no such device",
 	}})
 	if seq, _ := provider.appliedFor(7); seq != 4 {
@@ -87,12 +87,12 @@ func initialSessionNetMap(t *testing.T, store *state.Service, provider networkMa
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	session := newSession(ctx, cancel, 7, "worker", nil, store, provider)
-	reqs := func(yield func(*apigen.MsgToMaster, error) bool) {
+	session := newSession(ctx, cancel, 7, "secondary", nil, store, provider)
+	reqs := func(yield func(*apigen.MsgToPrimary, error) bool) {
 		<-ctx.Done()
 	}
 	var got *apigen.ClusterNetMap
-	session.run(reqs, func(msg *apigen.MsgToWorker, err error) bool {
+	session.run(reqs, func(msg *apigen.MsgToSecondary, err error) bool {
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -18,11 +18,11 @@ import (
 )
 
 type outbox struct {
-	ch  chan *apigen.MsgToMaster
+	ch  chan *apigen.MsgToPrimary
 	ctx context.Context
 }
 
-func (o *outbox) Send(msg *apigen.MsgToMaster) bool {
+func (o *outbox) Send(msg *apigen.MsgToPrimary) bool {
 	select {
 	case o.ch <- msg:
 		return true
@@ -121,10 +121,10 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	out := &outbox{ch: make(chan *apigen.MsgToMaster, 64), ctx: sessCtx}
+	out := &outbox{ch: make(chan *apigen.MsgToPrimary, 64), ctx: sessCtx}
 	// The hello must lead the request stream so the primary can publish an
-	// updated network map as soon as this worker reconnects.
-	out.Send(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{
+	// updated network map as soon as this secondary reconnects.
+	out.Send(&apigen.MsgToPrimary{ClusterHello: &apigen.ClusterHello{
 		UnderlayAddress:        underlayAddress,
 		ClusterProtocolVersion: apigen.ClusterProtocolVersion,
 		WgPublicKey:            wgPublicKey,
@@ -134,7 +134,7 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 		if err != nil {
 			slog.WarnContext(sessCtx, "loading cached network map status failed", "err", err)
 		} else if status != nil {
-			out.Send(&apigen.MsgToMaster{NetMapStatus: status})
+			out.Send(&apigen.MsgToPrimary{NetMapStatus: status})
 		}
 	}
 
@@ -145,8 +145,8 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 	tracker := newLogStreamTracker()
 
 	// reqs drains the outbox into the request stream until teardown. The
-	// closure is assignable to iter.Seq2[*MsgToMaster, error].
-	reqs := func(yield func(*apigen.MsgToMaster, error) bool) {
+	// closure is assignable to iter.Seq2[*MsgToPrimary, error].
+	reqs := func(yield func(*apigen.MsgToPrimary, error) bool) {
 		for {
 			select {
 			case <-sessCtx.Done():
@@ -170,7 +170,7 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 		}
 		if !protocolConfirmed {
 			if msg.ClusterProtocolVersion != apigen.ClusterProtocolVersion {
-				return fmt.Errorf("cluster protocol mismatch: primary sent %d, worker requires %d", msg.ClusterProtocolVersion, apigen.ClusterProtocolVersion)
+				return fmt.Errorf("cluster protocol mismatch: primary sent %d, secondary requires %d", msg.ClusterProtocolVersion, apigen.ClusterProtocolVersion)
 			}
 			protocolConfirmed = true
 			continue
@@ -185,12 +185,12 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 }
 
 // The first map accepted after connect is the session's snapshot and replaces
-// the worker's cache unconditionally.
+// the secondary's cache unconditionally.
 type primarySessionState struct {
 	netMapSnapshotPending bool
 }
 
-func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, sess *primarySessionState, msg *apigen.MsgToWorker, nodeID int32, acme *acmestate.Holder, netMaps *netmapstate.Holder, notifySynced func()) {
+func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, sess *primarySessionState, msg *apigen.MsgToSecondary, nodeID int32, acme *acmestate.Holder, netMaps *netmapstate.Holder, notifySynced func()) {
 	msgType := "heartbeat"
 	switch {
 	case msg.ScheduledInstancesSnapshot != nil:
@@ -248,7 +248,7 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 			}
 		}
 		if status != nil {
-			out.Send(&apigen.MsgToMaster{NetMapStatus: status})
+			out.Send(&apigen.MsgToPrimary{NetMapStatus: status})
 		}
 	case msg.StopLogRequestID != "":
 		tracker.stop(msg.StopLogRequestID)
@@ -301,7 +301,7 @@ func statusPushLoop(ctx context.Context, out *outbox, ch <-chan apigen.Scheduled
 			}
 			lastSent[id] = state.Status.UpdatedAt
 			status := state.Status
-			if !out.Send(&apigen.MsgToMaster{StatusWrite: &status}) {
+			if !out.Send(&apigen.MsgToPrimary{StatusWrite: &status}) {
 				return
 			}
 		}
@@ -345,7 +345,7 @@ func applySnapshot(ctx context.Context, out *outbox, store *state.Service, snap 
 		slog.InfoContext(ctx, fmt.Sprintf("replaying %d status history entries to primary from %s", len(backlog), primaryClock),
 			"scheduled_instance", item.Instance.ID)
 		for _, st := range backlog {
-			if !out.Send(&apigen.MsgToMaster{StatusWrite: st}) {
+			if !out.Send(&apigen.MsgToPrimary{StatusWrite: st}) {
 				return
 			}
 		}

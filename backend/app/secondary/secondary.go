@@ -50,13 +50,13 @@ type runtimeConfig struct {
 	WGPublicKey string
 }
 
-// bootSyncTimeout bounds how long a booting worker holds the deployment
+// bootSyncTimeout bounds how long a booting secondary holds the deployment
 // operator back waiting for the primary's first snapshot. Cached assignments
 // can be arbitrarily stale — a fresh assignment arriving seconds later has
 // repeatedly meant acting on the cache first did real damage (self-version
 // downgrade fights, netns setup from identityless configs) — so when the
 // primary is reachable the operator starts from the synced state instead. The
-// timeout keeps an offline worker self-managing: past it, the operator runs
+// timeout keeps an offline secondary self-managing: past it, the operator runs
 // from the cache exactly as before the gate existed.
 const bootSyncTimeout = 15 * time.Second
 
@@ -78,7 +78,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	githubCredentials := NewPrimaryGithubCredentialsProvider(primaryURL, primaryHTTPClient)
 	network.SetDefault(network.New(cfg.ClusterPrefix, cfg.NetDeploymentID))
 	// Load-or-generate must precede the cached-map reconcile so peers come
-	// back up directly after an offline reboot. Freshly enrolled workers
+	// back up directly after an offline reboot. Freshly enrolled secondaries
 	// already hold the file from enrollment. WireGuard is the only cross-node
 	// transport, so a key failure blocks boot.
 	nodeKey, err := wgkey.LoadOrGenerate(cfg.DataDir)
@@ -102,7 +102,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	configProvider := NewPrimaryConfigProvider(primaryURL, primaryHTTPClient)
 
 	// Runtime inputs are loaded from local storage before the operator starts, so
-	// a worker that reboots while the primary is unreachable can still resolve
+	// a secondary that reboots while the primary is unreachable can still resolve
 	// every secret and config its workloads need. Failures here are not fatal:
 	// NewPersistent still returns a usable RuntimeInputs, it just starts empty and
 	// refetches, which is the pre-persistence behaviour.
@@ -161,7 +161,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient, acmeHolder, netMapHolder, notifySynced)
 }
 
-// newPrimaryHTTPClient builds the HTTP/2-only client a worker uses to dial the
+// newPrimaryHTTPClient builds the HTTP/2-only client a secondary uses to dial the
 // primary's cluster endpoint over mTLS. serverName overrides the TLS SNI/verify
 // name, needed when dialing the primary by IP (so verification matches the
 // cert's DNS SAN rather than requiring an IP SAN).

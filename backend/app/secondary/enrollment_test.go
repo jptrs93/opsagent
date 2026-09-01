@@ -73,7 +73,7 @@ func TestEnrollReturnsWhenContextCanceled(t *testing.T) {
 }
 
 func TestCacheEnrollmentBootstrapStateRequiresNetwork(t *testing.T) {
-	accepted := enrollmentAcceptedWithBootstrap(t, "worker-1")
+	accepted := enrollmentAcceptedWithBootstrap(t, "secondary-1")
 	accepted.ClusterNetwork = nil
 	if err := cacheEnrollmentBootstrapState(context.Background(), EnrollmentConfig{DataDir: t.TempDir()}, accepted); err == nil {
 		t.Fatal("cacheEnrollmentBootstrapState succeeded without network")
@@ -82,12 +82,12 @@ func TestCacheEnrollmentBootstrapStateRequiresNetwork(t *testing.T) {
 
 func TestMustLoadRuntimeConfigLoadsCachedBootstrapState(t *testing.T) {
 	dataDir := t.TempDir()
-	accepted := enrollmentAcceptedWithBootstrap(t, "worker-1")
+	accepted := enrollmentAcceptedWithBootstrap(t, "secondary-1")
 
 	if err := cacheEnrollmentBootstrapState(context.Background(), EnrollmentConfig{DataDir: dataDir}, accepted); err != nil {
 		t.Fatalf("cacheEnrollmentBootstrapState: %v", err)
 	}
-	caPath, certPath, keyPath := writeRuntimeTLS(t, dataDir, "worker-1")
+	caPath, certPath, keyPath := writeRuntimeTLS(t, dataDir, "secondary-1")
 	cfg := MustLoadRuntimeConfig(context.Background(), ainit.StaticConfiguration{
 		DataDir:            dataDir,
 		GitCacheDir:        filepath.Join(dataDir, "git-cache"),
@@ -101,14 +101,14 @@ func TestMustLoadRuntimeConfigLoadsCachedBootstrapState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParsePrefix: %v", err)
 	}
-	if cfg.TLS == nil || cfg.NodeIdentifier != "worker-1" || cfg.NodeID != 2 || cfg.ClusterPrefix != wantPrefix || cfg.NetDeploymentID != 11 {
+	if cfg.TLS == nil || cfg.NodeIdentifier != "secondary-1" || cfg.NodeID != 2 || cfg.ClusterPrefix != wantPrefix || cfg.NetDeploymentID != 11 {
 		t.Fatalf("runtime config = %+v", cfg)
 	}
 }
 
 func TestCacheEnrollmentBootstrapStatePersistsNetworkMap(t *testing.T) {
 	dataDir := t.TempDir()
-	accepted := enrollmentAcceptedWithBootstrap(t, "worker-1")
+	accepted := enrollmentAcceptedWithBootstrap(t, "secondary-1")
 	accepted.ClusterNetMap = &apigen.ClusterNetMap{
 		DerivedFromSeq: 1,
 		TargetNodeID:   2,
@@ -133,7 +133,7 @@ func TestCacheEnrollmentBootstrapStatePersistsNetworkMap(t *testing.T) {
 
 func TestMustLoadRuntimeConfigRequiresCachedBootstrapState(t *testing.T) {
 	dataDir := t.TempDir()
-	caPath, certPath, keyPath := writeRuntimeTLS(t, dataDir, "worker-1")
+	caPath, certPath, keyPath := writeRuntimeTLS(t, dataDir, "secondary-1")
 	defer func() {
 		if recover() == nil {
 			t.Fatal("MustLoadRuntimeConfig did not panic without cached bootstrap state")
@@ -147,7 +147,7 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 	prefix := network.GeneratePrefix()
 	return &apigen.EnrollmentAccepted{
 		ID:             1,
-		WorkerName:     machine,
+		NodeName:     machine,
 		ClusterNetwork: &apigen.ClusterNetworkInfo{UlaPrefix: prefix.Bytes()},
 		NodeDeployment: &apigen.ScheduledInstanceState{
 			Instance: apigen.ScheduledInstance{
@@ -192,7 +192,7 @@ func writeRuntimeTLS(t *testing.T, dataDir, machine string) (string, string, str
 	if err != nil {
 		t.Fatalf("GenerateNodeCertificate: %v", err)
 	}
-	caPath, certPath, keyPath := certu.WorkerTLSPaths(filepath.Join(dataDir, "tls"))
+	caPath, certPath, keyPath := certu.SecondaryTLSPaths(filepath.Join(dataDir, "tls"))
 	if err := os.MkdirAll(filepath.Dir(caPath), 0o750); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}

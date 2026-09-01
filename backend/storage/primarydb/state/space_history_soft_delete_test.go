@@ -81,7 +81,7 @@ func TestSoftDeleteHidesRowAndFreesName(t *testing.T) {
 	if _, ok := store.GetAssetRow(v.ID); ok {
 		t.Fatal("deleted asset still resolves by id")
 	}
-	if _, ok := store.GetAssetInRootByKey(DefaultSpaceID, "app.conf"); ok {
+	if _, ok := getAssetInRootByKey(store, DefaultSpaceID, "app.conf"); ok {
 		t.Fatal("deleted asset still resolves by key")
 	}
 	if got := store.ListAssets(); len(got) != 0 {

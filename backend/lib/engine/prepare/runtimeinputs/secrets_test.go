@@ -239,7 +239,7 @@ func secretRefDeployment(ids ...int32) *apigen.Deployment {
 	}}}
 }
 
-// The whole point of persisting runtime inputs: a restarted worker resolves
+// The whole point of persisting runtime inputs: a restarted secondary resolves
 // everything its workloads need without a single call to the primary, so it can
 // cold-start while the primary is down.
 func TestPersistedInputsMakeRestartNotContactTheProvider(t *testing.T) {

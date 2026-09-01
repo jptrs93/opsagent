@@ -4,11 +4,11 @@
 -- tuple below — with no state column this cannot be a SQL constraint, so it
 -- is enforced solely by EnsureRunScheduledInstance under the service mutex.
 CREATE TABLE IF NOT EXISTS scheduled_instances (
-    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-    deployment_id      INTEGER NOT NULL,
-    deployment_version INTEGER NOT NULL,
-    node_id            INTEGER NOT NULL,
-    instance_ordinal   INTEGER NOT NULL DEFAULT 0,
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    deployment_id               INTEGER NOT NULL,
+    deployment_version          INTEGER NOT NULL,
+    node_id                     INTEGER NOT NULL,
+    instance_ordinal            INTEGER NOT NULL DEFAULT 0,
     deployment_space_version_id INTEGER NOT NULL DEFAULT 0
 );
 

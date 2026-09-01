@@ -57,7 +57,7 @@ func jsonFixture(t *testing.T) *Manager {
 	writeBucket(t, walDir, "20260615_1430",
 		record(t, "2026-06-15T14:30:01Z", 1, 1, logv2.StreamStdout, `{"level":"info","msg":"server started","service":"api"}`+"\n"),
 		record(t, "2026-06-15T14:30:02Z", 1, 1, logv2.StreamStdout, `{"level":"error","msg":"db connection failed","service":"api","err":"timeout"}`+"\n"),
-		record(t, "2026-06-15T14:30:03Z", 1, 1, logv2.StreamStdout, `{"level":"warn","msg":"slow query detected","service":"worker","duration_ms":1500}`+"\n"),
+		record(t, "2026-06-15T14:30:03Z", 1, 1, logv2.StreamStdout, `{"level":"warn","msg":"slow query detected","service":"secondary","duration_ms":1500}`+"\n"),
 	)
 	c := NewLogStreamCollector(testDeploymentID, db)
 	if err := c.RunCollectorOnce(deadProducer()); err != nil {

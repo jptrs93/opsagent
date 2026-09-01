@@ -10,7 +10,7 @@ import (
 
 // Bumped to 7 when assets split into assets + asset_versions: the cluster
 // asset fetch renamed its query param and headers to asset_version_id naming.
-// Bumped to 8 when issued TLS mounts were added: an older worker would run an
+// Bumped to 8 when issued TLS mounts were added: an older secondary would run an
 // issued-TLS deployment without its cert material.
 // Bumped to 10 when the streaming log search was replaced by the one-shot
 // structured log query round trip (per-field stats ride in its response).

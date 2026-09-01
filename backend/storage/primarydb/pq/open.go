@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"fmt"
+	"strings"
 
 	"github.com/jptrs93/opsagent/backend/storage/sqlitedb"
 )
@@ -21,9 +23,12 @@ var migrations string
 // layer bound to it. All SQL — generated and hand-written — lives on *Queries.
 func Open(dbPath string) *Queries {
 	db := sqlitedb.MustOpen(dbPath)
-	// A Go shape migration (rewriting an old-shape table of the same name)
-	// would have to run before ApplySchema: CREATE TABLE IF NOT EXISTS
-	// silently no-ops against the old shape.
+	// Go shape migrations (renaming or rewriting an old-shape table) have to
+	// run before ApplySchema: CREATE TABLE IF NOT EXISTS silently no-ops
+	// against the old shape.
+	if _, err := db.Exec("ALTER TABLE deployment_versions RENAME TO deployment_spec_versions"); err != nil && !strings.Contains(err.Error(), "no such table") {
+		panic(fmt.Sprintf("rename deployment_versions: %v", err))
+	}
 	sqlitedb.ApplySchema(db, schemaFiles, "sql/schema*.sql")
 	sqlitedb.ApplyMigrations(db, migrations)
 	return New(db)

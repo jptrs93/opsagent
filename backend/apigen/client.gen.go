@@ -1905,8 +1905,8 @@ func (c *OpsagentClusterV1Capi) GetV1ClusterRenewCertificate(ctx context.Context
 	return DecodeClusterRenewCertificateResponse(body)
 }
 
-func (c *OpsagentClusterV1Capi) PostV1ClusterConnect(ctx context.Context, reqs iter.Seq2[*MsgToMaster, error]) iter.Seq2[*MsgToWorker, error] {
-	return func(yield func(*MsgToWorker, error) bool) {
+func (c *OpsagentClusterV1Capi) PostV1ClusterConnect(ctx context.Context, reqs iter.Seq2[*MsgToPrimary, error]) iter.Seq2[*MsgToSecondary, error] {
+	return func(yield func(*MsgToSecondary, error) bool) {
 		resp, err := c.do(ctx, "POST", "/v1/cluster/connect", writeGoCapiClientStream(reqs), "application/protobuf-stream", "application/protobuf-stream")
 		if err != nil {
 			yield(nil, err)
@@ -1927,7 +1927,7 @@ func (c *OpsagentClusterV1Capi) PostV1ClusterConnect(ctx context.Context, reqs i
 			if !ok {
 				return
 			}
-			item, err := DecodeMsgToWorker(payload)
+			item, err := DecodeMsgToSecondary(payload)
 			if err != nil {
 				yield(nil, err)
 				return
@@ -2008,7 +2008,7 @@ func (c *EnrollmentV1Capi) do(ctx context.Context, method string, path string, b
 	return httpClient.Do(req)
 }
 
-func (c *EnrollmentV1Capi) PostV1EnrollmentRequest(ctx context.Context, reqs iter.Seq2[*EnrollmentWorkerMsg, error]) iter.Seq2[*EnrollmentPrimaryMsg, error] {
+func (c *EnrollmentV1Capi) PostV1EnrollmentRequest(ctx context.Context, reqs iter.Seq2[*EnrollmentSecondaryMsg, error]) iter.Seq2[*EnrollmentPrimaryMsg, error] {
 	return func(yield func(*EnrollmentPrimaryMsg, error) bool) {
 		resp, err := c.do(ctx, "POST", "/v1/enrollment/request", writeGoCapiClientStream(reqs), "application/protobuf-stream", "application/protobuf-stream")
 		if err != nil {

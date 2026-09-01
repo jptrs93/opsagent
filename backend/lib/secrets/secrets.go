@@ -270,7 +270,7 @@ func (m *Manager) RevealByID(id int32) ([]byte, error) {
 }
 
 // ResolveMany decrypts the requested user secrets as one batch. It is used by
-// deployment preparation so workers can fetch all referenced secrets in a
+// deployment preparation so secondaries can fetch all referenced secrets in a
 // single cluster request and keep plaintext only in memory for runner startup.
 func (m *Manager) ResolveMany(ids []int32) (map[int32]string, error) {
 	m.mu.RLock()

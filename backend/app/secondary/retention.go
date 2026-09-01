@@ -16,7 +16,7 @@ import (
 )
 
 // retentionInterval paces the sweep. Nothing depends on it being prompt — it
-// reclaims disk and narrows what a stolen worker disk holds, neither of which is
+// reclaims disk and narrows what a stolen secondary disk holds, neither of which is
 // urgent — so it is slow enough to be invisible. A var so tests can shrink it.
 var retentionInterval = 5 * time.Minute
 

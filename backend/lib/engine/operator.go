@@ -408,9 +408,9 @@ var newRuntimeInputsBackoff = func() *timeu.Backoff {
 // inputs until they are available, leaving its READY preparer status alone.
 //
 // The artifact is built and recorded; what failed is input distribution, which
-// on a worker is a request to the primary. Re-preparing cannot help — prepare
+// on a secondary is a request to the primary. Re-preparing cannot help — prepare
 // fetches the same inputs from the same place — and it would publish PREPARING
-// and then FAILED, a state nothing retries out of, so a worker that restarted
+// and then FAILED, a state nothing retries out of, so a secondary that restarted
 // while the primary was down stayed failed until someone edited the config. That
 // is the ordinary shape of a rollout: the operator starts before the primary
 // connection is established, so every instance holding a secret or config ref

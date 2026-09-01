@@ -18,14 +18,14 @@ import (
 )
 
 func Run(ctx context.Context) {
-	ctx = logu.AddTag(ctx, "Worker")
+	ctx = logu.AddTag(ctx, "Secondary")
 	cfg := ainit.StaticConfig
 	slog.InfoContext(ctx, fmt.Sprintf("opendeploy secondary booting version=%v dataDir=%v", version.Version, cfg.DataDir))
 	if cfg.PrimaryClusterAddr == "" || cfg.PrimaryEnrollmentAddr == "" {
 		panic("OPENDEPLOY_PRIMARY_CLUSTER_ADDR and OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR must be set when running secondary")
 	}
-	caPath, certPath, keyPath := certu.WorkerTLSPaths(cfg.TLSDir)
-	if !certu.WorkerTLSMaterialExists(caPath, certPath, keyPath) {
+	caPath, certPath, keyPath := certu.SecondaryTLSPaths(cfg.TLSDir)
+	if !certu.SecondaryTLSMaterialExists(caPath, certPath, keyPath) {
 		underlayAddress := cfg.UnderlayAddress
 		if underlayAddress == "" {
 			var err error
@@ -35,9 +35,9 @@ func Run(ctx context.Context) {
 			}
 		}
 		if cfg.PrimaryEnrollmentFingerprint == "" {
-			panic("OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT must be set before worker enrollment")
+			panic("OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT must be set before secondary enrollment")
 		}
-		slog.InfoContext(ctx, fmt.Sprintf("worker cluster certs missing; starting enrollment enrollmentAddr=%v", cfg.PrimaryEnrollmentAddr))
+		slog.InfoContext(ctx, fmt.Sprintf("secondary cluster certs missing; starting enrollment enrollmentAddr=%v", cfg.PrimaryEnrollmentAddr))
 		if err := Enroll(ctx, EnrollmentConfig{
 			PrimaryEnrollmentAddr:        cfg.PrimaryEnrollmentAddr,
 			PrimaryEnrollmentFingerprint: cfg.PrimaryEnrollmentFingerprint,
@@ -48,7 +48,7 @@ func Run(ctx context.Context) {
 			OpendeployVersion:            version.Version,
 			UnderlayAddress:              underlayAddress,
 		}); err != nil {
-			panic(fmt.Sprintf("worker enrollment: %v", err))
+			panic(fmt.Sprintf("secondary enrollment: %v", err))
 		}
 	}
 	runtimeCfg := MustLoadRuntimeConfig(ctx, cfg, caPath, certPath, keyPath)

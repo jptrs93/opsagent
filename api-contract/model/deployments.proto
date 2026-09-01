@@ -166,7 +166,7 @@ message EnvVarValue {
   int32 asset_version_id = 5;   // immutable asset version row id, used for local cache/downloads
 
   // A virtual deployment's ordinal-zero stable inbound address I. Both fields
-  // are required together so workers can derive it without querying deployment
+  // are required together so secondaries can derive it without querying deployment
   // state. Address refs never resolve a run-scoped outbound address O.
   optional int32 address_deployment_id = 6;
   optional int32 address_space_id = 7;

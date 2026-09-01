@@ -38,7 +38,7 @@ import {
   decodeGlobalState,
   decodeLogQueryResponse,
   decodeLoginResponse,
-  decodeMsgToWorker,
+  decodeMsgToSecondary,
   decodeNetworkPolicy,
   decodeNetworkPolicyList,
   decodeNodeEnrollmentInfo,
@@ -92,12 +92,12 @@ import {
   encodeDeploymentUpdateRequest,
   encodeDeploymentVersionsRequest,
   encodeEnrollmentAcceptRequest,
-  encodeEnrollmentWorkerMsg,
+  encodeEnrollmentSecondaryMsg,
   encodeLogQueryRequest,
   encodeMasterPasswordRequest,
   encodeMasterPasswordSaveRequest,
   encodeMasterPasswordVerifyRequest,
-  encodeMsgToMaster,
+  encodeMsgToPrimary,
   encodeNetworkPolicyCreateRequest,
   encodeNetworkPolicyDeleteRequest,
   encodeNetworkPolicyUpdateRequest,
@@ -1373,25 +1373,25 @@ export class Capi {
   }
 
   /**
-   * @param {AsyncIterable<MsgToMaster>} stream
+   * @param {AsyncIterable<MsgToPrimary>} stream
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {AsyncIterable<MsgToWorker>}
+   * @returns {AsyncIterable<MsgToSecondary>}
    */
   postV1ClusterConnect(stream, options = {}) {
     const self = this;
     return {
       [Symbol.asyncIterator]: async function* () {
-        const response = await self.#request('/v1/cluster/connect', { method: 'POST', body: writeLengthPrefixedFrames(stream, encodeMsgToMaster), signal: options.signal, contentType: 'application/protobuf-stream', duplex: 'half' });
+        const response = await self.#request('/v1/cluster/connect', { method: 'POST', body: writeLengthPrefixedFrames(stream, encodeMsgToPrimary), signal: options.signal, contentType: 'application/protobuf-stream', duplex: 'half' });
         if (!response.ok) {
           return self.errorHandler(response);
         }
-        yield* readLengthPrefixedFrames(response.body, decodeMsgToWorker);
+        yield* readLengthPrefixedFrames(response.body, decodeMsgToSecondary);
       },
     };
   }
 
   /**
-   * @param {AsyncIterable<EnrollmentWorkerMsg>} stream
+   * @param {AsyncIterable<EnrollmentSecondaryMsg>} stream
    * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {AsyncIterable<EnrollmentPrimaryMsg>}
    */
@@ -1399,7 +1399,7 @@ export class Capi {
     const self = this;
     return {
       [Symbol.asyncIterator]: async function* () {
-        const response = await self.#request('/v1/enrollment/request', { method: 'POST', body: writeLengthPrefixedFrames(stream, encodeEnrollmentWorkerMsg), signal: options.signal, contentType: 'application/protobuf-stream', duplex: 'half' });
+        const response = await self.#request('/v1/enrollment/request', { method: 'POST', body: writeLengthPrefixedFrames(stream, encodeEnrollmentSecondaryMsg), signal: options.signal, contentType: 'application/protobuf-stream', duplex: 'half' });
         if (!response.ok) {
           return self.errorHandler(response);
         }

@@ -8,7 +8,7 @@ import "api-contract/options.proto";
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 service EnrollmentV1 {
-  rpc PostV1EnrollmentRequest(stream EnrollmentWorkerMsg) returns (stream EnrollmentPrimaryMsg) {
+  rpc PostV1EnrollmentRequest(stream EnrollmentSecondaryMsg) returns (stream EnrollmentPrimaryMsg) {
     option (cp.policy) = { policy_type: NO_AUTH };
   }
 }

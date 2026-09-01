@@ -128,7 +128,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 			}
 			secretStatus := h.secretsStatus()
 			state := &apigen.State{
-				DeploymentConfigsSnapshot:  &apigen.DeploymentSnapshot{Items: configItems},
+				DeploymentsSnapshot:  &apigen.DeploymentSnapshot{Items: configItems},
 				ScheduledInstancesSnapshot: &apigen.ScheduledInstanceSnapshot{Items: items},
 				UsersSnapshot:              h.filterUsers(ctx, h.Store.ListUsersPublic()),
 				EnrollmentsSnapshot:        visibleEnrollments,
@@ -188,7 +188,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				if !h.canAccess(ctx, vView, eDeployment, int64(cfg.SpaceID), int64(cfg.ID)) {
 					continue
 				}
-				if !yield(&apigen.State{DeploymentConfigUpdate: &cfg}, nil) {
+				if !yield(&apigen.State{DeploymentUpdate: &cfg}, nil) {
 					return
 				}
 			case u, ok := <-userSub.Ch:

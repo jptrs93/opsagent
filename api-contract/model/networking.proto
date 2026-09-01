@@ -28,11 +28,11 @@ message ClusterNetworkInfo {
 // ClusterNetMap is a complete placement and underlay snapshot targeted to one
 // authenticated node. derived_from_seq is the primary's global write sequence
 // at render time; acceptance is session-based — the first map accepted in a
-// session replaces the worker's cache unconditionally, later in-session maps
+// session replaces the secondary's cache unconditionally, later in-session maps
 // must carry a higher stamp.
 message ClusterNetMap {
   // 1 and 2 held the string generation and int64 sequence replaced by
-  // derived_from_seq; the map is cached on worker disks, so the numbers must
+  // derived_from_seq; the map is cached on secondary disks, so the numbers must
   // not be reused.
   reserved 1, 2;
   reserved "generation", "sequence";

@@ -293,11 +293,11 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1SecretsCreate: %v", err)
 	}
-	straySpec := remoteDeploymentSpec("registry/worker", virtualNetworking())
+	straySpec := remoteDeploymentSpec("registry/secondary", virtualNetworking())
 	straySpec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
 		"STRAY": {SecretVersionID: ptrInt32(stray.Versions[0].ID)},
 	}
-	createTestDeployment(h.Store, "node1", 1, "worker", &straySpec)
+	createTestDeployment(h.Store, "node1", 1, "secondary", &straySpec)
 	moved, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
 		SecretID: stray.ID, SpaceID: 1,
 	})

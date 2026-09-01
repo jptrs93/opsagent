@@ -45,7 +45,7 @@ type Publisher struct {
 	unsubscribe       []func()
 	closeOnce       sync.Once
 
-	// Acknowledgement state is kept under its own lock so recording a worker's
+	// Acknowledgement state is kept under its own lock so recording a secondary's
 	// applied sequence never contends with rendering or publishing a map.
 	ackMu      sync.Mutex
 	applied    map[int32]int64

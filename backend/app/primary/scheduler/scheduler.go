@@ -396,9 +396,9 @@ func (s *Scheduler) retireDrainedInstances() {
 		// DecisionInForce is vacuously true — it cannot tell "every node applied
 		// the flip" from "no node has reported yet". Trusting it there would retire
 		// the placement instantly, which is precisely the case the barrier exists to
-		// prevent: a worker that had not yet applied the flip still points the
+		// prevent: a secondary that had not yet applied the flip still points the
 		// instance prefix at a container we just stopped. Adopted waits sit out the
-		// backstop instead, which also gives workers time to reconnect and report.
+		// backstop instead, which also gives secondaries time to reconnect and report.
 		applied := s.barrier == nil || (!wait.adopted && s.barrier.DecisionInForce(wait.sequence))
 		expired := now.After(wait.deadline)
 		if !applied && !expired {

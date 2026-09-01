@@ -1480,7 +1480,7 @@ type GithubCredentials struct {
 	ChangedAt time.Time `json:"changed_at"`
 }
 
-type MsgToWorker struct {
+type MsgToSecondary struct {
 	ScheduledInstancesSnapshot *ScheduledInstanceSnapshot `json:"scheduled_instances_snapshot"`
 	ScheduledInstanceUpdate    *ScheduledInstanceState    `json:"scheduled_instance_update"`
 	DeploymentLogRequest       *DeploymentLogRequest      `json:"deployment_log_request"`
@@ -1498,7 +1498,7 @@ type ClusterHello struct {
 	WgPublicKey            string `json:"wg_public_key,omitempty"`
 }
 
-type MsgToMaster struct {
+type MsgToPrimary struct {
 	StatusWrite      *ScheduledInstanceStatus `json:"status_write"`
 	LogData          []byte                   `json:"log_data"`
 	LogEnd           bool                     `json:"log_end"`
@@ -1554,16 +1554,16 @@ type ClusterRenewCertificateResponse struct {
 	NotAfter  int64  `json:"not_after"`
 }
 
-type EnrollmentWorkerMsg struct {
+type EnrollmentSecondaryMsg struct {
 	Hello *EnrollmentHello `json:"hello"`
 }
 
 type EnrollmentHello struct {
-	RequestingMachineID      string `json:"requesting_machine_id,omitempty"`
-	WorkerCertificateRequest []byte `json:"worker_certificate_request"`
-	OpendeployVersion        string `json:"opendeploy_version,omitempty"`
-	UnderlayAddress          string `json:"underlay_address,omitempty"`
-	WgPublicKey              string `json:"wg_public_key,omitempty"`
+	RequestingMachineID         string `json:"requesting_machine_id,omitempty"`
+	SecondaryCertificateRequest []byte `json:"secondary_certificate_request"`
+	OpendeployVersion           string `json:"opendeploy_version,omitempty"`
+	UnderlayAddress             string `json:"underlay_address,omitempty"`
+	WgPublicKey                 string `json:"wg_public_key,omitempty"`
 }
 
 type EnrollmentPrimaryMsg struct {
@@ -1576,19 +1576,19 @@ type EnrollmentRequestList struct {
 }
 
 type EnrollmentAcceptRequest struct {
-	ID         int32  `json:"id"`
-	WorkerName string `json:"worker_name,omitempty"`
+	ID       int32  `json:"id"`
+	NodeName string `json:"node_name,omitempty"`
 }
 
 type EnrollmentAccepted struct {
-	ID                int32                   `json:"id"`
-	WorkerName        string                  `json:"worker_name,omitempty"`
-	CaCertificate     []byte                  `json:"ca_certificate"`
-	WorkerCertificate []byte                  `json:"worker_certificate"`
-	ClusterNetwork    *ClusterNetworkInfo     `json:"cluster_network"`
-	NodeDeployment    *ScheduledInstanceState `json:"node_deployment"`
-	NodeNetDeployment *ScheduledInstanceState `json:"node_net_deployment"`
-	ClusterNetMap     *ClusterNetMap          `json:"cluster_net_map"`
+	ID                   int32                   `json:"id"`
+	NodeName             string                  `json:"node_name,omitempty"`
+	CaCertificate        []byte                  `json:"ca_certificate"`
+	SecondaryCertificate []byte                  `json:"secondary_certificate"`
+	ClusterNetwork       *ClusterNetworkInfo     `json:"cluster_network"`
+	NodeDeployment       *ScheduledInstanceState `json:"node_deployment"`
+	NodeNetDeployment    *ScheduledInstanceState `json:"node_net_deployment"`
+	ClusterNetMap        *ClusterNetMap          `json:"cluster_net_map"`
 }
 
 type SecretRef struct {
@@ -1693,8 +1693,8 @@ type BackupStatus struct {
 
 type State struct {
 	Heartbeat                  bool                       `json:"heartbeat"`
-	DeploymentConfigsSnapshot  *DeploymentSnapshot        `json:"deployment_configs_snapshot"`
-	DeploymentConfigUpdate     *Deployment                `json:"deployment_config_update"`
+	DeploymentsSnapshot        *DeploymentSnapshot        `json:"deployments_snapshot"`
+	DeploymentUpdate           *Deployment                `json:"deployment_update"`
 	UsersSnapshot              []*User                    `json:"users_snapshot,omitempty"`
 	UserUpdate                 *User                      `json:"user_update"`
 	EnrollmentsSnapshot        *EnrollmentRequestList     `json:"enrollments_snapshot"`
@@ -1730,13 +1730,13 @@ type State struct {
 }
 
 type GlobalState struct {
-	Spaces            *SpaceList          `json:"spaces"`
-	Assets            *AssetList          `json:"assets"`
-	Configs           *ConfigList         `json:"configs"`
-	Secrets           *SecretList         `json:"secrets"`
-	DeploymentConfigs *DeploymentSnapshot `json:"deployment_configs"`
-	ValueDirectories  *ValueDirectoryList `json:"value_directories"`
-	AssetDirectories  *AssetDirectoryList `json:"asset_directories"`
+	Spaces           *SpaceList          `json:"spaces"`
+	Assets           *AssetList          `json:"assets"`
+	Configs          *ConfigList         `json:"configs"`
+	Secrets          *SecretList         `json:"secrets"`
+	Deployments      *DeploymentSnapshot `json:"deployments"`
+	ValueDirectories *ValueDirectoryList `json:"value_directories"`
+	AssetDirectories *AssetDirectoryList `json:"asset_directories"`
 }
 
 type AccessPolicy struct {

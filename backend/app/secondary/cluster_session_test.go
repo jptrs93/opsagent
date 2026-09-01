@@ -36,7 +36,7 @@ func instanceIDs(states []apigen.ScheduledInstanceState) []int32 {
 	return out
 }
 
-// TestApplySnapshotPrunesInstancesMissingFromSnapshot covers a worker rejoining
+// TestApplySnapshotPrunesInstancesMissingFromSnapshot covers a secondary rejoining
 // after the primary has dropped one of its assignments. The snapshot is the
 // primary's complete set for this node, so the instance it omits must be torn
 // down: no further update naming it will ever arrive.
@@ -47,7 +47,7 @@ func TestApplySnapshotPrunesInstancesMissingFromSnapshot(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	out := &outbox{ch: make(chan *apigen.MsgToMaster, 16), ctx: ctx}
+	out := &outbox{ch: make(chan *apigen.MsgToPrimary, 16), ctx: ctx}
 
 	// Two assignments arrive, then the primary reconnects knowing only about 41.
 	applySnapshot(ctx, out, store, &apigen.ScheduledInstanceSnapshot{
@@ -80,7 +80,7 @@ func TestApplySnapshotKeepsInstancesForOtherNodes(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	out := &outbox{ch: make(chan *apigen.MsgToMaster, 16), ctx: ctx}
+	out := &outbox{ch: make(chan *apigen.MsgToPrimary, 16), ctx: ctx}
 
 	applySnapshot(ctx, out, store, &apigen.ScheduledInstanceSnapshot{
 		Items: []*apigen.ScheduledInstanceState{testAssignment(41, 8, nodeID)},

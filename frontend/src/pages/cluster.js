@@ -75,7 +75,7 @@ export function clusterPage() {
 
     const enrollmentsSection = (pending) => div(
         {class: "pl-4 pr-2 flex flex-col gap-1"},
-        p({class: "pt-1.5 text-sm text-gray-400"}, "Accept a waiting worker to issue its cluster client certificate."),
+        p({class: "pt-1.5 text-sm text-gray-400"}, "Accept a waiting secondary to issue its cluster client certificate."),
         pending.length === 0
             ? p({class: "pb-2 text-gray-400 text-sm"}, "No pending enrollment requests.")
             : table(
@@ -409,20 +409,20 @@ function hostPort(host, port) {
 const enrollmentNameDrafts = new Map();
 
 function enrollmentRow(req) {
-    const workerName = van.state(enrollmentNameDrafts.get(req.id) ?? `worker-${req.id}`);
+    const nodeName = van.state(enrollmentNameDrafts.get(req.id) ?? `node-${req.id}`);
     const accepting = van.state(false);
     const rowError = van.state(null);
 
     const accept = async () => {
-        const name = workerName.val.trim();
+        const name = nodeName.val.trim();
         if (!name) {
-            rowError.val = "Worker name is required";
+            rowError.val = "Node name is required";
             return;
         }
         accepting.val = true;
         rowError.val = null;
         try {
-            await capi.postV1NodesEnrollmentsAccept({id: req.id, workerName: name});
+            await capi.postV1NodesEnrollmentsAccept({id: req.id, nodeName: name});
             enrollmentNameDrafts.delete(req.id);
         } catch (e) {
             rowError.val = e.message;
@@ -444,11 +444,11 @@ function enrollmentRow(req) {
             div({class: "flex flex-col gap-2"},
                 div({class: "flex gap-2"},
                     input({
-                        "data-testid": "enrollment-worker-name-input",
+                        "data-testid": "enrollment-node-name-input",
                         class: "text-input w-44",
-                        value: workerName,
+                        value: nodeName,
                         oninput: e => {
-                            workerName.val = e.target.value;
+                            nodeName.val = e.target.value;
                             enrollmentNameDrafts.set(req.id, e.target.value);
                         },
                     }),

@@ -40,7 +40,7 @@ service OpsagentClusterV1 {
     option (cp.policy) = { policy_type: NO_AUTH };
   }
 
-  rpc PostV1ClusterConnect(stream MsgToMaster) returns (stream MsgToWorker) {
+  rpc PostV1ClusterConnect(stream MsgToPrimary) returns (stream MsgToSecondary) {
     option (cp.policy) = { policy_type: NO_AUTH };
   }
 }

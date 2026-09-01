@@ -1151,7 +1151,7 @@ type OpsagentClusterV1Handler interface {
 	GetV1ClusterConfigs(Context, *ClusterConfigsRequest) (*ClusterConfigsResponse, error)
 	GetV1ClusterIssuedTls(Context, *ClusterIssuedTLSRequest) (*ClusterIssuedTLSResponse, error)
 	GetV1ClusterRenewCertificate(Context) (*ClusterRenewCertificateResponse, error)
-	PostV1ClusterConnect(Context, iter.Seq2[*MsgToMaster, error]) iter.Seq2[*MsgToWorker, error]
+	PostV1ClusterConnect(Context, iter.Seq2[*MsgToPrimary, error]) iter.Seq2[*MsgToSecondary, error]
 }
 
 func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *http.ServeMux {
@@ -1223,7 +1223,7 @@ func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *
 	postV1ClusterConnectAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
 	postAuthHandlerPostV1ClusterConnect := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		sr := NewStreamReader(r.Body, config.MaxRequestBodySize)
-		reqSeq := func(yield func(*MsgToMaster, error) bool) {
+		reqSeq := func(yield func(*MsgToPrimary, error) bool) {
 			for {
 				payload, ok, err := sr.Next()
 				if err != nil {
@@ -1233,7 +1233,7 @@ func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *
 				if !ok {
 					return
 				}
-				req, err := DecodeMsgToMaster(payload)
+				req, err := DecodeMsgToPrimary(payload)
 				if err != nil {
 					yield(nil, err)
 					return
@@ -1263,7 +1263,7 @@ func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *
 }
 
 type EnrollmentV1Handler interface {
-	PostV1EnrollmentRequest(Context, iter.Seq2[*EnrollmentWorkerMsg, error]) iter.Seq2[*EnrollmentPrimaryMsg, error]
+	PostV1EnrollmentRequest(Context, iter.Seq2[*EnrollmentSecondaryMsg, error]) iter.Seq2[*EnrollmentPrimaryMsg, error]
 }
 
 func CreateEnrollmentV1Mux(h EnrollmentV1Handler, config *MuxConfig) *http.ServeMux {
@@ -1281,7 +1281,7 @@ func CreateEnrollmentV1Mux(h EnrollmentV1Handler, config *MuxConfig) *http.Serve
 	postV1EnrollmentRequestAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
 	postAuthHandlerPostV1EnrollmentRequest := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		sr := NewStreamReader(r.Body, config.MaxRequestBodySize)
-		reqSeq := func(yield func(*EnrollmentWorkerMsg, error) bool) {
+		reqSeq := func(yield func(*EnrollmentSecondaryMsg, error) bool) {
 			for {
 				payload, ok, err := sr.Next()
 				if err != nil {
@@ -1291,7 +1291,7 @@ func CreateEnrollmentV1Mux(h EnrollmentV1Handler, config *MuxConfig) *http.Serve
 				if !ok {
 					return
 				}
-				req, err := DecodeEnrollmentWorkerMsg(payload)
+				req, err := DecodeEnrollmentSecondaryMsg(payload)
 				if err != nil {
 					yield(nil, err)
 					return

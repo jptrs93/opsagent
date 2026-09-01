@@ -1,4 +1,4 @@
-// Package sq is the worker-local database's SQL layer. Every query — the
+// Package sq is the secondary-local database's SQL layer. Every query — the
 // sqlc-generated ones and the hand-written ones in this package — is a method
 // on *Queries, and nothing outside this package holds a database handle. The
 // secondarydb.Storage above it owns locking, the instance cache, and

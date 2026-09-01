@@ -14,7 +14,7 @@ var schemaFiles embed.FS
 //go:embed sql/migrations.sql
 var migrations string
 
-// Open opens (creating if needed) the worker-local database and returns the
+// Open opens (creating if needed) the secondary-local database and returns the
 // query layer bound to it. All SQL — generated and hand-written — lives on
 // *Queries.
 func Open(dbPath string) *Queries {

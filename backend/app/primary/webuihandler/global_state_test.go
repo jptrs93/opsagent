@@ -41,7 +41,7 @@ func TestGetV1GlobalStateReturnsEachSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetV1GlobalState: %v", err)
 	}
-	if res.Spaces == nil || res.Assets == nil || res.Configs == nil || res.Secrets == nil || res.DeploymentConfigs == nil {
+	if res.Spaces == nil || res.Assets == nil || res.Configs == nil || res.Secrets == nil || res.Deployments == nil {
 		t.Fatalf("expected every section to be populated, got %+v", res)
 	}
 	if len(res.Spaces.Items) == 0 {
@@ -57,7 +57,7 @@ func TestGetV1GlobalStateReturnsEachSection(t *testing.T) {
 		t.Errorf("expected log_level config, got %+v", res.Configs.Items)
 	}
 	var foundDeployment bool
-	for _, d := range res.DeploymentConfigs.Items {
+	for _, d := range res.Deployments.Items {
 		if d.ID == cfg.ID {
 			foundDeployment = true
 		}
@@ -76,7 +76,7 @@ func TestGetV1GlobalStateExcludesDeletedDeployments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetV1GlobalState: %v", err)
 	}
-	for _, d := range res.DeploymentConfigs.Items {
+	for _, d := range res.Deployments.Items {
 		if d.ID == cfg.ID {
 			t.Fatalf("deleted deployment %d must not appear", cfg.ID)
 		}
@@ -164,7 +164,7 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 			t.Fatalf("body is not JSON: %v (%s)", err, w.Body.String())
 		}
-		for _, key := range []string{"spaces", "assets", "configs", "secrets", "deployment_configs"} {
+		for _, key := range []string{"spaces", "assets", "configs", "secrets", "deployments"} {
 			if _, ok := body[key]; !ok {
 				t.Errorf("missing %q in JSON body, got keys %v", key, keysOf(body))
 			}
@@ -209,7 +209,7 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 func markDeleted(t *testing.T, h *Handler, cfg *apigen.Deployment) {
 	t.Helper()
 	spec := cfg.Spec
-	_, _, versionOK := h.Store.UpdateDeployment(apigen.Context{}, cfg.ID, state.DeploymentConfigUpdate{
+	_, _, versionOK := h.Store.UpdateDeploymentSpec(apigen.Context{}, cfg.ID, state.DeploymentSpecUpdate{
 		ExpectedVersion: cfg.Version + 1,
 		Spec:            &spec,
 		Deleted:         true,

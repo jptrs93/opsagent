@@ -153,7 +153,7 @@ type DeploymentSpaceVersion struct {
 	GlobalSeq    int64
 }
 
-type DeploymentVersion struct {
+type DeploymentSpecVersion struct {
 	ID           int64
 	DeploymentID int64
 	Version      int64

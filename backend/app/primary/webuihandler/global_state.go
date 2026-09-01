@@ -21,7 +21,7 @@ func (h *Handler) GetV1GlobalState(ctx apigen.Context) (*apigen.GlobalState, err
 		Assets:            &apigen.AssetList{Items: h.filterAssets(ctx, h.Store.ListAssets())},
 		Configs:           &apigen.ConfigList{Items: h.filterConfigs(ctx, h.Store.ListConfigs())},
 		Secrets:           &apigen.SecretList{Items: h.filterSecrets(ctx, h.Store.ListSecrets())},
-		DeploymentConfigs: &apigen.DeploymentSnapshot{Items: configItems},
+		Deployments: &apigen.DeploymentSnapshot{Items: configItems},
 		ValueDirectories:  &apigen.ValueDirectoryList{Items: h.filterValueDirectories(ctx, h.Store.ListValueDirectories())},
 		AssetDirectories:  &apigen.AssetDirectoryList{Items: h.filterAssetDirectories(ctx, h.Store.ListAssetDirectories())},
 	}, nil

@@ -35,7 +35,7 @@ func findSystemDeployment(t *testing.T, store *state.Service, nodeID int32) *api
 }
 
 func seedInstanceRunnerStatus(store *state.Service, deploymentID, version, nodeID int32, status apigen.RunningStatus) {
-	inst := store.CreateScheduledInstance(deploymentID, version, nodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	inst := store.CreateScheduledInstanceForTest(deploymentID, version, nodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	store.MustWriteScheduledInstanceStatus(inst.ID, func(s *apigen.ScheduledInstanceStatus) bool {
 		s.BumpUpdatedAt()
 		s.Runner.Status = status
@@ -1101,7 +1101,7 @@ func TestValidateDeploymentSpecRejectsIncompleteAddressRef(t *testing.T) {
 func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
-	worker := store.EnsurePrimaryNode("worker", "worker")
+	secondary := store.EnsurePrimaryNode("secondary", "secondary")
 	secretsManager, err := secrets.Initialize(t.TempDir(), store)
 	if err != nil {
 		t.Fatalf("secrets.Initialize: %v", err)
@@ -1149,7 +1149,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 		t.Fatalf("err = %v, want address-space rejection", err)
 	}
 
-	remote := create("remote", worker.ID, virtualNetworking(), nil)
+	remote := create("remote", secondary.ID, virtualNetworking(), nil)
 	remoteID := remote.ID
 	crossNode, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: "cross-node",
@@ -1281,7 +1281,7 @@ func TestDeploymentCreateRejectsIngressClaimsAlreadyUsedOnNode(t *testing.T) {
 func TestDeploymentCreateRejectsPrimaryIngressOnPort443(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
-	worker := store.EnsurePrimaryNode("worker", "worker")
+	secondary := store.EnsurePrimaryNode("secondary", "secondary")
 	h := &Handler{ConfigService: &config.Service{}, Store: store, NodeID: primary.ID}
 	spec := func() apigen.DeploymentSpec {
 		return remoteDeploymentSpec("postgres", apigen.NetworkingConfig{
@@ -1304,12 +1304,12 @@ func TestDeploymentCreateRejectsPrimaryIngressOnPort443(t *testing.T) {
 		t.Fatalf("err = %v, want primary :443 reservation", err)
 	}
 	_, err = h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		SpaceID: 1, Name: "worker-database",
-		NodeID: worker.ID,
+		SpaceID: 1, Name: "secondary-database",
+		NodeID: secondary.ID,
 		Spec:   spec(),
 	})
 	if err != nil {
-		t.Fatalf("worker :443 ingress was rejected: %v", err)
+		t.Fatalf("secondary :443 ingress was rejected: %v", err)
 	}
 }
 
@@ -1555,11 +1555,11 @@ func TestDeploymentDeleteAllowsNeverScheduledStoppedDeployment(t *testing.T) {
 func TestDeploymentDeleteAllowsRunningDisconnectedNodeDeployment(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
-	worker := store.EnsurePrimaryNode("worker", "worker-a")
+	secondary := store.EnsurePrimaryNode("secondary", "secondary-a")
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	initial.Container1Spec.Version = "1.25"
 	initial.Container1Spec.Running = true
-	created := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "web", worker.ID, &initial)
+	created := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "web", secondary.ID, &initial)
 	seedDeploymentRunnerStatus(store, created, apigen.RunningStatus_RUNNING)
 	h := &Handler{ConfigService: &config.Service{}, Store: store, NodeID: primary.ID}
 
@@ -1575,9 +1575,9 @@ func TestDeploymentDeleteAllowsRunningDisconnectedNodeDeployment(t *testing.T) {
 func TestDeploymentDeleteAllowsStaleDisconnectedSystemDeployment(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
-	worker := store.EnsurePrimaryNode("worker", "worker-a")
-	store.EnsureSystemDeployment(worker.ID, "v0.0.194")
-	system := findSystemDeployment(t, store, worker.ID)
+	secondary := store.EnsurePrimaryNode("secondary", "secondary-a")
+	store.EnsureSystemDeployment(secondary.ID, "v0.0.194")
+	system := findSystemDeployment(t, store, secondary.ID)
 	seedDeploymentRunnerStatus(store, system, apigen.RunningStatus_CRASHED)
 	h := &Handler{ConfigService: &config.Service{},
 		Store:   store,
@@ -1625,7 +1625,7 @@ func TestDeploymentDeleteRejectedWhileOlderRolloverInstanceRuns(t *testing.T) {
 
 	next := remoteDeploymentSpec("nginx", hostNetworking())
 	next.Container1Spec.Version = "1.27"
-	updated, _, versionOK := store.UpdateDeployment(apigen.Context{}, created.ID, state.DeploymentConfigUpdate{
+	updated, _, versionOK := store.UpdateDeploymentSpec(apigen.Context{}, created.ID, state.DeploymentSpecUpdate{
 		ExpectedVersion: created.Version + 1,
 		Spec:            &next,
 	})

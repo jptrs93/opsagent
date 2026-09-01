@@ -54,7 +54,7 @@ func acceptClusterNetMap(ctx context.Context, store *state.Service, candidate *a
 		}
 	}
 
-	store.MustSetLocalKV(storage.LocalKVWorkerClusterNetMap, next.Encode())
+	store.MustSetLocalKV(storage.LocalKVClusterNetMap, next.Encode())
 	network.Default.SetPrefix(prefix)
 	if netMaps != nil {
 		netMaps.Set(next)
@@ -62,18 +62,18 @@ func acceptClusterNetMap(ctx context.Context, store *state.Service, candidate *a
 	return statusForClusterNetMap(next, ""), nil
 }
 
-// cachedClusterNetMap returns the worker's persisted map, or reports that it has
+// cachedClusterNetMap returns the secondary's persisted map, or reports that it has
 // none.
 //
 // A cached map this build cannot read is discarded rather than raised. The cache
 // is an optimisation — the primary serves a complete map on every reconnect — but
 // it outlives the binary that wrote it, so a release that changes what a map may
 // contain inherits whatever the previous release persisted. Treating that as an
-// error is unrecoverable in both directions: it panics the worker before it can
+// error is unrecoverable in both directions: it panics the secondary before it can
 // connect, and it makes acceptClusterNetMap reject the very map that would
 // replace it.
 func cachedClusterNetMap(ctx context.Context, store *state.Service, nodeID int32, expectedPrefix network.Prefix) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
-	encoded, ok := store.FetchLocalKV(storage.LocalKVWorkerClusterNetMap)
+	encoded, ok := store.FetchLocalKV(storage.LocalKVClusterNetMap)
 	if !ok {
 		return nil, network.Prefix{}, false, nil
 	}
@@ -93,7 +93,7 @@ func cachedClusterNetMap(ctx context.Context, store *state.Service, nodeID int32
 // worthless, so failing to delete it costs nothing but a repeat of this warning.
 func discardCachedClusterNetMap(ctx context.Context, store *state.Service, cause error) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
 	slog.WarnContext(ctx, "discarding unusable cached cluster network map; waiting for the primary to republish", "err", cause)
-	if err := store.DeleteLocalKV(storage.LocalKVWorkerClusterNetMap); err != nil {
+	if err := store.DeleteLocalKV(storage.LocalKVClusterNetMap); err != nil {
 		return nil, network.Prefix{}, false, fmt.Errorf("discarding unusable cached cluster network map: %w", err)
 	}
 	return nil, network.Prefix{}, false, nil

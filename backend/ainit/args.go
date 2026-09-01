@@ -83,7 +83,7 @@ Usage:
 
 Commands:
   primary     Run the primary HTTP server and cluster listeners.
-  secondary   Run a worker that enrolls with and connects to the primary.
+  secondary   Run a secondary that enrolls with and connects to the primary.
   install     Fresh install or in-place upgrade.
   uninstall   Remove the service and binary; --purge also wipes all state.
   dataplane    Internal netproxy process.

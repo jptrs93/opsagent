@@ -1,13 +1,13 @@
 package netmappublisher
 
 // Applied-stamp tracking. A published map is not in force the moment it is
-// sent: each worker has to accept it durably and program its kernel. Anything
+// sent: each secondary has to accept it durably and program its kernel. Anything
 // that must not happen until the cluster agrees on the new routing — retiring a
 // draining placement, above all — waits for the write sequence that encodes it
 // to be applied everywhere rather than guessing at a propagation delay.
 
 // RecordApplied notes how far one node has applied, as the derived_from_seq
-// stamp of the newest map it reports cleanly applied. Workers report this
+// stamp of the newest map it reports cleanly applied. Secondaries report this
 // unprompted after accepting each map, and the primary's in-process applier
 // records after reconciling its own targeted map, so the barrier advances on
 // its own.
@@ -25,8 +25,8 @@ func (p *Publisher) RecordApplied(nodeID int32, appliedSeq int64) {
 	notifyAck(p.ackUpdates)
 }
 
-// ForgetNode drops a worker's acknowledgement when its session ends. A
-// disconnected worker cannot hold the barrier: it is served a complete snapshot
+// ForgetNode drops a secondary's acknowledgement when its session ends. A
+// disconnected secondary cannot hold the barrier: it is served a complete snapshot
 // on reconnect, so it has no way to keep acting on a map it never applied.
 func (p *Publisher) ForgetNode(nodeID int32) {
 	p.ackMu.Lock()

@@ -104,7 +104,7 @@ func runClusterCertRenewal(ctx context.Context, m *clusterCertManager, primaryUR
 	for {
 		if time.Until(m.expiry()) < certRenewWindow {
 			if err := renewClusterCert(ctx, m, capi); err != nil {
-				slog.WarnContext(ctx, fmt.Sprintf("renewing worker cluster certificate failed; will retry notAfter=%s", m.expiry()), "err", err)
+				slog.WarnContext(ctx, fmt.Sprintf("renewing secondary cluster certificate failed; will retry notAfter=%s", m.expiry()), "err", err)
 			}
 		}
 		select {
@@ -129,6 +129,6 @@ func renewClusterCert(ctx context.Context, m *clusterCertManager, capi *apigen.O
 	if err != nil {
 		return err
 	}
-	slog.InfoContext(ctx, fmt.Sprintf("renewed worker cluster certificate notAfter=%s", notAfter))
+	slog.InfoContext(ctx, fmt.Sprintf("renewed secondary cluster certificate notAfter=%s", notAfter))
 	return nil
 }

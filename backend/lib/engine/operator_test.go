@@ -123,7 +123,7 @@ func secretRefDeployment(secretID *int32) *apigen.Deployment {
 	}
 }
 
-// A worker restarting while the primary is unreachable must not re-prepare an
+// A secondary restarting while the primary is unreachable must not re-prepare an
 // artifact that is already built and present. Re-preparing fetches the same
 // inputs from the same unreachable place, so it only publishes PREPARING then
 // FAILED — a state nothing retries out of, leaving the instance wedged until

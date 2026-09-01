@@ -53,16 +53,16 @@ func TestSignWorkloadCertificate(t *testing.T) {
 	}
 }
 
-func TestSignWorkerCertificateFromPublicKey(t *testing.T) {
+func TestSignSecondaryCertificateFromPublicKey(t *testing.T) {
 	caCert, caKey, err := GenerateClusterCA("opendeploy-cluster")
 	if err != nil {
 		t.Fatal(err)
 	}
-	csrPEM, _, err := GenerateWorkerCertificateRequest("machine-1")
+	csrPEM, _, err := GenerateSecondaryCertificateRequest("machine-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, originalPEM, err := SignWorkerCertificateRequestFromPEM(caCert, caKey, csrPEM, "machine-1")
+	_, originalPEM, err := SignSecondaryCertificateRequestFromPEM(caCert, caKey, csrPEM, "machine-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestSignWorkerCertificateFromPublicKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	renewedPEM, notAfter, err := SignWorkerCertificateFromPublicKey(caCert, caKey, "machine-1", original.PublicKey)
+	renewedPEM, notAfter, err := SignSecondaryCertificateFromPublicKey(caCert, caKey, "machine-1", original.PublicKey)
 	if err != nil {
 		t.Fatal(err)
 	}

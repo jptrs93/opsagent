@@ -68,8 +68,8 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 	}
 	m1 := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "web", m1Node.ID, spec)
 	m2 := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "web", m2Node.ID, spec)
-	m1Inst := store.CreateScheduledInstance(m1.ID, m1.Version, m1Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	m2Inst := store.CreateScheduledInstance(m2.ID, m2.Version, m2Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	m1Inst := store.CreateScheduledInstanceForTest(m1.ID, m1.Version, m1Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	m2Inst := store.CreateScheduledInstanceForTest(m2.ID, m2.Version, m2Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	sess := newSession(context.Background(), func() {}, m1Node.ID, "m1", scheduledInstancePredicateForNode(m1Node.ID), store, nil)
 	crossMachine := &apigen.ScheduledInstanceStatus{
@@ -97,11 +97,11 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 
 func TestSessionRoutingUsesNodeID(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := store.EnsurePrimaryNode("worker", "worker-cn")
+	node := store.EnsurePrimaryNode("secondary", "secondary-cn")
 	handler := New(store, nil, nil, nil, network.Prefix{}, nil, nil, nil)
-	sess := newSession(context.Background(), func() {}, node.ID, "worker-cn", scheduledInstancePredicateForNode(node.ID), store, nil)
-	handler.registerSession(node.ID, "worker-cn", sess)
-	t.Cleanup(func() { handler.unregisterSession(node.ID, "worker-cn", sess) })
+	sess := newSession(context.Background(), func() {}, node.ID, "secondary-cn", scheduledInstancePredicateForNode(node.ID), store, nil)
+	handler.registerSession(node.ID, "secondary-cn", sess)
+	t.Cleanup(func() { handler.unregisterSession(node.ID, "secondary-cn", sess) })
 
 	if sess.NodeID != node.ID {
 		t.Fatalf("session node ID = %d, want %d", sess.NodeID, node.ID)
@@ -110,14 +110,14 @@ func TestSessionRoutingUsesNodeID(t *testing.T) {
 		t.Fatalf("node %d was not recorded as connected", node.ID)
 	}
 
-	req := &apigen.MsgToWorker{DeploymentLogRequest: &apigen.DeploymentLogRequest{}}
+	req := &apigen.MsgToSecondary{DeploymentLogRequest: &apigen.DeploymentLogRequest{}}
 	reader, err := handler.RequestLogs(node.ID, req)
 	if err != nil {
 		t.Fatalf("request logs: %v", err)
 	}
 	defer reader.Close()
-	if !strings.HasPrefix(req.DeploymentLogRequest.RequestID, "worker-cn-") {
-		t.Fatalf("request ID = %q, want worker CN prefix", req.DeploymentLogRequest.RequestID)
+	if !strings.HasPrefix(req.DeploymentLogRequest.RequestID, "secondary-cn-") {
+		t.Fatalf("request ID = %q, want secondary CN prefix", req.DeploymentLogRequest.RequestID)
 	}
 
 	queryReq := &apigen.LogQueryRequest{DeploymentID: 7}
@@ -131,14 +131,14 @@ func TestSessionRoutingUsesNodeID(t *testing.T) {
 		resCh <- queryResult{resp, err}
 	}()
 	// Drain frames the way the session send-loop would until the query frame
-	// appears, then reply as the worker.
-	var frame *apigen.MsgToWorker
+	// appears, then reply as the secondary.
+	var frame *apigen.MsgToSecondary
 	for frame = <-sess.outbox; frame.LogQueryRequest == nil; frame = <-sess.outbox {
 	}
-	if !strings.HasPrefix(frame.LogQueryRequest.RequestID, "worker-cn-") {
-		t.Fatalf("log query frame = %+v, want worker CN request ID", frame)
+	if !strings.HasPrefix(frame.LogQueryRequest.RequestID, "secondary-cn-") {
+		t.Fatalf("log query frame = %+v, want secondary CN request ID", frame)
 	}
-	sess.handleIncoming(&apigen.MsgToMaster{
+	sess.handleIncoming(&apigen.MsgToPrimary{
 		LogQueryResponse: &apigen.LogQueryResponse{Stats: &apigen.LogQueryStats{MatchedRows: 3}},
 		LogRequestID:     frame.LogQueryRequest.RequestID,
 	})
@@ -147,7 +147,7 @@ func TestSessionRoutingUsesNodeID(t *testing.T) {
 		t.Fatalf("log query result = %+v, err = %v", res.resp, res.err)
 	}
 
-	_, err = handler.RequestLogs(node.ID+1, &apigen.MsgToWorker{DeploymentLogRequest: &apigen.DeploymentLogRequest{}})
+	_, err = handler.RequestLogs(node.ID+1, &apigen.MsgToSecondary{DeploymentLogRequest: &apigen.DeploymentLogRequest{}})
 	var notConnected *NodeNotConnectedError
 	if !errors.As(err, &notConnected) || notConnected.NodeID != node.ID+1 {
 		t.Fatalf("missing node error = %v, want node ID %d", err, node.ID+1)
@@ -159,33 +159,33 @@ func TestSessionClusterHelloUpdatesAuthenticatedNodeUnderlay(t *testing.T) {
 	defer store.Close()
 	primary := store.EnsurePrimaryNode("primary", "primary")
 	store.MustSetNodeAddresses(primary.ID, []string{"192.0.2.1"})
-	worker := store.EnsurePrimaryNode("worker", "worker-cn")
-	store.MustSetNodeAddresses(worker.ID, []string{"192.0.2.2"})
-	sess := newSession(context.Background(), func() {}, worker.ID, worker.Identifier, scheduledInstancePredicateForNode(worker.ID), store, nil)
+	secondary := store.EnsurePrimaryNode("secondary", "secondary-cn")
+	store.MustSetNodeAddresses(secondary.ID, []string{"192.0.2.2"})
+	sess := newSession(context.Background(), func() {}, secondary.ID, secondary.Identifier, scheduledInstancePredicateForNode(secondary.ID), store, nil)
 
 	const helloWGKey = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
-	sess.handleIncoming(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{UnderlayAddress: " 192.0.2.3 ", WgPublicKey: helloWGKey, ClusterProtocolVersion: apigen.ClusterProtocolVersion}})
-	if got := nodeAddresses(t, store, worker.ID); len(got) != 1 || got[0] != "192.0.2.3" {
-		t.Fatalf("worker addresses = %v, want [192.0.2.3]", got)
+	sess.handleIncoming(&apigen.MsgToPrimary{ClusterHello: &apigen.ClusterHello{UnderlayAddress: " 192.0.2.3 ", WgPublicKey: helloWGKey, ClusterProtocolVersion: apigen.ClusterProtocolVersion}})
+	if got := nodeAddresses(t, store, secondary.ID); len(got) != 1 || got[0] != "192.0.2.3" {
+		t.Fatalf("secondary addresses = %v, want [192.0.2.3]", got)
 	}
 	if got := nodeAddresses(t, store, primary.ID); len(got) != 1 || got[0] != "192.0.2.1" {
 		t.Fatalf("primary addresses = %v, want [192.0.2.1]", got)
 	}
 
-	sess.handleIncoming(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{UnderlayAddress: "2001:db8::3", WgPublicKey: helloWGKey, ClusterProtocolVersion: apigen.ClusterProtocolVersion}})
-	if got := nodeAddresses(t, store, worker.ID); len(got) != 1 || got[0] != "192.0.2.3" {
-		t.Fatalf("invalid hello changed worker addresses to %v", got)
+	sess.handleIncoming(&apigen.MsgToPrimary{ClusterHello: &apigen.ClusterHello{UnderlayAddress: "2001:db8::3", WgPublicKey: helloWGKey, ClusterProtocolVersion: apigen.ClusterProtocolVersion}})
+	if got := nodeAddresses(t, store, secondary.ID); len(got) != 1 || got[0] != "192.0.2.3" {
+		t.Fatalf("invalid hello changed secondary addresses to %v", got)
 	}
 }
 
 func TestSessionRejectsClusterProtocolMismatch(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	worker := store.EnsurePrimaryNode("worker", "worker-cn")
+	secondary := store.EnsurePrimaryNode("secondary", "secondary-cn")
 	cancelled := false
-	sess := newSession(context.Background(), func() { cancelled = true }, worker.ID, worker.Identifier, scheduledInstancePredicateForNode(worker.ID), store, nil)
+	sess := newSession(context.Background(), func() { cancelled = true }, secondary.ID, secondary.Identifier, scheduledInstancePredicateForNode(secondary.ID), store, nil)
 
-	sess.handleIncoming(&apigen.MsgToMaster{ClusterHello: &apigen.ClusterHello{ClusterProtocolVersion: apigen.ClusterProtocolVersion - 1}})
+	sess.handleIncoming(&apigen.MsgToPrimary{ClusterHello: &apigen.ClusterHello{ClusterProtocolVersion: apigen.ClusterProtocolVersion - 1}})
 	if !cancelled {
 		t.Fatal("cluster protocol mismatch did not cancel session")
 	}

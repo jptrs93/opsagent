@@ -280,7 +280,7 @@ func vethPeerIndexesMatch(hostIndex, hostPeerIndex, containerIndex, containerPee
 }
 
 // SetPrefix installs the cluster ULA prefix (from primary config locally, or
-// from the cluster stream on workers).
+// from the cluster stream on secondaries).
 func (m *Manager) SetPrefix(p Prefix) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

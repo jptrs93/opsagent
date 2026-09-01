@@ -18,13 +18,12 @@ CREATE TABLE IF NOT EXISTS deployment_space_versions (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_deployment_space_versions_deployment_version
     ON deployment_space_versions (deployment_id, version);
 
--- Scheduled instances and status reports pin (deployment_id, version)
-CREATE TABLE IF NOT EXISTS deployment_versions (
+CREATE TABLE IF NOT EXISTS deployment_spec_versions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     deployment_id   INTEGER NOT NULL,
     version         INTEGER NOT NULL,  -- version can be derived but is kept for convenience and to make future pruning possible.
     created_at      INTEGER NOT NULL,  -- epoch ms
-    author      INTEGER NOT NULL DEFAULT 0,
+    author          INTEGER NOT NULL DEFAULT 0,
     spec_blob       BLOB    NOT NULL,
     global_seq      INTEGER NOT NULL DEFAULT 0,
     UNIQUE (deployment_id, version)

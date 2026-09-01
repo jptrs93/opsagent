@@ -73,7 +73,7 @@ func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
 		if time.Since(connectedAt) > maxBackoff {
 			backoff = time.Second
 		}
-		slog.WarnContext(ctx, fmt.Sprintf("worker enrollment disconnected; reconnecting addr=%s requestingMachineID=%s connected_for=%s retry_in=%s",
+		slog.WarnContext(ctx, fmt.Sprintf("secondary enrollment disconnected; reconnecting addr=%s requestingMachineID=%s connected_for=%s retry_in=%s",
 			cfg.PrimaryEnrollmentAddr, machineID, time.Since(connectedAt).Round(time.Second), backoff), "err", err)
 		timer := time.NewTimer(backoff)
 		select {
@@ -92,13 +92,13 @@ func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
 func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, machineID, wgPublicKey string, cfg EnrollmentConfig) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	csrPEM, keyPEM, err := certu.GenerateWorkerCertificateRequest(machineID)
+	csrPEM, keyPEM, err := certu.GenerateSecondaryCertificateRequest(machineID)
 	if err != nil {
 		return err
 	}
 
-	reqs := func(yield func(*apigen.EnrollmentWorkerMsg, error) bool) {
-		if !yield(&apigen.EnrollmentWorkerMsg{Hello: &apigen.EnrollmentHello{RequestingMachineID: machineID, WorkerCertificateRequest: csrPEM, OpendeployVersion: strings.TrimSpace(cfg.OpendeployVersion), UnderlayAddress: cfg.UnderlayAddress, WgPublicKey: wgPublicKey}}, nil) {
+	reqs := func(yield func(*apigen.EnrollmentSecondaryMsg, error) bool) {
+		if !yield(&apigen.EnrollmentSecondaryMsg{Hello: &apigen.EnrollmentHello{RequestingMachineID: machineID, SecondaryCertificateRequest: csrPEM, OpendeployVersion: strings.TrimSpace(cfg.OpendeployVersion), UnderlayAddress: cfg.UnderlayAddress, WgPublicKey: wgPublicKey}}, nil) {
 			return
 		}
 		<-ctx.Done()
@@ -112,7 +112,7 @@ func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, ma
 			continue
 		}
 		if msg.RequestStatus != nil {
-			slog.InfoContext(ctx, fmt.Sprintf("worker enrollment request registered id=%d status=%v", msg.RequestStatus.ID, msg.RequestStatus.Status))
+			slog.InfoContext(ctx, fmt.Sprintf("secondary enrollment request registered id=%d status=%v", msg.RequestStatus.ID, msg.RequestStatus.Status))
 		}
 		if msg.Accepted != nil {
 			if err := cacheEnrollmentBootstrapState(ctx, cfg, msg.Accepted); err != nil {
@@ -121,7 +121,7 @@ func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, ma
 			if err := writeEnrollmentTLSBundle(cfg, msg.Accepted, keyPEM); err != nil {
 				return err
 			}
-			slog.InfoContext(ctx, fmt.Sprintf("worker enrollment accepted id=%d machine=%s", msg.Accepted.ID, msg.Accepted.WorkerName))
+			slog.InfoContext(ctx, fmt.Sprintf("secondary enrollment accepted id=%d machine=%s", msg.Accepted.ID, msg.Accepted.NodeName))
 			return nil
 		}
 	}
@@ -174,7 +174,7 @@ func cacheEnrollmentInstance(store *state.Service, state *apigen.ScheduledInstan
 }
 
 func writeEnrollmentTLSBundle(cfg EnrollmentConfig, accepted *apigen.EnrollmentAccepted, keyPEM []byte) error {
-	if len(accepted.CaCertificate) == 0 || len(accepted.WorkerCertificate) == 0 || len(keyPEM) == 0 {
+	if len(accepted.CaCertificate) == 0 || len(accepted.SecondaryCertificate) == 0 || len(keyPEM) == 0 {
 		return fmt.Errorf("accepted enrollment response missing TLS material")
 	}
 	for _, path := range []string{cfg.ClusterCAPath, cfg.ClusterCertPath, cfg.ClusterKeyPath} {
@@ -185,11 +185,11 @@ func writeEnrollmentTLSBundle(cfg EnrollmentConfig, accepted *apigen.EnrollmentA
 	if err := os.WriteFile(cfg.ClusterCAPath, accepted.CaCertificate, 0o644); err != nil {
 		return fmt.Errorf("writing cluster CA: %w", err)
 	}
-	if err := os.WriteFile(cfg.ClusterCertPath, accepted.WorkerCertificate, 0o644); err != nil {
-		return fmt.Errorf("writing worker cert: %w", err)
+	if err := os.WriteFile(cfg.ClusterCertPath, accepted.SecondaryCertificate, 0o644); err != nil {
+		return fmt.Errorf("writing secondary cert: %w", err)
 	}
 	if err := os.WriteFile(cfg.ClusterKeyPath, keyPEM, 0o600); err != nil {
-		return fmt.Errorf("writing worker key: %w", err)
+		return fmt.Errorf("writing secondary key: %w", err)
 	}
 	return nil
 }
@@ -199,7 +199,7 @@ func enrollmentHTTPClient(expectedFingerprint string) (*http.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("primary enrollment fingerprint: %w", err)
 	}
-	// The worker has no cluster trust root before enrollment. TLS still prevents
+	// The secondary has no cluster trust root before enrollment. TLS still prevents
 	// passive capture; SPKI pinning authenticates the bootstrap server identity.
 	return &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{
 		InsecureSkipVerify: true,

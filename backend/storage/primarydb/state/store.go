@@ -35,7 +35,7 @@ func (s *Service) loadCache() {
 	}
 	for _, row := range rows {
 		id := int32(row.DeploymentID)
-		s.configCache[id] = configRowToProto(row)
+		s.deploymentCache[id] = deploymentRowToProto(row)
 	}
 	spaceRows, err := s.q.ListCurrentDeploymentSpaceVersions(ctx)
 	if err != nil {
@@ -102,7 +102,7 @@ func (s *Service) FetchDeletedDeploymentSnapshot(predicate storage.DeploymentPre
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	out := make([]apigen.Deployment, 0, limit)
-	for _, cfg := range s.configCache {
+	for _, cfg := range s.deploymentCache {
 		if !cfg.Deleted || (predicate != nil && !predicate(*cfg)) {
 			continue
 		}
@@ -127,7 +127,7 @@ func (s *Service) FetchDeletedDeploymentSnapshot(predicate storage.DeploymentPre
 func (s *Service) FetchDeployment(deploymentID int32) *apigen.Deployment {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	cfg := s.configCache[deploymentID]
+	cfg := s.deploymentCache[deploymentID]
 	if cfg == nil {
 		return nil
 	}
@@ -139,7 +139,7 @@ func (s *Service) MustFetchDeploymentSnapshotAndSubscribe(predicate storage.Depl
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	snapshot := s.configSnapshotLocked(predicate)
-	sub := s.configSubs.Subscribe(configFilter(predicate))
+	sub := s.deploymentSubs.Subscribe(deploymentFilter(predicate))
 	return snapshot, sub.Ch, sub.Unsubscribe
 }
 
@@ -166,8 +166,8 @@ func (s *Service) MustFetchScheduledSnapshotWithLatestFinalAndSubscribe(predicat
 }
 
 func (s *Service) configSnapshotLocked(predicate storage.DeploymentPredicate) []apigen.Deployment {
-	out := make([]apigen.Deployment, 0, len(s.configCache))
-	for _, cfg := range s.configCache {
+	out := make([]apigen.Deployment, 0, len(s.deploymentCache))
+	for _, cfg := range s.deploymentCache {
 		if cfg.Deleted || (predicate != nil && !predicate(*cfg)) {
 			continue
 		}
@@ -225,7 +225,7 @@ func (s *Service) configForInstanceLocked(inst *apigen.ScheduledInstance) *apige
 	if inst == nil {
 		return nil
 	}
-	if cfg := s.configCache[inst.DeploymentID]; cfg != nil && cfg.Version == inst.DeploymentVersion {
+	if cfg := s.deploymentCache[inst.DeploymentID]; cfg != nil && cfg.Version == inst.DeploymentVersion {
 		return cfg
 	}
 	return s.loadConfigVersionLocked(inst.DeploymentID, inst.DeploymentVersion)
@@ -233,7 +233,7 @@ func (s *Service) configForInstanceLocked(inst *apigen.ScheduledInstance) *apige
 
 func (s *Service) loadConfigVersionLocked(deploymentID, version int32) *apigen.Deployment {
 	ctx := logu.AddTag(context.Background(), "Store")
-	row, err := s.q.GetDeploymentVersion(ctx, pq.GetDeploymentVersionParams{
+	row, err := s.q.GetDeploymentSpecVersion(ctx, pq.GetDeploymentSpecVersionParams{
 		DeploymentID: int64(deploymentID),
 		Version:      int64(version),
 	})
@@ -243,18 +243,18 @@ func (s *Service) loadConfigVersionLocked(deploymentID, version int32) *apigen.D
 		}
 		return nil
 	}
-	return configVersionRowToProto(row, s.configCache[deploymentID])
+	return specVersionRowToProto(row, s.deploymentCache[deploymentID])
 }
 
-func (s *Service) notifyConfigLocked(id int32) {
-	cfg := s.configCache[id]
+func (s *Service) notifyDeploymentLocked(id int32) {
+	cfg := s.deploymentCache[id]
 	if cfg == nil {
 		return
 	}
-	s.configSubs.Notify(*cfg)
+	s.deploymentSubs.Notify(*cfg)
 }
 
-func configFilter(predicate storage.DeploymentPredicate) func(apigen.Deployment, apigen.Deployment) bool {
+func deploymentFilter(predicate storage.DeploymentPredicate) func(apigen.Deployment, apigen.Deployment) bool {
 	if predicate == nil {
 		return nil
 	}

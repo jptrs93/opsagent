@@ -191,7 +191,7 @@
         ]), { note: 'one workload field set' }),
       ], { versioned: true })),
     ],
-    note: 'Each write creates a new immutable version; workers act on the latest.',
+    note: 'Each write creates a new immutable version; secondaries act on the latest.',
   });
 
   g.addNode({
@@ -226,7 +226,7 @@
     badge: 'derived',
     tone: 'derived',
     x: 680, y: 620, w: 440,
-    desc: 'Complete placement + underlay snapshot rendered by the primary, targeted to one node. Workers persist an accepted map, apply it to the kernel (WireGuard peers, routes, policy), and report both stamps back.',
+    desc: 'Complete placement + underlay snapshot rendered by the primary, targeted to one node. Secondaries persist an accepted map, apply it to the kernel (WireGuard peers, routes, policy), and report both stamps back.',
     schema: [
       f('targetNodeId', 'int32', { ref: 'ClusterNode.id' }),
       f('derivedFromSeq', 'int64', { note: 'global write seq at render' }),

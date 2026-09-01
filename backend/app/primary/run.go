@@ -64,7 +64,7 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		}
 	}
 	primaryNode = primaryRuntime.store.MustSetNodeAddresses(primaryNode.ID, []string{underlayAddress})
-	// The primary's WireGuard key follows the same custody rule as workers:
+	// The primary's WireGuard key follows the same custody rule as secondaries:
 	// generated locally, private key only ever in the data directory, public
 	// key registered on the node row (a map input, so registration re-renders
 	// the map). WireGuard is the only cross-node transport, so a key failure

@@ -76,7 +76,7 @@ func streamPrepareOutput(ctx context.Context, out *outbox, store *state.Service,
 		})
 		return
 	}
-	out.Send(&apigen.MsgToMaster{LogEnd: true, LogRequestID: requestID})
+	out.Send(&apigen.MsgToPrimary{LogEnd: true, LogRequestID: requestID})
 }
 
 var logManager *logmanager.Manager
@@ -85,7 +85,7 @@ func runLogQuery(ctx context.Context, out *outbox, req *apigen.LogQueryRequest) 
 	ctx = logu.AddTag(ctx, "LogShipper")
 	if logManager == nil {
 		slog.ErrorContext(ctx, "log query requested before log manager started", "dep", req.DeploymentID)
-		out.Send(&apigen.MsgToMaster{LogQueryError: "log manager is not running", LogRequestID: req.RequestID})
+		out.Send(&apigen.MsgToPrimary{LogQueryError: "log manager is not running", LogRequestID: req.RequestID})
 		return
 	}
 	resp, err := logManager.Query(ctx, req)
@@ -94,10 +94,10 @@ func runLogQuery(ctx context.Context, out *outbox, req *apigen.LogQueryRequest) 
 			return
 		}
 		slog.ErrorContext(ctx, "log query failed", "dep", req.DeploymentID, "err", err)
-		out.Send(&apigen.MsgToMaster{LogQueryError: err.Error(), LogRequestID: req.RequestID})
+		out.Send(&apigen.MsgToPrimary{LogQueryError: err.Error(), LogRequestID: req.RequestID})
 		return
 	}
-	out.Send(&apigen.MsgToMaster{LogQueryResponse: resp, LogRequestID: req.RequestID})
+	out.Send(&apigen.MsgToPrimary{LogQueryResponse: resp, LogRequestID: req.RequestID})
 }
 
 // streamFile always sends LogEnd, even on failure. When keepTailing is non-nil,
@@ -105,7 +105,7 @@ func runLogQuery(ctx context.Context, out *outbox, req *apigen.LogQueryRequest) 
 // at the first EOF.
 func streamFile(ctx context.Context, out *outbox, path string, requestID string, keepTailing func() bool) {
 	defer func() {
-		out.Send(&apigen.MsgToMaster{LogEnd: true, LogRequestID: requestID})
+		out.Send(&apigen.MsgToPrimary{LogEnd: true, LogRequestID: requestID})
 	}()
 
 	f, err := waitForLogFile(ctx, path)
@@ -122,7 +122,7 @@ func streamFile(ctx context.Context, out *outbox, path string, requestID string,
 			if n > 0 {
 				chunk := make([]byte, n)
 				copy(chunk, buf[:n])
-				if !out.Send(&apigen.MsgToMaster{LogData: chunk, LogRequestID: requestID}) {
+				if !out.Send(&apigen.MsgToPrimary{LogData: chunk, LogRequestID: requestID}) {
 					return context.Canceled
 				}
 			}

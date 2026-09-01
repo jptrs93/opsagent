@@ -55,19 +55,19 @@ WHERE d.deleted_at = 0
        WHERE sp.deployment_id = d.deployment_id
        ORDER BY sp.version DESC LIMIT 1) = ?;
 
--- name: InsertDeploymentVersion :exec
-INSERT INTO deployment_versions (deployment_id, version, created_at, author, spec_blob, global_seq)
+-- name: InsertDeploymentSpecVersion :exec
+INSERT INTO deployment_spec_versions (deployment_id, version, created_at, author, spec_blob, global_seq)
 VALUES (?, ?, ?, ?, ?, ?);
 
--- name: ListDeploymentVersions :many
+-- name: ListDeploymentSpecVersions :many
 SELECT id, deployment_id, version, created_at, author, spec_blob, global_seq
-FROM deployment_versions
+FROM deployment_spec_versions
 WHERE deployment_id = ?
 ORDER BY version ASC;
 
--- name: GetDeploymentVersion :one
+-- name: GetDeploymentSpecVersion :one
 SELECT id, deployment_id, version, created_at, author, spec_blob, global_seq
-FROM deployment_versions
+FROM deployment_spec_versions
 WHERE deployment_id = ? AND version = ?;
 
 -- Reads are hand-written in scheduled_instances.go: an instance row is its

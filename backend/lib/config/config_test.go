@@ -192,7 +192,7 @@ func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 	select {
 	case <-service.AssetMigrationWake():
 	default:
-		t.Fatal("BackupEnabled update did not wake the asset migration worker")
+		t.Fatal("BackupEnabled update did not wake the asset migration secondary")
 	}
 	migration, ok := store.GetUnfinishedAssetMigration()
 	if !ok {
@@ -227,7 +227,10 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
-	userCfgMeta := store.SetConfigByName("shared.cluster.listen", ":9555", 0)
+	userCfgMeta, err := store.CreateConfigWithVersion("shared.cluster.listen", state.DefaultSpaceID, 0, 0, ":9555")
+	if err != nil {
+		t.Fatalf("CreateConfigWithVersion: %v", err)
+	}
 	userCfg := userCfgMeta.ValueVersions[0]
 
 	settings := DefaultSettings(DefaultInitialConfig())

@@ -1274,7 +1274,7 @@
  * @property {Date} changedAt
  */
 /**
- * @typedef {Object} MsgToWorker
+ * @typedef {Object} MsgToSecondary
  * @property {ScheduledInstanceSnapshot} scheduledInstancesSnapshot
  * @property {ScheduledInstanceState} scheduledInstanceUpdate
  * @property {DeploymentLogRequest} deploymentLogRequest
@@ -1292,7 +1292,7 @@
  * @property {string} wgPublicKey
  */
 /**
- * @typedef {Object} MsgToMaster
+ * @typedef {Object} MsgToPrimary
  * @property {ScheduledInstanceStatus} statusWrite
  * @property {Uint8Array} logData
  * @property {boolean} logEnd
@@ -1348,13 +1348,13 @@
  * @property {number} notAfter
  */
 /**
- * @typedef {Object} EnrollmentWorkerMsg
+ * @typedef {Object} EnrollmentSecondaryMsg
  * @property {EnrollmentHello} hello
  */
 /**
  * @typedef {Object} EnrollmentHello
  * @property {string} requestingMachineId
- * @property {Uint8Array} workerCertificateRequest
+ * @property {Uint8Array} secondaryCertificateRequest
  * @property {string} opendeployVersion
  * @property {string} underlayAddress
  * @property {string} wgPublicKey
@@ -1371,14 +1371,14 @@
 /**
  * @typedef {Object} EnrollmentAcceptRequest
  * @property {number} id
- * @property {string} workerName
+ * @property {string} nodeName
  */
 /**
  * @typedef {Object} EnrollmentAccepted
  * @property {number} id
- * @property {string} workerName
+ * @property {string} nodeName
  * @property {Uint8Array} caCertificate
- * @property {Uint8Array} workerCertificate
+ * @property {Uint8Array} secondaryCertificate
  * @property {ClusterNetworkInfo} clusterNetwork
  * @property {ScheduledInstanceState} nodeDeployment
  * @property {ScheduledInstanceState} nodeNetDeployment
@@ -1487,8 +1487,8 @@
 /**
  * @typedef {Object} State
  * @property {boolean} heartbeat
- * @property {DeploymentSnapshot} deploymentConfigsSnapshot
- * @property {Deployment} deploymentConfigUpdate
+ * @property {DeploymentSnapshot} deploymentsSnapshot
+ * @property {Deployment} deploymentUpdate
  * @property {User[]} usersSnapshot
  * @property {User} userUpdate
  * @property {EnrollmentRequestList} enrollmentsSnapshot
@@ -1528,7 +1528,7 @@
  * @property {AssetList} assets
  * @property {ConfigList} configs
  * @property {SecretList} secrets
- * @property {DeploymentSnapshot} deploymentConfigs
+ * @property {DeploymentSnapshot} deployments
  * @property {ValueDirectoryList} valueDirectories
  * @property {AssetDirectoryList} assetDirectories
  */
@@ -16777,10 +16777,10 @@ export function decodeGithubCredentials(buffer) {
 
 
 /**
- * @param {MsgToWorker} message
+ * @param {MsgToSecondary} message
  * @param {Writer} writer
  */
-export function writeMsgToWorker(message, writer) {
+export function writeMsgToSecondary(message, writer) {
     if (message.scheduledInstancesSnapshot !== undefined && message.scheduledInstancesSnapshot !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
         writeScheduledInstanceSnapshot(message.scheduledInstancesSnapshot, writer);
@@ -16826,12 +16826,12 @@ export function writeMsgToWorker(message, writer) {
 
 
 /**
- * @param {MsgToWorker} message
+ * @param {MsgToSecondary} message
  * @returns {Uint8Array}
  */
-export function encodeMsgToWorker(message) {
+export function encodeMsgToSecondary(message) {
     const writer = Writer.create();
-    writeMsgToWorker(message, writer);
+    writeMsgToSecondary(message, writer);
     return writer.finish();
 }
 
@@ -16839,9 +16839,9 @@ export function encodeMsgToWorker(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {MsgToWorker}
+ * @returns {MsgToSecondary}
  */
-function decodeMsgToWorkerMessage(reader, length) {
+function decodeMsgToSecondaryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", clusterNetwork: undefined, clusterNetMap: undefined, clusterProtocolVersion: 0, acmeState: undefined, logQueryRequest: undefined };
     while (reader.pos < end) {
@@ -16893,11 +16893,11 @@ function decodeMsgToWorkerMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {MsgToWorker}
+ * @returns {MsgToSecondary}
  */
-export function decodeMsgToWorker(buffer) {
+export function decodeMsgToSecondary(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeMsgToWorkerMessage(reader);
+    return decodeMsgToSecondaryMessage(reader);
 }
 
 
@@ -16973,10 +16973,10 @@ export function decodeClusterHello(buffer) {
 
 
 /**
- * @param {MsgToMaster} message
+ * @param {MsgToPrimary} message
  * @param {Writer} writer
  */
-export function writeMsgToMaster(message, writer) {
+export function writeMsgToPrimary(message, writer) {
     if (message.statusWrite !== undefined && message.statusWrite !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
         writeScheduledInstanceStatus(message.statusWrite, writer);
@@ -17013,12 +17013,12 @@ export function writeMsgToMaster(message, writer) {
 
 
 /**
- * @param {MsgToMaster} message
+ * @param {MsgToPrimary} message
  * @returns {Uint8Array}
  */
-export function encodeMsgToMaster(message) {
+export function encodeMsgToPrimary(message) {
     const writer = Writer.create();
-    writeMsgToMaster(message, writer);
+    writeMsgToPrimary(message, writer);
     return writer.finish();
 }
 
@@ -17026,9 +17026,9 @@ export function encodeMsgToMaster(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {MsgToMaster}
+ * @returns {MsgToPrimary}
  */
-function decodeMsgToMasterMessage(reader, length) {
+function decodeMsgToPrimaryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {statusWrite: undefined, logData: new Uint8Array(0), logEnd: false, logRequestId: "", netMapStatus: undefined, clusterHello: undefined, logQueryResponse: undefined, logQueryError: "" };
     while (reader.pos < end) {
@@ -17076,11 +17076,11 @@ function decodeMsgToMasterMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {MsgToMaster}
+ * @returns {MsgToPrimary}
  */
-export function decodeMsgToMaster(buffer) {
+export function decodeMsgToPrimary(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeMsgToMasterMessage(reader);
+    return decodeMsgToPrimaryMessage(reader);
 }
 
 
@@ -17679,10 +17679,10 @@ export function decodeClusterRenewCertificateResponse(buffer) {
 
 
 /**
- * @param {EnrollmentWorkerMsg} message
+ * @param {EnrollmentSecondaryMsg} message
  * @param {Writer} writer
  */
-export function writeEnrollmentWorkerMsg(message, writer) {
+export function writeEnrollmentSecondaryMsg(message, writer) {
     if (message.hello !== undefined && message.hello !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
         writeEnrollmentHello(message.hello, writer);
@@ -17692,12 +17692,12 @@ export function writeEnrollmentWorkerMsg(message, writer) {
 
 
 /**
- * @param {EnrollmentWorkerMsg} message
+ * @param {EnrollmentSecondaryMsg} message
  * @returns {Uint8Array}
  */
-export function encodeEnrollmentWorkerMsg(message) {
+export function encodeEnrollmentSecondaryMsg(message) {
     const writer = Writer.create();
-    writeEnrollmentWorkerMsg(message, writer);
+    writeEnrollmentSecondaryMsg(message, writer);
     return writer.finish();
 }
 
@@ -17705,9 +17705,9 @@ export function encodeEnrollmentWorkerMsg(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {EnrollmentWorkerMsg}
+ * @returns {EnrollmentSecondaryMsg}
  */
-function decodeEnrollmentWorkerMsgMessage(reader, length) {
+function decodeEnrollmentSecondaryMsgMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {hello: undefined };
     while (reader.pos < end) {
@@ -17727,11 +17727,11 @@ function decodeEnrollmentWorkerMsgMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {EnrollmentWorkerMsg}
+ * @returns {EnrollmentSecondaryMsg}
  */
-export function decodeEnrollmentWorkerMsg(buffer) {
+export function decodeEnrollmentSecondaryMsg(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeEnrollmentWorkerMsgMessage(reader);
+    return decodeEnrollmentSecondaryMsgMessage(reader);
 }
 
 
@@ -17744,8 +17744,8 @@ export function writeEnrollmentHello(message, writer) {
     if (message.requestingMachineId !== undefined && message.requestingMachineId !== null && message.requestingMachineId !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.requestingMachineId);
     }
-    if (message.workerCertificateRequest && message.workerCertificateRequest.length > 0) {
-        writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.workerCertificateRequest);
+    if (message.secondaryCertificateRequest && message.secondaryCertificateRequest.length > 0) {
+        writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.secondaryCertificateRequest);
     }
     if (message.opendeployVersion !== undefined && message.opendeployVersion !== null && message.opendeployVersion !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.opendeployVersion);
@@ -17777,7 +17777,7 @@ export function encodeEnrollmentHello(message) {
  */
 function decodeEnrollmentHelloMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {requestingMachineId: "", workerCertificateRequest: new Uint8Array(0), opendeployVersion: "", underlayAddress: "", wgPublicKey: "" };
+    const message = {requestingMachineId: "", secondaryCertificateRequest: new Uint8Array(0), opendeployVersion: "", underlayAddress: "", wgPublicKey: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -17786,7 +17786,7 @@ function decodeEnrollmentHelloMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.workerCertificateRequest = reader.bytes();
+                message.secondaryCertificateRequest = reader.bytes();
                 break;
             }
             case 3: {
@@ -17955,8 +17955,8 @@ export function writeEnrollmentAcceptRequest(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
     }
-    if (message.workerName !== undefined && message.workerName !== null && message.workerName !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.workerName);
+    if (message.nodeName !== undefined && message.nodeName !== null && message.nodeName !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.nodeName);
     }
 }
 
@@ -17979,7 +17979,7 @@ export function encodeEnrollmentAcceptRequest(message) {
  */
 function decodeEnrollmentAcceptRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, workerName: "" };
+    const message = {id: 0, nodeName: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -17988,7 +17988,7 @@ function decodeEnrollmentAcceptRequestMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.workerName = reader.string();
+                message.nodeName = reader.string();
                 break;
             }
             default:
@@ -18018,14 +18018,14 @@ export function writeEnrollmentAccepted(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
     }
-    if (message.workerName !== undefined && message.workerName !== null && message.workerName !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.workerName);
+    if (message.nodeName !== undefined && message.nodeName !== null && message.nodeName !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.nodeName);
     }
     if (message.caCertificate && message.caCertificate.length > 0) {
         writer.uint32(tag(3, WIRE.LDELIM)).bytes(message.caCertificate);
     }
-    if (message.workerCertificate && message.workerCertificate.length > 0) {
-        writer.uint32(tag(4, WIRE.LDELIM)).bytes(message.workerCertificate);
+    if (message.secondaryCertificate && message.secondaryCertificate.length > 0) {
+        writer.uint32(tag(4, WIRE.LDELIM)).bytes(message.secondaryCertificate);
     }
     if (message.clusterNetwork !== undefined && message.clusterNetwork !== null) {
         writer.uint32(tag(5, WIRE.LDELIM)).fork();
@@ -18068,7 +18068,7 @@ export function encodeEnrollmentAccepted(message) {
  */
 function decodeEnrollmentAcceptedMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, workerName: "", caCertificate: new Uint8Array(0), workerCertificate: new Uint8Array(0), clusterNetwork: undefined, nodeDeployment: undefined, nodeNetDeployment: undefined, clusterNetMap: undefined };
+    const message = {id: 0, nodeName: "", caCertificate: new Uint8Array(0), secondaryCertificate: new Uint8Array(0), clusterNetwork: undefined, nodeDeployment: undefined, nodeNetDeployment: undefined, clusterNetMap: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -18077,7 +18077,7 @@ function decodeEnrollmentAcceptedMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.workerName = reader.string();
+                message.nodeName = reader.string();
                 break;
             }
             case 3: {
@@ -18085,7 +18085,7 @@ function decodeEnrollmentAcceptedMessage(reader, length) {
                 break;
             }
             case 4: {
-                message.workerCertificate = reader.bytes();
+                message.secondaryCertificate = reader.bytes();
                 break;
             }
             case 5: {
@@ -19321,14 +19321,14 @@ export function writeState(message, writer) {
     if (message.heartbeat === true) {
         writer.uint32(tag(1, WIRE.VARINT)).bool(message.heartbeat);
     }
-    if (message.deploymentConfigsSnapshot !== undefined && message.deploymentConfigsSnapshot !== null) {
+    if (message.deploymentsSnapshot !== undefined && message.deploymentsSnapshot !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeDeploymentSnapshot(message.deploymentConfigsSnapshot, writer);
+        writeDeploymentSnapshot(message.deploymentsSnapshot, writer);
         writer.ldelim();
     }
-    if (message.deploymentConfigUpdate !== undefined && message.deploymentConfigUpdate !== null) {
+    if (message.deploymentUpdate !== undefined && message.deploymentUpdate !== null) {
         writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeDeployment(message.deploymentConfigUpdate, writer);
+        writeDeployment(message.deploymentUpdate, writer);
         writer.ldelim();
     }
     if (message.usersSnapshot && message.usersSnapshot.length > 0) {
@@ -19514,7 +19514,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentConfigsSnapshot: undefined, deploymentConfigUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, agentSessionsSnapshot: undefined, agentSessionUpdate: undefined, valueDirectoriesSnapshot: undefined, valueDirectoryUpdate: undefined, assetDirectoriesSnapshot: undefined, assetDirectoryUpdate: undefined, authzRuleTemplatesSnapshot: undefined, authzGrantsSnapshot: undefined, authzGlobalRulesSnapshot: undefined, networkPoliciesSnapshot: undefined };
+    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, agentSessionsSnapshot: undefined, agentSessionUpdate: undefined, valueDirectoriesSnapshot: undefined, valueDirectoryUpdate: undefined, assetDirectoriesSnapshot: undefined, assetDirectoryUpdate: undefined, authzRuleTemplatesSnapshot: undefined, authzGrantsSnapshot: undefined, authzGlobalRulesSnapshot: undefined, networkPoliciesSnapshot: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -19523,11 +19523,11 @@ function decodeStateMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.deploymentConfigsSnapshot = decodeDeploymentSnapshotMessage(reader, reader.uint32());
+                message.deploymentsSnapshot = decodeDeploymentSnapshotMessage(reader, reader.uint32());
                 break;
             }
             case 3: {
-                message.deploymentConfigUpdate = decodeDeploymentMessage(reader, reader.uint32());
+                message.deploymentUpdate = decodeDeploymentMessage(reader, reader.uint32());
                 break;
             }
             case 4: {
@@ -19702,9 +19702,9 @@ export function writeGlobalState(message, writer) {
         writeSecretList(message.secrets, writer);
         writer.ldelim();
     }
-    if (message.deploymentConfigs !== undefined && message.deploymentConfigs !== null) {
+    if (message.deployments !== undefined && message.deployments !== null) {
         writer.uint32(tag(5, WIRE.LDELIM)).fork();
-        writeDeploymentSnapshot(message.deploymentConfigs, writer);
+        writeDeploymentSnapshot(message.deployments, writer);
         writer.ldelim();
     }
     if (message.valueDirectories !== undefined && message.valueDirectories !== null) {
@@ -19738,7 +19738,7 @@ export function encodeGlobalState(message) {
  */
 function decodeGlobalStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {spaces: undefined, assets: undefined, configs: undefined, secrets: undefined, deploymentConfigs: undefined, valueDirectories: undefined, assetDirectories: undefined };
+    const message = {spaces: undefined, assets: undefined, configs: undefined, secrets: undefined, deployments: undefined, valueDirectories: undefined, assetDirectories: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -19759,7 +19759,7 @@ function decodeGlobalStateMessage(reader, length) {
                 break;
             }
             case 5: {
-                message.deploymentConfigs = decodeDeploymentSnapshotMessage(reader, reader.uint32());
+                message.deployments = decodeDeploymentSnapshotMessage(reader, reader.uint32());
                 break;
             }
             case 6: {

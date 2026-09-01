@@ -9316,7 +9316,7 @@ func DecodeGithubCredentials(b []byte) (*GithubCredentials, error) {
 	return &m, nil
 }
 
-func (m *MsgToWorker) Encode() []byte {
+func (m *MsgToSecondary) Encode() []byte {
 	var b []byte
 	if m.ScheduledInstancesSnapshot != nil {
 		b = AppendTag(b, 1, BytesType)
@@ -9351,8 +9351,8 @@ func (m *MsgToWorker) Encode() []byte {
 	return b
 }
 
-func DecodeMsgToWorker(b []byte) (*MsgToWorker, error) {
-	var m MsgToWorker
+func DecodeMsgToSecondary(b []byte) (*MsgToSecondary, error) {
+	var m MsgToSecondary
 	var num Number
 	var typ Type
 	var err error
@@ -9475,7 +9475,7 @@ func DecodeClusterHello(b []byte) (*ClusterHello, error) {
 	return &m, nil
 }
 
-func (m *MsgToMaster) Encode() []byte {
+func (m *MsgToPrimary) Encode() []byte {
 	var b []byte
 	if m.StatusWrite != nil {
 		b = AppendTag(b, 1, BytesType)
@@ -9500,8 +9500,8 @@ func (m *MsgToMaster) Encode() []byte {
 	return b
 }
 
-func DecodeMsgToMaster(b []byte) (*MsgToMaster, error) {
-	var m MsgToMaster
+func DecodeMsgToPrimary(b []byte) (*MsgToPrimary, error) {
+	var m MsgToPrimary
 	var num Number
 	var typ Type
 	var err error
@@ -9882,7 +9882,7 @@ func DecodeClusterRenewCertificateResponse(b []byte) (*ClusterRenewCertificateRe
 	return &m, nil
 }
 
-func (m *EnrollmentWorkerMsg) Encode() []byte {
+func (m *EnrollmentSecondaryMsg) Encode() []byte {
 	var b []byte
 	if m.Hello != nil {
 		b = AppendTag(b, 1, BytesType)
@@ -9891,8 +9891,8 @@ func (m *EnrollmentWorkerMsg) Encode() []byte {
 	return b
 }
 
-func DecodeEnrollmentWorkerMsg(b []byte) (*EnrollmentWorkerMsg, error) {
-	var m EnrollmentWorkerMsg
+func DecodeEnrollmentSecondaryMsg(b []byte) (*EnrollmentSecondaryMsg, error) {
+	var m EnrollmentSecondaryMsg
 	var num Number
 	var typ Type
 	var err error
@@ -9925,7 +9925,7 @@ func DecodeEnrollmentWorkerMsg(b []byte) (*EnrollmentWorkerMsg, error) {
 func (m *EnrollmentHello) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.RequestingMachineID, 1)
-	b = AppendBytesField(b, m.WorkerCertificateRequest, 2)
+	b = AppendBytesField(b, m.SecondaryCertificateRequest, 2)
 	b = AppendStringField(b, m.OpendeployVersion, 3)
 	b = AppendStringField(b, m.UnderlayAddress, 4)
 	b = AppendStringField(b, m.WgPublicKey, 5)
@@ -9946,7 +9946,7 @@ func DecodeEnrollmentHello(b []byte) (*EnrollmentHello, error) {
 		case 1:
 			b, m.RequestingMachineID, err = ConsumeString(b, typ)
 		case 2:
-			b, m.WorkerCertificateRequest, err = ConsumeBytesCopy(b, typ)
+			b, m.SecondaryCertificateRequest, err = ConsumeBytesCopy(b, typ)
 		case 3:
 			b, m.OpendeployVersion, err = ConsumeString(b, typ)
 		case 4:
@@ -10062,7 +10062,7 @@ func DecodeEnrollmentRequestList(b []byte) (*EnrollmentRequestList, error) {
 func (m *EnrollmentAcceptRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendStringField(b, m.WorkerName, 2)
+	b = AppendStringField(b, m.NodeName, 2)
 	return b
 }
 
@@ -10080,7 +10080,7 @@ func DecodeEnrollmentAcceptRequest(b []byte) (*EnrollmentAcceptRequest, error) {
 		case 1:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.WorkerName, err = ConsumeString(b, typ)
+			b, m.NodeName, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -10094,9 +10094,9 @@ func DecodeEnrollmentAcceptRequest(b []byte) (*EnrollmentAcceptRequest, error) {
 func (m *EnrollmentAccepted) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendStringField(b, m.WorkerName, 2)
+	b = AppendStringField(b, m.NodeName, 2)
 	b = AppendBytesField(b, m.CaCertificate, 3)
-	b = AppendBytesField(b, m.WorkerCertificate, 4)
+	b = AppendBytesField(b, m.SecondaryCertificate, 4)
 	if m.ClusterNetwork != nil {
 		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, m.ClusterNetwork.Encode())
@@ -10131,11 +10131,11 @@ func DecodeEnrollmentAccepted(b []byte) (*EnrollmentAccepted, error) {
 		case 1:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.WorkerName, err = ConsumeString(b, typ)
+			b, m.NodeName, err = ConsumeString(b, typ)
 		case 3:
 			b, m.CaCertificate, err = ConsumeBytesCopy(b, typ)
 		case 4:
-			b, m.WorkerCertificate, err = ConsumeBytesCopy(b, typ)
+			b, m.SecondaryCertificate, err = ConsumeBytesCopy(b, typ)
 		case 5:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -11183,13 +11183,13 @@ func DecodeBackupStatus(b []byte) (*BackupStatus, error) {
 func (m *State) Encode() []byte {
 	var b []byte
 	b = AppendBoolField(b, m.Heartbeat, 1)
-	if m.DeploymentConfigsSnapshot != nil {
+	if m.DeploymentsSnapshot != nil {
 		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.DeploymentConfigsSnapshot.Encode())
+		b = AppendBytes(b, m.DeploymentsSnapshot.Encode())
 	}
-	if m.DeploymentConfigUpdate != nil {
+	if m.DeploymentUpdate != nil {
 		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.DeploymentConfigUpdate.Encode())
+		b = AppendBytes(b, m.DeploymentUpdate.Encode())
 	}
 	for _, item := range m.UsersSnapshot {
 		if item == nil {
@@ -11345,7 +11345,7 @@ func DecodeState(b []byte) (*State, error) {
 				var item *DeploymentSnapshot
 				item, err = DecodeDeploymentSnapshot(msgBytes)
 				if err == nil {
-					m.DeploymentConfigsSnapshot = item
+					m.DeploymentsSnapshot = item
 				}
 			}
 		case 3:
@@ -11354,7 +11354,7 @@ func DecodeState(b []byte) (*State, error) {
 				var item *Deployment
 				item, err = DecodeDeployment(msgBytes)
 				if err == nil {
-					m.DeploymentConfigUpdate = item
+					m.DeploymentUpdate = item
 				}
 			}
 		case 4:
@@ -11673,9 +11673,9 @@ func (m *GlobalState) Encode() []byte {
 		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, m.Secrets.Encode())
 	}
-	if m.DeploymentConfigs != nil {
+	if m.Deployments != nil {
 		b = AppendTag(b, 5, BytesType)
-		b = AppendBytes(b, m.DeploymentConfigs.Encode())
+		b = AppendBytes(b, m.Deployments.Encode())
 	}
 	if m.ValueDirectories != nil {
 		b = AppendTag(b, 6, BytesType)
@@ -11742,7 +11742,7 @@ func DecodeGlobalState(b []byte) (*GlobalState, error) {
 				var item *DeploymentSnapshot
 				item, err = DecodeDeploymentSnapshot(msgBytes)
 				if err == nil {
-					m.DeploymentConfigs = item
+					m.Deployments = item
 				}
 			}
 		case 6:

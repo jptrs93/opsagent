@@ -136,7 +136,7 @@ func (s *Service) listEnrollmentRequestsLocked() ([]*apigen.EnrollmentRequestSta
 	return items, nil
 }
 
-func (s *Service) AcceptEnrollmentRequest(id int32, workerName, requestingMachineID, underlayAddress, wgPublicKey string, expectedVersion int64) (*apigen.EnrollmentRequestStatus, error) {
+func (s *Service) AcceptEnrollmentRequest(id int32, nodeName, requestingMachineID, underlayAddress, wgPublicKey string, expectedVersion int64) (*apigen.EnrollmentRequestStatus, error) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
@@ -155,7 +155,7 @@ func (s *Service) AcceptEnrollmentRequest(id int32, workerName, requestingMachin
 		if current.Identifier != requestingMachineID || current.Version != expectedVersion {
 			return ErrEnrollmentRequestChanged
 		}
-		if err := q.UpdateNodeAccepted(ctx, workerName, now, int64(id)); err != nil {
+		if err := q.UpdateNodeAccepted(ctx, nodeName, now, int64(id)); err != nil {
 			return err
 		}
 		current, err = q.GetNodeRowByID(ctx, int64(id))

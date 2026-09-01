@@ -177,31 +177,6 @@ func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value
 	return c, updatedDeployments, nil
 }
 
-// SetConfigByName is a create-or-append convenience for tests and seeding: it
-// targets the root directory of the default space by name.
-func (s *Service) SetConfigByName(name, value string, author int32) *apigen.Config {
-	row, err := s.q.GetConfigInDirectoryByName(context.Background(), pq.GetConfigInDirectoryByNameParams{
-		SpaceID:          int64(DefaultSpaceID),
-		ValueDirectoryID: 0,
-		Name:             name,
-	})
-	if err == sql.ErrNoRows {
-		c, createErr := s.CreateConfigWithVersion(name, DefaultSpaceID, 0, author, value)
-		if createErr != nil {
-			panic(fmt.Sprintf("SetConfigByName create: %v", createErr))
-		}
-		return c
-	}
-	if err != nil {
-		panic(fmt.Sprintf("GetConfigInDirectoryByName: %v", err))
-	}
-	c, _, appendErr := s.AppendConfigVersionWithDeploymentUpdates(int32(row.ID), value, author, false, nil)
-	if appendErr != nil {
-		panic(fmt.Sprintf("SetConfigByName append: %v", appendErr))
-	}
-	return c
-}
-
 // RenameConfig renames the stable config identity. Versions are untouched.
 func (s *Service) RenameConfig(configID int32, newName string) (*apigen.Config, error) {
 	if !ValidValueName(newName) {

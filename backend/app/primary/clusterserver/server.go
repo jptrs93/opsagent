@@ -31,7 +31,7 @@ func RunPrimary(
 
 	// The cluster transport is a separate mTLS HTTP/2-only listener; peer
 	// identity comes from the client cert CN. The server emits health-check PINGs
-	// so it detects a dead worker.
+	// so it detects a dead secondary.
 	clusterMux := apigen.CreateOpsagentClusterV1Mux(h, &apigen.MuxConfig{
 		VerifyAuth:         clusterhandler.VerifyClusterPeer,
 		MaxRequestBodySize: 16 * 1024 * 1024, // 16 MB cap on a single inbound stream frame
@@ -45,8 +45,8 @@ func RunPrimary(
 		Protocols:   protocols,
 		BaseContext: primaryServerBaseContext(ctx),
 		HTTP2: &http.HTTP2Config{
-			SendPingTimeout: 5 * time.Second,  // PING a silent worker after 5s idle
-			PingTimeout:     10 * time.Second, // tear down if no ACK within 10s (~15s total to detect a dead worker)
+			SendPingTimeout: 5 * time.Second,  // PING a silent secondary after 5s idle
+			PingTimeout:     10 * time.Second, // tear down if no ACK within 10s (~15s total to detect a dead secondary)
 		},
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("starting primary cluster addr=%v", listen))

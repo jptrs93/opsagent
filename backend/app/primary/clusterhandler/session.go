@@ -18,7 +18,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
-// outboxSize bounds the buffer of pending MsgToWorker messages. It decouples
+// outboxSize bounds the buffer of pending MsgToSecondary messages. It decouples
 // the producers (snapshot/update/heartbeat feeder, log requests) from the
 // single consumer that yields them onto the response stream; when full,
 // producers block, applying backpressure rather than growing unbounded.
@@ -26,14 +26,14 @@ const outboxSize = 64
 
 const logStreamBufferSize = 10_000
 
-// heartbeatInterval is how often the primary emits an empty MsgToWorker. With
-// HTTP/2 PINGs covering the worker's dead-primary detection, this exists so the
-// primary's own writes fail fast against a dead worker.
+// heartbeatInterval is how often the primary emits an empty MsgToSecondary. With
+// HTTP/2 PINGs covering the secondary's dead-primary detection, this exists so the
+// primary's own writes fail fast against a dead secondary.
 const heartbeatInterval = 5 * time.Second
 
-// Session represents one connected worker's bidirectional stream. It drains an
-// outbox of MsgToWorker frames to the response iterator (send side) and feeds
-// incoming MsgToMaster frames into status writes and log streams (receive
+// Session represents one connected secondary's bidirectional stream. It drains an
+// outbox of MsgToSecondary frames to the response iterator (send side) and feeds
+// incoming MsgToPrimary frames into status writes and log streams (receive
 // side). Log streams are multiplexed over the one stream by request ID.
 type Session struct {
 	sessCtx       context.Context
@@ -46,9 +46,9 @@ type Session struct {
 	networkMaps   networkMapProvider
 	acme          *acmestate.Holder
 
-	// outbox carries frames destined for the worker. It is never closed;
+	// outbox carries frames destined for the secondary. It is never closed;
 	// senders fall through on sessCtx.Done so they never block past teardown.
-	outbox chan *apigen.MsgToWorker
+	outbox chan *apigen.MsgToSecondary
 
 	logMu      sync.Mutex
 	logStreams map[string]chan logChunk
@@ -71,14 +71,14 @@ func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID int32
 		predicate:   predicate,
 		store:       store,
 		networkMaps: networkMaps,
-		outbox:      make(chan *apigen.MsgToWorker, outboxSize),
+		outbox:      make(chan *apigen.MsgToSecondary, outboxSize),
 		logStreams:  make(map[string]chan logChunk),
 	}
 }
 
-// send queues a frame for the worker. It returns false if the session is
+// send queues a frame for the secondary. It returns false if the session is
 // tearing down, in which case the frame is dropped.
-func (s *Session) send(msg *apigen.MsgToWorker) bool {
+func (s *Session) send(msg *apigen.MsgToSecondary) bool {
 	select {
 	case s.outbox <- msg:
 		return true
@@ -87,7 +87,7 @@ func (s *Session) send(msg *apigen.MsgToWorker) bool {
 	}
 }
 
-func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*apigen.MsgToWorker, error) bool) {
+func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*apigen.MsgToSecondary, error) bool) {
 	defer s.cancel()
 	defer s.closeAllLogStreams()
 
@@ -99,7 +99,7 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 		var unsubscribeNetMaps func()
 		netMap, netMapUpdates, unsubscribeNetMaps = s.networkMaps.SnapshotAndSubscribe(s.NodeID)
 		defer unsubscribeNetMaps()
-		// A disconnected worker must stop holding the barrier: it is served a
+		// A disconnected secondary must stop holding the barrier: it is served a
 		// complete snapshot when it comes back, so it cannot still be acting on
 		// routing it never applied.
 		defer s.networkMaps.ForgetNode(s.NodeID)
@@ -115,17 +115,17 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 	for i := range snapshot {
 		items = append(items, &snapshot[i])
 	}
-	initial := &apigen.MsgToWorker{
+	initial := &apigen.MsgToSecondary{
 		ScheduledInstancesSnapshot: &apigen.ScheduledInstanceSnapshot{Items: items},
 	}
 
 	// Cancelling on return ends the feeder and unblocks the response loop when
-	// the worker disconnects.
+	// the secondary disconnects.
 	go func() {
 		defer s.cancel()
 		for msg, err := range reqs {
 			if err != nil {
-				slog.InfoContext(s.sessCtx, "worker stream read error", "err", err)
+				slog.InfoContext(s.sessCtx, "secondary stream read error", "err", err)
 				return
 			}
 			s.handleIncoming(msg)
@@ -144,39 +144,39 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 					return
 				}
 				update := state
-				if !s.send(&apigen.MsgToWorker{ScheduledInstanceUpdate: &update}) {
+				if !s.send(&apigen.MsgToSecondary{ScheduledInstanceUpdate: &update}) {
 					return
 				}
 			case <-heartbeat.C:
-				if !s.send(&apigen.MsgToWorker{}) {
+				if !s.send(&apigen.MsgToSecondary{}) {
 					return
 				}
 			}
 		}
 	}()
 
-	if !yield(&apigen.MsgToWorker{ClusterProtocolVersion: apigen.ClusterProtocolVersion}, nil) {
+	if !yield(&apigen.MsgToSecondary{ClusterProtocolVersion: apigen.ClusterProtocolVersion}, nil) {
 		return
 	}
-	// Cluster network parameters precede the snapshot so the worker can program
+	// Cluster network parameters precede the snapshot so the secondary can program
 	// its netproxy before acting on any deployment config.
 	if !s.networkPrefix.IsZero() {
-		netInfo := &apigen.MsgToWorker{ClusterNetwork: &apigen.ClusterNetworkInfo{UlaPrefix: s.networkPrefix.Bytes()}}
+		netInfo := &apigen.MsgToSecondary{ClusterNetwork: &apigen.ClusterNetworkInfo{UlaPrefix: s.networkPrefix.Bytes()}}
 		if !yield(netInfo, nil) {
 			return
 		}
 	}
 	if netMap != nil {
-		if !yield(&apigen.MsgToWorker{ClusterNetMap: netMap}, nil) {
+		if !yield(&apigen.MsgToSecondary{ClusterNetMap: netMap}, nil) {
 			return
 		}
 	}
 	if acmeState != nil {
-		if !yield(&apigen.MsgToWorker{AcmeState: acmeState}, nil) {
+		if !yield(&apigen.MsgToSecondary{AcmeState: acmeState}, nil) {
 			return
 		}
 	}
-	// Send the snapshot first so the worker's stream call returns promptly.
+	// Send the snapshot first so the secondary's stream call returns promptly.
 	if !yield(initial, nil) {
 		return
 	}
@@ -194,7 +194,7 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 				netMapUpdates = nil
 				continue
 			}
-			if next != nil && !yield(&apigen.MsgToWorker{ClusterNetMap: next}, nil) {
+			if next != nil && !yield(&apigen.MsgToSecondary{ClusterNetMap: next}, nil) {
 				return
 			}
 		case next, ok := <-acmeUpdates:
@@ -202,23 +202,23 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToMaster, error], yield func(*ap
 				acmeUpdates = nil
 				continue
 			}
-			if next != nil && !yield(&apigen.MsgToWorker{AcmeState: next}, nil) {
+			if next != nil && !yield(&apigen.MsgToSecondary{AcmeState: next}, nil) {
 				return
 			}
 		}
 	}
 }
 
-func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
+func (s *Session) handleIncoming(msg *apigen.MsgToPrimary) {
 	switch {
 	case msg.ClusterHello != nil:
 		s.handleClusterHello(msg.ClusterHello)
 	case msg.StatusWrite != nil:
 		s.handleStatusWrite(msg.StatusWrite)
 	case msg.NetMapStatus != nil:
-		slog.InfoContext(s.sessCtx, fmt.Sprintf("worker network map status persistedSeq=%d appliedSeq=%d error=%q",
+		slog.InfoContext(s.sessCtx, fmt.Sprintf("secondary network map status persistedSeq=%d appliedSeq=%d error=%q",
 			msg.NetMapStatus.PersistedSeq, msg.NetMapStatus.AppliedSeq, msg.NetMapStatus.ReconciliationError))
-		// Only a clean apply counts. A worker reporting a reconciliation error
+		// Only a clean apply counts. A secondary reporting a reconciliation error
 		// still has whatever its kernel held before, so treating it as caught up
 		// would retire a placement that node can still be routing to.
 		if s.networkMaps != nil && msg.NetMapStatus.ReconciliationError == "" {
@@ -237,20 +237,20 @@ func (s *Session) handleIncoming(msg *apigen.MsgToMaster) {
 
 func (s *Session) handleClusterHello(hello *apigen.ClusterHello) {
 	if hello.ClusterProtocolVersion != apigen.ClusterProtocolVersion {
-		slog.WarnContext(s.sessCtx, fmt.Sprintf("worker cluster protocol mismatch got=%v want=%v", hello.ClusterProtocolVersion, apigen.ClusterProtocolVersion))
+		slog.WarnContext(s.sessCtx, fmt.Sprintf("secondary cluster protocol mismatch got=%v want=%v", hello.ClusterProtocolVersion, apigen.ClusterProtocolVersion))
 		s.cancel()
 		return
 	}
 	underlayAddress, err := s.store.NormalizeNodeUnderlay(s.identifier, hello.UnderlayAddress)
 	if err != nil {
-		slog.WarnContext(s.sessCtx, fmt.Sprintf("worker sent invalid underlay address %q", hello.UnderlayAddress), "err", err)
+		slog.WarnContext(s.sessCtx, fmt.Sprintf("secondary sent invalid underlay address %q", hello.UnderlayAddress), "err", err)
 		return
 	}
 	// The write is diff-gated in the store, so the re-report on every
 	// reconnect is normally a no-op.
 	wgPublicKey, err := wgkey.ValidatePublic(hello.WgPublicKey)
 	if err != nil {
-		slog.WarnContext(s.sessCtx, fmt.Sprintf("worker sent invalid WireGuard public key %q", hello.WgPublicKey), "err", err)
+		slog.WarnContext(s.sessCtx, fmt.Sprintf("secondary sent invalid WireGuard public key %q", hello.WgPublicKey), "err", err)
 		return
 	}
 	for _, node := range s.store.ListNodes() {
@@ -266,7 +266,7 @@ func (s *Session) handleClusterHello(hello *apigen.ClusterHello) {
 		s.store.MustSetNodeAddresses(s.NodeID, []string{underlayAddress})
 		return
 	}
-	slog.WarnContext(s.sessCtx, fmt.Sprintf("worker cluster hello references unknown node %d", s.NodeID))
+	slog.WarnContext(s.sessCtx, fmt.Sprintf("secondary cluster hello references unknown node %d", s.NodeID))
 }
 
 func (s *Session) routeLogChunk(requestID string, chunk logChunk) {
@@ -292,26 +292,26 @@ func (s *Session) closeAllLogStreams() {
 	}
 }
 
-// handleStatusWrite persists a status transition reported by a worker using the
-// worker's UpdatedAt clock as the authoritative identity. Same clock →
+// handleStatusWrite persists a status transition reported by a secondary using the
+// secondary's UpdatedAt clock as the authoritative identity. Same clock →
 // idempotent upsert, so reconnect re-pushes do not create duplicate history
-// rows. If the primary has drifted above the worker's latest clock, the extra
-// rows are deleted so the primary converges to the worker's view.
+// rows. If the primary has drifted above the secondary's latest clock, the extra
+// rows are deleted so the primary converges to the secondary's view.
 func (s *Session) handleStatusWrite(st *apigen.ScheduledInstanceStatus) {
 	if st == nil || st.ScheduledInstanceID == 0 {
 		return
 	}
 	if !buildAllowedRefs(s.store.FetchScheduledSnapshot(s.predicate)).scheduledInstanceAllowed(st.ScheduledInstanceID) {
-		slog.WarnContext(s.sessCtx, "rejecting cross-machine worker status write", "scheduled_instance", st.ScheduledInstanceID)
+		slog.WarnContext(s.sessCtx, "rejecting cross-machine secondary status write", "scheduled_instance", st.ScheduledInstanceID)
 		return
 	}
 	s.store.MustWriteReplicatedScheduledInstanceStatus(st)
 }
 
-// requestLogs sends a log request to the worker and returns a reader that yields
+// requestLogs sends a log request to the secondary and returns a reader that yields
 // the streamed data until LogEnd or Close. Multiple requests can be in flight
 // concurrently — each gets its own channel keyed by request ID.
-func (s *Session) requestLogs(req *apigen.MsgToWorker) (io.ReadCloser, error) {
+func (s *Session) requestLogs(req *apigen.MsgToSecondary) (io.ReadCloser, error) {
 	id := fmt.Sprintf("%s-%d", s.identifier, s.nextLogID.Add(1))
 	if req.DeploymentLogRequest != nil {
 		req.DeploymentLogRequest.RequestID = id
@@ -327,20 +327,20 @@ func (s *Session) requestLogs(req *apigen.MsgToWorker) (io.ReadCloser, error) {
 		delete(s.logStreams, id)
 		s.logMu.Unlock()
 		close(ch)
-		return nil, fmt.Errorf("worker %s is not connected", s.identifier)
+		return nil, fmt.Errorf("secondary %s is not connected", s.identifier)
 	}
 
 	return &logReader{session: s, requestID: id, ch: ch, closeCh: make(chan struct{})}, nil
 }
 
-// logQueryTimeout bounds a one-shot log query round trip to a worker. The
-// worker scans its full requested range before replying, so this is a whole
+// logQueryTimeout bounds a one-shot log query round trip to a secondary. The
+// secondary scans its full requested range before replying, so this is a whole
 // -query budget, not an idle timeout.
 const logQueryTimeout = 60 * time.Second
 
 // requestOneShot sends req tagged with a fresh request id (installed via
 // setID) and waits for the single reply chunk routed back under that id.
-func (s *Session) requestOneShot(ctx context.Context, req *apigen.MsgToWorker, setID func(id string)) (logChunk, error) {
+func (s *Session) requestOneShot(ctx context.Context, req *apigen.MsgToSecondary, setID func(id string)) (logChunk, error) {
 	id := fmt.Sprintf("%s-%d", s.identifier, s.nextLogID.Add(1))
 	setID(id)
 	ch := make(chan logChunk, 1)
@@ -354,40 +354,40 @@ func (s *Session) requestOneShot(ctx context.Context, req *apigen.MsgToWorker, s
 	}
 	if !s.send(req) {
 		cleanup()
-		return logChunk{}, fmt.Errorf("worker %s is not connected", s.identifier)
+		return logChunk{}, fmt.Errorf("secondary %s is not connected", s.identifier)
 	}
 	select {
 	case chunk, ok := <-ch:
 		cleanup()
 		if !ok {
-			return logChunk{}, fmt.Errorf("worker %s disconnected", s.identifier)
+			return logChunk{}, fmt.Errorf("secondary %s disconnected", s.identifier)
 		}
 		return chunk, nil
 	case <-ctx.Done():
 		cleanup()
-		s.send(&apigen.MsgToWorker{StopLogRequestID: id})
+		s.send(&apigen.MsgToSecondary{StopLogRequestID: id})
 		return logChunk{}, ctx.Err()
 	case <-time.After(logQueryTimeout):
 		cleanup()
-		s.send(&apigen.MsgToWorker{StopLogRequestID: id})
-		return logChunk{}, fmt.Errorf("log query to worker %s timed out", s.identifier)
+		s.send(&apigen.MsgToSecondary{StopLogRequestID: id})
+		return logChunk{}, fmt.Errorf("log query to secondary %s timed out", s.identifier)
 	}
 }
 
 func (s *Session) requestLogQuery(ctx context.Context, req *apigen.LogQueryRequest) (*apigen.LogQueryResponse, error) {
 	start := time.Now()
-	chunk, err := s.requestOneShot(ctx, &apigen.MsgToWorker{LogQueryRequest: req}, func(id string) { req.RequestID = id })
+	chunk, err := s.requestOneShot(ctx, &apigen.MsgToSecondary{LogQueryRequest: req}, func(id string) { req.RequestID = id })
 	elapsed := time.Since(start).Round(time.Millisecond)
 	if err != nil {
-		slog.InfoContext(s.sessCtx, fmt.Sprintf("worker log query failed after %s requestID=%s", elapsed, req.RequestID), "dep", req.DeploymentID, "err", err)
+		slog.InfoContext(s.sessCtx, fmt.Sprintf("secondary log query failed after %s requestID=%s", elapsed, req.RequestID), "dep", req.DeploymentID, "err", err)
 		return nil, err
 	}
-	slog.InfoContext(s.sessCtx, fmt.Sprintf("worker log query round trip %s requestID=%s", elapsed, req.RequestID), "dep", req.DeploymentID)
+	slog.InfoContext(s.sessCtx, fmt.Sprintf("secondary log query round trip %s requestID=%s", elapsed, req.RequestID), "dep", req.DeploymentID)
 	if chunk.errMsg != "" {
 		return nil, fmt.Errorf("%s", chunk.errMsg)
 	}
 	if chunk.queryResp == nil {
-		return nil, fmt.Errorf("worker %s sent an unexpected log query reply", s.identifier)
+		return nil, fmt.Errorf("secondary %s sent an unexpected log query reply", s.identifier)
 	}
 	return chunk.queryResp, nil
 }
@@ -442,9 +442,9 @@ func (r *logReader) Close() error {
 		delete(r.session.logStreams, r.requestID)
 		r.session.logMu.Unlock()
 
-		stop := &apigen.MsgToWorker{StopLogRequestID: r.requestID}
+		stop := &apigen.MsgToSecondary{StopLogRequestID: r.requestID}
 		if !r.session.send(stop) {
-			slog.WarnContext(r.session.sessCtx, fmt.Sprintf("failed sending stop log request to worker (session ended) requestID=%s", r.requestID))
+			slog.WarnContext(r.session.sessCtx, fmt.Sprintf("failed sending stop log request to secondary (session ended) requestID=%s", r.requestID))
 		}
 	})
 	return nil

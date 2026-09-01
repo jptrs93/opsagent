@@ -195,7 +195,7 @@ export async function acceptWaitingWorker(page, {machineID, workerName, expectNo
 
   const requestRow = page.locator('tr').filter({hasText: machineID}).filter({hasText: 'Accept'});
   await expect(requestRow).toBeVisible({timeout: LONG_UI_TIMEOUT});
-  await byTestId(requestRow, 'enrollment-worker-name-input', requestRow.getByRole('textbox')).fill(workerName);
+  await byTestId(requestRow, 'enrollment-node-name-input', requestRow.getByRole('textbox')).fill(workerName);
   await byTestId(requestRow, 'enrollment-accept-button', requestRow.getByRole('button', {name: 'Accept'})).click();
 
   await expect(requestRow).toBeHidden({timeout: LONG_UI_TIMEOUT});

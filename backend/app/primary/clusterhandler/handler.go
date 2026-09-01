@@ -1,8 +1,8 @@
 // Package clusterhandler implements the primary-side cluster handler. It is the
-// server side of the generated OpsagentClusterV1 bidirectional stream: workers
+// server side of the generated OpsagentClusterV1 bidirectional stream: secondaries
 // connect over mTLS, the primary sends them the current per-machine deployment
 // snapshot, forwards ongoing config updates, and handles incoming status writes
-// and log proxy requests. Peer identity is the worker's client-cert CN, lifted
+// and log proxy requests. Peer identity is the secondary's client-cert CN, lifted
 // into the request context by VerifyClusterPeer.
 package clusterhandler
 
@@ -41,7 +41,7 @@ type peerCertCtxKey struct{}
 var clusterForbiddenErr = apigen.NewApiErr("Forbidden", "cluster_request_not_authorized", http.StatusForbidden)
 
 // VerifyClusterPeer is the MuxConfig.VerifyAuth hook for the cluster mux. The
-// worker is already authenticated by mTLS (the listener requires and verifies a
+// secondary is already authenticated by mTLS (the listener requires and verifies a
 // client cert); this lifts the verified CN into the auth context as the node
 // identifier. It rejects connections without a peer certificate.
 func VerifyClusterPeer(ctx context.Context, _ http.ResponseWriter, r *http.Request, _ apigen.AccessPolicy) (apigen.Context, error) {
@@ -94,9 +94,9 @@ func (p *Handler) requireScheduledInstancePredicate(ctx context.Context) (storag
 	return scheduledInstancePredicateForNode(nodeID), nil
 }
 
-// Handler manages worker sessions and forwards state between the local store
-// and connected workers. It implements apigen.OpsagentClusterV1Handler; the
-// generated mux invokes PostV1ClusterConnect once per worker connection.
+// Handler manages secondary sessions and forwards state between the local store
+// and connected secondaries. It implements apigen.OpsagentClusterV1Handler; the
+// generated mux invokes PostV1ClusterConnect once per secondary connection.
 type Handler struct {
 	store             *state.Service
 	assets            assetProvider
@@ -119,7 +119,7 @@ type assetProvider interface {
 type networkMapProvider interface {
 	SnapshotAndSubscribe(nodeID int32) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func())
 	// RecordApplied and ForgetNode drive the barrier that holds back retiring a
-	// draining placement until every worker has programmed the routing that
+	// draining placement until every secondary has programmed the routing that
 	// replaced it.
 	RecordApplied(nodeID int32, appliedSequence int64)
 	ForgetNode(nodeID int32)
@@ -401,20 +401,20 @@ func (p *Handler) GetV1ClusterRenewCertificate(authCtx apigen.Context) (*apigen.
 	if peerCert == nil {
 		return nil, fmt.Errorf("cluster request missing peer certificate")
 	}
-	caCert, workerCert, notAfter, err := certu.RenewWorkerCertificate(p.secrets, machine, peerCert.PublicKey)
+	caCert, secondaryCert, notAfter, err := certu.RenewSecondaryCertificate(p.secrets, machine, peerCert.PublicKey)
 	if err != nil {
 		return nil, err
 	}
-	slog.InfoContext(authCtx, fmt.Sprintf("renewed worker cluster certificate machine=%s notAfter=%v", machine, notAfter))
+	slog.InfoContext(authCtx, fmt.Sprintf("renewed secondary cluster certificate machine=%s notAfter=%v", machine, notAfter))
 	return &apigen.ClusterRenewCertificateResponse{
-		CertPem:   workerCert,
+		CertPem:   secondaryCert,
 		CaCertPem: caCert,
 		NotAfter:  notAfter.UnixMilli(),
 	}, nil
 }
 
-func (p *Handler) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*apigen.MsgToMaster, error]) iter.Seq2[*apigen.MsgToWorker, error] {
-	return func(yield func(*apigen.MsgToWorker, error) bool) {
+func (p *Handler) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*apigen.MsgToPrimary, error]) iter.Seq2[*apigen.MsgToSecondary, error] {
+	return func(yield func(*apigen.MsgToSecondary, error) bool) {
 		machine := machineFromContext(authCtx)
 		if machine == "" {
 			yield(nil, fmt.Errorf("cluster connection missing machine identity"))
@@ -464,7 +464,7 @@ func (p *Handler) unregisterSession(nodeID int32, identifier string, expected *S
 
 // RequestLogs's caller must read the returned reader until EOF, or close it to
 // abort.
-func (p *Handler) RequestLogs(nodeID int32, req *apigen.MsgToWorker) (io.ReadCloser, error) {
+func (p *Handler) RequestLogs(nodeID int32, req *apigen.MsgToSecondary) (io.ReadCloser, error) {
 	p.mu.RLock()
 	sess, ok := p.sessions[nodeID]
 	p.mu.RUnlock()
@@ -474,7 +474,7 @@ func (p *Handler) RequestLogs(nodeID int32, req *apigen.MsgToWorker) (io.ReadClo
 	return sess.requestLogs(req)
 }
 
-// RequestLogQuery runs a one-shot structured log query on a worker and
+// RequestLogQuery runs a one-shot structured log query on a secondary and
 // returns its complete response.
 func (p *Handler) RequestLogQuery(ctx context.Context, nodeID int32, req *apigen.LogQueryRequest) (*apigen.LogQueryResponse, error) {
 	p.mu.RLock()

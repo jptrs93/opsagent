@@ -3,8 +3,8 @@
 // machine key.
 //
 // Why it exists: without it, RuntimeInputs holds those values in process memory
-// only, so every worker restart refetches them over mTLS from the primary. That
-// makes a worker's ability to cold-start its own workloads depend on primary
+// only, so every secondary restart refetches them over mTLS from the primary. That
+// makes a secondary's ability to cold-start its own workloads depend on primary
 // availability — which is exactly backwards, since the workloads themselves do
 // not.
 //
@@ -25,7 +25,7 @@
 // snapshots, volume clones, a support bundle, `sqlite3 .dump` pasted into a
 // ticket — where ciphertext is a categorically different object to hand around
 // than plaintext. It is also what makes the planned TPM-sealed provider a
-// one-line swap rather than a migration of every row on every worker.
+// one-line swap rather than a migration of every row on every secondary.
 package localinputs
 
 import (
@@ -85,7 +85,7 @@ func Open(ctx context.Context, db DB, provider machinekey.Provider) (*Store, err
 //
 // A row that will not open is dropped rather than failing the load: it means the
 // machine key changed, and the value is refetchable. Failing here instead would
-// wedge worker startup on recoverable local damage.
+// wedge secondary startup on recoverable local damage.
 func (s *Store) LoadRuntimeInputs() (secrets, configs map[int32]string, err error) {
 	secrets = map[int32]string{}
 	configs = map[int32]string{}

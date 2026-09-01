@@ -9,7 +9,7 @@ import (
 )
 
 // MustLoadTLSConfig builds a TLS config for mutual TLS authentication, panicking
-// on any failure. Both the cluster server and the worker client use the same
+// on any failure. Both the cluster server and the secondary client use the same
 // config shape: each side presents its own cert and verifies the peer against
 // the shared CA. A load failure here is a fatal misconfiguration with no
 // sensible recovery, so it panics rather than returning an error.

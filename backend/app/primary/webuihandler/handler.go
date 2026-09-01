@@ -51,10 +51,10 @@ type Handler struct {
 	Secrets *secrets.Manager
 
 	// NodeID identifies this node when deciding whether a log request is local
-	// or must be proxied to a remote worker.
+	// or must be proxied to a remote secondary.
 	NodeID int32
 
-	// Cluster is used to inspect worker connections and proxy remote logs.
+	// Cluster is used to inspect secondary connections and proxy remote logs.
 	Cluster *clusterhandler.Handler
 
 	// LogManager serves log searches for deployments running on this node.

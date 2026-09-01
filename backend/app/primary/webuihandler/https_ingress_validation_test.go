@@ -10,7 +10,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
-func TestHTTPSIngressUpdateOnWorkerWithPassthrough(t *testing.T) {
+func TestHTTPSIngressUpdateOnSecondaryWithPassthrough(t *testing.T) {
 	dir := t.TempDir()
 	store := state.Open(filepath.Join(dir, "primary.db"))
 	secretManager, err := secrets.Initialize(dir, store)
@@ -18,7 +18,7 @@ func TestHTTPSIngressUpdateOnWorkerWithPassthrough(t *testing.T) {
 		t.Fatalf("secrets.Initialize: %v", err)
 	}
 	primaryNode := store.EnsurePrimaryNode("primary", "primary")
-	workerNode := store.EnsurePrimaryNode("worker-2", "worker-2")
+	secondaryNode := store.EnsurePrimaryNode("secondary-2", "secondary-2")
 	h := &Handler{Store: store, Secrets: secretManager, NodeID: primaryNode.ID}
 
 	certPEM, keyPEM, err := certu.GenerateSelfSignedServerCertificate([]string{"web.ingress.opendeploy.test"})
@@ -42,14 +42,14 @@ func TestHTTPSIngressUpdateOnWorkerWithPassthrough(t *testing.T) {
 		return &spec
 	}
 	for _, hostname := range []string{"one.ingress.opendeploy.test", "two.ingress.opendeploy.test"} {
-		cfg := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "tls-"+hostname, workerNode.ID, passthroughSpec(hostname))
-		if err := h.validateNodeNetworkingClaims(workerNode.ID, cfg.ID, passthroughSpec(hostname)); err != nil {
+		cfg := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "tls-"+hostname, secondaryNode.ID, passthroughSpec(hostname))
+		if err := h.validateNodeNetworkingClaims(secondaryNode.ID, cfg.ID, passthroughSpec(hostname)); err != nil {
 			t.Fatalf("passthrough claims for %s rejected: %v", hostname, err)
 		}
 	}
 
 	echoSpec := remoteDeploymentSpec("httpecho", apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL})
-	echo := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "https-echo-root", workerNode.ID, &echoSpec)
+	echo := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "https-echo-root", secondaryNode.ID, &echoSpec)
 
 	updated := remoteDeploymentSpec("httpecho", apigen.NetworkingConfig{
 		Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,

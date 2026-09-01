@@ -65,11 +65,11 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	defer store.Close()
 	node := testNode(store, "primary")
 
-	database := store.SetConfigByName("database", "one", 1)
-	database = store.SetConfigByName("database", "two", 1)
+	database := setConfigByName(store, "database", "one", 1)
+	database = setConfigByName(store, "database", "two", 1)
 	firstID := database.ValueVersions[1].ID
 	secondID := database.ValueVersions[0].ID
-	unrelated := store.SetConfigByName("other", "keep", 1)
+	unrelated := setConfigByName(store, "other", "keep", 1)
 	unrelatedID := latestConfigRef(t, unrelated).ID
 	create := func(name string, spec *apigen.DeploymentSpec) *apigen.Deployment {
 		return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, node.ID, spec)
@@ -98,9 +98,9 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	if savedRef.Version != 3 || len(updatedIDs) != 2 {
 		t.Fatalf("saved config = %+v, updated deployments = %v", saved, updatedIDs)
 	}
-	firstCurrent := store.configCache[firstDeployment.ID]
-	secondCurrent := store.configCache[secondDeployment.ID]
-	unchangedCurrent := store.configCache[unchangedDeployment.ID]
+	firstCurrent := store.deploymentCache[firstDeployment.ID]
+	secondCurrent := store.deploymentCache[secondDeployment.ID]
+	unchangedCurrent := store.deploymentCache[unchangedDeployment.ID]
 	if got := deploymentEnvRefID(t, firstCurrent, "DATABASE", false); got != savedRef.ID {
 		t.Fatalf("first deployment config ref = %d, want %d", got, savedRef.ID)
 	}
@@ -137,7 +137,7 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	if !ok || latestConfigRef(t, latest).ID != savedRef.ID || latestConfigRef(t, latest).Version != 3 {
 		t.Fatalf("latest config after rollback = %+v, ok=%v", latest, ok)
 	}
-	if store.configCache[firstDeployment.ID].Version != firstCurrent.Version {
+	if store.deploymentCache[firstDeployment.ID].Version != firstCurrent.Version {
 		t.Fatal("stale request changed deployment config")
 	}
 }
@@ -171,15 +171,15 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 	if third.Version != 3 || len(updatedIDs) != 2 {
 		t.Fatalf("secret = %+v, updated deployments = %v", third, updatedIDs)
 	}
-	if got := deploymentEnvRefID(t, store.configCache[firstDeployment.ID], "TOKEN", true); got != third.ID {
+	if got := deploymentEnvRefID(t, store.deploymentCache[firstDeployment.ID], "TOKEN", true); got != third.ID {
 		t.Fatalf("first deployment secret ref = %d, want %d", got, third.ID)
 	}
-	if got := deploymentEnvRefID(t, store.configCache[secondDeployment.ID], "TOKEN", true); got != third.ID {
+	if got := deploymentEnvRefID(t, store.deploymentCache[secondDeployment.ID], "TOKEN", true); got != third.ID {
 		t.Fatalf("second deployment secret ref = %d, want %d", got, third.ID)
 	}
 
 	_, _, err = store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(4), true, []storage.DeploymentConfigVersion{{
-		ID: firstDeployment.ID, Version: store.configCache[firstDeployment.ID].Version,
+		ID: firstDeployment.ID, Version: store.deploymentCache[firstDeployment.ID].Version,
 	}}, nil)
 	if !errors.Is(err, ErrReferencingDeploymentsChanged) {
 		t.Fatalf("incomplete update error = %v, want ErrReferencingDeploymentsChanged", err)
@@ -193,8 +193,8 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 func TestRenameConfigPublishesFullVersionIndex(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	meta := store.SetConfigByName("old-name", "one", 1)
-	meta = store.SetConfigByName("old-name", "two", 1)
+	meta := setConfigByName(store, "old-name", "one", 1)
+	meta = setConfigByName(store, "old-name", "two", 1)
 	metaSub, unsubscribe := store.SubscribeConfigUpdates()
 	defer unsubscribe()
 
@@ -233,7 +233,7 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	original := create("original")
 	live := create("live")
 
-	_, _, ok := store.UpdateDeployment(apigen.Context{}, original.ID, DeploymentConfigUpdate{
+	_, _, ok := store.UpdateDeploymentSpec(apigen.Context{}, original.ID, DeploymentSpecUpdate{
 		ExpectedVersion: original.Version + 1,
 		Spec:            &original.Spec,
 		Deleted:         true,
@@ -253,10 +253,10 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	if len(updatedIDs) != 1 || updatedIDs[0] != live.ID {
 		t.Fatalf("updated deployments = %v, want only %d", updatedIDs, live.ID)
 	}
-	if got := deploymentEnvRefID(t, store.configCache[live.ID], "POSTGRES_PASSWORD", true); got != second.ID {
+	if got := deploymentEnvRefID(t, store.deploymentCache[live.ID], "POSTGRES_PASSWORD", true); got != second.ID {
 		t.Fatalf("live deployment secret ref = %d, want %d", got, second.ID)
 	}
-	tombstone := store.configCache[original.ID]
+	tombstone := store.deploymentCache[original.ID]
 	if got := deploymentEnvRefID(t, tombstone, "POSTGRES_PASSWORD", true); got != first.ID {
 		t.Fatalf("tombstone secret ref = %d, want it left at %d", got, first.ID)
 	}

@@ -49,7 +49,7 @@ func GenerateClusterCA(name string) (certPEM, keyPEM []byte, err error) {
 
 const (
 	caValidity         = 100 * 365 * 24 * time.Hour
-	workerCertValidity = 365 * 24 * time.Hour
+	secondaryCertValidity = 365 * 24 * time.Hour
 )
 
 func GenerateWorkloadCA(name string) (certPEM, keyPEM []byte, err error) {
@@ -257,13 +257,13 @@ func serverCertificateNames(names []string) ([]string, []net.IP) {
 	return dnsNames, ipAddresses
 }
 
-func GenerateWorkerCertificateRequest(requestingMachineID string) (csrPEM, keyPEM []byte, err error) {
+func GenerateSecondaryCertificateRequest(requestingMachineID string) (csrPEM, keyPEM []byte, err error) {
 	if requestingMachineID == "" {
 		return nil, nil, fmt.Errorf("requesting machine ID is empty")
 	}
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		return nil, nil, fmt.Errorf("generating worker key: %w", err)
+		return nil, nil, fmt.Errorf("generating secondary key: %w", err)
 	}
 	keyPEM, err = marshalPrivateKey(priv)
 	if err != nil {
@@ -274,14 +274,14 @@ func GenerateWorkerCertificateRequest(requestingMachineID string) (csrPEM, keyPE
 	}
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, tmpl, priv)
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating worker CSR: %w", err)
+		return nil, nil, fmt.Errorf("creating secondary CSR: %w", err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER}), keyPEM, nil
 }
 
-func SignWorkerCertificateRequestFromPEM(caCertPEM, caKeyPEM, csrPEM []byte, identifier string) ([]byte, []byte, error) {
+func SignSecondaryCertificateRequestFromPEM(caCertPEM, caKeyPEM, csrPEM []byte, identifier string) ([]byte, []byte, error) {
 	if identifier == "" {
-		return nil, nil, fmt.Errorf("worker identifier is empty")
+		return nil, nil, fmt.Errorf("secondary identifier is empty")
 	}
 	_, caCert, err := parseCertificate(caCertPEM, "CA cert")
 	if err != nil {
@@ -296,21 +296,21 @@ func SignWorkerCertificateRequestFromPEM(caCertPEM, caKeyPEM, csrPEM []byte, ide
 		return nil, nil, err
 	}
 	if signatureErr := csr.CheckSignature(); signatureErr != nil {
-		return nil, nil, fmt.Errorf("validating worker CSR signature: %w", signatureErr)
+		return nil, nil, fmt.Errorf("validating secondary CSR signature: %w", signatureErr)
 	}
 	if csr.Subject.CommonName != identifier {
-		return nil, nil, fmt.Errorf("worker CSR common name does not match identifier")
+		return nil, nil, fmt.Errorf("secondary CSR common name does not match identifier")
 	}
-	certPEM, _, err := signWorkerCertificate(caCert, caKey, identifier, csr.PublicKey)
+	certPEM, _, err := signSecondaryCertificate(caCert, caKey, identifier, csr.PublicKey)
 	if err != nil {
 		return nil, nil, err
 	}
 	return caCertPEM, certPEM, nil
 }
 
-func SignWorkerCertificateFromPublicKey(caCertPEM, caKeyPEM []byte, identifier string, publicKey any) (certPEM []byte, notAfter time.Time, err error) {
+func SignSecondaryCertificateFromPublicKey(caCertPEM, caKeyPEM []byte, identifier string, publicKey any) (certPEM []byte, notAfter time.Time, err error) {
 	if identifier == "" {
-		return nil, time.Time{}, fmt.Errorf("worker identifier is empty")
+		return nil, time.Time{}, fmt.Errorf("secondary identifier is empty")
 	}
 	_, caCert, err := parseCertificate(caCertPEM, "CA cert")
 	if err != nil {
@@ -320,10 +320,10 @@ func SignWorkerCertificateFromPublicKey(caCertPEM, caKeyPEM []byte, identifier s
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	return signWorkerCertificate(caCert, caKey, identifier, publicKey)
+	return signSecondaryCertificate(caCert, caKey, identifier, publicKey)
 }
 
-func signWorkerCertificate(caCert *x509.Certificate, caKey any, identifier string, publicKey any) (certPEM []byte, notAfter time.Time, err error) {
+func signSecondaryCertificate(caCert *x509.Certificate, caKey any, identifier string, publicKey any) (certPEM []byte, notAfter time.Time, err error) {
 	serial, err := randomSerial()
 	if err != nil {
 		return nil, time.Time{}, err
@@ -334,13 +334,13 @@ func signWorkerCertificate(caCert *x509.Certificate, caKey any, identifier strin
 			CommonName: identifier,
 		},
 		NotBefore:   time.Now().Add(-time.Minute),
-		NotAfter:    time.Now().Add(workerCertValidity),
+		NotAfter:    time.Now().Add(secondaryCertValidity),
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
 	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, publicKey, caKey)
 	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("signing worker certificate: %w", err)
+		return nil, time.Time{}, fmt.Errorf("signing secondary certificate: %w", err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}), tmpl.NotAfter, nil
 }
@@ -368,11 +368,11 @@ func parseCertificate(certPEM []byte, label string) ([]byte, *x509.Certificate, 
 func parseCertificateRequest(csrPEM []byte) (*x509.CertificateRequest, error) {
 	block, _ := pem.Decode(csrPEM)
 	if block == nil || block.Type != "CERTIFICATE REQUEST" {
-		return nil, fmt.Errorf("worker CSR contains no certificate request PEM")
+		return nil, fmt.Errorf("secondary CSR contains no certificate request PEM")
 	}
 	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("parsing worker CSR: %w", err)
+		return nil, fmt.Errorf("parsing secondary CSR: %w", err)
 	}
 	return csr, nil
 }

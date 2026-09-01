@@ -42,16 +42,18 @@ func (s *Service) EnsureRunScheduledInstance(deploymentID, deploymentVersion, no
 	return s.createScheduledInstanceLocked(deploymentID, deploymentVersion, nodeID, instanceOrdinal, initial), true
 }
 
-// CreateScheduledInstance is retained for callers that explicitly need a new
-// incarnation. Scheduler and enrollment paths should use EnsureRunScheduledInstance.
-func (s *Service) CreateScheduledInstance(deploymentID, deploymentVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
+// CreateScheduledInstanceForTest unconditionally creates a new incarnation,
+// bypassing the at-most-one-runnable-per-tuple scan in
+// EnsureRunScheduledInstance. It exists only as a fixture for tests in other
+// packages; production code must use EnsureRunScheduledInstance.
+func (s *Service) CreateScheduledInstanceForTest(deploymentID, deploymentVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	return s.createScheduledInstanceLocked(deploymentID, deploymentVersion, nodeID, instanceOrdinal, initial)
 }
 
 func (s *Service) currentSpaceLocked(deploymentID int32) int32 {
-	if cfg := s.configCache[deploymentID]; cfg != nil {
+	if cfg := s.deploymentCache[deploymentID]; cfg != nil {
 		return cfg.SpaceID
 	}
 	return 0
@@ -243,8 +245,8 @@ func (s *Service) FlipScheduledInstanceServing(drainIDs []int32, serveID int32) 
 	return allocated
 }
 
-// MustWriteReplicatedScheduledInstanceStatus persists a worker status write
-// using the worker's UpdatedAt as the authoritative identity.
+// MustWriteReplicatedScheduledInstanceStatus persists a secondary status write
+// using the secondary's UpdatedAt as the authoritative identity.
 func (s *Service) MustWriteReplicatedScheduledInstanceStatus(st *apigen.ScheduledInstanceStatus) {
 	if st == nil || st.ScheduledInstanceID == 0 || st.UpdatedAt.IsZero() {
 		return
@@ -269,7 +271,7 @@ func (s *Service) MustWriteReplicatedScheduledInstanceStatus(st *apigen.Schedule
 			if err := s.q.InsertScheduledInstanceStatus(ctx, params); err != nil {
 				panic(fmt.Sprintf("InsertScheduledInstanceStatus: %v", err))
 			}
-			// A worker's last write can land after the primary has finalized the
+			// A secondary's last write can land after the primary has finalized the
 			// instance. It is history, not schedule, but if this is still the
 			// ordinal's last known runtime it is also what the UI shows.
 			if retained := s.latestFinalCache[ordinalKeyOf(inst)]; retained != nil &&

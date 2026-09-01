@@ -66,11 +66,11 @@ func TestRejectedInitialClusterNetMapReportsError(t *testing.T) {
 	oldDefault := network.Default
 	network.SetDefault(network.New(prefix, 0))
 	t.Cleanup(func() { network.SetDefault(oldDefault) })
-	out := &outbox{ch: make(chan *apigen.MsgToMaster, 1), ctx: context.Background()}
+	out := &outbox{ch: make(chan *apigen.MsgToPrimary, 1), ctx: context.Background()}
 	invalid := testClusterNetMap(t, prefix, 1)
 	invalid.TargetNodeID = 2
 	sess := &primarySessionState{netMapSnapshotPending: true}
-	dispatchFromPrimary(context.Background(), out, store, newLogStreamTracker(), sess, &apigen.MsgToWorker{ClusterNetMap: invalid}, 1, nil, nil, nil)
+	dispatchFromPrimary(context.Background(), out, store, newLogStreamTracker(), sess, &apigen.MsgToSecondary{ClusterNetMap: invalid}, 1, nil, nil, nil)
 	status := (<-out.ch).NetMapStatus
 	if status == nil || status.ReconciliationError == "" || status.PersistedSeq != 0 {
 		t.Fatalf("rejection status = %+v", status)
@@ -165,7 +165,7 @@ func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
 		t.Fatal(err)
 	}
 	unreadable.Routes[0].LogicalPrefix = addr.String()
-	store.MustSetLocalKV(storage.LocalKVWorkerClusterNetMap, unreadable.Encode())
+	store.MustSetLocalKV(storage.LocalKVClusterNetMap, unreadable.Encode())
 
 	cached, _, ok, err := cachedClusterNetMap(context.Background(), store, 1, prefix)
 	if err != nil {
@@ -174,7 +174,7 @@ func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
 	if ok || cached != nil {
 		t.Fatalf("unreadable cached map was returned: ok=%v map=%+v", ok, cached)
 	}
-	if _, present := store.FetchLocalKV(storage.LocalKVWorkerClusterNetMap); present {
+	if _, present := store.FetchLocalKV(storage.LocalKVClusterNetMap); present {
 		t.Fatal("unreadable cached map was left in the store")
 	}
 

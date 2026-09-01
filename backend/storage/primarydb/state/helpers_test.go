@@ -1,6 +1,13 @@
 package state
 
-import "github.com/jptrs93/opsagent/backend/apigen"
+import (
+	"context"
+	"database/sql"
+	"fmt"
+
+	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
+)
 
 // The literal keeps the assertion independent of internaldeploy.NetproxySpec,
 // so an accidental change to the shipped limit fails here.
@@ -23,4 +30,84 @@ func testSpecWithState(version string, running bool) *apigen.DeploymentSpec {
 		panic(err)
 	}
 	return spec
+}
+
+// mustSetDeploymentWorkloadState appends a spec version with only the workload
+// state changed. Test-only counterpart of the deploy-time spec update paths.
+func mustSetDeploymentWorkloadState(s *Service, ctx apigen.Context, deploymentID int32, version string, running bool) {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	bgCtx := context.Background()
+	dbID := int64(deploymentID)
+
+	userID := int64(ctx.AttributionUserID())
+
+	existing, err := s.q.GetDeployment(bgCtx, dbID)
+	if err != nil {
+		panic(fmt.Sprintf("GetDeployment: %v", err))
+	}
+	spec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
+	if err := spec.SetWorkloadState(version, running); err != nil {
+		panic(fmt.Sprintf("update deployment workload state: %v", err))
+	}
+	s.mustAppendSpecVersionLocked(existing, spec.Encode(), userID, "deployment workload state")
+}
+
+// mustUpdateDeploymentSpec appends the given spec as a new version, preserving
+// the stored workload state.
+func mustUpdateDeploymentSpec(s *Service, ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	bgCtx := context.Background()
+	dbID := int64(deploymentID)
+
+	userID := int64(ctx.AttributionUserID())
+
+	if spec == nil {
+		panic("deployment spec must not be nil")
+	}
+
+	existing, err := s.q.GetDeployment(bgCtx, dbID)
+	if err != nil {
+		panic(fmt.Sprintf("GetDeployment: %v", err))
+	}
+	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), dbID, existing.Version)
+	existingSpec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.Version)
+	if err := storedSpec.SetWorkloadState(existingSpec.WorkloadVersion(), existingSpec.WorkloadRunning()); err != nil {
+		panic(fmt.Sprintf("preserve deployment workload state: %v", err))
+	}
+	s.mustAppendSpecVersionLocked(existing, storedSpec.Encode(), userID, "deployment spec update")
+}
+
+// getAssetInRootByKey resolves an asset by key in a space's implicit root
+// directory.
+func getAssetInRootByKey(s *Service, spaceID int32, key string) (Asset, bool) {
+	return s.GetAssetInDirectory(spaceID, 0, key)
+}
+
+// setConfigByName is a create-or-append seeding convenience: it targets the
+// root directory of the default space by name.
+func setConfigByName(s *Service, name, value string, author int32) *apigen.Config {
+	row, err := s.q.GetConfigInDirectoryByName(context.Background(), pq.GetConfigInDirectoryByNameParams{
+		SpaceID:          int64(DefaultSpaceID),
+		ValueDirectoryID: 0,
+		Name:             name,
+	})
+	if err == sql.ErrNoRows {
+		c, createErr := s.CreateConfigWithVersion(name, DefaultSpaceID, 0, author, value)
+		if createErr != nil {
+			panic(fmt.Sprintf("setConfigByName create: %v", createErr))
+		}
+		return c
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetConfigInDirectoryByName: %v", err))
+	}
+	c, _, appendErr := s.AppendConfigVersionWithDeploymentUpdates(int32(row.ID), value, author, false, nil)
+	if appendErr != nil {
+		panic(fmt.Sprintf("setConfigByName append: %v", appendErr))
+	}
+	return c
 }

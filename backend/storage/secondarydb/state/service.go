@@ -11,7 +11,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/sq"
 )
 
-// Service is the storage layer for secondary (worker) nodes. Its schema is
+// Service is the storage layer for secondary (secondary) nodes. Its schema is
 // fully independent of the primary's and holds only machine-local runtime
 // state; see sq/sql/schema.sql.
 type Service struct {

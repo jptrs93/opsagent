@@ -213,7 +213,7 @@ func (s *Service) MustSetNodeAddresses(id int32, addresses []string) *Node {
 }
 
 // MustSetNodeWGPublicKey records a node's current WireGuard public key. An
-// unchanged key is a pure no-op (workers re-report on every cluster-stream
+// unchanged key is a pure no-op (secondaries re-report on every cluster-stream
 // connect); a change appends a version row, which doubles as the key audit
 // history an unexpected change would be investigated through.
 func (s *Service) MustSetNodeWGPublicKey(id int32, wgPublicKey string) *Node {
@@ -222,8 +222,8 @@ func (s *Service) MustSetNodeWGPublicKey(id int32, wgPublicKey string) *Node {
 	})
 }
 
-// NormalizeNodeUnderlay canonicalizes a worker's underlay address and ensures
-// it uses the same address family as the other nodes in the cluster. Workers
+// NormalizeNodeUnderlay canonicalizes a secondary's underlay address and ensures
+// it uses the same address family as the other nodes in the cluster. Secondaries
 // resolve an address before enrolling or connecting, so an empty address is a
 // caller bug, never a legitimate state.
 func (s *Service) NormalizeNodeUnderlay(identifier, raw string) (string, error) {
@@ -291,8 +291,8 @@ func (s *Service) FetchNetworkMapInputs() NetworkMapInputs {
 	if err != nil {
 		panic(fmt.Sprintf("get global seq: %v", err))
 	}
-	spaces := make(map[int32]int32, len(s.configCache))
-	for id, cfg := range s.configCache {
+	spaces := make(map[int32]int32, len(s.deploymentCache))
+	for id, cfg := range s.deploymentCache {
 		if cfg != nil && !cfg.Deleted {
 			spaces[id] = cfg.SpaceID
 		}

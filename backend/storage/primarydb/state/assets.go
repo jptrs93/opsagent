@@ -119,12 +119,6 @@ func (s *Service) GetAsset(assetID int32) (*apigen.Asset, bool) {
 	return assetFromParts(a, spaces, versions), true
 }
 
-// GetAssetInRootByKey resolves an asset by key in a space's implicit root
-// directory.
-func (s *Service) GetAssetInRootByKey(spaceID int32, key string) (Asset, bool) {
-	return s.GetAssetInDirectory(spaceID, 0, key)
-}
-
 // GetAssetInDirectory resolves an asset by key inside one directory of a
 // space (0 = the implicit root).
 func (s *Service) GetAssetInDirectory(spaceID, directoryID int32, key string) (Asset, bool) {
@@ -143,7 +137,7 @@ func (s *Service) GetAssetInDirectory(spaceID, directoryID int32, key string) (A
 }
 
 // AssetVersionRef resolves a pinned content version row id — the id
-// deployment configs pin and workers fetch by — to its owning asset's facts.
+// deployment configs pin and secondaries fetch by — to its owning asset's facts.
 type AssetVersionRef struct {
 	VersionID int32
 	AssetID   int32

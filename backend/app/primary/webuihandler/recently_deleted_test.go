@@ -164,7 +164,7 @@ func TestRecentlyDeletedOmitsInternalDeployments(t *testing.T) {
 	if internal == nil {
 		t.Fatal("no internal deployment was created")
 	}
-	_, _, ok := h.Store.UpdateDeployment(apigen.Context{Ctx: context.Background()}, internal.ID, state.DeploymentConfigUpdate{
+	_, _, ok := h.Store.UpdateDeploymentSpec(apigen.Context{Ctx: context.Background()}, internal.ID, state.DeploymentSpecUpdate{
 		ExpectedVersion: internal.Version + 1,
 		Spec:            &internal.Spec,
 		Deleted:         true,

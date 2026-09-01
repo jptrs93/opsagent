@@ -250,7 +250,7 @@ The per-space asset folder tree; see [Assets](assets.md).
 | GET | `/v1/cluster/configs` | `ClusterConfigsRequest` | `ClusterConfigsResponse` | NO_AUTH |
 | GET | `/v1/cluster/issued-tls` | `ClusterIssuedTLSRequest` | `ClusterIssuedTLSResponse` | NO_AUTH |
 | GET | `/v1/cluster/renew-certificate` | — | `ClusterRenewCertificateResponse` | NO_AUTH |
-| POST | `/v1/cluster/connect` | stream `MsgToMaster` | stream `MsgToWorker` | NO_AUTH |
+| POST | `/v1/cluster/connect` | stream `MsgToPrimary` | stream `MsgToSecondary` | NO_AUTH |
 
 Cluster secrets/configs requests carry immutable row IDs. The primary authorizes those IDs against the deployment refs allowed for the requesting worker, decrypts/fetches only those rows, and the worker keeps the plaintext values in memory.
 
@@ -270,7 +270,7 @@ reconnect delay.
 ### Enrollment bootstrap (enrollment listener)
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
-| POST | `/v1/enrollment/request` | stream `EnrollmentWorkerMsg` | stream `EnrollmentPrimaryMsg` | NO_AUTH |
+| POST | `/v1/enrollment/request` | stream `EnrollmentSecondaryMsg` | stream `EnrollmentPrimaryMsg` | NO_AUTH |
 
 ## Adding new endpoints
 

@@ -5,7 +5,7 @@ import (
 )
 
 // Hand-written deployment reads. A deployment's current desired config is its
-// identity row joined with its latest deployment_versions row; creation time
+// identity row joined with its latest deployment_spec_versions row; creation time
 // and attribution come from the first version row. Version rows are
 // append-only and never pruned, so both rows always exist.
 
@@ -27,12 +27,12 @@ type DeploymentRow struct {
 const deploymentRowSelect = `
 	SELECT d.deployment_id, d.node_id, sp.space_id, sp.version, d.name, d.deleted_at,
 	       v.version,
-	       (SELECT f.created_at FROM deployment_versions f
+	       (SELECT f.created_at FROM deployment_spec_versions f
 	        WHERE f.deployment_id = d.deployment_id ORDER BY f.version LIMIT 1),
 	       v.created_at, v.author, v.spec_blob
 	FROM deployments d
-	JOIN deployment_versions v ON v.deployment_id = d.deployment_id
-	    AND v.version = (SELECT MAX(m.version) FROM deployment_versions m
+	JOIN deployment_spec_versions v ON v.deployment_id = d.deployment_id
+	    AND v.version = (SELECT MAX(m.version) FROM deployment_spec_versions m
 	                     WHERE m.deployment_id = d.deployment_id)
 	JOIN deployment_space_versions sp ON sp.deployment_id = d.deployment_id
 	    AND sp.version = (SELECT MAX(ms.version) FROM deployment_space_versions ms

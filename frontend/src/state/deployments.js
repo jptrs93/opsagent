@@ -130,8 +130,8 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
 const handleStateMessage = (message) => {
     if (!message) return;
 
-    if (message.deploymentConfigsSnapshot) {
-        desiredConfigsById = new Map((message.deploymentConfigsSnapshot.items || [])
+    if (message.deploymentsSnapshot) {
+        desiredConfigsById = new Map((message.deploymentsSnapshot.items || [])
             .filter(config => config?.id && !config.deleted)
             .map(config => [Number(config.id), config]));
     }
@@ -144,8 +144,8 @@ const handleStateMessage = (message) => {
             .map(state => [Number(state.instance.id), state]));
     }
 
-    if (message.deploymentConfigUpdate?.id) {
-        const config = message.deploymentConfigUpdate;
+    if (message.deploymentUpdate?.id) {
+        const config = message.deploymentUpdate;
         if (config.deleted) {
             desiredConfigsById.delete(Number(config.id));
         } else {
@@ -158,8 +158,8 @@ const handleStateMessage = (message) => {
         scheduledInstancesById = applyScheduledInstanceUpdate(scheduledInstancesById, update);
     }
 
-    if (message.deploymentConfigsSnapshot || message.scheduledInstancesSnapshot ||
-        message.deploymentConfigUpdate?.id || message.scheduledInstanceUpdate?.instance?.id) {
+    if (message.deploymentsSnapshot || message.scheduledInstancesSnapshot ||
+        message.deploymentUpdate?.id || message.scheduledInstanceUpdate?.instance?.id) {
         publishDeployments();
     }
 

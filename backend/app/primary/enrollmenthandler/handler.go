@@ -38,7 +38,7 @@ type enrollmentSession struct {
 	accepted            chan *apigen.EnrollmentAccepted
 }
 
-// Handler owns worker enrollment streams and the operator actions that accept
+// Handler owns secondary enrollment streams and the operator actions that accept
 // them. It implements apigen.EnrollmentV1Handler.
 type Handler struct {
 	store          *state.Service
@@ -68,9 +68,9 @@ func New(store *state.Service, secretsMgr *secrets.Manager, configService *confi
 }
 
 var EnrollmentMachineIDRequiredErr = apigen.NewApiErr("Requesting machine ID is required", "enrollment_machine_id_required", http.StatusBadRequest)
-var EnrollmentCSRRequiredErr = apigen.NewApiErr("Worker certificate request is required", "enrollment_csr_required", http.StatusBadRequest)
-var EnrollmentWorkerNameRequiredErr = apigen.NewApiErr("Worker name is required", "enrollment_worker_name_required", http.StatusBadRequest)
-var EnrollmentNotConnectedErr = apigen.NewApiErr("Worker is not connected", "enrollment_not_connected", http.StatusConflict)
+var EnrollmentCSRRequiredErr = apigen.NewApiErr("Secondary certificate request is required", "enrollment_csr_required", http.StatusBadRequest)
+var EnrollmentNodeNameRequiredErr = apigen.NewApiErr("Node name is required", "enrollment_node_name_required", http.StatusBadRequest)
+var EnrollmentNotConnectedErr = apigen.NewApiErr("Secondary is not connected", "enrollment_not_connected", http.StatusConflict)
 var EnrollmentSigningNotConfiguredErr = apigen.NewApiErr("Cluster CA signing key is not configured", "enrollment_signing_not_configured", http.StatusServiceUnavailable)
 var EnrollmentNotFoundErr = apigen.NewApiErr("Enrollment request not found", "enrollment_not_found", http.StatusNotFound)
 var EnrollmentFingerprintNotConfiguredErr = apigen.NewApiErr("Enrollment TLS fingerprint is not configured", "enrollment_fingerprint_not_configured", http.StatusServiceUnavailable)
@@ -89,7 +89,7 @@ func (h *Handler) GetV1NodesEnrollmentsInfo(ctx apigen.Context) (*apigen.NodeEnr
 	return &apigen.NodeEnrollmentInfo{EnrollmentTlsSpkiSha256: fingerprint}, nil
 }
 
-func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*apigen.EnrollmentWorkerMsg, error]) iter.Seq2[*apigen.EnrollmentPrimaryMsg, error] {
+func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*apigen.EnrollmentSecondaryMsg, error]) iter.Seq2[*apigen.EnrollmentPrimaryMsg, error] {
 	return func(yield func(*apigen.EnrollmentPrimaryMsg, error) bool) {
 		hello, err := readEnrollmentHello(reqs)
 		if err != nil {
@@ -101,7 +101,7 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			yield(nil, EnrollmentMachineIDRequiredErr)
 			return
 		}
-		if len(hello.WorkerCertificateRequest) == 0 {
+		if len(hello.SecondaryCertificateRequest) == 0 {
 			yield(nil, EnrollmentCSRRequiredErr)
 			return
 		}
@@ -122,7 +122,7 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			id:                  status.ID,
 			requestingMachineID: requestingMachineID,
 			opendeployVersion:   opendeployVersion,
-			csrPEM:              hello.WorkerCertificateRequest,
+			csrPEM:              hello.SecondaryCertificateRequest,
 			underlayAddress:     underlayAddress,
 			wgPublicKey:         wgPublicKey,
 			expectedVersion:     expectedVersion,
@@ -164,9 +164,9 @@ func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.E
 	if req == nil || req.ID == 0 {
 		return nil, EnrollmentNotFoundErr
 	}
-	workerName := strings.TrimSpace(req.WorkerName)
-	if workerName == "" {
-		return nil, EnrollmentWorkerNameRequiredErr
+	nodeName := strings.TrimSpace(req.NodeName)
+	if nodeName == "" {
+		return nil, EnrollmentNodeNameRequiredErr
 	}
 	sess := h.enrollmentSession(req.ID)
 	if sess == nil {
@@ -175,14 +175,14 @@ func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.E
 	if _, err := h.store.NormalizeNodeUnderlay(sess.requestingMachineID, sess.underlayAddress); err != nil {
 		return nil, err
 	}
-	caCert, workerCert, err := certu.SignWorkerCertificateRequest(h.secrets, sess.csrPEM, sess.requestingMachineID)
+	caCert, secondaryCert, err := certu.SignSecondaryCertificateRequest(h.secrets, sess.csrPEM, sess.requestingMachineID)
 	if errors.Is(err, secrets.ErrLocked) || errors.Is(err, secrets.ErrNotFound) {
 		return nil, EnrollmentSigningNotConfiguredErr
 	}
 	if err != nil {
-		return nil, fmt.Errorf("signing worker CSR: %w", err)
+		return nil, fmt.Errorf("signing secondary CSR: %w", err)
 	}
-	status, err := h.store.AcceptEnrollmentRequest(req.ID, workerName, sess.requestingMachineID, sess.underlayAddress, sess.wgPublicKey, sess.expectedVersion)
+	status, err := h.store.AcceptEnrollmentRequest(req.ID, nodeName, sess.requestingMachineID, sess.underlayAddress, sess.wgPublicKey, sess.expectedVersion)
 	if errors.Is(err, state.ErrEnrollmentRequestChanged) {
 		return nil, EnrollmentNotConnectedErr
 	}
@@ -191,13 +191,13 @@ func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.E
 	}
 	nodeID, err := h.store.NodeIDByIdentifier(sess.requestingMachineID)
 	if err != nil {
-		return nil, fmt.Errorf("resolve enrolled worker %q: %w", sess.requestingMachineID, err)
+		return nil, fmt.Errorf("resolve enrolled secondary %q: %w", sess.requestingMachineID, err)
 	}
 	h.store.EnsureSystemDeployment(nodeID, version.Version)
 	h.store.EnsureNetproxyDeployment(nodeID, version.Version)
 	nodeDeployment, nodeNetDeployment := h.ensureEnrollmentBootstrapInstances(nodeID)
 	if nodeDeployment == nil || nodeNetDeployment == nil {
-		return nil, fmt.Errorf("enrollment bootstrap deployments missing for worker %q", sess.requestingMachineID)
+		return nil, fmt.Errorf("enrollment bootstrap deployments missing for secondary %q", sess.requestingMachineID)
 	}
 	var netMap *apigen.ClusterNetMap
 	if h.networkMaps != nil {
@@ -209,9 +209,9 @@ func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.E
 	}
 	accepted := &apigen.EnrollmentAccepted{
 		ID:                req.ID,
-		WorkerName:        workerName,
+		NodeName:        nodeName,
 		CaCertificate:     caCert,
-		WorkerCertificate: workerCert,
+		SecondaryCertificate: secondaryCert,
 		ClusterNetwork:    &apigen.ClusterNetworkInfo{UlaPrefix: h.configService.NetworkPrefix().Bytes()},
 		NodeDeployment:    nodeDeployment,
 		NodeNetDeployment: nodeNetDeployment,
@@ -278,7 +278,7 @@ func (h *Handler) enrollmentSession(id int32) *enrollmentSession {
 	return h.sessions[id]
 }
 
-func readEnrollmentHello(reqs iter.Seq2[*apigen.EnrollmentWorkerMsg, error]) (*apigen.EnrollmentHello, error) {
+func readEnrollmentHello(reqs iter.Seq2[*apigen.EnrollmentSecondaryMsg, error]) (*apigen.EnrollmentHello, error) {
 	for msg, err := range reqs {
 		if err != nil {
 			return nil, err
@@ -291,7 +291,7 @@ func readEnrollmentHello(reqs iter.Seq2[*apigen.EnrollmentWorkerMsg, error]) (*a
 	return nil, EnrollmentMachineIDRequiredErr
 }
 
-func drainEnrollmentStream(reqs iter.Seq2[*apigen.EnrollmentWorkerMsg, error]) <-chan error {
+func drainEnrollmentStream(reqs iter.Seq2[*apigen.EnrollmentSecondaryMsg, error]) <-chan error {
 	done := make(chan error, 1)
 	go func() {
 		for _, err := range reqs {

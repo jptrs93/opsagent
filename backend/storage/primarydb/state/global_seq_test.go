@@ -14,7 +14,7 @@ func TestGlobalSeqStampsVersionWrites(t *testing.T) {
 	store := Open(dbPath)
 	node := testNode(store, "primary")
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "api", node.ID, testSpecWithState("v1", false))
-	store.MustSetDeploymentWorkloadState(apigen.Context{}, cfg.ID, "v2", false)
+	mustSetDeploymentWorkloadState(store, apigen.Context{}, cfg.ID, "v2", false)
 	if _, err := store.MoveDeploymentSpace(cfg.ID, 2, cfg.SpaceVersion+1, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestGlobalSeqStampsVersionWrites(t *testing.T) {
 		return out
 	}
 
-	versionSeqs := readSeqs(`SELECT global_seq FROM deployment_versions WHERE deployment_id = ` + itoa(cfg.ID) + ` ORDER BY version`)
+	versionSeqs := readSeqs(`SELECT global_seq FROM deployment_spec_versions WHERE deployment_id = ` + itoa(cfg.ID) + ` ORDER BY version`)
 	if len(versionSeqs) != 2 || versionSeqs[0] <= 0 || versionSeqs[1] <= versionSeqs[0] {
 		t.Fatalf("deployment version seqs = %v, want two increasing positive values", versionSeqs)
 	}

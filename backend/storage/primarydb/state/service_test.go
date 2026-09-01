@@ -22,17 +22,17 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	defer func() { _ = store.Close() }()
 
 	primaryNode := testNode(store, "primary")
-	workerNode := testNode(store, "worker")
+	secondaryNode := testNode(store, "secondary")
 	create := func(nodeID int32, name string, spec *apigen.DeploymentSpec) *apigen.Deployment {
 		return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, nodeID, spec)
 	}
 	containerSpec := testSpecWithState("v1", true)
 	primary := create(primaryNode.ID, "app", containerSpec)
-	worker := create(workerNode.ID, "app", containerSpec)
+	secondary := create(secondaryNode.ID, "app", containerSpec)
 	system := store.MustCreateDeploymentForNode(apigen.Context{}, OpendeploySpaceID, internaldeploy.SelfName, primaryNode.ID, testSystemSpecWithState("v1", true))
 
 	seedStatus := func(cfg *apigen.Deployment, artifact string) *apigen.ScheduledInstance {
-		inst := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+		inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 		store.MustWriteScheduledInstanceStatus(inst.ID, func(status *apigen.ScheduledInstanceStatus) bool {
 			status.BumpUpdatedAt()
 			status.Preparer = apigen.PreparerStatus{DeploymentConfigVersion: cfg.Version, Artifact: artifact, Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_READY}
@@ -42,7 +42,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 		return inst
 	}
 	primaryInst := seedStatus(primary, "example/app:v1")
-	seedStatus(worker, "example/app:v1")
+	seedStatus(secondary, "example/app:v1")
 	seedStatus(system, "/var/lib/opendeploy/releases/v1/opendeploy")
 
 	primaryConfigHistoryCount := len(store.MustFetchDeploymentHistory(primary.ID))
@@ -62,9 +62,9 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	if len(store.MustFetchDeploymentHistory(primary.ID)) != primaryConfigHistoryCount {
 		t.Fatal("runtime invalidation changed config history")
 	}
-	workerInst := store.ListNonFinalScheduledInstancesForDeployment(worker.ID)[0]
-	if store.FetchScheduledInstanceStatus(workerInst.ID).Runner.Status != apigen.RunningStatus_RUNNING {
-		t.Fatal("worker runtime status was cleared")
+	secondaryInst := store.ListNonFinalScheduledInstancesForDeployment(secondary.ID)[0]
+	if store.FetchScheduledInstanceStatus(secondaryInst.ID).Runner.Status != apigen.RunningStatus_RUNNING {
+		t.Fatal("secondary runtime status was cleared")
 	}
 	systemInst := store.ListNonFinalScheduledInstancesForDeployment(system.ID)[0]
 	if store.FetchScheduledInstanceStatus(systemInst.ID).Runner.Status != apigen.RunningStatus_RUNNING {
@@ -89,7 +89,7 @@ func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := testNode(store, "primary")
 	created := store.MustCreateDeploymentForNode(apigen.Context{}, OpendeploySpaceID, internaldeploy.SelfName, node.ID, testSpecWithState("", false))
-	store.MustSetDeploymentWorkloadState(apigen.Context{}, created.ID, "v0.0.194", true)
+	mustSetDeploymentWorkloadState(store, apigen.Context{}, created.ID, "v0.0.194", true)
 
 	store.EnsureSystemDeployment(node.ID, "v0.0.195")
 
@@ -163,8 +163,8 @@ func TestEnsureNetproxyDeploymentRepairsExistingSpec(t *testing.T) {
 	cfg := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
 	broken := internaldeploy.NetproxySpec()
 	broken.Container().Runtime.FileDescriptorLimit = 128
-	store.MustUpdateDeploymentSpec(apigen.Context{}, cfg.ID, broken)
-	brokenVersion := store.configCache[cfg.ID].Version
+	mustUpdateDeploymentSpec(store, apigen.Context{}, cfg.ID, broken)
+	brokenVersion := store.deploymentCache[cfg.ID].Version
 
 	repaired := store.EnsureNetproxyDeployment(node.ID, "v0.0.201")
 	if repaired.Version <= brokenVersion {
@@ -184,8 +184,8 @@ func TestEnsureNetproxyDeploymentRepairsSpecOnceConcurrently(t *testing.T) {
 	cfg := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
 	broken := internaldeploy.NetproxySpec()
 	broken.Container().Runtime.FileDescriptorLimit = 128
-	store.MustUpdateDeploymentSpec(apigen.Context{}, cfg.ID, broken)
-	brokenVersion := store.configCache[cfg.ID].Version
+	mustUpdateDeploymentSpec(store, apigen.Context{}, cfg.ID, broken)
+	brokenVersion := store.deploymentCache[cfg.ID].Version
 
 	var wg sync.WaitGroup
 	for range 8 {
@@ -193,7 +193,7 @@ func TestEnsureNetproxyDeploymentRepairsSpecOnceConcurrently(t *testing.T) {
 	}
 	wg.Wait()
 
-	repaired := store.configCache[cfg.ID]
+	repaired := store.deploymentCache[cfg.ID]
 	if repaired.Version != brokenVersion+1 {
 		t.Fatalf("version = %d, want one repair above %d", repaired.Version, brokenVersion)
 	}
@@ -203,8 +203,8 @@ func TestEnsureNetproxyDeploymentPreservesDesiredStateConcurrently(t *testing.T)
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := testNode(store, "primary")
 	cfg := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
-	store.MustSetDeploymentWorkloadState(apigen.Context{}, cfg.ID, "v0.0.199", false)
-	manualVersion := store.configCache[cfg.ID].Version
+	mustSetDeploymentWorkloadState(store, apigen.Context{}, cfg.ID, "v0.0.199", false)
+	manualVersion := store.deploymentCache[cfg.ID].Version
 
 	var wg sync.WaitGroup
 	for range 8 {
@@ -212,7 +212,7 @@ func TestEnsureNetproxyDeploymentPreservesDesiredStateConcurrently(t *testing.T)
 	}
 	wg.Wait()
 
-	updated := store.configCache[cfg.ID]
+	updated := store.deploymentCache[cfg.ID]
 	if updated.Version != manualVersion {
 		t.Fatalf("version = %d, want unchanged manual version %d", updated.Version, manualVersion)
 	}
@@ -311,7 +311,7 @@ func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 		t.Fatalf("requested node listed as member: %+v", members)
 	}
 
-	status, err := store.AcceptEnrollmentRequest(req.ID, "worker-1", req.RequestingMachineID, req.UnderlayAddress, wgPublicKey, expectedVersion)
+	status, err := store.AcceptEnrollmentRequest(req.ID, "secondary-1", req.RequestingMachineID, req.UnderlayAddress, wgPublicKey, expectedVersion)
 	if err != nil {
 		t.Fatalf("AcceptEnrollmentRequest: %v", err)
 	}
@@ -326,8 +326,8 @@ func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 		t.Fatalf("node count = %d, want 1: %+v", len(nodes), nodes)
 	}
 	node := nodes[0]
-	if node.Name != "worker-1" || node.Identifier != "requesting-id" {
-		t.Fatalf("node identity = name %q identifier %q, want worker-1/requesting-id", node.Name, node.Identifier)
+	if node.Name != "secondary-1" || node.Identifier != "requesting-id" {
+		t.Fatalf("node identity = name %q identifier %q, want secondary-1/requesting-id", node.Name, node.Identifier)
 	}
 	if node.ID != req.ID {
 		t.Fatalf("node id = %d, want request id %d", node.ID, req.ID)
@@ -402,7 +402,7 @@ func TestAcceptEnrollmentRequestRejectsReplacedSessionRevision(t *testing.T) {
 	if secondVersion <= firstVersion {
 		t.Fatalf("replacement revision %d did not advance past %d", secondVersion, firstVersion)
 	}
-	_, err := store.AcceptEnrollmentRequest(first.ID, "worker-1", first.RequestingMachineID, first.UnderlayAddress, "", firstVersion)
+	_, err := store.AcceptEnrollmentRequest(first.ID, "secondary-1", first.RequestingMachineID, first.UnderlayAddress, "", firstVersion)
 	if !errors.Is(err, ErrEnrollmentRequestChanged) {
 		t.Fatalf("accept error = %v, want ErrEnrollmentRequestChanged", err)
 	}
@@ -425,7 +425,7 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 	if err := nextSpec.SetWorkloadState("v2", true); err != nil {
 		t.Fatal(err)
 	}
-	updated, changed, versionOK := store.UpdateDeployment(apigen.Context{}, cfg.ID, DeploymentConfigUpdate{
+	updated, changed, versionOK := store.UpdateDeploymentSpec(apigen.Context{}, cfg.ID, DeploymentSpecUpdate{
 		ExpectedVersion: 2,
 		Spec:            &nextSpec,
 	})
@@ -450,14 +450,14 @@ func TestSetDeploymentWorkloadStateReencodesSpec(t *testing.T) {
 	node := testNode(store, "primary")
 	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, "api", node.ID, testSpecWithState("v1", true))
 
-	store.MustSetDeploymentWorkloadState(apigen.Context{}, cfg.ID, "v2", false)
+	mustSetDeploymentWorkloadState(store, apigen.Context{}, cfg.ID, "v2", false)
 
 	row, err := store.q.GetDeployment(context.Background(), int64(cfg.ID))
 	if err != nil {
 		t.Fatalf("read updated deployment: %v", err)
 	}
 	assertPersistedWorkloadState(t, row.SpecBlob, "v2", false)
-	history, err := store.q.ListDeploymentVersions(context.Background(), int64(cfg.ID))
+	history, err := store.q.ListDeploymentSpecVersions(context.Background(), int64(cfg.ID))
 	if err != nil {
 		t.Fatalf("read updated deployment history: %v", err)
 	}
@@ -472,7 +472,7 @@ func TestSetDeploymentWorkloadStateReencodesSpec(t *testing.T) {
 	}
 	store = Open(dbPath)
 	defer store.Close()
-	reloaded := store.configCache[cfg.ID]
+	reloaded := store.deploymentCache[cfg.ID]
 	if reloaded == nil || reloaded.WorkloadVersion() != "v2" || reloaded.WorkloadRunning() {
 		t.Fatalf("reloaded deployment = %+v, want stopped v2", reloaded)
 	}

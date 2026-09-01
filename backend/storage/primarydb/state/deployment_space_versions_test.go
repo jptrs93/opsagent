@@ -17,7 +17,7 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 		t.Fatalf("created config space version = %d, want 1", cfg.SpaceVersion)
 	}
 
-	inst := store.CreateScheduledInstance(cfg.ID, cfg.Version, cfg.NodeID, 0,
+	inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.NodeID, 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	if inst.SpaceID != DefaultSpaceID {
 		t.Fatalf("placement pin = space %d, want space %d", inst.SpaceID, DefaultSpaceID)

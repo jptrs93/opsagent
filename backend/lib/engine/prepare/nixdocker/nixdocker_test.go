@@ -102,7 +102,7 @@ func TestImageRefUsesBuildInputsAndCommit(t *testing.T) {
 
 	changes := []*apigen.NixDockerBuild{
 		{Repo: "github.com/acme/other", Flake: nix.Flake, Target: nix.Target},
-		{Repo: nix.Repo, Flake: "services/worker/flake.nix", Target: nix.Target},
+		{Repo: nix.Repo, Flake: "services/secondary/flake.nix", Target: nix.Target},
 		{Repo: nix.Repo, Flake: nix.Flake, Target: ".#workerImage"},
 	}
 	for _, changed := range changes {

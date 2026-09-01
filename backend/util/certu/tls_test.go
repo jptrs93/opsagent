@@ -16,23 +16,23 @@ func TestGenerateSelfSignedServerCertificateProducesLoadableBundle(t *testing.T)
 	}
 }
 
-func TestSignWorkerCertificateRequestUsesRequestedIdentifier(t *testing.T) {
+func TestSignSecondaryCertificateRequestUsesRequestedIdentifier(t *testing.T) {
 	caCert, caKey, err := GenerateClusterCA("test-ca")
 	if err != nil {
 		t.Fatalf("GenerateClusterCA: %v", err)
 	}
-	csr, _, err := GenerateWorkerCertificateRequest("worker-id")
+	csr, _, err := GenerateSecondaryCertificateRequest("secondary-id")
 	if err != nil {
-		t.Fatalf("GenerateWorkerCertificateRequest: %v", err)
+		t.Fatalf("GenerateSecondaryCertificateRequest: %v", err)
 	}
-	_, certPEM, err := SignWorkerCertificateRequestFromPEM(caCert, caKey, csr, "worker-id")
+	_, certPEM, err := SignSecondaryCertificateRequestFromPEM(caCert, caKey, csr, "secondary-id")
 	if err != nil {
-		t.Fatalf("SignWorkerCertificateRequestFromPEM: %v", err)
+		t.Fatalf("SignSecondaryCertificateRequestFromPEM: %v", err)
 	}
-	if got := MustCertCommonNameFromPEM(certPEM); got != "worker-id" {
-		t.Fatalf("certificate CN = %q, want worker-id", got)
+	if got := MustCertCommonNameFromPEM(certPEM); got != "secondary-id" {
+		t.Fatalf("certificate CN = %q, want secondary-id", got)
 	}
-	if _, _, err := SignWorkerCertificateRequestFromPEM(caCert, caKey, csr, "other-id"); err == nil {
-		t.Fatal("SignWorkerCertificateRequestFromPEM accepted a mismatched CSR CN")
+	if _, _, err := SignSecondaryCertificateRequestFromPEM(caCert, caKey, csr, "other-id"); err == nil {
+		t.Fatal("SignSecondaryCertificateRequestFromPEM accepted a mismatched CSR CN")
 	}
 }

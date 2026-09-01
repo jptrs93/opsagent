@@ -35,7 +35,7 @@ func (s *Service) SetAssetByKey(key string, blob []byte, spaceIDs ...int32) *api
 		spaceID = normalizedUserSpaceID(spaceIDs[0])
 	}
 	sha := s.MustPutInlineAssetContent(blob)
-	if existing, ok := s.GetAssetInRootByKey(spaceID, key); ok {
+	if existing, ok := getAssetInRootByKey(s, spaceID, key); ok {
 		a, err := s.AppendAssetVersion(int32(existing.ID), 0, sha, int64(len(blob)))
 		if err != nil {
 			panic(fmt.Sprintf("SetAssetByKey append: %v", err))
@@ -172,7 +172,7 @@ func TestRenameAssetPreservesVersions(t *testing.T) {
 		len(renamed.ContentVersions) != 2 || renamed.ContentVersions[0].ID != v2.ID || renamed.ContentVersions[0].Version != 2 {
 		t.Fatalf("renamed asset = %+v", renamed)
 	}
-	if _, ok := store.GetAssetInRootByKey(DefaultSpaceID, "old-name"); ok {
+	if _, ok := getAssetInRootByKey(store, DefaultSpaceID, "old-name"); ok {
 		t.Fatal("old asset key still exists")
 	}
 
@@ -211,10 +211,10 @@ func TestRenameAssetRejectsExistingKey(t *testing.T) {
 	if _, err := store.RenameAssetKey(source.ID, "destination"); !errors.Is(err, ErrAssetAlreadyExists) {
 		t.Fatalf("rename collision error = %v, want %v", err, ErrAssetAlreadyExists)
 	}
-	if got, ok := store.GetAssetInRootByKey(DefaultSpaceID, "source"); !ok || int32(got.ID) != source.ID {
+	if got, ok := getAssetInRootByKey(store, DefaultSpaceID, "source"); !ok || int32(got.ID) != source.ID {
 		t.Fatalf("source after collision = %+v, ok=%v", got, ok)
 	}
-	if got, ok := store.GetAssetInRootByKey(DefaultSpaceID, "destination"); !ok || int32(got.ID) != destination.ID {
+	if got, ok := getAssetInRootByKey(store, DefaultSpaceID, "destination"); !ok || int32(got.ID) != destination.ID {
 		t.Fatalf("destination after collision = %+v, ok=%v", got, ok)
 	}
 	if _, err := store.RenameAssetKey(999_999, "unused"); !errors.Is(err, ErrAssetNotFound) {

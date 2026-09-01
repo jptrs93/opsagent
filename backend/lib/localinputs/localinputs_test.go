@@ -116,7 +116,7 @@ func TestCiphertextIsBoundToItsKindAndID(t *testing.T) {
 }
 
 // Losing the machine key is recoverable here in a way it is not on the primary:
-// the primary can refetch nothing, but a worker can refetch everything. So the
+// the primary can refetch nothing, but a secondary can refetch everything. So the
 // unreadable rows must be dropped rather than wedging startup.
 func TestLoadDropsRowsSealedUnderASupersededKey(t *testing.T) {
 	dir := t.TempDir()

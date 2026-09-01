@@ -141,31 +141,31 @@ func LoadPrimary(store *secrets.Manager) (*Material, error) {
 	return &Material{CACert: caCert, CAKey: caKey, PrimaryCert: primaryCert, PrimaryKey: primaryKey}, nil
 }
 
-func SignWorkerCertificateRequest(store *secrets.Manager, csrPEM []byte, identifier string) (caCert, workerCert []byte, err error) {
+func SignSecondaryCertificateRequest(store *secrets.Manager, csrPEM []byte, identifier string) (caCert, secondaryCert []byte, err error) {
 	mat, err := LoadPrimary(store)
 	if err != nil {
 		return nil, nil, fmt.Errorf("loading cluster signing material: %w", err)
 	}
-	return SignWorkerCertificateRequestFromPEM(mat.CACert, mat.CAKey, csrPEM, identifier)
+	return SignSecondaryCertificateRequestFromPEM(mat.CACert, mat.CAKey, csrPEM, identifier)
 }
 
-func RenewWorkerCertificate(store *secrets.Manager, identifier string, publicKey any) (caCert, workerCert []byte, notAfter time.Time, err error) {
+func RenewSecondaryCertificate(store *secrets.Manager, identifier string, publicKey any) (caCert, secondaryCert []byte, notAfter time.Time, err error) {
 	mat, err := LoadPrimary(store)
 	if err != nil {
 		return nil, nil, time.Time{}, fmt.Errorf("loading cluster signing material: %w", err)
 	}
-	workerCert, notAfter, err = SignWorkerCertificateFromPublicKey(mat.CACert, mat.CAKey, identifier, publicKey)
+	secondaryCert, notAfter, err = SignSecondaryCertificateFromPublicKey(mat.CACert, mat.CAKey, identifier, publicKey)
 	if err != nil {
 		return nil, nil, time.Time{}, err
 	}
-	return mat.CACert, workerCert, notAfter, nil
+	return mat.CACert, secondaryCert, notAfter, nil
 }
 
-func WorkerTLSPaths(tlsDir string) (caPath, certPath, keyPath string) {
+func SecondaryTLSPaths(tlsDir string) (caPath, certPath, keyPath string) {
 	return filepath.Join(tlsDir, "ca.crt"), filepath.Join(tlsDir, "node.crt"), filepath.Join(tlsDir, "node.key")
 }
 
-func WorkerTLSMaterialExists(paths ...string) bool {
+func SecondaryTLSMaterialExists(paths ...string) bool {
 	for _, path := range paths {
 		if _, err := os.Stat(path); err != nil {
 			return false

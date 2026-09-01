@@ -16,14 +16,14 @@ message GithubCredentials {
   int64 changed_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
 }
 
-// Primary and worker communicate over an HTTP/2 mTLS protobuf stream.
-message MsgToWorker {
+// Primary and secondary communicate over an HTTP/2 mTLS protobuf stream.
+message MsgToSecondary {
   ScheduledInstanceSnapshot scheduled_instances_snapshot = 1;
   ScheduledInstanceState scheduled_instance_update = 2;
   DeploymentLogRequest deployment_log_request = 5;
   string stop_log_request_id = 6;  // Cancel an active log stream or query by its request_id.
   // Cluster-wide network parameters, sent at the head of every session before
-  // the scheduled-instances snapshot. Workers persist it and program the local
+  // the scheduled-instances snapshot. Secondaries persist it and program the local
   // dataplane from it on boot before reaching the primary.
   ClusterNetworkInfo cluster_network = 7;
   ClusterNetMap cluster_net_map = 8;
@@ -33,17 +33,17 @@ message MsgToWorker {
   LogQueryRequest log_query_request = 11;  // One-shot structured log query; reply is log_query_response.
 }
 
-// ClusterHello is the first frame sent by a worker on each authenticated
+// ClusterHello is the first frame sent by a secondary on each authenticated
 // cluster session.
 message ClusterHello {
   string underlay_address = 1;
   int32 cluster_protocol_version = 2;
   // Base64 WireGuard public key, re-reported on every connect. Empty means
-  // the worker has no key (older build); it never clears a stored key.
+  // the secondary has no key (older build); it never clears a stored key.
   string wg_public_key = 3;
 }
 
-message MsgToMaster {
+message MsgToPrimary {
   ScheduledInstanceStatus status_write = 1;
   bytes log_data = 2;
   bool log_end = 3;
@@ -51,7 +51,7 @@ message MsgToMaster {
   NetMapStatus net_map_status = 5;
   ClusterHello cluster_hello = 6;
   LogQueryResponse log_query_response = 7;
-  string log_query_error = 8;  // Worker-side failure for the query tagged by log_request_id.
+  string log_query_error = 8;  // Secondary-side failure for the query tagged by log_request_id.
 }
 
 message ClusterSecretsRequest {

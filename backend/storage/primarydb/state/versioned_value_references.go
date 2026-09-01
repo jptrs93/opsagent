@@ -67,7 +67,7 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 			next.UpdatedAt = now
 			next.Author = int64(author)
 			next.SpecBlob = update.spec.Encode()
-			if err := q.InsertDeploymentVersion(ctx, pq.InsertDeploymentVersionParams{
+			if err := q.InsertDeploymentSpecVersion(ctx, pq.InsertDeploymentSpecVersionParams{
 				DeploymentID: next.DeploymentID,
 				Version:      next.Version,
 				CreatedAt:    next.UpdatedAt,
@@ -77,7 +77,7 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 			}); err != nil {
 				return fmt.Errorf("update deployment %d reference: %w", update.row.DeploymentID, err)
 			}
-			updatedConfigs = append(updatedConfigs, configRowToProto(next))
+			updatedConfigs = append(updatedConfigs, deploymentRowToProto(next))
 		}
 		return nil
 	}); err != nil {
@@ -86,14 +86,14 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 
 	updatedIDs := make([]int32, 0, len(updatedConfigs))
 	for _, cfg := range updatedConfigs {
-		s.configCache[cfg.ID] = cfg
+		s.deploymentCache[cfg.ID] = cfg
 		updatedIDs = append(updatedIDs, cfg.ID)
 	}
 	if afterCommit != nil {
 		afterCommit(updatedIDs)
 	}
 	for _, id := range updatedIDs {
-		s.notifyConfigLocked(id)
+		s.notifyDeploymentLocked(id)
 	}
 	return updatedIDs, nil
 }

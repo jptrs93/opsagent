@@ -321,7 +321,7 @@ func TestEnforcementDerivedNodeVisibility(t *testing.T) {
 	h, staging := newEnforcementTestHandler(t)
 	admin, spaceop := enforceCtx(1, false), enforceCtx(2, false)
 
-	node := h.Store.EnsurePrimaryNode("worker", "worker-id")
+	node := h.Store.EnsurePrimaryNode("secondary", "secondary-id")
 
 	// A new node allows every space, so the space-limited operator sees it
 	// through the derived path — no node:view grant exists below cluster_admin.
@@ -335,12 +335,12 @@ func TestEnforcementDerivedNodeVisibility(t *testing.T) {
 
 	// Seeing a node is not editing it: a visible node without node:edit reads
 	// as forbidden, not absent.
-	if _, err := h.PostV1NodesRename(spaceop, &apigen.NodeRenameRequest{Identifier: "worker-id", Name: "sneaky"}); !errors.Is(err, AccessDeniedErr) {
+	if _, err := h.PostV1NodesRename(spaceop, &apigen.NodeRenameRequest{Identifier: "secondary-id", Name: "sneaky"}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("derived-visible rename: got %v, want AccessDeniedErr", err)
 	}
 
 	// Narrowing the node to staging removes it from the operator's world.
-	if _, err := h.PostV1NodesAllowedSpaces(admin, &apigen.NodeAllowedSpacesRequest{Identifier: "worker-id", SpaceIds: []int32{staging.ID}}); err != nil {
+	if _, err := h.PostV1NodesAllowedSpaces(admin, &apigen.NodeAllowedSpacesRequest{Identifier: "secondary-id", SpaceIds: []int32{staging.ID}}); err != nil {
 		t.Fatalf("narrow allowed spaces: %v", err)
 	}
 	if nodes := h.filterNodes(spaceop, h.Store.ListClusterNodes()); len(nodes) != 0 {
@@ -349,7 +349,7 @@ func TestEnforcementDerivedNodeVisibility(t *testing.T) {
 	if statuses := h.filterNodeStatuses(spaceop, h.Store.ListNodeStatuses()); len(statuses) != 0 {
 		t.Fatalf("node statuses should filter with the node, got %+v", statuses)
 	}
-	if _, err := h.PostV1NodesRename(spaceop, &apigen.NodeRenameRequest{Identifier: "worker-id", Name: "sneaky"}); !errors.Is(err, NodeNotFoundErr) {
+	if _, err := h.PostV1NodesRename(spaceop, &apigen.NodeRenameRequest{Identifier: "secondary-id", Name: "sneaky"}); !errors.Is(err, NodeNotFoundErr) {
 		t.Fatalf("hidden-node rename: got %v, want NodeNotFoundErr", err)
 	}
 	if nodes := h.filterNodes(admin, h.Store.ListClusterNodes()); len(nodes) != 1 {

@@ -196,7 +196,7 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		if err := h.validateRefSpaces(effectiveSpec, cfg.SpaceID); err != nil {
 			return nil, err
 		}
-		current, _, versionOK := h.Store.UpdateDeployment(ctx, req.DeploymentID, state.DeploymentConfigUpdate{
+		current, _, versionOK := h.Store.UpdateDeploymentSpec(ctx, req.DeploymentID, state.DeploymentSpecUpdate{
 			ExpectedVersion: req.Version,
 			Spec:            effectiveSpec,
 			Deleted:         cfg.Deleted,
@@ -312,7 +312,7 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 	if err := spec.SetWorkloadState(spec.WorkloadVersion(), false); err != nil {
 		return invalidConfigErrf("spec: %v", err)
 	}
-	_, _, versionOK := h.Store.UpdateDeployment(ctx, req.DeploymentID, state.DeploymentConfigUpdate{
+	_, _, versionOK := h.Store.UpdateDeploymentSpec(ctx, req.DeploymentID, state.DeploymentSpecUpdate{
 		ExpectedVersion: req.Version,
 		Spec:            spec,
 		Deleted:         true,
@@ -449,7 +449,7 @@ func (h *Handler) PostV1DeploymentsLogQuery(ctx apigen.Context, req *apigen.LogQ
 	if nodeID > 0 && nodeID != h.NodeID && h.Cluster != nil {
 		resp, err := h.Cluster.RequestLogQuery(ctx, nodeID, req)
 		if err != nil {
-			return nil, workerLogQueryErr(nodeID, err)
+			return nil, secondaryLogQueryErr(nodeID, err)
 		}
 		return resp, nil
 	}
@@ -459,12 +459,12 @@ func (h *Handler) PostV1DeploymentsLogQuery(ctx apigen.Context, req *apigen.LogQ
 	return h.LogManager.Query(ctx, req)
 }
 
-func workerLogQueryErr(nodeID int32, err error) error {
+func secondaryLogQueryErr(nodeID int32, err error) error {
 	var notConnected *clusterhandler.NodeNotConnectedError
 	if errors.As(err, &notConnected) {
-		return apigen.NewApiErr(fmt.Sprintf("Worker node %d is not connected", nodeID), "worker_not_connected", http.StatusBadGateway)
+		return apigen.NewApiErr(fmt.Sprintf("Secondary node %d is not connected", nodeID), "secondary_not_connected", http.StatusBadGateway)
 	}
-	return apigen.NewApiErr(fmt.Sprintf("Log query on worker node %d failed: %v", nodeID, err), "worker_log_query_failed", http.StatusBadGateway)
+	return apigen.NewApiErr(fmt.Sprintf("Log query on secondary node %d failed: %v", nodeID, err), "secondary_log_query_failed", http.StatusBadGateway)
 }
 
 func (h *Handler) PostV1DeploymentsPrepareOutput(ctx apigen.Context, req *apigen.PrepareOutputRequest) iter.Seq2[*apigen.PrepareOutputChunk, error] {
@@ -484,11 +484,11 @@ func (h *Handler) PostV1DeploymentsPrepareOutput(ctx apigen.Context, req *apigen
 			return
 		}
 		if cfg.NodeID > 0 && cfg.NodeID != h.NodeID && h.Cluster != nil {
-			reader, err := h.Cluster.RequestLogs(cfg.NodeID, &apigen.MsgToWorker{
+			reader, err := h.Cluster.RequestLogs(cfg.NodeID, &apigen.MsgToSecondary{
 				DeploymentLogRequest: &apigen.DeploymentLogRequest{PreparerOutput: req},
 			})
 			if err != nil {
-				yield(nil, apigen.NewApiErr(fmt.Sprintf("Worker node %d is not connected", cfg.NodeID), "worker_not_connected", 502))
+				yield(nil, apigen.NewApiErr(fmt.Sprintf("Secondary node %d is not connected", cfg.NodeID), "secondary_not_connected", 502))
 				return
 			}
 			defer reader.Close()
