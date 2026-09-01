@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/network"
@@ -30,43 +31,43 @@ var ConfigRefOutsideSpaceErr = apigen.NewApiErr("Deployment references a config 
 
 var AssetRefOutsideSpaceErr = apigen.NewApiErr("Deployment references an asset outside its own or the global space", "asset_reference_outside_space", http.StatusBadRequest)
 
-func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.Deployment) bool {
-	if cfg.Def.NodeID <= 0 || cfg.Def.NodeID == h.NodeID || h.Cluster == nil {
+func canDeleteStaleDisconnectedSystemDeployment(cluster *clusterhandler.Handler, primaryNodeID int32, cfg *apigen.Deployment) bool {
+	if cfg.Def.NodeID <= 0 || cfg.Def.NodeID == primaryNodeID || cluster == nil {
 		return false
 	}
-	_, connected := h.Cluster.ConnectedNodes()[cfg.Def.NodeID]
+	_, connected := cluster.ConnectedNodes()[cfg.Def.NodeID]
 	return !connected
 }
 
 // canDeleteDeployment reports whether every live assignment for the deployment
 // permits deletion. Checking only the newest is not enough: mid-rollover it can
 // be STOPPED while an older instance is still RUNNING.
-func (h *Handler) canDeleteDeployment(cfg *apigen.Deployment, statuses []apigen.ScheduledInstanceStatus) bool {
+func canDeleteDeployment(cluster *clusterhandler.Handler, primaryNodeID int32, cfg *apigen.Deployment, statuses []apigen.ScheduledInstanceStatus) bool {
 	if len(statuses) == 0 {
 		return !cfg.WorkloadRunning()
 	}
 	for i := range statuses {
-		if !h.instancePermitsDelete(cfg, statuses[i]) {
+		if !instancePermitsDelete(cluster, primaryNodeID, cfg, statuses[i]) {
 			return false
 		}
 	}
 	return true
 }
 
-func (h *Handler) instancePermitsDelete(cfg *apigen.Deployment, status apigen.ScheduledInstanceStatus) bool {
+func instancePermitsDelete(cluster *clusterhandler.Handler, primaryNodeID int32, cfg *apigen.Deployment, status apigen.ScheduledInstanceStatus) bool {
 	if status.Runner.Status == apigen.RunningStatus_STOPPED {
 		return true
 	}
 	if status.Runner.Status != apigen.RunningStatus_RUNNING && status.Runner.Status != apigen.RunningStatus_DEPLOYMENT_STATUS_UNKNOWN {
 		return false
 	}
-	if cfg.Def.NodeID <= 0 || cfg.Def.NodeID == h.NodeID {
+	if cfg.Def.NodeID <= 0 || cfg.Def.NodeID == primaryNodeID {
 		return false
 	}
-	if h.Cluster == nil {
+	if cluster == nil {
 		return true
 	}
-	_, connected := h.Cluster.ConnectedNodes()[cfg.Def.NodeID]
+	_, connected := cluster.ConnectedNodes()[cfg.Def.NodeID]
 	return !connected
 }
 
@@ -84,8 +85,8 @@ type deploymentResolver interface {
 	ResolveConfig(id int32) (string, bool)
 }
 
-func (h *Handler) validateDeploymentSpec(spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, error) {
-	return validateDeploymentSpecWithResolvers(spec, h.Store, h.Secrets, h.Store)
+func validateDeploymentSpec(store *state.Service, secretStore *secrets.Manager, spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, error) {
+	return validateDeploymentSpecWithResolvers(spec, store, secretStore, store)
 }
 
 func validateDeploymentSpecWithAssets(spec *apigen.DeploymentSpec, assets deploymentAssetResolver) (*apigen.DeploymentSpec, error) {
@@ -427,7 +428,7 @@ func ingressHostname(value string) (string, bool) {
 	return hostname, true
 }
 
-func (h *Handler) validateNodeNetworkingClaims(live state.LiveState, nodeID, deploymentID int32, candidate *apigen.DeploymentSpec) error {
+func validateNodeNetworkingClaims(primaryNodeID int32, live state.LiveState, nodeID, deploymentID int32, candidate *apigen.DeploymentSpec) error {
 	if candidate == nil {
 		return nil
 	}
@@ -459,7 +460,7 @@ func (h *Handler) validateNodeNetworkingClaims(live state.LiveState, nodeID, dep
 			case route.Kind == apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH && route.TlsPassthroughConfig != nil:
 				key := ingressRouteKey{hostPort: ingressHostPort(route.TlsPassthroughConfig.HostPort), hostname: hostname}
 				// The primary Web UI owns :443 until it and ingress share one listener.
-				if id == deploymentID && nodeID == h.NodeID && key.hostPort == defaultIngressHostPort {
+				if id == deploymentID && nodeID == primaryNodeID && key.hostPort == defaultIngressHostPort {
 					return invalidConfigErrf("networking.ingress: host port %d is reserved for the primary Web UI", key.hostPort)
 				}
 				if owner, claimed := routes[key]; claimed && owner != id {
@@ -471,7 +472,7 @@ func (h *Handler) validateNodeNetworkingClaims(live state.LiveState, nodeID, dep
 				if !ok {
 					continue
 				}
-				if id == deploymentID && nodeID == h.NodeID {
+				if id == deploymentID && nodeID == primaryNodeID {
 					return invalidConfigErrf("networking.ingress: host port %d is reserved for the primary Web UI", defaultIngressHostPort)
 				}
 				key := httpsRouteKey{hostname: hostname, pathPrefix: prefix}
@@ -565,14 +566,14 @@ func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore deploymentS
 	return nil
 }
 
-func (h *Handler) validateRefSpaces(spec *apigen.DeploymentSpec, spaceID int32) error {
-	if err := h.validateSecretRefSpaces(spec, spaceID); err != nil {
+func validateRefSpaces(store *state.Service, secretStore *secrets.Manager, spec *apigen.DeploymentSpec, spaceID int32) error {
+	if err := validateSecretRefSpaces(secretStore, spec, spaceID); err != nil {
 		return err
 	}
-	if err := h.validateConfigRefSpaces(spec, spaceID); err != nil {
+	if err := validateConfigRefSpaces(store, spec, spaceID); err != nil {
 		return err
 	}
-	return h.validateAssetRefSpaces(spec, spaceID)
+	return validateAssetRefSpaces(store, spec, spaceID)
 }
 
 // validateSecretRefSpaces enforces reference locality: a deployment may pin
@@ -581,17 +582,17 @@ func (h *Handler) validateRefSpaces(spec *apigen.DeploymentSpec, spaceID int32) 
 // secrets), so it cannot lag what a runner would resolve. Callers must hold
 // the global lock so a concurrent secret space move cannot invalidate the
 // check before the config write lands.
-func (h *Handler) validateSecretRefSpaces(spec *apigen.DeploymentSpec, spaceID int32) error {
+func validateSecretRefSpaces(secretStore *secrets.Manager, spec *apigen.DeploymentSpec, spaceID int32) error {
 	if spec == nil {
 		return nil
 	}
 	cfg := apigen.Deployment{Def: apigen.DeploymentDef{Spec: *spec}}
 	ids := runtimeinputs.SecretRefs(&cfg)
-	if len(ids) > 0 && h.Secrets == nil {
+	if len(ids) > 0 && secretStore == nil {
 		return invalidConfigErrf("secrets cannot be resolved here")
 	}
 	for _, id := range ids {
-		meta, ok := h.Secrets.MetaByID(id)
+		meta, ok := secretStore.MetaByID(id)
 		if !ok {
 			return invalidConfigErrf("unknown secret id %d", id)
 		}
@@ -604,13 +605,13 @@ func (h *Handler) validateSecretRefSpaces(spec *apigen.DeploymentSpec, spaceID i
 	return nil
 }
 
-func (h *Handler) validateConfigRefSpaces(spec *apigen.DeploymentSpec, spaceID int32) error {
+func validateConfigRefSpaces(store *state.Service, spec *apigen.DeploymentSpec, spaceID int32) error {
 	if spec == nil {
 		return nil
 	}
 	cfg := apigen.Deployment{Def: apigen.DeploymentDef{Spec: *spec}}
 	for _, id := range runtimeinputs.ConfigRefs(&cfg) {
-		ref, ok := h.Store.GetConfigVersionByID(id)
+		ref, ok := store.GetConfigVersionByID(id)
 		if !ok {
 			return invalidConfigErrf("unknown config id %d", id)
 		}
@@ -623,13 +624,13 @@ func (h *Handler) validateConfigRefSpaces(spec *apigen.DeploymentSpec, spaceID i
 	return nil
 }
 
-func (h *Handler) validateAssetRefSpaces(spec *apigen.DeploymentSpec, spaceID int32) error {
+func validateAssetRefSpaces(store *state.Service, spec *apigen.DeploymentSpec, spaceID int32) error {
 	if spec == nil {
 		return nil
 	}
 	cfg := apigen.Deployment{Def: apigen.DeploymentDef{Spec: *spec}}
 	for _, ref := range runtimeinputs.RequiredAssetRefs(&cfg) {
-		version, ok := h.Store.GetAssetVersionRef(ref.AssetVersionID)
+		version, ok := store.GetAssetVersionRef(ref.AssetVersionID)
 		if !ok {
 			return invalidConfigErrf("asset version id %d not found", ref.AssetVersionID)
 		}
@@ -642,7 +643,7 @@ func (h *Handler) validateAssetRefSpaces(spec *apigen.DeploymentSpec, spaceID in
 	return nil
 }
 
-func (h *Handler) validateAddressEnvRefs(live state.LiveState, nodeID, deploymentID, spaceID int32, spec *apigen.DeploymentSpec) error {
+func validateAddressEnvRefs(live state.LiveState, nodeID, deploymentID, spaceID int32, spec *apigen.DeploymentSpec) error {
 	if spec == nil || spec.Container() == nil {
 		return nil
 	}
@@ -726,15 +727,15 @@ func validateNixWorkloadVersion(spec *apigen.DeploymentSpec) error {
 	return nil
 }
 
-func (h *Handler) verifyRunningNixSource(ctx apigen.Context, spec *apigen.DeploymentSpec) error {
+func verifyRunningNixSource(gitVersions GitSourceProvider, ctx apigen.Context, spec *apigen.DeploymentSpec) error {
 	nix := nixSource(spec)
 	if nix == nil {
 		return nil
 	}
-	if h.GitVersions == nil {
+	if gitVersions == nil {
 		return apigen.NewApiErr("Nix source verification is not configured", "nix_source_verification_unavailable", http.StatusServiceUnavailable)
 	}
-	if _, err := h.GitVersions.ValidateNixSource(ctx, nix.Repo, spec.WorkloadVersion(), nix.Flake); err != nil {
+	if _, err := gitVersions.ValidateNixSource(ctx, nix.Repo, spec.WorkloadVersion(), nix.Flake); err != nil {
 		return apigen.NewApiErr(fmt.Sprintf("Nix source verification failed: %v", err), "nix_source_verification_failed", http.StatusBadRequest)
 	}
 	return nil
@@ -1010,7 +1011,7 @@ func containerHostMountDenied(host string) bool {
 	return false
 }
 
-func (h *Handler) validateCrossDeploymentMountSources(live state.LiveState, spec *apigen.DeploymentSpec, nodeID, currentID, spaceID int32) error {
+func validateCrossDeploymentMountSources(live state.LiveState, spec *apigen.DeploymentSpec, nodeID, currentID, spaceID int32) error {
 	if spec == nil || spec.Container() == nil {
 		return nil
 	}

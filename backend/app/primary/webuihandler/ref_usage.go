@@ -115,13 +115,13 @@ func deploymentUsesAddressID(live state.LiveState, ids map[int32]struct{}) bool 
 // deploymentRefDetails renders "deployment <space> / <node> / <name>" lines
 // for every deployment pinning one of ids — the human-readable half of the
 // reference_in_use refusal.
-func (h *Handler) deploymentRefDetails(live state.LiveState, ids map[int32]struct{}, refs func(*apigen.Deployment) []int32) []string {
+func deploymentRefDetails(store *state.Service, live state.LiveState, ids map[int32]struct{}, refs func(*apigen.Deployment) []int32) []string {
 	cfgs := referencingDeployments(live, ids, refs)
 	if len(cfgs) == 0 {
 		return nil
 	}
 	spaces := map[int32]string{}
-	for _, space := range h.Store.ListSpaces() {
+	for _, space := range store.ListSpaces() {
 		spaces[space.ID] = space.Name
 	}
 	nodes := map[int32]string{}

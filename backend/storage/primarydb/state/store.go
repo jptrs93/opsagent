@@ -3,7 +3,6 @@ package state
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -72,31 +71,25 @@ func (s *Service) FetchDeploymentSnapshot(predicate storage.DeploymentPredicate)
 }
 
 // FetchDeletedDeploymentSnapshot returns the tombstone config of the most
-// recently deleted deployments, newest first, capped at limit. Deletion writes a
-// spec version rather than removing the row, so these stay cached alongside
-// live ones; every other snapshot filters them out because a deleted deployment
-// schedules nothing. Deletion order is the config's update time, which for a
-// tombstone is when the delete was written.
+// recently deleted deployments, newest first, capped at limit. A delete event
+// is terminal — every write path refuses a deleted deployment — so the delete
+// rows are the tombstones, read straight from the event log. The limit is
+// applied after the caller's predicate, which filters on the decoded config,
+// so the query itself cannot be capped.
 func (s *Service) FetchDeletedDeploymentSnapshot(predicate storage.DeploymentPredicate, limit int) []apigen.Deployment {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
+	events := erru.Must(s.q.ListDeletedDeploymentEvents(context.Background(), pq.DeploymentEventDelete))
 	out := make([]apigen.Deployment, 0, limit)
-	for _, cfg := range s.deploymentCache {
-		if !cfg.Deleted() || (predicate != nil && !predicate(*cfg)) {
+	for _, e := range events {
+		cfg := deploymentFromRow(e)
+		if predicate != nil && !predicate(*cfg) {
 			continue
 		}
 		out = append(out, *cfg)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].EventTime.Equal(out[j].EventTime) {
-			return out[i].EventTime.After(out[j].EventTime)
+		if limit > 0 && len(out) == limit {
+			break
 		}
-		// Deletions written in the same millisecond still need a total order, or
-		// the caller's cap would pick arbitrarily between them across calls.
-		return out[i].ID > out[j].ID
-	})
-	if limit > 0 && len(out) > limit {
-		out = out[:limit]
 	}
 	return out
 }

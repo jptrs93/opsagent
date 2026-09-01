@@ -33,30 +33,21 @@ const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHu
 
 func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.Deployment, error) {
 	updated := &apigen.Deployment{Def: apigen.DeploymentDef{NodeID: req.NodeID, SpaceID: req.SpaceID, Name: req.Name, Spec: req.Spec}}
-	if err := preLockDeploymentValidate(updated); err != nil {
-		return nil, err
-	}
+
 	if err := h.requireAccess(ctx, vCreate, eDeployment, int64(req.SpaceID), 0); err != nil {
 		return nil, err
 	}
-	spec, err := h.validateDeploymentSpec(&req.Spec)
-	if err != nil {
+
+	if err := preLockValidateDeploymentCreate(h.Store, h.Secrets, h.GitVersions, ctx, updated); err != nil {
 		return nil, err
-	}
-	updated.Def.Spec = *spec
-	if spec.WorkloadRunning() {
-		if err := h.verifyRunningNixSource(ctx, spec); err != nil {
-			return nil, err
-		}
 	}
 
-	s := h.Store
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
-	if err := h.inLockValidateDeploymentCreate(updated, s.LiveState()); err != nil {
+	h.Store.Mu.Lock()
+	defer h.Store.Mu.Unlock()
+	if err := inLockValidateDeploymentCreate(h.Store, h.Secrets, h.NodeID, updated, h.Store.LiveState()); err != nil {
 		return nil, err
 	}
-	cfg := s.CreateDeploymentLocked(ctx, &updated.Def)
+	cfg := h.Store.CreateDeploymentLocked(ctx, &updated.Def)
 	h.wakeAcme()
 	return cfg, nil
 }
@@ -68,35 +59,20 @@ func (h *Handler) wakeAcme() {
 }
 
 func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequestV2) (*apigen.Deployment, error) {
-	if req.DeploymentID == 0 {
-		return nil, MissingKeyErr
+	if err := req.Validate(); err != nil {
+		return nil, err
 	}
-	cfg := h.findConfigByID(req.DeploymentID)
-	if cfg == nil || cfg.Deleted() {
+	cfg := h.Store.FetchDeployment(req.DeploymentID)
+	if cfg == nil {
 		return nil, DeploymentNotFoundErr
 	}
 	if err := h.requireEntityAccess(ctx, vUpdate, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return nil, err
 	}
-	if req.ExpectedVersion != cfg.Version+1 {
-		return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.ExpectedVersion, cfg.Version+1)
-	}
-	kinds := 0
-	for _, set := range []bool{req.VersionOnlyUpdate != nil, req.RunningOnlyUpdate != nil, req.SpecUpdate != nil, req.AssignedSpaceUpdate != nil} {
-		if set {
-			kinds++
-		}
-	}
-	if kinds != 1 {
-		return nil, invalidConfigErrf("exactly one update kind must be set")
-	}
 
 	update := state.DeploymentUpdate{}
 	switch {
 	case req.VersionOnlyUpdate != nil:
-		if req.VersionOnlyUpdate.TargetVersion == "" {
-			return nil, invalidConfigErrf("targetVersion is required")
-		}
 		next, err := cloneDeploymentSpec(&cfg.Def.Spec)
 		if err != nil {
 			return nil, err
@@ -107,87 +83,42 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		update.Spec = next
 
 	case req.RunningOnlyUpdate != nil:
-		desired := req.RunningOnlyUpdate.DesiredRunning
-		if desired && cfg.WorkloadVersion() == "" {
-			return nil, invalidConfigErrf("deployment has no version to start; set a target version")
-		}
 		next, err := cloneDeploymentSpec(&cfg.Def.Spec)
 		if err != nil {
 			return nil, err
 		}
-		if err := next.SetWorkloadState(cfg.WorkloadVersion(), desired); err != nil {
+		if err := next.SetWorkloadState(cfg.WorkloadVersion(), req.RunningOnlyUpdate.DesiredRunning); err != nil {
 			return nil, invalidConfigErrf("spec: %v", err)
 		}
 		update.Spec = next
-
 	case req.SpecUpdate != nil:
-		if internaldeploy.IsInternalConfig(cfg) {
-			return nil, invalidConfigErrf("opendeploy system deployment identity and spec are internal-only")
-		}
-		validated, err := h.validateDeploymentSpec(&req.SpecUpdate.Spec)
-		if err != nil {
-			return nil, err
-		}
-		update.Spec = validated
-
+		update.Spec = &req.SpecUpdate.Spec
 	case req.AssignedSpaceUpdate != nil:
 		dest := req.AssignedSpaceUpdate.SpaceID
 		if dest == cfg.Def.SpaceID {
 			return cfg, nil
 		}
-		if err := h.requireAccess(ctx, vCreate, eDeployment, int64(dest), 0); err != nil {
-			return nil, err
-		}
 		update.SpaceID = &dest
 	}
 
-	if update.Spec != nil {
-		if !update.Spec.WorkloadRunning() && !sameDesiredVersionSource(&cfg.Def.Spec, update.Spec) {
-			if err := update.Spec.SetWorkloadState("", false); err != nil {
-				return nil, invalidConfigErrf("spec: %v", err)
-			}
-		}
-		nixChanged := !sameNixBuildConfig(nixSource(&cfg.Def.Spec), nixSource(update.Spec))
-		if update.Spec.WorkloadRunning() && nixSource(update.Spec) != nil &&
-			(!cfg.WorkloadRunning() || update.Spec.WorkloadVersion() != cfg.WorkloadVersion() || nixChanged) {
-			if err := h.verifyRunningNixSource(ctx, update.Spec); err != nil {
-				return nil, err
-			}
+	if update.SpaceID != nil {
+		if err := h.requireAccess(ctx, vCreate, eDeployment, int64(*update.SpaceID), 0); err != nil {
+			return nil, err
 		}
 	}
 
-	updated := *cfg
-	if update.Spec != nil {
-		updated.Def.Spec = *update.Spec
-	}
-	if update.SpaceID != nil {
-		updated.Def.SpaceID = *update.SpaceID
-	}
-	if err := preLockDeploymentValidate(&updated); err != nil {
+	updated, err := preLockValidateDeploymentUpdate(h.Store, h.Secrets, h.GitVersions, ctx, cfg, req, &update)
+	if err != nil {
 		return nil, err
 	}
 
-	s := h.Store
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
-	live := s.LiveState()
-	existing := live.Deployments[req.DeploymentID]
-	if existing == nil || existing.Deleted() {
-		return nil, DeploymentNotFoundErr
+	h.Store.Mu.Lock()
+	defer h.Store.Mu.Unlock()
+	live := h.Store.LiveState()
+	if err := inLockValidateDeploymentUpdate(h.Store, h.Secrets, h.NodeID, live.Deployments[req.DeploymentID], updated, req.ExpectedVersion, live); err != nil {
+		return nil, err
 	}
-	if req.ExpectedVersion != existing.Version+1 {
-		return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.ExpectedVersion, existing.Version+1)
-	}
-	if update.SpaceID != nil {
-		if err := h.inLockValidateDeploymentSpaceMove(existing, &updated, live); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := h.inLockValidateDeploymentUpdate(existing, &updated, live); err != nil {
-			return nil, err
-		}
-	}
-	current := s.UpdateDeploymentLocked(ctx, req.DeploymentID, update)
+	current := h.Store.UpdateDeploymentLocked(ctx, req.DeploymentID, update)
 	h.wakeAcme()
 	return current, nil
 }
@@ -196,29 +127,22 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 	if req.DeploymentID == 0 {
 		return MissingKeyErr
 	}
-	cfg := h.findConfigByID(req.DeploymentID)
+	cfg := h.Store.FetchDeployment(req.DeploymentID)
 	if cfg == nil || cfg.Deleted() {
 		return DeploymentNotFoundErr
 	}
 	if err := h.requireEntityAccess(ctx, vDelete, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return err
 	}
-	if req.Version != cfg.Version+1 {
-		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
+	if err := preLockValidateDeploymentDelete(cfg, req.Version); err != nil {
+		return err
 	}
 
 	s := h.Store
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	live := s.LiveState()
-	existing := live.Deployments[req.DeploymentID]
-	if existing == nil || existing.Deleted() {
-		return DeploymentNotFoundErr
-	}
-	if req.Version != existing.Version+1 {
-		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, existing.Version+1)
-	}
-	if err := h.inLockValidateDeploymentDelete(existing, live); err != nil {
+	if err := inLockValidateDeploymentDelete(h.Store, h.Cluster, h.NodeID, live.Deployments[req.DeploymentID], req.Version, live); err != nil {
 		return err
 	}
 	s.DeleteDeploymentLocked(ctx, req.DeploymentID)
@@ -517,14 +441,14 @@ func waitForPrepareOutputFile(ctx context.Context, path string) (*os.File, error
 	}
 }
 
+// findConfigByID resolves a live deployment, hiding deleted tombstones from
+// callers that treat existence as "queryable" (history, logs, versions).
 func (h *Handler) findConfigByID(deploymentID int32) *apigen.Deployment {
-	for _, cfg := range h.Store.FetchDeploymentSnapshot(nil) {
-		if cfg.ID == deploymentID {
-			copy := cfg
-			return &copy
-		}
+	cfg := h.Store.FetchDeployment(deploymentID)
+	if cfg == nil || cfg.Deleted() {
+		return nil
 	}
-	return nil
+	return cfg
 }
 
 // deploymentStatuses returns the observed status of every live scheduled

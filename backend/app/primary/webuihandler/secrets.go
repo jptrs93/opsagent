@@ -324,7 +324,7 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 	}
 	defer h.Store.GlobalLock()()
 	ids := int32Set(h.Store.SecretVersionIDs(req.SecretID))
-	details := append(h.settingsSecretRefDetails(ids), h.deploymentRefDetails(h.Store.LiveState(), ids, runtimeinputs.SecretRefs)...)
+	details := append(h.settingsSecretRefDetails(ids), deploymentRefDetails(h.Store, h.Store.LiveState(), ids, runtimeinputs.SecretRefs)...)
 	if len(details) > 0 {
 		return referenceInUseDetailErr("Secret", details)
 	}

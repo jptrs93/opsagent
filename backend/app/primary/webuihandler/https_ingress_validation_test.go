@@ -44,7 +44,7 @@ func TestHTTPSIngressUpdateOnSecondaryWithPassthrough(t *testing.T) {
 	}
 	for _, hostname := range []string{"one.ingress.opendeploy.test", "two.ingress.opendeploy.test"} {
 		cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "tls-"+hostname, secondaryNode.ID, passthroughSpec(hostname))
-		if err := h.validateNodeNetworkingClaims(h.Store.LiveState(), secondaryNode.ID, cfg.ID, passthroughSpec(hostname)); err != nil {
+		if err := validateNodeNetworkingClaims(h.NodeID, h.Store.LiveState(), secondaryNode.ID, cfg.ID, passthroughSpec(hostname)); err != nil {
 			t.Fatalf("passthrough claims for %s rejected: %v", hostname, err)
 		}
 	}
@@ -63,11 +63,11 @@ func TestHTTPSIngressUpdateOnSecondaryWithPassthrough(t *testing.T) {
 			},
 		}},
 	})
-	validated, err := h.validateDeploymentSpec(&updated)
+	validated, err := validateDeploymentSpec(h.Store, h.Secrets, &updated)
 	if err != nil {
 		t.Fatalf("validateDeploymentSpec rejected HTTPS ingress: %v", err)
 	}
-	if err := h.validateNodeNetworkingClaims(h.Store.LiveState(), echo.Def.NodeID, echo.ID, validated); err != nil {
+	if err := validateNodeNetworkingClaims(h.NodeID, h.Store.LiveState(), echo.Def.NodeID, echo.ID, validated); err != nil {
 		t.Fatalf("validateNodeNetworkingClaims rejected HTTPS ingress: %v", err)
 	}
 }

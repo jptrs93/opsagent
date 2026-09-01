@@ -1840,6 +1840,51 @@ func (q *Queries) ListConfigVersionsByConfigID(ctx context.Context, configID int
 	return items, nil
 }
 
+const listDeletedDeploymentEvents = `-- name: ListDeletedDeploymentEvents :many
+SELECT id, global_seq, event_time, created_time, author, deployment_id,
+       version, spec_version, space_assignment_version, name_version,
+       value, event_type
+FROM deployment_event_log
+WHERE event_type = ?
+ORDER BY event_time DESC, deployment_id DESC
+`
+
+func (q *Queries) ListDeletedDeploymentEvents(ctx context.Context, eventType int64) ([]DeploymentEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listDeletedDeploymentEvents, eventType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeploymentEvent
+	for rows.Next() {
+		var i DeploymentEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.GlobalSeq,
+			&i.EventTime,
+			&i.CreatedTime,
+			&i.Author,
+			&i.DeploymentID,
+			&i.Version,
+			&i.SpecVersion,
+			&i.SpaceAssignmentVersion,
+			&i.NameVersion,
+			&i.Value,
+			&i.EventType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDeploymentEvents = `-- name: ListDeploymentEvents :many
 SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
        e.version, e.spec_version, e.space_assignment_version, e.name_version,

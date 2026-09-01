@@ -68,7 +68,7 @@ func TestPostV2DeploymentsUpdateVersionOnly(t *testing.T) {
 		DeploymentID:      cfg.ID,
 		ExpectedVersion:   updated.Version + 1,
 		VersionOnlyUpdate: &apigen.VersionOnlyUpdate{},
-	}); err == nil || !strings.Contains(err.Error(), "targetVersion is required") {
+	}); err == nil || !strings.Contains(err.Error(), "no version to start") {
 		t.Fatalf("empty target version err = %v, want rejection", err)
 	}
 }

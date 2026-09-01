@@ -268,7 +268,7 @@ func (h *Handler) PostV1AssetsDelete(ctx apigen.Context, req *apigen.AssetDelete
 	assetOps.Lock()
 	defer assetOps.Unlock()
 	defer h.Store.GlobalLock()()
-	if details := h.deploymentRefDetails(h.Store.LiveState(), h.assetVersionIDSet(req.AssetID), assetRefIDs); len(details) > 0 {
+	if details := deploymentRefDetails(h.Store, h.Store.LiveState(), h.assetVersionIDSet(req.AssetID), assetRefIDs); len(details) > 0 {
 		return referenceInUseDetailErr("Asset", details)
 	}
 	if err := h.Assets.DeleteAssetLocked(ctx, req.AssetID); err != nil {

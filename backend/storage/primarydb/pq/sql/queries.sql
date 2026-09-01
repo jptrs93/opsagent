@@ -132,6 +132,14 @@ JOIN (SELECT deployment_id, MAX(version) AS version
   ON latest.deployment_id = e.deployment_id AND latest.version = e.version
 ORDER BY e.deployment_id;
 
+-- name: ListDeletedDeploymentEvents :many
+SELECT id, global_seq, event_time, created_time, author, deployment_id,
+       version, spec_version, space_assignment_version, name_version,
+       value, event_type
+FROM deployment_event_log
+WHERE event_type = ?
+ORDER BY event_time DESC, deployment_id DESC;
+
 -- name: ListDeploymentEvents :many
 SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
        e.version, e.spec_version, e.space_assignment_version, e.name_version,
