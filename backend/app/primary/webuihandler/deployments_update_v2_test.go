@@ -10,6 +10,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
 
 func newV2DeploymentHandler(t *testing.T) (*Handler, *apigen.Deployment, *state.Service) {
@@ -185,7 +186,7 @@ func TestPostV2DeploymentsUpdateAssignedSpace(t *testing.T) {
 	}
 
 	zeroSpec := remoteDeploymentSpec("nginx", hostNetworking())
-	zeroDep := store.MustCreateDeploymentForNode(apigen.Context{}, 0, "zerodep", cfg.NodeID, &zeroSpec)
+	zeroDep := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 0, "zerodep", cfg.NodeID, &zeroSpec)
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:        zeroDep.ID,
 		ExpectedVersion:     zeroDep.Version + 1,
@@ -202,7 +203,7 @@ func TestPostV2DeploymentsUpdateAssignedSpaceRejectsDuplicateIdentity(t *testing
 		t.Fatalf("CreateSpace: %v", err)
 	}
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
-	twin := store.MustCreateDeploymentForNode(apigen.Context{}, extraSpace.ID, cfg.Name, cfg.NodeID, &spec)
+	twin := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, extraSpace.ID, cfg.Name, cfg.NodeID, &spec)
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:        twin.ID,
 		ExpectedVersion:     twin.Version + 1,

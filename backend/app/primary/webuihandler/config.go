@@ -29,8 +29,7 @@ func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.Cl
 	if err := h.requireAccess(ctx, vUpdate, eCluster, 0, 0); err != nil {
 		return nil, err
 	}
-	unlockReferences := h.ConfigService.LockReferences()
-	defer unlockReferences()
+	defer h.ConfigService.LockForUpdate()()
 	stored, resolved, err := validateSettings(req, func(ref *apigen.ConfigRef) (string, bool, error) {
 		if ref == nil {
 			return "", false, nil
@@ -63,7 +62,7 @@ func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.Cl
 		}
 		return nil, apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
 	}
-	if err := h.ConfigService.UpdateSettings(*stored); err != nil {
+	if err := h.ConfigService.UpdateSettingsLocked(*stored); err != nil {
 		if errors.Is(err, state.ErrAssetMigrationInProgress) {
 			return nil, apigen.NewApiErr(
 				"Wait for the current large asset migration to finish before changing settings",

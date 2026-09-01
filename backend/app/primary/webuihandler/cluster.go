@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -134,26 +133,4 @@ func (h *Handler) nodeByIdentifier(identifier string) *state.Node {
 		}
 	}
 	return nil
-}
-
-// nodeAllowsSpace reports whether deployments in spaceID may be placed on
-// nodeID. A node the caller cannot resolve is reported as disallowing
-// everything; callers check node existence separately and give a better error.
-func (h *Handler) nodeAllowsSpace(nodeID, spaceID int32) bool {
-	for _, node := range h.Store.ListNodes() {
-		if node == nil || node.ID != nodeID {
-			continue
-		}
-		return slices.Contains(node.AllowedSpaces, spaceID)
-	}
-	return false
-}
-
-func (h *Handler) validateNodeAllowsSpace(nodeID, spaceID int32) error {
-	if h.nodeAllowsSpace(nodeID, spaceID) {
-		return nil
-	}
-	return apigen.NewApiErr(
-		"This node does not allow deployments from that space",
-		"node_space_not_allowed", http.StatusConflict)
 }

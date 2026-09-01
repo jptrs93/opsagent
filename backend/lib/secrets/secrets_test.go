@@ -41,7 +41,8 @@ func (m *memStore) ListSecretKeyslots() []Keyslot {
 	}
 	return out
 }
-func (m *memStore) UpsertSecretKeyslot(k Keyslot) { m.slots[k.Slot] = k }
+func (m *memStore) GlobalLock() func()                  { return func() {} }
+func (m *memStore) UpsertSecretKeyslotLocked(k Keyslot) { m.slots[k.Slot] = k }
 func (m *memStore) ListSecretVersionRecords() []Record {
 	out := make([]Record, 0, len(m.records))
 	for _, r := range m.records {
@@ -57,7 +58,7 @@ func (m *memStore) GetSecretIDByName(spaceID int32, name string) (int32, bool) {
 	}
 	return 0, false
 }
-func (m *memStore) CreateSecretWithVersion(name string, spaceID, directoryID, author int32, seal SealFunc) (Record, error) {
+func (m *memStore) CreateSecretWithVersionLocked(name string, spaceID, directoryID, author int32, seal SealFunc) (Record, error) {
 	if _, exists := m.GetSecretIDByName(spaceID, name); exists {
 		return Record{}, fmt.Errorf("secret %q already exists", name)
 	}
@@ -66,7 +67,7 @@ func (m *memStore) CreateSecretWithVersion(name string, spaceID, directoryID, au
 	m.identities[secretID] = memIdentity{name: name, spaceID: spaceID}
 	return m.insertVersion(secretID, author, seal)
 }
-func (m *memStore) AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal SealFunc, update bool, deployments []storage.DeploymentSpecVersion, afterCommit func(Record)) (Record, []int32, error) {
+func (m *memStore) AppendSecretVersionWithDeploymentUpdatesLocked(secretID, author int32, seal SealFunc, update bool, deployments []storage.DeploymentSpecVersion, afterCommit func(Record)) (Record, []int32, error) {
 	if _, ok := m.identities[secretID]; !ok {
 		return Record{}, nil, fmt.Errorf("secret %d not found", secretID)
 	}
@@ -107,7 +108,7 @@ func (m *memStore) insertVersion(secretID, author int32, seal SealFunc) (Record,
 	m.records[rec.ID] = rec
 	return rec, nil
 }
-func (m *memStore) RenameSecret(secretID int32, newName string) error {
+func (m *memStore) RenameSecretLocked(secretID int32, newName string) error {
 	identity, ok := m.identities[secretID]
 	if !ok {
 		return fmt.Errorf("secret %d not found", secretID)
@@ -122,7 +123,7 @@ func (m *memStore) RenameSecret(secretID int32, newName string) error {
 	}
 	return nil
 }
-func (m *memStore) MoveSecretSpace(secretID, newSpaceID, newDirectoryID, author int32) error {
+func (m *memStore) MoveSecretSpaceLocked(secretID, newSpaceID, newDirectoryID, author int32) error {
 	identity, ok := m.identities[secretID]
 	if !ok {
 		return fmt.Errorf("secret %d not found", secretID)
@@ -137,7 +138,7 @@ func (m *memStore) MoveSecretSpace(secretID, newSpaceID, newDirectoryID, author 
 	}
 	return nil
 }
-func (m *memStore) DeleteSecret(secretID int32) error {
+func (m *memStore) DeleteSecretLocked(secretID int32) error {
 	delete(m.identities, secretID)
 	for id, r := range m.records {
 		if r.SecretID == secretID {
@@ -150,7 +151,7 @@ func (m *memStore) GetSystemSecret(name string) (SystemRecord, bool) {
 	r, ok := m.systemRecords[name]
 	return r, ok
 }
-func (m *memStore) UpsertSystemSecret(r SystemRecord) { m.systemRecords[r.Name] = r }
+func (m *memStore) UpsertSystemSecretLocked(r SystemRecord) { m.systemRecords[r.Name] = r }
 
 func (m *memStore) recordByName(name string) Record {
 	for _, r := range m.records {

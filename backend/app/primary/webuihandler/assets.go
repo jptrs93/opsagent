@@ -222,12 +222,11 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 	if spaceChanging {
 		// Deployment writes hold the same lock, so no new reference can appear
 		// between the locality check and the move.
-		unlockReferences := h.ConfigService.LockReferences()
-		defer unlockReferences()
-		if destSpace != state.DefaultSpaceID && h.referencesOutsideSpace(h.assetVersionIDSet(req.AssetID), assetRefIDs, destSpace) {
+		defer h.Store.GlobalLock()()
+		if destSpace != state.DefaultSpaceID && referencesOutsideSpace(h.Store.LiveState(), h.assetVersionIDSet(req.AssetID), assetRefIDs, destSpace) {
 			return nil, MoveReferencesOutsideSpaceErr
 		}
-		if err := h.Store.MoveAssetSpace(req.AssetID, req.SpaceID, req.AssetDirectoryID, ctx.AttributionUserID()); err != nil {
+		if err := h.Store.MoveAssetSpaceLocked(req.AssetID, req.SpaceID, req.AssetDirectoryID, ctx.AttributionUserID()); err != nil {
 			return nil, mapAssetStoreErr(err)
 		}
 		// Tombstone for clients that saw the old space but cannot see the new
@@ -256,22 +255,23 @@ func (h *Handler) assetVersionIDSet(assetID int32) map[int32]struct{} {
 }
 
 func (h *Handler) PostV1AssetsDelete(ctx apigen.Context, req *apigen.AssetDeleteRequest) error {
-	// Held across the reference check and the delete so a deployment cannot pin
-	// a version of this asset in between. Secrets and configs have refused
-	// referenced deletes this way all along; assets simply lacked the reverse
-	// lookup until the space-move work added one.
-	unlockReferences := h.ConfigService.LockReferences()
-	defer unlockReferences()
 	if req.AssetID <= 0 {
 		return AssetIDRequiredErr
 	}
 	if err := h.requireAssetAccess(ctx, vDelete, req.AssetID); err != nil {
 		return err
 	}
-	if details := h.deploymentRefDetails(h.assetVersionIDSet(req.AssetID), assetRefIDs); len(details) > 0 {
+	// Held across the reference check and the delete so a deployment cannot pin
+	// a version of this asset in between; the asset operation lock orders ahead
+	// of the global lock, matching the upload and reclaim paths.
+	assetOps := h.Assets.AssetOperationLocker()
+	assetOps.Lock()
+	defer assetOps.Unlock()
+	defer h.Store.GlobalLock()()
+	if details := h.deploymentRefDetails(h.Store.LiveState(), h.assetVersionIDSet(req.AssetID), assetRefIDs); len(details) > 0 {
 		return referenceInUseDetailErr("Asset", details)
 	}
-	if err := h.Assets.DeleteAsset(ctx, req.AssetID); err != nil {
+	if err := h.Assets.DeleteAssetLocked(ctx, req.AssetID); err != nil {
 		return mapAssetStoreErr(err)
 	}
 	return nil

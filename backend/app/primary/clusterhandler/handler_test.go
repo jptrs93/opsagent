@@ -10,6 +10,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
 
 func TestBuildAllowedRefs(t *testing.T) {
@@ -66,8 +67,8 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 			Running: true,
 		},
 	}
-	m1 := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "web", m1Node.ID, spec)
-	m2 := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "web", m2Node.ID, spec)
+	m1 := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "web", m1Node.ID, spec)
+	m2 := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "web", m2Node.ID, spec)
 	m1Inst := store.CreateScheduledInstanceForTest(m1.ID, m1.SpecVersion, m1Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	m2Inst := store.CreateScheduledInstanceForTest(m2.ID, m2.SpecVersion, m2Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 

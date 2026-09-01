@@ -427,7 +427,7 @@ func ingressHostname(value string) (string, bool) {
 	return hostname, true
 }
 
-func (h *Handler) validateNodeNetworkingClaims(nodeID, deploymentID int32, candidate *apigen.DeploymentSpec) error {
+func (h *Handler) validateNodeNetworkingClaims(live state.LiveState, nodeID, deploymentID int32, candidate *apigen.DeploymentSpec) error {
 	if candidate == nil {
 		return nil
 	}
@@ -490,8 +490,8 @@ func (h *Handler) validateNodeNetworkingClaims(nodeID, deploymentID int32, candi
 		return nil
 	}
 
-	for _, cfg := range h.Store.FetchDeploymentSnapshot(nil) {
-		if cfg.NodeID != nodeID || cfg.ID == deploymentID {
+	for _, cfg := range live.Deployments {
+		if cfg.Deleted || cfg.NodeID != nodeID || cfg.ID == deploymentID {
 			continue
 		}
 		if err := add(cfg.ID, cfg.Spec); err != nil {
@@ -579,8 +579,8 @@ func (h *Handler) validateRefSpaces(spec *apigen.DeploymentSpec, spaceID int32) 
 // secret versions only from its own space or the global space. It runs over
 // the same collector the engine fetches by (env refs plus ingress cert
 // secrets), so it cannot lag what a runner would resolve. Callers must hold
-// ConfigService.LockReferences() so a concurrent secret space move cannot
-// invalidate the check before the config write lands.
+// the global lock so a concurrent secret space move cannot invalidate the
+// check before the config write lands.
 func (h *Handler) validateSecretRefSpaces(spec *apigen.DeploymentSpec, spaceID int32) error {
 	if spec == nil {
 		return nil
@@ -642,14 +642,11 @@ func (h *Handler) validateAssetRefSpaces(spec *apigen.DeploymentSpec, spaceID in
 	return nil
 }
 
-func (h *Handler) validateAddressEnvRefs(nodeID, deploymentID, spaceID int32, spec *apigen.DeploymentSpec, snapshot []apigen.Deployment) error {
+func (h *Handler) validateAddressEnvRefs(live state.LiveState, nodeID, deploymentID, spaceID int32, spec *apigen.DeploymentSpec) error {
 	if spec == nil || spec.Container() == nil {
 		return nil
 	}
-	configs := make(map[int32]*apigen.Deployment, len(snapshot))
-	for i := range snapshot {
-		configs[snapshot[i].ID] = &snapshot[i]
-	}
+	configs := live.Deployments
 	for key, value := range spec.Container().Runtime.EnvVars {
 		if value == nil || value.AddressDeploymentID == nil {
 			continue
@@ -1013,7 +1010,7 @@ func containerHostMountDenied(host string) bool {
 	return false
 }
 
-func (h *Handler) validateCrossDeploymentMountSources(spec *apigen.DeploymentSpec, nodeID, currentID, spaceID int32) error {
+func (h *Handler) validateCrossDeploymentMountSources(live state.LiveState, spec *apigen.DeploymentSpec, nodeID, currentID, spaceID int32) error {
 	if spec == nil || spec.Container() == nil {
 		return nil
 	}
@@ -1024,7 +1021,7 @@ func (h *Handler) validateCrossDeploymentMountSources(spec *apigen.DeploymentSpe
 		if mount.DeploymentID == currentID && currentID != 0 {
 			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: a deployment cannot mount its own default volume")
 		}
-		source := h.findConfigByID(mount.DeploymentID)
+		source := live.Deployments[mount.DeploymentID]
 		if source == nil || source.Deleted {
 			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: source deployment %d does not exist", mount.DeploymentID)
 		}

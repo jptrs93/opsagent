@@ -333,7 +333,7 @@ func TestMoveReservedSecretIsRejected(t *testing.T) {
 
 	// Reserved names cannot be created through the Manager at all, so seed one
 	// directly at the storage layer the way install/restore-era rows exist.
-	rec, err := h.Store.CreateSecretWithVersion("opendeploy.cluster-ca", 1, 0, 0,
+	rec, err := h.Store.CreateSecretWithVersionLocked("opendeploy.cluster-ca", 1, 0, 0,
 		func(secretID, version int32) (secrets.SealedValue, error) {
 			return secrets.SealedValue{SMKVersion: 1, Ciphertext: []byte{1}, Nonce: []byte{2}}, nil
 		})

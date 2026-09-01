@@ -10,6 +10,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
 
 // deleteDeployment removes a deployment through the handler so the tombstone is
@@ -164,10 +165,7 @@ func TestRecentlyDeletedOmitsInternalDeployments(t *testing.T) {
 	if internal == nil {
 		t.Fatal("no internal deployment was created")
 	}
-	_, ok := h.Store.DeleteDeployment(apigen.Context{Ctx: context.Background()}, internal.ID, internal.Version+1)
-	if !ok {
-		t.Fatal("deleting the internal deployment failed")
-	}
+	statetest.DeleteDeployment(h.Store, apigen.Context{Ctx: context.Background()}, internal.ID)
 
 	items := recentlyDeleted(t, h, 0)
 	if len(items) != 1 || items[0].Name != "web" {

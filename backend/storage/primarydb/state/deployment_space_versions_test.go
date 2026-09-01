@@ -1,7 +1,6 @@
 package state
 
 import (
-	"errors"
 	"path/filepath"
 	"testing"
 
@@ -12,7 +11,7 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := Open(dbPath)
 	node := store.EnsurePrimaryNode("primary", "primary-id")
-	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, "web", node.ID, nonEmptySpec())
+	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "web", node.ID, nonEmptySpec())
 	if cfg.SpaceVersion != 1 {
 		t.Fatalf("created config space version = %d, want 1", cfg.SpaceVersion)
 	}
@@ -24,28 +23,13 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 	}
 
 	author9 := apigen.Context{User: &apigen.InternalUser{ID: 9}}
-	if _, err := store.UpdateDeployment(author9, cfg.ID, DeploymentUpdate{
-		ExpectedVersion: cfg.Version,
-		SpaceID:         i32ptr(2),
-	}); !errors.Is(err, VersionMismatchErr) {
-		t.Fatalf("stale version err = %v, want %v", err, VersionMismatchErr)
-	}
-	moved, err := store.UpdateDeployment(author9, cfg.ID, DeploymentUpdate{
-		ExpectedVersion: cfg.Version + 1,
-		SpaceID:         i32ptr(2),
-	})
-	if err != nil {
-		t.Fatalf("move: %v", err)
-	}
+	moved := updateDeployment(store, author9, cfg.ID, DeploymentUpdate{SpaceID: i32ptr(2)})
 	if moved.SpaceID != 2 || moved.SpecVersion != cfg.SpecVersion || moved.SpaceVersion != 2 {
 		t.Fatalf("moved config = v%d space %d spaceV%d, want v%d space 2 spaceV2 (no spec version bump)",
 			moved.SpecVersion, moved.SpaceID, moved.SpaceVersion, cfg.SpecVersion)
 	}
-	if same, err := store.UpdateDeployment(author9, cfg.ID, DeploymentUpdate{
-		ExpectedVersion: moved.Version + 1,
-		SpaceID:         i32ptr(2),
-	}); err != nil || same.SpaceVersion != 2 {
-		t.Fatalf("same-space move = spaceV%d err %v, want no-op at spaceV2", same.SpaceVersion, err)
+	if same := updateDeployment(store, author9, cfg.ID, DeploymentUpdate{SpaceID: i32ptr(2)}); same.SpaceVersion != 2 {
+		t.Fatalf("same-space move = spaceV%d, want no-op at spaceV2", same.SpaceVersion)
 	}
 	events, err := store.q.ListDeploymentEvents(t.Context(), int64(cfg.ID))
 	if err != nil {
@@ -118,28 +102,17 @@ func TestSpecComparisonSurvivesMapEncodingOrder(t *testing.T) {
 		return spec
 	}
 
-	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, "envy", node.ID, envSpec())
+	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "envy", node.ID, envSpec())
 
-	updated, err := store.UpdateDeployment(apigen.Context{}, cfg.ID, DeploymentUpdate{
-		ExpectedVersion: cfg.Version + 1,
-		Spec:            envSpec(),
-	})
-	if err != nil || updated.SpecVersion != cfg.SpecVersion || updated.Version != cfg.Version {
-		t.Fatalf("same-spec update = v%d specV%d err %v, want no-op at specV%d", updated.Version, updated.SpecVersion, err, cfg.SpecVersion)
+	updated := updateDeployment(store, apigen.Context{}, cfg.ID, DeploymentUpdate{Spec: envSpec()})
+	if updated.SpecVersion != cfg.SpecVersion || updated.Version != cfg.Version {
+		t.Fatalf("same-spec update = v%d specV%d, want no-op at specV%d", updated.Version, updated.SpecVersion, cfg.SpecVersion)
 	}
 
-	current := cfg
 	for i, target := range []int32{2, DefaultSpaceID, 2, DefaultSpaceID} {
-		moved, err := store.UpdateDeployment(apigen.Context{}, cfg.ID, DeploymentUpdate{
-			ExpectedVersion: current.Version + 1,
-			SpaceID:         i32ptr(target),
-		})
-		if err != nil {
-			t.Fatalf("move %d: %v", i, err)
-		}
+		moved := updateDeployment(store, apigen.Context{}, cfg.ID, DeploymentUpdate{SpaceID: i32ptr(target)})
 		if moved.SpecVersion != cfg.SpecVersion {
 			t.Fatalf("move %d bumped spec version to %d, want %d", i, moved.SpecVersion, cfg.SpecVersion)
 		}
-		current = moved
 	}
 }

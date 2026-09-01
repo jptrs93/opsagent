@@ -75,7 +75,7 @@ func createMigration(t *testing.T, store *Store, oldSettings, newSettings *apige
 		}
 	}
 	newConfig := apigen.PrimaryConfig{Settings: *newSettings}
-	if _, migration, err := store.DB.AppendOpenDeploySettingsWithAssetMigration(newConfig.Encode(), true); err != nil {
+	if _, migration, err := store.DB.AppendOpenDeploySettingsWithAssetMigrationLocked(newConfig.Encode(), true); err != nil {
 		t.Fatalf("create migration: %v", err)
 	} else if migration == nil {
 		t.Fatal("migration was not created")
@@ -118,7 +118,7 @@ func TestLargeAssetStoredLocallyWhenBackupDisabled(t *testing.T) {
 		t.Fatal("opened asset did not match upload")
 	}
 
-	if err := store.DeleteAsset(context.Background(), asset.ID); err != nil {
+	if err := store.DeleteAssetLocked(context.Background(), asset.ID); err != nil {
 		t.Fatalf("DeleteAsset: %v", err)
 	}
 	// Deletes are soft: surviving version rows keep the content referenced.
@@ -155,13 +155,13 @@ func TestDuplicateContentSharesOneStoreRow(t *testing.T) {
 		t.Fatalf("store rows = %d, want 1", len(rows))
 	}
 
-	if err := store.DeleteAsset(context.Background(), first.ID); err != nil {
+	if err := store.DeleteAssetLocked(context.Background(), first.ID); err != nil {
 		t.Fatalf("delete first: %v", err)
 	}
 	if _, ok := store.DB.GetAssetStoreRowBySha(firstSha); !ok {
 		t.Fatal("shared content row deleted while still referenced")
 	}
-	if err := store.DeleteAsset(context.Background(), second.ID); err != nil {
+	if err := store.DeleteAssetLocked(context.Background(), second.ID); err != nil {
 		t.Fatalf("delete second: %v", err)
 	}
 	// Deletes are soft: the surviving version rows keep the content referenced.
@@ -307,7 +307,7 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	if !retained {
 		t.Fatal("S3 object was not retained after migration to local storage")
 	}
-	if err := store.DeleteAsset(context.Background(), asset.ID); err != nil {
+	if err := store.DeleteAssetLocked(context.Background(), asset.ID); err != nil {
 		t.Fatalf("DeleteAsset: %v", err)
 	}
 	mu.Lock()

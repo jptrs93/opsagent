@@ -41,9 +41,7 @@ func (s *Service) ListSecretKeyslots() []secrets.Keyslot {
 	return out
 }
 
-func (s *Service) UpsertSecretKeyslot(k secrets.Keyslot) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+func (s *Service) UpsertSecretKeyslotLocked(k secrets.Keyslot) {
 	if err := s.q.UpsertSecretKeyslot(context.Background(), pq.UpsertSecretKeyslotParams{
 		Slot:       k.Slot,
 		SmkVersion: int64(k.SMKVersion),
@@ -79,12 +77,10 @@ func (s *Service) ListSecretVersionRecords() []secrets.Record {
 // CreateSecretWithVersion creates a new secret in directoryID (0 = the root)
 // of spaceID with its first version. seal is called with the new identity id
 // and version 1 inside the transaction, once both are known.
-func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, author int32, seal secrets.SealFunc) (secrets.Record, error) {
+func (s *Service) CreateSecretWithVersionLocked(name string, spaceID, directoryID, author int32, seal secrets.SealFunc) (secrets.Record, error) {
 	if !ValidValueName(name) {
 		return secrets.Record{}, ErrValueNameInvalid
 	}
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
 	ctx := context.Background()
 	space := int64(normalizedUserSpaceID(spaceID))
 	dirID, err := s.resolveValueDirectoryLocked(ctx, space, directoryID)
@@ -142,7 +138,7 @@ func (s *Service) CreateSecretWithVersion(name string, spaceID, directoryID, aut
 // and optionally rolls the caller-asserted deployment references to the new
 // row atomically. seal is called with the identity id and the next version
 // number inside the transaction.
-func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal secrets.SealFunc, updateDeployments bool, expected []storage.DeploymentSpecVersion, afterCommit func(secrets.Record)) (secrets.Record, []int32, error) {
+func (s *Service) AppendSecretVersionWithDeploymentUpdatesLocked(secretID, author int32, seal secrets.SealFunc, updateDeployments bool, expected []storage.DeploymentSpecVersion, afterCommit func(secrets.Record)) (secrets.Record, []int32, error) {
 	ctx := context.Background()
 	var record secrets.Record
 	insert := func(q *pq.Queries, globalSeq int64) (int32, error) {
@@ -176,7 +172,7 @@ func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, author int3
 		record = secretVersionRecord(identity, row)
 		return int32(row.ID), nil
 	}
-	updatedDeployments, err := s.setVersionedValueWithDeploymentUpdates(
+	updatedDeployments, err := s.setVersionedValueWithDeploymentUpdatesLocked(
 		secretValueReference, secretID, updateDeployments, expected, author, insert,
 		func(_ []int32) {
 			if afterCommit != nil {
@@ -191,12 +187,10 @@ func (s *Service) AppendSecretVersionWithDeploymentUpdates(secretID, author int3
 
 // RenameSecret renames the stable secret identity. Versions and their sealed
 // bytes are untouched: the AAD binds the identity id, not the name.
-func (s *Service) RenameSecret(secretID int32, newName string) error {
+func (s *Service) RenameSecretLocked(secretID int32, newName string) error {
 	if !ValidValueName(newName) {
 		return ErrValueNameInvalid
 	}
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
 	ctx := context.Background()
 	row, err := s.q.GetSecretRowByID(ctx, int64(secretID))
 	if err == sql.ErrNoRows {
@@ -265,10 +259,8 @@ func (s *Service) MoveSecretDirectory(secretID, newDirectoryID int32) (Secret, e
 // secret_spaces log with author as the acting user. Reference locality is the
 // caller's law — the handler refuses the move while anything outside the
 // destination space references the secret.
-func (s *Service) MoveSecretSpace(secretID, newSpaceID, newDirectoryID, author int32) error {
+func (s *Service) MoveSecretSpaceLocked(secretID, newSpaceID, newDirectoryID, author int32) error {
 	ctx := context.Background()
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
 
 	row, err := s.q.GetSecretRowByID(ctx, int64(secretID))
 	if err == sql.ErrNoRows {
@@ -323,9 +315,7 @@ func (s *Service) MoveSecretSpace(secretID, newSpaceID, newDirectoryID, author i
 // sealed bytes stay in place, so the delete is recoverable at the DB level;
 // reads (including the Manager's startup record load) exclude the secret from
 // here on.
-func (s *Service) DeleteSecret(secretID int32) error {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+func (s *Service) DeleteSecretLocked(secretID int32) error {
 	ctx := context.Background()
 	if _, err := s.q.GetSecretRowByID(ctx, int64(secretID)); err == sql.ErrNoRows {
 		return ErrValueNotFound
@@ -447,9 +437,7 @@ func (s *Service) GetSystemSecret(name string) (secrets.SystemRecord, bool) {
 	}, true
 }
 
-func (s *Service) UpsertSystemSecret(r secrets.SystemRecord) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+func (s *Service) UpsertSystemSecretLocked(r secrets.SystemRecord) {
 	if err := s.q.UpsertSystemSecret(context.Background(), pq.UpsertSystemSecretParams{
 		Name:       r.Name,
 		SmkVersion: int64(r.SMKVersion),

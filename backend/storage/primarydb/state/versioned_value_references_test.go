@@ -72,7 +72,7 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	unrelated := setConfigByName(store, "other", "keep", 1)
 	unrelatedID := latestConfigRef(t, unrelated).ID
 	create := func(name string, spec *apigen.DeploymentSpec) *apigen.Deployment {
-		return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, node.ID, spec)
+		return mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, name, node.ID, spec)
 	}
 	firstDeployment := create("first", envRefSpec(map[string]int32{
 		"DATABASE": firstID,
@@ -81,7 +81,7 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	secondDeployment := create("second", envRefSpec(map[string]int32{"DATABASE": secondID}, nil))
 	unchangedDeployment := create("unchanged", envRefSpec(map[string]int32{"OTHER": unrelatedID}, nil))
 
-	saved, updatedIDs, err := store.AppendConfigVersionWithDeploymentUpdates(
+	saved, updatedIDs, err := store.AppendConfigVersionWithDeploymentUpdatesLocked(
 		database.ID,
 		"three",
 		9,
@@ -120,7 +120,7 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 		t.Fatalf("first deployment history length = %d, want 2", got)
 	}
 
-	_, _, err = store.AppendConfigVersionWithDeploymentUpdates(
+	_, _, err = store.AppendConfigVersionWithDeploymentUpdatesLocked(
 		database.ID,
 		"must-not-save",
 		9,
@@ -147,21 +147,21 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 	defer store.Close()
 	node := testNode(store, "primary")
 
-	first, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, 0, testSealFunc(1))
+	first, err := store.CreateSecretWithVersionLocked("token", DefaultSpaceID, 0, 0, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, _, err := store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(2), false, nil, nil)
+	second, _, err := store.AppendSecretVersionWithDeploymentUpdatesLocked(first.SecretID, 0, testSealFunc(2), false, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	create := func(name string, secretVersionID int32) *apigen.Deployment {
-		return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, node.ID, envRefSpec(nil, map[string]int32{"TOKEN": secretVersionID}))
+		return mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, name, node.ID, envRefSpec(nil, map[string]int32{"TOKEN": secretVersionID}))
 	}
 	firstDeployment := create("first", first.ID)
 	secondDeployment := create("second", second.ID)
 
-	third, updatedIDs, err := store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(3), true, []storage.DeploymentSpecVersion{
+	third, updatedIDs, err := store.AppendSecretVersionWithDeploymentUpdatesLocked(first.SecretID, 0, testSealFunc(3), true, []storage.DeploymentSpecVersion{
 		{ID: firstDeployment.ID, SpecVersion: firstDeployment.SpecVersion},
 		{ID: secondDeployment.ID, SpecVersion: secondDeployment.SpecVersion},
 	}, nil)
@@ -178,7 +178,7 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 		t.Fatalf("second deployment secret ref = %d, want %d", got, third.ID)
 	}
 
-	_, _, err = store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(4), true, []storage.DeploymentSpecVersion{{
+	_, _, err = store.AppendSecretVersionWithDeploymentUpdatesLocked(first.SecretID, 0, testSealFunc(4), true, []storage.DeploymentSpecVersion{{
 		ID: firstDeployment.ID, SpecVersion: store.deploymentCache[firstDeployment.ID].SpecVersion,
 	}}, nil)
 	if !errors.Is(err, ErrReferencingDeploymentsChanged) {
@@ -223,24 +223,21 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	defer store.Close()
 	node := testNode(store, "primary")
 
-	first, err := store.CreateSecretWithVersion("pgpassword", DefaultSpaceID, 0, 0, testSealFunc(1))
+	first, err := store.CreateSecretWithVersionLocked("pgpassword", DefaultSpaceID, 0, 0, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
 	}
 	create := func(name string) *apigen.Deployment {
-		return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, node.ID, envRefSpec(nil, map[string]int32{"POSTGRES_PASSWORD": first.ID}))
+		return mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, name, node.ID, envRefSpec(nil, map[string]int32{"POSTGRES_PASSWORD": first.ID}))
 	}
 	original := create("original")
 	live := create("live")
 
-	_, ok := store.DeleteDeployment(apigen.Context{}, original.ID, original.Version+1)
-	if !ok {
-		t.Fatal("soft delete failed")
-	}
+	deleteDeployment(store, apigen.Context{}, original.ID)
 
 	// The UI sends only the live deployment: the frontend filters tombstones out
 	// when assembling referencingDeployments.
-	second, updatedIDs, err := store.AppendSecretVersionWithDeploymentUpdates(first.SecretID, 0, testSealFunc(2), true, []storage.DeploymentSpecVersion{
+	second, updatedIDs, err := store.AppendSecretVersionWithDeploymentUpdatesLocked(first.SecretID, 0, testSealFunc(2), true, []storage.DeploymentSpecVersion{
 		{ID: live.ID, SpecVersion: live.SpecVersion},
 	}, nil)
 	if err != nil {

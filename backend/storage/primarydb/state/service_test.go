@@ -24,12 +24,12 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	primaryNode := testNode(store, "primary")
 	secondaryNode := testNode(store, "secondary")
 	create := func(nodeID int32, name string, spec *apigen.DeploymentSpec) *apigen.Deployment {
-		return store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, name, nodeID, spec)
+		return mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, name, nodeID, spec)
 	}
 	containerSpec := testSpecWithState("v1", true)
 	primary := create(primaryNode.ID, "app", containerSpec)
 	secondary := create(secondaryNode.ID, "app", containerSpec)
-	system := store.MustCreateDeploymentForNode(apigen.Context{}, OpendeploySpaceID, internaldeploy.SelfName, primaryNode.ID, testSystemSpecWithState("v1", true))
+	system := mustCreateDeploymentForNode(store, apigen.Context{}, OpendeploySpaceID, internaldeploy.SelfName, primaryNode.ID, testSystemSpecWithState("v1", true))
 
 	seedStatus := func(cfg *apigen.Deployment, artifact string) *apigen.ScheduledInstance {
 		inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
@@ -88,7 +88,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := testNode(store, "primary")
-	created := store.MustCreateDeploymentForNode(apigen.Context{}, OpendeploySpaceID, internaldeploy.SelfName, node.ID, testSpecWithState("", false))
+	created := mustCreateDeploymentForNode(store, apigen.Context{}, OpendeploySpaceID, internaldeploy.SelfName, node.ID, testSpecWithState("", false))
 	mustSetDeploymentWorkloadState(store, apigen.Context{}, created.ID, "v0.0.194", true)
 
 	store.EnsureSystemDeployment(node.ID, "v0.0.195")
@@ -416,7 +416,7 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 	defer store.Close()
 	node := store.EnsurePrimaryNode("primary", "primary-id")
 
-	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, "api", node.ID, testSystemSpecWithState("v1", true))
+	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "api", node.ID, testSystemSpecWithState("v1", true))
 	if cfg.NodeID != node.ID {
 		t.Fatalf("created node ID = %d, want %d", cfg.NodeID, node.ID)
 	}
@@ -425,12 +425,9 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 	if err := nextSpec.SetWorkloadState("v2", true); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := store.UpdateDeployment(apigen.Context{}, cfg.ID, DeploymentUpdate{
-		ExpectedVersion: 2,
-		Spec:            &nextSpec,
-	})
-	if err != nil || updated.Version != 2 || updated.NodeID != node.ID {
-		t.Fatalf("updated config = %+v, err=%v, want v2 with node ID %d", updated, err, node.ID)
+	updated := updateDeployment(store, apigen.Context{}, cfg.ID, DeploymentUpdate{Spec: &nextSpec})
+	if updated.Version != 2 || updated.NodeID != node.ID {
+		t.Fatalf("updated config = %+v, want v2 with node ID %d", updated, node.ID)
 	}
 
 	history := store.MustFetchDeploymentHistory(cfg.ID)
@@ -448,7 +445,7 @@ func TestSetDeploymentWorkloadStateReencodesSpec(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := Open(dbPath)
 	node := testNode(store, "primary")
-	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, "api", node.ID, testSpecWithState("v1", true))
+	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "api", node.ID, testSpecWithState("v1", true))
 
 	mustSetDeploymentWorkloadState(store, apigen.Context{}, cfg.ID, "v2", false)
 
@@ -515,7 +512,7 @@ func TestEnsureRunScheduledInstanceIsConcurrentAndIdempotent(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary-id")
-	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, "api", node.ID, testSpecWithState("v1", true))
+	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "api", node.ID, testSpecWithState("v1", true))
 
 	const callers = 16
 	ids := make(chan int32, callers)

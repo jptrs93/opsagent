@@ -2,7 +2,6 @@ package state
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -38,27 +37,28 @@ func (s *Service) MustFetchDeploymentHistory(deploymentID int32) []*apigen.Deplo
 	return out
 }
 
-type DeploymentUpdate struct {
-	ExpectedVersion int32
-	Spec            *apigen.DeploymentSpec
-	SpaceID         *int32
+func (s *Service) CreateDeploymentLocked(ctx apigen.Context, updated *apigen.Deployment) *apigen.Deployment {
+	bgCtx := context.Background()
+	dbID := erru.Must(s.q.NextDeploymentID(bgCtx))
+	now := time.Now()
+	next := *updated
+	next.ID = int32(dbID)
+	next.Version = 1
+	next.SpecVersion = 1
+	next.SpaceVersion = 1
+	next.CreatedAt = now
+	next.UpdatedAt = now
+	next.Author = ctx.AttributionUserID()
+	return s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventCreate)
 }
 
-var VersionMismatchErr = errors.New("deployment version mismatch")
+type DeploymentUpdate struct {
+	Spec    *apigen.DeploymentSpec
+	SpaceID *int32
+}
 
-func (s *Service) UpdateDeployment(ctx apigen.Context, deploymentID int32, update DeploymentUpdate) (*apigen.Deployment, error) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
-	if _, ok := s.latestEvents[deploymentID]; !ok {
-		return nil, fmt.Errorf("deployment %d not found", deploymentID)
-	}
+func (s *Service) UpdateDeploymentLocked(ctx apigen.Context, deploymentID int32, update DeploymentUpdate) *apigen.Deployment {
 	existing := s.mustLatestDeploymentLocked(deploymentID)
-	if existing.Deleted {
-		return nil, fmt.Errorf("deployment %d not found", deploymentID)
-	}
-	if update.ExpectedVersion != existing.Version+1 {
-		return existing, VersionMismatchErr
-	}
 	next := *existing
 	changed := false
 	if update.Spec != nil && !deploymentSpecsEqual(update.Spec, &existing.Spec) {
@@ -67,38 +67,27 @@ func (s *Service) UpdateDeployment(ctx apigen.Context, deploymentID int32, updat
 		changed = true
 	}
 	if update.SpaceID != nil && *update.SpaceID != existing.SpaceID {
-		for _, other := range s.deploymentCache {
-			if other.ID != deploymentID && !other.Deleted && storage.DeploymentKeyMatches(*other, existing.NodeID, *update.SpaceID, existing.Name) {
-				return existing, DuplicateDeploymentIdentityErr
-			}
-		}
 		next.SpaceID = *update.SpaceID
 		next.SpaceVersion = existing.SpaceVersion + 1
 		changed = true
 	}
 	if !changed {
-		return existing, nil
+		return existing
 	}
 	next.Version = existing.Version + 1
 	next.UpdatedAt = time.Now()
-	next.Author = int32(ctx.AttributionUserID())
-	return s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventUpdate), nil
+	next.Author = ctx.AttributionUserID()
+	return s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventUpdate)
 }
 
-func (s *Service) DeleteDeployment(ctx apigen.Context, deploymentID int32, expectedVersion int32) (*apigen.Deployment, bool) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+func (s *Service) DeleteDeploymentLocked(ctx apigen.Context, deploymentID int32) *apigen.Deployment {
 	existing := s.mustLatestDeploymentLocked(deploymentID)
-	if existing.Deleted || expectedVersion != existing.Version+1 {
-		return existing, false
-	}
 	next := *existing
 	next.Version = existing.Version + 1
 	next.UpdatedAt = time.Now()
-	next.Author = int32(ctx.AttributionUserID())
+	next.Author = ctx.AttributionUserID()
 	next.Deleted = true
-	cfg := s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventDelete)
-	return cfg, true
+	return s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventDelete)
 }
 
 func (s *Service) mustAppendDeploymentEventLocked(next *apigen.Deployment, eventType int64) *apigen.Deployment {
@@ -112,7 +101,11 @@ func (s *Service) mustAppendDeploymentEventLocked(next *apigen.Deployment, event
 	}); err != nil {
 		panic(fmt.Sprintf("append deployment event tx: %v", err))
 	}
-	return s.applyDeploymentEventLocked(event)
+	cfg := deploymentEventToProto(event)
+	s.deploymentCache[cfg.ID] = cfg
+	s.latestEvents[cfg.ID] = event
+	s.notifyDeploymentLocked(cfg.ID)
+	return cfg
 }
 
 func (s *Service) mustLatestDeploymentLocked(deploymentID int32) *apigen.Deployment {
@@ -121,14 +114,6 @@ func (s *Service) mustLatestDeploymentLocked(deploymentID int32) *apigen.Deploym
 		panic(fmt.Sprintf("deployment %d has no events", deploymentID))
 	}
 	return deploymentEventToProto(event)
-}
-
-func (s *Service) applyDeploymentEventLocked(event pq.DeploymentEvent) *apigen.Deployment {
-	cfg := deploymentEventToProto(event)
-	s.deploymentCache[cfg.ID] = cfg
-	s.latestEvents[cfg.ID] = event
-	s.notifyDeploymentLocked(cfg.ID)
-	return cfg
 }
 
 func buildDeploymentEvent(prev pq.DeploymentEvent, hasPrev bool, next *apigen.Deployment, eventType int64) pq.DeploymentEvent {
@@ -181,62 +166,6 @@ func buildDeploymentEvent(prev pq.DeploymentEvent, hasPrev bool, next *apigen.De
 	}
 }
 
-// mustAppendSpecVersionLocked appends the next spec version for an existing
-// deployment, leaving identity fields untouched. Caller must hold s.Mu.
-func (s *Service) mustAppendSpecVersionLocked(existing *apigen.Deployment, spec *apigen.DeploymentSpec, author int64) *apigen.Deployment {
-	next := *existing
-	next.Version = existing.Version + 1
-	next.SpecVersion = existing.SpecVersion + 1
-	next.UpdatedAt = time.Now()
-	next.Author = int32(author)
-	next.Spec = *spec
-	return s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventUpdate)
-}
-
-// mustCreateDeploymentLocked allocates the next deployment id and writes the
-// create event, then caches and notifies. Caller must hold s.Mu.
-func (s *Service) mustCreateDeploymentLocked(spaceID int32, name string, nodeID int32, spec *apigen.DeploymentSpec, author int64) *apigen.Deployment {
-	bgCtx := context.Background()
-	dbID := erru.Must(s.q.NextDeploymentID(bgCtx))
-	now := time.Now()
-	next := apigen.Deployment{
-		ID:           int32(dbID),
-		NodeID:       nodeID,
-		SpaceID:      spaceID,
-		Version:      1,
-		SpaceVersion: 1,
-		Name:         name,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-		Author:       int32(author),
-		SpecVersion:  1,
-		Spec:         *spec,
-	}
-	return s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventCreate)
-}
-
-var DuplicateDeploymentIdentityErr = errors.New("a deployment with this name, space, and node already exists")
-
-func (s *Service) MustCreateDeploymentForNode(ctx apigen.Context, spaceID int32, name string, nodeID int32, spec *apigen.DeploymentSpec) *apigen.Deployment {
-	if nodeID <= 0 {
-		panic("deployment node ID must be positive")
-	}
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
-
-	for _, cfg := range s.deploymentCache {
-		if storage.DeploymentKeyMatches(*cfg, nodeID, spaceID, name) && !cfg.Deleted {
-			panic(fmt.Sprintf("deployment node=%d space=%d name=%q already exists", nodeID, spaceID, name))
-		}
-	}
-
-	if spec == nil {
-		panic("deployment spec must not be nil")
-	}
-	userID := int64(ctx.AttributionUserID())
-	return s.mustCreateDeploymentLocked(spaceID, name, nodeID, spec, userID)
-}
-
 // EnsureSystemDeployment creates the OPENDEPLOY opendeploy deployment for
 // the given node if it does not already exist. First-time system deployments
 // are marked desired-running at opendeployVersion so the systemd runner can
@@ -268,7 +197,12 @@ func (s *Service) EnsureSystemDeployment(nodeID int32, opendeployVersion string)
 	if err := spec.SetWorkloadState(opendeployVersion, true); err != nil {
 		panic(fmt.Sprintf("initialize system deployment state: %v", err))
 	}
-	s.mustCreateDeploymentLocked(OpendeploySpaceID, internaldeploy.SelfName, nodeID, spec, 0)
+	s.CreateDeploymentLocked(apigen.Context{}, &apigen.Deployment{
+		NodeID:  nodeID,
+		SpaceID: OpendeploySpaceID,
+		Name:    internaldeploy.SelfName,
+		Spec:    *spec,
+	})
 	slog.InfoContext(ctx, fmt.Sprintf("created system deployment at version %s", opendeployVersion), "node", nodeID)
 }
 
@@ -305,7 +239,12 @@ func (s *Service) EnsureNetproxyDeployment(nodeID int32, initialVersion string) 
 	if err := spec.SetWorkloadState(desiredVersion, true); err != nil {
 		panic(fmt.Sprintf("initialize netproxy deployment state: %v", err))
 	}
-	cfg := s.mustCreateDeploymentLocked(OpendeploySpaceID, internaldeploy.NetproxyName, nodeID, spec, 0)
+	cfg := s.CreateDeploymentLocked(apigen.Context{}, &apigen.Deployment{
+		NodeID:  nodeID,
+		SpaceID: OpendeploySpaceID,
+		Name:    internaldeploy.NetproxyName,
+		Spec:    *spec,
+	})
 	slog.InfoContext(ctx, fmt.Sprintf("created netproxy deployment at version %s", desiredVersion), "node", nodeID)
 	return cfg
 }
@@ -316,5 +255,5 @@ func (s *Service) repairDeploymentSpecLocked(deploymentID int32, spec *apigen.De
 	if err := storedSpec.SetWorkloadState(existing.WorkloadVersion(), existing.WorkloadRunning()); err != nil {
 		panic(fmt.Sprintf("preserve deployment %d workload state: %v", deploymentID, err))
 	}
-	s.mustAppendSpecVersionLocked(existing, storedSpec, 0)
+	s.UpdateDeploymentLocked(apigen.Context{}, deploymentID, DeploymentUpdate{Spec: storedSpec})
 }

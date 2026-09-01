@@ -13,7 +13,7 @@ func TestFlipScheduledInstanceServing(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary")
-	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, "app", node.ID, nonEmptySpec())
+	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "app", node.ID, nonEmptySpec())
 
 	serving := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	standby := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
@@ -41,7 +41,7 @@ func TestFlipScheduledInstanceServingSnapshotAtomicity(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := store.EnsurePrimaryNode("primary", "primary")
-	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, "app", node.ID, nonEmptySpec())
+	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "app", node.ID, nonEmptySpec())
 
 	current := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 

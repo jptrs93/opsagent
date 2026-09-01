@@ -42,6 +42,10 @@ func deploymentSpecsEqual(a, b *apigen.DeploymentSpec) bool {
 	return reflect.DeepEqual(da, db)
 }
 
+func DeploymentSpecsEqual(a, b *apigen.DeploymentSpec) bool {
+	return deploymentSpecsEqual(a, b)
+}
+
 func mustDecodeDeploymentSpec(blob []byte, deploymentID, version int64) *apigen.DeploymentSpec {
 	spec, err := apigen.DecodeDeploymentSpec(blob)
 	if err != nil {

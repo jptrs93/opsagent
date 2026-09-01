@@ -295,14 +295,11 @@ func (s *Store) OpenAsset(ctx context.Context, assetVersionID int32) (sizeBytes 
 	return 0, nil, fmt.Errorf("asset version %d content is unavailable", assetVersionID)
 }
 
-func (s *Store) DeleteAsset(ctx context.Context, assetID int32) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+func (s *Store) DeleteAssetLocked(ctx context.Context, assetID int32) error {
 	asset, hadVersions := s.DB.GetAsset(assetID)
 	// Soft delete: version rows survive, so the content they reference stays
 	// reclaim-exempt and the asset is recoverable at the DB level.
-	s.DB.DeleteAsset(assetID)
+	s.DB.DeleteAssetLocked(assetID)
 	if hadVersions {
 		s.DB.NotifyAssetDeleted(asset)
 	}

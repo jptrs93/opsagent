@@ -118,7 +118,7 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, aut
 // AppendConfigVersionWithDeploymentUpdates appends an immutable spec version
 // and optionally rolls the caller-asserted deployment references to the new
 // row atomically.
-func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value string, author int32, updateDeployments bool, expected []storage.DeploymentSpecVersion) (*apigen.Config, []int32, error) {
+func (s *Service) AppendConfigVersionWithDeploymentUpdatesLocked(configID int32, value string, author int32, updateDeployments bool, expected []storage.DeploymentSpecVersion) (*apigen.Config, []int32, error) {
 	ctx := context.Background()
 	insert := func(q *pq.Queries, globalSeq int64) (int32, error) {
 		if _, err := q.GetConfigRowByID(ctx, int64(configID)); err == sql.ErrNoRows {
@@ -143,7 +143,7 @@ func (s *Service) AppendConfigVersionWithDeploymentUpdates(configID int32, value
 		}
 		return int32(row.ID), nil
 	}
-	updatedDeployments, err := s.setVersionedValueWithDeploymentUpdates(
+	updatedDeployments, err := s.setVersionedValueWithDeploymentUpdatesLocked(
 		configValueReference, configID, updateDeployments, expected, author, insert, nil)
 	if err != nil {
 		return nil, nil, err
@@ -232,10 +232,8 @@ func (s *Service) MoveConfigDirectory(configID, newDirectoryID int32) (Config, e
 // the config_spaces log with author as the acting user. Reference locality is
 // the caller's law — the handler refuses the move while anything outside the
 // destination space references the config.
-func (s *Service) MoveConfigSpace(configID, newSpaceID, newDirectoryID, author int32) error {
+func (s *Service) MoveConfigSpaceLocked(configID, newSpaceID, newDirectoryID, author int32) error {
 	ctx := context.Background()
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
 
 	row, err := s.q.GetConfigRowByID(ctx, int64(configID))
 	if err == sql.ErrNoRows {
@@ -290,9 +288,7 @@ func (s *Service) MoveConfigSpace(configID, newSpaceID, newDirectoryID, author i
 // history stay in place, so the delete is recoverable at the DB level; reads
 // exclude the config from here on. Returns the deleted config (stamped
 // DeletedAt) for notification, or false if absent.
-func (s *Service) DeleteConfig(configID int32) (*apigen.Config, bool) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+func (s *Service) DeleteConfigLocked(configID int32) (*apigen.Config, bool) {
 	c, ok := s.GetConfig(configID)
 	if !ok {
 		return nil, false

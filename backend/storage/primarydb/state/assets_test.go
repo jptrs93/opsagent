@@ -111,7 +111,7 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 		t.Fatalf("all asset versions = %+v", allRows)
 	}
 
-	store.DeleteAsset(a1.ID)
+	store.DeleteAssetLocked(a1.ID)
 	if _, ok := store.GetAsset(a1.ID); ok {
 		t.Fatal("asset still found after delete")
 	}

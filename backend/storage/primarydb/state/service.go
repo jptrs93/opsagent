@@ -602,6 +602,10 @@ func (s *Service) FetchLatestOpenDeployConfig() (SystemConfigRevision, error) {
 func (s *Service) AppendOpenDeploySettings(blob []byte) (int64, error) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
+	return s.AppendOpenDeploySettingsLocked(blob)
+}
+
+func (s *Service) AppendOpenDeploySettingsLocked(blob []byte) (int64, error) {
 	return s.q.InsertSystemConfigRevision(context.Background(), time.Now().UnixMilli(), blob)
 }
 

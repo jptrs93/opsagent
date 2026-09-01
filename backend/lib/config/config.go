@@ -22,7 +22,6 @@ type Service struct {
 	AssetOperationMu       sync.Locker
 	ValidateSettingsUpdate func(current, next apigen.ClusterSettings) error
 	mu                     sync.Mutex
-	referenceMu            sync.Mutex
 	versionID              int64
 	migrationWake          chan struct{}
 }
@@ -201,11 +200,27 @@ func (s *Service) publishConfig(cfg apigen.PrimaryConfig, version int64, updated
 	})
 }
 
-func (s *Service) UpdateSettings(settings apigen.ClusterSettings) error {
+func (s *Service) LockForUpdate() func() {
+	var unlockAssets func()
 	if s.AssetOperationMu != nil {
 		s.AssetOperationMu.Lock()
-		defer s.AssetOperationMu.Unlock()
+		unlockAssets = s.AssetOperationMu.Unlock
 	}
+	unlockGlobal := s.Storage.GlobalLock()
+	return func() {
+		unlockGlobal()
+		if unlockAssets != nil {
+			unlockAssets()
+		}
+	}
+}
+
+func (s *Service) UpdateSettings(settings apigen.ClusterSettings) error {
+	defer s.LockForUpdate()()
+	return s.UpdateSettingsLocked(settings)
+}
+
+func (s *Service) UpdateSettingsLocked(settings apigen.ClusterSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	settings = NormalizeSettings(settings)
@@ -225,7 +240,7 @@ func (s *Service) UpdateSettings(settings apigen.ClusterSettings) error {
 	}
 	cfg.Settings = settings
 	cfg = normalizeConfig(cfg)
-	versionID, migration, err := s.Storage.AppendOpenDeploySettingsWithAssetMigration(cfg.Encode(), oldBackupEnabled != newBackupEnabled)
+	versionID, migration, err := s.Storage.AppendOpenDeploySettingsWithAssetMigrationLocked(cfg.Encode(), oldBackupEnabled != newBackupEnabled)
 	if err != nil {
 		return err
 	}
@@ -246,7 +261,7 @@ func (s *Service) UpdateSettings(settings apigen.ClusterSettings) error {
 
 func (s *Service) saveAndNotifyLocked(cfg apigen.PrimaryConfig) error {
 	cfg = normalizeConfig(cfg)
-	versionID, err := s.Storage.AppendOpenDeploySettings(cfg.Encode())
+	versionID, err := s.Storage.AppendOpenDeploySettingsLocked(cfg.Encode())
 	if err != nil {
 		return fmt.Errorf("AppendOpenDeploySettings: %w", err)
 	}
@@ -269,12 +284,8 @@ func (s *Service) AssetMigrationWake() <-chan struct{} {
 	return s.migrationWake
 }
 
-func (s *Service) LockReferences() func() {
-	s.referenceMu.Lock()
-	return s.referenceMu.Unlock
-}
-
 func (s *Service) UpdateSettingsInternal(settings apigen.ClusterSettings) error {
+	defer s.Storage.GlobalLock()()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cfg := s.Snapshot()
@@ -287,6 +298,7 @@ func (s *Service) GetMasterPasswordHash() (string, error) {
 }
 
 func (s *Service) SetMasterPasswordHash(hash string) error {
+	defer s.Storage.GlobalLock()()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cfg := s.Snapshot()

@@ -220,14 +220,14 @@ func TestMoveAssetSpace(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	v := store.SetAssetByKey("a.txt", []byte("x"))
 
-	if err := store.MoveAssetSpace(v.ID, DefaultSpaceID, 0, 1); err != nil {
+	if err := store.MoveAssetSpaceLocked(v.ID, DefaultSpaceID, 0, 1); err != nil {
 		t.Fatalf("same-space no-op err = %v", err)
 	}
-	if err := store.MoveAssetSpace(999, 2, 0, 1); !errors.Is(err, ErrAssetNotFound) {
+	if err := store.MoveAssetSpaceLocked(999, 2, 0, 1); !errors.Is(err, ErrAssetNotFound) {
 		t.Fatalf("missing asset err = %v, want ErrAssetNotFound", err)
 	}
 
-	if err := store.MoveAssetSpace(v.ID, 2, 0, 1); err != nil {
+	if err := store.MoveAssetSpaceLocked(v.ID, 2, 0, 1); err != nil {
 		t.Fatalf("space move: %v", err)
 	}
 	asset, ok := store.GetAsset(v.ID)
@@ -242,18 +242,18 @@ func TestMoveAssetSpace(t *testing.T) {
 	// The vacated key is reusable at the origin, and the occupied one blocks a
 	// move back.
 	dup := store.SetAssetByKey("a.txt", []byte("y"))
-	if err := store.MoveAssetSpace(v.ID, DefaultSpaceID, 0, 1); !errors.Is(err, ErrAssetAlreadyExists) {
+	if err := store.MoveAssetSpaceLocked(v.ID, DefaultSpaceID, 0, 1); !errors.Is(err, ErrAssetAlreadyExists) {
 		t.Fatalf("move onto taken key err = %v, want ErrAssetAlreadyExists", err)
 	}
 
 	// A destination directory must live in the destination space; the origin's
 	// directory reads as absent there.
 	originDir, _ := store.CreateDirectory(int32(DefaultSpaceID), 0, "app", 0)
-	if err := store.MoveAssetSpace(dup.ID, 2, int32(originDir.ID), 1); !errors.Is(err, ErrDirectoryNotFound) {
+	if err := store.MoveAssetSpaceLocked(dup.ID, 2, int32(originDir.ID), 1); !errors.Is(err, ErrDirectoryNotFound) {
 		t.Fatalf("foreign destination dir err = %v, want ErrDirectoryNotFound", err)
 	}
 	destDir, _ := store.CreateDirectory(2, 0, "app", 0)
-	if err := store.MoveAssetSpace(dup.ID, 2, int32(destDir.ID), 1); err != nil {
+	if err := store.MoveAssetSpaceLocked(dup.ID, 2, int32(destDir.ID), 1); err != nil {
 		t.Fatalf("space move into directory: %v", err)
 	}
 	asset, ok = store.GetAsset(dup.ID)

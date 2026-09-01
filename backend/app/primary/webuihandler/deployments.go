@@ -17,8 +17,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
-	"github.com/jptrs93/opsagent/backend/lib/network"
-	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
@@ -34,66 +32,31 @@ var DeploymentAddressReferencedErr = apigen.NewApiErr("Deployment address is ref
 const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHub. Please try again."
 
 func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.Deployment, error) {
-	if req.Name == "" {
-		return nil, invalidConfigErrf("name is required")
-	}
-	if req.NodeID <= 0 {
-		return nil, invalidConfigErrf("nodeId is required")
-	}
-	_, err := h.Store.NodeIdentifierByID(req.NodeID)
-	if err != nil {
-		return nil, invalidConfigErrf("node is not registered")
-	}
-	if internaldeploy.IsInternalIdentity(req.SpaceID, req.Name) {
-		return nil, invalidConfigErrf("opendeploy system deployment identity is internal-only")
-	}
-	if req.SpaceID < 0 || req.SpaceID > network.MaxSpaceID {
-		return nil, invalidConfigErrf("spaceId must be between 0 and %d", network.MaxSpaceID)
-	}
-	if err := h.requireAccess(ctx, vCreate, eDeployment, int64(req.SpaceID), 0); err != nil {
+	updated := &apigen.Deployment{NodeID: req.NodeID, SpaceID: req.SpaceID, Name: req.Name, Spec: req.Spec}
+	if err := preLockDeploymentValidate(updated); err != nil {
 		return nil, err
 	}
-	if err := h.validateNodeAllowsSpace(req.NodeID, req.SpaceID); err != nil {
+	if err := h.requireAccess(ctx, vCreate, eDeployment, int64(req.SpaceID), 0); err != nil {
 		return nil, err
 	}
 	spec, err := h.validateDeploymentSpec(&req.Spec)
 	if err != nil {
 		return nil, err
 	}
-	if err := h.validateCrossDeploymentMountSources(spec, req.NodeID, 0, req.SpaceID); err != nil {
-		return nil, err
-	}
-
-	snapshot := h.Store.FetchDeploymentSnapshot(nil)
-	for _, cfg := range snapshot {
-		if storage.DeploymentKeyMatches(cfg, req.NodeID, req.SpaceID, req.Name) && !cfg.Deleted {
-			return nil, DuplicateDeploymentErr
-		}
-	}
-	if err := h.validateNodeNetworkingClaims(req.NodeID, 0, spec); err != nil {
-		return nil, err
-	}
-	if err := h.validateAddressEnvRefs(req.NodeID, 0, req.SpaceID, spec, snapshot); err != nil {
-		return nil, err
-	}
-	if err := validateNixWorkloadVersion(spec); err != nil {
-		return nil, err
-	}
+	updated.Spec = *spec
 	if spec.WorkloadRunning() {
 		if err := h.verifyRunningNixSource(ctx, spec); err != nil {
 			return nil, err
 		}
 	}
 
-	// Locality check and write under the reference lock: PostV1SecretsMove
-	// scans referencing deployments under the same lock before moving, so a
-	// ref accepted here cannot be stranded by a concurrent secret space move.
-	unlockReferences := h.ConfigService.LockReferences()
-	defer unlockReferences()
-	if err := h.validateRefSpaces(spec, req.SpaceID); err != nil {
+	s := h.Store
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	if err := h.inLockValidateDeploymentCreate(updated, s.LiveState()); err != nil {
 		return nil, err
 	}
-	cfg := h.Store.MustCreateDeploymentForNode(ctx, req.SpaceID, req.Name, req.NodeID, spec)
+	cfg := s.CreateDeploymentLocked(ctx, updated)
 	h.wakeAcme()
 	return cfg, nil
 }
@@ -128,9 +91,7 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		return nil, invalidConfigErrf("exactly one update kind must be set")
 	}
 
-	update := state.DeploymentUpdate{ExpectedVersion: req.ExpectedVersion}
-	targetSpaceID := cfg.SpaceID
-	stopping := false
+	update := state.DeploymentUpdate{}
 	switch {
 	case req.VersionOnlyUpdate != nil:
 		if req.VersionOnlyUpdate.TargetVersion == "" {
@@ -147,13 +108,9 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 
 	case req.RunningOnlyUpdate != nil:
 		desired := req.RunningOnlyUpdate.DesiredRunning
-		if !desired && internaldeploy.IsSelfConfig(cfg) {
-			return nil, invalidConfigErrf("the opendeploy system deployment cannot be stopped")
-		}
 		if desired && cfg.WorkloadVersion() == "" {
 			return nil, invalidConfigErrf("deployment has no version to start; set a target version")
 		}
-		stopping = !desired
 		next, err := cloneDeploymentSpec(&cfg.Spec)
 		if err != nil {
 			return nil, err
@@ -171,94 +128,66 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		if err != nil {
 			return nil, err
 		}
-		if err := h.validateNodeNetworkingClaims(cfg.NodeID, cfg.ID, validated); err != nil {
-			return nil, err
-		}
-		if err := h.validateCrossDeploymentMountSources(validated, cfg.NodeID, cfg.ID, cfg.SpaceID); err != nil {
-			return nil, err
-		}
-		if err := h.validateAddressEnvRefs(cfg.NodeID, cfg.ID, cfg.SpaceID, validated, h.Store.FetchDeploymentSnapshot(nil)); err != nil {
-			return nil, err
-		}
-		if validated.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL && h.deploymentUsesAddressID(int32Set([]int32{cfg.ID})) {
-			return nil, invalidConfigErrf("deployment networking cannot leave virtual mode while address references exist")
-		}
 		update.Spec = validated
 
 	case req.AssignedSpaceUpdate != nil:
 		dest := req.AssignedSpaceUpdate.SpaceID
-		if internaldeploy.IsInternalConfig(cfg) {
-			return nil, invalidConfigErrf("opendeploy system deployment identity and spec are internal-only")
-		}
-		if cfg.SpaceID == 0 {
-			return nil, invalidConfigErrf("deployments in space 0 cannot be moved")
-		}
-		if dest < 1 || dest > network.MaxSpaceID {
-			return nil, invalidConfigErrf("spaceId must be between 1 and %d", network.MaxSpaceID)
-		}
 		if dest == cfg.SpaceID {
 			return cfg, nil
 		}
 		if err := h.requireAccess(ctx, vCreate, eDeployment, int64(dest), 0); err != nil {
 			return nil, err
 		}
-		if err := h.validateNodeAllowsSpace(cfg.NodeID, dest); err != nil {
-			return nil, err
-		}
-		if err := h.validateAddressEnvRefs(cfg.NodeID, cfg.ID, dest, &cfg.Spec, h.Store.FetchDeploymentSnapshot(nil)); err != nil {
-			return nil, err
-		}
-		if err := h.validateCrossDeploymentMountSources(&cfg.Spec, cfg.NodeID, cfg.ID, dest); err != nil {
-			return nil, err
-		}
-		if h.deploymentUsesAddressID(int32Set([]int32{cfg.ID})) {
-			return nil, DeploymentAddressReferencedErr
-		}
-		if dest != state.DefaultSpaceID && h.referencesOutsideSpace(int32Set([]int32{cfg.ID}), crossDeploymentMountSourceIDs, dest) {
-			return nil, MoveReferencesOutsideSpaceErr
-		}
 		update.SpaceID = &dest
-		targetSpaceID = dest
 	}
 
-	effectiveSpec := &cfg.Spec
 	if update.Spec != nil {
-		effectiveSpec = update.Spec
-		if !effectiveSpec.WorkloadRunning() && !sameDesiredVersionSource(&cfg.Spec, effectiveSpec) {
-			if err := effectiveSpec.SetWorkloadState("", false); err != nil {
+		if !update.Spec.WorkloadRunning() && !sameDesiredVersionSource(&cfg.Spec, update.Spec) {
+			if err := update.Spec.SetWorkloadState("", false); err != nil {
 				return nil, invalidConfigErrf("spec: %v", err)
 			}
 		}
-		nixChanged := !sameNixBuildConfig(nixSource(&cfg.Spec), nixSource(effectiveSpec))
-		if nixSource(effectiveSpec) != nil && !stopping {
-			if err := validateNixWorkloadVersion(effectiveSpec); err != nil {
-				return nil, err
-			}
-		}
-		if effectiveSpec.WorkloadRunning() && nixSource(effectiveSpec) != nil &&
-			(!cfg.WorkloadRunning() || effectiveSpec.WorkloadVersion() != cfg.WorkloadVersion() || nixChanged) {
-			if err := h.verifyRunningNixSource(ctx, effectiveSpec); err != nil {
+		nixChanged := !sameNixBuildConfig(nixSource(&cfg.Spec), nixSource(update.Spec))
+		if update.Spec.WorkloadRunning() && nixSource(update.Spec) != nil &&
+			(!cfg.WorkloadRunning() || update.Spec.WorkloadVersion() != cfg.WorkloadVersion() || nixChanged) {
+			if err := h.verifyRunningNixSource(ctx, update.Spec); err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	unlockReferences := h.ConfigService.LockReferences()
-	defer unlockReferences()
-	if err := h.validateRefSpaces(effectiveSpec, targetSpaceID); err != nil {
+	updated := *cfg
+	if update.Spec != nil {
+		updated.Spec = *update.Spec
+	}
+	if update.SpaceID != nil {
+		updated.SpaceID = *update.SpaceID
+	}
+	if err := preLockDeploymentValidate(&updated); err != nil {
 		return nil, err
 	}
-	current, err := h.Store.UpdateDeployment(ctx, req.DeploymentID, update)
-	if err != nil {
-		switch {
-		case errors.Is(err, state.VersionMismatchErr):
-			return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.ExpectedVersion, current.Version+1)
-		case errors.Is(err, state.DuplicateDeploymentIdentityErr):
-			return nil, DuplicateDeploymentErr
-		default:
-			return nil, DeploymentNotFoundErr
+
+	s := h.Store
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	live := s.LiveState()
+	existing := live.Deployments[req.DeploymentID]
+	if existing == nil || existing.Deleted {
+		return nil, DeploymentNotFoundErr
+	}
+	if req.ExpectedVersion != existing.Version+1 {
+		return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.ExpectedVersion, existing.Version+1)
+	}
+	if update.SpaceID != nil {
+		if err := h.inLockValidateDeploymentSpaceMove(existing, &updated, live); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := h.inLockValidateDeploymentUpdate(existing, &updated, live); err != nil {
+			return nil, err
 		}
 	}
+	current := s.UpdateDeploymentLocked(ctx, req.DeploymentID, update)
 	h.wakeAcme()
 	return current, nil
 }
@@ -277,21 +206,22 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 	if req.Version != cfg.Version+1 {
 		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
 	}
-	statuses := h.deploymentStatuses(req.DeploymentID)
-	if internaldeploy.IsInternalConfig(cfg) {
-		if !h.canDeleteStaleDisconnectedSystemDeployment(cfg) {
-			return invalidConfigErrf("opendeploy system deployment is internal-only")
-		}
-	} else if !h.canDeleteDeployment(cfg, statuses) {
-		return invalidConfigErrf("deployment must be stopped before deletion")
+
+	s := h.Store
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	live := s.LiveState()
+	existing := live.Deployments[req.DeploymentID]
+	if existing == nil || existing.Deleted {
+		return DeploymentNotFoundErr
 	}
-	if details := h.deploymentRefDetails(int32Set([]int32{cfg.ID}), addressRefIDs); len(details) > 0 {
-		return referenceInUseDetailErr("Deployment address", details)
+	if req.Version != existing.Version+1 {
+		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, existing.Version+1)
 	}
-	_, versionOK := h.Store.DeleteDeployment(ctx, req.DeploymentID, req.Version)
-	if !versionOK {
-		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
+	if err := h.inLockValidateDeploymentDelete(existing, live); err != nil {
+		return err
 	}
+	s.DeleteDeploymentLocked(ctx, req.DeploymentID)
 	return nil
 }
 

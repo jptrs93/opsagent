@@ -30,7 +30,7 @@ type deploymentReferenceUpdate struct {
 // secret/config identity stableID and optionally rolls the caller-asserted
 // deployment references (which pin version row ids of that identity) to the
 // new row atomically.
-func (s *Service) setVersionedValueWithDeploymentUpdates(
+func (s *Service) setVersionedValueWithDeploymentUpdatesLocked(
 	referenceType versionedValueReferenceType,
 	stableID int32,
 	updateDeployments bool,
@@ -39,9 +39,6 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 	insert func(*pq.Queries, int64) (int32, error),
 	afterCommit func([]int32),
 ) ([]int32, error) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
-
 	ctx := context.Background()
 	now := time.Now()
 	var updatedEvents []pq.DeploymentEvent

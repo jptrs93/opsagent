@@ -113,13 +113,12 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 	} else if err := h.requireEntityAccess(ctx, vUpdate, eSecret, int64(existing.SpaceID()), int64(existing.ID), SecretNotFoundErr); err != nil {
 		return nil, err
 	}
-	unlockReferences := h.ConfigService.LockReferences()
-	defer unlockReferences()
 	expected, err := requestedDeploymentVersions(req.UpdateReferencingDeployments, req.ReferencingDeployments)
 	if err != nil {
 		return nil, err
 	}
-	meta, err := h.Secrets.SetWithDeploymentUpdates(
+	defer h.Store.GlobalLock()()
+	meta, err := h.Secrets.SetWithDeploymentUpdatesLocked(
 		req.SecretID,
 		req.Value,
 		requestUserID(ctx),
@@ -259,8 +258,7 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 	if spaceChanging {
 		// Deployment writes hold the same lock, so no new reference can appear
 		// between the locality check and the move.
-		unlockReferences := h.ConfigService.LockReferences()
-		defer unlockReferences()
+		defer h.Store.GlobalLock()()
 		ids := int32Set(h.Store.SecretVersionIDs(req.SecretID))
 		if h.settingsUseSecretID(ids) && destSpace != state.DefaultSpaceID {
 			return nil, MoveReferencesOutsideSpaceErr
@@ -268,12 +266,12 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 		// A global secret is referenceable from every space (see
 		// validateSecretRefSpaces), so no deployment pin can veto a move to
 		// the global space.
-		if destSpace != state.DefaultSpaceID && h.referencesOutsideSpace(ids, runtimeinputs.SecretRefs, destSpace) {
+		if destSpace != state.DefaultSpaceID && referencesOutsideSpace(h.Store.LiveState(), ids, runtimeinputs.SecretRefs, destSpace) {
 			return nil, MoveReferencesOutsideSpaceErr
 		}
 		// Through the Manager, not the store: cached version records denormalize
 		// the space, and reveal/edit authz reads it.
-		if err := h.Secrets.MoveSpace(req.SecretID, req.SpaceID, req.ValueDirectoryID, ctx.AttributionUserID()); err != nil {
+		if err := h.Secrets.MoveSpaceLocked(req.SecretID, req.SpaceID, req.ValueDirectoryID, ctx.AttributionUserID()); err != nil {
 			return nil, mapSecretErr(err)
 		}
 		// Clients that saw the old space but cannot see the new one would
@@ -311,8 +309,6 @@ func (h *Handler) PostV1SecretsReveal(ctx apigen.Context, req *apigen.SecretReve
 }
 
 func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDeleteRequest) error {
-	unlockReferences := h.ConfigService.LockReferences()
-	defer unlockReferences()
 	if req.SecretID == 0 {
 		return SecretIDRequiredErr
 	}
@@ -326,12 +322,13 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 	if isReservedSecretMetaName(sec.Fs.Name) {
 		return SecretReservedNameErr
 	}
+	defer h.Store.GlobalLock()()
 	ids := int32Set(h.Store.SecretVersionIDs(req.SecretID))
-	details := append(h.settingsSecretRefDetails(ids), h.deploymentRefDetails(ids, runtimeinputs.SecretRefs)...)
+	details := append(h.settingsSecretRefDetails(ids), h.deploymentRefDetails(h.Store.LiveState(), ids, runtimeinputs.SecretRefs)...)
 	if len(details) > 0 {
 		return referenceInUseDetailErr("Secret", details)
 	}
-	if err := h.Secrets.Delete(req.SecretID); err != nil {
+	if err := h.Secrets.DeleteLocked(req.SecretID); err != nil {
 		return mapSecretErr(err)
 	}
 	h.Store.NotifySecretDeleted(sec)

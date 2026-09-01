@@ -7,6 +7,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
@@ -42,14 +43,14 @@ func TestHTTPSIngressUpdateOnSecondaryWithPassthrough(t *testing.T) {
 		return &spec
 	}
 	for _, hostname := range []string{"one.ingress.opendeploy.test", "two.ingress.opendeploy.test"} {
-		cfg := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "tls-"+hostname, secondaryNode.ID, passthroughSpec(hostname))
-		if err := h.validateNodeNetworkingClaims(secondaryNode.ID, cfg.ID, passthroughSpec(hostname)); err != nil {
+		cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "tls-"+hostname, secondaryNode.ID, passthroughSpec(hostname))
+		if err := h.validateNodeNetworkingClaims(h.Store.LiveState(), secondaryNode.ID, cfg.ID, passthroughSpec(hostname)); err != nil {
 			t.Fatalf("passthrough claims for %s rejected: %v", hostname, err)
 		}
 	}
 
 	echoSpec := remoteDeploymentSpec("httpecho", apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL})
-	echo := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "https-echo-root", secondaryNode.ID, &echoSpec)
+	echo := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "https-echo-root", secondaryNode.ID, &echoSpec)
 
 	updated := remoteDeploymentSpec("httpecho", apigen.NetworkingConfig{
 		Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
@@ -66,7 +67,7 @@ func TestHTTPSIngressUpdateOnSecondaryWithPassthrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validateDeploymentSpec rejected HTTPS ingress: %v", err)
 	}
-	if err := h.validateNodeNetworkingClaims(echo.NodeID, echo.ID, validated); err != nil {
+	if err := h.validateNodeNetworkingClaims(h.Store.LiveState(), echo.NodeID, echo.ID, validated); err != nil {
 		t.Fatalf("validateNodeNetworkingClaims rejected HTTPS ingress: %v", err)
 	}
 }

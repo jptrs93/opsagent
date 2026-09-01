@@ -37,7 +37,7 @@ func TestCreateValueDirectory(t *testing.T) {
 
 	// The sibling namespace spans all three tables: a secret and a config each
 	// block a directory of the same name.
-	if _, err := store.CreateSecretWithVersion("api-token", DefaultSpaceID, 0, 0, testSealFunc(1)); err != nil {
+	if _, err := store.CreateSecretWithVersionLocked("api-token", DefaultSpaceID, 0, 0, testSealFunc(1)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.CreateValueDirectory(0, 0, "api-token", 0); !errors.Is(err, ErrValueAlreadyExists) {
@@ -50,7 +50,7 @@ func TestCreateValueDirectory(t *testing.T) {
 		t.Fatalf("directory over config name err = %v, want ErrValueAlreadyExists", err)
 	}
 	// And a directory blocks a secret or config of the same name.
-	if _, err := store.CreateSecretWithVersion("db", DefaultSpaceID, 0, 0, testSealFunc(1)); !errors.Is(err, ErrValueAlreadyExists) {
+	if _, err := store.CreateSecretWithVersionLocked("db", DefaultSpaceID, 0, 0, testSealFunc(1)); !errors.Is(err, ErrValueAlreadyExists) {
 		t.Fatalf("secret over directory name err = %v, want ErrValueAlreadyExists", err)
 	}
 	if _, err := store.CreateConfigWithVersion("db", DefaultSpaceID, 0, 0, "x"); !errors.Is(err, ErrValueAlreadyExists) {
@@ -106,7 +106,7 @@ func TestMoveValueDirectory(t *testing.T) {
 	if _, err := store.MoveValueDirectory(int32(c.ID), 0); !errors.Is(err, ErrValueAlreadyExists) {
 		t.Fatalf("move onto sibling directory err = %v, want ErrValueAlreadyExists", err)
 	}
-	sec, err := store.CreateSecretWithVersion("s", DefaultSpaceID, 0, 0, testSealFunc(1))
+	sec, err := store.CreateSecretWithVersionLocked("s", DefaultSpaceID, 0, 0, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestDeleteValueDirectory(t *testing.T) {
 	}
 
 	// A resident secret blocks deletion, then a resident config.
-	sec, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, 0, testSealFunc(1))
+	sec, err := store.CreateSecretWithVersionLocked("token", DefaultSpaceID, 0, 0, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestMoveSecretDirectory(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 
 	dir, _ := store.CreateValueDirectory(0, 0, "creds", 0)
-	sec, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, 0, testSealFunc(1))
+	sec, err := store.CreateSecretWithVersionLocked("token", DefaultSpaceID, 0, 0, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestMoveSecretDirectory(t *testing.T) {
 
 	// The root name is free again; the destination name is now taken — by the
 	// moved secret against a second secret, and by a config already in place.
-	sec2, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, 0, testSealFunc(2))
+	sec2, err := store.CreateSecretWithVersionLocked("token", DefaultSpaceID, 0, 0, testSealFunc(2))
 	if err != nil {
 		t.Fatalf("recreate at vacated name: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestMoveSecretDirectory(t *testing.T) {
 	if _, err := store.MoveConfigDirectory(cfg.ID, int32(dir.ID)); err != nil {
 		t.Fatal(err)
 	}
-	sec3, err := store.CreateSecretWithVersion("mode", DefaultSpaceID, 0, 0, testSealFunc(3))
+	sec3, err := store.CreateSecretWithVersionLocked("mode", DefaultSpaceID, 0, 0, testSealFunc(3))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestMoveConfigDirectory(t *testing.T) {
 	if _, err := store.MoveConfigDirectory(cfg2.ID, int32(dir.ID)); !errors.Is(err, ErrValueAlreadyExists) {
 		t.Fatalf("move onto taken name err = %v, want ErrValueAlreadyExists", err)
 	}
-	sec, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, 0, testSealFunc(1))
+	sec, err := store.CreateSecretWithVersionLocked("token", DefaultSpaceID, 0, 0, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,18 +335,18 @@ func TestMoveConfigDirectory(t *testing.T) {
 func TestMoveSecretSpace(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 
-	sec, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, 0, testSealFunc(1))
+	sec, err := store.CreateSecretWithVersionLocked("token", DefaultSpaceID, 0, 0, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.MoveSecretSpace(sec.SecretID, DefaultSpaceID, 0, 1); err != nil {
+	if err := store.MoveSecretSpaceLocked(sec.SecretID, DefaultSpaceID, 0, 1); err != nil {
 		t.Fatalf("same-space no-op err = %v", err)
 	}
-	if err := store.MoveSecretSpace(999, 2, 0, 1); !errors.Is(err, ErrValueNotFound) {
+	if err := store.MoveSecretSpaceLocked(999, 2, 0, 1); !errors.Is(err, ErrValueNotFound) {
 		t.Fatalf("missing secret err = %v, want ErrValueNotFound", err)
 	}
 
-	if err := store.MoveSecretSpace(sec.SecretID, 2, 0, 1); err != nil {
+	if err := store.MoveSecretSpaceLocked(sec.SecretID, 2, 0, 1); err != nil {
 		t.Fatalf("space move: %v", err)
 	}
 	moved, ok := store.GetSecret(sec.SecretID)
@@ -360,22 +360,22 @@ func TestMoveSecretSpace(t *testing.T) {
 
 	// The vacated name is reusable at the origin, and the occupied one blocks a
 	// move back.
-	dup, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, 0, testSealFunc(1))
+	dup, err := store.CreateSecretWithVersionLocked("token", DefaultSpaceID, 0, 0, testSealFunc(1))
 	if err != nil {
 		t.Fatalf("recreate at vacated name: %v", err)
 	}
-	if err := store.MoveSecretSpace(sec.SecretID, DefaultSpaceID, 0, 1); !errors.Is(err, ErrValueAlreadyExists) {
+	if err := store.MoveSecretSpaceLocked(sec.SecretID, DefaultSpaceID, 0, 1); !errors.Is(err, ErrValueAlreadyExists) {
 		t.Fatalf("move onto taken name err = %v, want ErrValueAlreadyExists", err)
 	}
 
 	// A destination directory must live in the destination space; the origin's
 	// directory reads as absent there.
 	originDir, _ := store.CreateValueDirectory(int32(DefaultSpaceID), 0, "app", 0)
-	if err := store.MoveSecretSpace(dup.SecretID, 2, int32(originDir.ID), 1); !errors.Is(err, ErrValueDirectoryNotFound) {
+	if err := store.MoveSecretSpaceLocked(dup.SecretID, 2, int32(originDir.ID), 1); !errors.Is(err, ErrValueDirectoryNotFound) {
 		t.Fatalf("foreign destination dir err = %v, want ErrValueDirectoryNotFound", err)
 	}
 	destDir, _ := store.CreateValueDirectory(2, 0, "app", 0)
-	if err := store.MoveSecretSpace(dup.SecretID, 2, int32(destDir.ID), 1); err != nil {
+	if err := store.MoveSecretSpaceLocked(dup.SecretID, 2, int32(destDir.ID), 1); err != nil {
 		t.Fatalf("space move into directory: %v", err)
 	}
 	moved, ok = store.GetSecret(dup.SecretID)
@@ -391,14 +391,14 @@ func TestMoveConfigSpace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.MoveConfigSpace(cfg.ID, DefaultSpaceID, 0, 1); err != nil {
+	if err := store.MoveConfigSpaceLocked(cfg.ID, DefaultSpaceID, 0, 1); err != nil {
 		t.Fatalf("same-space no-op err = %v", err)
 	}
-	if err := store.MoveConfigSpace(999, 2, 0, 1); !errors.Is(err, ErrValueNotFound) {
+	if err := store.MoveConfigSpaceLocked(999, 2, 0, 1); !errors.Is(err, ErrValueNotFound) {
 		t.Fatalf("missing config err = %v, want ErrValueNotFound", err)
 	}
 
-	if err := store.MoveConfigSpace(cfg.ID, 2, 0, 1); err != nil {
+	if err := store.MoveConfigSpaceLocked(cfg.ID, 2, 0, 1); err != nil {
 		t.Fatalf("space move: %v", err)
 	}
 	moved, ok := store.GetConfig(cfg.ID)
@@ -412,14 +412,14 @@ func TestMoveConfigSpace(t *testing.T) {
 
 	// The shared secrets/configs namespace holds at the destination: a secret
 	// with the same name there blocks the move.
-	if _, err := store.CreateSecretWithVersion("blocker", 2, 0, 0, testSealFunc(1)); err != nil {
+	if _, err := store.CreateSecretWithVersionLocked("blocker", 2, 0, 0, testSealFunc(1)); err != nil {
 		t.Fatal(err)
 	}
 	cfg2, err := store.CreateConfigWithVersion("blocker", DefaultSpaceID, 0, 0, "debug")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.MoveConfigSpace(cfg2.ID, 2, 0, 1); !errors.Is(err, ErrValueAlreadyExists) {
+	if err := store.MoveConfigSpaceLocked(cfg2.ID, 2, 0, 1); !errors.Is(err, ErrValueAlreadyExists) {
 		t.Fatalf("move onto secret name err = %v, want ErrValueAlreadyExists", err)
 	}
 }
@@ -455,7 +455,7 @@ func TestRenameValueDirectory(t *testing.T) {
 	}
 
 	// The target namespace spans directories, secrets, and configs.
-	if _, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, 0, testSealFunc(1)); err != nil {
+	if _, err := store.CreateSecretWithVersionLocked("token", DefaultSpaceID, 0, 0, testSealFunc(1)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.RenameValueDirectory(int32(a.ID), "token"); !errors.Is(err, ErrValueAlreadyExists) {
@@ -475,7 +475,7 @@ func TestListValueDirectoriesAndCreateInDirectory(t *testing.T) {
 	}
 
 	// Creates target the directory and validate its space.
-	sec, err := store.CreateSecretWithVersion("token", DefaultSpaceID, int32(a.ID), 0, testSealFunc(1))
+	sec, err := store.CreateSecretWithVersionLocked("token", DefaultSpaceID, int32(a.ID), 0, testSealFunc(1))
 	if err != nil {
 		t.Fatalf("create secret in directory: %v", err)
 	}

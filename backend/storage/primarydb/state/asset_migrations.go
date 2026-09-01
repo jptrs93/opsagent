@@ -61,9 +61,7 @@ func (s *Service) FetchOpenDeployConfigByID(id int64) (SystemConfigRevision, err
 
 // AppendOpenDeploySettingsWithAssetMigration commits the new configuration and
 // its migration intent together so startup can always recover the transition.
-func (s *Service) AppendOpenDeploySettingsWithAssetMigration(blob []byte, createMigration bool) (int64, *AssetMigration, error) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+func (s *Service) AppendOpenDeploySettingsWithAssetMigrationLocked(blob []byte, createMigration bool) (int64, *AssetMigration, error) {
 	ctx := context.Background()
 
 	if _, err := s.q.GetUnfinishedAssetMigration(ctx); err == nil {

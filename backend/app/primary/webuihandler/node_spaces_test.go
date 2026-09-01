@@ -109,7 +109,7 @@ func TestNarrowingIsRejectedWhileDeploymentsUseTheSpace(t *testing.T) {
 		t.Fatalf("err = %v, want node_space_in_use", err)
 	}
 	// And the stored list is untouched.
-	if got := h.nodeAllowsSpace(node.ID, state.DefaultSpaceID); !got {
+	if got := nodeAllowsSpaceForTest(h, node.ID, state.DefaultSpaceID); !got {
 		t.Fatal("a rejected narrowing still changed the stored list")
 	}
 }
@@ -164,7 +164,12 @@ func TestSetAllowedSpacesAlwaysKeepsTheOpendeploySpace(t *testing.T) {
 		t.Fatalf("AllowedSpaces = %v, want just the opendeploy space", updated.AllowedSpaces)
 	}
 	// Which means an internal deployment can still be placed there.
-	if !h.nodeAllowsSpace(node.ID, state.OpendeploySpaceID) {
+	if !nodeAllowsSpaceForTest(h, node.ID, state.OpendeploySpaceID) {
 		t.Fatal("node stopped allowing the opendeploy space")
 	}
+}
+
+func nodeAllowsSpaceForTest(h *Handler, nodeID, spaceID int32) bool {
+	node := h.Store.LiveState().Nodes[nodeID]
+	return node != nil && slices.Contains(node.AllowedSpaces, spaceID)
 }

@@ -13,14 +13,14 @@ func TestAssetMigrationLifecycleAndConfigTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("append old config: %v", err)
 	}
-	newID, migration, err := store.AppendOpenDeploySettingsWithAssetMigration([]byte("new"), true)
+	newID, migration, err := store.AppendOpenDeploySettingsWithAssetMigrationLocked([]byte("new"), true)
 	if err != nil {
 		t.Fatalf("append new config and migration: %v", err)
 	}
 	if migration == nil || migration.OldConfigVersionID != oldID || migration.NewConfigVersionID != newID || migration.Status != "pending" {
 		t.Fatalf("migration = %+v, old=%d new=%d", migration, oldID, newID)
 	}
-	if _, _, err := store.AppendOpenDeploySettingsWithAssetMigration([]byte("blocked"), false); !errors.Is(err, ErrAssetMigrationInProgress) {
+	if _, _, err := store.AppendOpenDeploySettingsWithAssetMigrationLocked([]byte("blocked"), false); !errors.Is(err, ErrAssetMigrationInProgress) {
 		t.Fatalf("second settings append error = %v, want ErrAssetMigrationInProgress", err)
 	}
 	latest, err := store.FetchLatestOpenDeployConfig()

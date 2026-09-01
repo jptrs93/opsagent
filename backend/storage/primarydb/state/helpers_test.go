@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
@@ -34,20 +35,48 @@ func testSpecWithState(version string, running bool) *apigen.DeploymentSpec {
 	return spec
 }
 
+// mustCreateDeploymentForNode is a test seeding convenience: it locks, panics
+// on a duplicate active identity, and creates the deployment.
+func mustCreateDeploymentForNode(s *Service, ctx apigen.Context, spaceID int32, name string, nodeID int32, spec *apigen.DeploymentSpec) *apigen.Deployment {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	for _, cfg := range s.deploymentCache {
+		if storage.DeploymentKeyMatches(*cfg, nodeID, spaceID, name) && !cfg.Deleted {
+			panic(fmt.Sprintf("deployment node=%d space=%d name=%q already exists", nodeID, spaceID, name))
+		}
+	}
+	return s.CreateDeploymentLocked(ctx, &apigen.Deployment{
+		NodeID:  nodeID,
+		SpaceID: spaceID,
+		Name:    name,
+		Spec:    *spec,
+	})
+}
+
+func updateDeployment(s *Service, ctx apigen.Context, deploymentID int32, update DeploymentUpdate) *apigen.Deployment {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	return s.UpdateDeploymentLocked(ctx, deploymentID, update)
+}
+
+func deleteDeployment(s *Service, ctx apigen.Context, deploymentID int32) *apigen.Deployment {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	return s.DeleteDeploymentLocked(ctx, deploymentID)
+}
+
 // mustSetDeploymentWorkloadState appends a spec version with only the workload
 // state changed. Test-only counterpart of the deploy-time spec update paths.
 func mustSetDeploymentWorkloadState(s *Service, ctx apigen.Context, deploymentID int32, version string, running bool) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	userID := int64(ctx.AttributionUserID())
-
 	existing := s.mustLatestDeploymentLocked(deploymentID)
 	spec := mustDecodeDeploymentSpec(existing.Spec.Encode(), int64(deploymentID), int64(existing.SpecVersion))
 	if err := spec.SetWorkloadState(version, running); err != nil {
 		panic(fmt.Sprintf("update deployment workload state: %v", err))
 	}
-	s.mustAppendSpecVersionLocked(existing, spec, userID)
+	s.UpdateDeploymentLocked(ctx, deploymentID, DeploymentUpdate{Spec: spec})
 }
 
 // mustUpdateDeploymentSpec appends the given spec as a new version, preserving
@@ -56,18 +85,12 @@ func mustUpdateDeploymentSpec(s *Service, ctx apigen.Context, deploymentID int32
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	userID := int64(ctx.AttributionUserID())
-
-	if spec == nil {
-		panic("deployment spec must not be nil")
-	}
-
 	existing := s.mustLatestDeploymentLocked(deploymentID)
 	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), int64(deploymentID), int64(existing.SpecVersion))
 	if err := storedSpec.SetWorkloadState(existing.WorkloadVersion(), existing.WorkloadRunning()); err != nil {
 		panic(fmt.Sprintf("preserve deployment workload state: %v", err))
 	}
-	s.mustAppendSpecVersionLocked(existing, storedSpec, userID)
+	s.UpdateDeploymentLocked(ctx, deploymentID, DeploymentUpdate{Spec: storedSpec})
 }
 
 // getAssetInRootByKey resolves an asset by key in a space's implicit root
@@ -94,7 +117,9 @@ func setConfigByName(s *Service, name, value string, author int32) *apigen.Confi
 	if err != nil {
 		panic(fmt.Sprintf("GetConfigInDirectoryByName: %v", err))
 	}
-	c, _, appendErr := s.AppendConfigVersionWithDeploymentUpdates(int32(row.ID), value, author, false, nil)
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	c, _, appendErr := s.AppendConfigVersionWithDeploymentUpdatesLocked(int32(row.ID), value, author, false, nil)
 	if appendErr != nil {
 		panic(fmt.Sprintf("setConfigByName append: %v", appendErr))
 	}

@@ -137,17 +137,18 @@ const defaultUserSpaceID int32 = 1
 // and directories) lives there. Writes follow opendeploy's panic-on-failure
 // convention; name/namespace violations return the storage layer's errors.
 type Store interface {
+	GlobalLock() func()
 	ListSecretKeyslots() []Keyslot
-	UpsertSecretKeyslot(Keyslot)
+	UpsertSecretKeyslotLocked(Keyslot)
 	ListSecretVersionRecords() []Record
 	GetSecretIDByName(spaceID int32, name string) (int32, bool)
-	CreateSecretWithVersion(name string, spaceID, directoryID, author int32, seal SealFunc) (Record, error)
-	AppendSecretVersionWithDeploymentUpdates(secretID, author int32, seal SealFunc, updateDeployments bool, expected []storage.DeploymentSpecVersion, afterCommit func(Record)) (Record, []int32, error)
-	RenameSecret(secretID int32, newName string) error
-	MoveSecretSpace(secretID, newSpaceID, newDirectoryID, author int32) error
-	DeleteSecret(secretID int32) error
+	CreateSecretWithVersionLocked(name string, spaceID, directoryID, author int32, seal SealFunc) (Record, error)
+	AppendSecretVersionWithDeploymentUpdatesLocked(secretID, author int32, seal SealFunc, updateDeployments bool, expected []storage.DeploymentSpecVersion, afterCommit func(Record)) (Record, []int32, error)
+	RenameSecretLocked(secretID int32, newName string) error
+	MoveSecretSpaceLocked(secretID, newSpaceID, newDirectoryID, author int32) error
+	DeleteSecretLocked(secretID int32) error
 	GetSystemSecret(name string) (SystemRecord, bool)
-	UpsertSystemSecret(SystemRecord)
+	UpsertSystemSecretLocked(SystemRecord)
 }
 
 // Manager owns the in-memory SMK and a cache of encrypted version records. It
@@ -337,6 +338,11 @@ func (m *Manager) LatestMetaByName(name string) (Meta, bool) {
 // space root) of spaceID (0 = the default space). value is encrypted under the
 // SMK before it touches disk. Returns the version's metadata (never its value).
 func (m *Manager) Create(name string, value []byte, author, spaceID, directoryID int32) (Meta, error) {
+	defer m.store.GlobalLock()()
+	return m.createLocked(name, value, author, spaceID, directoryID)
+}
+
+func (m *Manager) createLocked(name string, value []byte, author, spaceID, directoryID int32) (Meta, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Meta{}, errors.New("secret name is required")
@@ -352,7 +358,7 @@ func (m *Manager) Create(name string, value []byte, author, spaceID, directoryID
 	if m.smk == nil {
 		return Meta{}, ErrLocked
 	}
-	rec, err := m.store.CreateSecretWithVersion(name, spaceID, directoryID, author, m.sealFuncLocked(value))
+	rec, err := m.store.CreateSecretWithVersionLocked(name, spaceID, directoryID, author, m.sealFuncLocked(value))
 	if err != nil {
 		return Meta{}, err
 	}
@@ -365,16 +371,22 @@ func (m *Manager) Create(name string, value []byte, author, spaceID, directoryID
 // provision well-known secrets; interactive callers go through Create/Set with
 // explicit ids.
 func (m *Manager) SetByName(name string, value []byte, author int32) (Meta, error) {
+	defer m.store.GlobalLock()()
 	name = strings.TrimSpace(name)
 	if id, ok := m.store.GetSecretIDByName(defaultUserSpaceID, name); ok {
-		return m.SetWithDeploymentUpdates(id, value, author, false, nil, nil)
+		return m.SetWithDeploymentUpdatesLocked(id, value, author, false, nil, nil)
 	}
-	return m.Create(name, value, author, 0, 0)
+	return m.createLocked(name, value, author, 0, 0)
 }
 
 // SetWithDeploymentUpdates appends an immutable secret version and optionally
 // rolls the caller-asserted deployment references to the new row atomically.
 func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, author int32, updateDeployments bool, deployments []storage.DeploymentSpecVersion, onCommit func(Meta)) (Meta, error) {
+	defer m.store.GlobalLock()()
+	return m.SetWithDeploymentUpdatesLocked(secretID, value, author, updateDeployments, deployments, onCommit)
+}
+
+func (m *Manager) SetWithDeploymentUpdatesLocked(secretID int32, value []byte, author int32, updateDeployments bool, deployments []storage.DeploymentSpecVersion, onCommit func(Meta)) (Meta, error) {
 	if secretID == 0 {
 		return Meta{}, ErrNotFound
 	}
@@ -383,7 +395,7 @@ func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, author 
 	if m.smk == nil {
 		return Meta{}, ErrLocked
 	}
-	rec, _, err := m.store.AppendSecretVersionWithDeploymentUpdates(secretID, author, m.sealFuncLocked(value), updateDeployments, deployments, func(committed Record) {
+	rec, _, err := m.store.AppendSecretVersionWithDeploymentUpdatesLocked(secretID, author, m.sealFuncLocked(value), updateDeployments, deployments, func(committed Record) {
 		m.cache[committed.ID] = committed
 		if onCommit != nil {
 			onCommit(committed.meta())
@@ -417,6 +429,7 @@ func (m *Manager) SetInternal(name string, value []byte) error {
 	if name == "" {
 		return errors.New("secret name is required")
 	}
+	defer m.store.GlobalLock()()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.smk == nil {
@@ -441,7 +454,7 @@ func (m *Manager) SetInternal(name string, value []byte) error {
 		CreatedAt:  createdAt,
 		UpdatedAt:  now,
 	}
-	m.store.UpsertSystemSecret(rec)
+	m.store.UpsertSystemSecretLocked(rec)
 	m.systemCache[name] = rec
 	return nil
 }
@@ -456,12 +469,13 @@ func (m *Manager) Rename(secretID int32, newName string) error {
 	if isReservedInternalName(newName) {
 		return ErrReservedName
 	}
+	defer m.store.GlobalLock()()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.smk == nil {
 		return ErrLocked
 	}
-	if err := m.store.RenameSecret(secretID, newName); err != nil {
+	if err := m.store.RenameSecretLocked(secretID, newName); err != nil {
 		return err
 	}
 	for id, rec := range m.cache {
@@ -480,12 +494,17 @@ func (m *Manager) Rename(secretID int32, newName string) error {
 // records denormalize the space, and authz decisions read it, so the cache is
 // fixed up here. Safe to call while locked (no decryption needed).
 func (m *Manager) MoveSpace(secretID, newSpaceID, directoryID, author int32) error {
+	defer m.store.GlobalLock()()
+	return m.MoveSpaceLocked(secretID, newSpaceID, directoryID, author)
+}
+
+func (m *Manager) MoveSpaceLocked(secretID, newSpaceID, directoryID, author int32) error {
 	if newSpaceID <= 0 {
 		newSpaceID = defaultUserSpaceID
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.store.MoveSecretSpace(secretID, newSpaceID, directoryID, author); err != nil {
+	if err := m.store.MoveSecretSpaceLocked(secretID, newSpaceID, directoryID, author); err != nil {
 		return err
 	}
 	for id, rec := range m.cache {
@@ -522,9 +541,14 @@ func (m *Manager) RevealInternal(name string) ([]byte, error) {
 // Delete removes a user secret with all its versions. Safe to call while
 // locked (no decryption needed).
 func (m *Manager) Delete(secretID int32) error {
+	defer m.store.GlobalLock()()
+	return m.DeleteLocked(secretID)
+}
+
+func (m *Manager) DeleteLocked(secretID int32) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.store.DeleteSecret(secretID); err != nil {
+	if err := m.store.DeleteSecretLocked(secretID); err != nil {
 		return err
 	}
 	for id, rec := range m.cache {
@@ -547,6 +571,7 @@ func (m *Manager) Status() (unlocked, recoveryConfigured bool) {
 // the new break-glass code. The code is returned exactly once and is never
 // stored — only its Argon2id-wrapped SMK is persisted.
 func (m *Manager) GenerateRecoveryCode() (string, error) {
+	defer m.store.GlobalLock()()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.smk == nil {
@@ -565,7 +590,7 @@ func (m *Manager) GenerateRecoveryCode() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	m.store.UpsertSecretKeyslot(Keyslot{
+	m.store.UpsertSecretKeyslotLocked(Keyslot{
 		Slot:       slotRecovery,
 		SMKVersion: m.version,
 		WrappedSMK: wrapped,
@@ -580,6 +605,7 @@ func (m *Manager) GenerateRecoveryCode() (string, error) {
 // fresh local machine key (and machine keyslot) so subsequent boots are
 // unattended again.
 func (m *Manager) Unlock(code string) error {
+	defer m.store.GlobalLock()()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	rec, ok := findSlot(m.store.ListSecretKeyslots(), slotRecovery)
@@ -601,6 +627,7 @@ func (m *Manager) Unlock(code string) error {
 }
 
 func (m *Manager) initFirstRun() error {
+	defer m.store.GlobalLock()()
 	smk := make([]byte, keyLen)
 	if _, err := rand.Read(smk); err != nil {
 		return err
@@ -622,7 +649,7 @@ func (m *Manager) rewriteMachineSlot(smk []byte, version int32) error {
 	if err != nil {
 		return err
 	}
-	m.store.UpsertSecretKeyslot(Keyslot{
+	m.store.UpsertSecretKeyslotLocked(Keyslot{
 		Slot:       slotMachine,
 		SMKVersion: version,
 		WrappedSMK: wrapped,

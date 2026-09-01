@@ -13,6 +13,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
 
 func newGlobalStateTestHandler(t *testing.T) *Handler {
@@ -208,10 +209,7 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 
 func markDeleted(t *testing.T, h *Handler, cfg *apigen.Deployment) {
 	t.Helper()
-	_, versionOK := h.Store.DeleteDeployment(apigen.Context{}, cfg.ID, cfg.Version+1)
-	if !versionOK {
-		t.Fatalf("marking deployment %d deleted: version conflict", cfg.ID)
-	}
+	statetest.DeleteDeployment(h.Store, apigen.Context{}, cfg.ID)
 }
 
 func keysOf(m map[string]any) []string {

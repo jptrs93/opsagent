@@ -394,10 +394,8 @@ func (s *Service) MoveAssetDirectory(assetID, newDirectoryID int32) (Asset, erro
 // A space change appends to the asset_spaces log with author as the acting
 // user. Reference locality is the caller's law — the handler refuses the move
 // while anything outside the destination space references the asset.
-func (s *Service) MoveAssetSpace(assetID, newSpaceID, newDirectoryID, author int32) error {
+func (s *Service) MoveAssetSpaceLocked(assetID, newSpaceID, newDirectoryID, author int32) error {
 	ctx := context.Background()
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
 
 	a, err := s.q.GetAssetByID(ctx, int64(assetID))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -451,9 +449,7 @@ func (s *Service) MoveAssetSpace(assetID, newSpaceID, newDirectoryID, author int
 // DeleteAsset soft-deletes the asset identity. Version rows, space history,
 // and content stay in place, so the delete is recoverable at the DB level;
 // reads exclude the asset from here on.
-func (s *Service) DeleteAsset(assetID int32) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+func (s *Service) DeleteAssetLocked(assetID int32) {
 	if err := s.q.SoftDeleteAssetRow(context.Background(), pq.SoftDeleteAssetRowParams{
 		DeletedAt: time.Now().UnixMilli(),
 		ID:        int64(assetID),

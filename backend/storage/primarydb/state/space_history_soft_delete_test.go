@@ -14,11 +14,11 @@ func TestSpaceAssignmentHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create asset: %v", err)
 	}
-	if err := store.MoveAssetSpace(v.ID, 2, 0, 9); err != nil {
+	if err := store.MoveAssetSpaceLocked(v.ID, 2, 0, 9); err != nil {
 		t.Fatalf("move asset space: %v", err)
 	}
 	// A directory-only move through the space endpoint must not log.
-	if err := store.MoveAssetSpace(v.ID, 2, 0, 9); err != nil {
+	if err := store.MoveAssetSpaceLocked(v.ID, 2, 0, 9); err != nil {
 		t.Fatalf("repeat asset space move: %v", err)
 	}
 	rows, err := store.q.ListAssetSpaceRowsByAssetID(t.Context(), int64(v.ID))
@@ -38,11 +38,11 @@ func TestSpaceAssignmentHistory(t *testing.T) {
 		t.Fatalf("asset row after move = %+v ok=%v, want current space 2", a, ok)
 	}
 
-	sec, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, 5, testSealFunc(1))
+	sec, err := store.CreateSecretWithVersionLocked("token", DefaultSpaceID, 0, 5, testSealFunc(1))
 	if err != nil {
 		t.Fatalf("create secret: %v", err)
 	}
-	if err := store.MoveSecretSpace(sec.SecretID, 2, 0, 9); err != nil {
+	if err := store.MoveSecretSpaceLocked(sec.SecretID, 2, 0, 9); err != nil {
 		t.Fatalf("move secret space: %v", err)
 	}
 	secRows, err := store.q.ListSecretSpaceRowsBySecretID(t.Context(), int64(sec.SecretID))
@@ -57,7 +57,7 @@ func TestSpaceAssignmentHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create config: %v", err)
 	}
-	if err := store.MoveConfigSpace(cfg.ID, 2, 0, 9); err != nil {
+	if err := store.MoveConfigSpaceLocked(cfg.ID, 2, 0, 9); err != nil {
 		t.Fatalf("move config space: %v", err)
 	}
 	cfgRows, err := store.q.ListConfigSpaceRowsByConfigID(t.Context(), int64(cfg.ID))
@@ -77,7 +77,7 @@ func TestSoftDeleteHidesRowAndFreesName(t *testing.T) {
 	defer store.Close()
 
 	v := store.SetAssetByKey("app.conf", []byte("v1"))
-	store.DeleteAsset(v.ID)
+	store.DeleteAssetLocked(v.ID)
 	if _, ok := store.GetAssetRow(v.ID); ok {
 		t.Fatal("deleted asset still resolves by id")
 	}
@@ -96,11 +96,11 @@ func TestSoftDeleteHidesRowAndFreesName(t *testing.T) {
 		t.Fatalf("deleted asset version rows = %d, want 1 retained", len(versions))
 	}
 
-	sec, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, 1, testSealFunc(1))
+	sec, err := store.CreateSecretWithVersionLocked("token", DefaultSpaceID, 0, 1, testSealFunc(1))
 	if err != nil {
 		t.Fatalf("create secret: %v", err)
 	}
-	if err := store.DeleteSecret(sec.SecretID); err != nil {
+	if err := store.DeleteSecretLocked(sec.SecretID); err != nil {
 		t.Fatalf("delete secret: %v", err)
 	}
 	if _, ok := store.GetSecretInRootByName(DefaultSpaceID, "token"); ok {
@@ -109,7 +109,7 @@ func TestSoftDeleteHidesRowAndFreesName(t *testing.T) {
 	if got := store.ListSecretVersionRecords(); len(got) != 0 {
 		t.Fatalf("deleted secret leaked %d records into the manager load", len(got))
 	}
-	if _, err := store.CreateSecretWithVersion("token", DefaultSpaceID, 0, 1, testSealFunc(2)); err != nil {
+	if _, err := store.CreateSecretWithVersionLocked("token", DefaultSpaceID, 0, 1, testSealFunc(2)); err != nil {
 		t.Fatalf("recreate secret with freed name: %v", err)
 	}
 
@@ -117,7 +117,7 @@ func TestSoftDeleteHidesRowAndFreesName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create config: %v", err)
 	}
-	if c, ok := store.DeleteConfig(cfg.ID); !ok || c.DeletedAt.IsZero() {
+	if c, ok := store.DeleteConfigLocked(cfg.ID); !ok || c.DeletedAt.IsZero() {
 		t.Fatalf("delete config = %+v ok=%v", c, ok)
 	}
 	if _, ok := store.GetConfig(cfg.ID); ok {

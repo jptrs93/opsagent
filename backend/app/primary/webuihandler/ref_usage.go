@@ -7,6 +7,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var ReferenceInUseErr = apigen.NewApiErr("Referenced value is still in use", "reference_in_use", 400)
@@ -80,13 +81,13 @@ func crossDeploymentMountSourceIDs(cfg *apigen.Deployment) []int32 {
 
 // referencingDeployments returns the non-deleted deployments pinning any of
 // ids, with refs extracting one kind's version ids from a config.
-func (h *Handler) referencingDeployments(ids map[int32]struct{}, refs func(*apigen.Deployment) []int32) []apigen.Deployment {
-	var out []apigen.Deployment
-	for _, cfg := range h.Store.FetchDeploymentSnapshot(nil) {
+func referencingDeployments(live state.LiveState, ids map[int32]struct{}, refs func(*apigen.Deployment) []int32) []*apigen.Deployment {
+	var out []*apigen.Deployment
+	for _, cfg := range live.Deployments {
 		if cfg.Deleted {
 			continue
 		}
-		for _, id := range refs(&cfg) {
+		for _, id := range refs(cfg) {
 			if _, ok := ids[id]; ok {
 				out = append(out, cfg)
 				break
@@ -98,8 +99,8 @@ func (h *Handler) referencingDeployments(ids map[int32]struct{}, refs func(*apig
 
 // referencesOutsideSpace reports whether any non-deleted deployment outside
 // spaceID pins one of ids — the veto for cross-space moves.
-func (h *Handler) referencesOutsideSpace(ids map[int32]struct{}, refs func(*apigen.Deployment) []int32, spaceID int32) bool {
-	for _, cfg := range h.referencingDeployments(ids, refs) {
+func referencesOutsideSpace(live state.LiveState, ids map[int32]struct{}, refs func(*apigen.Deployment) []int32, spaceID int32) bool {
+	for _, cfg := range referencingDeployments(live, ids, refs) {
 		if cfg.SpaceID != spaceID {
 			return true
 		}
@@ -107,15 +108,15 @@ func (h *Handler) referencesOutsideSpace(ids map[int32]struct{}, refs func(*apig
 	return false
 }
 
-func (h *Handler) deploymentUsesAddressID(ids map[int32]struct{}) bool {
-	return len(h.referencingDeployments(ids, addressRefIDs)) > 0
+func deploymentUsesAddressID(live state.LiveState, ids map[int32]struct{}) bool {
+	return len(referencingDeployments(live, ids, addressRefIDs)) > 0
 }
 
 // deploymentRefDetails renders "deployment <space> / <node> / <name>" lines
 // for every deployment pinning one of ids — the human-readable half of the
 // reference_in_use refusal.
-func (h *Handler) deploymentRefDetails(ids map[int32]struct{}, refs func(*apigen.Deployment) []int32) []string {
-	cfgs := h.referencingDeployments(ids, refs)
+func (h *Handler) deploymentRefDetails(live state.LiveState, ids map[int32]struct{}, refs func(*apigen.Deployment) []int32) []string {
+	cfgs := referencingDeployments(live, ids, refs)
 	if len(cfgs) == 0 {
 		return nil
 	}
@@ -124,7 +125,7 @@ func (h *Handler) deploymentRefDetails(ids map[int32]struct{}, refs func(*apigen
 		spaces[space.ID] = space.Name
 	}
 	nodes := map[int32]string{}
-	for _, node := range h.Store.ListNodes() {
+	for _, node := range live.Nodes {
 		nodes[node.ID] = node.Name
 	}
 	details := make([]string, 0, len(cfgs))

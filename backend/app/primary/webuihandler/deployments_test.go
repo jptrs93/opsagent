@@ -18,6 +18,7 @@ import (
 	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
 
 const testNixCommit = "0123456789abcdef0123456789abcdef01234567"
@@ -49,7 +50,7 @@ func seedDeploymentRunnerStatus(store *state.Service, cfg *apigen.Deployment, st
 
 func createTestDeployment(store *state.Service, nodeIdentifier string, spaceID int32, name string, spec *apigen.DeploymentSpec) *apigen.Deployment {
 	node := store.EnsurePrimaryNode(nodeIdentifier, nodeIdentifier)
-	return store.MustCreateDeploymentForNode(apigen.Context{}, spaceID, name, node.ID, spec)
+	return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, spaceID, name, node.ID, spec)
 }
 
 func hostNetworking() apigen.NetworkingConfig {
@@ -1324,7 +1325,7 @@ func TestDeploymentDeleteAllowsNeverScheduledStoppedDeployment(t *testing.T) {
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	initial.Container1Spec.Version = "1.25"
 	initial.Container1Spec.Running = false
-	created := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "web", node.ID, &initial)
+	created := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "web", node.ID, &initial)
 	h := &Handler{ConfigService: &config.Service{}, Store: store, NodeID: node.ID}
 
 	if err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, Version: created.Version + 1}); err != nil {
@@ -1342,7 +1343,7 @@ func TestDeploymentDeleteAllowsRunningDisconnectedNodeDeployment(t *testing.T) {
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	initial.Container1Spec.Version = "1.25"
 	initial.Container1Spec.Running = true
-	created := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "web", secondary.ID, &initial)
+	created := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "web", secondary.ID, &initial)
 	seedDeploymentRunnerStatus(store, created, apigen.RunningStatus_RUNNING)
 	h := &Handler{ConfigService: &config.Service{}, Store: store, NodeID: primary.ID}
 
@@ -1408,17 +1409,11 @@ func TestDeploymentDeleteRejectedWhileOlderRolloverInstanceRuns(t *testing.T) {
 
 	next := remoteDeploymentSpec("nginx", hostNetworking())
 	next.Container1Spec.Version = "1.27"
-	updated, err := store.UpdateDeployment(apigen.Context{}, created.ID, state.DeploymentUpdate{
-		ExpectedVersion: created.Version + 1,
-		Spec:            &next,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	updated := statetest.UpdateDeployment(store, apigen.Context{}, created.ID, state.DeploymentUpdate{Spec: &next})
 	seedInstanceRunnerStatus(store, updated.ID, updated.SpecVersion, updated.NodeID, apigen.RunningStatus_STOPPED)
 
 	h := &Handler{ConfigService: &config.Service{}, Store: store, NodeID: created.NodeID}
-	err = h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{
+	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{
 		DeploymentID: created.ID,
 		Version:      updated.Version + 1,
 	})

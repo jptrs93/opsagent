@@ -61,13 +61,12 @@ func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequ
 	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID()), int64(existing.ID), UserConfigNotFoundErr); err != nil {
 		return nil, err
 	}
-	unlockReferences := h.ConfigService.LockReferences()
-	defer unlockReferences()
 	expected, err := requestedDeploymentVersions(req.UpdateReferencingDeployments, req.ReferencingDeployments)
 	if err != nil {
 		return nil, err
 	}
-	meta, _, err := h.Store.AppendConfigVersionWithDeploymentUpdates(
+	defer h.Store.GlobalLock()()
+	meta, _, err := h.Store.AppendConfigVersionWithDeploymentUpdatesLocked(
 		req.ConfigID,
 		req.Value,
 		requestUserID(ctx),
@@ -132,16 +131,15 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 	if spaceChanging {
 		// Deployment writes hold the same lock, so no new reference can appear
 		// between the locality check and the move.
-		unlockReferences := h.ConfigService.LockReferences()
-		defer unlockReferences()
+		defer h.Store.GlobalLock()()
 		ids := int32Set(h.Store.ConfigVersionIDs(req.ConfigID))
 		if h.settingsUseConfigID(ids) && destSpace != state.DefaultSpaceID {
 			return nil, MoveReferencesOutsideSpaceErr
 		}
-		if destSpace != state.DefaultSpaceID && h.referencesOutsideSpace(ids, runtimeinputs.ConfigRefs, destSpace) {
+		if destSpace != state.DefaultSpaceID && referencesOutsideSpace(h.Store.LiveState(), ids, runtimeinputs.ConfigRefs, destSpace) {
 			return nil, MoveReferencesOutsideSpaceErr
 		}
-		if err := h.Store.MoveConfigSpace(req.ConfigID, req.SpaceID, req.ValueDirectoryID, ctx.AttributionUserID()); err != nil {
+		if err := h.Store.MoveConfigSpaceLocked(req.ConfigID, req.SpaceID, req.ValueDirectoryID, ctx.AttributionUserID()); err != nil {
 			return nil, mapConfigStoreErr(err)
 		}
 		// Tombstone for clients that saw the old space but cannot see the new
@@ -161,8 +159,6 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 }
 
 func (h *Handler) PostV1ConfigsDelete(ctx apigen.Context, req *apigen.ConfigDeleteRequest) error {
-	unlockReferences := h.ConfigService.LockReferences()
-	defer unlockReferences()
 	if req.ConfigID == 0 {
 		return UserConfigIDRequiredErr
 	}
@@ -171,15 +167,16 @@ func (h *Handler) PostV1ConfigsDelete(ctx apigen.Context, req *apigen.ConfigDele
 	} else if err := h.requireEntityAccess(ctx, vDelete, eConfig, int64(existing.SpaceID()), int64(existing.ID), UserConfigNotFoundErr); err != nil {
 		return err
 	}
+	defer h.Store.GlobalLock()()
 	ids := int32Set(h.Store.ConfigVersionIDs(req.ConfigID))
 	if len(ids) == 0 {
 		return UserConfigNotFoundErr
 	}
-	details := append(h.settingsConfigRefDetails(ids), h.deploymentRefDetails(ids, runtimeinputs.ConfigRefs)...)
+	details := append(h.settingsConfigRefDetails(ids), h.deploymentRefDetails(h.Store.LiveState(), ids, runtimeinputs.ConfigRefs)...)
 	if len(details) > 0 {
 		return referenceInUseDetailErr("Config", details)
 	}
-	meta, ok := h.Store.DeleteConfig(req.ConfigID)
+	meta, ok := h.Store.DeleteConfigLocked(req.ConfigID)
 	if !ok {
 		return UserConfigNotFoundErr
 	}

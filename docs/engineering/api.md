@@ -45,6 +45,7 @@ worker address derivation and virtual networking for every cached workload.
 - Web UI auth is enforced by `webuihandler.Handler.VerifyAuth`; cluster peer identity comes from mTLS, while enrollment uses its dedicated request verifier.
 - Static SPA assets are served from embedded `backend/web/dist`; unknown paths fall back to `index.html`.
 - The frontend is built via `//go:generate` in `backend/main.go` before embedding.
+- Write handlers use a single global lock: every check-then-write sequence (deployments, secrets, configs, assets, cluster settings) holds `state.Service.Mu` from validation through the store write, calling `*Locked` store variants inside. Deployment endpoints validate in two layers: `preLockDeploymentValidate` (pure shape rules, before the lock) and a per-operation in-lock validator against `state.LiveState` (`inLockValidateDeploymentCreate` / `Update` / `SpaceMove` / `Delete`; the v2 update handler picks `SpaceMove` when the update carries a space change). Authz and network I/O (nix source verification) run before the lock; the version CAS closes the gap. Lock order: the asset operation lock (where asset file operations are involved) precedes `Mu`; subsystem locks (secrets manager, config service) nest strictly inside `Mu`.
 
 ## Client flow (JavaScript)
 
