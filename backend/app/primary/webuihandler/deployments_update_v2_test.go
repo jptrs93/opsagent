@@ -61,8 +61,8 @@ func TestPostV2DeploymentsUpdateVersionOnly(t *testing.T) {
 			updated.Version, updated.SpecVersion, updated.SpaceVersion,
 			cfg.Version+1, cfg.SpecVersion+1, cfg.SpaceVersion)
 	}
-	if updated.Spec.Container1Spec.Source.RemoteImage.Image != "nginx" {
-		t.Fatalf("image = %q, rest of spec must be untouched", updated.Spec.Container1Spec.Source.RemoteImage.Image)
+	if updated.Def.Spec.Container1Spec.Source.RemoteImage.Image != "nginx" {
+		t.Fatalf("image = %q, rest of spec must be untouched", updated.Def.Spec.Container1Spec.Source.RemoteImage.Image)
 	}
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:      cfg.ID,
@@ -129,9 +129,9 @@ func TestPostV2DeploymentsUpdateSpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spec update: %v", err)
 	}
-	if updated.Spec.Container1Spec.Source.RemoteImage.Image != "caddy" ||
+	if updated.Def.Spec.Container1Spec.Source.RemoteImage.Image != "caddy" ||
 		updated.WorkloadVersion() != "2.8" || !updated.WorkloadRunning() {
-		t.Fatalf("updated spec = %+v, want caddy at 2.8 running", updated.Spec.Container1Spec)
+		t.Fatalf("updated spec = %+v, want caddy at 2.8 running", updated.Def.Spec.Container1Spec)
 	}
 	if updated.SpecVersion != cfg.SpecVersion+1 || updated.Version != cfg.Version+1 {
 		t.Fatalf("versions = %d/%d, want spec and top-level bumps", updated.SpecVersion, updated.Version)
@@ -161,10 +161,10 @@ func TestPostV2DeploymentsUpdateAssignedSpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("space move: %v", err)
 	}
-	if moved.SpaceID != extraSpace.ID || moved.SpaceVersion != cfg.SpaceVersion+1 ||
+	if moved.Def.SpaceID != extraSpace.ID || moved.SpaceVersion != cfg.SpaceVersion+1 ||
 		moved.SpecVersion != cfg.SpecVersion || moved.Version != cfg.Version+1 {
 		t.Fatalf("moved = space %d spaceV%d specV%d v%d, want space %d spaceV%d specV%d v%d",
-			moved.SpaceID, moved.SpaceVersion, moved.SpecVersion, moved.Version,
+			moved.Def.SpaceID, moved.SpaceVersion, moved.SpecVersion, moved.Version,
 			extraSpace.ID, cfg.SpaceVersion+1, cfg.SpecVersion, cfg.Version+1)
 	}
 
@@ -186,7 +186,7 @@ func TestPostV2DeploymentsUpdateAssignedSpace(t *testing.T) {
 	}
 
 	zeroSpec := remoteDeploymentSpec("nginx", hostNetworking())
-	zeroDep := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 0, "zerodep", cfg.NodeID, &zeroSpec)
+	zeroDep := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 0, "zerodep", cfg.Def.NodeID, &zeroSpec)
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:        zeroDep.ID,
 		ExpectedVersion:     zeroDep.Version + 1,
@@ -203,11 +203,11 @@ func TestPostV2DeploymentsUpdateAssignedSpaceRejectsDuplicateIdentity(t *testing
 		t.Fatalf("CreateSpace: %v", err)
 	}
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
-	twin := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, extraSpace.ID, cfg.Name, cfg.NodeID, &spec)
+	twin := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, extraSpace.ID, cfg.Def.Name, cfg.Def.NodeID, &spec)
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:        twin.ID,
 		ExpectedVersion:     twin.Version + 1,
-		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: cfg.SpaceID},
+		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: cfg.Def.SpaceID},
 	}); !errors.Is(err, DuplicateDeploymentErr) {
 		t.Fatalf("duplicate identity move err = %v, want %v", err, DuplicateDeploymentErr)
 	}
@@ -358,7 +358,7 @@ func TestPostV2DeploymentsUpdateNixVerification(t *testing.T) {
 		}
 		updated := h.findConfigByID(cfg.ID)
 		if updated.WorkloadVersion() != "" || updated.WorkloadRunning() {
-			t.Fatalf("workload state = %+v, want stopped with empty version", updated.Spec.Container1Spec)
+			t.Fatalf("workload state = %+v, want stopped with empty version", updated.Def.Spec.Container1Spec)
 		}
 		if len(provider.validateCalls) != 0 {
 			t.Fatalf("source calls = %+v", provider.validateCalls)
@@ -378,7 +378,7 @@ func TestPostV2DeploymentsUpdateNixVerification(t *testing.T) {
 		}
 		updated := h.findConfigByID(cfg.ID)
 		if updated.WorkloadVersion() != "" || updated.WorkloadRunning() {
-			t.Fatalf("workload state = %+v, want stopped with empty version", updated.Spec.Container1Spec)
+			t.Fatalf("workload state = %+v, want stopped with empty version", updated.Def.Spec.Container1Spec)
 		}
 		if len(provider.validateCalls) != 0 {
 			t.Fatalf("source calls = %+v", provider.validateCalls)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -118,7 +119,7 @@ func (s *Service) prepareDeploymentReferenceUpdatesLocked(
 		if !ok {
 			return nil, nil, fmt.Errorf("deployment %d has no latest event", cfg.ID)
 		}
-		def := mustDecodeDeploymentDef(event)
+		def := erru.Must(apigen.DecodeDeploymentDef(event.Value))
 		if !deploymentUsesReferences(&def.Spec, referenceType, referenceIDs) {
 			continue
 		}

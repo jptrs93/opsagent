@@ -160,7 +160,7 @@ func (c *Cache) NotifyInstanceLocked(id int32) {
 	}
 	name := ""
 	if state.Config.Def.Name != "" {
-		name = fmt.Sprintf("%d:%d:%s", state.Config.Def.SpaceID, state.Config.Def.NodeID, state.Config.Def.Name)
+		name = fmt.Sprintf("%d:%d:%s", state.Instance.SpaceID, state.Instance.NodeID, state.Config.Def.Name)
 	}
 	ctx := logu.AddTag(context.Background(), "Store")
 	slog.InfoContext(ctx, fmt.Sprintf("store: notify scheduled instance name=%s configVersion=%d targetState=%v hasPreparer=%t hasRunner=%t",

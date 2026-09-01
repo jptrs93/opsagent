@@ -13,6 +13,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/instancecache"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
 // instanceOrdinalKey identifies the logical slot a scheduled instance is an
@@ -192,18 +193,25 @@ func (s *Service) retainFinalizedLocked(state *apigen.ScheduledInstanceState) {
 	s.latestFinalCache[key] = &cp
 }
 
+// instanceStateLocked assembles the scheduling-time snapshot an instance runs
+// against. Config is the deployment def as pinned for this placement — decoded
+// from the event that introduced the pinned spec version, which may predate
+// later deployment events. Placement is owned by the instance: NodeID,
+// SpaceID, ordinal, and the pinned spec version are authoritative on Instance,
+// and the def's space is stamped from it (space changes bump
+// space_assignment_version, not spec_version, so the pinned event's def does
+// not know this instance's space). The identity fields left on Config are
+// informational; a deployment change never rewrites existing instance states —
+// it rolls new instances instead.
 func (s *Service) instanceStateLocked(inst *apigen.ScheduledInstance) *apigen.ScheduledInstanceState {
 	state := &apigen.ScheduledInstanceState{Instance: *inst}
 	if cfg := s.configForInstanceLocked(inst); cfg != nil {
 		state.Config = *cfg
 		state.Config.Def.SpaceID = inst.SpaceID
-		mirrorDeploymentDef(&state.Config)
 	}
 	return state
 }
 
-// configForInstanceLocked resolves a pinned spec version for primary
-// load/create paths.
 func (s *Service) configForInstanceLocked(inst *apigen.ScheduledInstance) *apigen.Deployment {
 	if inst == nil {
 		return nil
@@ -216,14 +224,17 @@ func (s *Service) configForInstanceLocked(inst *apigen.ScheduledInstance) *apige
 
 func (s *Service) loadConfigVersionLocked(deploymentID, version int32) *apigen.Deployment {
 	ctx := logu.AddTag(context.Background(), "Store")
-	event, err := s.q.GetDeploymentEventBySpecVersion(ctx, int64(deploymentID), int64(version))
+	event, err := s.q.GetDeploymentEventBySpecVersion(ctx, pq.GetDeploymentEventBySpecVersionParams{
+		DeploymentID: int64(deploymentID),
+		SpecVersion:  int64(version),
+	})
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			slog.WarnContext(ctx, fmt.Sprintf("load spec version %d failed", version), "dep", deploymentID, "err", err)
 		}
 		return nil
 	}
-	return pinnedSpecEventToProto(event, s.deploymentCache[deploymentID])
+	return deploymentFromRow(event)
 }
 
 func (s *Service) notifyDeploymentLocked(id int32) {

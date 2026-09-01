@@ -57,7 +57,6 @@ func (s *Service) loadLocalScheduledInstanceCache() {
 		if err != nil {
 			panic(fmt.Sprintf("decode local scheduled instance %d: %v", row.InstanceID, err))
 		}
-		state.Config.FoldLegacyFlatFields()
 		if state.Instance.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {
 			continue
 		}
@@ -84,7 +83,6 @@ func (s *Service) MustWriteScheduledInstanceAssignment(state *apigen.ScheduledIn
 	defer s.Mu.Unlock()
 	ctx := context.Background()
 	id := state.Instance.ID
-	state.Config.FoldLegacyFlatFields()
 
 	if state.Instance.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {
 		s.finalizeLocked(ctx, state)

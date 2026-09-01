@@ -76,13 +76,11 @@ func (s *Service) mustAppendDeploymentEventLocked(deploymentID int32, def *apige
 	bgCtx := context.Background()
 	prev, hasPrev := s.latestEvents[deploymentID]
 	event := buildDeploymentEvent(prev, hasPrev, deploymentID, def, author, eventType)
-	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
+	s.q.TxMust(bgCtx, func(q *pq.Queries) error {
 		seq := erru.Must(q.NextGlobalSeq(bgCtx))
 		event.GlobalSeq = seq
 		return q.InsertDeploymentEvent(bgCtx, event)
-	}); err != nil {
-		panic(fmt.Sprintf("append deployment event tx: %v", err))
-	}
+	})
 	cfg := deploymentFromRow(event)
 	s.deploymentCache[cfg.ID] = cfg
 	s.latestEvents[cfg.ID] = event
@@ -117,7 +115,7 @@ func buildDeploymentEvent(prev pq.DeploymentEvent, hasPrev bool, deploymentID in
 			EventType:              pq.DeploymentEventCreate,
 		}
 	}
-	prevDef := mustDecodeDeploymentDef(prev)
+	prevDef := erru.Must(apigen.DecodeDeploymentDef(prev.Value))
 	event := pq.DeploymentEvent{
 		EventTime:              now,
 		CreatedTime:            prev.CreatedTime,

@@ -67,10 +67,10 @@ func MustLoadRuntimeConfig(ctx context.Context, cfg ainit.StaticConfiguration, c
 	cached := make([]string, 0)
 	for _, item := range store.FetchScheduledSnapshot(nil) {
 		cached = append(cached, fmt.Sprintf("{instance=%d deployment=%d node=%d name=%q space=%d}",
-			item.Instance.ID, item.Config.ID, item.Config.Def.NodeID, item.Config.Def.Name, item.Config.Def.SpaceID))
+			item.Instance.ID, item.Config.ID, item.Instance.NodeID, item.Config.Def.Name, item.Config.Def.SpaceID))
 		if internaldeploy.IsNetproxyConfig(&item.Config) && item.Config.ID != 0 {
 			netDeploymentID = item.Config.ID
-			nodeID = item.Config.Def.NodeID
+			nodeID = item.Instance.NodeID
 		}
 	}
 	if netDeploymentID == 0 || nodeID <= 0 {

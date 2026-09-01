@@ -27,7 +27,7 @@ const testNixCommit2 = "89abcdef0123456789abcdef0123456789abcdef"
 func findSystemDeployment(t *testing.T, store *state.Service, nodeID int32) *apigen.Deployment {
 	t.Helper()
 	for _, cfg := range store.ListActiveDeployments() {
-		if internaldeploy.IsSelfConfig(cfg) && cfg.NodeID == nodeID {
+		if internaldeploy.IsSelfConfig(cfg) && cfg.Def.NodeID == nodeID {
 			return cfg
 		}
 	}
@@ -45,7 +45,7 @@ func seedInstanceRunnerStatus(store *state.Service, deploymentID, version, nodeI
 }
 
 func seedDeploymentRunnerStatus(store *state.Service, cfg *apigen.Deployment, status apigen.RunningStatus) {
-	seedInstanceRunnerStatus(store, cfg.ID, cfg.SpecVersion, cfg.NodeID, status)
+	seedInstanceRunnerStatus(store, cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, status)
 }
 
 func createTestDeployment(store *state.Service, nodeIdentifier string, spaceID int32, name string, spec *apigen.DeploymentSpec) *apigen.Deployment {
@@ -171,7 +171,7 @@ func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 			t.Fatal(err)
 		}
 		if cfg.WorkloadRunning() || len(provider.validateCalls) != 0 {
-			t.Fatalf("config/provider calls = %+v/%v", cfg.Spec.Container1Spec, provider.validateCalls)
+			t.Fatalf("config/provider calls = %+v/%v", cfg.Def.Spec.Container1Spec, provider.validateCalls)
 		}
 	})
 
@@ -204,7 +204,7 @@ func TestDeploymentCreateEnforcesRunningNixSource(t *testing.T) {
 			t.Fatal(err)
 		}
 		if cfg.WorkloadVersion() != "" || cfg.WorkloadRunning() {
-			t.Fatalf("workload state = %+v, want stopped with no version", cfg.Spec.Container1Spec)
+			t.Fatalf("workload state = %+v, want stopped with no version", cfg.Def.Spec.Container1Spec)
 		}
 		if len(provider.validateCalls) != 0 || len(store.ListActiveDeployments()) != 1 {
 			t.Fatalf("provider calls/deployments = %v/%d", provider.validateCalls, len(store.ListActiveDeployments()))
@@ -980,7 +980,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	consumer := create("web", primary.ID, hostNetworking(), map[string]*apigen.EnvVarValue{
 		"DATABASE_ADDR": {AddressDeploymentID: &addressDeploymentID, AddressSpaceID: &addressSpaceID},
 	})
-	if got := consumer.Spec.Container1Spec.Runtime.EnvVars["DATABASE_ADDR"]; got.AddressDeploymentID == nil || got.AddressSpaceID == nil {
+	if got := consumer.Def.Spec.Container1Spec.Runtime.EnvVars["DATABASE_ADDR"]; got.AddressDeploymentID == nil || got.AddressSpaceID == nil {
 		t.Fatalf("address ref was not stored: %+v", got)
 	}
 
@@ -1016,7 +1016,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cross-node address reference: %v", err)
 	}
-	if got := crossNode.Spec.Container1Spec.Runtime.EnvVars["REMOTE_ADDR"]; got.AddressDeploymentID == nil || *got.AddressDeploymentID != remoteID {
+	if got := crossNode.Def.Spec.Container1Spec.Runtime.EnvVars["REMOTE_ADDR"]; got.AddressDeploymentID == nil || *got.AddressDeploymentID != remoteID {
 		t.Fatalf("cross-node address ref = %+v", got)
 	}
 
@@ -1070,12 +1070,12 @@ func TestDeploymentCreatePersistsInitialStoppedWorkloadState(t *testing.T) {
 		t.Fatalf("version = %d, want initial spec version 1", cfg.SpecVersion)
 	}
 	if cfg.WorkloadVersion() != "1.25" || cfg.WorkloadRunning() {
-		t.Fatalf("workload state = %+v, want stopped 1.25", cfg.Spec.Container1Spec)
+		t.Fatalf("workload state = %+v, want stopped 1.25", cfg.Def.Spec.Container1Spec)
 	}
 	if history := store.MustFetchDeploymentHistory(cfg.ID); len(history) != 1 {
 		t.Fatalf("history len = %d, want create only", len(history))
 	} else if history[0].WorkloadVersion() != "1.25" || history[0].WorkloadRunning() {
-		t.Fatalf("history workload state = %+v, want stopped 1.25", history[0].Spec.Container1Spec)
+		t.Fatalf("history workload state = %+v, want stopped 1.25", history[0].Def.Spec.Container1Spec)
 	}
 }
 
@@ -1235,8 +1235,8 @@ func TestDeploymentUpdatePreservesHostNetworking(t *testing.T) {
 		t.Fatalf("PostV2DeploymentsUpdate failed: %v", err)
 	}
 	updated := h.findConfigByID(created.ID)
-	if updated.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_HOST {
-		t.Fatalf("networking mode = %v, want preserved host", updated.Spec.Networking.Mode)
+	if updated.Def.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_HOST {
+		t.Fatalf("networking mode = %v, want preserved host", updated.Def.Spec.Networking.Mode)
 	}
 }
 
@@ -1255,8 +1255,8 @@ func TestDeploymentUpdatePreservesExistingVirtualNetworking(t *testing.T) {
 		t.Fatalf("PostV2DeploymentsUpdate failed: %v", err)
 	}
 	updated := h.findConfigByID(created.ID)
-	if updated.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
-		t.Fatalf("networking mode = %v, want preserved virtual", updated.Spec.Networking.Mode)
+	if updated.Def.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		t.Fatalf("networking mode = %v, want preserved virtual", updated.Def.Spec.Networking.Mode)
 	}
 }
 
@@ -1275,7 +1275,7 @@ func TestDeploymentUpdateAcceptsCrossDeploymentMount(t *testing.T) {
 	target := createTestDeployment(store, "primary", 1, "web", &targetSpec)
 	h := &Handler{ConfigService: &config.Service{}, Store: store, Secrets: secretsManager}
 
-	spec := target.Spec
+	spec := target.Def.Spec
 	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
 		"LOG_LEVEL": {Value: ptrString("debug")},
 	}
@@ -1288,8 +1288,8 @@ func TestDeploymentUpdateAcceptsCrossDeploymentMount(t *testing.T) {
 		t.Fatalf("PostV2DeploymentsUpdate failed: %v", err)
 	}
 	updated := h.findConfigByID(target.ID)
-	if got := updated.Spec.Container1Spec.Runtime.EnvVars["LOG_LEVEL"].Value; got == nil || *got != "debug" {
-		t.Fatalf("LOG_LEVEL = %+v, want debug", updated.Spec.Container1Spec.Runtime.EnvVars["LOG_LEVEL"])
+	if got := updated.Def.Spec.Container1Spec.Runtime.EnvVars["LOG_LEVEL"].Value; got == nil || *got != "debug" {
+		t.Fatalf("LOG_LEVEL = %+v, want debug", updated.Def.Spec.Container1Spec.Runtime.EnvVars["LOG_LEVEL"])
 	}
 }
 
@@ -1299,7 +1299,7 @@ func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
 	initial.Container1Spec.Version = "1.25"
 	created := createTestDeployment(store, "primary", 1, "web", &initial)
 	seedDeploymentRunnerStatus(store, created, apigen.RunningStatus_RUNNING)
-	h := &Handler{ConfigService: &config.Service{}, Store: store, NodeID: created.NodeID}
+	h := &Handler{ConfigService: &config.Service{}, Store: store, NodeID: created.Def.NodeID}
 
 	_, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:      created.ID,
@@ -1405,14 +1405,14 @@ func TestDeploymentDeleteRejectedWhileOlderRolloverInstanceRuns(t *testing.T) {
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	initial.Container1Spec.Version = "1.25"
 	created := createTestDeployment(store, "primary", 1, "web", &initial)
-	seedInstanceRunnerStatus(store, created.ID, created.SpecVersion, created.NodeID, apigen.RunningStatus_RUNNING)
+	seedInstanceRunnerStatus(store, created.ID, created.SpecVersion, created.Def.NodeID, apigen.RunningStatus_RUNNING)
 
 	next := remoteDeploymentSpec("nginx", hostNetworking())
 	next.Container1Spec.Version = "1.27"
 	updated := statetest.UpdateDeployment(store, apigen.Context{}, created.ID, state.DeploymentUpdate{Spec: &next})
-	seedInstanceRunnerStatus(store, updated.ID, updated.SpecVersion, updated.NodeID, apigen.RunningStatus_STOPPED)
+	seedInstanceRunnerStatus(store, updated.ID, updated.SpecVersion, updated.Def.NodeID, apigen.RunningStatus_STOPPED)
 
-	h := &Handler{ConfigService: &config.Service{}, Store: store, NodeID: created.NodeID}
+	h := &Handler{ConfigService: &config.Service{}, Store: store, NodeID: created.Def.NodeID}
 	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{
 		DeploymentID: created.ID,
 		Version:      updated.Version + 1,
@@ -1501,7 +1501,7 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 		t.Fatalf("new deployment version = %d, want 1", second.SpecVersion)
 	}
 	if second.WorkloadVersion() != "1.26" {
-		t.Fatalf("new deployment workload state = %+v", second.Spec.Container1Spec)
+		t.Fatalf("new deployment workload state = %+v", second.Def.Spec.Container1Spec)
 	}
 
 	firstHistory := store.MustFetchDeploymentHistory(first.ID)

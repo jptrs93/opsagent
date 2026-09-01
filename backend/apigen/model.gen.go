@@ -223,22 +223,16 @@ type DeploymentDef struct {
 }
 
 type Deployment struct {
-	ID              int32               `json:"id"`
-	Version         int32               `json:"version"`
-	SpecVersion     int32               `json:"spec_version"`
-	SpaceVersion    int32               `json:"space_version"`
-	NameVersion     int32               `json:"name_version"`
-	Author          int32               `json:"author"`
-	EventType       DeploymentEventType `json:"event_type"`
-	CreatedTime     time.Time           `json:"created_time"`
-	EventTime       time.Time           `json:"event_time"`
-	Def             DeploymentDef       `json:"def"`
-	NodeID          int32               `json:"node_id"`
-	LegacyCreatedAt int64               `json:"legacy_created_at"`
-	LegacyUpdatedAt int64               `json:"legacy_updated_at"`
-	Spec            DeploymentSpec      `json:"spec"`
-	SpaceID         int32               `json:"space_id"`
-	Name            string              `json:"name,omitempty"`
+	ID           int32               `json:"id"`
+	Version      int32               `json:"version"`
+	SpecVersion  int32               `json:"spec_version"`
+	SpaceVersion int32               `json:"space_version"`
+	NameVersion  int32               `json:"name_version"`
+	Author       int32               `json:"author"`
+	EventType    DeploymentEventType `json:"event_type"`
+	CreatedTime  time.Time           `json:"created_time"`
+	EventTime    time.Time           `json:"event_time"`
+	Def          DeploymentDef       `json:"def"`
 }
 
 type DeploymentSpec struct {

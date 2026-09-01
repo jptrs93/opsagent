@@ -2523,10 +2523,10 @@ function deploymentNameTaken(form, deployments) {
         const config = deployment?.config || deployment?.currentConfig || deployment;
         const candidateId = Number(config?.id || deployment?.id || 0);
         if (deploymentId && candidateId === deploymentId) return false;
-        const def = config?.def || config;
-        return !deploymentDeleted(config) && !deployment?.deleted
+        const def = config?.def;
+        return !deploymentDeleted(config)
             && def?.name === name
             && Number(def?.spaceId) === spaceId
-            && Number(def?.nodeId ?? deployment?.nodeId) === nodeId;
+            && Number(def?.nodeId) === nodeId;
     });
 }

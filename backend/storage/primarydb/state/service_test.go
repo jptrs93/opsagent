@@ -32,7 +32,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	system := mustCreateDeploymentForNode(store, apigen.Context{}, OpendeploySpaceID, internaldeploy.SelfName, primaryNode.ID, testSystemSpecWithState("v1", true))
 
 	seedStatus := func(cfg *apigen.Deployment, artifact string) *apigen.ScheduledInstance {
-		inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+		inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 		store.MustWriteScheduledInstanceStatus(inst.ID, func(status *apigen.ScheduledInstanceStatus) bool {
 			status.BumpUpdatedAt()
 			status.Preparer = apigen.PreparerStatus{DeploymentSpecVersion: cfg.SpecVersion, Artifact: artifact, Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_READY}
@@ -106,8 +106,8 @@ func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 	if repaired.SpecVersion <= created.SpecVersion {
 		t.Fatalf("version = %d, want repaired version above %d", repaired.SpecVersion, created.SpecVersion)
 	}
-	if !internaldeploy.IsSelfSpec(&repaired.Spec) {
-		t.Fatalf("spec was not repaired: %+v", repaired.Spec)
+	if !internaldeploy.IsSelfSpec(&repaired.Def.Spec) {
+		t.Fatalf("spec was not repaired: %+v", repaired.Def.Spec)
 	}
 	if repaired.WorkloadVersion() != "v0.0.194" || !repaired.WorkloadRunning() {
 		t.Fatalf("workload state = %q/%v, want preserved running v0.0.194", repaired.WorkloadVersion(), repaired.WorkloadRunning())
@@ -121,19 +121,19 @@ func TestEnsureNetproxyDeploymentCreatesInternalConfig(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("netproxy config not returned")
 	}
-	if cfg.NodeID != node.ID || cfg.SpaceID != OpendeploySpaceID || cfg.Name != internaldeploy.NetproxyName {
-		t.Fatalf("unexpected config identity: node=%d space=%d name=%q", cfg.NodeID, cfg.SpaceID, cfg.Name)
+	if cfg.Def.NodeID != node.ID || cfg.Def.SpaceID != OpendeploySpaceID || cfg.Def.Name != internaldeploy.NetproxyName {
+		t.Fatalf("unexpected config identity: node=%d space=%d name=%q", cfg.Def.NodeID, cfg.Def.SpaceID, cfg.Def.Name)
 	}
 	if !internaldeploy.IsNetproxyConfig(cfg) || !internaldeploy.IsInternalConfig(cfg) {
-		t.Fatalf("netproxy config not recognized as internal: space=%d name=%q", cfg.SpaceID, cfg.Name)
+		t.Fatalf("netproxy config not recognized as internal: space=%d name=%q", cfg.Def.SpaceID, cfg.Def.Name)
 	}
 	if !cfg.WorkloadRunning() || cfg.WorkloadVersion() != "v0.0.200" {
 		t.Fatalf("workload state = %q/%v, want running v0.0.200", cfg.WorkloadVersion(), cfg.WorkloadRunning())
 	}
-	if cfg.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL || len(cfg.Spec.Networking.PortForwarding) != 0 {
-		t.Fatalf("unexpected networking config: %+v", cfg.Spec.Networking)
+	if cfg.Def.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL || len(cfg.Def.Spec.Networking.PortForwarding) != 0 {
+		t.Fatalf("unexpected networking config: %+v", cfg.Def.Spec.Networking)
 	}
-	if got := cfg.Spec.Container().Runtime.FileDescriptorLimit; got != netproxyFileDescriptorLimit {
+	if got := cfg.Def.Spec.Container().Runtime.FileDescriptorLimit; got != netproxyFileDescriptorLimit {
 		t.Fatalf("file descriptor limit = %d, want %d", got, netproxyFileDescriptorLimit)
 	}
 	again := store.EnsureNetproxyDeployment(node.ID, "v0.0.200")
@@ -149,11 +149,11 @@ func TestInternalDeploymentsAreScopedByNodeID(t *testing.T) {
 
 	a := store.EnsureNetproxyDeployment(nodeA.ID, "v0.0.200")
 	b := store.EnsureNetproxyDeployment(nodeB.ID, "v0.0.200")
-	if a.ID == b.ID || a.NodeID != nodeA.ID || b.NodeID != nodeB.ID {
+	if a.ID == b.ID || a.Def.NodeID != nodeA.ID || b.Def.NodeID != nodeB.ID {
 		t.Fatalf("netproxy deployments not scoped by node: a=%+v b=%+v", a, b)
 	}
-	if a.SpaceID != b.SpaceID || a.Name != b.Name {
-		t.Fatalf("internal identities differ across nodes: a=%d/%q b=%d/%q", a.SpaceID, a.Name, b.SpaceID, b.Name)
+	if a.Def.SpaceID != b.Def.SpaceID || a.Def.Name != b.Def.Name {
+		t.Fatalf("internal identities differ across nodes: a=%d/%q b=%d/%q", a.Def.SpaceID, a.Def.Name, b.Def.SpaceID, b.Def.Name)
 	}
 }
 
@@ -170,7 +170,7 @@ func TestEnsureNetproxyDeploymentRepairsExistingSpec(t *testing.T) {
 	if repaired.SpecVersion <= brokenVersion {
 		t.Fatalf("version = %d, want above broken version %d", repaired.SpecVersion, brokenVersion)
 	}
-	if got := repaired.Spec.Container().Runtime.FileDescriptorLimit; got != netproxyFileDescriptorLimit {
+	if got := repaired.Def.Spec.Container().Runtime.FileDescriptorLimit; got != netproxyFileDescriptorLimit {
 		t.Fatalf("file descriptor limit = %d, want %d", got, netproxyFileDescriptorLimit)
 	}
 	if repaired.WorkloadVersion() != "v0.0.200" || !repaired.WorkloadRunning() {
@@ -417,16 +417,16 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 	node := store.EnsurePrimaryNode("primary", "primary-id")
 
 	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "api", node.ID, testSystemSpecWithState("v1", true))
-	if cfg.NodeID != node.ID {
-		t.Fatalf("created node ID = %d, want %d", cfg.NodeID, node.ID)
+	if cfg.Def.NodeID != node.ID {
+		t.Fatalf("created node ID = %d, want %d", cfg.Def.NodeID, node.ID)
 	}
 
-	nextSpec := cfg.Spec
+	nextSpec := cfg.Def.Spec
 	if err := nextSpec.SetWorkloadState("v2", true); err != nil {
 		t.Fatal(err)
 	}
 	updated := updateDeployment(store, apigen.Context{}, cfg.ID, DeploymentUpdate{Spec: &nextSpec})
-	if updated.Version != 2 || updated.NodeID != node.ID {
+	if updated.Version != 2 || updated.Def.NodeID != node.ID {
 		t.Fatalf("updated config = %+v, want v2 with node ID %d", updated, node.ID)
 	}
 
@@ -435,8 +435,8 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 		t.Fatalf("history length = %d, want 2", len(history))
 	}
 	for _, entry := range history {
-		if entry.NodeID != node.ID {
-			t.Fatalf("history version %d node ID = %d, want %d", entry.SpecVersion, entry.NodeID, node.ID)
+		if entry.Def.NodeID != node.ID {
+			t.Fatalf("history version %d node ID = %d, want %d", entry.SpecVersion, entry.Def.NodeID, node.ID)
 		}
 	}
 }
@@ -501,9 +501,9 @@ func TestRenameNodePreservesIdentifier(t *testing.T) {
 		t.Fatalf("renamed node = %+v", node)
 	}
 	configs := store.FetchDeploymentSnapshot(func(cfg apigen.Deployment) bool {
-		return cfg.NodeID == primaryNode.ID
+		return cfg.Def.NodeID == primaryNode.ID
 	})
-	if len(configs) == 0 || configs[0].NodeID != primaryNode.ID {
+	if len(configs) == 0 || configs[0].Def.NodeID != primaryNode.ID {
 		t.Fatalf("deployment targets after rename = %+v", configs)
 	}
 }
@@ -521,7 +521,7 @@ func TestEnsureRunScheduledInstanceIsConcurrentAndIdempotent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			inst, _ := store.EnsureRunScheduledInstance(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+			inst, _ := store.EnsureRunScheduledInstance(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 			ids <- inst.ID
 		}()
 	}

@@ -27,7 +27,7 @@ func envRefSpec(configIDs map[string]int32, secretIDs map[string]int32) *apigen.
 
 func deploymentEnvRefID(t *testing.T, cfg *apigen.Deployment, key string, secret bool) int32 {
 	t.Helper()
-	value := cfg.Spec.Container1Spec.Runtime.EnvVars[key]
+	value := cfg.Def.Spec.Container1Spec.Runtime.EnvVars[key]
 	if value == nil {
 		t.Fatalf("deployment %d env %s is missing", cfg.ID, key)
 	}

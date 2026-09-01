@@ -18,12 +18,6 @@
  * @property {Date} createdTime
  * @property {Date} eventTime
  * @property {DeploymentDef} def
- * @property {number} nodeId
- * @property {number} legacyCreatedAt
- * @property {number} legacyUpdatedAt
- * @property {DeploymentSpec} spec
- * @property {number} spaceId
- * @property {string} name
  */
 /**
  * @typedef {Object} DeploymentSpec
@@ -1694,26 +1688,6 @@ export function writeDeployment(message, writer) {
         writeDeploymentDef(message.def, writer);
         writer.ldelim();
     }
-    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.nodeId);
-    }
-    if (message.legacyCreatedAt !== undefined && message.legacyCreatedAt !== null && message.legacyCreatedAt !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(message.legacyCreatedAt);
-    }
-    if (message.legacyUpdatedAt !== undefined && message.legacyUpdatedAt !== null && message.legacyUpdatedAt !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int64(message.legacyUpdatedAt);
-    }
-    if (message.spec !== undefined && message.spec !== null) {
-        writer.uint32(tag(8, WIRE.LDELIM)).fork();
-        writeDeploymentSpec(message.spec, writer);
-        writer.ldelim();
-    }
-    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
-        writer.uint32(tag(10, WIRE.VARINT)).int32(message.spaceId);
-    }
-    if (message.name !== undefined && message.name !== null && message.name !== "") {
-        writer.uint32(tag(11, WIRE.LDELIM)).string(message.name);
-    }
 }
 
 
@@ -1735,7 +1709,7 @@ export function encodeDeployment(message) {
  */
 function decodeDeploymentMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, version: 0, specVersion: 0, spaceVersion: 0, nameVersion: 0, author: 0, eventType: 0, createdTime: new Date(0), eventTime: new Date(0), def: undefined, nodeId: 0, legacyCreatedAt: 0, legacyUpdatedAt: 0, spec: undefined, spaceId: 0, name: "" };
+    const message = {id: 0, version: 0, specVersion: 0, spaceVersion: 0, nameVersion: 0, author: 0, eventType: 0, createdTime: new Date(0), eventTime: new Date(0), def: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1777,30 +1751,6 @@ function decodeDeploymentMessage(reader, length) {
             }
             case 18: {
                 message.def = decodeDeploymentDefMessage(reader, reader.uint32());
-                break;
-            }
-            case 2: {
-                message.nodeId = reader.int32();
-                break;
-            }
-            case 4: {
-                message.legacyCreatedAt = readInt64(reader, "int64");
-                break;
-            }
-            case 5: {
-                message.legacyUpdatedAt = readInt64(reader, "int64");
-                break;
-            }
-            case 8: {
-                message.spec = decodeDeploymentSpecMessage(reader, reader.uint32());
-                break;
-            }
-            case 10: {
-                message.spaceId = reader.int32();
-                break;
-            }
-            case 11: {
-                message.name = reader.string();
                 break;
             }
             default:

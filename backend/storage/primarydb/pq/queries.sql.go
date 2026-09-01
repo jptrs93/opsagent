@@ -504,6 +504,40 @@ func (q *Queries) GetConfigByID(ctx context.Context, id int64) (SystemConfigRevi
 	return i, err
 }
 
+const getDeploymentEventBySpecVersion = `-- name: GetDeploymentEventBySpecVersion :one
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
+       e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.value, e.event_type
+FROM deployment_event_log e
+WHERE e.deployment_id = ? AND e.spec_version = ?
+ORDER BY e.version ASC LIMIT 1
+`
+
+type GetDeploymentEventBySpecVersionParams struct {
+	DeploymentID int64
+	SpecVersion  int64
+}
+
+func (q *Queries) GetDeploymentEventBySpecVersion(ctx context.Context, arg GetDeploymentEventBySpecVersionParams) (DeploymentEvent, error) {
+	row := q.db.QueryRowContext(ctx, getDeploymentEventBySpecVersion, arg.DeploymentID, arg.SpecVersion)
+	var i DeploymentEvent
+	err := row.Scan(
+		&i.ID,
+		&i.GlobalSeq,
+		&i.EventTime,
+		&i.CreatedTime,
+		&i.Author,
+		&i.DeploymentID,
+		&i.Version,
+		&i.SpecVersion,
+		&i.SpaceAssignmentVersion,
+		&i.NameVersion,
+		&i.Value,
+		&i.EventType,
+	)
+	return i, err
+}
+
 const getGlobalSeq = `-- name: GetGlobalSeq :one
 SELECT value FROM global_seq WHERE id = 1
 `
@@ -535,6 +569,35 @@ func (q *Queries) GetLatestConfig(ctx context.Context) (SystemConfigRevision, er
 	row := q.db.QueryRowContext(ctx, getLatestConfig)
 	var i SystemConfigRevision
 	err := row.Scan(&i.ID, &i.UpdatedAt, &i.ConfigBlob)
+	return i, err
+}
+
+const getLatestDeploymentEvent = `-- name: GetLatestDeploymentEvent :one
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
+       e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.value, e.event_type
+FROM deployment_event_log e
+WHERE e.deployment_id = ?
+ORDER BY e.version DESC LIMIT 1
+`
+
+func (q *Queries) GetLatestDeploymentEvent(ctx context.Context, deploymentID int64) (DeploymentEvent, error) {
+	row := q.db.QueryRowContext(ctx, getLatestDeploymentEvent, deploymentID)
+	var i DeploymentEvent
+	err := row.Scan(
+		&i.ID,
+		&i.GlobalSeq,
+		&i.EventTime,
+		&i.CreatedTime,
+		&i.Author,
+		&i.DeploymentID,
+		&i.Version,
+		&i.SpecVersion,
+		&i.SpaceAssignmentVersion,
+		&i.NameVersion,
+		&i.Value,
+		&i.EventType,
+	)
 	return i, err
 }
 
@@ -1742,6 +1805,51 @@ func (q *Queries) ListConfigVersionsByConfigID(ctx context.Context, configID int
 	return items, nil
 }
 
+const listDeploymentEvents = `-- name: ListDeploymentEvents :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
+       e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.value, e.event_type
+FROM deployment_event_log e
+WHERE e.deployment_id = ?
+ORDER BY e.version ASC
+`
+
+func (q *Queries) ListDeploymentEvents(ctx context.Context, deploymentID int64) ([]DeploymentEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listDeploymentEvents, deploymentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeploymentEvent
+	for rows.Next() {
+		var i DeploymentEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.GlobalSeq,
+			&i.EventTime,
+			&i.CreatedTime,
+			&i.Author,
+			&i.DeploymentID,
+			&i.Version,
+			&i.SpecVersion,
+			&i.SpaceAssignmentVersion,
+			&i.NameVersion,
+			&i.Value,
+			&i.EventType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGlobalAccessRuleRows = `-- name: ListGlobalAccessRuleRows :many
 SELECT id, name, author, created_at, data_blob FROM global_access_rules
 WHERE deleted_at = 0
@@ -1770,6 +1878,53 @@ func (q *Queries) ListGlobalAccessRuleRows(ctx context.Context) ([]ListGlobalAcc
 			&i.Author,
 			&i.CreatedAt,
 			&i.DataBlob,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLatestDeploymentEvents = `-- name: ListLatestDeploymentEvents :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
+       e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.value, e.event_type
+FROM deployment_event_log e
+JOIN (SELECT deployment_id, MAX(version) AS version
+      FROM deployment_event_log GROUP BY deployment_id) latest
+  ON latest.deployment_id = e.deployment_id AND latest.version = e.version
+ORDER BY e.deployment_id
+`
+
+func (q *Queries) ListLatestDeploymentEvents(ctx context.Context) ([]DeploymentEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listLatestDeploymentEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeploymentEvent
+	for rows.Next() {
+		var i DeploymentEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.GlobalSeq,
+			&i.EventTime,
+			&i.CreatedTime,
+			&i.Author,
+			&i.DeploymentID,
+			&i.Version,
+			&i.SpecVersion,
+			&i.SpaceAssignmentVersion,
+			&i.NameVersion,
+			&i.Value,
+			&i.EventType,
 		); err != nil {
 			return nil, err
 		}
@@ -2391,6 +2546,17 @@ func (q *Queries) ListValueDirectories(ctx context.Context) ([]ValueDirectory, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const nextDeploymentID = `-- name: NextDeploymentID :one
+SELECT COALESCE(MAX(deployment_id), 0) + 1 FROM deployment_event_log
+`
+
+func (q *Queries) NextDeploymentID(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextDeploymentID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const nextGlobalSeq = `-- name: NextGlobalSeq :one

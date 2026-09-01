@@ -67,7 +67,7 @@ func TestHTTPSIngressUpdateOnSecondaryWithPassthrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validateDeploymentSpec rejected HTTPS ingress: %v", err)
 	}
-	if err := h.validateNodeNetworkingClaims(h.Store.LiveState(), echo.NodeID, echo.ID, validated); err != nil {
+	if err := h.validateNodeNetworkingClaims(h.Store.LiveState(), echo.Def.NodeID, echo.ID, validated); err != nil {
 		t.Fatalf("validateNodeNetworkingClaims rejected HTTPS ingress: %v", err)
 	}
 }

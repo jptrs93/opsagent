@@ -95,6 +95,43 @@ FROM scheduled_instance_status
 WHERE deployment_id = ?
 ORDER BY updated_at ASC;
 
+-- name: NextDeploymentID :one
+SELECT COALESCE(MAX(deployment_id), 0) + 1 FROM deployment_event_log;
+
+-- name: GetLatestDeploymentEvent :one
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
+       e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.value, e.event_type
+FROM deployment_event_log e
+WHERE e.deployment_id = ?
+ORDER BY e.version DESC LIMIT 1;
+
+-- name: ListLatestDeploymentEvents :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
+       e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.value, e.event_type
+FROM deployment_event_log e
+JOIN (SELECT deployment_id, MAX(version) AS version
+      FROM deployment_event_log GROUP BY deployment_id) latest
+  ON latest.deployment_id = e.deployment_id AND latest.version = e.version
+ORDER BY e.deployment_id;
+
+-- name: ListDeploymentEvents :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
+       e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.value, e.event_type
+FROM deployment_event_log e
+WHERE e.deployment_id = ?
+ORDER BY e.version ASC;
+
+-- name: GetDeploymentEventBySpecVersion :one
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
+       e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.value, e.event_type
+FROM deployment_event_log e
+WHERE e.deployment_id = ? AND e.spec_version = ?
+ORDER BY e.version ASC LIMIT 1;
+
 -- name: GetUser :one
 SELECT id, name, data_blob, created_at, last_login_at FROM users WHERE id = ?;
 

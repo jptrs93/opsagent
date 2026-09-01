@@ -136,7 +136,7 @@ func TestDeploymentAddressRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			NodeID: node.ID,
-			Spec:   addressEnvSpec("nginx", target.ID, target.SpaceID),
+			Spec:   addressEnvSpec("nginx", target.ID, target.Def.SpaceID),
 		})
 	}
 

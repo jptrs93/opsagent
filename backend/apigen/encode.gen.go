@@ -68,13 +68,7 @@ func (m Deployment) IsZero() bool {
 		m.EventType == 0 &&
 		m.CreatedTime.IsZero() &&
 		m.EventTime.IsZero() &&
-		m.Def.IsZero() &&
-		m.NodeID == 0 &&
-		m.LegacyCreatedAt == 0 &&
-		m.LegacyUpdatedAt == 0 &&
-		m.Spec.IsZero() &&
-		m.SpaceID == 0 &&
-		m.Name == ""
+		m.Def.IsZero()
 }
 
 func (m *Deployment) Encode() []byte {
@@ -92,15 +86,6 @@ func (m *Deployment) Encode() []byte {
 		b = AppendTag(b, 18, BytesType)
 		b = AppendBytes(b, m.Def.Encode())
 	}
-	b = AppendInt32Field(b, m.NodeID, 2)
-	b = AppendInt64Field(b, m.LegacyCreatedAt, 4)
-	b = AppendInt64Field(b, m.LegacyUpdatedAt, 5)
-	if !m.Spec.IsZero() {
-		b = AppendTag(b, 8, BytesType)
-		b = AppendBytes(b, m.Spec.Encode())
-	}
-	b = AppendInt32Field(b, m.SpaceID, 10)
-	b = AppendStringField(b, m.Name, 11)
 	return b
 }
 
@@ -147,25 +132,6 @@ func DecodeDeployment(b []byte) (*Deployment, error) {
 					m.Def = *item
 				}
 			}
-		case 2:
-			b, m.NodeID, err = ConsumeVarInt32(b, typ)
-		case 4:
-			b, m.LegacyCreatedAt, err = ConsumeVarInt64(b, typ)
-		case 5:
-			b, m.LegacyUpdatedAt, err = ConsumeVarInt64(b, typ)
-		case 8:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentSpec
-				item, err = DecodeDeploymentSpec(msgBytes)
-				if err == nil {
-					m.Spec = *item
-				}
-			}
-		case 10:
-			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
-		case 11:
-			b, m.Name, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

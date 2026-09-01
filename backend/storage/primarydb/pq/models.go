@@ -136,7 +136,7 @@ type ConfigVersion struct {
 	GlobalSeq int64
 }
 
-type DeploymentEventLog struct {
+type DeploymentEvent struct {
 	ID                     int64
 	GlobalSeq              int64
 	EventTime              int64

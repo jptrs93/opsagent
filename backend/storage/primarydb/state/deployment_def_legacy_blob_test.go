@@ -27,33 +27,22 @@ func encodeLegacyDeploymentBlob(id, version, specVersion, spaceVersion int32, cr
 	return b
 }
 
-func TestPreSplitDatabaseUpgrade(t *testing.T) {
+func TestLegacyFlatBlobRowsDecodeAsDef(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	db := sqlitedb.MustOpen(dbPath)
-	if _, err := db.Exec(`CREATE TABLE deployment_event_log (
-		id                       INTEGER PRIMARY KEY AUTOINCREMENT,
-		global_seq               INTEGER NOT NULL,
-		created_at               INTEGER NOT NULL,
-		author                   INTEGER NOT NULL,
-		deployment_id            INTEGER NOT NULL CHECK (deployment_id BETWEEN 1 AND 16777215),
-		version                  INTEGER NOT NULL,
-		spec_version             INTEGER NOT NULL,
-		space_assignment_version INTEGER NOT NULL,
-		name_version             INTEGER NOT NULL,
-		value                    BLOB NOT NULL,
-		event_type               INTEGER NOT NULL DEFAULT 0,
-		UNIQUE (deployment_id, version)
-	)`); err != nil {
+	store := Open(dbPath)
+	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
+
+	db := sqlitedb.MustOpen(dbPath)
 	spec1 := testSpecWithState("v1", true)
 	spec2 := testSpecWithState("v2", true)
-	insert := func(seq, createdAt, updatedAt int64, id, version, specVersion int32, blob []byte, eventType int64) {
+	insert := func(seq, createdTime, eventTime int64, id, version, specVersion int32, blob []byte, eventType int64) {
 		if _, err := db.Exec(`INSERT INTO deployment_event_log (
-			global_seq, created_at, author, deployment_id, version, spec_version,
-			space_assignment_version, name_version, value, event_type
-		) VALUES (?, ?, 5, ?, ?, ?, 1, 1, ?, ?)`,
-			seq, updatedAt, id, version, specVersion, blob, eventType); err != nil {
+			global_seq, event_time, created_time, author, deployment_id, version,
+			spec_version, space_assignment_version, name_version, value, event_type
+		) VALUES (?, ?, ?, 5, ?, ?, ?, 1, 1, ?, ?)`,
+			seq, eventTime, createdTime, id, version, specVersion, blob, eventType); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -65,7 +54,7 @@ func TestPreSplitDatabaseUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store := Open(dbPath)
+	store = Open(dbPath)
 	defer store.Close()
 
 	cfg := store.FetchDeployment(7)
@@ -79,13 +68,10 @@ func TestPreSplitDatabaseUpgrade(t *testing.T) {
 		t.Fatalf("envelope not read from columns: %+v", cfg)
 	}
 	if cfg.CreatedTime.UnixMilli() != 1000 || cfg.EventTime.UnixMilli() != 2000 {
-		t.Fatalf("times = %d/%d, want 1000/2000 (created_time backfill from v1 row)", cfg.CreatedTime.UnixMilli(), cfg.EventTime.UnixMilli())
+		t.Fatalf("times = %d/%d, want 1000/2000", cfg.CreatedTime.UnixMilli(), cfg.EventTime.UnixMilli())
 	}
 	if cfg.Deleted() {
 		t.Fatal("deployment 7 read as deleted")
-	}
-	if cfg.NodeID != 3 || cfg.SpaceID != 1 || cfg.Name != "api" || cfg.Spec.WorkloadVersion() != "v2" {
-		t.Fatalf("legacy flat mirror not populated: %+v", cfg)
 	}
 
 	gone := store.FetchDeployment(8)
@@ -101,7 +87,7 @@ func TestPreSplitDatabaseUpgrade(t *testing.T) {
 
 	updated := updateDeployment(store, apigen.Context{}, 7, DeploymentUpdate{Spec: testSpecWithState("v3", true)})
 	if updated.Version != 3 || updated.SpecVersion != 3 || updated.SpaceVersion != 1 || updated.NameVersion != 1 {
-		t.Fatalf("post-migration update derived versions wrong: %+v", updated)
+		t.Fatalf("update on legacy rows derived versions wrong: %+v", updated)
 	}
 	if updated.CreatedTime.UnixMilli() != 1000 {
 		t.Fatalf("created_time not carried forward: %d", updated.CreatedTime.UnixMilli())
@@ -110,12 +96,5 @@ func TestPreSplitDatabaseUpgrade(t *testing.T) {
 	history := store.MustFetchDeploymentHistory(7)
 	if len(history) != 3 || history[0].Def.Spec.WorkloadVersion() != "v1" || history[2].Def.Spec.WorkloadVersion() != "v3" {
 		t.Fatalf("history = %d entries", len(history))
-	}
-
-	store.Close()
-	store = Open(dbPath)
-	defer store.Close()
-	if cfg := store.FetchDeployment(7); cfg == nil || cfg.CreatedTime.UnixMilli() != 1000 {
-		t.Fatalf("reopen after migration: %+v", cfg)
 	}
 }

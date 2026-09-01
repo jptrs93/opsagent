@@ -117,7 +117,7 @@ func TestSweepSkipsEntirelyWhileAnyInstanceIsMidRollout(t *testing.T) {
 	// A second instance mid-rollout: prepared at v4, still running v3.
 	other := referencingConfig(4)
 	other.ID = 8
-	other.Name = "secondary"
+	other.Def.Name = "secondary"
 	writeInstance(t, store, 12, other, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, 4, 3)
 
 	sweepRuntimeInputs(context.Background(), store, inputs, nil, nil)

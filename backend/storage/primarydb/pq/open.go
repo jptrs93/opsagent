@@ -53,3 +53,9 @@ func (q *Queries) Tx(ctx context.Context, fn func(*Queries) error) error {
 	}
 	return tx.Commit()
 }
+
+func (q *Queries) TxMust(ctx context.Context, fn func(*Queries) error) {
+	if err := q.Tx(ctx, fn); err != nil {
+		panic(err)
+	}
+}

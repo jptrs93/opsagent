@@ -18,6 +18,7 @@ sql:
         out: "storage/primarydb/pq"
         rename:
           node: NodeRow
+          deployment_event_log: DeploymentEvent
   - engine: "sqlite"
     queries: "storage/secondarydb/sq/sql/queries.sql"
     schema:

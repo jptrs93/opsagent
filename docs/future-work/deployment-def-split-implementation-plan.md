@@ -1,6 +1,6 @@
 # Deployment / DeploymentDef split: implementation plan
 
-Status: phase 1 implemented (envelope+def split, column-backed rows, bridge fields live). Phase 2 — stripping the bridge flat fields and the flat→def fold one release after full rollout — is pending. Before the phase-1 release, verify the production database has no `event_type = 0` rows (careful bit 4).
+Status: complete. Phase 1 shipped in v0.0.553 (envelope+def split, column-backed rows, bridge fields live); phase 2 landed after the v0.0.553 rollout reached every cluster: the bridge flat fields are deleted with their numbers reserved, the def→flat mirror and flat→def fold are gone, and the v0.0.553 migrations were stripped per the migrations.sql convention. The optional clean blob re-encode/renumber was not done — `DeploymentDef` keeps its frozen numbers (2/8/10/11) so historical event rows keep decoding, which costs nothing.
 
 Split `Deployment` into an event-log envelope and the caller-owned definition, so the
 in-memory and wire `Deployment` becomes exactly "a `deployment_event_log` row

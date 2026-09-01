@@ -91,23 +91,6 @@ func (d *Deployment) Deleted() bool {
 	return d.EventType == DeploymentEventType_DEPLOYMENT_EVENT_TYPE_DELETE
 }
 
-func (d *Deployment) FoldLegacyFlatFields() {
-	if d.Def.IsZero() {
-		d.Def = DeploymentDef{
-			NodeID:  d.NodeID,
-			Spec:    d.Spec,
-			SpaceID: d.SpaceID,
-			Name:    d.Name,
-		}
-	}
-	if d.CreatedTime.IsZero() && d.LegacyCreatedAt != 0 {
-		d.CreatedTime = time.UnixMilli(d.LegacyCreatedAt)
-	}
-	if d.EventTime.IsZero() && d.LegacyUpdatedAt != 0 {
-		d.EventTime = time.UnixMilli(d.LegacyUpdatedAt)
-	}
-}
-
 func (s *DeploymentSpec) WorkloadVersion() string {
 	if container := s.Container(); container != nil {
 		return container.Version

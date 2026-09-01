@@ -66,14 +66,9 @@ export function orderDeployment(config) {
     return ordered;
 }
 
-const bridgeFields = ['nodeId', 'legacyCreatedAt', 'legacyUpdatedAt', 'spec', 'spaceId', 'name'];
-
 export function cleanDeployment(config) {
     if (!config) return undefined;
-    const cleaned = omitZeroValues(config);
-    if (!cleaned) return cleaned;
-    for (const key of bridgeFields) delete cleaned[key];
-    return cleaned;
+    return omitZeroValues(config);
 }
 
 export function deploymentToYaml(config) {
