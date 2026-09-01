@@ -1072,7 +1072,7 @@ func TestDeploymentCreatePersistsInitialStoppedWorkloadState(t *testing.T) {
 	if cfg.WorkloadVersion() != "1.25" || cfg.WorkloadRunning() {
 		t.Fatalf("workload state = %+v, want stopped 1.25", cfg.Def.Spec.Container1Spec)
 	}
-	if history := store.MustFetchDeploymentHistory(cfg.ID); len(history) != 1 {
+	if history := store.MustFetchDeploymentHistory(context.Background(), cfg.ID); len(history) != 1 {
 		t.Fatalf("history len = %d, want create only", len(history))
 	} else if history[0].WorkloadVersion() != "1.25" || history[0].WorkloadRunning() {
 		t.Fatalf("history workload state = %+v, want stopped 1.25", history[0].Def.Spec.Container1Spec)
@@ -1455,7 +1455,7 @@ func TestDeploymentDeleteSoftDeletesStoppedDeployment(t *testing.T) {
 	if cfg := h.findConfigByID(created.ID); cfg != nil {
 		t.Fatalf("deleted deployment still active: %+v", cfg)
 	}
-	history := store.MustFetchDeploymentHistory(created.ID)
+	history := store.MustFetchDeploymentHistory(context.Background(), created.ID)
 	if len(history) != 2 {
 		t.Fatalf("history len = %d, want 2", len(history))
 	}
@@ -1504,11 +1504,11 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 		t.Fatalf("new deployment workload state = %+v", second.Def.Spec.Container1Spec)
 	}
 
-	firstHistory := store.MustFetchDeploymentHistory(first.ID)
+	firstHistory := store.MustFetchDeploymentHistory(context.Background(), first.ID)
 	if len(firstHistory) != 2 || !firstHistory[len(firstHistory)-1].Deleted() {
 		t.Fatalf("deleted deployment history = %+v, want independent two-entry history", firstHistory)
 	}
-	secondHistory := store.MustFetchDeploymentHistory(second.ID)
+	secondHistory := store.MustFetchDeploymentHistory(context.Background(), second.ID)
 	if len(secondHistory) != 1 || secondHistory[0].Deleted() || secondHistory[0].SpecVersion != 1 {
 		t.Fatalf("new deployment history = %+v, want independent initial history", secondHistory)
 	}

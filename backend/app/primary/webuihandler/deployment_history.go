@@ -19,7 +19,7 @@ func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.Deplo
 		return nil, err
 	}
 
-	configs := h.Store.MustFetchDeploymentHistory(req.DeploymentID)
+	configs := h.Store.MustFetchDeploymentHistory(ctx, req.DeploymentID)
 	statuses := h.Store.MustFetchDeploymentStatusHistory(req.DeploymentID)
 
 	entries := make([]*apigen.DeploymentHistoryEntry, 0, len(configs)+len(statuses))

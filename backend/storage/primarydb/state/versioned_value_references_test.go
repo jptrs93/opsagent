@@ -116,7 +116,7 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	if unchangedCurrent.SpecVersion != unchangedDeployment.SpecVersion {
 		t.Fatalf("unrelated deployment version = %d, want %d", unchangedCurrent.SpecVersion, unchangedDeployment.SpecVersion)
 	}
-	if got := len(store.MustFetchDeploymentHistory(firstDeployment.ID)); got != 2 {
+	if got := len(store.MustFetchDeploymentHistory(context.Background(), firstDeployment.ID)); got != 2 {
 		t.Fatalf("first deployment history length = %d, want 2", got)
 	}
 

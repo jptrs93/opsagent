@@ -9,6 +9,7 @@ import (
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/logu"
+	"github.com/jptrs93/goutil/sliceu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -27,14 +28,9 @@ func (s *Service) ListActiveDeployments() []*apigen.Deployment {
 	return out
 }
 
-func (s *Service) MustFetchDeploymentHistory(deploymentID int32) []*apigen.Deployment {
-	ctx := context.Background()
+func (s *Service) MustFetchDeploymentHistory(ctx context.Context, deploymentID int32) []*apigen.Deployment {
 	events := erru.Must(s.q.ListDeploymentEvents(ctx, int64(deploymentID)))
-	out := make([]*apigen.Deployment, 0, len(events))
-	for _, e := range events {
-		out = append(out, deploymentFromRow(e))
-	}
-	return out
+	return sliceu.Map(events, deploymentFromRow)
 }
 
 func (s *Service) CreateDeploymentLocked(ctx apigen.Context, def *apigen.DeploymentDef) *apigen.Deployment {

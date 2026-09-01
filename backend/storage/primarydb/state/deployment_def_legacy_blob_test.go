@@ -93,7 +93,7 @@ func TestLegacyFlatBlobRowsDecodeAsDef(t *testing.T) {
 		t.Fatalf("created_time not carried forward: %d", updated.CreatedTime.UnixMilli())
 	}
 
-	history := store.MustFetchDeploymentHistory(7)
+	history := store.MustFetchDeploymentHistory(context.Background(), 7)
 	if len(history) != 3 || history[0].Def.Spec.WorkloadVersion() != "v1" || history[2].Def.Spec.WorkloadVersion() != "v3" {
 		t.Fatalf("history = %d entries", len(history))
 	}

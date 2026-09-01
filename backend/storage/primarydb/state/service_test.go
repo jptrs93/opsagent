@@ -45,7 +45,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	seedStatus(secondary, "example/app:v1")
 	seedStatus(system, "/var/lib/opendeploy/releases/v1/opendeploy")
 
-	primaryConfigHistoryCount := len(store.MustFetchDeploymentHistory(primary.ID))
+	primaryConfigHistoryCount := len(store.MustFetchDeploymentHistory(context.Background(), primary.ID))
 	primaryConfigVersion := primary.SpecVersion
 
 	count, err := store.InvalidateNodeRuntimeState(primaryNode.ID)
@@ -59,7 +59,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	if got != nil && (!got.Preparer.IsZero() || !got.Runner.IsZero()) {
 		t.Fatalf("primary runtime status was not cleared: %+v", got)
 	}
-	if len(store.MustFetchDeploymentHistory(primary.ID)) != primaryConfigHistoryCount {
+	if len(store.MustFetchDeploymentHistory(context.Background(), primary.ID)) != primaryConfigHistoryCount {
 		t.Fatal("runtime invalidation changed config history")
 	}
 	secondaryInst := store.ListNonFinalScheduledInstancesForDeployment(secondary.ID)[0]
@@ -430,7 +430,7 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 		t.Fatalf("updated config = %+v, want v2 with node ID %d", updated, node.ID)
 	}
 
-	history := store.MustFetchDeploymentHistory(cfg.ID)
+	history := store.MustFetchDeploymentHistory(context.Background(), cfg.ID)
 	if len(history) != 2 {
 		t.Fatalf("history length = %d, want 2", len(history))
 	}
