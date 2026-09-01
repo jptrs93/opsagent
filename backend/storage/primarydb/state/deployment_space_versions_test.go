@@ -92,10 +92,6 @@ func findInstanceState(t *testing.T, store *Service, instanceID int32) apigen.Sc
 	return apigen.ScheduledInstanceState{}
 }
 
-// Spec equality must be structural: env vars are a proto map field and encode
-// in Go map iteration order, so byte-comparing two encodes of the same spec
-// falsely reports a change. A same-spec update must stay a no-op and a space
-// move must not observe (or assert on) a phantom spec change.
 func TestSpecComparisonSurvivesMapEncodingOrder(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()

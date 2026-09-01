@@ -10,9 +10,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/sqlitedb"
 )
 
-// Seeds a pre-event-log database shape (three deployment tables, instances
-// pinned by space-version row id, no space_id column) and verifies the
-// one-time startup fold into deployment_event_log.
 func TestDeploymentEventLogMigration(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	specV1 := testSpecWithState("v1", true).Encode()

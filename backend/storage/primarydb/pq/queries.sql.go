@@ -2251,13 +2251,9 @@ func (q *Queries) ListSecretVersionsBySecretID(ctx context.Context, secretID int
 }
 
 const listSpaces = `-- name: ListSpaces :many
-
 SELECT id, name FROM spaces ORDER BY id
 `
 
-// Deployment reads and writes are hand-written in deployments.go against the
-// deployment_event_log; the pre-event-log tables are touched only by the
-// one-time migration in migrate_deployments.go.
 func (q *Queries) ListSpaces(ctx context.Context) ([]Space, error) {
 	rows, err := q.db.QueryContext(ctx, listSpaces)
 	if err != nil {

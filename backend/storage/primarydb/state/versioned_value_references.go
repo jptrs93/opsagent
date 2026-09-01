@@ -21,9 +21,6 @@ const (
 	configValueReference
 )
 
-// deploymentReferenceUpdate carries a fresh snapshot decoded from the
-// deployment's latest event, so mutating its spec cannot reach into the
-// shared cache.
 type deploymentReferenceUpdate struct {
 	prev pq.DeploymentEvent
 	next *apigen.Deployment

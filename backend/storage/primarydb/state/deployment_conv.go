@@ -8,9 +8,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-// deploymentEventToProto decodes an event's full Deployment snapshot. The
-// version columns on the event are a materialisation of the same snapshot, so
-// nothing is joined in.
 func deploymentEventToProto(e pq.DeploymentEvent) *apigen.Deployment {
 	cfg, err := apigen.DecodeDeployment(e.Value)
 	if err != nil {
@@ -38,10 +35,6 @@ func pinnedSpecEventToProto(e pq.DeploymentEvent, base *apigen.Deployment) *apig
 	return cfg
 }
 
-// deploymentSpecsEqual reports semantic spec equality. Encoded bytes cannot
-// be compared directly: map fields (env vars) encode in Go map iteration
-// order, so two encodes of equal specs can produce different bytes. Both
-// sides are canonicalised through a decode and compared structurally.
 func deploymentSpecsEqual(a, b *apigen.DeploymentSpec) bool {
 	da, err := apigen.DecodeDeploymentSpec(a.Encode())
 	if err != nil {

@@ -27,9 +27,6 @@ func (s *Service) ListActiveDeployments() []*apigen.Deployment {
 	return out
 }
 
-// MustFetchDeploymentHistory returns every event snapshot of a deployment in
-// version order: spec updates, space moves, and the delete, each a full
-// config at that point.
 func (s *Service) MustFetchDeploymentHistory(deploymentID int32) []*apigen.Deployment {
 	ctx := context.Background()
 	events, err := s.q.ListDeploymentEvents(ctx, int64(deploymentID))
@@ -78,11 +75,6 @@ func (s *Service) UpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, u
 	return cfg, true, true
 }
 
-// DeleteDeployment appends the tombstone event, guarded by the top-level
-// version: expectedVersion must equal the current version + 1. The delete
-// bumps only the top-level version — sub-part versions, the spec included,
-// stay untouched, so the spec version remains strictly "times the spec
-// changed".
 func (s *Service) DeleteDeployment(ctx apigen.Context, deploymentID int32, expectedVersion int32) (*apigen.Deployment, bool) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -99,10 +91,6 @@ func (s *Service) DeleteDeployment(ctx apigen.Context, deploymentID int32, expec
 	return cfg, true
 }
 
-// mustAppendDeploymentEventLocked writes one event for the transition to next
-// and refreshes the cache and subscribers. Caller must hold s.Mu and must
-// have bumped next's versions to match the change it is making; the sub-
-// version invariants are asserted here against the previous cached event.
 func (s *Service) mustAppendDeploymentEventLocked(next *apigen.Deployment, eventType int64, label string) *apigen.Deployment {
 	bgCtx := context.Background()
 	prev, hasPrev := s.latestEvents[next.ID]
@@ -123,11 +111,6 @@ func (s *Service) mustAppendDeploymentEventLocked(next *apigen.Deployment, event
 	return s.applyDeploymentEventLocked(event)
 }
 
-// mustLatestDeploymentLocked returns a fresh decode of the deployment's
-// persisted latest event. Write paths base their next state on this rather
-// than the cache: a caller holding a snapshot can alias the cached spec's
-// pointer fields, and no-op/CAS decisions must rest on what is stored.
-// Caller must hold s.Mu.
 func (s *Service) mustLatestDeploymentLocked(deploymentID int32, label string) *apigen.Deployment {
 	event, ok := s.latestEvents[deploymentID]
 	if !ok {
@@ -136,8 +119,6 @@ func (s *Service) mustLatestDeploymentLocked(deploymentID int32, label string) *
 	return deploymentEventToProto(event)
 }
 
-// applyDeploymentEventLocked installs a committed event into the caches and
-// notifies subscribers. Caller must hold s.Mu.
 func (s *Service) applyDeploymentEventLocked(event pq.DeploymentEvent) *apigen.Deployment {
 	cfg := deploymentEventToProto(event)
 	s.deploymentCache[cfg.ID] = cfg
@@ -146,10 +127,6 @@ func (s *Service) applyDeploymentEventLocked(event pq.DeploymentEvent) *apigen.D
 	return cfg
 }
 
-// buildDeploymentEvent materialises next into an event row and asserts the
-// versioning invariant the schema can no longer enforce structurally: the
-// top-level version bumps by exactly one, and each sub-version increments iff
-// its sub-value changed. GlobalSeq is left for the committing tx to fill.
 func buildDeploymentEvent(prev pq.DeploymentEvent, hasPrev bool, next *apigen.Deployment, eventType int64, label string) pq.DeploymentEvent {
 	if !hasPrev {
 		if eventType != pq.DeploymentEventCreate || next.Version != 1 || next.SpecVersion != 1 || next.SpaceVersion != 1 {

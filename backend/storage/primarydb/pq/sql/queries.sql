@@ -5,10 +5,6 @@ RETURNING value;
 -- name: GetGlobalSeq :one
 SELECT value FROM global_seq WHERE id = 1;
 
--- Deployment reads and writes are hand-written in deployments.go against the
--- deployment_event_log; the pre-event-log tables are touched only by the
--- one-time migration in migrate_deployments.go.
-
 -- name: ListSpaces :many
 SELECT id, name FROM spaces ORDER BY id;
 

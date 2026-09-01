@@ -10,14 +10,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-// migrateDeploymentEventLog is the one-time fold of the pre-event-log tables
-// (deployments, deployment_spec_versions, deployment_space_versions) into
-// deployment_event_log, plus the backfill of scheduled_instances.space_id from
-// the space-version row pin it replaces. It is deterministic: events are
-// ordered by global_seq, the create's spec-v1 and space-v1 rows (written in
-// one tx under one seq) fold into a single create event, and a tombstone's
-// final row becomes the delete event. Runs only while the event log is empty;
-// the source tables are dropped after fleet rollout.
 func migrateDeploymentEventLog(db *sql.DB) {
 	ctx := context.Background()
 	var events, olds int64
@@ -139,10 +131,6 @@ func loadOldVersionRows(ctx context.Context, db *sql.DB, query string) (map[int6
 	return out, rows.Err()
 }
 
-// buildDeploymentEvents replays one deployment's interleaved spec and space
-// version rows into event snapshots. Rows of each kind are already in version
-// order; the interleave across kinds follows (global_seq, created_at), which
-// also folds the create's paired v1 rows since they share a seq.
 func buildDeploymentEvents(ident oldDeploymentIdentity, specs, spaces []oldVersionRow) []DeploymentEvent {
 	if len(specs) == 0 {
 		return nil
@@ -183,9 +171,6 @@ func buildDeploymentEvents(ident oldDeploymentIdentity, specs, spaces []oldVersi
 			specVersion = st.row.version
 			specBlob = st.row.specBlob
 		}
-		// The create writes spec v1 and space v1 under one seq: fold the pair
-		// into the single v1 create event rather than emitting a half-formed
-		// first event.
 		if len(out) == 1 && out[0].EventType == DeploymentEventCreate &&
 			st.row.globalSeq == out[0].GlobalSeq && st.isSpace && st.row.version == 1 {
 			out[0].SpaceAssignmentVersion = 1
@@ -210,9 +195,6 @@ func buildDeploymentEvents(ident oldDeploymentIdentity, specs, spaces []oldVersi
 		e.Value = encodeMigratedSnapshot(ident, e, createdAt, e.CreatedAt, e.Author, specBlob, spaceID, false)
 		out = append(out, e)
 	}
-	// Today's delete appends a tombstone spec row and stamps deleted_at, so
-	// the final event is the deletion; re-mark it rather than synthesising an
-	// extra one.
 	if ident.deletedAt != 0 && len(out) > 0 {
 		last := &out[len(out)-1]
 		last.EventType = DeploymentEventDelete

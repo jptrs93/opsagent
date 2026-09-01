@@ -6,14 +6,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-// Hand-written deployment event log access. The log is the sole store of
-// deployment intent: value is a full Deployment snapshot, so the current state
-// of a deployment is its highest-version event and point-in-time state is the
-// latest event at or before a sequence. The version columns are a queryable
-// materialisation of the snapshot; the blob is the truth.
-
-// Event types are the AuthzVerb enum values, so the stored event_type is the
-// verb that authorized the write.
 const (
 	DeploymentEventCreate = int64(apigen.AuthzVerb_AUTHZ_VERB_CREATE)
 	DeploymentEventUpdate = int64(apigen.AuthzVerb_AUTHZ_VERB_UPDATE)
@@ -63,9 +55,6 @@ func (q *Queries) InsertDeploymentEvent(ctx context.Context, e DeploymentEvent) 
 	return err
 }
 
-// NextDeploymentID allocates the next deployment id. Ids are never reused:
-// the log is append-only, so every deployment that ever existed still holds
-// its id. Callers must hold the store mutex across allocate-and-insert.
 func (q *Queries) NextDeploymentID(ctx context.Context) (int64, error) {
 	var id int64
 	err := q.db.QueryRowContext(ctx,
@@ -79,8 +68,6 @@ func (q *Queries) GetLatestDeploymentEvent(ctx context.Context, deploymentID int
 	ORDER BY e.version DESC LIMIT 1`, deploymentID))
 }
 
-// ListLatestDeploymentEvents returns each deployment's highest-version event —
-// the current state of every deployment, deleted ones included.
 func (q *Queries) ListLatestDeploymentEvents(ctx context.Context) ([]DeploymentEvent, error) {
 	return q.listDeploymentEvents(ctx, deploymentEventSelect+`
 	JOIN (SELECT deployment_id, MAX(version) AS version
@@ -95,9 +82,6 @@ func (q *Queries) ListDeploymentEvents(ctx context.Context, deploymentID int64) 
 	ORDER BY e.version ASC`, deploymentID)
 }
 
-// GetDeploymentEventBySpecVersion returns the first event carrying the given
-// spec version. Any matching event's snapshot holds the right spec bytes; the
-// first is the one that introduced them.
 func (q *Queries) GetDeploymentEventBySpecVersion(ctx context.Context, deploymentID, specVersion int64) (DeploymentEvent, error) {
 	return scanDeploymentEvent(q.db.QueryRowContext(ctx, deploymentEventSelect+`
 	WHERE e.deployment_id = ? AND e.spec_version = ?
