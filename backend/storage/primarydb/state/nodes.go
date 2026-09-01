@@ -288,9 +288,7 @@ func (s *Service) FetchNetworkMapInputs() NetworkMapInputs {
 	seq := erru.Must(s.q.GetGlobalSeq(context.Background()))
 	spaces := make(map[int32]int32, len(s.deploymentCache))
 	for id, cfg := range s.deploymentCache {
-		if cfg != nil && !cfg.Deleted() {
-			spaces[id] = cfg.Def.SpaceID
-		}
+		spaces[id] = cfg.Def.SpaceID
 	}
 	return NetworkMapInputs{
 		Nodes:            s.listNodesLocked(),

@@ -492,7 +492,7 @@ func validateNodeNetworkingClaims(primaryNodeID int32, live state.LiveState, nod
 	}
 
 	for _, cfg := range live.Deployments {
-		if cfg.Deleted() || cfg.Def.NodeID != nodeID || cfg.ID == deploymentID {
+		if cfg.Def.NodeID != nodeID || cfg.ID == deploymentID {
 			continue
 		}
 		if err := add(cfg.ID, cfg.Def.Spec); err != nil {
@@ -657,7 +657,7 @@ func validateAddressEnvRefs(live state.LiveState, nodeID, deploymentID, spaceID 
 			return invalidConfigErrf("container1Spec.runtime.envVars.%s: deployment cannot reference its own address", key)
 		}
 		target := configs[targetID]
-		if target == nil || target.Deleted() {
+		if target == nil {
 			return invalidConfigErrf("container1Spec.runtime.envVars.%s: unknown address deployment id %d", key, targetID)
 		}
 		if target.Def.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
@@ -1023,7 +1023,7 @@ func validateCrossDeploymentMountSources(live state.LiveState, spec *apigen.Depl
 			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: a deployment cannot mount its own default volume")
 		}
 		source := live.Deployments[mount.DeploymentID]
-		if source == nil || source.Deleted() {
+		if source == nil {
 			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: source deployment %d does not exist", mount.DeploymentID)
 		}
 		if source.Def.NodeID != nodeID {

@@ -2,6 +2,8 @@ package state
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/jptrs93/goutil/erru"
@@ -27,6 +29,9 @@ func (s *Service) loadCache() {
 	ctx := context.Background()
 	events := erru.Must(s.q.ListLatestDeploymentEvents(ctx))
 	for _, e := range events {
+		if e.EventType == pq.DeploymentEventDelete {
+			continue
+		}
 		cfg := deploymentFromRow(e)
 		s.deploymentCache[cfg.ID] = cfg
 		s.latestEvents[cfg.ID] = e
@@ -94,17 +99,25 @@ func (s *Service) FetchDeletedDeploymentSnapshot(predicate storage.DeploymentPre
 	return out
 }
 
-// FetchDeployment returns the latest desired config, including a deleted
-// tombstone, for scheduler reconciliation.
+// FetchDeployment returns the latest desired config. The cache holds live
+// deployments only, so a miss falls back to the event log: deleted deployments
+// resolve to their delete tombstone — which the scheduler reconciles instance
+// teardown against — and nil means the deployment never existed.
 func (s *Service) FetchDeployment(deploymentID int32) *apigen.Deployment {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	cfg := s.deploymentCache[deploymentID]
-	if cfg == nil {
+	if cfg := s.deploymentCache[deploymentID]; cfg != nil {
+		cp := *cfg
+		return &cp
+	}
+	event, err := s.q.GetLatestDeploymentEvent(context.Background(), int64(deploymentID))
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
-	cp := *cfg
-	return &cp
+	if err != nil {
+		panic(fmt.Sprintf("fetch deployment %d: %v", deploymentID, err))
+	}
+	return deploymentFromRow(event)
 }
 
 func (s *Service) MustFetchDeploymentSnapshotAndSubscribe(predicate storage.DeploymentPredicate) ([]apigen.Deployment, chan apigen.Deployment, func()) {
@@ -140,7 +153,7 @@ func (s *Service) MustFetchScheduledSnapshotWithLatestFinalAndSubscribe(predicat
 func (s *Service) configSnapshotLocked(predicate storage.DeploymentPredicate) []apigen.Deployment {
 	out := make([]apigen.Deployment, 0, len(s.deploymentCache))
 	for _, cfg := range s.deploymentCache {
-		if cfg.Deleted() || (predicate != nil && !predicate(*cfg)) {
+		if predicate != nil && !predicate(*cfg) {
 			continue
 		}
 		out = append(out, *cfg)
@@ -209,12 +222,8 @@ func (s *Service) configForVersionLocked(deploymentID, deploymentVersion int32) 
 	return deploymentFromRow(event)
 }
 
-func (s *Service) notifyDeploymentLocked(id int32) {
-	cfg := s.deploymentCache[id]
-	if cfg == nil {
-		return
-	}
-	s.deploymentSubs.Notify(*cfg)
+func (s *Service) notifyDeploymentLocked(cfg apigen.Deployment) {
+	s.deploymentSubs.Notify(cfg)
 }
 
 func deploymentFilter(predicate storage.DeploymentPredicate) func(apigen.Deployment, apigen.Deployment) bool {

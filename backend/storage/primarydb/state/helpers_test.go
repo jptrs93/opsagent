@@ -39,7 +39,7 @@ func mustCreateDeploymentForNode(s *Service, ctx apigen.Context, spaceID int32, 
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	for _, cfg := range s.deploymentCache {
-		if storage.DeploymentKeyMatches(cfg.Def, nodeID, spaceID, name) && !cfg.Deleted() {
+		if storage.DeploymentKeyMatches(cfg.Def, nodeID, spaceID, name) {
 			panic(fmt.Sprintf("deployment node=%d space=%d name=%q already exists", nodeID, spaceID, name))
 		}
 	}

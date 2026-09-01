@@ -98,7 +98,7 @@ func CertSecretName(hostname string) string {
 func acmeHostnames(configs []apigen.Deployment) []string {
 	seen := map[string]bool{}
 	for _, cfg := range configs {
-		if cfg.Deleted() || cfg.Def.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		if cfg.Def.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
 		for _, route := range cfg.Def.Spec.Networking.Ingress {

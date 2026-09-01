@@ -72,17 +72,19 @@ func (s *Service) setVersionedValueWithDeploymentUpdatesLocked(
 	}
 
 	updatedIDs := make([]int32, 0, len(updatedEvents))
+	updatedCfgs := make([]*apigen.Deployment, 0, len(updatedEvents))
 	for _, event := range updatedEvents {
 		cfg := deploymentFromRow(event)
 		s.deploymentCache[cfg.ID] = cfg
 		s.latestEvents[cfg.ID] = event
 		updatedIDs = append(updatedIDs, cfg.ID)
+		updatedCfgs = append(updatedCfgs, cfg)
 	}
 	if afterCommit != nil {
 		afterCommit(updatedIDs)
 	}
-	for _, id := range updatedIDs {
-		s.notifyDeploymentLocked(id)
+	for _, cfg := range updatedCfgs {
+		s.notifyDeploymentLocked(*cfg)
 	}
 	return updatedIDs, nil
 }
@@ -108,13 +110,6 @@ func (s *Service) prepareDeploymentReferenceUpdatesLocked(
 	}
 	actual := make(map[int32]deploymentReferenceUpdate)
 	for _, cfg := range s.deploymentCache {
-		// Deletion is soft and preserves the spec, so a tombstone keeps whatever
-		// references it held when it was deleted. It will never run again, so
-		// rewriting it is pointless — and counting it here would make every
-		// rotation fail against the live set the caller can see.
-		if cfg.Deleted() {
-			continue
-		}
 		event, ok := s.latestEvents[cfg.ID]
 		if !ok {
 			return nil, nil, fmt.Errorf("deployment %d has no latest event", cfg.ID)

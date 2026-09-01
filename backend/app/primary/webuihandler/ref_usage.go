@@ -84,9 +84,6 @@ func crossDeploymentMountSourceIDs(cfg *apigen.Deployment) []int32 {
 func referencingDeployments(live state.LiveState, ids map[int32]struct{}, refs func(*apigen.Deployment) []int32) []*apigen.Deployment {
 	var out []*apigen.Deployment
 	for _, cfg := range live.Deployments {
-		if cfg.Deleted() {
-			continue
-		}
 		for _, id := range refs(cfg) {
 			if _, ok := ids[id]; ok {
 				out = append(out, cfg)

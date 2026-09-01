@@ -250,7 +250,10 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	if got := deploymentEnvRefID(t, store.deploymentCache[live.ID], "POSTGRES_PASSWORD", true); got != second.ID {
 		t.Fatalf("live deployment secret ref = %d, want %d", got, second.ID)
 	}
-	tombstone := store.deploymentCache[original.ID]
+	if store.deploymentCache[original.ID] != nil {
+		t.Fatal("deleted deployment still in the live cache")
+	}
+	tombstone := store.FetchDeployment(original.ID)
 	if got := deploymentEnvRefID(t, tombstone, "POSTGRES_PASSWORD", true); got != first.ID {
 		t.Fatalf("tombstone secret ref = %d, want it left at %d", got, first.ID)
 	}

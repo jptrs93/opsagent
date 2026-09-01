@@ -247,9 +247,16 @@ echo "netaudit reported divergence and left the chain alone"
 MARK="$(log_mark)"
 systemctl restart opendeploy || fail "restarting the agent failed"
 
+# The chain, the src_ok elements and the dispatch entry are re-derived
+# independently, so each needs the same deadline: waiting only for the chain
+# and then sampling the other two once fails whenever the agent happens to
+# publish them a moment later.
 DEADLINE=$((SECONDS+180))
 while [ $SECONDS -lt $DEADLINE ]; do
-  if nft list chain ip6 opendeploy "$SERVER_CHAIN" 2>/dev/null | grep -q drop; then break; fi
+  nft list chain ip6 opendeploy "$SERVER_CHAIN" 2>/dev/null | grep -q drop \
+    && nft list set ip6 opendeploy src_ok 2>/dev/null | grep -q "od${NETPOL_SERVER_ID}s" \
+    && nft list map ip6 opendeploy dst_dispatch 2>/dev/null | grep -q "$NETPOL_SERVER_ADDRESS" \
+    && break
   sleep 5
 done
 nft list chain ip6 opendeploy "$SERVER_CHAIN" 2>/dev/null | grep -q drop \

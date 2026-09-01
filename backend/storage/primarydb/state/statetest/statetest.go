@@ -13,7 +13,7 @@ import (
 func MustCreateDeploymentForNode(s *state.Service, ctx apigen.Context, spaceID int32, name string, nodeID int32, spec *apigen.DeploymentSpec) *apigen.Deployment {
 	defer s.GlobalLock()()
 	for _, cfg := range s.LiveState().Deployments {
-		if storage.DeploymentKeyMatches(cfg.Def, nodeID, spaceID, name) && !cfg.Deleted() {
+		if storage.DeploymentKeyMatches(cfg.Def, nodeID, spaceID, name) {
 			panic(fmt.Sprintf("deployment node=%d space=%d name=%q already exists", nodeID, spaceID, name))
 		}
 	}

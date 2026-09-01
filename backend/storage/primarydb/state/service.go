@@ -56,13 +56,17 @@ type Service struct {
 	// is a method on it. Service owns caches, locking, and notification.
 	q *pq.Queries
 
-	// deploymentCache holds the latest desired Deployment per deployment id.
-	// Used by primary scheduler/APIs only — never as the pinned config source for
-	// a scheduled-instance snapshot.
+	// deploymentCache holds the latest desired Deployment per live deployment
+	// id. Deletion evicts the entry — tombstones live only in the event log,
+	// where FetchDeployment reads them back on a cache miss. Used by primary
+	// scheduler/APIs only — never as the pinned config source for a
+	// scheduled-instance snapshot.
 	deploymentCache map[int32]*apigen.Deployment
-	// latestEvents holds each deployment's newest event row — the persisted
-	// counterpart of deploymentCache, carrying the version columns (name
-	// included) that the next event must follow on from.
+	// latestEvents holds each live deployment's newest event row — the
+	// persisted counterpart of deploymentCache, carrying the version columns
+	// (name included) that the next event must follow on from. Eviction on
+	// delete is what makes delete terminal: appending to a deleted deployment
+	// has no predecessor row to follow and panics.
 	latestEvents map[int32]pq.DeploymentEvent
 	// latestFinalCache retains the last incarnation of an ordinal after it is
 	// finalized, so a stopped deployment can still show how its final run ended.
@@ -355,7 +359,7 @@ func (s *Service) CountDeploymentsForSpace(id int32) (int64, error) {
 	defer s.Mu.Unlock()
 	var count int64
 	for _, cfg := range s.deploymentCache {
-		if !cfg.Deleted() && cfg.Def.SpaceID == id {
+		if cfg.Def.SpaceID == id {
 			count++
 		}
 	}

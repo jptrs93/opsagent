@@ -21,9 +21,7 @@ func (s *Service) ListActiveDeployments() []*apigen.Deployment {
 	defer s.Mu.Unlock()
 	out := make([]*apigen.Deployment, 0, len(s.deploymentCache))
 	for _, cfg := range s.deploymentCache {
-		if !cfg.Deleted() {
-			out = append(out, cfg)
-		}
+		out = append(out, cfg)
 	}
 	return out
 }
@@ -60,16 +58,21 @@ func (s *Service) mustAppendDeploymentEventLocked(_ context.Context, event pq.De
 		return q.InsertDeploymentEvent(bgCtx, event)
 	})
 	cfg := deploymentFromRow(event)
-	s.deploymentCache[cfg.ID] = cfg
-	s.latestEvents[cfg.ID] = event
-	s.notifyDeploymentLocked(cfg.ID)
+	if event.EventType == pq.DeploymentEventDelete {
+		delete(s.deploymentCache, cfg.ID)
+		delete(s.latestEvents, cfg.ID)
+	} else {
+		s.deploymentCache[cfg.ID] = cfg
+		s.latestEvents[cfg.ID] = event
+	}
+	s.notifyDeploymentLocked(*cfg)
 	return cfg
 }
 
 func (s *Service) mustLatestEventLocked(deploymentID int32) pq.DeploymentEvent {
 	event, ok := s.latestEvents[deploymentID]
 	if !ok {
-		panic(fmt.Sprintf("deployment %d has no events", deploymentID))
+		panic(fmt.Sprintf("deployment %d is deleted or has no events", deploymentID))
 	}
 	return event
 }
@@ -133,7 +136,7 @@ func (s *Service) EnsureSystemDeployment(nodeID int32, opendeployVersion string)
 
 	ctx := logu.AddTag(context.Background(), "Store")
 	for _, cfg := range s.deploymentCache {
-		if storage.DeploymentKeyMatches(cfg.Def, nodeID, OpendeploySpaceID, internaldeploy.SelfName) && !cfg.Deleted() {
+		if storage.DeploymentKeyMatches(cfg.Def, nodeID, OpendeploySpaceID, internaldeploy.SelfName) {
 			if !internaldeploy.IsSelfSpec(&cfg.Def.Spec) {
 				slog.WarnContext(ctx, "repairing system deployment spec", "dep", cfg.ID, "node", nodeID)
 				s.repairDeploymentSpecLocked(cfg.ID, internaldeploy.SelfSpec())
@@ -171,7 +174,7 @@ func (s *Service) EnsureNetproxyDeployment(nodeID int32, initialVersion string) 
 	defer s.Mu.Unlock()
 	ctx := logu.AddTag(context.Background(), "Store")
 	for _, cfg := range s.deploymentCache {
-		if storage.DeploymentKeyMatches(cfg.Def, nodeID, OpendeploySpaceID, internaldeploy.NetproxyName) && !cfg.Deleted() {
+		if storage.DeploymentKeyMatches(cfg.Def, nodeID, OpendeploySpaceID, internaldeploy.NetproxyName) {
 			if err := desiredSpec.SetWorkloadState(cfg.WorkloadVersion(), cfg.WorkloadRunning()); err != nil {
 				panic(fmt.Sprintf("compare netproxy deployment state: %v", err))
 			}

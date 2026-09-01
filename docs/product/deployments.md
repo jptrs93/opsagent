@@ -112,7 +112,10 @@ Deleting is its own event, `POST /v1/deployments/delete`, guarded by the
 top-level version (the request's `version` must equal the current one + 1).
 It bumps only the top-level version — the spec and other sub-parts are left
 untouched, so `specVersion` remains strictly "times the spec changed" — and
-records the tombstone in the snapshot (`deleted: true`).
+the delete row carries the full config as the tombstone (`eventType` marks
+it). Delete is terminal: the deployment leaves the live cache, so tombstones
+are read back from the event log (scheduler teardown, the recently-deleted
+view) and any further write attempt has no predecessor event to follow.
 
 A space move is its own update kind, `assigned_space_update` in
 `POST /v2/deployments/update`, guarded like every update kind by the

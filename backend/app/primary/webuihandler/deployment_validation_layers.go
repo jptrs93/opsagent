@@ -103,7 +103,7 @@ func validateNodeAllowsSpace(live state.LiveState, nodeID, spaceID int32) error 
 
 func validateNoDuplicateIdentity(live state.LiveState, updated *apigen.Deployment) error {
 	for _, other := range live.Deployments {
-		if other.Deleted() || other.ID == updated.ID {
+		if other.ID == updated.ID {
 			continue
 		}
 		if storage.DeploymentKeyMatches(other.Def, updated.Def.NodeID, updated.Def.SpaceID, updated.Def.Name) {
