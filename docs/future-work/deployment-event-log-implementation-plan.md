@@ -1,11 +1,13 @@
 # Deployment event log: migration and refactoring plan
 
-Status as of 2026-09-01: **built**. The three deployment tables
-(`deployments`, `deployment_spec_versions`, `deployment_space_versions`) are
-replaced by the single append-only `deployment_event_log` as the first
-application of a generalised versioning pattern for the global state tree.
-The old tables remain in the schema as the one-time migration source and are
-write-orphaned; what remains is the ship-and-strip cycle in "Next steps".
+Status as of 2026-09-01: **built, rolled out, and stripped**. The three
+deployment tables (`deployments`, `deployment_spec_versions`,
+`deployment_space_versions`) are replaced by the single append-only
+`deployment_event_log` as the first application of a generalised versioning
+pattern for the global state tree. The v0.0.549/550 rollout migrated every
+cluster; the follow-up release dropped the old tables and the orphaned
+placement-pin column and removed the one-time migration and the column-rename
+migrations. Remaining work is in "Follow-ups unlocked by the log".
 
 ## Concept
 
@@ -88,8 +90,8 @@ intent changes only.
 
 ## Built (2026-09-01)
 
-- Table + index exactly per the target schema; old tables kept in the schema
-  as migration source only, no reads or writes outside the migration.
+- Table + index exactly per the target schema; the old tables served as the
+  one-time migration source and were dropped after the rollout.
 - Semantics as pinned down in step 2 of the original plan:
   - Delete is its own operation (`Service.DeleteDeployment`, request field
     `DeploymentDeleteRequest.version`), guarded by the top-level version. It
@@ -123,35 +125,21 @@ intent changes only.
   in-memory cache; `DeleteScheduledInstanceStatusesForNode` takes its
   except-list from the cache instead of joining the old tables.
 - Scheduled instances snapshot `space_id` at scheduling time
-  (`scheduled_instances.space_id`); `deployment_space_version_id` is
-  write-orphaned and pending drop.
-- One-time startup migration (`pq/migrate_deployments.go`): runs only while
-  the event log is empty and old rows exist; interleaves spec and space
-  versions per deployment by `(global_seq, created_at)`, folds the create's
-  spec-v1 + space-v1 pair into one create event, re-marks a tombstone's
-  final event as the delete, starts `name_version` at 1, and backfills
-  instance `space_id` in the same tx.
+  (`scheduled_instances.space_id`); the old `deployment_space_version_id`
+  row-id pin was dropped after the rollout.
+- One-time startup migration (removed after the rollout): ran only while the
+  event log was empty and old rows existed; interleaved spec and space
+  versions per deployment by `(global_seq, created_at)`, folded the create's
+  spec-v1 + space-v1 pair into one create event, re-marked a tombstone's
+  final event as the delete, started `name_version` at 1, and backfilled
+  instance `space_id` in the same tx. Verified against a production DB
+  snapshot (20 deployments, 1204 spec + 22 space versions → 1206 events)
+  before rollout, as was the post-rollout strip (table/column drops with the
+  event log and cache intact).
 
 ## Next steps
 
-### 1. Ship and strip
-
-Commit and deploy everywhere, then strip in a follow-up release once every
-cluster has rolled forward:
-
-- The `RENAME COLUMN` migrations in both `migrations.sql` files (primary:
-  `scheduled_instances.deployment_version`, `preparer_config_version`,
-  `runner_config_version`; secondary: the two status columns) and the
-  `ADD COLUMN space_id` migration.
-- The one-time event-log migration and the three old tables (`DROP TABLE`),
-  plus the orphaned `scheduled_instances.deployment_space_version_id`
-  column.
-
-Side effect to remember: `IssuedTLSValue`'s persisted JSON tag changed
-(`config_version` → `spec_version`), so each secondary's encrypted issued-TLS
-cache entry invalidates once on upgrade and refetches from the primary.
-
-### 2. Follow-ups unlocked by the log
+### Follow-ups unlocked by the log
 
 - Name becomes a real sub-part with its own operation (rename support). Its
   version column already exists and is carried forward on every event.

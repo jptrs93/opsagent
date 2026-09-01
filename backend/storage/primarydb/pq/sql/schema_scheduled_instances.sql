@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS scheduled_instances (
     deployment_spec_version     INTEGER NOT NULL,
     node_id                     INTEGER NOT NULL,
     instance_ordinal            INTEGER NOT NULL DEFAULT 0,
-    deployment_space_version_id INTEGER NOT NULL DEFAULT 0,
     space_id                    INTEGER NOT NULL DEFAULT 0
 );
 

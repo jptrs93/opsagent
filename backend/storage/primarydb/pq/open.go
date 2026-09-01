@@ -26,7 +26,6 @@ func Open(dbPath string) *Queries {
 	// against the old shape.
 	sqlitedb.ApplySchema(db, schemaFiles, "sql/schema*.sql")
 	sqlitedb.ApplyMigrations(db, migrations)
-	migrateDeploymentEventLog(db)
 	return New(db)
 }
 

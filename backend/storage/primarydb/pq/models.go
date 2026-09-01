@@ -136,13 +136,6 @@ type ConfigVersion struct {
 	GlobalSeq int64
 }
 
-type Deployment struct {
-	DeploymentID int64
-	NodeID       int64
-	Name         string
-	DeletedAt    int64
-}
-
 type DeploymentEventLog struct {
 	ID                     int64
 	GlobalSeq              int64
@@ -155,26 +148,6 @@ type DeploymentEventLog struct {
 	NameVersion            int64
 	Value                  []byte
 	EventType              int64
-}
-
-type DeploymentSpaceVersion struct {
-	ID           int64
-	DeploymentID int64
-	Version      int64
-	Author       int64
-	CreatedAt    int64
-	SpaceID      int64
-	GlobalSeq    int64
-}
-
-type DeploymentSpecVersion struct {
-	ID           int64
-	DeploymentID int64
-	Version      int64
-	CreatedAt    int64
-	Author       int64
-	SpecBlob     []byte
-	GlobalSeq    int64
 }
 
 type GlobalAccessRule struct {
@@ -256,13 +229,12 @@ type PublicKey struct {
 }
 
 type ScheduledInstance struct {
-	ID                       int64
-	DeploymentID             int64
-	DeploymentSpecVersion    int64
-	NodeID                   int64
-	InstanceOrdinal          int64
-	DeploymentSpaceVersionID int64
-	SpaceID                  int64
+	ID                    int64
+	DeploymentID          int64
+	DeploymentSpecVersion int64
+	NodeID                int64
+	InstanceOrdinal       int64
+	SpaceID               int64
 }
 
 type ScheduledInstanceStatus struct {

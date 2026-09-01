@@ -30,7 +30,7 @@ func scheduledInstanceStatusRowToProto(r pq.ScheduledInstanceStatus) *apigen.Sch
 		ScheduledInstanceID: int32(r.ScheduledInstanceID),
 		DeploymentID:        int32(r.DeploymentID),
 	}
-	// preparer_config_version is the presence guard: it is written for every
+	// preparer_spec_version is the presence guard: it is written for every
 	// non-zero preparer status, and unlike the stage columns it is nullable, so
 	// it distinguishes "nothing recorded" from a recorded UNKNOWN.
 	if r.PreparerSpecVersion.Valid {
