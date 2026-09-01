@@ -16,6 +16,7 @@ func scheduledInstanceRowToProto(r pq.ScheduledInstanceRow) *apigen.ScheduledIns
 		ID:                    int32(r.ID),
 		CreatedAt:             millisToTime(r.CreatedAt),
 		DeploymentID:          int32(r.DeploymentID),
+		DeploymentVersion:     int32(r.DeploymentVersion),
 		DeploymentSpecVersion: int32(r.DeploymentSpecVersion),
 		NodeID:                int32(r.NodeID),
 		InstanceOrdinal:       int32(r.InstanceOrdinal),

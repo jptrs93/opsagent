@@ -15,8 +15,8 @@ func TestFlipScheduledInstanceServing(t *testing.T) {
 	node := store.EnsurePrimaryNode("primary", "primary")
 	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "app", node.ID, nonEmptySpec())
 
-	serving := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	standby := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
+	serving := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	standby := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
 
 	seq := store.FlipScheduledInstanceServing([]int32{serving.ID}, standby.ID)
 	if seq == 0 {
@@ -43,7 +43,7 @@ func TestFlipScheduledInstanceServingSnapshotAtomicity(t *testing.T) {
 	node := store.EnsurePrimaryNode("primary", "primary")
 	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "app", node.ID, nonEmptySpec())
 
-	current := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	current := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	var violations atomic.Int64
 	var snapshots atomic.Int64
@@ -72,7 +72,7 @@ func TestFlipScheduledInstanceServingSnapshotAtomicity(t *testing.T) {
 	}()
 
 	for i := 0; i < 50; i++ {
-		standby := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
+		standby := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
 		if seq := store.FlipScheduledInstanceServing([]int32{current.ID}, standby.ID); seq == 0 {
 			t.Fatalf("flip %d allocated no sequence", i)
 		}

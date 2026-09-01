@@ -56,7 +56,7 @@ func TestFinalizedInstanceIsRetainedForDisplay(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := seedDeployment(t, store, "app")
 
-	inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	writeRunnerStatus(t, store, inst.ID, apigen.RunningStatus_STOPPED)
 	store.SetScheduledInstanceState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 
@@ -83,7 +83,7 @@ func TestRetainedFinalInstanceSurvivesRestart(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := Open(dbPath)
 	cfg := seedDeployment(t, store, "app")
-	inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	writeRunnerStatus(t, store, inst.ID, apigen.RunningStatus_STOPPED)
 	store.SetScheduledInstanceState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 	if err := store.Close(); err != nil {
@@ -113,9 +113,9 @@ func TestNewInstanceEvictsTheRetainedRun(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := seedDeployment(t, store, "app")
 
-	older := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	older := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	store.SetScheduledInstanceState(older.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
-	newer := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	newer := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	shown := onlyInstance(t, store.FetchScheduledSnapshotWithLatestFinal(nil))
 	if shown.Instance.ID != newer.ID {
@@ -139,8 +139,8 @@ func TestRetainedRunIsPerOrdinal(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := seedDeployment(t, store, "app")
 
-	first := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	second := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 1, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	first := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	second := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 1, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	store.SetScheduledInstanceState(first.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 	store.SetScheduledInstanceState(second.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 
@@ -158,8 +158,8 @@ func TestDisplaySnapshotAppliesPredicate(t *testing.T) {
 	visible := seedDeployment(t, store, "visible")
 	hidden := seedDeployment(t, store, "hidden")
 
-	shownInst := store.CreateScheduledInstanceForTest(visible.ID, visible.SpecVersion, visible.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	hiddenInst := store.CreateScheduledInstanceForTest(hidden.ID, hidden.SpecVersion, hidden.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	shownInst := store.CreateScheduledInstanceForTest(visible.ID, visible.Version, visible.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	hiddenInst := store.CreateScheduledInstanceForTest(hidden.ID, hidden.Version, hidden.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	store.SetScheduledInstanceState(shownInst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 	store.SetScheduledInstanceState(hiddenInst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 

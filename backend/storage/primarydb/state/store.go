@@ -2,14 +2,10 @@ package state
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
-	"log/slog"
 	"sort"
 
 	"github.com/jptrs93/goutil/erru"
-	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/instancecache"
@@ -163,9 +159,7 @@ func (s *Service) instanceSnapshotWithLatestFinalLocked(predicate storage.Schedu
 	out := s.SnapshotLocked(predicate)
 	for _, state := range s.latestFinalCache {
 		item := *state
-		if item.Config.ID != 0 {
-			item.Status = instancecache.WithRunningVersion(&item.Config, item.Status)
-		}
+		item.Status = instancecache.WithRunningVersion(&item.Config, item.Status)
 		if predicate != nil && !predicate(item) {
 			continue
 		}
@@ -193,46 +187,31 @@ func (s *Service) retainFinalizedLocked(state *apigen.ScheduledInstanceState) {
 	s.latestFinalCache[key] = &cp
 }
 
-// instanceStateLocked assembles the scheduling-time snapshot an instance runs
-// against. Config is the deployment def as pinned for this placement — decoded
-// from the event that introduced the pinned spec version, which may predate
-// later deployment events. Placement is owned by the instance: NodeID,
-// SpaceID, ordinal, and the pinned spec version are authoritative on Instance,
-// and the def's space is stamped from it (space changes bump
-// space_assignment_version, not spec_version, so the pinned event's def does
-// not know this instance's space). The identity fields left on Config are
-// informational; a deployment change never rewrites existing instance states —
+// instanceStateLocked assembles the state an instance runs against. Config is
+// the deployment as of the event-log version the instance was scheduled
+// against — a complete, immutable def snapshot, so no field needs merging from
+// anywhere else. A deployment change never rewrites existing instance states;
 // it rolls new instances instead.
 func (s *Service) instanceStateLocked(inst *apigen.ScheduledInstance) *apigen.ScheduledInstanceState {
-	state := &apigen.ScheduledInstanceState{Instance: *inst}
-	if cfg := s.configForInstanceLocked(inst); cfg != nil {
-		state.Config = *cfg
-		state.Config.Def.SpaceID = inst.SpaceID
+	return &apigen.ScheduledInstanceState{
+		Instance: *inst,
+		Config:   *s.configForVersionLocked(inst.DeploymentID, inst.DeploymentVersion),
 	}
-	return state
 }
 
-func (s *Service) configForInstanceLocked(inst *apigen.ScheduledInstance) *apigen.Deployment {
-	if inst == nil {
-		return nil
-	}
-	if cfg := s.deploymentCache[inst.DeploymentID]; cfg != nil && cfg.SpecVersion == inst.DeploymentSpecVersion {
+// configForVersionLocked resolves a pinned deployment version. Resolution
+// cannot fail: instances are only created against versions read from the log,
+// and the log is append-only — deletion is an event row, never a removal.
+func (s *Service) configForVersionLocked(deploymentID, deploymentVersion int32) *apigen.Deployment {
+	if cfg := s.deploymentCache[deploymentID]; cfg != nil && cfg.Version == deploymentVersion {
 		return cfg
 	}
-	return s.loadConfigVersionLocked(inst.DeploymentID, inst.DeploymentSpecVersion)
-}
-
-func (s *Service) loadConfigVersionLocked(deploymentID, version int32) *apigen.Deployment {
-	ctx := logu.AddTag(context.Background(), "Store")
-	event, err := s.q.GetDeploymentEventBySpecVersion(ctx, pq.GetDeploymentEventBySpecVersionParams{
+	event, err := s.q.GetDeploymentEventByVersion(context.Background(), pq.GetDeploymentEventByVersionParams{
 		DeploymentID: int64(deploymentID),
-		SpecVersion:  int64(version),
+		Version:      int64(deploymentVersion),
 	})
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			slog.WarnContext(ctx, fmt.Sprintf("load spec version %d failed", version), "dep", deploymentID, "err", err)
-		}
-		return nil
+		panic(fmt.Sprintf("resolve deployment %d version %d: %v", deploymentID, deploymentVersion, err))
 	}
 	return deploymentFromRow(event)
 }

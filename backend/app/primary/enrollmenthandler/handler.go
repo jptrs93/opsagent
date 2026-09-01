@@ -235,7 +235,7 @@ func (h *Handler) ensureEnrollmentBootstrapInstances(nodeID int32) (*apigen.Sche
 		}
 		// A node being enrolled has no placements yet, so its system deployments
 		// start out serving rather than warming up behind something.
-		h.store.EnsureRunScheduledInstance(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0,
+		h.store.EnsureRunScheduledInstance(cfg.ID, cfg.Version, cfg.Def.NodeID, 0,
 			apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	}
 	return enrollmentBootstrapInstances(h.store.FetchScheduledSnapshot(predicate))

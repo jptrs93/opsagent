@@ -638,10 +638,12 @@ export class DeploymentCreationUpdate {
         const workload = spec.container1Spec || spec.opendeploySpec || {};
         replaceDeploymentFormFromConfig(this.form, {
             id: Number(this.form.deploymentId.val || 0),
-            name: identity.name || '',
-            spaceId: Number(identity.spaceId || 0),
-            nodeId: Number(document?.nodeId || 0),
-            spec,
+            def: {
+                name: identity.name || '',
+                spaceId: Number(identity.spaceId || 0),
+                nodeId: Number(document?.nodeId || 0),
+                spec,
+            },
         });
         const nextSource = this.persistedSource();
         const sourceChanged = previousSource.type !== nextSource.type

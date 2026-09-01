@@ -14,3 +14,5 @@
 -- through a release that still carried them. Databases migrated through
 -- v0.0.541 keep a dead NULL-only nodes.enrollment_id column: its UNIQUE
 -- constraint blocks ALTER TABLE DROP COLUMN, and no query references it.
+
+ALTER TABLE scheduled_instances ADD COLUMN deployment_version INTEGER NOT NULL DEFAULT 0;

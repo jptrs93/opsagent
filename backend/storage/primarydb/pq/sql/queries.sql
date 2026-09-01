@@ -25,9 +25,18 @@ DELETE FROM spaces WHERE id = ?;
 -- pure appends.
 
 -- name: InsertScheduledInstance :one
-INSERT INTO scheduled_instances (deployment_id, deployment_spec_version, node_id, instance_ordinal, space_id)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO scheduled_instances (deployment_id, deployment_version, deployment_spec_version, node_id, instance_ordinal, space_id)
+VALUES (?, ?, ?, ?, ?, ?)
 RETURNING id;
+
+-- name: ListScheduledInstancesMissingDeploymentVersion :many
+SELECT id, deployment_id, deployment_spec_version, space_id
+FROM scheduled_instances
+WHERE deployment_version = 0
+ORDER BY id;
+
+-- name: SetScheduledInstanceDeploymentVersion :exec
+UPDATE scheduled_instances SET deployment_version = ? WHERE id = ?;
 
 -- name: AppendScheduledInstanceVersion :exec
 INSERT INTO scheduled_instance_versions (scheduled_instance_id, version, created_at, state, global_seq)
@@ -97,6 +106,13 @@ ORDER BY updated_at ASC;
 
 -- name: NextDeploymentID :one
 SELECT COALESCE(MAX(deployment_id), 0) + 1 FROM deployment_event_log;
+
+-- name: GetDeploymentEventByVersion :one
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
+       e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.value, e.event_type
+FROM deployment_event_log e
+WHERE e.deployment_id = ? AND e.version = ?;
 
 -- name: GetLatestDeploymentEvent :one
 SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,

@@ -187,10 +187,11 @@
  * @property {number} id
  * @property {Date} createdAt
  * @property {number} deploymentId
- * @property {number} deploymentSpecVersion
  * @property {number} nodeId
  * @property {number} instanceOrdinal
  * @property {number} state
+ * @property {number} deploymentVersion
+ * @property {number} deploymentSpecVersion
  * @property {number} spaceId
  */
 /**
@@ -3782,9 +3783,6 @@ export function writeScheduledInstance(message, writer) {
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.deploymentSpecVersion !== undefined && message.deploymentSpecVersion !== null && message.deploymentSpecVersion !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.deploymentSpecVersion);
-    }
     if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int32(message.nodeId);
     }
@@ -3793,6 +3791,12 @@ export function writeScheduledInstance(message, writer) {
     }
     if (message.state !== undefined && message.state !== null && message.state !== 0) {
         writer.uint32(tag(7, WIRE.VARINT)).int32(message.state);
+    }
+    if (message.deploymentVersion !== undefined && message.deploymentVersion !== null && message.deploymentVersion !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).int32(message.deploymentVersion);
+    }
+    if (message.deploymentSpecVersion !== undefined && message.deploymentSpecVersion !== null && message.deploymentSpecVersion !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.deploymentSpecVersion);
     }
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(8, WIRE.VARINT)).int32(message.spaceId);
@@ -3818,7 +3822,7 @@ export function encodeScheduledInstance(message) {
  */
 function decodeScheduledInstanceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, createdAt: new Date(0), deploymentId: 0, deploymentSpecVersion: 0, nodeId: 0, instanceOrdinal: 0, state: 0, spaceId: 0 };
+    const message = {id: 0, createdAt: new Date(0), deploymentId: 0, nodeId: 0, instanceOrdinal: 0, state: 0, deploymentVersion: 0, deploymentSpecVersion: 0, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -3834,10 +3838,6 @@ function decodeScheduledInstanceMessage(reader, length) {
                 message.deploymentId = reader.int32();
                 break;
             }
-            case 4: {
-                message.deploymentSpecVersion = reader.int32();
-                break;
-            }
             case 5: {
                 message.nodeId = reader.int32();
                 break;
@@ -3848,6 +3848,14 @@ function decodeScheduledInstanceMessage(reader, length) {
             }
             case 7: {
                 message.state = reader.int32();
+                break;
+            }
+            case 9: {
+                message.deploymentVersion = reader.int32();
+                break;
+            }
+            case 4: {
+                message.deploymentSpecVersion = reader.int32();
                 break;
             }
             case 8: {

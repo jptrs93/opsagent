@@ -271,7 +271,7 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.Clust
 	for _, item := range instances {
 		cfg := item.Config
 		inst := item.Instance
-		if inst.ID <= 0 || cfg.ID <= 0 ||
+		if inst.ID <= 0 ||
 			cfg.Def.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}

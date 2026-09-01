@@ -6,10 +6,11 @@
 CREATE TABLE IF NOT EXISTS scheduled_instances (
     id                          INTEGER PRIMARY KEY AUTOINCREMENT,
     deployment_id               INTEGER NOT NULL,
-    deployment_spec_version     INTEGER NOT NULL,
+    deployment_version          INTEGER NOT NULL DEFAULT 0,  -- pinned deployment_event_log version
+    deployment_spec_version     INTEGER NOT NULL,            -- denormalised from the pinned version's row
     node_id                     INTEGER NOT NULL,
     instance_ordinal            INTEGER NOT NULL DEFAULT 0,
-    space_id                    INTEGER NOT NULL DEFAULT 0
+    space_id                    INTEGER NOT NULL DEFAULT 0   -- denormalised from the pinned version's row
 );
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_instances_deployment_ordinal

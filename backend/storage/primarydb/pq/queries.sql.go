@@ -538,6 +538,39 @@ func (q *Queries) GetDeploymentEventBySpecVersion(ctx context.Context, arg GetDe
 	return i, err
 }
 
+const getDeploymentEventByVersion = `-- name: GetDeploymentEventByVersion :one
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
+       e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.value, e.event_type
+FROM deployment_event_log e
+WHERE e.deployment_id = ? AND e.version = ?
+`
+
+type GetDeploymentEventByVersionParams struct {
+	DeploymentID int64
+	Version      int64
+}
+
+func (q *Queries) GetDeploymentEventByVersion(ctx context.Context, arg GetDeploymentEventByVersionParams) (DeploymentEvent, error) {
+	row := q.db.QueryRowContext(ctx, getDeploymentEventByVersion, arg.DeploymentID, arg.Version)
+	var i DeploymentEvent
+	err := row.Scan(
+		&i.ID,
+		&i.GlobalSeq,
+		&i.EventTime,
+		&i.CreatedTime,
+		&i.Author,
+		&i.DeploymentID,
+		&i.Version,
+		&i.SpecVersion,
+		&i.SpaceAssignmentVersion,
+		&i.NameVersion,
+		&i.Value,
+		&i.EventType,
+	)
+	return i, err
+}
+
 const getGlobalSeq = `-- name: GetGlobalSeq :one
 SELECT value FROM global_seq WHERE id = 1
 `
@@ -1147,13 +1180,14 @@ func (q *Queries) InsertPersonalSession(ctx context.Context, arg InsertPersonalS
 
 const insertScheduledInstance = `-- name: InsertScheduledInstance :one
 
-INSERT INTO scheduled_instances (deployment_id, deployment_spec_version, node_id, instance_ordinal, space_id)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO scheduled_instances (deployment_id, deployment_version, deployment_spec_version, node_id, instance_ordinal, space_id)
+VALUES (?, ?, ?, ?, ?, ?)
 RETURNING id
 `
 
 type InsertScheduledInstanceParams struct {
 	DeploymentID          int64
+	DeploymentVersion     int64
 	DeploymentSpecVersion int64
 	NodeID                int64
 	InstanceOrdinal       int64
@@ -1167,6 +1201,7 @@ type InsertScheduledInstanceParams struct {
 func (q *Queries) InsertScheduledInstance(ctx context.Context, arg InsertScheduledInstanceParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, insertScheduledInstance,
 		arg.DeploymentID,
+		arg.DeploymentVersion,
 		arg.DeploymentSpecVersion,
 		arg.NodeID,
 		arg.InstanceOrdinal,
@@ -2181,6 +2216,48 @@ func (q *Queries) ListScheduledInstanceStatusHistorySince(ctx context.Context, a
 	return items, nil
 }
 
+const listScheduledInstancesMissingDeploymentVersion = `-- name: ListScheduledInstancesMissingDeploymentVersion :many
+SELECT id, deployment_id, deployment_spec_version, space_id
+FROM scheduled_instances
+WHERE deployment_version = 0
+ORDER BY id
+`
+
+type ListScheduledInstancesMissingDeploymentVersionRow struct {
+	ID                    int64
+	DeploymentID          int64
+	DeploymentSpecVersion int64
+	SpaceID               int64
+}
+
+func (q *Queries) ListScheduledInstancesMissingDeploymentVersion(ctx context.Context) ([]ListScheduledInstancesMissingDeploymentVersionRow, error) {
+	rows, err := q.db.QueryContext(ctx, listScheduledInstancesMissingDeploymentVersion)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListScheduledInstancesMissingDeploymentVersionRow
+	for rows.Next() {
+		var i ListScheduledInstancesMissingDeploymentVersionRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeploymentID,
+			&i.DeploymentSpecVersion,
+			&i.SpaceID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSecretKeyslots = `-- name: ListSecretKeyslots :many
 SELECT slot, smk_version, wrapped_smk, nonce, kdf_salt, created_at
 FROM secret_keyslots ORDER BY slot
@@ -2844,6 +2921,20 @@ type SetNetworkPolicyDeletedAtParams struct {
 
 func (q *Queries) SetNetworkPolicyDeletedAt(ctx context.Context, arg SetNetworkPolicyDeletedAtParams) error {
 	_, err := q.db.ExecContext(ctx, setNetworkPolicyDeletedAt, arg.DeletedAt, arg.ID)
+	return err
+}
+
+const setScheduledInstanceDeploymentVersion = `-- name: SetScheduledInstanceDeploymentVersion :exec
+UPDATE scheduled_instances SET deployment_version = ? WHERE id = ?
+`
+
+type SetScheduledInstanceDeploymentVersionParams struct {
+	DeploymentVersion int64
+	ID                int64
+}
+
+func (q *Queries) SetScheduledInstanceDeploymentVersion(ctx context.Context, arg SetScheduledInstanceDeploymentVersionParams) error {
+	_, err := q.db.ExecContext(ctx, setScheduledInstanceDeploymentVersion, arg.DeploymentVersion, arg.ID)
 	return err
 }
 

@@ -402,10 +402,11 @@ type ScheduledInstance struct {
 	ID                    int32                   `json:"id"`
 	CreatedAt             time.Time               `json:"created_at"`
 	DeploymentID          int32                   `json:"deployment_id"`
-	DeploymentSpecVersion int32                   `json:"deployment_spec_version"`
 	NodeID                int32                   `json:"node_id"`
 	InstanceOrdinal       int32                   `json:"instance_ordinal"`
 	State                 ScheduledInstanceTarget `json:"state"`
+	DeploymentVersion     int32                   `json:"deployment_version"`
+	DeploymentSpecVersion int32                   `json:"deployment_spec_version"`
 	SpaceID               int32                   `json:"space_id"`
 }
 

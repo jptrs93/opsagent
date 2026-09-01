@@ -24,54 +24,48 @@ import (
 // fact: creating a replacement as RUN_SERVING would hand it the instance's
 // inbound route before its container exists, so a cross-node rollover must
 // create its replacement as RUN_STANDBY from the very first write.
-func (s *Service) EnsureRunScheduledInstance(deploymentID, deploymentSpecVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) (*apigen.ScheduledInstance, bool) {
+func (s *Service) EnsureRunScheduledInstance(deploymentID, deploymentVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) (*apigen.ScheduledInstance, bool) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	spaceID := s.currentSpaceLocked(deploymentID)
 	for _, state := range s.Scheduled {
 		inst := state.Instance
 		if inst.DeploymentID == deploymentID &&
-			inst.DeploymentSpecVersion == deploymentSpecVersion &&
+			inst.DeploymentVersion == deploymentVersion &&
 			inst.NodeID == nodeID &&
 			inst.InstanceOrdinal == instanceOrdinal &&
-			inst.SpaceID == spaceID &&
 			inst.State.WantsRunning() {
 			cp := inst
 			return &cp, false
 		}
 	}
-	return s.createScheduledInstanceLocked(deploymentID, deploymentSpecVersion, nodeID, instanceOrdinal, initial), true
+	return s.createScheduledInstanceLocked(deploymentID, deploymentVersion, nodeID, instanceOrdinal, initial), true
 }
 
 // CreateScheduledInstanceForTest unconditionally creates a new incarnation,
 // bypassing the at-most-one-runnable-per-tuple scan in
 // EnsureRunScheduledInstance. It exists only as a fixture for tests in other
 // packages; production code must use EnsureRunScheduledInstance.
-func (s *Service) CreateScheduledInstanceForTest(deploymentID, deploymentSpecVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
+func (s *Service) CreateScheduledInstanceForTest(deploymentID, deploymentVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	return s.createScheduledInstanceLocked(deploymentID, deploymentSpecVersion, nodeID, instanceOrdinal, initial)
+	return s.createScheduledInstanceLocked(deploymentID, deploymentVersion, nodeID, instanceOrdinal, initial)
 }
 
-func (s *Service) currentSpaceLocked(deploymentID int32) int32 {
-	if cfg := s.deploymentCache[deploymentID]; cfg != nil {
-		return cfg.Def.SpaceID
-	}
-	return 0
-}
-
-func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentSpecVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
+func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
 	ctx := context.Background()
 	if !initial.WantsRunning() {
 		panic(fmt.Sprintf("createScheduledInstance: initial state %v is not runnable", initial))
 	}
-	spaceID := s.currentSpaceLocked(deploymentID)
+	cfg := s.configForVersionLocked(deploymentID, deploymentVersion)
+	specVersion := cfg.SpecVersion
+	spaceID := cfg.Def.SpaceID
 	now := time.Now().UnixMilli()
 	var id int64
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		id = erru.Must(q.InsertScheduledInstance(ctx, pq.InsertScheduledInstanceParams{
 			DeploymentID:          int64(deploymentID),
-			DeploymentSpecVersion: int64(deploymentSpecVersion),
+			DeploymentVersion:     int64(deploymentVersion),
+			DeploymentSpecVersion: int64(specVersion),
 			NodeID:                int64(nodeID),
 			InstanceOrdinal:       int64(instanceOrdinal),
 			SpaceID:               int64(spaceID),
@@ -90,7 +84,8 @@ func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentSpecVers
 		ID:                    int32(id),
 		CreatedAt:             millisToTime(now),
 		DeploymentID:          deploymentID,
-		DeploymentSpecVersion: deploymentSpecVersion,
+		DeploymentVersion:     deploymentVersion,
+		DeploymentSpecVersion: specVersion,
 		NodeID:                nodeID,
 		InstanceOrdinal:       instanceOrdinal,
 		SpaceID:               spaceID,

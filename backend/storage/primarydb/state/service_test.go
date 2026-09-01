@@ -32,7 +32,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	system := mustCreateDeploymentForNode(store, apigen.Context{}, OpendeploySpaceID, internaldeploy.SelfName, primaryNode.ID, testSystemSpecWithState("v1", true))
 
 	seedStatus := func(cfg *apigen.Deployment, artifact string) *apigen.ScheduledInstance {
-		inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+		inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 		store.MustWriteScheduledInstanceStatus(inst.ID, func(status *apigen.ScheduledInstanceStatus) bool {
 			status.BumpUpdatedAt()
 			status.Preparer = apigen.PreparerStatus{DeploymentSpecVersion: cfg.SpecVersion, Artifact: artifact, Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_READY}
@@ -521,7 +521,7 @@ func TestEnsureRunScheduledInstanceIsConcurrentAndIdempotent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			inst, _ := store.EnsureRunScheduledInstance(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+			inst, _ := store.EnsureRunScheduledInstance(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 			ids <- inst.ID
 		}()
 	}

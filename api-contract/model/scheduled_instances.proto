@@ -72,15 +72,21 @@ enum ScheduledInstanceTarget {
 }
 
 // ScheduledInstance is one placement/runtime incarnation of a deployment
-// instance ordinal on a node, pinned to a specific deployment spec version.
+// instance ordinal on a node, pinned to one deployment version: the event-log
+// row it was scheduled against, which is the complete def snapshot it runs.
 message ScheduledInstance {
   int32 id = 1;
   int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 deployment_id = 3;
-  int32 deployment_spec_version = 4;
   int32 node_id = 5;
   int32 instance_ordinal = 6;
   ScheduledInstanceTarget state = 7;
+  int32 deployment_version = 9;
+
+  // Denormalised from the pinned version's row. deployment_spec_version keys
+  // prepared artifacts and pre-deployment_version peers; space_id is kept for
+  // the same one-release bridge.
+  int32 deployment_spec_version = 4;
   int32 space_id = 8;
 }
 
@@ -94,7 +100,7 @@ message ScheduledInstanceStatus {
 }
 
 // ScheduledInstanceState is the authoritative runtime assignment view: the
-// schedule row, the immutable deployment spec version it references, and the
+// schedule row, the deployment version snapshot it references, and the
 // latest observed status for that instance.
 message ScheduledInstanceState {
   ScheduledInstance instance = 1 [(cp.go_value) = true];

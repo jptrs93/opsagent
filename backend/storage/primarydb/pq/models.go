@@ -232,6 +232,7 @@ type PublicKey struct {
 type ScheduledInstance struct {
 	ID                    int64
 	DeploymentID          int64
+	DeploymentVersion     int64
 	DeploymentSpecVersion int64
 	NodeID                int64
 	InstanceOrdinal       int64

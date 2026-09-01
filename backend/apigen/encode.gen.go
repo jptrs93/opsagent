@@ -1477,10 +1477,11 @@ func (m ScheduledInstance) IsZero() bool {
 	return m.ID == 0 &&
 		m.CreatedAt.IsZero() &&
 		m.DeploymentID == 0 &&
-		m.DeploymentSpecVersion == 0 &&
 		m.NodeID == 0 &&
 		m.InstanceOrdinal == 0 &&
 		m.State == 0 &&
+		m.DeploymentVersion == 0 &&
+		m.DeploymentSpecVersion == 0 &&
 		m.SpaceID == 0
 }
 
@@ -1489,10 +1490,11 @@ func (m *ScheduledInstance) Encode() []byte {
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendInt64FromTime(b, m.CreatedAt, 2)
 	b = AppendInt32Field(b, m.DeploymentID, 3)
-	b = AppendInt32Field(b, m.DeploymentSpecVersion, 4)
 	b = AppendInt32Field(b, m.NodeID, 5)
 	b = AppendInt32Field(b, m.InstanceOrdinal, 6)
 	b = AppendInt32Field(b, int32(m.State), 7)
+	b = AppendInt32Field(b, m.DeploymentVersion, 9)
+	b = AppendInt32Field(b, m.DeploymentSpecVersion, 4)
 	b = AppendInt32Field(b, m.SpaceID, 8)
 	return b
 }
@@ -1514,8 +1516,6 @@ func DecodeScheduledInstance(b []byte) (*ScheduledInstance, error) {
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 3:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
-		case 4:
-			b, m.DeploymentSpecVersion, err = ConsumeVarInt32(b, typ)
 		case 5:
 			b, m.NodeID, err = ConsumeVarInt32(b, typ)
 		case 6:
@@ -1526,6 +1526,10 @@ func DecodeScheduledInstance(b []byte) (*ScheduledInstance, error) {
 			if err == nil {
 				m.State = ScheduledInstanceTarget(raw)
 			}
+		case 9:
+			b, m.DeploymentVersion, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.DeploymentSpecVersion, err = ConsumeVarInt32(b, typ)
 		case 8:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		default:
