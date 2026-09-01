@@ -425,7 +425,7 @@ func TestDeploymentNodeIDPopulatedOnWrites(t *testing.T) {
 	if err := nextSpec.SetWorkloadState("v2", true); err != nil {
 		t.Fatal(err)
 	}
-	updated := updateDeployment(store, apigen.Context{}, cfg.ID, DeploymentUpdate{Spec: &nextSpec})
+	updated := updateDeploymentSpec(store, apigen.Context{}, cfg.ID, &nextSpec)
 	if updated.Version != 2 || updated.Def.NodeID != node.ID {
 		t.Fatalf("updated config = %+v, want v2 with node ID %d", updated, node.ID)
 	}

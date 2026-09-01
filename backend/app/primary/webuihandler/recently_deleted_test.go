@@ -125,6 +125,10 @@ func TestRecentlyDeletedAppliesLimit(t *testing.T) {
 }
 
 func TestRecentlyDeletedBoundsUnusableLimits(t *testing.T) {
+	const (
+		recentlyDeletedDefaultLimit = 25
+		recentlyDeletedMaxLimit     = 200
+	)
 	h, nodeID := newRecentlyDeletedHandler(t)
 	// More tombstones than the default limit, so a limit that is ignored or
 	// honoured verbatim returns a different count from one that is clamped.

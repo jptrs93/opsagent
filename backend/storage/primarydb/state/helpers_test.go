@@ -14,8 +14,6 @@ import (
 // so an accidental change to the shipped limit fails here.
 const netproxyFileDescriptorLimit = 65_536
 
-func i32ptr(v int32) *int32 { return &v }
-
 // nonEmptySpec returns a valid spec that encodes to non-empty bytes.
 func nonEmptySpec() *apigen.DeploymentSpec {
 	return &apigen.DeploymentSpec{
@@ -48,10 +46,20 @@ func mustCreateDeploymentForNode(s *Service, ctx apigen.Context, spaceID int32, 
 	return s.CreateDeploymentLocked(ctx, &apigen.DeploymentDef{NodeID: nodeID, SpaceID: spaceID, Name: name, Spec: *spec})
 }
 
-func updateDeployment(s *Service, ctx apigen.Context, deploymentID int32, update DeploymentUpdate) *apigen.Deployment {
+func updateDeploymentSpec(s *Service, ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) *apigen.Deployment {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	return s.UpdateDeploymentLocked(ctx, deploymentID, update)
+	def := deploymentFromRow(s.mustLatestEventLocked(deploymentID)).Def
+	def.Spec = *spec
+	return s.UpdateDeploymentLocked(ctx, deploymentID, &def)
+}
+
+func moveDeploymentSpace(s *Service, ctx apigen.Context, deploymentID, spaceID int32) *apigen.Deployment {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	def := deploymentFromRow(s.mustLatestEventLocked(deploymentID)).Def
+	def.SpaceID = spaceID
+	return s.UpdateDeploymentLocked(ctx, deploymentID, &def)
 }
 
 func deleteDeployment(s *Service, ctx apigen.Context, deploymentID int32) *apigen.Deployment {
@@ -66,12 +74,14 @@ func mustSetDeploymentWorkloadState(s *Service, ctx apigen.Context, deploymentID
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	existing := s.mustLatestDeploymentLocked(deploymentID)
+	existing := deploymentFromRow(s.mustLatestEventLocked(deploymentID))
 	spec := mustDecodeDeploymentSpec(existing.Def.Spec.Encode(), int64(deploymentID), int64(existing.SpecVersion))
 	if err := spec.SetWorkloadState(version, running); err != nil {
 		panic(fmt.Sprintf("update deployment workload state: %v", err))
 	}
-	s.UpdateDeploymentLocked(ctx, deploymentID, DeploymentUpdate{Spec: spec})
+	def := existing.Def
+	def.Spec = *spec
+	s.UpdateDeploymentLocked(ctx, deploymentID, &def)
 }
 
 // mustUpdateDeploymentSpec appends the given spec as a new version, preserving
@@ -80,12 +90,14 @@ func mustUpdateDeploymentSpec(s *Service, ctx apigen.Context, deploymentID int32
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	existing := s.mustLatestDeploymentLocked(deploymentID)
+	existing := deploymentFromRow(s.mustLatestEventLocked(deploymentID))
 	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), int64(deploymentID), int64(existing.SpecVersion))
 	if err := storedSpec.SetWorkloadState(existing.WorkloadVersion(), existing.WorkloadRunning()); err != nil {
 		panic(fmt.Sprintf("preserve deployment workload state: %v", err))
 	}
-	s.UpdateDeploymentLocked(ctx, deploymentID, DeploymentUpdate{Spec: storedSpec})
+	def := existing.Def
+	def.Spec = *storedSpec
+	s.UpdateDeploymentLocked(ctx, deploymentID, &def)
 }
 
 // getAssetInRootByKey resolves an asset by key in a space's implicit root

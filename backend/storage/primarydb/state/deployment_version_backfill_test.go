@@ -13,8 +13,8 @@ func TestDeploymentVersionBackfillMatchesSpecAndSpace(t *testing.T) {
 	store := Open(dbPath)
 	node := store.EnsurePrimaryNode("primary", "primary-id")
 	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "web", node.ID, testSpecWithState("v1", true))
-	updated := updateDeployment(store, apigen.Context{}, cfg.ID, DeploymentUpdate{Spec: testSpecWithState("v2", true)})
-	moved := updateDeployment(store, apigen.Context{}, cfg.ID, DeploymentUpdate{SpaceID: i32ptr(2)})
+	updated := updateDeploymentSpec(store, apigen.Context{}, cfg.ID, testSpecWithState("v2", true))
+	moved := moveDeploymentSpace(store, apigen.Context{}, cfg.ID, 2)
 	if updated.Version != 2 || moved.Version != 3 || moved.SpecVersion != updated.SpecVersion {
 		t.Fatalf("fixture events wrong: updated=%+v moved=%+v", updated, moved)
 	}

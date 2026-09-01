@@ -25,9 +25,18 @@ func MustCreateDeploymentForNode(s *state.Service, ctx apigen.Context, spaceID i
 	})
 }
 
-func UpdateDeployment(s *state.Service, ctx apigen.Context, deploymentID int32, update state.DeploymentUpdate) *apigen.Deployment {
+func UpdateDeploymentSpec(s *state.Service, ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) *apigen.Deployment {
 	defer s.GlobalLock()()
-	return s.UpdateDeploymentLocked(ctx, deploymentID, update)
+	def := s.LiveState().Deployments[deploymentID].Def
+	def.Spec = *spec
+	return s.UpdateDeploymentLocked(ctx, deploymentID, &def)
+}
+
+func MoveDeploymentSpace(s *state.Service, ctx apigen.Context, deploymentID, spaceID int32) *apigen.Deployment {
+	defer s.GlobalLock()()
+	def := s.LiveState().Deployments[deploymentID].Def
+	def.SpaceID = spaceID
+	return s.UpdateDeploymentLocked(ctx, deploymentID, &def)
 }
 
 func DeleteDeployment(s *state.Service, ctx apigen.Context, deploymentID int32) *apigen.Deployment {

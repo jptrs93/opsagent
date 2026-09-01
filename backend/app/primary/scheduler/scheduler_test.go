@@ -76,7 +76,7 @@ func TestDrainSupersededOnlyRetiresOlderInstances(t *testing.T) {
 	older := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	next := *testRunningSpec("v2")
-	updated := statetest.UpdateDeployment(store, apigen.Context{}, cfg.ID, state.DeploymentUpdate{Spec: &next})
+	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.ID, &next)
 	newer := store.CreateScheduledInstanceForTest(updated.ID, updated.Version, updated.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	barrier := newFakeBarrier()
@@ -113,7 +113,7 @@ func TestStartupReconcileDoesNotLetOlderRunningKillReplacement(t *testing.T) {
 	markRunning(t, store, older.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
 
 	next := *testRunningSpec("v2")
-	updated := statetest.UpdateDeployment(store, apigen.Context{}, cfg.ID, state.DeploymentUpdate{Spec: &next})
+	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.ID, &next)
 
 	s := New(store, newFakeBarrier())
 	// Match Run()'s startup order: instances first, then configs.
@@ -151,7 +151,7 @@ func TestRolloverReplacementWarmsUpAsStandby(t *testing.T) {
 	older := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	next := *rolloverSpec("v2")
-	updated := statetest.UpdateDeployment(store, apigen.Context{}, cfg.ID, state.DeploymentUpdate{Spec: &next})
+	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.ID, &next)
 
 	barrier := newFakeBarrier()
 	barrier.held = true
@@ -215,7 +215,7 @@ func TestFailedRolloutDoesNotAccumulateStandbys(t *testing.T) {
 	push := func(version string) *apigen.Deployment {
 		t.Helper()
 		next := *rolloverSpec(version)
-		updated := statetest.UpdateDeployment(store, apigen.Context{}, cfg.ID, state.DeploymentUpdate{Spec: &next})
+		updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.ID, &next)
 		s.onConfig(*updated)
 		return updated
 	}
@@ -270,7 +270,7 @@ func TestDrainedInstanceWaitsForTheBarrier(t *testing.T) {
 	node := store.EnsurePrimaryNode("primary", "primary")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, state.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 	older := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	updated := statetest.UpdateDeployment(store, apigen.Context{}, cfg.ID, state.DeploymentUpdate{Spec: rolloverSpec("v2")})
+	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.ID, rolloverSpec("v2"))
 	newer := store.CreateScheduledInstanceForTest(cfg.ID, updated.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
 
 	barrier := newFakeBarrier()
@@ -308,7 +308,7 @@ func TestStandbyPromotedWhenServingDies(t *testing.T) {
 	older := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	next := *rolloverSpec("v2")
-	updated := statetest.UpdateDeployment(store, apigen.Context{}, cfg.ID, state.DeploymentUpdate{Spec: &next})
+	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.ID, &next)
 	standby := store.CreateScheduledInstanceForTest(updated.ID, updated.Version, updated.Def.NodeID, 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
 
@@ -338,7 +338,7 @@ func TestSpaceMoveRidesTheRolloverPath(t *testing.T) {
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	newSpace := int32(5)
-	moved := statetest.UpdateDeployment(store, apigen.Context{User: &apigen.InternalUser{ID: 9}}, cfg.ID, state.DeploymentUpdate{SpaceID: &newSpace})
+	moved := statetest.MoveDeploymentSpace(store, apigen.Context{User: &apigen.InternalUser{ID: 9}}, cfg.ID, newSpace)
 	s := New(store, newFakeBarrier())
 	s.onConfig(*moved)
 
@@ -487,7 +487,7 @@ func TestRestartAdoptsDrainingInstances(t *testing.T) {
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, state.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 
 	next := *rolloverSpec("v2")
-	updated := statetest.UpdateDeployment(store, apigen.Context{}, cfg.ID, state.DeploymentUpdate{Spec: &next})
+	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.ID, &next)
 	// Mid-rollover, as found on disk: the superseded placement draining, its
 	// replacement already serving, both containers up.
 	drainingInst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0,
@@ -538,7 +538,7 @@ func stoppedSpec(version string) *apigen.DeploymentSpec {
 func updateSpec(t *testing.T, store *state.Service, cfg *apigen.Deployment, spec *apigen.DeploymentSpec) *apigen.Deployment {
 	t.Helper()
 	next := *spec
-	updated := statetest.UpdateDeployment(store, apigen.Context{}, cfg.ID, state.DeploymentUpdate{Spec: &next})
+	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.ID, &next)
 	return updated
 }
 

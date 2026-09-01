@@ -39,14 +39,14 @@ const (
 type Manager struct {
 	Secrets      *secrets.Manager
 	Snapshot     func() []apigen.Deployment
+	Subscribe    func() ([]apigen.Deployment, chan apigen.Deployment, func())
 	Holder       *acmestate.Holder
 	DirectoryURL string
 
-	wake       chan struct{}
 	challenges map[string]string
 }
 
-func New(secretsMgr *secrets.Manager, snapshot func() []apigen.Deployment, holder *acmestate.Holder) *Manager {
+func New(secretsMgr *secrets.Manager, snapshot func() []apigen.Deployment, subscribe func() ([]apigen.Deployment, chan apigen.Deployment, func()), holder *acmestate.Holder) *Manager {
 	directory := os.Getenv("OPENDEPLOY_ACME_DIRECTORY")
 	if directory == "" {
 		directory = acme.LetsEncryptURL
@@ -54,33 +54,39 @@ func New(secretsMgr *secrets.Manager, snapshot func() []apigen.Deployment, holde
 	return &Manager{
 		Secrets:      secretsMgr,
 		Snapshot:     snapshot,
+		Subscribe:    subscribe,
 		Holder:       holder,
 		DirectoryURL: directory,
-		wake:         make(chan struct{}, 1),
 		challenges:   map[string]string{},
-	}
-}
-
-func (m *Manager) Wake() {
-	select {
-	case m.wake <- struct{}{}:
-	default:
 	}
 }
 
 func (m *Manager) Run(ctx context.Context) {
 	ctx = logu.AddTag(ctx, "AcmeIssue")
+	snapshot, events, unsubscribe := m.Subscribe()
+	defer unsubscribe()
 	ticker := time.NewTicker(reconcileInterval)
 	defer ticker.Stop()
-	m.reconcile(ctx)
+	m.reconcile(ctx, snapshot)
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-m.wake:
-			m.reconcile(ctx)
+		case <-events:
+			drainDeploymentEvents(events)
+			m.reconcile(ctx, m.Snapshot())
 		case <-ticker.C:
-			m.reconcile(ctx)
+			m.reconcile(ctx, m.Snapshot())
+		}
+	}
+}
+
+func drainDeploymentEvents(events chan apigen.Deployment) {
+	for {
+		select {
+		case <-events:
+		default:
+			return
 		}
 	}
 }
@@ -117,8 +123,8 @@ func acmeHostnames(configs []apigen.Deployment) []string {
 	return hostnames
 }
 
-func (m *Manager) reconcile(ctx context.Context) {
-	hostnames := acmeHostnames(m.Snapshot())
+func (m *Manager) reconcile(ctx context.Context, configs []apigen.Deployment) {
+	hostnames := acmeHostnames(configs)
 	claimed := map[string]bool{}
 	for _, hostname := range hostnames {
 		claimed[hostname] = true

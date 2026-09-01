@@ -17,7 +17,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var InvalidRequestBodyErr = apigen.NewApiErr("Invalid request body", "invalid_request_body", http.StatusBadRequest)
@@ -32,30 +31,19 @@ var DeploymentAddressReferencedErr = apigen.NewApiErr("Deployment address is ref
 const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHub. Please try again."
 
 func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.Deployment, error) {
-	updated := &apigen.Deployment{Def: apigen.DeploymentDef{NodeID: req.NodeID, SpaceID: req.SpaceID, Name: req.Name, Spec: req.Spec}}
-
+	newDep := &apigen.Deployment{Def: apigen.DeploymentDef{NodeID: req.NodeID, SpaceID: req.SpaceID, Name: req.Name, Spec: req.Spec}}
 	if err := h.requireAccess(ctx, vCreate, eDeployment, int64(req.SpaceID), 0); err != nil {
 		return nil, err
 	}
-
-	if err := preLockValidateDeploymentCreate(h.Store, h.Secrets, h.GitVersions, ctx, updated); err != nil {
+	if err := preLockValidateDeploymentCreate(h.Store, h.Secrets, h.GitVersions, ctx, newDep); err != nil {
 		return nil, err
 	}
-
 	h.Store.Mu.Lock()
 	defer h.Store.Mu.Unlock()
-	if err := inLockValidateDeploymentCreate(h.Store, h.Secrets, h.NodeID, updated, h.Store.LiveState()); err != nil {
+	if err := inLockValidateDeploymentCreate(h.Store, h.Secrets, h.NodeID, newDep, h.Store.LiveState()); err != nil {
 		return nil, err
 	}
-	cfg := h.Store.CreateDeploymentLocked(ctx, &updated.Def)
-	h.wakeAcme()
-	return cfg, nil
-}
-
-func (h *Handler) wakeAcme() {
-	if h.AcmeWake != nil {
-		h.AcmeWake()
-	}
+	return h.Store.CreateDeploymentLocked(ctx, &newDep.Def), nil
 }
 
 func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequestV2) (*apigen.Deployment, error) {
@@ -69,46 +57,32 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	if err := h.requireEntityAccess(ctx, vUpdate, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return nil, err
 	}
+	if req.AssignedSpaceUpdate != nil {
+		if err := h.requireAccess(ctx, vCreate, eDeployment, int64(req.AssignedSpaceUpdate.SpaceID), 0); err != nil {
+			return nil, err
+		}
+	}
 
-	update := state.DeploymentUpdate{}
+	updated, err := cloneDeployment(cfg)
+	if err != nil {
+		return nil, err
+	}
 	switch {
 	case req.VersionOnlyUpdate != nil:
-		next, err := cloneDeploymentSpec(&cfg.Def.Spec)
-		if err != nil {
+		if err := setTargetVersion(updated, req.VersionOnlyUpdate.TargetVersion); err != nil {
 			return nil, err
 		}
-		if err := next.SetWorkloadState(req.VersionOnlyUpdate.TargetVersion, true); err != nil {
-			return nil, invalidConfigErrf("spec: %v", err)
-		}
-		update.Spec = next
-
 	case req.RunningOnlyUpdate != nil:
-		next, err := cloneDeploymentSpec(&cfg.Def.Spec)
-		if err != nil {
-			return nil, err
-		}
-		if err := next.SetWorkloadState(cfg.WorkloadVersion(), req.RunningOnlyUpdate.DesiredRunning); err != nil {
+		if err := updated.SetWorkloadState(updated.WorkloadVersion(), req.RunningOnlyUpdate.DesiredRunning); err != nil {
 			return nil, invalidConfigErrf("spec: %v", err)
 		}
-		update.Spec = next
 	case req.SpecUpdate != nil:
-		update.Spec = &req.SpecUpdate.Spec
+		updated.Def.Spec = req.SpecUpdate.Spec
 	case req.AssignedSpaceUpdate != nil:
-		dest := req.AssignedSpaceUpdate.SpaceID
-		if dest == cfg.Def.SpaceID {
-			return cfg, nil
-		}
-		update.SpaceID = &dest
+		updated.Def.SpaceID = req.AssignedSpaceUpdate.SpaceID
 	}
 
-	if update.SpaceID != nil {
-		if err := h.requireAccess(ctx, vCreate, eDeployment, int64(*update.SpaceID), 0); err != nil {
-			return nil, err
-		}
-	}
-
-	updated, err := preLockValidateDeploymentUpdate(h.Store, h.Secrets, h.GitVersions, ctx, cfg, req, &update)
-	if err != nil {
+	if err := preLockValidateDeploymentUpdate(h.Store, h.Secrets, h.GitVersions, ctx, cfg, req, updated); err != nil {
 		return nil, err
 	}
 
@@ -118,9 +92,24 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	if err := inLockValidateDeploymentUpdate(h.Store, h.Secrets, h.NodeID, live.Deployments[req.DeploymentID], updated, req.ExpectedVersion, live); err != nil {
 		return nil, err
 	}
-	current := h.Store.UpdateDeploymentLocked(ctx, req.DeploymentID, update)
-	h.wakeAcme()
-	return current, nil
+	return h.Store.UpdateDeploymentLocked(ctx, req.DeploymentID, &updated.Def), nil
+}
+
+func cloneDeployment(cfg *apigen.Deployment) (*apigen.Deployment, error) {
+	spec, err := cloneDeploymentSpec(&cfg.Def.Spec)
+	if err != nil {
+		return nil, err
+	}
+	updated := *cfg
+	updated.Def.Spec = *spec
+	return &updated, nil
+}
+
+func setTargetVersion(updated *apigen.Deployment, targetVersion string) error {
+	if err := updated.SetWorkloadState(targetVersion, true); err != nil {
+		return invalidConfigErrf("spec: %v", err)
+	}
+	return nil
 }
 
 func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.DeploymentDeleteRequest) error {
@@ -138,30 +127,21 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 		return err
 	}
 
-	s := h.Store
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
-	live := s.LiveState()
+	h.Store.Mu.Lock()
+	defer h.Store.Mu.Unlock()
+	live := h.Store.LiveState()
 	if err := inLockValidateDeploymentDelete(h.Store, h.Cluster, h.NodeID, live.Deployments[req.DeploymentID], req.Version, live); err != nil {
 		return err
 	}
-	s.DeleteDeploymentLocked(ctx, req.DeploymentID)
+	h.Store.DeleteDeploymentLocked(ctx, req.DeploymentID)
 	return nil
 }
 
-// recentlyDeletedDefaultLimit and recentlyDeletedMaxLimit bound the tombstone
-// listing. Deleted configs are never pruned, so an unbounded list would grow
-// without limit over the lifetime of an install.
-const (
-	recentlyDeletedDefaultLimit = 25
-	recentlyDeletedMaxLimit     = 200
-)
-
-// PostV1DeploymentsRecentlyDeleted lists the deployments deleted most recently so
-// the UI can offer to fork one back. Internal opendeploy deployments are omitted:
-// they are recreated by the primary itself, not through the create API, so a
-// tombstone for one is not something an operator can act on.
 func (h *Handler) PostV1DeploymentsRecentlyDeleted(ctx apigen.Context, req *apigen.RecentlyDeletedDeploymentsRequest) (*apigen.RecentlyDeletedDeployments, error) {
+	const (
+		recentlyDeletedDefaultLimit = 25
+		recentlyDeletedMaxLimit     = 200
+	)
 	limit := int(req.Limit)
 	if limit <= 0 || limit > recentlyDeletedMaxLimit {
 		limit = recentlyDeletedDefaultLimit
@@ -500,20 +480,6 @@ func preparingVersion(statuses []apigen.ScheduledInstanceStatus, version int32) 
 	for i := range statuses {
 		p := statuses[i].Preparer
 		if !p.IsZero() && p.DeploymentSpecVersion == version && prepare.InProgress(p) {
-			return true
-		}
-	}
-	return false
-}
-
-func isRunnerActive(status apigen.RunningStatus) bool {
-	return status == apigen.RunningStatus_RUNNING ||
-		status == apigen.RunningStatus_STARTING
-}
-
-func containsString(ss []string, s string) bool {
-	for _, v := range ss {
-		if v == s {
 			return true
 		}
 	}

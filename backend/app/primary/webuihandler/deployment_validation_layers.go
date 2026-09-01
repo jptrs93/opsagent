@@ -45,43 +45,38 @@ func preLockValidateDeploymentCreate(store *state.Service, secretStore *secrets.
 	return nil
 }
 
-func preLockValidateDeploymentUpdate(store *state.Service, secretStore *secrets.Manager, gitVersions GitSourceProvider, ctx apigen.Context, existing *apigen.Deployment, req *apigen.DeploymentUpdateRequestV2, update *state.DeploymentUpdate) (*apigen.Deployment, error) {
+func preLockValidateDeploymentUpdate(store *state.Service, secretStore *secrets.Manager, gitVersions GitSourceProvider, ctx apigen.Context, existing *apigen.Deployment, req *apigen.DeploymentUpdateRequestV2, updated *apigen.Deployment) error {
 	if err := validateDeploymentVersion(existing, req.ExpectedVersion); err != nil {
-		return nil, err
+		return err
 	}
 	if req.SpecUpdate != nil {
-		spec, err := validateDeploymentSpec(store, secretStore, update.Spec)
+		spec, err := validateDeploymentSpec(store, secretStore, &updated.Def.Spec)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		update.Spec = spec
+		updated.Def.Spec = *spec
 	}
-	if update.Spec != nil && !update.Spec.WorkloadRunning() && !sameDesiredVersionSource(&existing.Def.Spec, update.Spec) {
-		if err := update.Spec.SetWorkloadState("", false); err != nil {
-			return nil, invalidConfigErrf("spec: %v", err)
+	if !updated.WorkloadRunning() && !sameDesiredVersionSource(&existing.Def.Spec, &updated.Def.Spec) {
+		if err := updated.SetWorkloadState("", false); err != nil {
+			return invalidConfigErrf("spec: %v", err)
 		}
 	}
-	updated := *existing
-	if update.Spec != nil {
-		updated.Def.Spec = *update.Spec
-	}
-	if update.SpaceID != nil {
-		updated.Def.SpaceID = *update.SpaceID
+	if updated.Def.NodeID == existing.Def.NodeID && updated.Def.SpaceID == existing.Def.SpaceID &&
+		updated.Def.Name == existing.Def.Name && state.DeploymentSpecsEqual(&updated.Def.Spec, &existing.Def.Spec) {
+		return invalidConfigErrf("nothing changed")
 	}
 	if updated.WorkloadRunning() && updated.WorkloadVersion() == "" {
-		return nil, invalidConfigErrf("deployment has no version to start; set a target version")
+		return invalidConfigErrf("deployment has no version to start; set a target version")
 	}
 	if err := validateDeploymentDef(&updated.Def); err != nil {
-		return nil, err
+		return err
 	}
 	nixChanged := !sameNixBuildConfig(nixSource(&existing.Def.Spec), nixSource(&updated.Def.Spec))
 	if updated.WorkloadRunning() && nixSource(&updated.Def.Spec) != nil &&
 		(!existing.WorkloadRunning() || updated.WorkloadVersion() != existing.WorkloadVersion() || nixChanged) {
-		if err := verifyRunningNixSource(gitVersions, ctx, &updated.Def.Spec); err != nil {
-			return nil, err
-		}
+		return verifyRunningNixSource(gitVersions, ctx, &updated.Def.Spec)
 	}
-	return &updated, nil
+	return nil
 }
 
 func preLockValidateDeploymentDelete(existing *apigen.Deployment, requestVersion int32) error {
