@@ -68,15 +68,15 @@ func (d *Deployment) PrepareOutputPath() string {
 }
 
 func (d *Deployment) WorkloadVersion() string {
-	return d.Spec.WorkloadVersion()
+	return d.Def.Spec.WorkloadVersion()
 }
 
 func (d *Deployment) WorkloadRunning() bool {
-	return d.Spec.WorkloadRunning()
+	return d.Def.Spec.WorkloadRunning()
 }
 
 func (d *Deployment) EffectiveUpgradeStrategy() ContainerUpgradeStrategy {
-	container := d.Spec.Container()
+	container := d.Def.Spec.Container()
 	if container == nil || container.UpgradeStrategy == ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED {
 		return ContainerUpgradeStrategy_RECREATE
 	}
@@ -84,7 +84,28 @@ func (d *Deployment) EffectiveUpgradeStrategy() ContainerUpgradeStrategy {
 }
 
 func (d *Deployment) SetWorkloadState(version string, running bool) error {
-	return d.Spec.SetWorkloadState(version, running)
+	return d.Def.Spec.SetWorkloadState(version, running)
+}
+
+func (d *Deployment) Deleted() bool {
+	return d.EventType == DeploymentEventType_DEPLOYMENT_EVENT_TYPE_DELETE
+}
+
+func (d *Deployment) FoldLegacyFlatFields() {
+	if d.Def.IsZero() {
+		d.Def = DeploymentDef{
+			NodeID:  d.NodeID,
+			Spec:    d.Spec,
+			SpaceID: d.SpaceID,
+			Name:    d.Name,
+		}
+	}
+	if d.CreatedTime.IsZero() && d.LegacyCreatedAt != 0 {
+		d.CreatedTime = time.UnixMilli(d.LegacyCreatedAt)
+	}
+	if d.EventTime.IsZero() && d.LegacyUpdatedAt != 0 {
+		d.EventTime = time.UnixMilli(d.LegacyUpdatedAt)
+	}
 }
 
 func (s *DeploymentSpec) WorkloadVersion() string {

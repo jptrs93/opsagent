@@ -3,18 +3,45 @@ package state
 import (
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-func deploymentEventToProto(e pq.DeploymentEvent) *apigen.Deployment {
-	cfg, err := apigen.DecodeDeployment(e.Value)
+func deploymentFromRow(e pq.DeploymentEvent) *apigen.Deployment {
+	cfg := &apigen.Deployment{
+		ID:           int32(e.DeploymentID),
+		Version:      int32(e.Version),
+		SpecVersion:  int32(e.SpecVersion),
+		SpaceVersion: int32(e.SpaceAssignmentVersion),
+		NameVersion:  int32(e.NameVersion),
+		Author:       int32(e.Author),
+		EventType:    apigen.DeploymentEventType(e.EventType),
+		CreatedTime:  time.UnixMilli(e.CreatedTime),
+		EventTime:    time.UnixMilli(e.EventTime),
+		Def:          *mustDecodeDeploymentDef(e),
+	}
+	mirrorDeploymentDef(cfg)
+	return cfg
+}
+
+func mirrorDeploymentDef(cfg *apigen.Deployment) {
+	cfg.NodeID = cfg.Def.NodeID
+	cfg.Spec = cfg.Def.Spec
+	cfg.SpaceID = cfg.Def.SpaceID
+	cfg.Name = cfg.Def.Name
+	cfg.LegacyCreatedAt = cfg.CreatedTime.UnixMilli()
+	cfg.LegacyUpdatedAt = cfg.EventTime.UnixMilli()
+}
+
+func mustDecodeDeploymentDef(e pq.DeploymentEvent) *apigen.DeploymentDef {
+	def, err := apigen.DecodeDeploymentDef(e.Value)
 	if err != nil {
 		panic(fmt.Sprintf("decode deployment %d event version %d: %v", e.DeploymentID, e.Version, err))
 	}
-	return cfg
+	return def
 }
 
 // pinnedSpecEventToProto assembles a pinned or historical spec version from
@@ -24,14 +51,15 @@ func deploymentEventToProto(e pq.DeploymentEvent) *apigen.Deployment {
 // carried only the spec. base may be nil when the identity is not cached; the
 // event's own historical identity then stands.
 func pinnedSpecEventToProto(e pq.DeploymentEvent, base *apigen.Deployment) *apigen.Deployment {
-	cfg := deploymentEventToProto(e)
+	cfg := deploymentFromRow(e)
 	if base != nil {
-		cfg.NodeID = base.NodeID
-		cfg.SpaceID = base.SpaceID
+		cfg.Def.NodeID = base.Def.NodeID
+		cfg.Def.SpaceID = base.Def.SpaceID
+		cfg.Def.Name = base.Def.Name
 		cfg.SpaceVersion = base.SpaceVersion
-		cfg.Name = base.Name
-		cfg.CreatedAt = base.CreatedAt
-		cfg.Deleted = base.Deleted
+		cfg.CreatedTime = base.CreatedTime
+		cfg.EventType = base.EventType
+		mirrorDeploymentDef(cfg)
 	}
 	return cfg
 }

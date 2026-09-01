@@ -15,7 +15,7 @@ func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.Deplo
 	if cfg == nil {
 		return nil, DeploymentNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return nil, err
 	}
 
@@ -43,7 +43,7 @@ func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.Deplo
 
 func entryTime(e *apigen.DeploymentHistoryEntry) time.Time {
 	if e.Config != nil {
-		return e.Config.UpdatedAt
+		return e.Config.EventTime
 	}
 	return e.Status.UpdatedAt
 }

@@ -139,7 +139,8 @@ type ConfigVersion struct {
 type DeploymentEventLog struct {
 	ID                     int64
 	GlobalSeq              int64
-	CreatedAt              int64
+	EventTime              int64
+	CreatedTime            int64
 	Author                 int64
 	DeploymentID           int64
 	Version                int64

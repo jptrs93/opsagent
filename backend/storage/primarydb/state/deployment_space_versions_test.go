@@ -16,7 +16,7 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 		t.Fatalf("created config space version = %d, want 1", cfg.SpaceVersion)
 	}
 
-	inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0,
+	inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	if inst.SpaceID != DefaultSpaceID {
 		t.Fatalf("placement pin = space %d, want space %d", inst.SpaceID, DefaultSpaceID)
@@ -24,9 +24,9 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 
 	author9 := apigen.Context{User: &apigen.InternalUser{ID: 9}}
 	moved := updateDeployment(store, author9, cfg.ID, DeploymentUpdate{SpaceID: i32ptr(2)})
-	if moved.SpaceID != 2 || moved.SpecVersion != cfg.SpecVersion || moved.SpaceVersion != 2 {
+	if moved.Def.SpaceID != 2 || moved.SpecVersion != cfg.SpecVersion || moved.SpaceVersion != 2 {
 		t.Fatalf("moved config = v%d space %d spaceV%d, want v%d space 2 spaceV2 (no spec version bump)",
-			moved.SpecVersion, moved.SpaceID, moved.SpaceVersion, cfg.SpecVersion)
+			moved.SpecVersion, moved.Def.SpaceID, moved.SpaceVersion, cfg.SpecVersion)
 	}
 	if same := updateDeployment(store, author9, cfg.ID, DeploymentUpdate{SpaceID: i32ptr(2)}); same.SpaceVersion != 2 {
 		t.Fatalf("same-space move = spaceV%d, want no-op at spaceV2", same.SpaceVersion)
@@ -39,18 +39,18 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 		events[1].Author != 9 || events[1].SpecVersion != 1 {
 		t.Fatalf("event log = %+v, want create at spaceV1 then move to spaceV2 author 9 with no spec bump", events)
 	}
-	if first := deploymentEventToProto(events[0]); first.SpaceID != DefaultSpaceID {
-		t.Fatalf("create snapshot space = %d, want %d", first.SpaceID, DefaultSpaceID)
+	if first := deploymentFromRow(events[0]); first.Def.SpaceID != DefaultSpaceID {
+		t.Fatalf("create snapshot space = %d, want %d", first.Def.SpaceID, DefaultSpaceID)
 	}
-	if second := deploymentEventToProto(events[1]); second.SpaceID != 2 {
-		t.Fatalf("move snapshot space = %d, want 2", second.SpaceID)
-	}
-
-	if st := findInstanceState(t, store, inst.ID); st.Config.SpaceID != DefaultSpaceID {
-		t.Fatalf("pinned view after move = space %d, want space %d", st.Config.SpaceID, DefaultSpaceID)
+	if second := deploymentFromRow(events[1]); second.Def.SpaceID != 2 {
+		t.Fatalf("move snapshot space = %d, want 2", second.Def.SpaceID)
 	}
 
-	replacement, created := store.EnsureRunScheduledInstance(cfg.ID, cfg.SpecVersion, cfg.NodeID, 0,
+	if st := findInstanceState(t, store, inst.ID); st.Config.Def.SpaceID != DefaultSpaceID {
+		t.Fatalf("pinned view after move = space %d, want space %d", st.Config.Def.SpaceID, DefaultSpaceID)
+	}
+
+	replacement, created := store.EnsureRunScheduledInstance(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
 	if !created {
 		t.Fatal("space move did not require a replacement incarnation")
@@ -64,14 +64,14 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 	}
 	store = Open(dbPath)
 	defer store.Close()
-	if cur := store.FetchDeployment(cfg.ID); cur.SpaceID != 2 || cur.SpaceVersion != 2 {
-		t.Fatalf("reloaded config = space %d spaceV%d, want space 2 spaceV2", cur.SpaceID, cur.SpaceVersion)
+	if cur := store.FetchDeployment(cfg.ID); cur.Def.SpaceID != 2 || cur.SpaceVersion != 2 {
+		t.Fatalf("reloaded config = space %d spaceV%d, want space 2 spaceV2", cur.Def.SpaceID, cur.SpaceVersion)
 	}
-	if st := findInstanceState(t, store, inst.ID); st.Config.SpaceID != DefaultSpaceID {
-		t.Fatalf("reloaded pinned view = space %d, want space %d", st.Config.SpaceID, DefaultSpaceID)
+	if st := findInstanceState(t, store, inst.ID); st.Config.Def.SpaceID != DefaultSpaceID {
+		t.Fatalf("reloaded pinned view = space %d, want space %d", st.Config.Def.SpaceID, DefaultSpaceID)
 	}
-	if st := findInstanceState(t, store, replacement.ID); st.Config.SpaceID != 2 {
-		t.Fatalf("reloaded replacement view = space %d, want space 2", st.Config.SpaceID)
+	if st := findInstanceState(t, store, replacement.ID); st.Config.Def.SpaceID != 2 {
+		t.Fatalf("reloaded replacement view = space %d, want space 2", st.Config.Def.SpaceID)
 	}
 }
 

@@ -86,7 +86,7 @@ func RequiredAssetRefs(cfg *apigen.Deployment) []requiredAssetRef {
 	if cfg == nil {
 		return nil
 	}
-	container := cfg.Spec.Container()
+	container := cfg.Def.Spec.Container()
 	if container == nil {
 		return nil
 	}

@@ -12,7 +12,7 @@ import {
 } from "./networkPolicies.js";
 
 const spaces = [{id: 1, name: "global"}, {id: 2, name: "staging"}];
-const deployments = [{config: {id: 7, name: "api", spaceId: 2}}];
+const deployments = [{config: {id: 7, def: {name: "api", spaceId: 2}}}];
 
 test("resolvePolicyPeer resolves spaces and deployments", () => {
     const space = resolvePolicyPeer({kind: PEER_KIND_SPACE, id: 2}, spaces, deployments);

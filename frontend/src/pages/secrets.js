@@ -4,7 +4,7 @@ import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {valueOverlay} from "../components/valueOverlay.js";
 import {formatDate, formatDateTime} from "../lib/date.js";
-import {containerWorkload} from "../lib/deployment.js";
+import {containerWorkload, deploymentDeleted} from "../lib/deployment.js";
 import {
     caretRightIcon, checkIcon, chevronDownIcon, closeIcon, columnsIcon, configSlidersIcon,
     copyIcon, editIcon, eyeOpenIcon, folderIcon, plusIcon, searchIcon, secretKeyIcon,
@@ -166,7 +166,7 @@ export function secretsPage() {
         const referenceKey = item.kind === "secret" ? "secretVersionId" : "configVersionId";
         const deployments = deploymentUsages(deploymentsS.val, spacesS.val, machinesS.val, (deployment) => {
             const cfg = deployment?.config;
-            if (!cfg || cfg.deleted) return false;
+            if (!cfg || deploymentDeleted(cfg)) return false;
             const envVars = containerWorkload(cfg)?.runtime?.envVars || {};
             return Object.values(envVars).some((value) => refIds.has(Number(value?.[referenceKey] || 0)));
         });
@@ -176,7 +176,7 @@ export function secretsPage() {
     const referencingDeploymentVersions = (item) => {
         const refIds = new Set(metaVersions(item.meta).map((ref) => Number(ref.id)));
         return (deploymentsS.val || []).map((deployment) => deployment?.config).filter((cfg) =>
-            cfg && !cfg.deleted && deploymentUsesEnvReferences(cfg, item.kind, refIds),
+            cfg && !deploymentDeleted(cfg) && deploymentUsesEnvReferences(cfg, item.kind, refIds),
         ).map((cfg) => ({id: cfg.id, specVersion: cfg.specVersion}));
     };
 

@@ -1,3 +1,5 @@
+import {deploymentDeleted} from "./deployment.js";
+
 export const PEER_KIND_SPACE = 1;
 export const PEER_KIND_DEPLOYMENT = 2;
 export const POLICY_ACTION_ALLOW = 1;
@@ -13,9 +15,9 @@ export function resolvePolicyPeer(peer, spaces, deployments) {
         return {kind, id, label: `space ${space.name || id}`, spaceId: id, dangling: false};
     }
     if (kind === PEER_KIND_DEPLOYMENT) {
-        const row = (deployments || []).find((d) => d?.config && !d.config.deleted && Number(d.config.id) === id);
+        const row = (deployments || []).find((d) => d?.config && !deploymentDeleted(d.config) && Number(d.config.id) === id);
         if (!row) return {kind, id, label: `deployment #${id}`, spaceId: null, dangling: true};
-        return {kind, id, label: row.config.name || `deployment #${id}`, spaceId: Number(row.config.spaceId || 0), dangling: false};
+        return {kind, id, label: row.config.def?.name || `deployment #${id}`, spaceId: Number(row.config.def?.spaceId || 0), dangling: false};
     }
     return {kind, id, label: "unknown peer", spaceId: null, dangling: true};
 }

@@ -79,17 +79,7 @@ func TestRunNetStateWriterProcessesUpdateQueuedWithInitialSnapshot(t *testing.T)
 	t.Cleanup(func() { network.SetDefault(previousNetwork) })
 
 	route := apigen.ScheduledInstanceState{Config: apigen.Deployment{
-		Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
-			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-			Ingress: []*apigen.Ingress{{
-				Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-				Hostname: "queued.example.com",
-				TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
-					HostPort:      8443,
-					ContainerPort: 443,
-				},
-			}},
-		}},
+		Def: apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: "queued.example.com", TlsPassthroughConfig: &apigen.TlsPassthroughConfig{HostPort: 8443, ContainerPort: 443}}}}}},
 	}}
 	updates := make(chan apigen.ScheduledInstanceState, 1)
 	updates <- route
@@ -147,17 +137,7 @@ func TestRunNetStateWriterSkipsRewriteWhenContentUnchanged(t *testing.T) {
 
 	route := func(hostname string) apigen.ScheduledInstanceState {
 		return apigen.ScheduledInstanceState{Config: apigen.Deployment{
-			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
-				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				Ingress: []*apigen.Ingress{{
-					Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-					Hostname: hostname,
-					TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
-						HostPort:      8443,
-						ContainerPort: 443,
-					},
-				}},
-			}},
+			Def: apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: hostname, TlsPassthroughConfig: &apigen.TlsPassthroughConfig{HostPort: 8443, ContainerPort: 443}}}}}},
 		}}
 	}
 	first := route("first.example.com")
@@ -200,18 +180,8 @@ func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 	network.SetDefault(network.New(prefix, 99))
 	state := RenderNetState(7, "node-a", []apigen.ScheduledInstanceState{{
 		Config: apigen.Deployment{
-			ID:      42,
-			SpaceID: 1, Name: "database",
-			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
-				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				Ingress: []*apigen.Ingress{{
-					Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-					Hostname: "DB.Example.COM.",
-					TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
-						ContainerPort: 5432,
-					},
-				}},
-			}},
+			ID:  42,
+			Def: apigen.DeploymentDef{SpaceID: 1, Name: "database", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: "DB.Example.COM.", TlsPassthroughConfig: &apigen.TlsPassthroughConfig{ContainerPort: 5432}}}}}},
 		},
 		Instance: apigen.ScheduledInstance{
 			ID: 5, DeploymentID: 42, NodeID: 1,
@@ -259,11 +229,8 @@ func TestRenderNetStateDerivesEndpointsFromPlacement(t *testing.T) {
 		return apigen.ScheduledInstanceState{
 			Instance: apigen.ScheduledInstance{ID: 5, DeploymentID: 42, NodeID: 1, State: state},
 			Config: apigen.Deployment{
-				ID:      42,
-				SpaceID: 1, Name: "database",
-				Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
-					Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				}},
+				ID:  42,
+				Def: apigen.DeploymentDef{SpaceID: 1, Name: "database", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}}},
 			},
 			Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{Status: running}},
 		}
@@ -320,18 +287,8 @@ func TestRenderNetStateEndpointFollowsServingPlacement(t *testing.T) {
 		return apigen.ScheduledInstanceState{
 			Instance: apigen.ScheduledInstance{ID: id, DeploymentID: 42, NodeID: 1, State: state},
 			Config: apigen.Deployment{
-				ID:      42,
-				SpaceID: 1, Name: "webapp",
-				Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
-					Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-					Ingress: []*apigen.Ingress{{
-						Kind:     apigen.IngressKind_INGRESS_KIND_HTTPS,
-						Hostname: "app.example.com",
-						HttpsConfig: &apigen.HttpsConfig{
-							ContainerPort: 8080,
-						},
-					}},
-				}},
+				ID:  42,
+				Def: apigen.DeploymentDef{SpaceID: 1, Name: "webapp", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_HTTPS, Hostname: "app.example.com", HttpsConfig: &apigen.HttpsConfig{ContainerPort: 8080}}}}}},
 			},
 			Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{Status: running}},
 		}
@@ -412,16 +369,8 @@ func TestRenderNetStateUsesClusterMapCatalog(t *testing.T) {
 	local := apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{ID: 6, DeploymentID: 43, NodeID: 1, State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY},
 		Config: apigen.Deployment{
-			ID:      43,
-			SpaceID: 1, Name: "webapp",
-			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
-				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				Ingress: []*apigen.Ingress{{
-					Kind:        apigen.IngressKind_INGRESS_KIND_HTTPS,
-					Hostname:    "app.example.com",
-					HttpsConfig: &apigen.HttpsConfig{ContainerPort: 8080},
-				}},
-			}},
+			ID:  43,
+			Def: apigen.DeploymentDef{SpaceID: 1, Name: "webapp", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_HTTPS, Hostname: "app.example.com", HttpsConfig: &apigen.HttpsConfig{ContainerPort: 8080}}}}}},
 		},
 	}
 	clusterMap := &apigen.ClusterNetMap{DnsServices: []*apigen.ClusterNetMapService{
@@ -467,11 +416,8 @@ func TestRenderNetStateFallsBackWithoutCatalog(t *testing.T) {
 	local := apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{ID: 5, DeploymentID: 42, NodeID: 1, State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING},
 		Config: apigen.Deployment{
-			ID:      42,
-			SpaceID: 1, Name: "database",
-			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
-				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-			}},
+			ID:  42,
+			Def: apigen.DeploymentDef{SpaceID: 1, Name: "database", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}}},
 		},
 	}
 	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{local}, nil, &apigen.ClusterNetMap{})
@@ -490,19 +436,8 @@ func TestRenderNetStateIsDeterministicAcrossItemOrder(t *testing.T) {
 		return apigen.ScheduledInstanceState{
 			Instance: apigen.ScheduledInstance{ID: id, DeploymentID: deploymentID, NodeID: 1, State: state},
 			Config: apigen.Deployment{
-				ID:      deploymentID,
-				SpaceID: 1, Name: name,
-				Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
-					Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-					Ingress: []*apigen.Ingress{{
-						Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-						Hostname: name + ".example.com",
-						TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
-							HostPort:      8443,
-							ContainerPort: 5432,
-						},
-					}},
-				}},
+				ID:  deploymentID,
+				Def: apigen.DeploymentDef{SpaceID: 1, Name: name, Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: name + ".example.com", TlsPassthroughConfig: &apigen.TlsPassthroughConfig{HostPort: 8443, ContainerPort: 5432}}}}}},
 			},
 			Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING}},
 		}
@@ -523,17 +458,7 @@ func TestRenderNetStateIsDeterministicAcrossItemOrder(t *testing.T) {
 func TestRenderNetStateKeepsIngressWithoutReadyBackend(t *testing.T) {
 	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{{
 		Config: apigen.Deployment{
-			Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
-				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				Ingress: []*apigen.Ingress{{
-					Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-					Hostname: "db.example.com",
-					TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
-						HostPort:      8443,
-						ContainerPort: 5432,
-					},
-				}},
-			}},
+			Def: apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: "db.example.com", TlsPassthroughConfig: &apigen.TlsPassthroughConfig{HostPort: 8443, ContainerPort: 5432}}}}}},
 		},
 	}}, nil, nil)
 
@@ -547,17 +472,9 @@ func TestRenderNetStateKeepsIngressWithoutReadyBackend(t *testing.T) {
 
 func TestRenderNetStateOmitsIngressOnDNSPort(t *testing.T) {
 	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{{
-		Config: apigen.Deployment{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
-			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-			Ingress: []*apigen.Ingress{{
-				Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-				Hostname: "dns.example.com",
-				TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
-					HostPort:      netproxyDNSPort,
-					ContainerPort: 443,
-				},
-			}},
-		}}},
+		Config: apigen.Deployment{
+			Def: apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: "dns.example.com", TlsPassthroughConfig: &apigen.TlsPassthroughConfig{HostPort: netproxyDNSPort, ContainerPort: 443}}}}}},
+		},
 	}}, nil, nil)
 
 	if len(state.Ingress) != 0 {

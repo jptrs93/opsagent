@@ -1,18 +1,19 @@
 import {nodeDisplayName} from "./machines.js";
+import {deploymentDeleted} from "./deployment.js";
 
 export function deploymentUsages(deployments, spaces, machines, usesDeployment) {
     const spaceNames = new Map((spaces || []).map(space => [Number(space.id || 0), space.name]));
 
     return (deployments || []).flatMap(deployment => {
         const config = deployment?.config;
-        if (!config || config.deleted || !usesDeployment(deployment)) return [];
+        if (!config || deploymentDeleted(config) || !usesDeployment(deployment)) return [];
 
-        const spaceId = Number(config.spaceId || 0);
+        const spaceId = Number(config.def?.spaceId || 0);
         return [{
             id: Number(config.id || 0),
             space: spaceNames.get(spaceId) || `space ${spaceId}`,
-            name: config.name || `deployment ${config.id}`,
-            node: nodeDisplayName(config.nodeId, machines),
+            name: config.def?.name || `deployment ${config.id}`,
+            node: nodeDisplayName(config.def?.nodeId, machines),
         }];
     }).sort((a, b) => a.space.localeCompare(b.space)
         || a.name.localeCompare(b.name)
@@ -22,7 +23,7 @@ export function deploymentUsages(deployments, spaces, machines, usesDeployment) 
 
 export function deploymentUsesEnvReferences(config, type, referenceIDs) {
     const referenceKey = type === "secret" ? "secretVersionId" : "configVersionId";
-    const envVars = config?.spec?.container1Spec?.runtime?.envVars;
+    const envVars = config?.def?.spec?.container1Spec?.runtime?.envVars;
     return Boolean(envVars && Object.values(envVars).some(
         value => referenceIDs.has(Number(value?.[referenceKey] || 0)),
     ));

@@ -1,5 +1,6 @@
 import {FULL_GIT_COMMIT_RE, validateLocalFlakePath} from "./deploymentSource.js";
 
+import {deploymentDeleted} from "../lib/deployment.js";
 const NETWORK_VIRTUAL = 1;
 const NETWORK_HOST = 2;
 const PROTOCOL_TCP = 1;
@@ -298,13 +299,13 @@ function deploymentOf(item) {
 }
 
 function itemSpace(item, type) {
-    if (type === "deployment") return deploymentOf(item)?.spaceId;
+    if (type === "deployment") return deploymentOf(item)?.def?.spaceId;
     return item?.spaceId;
 }
 
 function itemName(item, type) {
     if (type === "asset") return item?.key;
-    if (type === "deployment") return deploymentOf(item)?.name;
+    if (type === "deployment") return deploymentOf(item)?.def?.name;
     return item?.name;
 }
 
@@ -319,7 +320,7 @@ function isVersionedResource(type) {
 
 function scopedItems(items, type, spaceId) {
     return items.filter(item => {
-        if (item?.deleted || deploymentOf(item)?.deleted) return false;
+        if (item?.deleted || deploymentDeleted(deploymentOf(item))) return false;
         const candidateSpace = itemSpace(item, type);
         return candidateSpace === undefined || candidateSpace === null || spaceId === undefined || spaceId === null
             || Number(candidateSpace) === Number(spaceId);
@@ -681,12 +682,12 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
         if (ownSpace.length > 0) matches = ownSpace;
     }
     if (type === "deployment" && options.nodeId !== undefined && options.nodeId !== null) {
-        matches = matches.filter(item => Number(deploymentOf(item)?.nodeId) === Number(options.nodeId));
+        matches = matches.filter(item => Number(deploymentOf(item)?.def?.nodeId) === Number(options.nodeId));
     }
     if (type === "deployment" && options.preferNodeId !== undefined && options.preferNodeId !== null) {
         // Same name may exist on several nodes; the local node shadows the
         // others, but a name unique to another node still resolves.
-        const ownNode = matches.filter(item => Number(deploymentOf(item)?.nodeId) === Number(options.preferNodeId));
+        const ownNode = matches.filter(item => Number(deploymentOf(item)?.def?.nodeId) === Number(options.preferNodeId));
         if (ownNode.length > 0) matches = ownNode;
     }
     if (isVersionedResource(type)) {
@@ -954,7 +955,7 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
         if (value.name === "asset") setEnv(entry.name, {asset: item.key, assetVersionId: Number(item.id)});
         if (value.name === "address") {
             const config = deploymentOf(item);
-            setEnv(entry.name, {addressDeploymentId: Number(config.id), addressSpaceId: Number(config.spaceId)});
+            setEnv(entry.name, {addressDeploymentId: Number(config.id), addressSpaceId: Number(config.def?.spaceId)});
         }
     }
     container.envVars = envVars;

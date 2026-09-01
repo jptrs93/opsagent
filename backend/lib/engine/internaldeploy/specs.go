@@ -11,11 +11,11 @@ const (
 )
 
 func IsSelfConfig(cfg *apigen.Deployment) bool {
-	return cfg != nil && IsSelfIdentity(cfg.SpaceID, cfg.Name)
+	return cfg != nil && IsSelfIdentity(cfg.Def.SpaceID, cfg.Def.Name)
 }
 
 func IsInternalConfig(cfg *apigen.Deployment) bool {
-	return cfg != nil && IsInternalIdentity(cfg.SpaceID, cfg.Name)
+	return cfg != nil && IsInternalIdentity(cfg.Def.SpaceID, cfg.Def.Name)
 }
 
 // SelfSpec is the desired spec of the per-node opendeploy system deployment.

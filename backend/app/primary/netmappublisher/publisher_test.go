@@ -95,19 +95,19 @@ func TestRenderDnsCatalog(t *testing.T) {
 	}
 
 	serving := servingInstance(100, 10, 2, 3)
-	serving.Config.Name = "database"
+	serving.Config.Def.Name = "database"
 	standbyOnly := servingInstance(101, 11, 1, 3)
-	standbyOnly.Config.Name = "webapp"
+	standbyOnly.Config.Def.Name = "webapp"
 	standbyOnly.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
 	promotingOld := servingInstance(104, 14, 1, 3)
-	promotingOld.Config.Name = "promoting"
+	promotingOld.Config.Def.Name = "promoting"
 	promotingOld.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING
 	promotingNew := servingInstance(105, 14, 1, 3)
-	promotingNew.Config.Name = "promoting"
+	promotingNew.Config.Def.Name = "promoting"
 	promotingNew.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
 	hostMode := servingInstance(102, 12, 1, 3)
-	hostMode.Config.Name = "hosty"
-	hostMode.Config.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
+	hostMode.Config.Def.Name = "hosty"
+	hostMode.Config.Def.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
 	unnamed := servingInstance(103, 13, 1, 3)
 
 	got, err := renderNI(prefix, nodes, []apigen.ScheduledInstanceState{
@@ -176,7 +176,7 @@ func TestRenderOmitsHostNetworkingAndNonRunnableStates(t *testing.T) {
 	nodes := []*state.Node{{ID: 1, Addresses: []string{"192.0.2.1"}, WGPublicKey: testWGKeyA}}
 
 	host := servingInstance(101, 11, 1, 3)
-	host.Config.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
+	host.Config.Def.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
 	terminating := servingInstance(102, 12, 1, 3)
 	terminating.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE
 	finalized := servingInstance(103, 13, 1, 3)
@@ -380,16 +380,8 @@ func assertRoutes(t *testing.T, stage string, got *apigen.ClusterNetMap, want ma
 
 func virtualDeployment(id, nodeID, spaceID int32) apigen.Deployment {
 	return apigen.Deployment{
-		ID:      id,
-		NodeID:  nodeID,
-		SpaceID: spaceID,
-		Spec: apigen.DeploymentSpec{
-			Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL},
-			Container1Spec: &apigen.ContainerSpec{
-				Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}},
-				Running: true,
-			},
-		},
+		ID:  id,
+		Def: apigen.DeploymentDef{NodeID: nodeID, SpaceID: spaceID, Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}, Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}}, Running: true}}},
 	}
 }
 

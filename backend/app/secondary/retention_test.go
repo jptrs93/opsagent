@@ -56,15 +56,8 @@ func withRetentionAssetDir(t *testing.T, names ...string) string {
 func referencingConfig(version int32) apigen.Deployment {
 	return apigen.Deployment{
 		ID:          7,
-		NodeID:      23,
 		SpecVersion: version,
-		SpaceID:     1, Name: "api",
-		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
-			Runtime: apigen.ContainerRuntime{
-				AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4}},
-				EnvVars:     map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: ptrInt32(1)}},
-			},
-		}},
+		Def:         apigen.DeploymentDef{NodeID: 23, SpaceID: 1, Name: "api", Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4}}, EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: ptrInt32(1)}}}}}},
 	}
 }
 

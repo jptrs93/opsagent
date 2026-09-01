@@ -142,14 +142,8 @@ func TestDefaultVolumeDest(t *testing.T) {
 
 func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 	dep := &apigen.Deployment{
-		ID: 7,
-		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
-			DefaultVolume: apigen.DefaultVolumeMount{Disabled: true},
-			AssetMounts: []*apigen.AssetMount{
-				{AssetVersionID: 8, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY},
-				{AssetVersionID: 9, ContainerPath: "/docker-entrypoint-initdb.d/init.sh", Permission: apigen.FilePermission_READ_EXECUTE},
-			},
-		}}},
+		ID:  7,
+		Def: apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}, AssetMounts: []*apigen.AssetMount{{AssetVersionID: 8, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY}, {AssetVersionID: 9, ContainerPath: "/docker-entrypoint-initdb.d/init.sh", Permission: apigen.FilePermission_READ_EXECUTE}}}}}},
 	}
 
 	mounts, dataHost := containerMounts(dep)
@@ -173,12 +167,7 @@ func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, opendeployTestInstanceID, &apigen.Deployment{
 		ID:          7,
 		SpecVersion: 3,
-		SpaceID:     5,
-		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
-			DefaultVolume:       apigen.DefaultVolumeMount{Disabled: true},
-			DevShmSizeKb:        65536,
-			FileDescriptorLimit: 4096,
-		}}},
+		Def:         apigen.DeploymentDef{SpaceID: 5, Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}, DevShmSizeKb: 65536, FileDescriptorLimit: 4096}}}},
 	}, 3)
 	if r.devShmSizeKB != 65536 {
 		t.Fatalf("devShmSizeKB = %d, want 65536", r.devShmSizeKB)
@@ -200,17 +189,8 @@ func TestContainerMountsTranslatesMountsAndPermissions(t *testing.T) {
 	t.Cleanup(func() { ainit.StaticConfig.VolumesDir = oldVolumesDir })
 
 	dep := &apigen.Deployment{
-		ID: 7,
-		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{
-			DefaultVolume: apigen.DefaultVolumeMount{ContainerPath: "/state"},
-			CrossDeploymentMounts: []*apigen.CrossDeploymentMount{
-				{DeploymentID: 12, ContainerPath: "/shared-ro", Permission: apigen.FilePermission_READ_ONLY},
-				{DeploymentID: 13, ContainerPath: "/shared-rw", Permission: apigen.FilePermission_READ_WRITE},
-			},
-			Mounts: []*apigen.CustomHostMount{
-				{HostPath: "/host/config", ContainerPath: "/config", Permission: apigen.FilePermission_READ_ONLY},
-			},
-		}}},
+		ID:  7,
+		Def: apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{ContainerPath: "/state"}, CrossDeploymentMounts: []*apigen.CrossDeploymentMount{{DeploymentID: 12, ContainerPath: "/shared-ro", Permission: apigen.FilePermission_READ_ONLY}, {DeploymentID: 13, ContainerPath: "/shared-rw", Permission: apigen.FilePermission_READ_WRITE}}, Mounts: []*apigen.CustomHostMount{{HostPath: "/host/config", ContainerPath: "/config", Permission: apigen.FilePermission_READ_ONLY}}}}}},
 	}
 
 	mounts, dataHost := containerMounts(dep)
@@ -314,10 +294,7 @@ func rolloverTestDeployment() *apigen.Deployment {
 	return &apigen.Deployment{
 		ID:          7,
 		SpecVersion: 3,
-		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
-			UpgradeStrategy: apigen.ContainerUpgradeStrategy_ROLLOVER,
-			Runtime:         apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}},
-		}},
+		Def:         apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{UpgradeStrategy: apigen.ContainerUpgradeStrategy_ROLLOVER, Runtime: apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}}}}},
 	}
 }
 

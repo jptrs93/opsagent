@@ -19,20 +19,8 @@ func TestBuildAllowedRefs(t *testing.T) {
 	refs := buildAllowedRefs([]apigen.ScheduledInstanceState{{
 		Instance: apigen.ScheduledInstance{ID: 99},
 		Config: apigen.Deployment{
-			ID: 42,
-			Spec: apigen.DeploymentSpec{
-				Container1Spec: &apigen.ContainerSpec{
-					Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/app", Flake: "flake.nix"}},
-					Runtime: apigen.ContainerRuntime{
-						EnvVars: map[string]*apigen.EnvVarValue{
-							"SECRET": {SecretVersionID: &secretID},
-							"CONFIG": {ConfigVersionID: &configID},
-							"ASSET":  {Asset: "app.env", AssetVersionID: 3},
-						},
-						AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_ONLY}},
-					},
-				},
-			},
+			ID:  42,
+			Def: apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/app", Flake: "flake.nix"}}, Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"SECRET": {SecretVersionID: &secretID}, "CONFIG": {ConfigVersionID: &configID}, "ASSET": {Asset: "app.env", AssetVersionID: 3}}, AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_ONLY}}}}}},
 		},
 	}})
 

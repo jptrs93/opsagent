@@ -272,11 +272,11 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.Clust
 		cfg := item.Config
 		inst := item.Instance
 		if inst.ID <= 0 || cfg.ID <= 0 ||
-			cfg.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+			cfg.Def.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
 		if servicesByDeployment[cfg.ID] == nil {
-			servicesByDeployment[cfg.ID] = &apigen.ClusterNetMapService{Name: network.DNSLabel(cfg.Name), SpaceID: cfg.SpaceID, DeploymentID: cfg.ID}
+			servicesByDeployment[cfg.ID] = &apigen.ClusterNetMapService{Name: network.DNSLabel(cfg.Def.Name), SpaceID: cfg.Def.SpaceID, DeploymentID: cfg.ID}
 		}
 		if !inst.State.WantsRunning() {
 			continue
@@ -284,7 +284,7 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.Clust
 		if _, ok := knownNodes[inst.NodeID]; !ok {
 			return nil, fmt.Errorf("scheduled instance %d references unknown node %d", inst.ID, inst.NodeID)
 		}
-		placement, err := prefix.PlacementCIDR(cfg.SpaceID, cfg.ID, inst.InstanceOrdinal, inst.ID)
+		placement, err := prefix.PlacementCIDR(cfg.Def.SpaceID, cfg.ID, inst.InstanceOrdinal, inst.ID)
 		if err != nil {
 			return nil, fmt.Errorf("deriving placement prefix for scheduled instance %d: %w", inst.ID, err)
 		}
@@ -306,7 +306,7 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.Clust
 			continue
 		}
 		states.serving = true
-		instancePrefix, err := prefix.InstanceCIDR(cfg.SpaceID, cfg.ID, inst.InstanceOrdinal)
+		instancePrefix, err := prefix.InstanceCIDR(cfg.Def.SpaceID, cfg.ID, inst.InstanceOrdinal)
 		if err != nil {
 			return nil, fmt.Errorf("deriving instance prefix for scheduled instance %d: %w", inst.ID, err)
 		}

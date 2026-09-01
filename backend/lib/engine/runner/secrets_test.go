@@ -36,9 +36,9 @@ func TestResolveEnv(t *testing.T) {
 		configs: map[int32]string{3: "db.local"},
 	}
 	inputs := runtimeinputs.New(nil, provider, provider)
-	dep := &apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
-		Runtime: apigen.ContainerRuntime{EnvVars: in},
-	}}}
+	dep := &apigen.Deployment{
+		Def: apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: in}}}},
+	}
 	if err := inputs.EnsureSecretsReady(context.Background(), dep); err != nil {
 		t.Fatalf("EnsureSecretsReady: %v", err)
 	}
@@ -137,15 +137,7 @@ func TestResolveEnvAddressRefRejectsOutOfRangeIdentity(t *testing.T) {
 
 func TestContainerMountsIncludesImplicitAssetEnvMount(t *testing.T) {
 	dep := &apigen.Deployment{
-		Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
-			Runtime: apigen.ContainerRuntime{
-				DefaultVolume: apigen.DefaultVolumeMount{Disabled: true},
-				EnvVars: map[string]*apigen.EnvVarValue{
-					"APP_CONFIG":   {Asset: "app.conf", AssetVersionID: 12},
-					"APP_CONFIG_2": {Asset: "app.conf", AssetVersionID: 12},
-				},
-			},
-		}},
+		Def: apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}, EnvVars: map[string]*apigen.EnvVarValue{"APP_CONFIG": {Asset: "app.conf", AssetVersionID: 12}, "APP_CONFIG_2": {Asset: "app.conf", AssetVersionID: 12}}}}}},
 	}
 	mounts, _ := containerMounts(dep)
 	if len(mounts) != 1 {

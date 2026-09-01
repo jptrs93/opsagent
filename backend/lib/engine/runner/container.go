@@ -152,7 +152,7 @@ func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinpu
 // operator never woke to build a replacement and the rollout stalled in silence.
 func (r *containerRunner) initFreshRun(dep *apigen.Deployment, preparerStatus apigen.PreparerStatus, candidate bool) {
 	if candidate {
-		timeout := containerReadinessTimeout(dep.Spec.Container().ReadinessSignal)
+		timeout := containerReadinessTimeout(dep.Def.Spec.Container().ReadinessSignal)
 		r.readiness = &readinessConfig{timeout: timeout}
 		r.readinessDeadline = time.Now().Add(timeout)
 		r.readinessPending.Store(true)
@@ -184,7 +184,7 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 }
 
 func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, configVersion int32) *containerRunner {
-	cfg := dep.Spec.Container().Runtime
+	cfg := dep.Def.Spec.Container().Runtime
 	// Layering the container id onto the cancellation context keeps it on every
 	// log line without repeating it per call; cancel() still reaches the child.
 	ctx = logu.AddKV(ctx, "container", containerID(dep.ID, configVersion))
@@ -197,16 +197,16 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		runtimeInputs:       inputs,
 		scheduledInstanceID: instanceID,
 		deploymentID:        dep.ID,
-		spaceID:             dep.SpaceID,
+		spaceID:             dep.Def.SpaceID,
 		deploymentName:      containerDeploymentName(dep),
-		nodeID:              dep.NodeID,
+		nodeID:              dep.Def.NodeID,
 		containerID:         containerID(dep.ID, configVersion),
 		configVersion:       configVersion,
 		user:                cfg.User,
 		envVars:             cfg.EnvVars,
 		command:             cfg.OverrideCommand,
 		cwd:                 cfg.OverrideWorkingDir,
-		networking:          dep.Spec.Networking,
+		networking:          dep.Def.Spec.Networking,
 		latestVersion:       dep.SpecVersion,
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
@@ -221,8 +221,8 @@ func containerDeploymentName(dep *apigen.Deployment) string {
 	if dep == nil {
 		return "<nil>"
 	}
-	if dep.Name != "" {
-		return fmt.Sprintf("%d:%d:%s", dep.SpaceID, dep.NodeID, dep.Name)
+	if dep.Def.Name != "" {
+		return fmt.Sprintf("%d:%d:%s", dep.Def.SpaceID, dep.Def.NodeID, dep.Def.Name)
 	}
 	return fmt.Sprintf("id=%d", dep.ID)
 }
@@ -1305,7 +1305,7 @@ func (r *containerRunner) writeStatus() {
 // returns the default volume's host path (empty when disabled) so the runner can
 // create + chown it at spawn time.
 func containerMounts(dep *apigen.Deployment) ([]ctrd.Mount, string) {
-	cfg := dep.Spec.Container().Runtime
+	cfg := dep.Def.Spec.Container().Runtime
 	var mounts []ctrd.Mount
 	var dataHost string
 	if !cfg.DefaultVolume.Disabled {

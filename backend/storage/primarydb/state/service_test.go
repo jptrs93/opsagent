@@ -453,7 +453,7 @@ func TestSetDeploymentWorkloadStateReencodesSpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read updated deployment: %v", err)
 	}
-	latestSpec := deploymentEventToProto(event).Spec
+	latestSpec := deploymentFromRow(event).Def.Spec
 	assertPersistedWorkloadState(t, latestSpec.Encode(), "v2", false)
 	history, err := store.q.ListDeploymentEvents(context.Background(), int64(cfg.ID))
 	if err != nil {
@@ -462,7 +462,7 @@ func TestSetDeploymentWorkloadStateReencodesSpec(t *testing.T) {
 	if len(history) != 2 {
 		t.Fatalf("history length = %d, want 2", len(history))
 	}
-	historySpec := deploymentEventToProto(history[len(history)-1]).Spec
+	historySpec := deploymentFromRow(history[len(history)-1]).Def.Spec
 	assertPersistedWorkloadState(t, historySpec.Encode(), "v2", false)
 
 	if err := store.Close(); err != nil {

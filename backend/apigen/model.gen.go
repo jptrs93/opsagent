@@ -6,6 +6,15 @@ import (
 	"time"
 )
 
+type DeploymentEventType int32
+
+const (
+	DeploymentEventType_DEPLOYMENT_EVENT_TYPE_UNSPECIFIED DeploymentEventType = 0
+	DeploymentEventType_DEPLOYMENT_EVENT_TYPE_CREATE      DeploymentEventType = 1
+	DeploymentEventType_DEPLOYMENT_EVENT_TYPE_UPDATE      DeploymentEventType = 2
+	DeploymentEventType_DEPLOYMENT_EVENT_TYPE_DELETE      DeploymentEventType = 3
+)
+
 type NetworkingMode int32
 
 const (
@@ -206,19 +215,30 @@ const (
 	AccessPolicyType_ANY_OF                         AccessPolicyType = 3
 )
 
+type DeploymentDef struct {
+	NodeID  int32          `json:"node_id"`
+	Spec    DeploymentSpec `json:"spec"`
+	SpaceID int32          `json:"space_id"`
+	Name    string         `json:"name,omitempty"`
+}
+
 type Deployment struct {
-	ID           int32          `json:"id"`
-	NodeID       int32          `json:"node_id"`
-	SpaceID      int32          `json:"space_id"`
-	Version      int32          `json:"version"`
-	SpaceVersion int32          `json:"space_version"`
-	Name         string         `json:"name,omitempty"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
-	Author       int32          `json:"author"`
-	SpecVersion  int32          `json:"spec_version"`
-	Spec         DeploymentSpec `json:"spec"`
-	Deleted      bool           `json:"deleted"`
+	ID              int32               `json:"id"`
+	Version         int32               `json:"version"`
+	SpecVersion     int32               `json:"spec_version"`
+	SpaceVersion    int32               `json:"space_version"`
+	NameVersion     int32               `json:"name_version"`
+	Author          int32               `json:"author"`
+	EventType       DeploymentEventType `json:"event_type"`
+	CreatedTime     time.Time           `json:"created_time"`
+	EventTime       time.Time           `json:"event_time"`
+	Def             DeploymentDef       `json:"def"`
+	NodeID          int32               `json:"node_id"`
+	LegacyCreatedAt int64               `json:"legacy_created_at"`
+	LegacyUpdatedAt int64               `json:"legacy_updated_at"`
+	Spec            DeploymentSpec      `json:"spec"`
+	SpaceID         int32               `json:"space_id"`
+	Name            string              `json:"name,omitempty"`
 }
 
 type DeploymentSpec struct {

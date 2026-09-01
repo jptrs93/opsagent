@@ -52,7 +52,7 @@ func assetRefIDs(cfg *apigen.Deployment) []int32 {
 }
 
 func addressRefIDs(cfg *apigen.Deployment) []int32 {
-	container := cfg.Spec.Container()
+	container := cfg.Def.Spec.Container()
 	if container == nil {
 		return nil
 	}
@@ -66,7 +66,7 @@ func addressRefIDs(cfg *apigen.Deployment) []int32 {
 }
 
 func crossDeploymentMountSourceIDs(cfg *apigen.Deployment) []int32 {
-	container := cfg.Spec.Container()
+	container := cfg.Def.Spec.Container()
 	if container == nil {
 		return nil
 	}
@@ -84,7 +84,7 @@ func crossDeploymentMountSourceIDs(cfg *apigen.Deployment) []int32 {
 func referencingDeployments(live state.LiveState, ids map[int32]struct{}, refs func(*apigen.Deployment) []int32) []*apigen.Deployment {
 	var out []*apigen.Deployment
 	for _, cfg := range live.Deployments {
-		if cfg.Deleted {
+		if cfg.Deleted() {
 			continue
 		}
 		for _, id := range refs(cfg) {
@@ -101,7 +101,7 @@ func referencingDeployments(live state.LiveState, ids map[int32]struct{}, refs f
 // spaceID pins one of ids — the veto for cross-space moves.
 func referencesOutsideSpace(live state.LiveState, ids map[int32]struct{}, refs func(*apigen.Deployment) []int32, spaceID int32) bool {
 	for _, cfg := range referencingDeployments(live, ids, refs) {
-		if cfg.SpaceID != spaceID {
+		if cfg.Def.SpaceID != spaceID {
 			return true
 		}
 	}
@@ -130,15 +130,15 @@ func (h *Handler) deploymentRefDetails(live state.LiveState, ids map[int32]struc
 	}
 	details := make([]string, 0, len(cfgs))
 	for _, cfg := range cfgs {
-		space := spaces[cfg.SpaceID]
+		space := spaces[cfg.Def.SpaceID]
 		if space == "" {
-			space = fmt.Sprintf("space %d", cfg.SpaceID)
+			space = fmt.Sprintf("space %d", cfg.Def.SpaceID)
 		}
-		node := nodes[cfg.NodeID]
+		node := nodes[cfg.Def.NodeID]
 		if node == "" {
-			node = fmt.Sprintf("node %d", cfg.NodeID)
+			node = fmt.Sprintf("node %d", cfg.Def.NodeID)
 		}
-		details = append(details, "deployment "+space+" / "+node+" / "+cfg.Name)
+		details = append(details, "deployment "+space+" / "+node+" / "+cfg.Def.Name)
 	}
 	sort.Strings(details)
 	return details

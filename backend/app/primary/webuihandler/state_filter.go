@@ -52,7 +52,7 @@ func (h *Handler) filterAssetDirectories(ctx apigen.Context, items []*apigen.Ass
 
 func (h *Handler) filterDeployments(ctx apigen.Context, items []*apigen.Deployment) []*apigen.Deployment {
 	return filterVisible(items, func(cfg *apigen.Deployment) bool {
-		return h.canAccess(ctx, vView, eDeployment, int64(cfg.SpaceID), int64(cfg.ID))
+		return h.canAccess(ctx, vView, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID))
 	})
 }
 

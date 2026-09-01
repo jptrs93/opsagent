@@ -1460,7 +1460,7 @@ func TestDeploymentDeleteSoftDeletesStoppedDeployment(t *testing.T) {
 		t.Fatalf("history len = %d, want 2", len(history))
 	}
 	deleted := history[len(history)-1]
-	if !deleted.Deleted || deleted.WorkloadRunning() || deleted.WorkloadVersion() != "1.25" {
+	if !deleted.Deleted() || deleted.WorkloadRunning() || deleted.WorkloadVersion() != "1.25" {
 		t.Fatalf("deleted history entry = %+v", deleted)
 	}
 }
@@ -1505,11 +1505,11 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 	}
 
 	firstHistory := store.MustFetchDeploymentHistory(first.ID)
-	if len(firstHistory) != 2 || !firstHistory[len(firstHistory)-1].Deleted {
+	if len(firstHistory) != 2 || !firstHistory[len(firstHistory)-1].Deleted() {
 		t.Fatalf("deleted deployment history = %+v, want independent two-entry history", firstHistory)
 	}
 	secondHistory := store.MustFetchDeploymentHistory(second.ID)
-	if len(secondHistory) != 1 || secondHistory[0].Deleted || secondHistory[0].SpecVersion != 1 {
+	if len(secondHistory) != 1 || secondHistory[0].Deleted() || secondHistory[0].SpecVersion != 1 {
 		t.Fatalf("new deployment history = %+v, want independent initial history", secondHistory)
 	}
 	active := store.ListActiveDeployments()

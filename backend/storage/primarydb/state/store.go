@@ -31,7 +31,7 @@ func (s *Service) loadCache() {
 	ctx := context.Background()
 	events := erru.Must(s.q.ListLatestDeploymentEvents(ctx))
 	for _, e := range events {
-		cfg := deploymentEventToProto(e)
+		cfg := deploymentFromRow(e)
 		s.deploymentCache[cfg.ID] = cfg
 		s.latestEvents[cfg.ID] = e
 	}
@@ -85,14 +85,14 @@ func (s *Service) FetchDeletedDeploymentSnapshot(predicate storage.DeploymentPre
 	defer s.Mu.Unlock()
 	out := make([]apigen.Deployment, 0, limit)
 	for _, cfg := range s.deploymentCache {
-		if !cfg.Deleted || (predicate != nil && !predicate(*cfg)) {
+		if !cfg.Deleted() || (predicate != nil && !predicate(*cfg)) {
 			continue
 		}
 		out = append(out, *cfg)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
-			return out[i].UpdatedAt.After(out[j].UpdatedAt)
+		if !out[i].EventTime.Equal(out[j].EventTime) {
+			return out[i].EventTime.After(out[j].EventTime)
 		}
 		// Deletions written in the same millisecond still need a total order, or
 		// the caller's cap would pick arbitrarily between them across calls.
@@ -150,7 +150,7 @@ func (s *Service) MustFetchScheduledSnapshotWithLatestFinalAndSubscribe(predicat
 func (s *Service) configSnapshotLocked(predicate storage.DeploymentPredicate) []apigen.Deployment {
 	out := make([]apigen.Deployment, 0, len(s.deploymentCache))
 	for _, cfg := range s.deploymentCache {
-		if cfg.Deleted || (predicate != nil && !predicate(*cfg)) {
+		if cfg.Deleted() || (predicate != nil && !predicate(*cfg)) {
 			continue
 		}
 		out = append(out, *cfg)
@@ -196,7 +196,8 @@ func (s *Service) instanceStateLocked(inst *apigen.ScheduledInstance) *apigen.Sc
 	state := &apigen.ScheduledInstanceState{Instance: *inst}
 	if cfg := s.configForInstanceLocked(inst); cfg != nil {
 		state.Config = *cfg
-		state.Config.SpaceID = inst.SpaceID
+		state.Config.Def.SpaceID = inst.SpaceID
+		mirrorDeploymentDef(&state.Config)
 	}
 	return state
 }

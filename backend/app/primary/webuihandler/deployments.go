@@ -32,7 +32,7 @@ var DeploymentAddressReferencedErr = apigen.NewApiErr("Deployment address is ref
 const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHub. Please try again."
 
 func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.Deployment, error) {
-	updated := &apigen.Deployment{NodeID: req.NodeID, SpaceID: req.SpaceID, Name: req.Name, Spec: req.Spec}
+	updated := &apigen.Deployment{Def: apigen.DeploymentDef{NodeID: req.NodeID, SpaceID: req.SpaceID, Name: req.Name, Spec: req.Spec}}
 	if err := preLockDeploymentValidate(updated); err != nil {
 		return nil, err
 	}
@@ -43,7 +43,7 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 	if err != nil {
 		return nil, err
 	}
-	updated.Spec = *spec
+	updated.Def.Spec = *spec
 	if spec.WorkloadRunning() {
 		if err := h.verifyRunningNixSource(ctx, spec); err != nil {
 			return nil, err
@@ -56,7 +56,7 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 	if err := h.inLockValidateDeploymentCreate(updated, s.LiveState()); err != nil {
 		return nil, err
 	}
-	cfg := s.CreateDeploymentLocked(ctx, updated)
+	cfg := s.CreateDeploymentLocked(ctx, &updated.Def)
 	h.wakeAcme()
 	return cfg, nil
 }
@@ -72,10 +72,10 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		return nil, MissingKeyErr
 	}
 	cfg := h.findConfigByID(req.DeploymentID)
-	if cfg == nil || cfg.Deleted {
+	if cfg == nil || cfg.Deleted() {
 		return nil, DeploymentNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vUpdate, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return nil, err
 	}
 	if req.ExpectedVersion != cfg.Version+1 {
@@ -97,7 +97,7 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		if req.VersionOnlyUpdate.TargetVersion == "" {
 			return nil, invalidConfigErrf("targetVersion is required")
 		}
-		next, err := cloneDeploymentSpec(&cfg.Spec)
+		next, err := cloneDeploymentSpec(&cfg.Def.Spec)
 		if err != nil {
 			return nil, err
 		}
@@ -111,7 +111,7 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		if desired && cfg.WorkloadVersion() == "" {
 			return nil, invalidConfigErrf("deployment has no version to start; set a target version")
 		}
-		next, err := cloneDeploymentSpec(&cfg.Spec)
+		next, err := cloneDeploymentSpec(&cfg.Def.Spec)
 		if err != nil {
 			return nil, err
 		}
@@ -132,7 +132,7 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 
 	case req.AssignedSpaceUpdate != nil:
 		dest := req.AssignedSpaceUpdate.SpaceID
-		if dest == cfg.SpaceID {
+		if dest == cfg.Def.SpaceID {
 			return cfg, nil
 		}
 		if err := h.requireAccess(ctx, vCreate, eDeployment, int64(dest), 0); err != nil {
@@ -142,12 +142,12 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	}
 
 	if update.Spec != nil {
-		if !update.Spec.WorkloadRunning() && !sameDesiredVersionSource(&cfg.Spec, update.Spec) {
+		if !update.Spec.WorkloadRunning() && !sameDesiredVersionSource(&cfg.Def.Spec, update.Spec) {
 			if err := update.Spec.SetWorkloadState("", false); err != nil {
 				return nil, invalidConfigErrf("spec: %v", err)
 			}
 		}
-		nixChanged := !sameNixBuildConfig(nixSource(&cfg.Spec), nixSource(update.Spec))
+		nixChanged := !sameNixBuildConfig(nixSource(&cfg.Def.Spec), nixSource(update.Spec))
 		if update.Spec.WorkloadRunning() && nixSource(update.Spec) != nil &&
 			(!cfg.WorkloadRunning() || update.Spec.WorkloadVersion() != cfg.WorkloadVersion() || nixChanged) {
 			if err := h.verifyRunningNixSource(ctx, update.Spec); err != nil {
@@ -158,10 +158,10 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 
 	updated := *cfg
 	if update.Spec != nil {
-		updated.Spec = *update.Spec
+		updated.Def.Spec = *update.Spec
 	}
 	if update.SpaceID != nil {
-		updated.SpaceID = *update.SpaceID
+		updated.Def.SpaceID = *update.SpaceID
 	}
 	if err := preLockDeploymentValidate(&updated); err != nil {
 		return nil, err
@@ -172,7 +172,7 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	defer s.Mu.Unlock()
 	live := s.LiveState()
 	existing := live.Deployments[req.DeploymentID]
-	if existing == nil || existing.Deleted {
+	if existing == nil || existing.Deleted() {
 		return nil, DeploymentNotFoundErr
 	}
 	if req.ExpectedVersion != existing.Version+1 {
@@ -197,10 +197,10 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 		return MissingKeyErr
 	}
 	cfg := h.findConfigByID(req.DeploymentID)
-	if cfg == nil || cfg.Deleted {
+	if cfg == nil || cfg.Deleted() {
 		return DeploymentNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vDelete, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vDelete, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return err
 	}
 	if req.Version != cfg.Version+1 {
@@ -212,7 +212,7 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 	defer s.Mu.Unlock()
 	live := s.LiveState()
 	existing := live.Deployments[req.DeploymentID]
-	if existing == nil || existing.Deleted {
+	if existing == nil || existing.Deleted() {
 		return DeploymentNotFoundErr
 	}
 	if req.Version != existing.Version+1 {
@@ -244,7 +244,7 @@ func (h *Handler) PostV1DeploymentsRecentlyDeleted(ctx apigen.Context, req *apig
 	}
 	configs := h.Store.FetchDeletedDeploymentSnapshot(func(cfg apigen.Deployment) bool {
 		return !internaldeploy.IsInternalConfig(&cfg) &&
-			h.canAccess(ctx, vView, eDeployment, int64(cfg.SpaceID), int64(cfg.ID))
+			h.canAccess(ctx, vView, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID))
 	}, limit)
 	items := make([]*apigen.Deployment, 0, len(configs))
 	for i := range configs {
@@ -259,10 +259,10 @@ func (h *Handler) PostV1DeploymentsVersions(ctx apigen.Context, req *apigen.Depl
 	}
 
 	cfg := h.findConfigByID(req.DeploymentID)
-	if cfg == nil || cfg.Spec.IsZero() {
+	if cfg == nil || cfg.Def.Spec.IsZero() {
 		return nil, DeploymentNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return nil, err
 	}
 	if internaldeploy.IsInternalConfig(cfg) {
@@ -279,7 +279,7 @@ func (h *Handler) PostV1DeploymentsVersions(ctx apigen.Context, req *apigen.Depl
 		}, nil
 	}
 
-	container := cfg.Spec.Container()
+	container := cfg.Def.Spec.Container()
 	switch {
 	case container != nil && container.Source.NixDockerBuild != nil:
 		if h.GitVersions == nil {
@@ -337,10 +337,10 @@ func (h *Handler) logQueryTargetNode(ctx apigen.Context, deploymentID, targetNod
 	if cfg == nil {
 		return 0, DeploymentNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return 0, err
 	}
-	return cfg.NodeID, nil
+	return cfg.Def.NodeID, nil
 }
 
 func (h *Handler) PostV1DeploymentsLogQuery(ctx apigen.Context, req *apigen.LogQueryRequest) (*apigen.LogQueryResponse, error) {
@@ -381,16 +381,16 @@ func (h *Handler) PostV1DeploymentsPrepareOutput(ctx apigen.Context, req *apigen
 			yield(nil, DeploymentNotFoundErr)
 			return
 		}
-		if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+		if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 			yield(nil, err)
 			return
 		}
-		if cfg.NodeID > 0 && cfg.NodeID != h.NodeID && h.Cluster != nil {
-			reader, err := h.Cluster.RequestLogs(cfg.NodeID, &apigen.MsgToSecondary{
+		if cfg.Def.NodeID > 0 && cfg.Def.NodeID != h.NodeID && h.Cluster != nil {
+			reader, err := h.Cluster.RequestLogs(cfg.Def.NodeID, &apigen.MsgToSecondary{
 				DeploymentLogRequest: &apigen.DeploymentLogRequest{PreparerOutput: req},
 			})
 			if err != nil {
-				yield(nil, apigen.NewApiErr(fmt.Sprintf("Secondary node %d is not connected", cfg.NodeID), "secondary_not_connected", 502))
+				yield(nil, apigen.NewApiErr(fmt.Sprintf("Secondary node %d is not connected", cfg.Def.NodeID), "secondary_not_connected", 502))
 				return
 			}
 			defer reader.Close()

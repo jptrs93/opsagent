@@ -55,7 +55,7 @@ func (s *Service) CreateScheduledInstanceForTest(deploymentID, deploymentSpecVer
 
 func (s *Service) currentSpaceLocked(deploymentID int32) int32 {
 	if cfg := s.deploymentCache[deploymentID]; cfg != nil {
-		return cfg.SpaceID
+		return cfg.Def.SpaceID
 	}
 	return 0
 }

@@ -110,16 +110,7 @@ func secretRefDeployment(secretID *int32) *apigen.Deployment {
 	return &apigen.Deployment{
 		ID:          12,
 		SpecVersion: 4,
-		Spec: apigen.DeploymentSpec{
-			Container1Spec: &apigen.ContainerSpec{
-				Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}},
-				Version: "v1",
-				Running: true,
-				Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{
-					"TOKEN": {SecretVersionID: secretID},
-				}},
-			},
-		},
+		Def:         apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}}, Version: "v1", Running: true, Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: secretID}}}}}},
 	}
 }
 
@@ -228,10 +219,7 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 		}
 		dep := &apigen.Deployment{
 			SpecVersion: 4,
-			Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
-				Source:  apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{}},
-				Version: "v1",
-			}},
+			Def:         apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{}}, Version: "v1"}}},
 		}
 		handle := op.reAttachPreparer(testScheduledInstanceID, dep, apigen.PreparerStatus{
 			DeploymentSpecVersion: 4,
@@ -257,11 +245,7 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 		dep := &apigen.Deployment{
 			ID:          1,
 			SpecVersion: 4,
-			Spec: apigen.DeploymentSpec{
-				OpendeploySpec: &apigen.OpendeploySpec{
-					Version: "v1",
-				},
-			},
+			Def:         apigen.DeploymentDef{Spec: apigen.DeploymentSpec{OpendeploySpec: &apigen.OpendeploySpec{Version: "v1"}}},
 		}
 		handle := op.reAttachPreparer(testScheduledInstanceID, dep, apigen.PreparerStatus{})
 		handle.Cancel()
@@ -284,15 +268,7 @@ func TestStartPreparerStopsBeforeArtifactWhenRuntimeInputsFail(t *testing.T) {
 	dep := &apigen.Deployment{
 		ID:          11,
 		SpecVersion: 3,
-		Spec: apigen.DeploymentSpec{
-			Container1Spec: &apigen.ContainerSpec{
-				Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}},
-				Version: "v1",
-				Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{
-					"TOKEN": {SecretVersionID: &secretID},
-				}},
-			},
-		},
+		Def:         apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}}, Version: "v1", Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: &secretID}}}}}},
 	}
 	store := &recordingOperatorStore{}
 	secrets := &failingSecretProvider{}
@@ -369,9 +345,7 @@ func TestReAttachPreparerRepreparesUnavailableImage(t *testing.T) {
 	dep := &apigen.Deployment{
 		ID:          12,
 		SpecVersion: 4,
-		Spec: apigen.DeploymentSpec{
-			Container1Spec: &apigen.ContainerSpec{Version: "v1", Running: true},
-		},
+		Def:         apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Version: "v1", Running: true}}},
 	}
 
 	handle := op.reAttachPreparer(testScheduledInstanceID, dep, apigen.PreparerStatus{

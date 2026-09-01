@@ -3,6 +3,7 @@ import {capi} from "../capi/index.js";
 import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {trashIcon} from "../lib/icons.js";
+import {deploymentDeleted} from "../lib/deployment.js";
 import {
     assetMetasS,
     deploymentsS,
@@ -38,7 +39,7 @@ const countDistinct = (items, spaceID, keyOf) => {
 
 const countDeployments = (deployments, spaceID) => (deployments || []).filter((deployment) => {
     const config = deployment?.config;
-    return config && !config.deleted && Number(config.spaceId || 0) === spaceID;
+    return config && !deploymentDeleted(config) && Number(config.def?.spaceId || 0) === spaceID;
 }).length;
 
 const smallBtn = (text, onclick, cls, disabledWhen) => button({

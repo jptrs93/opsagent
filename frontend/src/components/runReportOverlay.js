@@ -41,13 +41,13 @@ export function runReportOverlay(target, onClose) {
     const resolveVersionMeta = async () => {
         const cfg = deployment()?.config;
         if (cfg?.specVersion === version) {
-            versionMeta.val = {at: cfg.updatedAt, by: cfg.author || 0};
+            versionMeta.val = {at: cfg.eventTime, by: cfg.author || 0};
             return;
         }
         try {
             const resp = await capi.postV1DeploymentsHistory({deploymentId});
             const entry = (resp.entries || []).find((e) => e.config?.specVersion === version);
-            if (entry) versionMeta.val = {at: entry.config.updatedAt, by: entry.config.author || 0};
+            if (entry) versionMeta.val = {at: entry.config.eventTime, by: entry.config.author || 0};
         } catch {}
     };
     void resolveVersionMeta();
@@ -195,7 +195,7 @@ export function runReportOverlay(target, onClose) {
         return span({class: "text-xs text-gray-500"}, `${at ? at + ' · ' : ''}${by}`);
     };
 
-    const name = () => deployment()?.config?.name || `#${deploymentId}`;
+    const name = () => deployment()?.config?.def?.name || `#${deploymentId}`;
 
     return div(
         div({class: "fixed inset-0 bg-black/70 z-40", onclick: onClose}),

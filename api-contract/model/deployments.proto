@@ -6,20 +6,40 @@ import "api-contract/options.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-message Deployment {
-  reserved 3;
-  int32 id = 1;
+message DeploymentDef {
+  reserved 1, 3, 4, 5, 6, 7, 9, 12, 13;
   int32 node_id = 2;
-  int32 space_id = 10;
-  int32 version = 13;        // top-level version; bumps on every deployment event
-  int32 space_version = 12;  // per-deployment monotonically increasing space version
-  string name = 11;
-  int64 created_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int64 updated_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int32 author = 6;
-  int32 spec_version = 7;
   DeploymentSpec spec = 8 [(cp.go_value) = true];
-  bool deleted = 9;
+  int32 space_id = 10;
+  string name = 11;
+}
+
+enum DeploymentEventType {
+  DEPLOYMENT_EVENT_TYPE_UNSPECIFIED = 0;
+  DEPLOYMENT_EVENT_TYPE_CREATE = 1;
+  DEPLOYMENT_EVENT_TYPE_UPDATE = 2;
+  DEPLOYMENT_EVENT_TYPE_DELETE = 3;
+}
+
+message Deployment {
+  reserved 3, 9;
+  int32 id = 1;
+  int32 version = 13;        // top-level version; bumps on every deployment event
+  int32 spec_version = 7;
+  int32 space_version = 12;  // per-deployment monotonically increasing space version
+  int32 name_version = 14;
+  int32 author = 6;
+  DeploymentEventType event_type = 15;
+  int64 created_time = 16 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 event_time = 17 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  DeploymentDef def = 18 [(cp.go_value) = true];
+
+  int32 node_id = 2;
+  int64 legacy_created_at = 4;
+  int64 legacy_updated_at = 5;
+  DeploymentSpec spec = 8 [(cp.go_value) = true];
+  int32 space_id = 10;
+  string name = 11;
 }
 
 message DeploymentSpec {

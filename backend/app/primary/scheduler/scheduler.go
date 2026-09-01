@@ -134,11 +134,11 @@ func (s *Scheduler) onConfig(cfg apigen.Deployment) {
 		return
 	}
 	cfg = *current
-	if cfg.Deleted || !cfg.WorkloadRunning() {
+	if cfg.Deleted() || !cfg.WorkloadRunning() {
 		s.terminateDeployment(cfg.ID)
 		return
 	}
-	if cfg.NodeID <= 0 {
+	if cfg.Def.NodeID <= 0 {
 		slog.WarnContext(s.ctx, fmt.Sprintf("scheduler: skipping config without node version=%d", cfg.SpecVersion), "dep", cfg.ID)
 		return
 	}
@@ -156,8 +156,8 @@ func (s *Scheduler) onConfig(cfg apigen.Deployment) {
 		if inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
 			serving = true
 		}
-		if inst.DeploymentSpecVersion == cfg.SpecVersion && inst.NodeID == cfg.NodeID &&
-			inst.SpaceID == cfg.SpaceID && inst.State.WantsRunning() {
+		if inst.DeploymentSpecVersion == cfg.SpecVersion && inst.NodeID == cfg.Def.NodeID &&
+			inst.SpaceID == cfg.Def.SpaceID && inst.State.WantsRunning() {
 			exact = state
 			continue
 		}
@@ -206,14 +206,14 @@ func (s *Scheduler) onConfig(cfg apigen.Deployment) {
 	if serving {
 		initial = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
 	}
-	inst, created := s.store.EnsureRunScheduledInstance(cfg.ID, cfg.SpecVersion, cfg.NodeID, defaultInstanceOrdinal, initial)
+	inst, created := s.store.EnsureRunScheduledInstance(cfg.ID, cfg.SpecVersion, cfg.Def.NodeID, defaultInstanceOrdinal, initial)
 	if !created {
 		return
 	}
 	slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: created scheduled instance version=%d state=%v", cfg.SpecVersion, initial),
 		"scheduled_instance", inst.ID,
 		"dep", cfg.ID,
-		"node", cfg.NodeID,
+		"node", cfg.Def.NodeID,
 	)
 }
 
@@ -225,7 +225,7 @@ func (s *Scheduler) onInstance(state apigen.ScheduledInstanceState) {
 	switch {
 	case inst.State.WantsRunning():
 		cfg := s.store.FetchDeployment(inst.DeploymentID)
-		if cfg == nil || cfg.Deleted || !cfg.WorkloadRunning() {
+		if cfg == nil || cfg.Deleted() || !cfg.WorkloadRunning() {
 			s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
 			return
 		}
@@ -234,8 +234,8 @@ func (s *Scheduler) onInstance(state apigen.ScheduledInstanceState) {
 			s.retireDrainedInstances()
 			return
 		}
-		if cfg.SpecVersion == inst.DeploymentSpecVersion && cfg.NodeID == inst.NodeID &&
-			cfg.SpaceID == inst.SpaceID {
+		if cfg.SpecVersion == inst.DeploymentSpecVersion && cfg.Def.NodeID == inst.NodeID &&
+			cfg.Def.SpaceID == inst.SpaceID {
 			s.promoteIfReady(state)
 			return
 		}

@@ -15,7 +15,8 @@ const (
 type DeploymentEvent struct {
 	ID                     int64
 	GlobalSeq              int64
-	CreatedAt              int64 // epoch ms
+	EventTime              int64 // epoch ms, time of this event
+	CreatedTime            int64 // epoch ms, time of the deployment's first event
 	Author                 int64
 	DeploymentID           int64
 	Version                int64
@@ -27,9 +28,9 @@ type DeploymentEvent struct {
 }
 
 const deploymentEventSelect = `
-	SELECT e.id, e.global_seq, e.created_at, e.author, e.deployment_id, e.version,
-	       e.spec_version, e.space_assignment_version, e.name_version, e.value,
-	       e.event_type
+	SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
+	       e.version, e.spec_version, e.space_assignment_version, e.name_version,
+	       e.value, e.event_type
 	FROM deployment_event_log e`
 
 type deploymentEventScanner interface {
@@ -38,20 +39,20 @@ type deploymentEventScanner interface {
 
 func scanDeploymentEvent(scanner deploymentEventScanner) (DeploymentEvent, error) {
 	var e DeploymentEvent
-	err := scanner.Scan(&e.ID, &e.GlobalSeq, &e.CreatedAt, &e.Author, &e.DeploymentID,
-		&e.Version, &e.SpecVersion, &e.SpaceAssignmentVersion, &e.NameVersion,
-		&e.Value, &e.EventType)
+	err := scanner.Scan(&e.ID, &e.GlobalSeq, &e.EventTime, &e.CreatedTime, &e.Author,
+		&e.DeploymentID, &e.Version, &e.SpecVersion, &e.SpaceAssignmentVersion,
+		&e.NameVersion, &e.Value, &e.EventType)
 	return e, err
 }
 
 func (q *Queries) InsertDeploymentEvent(ctx context.Context, e DeploymentEvent) error {
 	_, err := q.db.ExecContext(ctx, `
 	INSERT INTO deployment_event_log (
-		global_seq, created_at, author, deployment_id, version, spec_version,
-		space_assignment_version, name_version, value, event_type
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.GlobalSeq, e.CreatedAt, e.Author, e.DeploymentID, e.Version, e.SpecVersion,
-		e.SpaceAssignmentVersion, e.NameVersion, e.Value, e.EventType)
+		global_seq, event_time, created_time, author, deployment_id, version,
+		spec_version, space_assignment_version, name_version, value, event_type
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.DeploymentID, e.Version,
+		e.SpecVersion, e.SpaceAssignmentVersion, e.NameVersion, e.Value, e.EventType)
 	return err
 }
 

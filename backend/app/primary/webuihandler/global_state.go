@@ -32,10 +32,10 @@ func (h *Handler) PostV1DeploymentsGet(ctx apigen.Context, req *apigen.Deploymen
 		return nil, MissingKeyErr
 	}
 	cfg := h.findConfigByID(req.ID)
-	if cfg == nil || cfg.Deleted {
+	if cfg == nil || cfg.Deleted() {
 		return nil, DeploymentNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return nil, err
 	}
 	states := make([]apigen.ScheduledInstanceState, 0, 2)

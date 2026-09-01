@@ -112,7 +112,7 @@ func TestReAttachRunningAttachesOnlyMatchingOpendeployBuild(t *testing.T) {
 	opendeployTestSymlink(t)
 	matchingStore := &fakeOperatorStore{}
 	matching := opendeployTestDeployment()
-	matching.Spec.OpendeploySpec.Version = version.Version
+	matching.Def.Spec.OpendeploySpec.Version = version.Version
 	matchingRunner := ReAttachRunning(matchingStore, nil, opendeployTestInstanceID, matching, apigen.RunnerStatus{})
 	matchingRunner.Stop()
 	statuses := matchingStore.runnerStatuses()
@@ -122,7 +122,7 @@ func TestReAttachRunningAttachesOnlyMatchingOpendeployBuild(t *testing.T) {
 
 	mismatchedStore := &fakeOperatorStore{}
 	mismatched := opendeployTestDeployment()
-	mismatched.Spec.OpendeploySpec.Version = version.Version + "-next"
+	mismatched.Def.Spec.OpendeploySpec.Version = version.Version + "-next"
 	stale := apigen.RunnerStatus{DeploymentSpecVersion: mismatched.SpecVersion, Status: apigen.RunningStatus_STARTING}
 	mismatchedRunner := ReAttachRunning(mismatchedStore, nil, opendeployTestInstanceID, mismatched, stale)
 	mismatchedRunner.Stop()
@@ -194,7 +194,7 @@ func opendeployTestDeployment() *apigen.Deployment {
 	return &apigen.Deployment{
 		ID:          1,
 		SpecVersion: 7,
-		Spec:        apigen.DeploymentSpec{OpendeploySpec: &apigen.OpendeploySpec{}},
+		Def:         apigen.DeploymentDef{Spec: apigen.DeploymentSpec{OpendeploySpec: &apigen.OpendeploySpec{}}},
 	}
 }
 

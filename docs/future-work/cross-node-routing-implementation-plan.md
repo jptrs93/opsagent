@@ -51,9 +51,8 @@ The following do not exist yet:
 
 Cross-node routing must not be enabled as a generally available feature until
 the logical policy boundary exists. The boundary is implemented — source
-anti-spoofing, destination ingress policy, and explicit override policies per
-[`network-policy-implementation-plan.md`](network-policy-implementation-plan.md)
-— and its same-node behaviour is verified end-to-end in the VM suite. The
+anti-spoofing, destination ingress policy, and explicit override policies —
+see the Network Policy section of `docs/engineering/networking.md` — and its same-node behaviour is verified end-to-end in the VM suite. The
 cross-node leg of that verification is still outstanding.
 
 ### Source anti-spoofing
@@ -98,8 +97,7 @@ by deriving prefix routes from assignments alone.
 
 ### Milestone: logical network policy — SHIPPED
 
-Implemented per
-[`network-policy-implementation-plan.md`](network-policy-implementation-plan.md):
+Implemented — see the Network Policy section of `docs/engineering/networking.md`:
 nftables source anti-spoofing per local attachment, same-space destination
 ingress policy with the OpenDeploy system paths, identical policy for
 same-host and cross-host packets, and explicit cross-space override policies.

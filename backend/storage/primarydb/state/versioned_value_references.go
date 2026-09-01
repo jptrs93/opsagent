@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -23,7 +22,7 @@ const (
 
 type deploymentReferenceUpdate struct {
 	prev pq.DeploymentEvent
-	next *apigen.Deployment
+	def  *apigen.DeploymentDef
 }
 
 // setVersionedValueWithDeploymentUpdates appends a version of the stable
@@ -40,7 +39,6 @@ func (s *Service) setVersionedValueWithDeploymentUpdatesLocked(
 	afterCommit func([]int32),
 ) ([]int32, error) {
 	ctx := context.Background()
-	now := time.Now()
 	var updatedEvents []pq.DeploymentEvent
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		updates, referenceIDs, err := s.prepareDeploymentReferenceUpdatesLocked(ctx, q, referenceType, stableID, updateDeployments, expected)
@@ -58,16 +56,12 @@ func (s *Service) setVersionedValueWithDeploymentUpdatesLocked(
 
 		updatedEvents = make([]pq.DeploymentEvent, 0, len(updates))
 		for _, update := range updates {
-			next := update.next
-			replaceDeploymentReferences(&next.Spec, referenceType, referenceIDs, newID)
-			next.Version++
-			next.SpecVersion++
-			next.UpdatedAt = now
-			next.Author = author
-			event := buildDeploymentEvent(update.prev, true, next, pq.DeploymentEventUpdate)
+			def := update.def
+			replaceDeploymentReferences(&def.Spec, referenceType, referenceIDs, newID)
+			event := buildDeploymentEvent(update.prev, true, int32(update.prev.DeploymentID), def, author, pq.DeploymentEventUpdate)
 			event.GlobalSeq = seq
 			if err := q.InsertDeploymentEvent(ctx, event); err != nil {
-				return fmt.Errorf("update deployment %d reference: %w", next.ID, err)
+				return fmt.Errorf("update deployment %d reference: %w", update.prev.DeploymentID, err)
 			}
 			updatedEvents = append(updatedEvents, event)
 		}
@@ -78,7 +72,7 @@ func (s *Service) setVersionedValueWithDeploymentUpdatesLocked(
 
 	updatedIDs := make([]int32, 0, len(updatedEvents))
 	for _, event := range updatedEvents {
-		cfg := deploymentEventToProto(event)
+		cfg := deploymentFromRow(event)
 		s.deploymentCache[cfg.ID] = cfg
 		s.latestEvents[cfg.ID] = event
 		updatedIDs = append(updatedIDs, cfg.ID)
@@ -117,18 +111,18 @@ func (s *Service) prepareDeploymentReferenceUpdatesLocked(
 		// references it held when it was deleted. It will never run again, so
 		// rewriting it is pointless — and counting it here would make every
 		// rotation fail against the live set the caller can see.
-		if cfg.Deleted {
+		if cfg.Deleted() {
 			continue
 		}
 		event, ok := s.latestEvents[cfg.ID]
 		if !ok {
 			return nil, nil, fmt.Errorf("deployment %d has no latest event", cfg.ID)
 		}
-		next := deploymentEventToProto(event)
-		if !deploymentUsesReferences(&next.Spec, referenceType, referenceIDs) {
+		def := mustDecodeDeploymentDef(event)
+		if !deploymentUsesReferences(&def.Spec, referenceType, referenceIDs) {
 			continue
 		}
-		actual[cfg.ID] = deploymentReferenceUpdate{prev: event, next: next}
+		actual[cfg.ID] = deploymentReferenceUpdate{prev: event, def: def}
 	}
 
 	seen := make(map[int32]struct{}, len(expected))
@@ -141,7 +135,7 @@ func (s *Service) prepareDeploymentReferenceUpdatesLocked(
 		}
 		seen[item.ID] = struct{}{}
 		current, ok := actual[item.ID]
-		if !ok || current.next.SpecVersion != item.SpecVersion {
+		if !ok || int32(current.prev.SpecVersion) != item.SpecVersion {
 			return nil, nil, fmt.Errorf("%w: deployment %d version is stale or no longer references value %d", ErrReferencingDeploymentsChanged, item.ID, stableID)
 		}
 	}

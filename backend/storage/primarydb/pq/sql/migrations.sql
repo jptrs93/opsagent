@@ -17,3 +17,10 @@ DROP TABLE IF EXISTS deployments;
 DROP TABLE IF EXISTS deployment_spec_versions;
 DROP TABLE IF EXISTS deployment_space_versions;
 ALTER TABLE scheduled_instances DROP COLUMN deployment_space_version_id;
+
+ALTER TABLE deployment_event_log RENAME COLUMN created_at TO event_time;
+ALTER TABLE deployment_event_log ADD COLUMN created_time INTEGER NOT NULL DEFAULT 0;
+UPDATE deployment_event_log SET created_time = (
+    SELECT e2.event_time FROM deployment_event_log e2
+    WHERE e2.deployment_id = deployment_event_log.deployment_id AND e2.version = 1
+) WHERE created_time = 0;

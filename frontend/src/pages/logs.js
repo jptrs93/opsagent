@@ -12,6 +12,7 @@ import {
 import {loginS} from "../state/login.js";
 import {deploymentsS, machinesS} from "../state/deployments.js";
 import {nodeDisplayName} from "../lib/machines.js";
+import {deploymentDeleted} from "../lib/deployment.js";
 import {logScopePicker} from "../components/logScopePicker.js";
 import {spacesFilter} from "../components/spacesFilter.js";
 
@@ -144,12 +145,12 @@ function toLocalInputValue(ts) {
 
 function deploymentLabel(item, machines) {
     const cfg = item?.config || {};
-    const node = nodeDisplayName(cfg.nodeId, machines);
-    return [node, cfg.name].filter(Boolean).join(' / ') || `#${cfg.id}`;
+    const node = nodeDisplayName(cfg.def?.nodeId, machines);
+    return [node, cfg.def?.name].filter(Boolean).join(' / ') || `#${cfg.id}`;
 }
 
 function deploymentSpaceID(item) {
-    return item?.config?.spaceId || 0;
+    return item?.config?.def?.spaceId || 0;
 }
 
 function selectedDeployment(items, id) {
@@ -157,8 +158,8 @@ function selectedDeployment(items, id) {
 }
 
 function isSystemDeployment(item) {
-    return item?.config?.name === SYSTEM_DEPLOYMENT_NAME && (
-        deploymentSpaceID(item) === SYSTEM_SPACE_ID || Boolean(item?.config?.spec?.opendeploySpec)
+    return item?.config?.def?.name === SYSTEM_DEPLOYMENT_NAME && (
+        deploymentSpaceID(item) === SYSTEM_SPACE_ID || Boolean(item?.config?.def?.spec?.opendeploySpec)
     );
 }
 
@@ -320,7 +321,7 @@ export function logsPage(selectedDeploymentId) {
     let autoSearchedDeploymentId = 0;
     let scroller;
 
-    const liveDeployments = () => (deploymentsS.val || []).filter(item => item.config?.id && !item.config.deleted);
+    const liveDeployments = () => (deploymentsS.val || []).filter(item => item.config?.id && !deploymentDeleted(item.config));
 
     // scopePayload resolves the deployment scope for a request: the system
     // deployment queries as deployment 0 on its node.
@@ -328,7 +329,7 @@ export function logsPage(selectedDeploymentId) {
         const selected = selectedDeployment(liveDeployments(), Number(deploymentId.val || 0));
         return {
             deploymentId: isSystemDeployment(selected) ? 0 : Number(deploymentId.val || 0),
-            targetNodeId: Number(selected?.config?.nodeId || 0),
+            targetNodeId: Number(selected?.config?.def?.nodeId || 0),
         };
     };
 

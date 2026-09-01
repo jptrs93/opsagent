@@ -241,7 +241,7 @@ func SecretRefs(cfg *apigen.Deployment) []int32 {
 		return nil
 	}
 	seen := map[int32]bool{}
-	if container := cfg.Spec.Container(); container != nil {
+	if container := cfg.Def.Spec.Container(); container != nil {
 		for _, item := range container.Runtime.EnvVars {
 			if item == nil || item.SecretVersionID == nil || *item.SecretVersionID == 0 {
 				continue
@@ -249,7 +249,7 @@ func SecretRefs(cfg *apigen.Deployment) []int32 {
 			seen[*item.SecretVersionID] = true
 		}
 	}
-	for _, route := range cfg.Spec.Networking.Ingress {
+	for _, route := range cfg.Def.Spec.Networking.Ingress {
 		if route == nil || route.HttpsConfig == nil || route.HttpsConfig.CertSource == nil {
 			continue
 		}
@@ -269,7 +269,7 @@ func ConfigRefs(cfg *apigen.Deployment) []int32 {
 	if cfg == nil {
 		return nil
 	}
-	container := cfg.Spec.Container()
+	container := cfg.Def.Spec.Container()
 	if container == nil {
 		return nil
 	}

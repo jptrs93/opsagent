@@ -56,7 +56,7 @@ func instanceState(instanceID, deploymentID int32, status apigen.RunningStatus, 
 	st.Instance.DeploymentID = deploymentID
 	st.Status.Runner.Status = status
 	if opendeploy {
-		st.Config.Spec.OpendeploySpec = &apigen.OpendeploySpec{}
+		st.Config.Def.Spec.OpendeploySpec = &apigen.OpendeploySpec{}
 	}
 	return st
 }

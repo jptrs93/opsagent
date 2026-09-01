@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {formatClockTime, formatHistoryTime} from "../lib/date.js";
 import {resolveUserDisplayName} from "../lib/users.js";
-import {deploymentWorkload} from "../lib/deployment.js";
+import {deploymentDeleted, deploymentWorkload} from "../lib/deployment.js";
 import {rollupLabel, rollupOf, inputsLabel, imageLabel, InputsStatus, ImageStatus} from "../lib/preparerStatus.js";
 
 const {button, col, colgroup, div, input, label, p, span, table, tbody, td, th, thead, tr} = van.tags;
@@ -30,13 +30,13 @@ function describeConfigEntry(config, prevConfig) {
         if (desired.running !== prevDesired.running) {
             parts.push(desired.running ? 'running=true' : 'running=false');
         }
-        if (config.spaceId !== prevConfig.spaceId) {
-            parts.push(`moved to space ${config.spaceId}`);
+        if (config.def?.spaceId !== prevConfig.def?.spaceId) {
+            parts.push(`moved to space ${config.def?.spaceId}`);
         }
-        if (config.deleted && !prevConfig.deleted) {
+        if (deploymentDeleted(config) && !deploymentDeleted(prevConfig)) {
             parts.push('deleted');
         }
-        if (!config.deleted && prevConfig.deleted) {
+        if (!deploymentDeleted(config) && deploymentDeleted(prevConfig)) {
             parts.push('restored');
         }
     }
@@ -169,7 +169,7 @@ export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () 
             if (e.config) {
                 const targetVersion = deploymentWorkload(e.config)?.version || '';
                 return {
-                    at: e.config.updatedAt,
+                    at: e.config.eventTime,
                     kind: 'config',
                     v: e.config.version,
                     by: resolveUserDisplayName(e.config.author) || '',

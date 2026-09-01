@@ -131,7 +131,7 @@ func (stoppedRunner) ArtifactMissing() <-chan struct{} { return nil }
 func (stoppedRunner) Serve() error                     { return nil }
 
 func isOpendeploy(dep *apigen.Deployment) bool {
-	return dep.Spec.OpendeploySpec != nil
+	return dep.Def.Spec.OpendeploySpec != nil
 }
 
 func fmtRunnerStatus(r apigen.RunnerStatus) string {

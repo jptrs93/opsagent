@@ -2,6 +2,7 @@ import van from "vanjs-core";
 import { capi } from "../capi/index.js";
 import { loginS } from "./login.js";
 import {applyScheduledInstanceUpdate, mergeDeploymentState} from "./deploymentMerge.js";
+import {deploymentDeleted} from "../lib/deployment.js";
 
 // deploymentsS is the one-row-per-desired-deployment UI view. Each row merges
 // the latest desired config with all non-final scheduled instances and keeps
@@ -132,7 +133,7 @@ const handleStateMessage = (message) => {
 
     if (message.deploymentsSnapshot) {
         desiredConfigsById = new Map((message.deploymentsSnapshot.items || [])
-            .filter(config => config?.id && !config.deleted)
+            .filter(config => config?.id && !deploymentDeleted(config))
             .map(config => [Number(config.id), config]));
     }
 
@@ -146,7 +147,7 @@ const handleStateMessage = (message) => {
 
     if (message.deploymentUpdate?.id) {
         const config = message.deploymentUpdate;
-        if (config.deleted) {
+        if (deploymentDeleted(config)) {
             desiredConfigsById.delete(Number(config.id));
         } else {
             desiredConfigsById.set(Number(config.id), config);

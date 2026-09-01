@@ -41,16 +41,11 @@ func mustCreateDeploymentForNode(s *Service, ctx apigen.Context, spaceID int32, 
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	for _, cfg := range s.deploymentCache {
-		if storage.DeploymentKeyMatches(*cfg, nodeID, spaceID, name) && !cfg.Deleted {
+		if storage.DeploymentKeyMatches(cfg.Def, nodeID, spaceID, name) && !cfg.Deleted() {
 			panic(fmt.Sprintf("deployment node=%d space=%d name=%q already exists", nodeID, spaceID, name))
 		}
 	}
-	return s.CreateDeploymentLocked(ctx, &apigen.Deployment{
-		NodeID:  nodeID,
-		SpaceID: spaceID,
-		Name:    name,
-		Spec:    *spec,
-	})
+	return s.CreateDeploymentLocked(ctx, &apigen.DeploymentDef{NodeID: nodeID, SpaceID: spaceID, Name: name, Spec: *spec})
 }
 
 func updateDeployment(s *Service, ctx apigen.Context, deploymentID int32, update DeploymentUpdate) *apigen.Deployment {
@@ -72,7 +67,7 @@ func mustSetDeploymentWorkloadState(s *Service, ctx apigen.Context, deploymentID
 	defer s.Mu.Unlock()
 
 	existing := s.mustLatestDeploymentLocked(deploymentID)
-	spec := mustDecodeDeploymentSpec(existing.Spec.Encode(), int64(deploymentID), int64(existing.SpecVersion))
+	spec := mustDecodeDeploymentSpec(existing.Def.Spec.Encode(), int64(deploymentID), int64(existing.SpecVersion))
 	if err := spec.SetWorkloadState(version, running); err != nil {
 		panic(fmt.Sprintf("update deployment workload state: %v", err))
 	}

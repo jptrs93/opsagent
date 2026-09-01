@@ -143,7 +143,7 @@ func (s *Service) InvalidateNodeRuntimeState(nodeID int32) (int64, error) {
 
 	var exceptIDs []int64
 	for _, cfg := range s.deploymentCache {
-		if cfg.SpaceID == OpendeploySpaceID && cfg.Name == internaldeploy.SelfName {
+		if cfg.Def.SpaceID == OpendeploySpaceID && cfg.Def.Name == internaldeploy.SelfName {
 			exceptIDs = append(exceptIDs, int64(cfg.ID))
 		}
 	}
@@ -355,7 +355,7 @@ func (s *Service) CountDeploymentsForSpace(id int32) (int64, error) {
 	defer s.Mu.Unlock()
 	var count int64
 	for _, cfg := range s.deploymentCache {
-		if !cfg.Deleted && cfg.SpaceID == id {
+		if !cfg.Deleted() && cfg.Def.SpaceID == id {
 			count++
 		}
 	}

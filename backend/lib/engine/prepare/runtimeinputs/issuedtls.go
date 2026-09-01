@@ -36,7 +36,7 @@ func IssuedTLSMountOf(cfg *apigen.Deployment) *apigen.IssuedTLSMount {
 	if cfg == nil {
 		return nil
 	}
-	container := cfg.Spec.Container()
+	container := cfg.Def.Spec.Container()
 	if container == nil {
 		return nil
 	}

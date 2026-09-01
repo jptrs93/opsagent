@@ -23,6 +23,7 @@ import {
     ViewPlugin,
 } from "@codemirror/view";
 import {deploymentHcl} from "../hcl/index.js";
+import {deploymentDeleted} from "../lib/deployment.js";
 import {
     deploymentDocumentToHcl,
     deploymentHclCompletionOptions,
@@ -138,7 +139,7 @@ function deployment(item) {
 
 function catalogName(item, namespace) {
     if (namespace === "asset") return item?.key;
-    if (namespace === "deployment") return deployment(item)?.name;
+    if (namespace === "deployment") return deployment(item)?.def?.name;
     return item?.name;
 }
 
@@ -148,7 +149,7 @@ function catalogID(item, namespace) {
 
 function catalogSpaceID(item, namespace) {
     return namespace === "deployment"
-        ? deployment(item)?.spaceId
+        ? deployment(item)?.def?.spaceId
         : item?.spaceId;
 }
 
@@ -191,7 +192,7 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
     const options = new Map();
 
     for (const item of collection) {
-        if (item?.deleted || deployment(item)?.deleted) continue;
+        if (item?.deleted || deploymentDeleted(deployment(item))) continue;
         const itemSpaceID = catalogSpaceID(item, type);
         if (type === "deployment" && spaceID !== null
             && itemSpaceID !== undefined && itemSpaceID !== null
@@ -203,7 +204,7 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
             && Number(itemSpaceID) !== Number(spaceID)
             && Number(itemSpaceID) !== GLOBAL_SPACE_ID) continue;
         if (type === "deployment" && nodeID !== null
-            && Number(deployment(item)?.nodeId) !== Number(nodeID)) continue;
+            && Number(deployment(item)?.def?.nodeId) !== Number(nodeID)) continue;
         const name = catalogName(item, type);
         if (!name) continue;
         const quoted = JSON.stringify(String(name));

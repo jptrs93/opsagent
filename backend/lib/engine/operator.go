@@ -41,8 +41,8 @@ func preparerReady(status *apigen.ScheduledInstanceStatus, seqNo int32) bool {
 }
 
 func configName(cfg *apigen.Deployment) string {
-	if cfg.Name != "" {
-		return fmt.Sprintf("%d:%d:%s", cfg.SpaceID, cfg.NodeID, cfg.Name)
+	if cfg.Def.Name != "" {
+		return fmt.Sprintf("%d:%d:%s", cfg.Def.SpaceID, cfg.Def.NodeID, cfg.Def.Name)
 	}
 	return fmt.Sprintf("id=%d", cfg.ID)
 }
@@ -331,9 +331,9 @@ func (op DeploymentOperator) prepareImage(ctx context.Context, instanceID int32,
 		started apigen.ImageStatus
 		run     imagePreparer
 	)
-	container := dep.Spec.Container()
+	container := dep.Def.Spec.Container()
 	switch {
-	case dep.Spec.OpendeploySpec != nil:
+	case dep.Def.Spec.OpendeploySpec != nil:
 		started, run = apigen.ImageStatus_IMAGE_DOWNLOADING, op.OpendeployRelease.PrepareBinary
 	case container != nil && container.Source.NixDockerBuild != nil:
 		started, run = apigen.ImageStatus_IMAGE_BUILDING, op.NixDocker.Prepare
@@ -367,7 +367,7 @@ func (op DeploymentOperator) reAttachPreparer(instanceID int32, dep *apigen.Depl
 		// The image check comes first because it is local and decisive: a missing
 		// image genuinely needs the artifact rebuilt. Runtime inputs are checked
 		// after, so that a primary that is briefly unreachable cannot mask it.
-		if dep.Spec.OpendeploySpec == nil {
+		if dep.Def.Spec.OpendeploySpec == nil {
 			imageReady := op.ImageReady
 			if imageReady == nil {
 				imageReady = ctrd.Default.ImageReady
@@ -387,7 +387,7 @@ func (op DeploymentOperator) reAttachPreparer(instanceID int32, dep *apigen.Depl
 		slog.InfoContext(ctx, fmt.Sprintf("reAttachPreparer: no version to prepare specVersion=%d", dep.SpecVersion))
 		return prepare.Finished(dep.SpecVersion)
 	}
-	if dep.Spec.OpendeploySpec != nil && prev.IsZero() && dep.WorkloadVersion() == version.Version {
+	if dep.Def.Spec.OpendeploySpec != nil && prev.IsZero() && dep.WorkloadVersion() == version.Version {
 		slog.InfoContext(ctx, fmt.Sprintf("reAttachPreparer: current opendeploy build already installed specVersion=%d workloadVersion=%s", dep.SpecVersion, dep.WorkloadVersion()))
 		return prepare.Finished(dep.SpecVersion)
 	}

@@ -42,10 +42,10 @@ export class DeploymentCreationUpdate {
         this.mode = editorMode;
         this.existingState = deploymentRow;
         this.form = deployment ? deploymentToForm(deployment) : emptyDeploymentForm();
-        const workload = deployment?.spec?.container1Spec || deployment?.spec?.opendeploySpec;
+        const workload = deployment?.def?.spec?.container1Spec || deployment?.def?.spec?.opendeploySpec;
         const initialRunning = editorMode === 'create'
             ? (deploymentRow ? Boolean(deploymentRow.desiredRunning) : true)
-            : (deployment?.spec?.opendeploySpec ? true : (workload ? Boolean(workload.running) : Boolean(deploymentRow?.desiredRunning)));
+            : (deployment?.def?.spec?.opendeploySpec ? true : (workload ? Boolean(workload.running) : Boolean(deploymentRow?.desiredRunning)));
         this.desiredRunning = van.state(initialRunning);
         this.documentRevision = van.state(0);
         this.initialSpecKey = JSON.stringify(formToSpec(this.form));

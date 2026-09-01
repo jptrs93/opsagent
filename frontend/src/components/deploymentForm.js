@@ -2,6 +2,7 @@ import van from "vanjs-core";
 import {caretRightIcon, chevronDownIcon, editIcon, eyeOpenIcon, refreshIcon, xIcon} from "../lib/icons.js";
 import {groupEnvRows, isBooleanRow, isTruthyEnvValue} from "../lib/envVarGrouping.js";
 import {nodeAllowsSpace} from "../lib/nodeSpaces.js";
+import {deploymentDeleted} from "../lib/deployment.js";
 import {assetEditorOverlay} from "./assetEditor.js";
 import {referencePicker} from "./referencePicker.js";
 import {
@@ -94,7 +95,7 @@ export function emptyDeploymentForm() {
 }
 
 export function deploymentToForm(cfg) {
-    const spec = cfg?.spec || {};
+    const spec = cfg?.def?.spec || {};
     const container = spec.container1Spec || {};
     const source = container.source || {};
     const runtime = container.runtime || {};
@@ -106,9 +107,9 @@ export function deploymentToForm(cfg) {
     const fileDescriptorLimit = Number(runtime.fileDescriptorLimit || 0);
     return makeFormState({
         deploymentId: cfg.id || 0,
-        name: cfg?.name || '',
-        spaceId: cfg?.spaceId ?? DEFAULT_SPACE_ID,
-        nodeId: cfg.nodeId || 0,
+        name: cfg?.def?.name || '',
+        spaceId: cfg?.def?.spaceId ?? DEFAULT_SPACE_ID,
+        nodeId: cfg?.def?.nodeId || 0,
         sourceType: source.remoteImage ? SOURCE_DOCKER_IMAGE : SOURCE_NIX_DOCKER,
         nixRepo: nixDocker.repo || '',
         nixFlake: nixDocker.flake || '',
@@ -1615,7 +1616,7 @@ export function envVarsPane(form, opts = {}) {
                 `${row.id}:${row.type || 'value'}:${toggles && isBooleanRow(row) ? 1 : 0}:${row.addressDeploymentId || 0}:${row.addressSpaceId || 0}:${row.asset || ''}:${row.assetVersionId || 0}:${row.version || 0}`)])]),
             secretRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
             configRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
-            `${form.nodeId.val}:${deployments().map(item => `${item.config?.id || 0}:${item.config?.nodeId || 0}:${item.config?.spaceId ?? 0}:${item.config?.name || ''}:${item.config?.spec?.networking?.mode || 0}:${item.config?.deleted ? 1 : 0}`).join('|')}`,
+            `${form.nodeId.val}:${deployments().map(item => `${item.config?.id || 0}:${item.config?.def?.nodeId || 0}:${item.config?.def?.spaceId ?? 0}:${item.config?.def?.name || ''}:${item.config?.def?.spec?.networking?.mode || 0}:${deploymentDeleted(item.config) ? 1 : 0}`).join('|')}`,
             assets().map(asset => `${asset.id}:${asset.key}:${asset.version}`).join('|'),
             `${form.spaceId.val}:${spaces().map(space => `${space.id}:${space.name || ''}`).join('|')}`,
         ].join('::');
@@ -1834,7 +1835,7 @@ function envAddressAutocomplete(form, row, catalogs) {
             selectedKey.val = deployment.config.id;
             updateEnvRow(form, row.id, {
                 addressDeploymentId: deployment.config.id,
-                addressSpaceId: deployment.config.spaceId ?? 0,
+                addressSpaceId: deployment.config.def?.spaceId ?? 0,
             });
         },
     });
@@ -1845,10 +1846,10 @@ function addressOptionsForRow(form, row, deployments, spaces) {
     const currentDeploymentID = Number(form.deploymentId.val || 0);
     const spaceId = Number(form.spaceId.val || DEFAULT_SPACE_ID);
     const all = deployments || [];
-    const selectable = all.filter(item => !item.config?.deleted
+    const selectable = all.filter(item => !deploymentDeleted(item.config)
         && Number(item.config?.id || 0) !== currentDeploymentID
-        && Number(item.config?.spec?.networking?.mode || 0) === NETWORKING_MODE_VIRTUAL
-        && (Number(item.config?.spaceId ?? 0) === spaceId || Number(item.config?.spaceId ?? 0) === DEFAULT_SPACE_ID));
+        && Number(item.config?.def?.spec?.networking?.mode || 0) === NETWORKING_MODE_VIRTUAL
+        && (Number(item.config?.def?.spaceId ?? 0) === spaceId || Number(item.config?.def?.spaceId ?? 0) === DEFAULT_SPACE_ID));
     const selected = all.find(item => Number(item.config?.id || 0) === selectedID);
     if (selected && selectedID !== currentDeploymentID && !selectable.some(item => Number(item.config?.id || 0) === selectedID)) selectable.push(selected);
     return selectable.sort((a, b) => addressOptionLabel(a, spaces).localeCompare(addressOptionLabel(b, spaces)));
@@ -1856,7 +1857,7 @@ function addressOptionsForRow(form, row, deployments, spaces) {
 
 function addressOptionLabel(item, spaces) {
     const config = item?.config || {};
-    return `${spaceNameForID(spaces, config.spaceId ?? 0)} / ${config.name || 'deployment'} (#${config.id || 0})`;
+    return `${spaceNameForID(spaces, config.def?.spaceId ?? 0)} / ${config.def?.name || 'deployment'} (#${config.id || 0})`;
 }
 
 function versionedRefOptions(refs, selectedID, allRefs = refs) {
@@ -2185,12 +2186,12 @@ function deploymentVolumeOptions(deployments, form, spaces, selectedID = 0) {
     const all = deployments || [];
     const options = all.filter(d => {
         const config = d.config;
-        const container = config?.spec?.container1Spec;
+        const container = config?.def?.spec?.container1Spec;
         return config?.id
             && config.id !== currentID
-            && !config.deleted
-            && Number(config.nodeId || 0) === nodeId
-            && (Number(config.spaceId ?? 0) === spaceId || Number(config.spaceId ?? 0) === DEFAULT_SPACE_ID)
+            && !deploymentDeleted(config)
+            && Number(config.def?.nodeId || 0) === nodeId
+            && (Number(config.def?.spaceId ?? 0) === spaceId || Number(config.def?.spaceId ?? 0) === DEFAULT_SPACE_ID)
             && container
             && !container.runtime?.defaultVolume?.disabled;
     });
@@ -2210,8 +2211,8 @@ function optionDeployments(opts) {
 
 function deploymentVolumeLabel(deployment, spaces) {
     const config = deployment.config || {};
-    const space = spaceName(config.spaceId, spaces);
-    return `${config.name || `deployment ${config.id}`} (${space})`;
+    const space = spaceName(config.def?.spaceId, spaces);
+    return `${config.def?.name || `deployment ${config.id}`} (${space})`;
 }
 
 function spaceName(id, spaces) {
@@ -2522,9 +2523,10 @@ function deploymentNameTaken(form, deployments) {
         const config = deployment?.config || deployment?.currentConfig || deployment;
         const candidateId = Number(config?.id || deployment?.id || 0);
         if (deploymentId && candidateId === deploymentId) return false;
-        return !config?.deleted && !deployment?.deleted
-            && config?.name === name
-            && Number(config?.spaceId) === spaceId
-            && Number(config?.nodeId ?? deployment?.nodeId) === nodeId;
+        const def = config?.def || config;
+        return !deploymentDeleted(config) && !deployment?.deleted
+            && def?.name === name
+            && Number(def?.spaceId) === spaceId
+            && Number(def?.nodeId ?? deployment?.nodeId) === nodeId;
     });
 }

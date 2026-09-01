@@ -344,9 +344,9 @@ function primaryOpenDeployVersion() {
     const primaryID = Number(machinesS.val.find(machine => machine.isPrimary)?.id || 0);
     if (!primaryID) return "";
     const deployment = deploymentsS.val.find(item =>
-        Number(item.config?.nodeId || 0) === primaryID &&
-        Number(item.config?.spaceId || 0) === 0 &&
-        item.config?.name === "opendeploy",
+        Number(item.config?.def?.nodeId || 0) === primaryID &&
+        Number(item.config?.def?.spaceId || 0) === 0 &&
+        item.config?.def?.name === "opendeploy",
     );
     return (deployment?.status?.runner?.runningVersion || deploymentWorkload(deployment?.config)?.version || "").trim();
 }

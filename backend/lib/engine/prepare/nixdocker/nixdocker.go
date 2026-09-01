@@ -55,7 +55,7 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.Deployment, log *pre
 		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 
-	nix := dep.Spec.Container().Source.NixDockerBuild
+	nix := dep.Def.Spec.Container().Source.NixDockerBuild
 	localImageRef := imageRef(nix, version)
 	log.Write("checking for reusable image %s", localImageRef)
 	if err := p.imageReady(ctx, localImageRef); err == nil {

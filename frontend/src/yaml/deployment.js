@@ -57,7 +57,7 @@ function writeValue(value, indent) {
 
 export function orderDeployment(config) {
     const ordered = {};
-    for (const key of ['id', 'nodeId', 'name', 'spaceId', 'spaceVersion', 'createdAt', 'version', 'updatedAt', 'author', 'spec', 'deleted']) {
+    for (const key of ['id', 'def', 'version', 'specVersion', 'spaceVersion', 'nameVersion', 'createdTime', 'eventTime', 'author', 'eventType']) {
         if (config[key] !== undefined) ordered[key] = config[key];
     }
     for (const [key, value] of Object.entries(config)) {
@@ -66,9 +66,14 @@ export function orderDeployment(config) {
     return ordered;
 }
 
+const bridgeFields = ['nodeId', 'legacyCreatedAt', 'legacyUpdatedAt', 'spec', 'spaceId', 'name'];
+
 export function cleanDeployment(config) {
     if (!config) return undefined;
-    return omitZeroValues(config);
+    const cleaned = omitZeroValues(config);
+    if (!cleaned) return cleaned;
+    for (const key of bridgeFields) delete cleaned[key];
+    return cleaned;
 }
 
 export function deploymentToYaml(config) {

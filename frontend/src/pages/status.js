@@ -16,7 +16,7 @@ import {deploymentOverlay} from "../components/deploymentJsonOverlay.js";
 import {recentlyDeletedOverlay} from "../components/recentlyDeletedOverlay.js";
 import {capi} from "../capi/index.js";
 import {nodeDisplayName} from "../lib/machines.js";
-import {containerWorkload, deploymentWorkload} from "../lib/deployment.js";
+import {containerWorkload, deploymentDeleted, deploymentWorkload} from "../lib/deployment.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 import {preparerPhase} from "../lib/preparerStatus.js";
@@ -254,7 +254,7 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
 }
 
 const deploymentSourceView = (config) => {
-    const spec = config?.spec || {};
+    const spec = config?.def?.spec || {};
     const container = spec.container1Spec || null;
     const source = container?.source || {};
     if (source.nixDockerBuild) {
@@ -278,11 +278,11 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
         .filter(machine => Number(machine.id || 0))
         .map(machine => [Number(machine.id), machine]));
 
-    return deployments.filter(d => d.config && d.config.id && !d.config.deleted).map((d) => {
+    return deployments.filter(d => d.config && d.config.id && !deploymentDeleted(d.config)).map((d) => {
         const id = d.config.id;
         const instanceId = d.instance?.id || 0;
-        const identity = {spaceId: d.config.spaceId, name: d.config.name};
-        const spec = d.config.spec || {};
+        const identity = {spaceId: d.config.def?.spaceId, name: d.config.def?.name};
+        const spec = d.config.def?.spec || {};
         const workload = deploymentWorkload(d.config) || {};
         const runner = d.status?.runner || {};
         const prep = d.status?.preparer || {};
@@ -290,7 +290,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
 
         const runnerType = spec.opendeploySpec ? 'opendeploy' : 'container';
         const spaceId = identity.spaceId || 0;
-        const nodeId = Number(d.config.nodeId || 0);
+        const nodeId = Number(d.config.def?.nodeId || 0);
         const node = nodeDisplayName(nodeId, machines);
         const nodeMissing = Boolean(nodeId) && !machinesByNodeId.has(nodeId);
         const existingStatus = runner.status || 0;
@@ -346,8 +346,8 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             numberOfRestarts: runner.numberOfRestarts || 0,
             lastRestartAt: runner.lastRestartAt,
             deployedBy: d.config.author || 0,
-            deployedAt: d.config.updatedAt,
-            createdAt: d.config.createdAt,
+            deployedAt: d.config.eventTime,
+            createdAt: d.config.createdTime,
             hasNetworking: Boolean(spec.networking),
             deployedVersion: workload.version || '',
             desiredRunning: Boolean(workload.running),

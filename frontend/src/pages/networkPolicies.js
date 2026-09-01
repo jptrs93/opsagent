@@ -3,6 +3,7 @@ import {capi} from "../capi/index.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {trashIcon} from "../lib/icons.js";
 import {deploymentsS, networkPoliciesS, spacesS} from "../state/deployments.js";
+import {deploymentDeleted} from "../lib/deployment.js";
 import {
     formatPorts,
     parsePorts,
@@ -39,8 +40,8 @@ export function networkPoliciesPage() {
 
     const activeSpaces = () => (spacesS.val || []).filter((s) => s && !s.deleted);
     const activeDeployments = () => (deploymentsS.val || [])
-        .filter((d) => d?.config && !d.config.deleted)
-        .sort((a, b) => (a.config.name || "").localeCompare(b.config.name || ""));
+        .filter((d) => d?.config && !deploymentDeleted(d.config))
+        .sort((a, b) => (a.config.def?.name || "").localeCompare(b.config.def?.name || ""));
 
     const sortedPolicies = () => [...(networkPoliciesS.val || [])]
         .filter((policy) => policy && !policy.deleted)
@@ -170,7 +171,7 @@ export function networkPoliciesPage() {
                     option({value: -1, selected: () => !activeDeployments().some((d) => Number(d.config.id) === Number(idState.val))}, "select deployment"),
                     ...activeDeployments().map((d) => option(
                         {value: d.config.id, selected: () => Number(idState.val) === Number(d.config.id)},
-                        `${d.config.name || d.config.id} (space ${d.config.spaceId ?? 0})`)),
+                        `${d.config.def?.name || d.config.id} (space ${d.config.def?.spaceId ?? 0})`)),
                 ),
         );
     };

@@ -7,7 +7,7 @@ import {loadAssetPreview, uploadAsset} from "../lib/assetContent.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {formatDate, formatDateTime} from "../lib/date.js";
-import {containerWorkload} from "../lib/deployment.js";
+import {containerWorkload, deploymentDeleted} from "../lib/deployment.js";
 import {
     caretRightIcon, checkIcon, chevronDownIcon, closeIcon, columnsIcon, editIcon,
     fileIcon, folderIcon, plusIcon, searchIcon, sortArrowIcon, uploadIcon,
@@ -177,7 +177,7 @@ export function assetsPage() {
         const versionIDs = new Set((item.meta.contentVersions || []).map((ref) => Number(ref?.id || 0)).filter(Boolean));
         const deployments = deploymentUsages(deploymentsS.val, spacesS.val, machinesS.val, (deployment) => {
             const cfg = deployment?.config;
-            if (!cfg || cfg.deleted) return false;
+            if (!cfg || deploymentDeleted(cfg)) return false;
             const runtime = containerWorkload(cfg)?.runtime || {};
             return Object.values(runtime.envVars || {}).some((ref) => assetRefMatches(versionIDs, ref))
                 || (runtime.assetMounts || []).some((ref) => assetRefMatches(versionIDs, ref));

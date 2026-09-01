@@ -208,8 +208,7 @@ applied in the same atomic netlink transaction as the NAT rules — there is
 never a window with DNAT or routes but no policy. The forward-chain policy is
 `accept`; enforcement is explicit rules scoped to opendeploy veths and the
 cluster `/48`, so host traffic, host firewalls, and non-cluster flows are
-untouched. The original design and its fixed decisions are recorded in
-`docs/future-work/network-policy-implementation-plan.md`.
+untouched.
 
 The static skeleton (both `opendeploy` tables, their base chains, the empty
 sets, the masquerade rule, and the fixed forward-chain program) is recreated on

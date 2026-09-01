@@ -16,7 +16,7 @@ import (
 // Prepare pulls and unpacks a registry image for immediate use by the
 // container runner.
 func Prepare(ctx context.Context, dep *apigen.Deployment, log *preparerlog.Log) (string, apigen.ImageStatus) {
-	container := dep.Spec.Container()
+	container := dep.Def.Spec.Container()
 	version := dep.WorkloadVersion()
 	logPath := dep.PrepareOutputPath()
 	ref, err := imageref.Ref(container.Source.RemoteImage.Image, version)

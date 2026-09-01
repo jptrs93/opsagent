@@ -31,10 +31,10 @@ var ConfigRefOutsideSpaceErr = apigen.NewApiErr("Deployment references a config 
 var AssetRefOutsideSpaceErr = apigen.NewApiErr("Deployment references an asset outside its own or the global space", "asset_reference_outside_space", http.StatusBadRequest)
 
 func (h *Handler) canDeleteStaleDisconnectedSystemDeployment(cfg *apigen.Deployment) bool {
-	if cfg.NodeID <= 0 || cfg.NodeID == h.NodeID || h.Cluster == nil {
+	if cfg.Def.NodeID <= 0 || cfg.Def.NodeID == h.NodeID || h.Cluster == nil {
 		return false
 	}
-	_, connected := h.Cluster.ConnectedNodes()[cfg.NodeID]
+	_, connected := h.Cluster.ConnectedNodes()[cfg.Def.NodeID]
 	return !connected
 }
 
@@ -60,13 +60,13 @@ func (h *Handler) instancePermitsDelete(cfg *apigen.Deployment, status apigen.Sc
 	if status.Runner.Status != apigen.RunningStatus_RUNNING && status.Runner.Status != apigen.RunningStatus_DEPLOYMENT_STATUS_UNKNOWN {
 		return false
 	}
-	if cfg.NodeID <= 0 || cfg.NodeID == h.NodeID {
+	if cfg.Def.NodeID <= 0 || cfg.Def.NodeID == h.NodeID {
 		return false
 	}
 	if h.Cluster == nil {
 		return true
 	}
-	_, connected := h.Cluster.ConnectedNodes()[cfg.NodeID]
+	_, connected := h.Cluster.ConnectedNodes()[cfg.Def.NodeID]
 	return !connected
 }
 
@@ -491,10 +491,10 @@ func (h *Handler) validateNodeNetworkingClaims(live state.LiveState, nodeID, dep
 	}
 
 	for _, cfg := range live.Deployments {
-		if cfg.Deleted || cfg.NodeID != nodeID || cfg.ID == deploymentID {
+		if cfg.Deleted() || cfg.Def.NodeID != nodeID || cfg.ID == deploymentID {
 			continue
 		}
-		if err := add(cfg.ID, cfg.Spec); err != nil {
+		if err := add(cfg.ID, cfg.Def.Spec); err != nil {
 			return err
 		}
 	}
@@ -585,7 +585,7 @@ func (h *Handler) validateSecretRefSpaces(spec *apigen.DeploymentSpec, spaceID i
 	if spec == nil {
 		return nil
 	}
-	cfg := apigen.Deployment{Spec: *spec}
+	cfg := apigen.Deployment{Def: apigen.DeploymentDef{Spec: *spec}}
 	ids := runtimeinputs.SecretRefs(&cfg)
 	if len(ids) > 0 && h.Secrets == nil {
 		return invalidConfigErrf("secrets cannot be resolved here")
@@ -608,7 +608,7 @@ func (h *Handler) validateConfigRefSpaces(spec *apigen.DeploymentSpec, spaceID i
 	if spec == nil {
 		return nil
 	}
-	cfg := apigen.Deployment{Spec: *spec}
+	cfg := apigen.Deployment{Def: apigen.DeploymentDef{Spec: *spec}}
 	for _, id := range runtimeinputs.ConfigRefs(&cfg) {
 		ref, ok := h.Store.GetConfigVersionByID(id)
 		if !ok {
@@ -627,7 +627,7 @@ func (h *Handler) validateAssetRefSpaces(spec *apigen.DeploymentSpec, spaceID in
 	if spec == nil {
 		return nil
 	}
-	cfg := apigen.Deployment{Spec: *spec}
+	cfg := apigen.Deployment{Def: apigen.DeploymentDef{Spec: *spec}}
 	for _, ref := range runtimeinputs.RequiredAssetRefs(&cfg) {
 		version, ok := h.Store.GetAssetVersionRef(ref.AssetVersionID)
 		if !ok {
@@ -656,17 +656,17 @@ func (h *Handler) validateAddressEnvRefs(live state.LiveState, nodeID, deploymen
 			return invalidConfigErrf("container1Spec.runtime.envVars.%s: deployment cannot reference its own address", key)
 		}
 		target := configs[targetID]
-		if target == nil || target.Deleted {
+		if target == nil || target.Deleted() {
 			return invalidConfigErrf("container1Spec.runtime.envVars.%s: unknown address deployment id %d", key, targetID)
 		}
-		if target.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		if target.Def.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			return invalidConfigErrf("container1Spec.runtime.envVars.%s: address deployment must use virtual networking", key)
 		}
-		if value.AddressSpaceID == nil || target.SpaceID != *value.AddressSpaceID {
+		if value.AddressSpaceID == nil || target.Def.SpaceID != *value.AddressSpaceID {
 			return invalidConfigErrf("container1Spec.runtime.envVars.%s: address space does not match deployment", key)
 		}
-		if target.SpaceID != spaceID && target.SpaceID != state.DefaultSpaceID {
-			return invalidConfigErrf("container1Spec.runtime.envVars.%s: address deployment %q lives in space %d and cannot be referenced from a deployment in space %d", key, target.Name, target.SpaceID, spaceID)
+		if target.Def.SpaceID != spaceID && target.Def.SpaceID != state.DefaultSpaceID {
+			return invalidConfigErrf("container1Spec.runtime.envVars.%s: address deployment %q lives in space %d and cannot be referenced from a deployment in space %d", key, target.Def.Name, target.Def.SpaceID, spaceID)
 		}
 	}
 	return nil
@@ -1022,16 +1022,16 @@ func (h *Handler) validateCrossDeploymentMountSources(live state.LiveState, spec
 			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: a deployment cannot mount its own default volume")
 		}
 		source := live.Deployments[mount.DeploymentID]
-		if source == nil || source.Deleted {
+		if source == nil || source.Deleted() {
 			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: source deployment %d does not exist", mount.DeploymentID)
 		}
-		if source.NodeID != nodeID {
+		if source.Def.NodeID != nodeID {
 			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: source deployment %d is on a different node", mount.DeploymentID)
 		}
-		if source.SpaceID != spaceID && source.SpaceID != state.DefaultSpaceID {
-			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: source deployment %q lives in space %d and cannot be mounted from a deployment in space %d", source.Name, source.SpaceID, spaceID)
+		if source.Def.SpaceID != spaceID && source.Def.SpaceID != state.DefaultSpaceID {
+			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: source deployment %q lives in space %d and cannot be mounted from a deployment in space %d", source.Def.Name, source.Def.SpaceID, spaceID)
 		}
-		container := source.Spec.Container()
+		container := source.Def.Spec.Container()
 		if container == nil || container.Runtime.DefaultVolume.Disabled {
 			return invalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: source deployment %d has no default volume", mount.DeploymentID)
 		}

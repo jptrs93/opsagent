@@ -215,7 +215,7 @@ func (p *Handler) allowedRefs(predicate storage.ScheduledInstancePredicate) clus
 
 func addIngressCertRefs(refs clusterAllowedRefs, snapshot []apigen.ScheduledInstanceState, bindings map[string]int32) {
 	for _, state := range snapshot {
-		for _, route := range state.Config.Spec.Networking.Ingress {
+		for _, route := range state.Config.Def.Spec.Networking.Ingress {
 			if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || route.HttpsConfig == nil {
 				continue
 			}
@@ -250,7 +250,7 @@ func buildAllowedRefs(snapshot []apigen.ScheduledInstanceState) clusterAllowedRe
 		if cfg.ID != 0 {
 			refs.deploymentIDs[cfg.ID] = struct{}{}
 		}
-		container := cfg.Spec.Container()
+		container := cfg.Def.Spec.Container()
 		if container != nil && container.Source.NixDockerBuild != nil {
 			refs.usesGithub = true
 		}
@@ -378,7 +378,7 @@ func (p *Handler) GetV1ClusterIssuedTls(authCtx apigen.Context, req *apigen.Clus
 		if instance.Config.ID != req.DeploymentID {
 			continue
 		}
-		if instance.Config.Spec.Container() == nil || instance.Config.Spec.Container().Runtime.IssuedTlsMount == nil {
+		if instance.Config.Def.Spec.Container() == nil || instance.Config.Def.Spec.Container().Runtime.IssuedTlsMount == nil {
 			return nil, clusterForbiddenErr
 		}
 		return p.issuedTLS.Issue(&instance.Config)

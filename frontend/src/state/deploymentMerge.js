@@ -1,3 +1,4 @@
+import {deploymentDeleted} from "../lib/deployment.js";
 // FINALIZED: the primary has accepted the placement is gone. It owns nothing,
 // but it is still the last thing an ordinal ran, which is all a stopped
 // deployment has to show.
@@ -45,7 +46,7 @@ export const mergeDeploymentState = (configs, instances) => {
 
     const rows = [];
     for (const config of configs.values()) {
-        if (!config?.id || config.deleted) continue;
+        if (!config?.id || deploymentDeleted(config)) continue;
         const scheduledInstances = instancesByDeployment.get(Number(config.id)) || [];
         const runtime = scheduledInstances[scheduledInstances.length - 1];
         rows.push({

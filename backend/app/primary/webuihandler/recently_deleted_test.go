@@ -107,7 +107,7 @@ func TestRecentlyDeletedRetainsForkableSpec(t *testing.T) {
 	if cfg.Name != "web" || cfg.NodeID != nodeID {
 		t.Fatalf("identity = %q/%d, want web/%d", cfg.Name, cfg.NodeID, nodeID)
 	}
-	if !cfg.Deleted {
+	if !cfg.Deleted() {
 		t.Fatal("tombstone is not marked deleted")
 	}
 }

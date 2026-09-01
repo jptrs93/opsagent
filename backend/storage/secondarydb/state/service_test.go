@@ -17,12 +17,9 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 
 	cfg := apigen.Deployment{
 		ID:          7,
-		NodeID:      23,
-		SpaceID:     1,
-		Name:        "api",
 		SpecVersion: 3,
-		UpdatedAt:   time.UnixMilli(1000),
-		Spec:        *testSpecWithState("v3", true),
+		EventTime:   time.UnixMilli(1000),
+		Def:         apigen.DeploymentDef{NodeID: 23, SpaceID: 1, Name: "api", Spec: *testSpecWithState("v3", true)},
 	}
 	const instanceID int32 = 11
 	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
@@ -59,7 +56,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 		t.Fatalf("expected 1 scheduled instance, got %d", len(got))
 	}
 	rc := got[0].Config
-	if rc.NodeID != 23 || rc.SpecVersion != 3 || rc.SpaceID != 1 || rc.Name != "api" {
+	if rc.Def.NodeID != 23 || rc.SpecVersion != 3 || rc.Def.SpaceID != 1 || rc.Def.Name != "api" {
 		t.Fatalf("config not round-tripped: %+v", rc)
 	}
 	rs := got[0].Status
@@ -85,15 +82,13 @@ func TestSecondaryOlderAssignmentDoesNotStompPinnedConfig(t *testing.T) {
 	store := Open(dbPath)
 
 	v1 := apigen.Deployment{
-		ID: 12, NodeID: 3, SpecVersion: 1,
-		SpaceID: 1, Name: "tls-ingress-one",
-		Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
-			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-		}},
+		ID:          12,
+		SpecVersion: 1,
+		Def:         apigen.DeploymentDef{NodeID: 3, SpaceID: 1, Name: "tls-ingress-one", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}}},
 	}
 	v2 := v1
 	v2.SpecVersion = 2
-	v2.Spec.Networking.Ingress = []*apigen.Ingress{{
+	v2.Def.Spec.Networking.Ingress = []*apigen.Ingress{{
 		Kind:                 apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
 		Hostname:             "one.ingress.opendeploy.test",
 		TlsPassthroughConfig: &apigen.TlsPassthroughConfig{ContainerPort: 8443},
@@ -140,13 +135,13 @@ func assertPinnedAssignmentConfigs(t *testing.T, snapshot []apigen.ScheduledInst
 	if newer.Config.SpecVersion != 2 {
 		t.Fatalf("newer instance spec version = %d, want 2", newer.Config.SpecVersion)
 	}
-	if got := len(newer.Config.Spec.Networking.Ingress); got != 1 {
+	if got := len(newer.Config.Def.Spec.Networking.Ingress); got != 1 {
 		t.Fatalf("newer instance ingress count = %d, want 1 (older TERMINATE stomped pinned config)", got)
 	}
 	older := byID[14]
-	if older.Config.SpecVersion != 1 || len(older.Config.Spec.Networking.Ingress) != 0 {
+	if older.Config.SpecVersion != 1 || len(older.Config.Def.Spec.Networking.Ingress) != 0 {
 		t.Fatalf("older terminate instance config = ver %d ingress %d, want v1 with no ingress",
-			older.Config.SpecVersion, len(older.Config.Spec.Networking.Ingress))
+			older.Config.SpecVersion, len(older.Config.Def.Spec.Networking.Ingress))
 	}
 }
 
@@ -164,7 +159,7 @@ func TestSecondaryFinalizeAbsentDropsInstanceDurably(t *testing.T) {
 				ID: id, DeploymentID: deploymentID, DeploymentSpecVersion: 1, NodeID: 5,
 				State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 			},
-			Config: apigen.Deployment{ID: deploymentID, NodeID: 5, SpecVersion: 1, Spec: *nonEmptySpec()},
+			Config: apigen.Deployment{ID: deploymentID, SpecVersion: 1, Def: apigen.DeploymentDef{NodeID: 5, Spec: *nonEmptySpec()}},
 		})
 	}
 	write(41, 8)

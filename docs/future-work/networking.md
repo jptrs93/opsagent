@@ -35,8 +35,8 @@ Still open here:
   base transport remains unauthenticated and unencrypted; the planned
   replacement is WireGuard with static node keys — cryptographic node-level
   source attribution via cryptokey routing, one interface with peer entries
-  in place of the per-peer netdev mesh, and UDP underlay transport — per
-  `wireguard-transport-implementation-plan.md`.
+  in place of the per-peer netdev mesh, and UDP underlay transport — since
+  shipped; see `docs/engineering/networking.md`.
 
 ## Service discovery (DNS)
 
@@ -61,8 +61,8 @@ with central ACME issuance and route/collision validation. Remaining work:
 
 ## Network policy
 
-Implemented — see the Network Policy section of `docs/engineering/networking.md`
-and `network-policy-implementation-plan.md`. Override policies shipped as
+Implemented — see the Network Policy section of `docs/engineering/networking.md`.
+Override policies shipped as
 global first-class entities (space or deployment peers) rather than the
 deployment-config `allowedFrom` list sketched below; the design intent stands.
 

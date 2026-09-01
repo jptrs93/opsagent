@@ -5,8 +5,7 @@
 Implemented and wired into the default flow. This document records what the
 suite asserts about the policy boundary, and why each case is shaped the way it
 is; the boundary itself is documented in
-[`docs/engineering/networking.md`](../engineering/networking.md) and its design
-in [`network-policy-implementation-plan.md`](network-policy-implementation-plan.md).
+[`docs/engineering/networking.md`](../engineering/networking.md).
 
 Pieces:
 

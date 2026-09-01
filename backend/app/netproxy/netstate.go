@@ -174,7 +174,7 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 	prefix, _ := network.Default.PrefixValue()
 	virtual := make([]apigen.ScheduledInstanceState, 0, len(items))
 	for _, item := range items {
-		if item.Config.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		if item.Config.Def.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
 		virtual = append(virtual, item)
@@ -247,7 +247,7 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 			if !states.serving && !(states.standby && states.draining) {
 				continue
 			}
-			addr, err := prefix.InboundAddr(item.Config.SpaceID, item.Config.ID, item.Instance.InstanceOrdinal)
+			addr, err := prefix.InboundAddr(item.Config.Def.SpaceID, item.Config.ID, item.Instance.InstanceOrdinal)
 			if err != nil {
 				continue
 			}
@@ -259,11 +259,11 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 			endpointsByDeployment[item.Config.ID] = appendNewEndpoints(endpointsByDeployment[item.Config.ID], []*apigen.Endpoint{endpoint})
 		}
 		for _, item := range virtual {
-			name := network.DNSLabel(item.Config.Name)
+			name := network.DNSLabel(item.Config.Def.Name)
 			if name == "" {
 				continue
 			}
-			addService(name, network.SpaceDNSName(item.Config.SpaceID), endpointsByDeployment[item.Config.ID])
+			addService(name, network.SpaceDNSName(item.Config.Def.SpaceID), endpointsByDeployment[item.Config.ID])
 		}
 	}
 
@@ -310,7 +310,7 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 
 func renderIngress(item apigen.ScheduledInstanceState, endpoints []*apigen.Endpoint) []*apigen.NetIngress {
 	var out []*apigen.NetIngress
-	for _, route := range item.Config.Spec.Networking.Ingress {
+	for _, route := range item.Config.Def.Spec.Networking.Ingress {
 		if route == nil {
 			continue
 		}
@@ -442,10 +442,10 @@ const CertBundleFileName = "certbundle.pb"
 func RenderCertBundle(ctx context.Context, seq int64, items []apigen.ScheduledInstanceState, certs CertSecretResolver, acmeBindings map[string]int32, ensureSecrets func(context.Context, []int32) error) *apigen.CertBundle {
 	wanted := map[string]int32{}
 	for _, item := range items {
-		if item.Config.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		if item.Config.Def.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
-		for _, route := range item.Config.Spec.Networking.Ingress {
+		for _, route := range item.Config.Def.Spec.Networking.Ingress {
 			if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || route.HttpsConfig == nil {
 				continue
 			}

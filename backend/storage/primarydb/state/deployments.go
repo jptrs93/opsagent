@@ -20,7 +20,7 @@ func (s *Service) ListActiveDeployments() []*apigen.Deployment {
 	defer s.Mu.Unlock()
 	out := make([]*apigen.Deployment, 0, len(s.deploymentCache))
 	for _, cfg := range s.deploymentCache {
-		if !cfg.Deleted {
+		if !cfg.Deleted() {
 			out = append(out, cfg)
 		}
 	}
@@ -32,24 +32,15 @@ func (s *Service) MustFetchDeploymentHistory(deploymentID int32) []*apigen.Deplo
 	events := erru.Must(s.q.ListDeploymentEvents(ctx, int64(deploymentID)))
 	out := make([]*apigen.Deployment, 0, len(events))
 	for _, e := range events {
-		out = append(out, deploymentEventToProto(e))
+		out = append(out, deploymentFromRow(e))
 	}
 	return out
 }
 
-func (s *Service) CreateDeploymentLocked(ctx apigen.Context, updated *apigen.Deployment) *apigen.Deployment {
+func (s *Service) CreateDeploymentLocked(ctx apigen.Context, def *apigen.DeploymentDef) *apigen.Deployment {
 	bgCtx := context.Background()
 	dbID := erru.Must(s.q.NextDeploymentID(bgCtx))
-	now := time.Now()
-	next := *updated
-	next.ID = int32(dbID)
-	next.Version = 1
-	next.SpecVersion = 1
-	next.SpaceVersion = 1
-	next.CreatedAt = now
-	next.UpdatedAt = now
-	next.Author = ctx.AttributionUserID()
-	return s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventCreate)
+	return s.mustAppendDeploymentEventLocked(int32(dbID), def, ctx.AttributionUserID(), pq.DeploymentEventCreate)
 }
 
 type DeploymentUpdate struct {
@@ -59,41 +50,32 @@ type DeploymentUpdate struct {
 
 func (s *Service) UpdateDeploymentLocked(ctx apigen.Context, deploymentID int32, update DeploymentUpdate) *apigen.Deployment {
 	existing := s.mustLatestDeploymentLocked(deploymentID)
-	next := *existing
+	def := existing.Def
 	changed := false
-	if update.Spec != nil && !deploymentSpecsEqual(update.Spec, &existing.Spec) {
-		next.Spec = *update.Spec
-		next.SpecVersion = existing.SpecVersion + 1
+	if update.Spec != nil && !deploymentSpecsEqual(update.Spec, &def.Spec) {
+		def.Spec = *update.Spec
 		changed = true
 	}
-	if update.SpaceID != nil && *update.SpaceID != existing.SpaceID {
-		next.SpaceID = *update.SpaceID
-		next.SpaceVersion = existing.SpaceVersion + 1
+	if update.SpaceID != nil && *update.SpaceID != def.SpaceID {
+		def.SpaceID = *update.SpaceID
 		changed = true
 	}
 	if !changed {
 		return existing
 	}
-	next.Version = existing.Version + 1
-	next.UpdatedAt = time.Now()
-	next.Author = ctx.AttributionUserID()
-	return s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventUpdate)
+	return s.mustAppendDeploymentEventLocked(deploymentID, &def, ctx.AttributionUserID(), pq.DeploymentEventUpdate)
 }
 
 func (s *Service) DeleteDeploymentLocked(ctx apigen.Context, deploymentID int32) *apigen.Deployment {
 	existing := s.mustLatestDeploymentLocked(deploymentID)
-	next := *existing
-	next.Version = existing.Version + 1
-	next.UpdatedAt = time.Now()
-	next.Author = ctx.AttributionUserID()
-	next.Deleted = true
-	return s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventDelete)
+	def := existing.Def
+	return s.mustAppendDeploymentEventLocked(deploymentID, &def, ctx.AttributionUserID(), pq.DeploymentEventDelete)
 }
 
-func (s *Service) mustAppendDeploymentEventLocked(next *apigen.Deployment, eventType int64) *apigen.Deployment {
+func (s *Service) mustAppendDeploymentEventLocked(deploymentID int32, def *apigen.DeploymentDef, author int32, eventType int64) *apigen.Deployment {
 	bgCtx := context.Background()
-	prev, hasPrev := s.latestEvents[next.ID]
-	event := buildDeploymentEvent(prev, hasPrev, next, eventType)
+	prev, hasPrev := s.latestEvents[deploymentID]
+	event := buildDeploymentEvent(prev, hasPrev, deploymentID, def, author, eventType)
 	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
 		seq := erru.Must(q.NextGlobalSeq(bgCtx))
 		event.GlobalSeq = seq
@@ -101,7 +83,7 @@ func (s *Service) mustAppendDeploymentEventLocked(next *apigen.Deployment, event
 	}); err != nil {
 		panic(fmt.Sprintf("append deployment event tx: %v", err))
 	}
-	cfg := deploymentEventToProto(event)
+	cfg := deploymentFromRow(event)
 	s.deploymentCache[cfg.ID] = cfg
 	s.latestEvents[cfg.ID] = event
 	s.notifyDeploymentLocked(cfg.ID)
@@ -113,57 +95,51 @@ func (s *Service) mustLatestDeploymentLocked(deploymentID int32) *apigen.Deploym
 	if !ok {
 		panic(fmt.Sprintf("deployment %d has no events", deploymentID))
 	}
-	return deploymentEventToProto(event)
+	return deploymentFromRow(event)
 }
 
-func buildDeploymentEvent(prev pq.DeploymentEvent, hasPrev bool, next *apigen.Deployment, eventType int64) pq.DeploymentEvent {
+func buildDeploymentEvent(prev pq.DeploymentEvent, hasPrev bool, deploymentID int32, def *apigen.DeploymentDef, author int32, eventType int64) pq.DeploymentEvent {
+	now := time.Now().UnixMilli()
 	if !hasPrev {
-		if eventType != pq.DeploymentEventCreate || next.Version != 1 || next.SpecVersion != 1 || next.SpaceVersion != 1 {
-			panic(fmt.Sprintf("first event for deployment %d must be a v1 create", next.ID))
+		if eventType != pq.DeploymentEventCreate {
+			panic(fmt.Sprintf("first event for deployment %d must be a create", deploymentID))
 		}
 		return pq.DeploymentEvent{
-			CreatedAt:              next.UpdatedAt.UnixMilli(),
-			Author:                 int64(next.Author),
-			DeploymentID:           int64(next.ID),
+			EventTime:              now,
+			CreatedTime:            now,
+			Author:                 int64(author),
+			DeploymentID:           int64(deploymentID),
 			Version:                1,
 			SpecVersion:            1,
 			SpaceAssignmentVersion: 1,
 			NameVersion:            1,
-			Value:                  next.Encode(),
+			Value:                  def.Encode(),
 			EventType:              pq.DeploymentEventCreate,
 		}
 	}
-	prevCfg := deploymentEventToProto(prev)
-	assertSubVersion := func(name string, changed bool, prevV, nextV int32) {
-		want := prevV
-		if changed {
-			want++
-		}
-		if nextV != want {
-			panic(fmt.Sprintf("deployment %d %s version %d does not match change (prev %d, changed %v)",
-				next.ID, name, nextV, prevV, changed))
-		}
-	}
-	if next.Version != prevCfg.Version+1 {
-		panic(fmt.Sprintf("deployment %d version %d does not follow %d", next.ID, next.Version, prevCfg.Version))
-	}
-	assertSubVersion("spec", !deploymentSpecsEqual(&next.Spec, &prevCfg.Spec), prevCfg.SpecVersion, next.SpecVersion)
-	assertSubVersion("space", next.SpaceID != prevCfg.SpaceID, prevCfg.SpaceVersion, next.SpaceVersion)
-	nameVersion := prev.NameVersion
-	if next.Name != prevCfg.Name {
-		nameVersion++
-	}
-	return pq.DeploymentEvent{
-		CreatedAt:              next.UpdatedAt.UnixMilli(),
-		Author:                 int64(next.Author),
-		DeploymentID:           int64(next.ID),
-		Version:                int64(next.Version),
-		SpecVersion:            int64(next.SpecVersion),
-		SpaceAssignmentVersion: int64(next.SpaceVersion),
-		NameVersion:            nameVersion,
-		Value:                  next.Encode(),
+	prevDef := mustDecodeDeploymentDef(prev)
+	event := pq.DeploymentEvent{
+		EventTime:              now,
+		CreatedTime:            prev.CreatedTime,
+		Author:                 int64(author),
+		DeploymentID:           int64(deploymentID),
+		Version:                prev.Version + 1,
+		SpecVersion:            prev.SpecVersion,
+		SpaceAssignmentVersion: prev.SpaceAssignmentVersion,
+		NameVersion:            prev.NameVersion,
+		Value:                  def.Encode(),
 		EventType:              eventType,
 	}
+	if !deploymentSpecsEqual(&def.Spec, &prevDef.Spec) {
+		event.SpecVersion++
+	}
+	if def.SpaceID != prevDef.SpaceID {
+		event.SpaceAssignmentVersion++
+	}
+	if def.Name != prevDef.Name {
+		event.NameVersion++
+	}
+	return event
 }
 
 // EnsureSystemDeployment creates the OPENDEPLOY opendeploy deployment for
@@ -184,8 +160,8 @@ func (s *Service) EnsureSystemDeployment(nodeID int32, opendeployVersion string)
 
 	ctx := logu.AddTag(context.Background(), "Store")
 	for _, cfg := range s.deploymentCache {
-		if storage.DeploymentKeyMatches(*cfg, nodeID, OpendeploySpaceID, internaldeploy.SelfName) && !cfg.Deleted {
-			if !internaldeploy.IsSelfSpec(&cfg.Spec) {
+		if storage.DeploymentKeyMatches(cfg.Def, nodeID, OpendeploySpaceID, internaldeploy.SelfName) && !cfg.Deleted() {
+			if !internaldeploy.IsSelfSpec(&cfg.Def.Spec) {
 				slog.WarnContext(ctx, "repairing system deployment spec", "dep", cfg.ID, "node", nodeID)
 				s.repairDeploymentSpecLocked(cfg.ID, internaldeploy.SelfSpec())
 			}
@@ -197,7 +173,7 @@ func (s *Service) EnsureSystemDeployment(nodeID int32, opendeployVersion string)
 	if err := spec.SetWorkloadState(opendeployVersion, true); err != nil {
 		panic(fmt.Sprintf("initialize system deployment state: %v", err))
 	}
-	s.CreateDeploymentLocked(apigen.Context{}, &apigen.Deployment{
+	s.CreateDeploymentLocked(apigen.Context{}, &apigen.DeploymentDef{
 		NodeID:  nodeID,
 		SpaceID: OpendeploySpaceID,
 		Name:    internaldeploy.SelfName,
@@ -222,11 +198,11 @@ func (s *Service) EnsureNetproxyDeployment(nodeID int32, initialVersion string) 
 	defer s.Mu.Unlock()
 	ctx := logu.AddTag(context.Background(), "Store")
 	for _, cfg := range s.deploymentCache {
-		if storage.DeploymentKeyMatches(*cfg, nodeID, OpendeploySpaceID, internaldeploy.NetproxyName) && !cfg.Deleted {
+		if storage.DeploymentKeyMatches(cfg.Def, nodeID, OpendeploySpaceID, internaldeploy.NetproxyName) && !cfg.Deleted() {
 			if err := desiredSpec.SetWorkloadState(cfg.WorkloadVersion(), cfg.WorkloadRunning()); err != nil {
 				panic(fmt.Sprintf("compare netproxy deployment state: %v", err))
 			}
-			if !deploymentSpecsEqual(&cfg.Spec, desiredSpec) {
+			if !deploymentSpecsEqual(&cfg.Def.Spec, desiredSpec) {
 				slog.WarnContext(ctx, "repairing netproxy deployment spec", "dep", cfg.ID, "node", nodeID)
 				s.repairDeploymentSpecLocked(cfg.ID, desiredSpec)
 				cfg = s.deploymentCache[cfg.ID]
@@ -239,7 +215,7 @@ func (s *Service) EnsureNetproxyDeployment(nodeID int32, initialVersion string) 
 	if err := spec.SetWorkloadState(desiredVersion, true); err != nil {
 		panic(fmt.Sprintf("initialize netproxy deployment state: %v", err))
 	}
-	cfg := s.CreateDeploymentLocked(apigen.Context{}, &apigen.Deployment{
+	cfg := s.CreateDeploymentLocked(apigen.Context{}, &apigen.DeploymentDef{
 		NodeID:  nodeID,
 		SpaceID: OpendeploySpaceID,
 		Name:    internaldeploy.NetproxyName,

@@ -353,7 +353,7 @@ export async function updateNixDockerDeployment(page, {
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
     const updateResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await updateResponse).ok()).toBe(true);
@@ -398,7 +398,7 @@ export async function setDeploymentHttpsRoutes(page, {name, machine = 'worker-2'
       await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
       const updateResponse = page.waitForResponse(response => {
         const request = response.request();
-        return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
+        return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
       }, {timeout: LONG_UI_TIMEOUT});
       await submit.click();
       expect((await updateResponse).ok()).toBe(false);
@@ -414,7 +414,7 @@ export async function setDeploymentHttpsRoutes(page, {name, machine = 'worker-2'
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
     const updateResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await updateResponse).ok()).toBe(true);
@@ -509,7 +509,7 @@ export async function setDeploymentIssuedTLSMount(page, {name, machine = 'worker
       await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
       const updateResponse = page.waitForResponse(response => {
         const request = response.request();
-        return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
+        return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
       }, {timeout: LONG_UI_TIMEOUT});
       await submit.click();
       expect((await updateResponse).ok()).toBe(false);
@@ -525,7 +525,7 @@ export async function setDeploymentIssuedTLSMount(page, {name, machine = 'worker
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
     const updateResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await updateResponse).ok()).toBe(true);
@@ -589,7 +589,7 @@ export async function setPortForwardAllowList(page, {name, machine = 'worker-1',
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
     const updateResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await updateResponse).ok()).toBe(true);
@@ -2326,9 +2326,10 @@ export async function expectDeploymentNetworkPolicies(page, {name, machine, pres
 }
 
 // moveDeploymentToSpace changes a deployment's space through the update
-// dialog's Space picker, which issues /v1/deployments/move-space before the
-// update. The move is a connection-breaking security-domain migration: the
-// deployment's addresses and DNS name change with its space.
+// dialog's Space picker, which carries the new space in the single
+// /v2/deployments/update call. The move is a connection-breaking
+// security-domain migration: the deployment's addresses and DNS name change
+// with its space.
 export async function moveDeploymentToSpace(page, {name, machine, space} = {}) {
   await step(`open update dialog ${name}`, async () => {
     await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
@@ -2352,7 +2353,7 @@ export async function moveDeploymentToSpace(page, {name, machine, space} = {}) {
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
     const moveResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/move-space';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await moveResponse).ok()).toBe(true);

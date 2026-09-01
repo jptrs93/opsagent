@@ -148,8 +148,8 @@ func (h *Handler) resolveNetworkPolicyPeerSpace(ref *apigen.NetworkPolicyPeerRef
 			}
 		}
 	case apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_DEPLOYMENT:
-		if cfg := h.findConfigByID(ref.ID); cfg != nil && !cfg.Deleted {
-			return cfg.SpaceID, true
+		if cfg := h.findConfigByID(ref.ID); cfg != nil && !cfg.Deleted() {
+			return cfg.Def.SpaceID, true
 		}
 	}
 	return 0, false

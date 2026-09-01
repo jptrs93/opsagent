@@ -101,13 +101,12 @@
     desc: 'The user’s declared intent for one deployment — everything on the right is rendered from this.',
     schema: [
       f('id', 'int32', { key: true }),
+      f('def', obj('DeploymentDef', [
       f('name', 'string', { versioned: true }),
       f('spaceAssignment', obj('SpaceAssignment', [
         f('spaceId', 'int32', { ref: 'Space.id' }),
       ], { versioned: true })),
       f('nodeId', 'int32', { ref: 'ClusterNode.id' }),
-      f('author', 'int32', { ref: 'user id', srv: true }),
-      f('timestamp', 'timestamp', { srv: true }),
       f('spec', obj('DeploymentSpec', [
         f('networking', obj('NetworkingConfig', [
           f('mode', en('NetworkingMode', [
@@ -190,6 +189,11 @@
           ])),
         ]), { note: 'one workload field set' }),
       ], { versioned: true })),
+      ])),
+      f('author', 'int32', { ref: 'user id', srv: true }),
+      f('eventType', en('DeploymentEventType', ['CREATE', 'UPDATE', 'DELETE']), { srv: true }),
+      f('createdTime', 'timestamp', { srv: true }),
+      f('eventTime', 'timestamp', { srv: true }),
     ],
     note: 'Each write creates a new immutable version; secondaries act on the latest.',
   });
