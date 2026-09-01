@@ -452,20 +452,21 @@ func TestSetDeploymentWorkloadStateReencodesSpec(t *testing.T) {
 
 	mustSetDeploymentWorkloadState(store, apigen.Context{}, cfg.ID, "v2", false)
 
-	row, err := store.q.GetDeployment(context.Background(), int64(cfg.ID))
+	event, err := store.q.GetLatestDeploymentEvent(context.Background(), int64(cfg.ID))
 	if err != nil {
 		t.Fatalf("read updated deployment: %v", err)
 	}
-	assertPersistedWorkloadState(t, row.SpecBlob, "v2", false)
-	history, err := store.q.ListDeploymentSpecVersions(context.Background(), int64(cfg.ID))
+	latestSpec := deploymentEventToProto(event).Spec
+	assertPersistedWorkloadState(t, latestSpec.Encode(), "v2", false)
+	history, err := store.q.ListDeploymentEvents(context.Background(), int64(cfg.ID))
 	if err != nil {
 		t.Fatalf("read updated deployment history: %v", err)
 	}
 	if len(history) != 2 {
 		t.Fatalf("history length = %d, want 2", len(history))
 	}
-	latest := history[len(history)-1]
-	assertPersistedWorkloadState(t, latest.SpecBlob, "v2", false)
+	historySpec := deploymentEventToProto(history[len(history)-1]).Spec
+	assertPersistedWorkloadState(t, historySpec.Encode(), "v2", false)
 
 	if err := store.Close(); err != nil {
 		t.Fatal(err)

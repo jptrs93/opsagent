@@ -208,12 +208,7 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 
 func markDeleted(t *testing.T, h *Handler, cfg *apigen.Deployment) {
 	t.Helper()
-	spec := cfg.Spec
-	_, _, versionOK := h.Store.UpdateDeploymentSpec(apigen.Context{}, cfg.ID, state.DeploymentSpecUpdate{
-		ExpectedSpecVersion: cfg.SpecVersion + 1,
-		Spec:                &spec,
-		Deleted:             true,
-	})
+	_, versionOK := h.Store.DeleteDeployment(apigen.Context{}, cfg.ID, cfg.Version+1)
 	if !versionOK {
 		t.Fatalf("marking deployment %d deleted: version conflict", cfg.ID)
 	}

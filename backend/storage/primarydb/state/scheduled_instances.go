@@ -70,11 +70,11 @@ func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentSpecVers
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		var err error
 		id, err = q.InsertScheduledInstance(ctx, pq.InsertScheduledInstanceParams{
-			DeploymentID:             int64(deploymentID),
-			DeploymentSpecVersion:    int64(deploymentSpecVersion),
-			NodeID:                   int64(nodeID),
-			InstanceOrdinal:          int64(instanceOrdinal),
-			DeploymentSpaceVersionID: s.spaceVersionRowIDs[deploymentID],
+			DeploymentID:          int64(deploymentID),
+			DeploymentSpecVersion: int64(deploymentSpecVersion),
+			NodeID:                int64(nodeID),
+			InstanceOrdinal:       int64(instanceOrdinal),
+			SpaceID:               int64(spaceID),
 		})
 		if err != nil {
 			return err

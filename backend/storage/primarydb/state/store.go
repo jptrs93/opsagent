@@ -12,7 +12,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/instancecache"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
 // instanceOrdinalKey identifies the logical slot a scheduled instance is an
@@ -29,20 +28,14 @@ func ordinalKeyOf(inst *apigen.ScheduledInstance) instanceOrdinalKey {
 
 func (s *Service) loadCache() {
 	ctx := context.Background()
-	rows, err := s.q.ListAllDeployments(ctx)
+	events, err := s.q.ListLatestDeploymentEvents(ctx)
 	if err != nil {
-		panic(fmt.Sprintf("loadCache: ListAllDeployments: %v", err))
+		panic(fmt.Sprintf("loadCache: ListLatestDeploymentEvents: %v", err))
 	}
-	for _, row := range rows {
-		id := int32(row.DeploymentID)
-		s.deploymentCache[id] = deploymentRowToProto(row)
-	}
-	spaceRows, err := s.q.ListCurrentDeploymentSpaceVersions(ctx)
-	if err != nil {
-		panic(fmt.Sprintf("loadCache: ListCurrentDeploymentSpaceVersions: %v", err))
-	}
-	for _, row := range spaceRows {
-		s.spaceVersionRowIDs[int32(row.DeploymentID)] = row.ID
+	for _, e := range events {
+		cfg := deploymentEventToProto(e)
+		s.deploymentCache[cfg.ID] = cfg
+		s.latestEvents[cfg.ID] = e
 	}
 
 	instances, err := s.q.ListNonFinalScheduledInstances(ctx)
@@ -233,17 +226,14 @@ func (s *Service) configForInstanceLocked(inst *apigen.ScheduledInstance) *apige
 
 func (s *Service) loadConfigVersionLocked(deploymentID, version int32) *apigen.Deployment {
 	ctx := logu.AddTag(context.Background(), "Store")
-	row, err := s.q.GetDeploymentSpecVersion(ctx, pq.GetDeploymentSpecVersionParams{
-		DeploymentID: int64(deploymentID),
-		Version:      int64(version),
-	})
+	event, err := s.q.GetDeploymentEventBySpecVersion(ctx, int64(deploymentID), int64(version))
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			slog.WarnContext(ctx, fmt.Sprintf("load spec version %d failed", version), "dep", deploymentID, "err", err)
 		}
 		return nil
 	}
-	return specVersionRowToProto(row, s.deploymentCache[deploymentID])
+	return pinnedSpecEventToProto(event, s.deploymentCache[deploymentID])
 }
 
 func (s *Service) notifyDeploymentLocked(id int32) {

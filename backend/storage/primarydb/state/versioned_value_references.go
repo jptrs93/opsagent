@@ -21,9 +21,12 @@ const (
 	configValueReference
 )
 
+// deploymentReferenceUpdate carries a fresh snapshot decoded from the
+// deployment's latest event, so mutating its spec cannot reach into the
+// shared cache.
 type deploymentReferenceUpdate struct {
-	row  pq.DeploymentRow
-	spec *apigen.DeploymentSpec
+	prev pq.DeploymentEvent
+	next *apigen.Deployment
 }
 
 // setVersionedValueWithDeploymentUpdates appends a version of the stable
@@ -43,10 +46,10 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 	defer s.Mu.Unlock()
 
 	ctx := context.Background()
-	now := time.Now().UnixMilli()
-	var updatedConfigs []*apigen.Deployment
+	now := time.Now()
+	var updatedEvents []pq.DeploymentEvent
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		updates, referenceIDs, err := prepareDeploymentReferenceUpdates(ctx, q, referenceType, stableID, updateDeployments, expected)
+		updates, referenceIDs, err := s.prepareDeploymentReferenceUpdatesLocked(ctx, q, referenceType, stableID, updateDeployments, expected)
 		if err != nil {
 			return err
 		}
@@ -59,34 +62,31 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 			return err
 		}
 
-		updatedConfigs = make([]*apigen.Deployment, 0, len(updates))
+		updatedEvents = make([]pq.DeploymentEvent, 0, len(updates))
 		for _, update := range updates {
-			replaceDeploymentReferences(update.spec, referenceType, referenceIDs, newID)
-			next := update.row
-			next.SpecVersion = update.row.SpecVersion + 1
+			next := update.next
+			replaceDeploymentReferences(&next.Spec, referenceType, referenceIDs, newID)
+			next.Version++
+			next.SpecVersion++
 			next.UpdatedAt = now
-			next.Author = int64(author)
-			next.SpecBlob = update.spec.Encode()
-			if err := q.InsertDeploymentSpecVersion(ctx, pq.InsertDeploymentSpecVersionParams{
-				DeploymentID: next.DeploymentID,
-				Version:      next.SpecVersion,
-				CreatedAt:    next.UpdatedAt,
-				Author:       next.Author,
-				SpecBlob:     next.SpecBlob,
-				GlobalSeq:    seq,
-			}); err != nil {
-				return fmt.Errorf("update deployment %d reference: %w", update.row.DeploymentID, err)
+			next.Author = author
+			event := buildDeploymentEvent(update.prev, true, next, pq.DeploymentEventUpdate, "deployment reference update")
+			event.GlobalSeq = seq
+			if err := q.InsertDeploymentEvent(ctx, event); err != nil {
+				return fmt.Errorf("update deployment %d reference: %w", next.ID, err)
 			}
-			updatedConfigs = append(updatedConfigs, deploymentRowToProto(next))
+			updatedEvents = append(updatedEvents, event)
 		}
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 
-	updatedIDs := make([]int32, 0, len(updatedConfigs))
-	for _, cfg := range updatedConfigs {
+	updatedIDs := make([]int32, 0, len(updatedEvents))
+	for _, event := range updatedEvents {
+		cfg := deploymentEventToProto(event)
 		s.deploymentCache[cfg.ID] = cfg
+		s.latestEvents[cfg.ID] = event
 		updatedIDs = append(updatedIDs, cfg.ID)
 	}
 	if afterCommit != nil {
@@ -98,7 +98,7 @@ func (s *Service) setVersionedValueWithDeploymentUpdates(
 	return updatedIDs, nil
 }
 
-func prepareDeploymentReferenceUpdates(
+func (s *Service) prepareDeploymentReferenceUpdatesLocked(
 	ctx context.Context,
 	q *pq.Queries,
 	referenceType versionedValueReferenceType,
@@ -117,26 +117,24 @@ func prepareDeploymentReferenceUpdates(
 	if err != nil {
 		return nil, nil, err
 	}
-	rows, err := q.ListAllDeployments(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("list deployments for reference update: %w", err)
-	}
 	actual := make(map[int32]deploymentReferenceUpdate)
-	for _, row := range rows {
+	for _, cfg := range s.deploymentCache {
 		// Deletion is soft and preserves the spec, so a tombstone keeps whatever
 		// references it held when it was deleted. It will never run again, so
 		// rewriting it is pointless — and counting it here would make every
 		// rotation fail against the live set the caller can see.
-		if row.DeletedAt != 0 {
+		if cfg.Deleted {
 			continue
 		}
-		spec, err := apigen.DecodeDeploymentSpec(row.SpecBlob)
-		if err != nil {
-			return nil, nil, fmt.Errorf("decode deployment %d version %d spec: %w", row.DeploymentID, row.SpecVersion, err)
+		event, ok := s.latestEvents[cfg.ID]
+		if !ok {
+			return nil, nil, fmt.Errorf("deployment %d has no latest event", cfg.ID)
 		}
-		if deploymentUsesReferences(spec, referenceType, referenceIDs) {
-			actual[int32(row.DeploymentID)] = deploymentReferenceUpdate{row: row, spec: spec}
+		next := deploymentEventToProto(event)
+		if !deploymentUsesReferences(&next.Spec, referenceType, referenceIDs) {
+			continue
 		}
+		actual[cfg.ID] = deploymentReferenceUpdate{prev: event, next: next}
 	}
 
 	seen := make(map[int32]struct{}, len(expected))
@@ -149,7 +147,7 @@ func prepareDeploymentReferenceUpdates(
 		}
 		seen[item.ID] = struct{}{}
 		current, ok := actual[item.ID]
-		if !ok || int32(current.row.SpecVersion) != item.SpecVersion {
+		if !ok || current.next.SpecVersion != item.SpecVersion {
 			return nil, nil, fmt.Errorf("%w: deployment %d version is stale or no longer references value %d", ErrReferencingDeploymentsChanged, item.ID, stableID)
 		}
 	}

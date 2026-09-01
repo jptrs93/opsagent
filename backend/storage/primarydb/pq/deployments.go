@@ -2,71 +2,121 @@ package pq
 
 import (
 	"context"
+
+	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-// Hand-written deployment reads. A deployment's current desired config is its
-// identity row joined with its latest deployment_spec_versions row; creation time
-// and attribution come from the first version row. Version rows are
-// append-only and never pruned, so both rows always exist.
+// Hand-written deployment event log access. The log is the sole store of
+// deployment intent: value is a full Deployment snapshot, so the current state
+// of a deployment is its highest-version event and point-in-time state is the
+// latest event at or before a sequence. The version columns are a queryable
+// materialisation of the snapshot; the blob is the truth.
 
-// DeploymentRow is a stable identity joined with its latest version.
-type DeploymentRow struct {
-	DeploymentID int64
-	NodeID       int64
-	SpaceID      int64 // latest space version's space_id
-	SpaceVersion int64 // latest space version's version
-	Name         string
-	DeletedAt    int64
-	SpecVersion  int64
-	CreatedAt    int64 // first version's created_at
-	UpdatedAt    int64 // latest version's created_at
-	Author       int64 // latest version's author
-	SpecBlob     []byte
+// Event types are the AuthzVerb enum values, so the stored event_type is the
+// verb that authorized the write.
+const (
+	DeploymentEventCreate = int64(apigen.AuthzVerb_AUTHZ_VERB_CREATE)
+	DeploymentEventUpdate = int64(apigen.AuthzVerb_AUTHZ_VERB_UPDATE)
+	DeploymentEventDelete = int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE)
+)
+
+type DeploymentEvent struct {
+	ID                     int64
+	GlobalSeq              int64
+	CreatedAt              int64 // epoch ms
+	Author                 int64
+	DeploymentID           int64
+	Version                int64
+	SpecVersion            int64
+	SpaceAssignmentVersion int64
+	NameVersion            int64
+	Value                  []byte
+	EventType              int64
 }
 
-const deploymentRowSelect = `
-	SELECT d.deployment_id, d.node_id, sp.space_id, sp.version, d.name, d.deleted_at,
-	       v.version,
-	       (SELECT f.created_at FROM deployment_spec_versions f
-	        WHERE f.deployment_id = d.deployment_id ORDER BY f.version LIMIT 1),
-	       v.created_at, v.author, v.spec_blob
-	FROM deployments d
-	JOIN deployment_spec_versions v ON v.deployment_id = d.deployment_id
-	    AND v.version = (SELECT MAX(m.version) FROM deployment_spec_versions m
-	                     WHERE m.deployment_id = d.deployment_id)
-	JOIN deployment_space_versions sp ON sp.deployment_id = d.deployment_id
-	    AND sp.version = (SELECT MAX(ms.version) FROM deployment_space_versions ms
-	                      WHERE ms.deployment_id = d.deployment_id)`
+const deploymentEventSelect = `
+	SELECT e.id, e.global_seq, e.created_at, e.author, e.deployment_id, e.version,
+	       e.spec_version, e.space_assignment_version, e.name_version, e.value,
+	       e.event_type
+	FROM deployment_event_log e`
 
-type deploymentScanner interface {
+type deploymentEventScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanDeploymentRow(scanner deploymentScanner) (DeploymentRow, error) {
-	var r DeploymentRow
-	err := scanner.Scan(&r.DeploymentID, &r.NodeID, &r.SpaceID, &r.SpaceVersion, &r.Name, &r.DeletedAt,
-		&r.SpecVersion, &r.CreatedAt, &r.UpdatedAt, &r.Author, &r.SpecBlob)
-	return r, err
+func scanDeploymentEvent(scanner deploymentEventScanner) (DeploymentEvent, error) {
+	var e DeploymentEvent
+	err := scanner.Scan(&e.ID, &e.GlobalSeq, &e.CreatedAt, &e.Author, &e.DeploymentID,
+		&e.Version, &e.SpecVersion, &e.SpaceAssignmentVersion, &e.NameVersion,
+		&e.Value, &e.EventType)
+	return e, err
 }
 
-func (q *Queries) GetDeployment(ctx context.Context, deploymentID int64) (DeploymentRow, error) {
-	return scanDeploymentRow(q.db.QueryRowContext(ctx,
-		deploymentRowSelect+` WHERE d.deployment_id = ?`, deploymentID))
+func (q *Queries) InsertDeploymentEvent(ctx context.Context, e DeploymentEvent) error {
+	_, err := q.db.ExecContext(ctx, `
+	INSERT INTO deployment_event_log (
+		global_seq, created_at, author, deployment_id, version, spec_version,
+		space_assignment_version, name_version, value, event_type
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.GlobalSeq, e.CreatedAt, e.Author, e.DeploymentID, e.Version, e.SpecVersion,
+		e.SpaceAssignmentVersion, e.NameVersion, e.Value, e.EventType)
+	return err
 }
 
-func (q *Queries) ListAllDeployments(ctx context.Context) ([]DeploymentRow, error) {
-	rows, err := q.db.QueryContext(ctx, deploymentRowSelect)
+// NextDeploymentID allocates the next deployment id. Ids are never reused:
+// the log is append-only, so every deployment that ever existed still holds
+// its id. Callers must hold the store mutex across allocate-and-insert.
+func (q *Queries) NextDeploymentID(ctx context.Context) (int64, error) {
+	var id int64
+	err := q.db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(deployment_id), 0) + 1 FROM deployment_event_log`).Scan(&id)
+	return id, err
+}
+
+func (q *Queries) GetLatestDeploymentEvent(ctx context.Context, deploymentID int64) (DeploymentEvent, error) {
+	return scanDeploymentEvent(q.db.QueryRowContext(ctx, deploymentEventSelect+`
+	WHERE e.deployment_id = ?
+	ORDER BY e.version DESC LIMIT 1`, deploymentID))
+}
+
+// ListLatestDeploymentEvents returns each deployment's highest-version event —
+// the current state of every deployment, deleted ones included.
+func (q *Queries) ListLatestDeploymentEvents(ctx context.Context) ([]DeploymentEvent, error) {
+	return q.listDeploymentEvents(ctx, deploymentEventSelect+`
+	JOIN (SELECT deployment_id, MAX(version) AS version
+	      FROM deployment_event_log GROUP BY deployment_id) latest
+	  ON latest.deployment_id = e.deployment_id AND latest.version = e.version
+	ORDER BY e.deployment_id`)
+}
+
+func (q *Queries) ListDeploymentEvents(ctx context.Context, deploymentID int64) ([]DeploymentEvent, error) {
+	return q.listDeploymentEvents(ctx, deploymentEventSelect+`
+	WHERE e.deployment_id = ?
+	ORDER BY e.version ASC`, deploymentID)
+}
+
+// GetDeploymentEventBySpecVersion returns the first event carrying the given
+// spec version. Any matching event's snapshot holds the right spec bytes; the
+// first is the one that introduced them.
+func (q *Queries) GetDeploymentEventBySpecVersion(ctx context.Context, deploymentID, specVersion int64) (DeploymentEvent, error) {
+	return scanDeploymentEvent(q.db.QueryRowContext(ctx, deploymentEventSelect+`
+	WHERE e.deployment_id = ? AND e.spec_version = ?
+	ORDER BY e.version ASC LIMIT 1`, deploymentID, specVersion))
+}
+
+func (q *Queries) listDeploymentEvents(ctx context.Context, query string, args ...any) ([]DeploymentEvent, error) {
+	rows, err := q.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []DeploymentRow
+	var out []DeploymentEvent
 	for rows.Next() {
-		r, err := scanDeploymentRow(rows)
+		e, err := scanDeploymentEvent(rows)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, r)
+		out = append(out, e)
 	}
 	return out, rows.Err()
 }

@@ -5,34 +5,9 @@ RETURNING value;
 -- name: GetGlobalSeq :one
 SELECT value FROM global_seq WHERE id = 1;
 
--- CreateDeployment inserts a new stable deployment identity and
--- auto-allocates its deployment_id. Deleted deployments do not reserve their
--- former identity tuple. The caller inserts the v1 version row in the same tx.
--- name: CreateDeployment :one
-INSERT INTO deployments (node_id, name, deleted_at)
-VALUES (?, ?, 0)
-RETURNING deployment_id;
-
--- name: UpdateDeploymentDeletedAt :exec
-UPDATE deployments SET deleted_at = ? WHERE deployment_id = ?;
-
--- name: InsertDeploymentSpaceVersion :one
-INSERT INTO deployment_space_versions (deployment_id, version, author, created_at, space_id, global_seq)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id;
-
--- name: ListDeploymentSpaceVersionsByDeploymentID :many
-SELECT id, deployment_id, version, author, created_at, space_id, global_seq
-FROM deployment_space_versions
-WHERE deployment_id = ?
-ORDER BY version ASC;
-
--- name: ListCurrentDeploymentSpaceVersions :many
-SELECT sp.id, sp.deployment_id, sp.version, sp.author, sp.created_at, sp.space_id, sp.global_seq
-FROM deployment_space_versions sp
-JOIN (SELECT deployment_id, MAX(version) AS version
-      FROM deployment_space_versions GROUP BY deployment_id) latest
-  ON latest.deployment_id = sp.deployment_id AND latest.version = sp.version;
+-- Deployment reads and writes are hand-written in deployments.go against the
+-- deployment_event_log; the pre-event-log tables are touched only by the
+-- one-time migration in migrate_deployments.go.
 
 -- name: ListSpaces :many
 SELECT id, name FROM spaces ORDER BY id;
@@ -48,35 +23,13 @@ RETURNING id, name;
 -- name: DeleteSpace :exec
 DELETE FROM spaces WHERE id = ?;
 
--- name: CountDeploymentsForSpace :one
-SELECT COUNT(*) FROM deployments d
-WHERE d.deleted_at = 0
-  AND (SELECT sp.space_id FROM deployment_space_versions sp
-       WHERE sp.deployment_id = d.deployment_id
-       ORDER BY sp.version DESC LIMIT 1) = ?;
-
--- name: InsertDeploymentSpecVersion :exec
-INSERT INTO deployment_spec_versions (deployment_id, version, created_at, author, spec_blob, global_seq)
-VALUES (?, ?, ?, ?, ?, ?);
-
--- name: ListDeploymentSpecVersions :many
-SELECT id, deployment_id, version, created_at, author, spec_blob, global_seq
-FROM deployment_spec_versions
-WHERE deployment_id = ?
-ORDER BY version ASC;
-
--- name: GetDeploymentSpecVersion :one
-SELECT id, deployment_id, version, created_at, author, spec_blob, global_seq
-FROM deployment_spec_versions
-WHERE deployment_id = ? AND version = ?;
-
 -- Reads are hand-written in scheduled_instances.go: an instance row is its
 -- identity joined with the version log for creation time and current state.
 -- Creation appends the v1 version row in the same tx; state transitions are
 -- pure appends.
 
 -- name: InsertScheduledInstance :one
-INSERT INTO scheduled_instances (deployment_id, deployment_spec_version, node_id, instance_ordinal, deployment_space_version_id)
+INSERT INTO scheduled_instances (deployment_id, deployment_spec_version, node_id, instance_ordinal, space_id)
 VALUES (?, ?, ?, ?, ?)
 RETURNING id;
 

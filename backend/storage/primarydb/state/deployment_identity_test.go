@@ -42,11 +42,7 @@ func TestDeploymentIdentityUniquenessIsGoLevel(t *testing.T) {
 		t.Fatalf("move onto occupied identity err = %v, want %v", err, DuplicateDeploymentIdentityErr)
 	}
 
-	store.UpdateDeploymentSpec(apigen.Context{}, sibling.ID, DeploymentSpecUpdate{
-		ExpectedSpecVersion: sibling.SpecVersion + 1,
-		Spec:                spec,
-		Deleted:             true,
-	})
+	store.DeleteDeployment(apigen.Context{}, sibling.ID, sibling.Version+1)
 	recreated := store.MustCreateDeploymentForNode(apigen.Context{}, 2, "web", node.ID, spec)
 	if recreated.ID == sibling.ID {
 		t.Fatal("recreated deployment reused the deleted identity row")

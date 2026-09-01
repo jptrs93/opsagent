@@ -46,7 +46,7 @@ message RecentlyDeletedDeployments {
 
 message DeploymentDeleteRequest {
   int32 deployment_id = 1;
-  int32 spec_version = 2; // expected next spec version
+  int32 version = 2; // expected next top-level version
 }
 
 // Version is the shared display shape for a deployable source item: a git

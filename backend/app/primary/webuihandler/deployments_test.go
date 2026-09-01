@@ -1192,7 +1192,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	}
 
 	seedDeploymentRunnerStatus(store, target, apigen.RunningStatus_STOPPED)
-	err = h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: target.ID, SpecVersion: target.SpecVersion + 1})
+	err = h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: target.ID, Version: target.Version + 1})
 	if err == nil || !strings.Contains(err.Error(), "reference_in_use") {
 		t.Fatalf("err = %v, want referenced deployment deletion rejection", err)
 	}
@@ -1529,7 +1529,7 @@ func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("deployment not found")
 	}
-	err = h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, SpecVersion: cfg.SpecVersion + 1})
+	err = h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, Version: cfg.Version + 1})
 	if err == nil || !strings.Contains(err.Error(), "must be stopped") {
 		t.Fatalf("err = %v, want stopped-only rejection", err)
 	}
@@ -1544,7 +1544,7 @@ func TestDeploymentDeleteAllowsNeverScheduledStoppedDeployment(t *testing.T) {
 	created := store.MustCreateDeploymentForNode(apigen.Context{}, 1, "web", node.ID, &initial)
 	h := &Handler{ConfigService: &config.Service{}, Store: store, NodeID: node.ID}
 
-	if err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, SpecVersion: created.SpecVersion + 1}); err != nil {
+	if err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, Version: created.Version + 1}); err != nil {
 		t.Fatalf("PostV1DeploymentsDelete failed: %v", err)
 	}
 	if cfg := h.findConfigByID(created.ID); cfg != nil {
@@ -1563,7 +1563,7 @@ func TestDeploymentDeleteAllowsRunningDisconnectedNodeDeployment(t *testing.T) {
 	seedDeploymentRunnerStatus(store, created, apigen.RunningStatus_RUNNING)
 	h := &Handler{ConfigService: &config.Service{}, Store: store, NodeID: primary.ID}
 
-	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, SpecVersion: created.SpecVersion + 1})
+	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, Version: created.Version + 1})
 	if err != nil {
 		t.Fatalf("PostV1DeploymentsDelete failed: %v", err)
 	}
@@ -1585,7 +1585,7 @@ func TestDeploymentDeleteAllowsStaleDisconnectedSystemDeployment(t *testing.T) {
 		Cluster: clusterhandler.New(store, nil, nil, nil, network.Prefix{}, nil, nil, nil),
 	}
 
-	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: system.ID, SpecVersion: system.SpecVersion + 1})
+	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: system.ID, Version: system.Version + 1})
 	if err != nil {
 		t.Fatalf("PostV1DeploymentsDelete failed: %v", err)
 	}
@@ -1606,7 +1606,7 @@ func TestDeploymentDeleteRejectsPrimarySystemDeployment(t *testing.T) {
 		Cluster: clusterhandler.New(store, nil, nil, nil, network.Prefix{}, nil, nil, nil),
 	}
 
-	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: system.ID, SpecVersion: system.SpecVersion + 1})
+	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: system.ID, Version: system.Version + 1})
 	if err == nil || !strings.Contains(err.Error(), "internal-only") {
 		t.Fatalf("err = %v, want internal-only rejection", err)
 	}
@@ -1637,7 +1637,7 @@ func TestDeploymentDeleteRejectedWhileOlderRolloverInstanceRuns(t *testing.T) {
 	h := &Handler{ConfigService: &config.Service{}, Store: store, NodeID: created.NodeID}
 	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{
 		DeploymentID: created.ID,
-		SpecVersion:  updated.SpecVersion + 1,
+		Version:      updated.Version + 1,
 	})
 	if err == nil || !strings.Contains(err.Error(), "must be stopped") {
 		t.Fatalf("err = %v, want deletion rejected while an older instance is running", err)
@@ -1656,7 +1656,7 @@ func TestDeploymentDeleteRejectedWhileOlderRolloverInstanceRuns(t *testing.T) {
 	}
 	if err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{
 		DeploymentID: created.ID,
-		SpecVersion:  updated.SpecVersion + 1,
+		Version:      updated.Version + 1,
 	}); err != nil {
 		t.Fatalf("PostV1DeploymentsDelete = %v, want success once all instances are stopped", err)
 	}
@@ -1670,7 +1670,7 @@ func TestDeploymentDeleteSoftDeletesStoppedDeployment(t *testing.T) {
 	seedDeploymentRunnerStatus(store, created, apigen.RunningStatus_STOPPED)
 	h := &Handler{ConfigService: &config.Service{}, Store: store}
 
-	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, SpecVersion: created.SpecVersion + 1})
+	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.ID, Version: created.Version + 1})
 	if err != nil {
 		t.Fatalf("PostV1DeploymentsDelete failed: %v", err)
 	}
@@ -1710,7 +1710,7 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 	seedDeploymentRunnerStatus(store, first, apigen.RunningStatus_STOPPED)
 	if err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{
 		DeploymentID: first.ID,
-		SpecVersion:  first.SpecVersion + 1,
+		Version:      first.Version + 1,
 	}); err != nil {
 		t.Fatalf("PostV1DeploymentsDelete: %v", err)
 	}

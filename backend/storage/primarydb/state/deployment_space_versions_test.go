@@ -37,13 +37,19 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 	if same, err := store.MoveDeploymentSpace(cfg.ID, 2, moved.SpaceVersion+1, 9); err != nil || same.SpaceVersion != 2 {
 		t.Fatalf("same-space move = spaceV%d err %v, want no-op at spaceV2", same.SpaceVersion, err)
 	}
-	rows, err := store.q.ListDeploymentSpaceVersionsByDeploymentID(t.Context(), int64(cfg.ID))
+	events, err := store.q.ListDeploymentEvents(t.Context(), int64(cfg.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 2 || rows[0].SpaceID != int64(DefaultSpaceID) || rows[0].Version != 1 ||
-		rows[1].SpaceID != 2 || rows[1].Version != 2 || rows[1].Author != 9 {
-		t.Fatalf("space version log = %+v, want v1 space %d then v2 space 2 author 9", rows, DefaultSpaceID)
+	if len(events) != 2 || events[0].SpaceAssignmentVersion != 1 || events[1].SpaceAssignmentVersion != 2 ||
+		events[1].Author != 9 || events[1].SpecVersion != 1 {
+		t.Fatalf("event log = %+v, want create at spaceV1 then move to spaceV2 author 9 with no spec bump", events)
+	}
+	if first := deploymentEventToProto(events[0]); first.SpaceID != DefaultSpaceID {
+		t.Fatalf("create snapshot space = %d, want %d", first.SpaceID, DefaultSpaceID)
+	}
+	if second := deploymentEventToProto(events[1]); second.SpaceID != 2 {
+		t.Fatalf("move snapshot space = %d, want 2", second.SpaceID)
 	}
 
 	if st := findInstanceState(t, store, inst.ID); st.Config.SpaceID != DefaultSpaceID {
@@ -84,4 +90,47 @@ func findInstanceState(t *testing.T, store *Service, instanceID int32) apigen.Sc
 	}
 	t.Fatalf("scheduled instance %d not found", instanceID)
 	return apigen.ScheduledInstanceState{}
+}
+
+// Spec equality must be structural: env vars are a proto map field and encode
+// in Go map iteration order, so byte-comparing two encodes of the same spec
+// falsely reports a change. A same-spec update must stay a no-op and a space
+// move must not observe (or assert on) a phantom spec change.
+func TestSpecComparisonSurvivesMapEncodingOrder(t *testing.T) {
+	store := Open(filepath.Join(t.TempDir(), "primary.db"))
+	defer store.Close()
+	node := store.EnsurePrimaryNode("primary", "primary-id")
+
+	envSpec := func() *apigen.DeploymentSpec {
+		spec := nonEmptySpec()
+		env := make(map[string]*apigen.EnvVarValue)
+		for _, key := range []string{"A", "B", "C", "D", "E", "F", "G", "H"} {
+			value := "value-" + key
+			env[key] = &apigen.EnvVarValue{Value: &value}
+		}
+		spec.Container1Spec.Runtime.EnvVars = env
+		return spec
+	}
+
+	cfg := store.MustCreateDeploymentForNode(apigen.Context{}, DefaultSpaceID, "envy", node.ID, envSpec())
+
+	updated, changed, versionOK := store.UpdateDeploymentSpec(apigen.Context{}, cfg.ID, DeploymentSpecUpdate{
+		ExpectedSpecVersion: cfg.SpecVersion + 1,
+		Spec:                envSpec(),
+	})
+	if changed || !versionOK || updated.SpecVersion != cfg.SpecVersion {
+		t.Fatalf("same-spec update = specV%d changed=%v ok=%v, want no-op at specV%d", updated.SpecVersion, changed, versionOK, cfg.SpecVersion)
+	}
+
+	current := cfg
+	for i, target := range []int32{2, DefaultSpaceID, 2, DefaultSpaceID} {
+		moved, err := store.MoveDeploymentSpace(cfg.ID, target, current.SpaceVersion+1, 0)
+		if err != nil {
+			t.Fatalf("move %d: %v", i, err)
+		}
+		if moved.SpecVersion != cfg.SpecVersion {
+			t.Fatalf("move %d bumped spec version to %d, want %d", i, moved.SpecVersion, cfg.SpecVersion)
+		}
+		current = moved
+	}
 }

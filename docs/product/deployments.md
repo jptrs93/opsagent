@@ -94,41 +94,45 @@ stopped.
 
 ### Config versioning
 
-Each deployment's `Deployment.SpecVersion` is a per-deployment
-monotonically increasing integer that bumps on any spec or desired-state
-change. Storage follows the secrets/configs identity + versions split: the
-stable identity (node, space, name, tombstone) lives in `deployments`,
-and every spec revision is an immutable append-only row in
-`deployment_spec_versions`, so the UI can reconstruct the sequence of
-changes. The current desired state is the latest version row; deleting appends
-a final workload-stopped version before tombstoning the identity
-(`deleted_at`, `0` = live).
+A deployment is versioned at two levels. `Deployment.version` is the
+top-level version: a per-deployment monotonically increasing integer that
+bumps on every change of any kind. Sub-parts with their own operations are
+tracked beneath it: `Deployment.specVersion` bumps only when the spec bytes
+change, and `Deployment.spaceVersion` only when the space assignment changes.
+Storage is a single append-only event log, `deployment_event_log`: every
+mutation appends one row carrying a full `Deployment` snapshot (`value`)
+plus queryable version columns (`version`, `spec_version`,
+`space_assignment_version`, `name_version`), unique on
+`(deployment_id, version)` — which is also the CAS backstop every guarded
+operation transitively rests on. The current desired state is the deployment's
+highest-version event; the UI reconstructs the sequence of changes from the
+per-deployment event range.
 
-The deployment's space lives in its own append-only version log,
-`deployment_space_versions` (`id, deployment_id, version, author, created_at,
-space_id`, unique on `(deployment_id, version)`): creation writes version 1,
-and each move appends the next version without bumping the spec version. The
-newest row is the current space, and its `version` is exposed as
-`Deployment.spaceVersion`. A move is its own operation, `POST
-/v1/deployments/move-space`, guarded by the space version the caller observed
-(the request's `spaceVersion` must equal the current one + 1, mirroring the
-config-update guard), so a stale client cannot silently move a deployment
-back. The space feeds the workload's derived inbound address, DNS name, and
-issued TLS identity, so a live placement is never mutated by a move: each
-scheduled instance pins the `deployment_space_versions` row current at
-scheduling time (`scheduled_instances.deployment_space_version_id`) and keeps
-deriving for that space, while the scheduler compares resolved space values
-and treats a pin/config mismatch exactly like a superseded spec version,
-replacing the placement through the normal rollover (or recreate) path
-(comparing values rather than rows means an A-B-A move cancels cleanly). A
-move is validated like a create into the destination: the caller needs create
-access there, the node must allow the space, secret refs must satisfy
-own-or-global locality against it, the (node, space, name) identity must be
-free, and it is refused with `deployment_address_referenced` while other
-deployments hold Address references to the moved deployment. Space 0 (the
-internal opendeploy space) is excluded from moves in both directions: the
-destination must be between 1 and the maximum space ID, and a deployment in
-space 0 cannot be moved out.
+Deleting is its own event, `POST /v1/deployments/delete`, guarded by the
+top-level version (the request's `version` must equal the current one + 1).
+It bumps only the top-level version — the spec and other sub-parts are left
+untouched, so `specVersion` remains strictly "times the spec changed" — and
+records the tombstone in the snapshot (`deleted: true`).
+
+A space move is its own operation, `POST /v1/deployments/move-space`,
+guarded by the space version the caller observed (the request's
+`spaceVersion` must equal the current one + 1, mirroring the spec-update
+guard), so a stale client cannot silently move a deployment back. The space
+feeds the workload's derived inbound address, DNS name, and issued TLS
+identity, so a live placement is never mutated by a move: each scheduled
+instance snapshots the deployment's space at scheduling time
+(`scheduled_instances.space_id`) and keeps deriving for that space, while the
+scheduler compares resolved space values and treats a pin/config mismatch
+exactly like a superseded spec version, replacing the placement through the
+normal rollover (or recreate) path (comparing values rather than rows means
+an A-B-A move cancels cleanly). A move is validated like a create into the
+destination: the caller needs create access there, the node must allow the
+space, secret refs must satisfy own-or-global locality against it, the (node,
+space, name) identity must be free, and it is refused with
+`deployment_address_referenced` while other deployments hold Address
+references to the moved deployment. Space 0 (the internal opendeploy space)
+is excluded from moves in both directions: the destination must be between 1
+and the maximum space ID, and a deployment in space 0 cannot be moved out.
 
 The selected workload's `version` and `running` fields inside the persisted
 `DeploymentSpec` are the only authoritative desired state.
@@ -184,7 +188,7 @@ Driven by the runner. Tracks the running container task with `running_pid`,
 
 ## Deployment identification
 
-Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployments/create`. Human-readable metadata lives directly on `Deployment` (`name`, `spaceId`), and application identity is `{nodeId, spaceId, name}`. Active-identity uniqueness is a Go-level check under the store mutex on create and space move (the space lives in the `deployment_space_versions` log, so it cannot be a SQL constraint). All API requests, storage keys, and log file paths use the integer `id`.
+Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployments/create`. Human-readable metadata lives directly on `Deployment` (`name`, `spaceId`), and application identity is `{nodeId, spaceId, name}`. Active-identity uniqueness is a Go-level check under the store mutex on create and space move (the identity lives inside the event snapshots, so it cannot be a SQL constraint). All API requests, storage keys, and log file paths use the integer `id`.
 
 Deleting a deployment releases its human-readable identity tuple but retains its ID, configuration history, status history, logs, volumes, and other ID-owned records. Creating a deployment later with the same space, node, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
 
@@ -279,7 +283,7 @@ counter is reset.
 
 ## Deployment history
 
-The history sidebar shows a chronological log of all deployment config and status changes. Config entries show the version number and what changed (version deployed, running toggled, deleted). Status entries show preparer and runner state transitions (diff-rendered against the previous entry so unchanged sections aren't repeated). All entries are fetched via `POST /v1/deployments/history` with the integer deployment ID. History is stored in `deployment_spec_versions` (`UNIQUE (deployment_id, version)`, with its own autoincrement id) and `scheduled_instance_status` (PK `scheduled_instance_id, updated_at`), the append-only status log covering every scheduled instance of the deployment; `idx_scheduled_instance_status_deployment` covers the `deployment_id`-leading lookup.
+The history sidebar shows a chronological log of all deployment config and status changes. Config entries show the version number and what changed (version deployed, running toggled, deleted). Status entries show preparer and runner state transitions (diff-rendered against the previous entry so unchanged sections aren't repeated). All entries are fetched via `POST /v1/deployments/history` with the integer deployment ID. History is stored in `deployment_event_log` (`UNIQUE (deployment_id, version)`, one full-snapshot event per change — spec updates, space moves, and the delete) and `scheduled_instance_status` (PK `scheduled_instance_id, updated_at`), the append-only status log covering every scheduled instance of the deployment; `idx_scheduled_instance_status_deployment` covers the `deployment_id`-leading lookup.
 
 ## Empty state
 

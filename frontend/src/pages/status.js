@@ -134,7 +134,7 @@ function deleteDeploymentOverlay(deploymentRow, close) {
         try {
             await capi.postV1DeploymentsDelete({
                 deploymentId: deploymentRow.id,
-                specVersion: (deploymentRow.currentVersion || 0) + 1,
+                version: (deploymentRow.version || 0) + 1,
             });
             close();
         } catch (e) {
@@ -178,7 +178,7 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
     const saving = van.state(false);
     const error = van.state('');
     const targetVersion = deploymentWorkload(historyConfig)?.version || '';
-    const historyVersion = historyConfig?.specVersion || 0;
+    const historyVersion = historyConfig?.version || 0;
     const currentConfig = getCurrentConfig();
     const label = currentConfig
         ? formatDeploymentLabel({
@@ -353,6 +353,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             preparer: prep,
             prepareVersion: deploymentWorkload(d.pinnedConfig)?.version || workload.version || '',
             currentVersion: d.config.specVersion || 0,
+            version: d.config.version || 0,
             spaceVersion: d.config.spaceVersion || 0,
             targetState: d.instance?.state || 0,
             scheduledInstances,

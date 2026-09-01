@@ -1,9 +1,11 @@
 # Deployment event log: migration and refactoring plan
 
-Status as of 2026-09-01. Replaces the three deployment tables (`deployments`,
-`deployment_spec_versions`, `deployment_space_versions`) with a single
-append-only event log, as the first application of a generalised versioning
-pattern for the global state tree.
+Status as of 2026-09-01: **built**. The three deployment tables
+(`deployments`, `deployment_spec_versions`, `deployment_space_versions`) are
+replaced by the single append-only `deployment_event_log` as the first
+application of a generalised versioning pattern for the global state tree.
+The old tables remain in the schema as the one-time migration source and are
+write-orphaned; what remains is the ship-and-strip cycle in "Next steps".
 
 ## Concept
 
@@ -16,9 +18,10 @@ function for the sub-parts that have isolated operations and CAS guards on
 them — an implementation detail, not a separate concept.
 
 Each object is versioned at the top level (every event bumps it) and sub-parts
-with their own operations are explicitly version-tracked. Scheduling and name
-will become versioned sub-parts of the deployment regardless of table design;
-they are included in the target schema now to avoid a later backfill.
+with their own operations are explicitly version-tracked. Name will become a
+versioned sub-part of the deployment regardless of table design, so its
+version column is included now to avoid a later backfill. Scheduling gets no
+sub-part: scheduling config will simply be part of the deployment spec.
 
 ## Target schema
 
@@ -32,10 +35,9 @@ CREATE TABLE IF NOT EXISTS deployment_event_log (
     version                  INTEGER NOT NULL,  -- top-level: bumps on every event
     spec_version             INTEGER NOT NULL,
     space_assignment_version INTEGER NOT NULL,
-    scheduling_version       INTEGER NOT NULL,
     name_version             INTEGER NOT NULL,
     value                    BLOB NOT NULL,     -- full Deployment snapshot
-    event_type               INTEGER NOT NULL DEFAULT 0,  -- create / modify / delete
+    event_type               INTEGER NOT NULL DEFAULT 0,  -- AuthzVerb value: 1 create / 2 update / 3 delete
     UNIQUE (deployment_id, version)
 );
 
@@ -84,66 +86,79 @@ intent changes only.
   `DeploymentVersions*`, `running_version`) is deliberately untouched — it
   names deployable artifact versions, not state versions.
 
+## Built (2026-09-01)
+
+- Table + index exactly per the target schema; old tables kept in the schema
+  as migration source only, no reads or writes outside the migration.
+- Semantics as pinned down in step 2 of the original plan:
+  - Delete is its own operation (`Service.DeleteDeployment`, request field
+    `DeploymentDeleteRequest.version`), guarded by the top-level version. It
+    bumps only the top-level version with `event_type = delete`; the spec is
+    left untouched (no more forced workload-stopped tombstone append), so
+    spec version is strictly "times the spec changed". The scheduler already
+    terminates on `Deleted` alone.
+  - `Deployment.version` (proto field 13) exposes the top-level version.
+  - Event types are the `AuthzVerb` enum values (`DeploymentEventCreate` /
+    `Update` / `Delete` alias `AUTHZ_VERB_CREATE`/`UPDATE`/`DELETE`), so the
+    stored `event_type` is the verb that authorized the write.
+  - The blob keeps its version fields (columns duplicated); write paths
+    assert under `s.Mu` that the top-level version bumps by exactly one and
+    each sub-version increments iff its sub-value changed
+    (`buildDeploymentEvent`). Write paths base the next state on a fresh
+    decode of the latest event, not the cache, so aliased cache mutations
+    cannot corrupt CAS or no-op decisions.
+  - Spec change detection is structural (`deploymentSpecsEqual`), never a
+    byte comparison: map fields (env vars) encode in Go map iteration order,
+    so two encodes of an equal spec can differ. The systemic fix — sorted,
+    canonical map encoding in cleanproto — is worth doing eventually; the
+    stored blobs themselves are unaffected (only comparisons were).
+- Writes are one INSERT per mutation (create allocates
+  `max(deployment_id)+1`; secret/config rotation writes its batch of events
+  in the value's tx under one shared `global_seq`).
+- Reads: boot load and refresh via latest-event-per-deployment; history is
+  the per-deployment event range (full snapshots — the history endpoint now
+  returns space moves and deletes too, and the sidebar keys on the top-level
+  version); pinned spec fetch via the `(deployment_id, spec_version)` index
+  with current identity overlaid; `CountDeploymentsForSpace` moved to the
+  in-memory cache; `DeleteScheduledInstanceStatusesForNode` takes its
+  except-list from the cache instead of joining the old tables.
+- Scheduled instances snapshot `space_id` at scheduling time
+  (`scheduled_instances.space_id`); `deployment_space_version_id` is
+  write-orphaned and pending drop.
+- One-time startup migration (`pq/migrate_deployments.go`): runs only while
+  the event log is empty and old rows exist; interleaves spec and space
+  versions per deployment by `(global_seq, created_at)`, folds the create's
+  spec-v1 + space-v1 pair into one create event, re-marks a tombstone's
+  final event as the delete, starts `name_version` at 1, and backfills
+  instance `space_id` in the same tx.
+
 ## Next steps
 
-### 1. Ship and strip the column renames
+### 1. Ship and strip
 
-Commit and deploy the spec-version naming wave everywhere. The
-`RENAME COLUMN` migrations live in both `migrations.sql` files (primary:
-`scheduled_instances.deployment_version`, `preparer_config_version`,
-`runner_config_version`; secondary: the two status columns). Once every
-cluster has rolled forward, delete the migration statements, mirroring the
-handling of the table rename.
+Commit and deploy everywhere, then strip in a follow-up release once every
+cluster has rolled forward:
+
+- The `RENAME COLUMN` migrations in both `migrations.sql` files (primary:
+  `scheduled_instances.deployment_version`, `preparer_config_version`,
+  `runner_config_version`; secondary: the two status columns) and the
+  `ADD COLUMN space_id` migration.
+- The one-time event-log migration and the three old tables (`DROP TABLE`),
+  plus the orphaned `scheduled_instances.deployment_space_version_id`
+  column.
 
 Side effect to remember: `IssuedTLSValue`'s persisted JSON tag changed
 (`config_version` → `spec_version`), so each secondary's encrypted issued-TLS
 cache entry invalidates once on upgrade and refetches from the primary.
 
-### 2. Pin down event-log semantics before building
+### 2. Follow-ups unlocked by the log
 
-- Delete events bump the top-level version only, with `event_type = delete`;
-  sub-versions unchanged. This replaces today's tombstone spec-version append
-  (the CAS guard moves from spec version to top-level version), making the
-  spec version strictly "times the spec changed".
-- Define version continuity across undelete (today `deleted_at` is reset in
-  place and history of the deletion is lost; the event log keeps it).
-- Columns are the queryable index; the blob is truth. Decide whether to strip
-  the version fields from the stored `Deployment` blob or accept the
-  duplication with a write-time consistency assertion. Either way, add a
-  cheap write-time check (under `s.Mu`, against the previous cached state)
-  that each sub-version increments iff its sub-value changed — the schema can
-  no longer enforce this structurally.
-
-### 3. Build the event log
-
-- New table + store write path: one INSERT per mutation replaces the current
-  multi-table transactions (create currently writes 3 rows across 3 tables).
-- Reads: boot load and single-deployment refresh become latest-event-per-
-  deployment via the unique index; history is a per-deployment range scan
-  (change detection by comparing sub-version columns to the previous row in
-  Go); pinned spec fetch via the spec_version index. No shredded value
-  columns are needed:
-  - `CountDeploymentsForSpace` moves to the in-memory cache like every other
-    filter (the SQL query is legacy).
-  - Scheduled instances repoint `deployment_space_version_id` (a physical row
-    id into a table that will no longer exist) to the
-    `(deployment_id, space_assignment_version)` pair, resolving space in Go —
-    or snapshot `space_id` into the instance row at scheduling time.
-- One-time migration from the three tables, deterministic via `global_seq`:
-  interleave spec and space versions per deployment; fold the create's
-  spec-v1 + space-v1 (same seq) into one create event; synthesise the delete
-  event from `deleted_at`; `scheduling_version`/`name_version` start at 1;
-  top-level version is the running event count. Run once at startup off the
-  old tables, then drop them after fleet rollout (same ship-then-strip cycle).
-
-### 4. Follow-ups unlocked by the log
-
-- History UI: the sidebar currently shows only spec versions (space moves are
-  invisible in it). Switch the history endpoint from spec-version rows to
-  event rows ordered by top-level version, with sub-part changes derivable
-  per row.
-- Scheduling and name become real sub-parts with their own operations
-  (rename support; scheduling config moves out of implicit placement logic).
+- Name becomes a real sub-part with its own operation (rename support). Its
+  version column already exists and is carried forward on every event.
+  Scheduling config, when it arrives, lands inside the deployment spec.
+- Undelete as an explicit event (version continuity across delete/restore is
+  already preserved by the log; the FE currently only seeds a new deployment
+  from a tombstone).
 - Point-in-time reconstruction at any `global_seq` for backup/restore and
   debugging.
 - Extend the same event-log pattern to other entities as they need it.

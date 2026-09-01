@@ -14,3 +14,5 @@
 ALTER TABLE scheduled_instances RENAME COLUMN deployment_version TO deployment_spec_version;
 ALTER TABLE scheduled_instance_status RENAME COLUMN preparer_config_version TO preparer_spec_version;
 ALTER TABLE scheduled_instance_status RENAME COLUMN runner_config_version TO runner_spec_version;
+
+ALTER TABLE scheduled_instances ADD COLUMN space_id INTEGER NOT NULL DEFAULT 0;

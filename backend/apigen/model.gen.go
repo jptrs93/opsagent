@@ -210,6 +210,7 @@ type Deployment struct {
 	ID           int32          `json:"id"`
 	NodeID       int32          `json:"node_id"`
 	SpaceID      int32          `json:"space_id"`
+	Version      int32          `json:"version"`
 	SpaceVersion int32          `json:"space_version"`
 	Name         string         `json:"name,omitempty"`
 	CreatedAt    time.Time      `json:"created_at"`
@@ -466,7 +467,7 @@ type RecentlyDeletedDeployments struct {
 
 type DeploymentDeleteRequest struct {
 	DeploymentID int32 `json:"deployment_id"`
-	SpecVersion  int32 `json:"spec_version"`
+	Version      int32 `json:"version"`
 }
 
 type Version struct {

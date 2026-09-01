@@ -143,6 +143,20 @@ type Deployment struct {
 	DeletedAt    int64
 }
 
+type DeploymentEventLog struct {
+	ID                     int64
+	GlobalSeq              int64
+	CreatedAt              int64
+	Author                 int64
+	DeploymentID           int64
+	Version                int64
+	SpecVersion            int64
+	SpaceAssignmentVersion int64
+	NameVersion            int64
+	Value                  []byte
+	EventType              int64
+}
+
 type DeploymentSpaceVersion struct {
 	ID           int64
 	DeploymentID int64
@@ -248,6 +262,7 @@ type ScheduledInstance struct {
 	NodeID                   int64
 	InstanceOrdinal          int64
 	DeploymentSpaceVersionID int64
+	SpaceID                  int64
 }
 
 type ScheduledInstanceStatus struct {

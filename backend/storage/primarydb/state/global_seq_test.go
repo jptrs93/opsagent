@@ -42,21 +42,17 @@ func TestGlobalSeqStampsVersionWrites(t *testing.T) {
 		return out
 	}
 
-	versionSeqs := readSeqs(`SELECT global_seq FROM deployment_spec_versions WHERE deployment_id = ` + itoa(cfg.ID) + ` ORDER BY version`)
-	if len(versionSeqs) != 2 || versionSeqs[0] <= 0 || versionSeqs[1] <= versionSeqs[0] {
-		t.Fatalf("deployment version seqs = %v, want two increasing positive values", versionSeqs)
-	}
-	spaceSeqs := readSeqs(`SELECT global_seq FROM deployment_space_versions WHERE deployment_id = ` + itoa(cfg.ID) + ` ORDER BY version`)
-	if len(spaceSeqs) != 2 || spaceSeqs[0] != versionSeqs[0] || spaceSeqs[1] <= versionSeqs[1] {
-		t.Fatalf("space version seqs = %v, want creation seq %d shared then a later value", spaceSeqs, versionSeqs[0])
+	eventSeqs := readSeqs(`SELECT global_seq FROM deployment_event_log WHERE deployment_id = ` + itoa(cfg.ID) + ` ORDER BY version`)
+	if len(eventSeqs) != 3 || eventSeqs[0] <= 0 || eventSeqs[1] <= eventSeqs[0] || eventSeqs[2] <= eventSeqs[1] {
+		t.Fatalf("deployment event seqs = %v, want three increasing positive values (create, spec update, space move)", eventSeqs)
 	}
 
 	var counter int64
 	if err := db.QueryRow(`SELECT value FROM global_seq WHERE id = 1`).Scan(&counter); err != nil {
 		t.Fatal(err)
 	}
-	if counter < spaceSeqs[1] {
-		t.Fatalf("global_seq counter = %d, below max stamped value %d", counter, spaceSeqs[1])
+	if counter < eventSeqs[2] {
+		t.Fatalf("global_seq counter = %d, below max stamped value %d", counter, eventSeqs[2])
 	}
 }
 

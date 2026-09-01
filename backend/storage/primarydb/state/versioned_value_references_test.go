@@ -233,11 +233,7 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	original := create("original")
 	live := create("live")
 
-	_, _, ok := store.UpdateDeploymentSpec(apigen.Context{}, original.ID, DeploymentSpecUpdate{
-		ExpectedSpecVersion: original.SpecVersion + 1,
-		Spec:                &original.Spec,
-		Deleted:             true,
-	})
+	_, ok := store.DeleteDeployment(apigen.Context{}, original.ID, original.Version+1)
 	if !ok {
 		t.Fatal("soft delete failed")
 	}
@@ -260,8 +256,8 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	if got := deploymentEnvRefID(t, tombstone, "POSTGRES_PASSWORD", true); got != first.ID {
 		t.Fatalf("tombstone secret ref = %d, want it left at %d", got, first.ID)
 	}
-	if tombstone.SpecVersion != original.SpecVersion+1 {
-		t.Fatalf("tombstone version = %d, want %d: rotation must not rewrite it",
-			tombstone.SpecVersion, original.SpecVersion+1)
+	if tombstone.SpecVersion != original.SpecVersion || tombstone.Version != original.Version+1 {
+		t.Fatalf("tombstone = v%d specV%d, want v%d specV%d: the delete bumps only the top-level version and rotation must not rewrite it",
+			tombstone.Version, tombstone.SpecVersion, original.Version+1, original.SpecVersion)
 	}
 }

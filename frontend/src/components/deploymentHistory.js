@@ -30,8 +30,14 @@ function describeConfigEntry(config, prevConfig) {
         if (desired.running !== prevDesired.running) {
             parts.push(desired.running ? 'running=true' : 'running=false');
         }
+        if (config.spaceId !== prevConfig.spaceId) {
+            parts.push(`moved to space ${config.spaceId}`);
+        }
         if (config.deleted && !prevConfig.deleted) {
             parts.push('deleted');
+        }
+        if (!config.deleted && prevConfig.deleted) {
+            parts.push('restored');
         }
     }
 
@@ -136,14 +142,14 @@ export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () 
         // preparer/runner data and render as meaningless lines).
         const visibleEntries = entries.val.filter(e => !e.status || tsMs(e.status.updatedAt) > 0);
         const configEntries = visibleEntries.filter(e => e.config);
-        const configsSorted = [...configEntries].sort((a, b) => a.config.specVersion - b.config.specVersion);
+        const configsSorted = [...configEntries].sort((a, b) => a.config.version - b.config.version);
         const currentConfigVersion = configsSorted.length > 0
-            ? configsSorted[configsSorted.length - 1].config.specVersion
+            ? configsSorted[configsSorted.length - 1].config.version
             : 0;
         const prevByVersion = {};
         let prevConfig = null;
         for (const e of configsSorted) {
-            prevByVersion[e.config.specVersion] = prevConfig;
+            prevByVersion[e.config.version] = prevConfig;
             prevConfig = e.config;
         }
 
@@ -165,11 +171,11 @@ export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () 
                 return {
                     at: e.config.updatedAt,
                     kind: 'config',
-                    v: e.config.specVersion,
+                    v: e.config.version,
                     by: resolveUserDisplayName(e.config.author) || '',
-                    change: describeConfigEntry(e.config, prevByVersion[e.config.specVersion]),
+                    change: describeConfigEntry(e.config, prevByVersion[e.config.version]),
                     config: e.config,
-                    canRevert: Boolean(targetVersion) && e.config.specVersion !== currentConfigVersion,
+                    canRevert: Boolean(targetVersion) && e.config.version !== currentConfigVersion,
                 };
             }
             return {

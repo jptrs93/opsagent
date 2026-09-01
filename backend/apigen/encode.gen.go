@@ -6,6 +6,7 @@ func (m Deployment) IsZero() bool {
 	return m.ID == 0 &&
 		m.NodeID == 0 &&
 		m.SpaceID == 0 &&
+		m.Version == 0 &&
 		m.SpaceVersion == 0 &&
 		m.Name == "" &&
 		m.CreatedAt.IsZero() &&
@@ -21,6 +22,7 @@ func (m *Deployment) Encode() []byte {
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendInt32Field(b, m.NodeID, 2)
 	b = AppendInt32Field(b, m.SpaceID, 10)
+	b = AppendInt32Field(b, m.Version, 13)
 	b = AppendInt32Field(b, m.SpaceVersion, 12)
 	b = AppendStringField(b, m.Name, 11)
 	b = AppendInt64FromTime(b, m.CreatedAt, 4)
@@ -53,6 +55,8 @@ func DecodeDeployment(b []byte) (*Deployment, error) {
 			b, m.NodeID, err = ConsumeVarInt32(b, typ)
 		case 10:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 13:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
 		case 12:
 			b, m.SpaceVersion, err = ConsumeVarInt32(b, typ)
 		case 11:
@@ -2029,7 +2033,7 @@ func DecodeRecentlyDeletedDeployments(b []byte) (*RecentlyDeletedDeployments, er
 func (m *DeploymentDeleteRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 1)
-	b = AppendInt32Field(b, m.SpecVersion, 2)
+	b = AppendInt32Field(b, m.Version, 2)
 	return b
 }
 
@@ -2047,7 +2051,7 @@ func DecodeDeploymentDeleteRequest(b []byte) (*DeploymentDeleteRequest, error) {
 		case 1:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
+			b, m.Version, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

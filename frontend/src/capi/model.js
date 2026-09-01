@@ -4,6 +4,7 @@
  * @property {number} id
  * @property {number} nodeId
  * @property {number} spaceId
+ * @property {number} version
  * @property {number} spaceVersion
  * @property {string} name
  * @property {Date} createdAt
@@ -260,7 +261,7 @@
 /**
  * @typedef {Object} DeploymentDeleteRequest
  * @property {number} deploymentId
- * @property {number} specVersion
+ * @property {number} version
  */
 /**
  * @typedef {Object} Version
@@ -1569,6 +1570,9 @@ export function writeDeployment(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(10, WIRE.VARINT)).int32(message.spaceId);
     }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(13, WIRE.VARINT)).int32(message.version);
+    }
     if (message.spaceVersion !== undefined && message.spaceVersion !== null && message.spaceVersion !== 0) {
         writer.uint32(tag(12, WIRE.VARINT)).int32(message.spaceVersion);
     }
@@ -1616,7 +1620,7 @@ export function encodeDeployment(message) {
  */
 function decodeDeploymentMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, nodeId: 0, spaceId: 0, spaceVersion: 0, name: "", createdAt: new Date(0), updatedAt: new Date(0), author: 0, specVersion: 0, spec: undefined, deleted: false };
+    const message = {id: 0, nodeId: 0, spaceId: 0, version: 0, spaceVersion: 0, name: "", createdAt: new Date(0), updatedAt: new Date(0), author: 0, specVersion: 0, spec: undefined, deleted: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1630,6 +1634,10 @@ function decodeDeploymentMessage(reader, length) {
             }
             case 10: {
                 message.spaceId = reader.int32();
+                break;
+            }
+            case 13: {
+                message.version = reader.int32();
                 break;
             }
             case 12: {
@@ -4616,8 +4624,8 @@ export function writeDeploymentDeleteRequest(message, writer) {
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.specVersion);
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
     }
 }
 
@@ -4640,7 +4648,7 @@ export function encodeDeploymentDeleteRequest(message) {
  */
 function decodeDeploymentDeleteRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, specVersion: 0 };
+    const message = {deploymentId: 0, version: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4649,7 +4657,7 @@ function decodeDeploymentDeleteRequestMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.specVersion = reader.int32();
+                message.version = reader.int32();
                 break;
             }
             default:

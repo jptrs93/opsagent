@@ -221,21 +221,6 @@ func (q *Queries) CountConfigsInDirectory(ctx context.Context, valueDirectoryID 
 	return count, err
 }
 
-const countDeploymentsForSpace = `-- name: CountDeploymentsForSpace :one
-SELECT COUNT(*) FROM deployments d
-WHERE d.deleted_at = 0
-  AND (SELECT sp.space_id FROM deployment_space_versions sp
-       WHERE sp.deployment_id = d.deployment_id
-       ORDER BY sp.version DESC LIMIT 1) = ?
-`
-
-func (q *Queries) CountDeploymentsForSpace(ctx context.Context, spaceID int64) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countDeploymentsForSpace, spaceID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countDirectorySiblingsWithKey = `-- name: CountDirectorySiblingsWithKey :one
 
 SELECT COUNT(*) FROM asset_directories
@@ -324,27 +309,6 @@ func (q *Queries) CreateAuthzRuleTemplate(ctx context.Context, name string) (int
 	var id int64
 	err := row.Scan(&id)
 	return id, err
-}
-
-const createDeployment = `-- name: CreateDeployment :one
-INSERT INTO deployments (node_id, name, deleted_at)
-VALUES (?, ?, 0)
-RETURNING deployment_id
-`
-
-type CreateDeploymentParams struct {
-	NodeID int64
-	Name   string
-}
-
-// CreateDeployment inserts a new stable deployment identity and
-// auto-allocates its deployment_id. Deleted deployments do not reserve their
-// former identity tuple. The caller inserts the v1 version row in the same tx.
-func (q *Queries) CreateDeployment(ctx context.Context, arg CreateDeploymentParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, createDeployment, arg.NodeID, arg.Name)
-	var deployment_id int64
-	err := row.Scan(&deployment_id)
-	return deployment_id, err
 }
 
 const createNetworkPolicyRow = `-- name: CreateNetworkPolicyRow :one
@@ -537,32 +501,6 @@ func (q *Queries) GetConfigByID(ctx context.Context, id int64) (SystemConfigRevi
 	row := q.db.QueryRowContext(ctx, getConfigByID, id)
 	var i SystemConfigRevision
 	err := row.Scan(&i.ID, &i.UpdatedAt, &i.ConfigBlob)
-	return i, err
-}
-
-const getDeploymentSpecVersion = `-- name: GetDeploymentSpecVersion :one
-SELECT id, deployment_id, version, created_at, author, spec_blob, global_seq
-FROM deployment_spec_versions
-WHERE deployment_id = ? AND version = ?
-`
-
-type GetDeploymentSpecVersionParams struct {
-	DeploymentID int64
-	Version      int64
-}
-
-func (q *Queries) GetDeploymentSpecVersion(ctx context.Context, arg GetDeploymentSpecVersionParams) (DeploymentSpecVersion, error) {
-	row := q.db.QueryRowContext(ctx, getDeploymentSpecVersion, arg.DeploymentID, arg.Version)
-	var i DeploymentSpecVersion
-	err := row.Scan(
-		&i.ID,
-		&i.DeploymentID,
-		&i.Version,
-		&i.CreatedAt,
-		&i.Author,
-		&i.SpecBlob,
-		&i.GlobalSeq,
-	)
 	return i, err
 }
 
@@ -1089,61 +1027,6 @@ func (q *Queries) InsertConfigVersion(ctx context.Context, arg InsertConfigVersi
 	return i, err
 }
 
-const insertDeploymentSpaceVersion = `-- name: InsertDeploymentSpaceVersion :one
-INSERT INTO deployment_space_versions (deployment_id, version, author, created_at, space_id, global_seq)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id
-`
-
-type InsertDeploymentSpaceVersionParams struct {
-	DeploymentID int64
-	Version      int64
-	Author       int64
-	CreatedAt    int64
-	SpaceID      int64
-	GlobalSeq    int64
-}
-
-func (q *Queries) InsertDeploymentSpaceVersion(ctx context.Context, arg InsertDeploymentSpaceVersionParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, insertDeploymentSpaceVersion,
-		arg.DeploymentID,
-		arg.Version,
-		arg.Author,
-		arg.CreatedAt,
-		arg.SpaceID,
-		arg.GlobalSeq,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
-const insertDeploymentSpecVersion = `-- name: InsertDeploymentSpecVersion :exec
-INSERT INTO deployment_spec_versions (deployment_id, version, created_at, author, spec_blob, global_seq)
-VALUES (?, ?, ?, ?, ?, ?)
-`
-
-type InsertDeploymentSpecVersionParams struct {
-	DeploymentID int64
-	Version      int64
-	CreatedAt    int64
-	Author       int64
-	SpecBlob     []byte
-	GlobalSeq    int64
-}
-
-func (q *Queries) InsertDeploymentSpecVersion(ctx context.Context, arg InsertDeploymentSpecVersionParams) error {
-	_, err := q.db.ExecContext(ctx, insertDeploymentSpecVersion,
-		arg.DeploymentID,
-		arg.Version,
-		arg.CreatedAt,
-		arg.Author,
-		arg.SpecBlob,
-		arg.GlobalSeq,
-	)
-	return err
-}
-
 const insertGlobalAccessRuleRow = `-- name: InsertGlobalAccessRuleRow :one
 INSERT INTO global_access_rules (name, author, created_at, data_blob)
 VALUES (?, ?, ?, ?) RETURNING id
@@ -1201,17 +1084,17 @@ func (q *Queries) InsertPersonalSession(ctx context.Context, arg InsertPersonalS
 
 const insertScheduledInstance = `-- name: InsertScheduledInstance :one
 
-INSERT INTO scheduled_instances (deployment_id, deployment_spec_version, node_id, instance_ordinal, deployment_space_version_id)
+INSERT INTO scheduled_instances (deployment_id, deployment_spec_version, node_id, instance_ordinal, space_id)
 VALUES (?, ?, ?, ?, ?)
 RETURNING id
 `
 
 type InsertScheduledInstanceParams struct {
-	DeploymentID             int64
-	DeploymentSpecVersion    int64
-	NodeID                   int64
-	InstanceOrdinal          int64
-	DeploymentSpaceVersionID int64
+	DeploymentID          int64
+	DeploymentSpecVersion int64
+	NodeID                int64
+	InstanceOrdinal       int64
+	SpaceID               int64
 }
 
 // Reads are hand-written in scheduled_instances.go: an instance row is its
@@ -1224,7 +1107,7 @@ func (q *Queries) InsertScheduledInstance(ctx context.Context, arg InsertSchedul
 		arg.DeploymentSpecVersion,
 		arg.NodeID,
 		arg.InstanceOrdinal,
-		arg.DeploymentSpaceVersionID,
+		arg.SpaceID,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -1859,121 +1742,6 @@ func (q *Queries) ListConfigVersionsByConfigID(ctx context.Context, configID int
 	return items, nil
 }
 
-const listCurrentDeploymentSpaceVersions = `-- name: ListCurrentDeploymentSpaceVersions :many
-SELECT sp.id, sp.deployment_id, sp.version, sp.author, sp.created_at, sp.space_id, sp.global_seq
-FROM deployment_space_versions sp
-JOIN (SELECT deployment_id, MAX(version) AS version
-      FROM deployment_space_versions GROUP BY deployment_id) latest
-  ON latest.deployment_id = sp.deployment_id AND latest.version = sp.version
-`
-
-func (q *Queries) ListCurrentDeploymentSpaceVersions(ctx context.Context) ([]DeploymentSpaceVersion, error) {
-	rows, err := q.db.QueryContext(ctx, listCurrentDeploymentSpaceVersions)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []DeploymentSpaceVersion
-	for rows.Next() {
-		var i DeploymentSpaceVersion
-		if err := rows.Scan(
-			&i.ID,
-			&i.DeploymentID,
-			&i.Version,
-			&i.Author,
-			&i.CreatedAt,
-			&i.SpaceID,
-			&i.GlobalSeq,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listDeploymentSpaceVersionsByDeploymentID = `-- name: ListDeploymentSpaceVersionsByDeploymentID :many
-SELECT id, deployment_id, version, author, created_at, space_id, global_seq
-FROM deployment_space_versions
-WHERE deployment_id = ?
-ORDER BY version ASC
-`
-
-func (q *Queries) ListDeploymentSpaceVersionsByDeploymentID(ctx context.Context, deploymentID int64) ([]DeploymentSpaceVersion, error) {
-	rows, err := q.db.QueryContext(ctx, listDeploymentSpaceVersionsByDeploymentID, deploymentID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []DeploymentSpaceVersion
-	for rows.Next() {
-		var i DeploymentSpaceVersion
-		if err := rows.Scan(
-			&i.ID,
-			&i.DeploymentID,
-			&i.Version,
-			&i.Author,
-			&i.CreatedAt,
-			&i.SpaceID,
-			&i.GlobalSeq,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listDeploymentSpecVersions = `-- name: ListDeploymentSpecVersions :many
-SELECT id, deployment_id, version, created_at, author, spec_blob, global_seq
-FROM deployment_spec_versions
-WHERE deployment_id = ?
-ORDER BY version ASC
-`
-
-func (q *Queries) ListDeploymentSpecVersions(ctx context.Context, deploymentID int64) ([]DeploymentSpecVersion, error) {
-	rows, err := q.db.QueryContext(ctx, listDeploymentSpecVersions, deploymentID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []DeploymentSpecVersion
-	for rows.Next() {
-		var i DeploymentSpecVersion
-		if err := rows.Scan(
-			&i.ID,
-			&i.DeploymentID,
-			&i.Version,
-			&i.CreatedAt,
-			&i.Author,
-			&i.SpecBlob,
-			&i.GlobalSeq,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listGlobalAccessRuleRows = `-- name: ListGlobalAccessRuleRows :many
 SELECT id, name, author, created_at, data_blob FROM global_access_rules
 WHERE deleted_at = 0
@@ -2483,9 +2251,13 @@ func (q *Queries) ListSecretVersionsBySecretID(ctx context.Context, secretID int
 }
 
 const listSpaces = `-- name: ListSpaces :many
+
 SELECT id, name FROM spaces ORDER BY id
 `
 
+// Deployment reads and writes are hand-written in deployments.go against the
+// deployment_event_log; the pre-event-log tables are touched only by the
+// one-time migration in migrate_deployments.go.
 func (q *Queries) ListSpaces(ctx context.Context) ([]Space, error) {
 	rows, err := q.db.QueryContext(ctx, listSpaces)
 	if err != nil {
@@ -3068,20 +2840,6 @@ type UpdateAuthzRuleTemplateNameParams struct {
 
 func (q *Queries) UpdateAuthzRuleTemplateName(ctx context.Context, arg UpdateAuthzRuleTemplateNameParams) error {
 	_, err := q.db.ExecContext(ctx, updateAuthzRuleTemplateName, arg.Name, arg.ID)
-	return err
-}
-
-const updateDeploymentDeletedAt = `-- name: UpdateDeploymentDeletedAt :exec
-UPDATE deployments SET deleted_at = ? WHERE deployment_id = ?
-`
-
-type UpdateDeploymentDeletedAtParams struct {
-	DeletedAt    int64
-	DeploymentID int64
-}
-
-func (q *Queries) UpdateDeploymentDeletedAt(ctx context.Context, arg UpdateDeploymentDeletedAtParams) error {
-	_, err := q.db.ExecContext(ctx, updateDeploymentDeletedAt, arg.DeletedAt, arg.DeploymentID)
 	return err
 }
 

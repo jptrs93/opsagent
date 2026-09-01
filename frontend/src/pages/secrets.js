@@ -177,7 +177,7 @@ export function secretsPage() {
         const refIds = new Set(metaVersions(item.meta).map((ref) => Number(ref.id)));
         return (deploymentsS.val || []).map((deployment) => deployment?.config).filter((cfg) =>
             cfg && !cfg.deleted && deploymentUsesEnvReferences(cfg, item.kind, refIds),
-        ).map((cfg) => ({id: cfg.id, version: cfg.version}));
+        ).map((cfg) => ({id: cfg.id, specVersion: cfg.specVersion}));
     };
 
     const resolveSelection = () => {

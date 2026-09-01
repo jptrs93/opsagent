@@ -38,20 +38,14 @@ func mustSetDeploymentWorkloadState(s *Service, ctx apigen.Context, deploymentID
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	bgCtx := context.Background()
-	dbID := int64(deploymentID)
-
 	userID := int64(ctx.AttributionUserID())
 
-	existing, err := s.q.GetDeployment(bgCtx, dbID)
-	if err != nil {
-		panic(fmt.Sprintf("GetDeployment: %v", err))
-	}
-	spec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.SpecVersion)
+	existing := s.mustLatestDeploymentLocked(deploymentID, "deployment workload state")
+	spec := mustDecodeDeploymentSpec(existing.Spec.Encode(), int64(deploymentID), int64(existing.SpecVersion))
 	if err := spec.SetWorkloadState(version, running); err != nil {
 		panic(fmt.Sprintf("update deployment workload state: %v", err))
 	}
-	s.mustAppendSpecVersionLocked(existing, spec.Encode(), userID, "deployment workload state")
+	s.mustAppendSpecVersionLocked(existing, spec, userID, "deployment workload state")
 }
 
 // mustUpdateDeploymentSpec appends the given spec as a new version, preserving
@@ -60,25 +54,18 @@ func mustUpdateDeploymentSpec(s *Service, ctx apigen.Context, deploymentID int32
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	bgCtx := context.Background()
-	dbID := int64(deploymentID)
-
 	userID := int64(ctx.AttributionUserID())
 
 	if spec == nil {
 		panic("deployment spec must not be nil")
 	}
 
-	existing, err := s.q.GetDeployment(bgCtx, dbID)
-	if err != nil {
-		panic(fmt.Sprintf("GetDeployment: %v", err))
-	}
-	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), dbID, existing.SpecVersion)
-	existingSpec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.SpecVersion)
-	if err := storedSpec.SetWorkloadState(existingSpec.WorkloadVersion(), existingSpec.WorkloadRunning()); err != nil {
+	existing := s.mustLatestDeploymentLocked(deploymentID, "deployment spec update")
+	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), int64(deploymentID), int64(existing.SpecVersion))
+	if err := storedSpec.SetWorkloadState(existing.WorkloadVersion(), existing.WorkloadRunning()); err != nil {
 		panic(fmt.Sprintf("preserve deployment workload state: %v", err))
 	}
-	s.mustAppendSpecVersionLocked(existing, storedSpec.Encode(), userID, "deployment spec update")
+	s.mustAppendSpecVersionLocked(existing, storedSpec, userID, "deployment spec update")
 }
 
 // getAssetInRootByKey resolves an asset by key in a space's implicit root

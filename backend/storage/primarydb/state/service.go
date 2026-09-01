@@ -59,10 +59,10 @@ type Service struct {
 	// Used by primary scheduler/APIs only — never as the pinned config source for
 	// a scheduled-instance snapshot.
 	deploymentCache map[int32]*apigen.Deployment
-	// spaceVersionRowIDs holds each deployment's current deployment_space_versions
-	// row id — the pin stamped onto scheduled instances at creation. The space
-	// value and version themselves live on the cached config.
-	spaceVersionRowIDs map[int32]int64
+	// latestEvents holds each deployment's newest event row — the persisted
+	// counterpart of deploymentCache, carrying the version columns (name
+	// included) that the next event must follow on from.
+	latestEvents map[int32]pq.DeploymentEvent
 	// latestFinalCache retains the last incarnation of an ordinal after it is
 	// finalized, so a stopped deployment can still show how its final run ended.
 	// At most one entry per ordinal, and only while no live instance supersedes
@@ -93,25 +93,25 @@ type Service struct {
 
 func Open(dbPath string) *Service {
 	s := &Service{
-		q:                  pq.Open(dbPath),
-		deploymentCache:    make(map[int32]*apigen.Deployment),
-		spaceVersionRowIDs: make(map[int32]int64),
-		latestFinalCache:   make(map[instanceOrdinalKey]*apigen.ScheduledInstanceState),
-		deploymentSubs:     &pubsubu.PubSub[apigen.Deployment]{},
-		userSubs:           &pubsubu.PubSub[apigen.User]{},
-		backupStatusSubs:   &pubsubu.PubSub[apigen.BackupStatus]{},
-		secretStatusSubs:   &pubsubu.PubSub[apigen.SecretsStatusResponse]{},
-		secretMetaSubs:     &pubsubu.PubSub[apigen.Secret]{},
-		userConfigSubs:     &pubsubu.PubSub[apigen.Config]{},
-		valueDirSubs:       &pubsubu.PubSub[apigen.ValueDirectory]{},
-		spaceSubs:          &pubsubu.PubSub[apigen.Space]{},
-		assetSubs:          &pubsubu.PubSub[apigen.Asset]{},
-		assetDirSubs:       &pubsubu.PubSub[apigen.AssetDirectory]{},
-		enrollmentSubs:     &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
-		nodeSubs:           &pubsubu.PubSub[apigen.ClusterNode]{},
-		nodeStatusSubs:     &pubsubu.PubSub[apigen.ClusterNodeStatus]{},
-		agentSessionSubs:   &pubsubu.PubSub[AgentSessionRecord]{},
-		networkPolicySubs:  &pubsubu.PubSub[apigen.NetworkPolicy]{},
+		q:                 pq.Open(dbPath),
+		deploymentCache:   make(map[int32]*apigen.Deployment),
+		latestEvents:      make(map[int32]pq.DeploymentEvent),
+		latestFinalCache:  make(map[instanceOrdinalKey]*apigen.ScheduledInstanceState),
+		deploymentSubs:    &pubsubu.PubSub[apigen.Deployment]{},
+		userSubs:          &pubsubu.PubSub[apigen.User]{},
+		backupStatusSubs:  &pubsubu.PubSub[apigen.BackupStatus]{},
+		secretStatusSubs:  &pubsubu.PubSub[apigen.SecretsStatusResponse]{},
+		secretMetaSubs:    &pubsubu.PubSub[apigen.Secret]{},
+		userConfigSubs:    &pubsubu.PubSub[apigen.Config]{},
+		valueDirSubs:      &pubsubu.PubSub[apigen.ValueDirectory]{},
+		spaceSubs:         &pubsubu.PubSub[apigen.Space]{},
+		assetSubs:         &pubsubu.PubSub[apigen.Asset]{},
+		assetDirSubs:      &pubsubu.PubSub[apigen.AssetDirectory]{},
+		enrollmentSubs:    &pubsubu.PubSub[apigen.EnrollmentRequestStatus]{},
+		nodeSubs:          &pubsubu.PubSub[apigen.ClusterNode]{},
+		nodeStatusSubs:    &pubsubu.PubSub[apigen.ClusterNodeStatus]{},
+		agentSessionSubs:  &pubsubu.PubSub[AgentSessionRecord]{},
+		networkPolicySubs: &pubsubu.PubSub[apigen.NetworkPolicy]{},
 	}
 	s.Cache = instancecache.New(s.persistStatus)
 	s.loadCache()
@@ -140,7 +140,13 @@ func (s *Service) InvalidateNodeRuntimeState(nodeID int32) (int64, error) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	count, err := s.q.DeleteScheduledInstanceStatusesForNode(context.Background(), int64(nodeID), int64(OpendeploySpaceID), internaldeploy.SelfName)
+	var exceptIDs []int64
+	for _, cfg := range s.deploymentCache {
+		if cfg.SpaceID == OpendeploySpaceID && cfg.Name == internaldeploy.SelfName {
+			exceptIDs = append(exceptIDs, int64(cfg.ID))
+		}
+	}
+	count, err := s.q.DeleteScheduledInstanceStatusesForNode(context.Background(), int64(nodeID), exceptIDs)
 	if err != nil {
 		return 0, fmt.Errorf("invalidate runtime state for node %d: %w", nodeID, err)
 	}
@@ -356,7 +362,15 @@ func (s *Service) DeleteSpace(id int32) error {
 }
 
 func (s *Service) CountDeploymentsForSpace(id int32) (int64, error) {
-	return s.q.CountDeploymentsForSpace(context.Background(), int64(id))
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	var count int64
+	for _, cfg := range s.deploymentCache {
+		if !cfg.Deleted && cfg.SpaceID == id {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (s *Service) SubscribeSpaceUpdates() (*pubsubu.Sub[apigen.Space], func()) {

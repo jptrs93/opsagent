@@ -2,43 +2,31 @@ package state
 
 import (
 	"fmt"
-	"time"
+	"reflect"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-func deploymentRowToProto(r pq.DeploymentRow) *apigen.Deployment {
-	spec := mustDecodeDeploymentSpec(r.SpecBlob, r.DeploymentID, r.SpecVersion)
-	return &apigen.Deployment{
-		ID:           int32(r.DeploymentID),
-		NodeID:       int32(r.NodeID),
-		SpaceID:      int32(r.SpaceID),
-		SpaceVersion: int32(r.SpaceVersion),
-		Name:         r.Name,
-		CreatedAt:    millisToTime(r.CreatedAt),
-		SpecVersion:  int32(r.SpecVersion),
-		UpdatedAt:    time.UnixMilli(r.UpdatedAt),
-		Author:       int32(r.Author),
-		Spec:         deploymentSpecValue(spec),
-		Deleted:      r.DeletedAt != 0,
+// deploymentEventToProto decodes an event's full Deployment snapshot. The
+// version columns on the event are a materialisation of the same snapshot, so
+// nothing is joined in.
+func deploymentEventToProto(e pq.DeploymentEvent) *apigen.Deployment {
+	cfg, err := apigen.DecodeDeployment(e.Value)
+	if err != nil {
+		panic(fmt.Sprintf("decode deployment %d event version %d: %v", e.DeploymentID, e.Version, err))
 	}
+	return cfg
 }
 
-// specVersionRowToProto assembles a pinned or historical version row into a
-// full config proto. Identity-level fields (node, space, name, creation time,
-// tombstone state) come from base — the deployment's current cached config —
-// since the version rows carry only the immutable spec. base may be nil when
-// the identity is not cached; identity fields are then zero-valued.
-func specVersionRowToProto(v pq.DeploymentSpecVersion, base *apigen.Deployment) *apigen.Deployment {
-	spec := mustDecodeDeploymentSpec(v.SpecBlob, v.DeploymentID, v.Version)
-	cfg := &apigen.Deployment{
-		ID:          int32(v.DeploymentID),
-		SpecVersion: int32(v.Version),
-		UpdatedAt:   time.UnixMilli(v.CreatedAt),
-		Author:      int32(v.Author),
-		Spec:        deploymentSpecValue(spec),
-	}
+// pinnedSpecEventToProto assembles a pinned or historical spec version from
+// the event that introduced it. Identity-level fields (node, space, name,
+// creation time, tombstone state) come from base — the deployment's current
+// cached config — matching the pre-event-log behaviour where version rows
+// carried only the spec. base may be nil when the identity is not cached; the
+// event's own historical identity then stands.
+func pinnedSpecEventToProto(e pq.DeploymentEvent, base *apigen.Deployment) *apigen.Deployment {
+	cfg := deploymentEventToProto(e)
 	if base != nil {
 		cfg.NodeID = base.NodeID
 		cfg.SpaceID = base.SpaceID
@@ -50,11 +38,20 @@ func specVersionRowToProto(v pq.DeploymentSpecVersion, base *apigen.Deployment) 
 	return cfg
 }
 
-func deploymentSpecValue(spec *apigen.DeploymentSpec) apigen.DeploymentSpec {
-	if spec == nil {
-		return apigen.DeploymentSpec{}
+// deploymentSpecsEqual reports semantic spec equality. Encoded bytes cannot
+// be compared directly: map fields (env vars) encode in Go map iteration
+// order, so two encodes of equal specs can produce different bytes. Both
+// sides are canonicalised through a decode and compared structurally.
+func deploymentSpecsEqual(a, b *apigen.DeploymentSpec) bool {
+	da, err := apigen.DecodeDeploymentSpec(a.Encode())
+	if err != nil {
+		panic(fmt.Sprintf("canonicalise deployment spec: %v", err))
 	}
-	return *spec
+	db, err := apigen.DecodeDeploymentSpec(b.Encode())
+	if err != nil {
+		panic(fmt.Sprintf("canonicalise deployment spec: %v", err))
+	}
+	return reflect.DeepEqual(da, db)
 }
 
 func mustDecodeDeploymentSpec(blob []byte, deploymentID, version int64) *apigen.DeploymentSpec {

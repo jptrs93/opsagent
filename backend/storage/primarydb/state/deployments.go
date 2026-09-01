@@ -1,7 +1,6 @@
 package state
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -28,28 +27,30 @@ func (s *Service) ListActiveDeployments() []*apigen.Deployment {
 	return out
 }
 
+// MustFetchDeploymentHistory returns every event snapshot of a deployment in
+// version order: spec updates, space moves, and the delete, each a full
+// config at that point.
 func (s *Service) MustFetchDeploymentHistory(deploymentID int32) []*apigen.Deployment {
 	ctx := context.Background()
-	rows, err := s.q.ListDeploymentSpecVersions(ctx, int64(deploymentID))
+	events, err := s.q.ListDeploymentEvents(ctx, int64(deploymentID))
 	if err != nil {
-		panic(fmt.Sprintf("ListDeploymentSpecVersions: %v", err))
+		panic(fmt.Sprintf("ListDeploymentEvents: %v", err))
 	}
-	base := s.deploymentCache[deploymentID]
-	out := make([]*apigen.Deployment, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, specVersionRowToProto(r, base))
+	out := make([]*apigen.Deployment, 0, len(events))
+	for _, e := range events {
+		out = append(out, deploymentEventToProto(e))
 	}
 	return out
 }
 
-// DeploymentSpecUpdate is a full replacement of the mutable config fields,
-// applied only when ExpectedSpecVersion matches the next version of the stored row.
-// Callers always hold the current row (they need it for ExpectedSpecVersion), so
-// unchanged fields are passed through as-is rather than merged from storage.
+// DeploymentSpecUpdate is a full replacement of the spec, applied only when
+// ExpectedSpecVersion matches the next spec version of the stored state.
+// Callers always hold the current config (they need it for
+// ExpectedSpecVersion), so unchanged fields are passed through as-is rather
+// than merged from storage.
 type DeploymentSpecUpdate struct {
 	ExpectedSpecVersion int32
 	Spec                *apigen.DeploymentSpec
-	Deleted             bool
 }
 
 func (s *Service) UpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, update DeploymentSpecUpdate) (*apigen.Deployment, bool, bool) {
@@ -59,178 +60,199 @@ func (s *Service) UpdateDeploymentSpec(ctx apigen.Context, deploymentID int32, u
 	if update.Spec == nil {
 		panic("deployment spec must not be nil")
 	}
-
-	bgCtx := context.Background()
-	dbID := int64(deploymentID)
-	now := time.Now().UnixMilli()
-
-	userID := int64(ctx.AttributionUserID())
-
-	specBlob := update.Spec.Encode()
-
-	existing, err := s.q.GetDeployment(bgCtx, dbID)
-	if err != nil {
-		panic(fmt.Sprintf("GetDeployment: %v", err))
+	existing := s.mustLatestDeploymentLocked(deploymentID, "deployment spec update")
+	if update.ExpectedSpecVersion != existing.SpecVersion+1 {
+		return existing, false, false
 	}
-	if update.ExpectedSpecVersion != int32(existing.SpecVersion+1) {
-		return deploymentRowToProto(existing), false, false
+	if deploymentSpecsEqual(update.Spec, &existing.Spec) {
+		return existing, false, true
 	}
 
-	next := existing
-	if update.Deleted {
-		if existing.DeletedAt == 0 {
-			next.DeletedAt = now
-		}
-	} else {
-		next.DeletedAt = 0
-	}
-	if bytes.Equal(specBlob, existing.SpecBlob) &&
-		next.DeletedAt == existing.DeletedAt {
-		return deploymentRowToProto(existing), false, true
-	}
-
-	// A delete appends a final version row even when the spec bytes are
-	// unchanged — the tombstone's deletion time is its latest version's
-	// created_at, and the bump keeps the optimistic version guard covering
-	// deletes.
+	next := *existing
+	next.Version = existing.Version + 1
 	next.SpecVersion = existing.SpecVersion + 1
-	next.UpdatedAt = now
-	next.Author = userID
-	next.SpecBlob = specBlob
-	cfg := s.mustCommitDeploymentLocked(existing, next, "deployment config update")
+	next.UpdatedAt = time.Now()
+	next.Author = int32(ctx.AttributionUserID())
+	next.Spec = *update.Spec
+	cfg := s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventUpdate, "deployment spec update")
 	return cfg, true, true
 }
 
-// mustCommitDeploymentLocked writes the version append and any identity
-// changes between prev and next in one tx — the pair must never be observed
-// half-applied — then refreshes the cache and notifies subscribers. Caller
-// must hold s.Mu.
-func (s *Service) mustCommitDeploymentLocked(prev, next pq.DeploymentRow, label string) *apigen.Deployment {
-	bgCtx := context.Background()
-	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
-		if next.SpecVersion != prev.SpecVersion {
-			seq, err := q.NextGlobalSeq(bgCtx)
-			if err != nil {
-				panic(fmt.Sprintf("NextGlobalSeq (%s): %v", label, err))
-			}
-			if err := q.InsertDeploymentSpecVersion(bgCtx, pq.InsertDeploymentSpecVersionParams{
-				DeploymentID: next.DeploymentID,
-				Version:      next.SpecVersion,
-				CreatedAt:    next.UpdatedAt,
-				Author:       next.Author,
-				SpecBlob:     next.SpecBlob,
-				GlobalSeq:    seq,
-			}); err != nil {
-				panic(fmt.Sprintf("InsertDeploymentSpecVersion (%s): %v", label, err))
-			}
-		}
-		if next.DeletedAt != prev.DeletedAt {
-			if err := q.UpdateDeploymentDeletedAt(bgCtx, pq.UpdateDeploymentDeletedAtParams{
-				DeletedAt:    next.DeletedAt,
-				DeploymentID: next.DeploymentID,
-			}); err != nil {
-				panic(fmt.Sprintf("UpdateDeploymentDeletedAt (%s): %v", label, err))
-			}
-		}
-		return nil
-	}); err != nil {
-		panic(fmt.Sprintf("%s tx: %v", label, err))
+// DeleteDeployment appends the tombstone event, guarded by the top-level
+// version: expectedVersion must equal the current version + 1. The delete
+// bumps only the top-level version — sub-part versions, the spec included,
+// stay untouched, so the spec version remains strictly "times the spec
+// changed".
+func (s *Service) DeleteDeployment(ctx apigen.Context, deploymentID int32, expectedVersion int32) (*apigen.Deployment, bool) {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	existing := s.mustLatestDeploymentLocked(deploymentID, "deployment delete")
+	if existing.Deleted || expectedVersion != existing.Version+1 {
+		return existing, false
 	}
-	cfg := deploymentRowToProto(next)
-	id := int32(next.DeploymentID)
-	s.deploymentCache[id] = cfg
-	s.notifyDeploymentLocked(id)
-	return cfg
+	next := *existing
+	next.Version = existing.Version + 1
+	next.UpdatedAt = time.Now()
+	next.Author = int32(ctx.AttributionUserID())
+	next.Deleted = true
+	cfg := s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventDelete, "deployment delete")
+	return cfg, true
 }
 
-// mustAppendSpecVersionLocked appends the next spec version for an existing
-// deployment, leaving identity fields untouched. Caller must hold s.Mu.
-func (s *Service) mustAppendSpecVersionLocked(existing pq.DeploymentRow, specBlob []byte, author int64, label string) *apigen.Deployment {
-	next := existing
-	next.SpecVersion = existing.SpecVersion + 1
-	next.UpdatedAt = time.Now().UnixMilli()
-	next.Author = author
-	next.SpecBlob = specBlob
-	return s.mustCommitDeploymentLocked(existing, next, label)
-}
-
-// mustCreateDeploymentLocked inserts a stable identity row and its v1 version
-// row in one tx, then caches and notifies. Caller must hold s.Mu.
-func (s *Service) mustCreateDeploymentLocked(spaceID int32, name string, nodeID int32, specBlob []byte, author int64, label string) *apigen.Deployment {
+// mustAppendDeploymentEventLocked writes one event for the transition to next
+// and refreshes the cache and subscribers. Caller must hold s.Mu and must
+// have bumped next's versions to match the change it is making; the sub-
+// version invariants are asserted here against the previous cached event.
+func (s *Service) mustAppendDeploymentEventLocked(next *apigen.Deployment, eventType int64, label string) *apigen.Deployment {
 	bgCtx := context.Background()
-	now := time.Now().UnixMilli()
-	var dbID, spaceRowID int64
+	prev, hasPrev := s.latestEvents[next.ID]
+	event := buildDeploymentEvent(prev, hasPrev, next, eventType, label)
 	if err := s.q.Tx(bgCtx, func(q *pq.Queries) error {
 		seq, err := q.NextGlobalSeq(bgCtx)
 		if err != nil {
 			panic(fmt.Sprintf("NextGlobalSeq (%s): %v", label, err))
 		}
-		dbID, err = q.CreateDeployment(bgCtx, pq.CreateDeploymentParams{
-			NodeID: int64(nodeID),
-			Name:   name,
-		})
-		if err != nil {
-			panic(fmt.Sprintf("CreateDeployment (%s): %v", label, err))
-		}
-		if err := q.InsertDeploymentSpecVersion(bgCtx, pq.InsertDeploymentSpecVersionParams{
-			DeploymentID: dbID,
-			Version:      1,
-			CreatedAt:    now,
-			Author:       author,
-			SpecBlob:     specBlob,
-			GlobalSeq:    seq,
-		}); err != nil {
-			panic(fmt.Sprintf("InsertDeploymentSpecVersion (%s): %v", label, err))
-		}
-		spaceRowID, err = q.InsertDeploymentSpaceVersion(bgCtx, pq.InsertDeploymentSpaceVersionParams{
-			DeploymentID: dbID,
-			Version:      1,
-			Author:       author,
-			CreatedAt:    now,
-			SpaceID:      int64(spaceID),
-			GlobalSeq:    seq,
-		})
-		if err != nil {
-			panic(fmt.Sprintf("InsertDeploymentSpaceVersion (%s): %v", label, err))
+		event.GlobalSeq = seq
+		if err := q.InsertDeploymentEvent(bgCtx, event); err != nil {
+			panic(fmt.Sprintf("InsertDeploymentEvent (%s): %v", label, err))
 		}
 		return nil
 	}); err != nil {
-		panic(fmt.Sprintf("%s create tx: %v", label, err))
+		panic(fmt.Sprintf("%s tx: %v", label, err))
 	}
+	return s.applyDeploymentEventLocked(event)
+}
 
-	cfg := deploymentRowToProto(pq.DeploymentRow{
-		DeploymentID: dbID,
-		NodeID:       int64(nodeID),
-		SpaceID:      int64(spaceID),
+// mustLatestDeploymentLocked returns a fresh decode of the deployment's
+// persisted latest event. Write paths base their next state on this rather
+// than the cache: a caller holding a snapshot can alias the cached spec's
+// pointer fields, and no-op/CAS decisions must rest on what is stored.
+// Caller must hold s.Mu.
+func (s *Service) mustLatestDeploymentLocked(deploymentID int32, label string) *apigen.Deployment {
+	event, ok := s.latestEvents[deploymentID]
+	if !ok {
+		panic(fmt.Sprintf("%s: deployment %d has no events", label, deploymentID))
+	}
+	return deploymentEventToProto(event)
+}
+
+// applyDeploymentEventLocked installs a committed event into the caches and
+// notifies subscribers. Caller must hold s.Mu.
+func (s *Service) applyDeploymentEventLocked(event pq.DeploymentEvent) *apigen.Deployment {
+	cfg := deploymentEventToProto(event)
+	s.deploymentCache[cfg.ID] = cfg
+	s.latestEvents[cfg.ID] = event
+	s.notifyDeploymentLocked(cfg.ID)
+	return cfg
+}
+
+// buildDeploymentEvent materialises next into an event row and asserts the
+// versioning invariant the schema can no longer enforce structurally: the
+// top-level version bumps by exactly one, and each sub-version increments iff
+// its sub-value changed. GlobalSeq is left for the committing tx to fill.
+func buildDeploymentEvent(prev pq.DeploymentEvent, hasPrev bool, next *apigen.Deployment, eventType int64, label string) pq.DeploymentEvent {
+	if !hasPrev {
+		if eventType != pq.DeploymentEventCreate || next.Version != 1 || next.SpecVersion != 1 || next.SpaceVersion != 1 {
+			panic(fmt.Sprintf("%s: first event for deployment %d must be a v1 create", label, next.ID))
+		}
+		return pq.DeploymentEvent{
+			CreatedAt:              next.UpdatedAt.UnixMilli(),
+			Author:                 int64(next.Author),
+			DeploymentID:           int64(next.ID),
+			Version:                1,
+			SpecVersion:            1,
+			SpaceAssignmentVersion: 1,
+			NameVersion:            1,
+			Value:                  next.Encode(),
+			EventType:              pq.DeploymentEventCreate,
+		}
+	}
+	prevCfg := deploymentEventToProto(prev)
+	assertSubVersion := func(name string, changed bool, prevV, nextV int32) {
+		want := prevV
+		if changed {
+			want++
+		}
+		if nextV != want {
+			panic(fmt.Sprintf("%s: deployment %d %s version %d does not match change (prev %d, changed %v)",
+				label, next.ID, name, nextV, prevV, changed))
+		}
+	}
+	if next.Version != prevCfg.Version+1 {
+		panic(fmt.Sprintf("%s: deployment %d version %d does not follow %d", label, next.ID, next.Version, prevCfg.Version))
+	}
+	assertSubVersion("spec", !deploymentSpecsEqual(&next.Spec, &prevCfg.Spec), prevCfg.SpecVersion, next.SpecVersion)
+	assertSubVersion("space", next.SpaceID != prevCfg.SpaceID, prevCfg.SpaceVersion, next.SpaceVersion)
+	nameVersion := prev.NameVersion
+	if next.Name != prevCfg.Name {
+		nameVersion++
+	}
+	return pq.DeploymentEvent{
+		CreatedAt:              next.UpdatedAt.UnixMilli(),
+		Author:                 int64(next.Author),
+		DeploymentID:           int64(next.ID),
+		Version:                int64(next.Version),
+		SpecVersion:            int64(next.SpecVersion),
+		SpaceAssignmentVersion: int64(next.SpaceVersion),
+		NameVersion:            nameVersion,
+		Value:                  next.Encode(),
+		EventType:              eventType,
+	}
+}
+
+// mustAppendSpecVersionLocked appends the next spec version for an existing
+// deployment, leaving identity fields untouched. Caller must hold s.Mu.
+func (s *Service) mustAppendSpecVersionLocked(existing *apigen.Deployment, spec *apigen.DeploymentSpec, author int64, label string) *apigen.Deployment {
+	next := *existing
+	next.Version = existing.Version + 1
+	next.SpecVersion = existing.SpecVersion + 1
+	next.UpdatedAt = time.Now()
+	next.Author = int32(author)
+	next.Spec = *spec
+	return s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventUpdate, label)
+}
+
+// mustCreateDeploymentLocked allocates the next deployment id and writes the
+// create event, then caches and notifies. Caller must hold s.Mu.
+func (s *Service) mustCreateDeploymentLocked(spaceID int32, name string, nodeID int32, spec *apigen.DeploymentSpec, author int64, label string) *apigen.Deployment {
+	bgCtx := context.Background()
+	dbID, err := s.q.NextDeploymentID(bgCtx)
+	if err != nil {
+		panic(fmt.Sprintf("NextDeploymentID (%s): %v", label, err))
+	}
+	now := time.Now()
+	next := apigen.Deployment{
+		ID:           int32(dbID),
+		NodeID:       nodeID,
+		SpaceID:      spaceID,
+		Version:      1,
 		SpaceVersion: 1,
 		Name:         name,
-		SpecVersion:  1,
 		CreatedAt:    now,
 		UpdatedAt:    now,
-		Author:       author,
-		SpecBlob:     specBlob,
-	})
-	id := int32(dbID)
-	s.deploymentCache[id] = cfg
-	s.spaceVersionRowIDs[id] = spaceRowID
-	s.notifyDeploymentLocked(id)
-	return cfg
+		Author:       int32(author),
+		SpecVersion:  1,
+		Spec:         *spec,
+	}
+	return s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventCreate, label)
 }
 
 var DuplicateDeploymentIdentityErr = errors.New("a deployment with this name, space, and node already exists")
 
 var SpaceVersionMismatchErr = errors.New("deployment space version mismatch")
 
-// MoveDeploymentSpace appends a deployment_space_versions row, guarded by the
-// space version the caller observed: expectedSpaceVersion must equal the
-// current space version + 1, mirroring the config-update version guard. A
-// same-space request with a valid guard is a no-op that does not advance the
-// version.
+// MoveDeploymentSpace appends a space-assignment event, guarded by the space
+// version the caller observed: expectedSpaceVersion must equal the current
+// space version + 1, mirroring the spec-update version guard. A same-space
+// request with a valid guard is a no-op that does not advance the version.
 func (s *Service) MoveDeploymentSpace(deploymentID, newSpaceID, expectedSpaceVersion, author int32) (*apigen.Deployment, error) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	cfg := s.deploymentCache[deploymentID]
-	if cfg == nil || cfg.Deleted {
+	if _, ok := s.latestEvents[deploymentID]; !ok {
+		return nil, fmt.Errorf("deployment %d not found", deploymentID)
+	}
+	cfg := s.mustLatestDeploymentLocked(deploymentID, "deployment space move")
+	if cfg.Deleted {
 		return nil, fmt.Errorf("deployment %d not found", deploymentID)
 	}
 	if expectedSpaceVersion != cfg.SpaceVersion+1 {
@@ -245,32 +267,14 @@ func (s *Service) MoveDeploymentSpace(deploymentID, newSpaceID, expectedSpaceVer
 			return nil, DuplicateDeploymentIdentityErr
 		}
 	}
-	ctx := context.Background()
-	var rowID int64
-	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		seq, err := q.NextGlobalSeq(ctx)
-		if err != nil {
-			return err
-		}
-		rowID, err = q.InsertDeploymentSpaceVersion(ctx, pq.InsertDeploymentSpaceVersionParams{
-			DeploymentID: int64(deploymentID),
-			Version:      int64(cfg.SpaceVersion + 1),
-			Author:       int64(author),
-			CreatedAt:    time.Now().UnixMilli(),
-			SpaceID:      int64(newSpaceID),
-			GlobalSeq:    seq,
-		})
-		return err
-	}); err != nil {
-		panic(fmt.Sprintf("InsertDeploymentSpaceVersion: %v", err))
-	}
 	next := *cfg
+	next.Version = cfg.Version + 1
 	next.SpaceID = newSpaceID
 	next.SpaceVersion = cfg.SpaceVersion + 1
-	s.deploymentCache[deploymentID] = &next
-	s.spaceVersionRowIDs[deploymentID] = rowID
-	s.notifyDeploymentLocked(deploymentID)
-	cp := next
+	next.UpdatedAt = time.Now()
+	next.Author = author
+	moved := s.mustAppendDeploymentEventLocked(&next, pq.DeploymentEventUpdate, "deployment space move")
+	cp := *moved
 	return &cp, nil
 }
 
@@ -291,7 +295,7 @@ func (s *Service) MustCreateDeploymentForNode(ctx apigen.Context, spaceID int32,
 		panic("deployment spec must not be nil")
 	}
 	userID := int64(ctx.AttributionUserID())
-	return s.mustCreateDeploymentLocked(spaceID, name, nodeID, spec.Encode(), userID, "deployment")
+	return s.mustCreateDeploymentLocked(spaceID, name, nodeID, spec, userID, "deployment")
 }
 
 // EnsureSystemDeployment creates the OPENDEPLOY opendeploy deployment for
@@ -325,7 +329,7 @@ func (s *Service) EnsureSystemDeployment(nodeID int32, opendeployVersion string)
 	if err := spec.SetWorkloadState(opendeployVersion, true); err != nil {
 		panic(fmt.Sprintf("initialize system deployment state: %v", err))
 	}
-	s.mustCreateDeploymentLocked(OpendeploySpaceID, internaldeploy.SelfName, nodeID, spec.Encode(), 0, "system deployment")
+	s.mustCreateDeploymentLocked(OpendeploySpaceID, internaldeploy.SelfName, nodeID, spec, 0, "system deployment")
 	slog.InfoContext(ctx, fmt.Sprintf("created system deployment at version %s", opendeployVersion), "node", nodeID)
 }
 
@@ -349,7 +353,7 @@ func (s *Service) EnsureNetproxyDeployment(nodeID int32, initialVersion string) 
 			if err := desiredSpec.SetWorkloadState(cfg.WorkloadVersion(), cfg.WorkloadRunning()); err != nil {
 				panic(fmt.Sprintf("compare netproxy deployment state: %v", err))
 			}
-			if !bytes.Equal(cfg.Spec.Encode(), desiredSpec.Encode()) {
+			if !deploymentSpecsEqual(&cfg.Spec, desiredSpec) {
 				slog.WarnContext(ctx, "repairing netproxy deployment spec", "dep", cfg.ID, "node", nodeID)
 				s.repairDeploymentSpecLocked(cfg.ID, desiredSpec, "netproxy")
 				cfg = s.deploymentCache[cfg.ID]
@@ -362,23 +366,16 @@ func (s *Service) EnsureNetproxyDeployment(nodeID int32, initialVersion string) 
 	if err := spec.SetWorkloadState(desiredVersion, true); err != nil {
 		panic(fmt.Sprintf("initialize netproxy deployment state: %v", err))
 	}
-	cfg := s.mustCreateDeploymentLocked(OpendeploySpaceID, internaldeploy.NetproxyName, nodeID, spec.Encode(), 0, "netproxy deployment")
+	cfg := s.mustCreateDeploymentLocked(OpendeploySpaceID, internaldeploy.NetproxyName, nodeID, spec, 0, "netproxy deployment")
 	slog.InfoContext(ctx, fmt.Sprintf("created netproxy deployment at version %s", desiredVersion), "node", nodeID)
 	return cfg
 }
 
 func (s *Service) repairDeploymentSpecLocked(deploymentID int32, spec *apigen.DeploymentSpec, label string) {
-	bgCtx := context.Background()
-	dbID := int64(deploymentID)
-
-	existing, err := s.q.GetDeployment(bgCtx, dbID)
-	if err != nil {
-		panic(fmt.Sprintf("GetDeployment (%s repair): %v", label, err))
-	}
-	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), dbID, existing.SpecVersion)
-	existingSpec := mustDecodeDeploymentSpec(existing.SpecBlob, dbID, existing.SpecVersion)
-	if err := storedSpec.SetWorkloadState(existingSpec.WorkloadVersion(), existingSpec.WorkloadRunning()); err != nil {
+	existing := s.mustLatestDeploymentLocked(deploymentID, label+" repair")
+	storedSpec := mustDecodeDeploymentSpec(spec.Encode(), int64(deploymentID), int64(existing.SpecVersion))
+	if err := storedSpec.SetWorkloadState(existing.WorkloadVersion(), existing.WorkloadRunning()); err != nil {
 		panic(fmt.Sprintf("preserve %s deployment workload state: %v", label, err))
 	}
-	s.mustAppendSpecVersionLocked(existing, storedSpec.Encode(), 0, label+" deployment repair")
+	s.mustAppendSpecVersionLocked(existing, storedSpec, 0, label+" deployment repair")
 }

@@ -199,7 +199,6 @@ func (h *Handler) PostV1DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		current, _, versionOK := h.Store.UpdateDeploymentSpec(ctx, req.DeploymentID, state.DeploymentSpecUpdate{
 			ExpectedSpecVersion: req.SpecVersion,
 			Spec:                effectiveSpec,
-			Deleted:             cfg.Deleted,
 		})
 		if !versionOK {
 			return nil, invalidConfigErrf("deployment version mismatch: got %d, want %d", req.SpecVersion, current.SpecVersion+1)
@@ -291,8 +290,8 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 	if err := h.requireEntityAccess(ctx, vDelete, eDeployment, int64(cfg.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
 		return err
 	}
-	if req.SpecVersion != cfg.SpecVersion+1 {
-		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.SpecVersion, cfg.SpecVersion+1)
+	if req.Version != cfg.Version+1 {
+		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
 	}
 	statuses := h.deploymentStatuses(req.DeploymentID)
 	if internaldeploy.IsInternalConfig(cfg) {
@@ -305,20 +304,9 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 	if details := h.deploymentRefDetails(int32Set([]int32{cfg.ID}), addressRefIDs); len(details) > 0 {
 		return referenceInUseDetailErr("Deployment address", details)
 	}
-	spec, err := cloneDeploymentSpec(&cfg.Spec)
-	if err != nil {
-		return err
-	}
-	if err := spec.SetWorkloadState(spec.WorkloadVersion(), false); err != nil {
-		return invalidConfigErrf("spec: %v", err)
-	}
-	_, _, versionOK := h.Store.UpdateDeploymentSpec(ctx, req.DeploymentID, state.DeploymentSpecUpdate{
-		ExpectedSpecVersion: req.SpecVersion,
-		Spec:                spec,
-		Deleted:             true,
-	})
+	_, versionOK := h.Store.DeleteDeployment(ctx, req.DeploymentID, req.Version)
 	if !versionOK {
-		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.SpecVersion, cfg.SpecVersion+1)
+		return invalidConfigErrf("deployment version mismatch: got %d, want %d", req.Version, cfg.Version+1)
 	}
 	return nil
 }
