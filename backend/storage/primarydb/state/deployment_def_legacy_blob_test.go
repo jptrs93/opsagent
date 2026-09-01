@@ -86,7 +86,7 @@ func TestLegacyFlatBlobRowsDecodeAsDef(t *testing.T) {
 		t.Fatalf("deleted snapshot = %+v, want deployment 8", got)
 	}
 
-	updated := updateDeployment(store, apigen.Context{}, 7, DeploymentUpdate{Spec: testSpecWithState("v3", true)})
+	updated := updateDeploymentSpec(store, apigen.Context{}, 7, testSpecWithState("v3", true))
 	if updated.Version != 3 || updated.SpecVersion != 3 || updated.SpaceVersion != 1 || updated.NameVersion != 1 {
 		t.Fatalf("update on legacy rows derived versions wrong: %+v", updated)
 	}

@@ -1409,7 +1409,7 @@ func TestDeploymentDeleteRejectedWhileOlderRolloverInstanceRuns(t *testing.T) {
 
 	next := remoteDeploymentSpec("nginx", hostNetworking())
 	next.Container1Spec.Version = "1.27"
-	updated := statetest.UpdateDeployment(store, apigen.Context{}, created.ID, state.DeploymentUpdate{Spec: &next})
+	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, created.ID, &next)
 	seedInstanceRunnerStatus(store, updated.ID, updated.SpecVersion, updated.Def.NodeID, apigen.RunningStatus_STOPPED)
 
 	h := &Handler{ConfigService: &config.Service{}, Store: store, NodeID: created.Def.NodeID}

@@ -59,7 +59,7 @@ func (s *Service) setVersionedValueWithDeploymentUpdatesLocked(
 		for _, update := range updates {
 			def := update.def
 			replaceDeploymentReferences(&def.Spec, referenceType, referenceIDs, newID)
-			event := buildDeploymentEvent(update.prev, true, int32(update.prev.DeploymentID), def, author, pq.DeploymentEventUpdate)
+			event := buildDeploymentEvent(&update.prev, int32(update.prev.DeploymentID), def, author, pq.DeploymentEventUpdate)
 			event.GlobalSeq = seq
 			if err := q.InsertDeploymentEvent(ctx, event); err != nil {
 				return fmt.Errorf("update deployment %d reference: %w", update.prev.DeploymentID, err)

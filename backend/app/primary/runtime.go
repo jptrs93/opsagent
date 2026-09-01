@@ -103,6 +103,8 @@ func newRuntime() (*runtime, error) {
 	acmeHolder := acmestate.NewHolder()
 	acmeIssuer := acmeissue.New(secretsMgr, func() []apigen.Deployment {
 		return store.FetchDeploymentSnapshot(nil)
+	}, func() ([]apigen.Deployment, chan apigen.Deployment, func()) {
+		return store.MustFetchDeploymentSnapshotAndSubscribe(nil)
 	}, acmeHolder)
 
 	return &runtime{
@@ -133,7 +135,6 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 		GitVersions:           r.gitVersions,
 		GithubReleaseVersions: r.githubReleaseVersions,
 		Secrets:               r.secrets,
-		AcmeWake:              r.acmeIssuer.Wake,
 	}
 }
 

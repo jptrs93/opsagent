@@ -23,13 +23,10 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 	}
 
 	author9 := apigen.Context{User: &apigen.InternalUser{ID: 9}}
-	moved := updateDeployment(store, author9, cfg.ID, DeploymentUpdate{SpaceID: i32ptr(2)})
+	moved := moveDeploymentSpace(store, author9, cfg.ID, 2)
 	if moved.Def.SpaceID != 2 || moved.SpecVersion != cfg.SpecVersion || moved.SpaceVersion != 2 {
 		t.Fatalf("moved config = v%d space %d spaceV%d, want v%d space 2 spaceV2 (no spec version bump)",
 			moved.SpecVersion, moved.Def.SpaceID, moved.SpaceVersion, cfg.SpecVersion)
-	}
-	if same := updateDeployment(store, author9, cfg.ID, DeploymentUpdate{SpaceID: i32ptr(2)}); same.SpaceVersion != 2 {
-		t.Fatalf("same-space move = spaceV%d, want no-op at spaceV2", same.SpaceVersion)
 	}
 	events, err := store.q.ListDeploymentEvents(t.Context(), int64(cfg.ID))
 	if err != nil {
@@ -104,13 +101,13 @@ func TestSpecComparisonSurvivesMapEncodingOrder(t *testing.T) {
 
 	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "envy", node.ID, envSpec())
 
-	updated := updateDeployment(store, apigen.Context{}, cfg.ID, DeploymentUpdate{Spec: envSpec()})
-	if updated.SpecVersion != cfg.SpecVersion || updated.Version != cfg.Version {
-		t.Fatalf("same-spec update = v%d specV%d, want no-op at specV%d", updated.Version, updated.SpecVersion, cfg.SpecVersion)
+	updated := updateDeploymentSpec(store, apigen.Context{}, cfg.ID, envSpec())
+	if updated.SpecVersion != cfg.SpecVersion {
+		t.Fatalf("same-spec update = v%d specV%d, want no spec bump from specV%d", updated.Version, updated.SpecVersion, cfg.SpecVersion)
 	}
 
 	for i, target := range []int32{2, DefaultSpaceID, 2, DefaultSpaceID} {
-		moved := updateDeployment(store, apigen.Context{}, cfg.ID, DeploymentUpdate{SpaceID: i32ptr(target)})
+		moved := moveDeploymentSpace(store, apigen.Context{}, cfg.ID, target)
 		if moved.SpecVersion != cfg.SpecVersion {
 			t.Fatalf("move %d bumped spec version to %d, want %d", i, moved.SpecVersion, cfg.SpecVersion)
 		}

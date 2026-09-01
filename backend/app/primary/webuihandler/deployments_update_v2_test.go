@@ -37,7 +37,9 @@ func TestPostV2DeploymentsUpdateRequiresExactlyOneKind(t *testing.T) {
 			VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.29"},
 			RunningOnlyUpdate: &apigen.RunningOnlyUpdate{DesiredRunning: true}},
 	} {
-		if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, req); err == nil || !strings.Contains(err.Error(), "exactly one update kind") {
+		_, err := h.PostV2DeploymentsUpdate(apigen.Context{}, req)
+		var apiErr apigen.ApiErr
+		if !errors.As(err, &apiErr) || !strings.Contains(apiErr.DisplayErr, "exactly one update kind") {
 			t.Fatalf("%s kinds err = %v, want exactly-one rejection", name, err)
 		}
 	}
@@ -137,13 +139,12 @@ func TestPostV2DeploymentsUpdateSpec(t *testing.T) {
 		t.Fatalf("versions = %d/%d, want spec and top-level bumps", updated.SpecVersion, updated.Version)
 	}
 
-	same, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:    cfg.ID,
 		ExpectedVersion: updated.Version + 1,
 		SpecUpdate:      &apigen.SpecUpdate{Spec: spec},
-	})
-	if err != nil || same.Version != updated.Version {
-		t.Fatalf("no-op spec update = v%d err %v, want v%d", same.Version, err, updated.Version)
+	}); err == nil || !strings.Contains(err.Error(), "nothing changed") {
+		t.Fatalf("no-op spec update err = %v, want nothing-changed rejection", err)
 	}
 }
 
@@ -168,13 +169,12 @@ func TestPostV2DeploymentsUpdateAssignedSpace(t *testing.T) {
 			extraSpace.ID, cfg.SpaceVersion+1, cfg.SpecVersion, cfg.Version+1)
 	}
 
-	same, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:        cfg.ID,
 		ExpectedVersion:     moved.Version + 1,
 		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: extraSpace.ID},
-	})
-	if err != nil || same.Version != moved.Version {
-		t.Fatalf("same-space move = v%d err %v, want no-op at v%d", same.Version, err, moved.Version)
+	}); err == nil || !strings.Contains(err.Error(), "nothing changed") {
+		t.Fatalf("same-space move err = %v, want nothing-changed rejection", err)
 	}
 
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
@@ -316,16 +316,16 @@ func TestPostV2DeploymentsUpdateNixVerification(t *testing.T) {
 	t.Run("no-op version update skips provider and store", func(t *testing.T) {
 		h, cfg, provider := newNixDeploymentHandler(t, true)
 		provider.validateCalls = nil
-		same, err := h.PostV2DeploymentsUpdate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpdateRequestV2{
+		_, err := h.PostV2DeploymentsUpdate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpdateRequestV2{
 			DeploymentID:      cfg.ID,
 			ExpectedVersion:   cfg.Version + 1,
 			VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: testNixCommit},
 		})
-		if err != nil {
-			t.Fatal(err)
+		if err == nil || !strings.Contains(err.Error(), "nothing changed") || len(provider.validateCalls) != 0 {
+			t.Fatalf("no-op = err %v calls %+v, want nothing-changed rejection and no source calls", err, provider.validateCalls)
 		}
-		if same.Version != cfg.Version || len(provider.validateCalls) != 0 {
-			t.Fatalf("no-op = v%d calls %+v, want v%d and no source calls", same.Version, provider.validateCalls, cfg.Version)
+		if current := h.Store.FetchDeployment(cfg.ID); current.Version != cfg.Version {
+			t.Fatalf("store version = %d, want unchanged %d", current.Version, cfg.Version)
 		}
 	})
 

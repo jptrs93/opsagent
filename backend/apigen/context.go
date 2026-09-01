@@ -27,17 +27,29 @@ func (c Context) AttributionUserID() int32 {
 }
 
 func (c Context) Deadline() (deadline time.Time, ok bool) {
+	if c.Ctx == nil {
+		return
+	}
 	return c.Ctx.Deadline()
 }
 
 func (c Context) Done() <-chan struct{} {
+	if c.Ctx == nil {
+		return nil
+	}
 	return c.Ctx.Done()
 }
 
 func (c Context) Err() error {
+	if c.Ctx == nil {
+		return nil
+	}
 	return c.Ctx.Err()
 }
 
 func (c Context) Value(key any) any {
+	if c.Ctx == nil {
+		return nil
+	}
 	return c.Ctx.Value(key)
 }
