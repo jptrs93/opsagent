@@ -115,7 +115,6 @@ func Open(dbPath string) *Service {
 		networkPolicySubs: &pubsubu.PubSub[apigen.NetworkPolicy]{},
 	}
 	s.Cache = instancecache.New(s.persistStatus)
-	s.backfillScheduledInstanceDeploymentVersions()
 	s.loadCache()
 	return s
 }

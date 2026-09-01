@@ -29,15 +29,6 @@ INSERT INTO scheduled_instances (deployment_id, deployment_version, deployment_s
 VALUES (?, ?, ?, ?, ?, ?)
 RETURNING id;
 
--- name: ListScheduledInstancesMissingDeploymentVersion :many
-SELECT id, deployment_id, deployment_spec_version, space_id
-FROM scheduled_instances
-WHERE deployment_version = 0
-ORDER BY id;
-
--- name: SetScheduledInstanceDeploymentVersion :exec
-UPDATE scheduled_instances SET deployment_version = ? WHERE id = ?;
-
 -- name: AppendScheduledInstanceVersion :exec
 INSERT INTO scheduled_instance_versions (scheduled_instance_id, version, created_at, state, global_seq)
 SELECT @scheduled_instance_id, COALESCE(MAX(version), 0) + 1, @created_at, @state, @global_seq

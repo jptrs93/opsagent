@@ -2261,48 +2261,6 @@ func (q *Queries) ListScheduledInstanceStatusHistorySince(ctx context.Context, a
 	return items, nil
 }
 
-const listScheduledInstancesMissingDeploymentVersion = `-- name: ListScheduledInstancesMissingDeploymentVersion :many
-SELECT id, deployment_id, deployment_spec_version, space_id
-FROM scheduled_instances
-WHERE deployment_version = 0
-ORDER BY id
-`
-
-type ListScheduledInstancesMissingDeploymentVersionRow struct {
-	ID                    int64
-	DeploymentID          int64
-	DeploymentSpecVersion int64
-	SpaceID               int64
-}
-
-func (q *Queries) ListScheduledInstancesMissingDeploymentVersion(ctx context.Context) ([]ListScheduledInstancesMissingDeploymentVersionRow, error) {
-	rows, err := q.db.QueryContext(ctx, listScheduledInstancesMissingDeploymentVersion)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListScheduledInstancesMissingDeploymentVersionRow
-	for rows.Next() {
-		var i ListScheduledInstancesMissingDeploymentVersionRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.DeploymentID,
-			&i.DeploymentSpecVersion,
-			&i.SpaceID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listSecretKeyslots = `-- name: ListSecretKeyslots :many
 SELECT slot, smk_version, wrapped_smk, nonce, kdf_salt, created_at
 FROM secret_keyslots ORDER BY slot
@@ -2966,20 +2924,6 @@ type SetNetworkPolicyDeletedAtParams struct {
 
 func (q *Queries) SetNetworkPolicyDeletedAt(ctx context.Context, arg SetNetworkPolicyDeletedAtParams) error {
 	_, err := q.db.ExecContext(ctx, setNetworkPolicyDeletedAt, arg.DeletedAt, arg.ID)
-	return err
-}
-
-const setScheduledInstanceDeploymentVersion = `-- name: SetScheduledInstanceDeploymentVersion :exec
-UPDATE scheduled_instances SET deployment_version = ? WHERE id = ?
-`
-
-type SetScheduledInstanceDeploymentVersionParams struct {
-	DeploymentVersion int64
-	ID                int64
-}
-
-func (q *Queries) SetScheduledInstanceDeploymentVersion(ctx context.Context, arg SetScheduledInstanceDeploymentVersionParams) error {
-	_, err := q.db.ExecContext(ctx, setScheduledInstanceDeploymentVersion, arg.DeploymentVersion, arg.ID)
 	return err
 }
 
