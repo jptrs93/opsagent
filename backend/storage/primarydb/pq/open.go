@@ -21,13 +21,8 @@ var migrations string
 // layer bound to it. All SQL — generated and hand-written — lives on *Queries.
 func Open(dbPath string) *Queries {
 	db := sqlitedb.MustOpen(dbPath)
-	// Go shape migrations (renaming or rewriting an old-shape table) have to
-	// run before ApplySchema: CREATE TABLE IF NOT EXISTS silently no-ops
-	// against the old shape.
-	renameOldShapeEventLogs(db)
 	sqlitedb.ApplySchema(db, schemaFiles, "sql/schema*.sql")
 	sqlitedb.ApplyMigrations(db, migrations)
-	copyLegacyEventLogs(db)
 	return New(db)
 }
 
