@@ -171,36 +171,38 @@ Before pointing a spec at a repo or image you have not used here before,
 
 ### Changing
 
-`POST /v1/deployments/update` with `{"deployment_id": <id>, "version": <current
-+ 1>, ...}`. The other fields select what kind of change it is:
+`POST /v2/deployments/update` with `{"deployment_id": <id>, "expected_version":
+<current version + 1>, ...}` plus **exactly one** of the following fields,
+selecting what kind of change it is. Zero or two of them is a `400`.
 
-- `"target_version": "<id from /v1/deployments/versions>"` — deploy that
-  version and mark the workload running.
-- `"stop": true` — stop it, keeping the current version so a later start can
-  reuse it. `stop` wins if you send both.
-- `"spec": {...}` — replace the configuration.
+- `"version_only_update": {"target_version": "<id from /v1/deployments/versions>"}`
+  — deploy that version and mark the workload running, leaving the rest of the
+  spec untouched.
+- `"running_only_update": {"desired_running": false}` — stop the workload,
+  keeping the current version so a later `true` can reuse it.
+- `"spec_update": {"spec": {...}}` — replace the configuration.
+- `"assigned_space_update": {"space_id": <dest>}` — move the deployment to
+  another space. Validated like a create into the destination space: every
+  secret, config, and asset the spec references has to be reachable from it.
 
 **`spec` is a full replacement.** There is no merge and no partial update. Any
 field you leave out is *dropped*, and the call still returns `200`. So always:
 
 1. `GET /v1/global/state` and take the deployment's current `spec` and `version`.
 2. Modify that object in place.
-3. Send the whole thing back with `version` set to `current + 1`.
+3. Send the whole thing back as `spec_update` with `expected_version` set to
+   `current + 1`.
 
-If `version` is not exactly one greater than the stored one the call is
-rejected — that is the concurrency check, and it means someone else changed the
-deployment while you were working. Re-read and redo your change on top.
+If `expected_version` is not exactly one greater than the stored version the
+call is rejected — that is the concurrency check, and it means someone else
+changed the deployment while you were working. Re-read and redo your change on
+top. Every kind of change bumps `version`, including a space move.
 
 After any change, poll `POST /v1/deployments/get` until the deployment
 settles. A `200` from `update` means the config was accepted, not that the
 workload is running.
 
-### Moving and deleting
-
-`POST /v1/deployments/move-space` `{"deployment_id": <id>, "space_id": <dest>,
-"space_version": <current space_version + 1>}`. Note the guard is
-`space_version`, a separate counter from `version`. Every secret, config, and
-asset the spec references has to be reachable from the destination space.
+### Deleting
 
 `POST /v1/deployments/delete` `{"deployment_id": <id>, "version": <current +
 1>}`. The workload must already be stopped, and nothing else may reference its
@@ -341,7 +343,7 @@ Deployment env refs pin a **version**: put `versions[0].id` into the spec as
 "env_vars": {"POSTGRES_PASSWORD": {"secret_version_id": 12}}
 ```
 
-and send it through `/v1/deployments/update` as in section 5. The workload
+and send it through `/v2/deployments/update` as in section 5. The workload
 receives the value at spawn time; you never handle it.
 
 - **`length`** defaults to 32 and must be 16–4096. Out of range is a `400`, not
@@ -405,7 +407,7 @@ means it exists but is denied to agents — do not retry, ask.
 
 | Endpoint | |
 |---|---|
-| `POST /v1/deployments/create` `/update` `/move-space` `/delete` | yes |
+| `POST /v1/deployments/create` `/delete`, `POST /v2/deployments/update` | yes |
 | `POST /v1/assets/upload` `/rename` `/move` `/delete` | yes |
 | `POST /v1/asset-directories/create` `/move` `/rename` `/delete` | yes |
 | `POST /v1/configs/create` `/set` `/rename` `/move` `/delete` | yes |
@@ -425,6 +427,11 @@ means it exists but is denied to agents — do not retry, ask.
 |---|---|
 | `POST /v1/agent-sessions/request-start` `/get-session` | yes, no auth |
 | `POST /v1/agent-sessions/revoke` (your own id only) | yes |
-| `GET /v1/auth/current-session` | yes |
+| `GET /v1/auth/current/session` | yes, but see below |
 | `POST /v1/agent-sessions/approve` `/create` `/list` | human-only |
 | `/v1/auth/master*`, `/v1/auth/passkey/*`, `/v1/personal-sessions/*` | human-only |
+
+`GET /v1/auth/current/session` returns the caller's own session — user id,
+scopes, expiry, **and the bearer token itself**, since the web UI uses it to
+restore a stored session. Use it to check your grants if you need to, but the
+response contains your credential: never print it verbatim.

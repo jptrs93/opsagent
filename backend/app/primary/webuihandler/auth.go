@@ -133,6 +133,11 @@ func (h *Handler) PostV1AuthMasterPasswordVerify(ctx apigen.Context, req *apigen
 	return h.verifyMasterPassword(req.Password)
 }
 
+// GetV1AuthCurrentSession returns the caller's own session, including the
+// bearer token they presented — the web UI relies on that to restore a stored
+// session. It hands back only what the caller already holds, but any client
+// that must not expose its credential (agents in particular) should not echo
+// the response.
 func (h *Handler) GetV1AuthCurrentSession(ctx apigen.Context) (*apigen.LoginResponse, error) {
 	claims, user, err := h.jwtAuth.VerifyAndResolveUser(ctx.Token)
 	if err != nil {
