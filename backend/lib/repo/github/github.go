@@ -18,10 +18,13 @@ const defaultAPIBaseURL = "https://api.github.com"
 
 var ErrReleaseNotFound = errors.New("release not found")
 
-// Client reads public GitHub release data without authentication; it is only
-// used for the public OpenDeploy release repository.
+// Client reads GitHub release data for the public OpenDeploy release
+// repository, authenticating when a token source is configured. Only the
+// primary configures one — it moves these calls off the unauthenticated
+// per-IP rate limit; workers download release assets unauthenticated.
 type Client struct {
 	apiBaseURL         string
+	tokenSource        func(context.Context) string
 	assetDownloadMutex sync.Mutex
 }
 
@@ -31,6 +34,15 @@ type Option func(*Client)
 func WithAPIBaseURL(baseURL string) Option {
 	return func(c *Client) {
 		c.apiBaseURL = strings.TrimRight(baseURL, "/")
+	}
+}
+
+// WithTokenSource supplies a bearer token per request. An empty return sends
+// the request unauthenticated, so an unconfigured or unreadable token degrades
+// to the public rate limit rather than failing the call.
+func WithTokenSource(source func(context.Context) string) Option {
+	return func(c *Client) {
+		c.tokenSource = source
 	}
 }
 
@@ -110,7 +122,7 @@ func (c *Client) ReleaseByTag(ctx context.Context, repo, tag string) (*Release, 
 }
 
 func (c *Client) getJSON(ctx context.Context, url string, out any, releaseByTag bool) error {
-	req, err := newRequest(ctx, url, "application/vnd.github+json")
+	req, err := c.newRequest(ctx, url, "application/vnd.github+json")
 	if err != nil {
 		return err
 	}
@@ -129,18 +141,23 @@ func (c *Client) getJSON(ctx context.Context, url string, out any, releaseByTag 
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-func newRequest(ctx context.Context, url, accept string) (*http.Request, error) {
+func (c *Client) newRequest(ctx context.Context, url, accept string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", accept)
+	if c.tokenSource != nil {
+		if token := c.tokenSource(ctx); token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+	}
 	return req, nil
 }
 
 // DownloadAsset atomically replaces dstPath after a successful download.
 func (c *Client) DownloadAsset(ctx context.Context, assetAPIURL, dstPath string) error {
-	req, err := newRequest(ctx, assetAPIURL, "application/octet-stream")
+	req, err := c.newRequest(ctx, assetAPIURL, "application/octet-stream")
 	if err != nil {
 		return err
 	}

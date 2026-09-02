@@ -99,7 +99,13 @@ func newRuntime() (*runtime, error) {
 		},
 	})
 	gitManager := repogit.NewManager(ainit.StaticConfig.GitCacheDir, githubCredentials)
-	githubClient := githubrepo.NewClient()
+	githubClient := githubrepo.NewClient(githubrepo.WithTokenSource(func(ctx context.Context) string {
+		creds, err := githubCredentials.LoadCredentials(ctx)
+		if err != nil || creds == nil {
+			return ""
+		}
+		return creds.Token
+	}))
 	acmeHolder := acmestate.NewHolder()
 	acmeIssuer := acmeissue.New(secretsMgr, func() []apigen.Deployment {
 		return store.FetchDeploymentSnapshot(nil)
