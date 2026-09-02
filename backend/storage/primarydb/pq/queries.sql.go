@@ -1472,12 +1472,14 @@ SELECT id, global_seq, event_time, created_time, author, deployment_id,
        spec_changed, space_assignment_changed, name_changed,
        value, event_type
 FROM deployment_event_log
-WHERE event_type = ?
+WHERE event_type = 3
 ORDER BY event_time DESC, deployment_id DESC
 `
 
-func (q *Queries) ListDeletedDeploymentEvents(ctx context.Context, eventType int64) ([]DeploymentEvent, error) {
-	rows, err := q.db.QueryContext(ctx, listDeletedDeploymentEvents, eventType)
+// The literal event_type engages the partial index
+// idx_deployment_event_log_deleted (a bound parameter cannot).
+func (q *Queries) ListDeletedDeploymentEvents(ctx context.Context) ([]DeploymentEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listDeletedDeploymentEvents)
 	if err != nil {
 		return nil, err
 	}
@@ -2281,7 +2283,7 @@ func (q *Queries) ListSpaces(ctx context.Context) ([]Space, error) {
 const listUnreferencedAssetStoreRows = `-- name: ListUnreferencedAssetStoreRows :many
 SELECT s.id, s.sha256, s.size_bytes, CAST(LENGTH(s.inline_blob) AS INTEGER) AS inline_size, s.local_status, s.remote_status, s.created_at
 FROM asset_store s
-WHERE s.created_at < ? AND NOT EXISTS (SELECT 1 FROM asset_event_log v WHERE v.sha256 = s.sha256)
+WHERE s.created_at < ? AND NOT EXISTS (SELECT 1 FROM asset_event_log v WHERE v.sha256 = s.sha256 AND v.value_changed != 0)
 `
 
 type ListUnreferencedAssetStoreRowsRow struct {

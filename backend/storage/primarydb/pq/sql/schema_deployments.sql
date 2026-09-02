@@ -21,3 +21,9 @@ CREATE TABLE IF NOT EXISTS deployment_event_log (
 CREATE INDEX IF NOT EXISTS idx_deployment_event_log_spec_version
     ON deployment_event_log (deployment_id, spec_version)
     WHERE spec_changed != 0;
+
+-- Delete tombstones in the order the deleted-deployments listing wants them.
+-- A delete is terminal, so this holds one row per deleted deployment.
+CREATE INDEX IF NOT EXISTS idx_deployment_event_log_deleted
+    ON deployment_event_log (event_time DESC, deployment_id DESC)
+    WHERE event_type = 3;

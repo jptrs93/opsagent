@@ -165,13 +165,15 @@ JOIN (SELECT deployment_id, MAX(version) AS version
   ON latest.deployment_id = e.deployment_id AND latest.version = e.version
 ORDER BY e.deployment_id;
 
+-- The literal event_type engages the partial index
+-- idx_deployment_event_log_deleted (a bound parameter cannot).
 -- name: ListDeletedDeploymentEvents :many
 SELECT id, global_seq, event_time, created_time, author, deployment_id,
        version, spec_version, space_assignment_version, name_version,
        spec_changed, space_assignment_changed, name_changed,
        value, event_type
 FROM deployment_event_log
-WHERE event_type = ?
+WHERE event_type = 3
 ORDER BY event_time DESC, deployment_id DESC;
 
 -- name: ListDeploymentEvents :many

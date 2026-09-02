@@ -84,7 +84,7 @@ func (s *Service) FetchDeploymentSnapshot(predicate storage.DeploymentPredicate)
 func (s *Service) FetchDeletedDeploymentSnapshot(predicate storage.DeploymentPredicate, limit int) []apigen.Deployment {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	events := erru.Must(s.q.ListDeletedDeploymentEvents(context.Background(), pq.DeploymentEventDelete))
+	events := erru.Must(s.q.ListDeletedDeploymentEvents(context.Background()))
 	out := make([]apigen.Deployment, 0, limit)
 	for _, e := range events {
 		cfg := deploymentFromRow(e)
