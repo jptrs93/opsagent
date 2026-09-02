@@ -168,8 +168,8 @@ type CountDirectorySiblingsWithKeyParams struct {
 }
 
 // Asset reads and writes are hand-written in assets.go: the current state is
-// the highest-version event row, event_type is the deletion truth, and a row
-// with a non-NULL content payload is a pinnable content version.
+// the highest-version event row, event_type is the deletion truth, and a
+// value_changed row is a pinnable content version.
 func (q *Queries) CountDirectorySiblingsWithKey(ctx context.Context, arg CountDirectorySiblingsWithKeyParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countDirectorySiblingsWithKey,
 		arg.SpaceID,
@@ -208,7 +208,7 @@ type CountValueDirectorySiblingsWithNameParams struct {
 
 // Config and secret reads and writes are hand-written in values.go: the
 // current state is the highest-version event row, event_type is the deletion
-// truth, and a row with a non-NULL value payload is a pinnable value version.
+// truth, and a value_changed row is a pinnable value version.
 func (q *Queries) CountValueDirectorySiblingsWithName(ctx context.Context, arg CountValueDirectorySiblingsWithNameParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countValueDirectorySiblingsWithName,
 		arg.SpaceID,
@@ -401,10 +401,10 @@ func (q *Queries) GetConfigByID(ctx context.Context, id int64) (SystemConfigRevi
 const getDeploymentEventBySpecVersion = `-- name: GetDeploymentEventBySpecVersion :one
 SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
        e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.spec_changed, e.space_assignment_changed, e.name_changed,
        e.value, e.event_type
 FROM deployment_event_log e
-WHERE e.deployment_id = ? AND e.spec_version = ?
-ORDER BY e.version ASC LIMIT 1
+WHERE e.deployment_id = ? AND e.spec_version = ? AND e.spec_changed != 0
 `
 
 type GetDeploymentEventBySpecVersionParams struct {
@@ -426,6 +426,9 @@ func (q *Queries) GetDeploymentEventBySpecVersion(ctx context.Context, arg GetDe
 		&i.SpecVersion,
 		&i.SpaceAssignmentVersion,
 		&i.NameVersion,
+		&i.SpecChanged,
+		&i.SpaceAssignmentChanged,
+		&i.NameChanged,
 		&i.Value,
 		&i.EventType,
 	)
@@ -435,6 +438,7 @@ func (q *Queries) GetDeploymentEventBySpecVersion(ctx context.Context, arg GetDe
 const getDeploymentEventByVersion = `-- name: GetDeploymentEventByVersion :one
 SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
        e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.spec_changed, e.space_assignment_changed, e.name_changed,
        e.value, e.event_type
 FROM deployment_event_log e
 WHERE e.deployment_id = ? AND e.version = ?
@@ -459,6 +463,9 @@ func (q *Queries) GetDeploymentEventByVersion(ctx context.Context, arg GetDeploy
 		&i.SpecVersion,
 		&i.SpaceAssignmentVersion,
 		&i.NameVersion,
+		&i.SpecChanged,
+		&i.SpaceAssignmentChanged,
+		&i.NameChanged,
 		&i.Value,
 		&i.EventType,
 	)
@@ -478,8 +485,8 @@ func (q *Queries) GetGlobalSeq(ctx context.Context) (int64, error) {
 
 const getLatestAssetEvent = `-- name: GetLatestAssetEvent :one
 SELECT id, global_seq, event_time, created_time, author, asset_id, version,
-       value_version, space_version, key, asset_directory_id, space_id,
-       size_bytes, sha256, event_type
+       value_version, space_version, value_changed, space_changed,
+       key, asset_directory_id, space_id, size_bytes, sha256, event_type
 FROM asset_event_log
 WHERE asset_id = ?
 ORDER BY version DESC LIMIT 1
@@ -498,6 +505,8 @@ func (q *Queries) GetLatestAssetEvent(ctx context.Context, assetID int64) (Asset
 		&i.Version,
 		&i.ValueVersion,
 		&i.SpaceVersion,
+		&i.ValueChanged,
+		&i.SpaceChanged,
 		&i.Key,
 		&i.AssetDirectoryID,
 		&i.SpaceID,
@@ -575,8 +584,8 @@ func (q *Queries) GetLatestConfig(ctx context.Context) (SystemConfigRevision, er
 
 const getLatestConfigEvent = `-- name: GetLatestConfigEvent :one
 SELECT id, global_seq, event_time, created_time, author, config_id, version,
-       value_version, space_version, name, value_directory_id, space_id,
-       value, event_type
+       value_version, space_version, value_changed, space_changed,
+       name, value_directory_id, space_id, value, event_type
 FROM config_event_log
 WHERE config_id = ?
 ORDER BY version DESC LIMIT 1
@@ -595,6 +604,8 @@ func (q *Queries) GetLatestConfigEvent(ctx context.Context, configID int64) (Con
 		&i.Version,
 		&i.ValueVersion,
 		&i.SpaceVersion,
+		&i.ValueChanged,
+		&i.SpaceChanged,
 		&i.Name,
 		&i.ValueDirectoryID,
 		&i.SpaceID,
@@ -607,6 +618,7 @@ func (q *Queries) GetLatestConfigEvent(ctx context.Context, configID int64) (Con
 const getLatestDeploymentEvent = `-- name: GetLatestDeploymentEvent :one
 SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
        e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.spec_changed, e.space_assignment_changed, e.name_changed,
        e.value, e.event_type
 FROM deployment_event_log e
 WHERE e.deployment_id = ?
@@ -627,6 +639,9 @@ func (q *Queries) GetLatestDeploymentEvent(ctx context.Context, deploymentID int
 		&i.SpecVersion,
 		&i.SpaceAssignmentVersion,
 		&i.NameVersion,
+		&i.SpecChanged,
+		&i.SpaceAssignmentChanged,
+		&i.NameChanged,
 		&i.Value,
 		&i.EventType,
 	)
@@ -1146,8 +1161,8 @@ func (q *Queries) ListAgentSessionsForUser(ctx context.Context, userID int64) ([
 
 const listAllAssetEvents = `-- name: ListAllAssetEvents :many
 SELECT id, global_seq, event_time, created_time, author, asset_id, version,
-       value_version, space_version, key, asset_directory_id, space_id,
-       size_bytes, sha256, event_type
+       value_version, space_version, value_changed, space_changed,
+       key, asset_directory_id, space_id, size_bytes, sha256, event_type
 FROM asset_event_log
 ORDER BY asset_id, version
 `
@@ -1171,6 +1186,8 @@ func (q *Queries) ListAllAssetEvents(ctx context.Context) ([]AssetEvent, error) 
 			&i.Version,
 			&i.ValueVersion,
 			&i.SpaceVersion,
+			&i.ValueChanged,
+			&i.SpaceChanged,
 			&i.Key,
 			&i.AssetDirectoryID,
 			&i.SpaceID,
@@ -1193,8 +1210,8 @@ func (q *Queries) ListAllAssetEvents(ctx context.Context) ([]AssetEvent, error) 
 
 const listAllConfigEvents = `-- name: ListAllConfigEvents :many
 SELECT id, global_seq, event_time, created_time, author, config_id, version,
-       value_version, space_version, name, value_directory_id, space_id,
-       value, event_type
+       value_version, space_version, value_changed, space_changed,
+       name, value_directory_id, space_id, value, event_type
 FROM config_event_log
 ORDER BY config_id, version
 `
@@ -1218,6 +1235,8 @@ func (q *Queries) ListAllConfigEvents(ctx context.Context) ([]ConfigEvent, error
 			&i.Version,
 			&i.ValueVersion,
 			&i.SpaceVersion,
+			&i.ValueChanged,
+			&i.SpaceChanged,
 			&i.Name,
 			&i.ValueDirectoryID,
 			&i.SpaceID,
@@ -1275,8 +1294,8 @@ func (q *Queries) ListAssetDirectories(ctx context.Context) ([]AssetDirectory, e
 
 const listAssetEvents = `-- name: ListAssetEvents :many
 SELECT id, global_seq, event_time, created_time, author, asset_id, version,
-       value_version, space_version, key, asset_directory_id, space_id,
-       size_bytes, sha256, event_type
+       value_version, space_version, value_changed, space_changed,
+       key, asset_directory_id, space_id, size_bytes, sha256, event_type
 FROM asset_event_log
 WHERE asset_id = ?
 ORDER BY version
@@ -1301,6 +1320,8 @@ func (q *Queries) ListAssetEvents(ctx context.Context, assetID int64) ([]AssetEv
 			&i.Version,
 			&i.ValueVersion,
 			&i.SpaceVersion,
+			&i.ValueChanged,
+			&i.SpaceChanged,
 			&i.Key,
 			&i.AssetDirectoryID,
 			&i.SpaceID,
@@ -1369,8 +1390,8 @@ func (q *Queries) ListAssetStoreRowMetas(ctx context.Context) ([]ListAssetStoreR
 
 const listConfigEvents = `-- name: ListConfigEvents :many
 SELECT id, global_seq, event_time, created_time, author, config_id, version,
-       value_version, space_version, name, value_directory_id, space_id,
-       value, event_type
+       value_version, space_version, value_changed, space_changed,
+       name, value_directory_id, space_id, value, event_type
 FROM config_event_log
 WHERE config_id = ?
 ORDER BY version
@@ -1395,6 +1416,8 @@ func (q *Queries) ListConfigEvents(ctx context.Context, configID int64) ([]Confi
 			&i.Version,
 			&i.ValueVersion,
 			&i.SpaceVersion,
+			&i.ValueChanged,
+			&i.SpaceChanged,
 			&i.Name,
 			&i.ValueDirectoryID,
 			&i.SpaceID,
@@ -1416,7 +1439,7 @@ func (q *Queries) ListConfigEvents(ctx context.Context, configID int64) ([]Confi
 
 const listConfigVersionIDsByConfigID = `-- name: ListConfigVersionIDsByConfigID :many
 SELECT id FROM config_event_log
-WHERE config_id = ? AND value IS NOT NULL
+WHERE config_id = ? AND value_changed != 0
 ORDER BY value_version
 `
 
@@ -1446,6 +1469,7 @@ func (q *Queries) ListConfigVersionIDsByConfigID(ctx context.Context, configID i
 const listDeletedDeploymentEvents = `-- name: ListDeletedDeploymentEvents :many
 SELECT id, global_seq, event_time, created_time, author, deployment_id,
        version, spec_version, space_assignment_version, name_version,
+       spec_changed, space_assignment_changed, name_changed,
        value, event_type
 FROM deployment_event_log
 WHERE event_type = ?
@@ -1472,6 +1496,9 @@ func (q *Queries) ListDeletedDeploymentEvents(ctx context.Context, eventType int
 			&i.SpecVersion,
 			&i.SpaceAssignmentVersion,
 			&i.NameVersion,
+			&i.SpecChanged,
+			&i.SpaceAssignmentChanged,
+			&i.NameChanged,
 			&i.Value,
 			&i.EventType,
 		); err != nil {
@@ -1491,6 +1518,7 @@ func (q *Queries) ListDeletedDeploymentEvents(ctx context.Context, eventType int
 const listDeploymentEvents = `-- name: ListDeploymentEvents :many
 SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
        e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.spec_changed, e.space_assignment_changed, e.name_changed,
        e.value, e.event_type
 FROM deployment_event_log e
 WHERE e.deployment_id = ?
@@ -1517,6 +1545,9 @@ func (q *Queries) ListDeploymentEvents(ctx context.Context, deploymentID int64) 
 			&i.SpecVersion,
 			&i.SpaceAssignmentVersion,
 			&i.NameVersion,
+			&i.SpecChanged,
+			&i.SpaceAssignmentChanged,
+			&i.NameChanged,
 			&i.Value,
 			&i.EventType,
 		); err != nil {
@@ -1626,6 +1657,7 @@ func (q *Queries) ListLatestAuthzRuleTemplateEvents(ctx context.Context) ([]Auth
 const listLatestDeploymentEvents = `-- name: ListLatestDeploymentEvents :many
 SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
        e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.spec_changed, e.space_assignment_changed, e.name_changed,
        e.value, e.event_type
 FROM deployment_event_log e
 JOIN (SELECT deployment_id, MAX(version) AS version
@@ -1654,6 +1686,9 @@ func (q *Queries) ListLatestDeploymentEvents(ctx context.Context) ([]DeploymentE
 			&i.SpecVersion,
 			&i.SpaceAssignmentVersion,
 			&i.NameVersion,
+			&i.SpecChanged,
+			&i.SpaceAssignmentChanged,
+			&i.NameChanged,
 			&i.Value,
 			&i.EventType,
 		); err != nil {
@@ -2189,7 +2224,7 @@ func (q *Queries) ListSecretKeyslots(ctx context.Context) ([]SecretKeyslot, erro
 
 const listSecretVersionIDsBySecretID = `-- name: ListSecretVersionIDsBySecretID :many
 SELECT id FROM secret_event_log
-WHERE secret_id = ? AND ciphertext IS NOT NULL
+WHERE secret_id = ? AND value_changed != 0
 ORDER BY value_version
 `
 

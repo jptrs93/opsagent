@@ -5,9 +5,9 @@ import (
 )
 
 // Hand-written secret/config reads and writes. Each entity's state lives
-// entirely in its event log: identity facets (name, directory, space) are
-// denormalised onto every row, the highest-version row is the current state
-// (event_type is the deletion truth), and a row with a non-NULL value payload
+// entirely in its event log: every facet (name, directory, space, value
+// payload) is denormalised onto every row, the highest-version row is the
+// current state (event_type is the deletion truth), and a value_changed row
 // is a pinnable value version. Pinned value reads deliberately do not filter
 // deleted identities; current-state reads do.
 
@@ -39,22 +39,25 @@ type SecretEventMeta struct {
 	Version          int64
 	ValueVersion     int64
 	SpaceVersion     int64
+	ValueChanged     bool
+	SpaceChanged     bool
 	Name             string
 	ValueDirectoryID int64
 	SpaceID          int64
-	HasValue         bool
 	EventType        int64
 }
 
 const secretEventMetaColumns = `e.id, e.global_seq, e.event_time, e.created_time, e.author,
 	e.secret_id, e.version, e.value_version, e.space_version,
-	e.name, e.value_directory_id, e.space_id, e.ciphertext IS NOT NULL, e.event_type`
+	e.value_changed != 0, e.space_changed != 0,
+	e.name, e.value_directory_id, e.space_id, e.event_type`
 
 func scanSecretEventMeta(scan func(dest ...any) error) (SecretEventMeta, error) {
 	var e SecretEventMeta
 	err := scan(&e.ID, &e.GlobalSeq, &e.EventTime, &e.CreatedTime, &e.Author,
 		&e.SecretID, &e.Version, &e.ValueVersion, &e.SpaceVersion,
-		&e.Name, &e.ValueDirectoryID, &e.SpaceID, &e.HasValue, &e.EventType)
+		&e.ValueChanged, &e.SpaceChanged,
+		&e.Name, &e.ValueDirectoryID, &e.SpaceID, &e.EventType)
 	return e, err
 }
 
@@ -89,13 +92,13 @@ func (q *Queries) InsertConfigEvent(ctx context.Context, e ConfigEvent) (int64, 
 	err := q.db.QueryRowContext(ctx, `
 		INSERT INTO config_event_log (
 			global_seq, event_time, created_time, author, config_id, version,
-			value_version, space_version, name, value_directory_id, space_id,
-			value, event_type
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			value_version, space_version, value_changed, space_changed,
+			name, value_directory_id, space_id, value, event_type
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id`,
 		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.ConfigID, e.Version,
-		e.ValueVersion, e.SpaceVersion, e.Name, e.ValueDirectoryID, e.SpaceID,
-		e.Value, e.EventType).Scan(&id)
+		e.ValueVersion, e.SpaceVersion, e.ValueChanged, e.SpaceChanged,
+		e.Name, e.ValueDirectoryID, e.SpaceID, e.Value, e.EventType).Scan(&id)
 	return id, err
 }
 
@@ -104,13 +107,41 @@ func (q *Queries) InsertSecretEvent(ctx context.Context, e SecretEvent) (int64, 
 	err := q.db.QueryRowContext(ctx, `
 		INSERT INTO secret_event_log (
 			global_seq, event_time, created_time, author, secret_id, version,
-			value_version, space_version, name, value_directory_id, space_id,
+			value_version, space_version, value_changed, space_changed,
+			name, value_directory_id, space_id,
 			smk_version, ciphertext, nonce, event_type
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id`,
 		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.SecretID, e.Version,
-		e.ValueVersion, e.SpaceVersion, e.Name, e.ValueDirectoryID, e.SpaceID,
+		e.ValueVersion, e.SpaceVersion, e.ValueChanged, e.SpaceChanged,
+		e.Name, e.ValueDirectoryID, e.SpaceID,
 		e.SmkVersion, e.Ciphertext, e.Nonce, e.EventType).Scan(&id)
+	return id, err
+}
+
+// InsertSecretCarryEvent appends a secret event that does not write a value:
+// the sealed payload (smk_version, ciphertext, nonce) is copied forward from
+// the previous row in SQL so the ciphertext never passes through Go. The
+// payload fields of e are ignored and value_changed is always 0.
+func (q *Queries) InsertSecretCarryEvent(ctx context.Context, e SecretEvent) (int64, error) {
+	var id int64
+	err := q.db.QueryRowContext(ctx, `
+		INSERT INTO secret_event_log (
+			global_seq, event_time, created_time, author, secret_id, version,
+			value_version, space_version, value_changed, space_changed,
+			name, value_directory_id, space_id,
+			smk_version, ciphertext, nonce, event_type
+		)
+		SELECT ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?,
+		       p.smk_version, p.ciphertext, p.nonce, ?
+		FROM secret_event_log p
+		WHERE p.secret_id = ?
+		ORDER BY p.version DESC LIMIT 1
+		RETURNING id`,
+		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.SecretID, e.Version,
+		e.ValueVersion, e.SpaceVersion, e.SpaceChanged,
+		e.Name, e.ValueDirectoryID, e.SpaceID, e.EventType,
+		e.SecretID).Scan(&id)
 	return id, err
 }
 
@@ -290,7 +321,7 @@ FROM config_event_log v
 JOIN config_event_log c
   ON c.config_id = v.config_id
  AND c.version = (SELECT MAX(version) FROM config_event_log WHERE config_id = v.config_id)
-WHERE v.id = ? AND v.value IS NOT NULL`, id).
+WHERE v.id = ? AND v.value_changed != 0`, id).
 		Scan(&r.ID, &r.ConfigID, &r.Version, &r.Value, &r.CreatedAt, &r.Author, &r.Name, &r.SpaceID)
 	return r, err
 }
@@ -318,7 +349,7 @@ SELECT v.id, v.secret_id, v.value_version, v.smk_version, v.ciphertext, v.nonce,
        l.name, l.space_id
 FROM secret_event_log v
 JOIN (`+secretRowSelect+`) l ON l.secret_id = v.secret_id
-WHERE v.ciphertext IS NOT NULL
+WHERE v.value_changed != 0
 ORDER BY v.secret_id, v.value_version`)
 	if err != nil {
 		return nil, err

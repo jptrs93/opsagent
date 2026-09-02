@@ -72,6 +72,7 @@ func nextConfigEvent(prev pq.ConfigEvent, author int32, eventType int64) pq.Conf
 		Name:             prev.Name,
 		ValueDirectoryID: prev.ValueDirectoryID,
 		SpaceID:          prev.SpaceID,
+		Value:            prev.Value,
 		EventType:        eventType,
 	}
 }
@@ -133,10 +134,12 @@ func (s *Service) CreateConfigWithVersion(name string, spaceID, directoryID, aut
 			Version:          1,
 			ValueVersion:     1,
 			SpaceVersion:     1,
+			ValueChanged:     1,
+			SpaceChanged:     1,
 			Name:             name,
 			ValueDirectoryID: dirID,
 			SpaceID:          space,
-			Value:            sql.NullString{String: value, Valid: true},
+			Value:            value,
 			EventType:        pq.EventCreate,
 		})
 		return err
@@ -167,7 +170,8 @@ func (s *Service) AppendConfigVersionWithDeploymentUpdatesLocked(configID int32,
 		}
 		event := nextConfigEvent(prev, author, pq.EventUpdate)
 		event.ValueVersion = prev.ValueVersion + 1
-		event.Value = sql.NullString{String: value, Valid: true}
+		event.ValueChanged = 1
+		event.Value = value
 		event.GlobalSeq = globalSeq
 		id, err := q.InsertConfigEvent(ctx, event)
 		if err != nil {
@@ -295,6 +299,7 @@ func (s *Service) MoveConfigSpaceLocked(configID, newSpaceID, newDirectoryID, au
 	if spaceID != prev.SpaceID {
 		event.SpaceID = spaceID
 		event.SpaceVersion = prev.SpaceVersion + 1
+		event.SpaceChanged = 1
 	}
 	s.appendConfigEventLocked(ctx, event)
 	return nil

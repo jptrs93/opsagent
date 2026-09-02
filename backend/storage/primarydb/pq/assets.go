@@ -55,12 +55,12 @@ func (q *Queries) InsertAssetEvent(ctx context.Context, e AssetEvent) error {
 	_, err := q.db.ExecContext(ctx, `
 		INSERT INTO asset_event_log (
 			global_seq, event_time, created_time, author, asset_id, version,
-			value_version, space_version, key, asset_directory_id, space_id,
-			size_bytes, sha256, event_type
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			value_version, space_version, value_changed, space_changed,
+			key, asset_directory_id, space_id, size_bytes, sha256, event_type
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.AssetID, e.Version,
-		e.ValueVersion, e.SpaceVersion, e.Key, e.AssetDirectoryID, e.SpaceID,
-		e.SizeBytes, e.Sha256, e.EventType)
+		e.ValueVersion, e.SpaceVersion, e.ValueChanged, e.SpaceChanged,
+		e.Key, e.AssetDirectoryID, e.SpaceID, e.SizeBytes, e.Sha256, e.EventType)
 	return err
 }
 
@@ -121,12 +121,12 @@ func (q *Queries) CountAssetsInDirectory(ctx context.Context, directoryID int64)
 
 func (q *Queries) CountAssetVersionsBySha(ctx context.Context, sha256 string) (int64, error) {
 	var n int64
-	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM asset_event_log WHERE sha256 = ?`, sha256).Scan(&n)
+	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM asset_event_log WHERE sha256 = ? AND value_changed != 0`, sha256).Scan(&n)
 	return n, err
 }
 
 func (q *Queries) ListAssetIDsBySha(ctx context.Context, sha256 string) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT DISTINCT asset_id FROM asset_event_log WHERE sha256 = ?`, sha256)
+	rows, err := q.db.QueryContext(ctx, `SELECT DISTINCT asset_id FROM asset_event_log WHERE sha256 = ? AND value_changed != 0`, sha256)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func (q *Queries) ListAssetVersionsJoined(ctx context.Context) ([]AssetVersionJo
 SELECT `+assetVersionJoinedColumns+`, a.key, a.space_id
 `+assetVersionRowsFrom+`
 `+assetCurrentIdentityJoin+`
-WHERE a.event_type != 3
+WHERE v.value_changed != 0 AND a.event_type != 3
 ORDER BY a.key, v.value_version`)
 	if err != nil {
 		return nil, err
@@ -204,7 +204,7 @@ func (q *Queries) GetAssetVersionJoinedByID(ctx context.Context, assetVersionID 
 SELECT `+assetVersionJoinedColumns+`, s.inline_blob, a.key, a.space_id
 `+assetVersionRowsFrom+`
 `+assetCurrentIdentityJoin+`
-WHERE v.id = ? AND v.sha256 IS NOT NULL`, assetVersionID).Scan, &r, &r.Store.InlineBlob, &r.Asset.Key, &r.Asset.SpaceID)
+WHERE v.id = ? AND v.value_changed != 0`, assetVersionID).Scan, &r, &r.Store.InlineBlob, &r.Asset.Key, &r.Asset.SpaceID)
 	if err != nil {
 		return r, err
 	}
@@ -218,7 +218,7 @@ func (q *Queries) ListAssetVersionsOfAsset(ctx context.Context, assetID int64) (
 	rows, err := q.db.QueryContext(ctx, `
 SELECT `+assetVersionJoinedColumns+`, s.inline_blob
 `+assetVersionRowsFrom+`
-WHERE v.asset_id = ? AND v.sha256 IS NOT NULL
+WHERE v.asset_id = ? AND v.value_changed != 0
 ORDER BY v.value_version ASC`, assetID)
 	if err != nil {
 		return nil, err
@@ -241,13 +241,13 @@ func (q *Queries) GetAssetVersionJoinedByNumber(ctx context.Context, assetID, ve
 	query := `
 SELECT ` + assetVersionJoinedColumns + `, s.inline_blob
 ` + assetVersionRowsFrom + `
-WHERE v.asset_id = ? AND v.sha256 IS NOT NULL AND v.value_version = ?`
+WHERE v.asset_id = ? AND v.value_changed != 0 AND v.value_version = ?`
 	args := []any{assetID, version}
 	if version == 0 {
 		query = `
 SELECT ` + assetVersionJoinedColumns + `, s.inline_blob
 ` + assetVersionRowsFrom + `
-WHERE v.asset_id = ? AND v.sha256 IS NOT NULL
+WHERE v.asset_id = ? AND v.value_changed != 0
 ORDER BY v.value_version DESC
 LIMIT 1`
 		args = []any{assetID}

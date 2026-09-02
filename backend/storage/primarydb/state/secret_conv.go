@@ -10,19 +10,19 @@ import (
 
 // secretFromEvents builds the wire shape from one secret's full event list,
 // oldest first (query order) and non-empty: identity from the latest row, the
-// space and version logs newest first. Space entries are the events whose
-// space facet bumps (the first event carries the initial assignment); version
-// entries are the events that wrote a value. Never returns ciphertext.
+// space and version logs newest first. Space entries are the space_changed
+// events (the create event carries the initial assignment); version entries
+// are the value_changed events. Never returns ciphertext.
 func secretFromEvents(events []pq.SecretEventMeta) *apigen.Secret {
 	latest := events[len(events)-1]
 	svs := []*apigen.SecretSpaceVersion{}
 	vs := []*apigen.SecretVersion{}
 	for i := len(events) - 1; i >= 0; i-- {
 		e := events[i]
-		if i == 0 || e.SpaceVersion > events[i-1].SpaceVersion {
+		if e.SpaceChanged {
 			svs = append(svs, secretSpaceVersionFromEvent(e))
 		}
-		if e.HasValue {
+		if e.ValueChanged {
 			vs = append(vs, secretVersionFromEvent(e))
 		}
 	}

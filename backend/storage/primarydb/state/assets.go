@@ -220,6 +220,8 @@ func nextAssetEvent(prev pq.AssetEvent, author int32, eventType int64) pq.AssetE
 		Key:              prev.Key,
 		AssetDirectoryID: prev.AssetDirectoryID,
 		SpaceID:          prev.SpaceID,
+		SizeBytes:        prev.SizeBytes,
+		Sha256:           prev.Sha256,
 		EventType:        eventType,
 	}
 }
@@ -287,11 +289,13 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 			Version:          1,
 			ValueVersion:     1,
 			SpaceVersion:     1,
+			ValueChanged:     1,
+			SpaceChanged:     1,
 			Key:              key,
 			AssetDirectoryID: dirID,
 			SpaceID:          space,
-			SizeBytes:        sql.NullInt64{Int64: sizeBytes, Valid: true},
-			Sha256:           sql.NullString{String: sha256, Valid: true},
+			SizeBytes:        sizeBytes,
+			Sha256:           sha256,
 			EventType:        pq.EventCreate,
 		})
 	}); err != nil {
@@ -322,8 +326,9 @@ func (s *Service) AppendAssetVersion(assetID, author int32, sha256 string, sizeB
 	}
 	event := nextAssetEvent(prev, author, pq.EventUpdate)
 	event.ValueVersion = prev.ValueVersion + 1
-	event.SizeBytes = sql.NullInt64{Int64: sizeBytes, Valid: true}
-	event.Sha256 = sql.NullString{String: sha256, Valid: true}
+	event.ValueChanged = 1
+	event.SizeBytes = sizeBytes
+	event.Sha256 = sha256
 	s.appendAssetEventLocked(ctx, event)
 	asset, ok := s.GetAsset(assetID)
 	if !ok {
@@ -442,6 +447,7 @@ func (s *Service) MoveAssetSpaceLocked(assetID, newSpaceID, newDirectoryID, auth
 	if spaceID != prev.SpaceID {
 		event.SpaceID = spaceID
 		event.SpaceVersion = prev.SpaceVersion + 1
+		event.SpaceChanged = 1
 	}
 	s.appendAssetEventLocked(ctx, event)
 	return nil

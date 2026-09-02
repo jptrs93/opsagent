@@ -89,6 +89,9 @@ func buildDeploymentEvent(prev *pq.DeploymentEvent, deploymentID int32, updated 
 			SpecVersion:            1,
 			SpaceAssignmentVersion: 1,
 			NameVersion:            1,
+			SpecChanged:            1,
+			SpaceAssignmentChanged: 1,
+			NameChanged:            1,
 			Value:                  updated.Encode(),
 			EventType:              pq.DeploymentEventCreate,
 		}
@@ -108,12 +111,15 @@ func buildDeploymentEvent(prev *pq.DeploymentEvent, deploymentID int32, updated 
 	}
 	if !deploymentSpecsEqual(&updated.Spec, &prevDef.Spec) {
 		event.SpecVersion++
+		event.SpecChanged = 1
 	}
 	if updated.SpaceID != prevDef.SpaceID {
 		event.SpaceAssignmentVersion++
+		event.SpaceAssignmentChanged = 1
 	}
 	if updated.Name != prevDef.Name {
 		event.NameVersion++
+		event.NameChanged = 1
 	}
 	return event
 }

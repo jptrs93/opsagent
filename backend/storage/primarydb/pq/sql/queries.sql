@@ -140,6 +140,7 @@ SELECT COALESCE(MAX(deployment_id), 0) + 1 FROM deployment_event_log;
 -- name: GetDeploymentEventByVersion :one
 SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
        e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.spec_changed, e.space_assignment_changed, e.name_changed,
        e.value, e.event_type
 FROM deployment_event_log e
 WHERE e.deployment_id = ? AND e.version = ?;
@@ -147,6 +148,7 @@ WHERE e.deployment_id = ? AND e.version = ?;
 -- name: GetLatestDeploymentEvent :one
 SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
        e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.spec_changed, e.space_assignment_changed, e.name_changed,
        e.value, e.event_type
 FROM deployment_event_log e
 WHERE e.deployment_id = ?
@@ -155,6 +157,7 @@ ORDER BY e.version DESC LIMIT 1;
 -- name: ListLatestDeploymentEvents :many
 SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
        e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.spec_changed, e.space_assignment_changed, e.name_changed,
        e.value, e.event_type
 FROM deployment_event_log e
 JOIN (SELECT deployment_id, MAX(version) AS version
@@ -165,6 +168,7 @@ ORDER BY e.deployment_id;
 -- name: ListDeletedDeploymentEvents :many
 SELECT id, global_seq, event_time, created_time, author, deployment_id,
        version, spec_version, space_assignment_version, name_version,
+       spec_changed, space_assignment_changed, name_changed,
        value, event_type
 FROM deployment_event_log
 WHERE event_type = ?
@@ -173,6 +177,7 @@ ORDER BY event_time DESC, deployment_id DESC;
 -- name: ListDeploymentEvents :many
 SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
        e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.spec_changed, e.space_assignment_changed, e.name_changed,
        e.value, e.event_type
 FROM deployment_event_log e
 WHERE e.deployment_id = ?
@@ -181,10 +186,10 @@ ORDER BY e.version ASC;
 -- name: GetDeploymentEventBySpecVersion :one
 SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
        e.version, e.spec_version, e.space_assignment_version, e.name_version,
+       e.spec_changed, e.space_assignment_changed, e.name_changed,
        e.value, e.event_type
 FROM deployment_event_log e
-WHERE e.deployment_id = ? AND e.spec_version = ?
-ORDER BY e.version ASC LIMIT 1;
+WHERE e.deployment_id = ? AND e.spec_version = ? AND e.spec_changed != 0;
 
 -- name: GetUser :one
 SELECT id, name, data_blob, created_at, last_login_at FROM users WHERE id = ?;
@@ -276,7 +281,7 @@ ON CONFLICT(kid) DO UPDATE SET key_bytes = excluded.key_bytes;
 
 -- Config and secret reads and writes are hand-written in values.go: the
 -- current state is the highest-version event row, event_type is the deletion
--- truth, and a row with a non-NULL value payload is a pinnable value version.
+-- truth, and a value_changed row is a pinnable value version.
 
 -- name: CountValueDirectorySiblingsWithName :one
 SELECT COUNT(*) FROM value_directories
@@ -310,8 +315,8 @@ DELETE FROM value_directories WHERE id = ?;
 SELECT COUNT(*) FROM value_directories WHERE parent_id = ?;
 
 -- Asset reads and writes are hand-written in assets.go: the current state is
--- the highest-version event row, event_type is the deletion truth, and a row
--- with a non-NULL content payload is a pinnable content version.
+-- the highest-version event row, event_type is the deletion truth, and a
+-- value_changed row is a pinnable content version.
 
 -- name: CountDirectorySiblingsWithKey :one
 SELECT COUNT(*) FROM asset_directories
@@ -366,7 +371,7 @@ FROM asset_store;
 -- name: ListUnreferencedAssetStoreRows :many
 SELECT s.id, s.sha256, s.size_bytes, CAST(LENGTH(s.inline_blob) AS INTEGER) AS inline_size, s.local_status, s.remote_status, s.created_at
 FROM asset_store s
-WHERE s.created_at < ? AND NOT EXISTS (SELECT 1 FROM asset_event_log v WHERE v.sha256 = s.sha256);
+WHERE s.created_at < ? AND NOT EXISTS (SELECT 1 FROM asset_event_log v WHERE v.sha256 = s.sha256 AND v.value_changed != 0);
 
 -- name: CompleteAssetStoreRow :exec
 UPDATE asset_store SET sha256 = ?, local_status = ?, remote_status = ? WHERE id = ?;
@@ -465,7 +470,7 @@ SELECT COALESCE(MAX(secret_id), 0) + 1 FROM secret_event_log;
 
 -- name: ListSecretVersionIDsBySecretID :many
 SELECT id FROM secret_event_log
-WHERE secret_id = ? AND ciphertext IS NOT NULL
+WHERE secret_id = ? AND value_changed != 0
 ORDER BY value_version;
 
 -- name: NextConfigID :one
@@ -473,30 +478,30 @@ SELECT COALESCE(MAX(config_id), 0) + 1 FROM config_event_log;
 
 -- name: GetLatestConfigEvent :one
 SELECT id, global_seq, event_time, created_time, author, config_id, version,
-       value_version, space_version, name, value_directory_id, space_id,
-       value, event_type
+       value_version, space_version, value_changed, space_changed,
+       name, value_directory_id, space_id, value, event_type
 FROM config_event_log
 WHERE config_id = ?
 ORDER BY version DESC LIMIT 1;
 
 -- name: ListConfigEvents :many
 SELECT id, global_seq, event_time, created_time, author, config_id, version,
-       value_version, space_version, name, value_directory_id, space_id,
-       value, event_type
+       value_version, space_version, value_changed, space_changed,
+       name, value_directory_id, space_id, value, event_type
 FROM config_event_log
 WHERE config_id = ?
 ORDER BY version;
 
 -- name: ListAllConfigEvents :many
 SELECT id, global_seq, event_time, created_time, author, config_id, version,
-       value_version, space_version, name, value_directory_id, space_id,
-       value, event_type
+       value_version, space_version, value_changed, space_changed,
+       name, value_directory_id, space_id, value, event_type
 FROM config_event_log
 ORDER BY config_id, version;
 
 -- name: ListConfigVersionIDsByConfigID :many
 SELECT id FROM config_event_log
-WHERE config_id = ? AND value IS NOT NULL
+WHERE config_id = ? AND value_changed != 0
 ORDER BY value_version;
 
 -- name: NextAssetID :one
@@ -504,24 +509,24 @@ SELECT COALESCE(MAX(asset_id), 0) + 1 FROM asset_event_log;
 
 -- name: GetLatestAssetEvent :one
 SELECT id, global_seq, event_time, created_time, author, asset_id, version,
-       value_version, space_version, key, asset_directory_id, space_id,
-       size_bytes, sha256, event_type
+       value_version, space_version, value_changed, space_changed,
+       key, asset_directory_id, space_id, size_bytes, sha256, event_type
 FROM asset_event_log
 WHERE asset_id = ?
 ORDER BY version DESC LIMIT 1;
 
 -- name: ListAssetEvents :many
 SELECT id, global_seq, event_time, created_time, author, asset_id, version,
-       value_version, space_version, key, asset_directory_id, space_id,
-       size_bytes, sha256, event_type
+       value_version, space_version, value_changed, space_changed,
+       key, asset_directory_id, space_id, size_bytes, sha256, event_type
 FROM asset_event_log
 WHERE asset_id = ?
 ORDER BY version;
 
 -- name: ListAllAssetEvents :many
 SELECT id, global_seq, event_time, created_time, author, asset_id, version,
-       value_version, space_version, key, asset_directory_id, space_id,
-       size_bytes, sha256, event_type
+       value_version, space_version, value_changed, space_changed,
+       key, asset_directory_id, space_id, size_bytes, sha256, event_type
 FROM asset_event_log
 ORDER BY asset_id, version;
 

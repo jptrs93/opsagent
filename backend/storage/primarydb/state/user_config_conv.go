@@ -9,19 +9,19 @@ import (
 
 // configFromEvents builds the wire shape from one config's full event list,
 // oldest first (query order) and non-empty: identity from the latest row, the
-// space and value logs newest first. Space entries are the events whose space
-// facet bumps (the first event carries the initial assignment); value entries
-// are the events with a non-NULL value.
+// space and value logs newest first. Space entries are the space_changed
+// events (the create event carries the initial assignment); value entries are
+// the value_changed events.
 func configFromEvents(events []pq.ConfigEvent) *apigen.Config {
 	latest := events[len(events)-1]
 	svs := []*apigen.ConfigSpaceVersion{}
 	vvs := []*apigen.ConfigValueVersion{}
 	for i := len(events) - 1; i >= 0; i-- {
 		e := events[i]
-		if i == 0 || e.SpaceVersion > events[i-1].SpaceVersion {
+		if e.SpaceChanged != 0 {
 			svs = append(svs, configSpaceVersionFromEvent(e))
 		}
-		if e.Value.Valid {
+		if e.ValueChanged != 0 {
 			vvs = append(vvs, configValueVersionFromEvent(e))
 		}
 	}
@@ -50,7 +50,7 @@ func configValueVersionFromEvent(e pq.ConfigEvent) *apigen.ConfigValueVersion {
 	return &apigen.ConfigValueVersion{
 		ID:        int32(e.ID),
 		Version:   int32(e.ValueVersion),
-		Value:     e.Value.String,
+		Value:     e.Value,
 		CreatedAt: time.UnixMilli(e.EventTime),
 		Author:    int32(e.Author),
 		GlobalSeq: e.GlobalSeq,

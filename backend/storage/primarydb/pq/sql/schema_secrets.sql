@@ -8,12 +8,14 @@ CREATE TABLE IF NOT EXISTS secret_event_log (
     version            INTEGER NOT NULL,  -- top-level: bumps on every event
     value_version      INTEGER NOT NULL,  -- AAD-bound; bumps only on value writes
     space_version      INTEGER NOT NULL,  -- bumps only on space moves
+    value_changed      INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped value_version
+    space_changed      INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped space_version
     name               TEXT    NOT NULL,
     value_directory_id INTEGER NOT NULL,
     space_id           INTEGER NOT NULL,
-    smk_version        INTEGER,           -- NULL unless this event writes the value
-    ciphertext         BLOB,
-    nonce              BLOB,
+    smk_version        INTEGER NOT NULL,  -- current sealed value's SMK generation, carried forward on non-value events
+    ciphertext         BLOB    NOT NULL,  -- current sealed value, carried forward on non-value events
+    nonce              BLOB    NOT NULL,
     event_type         INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
     UNIQUE (secret_id, version)
 );

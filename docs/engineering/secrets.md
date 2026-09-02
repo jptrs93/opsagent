@@ -4,10 +4,11 @@
 
 A secret is a **stable identity** — `secret_id`, with a name, space, and
 directory — whose state lives in the append-only `secret_event_log`, one row
-per event. Identity facets are denormalised onto every row, so the
-highest-version row is the complete current state; a row with a non-NULL
-sealed payload is an immutable numbered **value version** and its row id is
-the pinnable version id. Setting a secret appends the next value version
+per event. Every facet — identity and the sealed payload alike — is
+denormalised onto every row (non-value events carry the previous payload
+forward), so the highest-version row is the complete current state; a
+`value_changed` row is an immutable numbered **value version** and its row id
+is the pinnable version id. Setting a secret appends the next value version
 (`v1`, `v2`, ...) as a new event row; the identity id survives renames,
 moves, and rotations and is what the write API targets. Deployment
 environment variables and settings pin exact versions by `secretVersionId` /

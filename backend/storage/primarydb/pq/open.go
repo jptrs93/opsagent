@@ -24,8 +24,10 @@ func Open(dbPath string) *Queries {
 	// Go shape migrations (renaming or rewriting an old-shape table) have to
 	// run before ApplySchema: CREATE TABLE IF NOT EXISTS silently no-ops
 	// against the old shape.
+	renameOldShapeEventLogs(db)
 	sqlitedb.ApplySchema(db, schemaFiles, "sql/schema*.sql")
 	sqlitedb.ApplyMigrations(db, migrations)
+	copyLegacyEventLogs(db)
 	return New(db)
 }
 

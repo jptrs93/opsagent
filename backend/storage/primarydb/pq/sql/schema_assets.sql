@@ -8,17 +8,20 @@ CREATE TABLE IF NOT EXISTS asset_event_log (
     version            INTEGER NOT NULL,  -- top-level: bumps on every event
     value_version      INTEGER NOT NULL,  -- bumps only on content writes
     space_version      INTEGER NOT NULL,  -- bumps only on space moves
+    value_changed      INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped value_version
+    space_changed      INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped space_version
     key                TEXT    NOT NULL,
     asset_directory_id INTEGER NOT NULL,
     space_id           INTEGER NOT NULL,
-    size_bytes         INTEGER,           -- NULL unless this event writes content
-    sha256             TEXT,              -- NULL unless this event writes content
+    size_bytes         INTEGER NOT NULL,  -- current content size, carried forward on non-content events
+    sha256             TEXT    NOT NULL,  -- current content hash, carried forward on non-content events
     event_type         INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
     UNIQUE (asset_id, version)
 );
 
+-- Content-writing rows only: one per (asset_id, value_version).
 CREATE INDEX IF NOT EXISTS idx_asset_event_log_sha256
-    ON asset_event_log (sha256) WHERE sha256 IS NOT NULL;
+    ON asset_event_log (sha256) WHERE value_changed != 0;
 
 -- tracks where the asset content is actually stored
 CREATE TABLE IF NOT EXISTS asset_store (

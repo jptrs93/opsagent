@@ -10,12 +10,12 @@ import (
 // assetFromParts builds the wire shape: identity at the root, the space and
 // content logs newest first. events and versions must be oldest first (query
 // order); versions must be non-empty — an asset with no version is never
-// surfaced. Space entries are recovered from the events whose space facet
-// bumps; the first event carries the initial assignment.
+// surfaced. Space entries are the space_changed events; the create event
+// carries the initial assignment.
 func assetFromParts(a Asset, events []pq.AssetEvent, versions []pq.AssetVersionJoined) *apigen.Asset {
 	svs := []*apigen.AssetSpaceVersion{}
 	for i := len(events) - 1; i >= 0; i-- {
-		if i > 0 && events[i].SpaceVersion == events[i-1].SpaceVersion {
+		if events[i].SpaceChanged == 0 {
 			continue
 		}
 		svs = append(svs, assetSpaceVersionFromEvent(events[i]))

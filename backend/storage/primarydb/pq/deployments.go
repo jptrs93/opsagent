@@ -16,9 +16,11 @@ func (q *Queries) InsertDeploymentEvent(ctx context.Context, e DeploymentEvent) 
 	_, err := q.db.ExecContext(ctx, `
 	INSERT INTO deployment_event_log (
 		global_seq, event_time, created_time, author, deployment_id, version,
-		spec_version, space_assignment_version, name_version, value, event_type
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		spec_version, space_assignment_version, name_version,
+		spec_changed, space_assignment_changed, name_changed, value, event_type
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.DeploymentID, e.Version,
-		e.SpecVersion, e.SpaceAssignmentVersion, e.NameVersion, e.Value, e.EventType)
+		e.SpecVersion, e.SpaceAssignmentVersion, e.NameVersion,
+		e.SpecChanged, e.SpaceAssignmentChanged, e.NameChanged, e.Value, e.EventType)
 	return err
 }

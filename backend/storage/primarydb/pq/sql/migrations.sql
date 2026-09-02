@@ -21,6 +21,9 @@
 -- and the authz event log merge (v0.0.566: template/grant/global-rule copies
 -- with synthetic delete events and the 4 legacy table drops) after the
 -- v0.0.566 rollout.
+-- The event-log changed-flag rebuild (*_changed columns plus NOT NULL
+-- carried-forward payloads on the deployment/asset/secret/config logs) is a
+-- Go shape migration in pq/migrate_event_flags.go, not here.
 -- Upgrading a database from before then requires stepping through a release
 -- that still carried them. Databases migrated through v0.0.541 keep a dead
 -- NULL-only nodes.enrollment_id column: its UNIQUE constraint blocks

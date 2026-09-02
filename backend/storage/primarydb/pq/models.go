@@ -42,11 +42,13 @@ type AssetEvent struct {
 	Version          int64
 	ValueVersion     int64
 	SpaceVersion     int64
+	ValueChanged     int64
+	SpaceChanged     int64
 	Key              string
 	AssetDirectoryID int64
 	SpaceID          int64
-	SizeBytes        sql.NullInt64
-	Sha256           sql.NullString
+	SizeBytes        int64
+	Sha256           string
 	EventType        int64
 }
 
@@ -110,10 +112,12 @@ type ConfigEvent struct {
 	Version          int64
 	ValueVersion     int64
 	SpaceVersion     int64
+	ValueChanged     int64
+	SpaceChanged     int64
 	Name             string
 	ValueDirectoryID int64
 	SpaceID          int64
-	Value            sql.NullString
+	Value            string
 	EventType        int64
 }
 
@@ -128,6 +132,9 @@ type DeploymentEvent struct {
 	SpecVersion            int64
 	SpaceAssignmentVersion int64
 	NameVersion            int64
+	SpecChanged            int64
+	SpaceAssignmentChanged int64
+	NameChanged            int64
 	Value                  []byte
 	EventType              int64
 }
@@ -253,10 +260,12 @@ type SecretEvent struct {
 	Version          int64
 	ValueVersion     int64
 	SpaceVersion     int64
+	ValueChanged     int64
+	SpaceChanged     int64
 	Name             string
 	ValueDirectoryID int64
 	SpaceID          int64
-	SmkVersion       sql.NullInt64
+	SmkVersion       int64
 	Ciphertext       []byte
 	Nonce            []byte
 	EventType        int64

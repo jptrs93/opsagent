@@ -65,6 +65,9 @@ func (s *Service) ListSecretVersionRecords() []secrets.Record {
 	return out
 }
 
+// nextSecretEvent carries the identity facets forward from the previous
+// event's meta. The sealed payload is not on the meta; appendSecretEventLocked
+// copies it forward inside SQL.
 func nextSecretEvent(prev pq.SecretEventMeta, author int32, eventType int64) pq.SecretEvent {
 	return pq.SecretEvent{
 		EventTime:        time.Now().UnixMilli(),
@@ -81,6 +84,8 @@ func nextSecretEvent(prev pq.SecretEventMeta, author int32, eventType int64) pq.
 	}
 }
 
+// appendSecretEventLocked appends a non-value event: the sealed payload is
+// carried forward from the previous row in SQL.
 func (s *Service) appendSecretEventLocked(ctx context.Context, event pq.SecretEvent) {
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		seq, err := q.NextGlobalSeq(ctx)
@@ -88,7 +93,7 @@ func (s *Service) appendSecretEventLocked(ctx context.Context, event pq.SecretEv
 			return err
 		}
 		event.GlobalSeq = seq
-		_, err = q.InsertSecretEvent(ctx, event)
+		_, err = q.InsertSecretCarryEvent(ctx, event)
 		return err
 	}); err != nil {
 		panic(fmt.Sprintf("append secret event: %v", err))
@@ -140,10 +145,12 @@ func (s *Service) CreateSecretWithVersionLocked(name string, spaceID, directoryI
 			Version:          1,
 			ValueVersion:     1,
 			SpaceVersion:     1,
+			ValueChanged:     1,
+			SpaceChanged:     1,
 			Name:             name,
 			ValueDirectoryID: dirID,
 			SpaceID:          space,
-			SmkVersion:       sql.NullInt64{Int64: int64(sealed.SMKVersion), Valid: true},
+			SmkVersion:       int64(sealed.SMKVersion),
 			Ciphertext:       sealed.Ciphertext,
 			Nonce:            sealed.Nonce,
 			EventType:        pq.EventCreate,
@@ -194,7 +201,8 @@ func (s *Service) AppendSecretVersionWithDeploymentUpdatesLocked(secretID, autho
 		}
 		event := nextSecretEvent(prev, author, pq.EventUpdate)
 		event.ValueVersion = version
-		event.SmkVersion = sql.NullInt64{Int64: int64(sealed.SMKVersion), Valid: true}
+		event.ValueChanged = 1
+		event.SmkVersion = int64(sealed.SMKVersion)
 		event.Ciphertext = sealed.Ciphertext
 		event.Nonce = sealed.Nonce
 		event.GlobalSeq = globalSeq
@@ -334,6 +342,7 @@ func (s *Service) MoveSecretSpaceLocked(secretID, newSpaceID, newDirectoryID, au
 	if spaceID != prev.SpaceID {
 		event.SpaceID = spaceID
 		event.SpaceVersion = prev.SpaceVersion + 1
+		event.SpaceChanged = 1
 	}
 	s.appendSecretEventLocked(ctx, event)
 	return nil
