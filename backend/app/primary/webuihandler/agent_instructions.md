@@ -44,16 +44,6 @@ Store the token and the base URL yourself, however you normally persist state.
 The token is valid for 6 hours and is not recoverable. Never echo it into
 output, commit it, or write it into a file the operator did not ask for.
 
-When your work is finished, end the session yourself — the token stays live for
-the rest of its 6 hours otherwise:
-
-```sh
-curl -sS -X POST '{{.BaseURL}}/v1/agent-sessions/revoke' \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' -H 'Accept: application/json' \
-  -d '{"id": "<the id>"}'
-```
-
 ## 2. Making requests
 
 Every authenticated call needs three headers:
