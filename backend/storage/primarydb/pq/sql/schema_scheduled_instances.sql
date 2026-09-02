@@ -1,12 +1,3 @@
--- Append-only event log of scheduled instance incarnations, one row per state
--- transition; version 1 is the creation write. Identity columns are immutable
--- per instance and denormalised onto every row; created_time is the first
--- event's event_time copied to every row. Current state is the highest-version
--- row. At most one serving incarnation may exist per identity tuple — with
--- state living only in the log this cannot be a SQL constraint, so it is
--- enforced solely by EnsureRunScheduledInstance under the service mutex.
--- Instance ids are allocated as MAX(scheduled_instance_id)+1 under the same
--- mutex; the log is never pruned, so ids are never reused.
 CREATE TABLE IF NOT EXISTS scheduled_instance_event_log (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,
     global_seq              INTEGER NOT NULL,

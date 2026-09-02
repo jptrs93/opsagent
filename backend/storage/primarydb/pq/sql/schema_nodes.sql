@@ -1,12 +1,3 @@
--- One append-only event log per node, one row per event; version 1 is the
--- creation write. Identity facets (name, identifier) are denormalised onto
--- every row, so the highest-version row is the complete current state;
--- created_time is the first event's event_time copied to every row and
--- enrolled_time is 0 until the enrollment-accept event stamps it, copied
--- forward from there. Node ids are allocated as MAX(node_id)+1 under the
--- service mutex; the log is never pruned, so ids are never reused. Name and
--- identifier uniqueness cannot be SQL constraints on a log — both are
--- enforced by latest-row scans under the service mutex.
 CREATE TABLE IF NOT EXISTS node_event_log (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     global_seq     INTEGER NOT NULL,

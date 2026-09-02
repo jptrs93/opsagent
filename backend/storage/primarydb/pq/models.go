@@ -72,31 +72,32 @@ type AssetStore struct {
 	CreatedAt    int64
 }
 
-type AuthzGrant struct {
-	ID         int64
-	UserID     int64
-	TemplateID int64
-	DeletedAt  int64
-	Author     int64
-	CreatedAt  int64
-	DataBlob   []byte
+type AuthzGrantEventLog struct {
+	ID          int64
+	GlobalSeq   int64
+	EventTime   int64
+	CreatedTime int64
+	Author      int64
+	GrantID     int64
+	Version     int64
+	UserID      int64
+	TemplateID  int64
+	DataBlob    []byte
+	EventType   int64
 }
 
-type AuthzRuleTemplate struct {
-	ID        int64
-	Name      string
-	Builtin   int64
-	DeletedAt int64
-}
-
-type AuthzRuleTemplateVersion struct {
-	ID         int64
-	TemplateID int64
-	Version    int64
-	CreatedAt  int64
-	Author     int64
-	DataBlob   []byte
-	GlobalSeq  int64
+type AuthzRuleTemplateEventLog struct {
+	ID          int64
+	GlobalSeq   int64
+	EventTime   int64
+	CreatedTime int64
+	Author      int64
+	TemplateID  int64
+	Version     int64
+	Name        string
+	Builtin     int64
+	DataBlob    []byte
+	EventType   int64
 }
 
 type ConfigEventLog struct {
@@ -131,13 +132,18 @@ type DeploymentEvent struct {
 	EventType              int64
 }
 
-type GlobalAccessRule struct {
-	ID        int64
-	Name      string
-	DeletedAt int64
-	Author    int64
-	CreatedAt int64
-	DataBlob  []byte
+type GlobalAccessRuleEventLog struct {
+	ID          int64
+	GlobalSeq   int64
+	EventTime   int64
+	CreatedTime int64
+	Author      int64
+	RuleID      int64
+	Version     int64
+	Name        string
+	Disabled    int64
+	DataBlob    []byte
+	EventType   int64
 }
 
 type GlobalSeq struct {

@@ -124,7 +124,7 @@ func TestAuthzStoreRoundTrip(t *testing.T) {
 			EntityRefs:  &apigen.AuthzSelector{Wildcard: true},
 		}},
 	}, 1); err != nil {
-		t.Fatalf("name should be reusable after delete (partial unique index): %v", err)
+		t.Fatalf("name should be reusable after delete: %v", err)
 	}
 }
 
@@ -173,7 +173,7 @@ func TestDeletedSeededGlobalRuleStaysDeleted(t *testing.T) {
 	db := sqlitedb.MustOpen(dbPath)
 	defer db.Close()
 	var tombstones int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM global_access_rules WHERE name = ? AND deleted_at != 0`,
+	if err := db.QueryRow(`SELECT COUNT(*) FROM global_access_rule_event_log WHERE name = ? AND event_type = 3`,
 		authz.DefaultUserVisibilityRuleName).Scan(&tombstones); err != nil {
 		t.Fatal(err)
 	}

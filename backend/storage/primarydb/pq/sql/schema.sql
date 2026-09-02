@@ -1,10 +1,3 @@
-CREATE TABLE IF NOT EXISTS spaces (
-    id   INTEGER PRIMARY KEY CHECK (id BETWEEN 0 AND 65535),
-    name TEXT    NOT NULL DEFAULT ''
-);
-
-INSERT INTO spaces (id, name) VALUES (0, '_system'), (1, 'global') ON CONFLICT(id) DO UPDATE SET name = excluded.name;
-
 -- Single global write counter: every state-changing write transaction that
 -- appends to a version/space log allocates the next value and stamps its rows,
 -- so any counter value identifies one cluster-wide state. Rows stamped 0
@@ -16,53 +9,8 @@ CREATE TABLE IF NOT EXISTS global_seq (
 
 INSERT OR IGNORE INTO global_seq (id, value) VALUES (1, 0);
 
-CREATE TABLE IF NOT EXISTS users (
-    id            INTEGER PRIMARY KEY,
-    name          TEXT    NOT NULL,
-    data_blob     BLOB    NOT NULL,
-    created_at    INTEGER NOT NULL DEFAULT 0,  -- epoch ms; 0 predates the column
-    last_login_at INTEGER NOT NULL DEFAULT 0   -- epoch ms; 0 = never logged in
-);
-
-
-
-CREATE TABLE IF NOT EXISTS agent_sessions (
-    id           TEXT    PRIMARY KEY,          -- the token's jti claim
-    user_id      INTEGER NOT NULL,
-    created_at   INTEGER NOT NULL,             -- epoch ms
-    expires_at   INTEGER NOT NULL,             -- epoch ms; 0 until the token is minted
-    token_hash   BLOB    NOT NULL,             -- SHA-256; the plaintext is never stored
-    token_prefix TEXT    NOT NULL,
-    revoked_at   INTEGER NOT NULL DEFAULT 0,   -- epoch ms
-    scopes       TEXT    NOT NULL DEFAULT '',
-    status             INTEGER NOT NULL DEFAULT 2,  -- AgentSessionStatus
-    requesting_address TEXT    NOT NULL DEFAULT '',
-    approval_code      TEXT    NOT NULL DEFAULT '',
-    approved_at        INTEGER NOT NULL DEFAULT 0   -- epoch ms
-);
-
-CREATE INDEX IF NOT EXISTS idx_agent_sessions_user_created
-    ON agent_sessions (user_id, created_at DESC);
-
-CREATE TABLE IF NOT EXISTS personal_sessions (
-    id                 TEXT    PRIMARY KEY,
-    user_id            INTEGER NOT NULL,
-    created_at         INTEGER NOT NULL,
-    expires_at         INTEGER NOT NULL,
-    token_hash         BLOB    NOT NULL,
-    revoked_at         INTEGER NOT NULL DEFAULT 0,
-    requesting_address TEXT    NOT NULL DEFAULT '',
-    user_agent         TEXT    NOT NULL DEFAULT '',
-    last_active_at     INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE INDEX IF NOT EXISTS idx_personal_sessions_user_created
-    ON personal_sessions (user_id, created_at DESC);
-
 CREATE TABLE IF NOT EXISTS system_config_revisions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     updated_at  INTEGER NOT NULL,  -- epoch ms
     config_blob BLOB    NOT NULL
 );
-
-

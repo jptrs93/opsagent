@@ -4,50 +4,47 @@ CREATE TABLE IF NOT EXISTS public_keys (
    key_bytes BLOB NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS authz_rule_templates (
-    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    name    TEXT    NOT NULL,
-    builtin INTEGER NOT NULL DEFAULT 0,
-    deleted_at INTEGER NOT NULL DEFAULT 0  -- epoch ms, 0 = not deleted
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_authz_rule_templates_name
-    ON authz_rule_templates (name) WHERE deleted_at = 0;
-
-CREATE TABLE IF NOT EXISTS authz_rule_template_versions (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    template_id INTEGER NOT NULL,
-    version     INTEGER NOT NULL,  -- version can be derived but is kept for convenience and to make future pruning possible.
-    created_at  INTEGER NOT NULL,  -- epoch ms
-    author  INTEGER NOT NULL DEFAULT 0,  -- user id
-    data_blob   BLOB    NOT NULL,
-    global_seq  INTEGER NOT NULL DEFAULT 0,
+CREATE TABLE IF NOT EXISTS authz_rule_template_event_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    global_seq   INTEGER NOT NULL,
+    event_time   INTEGER NOT NULL,  -- epoch ms
+    created_time INTEGER NOT NULL,  -- epoch ms, first event's event_time
+    author       INTEGER NOT NULL,
+    template_id  INTEGER NOT NULL,
+    version      INTEGER NOT NULL,  -- top-level: bumps on every event
+    name         TEXT    NOT NULL,
+    builtin      INTEGER NOT NULL,
+    data_blob    BLOB    NOT NULL,
+    event_type   INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
     UNIQUE (template_id, version)
 );
 
--- Grant content is immutable: access changes are revoke + re-grant, so there
--- is no version log. Revocation soft-deletes the row.
-CREATE TABLE IF NOT EXISTS authz_grants (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id     INTEGER NOT NULL,
-    template_id INTEGER NOT NULL DEFAULT 0,
-    deleted_at  INTEGER NOT NULL DEFAULT 0,  -- epoch ms, 0 = not deleted
-    author  INTEGER NOT NULL DEFAULT 0,  -- user id
-    created_at  INTEGER NOT NULL DEFAULT 0,  -- epoch ms
-    data_blob   BLOB    NOT NULL
+CREATE TABLE IF NOT EXISTS authz_grant_event_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    global_seq   INTEGER NOT NULL,
+    event_time   INTEGER NOT NULL,  -- epoch ms
+    created_time INTEGER NOT NULL,  -- epoch ms, first event's event_time
+    author       INTEGER NOT NULL,
+    grant_id     INTEGER NOT NULL,
+    version      INTEGER NOT NULL,  -- top-level: bumps on every event
+    user_id      INTEGER NOT NULL,
+    template_id  INTEGER NOT NULL,
+    data_blob    BLOB    NOT NULL,
+    event_type   INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
+    UNIQUE (grant_id, version)
 );
 
-CREATE INDEX IF NOT EXISTS idx_authz_grants_user
-    ON authz_grants (user_id);
-
-CREATE INDEX IF NOT EXISTS idx_authz_grants_template
-    ON authz_grants (template_id);
-
-CREATE TABLE IF NOT EXISTS global_access_rules (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT    NOT NULL DEFAULT '',
-    deleted_at INTEGER NOT NULL DEFAULT 0,  -- epoch ms, 0 = not deleted
-    author INTEGER NOT NULL DEFAULT 0,  -- user id
-    created_at INTEGER NOT NULL DEFAULT 0,  -- epoch ms
-    data_blob  BLOB    NOT NULL
+CREATE TABLE IF NOT EXISTS global_access_rule_event_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    global_seq   INTEGER NOT NULL,
+    event_time   INTEGER NOT NULL,  -- epoch ms
+    created_time INTEGER NOT NULL,  -- epoch ms, first event's event_time
+    author       INTEGER NOT NULL,
+    rule_id      INTEGER NOT NULL,
+    version      INTEGER NOT NULL,  -- top-level: bumps on every event
+    name         TEXT    NOT NULL,
+    disabled     INTEGER NOT NULL DEFAULT 0,  -- reserved, not yet wired
+    data_blob    BLOB    NOT NULL,
+    event_type   INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
+    UNIQUE (rule_id, version)
 );

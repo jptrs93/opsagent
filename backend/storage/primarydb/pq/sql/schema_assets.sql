@@ -1,24 +1,3 @@
-CREATE TABLE IF NOT EXISTS asset_directories (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    space_id    INTEGER NOT NULL DEFAULT 1,
-    key         TEXT    NOT NULL,
-    parent_id   INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
-    created_at  INTEGER NOT NULL,            -- epoch ms
-    author  INTEGER NOT NULL DEFAULT 0       -- user id; 0 = unknown/system, negative = agent of user -author
-);
-
--- One append-only event log per asset, one row per event; version 1 is the
--- creation write. Identity facets (key, directory, space) are denormalised
--- onto every row, so the highest-version row is the complete current state
--- with event_type as the deletion truth; created_time is the first event's
--- event_time copied to every row. value_version bumps only on content writes
--- and space_version only on space moves. The content payload (size_bytes,
--- sha256) is present only on rows that write content and NULL otherwise —
--- a row with a non-NULL payload is a pinnable content version and its id is
--- what deployment configs pin and worker caches are keyed by. Payload NULLs
--- (never '') keep staging asset_store rows sweepable by the GC join. Asset
--- ids are allocated as MAX(asset_id)+1 under the service mutex; the log is
--- never pruned, so neither asset ids nor pinned version-row ids are reused.
 CREATE TABLE IF NOT EXISTS asset_event_log (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,  -- content rows: the pinnable version id
     global_seq         INTEGER NOT NULL,
@@ -71,3 +50,12 @@ CREATE TABLE IF NOT EXISTS asset_migrations (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_migrations_unfinished
     ON asset_migrations ((1))
     WHERE status != 'finished';
+
+CREATE TABLE IF NOT EXISTS asset_directories (
+     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+     space_id    INTEGER NOT NULL DEFAULT 1,
+     key         TEXT    NOT NULL,
+     parent_id   INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
+     created_at  INTEGER NOT NULL,            -- epoch ms
+     author  INTEGER NOT NULL DEFAULT 0       -- user id; 0 = unknown/system, negative = agent of user -author
+);

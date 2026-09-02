@@ -4,6 +4,8 @@ sql:
     queries: "storage/primarydb/pq/sql/queries.sql"
     schema:
       - "storage/primarydb/pq/sql/schema.sql"
+      - "storage/primarydb/pq/sql/schema_user.sql"
+      - "storage/primarydb/pq/sql/schema_spaces.sql"
       - "storage/primarydb/pq/sql/schema_authz.sql"
       - "storage/primarydb/pq/sql/schema_deployments.sql"
       - "storage/primarydb/pq/sql/schema_scheduled_instances.sql"
