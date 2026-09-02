@@ -36,32 +36,6 @@ func (q *Queries) AppendAuthzRuleTemplateVersion(ctx context.Context, arg Append
 	return err
 }
 
-const appendNetworkPolicyVersion = `-- name: AppendNetworkPolicyVersion :exec
-INSERT INTO network_policy_versions (policy_id, version, created_at, author, data_blob, global_seq)
-SELECT ?1, COALESCE(MAX(version), 0) + 1, ?2, ?3, ?4, ?5
-FROM network_policy_versions
-WHERE policy_id = ?1
-`
-
-type AppendNetworkPolicyVersionParams struct {
-	PolicyID  int64
-	CreatedAt int64
-	Author    int64
-	DataBlob  []byte
-	GlobalSeq int64
-}
-
-func (q *Queries) AppendNetworkPolicyVersion(ctx context.Context, arg AppendNetworkPolicyVersionParams) error {
-	_, err := q.db.ExecContext(ctx, appendNetworkPolicyVersion,
-		arg.PolicyID,
-		arg.CreatedAt,
-		arg.Author,
-		arg.DataBlob,
-		arg.GlobalSeq,
-	)
-	return err
-}
-
 const appendScheduledInstanceEvent = `-- name: AppendScheduledInstanceEvent :exec
 INSERT INTO scheduled_instance_event_log (
     scheduled_instance_id, version, global_seq, event_time, created_time,
@@ -184,28 +158,6 @@ func (q *Queries) CompleteAssetStoreRow(ctx context.Context, arg CompleteAssetSt
 	return err
 }
 
-const countAssetVersionsBySha = `-- name: CountAssetVersionsBySha :one
-SELECT COUNT(*) FROM asset_versions WHERE sha256 = ?
-`
-
-func (q *Queries) CountAssetVersionsBySha(ctx context.Context, sha256 string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countAssetVersionsBySha, sha256)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const countAssetsInDirectory = `-- name: CountAssetsInDirectory :one
-SELECT COUNT(*) FROM assets WHERE asset_directory_id = ? AND deleted_at = 0
-`
-
-func (q *Queries) CountAssetsInDirectory(ctx context.Context, assetDirectoryID int64) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countAssetsInDirectory, assetDirectoryID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countChildAssetDirectories = `-- name: CountChildAssetDirectories :one
 SELECT COUNT(*) FROM asset_directories WHERE parent_id = ?
 `
@@ -228,17 +180,6 @@ func (q *Queries) CountChildValueDirectories(ctx context.Context, parentID int64
 	return count, err
 }
 
-const countConfigsInDirectory = `-- name: CountConfigsInDirectory :one
-SELECT COUNT(*) FROM configs WHERE value_directory_id = ? AND deleted_at = 0
-`
-
-func (q *Queries) CountConfigsInDirectory(ctx context.Context, valueDirectoryID int64) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countConfigsInDirectory, valueDirectoryID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countDirectorySiblingsWithKey = `-- name: CountDirectorySiblingsWithKey :one
 
 SELECT COUNT(*) FROM asset_directories
@@ -252,8 +193,9 @@ type CountDirectorySiblingsWithKeyParams struct {
 	ID       int64
 }
 
-// Container reads are hand-written in assets.go: the current space is the
-// newest asset_spaces row and reads exclude soft-deleted assets.
+// Asset reads and writes are hand-written in assets.go: the current state is
+// the highest-version event row, event_type is the deletion truth, and a row
+// with a non-NULL content payload is a pinnable content version.
 func (q *Queries) CountDirectorySiblingsWithKey(ctx context.Context, arg CountDirectorySiblingsWithKeyParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countDirectorySiblingsWithKey,
 		arg.SpaceID,
@@ -277,18 +219,8 @@ func (q *Queries) CountGlobalAccessRuleRowsByName(ctx context.Context, name stri
 	return count, err
 }
 
-const countSecretsInDirectory = `-- name: CountSecretsInDirectory :one
-SELECT COUNT(*) FROM secrets WHERE value_directory_id = ? AND deleted_at = 0
-`
-
-func (q *Queries) CountSecretsInDirectory(ctx context.Context, valueDirectoryID int64) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countSecretsInDirectory, valueDirectoryID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countValueDirectorySiblingsWithName = `-- name: CountValueDirectorySiblingsWithName :one
+
 SELECT COUNT(*) FROM value_directories
 WHERE space_id = ? AND parent_id = ? AND name = ? AND id != ?
 `
@@ -300,6 +232,9 @@ type CountValueDirectorySiblingsWithNameParams struct {
 	ID       int64
 }
 
+// Config and secret reads and writes are hand-written in values.go: the
+// current state is the highest-version event row, event_type is the deletion
+// truth, and a row with a non-NULL value payload is a pinnable value version.
 func (q *Queries) CountValueDirectorySiblingsWithName(ctx context.Context, arg CountValueDirectorySiblingsWithNameParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countValueDirectorySiblingsWithName,
 		arg.SpaceID,
@@ -324,22 +259,6 @@ VALUES (?, 0, 0) RETURNING id
 // same tx; content updates are pure appends.
 func (q *Queries) CreateAuthzRuleTemplate(ctx context.Context, name string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, createAuthzRuleTemplate, name)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
-const createNetworkPolicyRow = `-- name: CreateNetworkPolicyRow :one
-
-INSERT INTO network_policies (deleted_at) VALUES (0) RETURNING id
-`
-
-// Network policy content lives in network_policy_versions; the list read is
-// hand-written in network_policies.go (identity joined with the latest
-// version row). Every content write advances the global sequence in the same
-// tx because policies are cluster network map render inputs.
-func (q *Queries) CreateNetworkPolicyRow(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, createNetworkPolicyRow)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -652,45 +571,6 @@ func (q *Queries) GetLatestDeploymentEvent(ctx context.Context, deploymentID int
 	return i, err
 }
 
-const getNextAssetVersionNumber = `-- name: GetNextAssetVersionNumber :one
-SELECT COALESCE(MAX(version), 0) + 1
-FROM asset_versions
-WHERE asset_id = ?
-`
-
-func (q *Queries) GetNextAssetVersionNumber(ctx context.Context, assetID int64) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getNextAssetVersionNumber, assetID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
-const getNextConfigVersionNumber = `-- name: GetNextConfigVersionNumber :one
-SELECT COALESCE(MAX(version), 0) + 1
-FROM config_versions
-WHERE config_id = ?
-`
-
-func (q *Queries) GetNextConfigVersionNumber(ctx context.Context, configID int64) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getNextConfigVersionNumber, configID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
-const getNextSecretVersionNumber = `-- name: GetNextSecretVersionNumber :one
-SELECT COALESCE(MAX(version), 0) + 1
-FROM secret_versions
-WHERE secret_id = ?
-`
-
-func (q *Queries) GetNextSecretVersionNumber(ctx context.Context, secretID int64) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getNextSecretVersionNumber, secretID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const getPersonalSession = `-- name: GetPersonalSession :one
 SELECT id, user_id, created_at, expires_at, token_hash, revoked_at,
        requesting_address, user_agent, last_active_at
@@ -910,49 +790,6 @@ func (q *Queries) InsertAssetMigration(ctx context.Context, arg InsertAssetMigra
 	return i, err
 }
 
-const insertAssetRow = `-- name: InsertAssetRow :one
-INSERT INTO assets (key, asset_directory_id, created_at)
-VALUES (?, ?, ?)
-RETURNING id
-`
-
-type InsertAssetRowParams struct {
-	Key              string
-	AssetDirectoryID int64
-	CreatedAt        int64
-}
-
-func (q *Queries) InsertAssetRow(ctx context.Context, arg InsertAssetRowParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, insertAssetRow, arg.Key, arg.AssetDirectoryID, arg.CreatedAt)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
-const insertAssetSpaceRow = `-- name: InsertAssetSpaceRow :exec
-INSERT INTO asset_spaces (asset_id, author, created_at, space_id, global_seq)
-VALUES (?, ?, ?, ?, ?)
-`
-
-type InsertAssetSpaceRowParams struct {
-	AssetID   int64
-	Author    int64
-	CreatedAt int64
-	SpaceID   int64
-	GlobalSeq int64
-}
-
-func (q *Queries) InsertAssetSpaceRow(ctx context.Context, arg InsertAssetSpaceRowParams) error {
-	_, err := q.db.ExecContext(ctx, insertAssetSpaceRow,
-		arg.AssetID,
-		arg.Author,
-		arg.CreatedAt,
-		arg.SpaceID,
-		arg.GlobalSeq,
-	)
-	return err
-}
-
 const insertAssetStoreRow = `-- name: InsertAssetStoreRow :one
 INSERT INTO asset_store (id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -992,46 +829,6 @@ func (q *Queries) InsertAssetStoreRow(ctx context.Context, arg InsertAssetStoreR
 	return i, err
 }
 
-const insertAssetVersion = `-- name: InsertAssetVersion :one
-INSERT INTO asset_versions (asset_id, version, created_at, author, size_bytes, sha256, global_seq)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, asset_id, version, created_at, author, size_bytes, sha256, global_seq
-`
-
-type InsertAssetVersionParams struct {
-	AssetID   int64
-	Version   int64
-	CreatedAt int64
-	Author    int64
-	SizeBytes int64
-	Sha256    string
-	GlobalSeq int64
-}
-
-func (q *Queries) InsertAssetVersion(ctx context.Context, arg InsertAssetVersionParams) (AssetVersion, error) {
-	row := q.db.QueryRowContext(ctx, insertAssetVersion,
-		arg.AssetID,
-		arg.Version,
-		arg.CreatedAt,
-		arg.Author,
-		arg.SizeBytes,
-		arg.Sha256,
-		arg.GlobalSeq,
-	)
-	var i AssetVersion
-	err := row.Scan(
-		&i.ID,
-		&i.AssetID,
-		&i.Version,
-		&i.CreatedAt,
-		&i.Author,
-		&i.SizeBytes,
-		&i.Sha256,
-		&i.GlobalSeq,
-	)
-	return i, err
-}
-
 const insertAuthzGrantRow = `-- name: InsertAuthzGrantRow :one
 INSERT INTO authz_grants (user_id, template_id, author, created_at, data_blob)
 VALUES (?, ?, ?, ?, ?) RETURNING id
@@ -1056,89 +853,6 @@ func (q *Queries) InsertAuthzGrantRow(ctx context.Context, arg InsertAuthzGrantR
 	var id int64
 	err := row.Scan(&id)
 	return id, err
-}
-
-const insertConfigRow = `-- name: InsertConfigRow :one
-
-INSERT INTO configs (name, value_directory_id, created_at)
-VALUES (?, ?, ?)
-RETURNING id
-`
-
-type InsertConfigRowParams struct {
-	Name             string
-	ValueDirectoryID int64
-	CreatedAt        int64
-}
-
-// Container reads are hand-written in values.go: the current space is the
-// newest config_spaces row and reads exclude soft-deleted configs.
-func (q *Queries) InsertConfigRow(ctx context.Context, arg InsertConfigRowParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, insertConfigRow, arg.Name, arg.ValueDirectoryID, arg.CreatedAt)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
-const insertConfigSpaceRow = `-- name: InsertConfigSpaceRow :exec
-INSERT INTO config_spaces (config_id, author, created_at, space_id, global_seq)
-VALUES (?, ?, ?, ?, ?)
-`
-
-type InsertConfigSpaceRowParams struct {
-	ConfigID  int64
-	Author    int64
-	CreatedAt int64
-	SpaceID   int64
-	GlobalSeq int64
-}
-
-func (q *Queries) InsertConfigSpaceRow(ctx context.Context, arg InsertConfigSpaceRowParams) error {
-	_, err := q.db.ExecContext(ctx, insertConfigSpaceRow,
-		arg.ConfigID,
-		arg.Author,
-		arg.CreatedAt,
-		arg.SpaceID,
-		arg.GlobalSeq,
-	)
-	return err
-}
-
-const insertConfigVersion = `-- name: InsertConfigVersion :one
-INSERT INTO config_versions (config_id, version, value, created_at, author, global_seq)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, config_id, version, value, created_at, author, global_seq
-`
-
-type InsertConfigVersionParams struct {
-	ConfigID  int64
-	Version   int64
-	Value     string
-	CreatedAt int64
-	Author    int64
-	GlobalSeq int64
-}
-
-func (q *Queries) InsertConfigVersion(ctx context.Context, arg InsertConfigVersionParams) (ConfigVersion, error) {
-	row := q.db.QueryRowContext(ctx, insertConfigVersion,
-		arg.ConfigID,
-		arg.Version,
-		arg.Value,
-		arg.CreatedAt,
-		arg.Author,
-		arg.GlobalSeq,
-	)
-	var i ConfigVersion
-	err := row.Scan(
-		&i.ID,
-		&i.ConfigID,
-		&i.Version,
-		&i.Value,
-		&i.CreatedAt,
-		&i.Author,
-		&i.GlobalSeq,
-	)
-	return i, err
 }
 
 const insertGlobalAccessRuleRow = `-- name: InsertGlobalAccessRuleRow :one
@@ -1260,96 +974,6 @@ func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, arg InsertS
 	return err
 }
 
-const insertSecretRow = `-- name: InsertSecretRow :one
-
-INSERT INTO secrets (name, value_directory_id, created_at)
-VALUES (?, ?, ?)
-RETURNING id
-`
-
-type InsertSecretRowParams struct {
-	Name             string
-	ValueDirectoryID int64
-	CreatedAt        int64
-}
-
-// Container reads and the version-record list are hand-written in values.go:
-// the current space is the newest secret_spaces row and reads exclude
-// soft-deleted secrets.
-func (q *Queries) InsertSecretRow(ctx context.Context, arg InsertSecretRowParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, insertSecretRow, arg.Name, arg.ValueDirectoryID, arg.CreatedAt)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
-const insertSecretSpaceRow = `-- name: InsertSecretSpaceRow :exec
-INSERT INTO secret_spaces (secret_id, author, created_at, space_id, global_seq)
-VALUES (?, ?, ?, ?, ?)
-`
-
-type InsertSecretSpaceRowParams struct {
-	SecretID  int64
-	Author    int64
-	CreatedAt int64
-	SpaceID   int64
-	GlobalSeq int64
-}
-
-func (q *Queries) InsertSecretSpaceRow(ctx context.Context, arg InsertSecretSpaceRowParams) error {
-	_, err := q.db.ExecContext(ctx, insertSecretSpaceRow,
-		arg.SecretID,
-		arg.Author,
-		arg.CreatedAt,
-		arg.SpaceID,
-		arg.GlobalSeq,
-	)
-	return err
-}
-
-const insertSecretVersion = `-- name: InsertSecretVersion :one
-INSERT INTO secret_versions (secret_id, version, smk_version, ciphertext, nonce, created_at, author, global_seq)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, secret_id, version, smk_version, ciphertext, nonce, created_at, author, global_seq
-`
-
-type InsertSecretVersionParams struct {
-	SecretID   int64
-	Version    int64
-	SmkVersion int64
-	Ciphertext []byte
-	Nonce      []byte
-	CreatedAt  int64
-	Author     int64
-	GlobalSeq  int64
-}
-
-func (q *Queries) InsertSecretVersion(ctx context.Context, arg InsertSecretVersionParams) (SecretVersion, error) {
-	row := q.db.QueryRowContext(ctx, insertSecretVersion,
-		arg.SecretID,
-		arg.Version,
-		arg.SmkVersion,
-		arg.Ciphertext,
-		arg.Nonce,
-		arg.CreatedAt,
-		arg.Author,
-		arg.GlobalSeq,
-	)
-	var i SecretVersion
-	err := row.Scan(
-		&i.ID,
-		&i.SecretID,
-		&i.Version,
-		&i.SmkVersion,
-		&i.Ciphertext,
-		&i.Nonce,
-		&i.CreatedAt,
-		&i.Author,
-		&i.GlobalSeq,
-	)
-	return i, err
-}
-
 const insertValueDirectory = `-- name: InsertValueDirectory :one
 INSERT INTO value_directories (space_id, name, parent_id, created_at, author)
 VALUES (?, ?, ?, ?, ?)
@@ -1462,105 +1086,6 @@ func (q *Queries) ListAssetDirectories(ctx context.Context) ([]AssetDirectory, e
 	return items, nil
 }
 
-const listAssetIDsBySha = `-- name: ListAssetIDsBySha :many
-SELECT DISTINCT asset_id FROM asset_versions WHERE sha256 = ?
-`
-
-func (q *Queries) ListAssetIDsBySha(ctx context.Context, sha256 string) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, listAssetIDsBySha, sha256)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var asset_id int64
-		if err := rows.Scan(&asset_id); err != nil {
-			return nil, err
-		}
-		items = append(items, asset_id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listAssetSpaceRows = `-- name: ListAssetSpaceRows :many
-SELECT id, asset_id, author, created_at, space_id, global_seq
-FROM asset_spaces
-ORDER BY asset_id, id ASC
-`
-
-func (q *Queries) ListAssetSpaceRows(ctx context.Context) ([]AssetSpace, error) {
-	rows, err := q.db.QueryContext(ctx, listAssetSpaceRows)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []AssetSpace
-	for rows.Next() {
-		var i AssetSpace
-		if err := rows.Scan(
-			&i.ID,
-			&i.AssetID,
-			&i.Author,
-			&i.CreatedAt,
-			&i.SpaceID,
-			&i.GlobalSeq,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listAssetSpaceRowsByAssetID = `-- name: ListAssetSpaceRowsByAssetID :many
-SELECT id, asset_id, author, created_at, space_id, global_seq
-FROM asset_spaces WHERE asset_id = ?
-ORDER BY id ASC
-`
-
-func (q *Queries) ListAssetSpaceRowsByAssetID(ctx context.Context, assetID int64) ([]AssetSpace, error) {
-	rows, err := q.db.QueryContext(ctx, listAssetSpaceRowsByAssetID, assetID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []AssetSpace
-	for rows.Next() {
-		var i AssetSpace
-		if err := rows.Scan(
-			&i.ID,
-			&i.AssetID,
-			&i.Author,
-			&i.CreatedAt,
-			&i.SpaceID,
-			&i.GlobalSeq,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listAssetStoreRowMetas = `-- name: ListAssetStoreRowMetas :many
 SELECT id, sha256, size_bytes, CAST(LENGTH(inline_blob) AS INTEGER) AS inline_size, local_status, remote_status, created_at
 FROM asset_store
@@ -1637,179 +1162,6 @@ func (q *Queries) ListAuthzGrantRows(ctx context.Context) ([]ListAuthzGrantRowsR
 			&i.Author,
 			&i.CreatedAt,
 			&i.DataBlob,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listConfigSpaceRows = `-- name: ListConfigSpaceRows :many
-SELECT id, config_id, author, created_at, space_id, global_seq
-FROM config_spaces
-ORDER BY config_id, id ASC
-`
-
-func (q *Queries) ListConfigSpaceRows(ctx context.Context) ([]ConfigSpace, error) {
-	rows, err := q.db.QueryContext(ctx, listConfigSpaceRows)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ConfigSpace
-	for rows.Next() {
-		var i ConfigSpace
-		if err := rows.Scan(
-			&i.ID,
-			&i.ConfigID,
-			&i.Author,
-			&i.CreatedAt,
-			&i.SpaceID,
-			&i.GlobalSeq,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listConfigSpaceRowsByConfigID = `-- name: ListConfigSpaceRowsByConfigID :many
-SELECT id, config_id, author, created_at, space_id, global_seq
-FROM config_spaces WHERE config_id = ?
-ORDER BY id ASC
-`
-
-func (q *Queries) ListConfigSpaceRowsByConfigID(ctx context.Context, configID int64) ([]ConfigSpace, error) {
-	rows, err := q.db.QueryContext(ctx, listConfigSpaceRowsByConfigID, configID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ConfigSpace
-	for rows.Next() {
-		var i ConfigSpace
-		if err := rows.Scan(
-			&i.ID,
-			&i.ConfigID,
-			&i.Author,
-			&i.CreatedAt,
-			&i.SpaceID,
-			&i.GlobalSeq,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listConfigVersionIDsByConfigID = `-- name: ListConfigVersionIDsByConfigID :many
-SELECT id FROM config_versions WHERE config_id = ? ORDER BY version
-`
-
-func (q *Queries) ListConfigVersionIDsByConfigID(ctx context.Context, configID int64) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, listConfigVersionIDsByConfigID, configID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listConfigVersionRows = `-- name: ListConfigVersionRows :many
-SELECT id, config_id, version, value, created_at, author, global_seq
-FROM config_versions
-ORDER BY config_id, version
-`
-
-func (q *Queries) ListConfigVersionRows(ctx context.Context) ([]ConfigVersion, error) {
-	rows, err := q.db.QueryContext(ctx, listConfigVersionRows)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ConfigVersion
-	for rows.Next() {
-		var i ConfigVersion
-		if err := rows.Scan(
-			&i.ID,
-			&i.ConfigID,
-			&i.Version,
-			&i.Value,
-			&i.CreatedAt,
-			&i.Author,
-			&i.GlobalSeq,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listConfigVersionsByConfigID = `-- name: ListConfigVersionsByConfigID :many
-SELECT id, config_id, version, value, created_at, author, global_seq
-FROM config_versions WHERE config_id = ?
-ORDER BY version ASC
-`
-
-func (q *Queries) ListConfigVersionsByConfigID(ctx context.Context, configID int64) ([]ConfigVersion, error) {
-	rows, err := q.db.QueryContext(ctx, listConfigVersionsByConfigID, configID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ConfigVersion
-	for rows.Next() {
-		var i ConfigVersion
-		if err := rows.Scan(
-			&i.ID,
-			&i.ConfigID,
-			&i.Version,
-			&i.Value,
-			&i.CreatedAt,
-			&i.Author,
-			&i.GlobalSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -2280,195 +1632,6 @@ func (q *Queries) ListSecretKeyslots(ctx context.Context) ([]SecretKeyslot, erro
 	return items, nil
 }
 
-const listSecretSpaceRows = `-- name: ListSecretSpaceRows :many
-SELECT id, secret_id, author, created_at, space_id, global_seq
-FROM secret_spaces
-ORDER BY secret_id, id ASC
-`
-
-func (q *Queries) ListSecretSpaceRows(ctx context.Context) ([]SecretSpace, error) {
-	rows, err := q.db.QueryContext(ctx, listSecretSpaceRows)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []SecretSpace
-	for rows.Next() {
-		var i SecretSpace
-		if err := rows.Scan(
-			&i.ID,
-			&i.SecretID,
-			&i.Author,
-			&i.CreatedAt,
-			&i.SpaceID,
-			&i.GlobalSeq,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listSecretSpaceRowsBySecretID = `-- name: ListSecretSpaceRowsBySecretID :many
-SELECT id, secret_id, author, created_at, space_id, global_seq
-FROM secret_spaces WHERE secret_id = ?
-ORDER BY id ASC
-`
-
-func (q *Queries) ListSecretSpaceRowsBySecretID(ctx context.Context, secretID int64) ([]SecretSpace, error) {
-	rows, err := q.db.QueryContext(ctx, listSecretSpaceRowsBySecretID, secretID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []SecretSpace
-	for rows.Next() {
-		var i SecretSpace
-		if err := rows.Scan(
-			&i.ID,
-			&i.SecretID,
-			&i.Author,
-			&i.CreatedAt,
-			&i.SpaceID,
-			&i.GlobalSeq,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listSecretVersionIDsBySecretID = `-- name: ListSecretVersionIDsBySecretID :many
-SELECT id FROM secret_versions WHERE secret_id = ? ORDER BY version
-`
-
-func (q *Queries) ListSecretVersionIDsBySecretID(ctx context.Context, secretID int64) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, listSecretVersionIDsBySecretID, secretID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listSecretVersionMetas = `-- name: ListSecretVersionMetas :many
-SELECT id, secret_id, version, created_at, author, global_seq
-FROM secret_versions
-ORDER BY secret_id, version
-`
-
-type ListSecretVersionMetasRow struct {
-	ID        int64
-	SecretID  int64
-	Version   int64
-	CreatedAt int64
-	Author    int64
-	GlobalSeq int64
-}
-
-func (q *Queries) ListSecretVersionMetas(ctx context.Context) ([]ListSecretVersionMetasRow, error) {
-	rows, err := q.db.QueryContext(ctx, listSecretVersionMetas)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListSecretVersionMetasRow
-	for rows.Next() {
-		var i ListSecretVersionMetasRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.SecretID,
-			&i.Version,
-			&i.CreatedAt,
-			&i.Author,
-			&i.GlobalSeq,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listSecretVersionsBySecretID = `-- name: ListSecretVersionsBySecretID :many
-SELECT id, secret_id, version, created_at, author, global_seq
-FROM secret_versions WHERE secret_id = ?
-ORDER BY version ASC
-`
-
-type ListSecretVersionsBySecretIDRow struct {
-	ID        int64
-	SecretID  int64
-	Version   int64
-	CreatedAt int64
-	Author    int64
-	GlobalSeq int64
-}
-
-func (q *Queries) ListSecretVersionsBySecretID(ctx context.Context, secretID int64) ([]ListSecretVersionsBySecretIDRow, error) {
-	rows, err := q.db.QueryContext(ctx, listSecretVersionsBySecretID, secretID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListSecretVersionsBySecretIDRow
-	for rows.Next() {
-		var i ListSecretVersionsBySecretIDRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.SecretID,
-			&i.Version,
-			&i.CreatedAt,
-			&i.Author,
-			&i.GlobalSeq,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listSpaces = `-- name: ListSpaces :many
 SELECT id, name FROM spaces ORDER BY id
 `
@@ -2499,7 +1662,7 @@ func (q *Queries) ListSpaces(ctx context.Context) ([]Space, error) {
 const listUnreferencedAssetStoreRows = `-- name: ListUnreferencedAssetStoreRows :many
 SELECT s.id, s.sha256, s.size_bytes, CAST(LENGTH(s.inline_blob) AS INTEGER) AS inline_size, s.local_status, s.remote_status, s.created_at
 FROM asset_store s
-WHERE s.created_at < ? AND NOT EXISTS (SELECT 1 FROM asset_versions v WHERE v.sha256 = s.sha256)
+WHERE s.created_at < ? AND NOT EXISTS (SELECT 1 FROM asset_event_log v WHERE v.sha256 = s.sha256)
 `
 
 type ListUnreferencedAssetStoreRowsRow struct {
@@ -2682,48 +1845,6 @@ func (q *Queries) RecordAssetMigrationError(ctx context.Context, arg RecordAsset
 	return i, err
 }
 
-const renameAssetKey = `-- name: RenameAssetKey :exec
-UPDATE assets SET key = ? WHERE id = ?
-`
-
-type RenameAssetKeyParams struct {
-	Key string
-	ID  int64
-}
-
-func (q *Queries) RenameAssetKey(ctx context.Context, arg RenameAssetKeyParams) error {
-	_, err := q.db.ExecContext(ctx, renameAssetKey, arg.Key, arg.ID)
-	return err
-}
-
-const renameConfigRow = `-- name: RenameConfigRow :exec
-UPDATE configs SET name = ? WHERE id = ?
-`
-
-type RenameConfigRowParams struct {
-	Name string
-	ID   int64
-}
-
-func (q *Queries) RenameConfigRow(ctx context.Context, arg RenameConfigRowParams) error {
-	_, err := q.db.ExecContext(ctx, renameConfigRow, arg.Name, arg.ID)
-	return err
-}
-
-const renameSecretRow = `-- name: RenameSecretRow :exec
-UPDATE secrets SET name = ? WHERE id = ?
-`
-
-type RenameSecretRowParams struct {
-	Name string
-	ID   int64
-}
-
-func (q *Queries) RenameSecretRow(ctx context.Context, arg RenameSecretRowParams) error {
-	_, err := q.db.ExecContext(ctx, renameSecretRow, arg.Name, arg.ID)
-	return err
-}
-
 const revokeAgentSession = `-- name: RevokeAgentSession :exec
 UPDATE agent_sessions SET revoked_at = ?, status = ?
 WHERE id = ? AND user_id = ? AND revoked_at = 0
@@ -2784,20 +1905,6 @@ func (q *Queries) SetAgentSessionStatus(ctx context.Context, arg SetAgentSession
 		arg.RevokedAt,
 		arg.ID,
 	)
-	return err
-}
-
-const setAssetDirectoryID = `-- name: SetAssetDirectoryID :exec
-UPDATE assets SET asset_directory_id = ? WHERE id = ?
-`
-
-type SetAssetDirectoryIDParams struct {
-	AssetDirectoryID int64
-	ID               int64
-}
-
-func (q *Queries) SetAssetDirectoryID(ctx context.Context, arg SetAssetDirectoryIDParams) error {
-	_, err := q.db.ExecContext(ctx, setAssetDirectoryID, arg.AssetDirectoryID, arg.ID)
 	return err
 }
 
@@ -2885,20 +1992,6 @@ func (q *Queries) SetAuthzRuleTemplateDeletedAt(ctx context.Context, arg SetAuth
 	return err
 }
 
-const setConfigValueDirectoryID = `-- name: SetConfigValueDirectoryID :exec
-UPDATE configs SET value_directory_id = ? WHERE id = ?
-`
-
-type SetConfigValueDirectoryIDParams struct {
-	ValueDirectoryID int64
-	ID               int64
-}
-
-func (q *Queries) SetConfigValueDirectoryID(ctx context.Context, arg SetConfigValueDirectoryIDParams) error {
-	_, err := q.db.ExecContext(ctx, setConfigValueDirectoryID, arg.ValueDirectoryID, arg.ID)
-	return err
-}
-
 const setGlobalAccessRuleDeletedAt = `-- name: SetGlobalAccessRuleDeletedAt :exec
 UPDATE global_access_rules SET deleted_at = ? WHERE id = ?
 `
@@ -2910,34 +2003,6 @@ type SetGlobalAccessRuleDeletedAtParams struct {
 
 func (q *Queries) SetGlobalAccessRuleDeletedAt(ctx context.Context, arg SetGlobalAccessRuleDeletedAtParams) error {
 	_, err := q.db.ExecContext(ctx, setGlobalAccessRuleDeletedAt, arg.DeletedAt, arg.ID)
-	return err
-}
-
-const setNetworkPolicyDeletedAt = `-- name: SetNetworkPolicyDeletedAt :exec
-UPDATE network_policies SET deleted_at = ? WHERE id = ?
-`
-
-type SetNetworkPolicyDeletedAtParams struct {
-	DeletedAt int64
-	ID        int64
-}
-
-func (q *Queries) SetNetworkPolicyDeletedAt(ctx context.Context, arg SetNetworkPolicyDeletedAtParams) error {
-	_, err := q.db.ExecContext(ctx, setNetworkPolicyDeletedAt, arg.DeletedAt, arg.ID)
-	return err
-}
-
-const setSecretValueDirectoryID = `-- name: SetSecretValueDirectoryID :exec
-UPDATE secrets SET value_directory_id = ? WHERE id = ?
-`
-
-type SetSecretValueDirectoryIDParams struct {
-	ValueDirectoryID int64
-	ID               int64
-}
-
-func (q *Queries) SetSecretValueDirectoryID(ctx context.Context, arg SetSecretValueDirectoryIDParams) error {
-	_, err := q.db.ExecContext(ctx, setSecretValueDirectoryID, arg.ValueDirectoryID, arg.ID)
 	return err
 }
 
@@ -2966,48 +2031,6 @@ type SetValueDirectoryParentParams struct {
 
 func (q *Queries) SetValueDirectoryParent(ctx context.Context, arg SetValueDirectoryParentParams) error {
 	_, err := q.db.ExecContext(ctx, setValueDirectoryParent, arg.ParentID, arg.ID)
-	return err
-}
-
-const softDeleteAssetRow = `-- name: SoftDeleteAssetRow :exec
-UPDATE assets SET deleted_at = ? WHERE id = ?
-`
-
-type SoftDeleteAssetRowParams struct {
-	DeletedAt int64
-	ID        int64
-}
-
-func (q *Queries) SoftDeleteAssetRow(ctx context.Context, arg SoftDeleteAssetRowParams) error {
-	_, err := q.db.ExecContext(ctx, softDeleteAssetRow, arg.DeletedAt, arg.ID)
-	return err
-}
-
-const softDeleteConfigRow = `-- name: SoftDeleteConfigRow :exec
-UPDATE configs SET deleted_at = ? WHERE id = ?
-`
-
-type SoftDeleteConfigRowParams struct {
-	DeletedAt int64
-	ID        int64
-}
-
-func (q *Queries) SoftDeleteConfigRow(ctx context.Context, arg SoftDeleteConfigRowParams) error {
-	_, err := q.db.ExecContext(ctx, softDeleteConfigRow, arg.DeletedAt, arg.ID)
-	return err
-}
-
-const softDeleteSecretRow = `-- name: SoftDeleteSecretRow :exec
-UPDATE secrets SET deleted_at = ? WHERE id = ?
-`
-
-type SoftDeleteSecretRowParams struct {
-	DeletedAt int64
-	ID        int64
-}
-
-func (q *Queries) SoftDeleteSecretRow(ctx context.Context, arg SoftDeleteSecretRowParams) error {
-	_, err := q.db.ExecContext(ctx, softDeleteSecretRow, arg.DeletedAt, arg.ID)
 	return err
 }
 

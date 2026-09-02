@@ -21,6 +21,8 @@ const (
 	NodeRoleSecondary int32 = 1
 )
 
+var ErrDuplicateNodeName = errors.New("node name already exists")
+
 type Node struct {
 	ID          int32
 	Name        string
@@ -131,10 +133,12 @@ func (s *Service) EnsurePrimaryNode(name, identifier string) *Node {
 	return node
 }
 
-// nodeVersionSpec is the versioned slice of node state, in the JSON-string
-// shapes the node_versions row stores, so change detection is plain string
-// comparison against the current row.
-type nodeVersionSpec struct {
+// nodeEventSpec is the mutable slice of node state an event can change, in
+// the JSON-string shapes the node_event_log row stores, so change detection
+// is plain string comparison against the current row.
+type nodeEventSpec struct {
+	Name              string
+	EnrolledTime      int64
 	Status            apigen.NodeLifecycleStatus
 	RolesJSON         string
 	AddressesJSON     string
@@ -142,8 +146,10 @@ type nodeVersionSpec struct {
 	AllowedSpacesJSON string
 }
 
-func nodeVersionSpecOf(row pq.NodeCurrentRow) nodeVersionSpec {
-	return nodeVersionSpec{
+func nodeEventSpecOf(row pq.NodeCurrentRow) nodeEventSpec {
+	return nodeEventSpec{
+		Name:              row.Name,
+		EnrolledTime:      row.EnrolledAt,
 		Status:            apigen.NodeLifecycleStatus(row.Status),
 		RolesJSON:         row.Roles,
 		AddressesJSON:     row.Addresses,
@@ -152,25 +158,28 @@ func nodeVersionSpecOf(row pq.NodeCurrentRow) nodeVersionSpec {
 	}
 }
 
-// appendNodeVersion applies mutate to current's versioned state and, if it
-// changed, allocates the global write sequence and appends the stamped
-// version row in the same transaction. An unchanged spec is a pure no-op, so
-// callers get diff-gating and the map-input seq invariant without holding
-// either themselves.
-func appendNodeVersion(ctx context.Context, q *pq.Queries, current pq.NodeCurrentRow, author int32, mutate func(*nodeVersionSpec)) (pq.NodeCurrentRow, bool, error) {
-	spec := nodeVersionSpecOf(current)
+// appendNodeVersion applies mutate to current's mutable state and, if it
+// changed, allocates the global write sequence and appends the stamped event
+// row in the same transaction. An unchanged spec is a pure no-op, so callers
+// get diff-gating and the map-input seq invariant without holding either
+// themselves.
+func appendNodeVersion(ctx context.Context, q *pq.Queries, current pq.NodeCurrentRow, author int32, mutate func(*nodeEventSpec)) (pq.NodeCurrentRow, bool, error) {
+	spec := nodeEventSpecOf(current)
 	mutate(&spec)
-	if spec == nodeVersionSpecOf(current) {
+	if spec == nodeEventSpecOf(current) {
 		return current, false, nil
 	}
 	seq, err := q.NextGlobalSeq(ctx)
 	if err != nil {
 		return current, false, err
 	}
-	row, err := q.InsertNodeVersionRow(ctx, pq.InsertNodeVersionParams{
+	row, err := q.AppendNodeEvent(ctx, pq.AppendNodeEventParams{
 		NodeID:            current.ID,
-		CreatedAt:         time.Now().UnixMilli(),
+		EventTime:         time.Now().UnixMilli(),
 		Author:            int64(author),
+		Name:              spec.Name,
+		Identifier:        current.Identifier,
+		EnrolledTime:      spec.EnrolledTime,
 		Status:            int64(spec.Status),
 		RolesJSON:         spec.RolesJSON,
 		AddressesJSON:     spec.AddressesJSON,
@@ -183,7 +192,7 @@ func appendNodeVersion(ctx context.Context, q *pq.Queries, current pq.NodeCurren
 
 // mustAppendNodeVersion runs one versioned-state mutation for a node in its
 // own transaction, notifying subscribers only when a version was appended.
-func (s *Service) mustAppendNodeVersion(id int32, what string, mutate func(*nodeVersionSpec)) *Node {
+func (s *Service) mustAppendNodeVersion(id int32, what string, mutate func(*nodeEventSpec)) *Node {
 	s.Mu.Lock()
 	ctx := context.Background()
 	var row pq.NodeCurrentRow
@@ -208,7 +217,7 @@ func (s *Service) mustAppendNodeVersion(id int32, what string, mutate func(*node
 }
 
 func (s *Service) MustSetNodeAddresses(id int32, addresses []string) *Node {
-	return s.mustAppendNodeVersion(id, "set node addresses", func(spec *nodeVersionSpec) {
+	return s.mustAppendNodeVersion(id, "set node addresses", func(spec *nodeEventSpec) {
 		spec.AddressesJSON = nodeAddressesJSON(addresses)
 	})
 }
@@ -218,7 +227,7 @@ func (s *Service) MustSetNodeAddresses(id int32, addresses []string) *Node {
 // connect); a change appends a version row, which doubles as the key audit
 // history an unexpected change would be investigated through.
 func (s *Service) MustSetNodeWGPublicKey(id int32, wgPublicKey string) *Node {
-	return s.mustAppendNodeVersion(id, "set node wireguard public key", func(spec *nodeVersionSpec) {
+	return s.mustAppendNodeVersion(id, "set node wireguard public key", func(spec *nodeEventSpec) {
 		spec.WGPublicKey = wgPublicKey
 	})
 }
@@ -372,13 +381,34 @@ func (s *Service) PrimaryNodeID() (int32, error) {
 
 func (s *Service) RenameNode(identifier, name string) (*apigen.ClusterNode, error) {
 	s.Mu.Lock()
-	row, err := s.q.UpdateNodeName(context.Background(), name, identifier)
+	ctx := context.Background()
+	var row pq.NodeCurrentRow
+	changed := false
+	err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		current, err := q.GetNodeRowByIdentifier(ctx, identifier)
+		if err != nil {
+			return err
+		}
+		taken, err := q.CountNodesWithName(ctx, name, current.ID)
+		if err != nil {
+			return err
+		}
+		if taken > 0 {
+			return ErrDuplicateNodeName
+		}
+		row, changed, err = appendNodeVersion(ctx, q, current, 0, func(spec *nodeEventSpec) {
+			spec.Name = name
+		})
+		return err
+	})
 	s.Mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
 	result := nodeToAPI(nodeRowToNode(row))
-	s.nodeSubs.Notify(*result)
+	if changed {
+		s.nodeSubs.Notify(*result)
+	}
 	return result, nil
 }
 
@@ -394,7 +424,7 @@ func (s *Service) SetNodeAllowedSpaces(identifier string, spaces []int32) (*apig
 		if err != nil {
 			return err
 		}
-		row, changed, err = appendNodeVersion(ctx, q, current, 0, func(spec *nodeVersionSpec) {
+		row, changed, err = appendNodeVersion(ctx, q, current, 0, func(spec *nodeEventSpec) {
 			spec.AllowedSpacesJSON = allowedSpacesJSON(spaces)
 		})
 		return err
@@ -445,7 +475,7 @@ func (s *Service) updateAllNodeAllowedSpaces(fn func([]int32) []int32) {
 			return err
 		}
 		for _, current := range rows {
-			row, changed, err := appendNodeVersion(ctx, q, current, 0, func(spec *nodeVersionSpec) {
+			row, changed, err := appendNodeVersion(ctx, q, current, 0, func(spec *nodeEventSpec) {
 				spec.AllowedSpacesJSON = allowedSpacesJSON(fn(parseAllowedSpaces(current.AllowedSpaces)))
 			})
 			if err != nil {

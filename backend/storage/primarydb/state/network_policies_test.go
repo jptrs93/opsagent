@@ -55,13 +55,13 @@ func TestNetworkPolicyLifecycle(t *testing.T) {
 		t.Fatalf("list = %+v, want one policy at version 2", list)
 	}
 
-	if err := store.DeleteNetworkPolicy(created.ID); err != nil {
+	if err := store.DeleteNetworkPolicy(created.ID, 42); err != nil {
 		t.Fatal(err)
 	}
 	if list := store.ListNetworkPolicies(); len(list) != 0 {
 		t.Fatalf("list after delete = %+v, want empty", list)
 	}
-	if err := store.DeleteNetworkPolicy(created.ID); !errors.Is(err, ErrNotFound) {
+	if err := store.DeleteNetworkPolicy(created.ID, 42); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("second delete error = %v, want ErrNotFound", err)
 	}
 
@@ -75,28 +75,32 @@ func TestNetworkPolicyLifecycle(t *testing.T) {
 
 	db := sqlitedb.MustOpen(dbPath)
 	defer db.Close()
-	rows, err := db.Query(`SELECT global_seq FROM network_policy_versions ORDER BY id`)
+	rows, err := db.Query(`SELECT global_seq, event_type, author FROM network_policy_event_log ORDER BY id`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rows.Close()
 	var seqs []int64
+	var lastEventType, lastAuthor int64
 	for rows.Next() {
 		var seq int64
-		if err := rows.Scan(&seq); err != nil {
+		if err := rows.Scan(&seq, &lastEventType, &lastAuthor); err != nil {
 			t.Fatal(err)
 		}
 		seqs = append(seqs, seq)
 	}
-	if len(seqs) != 2 || seqs[0] <= 0 || seqs[1] <= seqs[0] {
-		t.Fatalf("version seqs = %v, want two increasing positive values", seqs)
+	if len(seqs) != 3 || seqs[0] <= 0 || seqs[1] <= seqs[0] || seqs[2] <= seqs[1] {
+		t.Fatalf("event seqs = %v, want three increasing positive values", seqs)
+	}
+	if lastEventType != 3 || lastAuthor != 42 {
+		t.Fatalf("final event type/author = %d/%d, want authored delete event 3/42", lastEventType, lastAuthor)
 	}
 	var counter int64
 	if err := db.QueryRow(`SELECT value FROM global_seq WHERE id = 1`).Scan(&counter); err != nil {
 		t.Fatal(err)
 	}
-	if counter <= seqs[1] {
-		t.Fatalf("global_seq counter = %d, want above %d after the deletion advance", counter, seqs[1])
+	if counter != seqs[2] {
+		t.Fatalf("global_seq counter = %d, want %d (the delete event's own seq)", counter, seqs[2])
 	}
 }
 

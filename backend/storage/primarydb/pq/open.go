@@ -25,6 +25,7 @@ func Open(dbPath string) *Queries {
 	// run before ApplySchema: CREATE TABLE IF NOT EXISTS silently no-ops
 	// against the old shape.
 	sqlitedb.ApplySchema(db, schemaFiles, "sql/schema*.sql")
+	migrateValueEventLogs(db)
 	sqlitedb.ApplyMigrations(db, migrations)
 	return New(db)
 }

@@ -7,47 +7,52 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-// configFromParts builds the wire shape: identity at the root, the space and
-// value logs newest first. spaces and versions must be oldest first (query
-// order); versions must be non-empty — a config with no version is never
-// surfaced.
-func configFromParts(c Config, spaces []pq.ConfigSpace, versions []pq.ConfigVersion) *apigen.Config {
-	svs := make([]*apigen.ConfigSpaceVersion, 0, len(spaces))
-	for i := len(spaces) - 1; i >= 0; i-- {
-		svs = append(svs, configSpaceVersionFromRow(spaces[i]))
-	}
-	vvs := make([]*apigen.ConfigValueVersion, 0, len(versions))
-	for i := len(versions) - 1; i >= 0; i-- {
-		vvs = append(vvs, configValueVersionFromRow(versions[i]))
+// configFromEvents builds the wire shape from one config's full event list,
+// oldest first (query order) and non-empty: identity from the latest row, the
+// space and value logs newest first. Space entries are the events whose space
+// facet bumps (the first event carries the initial assignment); value entries
+// are the events with a non-NULL value.
+func configFromEvents(events []pq.ConfigEvent) *apigen.Config {
+	latest := events[len(events)-1]
+	svs := []*apigen.ConfigSpaceVersion{}
+	vvs := []*apigen.ConfigValueVersion{}
+	for i := len(events) - 1; i >= 0; i-- {
+		e := events[i]
+		if i == 0 || e.SpaceVersion > events[i-1].SpaceVersion {
+			svs = append(svs, configSpaceVersionFromEvent(e))
+		}
+		if e.Value.Valid {
+			vvs = append(vvs, configValueVersionFromEvent(e))
+		}
 	}
 	return &apigen.Config{
-		ID: int32(c.ID),
+		ID: int32(latest.ConfigID),
 		Fs: &apigen.ConfigFs{
-			Name:        c.Name,
-			DirectoryID: int32(c.ValueDirectoryID),
+			Name:        latest.Name,
+			DirectoryID: int32(latest.ValueDirectoryID),
 		},
 		SpaceVersions: svs,
 		ValueVersions: vvs,
 	}
 }
 
-func configSpaceVersionFromRow(r pq.ConfigSpace) *apigen.ConfigSpaceVersion {
+func configSpaceVersionFromEvent(e pq.ConfigEvent) *apigen.ConfigSpaceVersion {
 	return &apigen.ConfigSpaceVersion{
-		ID:        int32(r.ID),
-		CreatedAt: time.UnixMilli(r.CreatedAt),
-		Author:    int32(r.Author),
-		SpaceID:   int32(r.SpaceID),
-		GlobalSeq: r.GlobalSeq,
+		ID:        int32(e.ID),
+		CreatedAt: time.UnixMilli(e.EventTime),
+		Author:    int32(e.Author),
+		SpaceID:   int32(e.SpaceID),
+		GlobalSeq: e.GlobalSeq,
 	}
 }
 
-func configValueVersionFromRow(v pq.ConfigVersion) *apigen.ConfigValueVersion {
+func configValueVersionFromEvent(e pq.ConfigEvent) *apigen.ConfigValueVersion {
 	return &apigen.ConfigValueVersion{
-		ID:        int32(v.ID),
-		Version:   int32(v.Version),
-		Value:     v.Value,
-		CreatedAt: time.UnixMilli(v.CreatedAt),
-		Author:    int32(v.Author),
-		GlobalSeq: v.GlobalSeq,
+		ID:        int32(e.ID),
+		Version:   int32(e.ValueVersion),
+		Value:     e.Value.String,
+		CreatedAt: time.UnixMilli(e.EventTime),
+		Author:    int32(e.Author),
+		GlobalSeq: e.GlobalSeq,
 	}
 }
