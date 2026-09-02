@@ -19,20 +19,24 @@ RETURNING id, name;
 -- name: DeleteSpace :exec
 DELETE FROM spaces WHERE id = ?;
 
--- Reads are hand-written in scheduled_instances.go: an instance row is its
--- identity joined with the version log for creation time and current state.
--- Creation appends the v1 version row in the same tx; state transitions are
--- pure appends.
+-- Reads are hand-written in scheduled_instances.go: an instance's current
+-- shape is its highest-version event row. Every event carries the full
+-- identity (immutable per instance, supplied by the caller from the resolved
+-- instance) plus the new state. The version-1 write is the creation.
 
--- name: InsertScheduledInstance :one
-INSERT INTO scheduled_instances (deployment_id, deployment_version, deployment_spec_version, node_id, instance_ordinal, space_id)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id;
+-- name: NextScheduledInstanceID :one
+SELECT COALESCE(MAX(scheduled_instance_id), 0) + 1 FROM scheduled_instance_event_log;
 
--- name: AppendScheduledInstanceVersion :exec
-INSERT INTO scheduled_instance_versions (scheduled_instance_id, version, created_at, state, global_seq)
-SELECT @scheduled_instance_id, COALESCE(MAX(version), 0) + 1, @created_at, @state, @global_seq
-FROM scheduled_instance_versions
+-- name: AppendScheduledInstanceEvent :exec
+INSERT INTO scheduled_instance_event_log (
+    scheduled_instance_id, version, global_seq, event_time, created_time,
+    deployment_id, deployment_version, deployment_spec_version,
+    node_id, instance_ordinal, space_id, state)
+SELECT @scheduled_instance_id, COALESCE(MAX(version), 0) + 1, @global_seq, @event_time,
+       COALESCE(MIN(created_time), @event_time),
+       @deployment_id, @deployment_version, @deployment_spec_version,
+       @node_id, @instance_ordinal, @space_id, @state
+FROM scheduled_instance_event_log
 WHERE scheduled_instance_id = @scheduled_instance_id;
 
 -- name: InsertScheduledInstanceStatus :exec

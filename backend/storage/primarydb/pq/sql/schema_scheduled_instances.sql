@@ -1,34 +1,31 @@
--- One row per placement/runtime incarnation. State lives entirely in the
--- scheduled_instance_versions log: current state is the newest row, creation
--- time the oldest. At most one serving incarnation may exist per identity
--- tuple below — with no state column this cannot be a SQL constraint, so it
--- is enforced solely by EnsureRunScheduledInstance under the service mutex.
-CREATE TABLE IF NOT EXISTS scheduled_instances (
-    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
-    deployment_id               INTEGER NOT NULL,
-    deployment_version          INTEGER NOT NULL DEFAULT 0,  -- pinned deployment_event_log version
-    deployment_spec_version     INTEGER NOT NULL,            -- denormalised from the pinned version's row
-    node_id                     INTEGER NOT NULL,
-    instance_ordinal            INTEGER NOT NULL DEFAULT 0,
-    space_id                    INTEGER NOT NULL DEFAULT 0   -- denormalised from the pinned version's row
-);
-
-CREATE INDEX IF NOT EXISTS idx_scheduled_instances_deployment_ordinal
-    ON scheduled_instances(deployment_id, instance_ordinal, id);
-
--- Append-only log of an incarnation's state transitions; version 1 is the
--- creation write. First/latest rows are identified by min/max id, and derived
--- state depends on them, so any future pruning must keep both endpoints of
--- each instance's log.
-CREATE TABLE IF NOT EXISTS scheduled_instance_versions (
-    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-    scheduled_instance_id INTEGER NOT NULL,
-    version               INTEGER NOT NULL,  -- derivable (count of prior rows + 1) but kept for convenience
-    created_at            INTEGER NOT NULL,  -- epoch ms
-    state                 INTEGER NOT NULL,  -- ScheduledInstanceTarget
-    global_seq            INTEGER NOT NULL DEFAULT 0,
+-- Append-only event log of scheduled instance incarnations, one row per state
+-- transition; version 1 is the creation write. Identity columns are immutable
+-- per instance and denormalised onto every row; created_time is the first
+-- event's event_time copied to every row. Current state is the highest-version
+-- row. At most one serving incarnation may exist per identity tuple — with
+-- state living only in the log this cannot be a SQL constraint, so it is
+-- enforced solely by EnsureRunScheduledInstance under the service mutex.
+-- Instance ids are allocated as MAX(scheduled_instance_id)+1 under the same
+-- mutex; the log is never pruned, so ids are never reused.
+CREATE TABLE IF NOT EXISTS scheduled_instance_event_log (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    global_seq              INTEGER NOT NULL,
+    event_time              INTEGER NOT NULL,  -- epoch ms
+    created_time            INTEGER NOT NULL,  -- epoch ms, first event's event_time
+    scheduled_instance_id   INTEGER NOT NULL,
+    version                 INTEGER NOT NULL,  -- per-instance: bumps on every event
+    deployment_id           INTEGER NOT NULL,
+    deployment_version      INTEGER NOT NULL,  -- pinned deployment_event_log version
+    deployment_spec_version INTEGER NOT NULL,  -- denormalised from the pinned version's row
+    node_id                 INTEGER NOT NULL,
+    instance_ordinal        INTEGER NOT NULL,
+    space_id                INTEGER NOT NULL,  -- denormalised from the pinned version's row
+    state                   INTEGER NOT NULL,  -- ScheduledInstanceTarget
     UNIQUE (scheduled_instance_id, version)
 );
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_instance_event_log_deployment_ordinal
+    ON scheduled_instance_event_log (deployment_id, instance_ordinal, scheduled_instance_id);
 
 CREATE TABLE IF NOT EXISTS scheduled_instance_status (
     scheduled_instance_id   INTEGER NOT NULL,

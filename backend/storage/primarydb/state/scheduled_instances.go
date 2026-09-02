@@ -16,9 +16,9 @@ import (
 // or creates and publishes one atomically in the given initial state.
 //
 // The scan below is the only enforcement of at-most-one-runnable-incarnation
-// per assignment tuple: the database no longer carries a state column, so the
-// former partial unique index backing it is gone. Creation must stay behind
-// s.Mu.
+// per assignment tuple: state lives only in the append-only event log, so no
+// SQL constraint can back it. Creation must stay behind s.Mu — it also
+// serialises instance id allocation (MAX(scheduled_instance_id)+1).
 //
 // The initial state is the caller's to choose and cannot be corrected after the
 // fact: creating a replacement as RUN_SERVING would hand it the instance's
@@ -57,39 +57,23 @@ func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentVersion,
 		panic(fmt.Sprintf("createScheduledInstance: initial state %v is not runnable", initial))
 	}
 	cfg := s.configForVersionLocked(deploymentID, deploymentVersion)
-	specVersion := cfg.SpecVersion
-	spaceID := cfg.Def.SpaceID
 	now := time.Now().UnixMilli()
-	var id int64
-	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		id = erru.Must(q.InsertScheduledInstance(ctx, pq.InsertScheduledInstanceParams{
-			DeploymentID:          int64(deploymentID),
-			DeploymentVersion:     int64(deploymentVersion),
-			DeploymentSpecVersion: int64(specVersion),
-			NodeID:                int64(nodeID),
-			InstanceOrdinal:       int64(instanceOrdinal),
-			SpaceID:               int64(spaceID),
-		}))
-		seq := erru.Must(q.NextGlobalSeq(ctx))
-		return q.AppendScheduledInstanceVersion(ctx, pq.AppendScheduledInstanceVersionParams{
-			ScheduledInstanceID: id,
-			CreatedAt:           now,
-			State:               int64(initial),
-			GlobalSeq:           seq,
-		})
-	}); err != nil {
-		panic(fmt.Sprintf("InsertScheduledInstance: %v", err))
-	}
 	inst := &apigen.ScheduledInstance{
-		ID:                    int32(id),
 		CreatedAt:             millisToTime(now),
 		DeploymentID:          deploymentID,
 		DeploymentVersion:     deploymentVersion,
-		DeploymentSpecVersion: specVersion,
+		DeploymentSpecVersion: cfg.SpecVersion,
 		NodeID:                nodeID,
 		InstanceOrdinal:       instanceOrdinal,
-		SpaceID:               spaceID,
+		SpaceID:               cfg.Def.SpaceID,
 		State:                 initial,
+	}
+	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		inst.ID = int32(erru.Must(q.NextScheduledInstanceID(ctx)))
+		seq := erru.Must(q.NextGlobalSeq(ctx))
+		return q.AppendScheduledInstanceEvent(ctx, appendScheduledInstanceEventParams(inst, initial, now, seq))
+	}); err != nil {
+		panic(fmt.Sprintf("AppendScheduledInstanceEvent: %v", err))
 	}
 	state := s.instanceStateLocked(inst)
 	s.Scheduled[inst.ID] = state
@@ -101,7 +85,7 @@ func (s *Service) createScheduledInstanceLocked(deploymentID, deploymentVersion,
 }
 
 // SetScheduledInstanceState appends the transition to
-// scheduled_instance_versions — the sole store of instance state — and
+// scheduled_instance_event_log — the sole store of instance state — and
 // publishes. When finalized, the instance is removed from the active cache
 // after notify. It returns the global write sequence allocated for the
 // transition, or 0 when nothing was written, so callers can wait for the
@@ -129,14 +113,9 @@ func (s *Service) SetScheduledInstanceState(instanceID int32, state apigen.Sched
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		seq := erru.Must(q.NextGlobalSeq(ctx))
 		allocated = seq
-		return q.AppendScheduledInstanceVersion(ctx, pq.AppendScheduledInstanceVersionParams{
-			ScheduledInstanceID: int64(instanceID),
-			CreatedAt:           time.Now().UnixMilli(),
-			State:               int64(state),
-			GlobalSeq:           seq,
-		})
+		return q.AppendScheduledInstanceEvent(ctx, appendScheduledInstanceEventParams(inst, state, time.Now().UnixMilli(), seq))
 	}); err != nil {
-		panic(fmt.Sprintf("AppendScheduledInstanceVersion: %v", err))
+		panic(fmt.Sprintf("AppendScheduledInstanceEvent: %v", err))
 	}
 	updated := *inst
 	updated.State = state
@@ -198,18 +177,13 @@ func (s *Service) FlipScheduledInstanceServing(drainIDs []int32, serveID int32) 
 		for _, w := range writes {
 			seq := erru.Must(q.NextGlobalSeq(ctx))
 			allocated = seq
-			if err := q.AppendScheduledInstanceVersion(ctx, pq.AppendScheduledInstanceVersionParams{
-				ScheduledInstanceID: int64(w.id),
-				CreatedAt:           time.Now().UnixMilli(),
-				State:               int64(w.state),
-				GlobalSeq:           seq,
-			}); err != nil {
+			if err := q.AppendScheduledInstanceEvent(ctx, appendScheduledInstanceEventParams(w.inst, w.state, time.Now().UnixMilli(), seq)); err != nil {
 				return err
 			}
 		}
 		return nil
 	}); err != nil {
-		panic(fmt.Sprintf("AppendScheduledInstanceVersion: %v", err))
+		panic(fmt.Sprintf("AppendScheduledInstanceEvent: %v", err))
 	}
 	for _, w := range writes {
 		updated := *w.inst

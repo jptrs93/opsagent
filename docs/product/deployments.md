@@ -125,7 +125,7 @@ deployment back. The space
 feeds the workload's derived inbound address, DNS name, and issued TLS
 identity, so a live placement is never mutated by a move: each scheduled
 instance snapshots the deployment's space at scheduling time
-(`scheduled_instances.space_id`) and keeps deriving for that space, while the
+(`scheduled_instance_event_log.space_id`) and keeps deriving for that space, while the
 scheduler compares resolved space values and treats a pin/config mismatch
 exactly like a superseded spec version, replacing the placement through the
 normal rollover (or recreate) path (comparing values rather than rows means

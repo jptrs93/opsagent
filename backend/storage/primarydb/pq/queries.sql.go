@@ -62,26 +62,44 @@ func (q *Queries) AppendNetworkPolicyVersion(ctx context.Context, arg AppendNetw
 	return err
 }
 
-const appendScheduledInstanceVersion = `-- name: AppendScheduledInstanceVersion :exec
-INSERT INTO scheduled_instance_versions (scheduled_instance_id, version, created_at, state, global_seq)
-SELECT ?1, COALESCE(MAX(version), 0) + 1, ?2, ?3, ?4
-FROM scheduled_instance_versions
+const appendScheduledInstanceEvent = `-- name: AppendScheduledInstanceEvent :exec
+INSERT INTO scheduled_instance_event_log (
+    scheduled_instance_id, version, global_seq, event_time, created_time,
+    deployment_id, deployment_version, deployment_spec_version,
+    node_id, instance_ordinal, space_id, state)
+SELECT ?1, COALESCE(MAX(version), 0) + 1, ?2, ?3,
+       COALESCE(MIN(created_time), ?3),
+       ?4, ?5, ?6,
+       ?7, ?8, ?9, ?10
+FROM scheduled_instance_event_log
 WHERE scheduled_instance_id = ?1
 `
 
-type AppendScheduledInstanceVersionParams struct {
-	ScheduledInstanceID int64
-	CreatedAt           int64
-	State               int64
-	GlobalSeq           int64
+type AppendScheduledInstanceEventParams struct {
+	ScheduledInstanceID   int64
+	GlobalSeq             int64
+	EventTime             int64
+	DeploymentID          int64
+	DeploymentVersion     int64
+	DeploymentSpecVersion int64
+	NodeID                int64
+	InstanceOrdinal       int64
+	SpaceID               int64
+	State                 int64
 }
 
-func (q *Queries) AppendScheduledInstanceVersion(ctx context.Context, arg AppendScheduledInstanceVersionParams) error {
-	_, err := q.db.ExecContext(ctx, appendScheduledInstanceVersion,
+func (q *Queries) AppendScheduledInstanceEvent(ctx context.Context, arg AppendScheduledInstanceEventParams) error {
+	_, err := q.db.ExecContext(ctx, appendScheduledInstanceEvent,
 		arg.ScheduledInstanceID,
-		arg.CreatedAt,
-		arg.State,
 		arg.GlobalSeq,
+		arg.EventTime,
+		arg.DeploymentID,
+		arg.DeploymentVersion,
+		arg.DeploymentSpecVersion,
+		arg.NodeID,
+		arg.InstanceOrdinal,
+		arg.SpaceID,
+		arg.State,
 	)
 	return err
 }
@@ -1176,40 +1194,6 @@ func (q *Queries) InsertPersonalSession(ctx context.Context, arg InsertPersonalS
 		arg.LastActiveAt,
 	)
 	return err
-}
-
-const insertScheduledInstance = `-- name: InsertScheduledInstance :one
-
-INSERT INTO scheduled_instances (deployment_id, deployment_version, deployment_spec_version, node_id, instance_ordinal, space_id)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id
-`
-
-type InsertScheduledInstanceParams struct {
-	DeploymentID          int64
-	DeploymentVersion     int64
-	DeploymentSpecVersion int64
-	NodeID                int64
-	InstanceOrdinal       int64
-	SpaceID               int64
-}
-
-// Reads are hand-written in scheduled_instances.go: an instance row is its
-// identity joined with the version log for creation time and current state.
-// Creation appends the v1 version row in the same tx; state transitions are
-// pure appends.
-func (q *Queries) InsertScheduledInstance(ctx context.Context, arg InsertScheduledInstanceParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, insertScheduledInstance,
-		arg.DeploymentID,
-		arg.DeploymentVersion,
-		arg.DeploymentSpecVersion,
-		arg.NodeID,
-		arg.InstanceOrdinal,
-		arg.SpaceID,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
 }
 
 const insertScheduledInstanceStatus = `-- name: InsertScheduledInstanceStatus :exec
@@ -2649,6 +2633,22 @@ func (q *Queries) NextGlobalSeq(ctx context.Context) (int64, error) {
 	var value int64
 	err := row.Scan(&value)
 	return value, err
+}
+
+const nextScheduledInstanceID = `-- name: NextScheduledInstanceID :one
+
+SELECT COALESCE(MAX(scheduled_instance_id), 0) + 1 FROM scheduled_instance_event_log
+`
+
+// Reads are hand-written in scheduled_instances.go: an instance's current
+// shape is its highest-version event row. Every event carries the full
+// identity (immutable per instance, supplied by the caller from the resolved
+// instance) plus the new state. The version-1 write is the creation.
+func (q *Queries) NextScheduledInstanceID(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextScheduledInstanceID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const recordAssetMigrationError = `-- name: RecordAssetMigrationError :one

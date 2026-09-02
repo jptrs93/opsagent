@@ -4,35 +4,34 @@ import (
 	"context"
 )
 
-// Hand-written scheduled instance reads. An instance's state history lives
-// entirely in scheduled_instance_versions: creation time is the oldest row's
-// created_at and current state the newest row's state, both identified by id.
-// The v1 row is written in the same tx as the instance itself, so the join and
-// subquery always find a row.
+// Hand-written scheduled instance reads. An instance's history lives entirely
+// in scheduled_instance_event_log: every row carries the full identity, the
+// highest-version row carries the current state, and created_time is
+// denormalised onto every row, so an instance read is a single row.
 
-// ScheduledInstanceRow is an incarnation joined with its version log endpoints.
+// ScheduledInstanceRow is an instance's latest event row.
 type ScheduledInstanceRow struct {
-	ID                    int64
-	CreatedAt             int64 // first version's created_at
+	ID                    int64 // scheduled_instance_id
+	CreatedTime           int64
 	DeploymentID          int64
 	DeploymentVersion     int64 // pinned deployment_event_log version
 	DeploymentSpecVersion int64 // denormalised from the pinned version's row
 	NodeID                int64
 	InstanceOrdinal       int64
-	SpaceID               int64 // denormalised from the pinned version's row
-	State                 int64 // latest version's state
+	SpaceID               int64
+	State                 int64 // latest event's state
 }
 
 const scheduledInstanceRowSelect = `
-	SELECT si.id,
-	       (SELECT f.created_at FROM scheduled_instance_versions f
-	        WHERE f.scheduled_instance_id = si.id ORDER BY f.id LIMIT 1),
-	       si.deployment_id, si.deployment_version, si.deployment_spec_version,
-	       si.node_id, si.instance_ordinal, si.space_id, v.state
-	FROM scheduled_instances si
-	JOIN scheduled_instance_versions v ON v.id =
-	    (SELECT MAX(m.id) FROM scheduled_instance_versions m
-	     WHERE m.scheduled_instance_id = si.id)`
+	SELECT e.scheduled_instance_id, e.created_time,
+	       e.deployment_id, e.deployment_version, e.deployment_spec_version,
+	       e.node_id, e.instance_ordinal, e.space_id, e.state
+	FROM scheduled_instance_event_log e
+	JOIN (SELECT scheduled_instance_id, MAX(version) AS version
+	      FROM scheduled_instance_event_log
+	      GROUP BY scheduled_instance_id) latest
+	  ON latest.scheduled_instance_id = e.scheduled_instance_id
+	 AND latest.version = e.version`
 
 type scheduledInstanceScanner interface {
 	Scan(dest ...any) error
@@ -40,19 +39,19 @@ type scheduledInstanceScanner interface {
 
 func scanScheduledInstanceRow(scanner scheduledInstanceScanner) (ScheduledInstanceRow, error) {
 	var r ScheduledInstanceRow
-	err := scanner.Scan(&r.ID, &r.CreatedAt, &r.DeploymentID, &r.DeploymentVersion,
+	err := scanner.Scan(&r.ID, &r.CreatedTime, &r.DeploymentID, &r.DeploymentVersion,
 		&r.DeploymentSpecVersion, &r.NodeID, &r.InstanceOrdinal, &r.SpaceID, &r.State)
 	return r, err
 }
 
 func (q *Queries) GetScheduledInstance(ctx context.Context, id int64) (ScheduledInstanceRow, error) {
 	return scanScheduledInstanceRow(q.db.QueryRowContext(ctx,
-		scheduledInstanceRowSelect+` WHERE si.id = ?`, id))
+		scheduledInstanceRowSelect+` WHERE e.scheduled_instance_id = ?`, id))
 }
 
 func (q *Queries) ListNonFinalScheduledInstances(ctx context.Context) ([]ScheduledInstanceRow, error) {
 	return q.listScheduledInstanceRows(ctx,
-		scheduledInstanceRowSelect+` WHERE v.state != 2 ORDER BY si.id ASC`)
+		scheduledInstanceRowSelect+` WHERE e.state != 2 ORDER BY e.scheduled_instance_id ASC`)
 }
 
 // ListLatestScheduledInstancePerOrdinal returns the newest incarnation of every
@@ -62,11 +61,11 @@ func (q *Queries) ListNonFinalScheduledInstances(ctx context.Context) ([]Schedul
 func (q *Queries) ListLatestScheduledInstancePerOrdinal(ctx context.Context) ([]ScheduledInstanceRow, error) {
 	return q.listScheduledInstanceRows(ctx, scheduledInstanceRowSelect+`
 	JOIN (
-	    SELECT deployment_id, instance_ordinal, MAX(id) AS id
-	    FROM scheduled_instances
+	    SELECT deployment_id, instance_ordinal, MAX(scheduled_instance_id) AS scheduled_instance_id
+	    FROM scheduled_instance_event_log
 	    GROUP BY deployment_id, instance_ordinal
-	) latest ON latest.id = si.id
-	ORDER BY si.id ASC`)
+	) newest ON newest.scheduled_instance_id = e.scheduled_instance_id
+	ORDER BY e.scheduled_instance_id ASC`)
 }
 
 func (q *Queries) listScheduledInstanceRows(ctx context.Context, query string) ([]ScheduledInstanceRow, error) {

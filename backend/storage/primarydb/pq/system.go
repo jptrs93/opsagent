@@ -24,11 +24,11 @@ func (q *Queries) DeleteScheduledInstanceStatusesForNode(ctx context.Context, no
 	query := `
 		DELETE FROM scheduled_instance_status
 		WHERE scheduled_instance_id IN (
-			SELECT si.id FROM scheduled_instances si
-			WHERE si.node_id = ?`
+			SELECT DISTINCT e.scheduled_instance_id FROM scheduled_instance_event_log e
+			WHERE e.node_id = ?`
 	args := []any{nodeID}
 	if len(exceptDeploymentIDs) > 0 {
-		query += ` AND si.deployment_id NOT IN (` + placeholders(len(exceptDeploymentIDs)) + `)`
+		query += ` AND e.deployment_id NOT IN (` + placeholders(len(exceptDeploymentIDs)) + `)`
 		for _, id := range exceptDeploymentIDs {
 			args = append(args, id)
 		}

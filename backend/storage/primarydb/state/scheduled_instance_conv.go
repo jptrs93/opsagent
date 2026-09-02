@@ -14,7 +14,7 @@ import (
 func scheduledInstanceRowToProto(r pq.ScheduledInstanceRow) *apigen.ScheduledInstance {
 	return &apigen.ScheduledInstance{
 		ID:                    int32(r.ID),
-		CreatedAt:             millisToTime(r.CreatedAt),
+		CreatedAt:             millisToTime(r.CreatedTime),
 		DeploymentID:          int32(r.DeploymentID),
 		DeploymentVersion:     int32(r.DeploymentVersion),
 		DeploymentSpecVersion: int32(r.DeploymentSpecVersion),
@@ -22,6 +22,24 @@ func scheduledInstanceRowToProto(r pq.ScheduledInstanceRow) *apigen.ScheduledIns
 		InstanceOrdinal:       int32(r.InstanceOrdinal),
 		SpaceID:               int32(r.SpaceID),
 		State:                 apigen.ScheduledInstanceTarget(r.State),
+	}
+}
+
+// appendScheduledInstanceEventParams maps an instance's (immutable) identity
+// plus the new state onto an event row. The insert derives version and
+// created_time from the instance's existing rows itself.
+func appendScheduledInstanceEventParams(inst *apigen.ScheduledInstance, state apigen.ScheduledInstanceTarget, eventTime, globalSeq int64) pq.AppendScheduledInstanceEventParams {
+	return pq.AppendScheduledInstanceEventParams{
+		ScheduledInstanceID:   int64(inst.ID),
+		GlobalSeq:             globalSeq,
+		EventTime:             eventTime,
+		DeploymentID:          int64(inst.DeploymentID),
+		DeploymentVersion:     int64(inst.DeploymentVersion),
+		DeploymentSpecVersion: int64(inst.DeploymentSpecVersion),
+		NodeID:                int64(inst.NodeID),
+		InstanceOrdinal:       int64(inst.InstanceOrdinal),
+		SpaceID:               int64(inst.SpaceID),
+		State:                 int64(state),
 	}
 }
 
