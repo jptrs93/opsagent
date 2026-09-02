@@ -65,20 +65,30 @@ errors.
 
 ## 3. What your session may do
 
-Your token carries the rights of the operator who approved it, minus what is
-never delegated to an agent. Under the standard access rules that leaves you
-everything in that operator's spaces except:
+Your token carries the rights of the operator who approved it, filtered
+through the access rules the administrator has configured for this cluster.
+Those rules — not this document — decide what you can call: the live API is
+authoritative, and a `403` or a success from it always outranks anything
+written here.
 
-- **Logs.** Deployment logs and build output are denied outright, because a
-  running workload can echo a secret value into them. `403`.
-- **Secret values.** You may list secret metadata and create new secrets. You
-  may not read, overwrite, rename, move, or delete one. `403`.
+Under the builtin rule templates, a delegated agent session gets everything
+in the approving operator's spaces except:
+
+- **Logs.** Deployment logs and build output are withheld by default, because a
+  running workload can echo a secret value into them.
+- **Secret values.** You may list secret metadata and create new secrets. By
+  default you may not read, overwrite, rename, move, or delete one.
 - **The cluster itself.** Node management, enrollment, cluster settings,
   access rules and grants, config export, and OpenDeploy's own internal
-  deployments all live at the cluster level (space `0`) and are human-only.
-  They are either invisible to you or `403`. The one read you keep is
-  `POST /v1/nodes/list`, which returns the nodes hosting your spaces so you
-  can place deployments.
+  deployments all live at the cluster level (space `0`) and default to
+  human-only — either invisible to you or `403`. The one read the defaults
+  keep is `POST /v1/nodes/list`, which returns the nodes hosting your spaces
+  so you can place deployments.
+
+An administrator writing custom rules is free to decide otherwise, in either
+direction: your session may hold more than this list (including log access) or
+less. When it matters, just try the call — or check your grants with
+`GET /v1/auth/current/session` (section 11).
 
 A denial is `403 Access denied`. Where you cannot even see the entity you get
 `404` instead, so a `404` on something the operator says exists means it is
@@ -115,7 +125,8 @@ Per deployment:
   `instances.items`. Each instance carries `status.preparer` (`inputs`, `image`) and
   `status.runner` (`status`, `running_version`, `number_of_restarts`). That
   tells you *which stage* failed, not why: the reason is in the build output or
-  the logs, which you cannot read. Report the stage and ask the operator to look.
+  the logs. If your session has log access, `POST /v1/deployments/log-query`;
+  otherwise report the stage and ask the operator to look.
 - `POST /v1/deployments/history` `{"deployment_id": <id>}` — past config
   versions with the status each reached.
 - `POST /v1/deployments/versions` `{"deployment_id": <id>}` — what is
@@ -300,12 +311,14 @@ returned in global state. Never put a credential in one — use section 8.
 
 ## 8. Secrets
 
-**You can create a secret but never read one.** Secret metadata is visible to
+**The default posture: you can create a secret but not read one.** Secret
+metadata is visible to
 you in `secrets` (name, folder, version ids — never a value). Everything that
-would expose or destroy a value is denied: `/v1/secrets/reveal`,
+would expose or destroy a value is denied by default: `/v1/secrets/reveal`,
 `/v1/secrets/set`, `/v1/secrets/create` (which carries a plaintext value),
-`/v1/secrets/rename`, `/v1/secrets/move`, and `/v1/secrets/delete` all return
-`403`. Ask the operator to do those in the browser.
+`/v1/secrets/rename`, `/v1/secrets/move`, and `/v1/secrets/delete` return
+`403` unless the administrator has granted them to you. When they are denied,
+ask the operator to do those in the browser.
 
 What you can do is `generate`, because the value is produced inside the server
 and never leaves it:
@@ -339,10 +352,11 @@ receives the value at spawn time; you never handle it.
 - **`length`** defaults to 32 and must be 16–4096. Out of range is a `400`, not
   a clamp.
 - **`include_symbols`** defaults to false. Leave it that way unless the operator
-  asks otherwise — you cannot read the value back to debug a quoting problem in
-  a shell or connection string.
-- **The name must be new.** An existing name in that space root is `400`. You
-  cannot rotate a secret, only create one; ask the operator to rotate.
+  asks otherwise — without `reveal` you cannot read the value back to debug a
+  quoting problem in a shell or connection string.
+- **The name must be new.** An existing name in that space root is `400`.
+  `generate` cannot rotate a secret, only create one; rotating means
+  `/v1/secrets/set`, so unless you hold that, ask the operator to rotate.
 - Generated secrets land in the space root. Names are unique per folder, not
   globally.
 - `password` is one specification among future others. Send exactly one.
@@ -355,8 +369,9 @@ it — that is not something you can fix.
 
 Spaces come from `spaces` in global state. You can rename one
 (`/v1/spaces/update` `{"id": 2, "name": "staging"}`) and delete one
-(`/v1/spaces/delete` `{"id": 2}`), but **not create one** — `/v1/spaces/create`
-is `403` for an agent. Deleting a space is the most destructive call in this
+(`/v1/spaces/delete` `{"id": 2}`), but by default **not create one** —
+`/v1/spaces/create` is `403` under the builtin rules. Deleting a space is the
+most destructive call in this
 API; treat it as section 10 and expect to be told no.
 
 ## 10. Rules that apply everywhere
@@ -366,15 +381,17 @@ API; treat it as section 10 and expect to be told no.
   it seemed implied. Ask, quote exactly what will be deleted, and wait.
 - **Streaming endpoints are protobuf-only.** `/v1/global/state-stream` and
   `/v1/deployments/prepare-output` ignore `Accept: application/json`. Use the
-  non-streaming endpoints above instead. (Prepare output is also denied to you.)
+  non-streaming endpoints above instead.
 - **Enums are numbers** in JSON, not names.
 - **Ids are per-kind.** Stable identity ids and version row ids are different
   number spaces; so are a deployment's `version` and its `space_version`.
 
 ## 11. Endpoint reference
 
-Everything on the public API, and whether your session can call it. "operator"
-means it exists but is denied to agents — do not retry, ask.
+Everything on the public API, and what the builtin rule templates allow an
+agent session to call. "operator" means the endpoint exists but is denied to
+agents *by default*; on this cluster your session may or may not hold it —
+the live API's answer is the truth. A `403` will not change on retry: ask.
 
 **Reading**
 
