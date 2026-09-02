@@ -65,8 +65,8 @@ func (s *Service) ListSecretVersionRecords() []secrets.Record {
 	return out
 }
 
-func nextSecretEvent(prev pq.SecretEventMeta, author int32, eventType int64) pq.InsertSecretEventParams {
-	return pq.InsertSecretEventParams{
+func nextSecretEvent(prev pq.SecretEventMeta, author int32, eventType int64) pq.SecretEvent {
+	return pq.SecretEvent{
 		EventTime:        time.Now().UnixMilli(),
 		CreatedTime:      prev.CreatedTime,
 		Author:           int64(author),
@@ -81,7 +81,7 @@ func nextSecretEvent(prev pq.SecretEventMeta, author int32, eventType int64) pq.
 	}
 }
 
-func (s *Service) appendSecretEventLocked(ctx context.Context, event pq.InsertSecretEventParams) {
+func (s *Service) appendSecretEventLocked(ctx context.Context, event pq.SecretEvent) {
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		seq, err := q.NextGlobalSeq(ctx)
 		if err != nil {
@@ -131,7 +131,7 @@ func (s *Service) CreateSecretWithVersionLocked(name string, spaceID, directoryI
 		if err != nil {
 			return err
 		}
-		rowID, err := q.InsertSecretEvent(ctx, pq.InsertSecretEventParams{
+		rowID, err := q.InsertSecretEvent(ctx, pq.SecretEvent{
 			GlobalSeq:        seq,
 			EventTime:        now,
 			CreatedTime:      now,

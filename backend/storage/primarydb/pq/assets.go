@@ -2,26 +2,7 @@ package pq
 
 import (
 	"context"
-	"database/sql"
 )
-
-type AssetEvent struct {
-	ID               int64
-	GlobalSeq        int64
-	EventTime        int64
-	CreatedTime      int64
-	Author           int64
-	AssetID          int64
-	Version          int64
-	ValueVersion     int64
-	SpaceVersion     int64
-	Key              string
-	AssetDirectoryID int64
-	SpaceID          int64
-	SizeBytes        sql.NullInt64
-	Sha256           sql.NullString
-	EventType        int64
-}
 
 type AssetVersion struct {
 	ID        int64
@@ -55,18 +36,6 @@ type AssetRow struct {
 	CreatedAt        int64
 }
 
-const assetEventColumns = `e.id, e.global_seq, e.event_time, e.created_time, e.author,
-	e.asset_id, e.version, e.value_version, e.space_version,
-	e.key, e.asset_directory_id, e.space_id, e.size_bytes, e.sha256, e.event_type`
-
-func scanAssetEvent(scan func(dest ...any) error) (AssetEvent, error) {
-	var e AssetEvent
-	err := scan(&e.ID, &e.GlobalSeq, &e.EventTime, &e.CreatedTime, &e.Author,
-		&e.AssetID, &e.Version, &e.ValueVersion, &e.SpaceVersion,
-		&e.Key, &e.AssetDirectoryID, &e.SpaceID, &e.SizeBytes, &e.Sha256, &e.EventType)
-	return e, err
-}
-
 const assetLatestJoin = `JOIN (SELECT asset_id, MAX(version) AS version
 	      FROM asset_event_log GROUP BY asset_id) latest
 	  ON latest.asset_id = e.asset_id AND latest.version = e.version`
@@ -82,20 +51,6 @@ func scanAssetRow(scan func(dest ...any) error) (AssetRow, error) {
 	return r, err
 }
 
-func (q *Queries) NextAssetID(ctx context.Context) (int64, error) {
-	var id int64
-	err := q.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(asset_id), 0) + 1 FROM asset_event_log`).Scan(&id)
-	return id, err
-}
-
-func (q *Queries) GetLatestAssetEvent(ctx context.Context, assetID int64) (AssetEvent, error) {
-	return scanAssetEvent(q.db.QueryRowContext(ctx, `
-		SELECT `+assetEventColumns+`
-		FROM asset_event_log e
-		WHERE e.asset_id = ?
-		ORDER BY e.version DESC LIMIT 1`, assetID).Scan)
-}
-
 func (q *Queries) InsertAssetEvent(ctx context.Context, e AssetEvent) error {
 	_, err := q.db.ExecContext(ctx, `
 		INSERT INTO asset_event_log (
@@ -107,38 +62,6 @@ func (q *Queries) InsertAssetEvent(ctx context.Context, e AssetEvent) error {
 		e.ValueVersion, e.SpaceVersion, e.Key, e.AssetDirectoryID, e.SpaceID,
 		e.SizeBytes, e.Sha256, e.EventType)
 	return err
-}
-
-func (q *Queries) listAssetEvents(ctx context.Context, query string, args ...any) ([]AssetEvent, error) {
-	rows, err := q.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []AssetEvent{}
-	for rows.Next() {
-		e, err := scanAssetEvent(rows.Scan)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
-}
-
-func (q *Queries) ListAssetEvents(ctx context.Context, assetID int64) ([]AssetEvent, error) {
-	return q.listAssetEvents(ctx, `
-		SELECT `+assetEventColumns+`
-		FROM asset_event_log e
-		WHERE e.asset_id = ?
-		ORDER BY e.version`, assetID)
-}
-
-func (q *Queries) ListAllAssetEvents(ctx context.Context) ([]AssetEvent, error) {
-	return q.listAssetEvents(ctx, `
-		SELECT `+assetEventColumns+`
-		FROM asset_event_log e
-		ORDER BY e.asset_id, e.version`)
 }
 
 func (q *Queries) ListAssetRows(ctx context.Context) ([]AssetRow, error) {

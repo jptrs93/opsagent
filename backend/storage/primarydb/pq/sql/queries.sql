@@ -39,6 +39,41 @@ SELECT @scheduled_instance_id, COALESCE(MAX(version), 0) + 1, @global_seq, @even
 FROM scheduled_instance_event_log
 WHERE scheduled_instance_id = @scheduled_instance_id;
 
+-- name: GetScheduledInstance :one
+SELECT id, global_seq, event_time, created_time, scheduled_instance_id, version,
+       deployment_id, deployment_version, deployment_spec_version,
+       node_id, instance_ordinal, space_id, state
+FROM scheduled_instance_event_log
+WHERE scheduled_instance_id = ?
+ORDER BY version DESC LIMIT 1;
+
+-- name: ListNonFinalScheduledInstances :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.scheduled_instance_id, e.version,
+       e.deployment_id, e.deployment_version, e.deployment_spec_version,
+       e.node_id, e.instance_ordinal, e.space_id, e.state
+FROM scheduled_instance_event_log e
+JOIN (SELECT scheduled_instance_id, MAX(version) AS version
+      FROM scheduled_instance_event_log
+      GROUP BY scheduled_instance_id) latest
+  ON latest.scheduled_instance_id = e.scheduled_instance_id AND latest.version = e.version
+WHERE e.state != 2
+ORDER BY e.scheduled_instance_id ASC;
+
+-- name: ListLatestScheduledInstancePerOrdinal :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.scheduled_instance_id, e.version,
+       e.deployment_id, e.deployment_version, e.deployment_spec_version,
+       e.node_id, e.instance_ordinal, e.space_id, e.state
+FROM scheduled_instance_event_log e
+JOIN (SELECT scheduled_instance_id, MAX(version) AS version
+      FROM scheduled_instance_event_log
+      GROUP BY scheduled_instance_id) latest
+  ON latest.scheduled_instance_id = e.scheduled_instance_id AND latest.version = e.version
+JOIN (SELECT deployment_id, instance_ordinal, MAX(scheduled_instance_id) AS scheduled_instance_id
+      FROM scheduled_instance_event_log
+      GROUP BY deployment_id, instance_ordinal) newest
+  ON newest.scheduled_instance_id = e.scheduled_instance_id
+ORDER BY e.scheduled_instance_id ASC;
+
 -- name: InsertScheduledInstanceStatus :exec
 INSERT INTO scheduled_instance_status (
     scheduled_instance_id, updated_at, deployment_id,
@@ -417,10 +452,154 @@ select * from system_config_revisions order by id desc limit 1;
 -- name: GetConfigByID :one
 SELECT id, updated_at, config_blob FROM system_config_revisions WHERE id = ?;
 
--- Authz rule template, grant, and global rule reads and writes are
--- hand-written in authz.go against their event logs.
+-- name: ListNodeEvents :many
+SELECT id, global_seq, event_time, created_time, author, node_id, version,
+       name, identifier, enrolled_time, status, roles, addresses,
+       wg_public_key, allowed_spaces, event_type
+FROM node_event_log
+WHERE node_id = ?
+ORDER BY version;
 
--- Network policy reads and writes are hand-written in network_policies.go:
--- the current state is the highest-version event row, event_type is the
--- deletion truth, and every event advances the global sequence in the same tx
--- because policies are cluster network map render inputs.
+-- name: NextSecretID :one
+SELECT COALESCE(MAX(secret_id), 0) + 1 FROM secret_event_log;
+
+-- name: ListSecretVersionIDsBySecretID :many
+SELECT id FROM secret_event_log
+WHERE secret_id = ? AND ciphertext IS NOT NULL
+ORDER BY value_version;
+
+-- name: NextConfigID :one
+SELECT COALESCE(MAX(config_id), 0) + 1 FROM config_event_log;
+
+-- name: GetLatestConfigEvent :one
+SELECT id, global_seq, event_time, created_time, author, config_id, version,
+       value_version, space_version, name, value_directory_id, space_id,
+       value, event_type
+FROM config_event_log
+WHERE config_id = ?
+ORDER BY version DESC LIMIT 1;
+
+-- name: ListConfigEvents :many
+SELECT id, global_seq, event_time, created_time, author, config_id, version,
+       value_version, space_version, name, value_directory_id, space_id,
+       value, event_type
+FROM config_event_log
+WHERE config_id = ?
+ORDER BY version;
+
+-- name: ListAllConfigEvents :many
+SELECT id, global_seq, event_time, created_time, author, config_id, version,
+       value_version, space_version, name, value_directory_id, space_id,
+       value, event_type
+FROM config_event_log
+ORDER BY config_id, version;
+
+-- name: ListConfigVersionIDsByConfigID :many
+SELECT id FROM config_event_log
+WHERE config_id = ? AND value IS NOT NULL
+ORDER BY value_version;
+
+-- name: NextAssetID :one
+SELECT COALESCE(MAX(asset_id), 0) + 1 FROM asset_event_log;
+
+-- name: GetLatestAssetEvent :one
+SELECT id, global_seq, event_time, created_time, author, asset_id, version,
+       value_version, space_version, key, asset_directory_id, space_id,
+       size_bytes, sha256, event_type
+FROM asset_event_log
+WHERE asset_id = ?
+ORDER BY version DESC LIMIT 1;
+
+-- name: ListAssetEvents :many
+SELECT id, global_seq, event_time, created_time, author, asset_id, version,
+       value_version, space_version, key, asset_directory_id, space_id,
+       size_bytes, sha256, event_type
+FROM asset_event_log
+WHERE asset_id = ?
+ORDER BY version;
+
+-- name: ListAllAssetEvents :many
+SELECT id, global_seq, event_time, created_time, author, asset_id, version,
+       value_version, space_version, key, asset_directory_id, space_id,
+       size_bytes, sha256, event_type
+FROM asset_event_log
+ORDER BY asset_id, version;
+
+-- name: NextNetworkPolicyID :one
+SELECT COALESCE(MAX(policy_id), 0) + 1 FROM network_policy_event_log;
+
+-- name: GetLatestNetworkPolicyEvent :one
+SELECT id, global_seq, event_time, created_time, author, policy_id, version,
+       data_blob, event_type
+FROM network_policy_event_log
+WHERE policy_id = ?
+ORDER BY version DESC LIMIT 1;
+
+-- name: ListLatestNetworkPolicyEvents :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.policy_id,
+       e.version, e.data_blob, e.event_type
+FROM network_policy_event_log e
+JOIN (SELECT policy_id, MAX(version) AS version
+      FROM network_policy_event_log GROUP BY policy_id) latest
+  ON latest.policy_id = e.policy_id AND latest.version = e.version
+ORDER BY e.policy_id;
+
+-- name: NextAuthzRuleTemplateID :one
+SELECT COALESCE(MAX(template_id), 0) + 1 FROM authz_rule_template_event_log;
+
+-- name: GetLatestAuthzRuleTemplateEvent :one
+SELECT id, global_seq, event_time, created_time, author, template_id, version,
+       name, builtin, data_blob, event_type
+FROM authz_rule_template_event_log
+WHERE template_id = ?
+ORDER BY version DESC LIMIT 1;
+
+-- name: ListLatestAuthzRuleTemplateEvents :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.template_id,
+       e.version, e.name, e.builtin, e.data_blob, e.event_type
+FROM authz_rule_template_event_log e
+JOIN (SELECT template_id, MAX(version) AS version
+      FROM authz_rule_template_event_log GROUP BY template_id) latest
+  ON latest.template_id = e.template_id AND latest.version = e.version
+ORDER BY e.template_id;
+
+-- name: NextAuthzGrantID :one
+SELECT COALESCE(MAX(grant_id), 0) + 1 FROM authz_grant_event_log;
+
+-- name: GetLatestAuthzGrantEvent :one
+SELECT id, global_seq, event_time, created_time, author, grant_id, version,
+       user_id, template_id, data_blob, event_type
+FROM authz_grant_event_log
+WHERE grant_id = ?
+ORDER BY version DESC LIMIT 1;
+
+-- name: ListLatestAuthzGrantEvents :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.grant_id,
+       e.version, e.user_id, e.template_id, e.data_blob, e.event_type
+FROM authz_grant_event_log e
+JOIN (SELECT grant_id, MAX(version) AS version
+      FROM authz_grant_event_log GROUP BY grant_id) latest
+  ON latest.grant_id = e.grant_id AND latest.version = e.version
+ORDER BY e.grant_id;
+
+-- name: NextGlobalAccessRuleID :one
+SELECT COALESCE(MAX(rule_id), 0) + 1 FROM global_access_rule_event_log;
+
+-- name: GetLatestGlobalAccessRuleEvent :one
+SELECT id, global_seq, event_time, created_time, author, rule_id, version,
+       name, disabled, data_blob, event_type
+FROM global_access_rule_event_log
+WHERE rule_id = ?
+ORDER BY version DESC LIMIT 1;
+
+-- name: ListLatestGlobalAccessRuleEvents :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.rule_id,
+       e.version, e.name, e.disabled, e.data_blob, e.event_type
+FROM global_access_rule_event_log e
+JOIN (SELECT rule_id, MAX(version) AS version
+      FROM global_access_rule_event_log GROUP BY rule_id) latest
+  ON latest.rule_id = e.rule_id AND latest.version = e.version
+ORDER BY e.rule_id;
+
+-- name: CountGlobalAccessRuleEventsByName :one
+SELECT COUNT(*) FROM global_access_rule_event_log WHERE name = ?;

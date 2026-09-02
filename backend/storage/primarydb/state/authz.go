@@ -30,7 +30,7 @@ func (s *Service) ListAuthzRuleTemplates() ([]authz.RuleTemplateRow, error) {
 			Name:      row.Name,
 			Builtin:   row.Builtin != 0,
 			Deleted:   row.EventType == pq.EventDelete,
-			Author:    row.FirstAuthor,
+			Author:    row.Author,
 			CreatedAt: row.CreatedTime,
 			Blob:      row.DataBlob,
 		})
@@ -111,7 +111,7 @@ func (s *Service) DeleteAuthzRuleTemplate(id int64) error {
 			Version:     prev.Version + 1,
 			Name:        prev.Name,
 			Builtin:     prev.Builtin,
-			DataBlob:    prev.DataBlob,
+			DataBlob:    notNullBlob(prev.DataBlob),
 			EventType:   pq.EventDelete,
 		})
 	})
@@ -225,7 +225,7 @@ func (s *Service) DeleteAuthzGrant(id int64) error {
 			Version:     prev.Version + 1,
 			UserID:      prev.UserID,
 			TemplateID:  prev.TemplateID,
-			DataBlob:    prev.DataBlob,
+			DataBlob:    notNullBlob(prev.DataBlob),
 			EventType:   pq.EventDelete,
 		})
 	})
@@ -298,7 +298,7 @@ func (s *Service) DeleteAuthzGlobalRule(id int64) error {
 			RuleID:      id,
 			Version:     prev.Version + 1,
 			Name:        prev.Name,
-			DataBlob:    prev.DataBlob,
+			DataBlob:    notNullBlob(prev.DataBlob),
 			EventType:   pq.EventDelete,
 		})
 	})

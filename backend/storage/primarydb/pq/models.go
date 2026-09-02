@@ -32,7 +32,7 @@ type AssetDirectory struct {
 	Author    int64
 }
 
-type AssetEventLog struct {
+type AssetEvent struct {
 	ID               int64
 	GlobalSeq        int64
 	EventTime        int64
@@ -72,7 +72,7 @@ type AssetStore struct {
 	CreatedAt    int64
 }
 
-type AuthzGrantEventLog struct {
+type AuthzGrantEvent struct {
 	ID          int64
 	GlobalSeq   int64
 	EventTime   int64
@@ -86,7 +86,7 @@ type AuthzGrantEventLog struct {
 	EventType   int64
 }
 
-type AuthzRuleTemplateEventLog struct {
+type AuthzRuleTemplateEvent struct {
 	ID          int64
 	GlobalSeq   int64
 	EventTime   int64
@@ -100,7 +100,7 @@ type AuthzRuleTemplateEventLog struct {
 	EventType   int64
 }
 
-type ConfigEventLog struct {
+type ConfigEvent struct {
 	ID               int64
 	GlobalSeq        int64
 	EventTime        int64
@@ -132,7 +132,7 @@ type DeploymentEvent struct {
 	EventType              int64
 }
 
-type GlobalAccessRuleEventLog struct {
+type GlobalAccessRuleEvent struct {
 	ID          int64
 	GlobalSeq   int64
 	EventTime   int64
@@ -151,7 +151,7 @@ type GlobalSeq struct {
 	Value int64
 }
 
-type NetworkPolicyEventLog struct {
+type NetworkPolicyEvent struct {
 	ID          int64
 	GlobalSeq   int64
 	EventTime   int64
@@ -163,7 +163,7 @@ type NetworkPolicyEventLog struct {
 	EventType   int64
 }
 
-type NodeEventLog struct {
+type NodeEvent struct {
 	ID            int64
 	GlobalSeq     int64
 	EventTime     int64
@@ -243,7 +243,7 @@ type ScheduledInstanceStatus struct {
 	RunnerExitCode       sql.NullInt64
 }
 
-type SecretEventLog struct {
+type SecretEvent struct {
 	ID               int64
 	GlobalSeq        int64
 	EventTime        int64

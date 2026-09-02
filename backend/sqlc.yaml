@@ -21,6 +21,14 @@ sql:
         rename:
           deployment_event_log: DeploymentEvent
           scheduled_instance_event_log: ScheduledInstanceEvent
+          node_event_log: NodeEvent
+          network_policy_event_log: NetworkPolicyEvent
+          secret_event_log: SecretEvent
+          config_event_log: ConfigEvent
+          asset_event_log: AssetEvent
+          authz_rule_template_event_log: AuthzRuleTemplateEvent
+          authz_grant_event_log: AuthzGrantEvent
+          global_access_rule_event_log: GlobalAccessRuleEvent
   - engine: "sqlite"
     queries: "storage/secondarydb/sq/sql/queries.sql"
     schema:

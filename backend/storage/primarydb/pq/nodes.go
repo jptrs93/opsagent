@@ -23,25 +23,6 @@ type NodeCurrentRow struct {
 	EnrollmentPending int64
 }
 
-type NodeEvent struct {
-	ID            int64
-	GlobalSeq     int64
-	EventTime     int64
-	CreatedTime   int64
-	Author        int64
-	NodeID        int64
-	Version       int64
-	Name          string
-	Identifier    string
-	EnrolledTime  int64
-	Status        int64
-	Roles         string
-	Addresses     string
-	WgPublicKey   string
-	AllowedSpaces string
-	EventType     int64
-}
-
 const nodeCurrentColumns = `n.node_id, n.created_time, n.enrolled_time, n.name, n.identifier,
 	n.version, n.status, n.roles, n.addresses, n.wg_public_key, n.allowed_spaces,
 	COALESCE(ns.is_connected, 0), COALESCE(ns.opendeploy_version, ''), COALESCE(ns.remote_address, ''), COALESCE(ns.enrollment_pending, 0)`
@@ -161,31 +142,6 @@ func (q *Queries) AppendNodeEvent(ctx context.Context, p AppendNodeEventParams) 
 		return NodeCurrentRow{}, err
 	}
 	return q.GetNodeRowByID(ctx, p.NodeID)
-}
-
-func (q *Queries) ListNodeEvents(ctx context.Context, nodeID int64) ([]NodeEvent, error) {
-	rows, err := q.db.QueryContext(ctx, `
-		SELECT id, global_seq, event_time, created_time, author, node_id, version,
-		       name, identifier, enrolled_time, status, roles, addresses,
-		       wg_public_key, allowed_spaces, event_type
-		FROM node_event_log
-		WHERE node_id = ?
-		ORDER BY version`, nodeID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []NodeEvent
-	for rows.Next() {
-		var r NodeEvent
-		if err := rows.Scan(&r.ID, &r.GlobalSeq, &r.EventTime, &r.CreatedTime, &r.Author,
-			&r.NodeID, &r.Version, &r.Name, &r.Identifier, &r.EnrolledTime, &r.Status,
-			&r.Roles, &r.Addresses, &r.WgPublicKey, &r.AllowedSpaces, &r.EventType); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
 }
 
 func (q *Queries) CountNodesWithName(ctx context.Context, name string, excludeNodeID int64) (int64, error) {

@@ -11,9 +11,9 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-func scheduledInstanceRowToProto(r pq.ScheduledInstanceRow) *apigen.ScheduledInstance {
+func scheduledInstanceRowToProto(r pq.ScheduledInstanceEvent) *apigen.ScheduledInstance {
 	return &apigen.ScheduledInstance{
-		ID:                    int32(r.ID),
+		ID:                    int32(r.ScheduledInstanceID),
 		CreatedAt:             millisToTime(r.CreatedTime),
 		DeploymentID:          int32(r.DeploymentID),
 		DeploymentVersion:     int32(r.DeploymentVersion),

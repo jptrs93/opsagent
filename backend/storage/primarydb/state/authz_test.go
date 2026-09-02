@@ -128,6 +128,33 @@ func TestAuthzStoreRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDeleteAuthzRowsWithEmptyBlobs(t *testing.T) {
+	store := Open(filepath.Join(t.TempDir(), "primary.db"))
+	defer store.Close()
+
+	grantID, err := store.InsertAuthzGrant(authz.GrantRow{UserID: 7, TemplateID: 1, CreatedAt: 1000})
+	if err != nil {
+		t.Fatalf("InsertAuthzGrant: %v", err)
+	}
+	if err := store.DeleteAuthzGrant(grantID); err != nil {
+		t.Fatalf("DeleteAuthzGrant with empty blob: %v", err)
+	}
+	templateID, err := store.InsertAuthzRuleTemplate(authz.RuleTemplateRow{Name: "empty", CreatedAt: 1000})
+	if err != nil {
+		t.Fatalf("InsertAuthzRuleTemplate: %v", err)
+	}
+	if err := store.DeleteAuthzRuleTemplate(templateID); err != nil {
+		t.Fatalf("DeleteAuthzRuleTemplate with empty blob: %v", err)
+	}
+	ruleID, err := store.InsertAuthzGlobalRule(authz.GlobalRuleRow{Name: "empty", CreatedAt: 1000})
+	if err != nil {
+		t.Fatalf("InsertAuthzGlobalRule: %v", err)
+	}
+	if err := store.DeleteAuthzGlobalRule(ruleID); err != nil {
+		t.Fatalf("DeleteAuthzGlobalRule with empty blob: %v", err)
+	}
+}
+
 func TestDeletedSeededGlobalRuleStaysDeleted(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := Open(dbPath)

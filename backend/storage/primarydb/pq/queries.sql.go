@@ -182,6 +182,17 @@ func (q *Queries) CountDirectorySiblingsWithKey(ctx context.Context, arg CountDi
 	return count, err
 }
 
+const countGlobalAccessRuleEventsByName = `-- name: CountGlobalAccessRuleEventsByName :one
+SELECT COUNT(*) FROM global_access_rule_event_log WHERE name = ?
+`
+
+func (q *Queries) CountGlobalAccessRuleEventsByName(ctx context.Context, name string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countGlobalAccessRuleEventsByName, name)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countValueDirectorySiblingsWithName = `-- name: CountValueDirectorySiblingsWithName :one
 
 SELECT COUNT(*) FROM value_directories
@@ -465,6 +476,92 @@ func (q *Queries) GetGlobalSeq(ctx context.Context) (int64, error) {
 	return value, err
 }
 
+const getLatestAssetEvent = `-- name: GetLatestAssetEvent :one
+SELECT id, global_seq, event_time, created_time, author, asset_id, version,
+       value_version, space_version, key, asset_directory_id, space_id,
+       size_bytes, sha256, event_type
+FROM asset_event_log
+WHERE asset_id = ?
+ORDER BY version DESC LIMIT 1
+`
+
+func (q *Queries) GetLatestAssetEvent(ctx context.Context, assetID int64) (AssetEvent, error) {
+	row := q.db.QueryRowContext(ctx, getLatestAssetEvent, assetID)
+	var i AssetEvent
+	err := row.Scan(
+		&i.ID,
+		&i.GlobalSeq,
+		&i.EventTime,
+		&i.CreatedTime,
+		&i.Author,
+		&i.AssetID,
+		&i.Version,
+		&i.ValueVersion,
+		&i.SpaceVersion,
+		&i.Key,
+		&i.AssetDirectoryID,
+		&i.SpaceID,
+		&i.SizeBytes,
+		&i.Sha256,
+		&i.EventType,
+	)
+	return i, err
+}
+
+const getLatestAuthzGrantEvent = `-- name: GetLatestAuthzGrantEvent :one
+SELECT id, global_seq, event_time, created_time, author, grant_id, version,
+       user_id, template_id, data_blob, event_type
+FROM authz_grant_event_log
+WHERE grant_id = ?
+ORDER BY version DESC LIMIT 1
+`
+
+func (q *Queries) GetLatestAuthzGrantEvent(ctx context.Context, grantID int64) (AuthzGrantEvent, error) {
+	row := q.db.QueryRowContext(ctx, getLatestAuthzGrantEvent, grantID)
+	var i AuthzGrantEvent
+	err := row.Scan(
+		&i.ID,
+		&i.GlobalSeq,
+		&i.EventTime,
+		&i.CreatedTime,
+		&i.Author,
+		&i.GrantID,
+		&i.Version,
+		&i.UserID,
+		&i.TemplateID,
+		&i.DataBlob,
+		&i.EventType,
+	)
+	return i, err
+}
+
+const getLatestAuthzRuleTemplateEvent = `-- name: GetLatestAuthzRuleTemplateEvent :one
+SELECT id, global_seq, event_time, created_time, author, template_id, version,
+       name, builtin, data_blob, event_type
+FROM authz_rule_template_event_log
+WHERE template_id = ?
+ORDER BY version DESC LIMIT 1
+`
+
+func (q *Queries) GetLatestAuthzRuleTemplateEvent(ctx context.Context, templateID int64) (AuthzRuleTemplateEvent, error) {
+	row := q.db.QueryRowContext(ctx, getLatestAuthzRuleTemplateEvent, templateID)
+	var i AuthzRuleTemplateEvent
+	err := row.Scan(
+		&i.ID,
+		&i.GlobalSeq,
+		&i.EventTime,
+		&i.CreatedTime,
+		&i.Author,
+		&i.TemplateID,
+		&i.Version,
+		&i.Name,
+		&i.Builtin,
+		&i.DataBlob,
+		&i.EventType,
+	)
+	return i, err
+}
+
 const getLatestConfig = `-- name: GetLatestConfig :one
 select id, updated_at, config_blob from system_config_revisions order by id desc limit 1
 `
@@ -473,6 +570,37 @@ func (q *Queries) GetLatestConfig(ctx context.Context) (SystemConfigRevision, er
 	row := q.db.QueryRowContext(ctx, getLatestConfig)
 	var i SystemConfigRevision
 	err := row.Scan(&i.ID, &i.UpdatedAt, &i.ConfigBlob)
+	return i, err
+}
+
+const getLatestConfigEvent = `-- name: GetLatestConfigEvent :one
+SELECT id, global_seq, event_time, created_time, author, config_id, version,
+       value_version, space_version, name, value_directory_id, space_id,
+       value, event_type
+FROM config_event_log
+WHERE config_id = ?
+ORDER BY version DESC LIMIT 1
+`
+
+func (q *Queries) GetLatestConfigEvent(ctx context.Context, configID int64) (ConfigEvent, error) {
+	row := q.db.QueryRowContext(ctx, getLatestConfigEvent, configID)
+	var i ConfigEvent
+	err := row.Scan(
+		&i.ID,
+		&i.GlobalSeq,
+		&i.EventTime,
+		&i.CreatedTime,
+		&i.Author,
+		&i.ConfigID,
+		&i.Version,
+		&i.ValueVersion,
+		&i.SpaceVersion,
+		&i.Name,
+		&i.ValueDirectoryID,
+		&i.SpaceID,
+		&i.Value,
+		&i.EventType,
+	)
 	return i, err
 }
 
@@ -500,6 +628,58 @@ func (q *Queries) GetLatestDeploymentEvent(ctx context.Context, deploymentID int
 		&i.SpaceAssignmentVersion,
 		&i.NameVersion,
 		&i.Value,
+		&i.EventType,
+	)
+	return i, err
+}
+
+const getLatestGlobalAccessRuleEvent = `-- name: GetLatestGlobalAccessRuleEvent :one
+SELECT id, global_seq, event_time, created_time, author, rule_id, version,
+       name, disabled, data_blob, event_type
+FROM global_access_rule_event_log
+WHERE rule_id = ?
+ORDER BY version DESC LIMIT 1
+`
+
+func (q *Queries) GetLatestGlobalAccessRuleEvent(ctx context.Context, ruleID int64) (GlobalAccessRuleEvent, error) {
+	row := q.db.QueryRowContext(ctx, getLatestGlobalAccessRuleEvent, ruleID)
+	var i GlobalAccessRuleEvent
+	err := row.Scan(
+		&i.ID,
+		&i.GlobalSeq,
+		&i.EventTime,
+		&i.CreatedTime,
+		&i.Author,
+		&i.RuleID,
+		&i.Version,
+		&i.Name,
+		&i.Disabled,
+		&i.DataBlob,
+		&i.EventType,
+	)
+	return i, err
+}
+
+const getLatestNetworkPolicyEvent = `-- name: GetLatestNetworkPolicyEvent :one
+SELECT id, global_seq, event_time, created_time, author, policy_id, version,
+       data_blob, event_type
+FROM network_policy_event_log
+WHERE policy_id = ?
+ORDER BY version DESC LIMIT 1
+`
+
+func (q *Queries) GetLatestNetworkPolicyEvent(ctx context.Context, policyID int64) (NetworkPolicyEvent, error) {
+	row := q.db.QueryRowContext(ctx, getLatestNetworkPolicyEvent, policyID)
+	var i NetworkPolicyEvent
+	err := row.Scan(
+		&i.ID,
+		&i.GlobalSeq,
+		&i.EventTime,
+		&i.CreatedTime,
+		&i.Author,
+		&i.PolicyID,
+		&i.Version,
+		&i.DataBlob,
 		&i.EventType,
 	)
 	return i, err
@@ -536,6 +716,36 @@ func (q *Queries) GetPublicKey(ctx context.Context, kid string) (PublicKey, erro
 	row := q.db.QueryRowContext(ctx, getPublicKey, kid)
 	var i PublicKey
 	err := row.Scan(&i.Kid, &i.KeyBytes)
+	return i, err
+}
+
+const getScheduledInstance = `-- name: GetScheduledInstance :one
+SELECT id, global_seq, event_time, created_time, scheduled_instance_id, version,
+       deployment_id, deployment_version, deployment_spec_version,
+       node_id, instance_ordinal, space_id, state
+FROM scheduled_instance_event_log
+WHERE scheduled_instance_id = ?
+ORDER BY version DESC LIMIT 1
+`
+
+func (q *Queries) GetScheduledInstance(ctx context.Context, scheduledInstanceID int64) (ScheduledInstanceEvent, error) {
+	row := q.db.QueryRowContext(ctx, getScheduledInstance, scheduledInstanceID)
+	var i ScheduledInstanceEvent
+	err := row.Scan(
+		&i.ID,
+		&i.GlobalSeq,
+		&i.EventTime,
+		&i.CreatedTime,
+		&i.ScheduledInstanceID,
+		&i.Version,
+		&i.DeploymentID,
+		&i.DeploymentVersion,
+		&i.DeploymentSpecVersion,
+		&i.NodeID,
+		&i.InstanceOrdinal,
+		&i.SpaceID,
+		&i.State,
+	)
 	return i, err
 }
 
@@ -934,6 +1144,99 @@ func (q *Queries) ListAgentSessionsForUser(ctx context.Context, userID int64) ([
 	return items, nil
 }
 
+const listAllAssetEvents = `-- name: ListAllAssetEvents :many
+SELECT id, global_seq, event_time, created_time, author, asset_id, version,
+       value_version, space_version, key, asset_directory_id, space_id,
+       size_bytes, sha256, event_type
+FROM asset_event_log
+ORDER BY asset_id, version
+`
+
+func (q *Queries) ListAllAssetEvents(ctx context.Context) ([]AssetEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listAllAssetEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AssetEvent
+	for rows.Next() {
+		var i AssetEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.GlobalSeq,
+			&i.EventTime,
+			&i.CreatedTime,
+			&i.Author,
+			&i.AssetID,
+			&i.Version,
+			&i.ValueVersion,
+			&i.SpaceVersion,
+			&i.Key,
+			&i.AssetDirectoryID,
+			&i.SpaceID,
+			&i.SizeBytes,
+			&i.Sha256,
+			&i.EventType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllConfigEvents = `-- name: ListAllConfigEvents :many
+SELECT id, global_seq, event_time, created_time, author, config_id, version,
+       value_version, space_version, name, value_directory_id, space_id,
+       value, event_type
+FROM config_event_log
+ORDER BY config_id, version
+`
+
+func (q *Queries) ListAllConfigEvents(ctx context.Context) ([]ConfigEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listAllConfigEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ConfigEvent
+	for rows.Next() {
+		var i ConfigEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.GlobalSeq,
+			&i.EventTime,
+			&i.CreatedTime,
+			&i.Author,
+			&i.ConfigID,
+			&i.Version,
+			&i.ValueVersion,
+			&i.SpaceVersion,
+			&i.Name,
+			&i.ValueDirectoryID,
+			&i.SpaceID,
+			&i.Value,
+			&i.EventType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAssetDirectories = `-- name: ListAssetDirectories :many
 SELECT id, space_id, key, parent_id, created_at, author
 FROM asset_directories
@@ -956,6 +1259,54 @@ func (q *Queries) ListAssetDirectories(ctx context.Context) ([]AssetDirectory, e
 			&i.ParentID,
 			&i.CreatedAt,
 			&i.Author,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAssetEvents = `-- name: ListAssetEvents :many
+SELECT id, global_seq, event_time, created_time, author, asset_id, version,
+       value_version, space_version, key, asset_directory_id, space_id,
+       size_bytes, sha256, event_type
+FROM asset_event_log
+WHERE asset_id = ?
+ORDER BY version
+`
+
+func (q *Queries) ListAssetEvents(ctx context.Context, assetID int64) ([]AssetEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listAssetEvents, assetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AssetEvent
+	for rows.Next() {
+		var i AssetEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.GlobalSeq,
+			&i.EventTime,
+			&i.CreatedTime,
+			&i.Author,
+			&i.AssetID,
+			&i.Version,
+			&i.ValueVersion,
+			&i.SpaceVersion,
+			&i.Key,
+			&i.AssetDirectoryID,
+			&i.SpaceID,
+			&i.SizeBytes,
+			&i.Sha256,
+			&i.EventType,
 		); err != nil {
 			return nil, err
 		}
@@ -1006,6 +1357,82 @@ func (q *Queries) ListAssetStoreRowMetas(ctx context.Context) ([]ListAssetStoreR
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConfigEvents = `-- name: ListConfigEvents :many
+SELECT id, global_seq, event_time, created_time, author, config_id, version,
+       value_version, space_version, name, value_directory_id, space_id,
+       value, event_type
+FROM config_event_log
+WHERE config_id = ?
+ORDER BY version
+`
+
+func (q *Queries) ListConfigEvents(ctx context.Context, configID int64) ([]ConfigEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listConfigEvents, configID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ConfigEvent
+	for rows.Next() {
+		var i ConfigEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.GlobalSeq,
+			&i.EventTime,
+			&i.CreatedTime,
+			&i.Author,
+			&i.ConfigID,
+			&i.Version,
+			&i.ValueVersion,
+			&i.SpaceVersion,
+			&i.Name,
+			&i.ValueDirectoryID,
+			&i.SpaceID,
+			&i.Value,
+			&i.EventType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConfigVersionIDsByConfigID = `-- name: ListConfigVersionIDsByConfigID :many
+SELECT id FROM config_event_log
+WHERE config_id = ? AND value IS NOT NULL
+ORDER BY value_version
+`
+
+func (q *Queries) ListConfigVersionIDsByConfigID(ctx context.Context, configID int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listConfigVersionIDsByConfigID, configID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -1106,6 +1533,96 @@ func (q *Queries) ListDeploymentEvents(ctx context.Context, deploymentID int64) 
 	return items, nil
 }
 
+const listLatestAuthzGrantEvents = `-- name: ListLatestAuthzGrantEvents :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.grant_id,
+       e.version, e.user_id, e.template_id, e.data_blob, e.event_type
+FROM authz_grant_event_log e
+JOIN (SELECT grant_id, MAX(version) AS version
+      FROM authz_grant_event_log GROUP BY grant_id) latest
+  ON latest.grant_id = e.grant_id AND latest.version = e.version
+ORDER BY e.grant_id
+`
+
+func (q *Queries) ListLatestAuthzGrantEvents(ctx context.Context) ([]AuthzGrantEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listLatestAuthzGrantEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuthzGrantEvent
+	for rows.Next() {
+		var i AuthzGrantEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.GlobalSeq,
+			&i.EventTime,
+			&i.CreatedTime,
+			&i.Author,
+			&i.GrantID,
+			&i.Version,
+			&i.UserID,
+			&i.TemplateID,
+			&i.DataBlob,
+			&i.EventType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLatestAuthzRuleTemplateEvents = `-- name: ListLatestAuthzRuleTemplateEvents :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.template_id,
+       e.version, e.name, e.builtin, e.data_blob, e.event_type
+FROM authz_rule_template_event_log e
+JOIN (SELECT template_id, MAX(version) AS version
+      FROM authz_rule_template_event_log GROUP BY template_id) latest
+  ON latest.template_id = e.template_id AND latest.version = e.version
+ORDER BY e.template_id
+`
+
+func (q *Queries) ListLatestAuthzRuleTemplateEvents(ctx context.Context) ([]AuthzRuleTemplateEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listLatestAuthzRuleTemplateEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuthzRuleTemplateEvent
+	for rows.Next() {
+		var i AuthzRuleTemplateEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.GlobalSeq,
+			&i.EventTime,
+			&i.CreatedTime,
+			&i.Author,
+			&i.TemplateID,
+			&i.Version,
+			&i.Name,
+			&i.Builtin,
+			&i.DataBlob,
+			&i.EventType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLatestDeploymentEvents = `-- name: ListLatestDeploymentEvents :many
 SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.deployment_id,
        e.version, e.spec_version, e.space_assignment_version, e.name_version,
@@ -1139,6 +1656,147 @@ func (q *Queries) ListLatestDeploymentEvents(ctx context.Context) ([]DeploymentE
 			&i.NameVersion,
 			&i.Value,
 			&i.EventType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLatestGlobalAccessRuleEvents = `-- name: ListLatestGlobalAccessRuleEvents :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.rule_id,
+       e.version, e.name, e.disabled, e.data_blob, e.event_type
+FROM global_access_rule_event_log e
+JOIN (SELECT rule_id, MAX(version) AS version
+      FROM global_access_rule_event_log GROUP BY rule_id) latest
+  ON latest.rule_id = e.rule_id AND latest.version = e.version
+ORDER BY e.rule_id
+`
+
+func (q *Queries) ListLatestGlobalAccessRuleEvents(ctx context.Context) ([]GlobalAccessRuleEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listLatestGlobalAccessRuleEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GlobalAccessRuleEvent
+	for rows.Next() {
+		var i GlobalAccessRuleEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.GlobalSeq,
+			&i.EventTime,
+			&i.CreatedTime,
+			&i.Author,
+			&i.RuleID,
+			&i.Version,
+			&i.Name,
+			&i.Disabled,
+			&i.DataBlob,
+			&i.EventType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLatestNetworkPolicyEvents = `-- name: ListLatestNetworkPolicyEvents :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.policy_id,
+       e.version, e.data_blob, e.event_type
+FROM network_policy_event_log e
+JOIN (SELECT policy_id, MAX(version) AS version
+      FROM network_policy_event_log GROUP BY policy_id) latest
+  ON latest.policy_id = e.policy_id AND latest.version = e.version
+ORDER BY e.policy_id
+`
+
+func (q *Queries) ListLatestNetworkPolicyEvents(ctx context.Context) ([]NetworkPolicyEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listLatestNetworkPolicyEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NetworkPolicyEvent
+	for rows.Next() {
+		var i NetworkPolicyEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.GlobalSeq,
+			&i.EventTime,
+			&i.CreatedTime,
+			&i.Author,
+			&i.PolicyID,
+			&i.Version,
+			&i.DataBlob,
+			&i.EventType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLatestScheduledInstancePerOrdinal = `-- name: ListLatestScheduledInstancePerOrdinal :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.scheduled_instance_id, e.version,
+       e.deployment_id, e.deployment_version, e.deployment_spec_version,
+       e.node_id, e.instance_ordinal, e.space_id, e.state
+FROM scheduled_instance_event_log e
+JOIN (SELECT scheduled_instance_id, MAX(version) AS version
+      FROM scheduled_instance_event_log
+      GROUP BY scheduled_instance_id) latest
+  ON latest.scheduled_instance_id = e.scheduled_instance_id AND latest.version = e.version
+JOIN (SELECT deployment_id, instance_ordinal, MAX(scheduled_instance_id) AS scheduled_instance_id
+      FROM scheduled_instance_event_log
+      GROUP BY deployment_id, instance_ordinal) newest
+  ON newest.scheduled_instance_id = e.scheduled_instance_id
+ORDER BY e.scheduled_instance_id ASC
+`
+
+func (q *Queries) ListLatestScheduledInstancePerOrdinal(ctx context.Context) ([]ScheduledInstanceEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listLatestScheduledInstancePerOrdinal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ScheduledInstanceEvent
+	for rows.Next() {
+		var i ScheduledInstanceEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.GlobalSeq,
+			&i.EventTime,
+			&i.CreatedTime,
+			&i.ScheduledInstanceID,
+			&i.Version,
+			&i.DeploymentID,
+			&i.DeploymentVersion,
+			&i.DeploymentSpecVersion,
+			&i.NodeID,
+			&i.InstanceOrdinal,
+			&i.SpaceID,
+			&i.State,
 		); err != nil {
 			return nil, err
 		}
@@ -1193,6 +1851,105 @@ func (q *Queries) ListLatestScheduledInstanceStatuses(ctx context.Context) ([]Sc
 			&i.RunnerLastRestartAt,
 			&i.RunnerExtraBlob,
 			&i.RunnerExitCode,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNodeEvents = `-- name: ListNodeEvents :many
+SELECT id, global_seq, event_time, created_time, author, node_id, version,
+       name, identifier, enrolled_time, status, roles, addresses,
+       wg_public_key, allowed_spaces, event_type
+FROM node_event_log
+WHERE node_id = ?
+ORDER BY version
+`
+
+func (q *Queries) ListNodeEvents(ctx context.Context, nodeID int64) ([]NodeEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listNodeEvents, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NodeEvent
+	for rows.Next() {
+		var i NodeEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.GlobalSeq,
+			&i.EventTime,
+			&i.CreatedTime,
+			&i.Author,
+			&i.NodeID,
+			&i.Version,
+			&i.Name,
+			&i.Identifier,
+			&i.EnrolledTime,
+			&i.Status,
+			&i.Roles,
+			&i.Addresses,
+			&i.WgPublicKey,
+			&i.AllowedSpaces,
+			&i.EventType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNonFinalScheduledInstances = `-- name: ListNonFinalScheduledInstances :many
+SELECT e.id, e.global_seq, e.event_time, e.created_time, e.scheduled_instance_id, e.version,
+       e.deployment_id, e.deployment_version, e.deployment_spec_version,
+       e.node_id, e.instance_ordinal, e.space_id, e.state
+FROM scheduled_instance_event_log e
+JOIN (SELECT scheduled_instance_id, MAX(version) AS version
+      FROM scheduled_instance_event_log
+      GROUP BY scheduled_instance_id) latest
+  ON latest.scheduled_instance_id = e.scheduled_instance_id AND latest.version = e.version
+WHERE e.state != 2
+ORDER BY e.scheduled_instance_id ASC
+`
+
+func (q *Queries) ListNonFinalScheduledInstances(ctx context.Context) ([]ScheduledInstanceEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listNonFinalScheduledInstances)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ScheduledInstanceEvent
+	for rows.Next() {
+		var i ScheduledInstanceEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.GlobalSeq,
+			&i.EventTime,
+			&i.CreatedTime,
+			&i.ScheduledInstanceID,
+			&i.Version,
+			&i.DeploymentID,
+			&i.DeploymentVersion,
+			&i.DeploymentSpecVersion,
+			&i.NodeID,
+			&i.InstanceOrdinal,
+			&i.SpaceID,
+			&i.State,
 		); err != nil {
 			return nil, err
 		}
@@ -1430,6 +2187,35 @@ func (q *Queries) ListSecretKeyslots(ctx context.Context) ([]SecretKeyslot, erro
 	return items, nil
 }
 
+const listSecretVersionIDsBySecretID = `-- name: ListSecretVersionIDsBySecretID :many
+SELECT id FROM secret_event_log
+WHERE secret_id = ? AND ciphertext IS NOT NULL
+ORDER BY value_version
+`
+
+func (q *Queries) ListSecretVersionIDsBySecretID(ctx context.Context, secretID int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listSecretVersionIDsBySecretID, secretID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSpaces = `-- name: ListSpaces :many
 SELECT id, name FROM spaces ORDER BY id
 `
@@ -1573,12 +2359,67 @@ func (q *Queries) ListValueDirectories(ctx context.Context) ([]ValueDirectory, e
 	return items, nil
 }
 
+const nextAssetID = `-- name: NextAssetID :one
+SELECT COALESCE(MAX(asset_id), 0) + 1 FROM asset_event_log
+`
+
+func (q *Queries) NextAssetID(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextAssetID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const nextAuthzGrantID = `-- name: NextAuthzGrantID :one
+SELECT COALESCE(MAX(grant_id), 0) + 1 FROM authz_grant_event_log
+`
+
+func (q *Queries) NextAuthzGrantID(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextAuthzGrantID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const nextAuthzRuleTemplateID = `-- name: NextAuthzRuleTemplateID :one
+SELECT COALESCE(MAX(template_id), 0) + 1 FROM authz_rule_template_event_log
+`
+
+func (q *Queries) NextAuthzRuleTemplateID(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextAuthzRuleTemplateID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const nextConfigID = `-- name: NextConfigID :one
+SELECT COALESCE(MAX(config_id), 0) + 1 FROM config_event_log
+`
+
+func (q *Queries) NextConfigID(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextConfigID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const nextDeploymentID = `-- name: NextDeploymentID :one
 SELECT COALESCE(MAX(deployment_id), 0) + 1 FROM deployment_event_log
 `
 
 func (q *Queries) NextDeploymentID(ctx context.Context) (int64, error) {
 	row := q.db.QueryRowContext(ctx, nextDeploymentID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const nextGlobalAccessRuleID = `-- name: NextGlobalAccessRuleID :one
+SELECT COALESCE(MAX(rule_id), 0) + 1 FROM global_access_rule_event_log
+`
+
+func (q *Queries) NextGlobalAccessRuleID(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextGlobalAccessRuleID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -1596,6 +2437,17 @@ func (q *Queries) NextGlobalSeq(ctx context.Context) (int64, error) {
 	return value, err
 }
 
+const nextNetworkPolicyID = `-- name: NextNetworkPolicyID :one
+SELECT COALESCE(MAX(policy_id), 0) + 1 FROM network_policy_event_log
+`
+
+func (q *Queries) NextNetworkPolicyID(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextNetworkPolicyID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const nextScheduledInstanceID = `-- name: NextScheduledInstanceID :one
 
 SELECT COALESCE(MAX(scheduled_instance_id), 0) + 1 FROM scheduled_instance_event_log
@@ -1607,6 +2459,17 @@ SELECT COALESCE(MAX(scheduled_instance_id), 0) + 1 FROM scheduled_instance_event
 // instance) plus the new state. The version-1 write is the creation.
 func (q *Queries) NextScheduledInstanceID(ctx context.Context) (int64, error) {
 	row := q.db.QueryRowContext(ctx, nextScheduledInstanceID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const nextSecretID = `-- name: NextSecretID :one
+SELECT COALESCE(MAX(secret_id), 0) + 1 FROM secret_event_log
+`
+
+func (q *Queries) NextSecretID(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextSecretID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err

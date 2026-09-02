@@ -2,7 +2,6 @@ package pq
 
 import (
 	"context"
-	"database/sql"
 )
 
 // Hand-written secret/config reads and writes. Each entity's state lives
@@ -30,23 +29,6 @@ type ConfigRow struct {
 	CreatedAt        int64
 }
 
-type ConfigEvent struct {
-	ID               int64
-	GlobalSeq        int64
-	EventTime        int64
-	CreatedTime      int64
-	Author           int64
-	ConfigID         int64
-	Version          int64
-	ValueVersion     int64
-	SpaceVersion     int64
-	Name             string
-	ValueDirectoryID int64
-	SpaceID          int64
-	Value            sql.NullString
-	EventType        int64
-}
-
 type SecretEventMeta struct {
 	ID               int64
 	GlobalSeq        int64
@@ -62,36 +44,6 @@ type SecretEventMeta struct {
 	SpaceID          int64
 	HasValue         bool
 	EventType        int64
-}
-
-type InsertSecretEventParams struct {
-	GlobalSeq        int64
-	EventTime        int64
-	CreatedTime      int64
-	Author           int64
-	SecretID         int64
-	Version          int64
-	ValueVersion     int64
-	SpaceVersion     int64
-	Name             string
-	ValueDirectoryID int64
-	SpaceID          int64
-	SmkVersion       sql.NullInt64
-	Ciphertext       []byte
-	Nonce            []byte
-	EventType        int64
-}
-
-const configEventColumns = `e.id, e.global_seq, e.event_time, e.created_time, e.author,
-	e.config_id, e.version, e.value_version, e.space_version,
-	e.name, e.value_directory_id, e.space_id, e.value, e.event_type`
-
-func scanConfigEvent(scan func(dest ...any) error) (ConfigEvent, error) {
-	var e ConfigEvent
-	err := scan(&e.ID, &e.GlobalSeq, &e.EventTime, &e.CreatedTime, &e.Author,
-		&e.ConfigID, &e.Version, &e.ValueVersion, &e.SpaceVersion,
-		&e.Name, &e.ValueDirectoryID, &e.SpaceID, &e.Value, &e.EventType)
-	return e, err
 }
 
 const secretEventMetaColumns = `e.id, e.global_seq, e.event_time, e.created_time, e.author,
@@ -124,26 +76,6 @@ const configRowSelect = `SELECT e.config_id, e.name, e.space_id, e.value_directo
 	` + configLatestJoin + `
 	WHERE e.event_type != 3`
 
-func (q *Queries) NextConfigID(ctx context.Context) (int64, error) {
-	var id int64
-	err := q.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(config_id), 0) + 1 FROM config_event_log`).Scan(&id)
-	return id, err
-}
-
-func (q *Queries) NextSecretID(ctx context.Context) (int64, error) {
-	var id int64
-	err := q.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(secret_id), 0) + 1 FROM secret_event_log`).Scan(&id)
-	return id, err
-}
-
-func (q *Queries) GetLatestConfigEvent(ctx context.Context, configID int64) (ConfigEvent, error) {
-	return scanConfigEvent(q.db.QueryRowContext(ctx, `
-		SELECT `+configEventColumns+`
-		FROM config_event_log e
-		WHERE e.config_id = ?
-		ORDER BY e.version DESC LIMIT 1`, configID).Scan)
-}
-
 func (q *Queries) GetLatestSecretEventMeta(ctx context.Context, secretID int64) (SecretEventMeta, error) {
 	return scanSecretEventMeta(q.db.QueryRowContext(ctx, `
 		SELECT `+secretEventMetaColumns+`
@@ -167,7 +99,7 @@ func (q *Queries) InsertConfigEvent(ctx context.Context, e ConfigEvent) (int64, 
 	return id, err
 }
 
-func (q *Queries) InsertSecretEvent(ctx context.Context, e InsertSecretEventParams) (int64, error) {
+func (q *Queries) InsertSecretEvent(ctx context.Context, e SecretEvent) (int64, error) {
 	var id int64
 	err := q.db.QueryRowContext(ctx, `
 		INSERT INTO secret_event_log (
@@ -180,38 +112,6 @@ func (q *Queries) InsertSecretEvent(ctx context.Context, e InsertSecretEventPara
 		e.ValueVersion, e.SpaceVersion, e.Name, e.ValueDirectoryID, e.SpaceID,
 		e.SmkVersion, e.Ciphertext, e.Nonce, e.EventType).Scan(&id)
 	return id, err
-}
-
-func (q *Queries) listConfigEvents(ctx context.Context, query string, args ...any) ([]ConfigEvent, error) {
-	rows, err := q.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []ConfigEvent{}
-	for rows.Next() {
-		e, err := scanConfigEvent(rows.Scan)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
-}
-
-func (q *Queries) ListConfigEvents(ctx context.Context, configID int64) ([]ConfigEvent, error) {
-	return q.listConfigEvents(ctx, `
-		SELECT `+configEventColumns+`
-		FROM config_event_log e
-		WHERE e.config_id = ?
-		ORDER BY e.version`, configID)
-}
-
-func (q *Queries) ListAllConfigEvents(ctx context.Context) ([]ConfigEvent, error) {
-	return q.listConfigEvents(ctx, `
-		SELECT `+configEventColumns+`
-		FROM config_event_log e
-		ORDER BY e.config_id, e.version`)
 }
 
 func (q *Queries) listSecretEventMetas(ctx context.Context, query string, args ...any) ([]SecretEventMeta, error) {
@@ -366,37 +266,6 @@ func (q *Queries) CountConfigsInDirectory(ctx context.Context, directoryID int64
 	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (`+configRowSelect+
 		` AND e.value_directory_id = ?)`, directoryID).Scan(&n)
 	return n, err
-}
-
-func (q *Queries) ListConfigVersionIDsByConfigID(ctx context.Context, configID int64) ([]int64, error) {
-	return q.listInt64s(ctx, `
-		SELECT id FROM config_event_log
-		WHERE config_id = ? AND value IS NOT NULL
-		ORDER BY value_version`, configID)
-}
-
-func (q *Queries) ListSecretVersionIDsBySecretID(ctx context.Context, secretID int64) ([]int64, error) {
-	return q.listInt64s(ctx, `
-		SELECT id FROM secret_event_log
-		WHERE secret_id = ? AND ciphertext IS NOT NULL
-		ORDER BY value_version`, secretID)
-}
-
-func (q *Queries) listInt64s(ctx context.Context, query string, args ...any) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
 }
 
 // ConfigVersionJoinedRow is one pinned value version row overlaid with the

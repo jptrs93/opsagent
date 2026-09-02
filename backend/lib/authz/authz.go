@@ -289,6 +289,7 @@ func (s *Service) UpdateRuleTemplate(id int64, name string, template *apigen.Aut
 	}
 	rec := cloneTemplateRecord(existing)
 	rec.Name = name
+	rec.Author = author
 	rec.Template = cloneTemplateContent(template)
 	for _, grants := range s.grantsByUser {
 		for _, g := range grants {

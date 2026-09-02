@@ -164,7 +164,7 @@ func (s *Service) DeleteNetworkPolicy(id int32, author int64) error {
 		Author:      author,
 		PolicyID:    int64(id),
 		Version:     prev.Version + 1,
-		DataBlob:    prev.DataBlob,
+		DataBlob:    notNullBlob(prev.DataBlob),
 		EventType:   pq.EventDelete,
 	}
 	if err := s.appendNetworkPolicyEventLocked(ctx, event); err != nil {

@@ -383,7 +383,7 @@ func TestRuleTemplateCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateRuleTemplate: %v", err)
 	}
-	if updated.Name != "release_manager" || updated.Author != 5 {
+	if updated.Name != "release_manager" || updated.Author != 7 {
 		t.Fatalf("unexpected updated template: %+v", updated)
 	}
 	edit := viewDeployment(2)

@@ -70,7 +70,7 @@ func TestAuthzEventLogMigration(t *testing.T) {
 		t.Fatalf("templates = %+v, want 2", templates)
 	}
 	custom, gone := templates[0], templates[1]
-	if custom.ID != 10 || custom.Name != "custom" || custom.Deleted || custom.Author != 5 ||
+	if custom.ID != 10 || custom.Name != "custom" || custom.Deleted || custom.Author != 6 ||
 		custom.CreatedAt != 1000 || !bytes.Equal(custom.Blob, []byte{0x02}) {
 		t.Fatalf("custom template = %+v", custom)
 	}
