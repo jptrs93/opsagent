@@ -65,7 +65,7 @@ func (h *Handler) PostV1NetworkPoliciesDelete(ctx apigen.Context, req *apigen.Ne
 	if err := h.requireNetworkPolicyWriteAccess(ctx, current); err != nil {
 		return err
 	}
-	err := h.Store.DeleteNetworkPolicy(req.ID)
+	err := h.Store.DeleteNetworkPolicy(req.ID, authorID(ctx))
 	if errors.Is(err, state.ErrNotFound) {
 		return NetworkPolicyNotFoundErr
 	}

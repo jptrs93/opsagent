@@ -36,14 +36,14 @@ func (s *Service) ListAssets() []*apigen.Asset {
 	ctx := context.Background()
 	rows := erru.Must(s.q.ListAssetRows(ctx))
 	joined := erru.Must(s.q.ListAssetVersionsJoined(ctx))
-	spaceRows := erru.Must(s.q.ListAssetSpaceRows(ctx))
+	events := erru.Must(s.q.ListAllAssetEvents(ctx))
 	versions := make(map[int64][]pq.AssetVersionJoined, len(rows))
 	for _, v := range joined {
 		versions[v.Version.AssetID] = append(versions[v.Version.AssetID], v)
 	}
-	spaces := make(map[int64][]pq.AssetSpace, len(rows))
-	for _, sp := range spaceRows {
-		spaces[sp.AssetID] = append(spaces[sp.AssetID], sp)
+	eventsByAsset := make(map[int64][]pq.AssetEvent, len(rows))
+	for _, e := range events {
+		eventsByAsset[e.AssetID] = append(eventsByAsset[e.AssetID], e)
 	}
 	out := make([]*apigen.Asset, 0, len(rows))
 	for _, r := range rows {
@@ -51,7 +51,7 @@ func (s *Service) ListAssets() []*apigen.Asset {
 		if len(vs) == 0 {
 			continue
 		}
-		out = append(out, assetFromParts(r, spaces[r.ID], vs))
+		out = append(out, assetFromParts(r, eventsByAsset[r.ID], vs))
 	}
 	return out
 }
@@ -78,7 +78,7 @@ func (s *Service) SubscribeAssetUpdates() (*pubsubu.Sub[apigen.Asset], func()) {
 	return sub, sub.Unsubscribe
 }
 
-// GetAssetRow returns the stable asset identity row.
+// GetAssetRow returns the asset's current identity facets.
 func (s *Service) GetAssetRow(assetID int32) (Asset, bool) {
 	r, err := s.q.GetAssetByID(context.Background(), int64(assetID))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -101,8 +101,8 @@ func (s *Service) GetAsset(assetID int32) (*apigen.Asset, bool) {
 	if len(versions) == 0 {
 		return nil, false
 	}
-	spaces := erru.Must(s.q.ListAssetSpaceRowsByAssetID(context.Background(), a.ID))
-	return assetFromParts(a, spaces, versions), true
+	events := erru.Must(s.q.ListAssetEvents(context.Background(), a.ID))
+	return assetFromParts(a, events, versions), true
 }
 
 // GetAssetInDirectory resolves an asset by key inside one directory of a
@@ -166,9 +166,9 @@ func (s *Service) ListAssetVersionsJoinedOfAsset(assetID int32) []AssetVersionJo
 
 // assetSiblingKeyTakenLocked reports whether key is already used by another
 // asset or a directory under (spaceID, directoryID). Caller must hold s.Mu:
-// path uniqueness spans two tables, so only the mutex makes the check-and-write
-// atomic. excludeAssetID/excludeDirectoryID exempt the row being renamed or
-// moved (0 = exclude nothing).
+// path uniqueness spans the event log and asset_directories, so only the mutex
+// makes the check-and-write atomic. excludeAssetID/excludeDirectoryID exempt
+// the row being renamed or moved (0 = exclude nothing).
 func (s *Service) assetSiblingKeyTakenLocked(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, key string, excludeAssetID, excludeDirectoryID int64) bool {
 	assets := erru.Must(q.CountAssetSiblingsWithKey(ctx, pq.CountAssetSiblingsWithKeyParams{
 		SpaceID:          spaceID,
@@ -208,6 +208,46 @@ func (s *Service) assetStoreRefBySha(ctx context.Context, sha256 string) (pq.Ass
 	}, nil
 }
 
+func nextAssetEvent(prev pq.AssetEvent, author int32, eventType int64) pq.AssetEvent {
+	return pq.AssetEvent{
+		EventTime:        time.Now().UnixMilli(),
+		CreatedTime:      prev.CreatedTime,
+		Author:           int64(author),
+		AssetID:          prev.AssetID,
+		Version:          prev.Version + 1,
+		ValueVersion:     prev.ValueVersion,
+		SpaceVersion:     prev.SpaceVersion,
+		Key:              prev.Key,
+		AssetDirectoryID: prev.AssetDirectoryID,
+		SpaceID:          prev.SpaceID,
+		EventType:        eventType,
+	}
+}
+
+func (s *Service) appendAssetEventLocked(ctx context.Context, event pq.AssetEvent) {
+	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
+		seq, err := q.NextGlobalSeq(ctx)
+		if err != nil {
+			return err
+		}
+		event.GlobalSeq = seq
+		return q.InsertAssetEvent(ctx, event)
+	}); err != nil {
+		panic(fmt.Sprintf("append asset event: %v", err))
+	}
+}
+
+func (s *Service) mustLatestAssetEventLocked(ctx context.Context, assetID int32) (pq.AssetEvent, bool) {
+	e, err := s.q.GetLatestAssetEvent(ctx, int64(assetID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return pq.AssetEvent{}, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetLatestAssetEvent: %v", err))
+	}
+	return e, e.EventType != pq.EventDelete
+}
+
 // CreateAssetWithVersion creates a new asset in directoryID (0 = the space
 // root) of spaceID with its first version. The content must already be in the
 // asset store under sha256.
@@ -236,31 +276,24 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 	var assetID int64
 	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		seq := erru.Must(q.NextGlobalSeq(ctx))
-		id := erru.Must(q.InsertAssetRow(ctx, pq.InsertAssetRowParams{
+		id := erru.Must(q.NextAssetID(ctx))
+		assetID = id
+		return q.InsertAssetEvent(ctx, pq.AssetEvent{
+			GlobalSeq:        seq,
+			EventTime:        now,
+			CreatedTime:      now,
+			Author:           int64(author),
+			AssetID:          id,
+			Version:          1,
+			ValueVersion:     1,
+			SpaceVersion:     1,
 			Key:              key,
 			AssetDirectoryID: dirID,
-			CreatedAt:        now,
-		}))
-		if err := q.InsertAssetSpaceRow(ctx, pq.InsertAssetSpaceRowParams{
-			AssetID:   id,
-			Author:    int64(author),
-			CreatedAt: now,
-			SpaceID:   space,
-			GlobalSeq: seq,
-		}); err != nil {
-			return err
-		}
-		assetID = id
-		_, err := q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
-			AssetID:   id,
-			Version:   1,
-			CreatedAt: now,
-			Author:    int64(author),
-			SizeBytes: sizeBytes,
-			Sha256:    sha256,
-			GlobalSeq: seq,
+			SpaceID:          space,
+			SizeBytes:        sql.NullInt64{Int64: sizeBytes, Valid: true},
+			Sha256:           sql.NullString{String: sha256, Valid: true},
+			EventType:        pq.EventCreate,
 		})
-		return err
 	}); err != nil {
 		panic(fmt.Sprintf("asset create tx: %v", err))
 	}
@@ -271,12 +304,11 @@ func (s *Service) CreateAssetWithVersion(key string, spaceID, directoryID, autho
 	return asset, nil
 }
 
-// AppendAssetVersion appends the next version of an existing asset. The asset
-// identity — key, space, directory — is untouched. The content must already be
-// in the asset store under sha256.
+// AppendAssetVersion appends the next content version of an existing asset.
+// The asset identity — key, space, directory — is untouched. The content must
+// already be in the asset store under sha256.
 func (s *Service) AppendAssetVersion(assetID, author int32, sha256 string, sizeBytes int64) (*apigen.Asset, error) {
 	ctx := context.Background()
-	now := time.Now().UnixMilli()
 
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -284,29 +316,15 @@ func (s *Service) AppendAssetVersion(assetID, author int32, sha256 string, sizeB
 	if _, err := s.assetStoreRefBySha(ctx, sha256); err != nil {
 		return nil, err
 	}
-	a, err := s.q.GetAssetByID(ctx, int64(assetID))
-	if errors.Is(err, sql.ErrNoRows) {
+	prev, ok := s.mustLatestAssetEventLocked(ctx, assetID)
+	if !ok {
 		return nil, ErrAssetNotFound
 	}
-	if err != nil {
-		panic(fmt.Sprintf("GetAssetByID: %v", err))
-	}
-	version := erru.Must(s.q.GetNextAssetVersionNumber(ctx, a.ID))
-	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		seq := erru.Must(q.NextGlobalSeq(ctx))
-		_, err := q.InsertAssetVersion(ctx, pq.InsertAssetVersionParams{
-			AssetID:   a.ID,
-			Version:   version,
-			CreatedAt: now,
-			Author:    int64(author),
-			SizeBytes: sizeBytes,
-			Sha256:    sha256,
-			GlobalSeq: seq,
-		})
-		return err
-	}); err != nil {
-		panic(fmt.Sprintf("InsertAssetVersion: %v", err))
-	}
+	event := nextAssetEvent(prev, author, pq.EventUpdate)
+	event.ValueVersion = prev.ValueVersion + 1
+	event.SizeBytes = sql.NullInt64{Int64: sizeBytes, Valid: true}
+	event.Sha256 = sql.NullString{String: sha256, Valid: true}
+	s.appendAssetEventLocked(ctx, event)
 	asset, ok := s.GetAsset(assetID)
 	if !ok {
 		panic(fmt.Sprintf("appended asset %d not readable", assetID))
@@ -314,8 +332,9 @@ func (s *Service) AppendAssetVersion(assetID, author int32, sha256 string, sizeB
 	return asset, nil
 }
 
-// RenameAssetKey renames an asset in place. Version rows, ids, and content are
-// untouched; deployment configs keep working because they pin version row ids.
+// RenameAssetKey renames an asset as an event. Content version rows, ids, and
+// content are untouched; deployment configs keep working because they pin
+// version row ids.
 func (s *Service) RenameAssetKey(assetID int32, newKey string) (*apigen.Asset, error) {
 	if !ValidAssetKey(newKey) {
 		return nil, ErrAssetKeyInvalid
@@ -325,21 +344,17 @@ func (s *Service) RenameAssetKey(assetID int32, newKey string) (*apigen.Asset, e
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	a, err := s.q.GetAssetByID(ctx, int64(assetID))
-	if errors.Is(err, sql.ErrNoRows) {
+	prev, ok := s.mustLatestAssetEventLocked(ctx, assetID)
+	if !ok {
 		return nil, ErrAssetNotFound
 	}
-	if err != nil {
-		return nil, fmt.Errorf("load asset for rename: %w", err)
-	}
-	if a.Key != newKey {
-		if s.assetSiblingKeyTakenLocked(ctx, s.q, a.SpaceID, a.AssetDirectoryID, newKey, a.ID, 0) {
+	if prev.Key != newKey {
+		if s.assetSiblingKeyTakenLocked(ctx, s.q, prev.SpaceID, prev.AssetDirectoryID, newKey, prev.AssetID, 0) {
 			return nil, ErrAssetAlreadyExists
 		}
-		if err := s.q.RenameAssetKey(ctx, pq.RenameAssetKeyParams{Key: newKey, ID: a.ID}); err != nil {
-			return nil, fmt.Errorf("rename asset: %w", err)
-		}
-		a.Key = newKey
+		event := nextAssetEvent(prev, 0, pq.EventUpdate)
+		event.Key = newKey
+		s.appendAssetEventLocked(ctx, event)
 	}
 	asset, ok := s.GetAsset(assetID)
 	if !ok {
@@ -349,22 +364,20 @@ func (s *Service) RenameAssetKey(assetID int32, newKey string) (*apigen.Asset, e
 }
 
 // MoveAssetDirectory moves an asset to another directory (0 = the space root)
-// in its own space. Version rows, ids, and content are untouched.
+// in its own space. Content version rows, ids, and content are untouched.
 func (s *Service) MoveAssetDirectory(assetID, newDirectoryID int32) (Asset, error) {
 	ctx := context.Background()
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
-	a, err := s.q.GetAssetByID(ctx, int64(assetID))
-	if errors.Is(err, sql.ErrNoRows) {
+	prev, ok := s.mustLatestAssetEventLocked(ctx, assetID)
+	if !ok {
 		return Asset{}, ErrAssetNotFound
 	}
-	if err != nil {
-		panic(fmt.Sprintf("GetAssetByID: %v", err))
-	}
 	dirID := int64(newDirectoryID)
-	if a.AssetDirectoryID == dirID {
-		return a, nil
+	current := Asset{ID: prev.AssetID, Key: prev.Key, SpaceID: prev.SpaceID, AssetDirectoryID: prev.AssetDirectoryID, CreatedAt: prev.CreatedTime}
+	if prev.AssetDirectoryID == dirID {
+		return current, nil
 	}
 	if dirID != 0 {
 		dir, err := s.q.GetAssetDirectoryByID(ctx, dirID)
@@ -374,39 +387,37 @@ func (s *Service) MoveAssetDirectory(assetID, newDirectoryID int32) (Asset, erro
 		if err != nil {
 			panic(fmt.Sprintf("GetAssetDirectoryByID: %v", err))
 		}
-		if dir.SpaceID != a.SpaceID {
+		if dir.SpaceID != prev.SpaceID {
 			return Asset{}, ErrSpaceMoveUnsupported
 		}
 	}
-	if s.assetSiblingKeyTakenLocked(ctx, s.q, a.SpaceID, dirID, a.Key, a.ID, 0) {
+	if s.assetSiblingKeyTakenLocked(ctx, s.q, prev.SpaceID, dirID, prev.Key, prev.AssetID, 0) {
 		return Asset{}, ErrAssetAlreadyExists
 	}
-	if err := s.q.SetAssetDirectoryID(ctx, pq.SetAssetDirectoryIDParams{AssetDirectoryID: dirID, ID: a.ID}); err != nil {
-		panic(fmt.Sprintf("SetAssetDirectoryID: %v", err))
-	}
-	a.AssetDirectoryID = dirID
-	return a, nil
+	event := nextAssetEvent(prev, 0, pq.EventUpdate)
+	event.AssetDirectoryID = dirID
+	s.appendAssetEventLocked(ctx, event)
+	current.AssetDirectoryID = dirID
+	return current, nil
 }
 
 // MoveAssetSpace moves an asset to another space, landing it in
-// newDirectoryID there (0 = the destination space's root). Version rows, ids,
-// and content are untouched, so every pinned mount and reference survives.
-// A space change appends to the asset_spaces log with author as the acting
-// user. Reference locality is the caller's law — the handler refuses the move
-// while anything outside the destination space references the asset.
+// newDirectoryID there (0 = the destination space's root). Content version
+// rows, ids, and content are untouched, so every pinned mount and reference
+// survives. A space change bumps the space facet with author as the acting
+// user; a directory-only call appends no space history. Reference locality is
+// the caller's law — the handler refuses the move while anything outside the
+// destination space references the asset.
 func (s *Service) MoveAssetSpaceLocked(assetID, newSpaceID, newDirectoryID, author int32) error {
 	ctx := context.Background()
 
-	a, err := s.q.GetAssetByID(ctx, int64(assetID))
-	if errors.Is(err, sql.ErrNoRows) {
+	prev, ok := s.mustLatestAssetEventLocked(ctx, assetID)
+	if !ok {
 		return ErrAssetNotFound
-	}
-	if err != nil {
-		panic(fmt.Sprintf("GetAssetByID: %v", err))
 	}
 	spaceID := int64(normalizedUserSpaceID(newSpaceID))
 	dirID := int64(newDirectoryID)
-	if spaceID == a.SpaceID && dirID == a.AssetDirectoryID {
+	if spaceID == prev.SpaceID && dirID == prev.AssetDirectoryID {
 		return nil
 	}
 	if dirID != 0 {
@@ -423,37 +434,27 @@ func (s *Service) MoveAssetSpaceLocked(assetID, newSpaceID, newDirectoryID, auth
 			return ErrDirectoryNotFound
 		}
 	}
-	if s.assetSiblingKeyTakenLocked(ctx, s.q, spaceID, dirID, a.Key, a.ID, 0) {
+	if s.assetSiblingKeyTakenLocked(ctx, s.q, spaceID, dirID, prev.Key, prev.AssetID, 0) {
 		return ErrAssetAlreadyExists
 	}
-	if err := s.q.Tx(ctx, func(q *pq.Queries) error {
-		if spaceID != a.SpaceID {
-			seq := erru.Must(q.NextGlobalSeq(ctx))
-			if err := q.InsertAssetSpaceRow(ctx, pq.InsertAssetSpaceRowParams{
-				AssetID:   a.ID,
-				Author:    int64(author),
-				CreatedAt: time.Now().UnixMilli(),
-				SpaceID:   spaceID,
-				GlobalSeq: seq,
-			}); err != nil {
-				return err
-			}
-		}
-		return q.SetAssetDirectoryID(ctx, pq.SetAssetDirectoryIDParams{AssetDirectoryID: dirID, ID: a.ID})
-	}); err != nil {
-		panic(fmt.Sprintf("asset space move tx: %v", err))
+	event := nextAssetEvent(prev, author, pq.EventUpdate)
+	event.AssetDirectoryID = dirID
+	if spaceID != prev.SpaceID {
+		event.SpaceID = spaceID
+		event.SpaceVersion = prev.SpaceVersion + 1
 	}
+	s.appendAssetEventLocked(ctx, event)
 	return nil
 }
 
-// DeleteAsset soft-deletes the asset identity. Version rows, space history,
-// and content stay in place, so the delete is recoverable at the DB level;
-// reads exclude the asset from here on.
+// DeleteAsset appends the terminal delete event. Content version rows, space
+// history, and content stay in the log, so pinned references keep resolving;
+// current-state reads exclude the asset from here on and the key is freed.
 func (s *Service) DeleteAssetLocked(assetID int32) {
-	if err := s.q.SoftDeleteAssetRow(context.Background(), pq.SoftDeleteAssetRowParams{
-		DeletedAt: time.Now().UnixMilli(),
-		ID:        int64(assetID),
-	}); err != nil {
-		panic(fmt.Sprintf("SoftDeleteAssetRow: %v", err))
+	ctx := context.Background()
+	prev, ok := s.mustLatestAssetEventLocked(ctx, assetID)
+	if !ok {
+		return
 	}
+	s.appendAssetEventLocked(ctx, nextAssetEvent(prev, 0, pq.EventDelete))
 }

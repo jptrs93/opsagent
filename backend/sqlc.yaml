@@ -17,7 +17,6 @@ sql:
         package: "pq"
         out: "storage/primarydb/pq"
         rename:
-          node: NodeRow
           deployment_event_log: DeploymentEvent
           scheduled_instance_event_log: ScheduledInstanceEvent
   - engine: "sqlite"

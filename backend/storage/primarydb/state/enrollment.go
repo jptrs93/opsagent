@@ -42,7 +42,7 @@ func (s *Service) MustUpsertEnrollmentRequest(remoteAddress, requestingMachineID
 		} else if err != nil {
 			return err
 		} else if !isMemberStatus(apigen.NodeLifecycleStatus(row.Status)) {
-			row, _, err = appendNodeVersion(ctx, q, row, 0, func(spec *nodeVersionSpec) {
+			row, _, err = appendNodeVersion(ctx, q, row, 0, func(spec *nodeEventSpec) {
 				spec.Status = apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED
 				spec.RolesJSON = nodeRolesJSON([]int32{NodeRoleSecondary})
 				spec.AddressesJSON = nodeAddressesJSON([]string{underlayAddress})
@@ -155,14 +155,18 @@ func (s *Service) AcceptEnrollmentRequest(id int32, nodeName, requestingMachineI
 		if current.Identifier != requestingMachineID || current.Version != expectedVersion {
 			return ErrEnrollmentRequestChanged
 		}
-		if err := q.UpdateNodeAccepted(ctx, nodeName, now, int64(id)); err != nil {
-			return err
-		}
-		current, err = q.GetNodeRowByID(ctx, int64(id))
+		taken, err := q.CountNodesWithName(ctx, nodeName, int64(id))
 		if err != nil {
 			return err
 		}
-		row, _, err = appendNodeVersion(ctx, q, current, 0, func(spec *nodeVersionSpec) {
+		if taken > 0 {
+			return ErrDuplicateNodeName
+		}
+		row, _, err = appendNodeVersion(ctx, q, current, 0, func(spec *nodeEventSpec) {
+			spec.Name = nodeName
+			if spec.EnrolledTime == 0 {
+				spec.EnrolledTime = now
+			}
 			spec.Status = apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL
 			spec.RolesJSON = nodeRolesJSON([]int32{NodeRoleSecondary})
 			spec.AddressesJSON = nodeAddressesJSON([]string{underlayAddress})

@@ -2,20 +2,24 @@
 
 ## Overview
 
-A secret is a **stable identity** — `secrets.id`, with a name, space, and
-directory — whose encrypted content lives in immutable numbered
-**version rows** (`secret_versions.id`). Setting a secret appends the next
-version (`v1`, `v2`, ...) with a new version row id; the identity id survives
-renames, moves, and rotations and is what the write API targets. Deployment
+A secret is a **stable identity** — `secret_id`, with a name, space, and
+directory — whose state lives in the append-only `secret_event_log`, one row
+per event. Identity facets are denormalised onto every row, so the
+highest-version row is the complete current state; a row with a non-NULL
+sealed payload is an immutable numbered **value version** and its row id is
+the pinnable version id. Setting a secret appends the next value version
+(`v1`, `v2`, ...) as a new event row; the identity id survives renames,
+moves, and rotations and is what the write API targets. Deployment
 environment variables and settings pin exact versions by `secretVersionId` /
 `SecretRef.version_id`; plain user configs use the same identity + versions
-model with `configVersionId` / `ConfigRef.version_id`.
+model (`config_event_log`) with `configVersionId` / `ConfigRef.version_id`.
 
 Secrets and configs share **one file system per space**: a name must be unique
 among sibling secrets, configs, and `value_directories` under the same parent
-directory (0 = the implicit root). That law spans three tables, so it is
-enforced in Go behind the storage mutex (`valueSiblingNameTakenLocked`), never
-by a SQL constraint. Assets have their own independent per-space file system.
+directory (0 = the implicit root). That law spans both event logs and the
+directory table, so it is enforced in Go behind the storage mutex
+(`valueSiblingNameTakenLocked`), never by a SQL constraint. Assets have their
+own independent per-space file system.
 
 The directory tree is exposed over `/v1/value-directories/*` (list, create,
 move, rename, delete — delete only when empty, contents are never cascaded),
@@ -39,13 +43,13 @@ to live there, and a
 cluster-settings reference pins the value to the global space. Both the
 deployment-write check and the check-and-move run under
 `ConfigService.LockReferences()` so neither side can race the other.
-`MoveSecretSpace` / `MoveConfigSpace` append the new space to the
-`secret_spaces` / `config_spaces` log (with the acting user as `author`) and
-rewrite `value_directory_id` in one locked tx (the destination directory must
-belong to the destination space, and sibling-name uniqueness holds there);
-the newest log row is the current space, and the log preserves the full
-assignment history. Deletion is soft (`deleted_at`, `0` = live): the identity
-and version rows stay in the database but every read excludes them — the
+`MoveSecretSpace` / `MoveConfigSpace` append one event that bumps the space
+facet (with the acting user as `author`) and carries the new
+`value_directory_id` (the destination directory must belong to the
+destination space, and sibling-name uniqueness holds there); the latest event
+row is the current space, and the log preserves the full assignment history.
+Deletion is a terminal delete event (`event_type` 3): the value version rows
+stay in the log but every current-state read excludes the identity — the
 Manager's startup record load included, so a deleted secret cannot resurface
 in the cache — and the name is immediately reusable.
 Secret space moves go through `Manager.MoveSpace`, which also fixes the
@@ -111,8 +115,8 @@ silently widened length would go unnoticed. `/v1/secrets/generate` carries its
 own rate limit in `run.go`, because a retry loop here writes rows nothing ever
 collects and produces no visible error.
 
-The **store** is primary-only: the `secrets` table, the SMK and its keyslots live
-on the primary and are never replicated. A secondary receives only the plaintext
+The **store** is primary-only: the `secret_event_log`, the SMK and its keyslots
+live on the primary and are never replicated. A secondary receives only the plaintext
 values its own deployments reference, and keeps them under a machine key of its
 own — see "Local runtime input persistence" below.
 
@@ -127,12 +131,12 @@ Key files:
 - `backend/lib/localinputs/localinputs.go` — a secondary's encrypted at-rest
   copy of the runtime inputs it needs.
 - `backend/storage/primarydb/state/secrets_store.go` — `secrets.Store` on the primary
-  `StorageAdapter` (`secret_keyslots`, `secrets`, `secret_versions`, and
+  `StorageAdapter` (`secret_keyslots`, `secret_event_log`, and
   `system_secrets` tables, plus the wire `Secret` builders). Sealing happens
   through a `secrets.SealFunc` callback inside the write transaction, because
   the id-and-version AAD needs the identity id before the ciphertext can exist.
 - `backend/storage/primarydb/state/values.go` — the shared secrets/configs namespace
-  law: `ValidValueName` and the three-table sibling-uniqueness check.
+  law: `ValidValueName` and the cross-log sibling-uniqueness check.
 - `backend/lib/engine/prepare/runtimeinputs/secrets.go` — finds typed `secretVersionId`
   / `configVersionId` refs, fetches each needed batch, validates it, and owns the
   prepared in-memory caches.
@@ -261,8 +265,8 @@ already holds everything a config references therefore makes no request at all.
 The operator injects that same `RuntimeInputs` instance into every container
 runner. At process spawn time (`backend/lib/engine/runner/secrets.go`),
 `EnvVarValue` entries with `secretVersionId` or `configVersionId` are expanded from its
-prepared in-memory caches. Plain `configs` values are not encrypted at rest in
-the primary's own `configs` table (a secondary's local copies are, because it
+prepared in-memory caches. Plain config values are not encrypted at rest in
+the primary's own `config_event_log` (a secondary's local copies are, because it
 seals every runtime input the same way). Unknown references, locked secrets,
 missing primary connectivity during prepare with no local copy, or no prepared
 value on the node are **fail-closed** errors.

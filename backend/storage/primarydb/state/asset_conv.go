@@ -8,13 +8,17 @@ import (
 )
 
 // assetFromParts builds the wire shape: identity at the root, the space and
-// content logs newest first. spaces and versions must be oldest first (query
+// content logs newest first. events and versions must be oldest first (query
 // order); versions must be non-empty — an asset with no version is never
-// surfaced.
-func assetFromParts(a Asset, spaces []pq.AssetSpace, versions []pq.AssetVersionJoined) *apigen.Asset {
-	svs := make([]*apigen.AssetSpaceVersion, 0, len(spaces))
-	for i := len(spaces) - 1; i >= 0; i-- {
-		svs = append(svs, assetSpaceVersionFromRow(spaces[i]))
+// surfaced. Space entries are recovered from the events whose space facet
+// bumps; the first event carries the initial assignment.
+func assetFromParts(a Asset, events []pq.AssetEvent, versions []pq.AssetVersionJoined) *apigen.Asset {
+	svs := []*apigen.AssetSpaceVersion{}
+	for i := len(events) - 1; i >= 0; i-- {
+		if i > 0 && events[i].SpaceVersion == events[i-1].SpaceVersion {
+			continue
+		}
+		svs = append(svs, assetSpaceVersionFromEvent(events[i]))
 	}
 	cvs := make([]*apigen.AssetContentVersion, 0, len(versions))
 	for i := len(versions) - 1; i >= 0; i-- {
@@ -31,13 +35,13 @@ func assetFromParts(a Asset, spaces []pq.AssetSpace, versions []pq.AssetVersionJ
 	}
 }
 
-func assetSpaceVersionFromRow(r pq.AssetSpace) *apigen.AssetSpaceVersion {
+func assetSpaceVersionFromEvent(e pq.AssetEvent) *apigen.AssetSpaceVersion {
 	return &apigen.AssetSpaceVersion{
-		ID:        int32(r.ID),
-		CreatedAt: time.UnixMilli(r.CreatedAt),
-		Author:    int32(r.Author),
-		SpaceID:   int32(r.SpaceID),
-		GlobalSeq: r.GlobalSeq,
+		ID:        int32(e.ID),
+		CreatedAt: time.UnixMilli(e.EventTime),
+		Author:    int32(e.Author),
+		SpaceID:   int32(e.SpaceID),
+		GlobalSeq: e.GlobalSeq,
 	}
 }
 

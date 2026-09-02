@@ -2,14 +2,17 @@ package pq
 
 import (
 	"context"
+	"database/sql"
 )
 
-// Hand-written secret/config container reads. A container's current space is
-// the newest row of its append-only *_spaces log — creation writes the first
-// row in the same tx, so the join always finds one. Reads exclude soft-deleted
-// rows (deleted_at != 0).
+// Hand-written secret/config reads and writes. Each entity's state lives
+// entirely in its event log: identity facets (name, directory, space) are
+// denormalised onto every row, the highest-version row is the current state
+// (event_type is the deletion truth), and a row with a non-NULL value payload
+// is a pinnable value version. Pinned value reads deliberately do not filter
+// deleted identities; current-state reads do.
 
-// SecretRow is a live secret identity with its current space.
+// SecretRow is a live secret identity with its current facets.
 type SecretRow struct {
 	ID               int64
 	Name             string
@@ -18,7 +21,7 @@ type SecretRow struct {
 	CreatedAt        int64
 }
 
-// ConfigRow is a live config identity with its current space.
+// ConfigRow is a live config identity with its current facets.
 type ConfigRow struct {
 	ID               int64
 	Name             string
@@ -27,18 +30,224 @@ type ConfigRow struct {
 	CreatedAt        int64
 }
 
-const secretSpaceExpr = `(SELECT sp.space_id FROM secret_spaces sp WHERE sp.secret_id = s.id ORDER BY sp.id DESC LIMIT 1)`
+type ConfigEvent struct {
+	ID               int64
+	GlobalSeq        int64
+	EventTime        int64
+	CreatedTime      int64
+	Author           int64
+	ConfigID         int64
+	Version          int64
+	ValueVersion     int64
+	SpaceVersion     int64
+	Name             string
+	ValueDirectoryID int64
+	SpaceID          int64
+	Value            sql.NullString
+	EventType        int64
+}
 
-const secretRowSelect = `SELECT s.id, s.name, ` + secretSpaceExpr + `, s.value_directory_id, s.created_at
-FROM secrets s`
+type SecretEventMeta struct {
+	ID               int64
+	GlobalSeq        int64
+	EventTime        int64
+	CreatedTime      int64
+	Author           int64
+	SecretID         int64
+	Version          int64
+	ValueVersion     int64
+	SpaceVersion     int64
+	Name             string
+	ValueDirectoryID int64
+	SpaceID          int64
+	HasValue         bool
+	EventType        int64
+}
 
-const configSpaceExpr = `(SELECT sp.space_id FROM config_spaces sp WHERE sp.config_id = c.id ORDER BY sp.id DESC LIMIT 1)`
+type InsertSecretEventParams struct {
+	GlobalSeq        int64
+	EventTime        int64
+	CreatedTime      int64
+	Author           int64
+	SecretID         int64
+	Version          int64
+	ValueVersion     int64
+	SpaceVersion     int64
+	Name             string
+	ValueDirectoryID int64
+	SpaceID          int64
+	SmkVersion       sql.NullInt64
+	Ciphertext       []byte
+	Nonce            []byte
+	EventType        int64
+}
 
-const configRowSelect = `SELECT c.id, c.name, ` + configSpaceExpr + `, c.value_directory_id, c.created_at
-FROM configs c`
+const configEventColumns = `e.id, e.global_seq, e.event_time, e.created_time, e.author,
+	e.config_id, e.version, e.value_version, e.space_version,
+	e.name, e.value_directory_id, e.space_id, e.value, e.event_type`
+
+func scanConfigEvent(scan func(dest ...any) error) (ConfigEvent, error) {
+	var e ConfigEvent
+	err := scan(&e.ID, &e.GlobalSeq, &e.EventTime, &e.CreatedTime, &e.Author,
+		&e.ConfigID, &e.Version, &e.ValueVersion, &e.SpaceVersion,
+		&e.Name, &e.ValueDirectoryID, &e.SpaceID, &e.Value, &e.EventType)
+	return e, err
+}
+
+const secretEventMetaColumns = `e.id, e.global_seq, e.event_time, e.created_time, e.author,
+	e.secret_id, e.version, e.value_version, e.space_version,
+	e.name, e.value_directory_id, e.space_id, e.ciphertext IS NOT NULL, e.event_type`
+
+func scanSecretEventMeta(scan func(dest ...any) error) (SecretEventMeta, error) {
+	var e SecretEventMeta
+	err := scan(&e.ID, &e.GlobalSeq, &e.EventTime, &e.CreatedTime, &e.Author,
+		&e.SecretID, &e.Version, &e.ValueVersion, &e.SpaceVersion,
+		&e.Name, &e.ValueDirectoryID, &e.SpaceID, &e.HasValue, &e.EventType)
+	return e, err
+}
+
+const secretLatestJoin = `JOIN (SELECT secret_id, MAX(version) AS version
+	      FROM secret_event_log GROUP BY secret_id) latest
+	  ON latest.secret_id = e.secret_id AND latest.version = e.version`
+
+const configLatestJoin = `JOIN (SELECT config_id, MAX(version) AS version
+	      FROM config_event_log GROUP BY config_id) latest
+	  ON latest.config_id = e.config_id AND latest.version = e.version`
+
+const secretRowSelect = `SELECT e.secret_id, e.name, e.space_id, e.value_directory_id, e.created_time
+	FROM secret_event_log e
+	` + secretLatestJoin + `
+	WHERE e.event_type != 3`
+
+const configRowSelect = `SELECT e.config_id, e.name, e.space_id, e.value_directory_id, e.created_time
+	FROM config_event_log e
+	` + configLatestJoin + `
+	WHERE e.event_type != 3`
+
+func (q *Queries) NextConfigID(ctx context.Context) (int64, error) {
+	var id int64
+	err := q.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(config_id), 0) + 1 FROM config_event_log`).Scan(&id)
+	return id, err
+}
+
+func (q *Queries) NextSecretID(ctx context.Context) (int64, error) {
+	var id int64
+	err := q.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(secret_id), 0) + 1 FROM secret_event_log`).Scan(&id)
+	return id, err
+}
+
+func (q *Queries) GetLatestConfigEvent(ctx context.Context, configID int64) (ConfigEvent, error) {
+	return scanConfigEvent(q.db.QueryRowContext(ctx, `
+		SELECT `+configEventColumns+`
+		FROM config_event_log e
+		WHERE e.config_id = ?
+		ORDER BY e.version DESC LIMIT 1`, configID).Scan)
+}
+
+func (q *Queries) GetLatestSecretEventMeta(ctx context.Context, secretID int64) (SecretEventMeta, error) {
+	return scanSecretEventMeta(q.db.QueryRowContext(ctx, `
+		SELECT `+secretEventMetaColumns+`
+		FROM secret_event_log e
+		WHERE e.secret_id = ?
+		ORDER BY e.version DESC LIMIT 1`, secretID).Scan)
+}
+
+func (q *Queries) InsertConfigEvent(ctx context.Context, e ConfigEvent) (int64, error) {
+	var id int64
+	err := q.db.QueryRowContext(ctx, `
+		INSERT INTO config_event_log (
+			global_seq, event_time, created_time, author, config_id, version,
+			value_version, space_version, name, value_directory_id, space_id,
+			value, event_type
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		RETURNING id`,
+		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.ConfigID, e.Version,
+		e.ValueVersion, e.SpaceVersion, e.Name, e.ValueDirectoryID, e.SpaceID,
+		e.Value, e.EventType).Scan(&id)
+	return id, err
+}
+
+func (q *Queries) InsertSecretEvent(ctx context.Context, e InsertSecretEventParams) (int64, error) {
+	var id int64
+	err := q.db.QueryRowContext(ctx, `
+		INSERT INTO secret_event_log (
+			global_seq, event_time, created_time, author, secret_id, version,
+			value_version, space_version, name, value_directory_id, space_id,
+			smk_version, ciphertext, nonce, event_type
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		RETURNING id`,
+		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.SecretID, e.Version,
+		e.ValueVersion, e.SpaceVersion, e.Name, e.ValueDirectoryID, e.SpaceID,
+		e.SmkVersion, e.Ciphertext, e.Nonce, e.EventType).Scan(&id)
+	return id, err
+}
+
+func (q *Queries) listConfigEvents(ctx context.Context, query string, args ...any) ([]ConfigEvent, error) {
+	rows, err := q.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ConfigEvent{}
+	for rows.Next() {
+		e, err := scanConfigEvent(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func (q *Queries) ListConfigEvents(ctx context.Context, configID int64) ([]ConfigEvent, error) {
+	return q.listConfigEvents(ctx, `
+		SELECT `+configEventColumns+`
+		FROM config_event_log e
+		WHERE e.config_id = ?
+		ORDER BY e.version`, configID)
+}
+
+func (q *Queries) ListAllConfigEvents(ctx context.Context) ([]ConfigEvent, error) {
+	return q.listConfigEvents(ctx, `
+		SELECT `+configEventColumns+`
+		FROM config_event_log e
+		ORDER BY e.config_id, e.version`)
+}
+
+func (q *Queries) listSecretEventMetas(ctx context.Context, query string, args ...any) ([]SecretEventMeta, error) {
+	rows, err := q.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SecretEventMeta{}
+	for rows.Next() {
+		e, err := scanSecretEventMeta(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func (q *Queries) ListSecretEventMetas(ctx context.Context, secretID int64) ([]SecretEventMeta, error) {
+	return q.listSecretEventMetas(ctx, `
+		SELECT `+secretEventMetaColumns+`
+		FROM secret_event_log e
+		WHERE e.secret_id = ?
+		ORDER BY e.version`, secretID)
+}
+
+func (q *Queries) ListAllSecretEventMetas(ctx context.Context) ([]SecretEventMeta, error) {
+	return q.listSecretEventMetas(ctx, `
+		SELECT `+secretEventMetaColumns+`
+		FROM secret_event_log e
+		ORDER BY e.secret_id, e.version`)
+}
 
 func (q *Queries) ListSecretRows(ctx context.Context) ([]SecretRow, error) {
-	rows, err := q.db.QueryContext(ctx, secretRowSelect+` WHERE s.deleted_at = 0 ORDER BY s.name`)
+	rows, err := q.db.QueryContext(ctx, secretRowSelect+` ORDER BY e.name`)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +265,7 @@ func (q *Queries) ListSecretRows(ctx context.Context) ([]SecretRow, error) {
 
 func (q *Queries) GetSecretRowByID(ctx context.Context, id int64) (SecretRow, error) {
 	var r SecretRow
-	err := q.db.QueryRowContext(ctx, secretRowSelect+` WHERE s.id = ? AND s.deleted_at = 0`, id).
+	err := q.db.QueryRowContext(ctx, secretRowSelect+` AND e.secret_id = ?`, id).
 		Scan(&r.ID, &r.Name, &r.SpaceID, &r.ValueDirectoryID, &r.CreatedAt)
 	return r, err
 }
@@ -70,7 +279,7 @@ type GetSecretInDirectoryByNameParams struct {
 func (q *Queries) GetSecretInDirectoryByName(ctx context.Context, arg GetSecretInDirectoryByNameParams) (SecretRow, error) {
 	var r SecretRow
 	err := q.db.QueryRowContext(ctx, secretRowSelect+
-		` WHERE s.deleted_at = 0 AND s.value_directory_id = ? AND s.name = ? AND `+secretSpaceExpr+` = ?`,
+		` AND e.value_directory_id = ? AND e.name = ? AND e.space_id = ?`,
 		arg.ValueDirectoryID, arg.Name, arg.SpaceID).
 		Scan(&r.ID, &r.Name, &r.SpaceID, &r.ValueDirectoryID, &r.CreatedAt)
 	return r, err
@@ -85,14 +294,21 @@ type CountSecretSiblingsWithNameParams struct {
 
 func (q *Queries) CountSecretSiblingsWithName(ctx context.Context, arg CountSecretSiblingsWithNameParams) (int64, error) {
 	var n int64
-	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM secrets s
-WHERE s.deleted_at = 0 AND s.value_directory_id = ? AND s.name = ? AND s.id != ? AND `+secretSpaceExpr+` = ?`,
+	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (`+secretRowSelect+
+		` AND e.value_directory_id = ? AND e.name = ? AND e.secret_id != ? AND e.space_id = ?)`,
 		arg.ValueDirectoryID, arg.Name, arg.ID, arg.SpaceID).Scan(&n)
 	return n, err
 }
 
+func (q *Queries) CountSecretsInDirectory(ctx context.Context, directoryID int64) (int64, error) {
+	var n int64
+	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (`+secretRowSelect+
+		` AND e.value_directory_id = ?)`, directoryID).Scan(&n)
+	return n, err
+}
+
 func (q *Queries) ListConfigRows(ctx context.Context) ([]ConfigRow, error) {
-	rows, err := q.db.QueryContext(ctx, configRowSelect+` WHERE c.deleted_at = 0 ORDER BY c.name`)
+	rows, err := q.db.QueryContext(ctx, configRowSelect+` ORDER BY e.name`)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +326,7 @@ func (q *Queries) ListConfigRows(ctx context.Context) ([]ConfigRow, error) {
 
 func (q *Queries) GetConfigRowByID(ctx context.Context, id int64) (ConfigRow, error) {
 	var r ConfigRow
-	err := q.db.QueryRowContext(ctx, configRowSelect+` WHERE c.id = ? AND c.deleted_at = 0`, id).
+	err := q.db.QueryRowContext(ctx, configRowSelect+` AND e.config_id = ?`, id).
 		Scan(&r.ID, &r.Name, &r.SpaceID, &r.ValueDirectoryID, &r.CreatedAt)
 	return r, err
 }
@@ -124,7 +340,7 @@ type GetConfigInDirectoryByNameParams struct {
 func (q *Queries) GetConfigInDirectoryByName(ctx context.Context, arg GetConfigInDirectoryByNameParams) (ConfigRow, error) {
 	var r ConfigRow
 	err := q.db.QueryRowContext(ctx, configRowSelect+
-		` WHERE c.deleted_at = 0 AND c.value_directory_id = ? AND c.name = ? AND `+configSpaceExpr+` = ?`,
+		` AND e.value_directory_id = ? AND e.name = ? AND e.space_id = ?`,
 		arg.ValueDirectoryID, arg.Name, arg.SpaceID).
 		Scan(&r.ID, &r.Name, &r.SpaceID, &r.ValueDirectoryID, &r.CreatedAt)
 	return r, err
@@ -139,14 +355,53 @@ type CountConfigSiblingsWithNameParams struct {
 
 func (q *Queries) CountConfigSiblingsWithName(ctx context.Context, arg CountConfigSiblingsWithNameParams) (int64, error) {
 	var n int64
-	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM configs c
-WHERE c.deleted_at = 0 AND c.value_directory_id = ? AND c.name = ? AND c.id != ? AND `+configSpaceExpr+` = ?`,
+	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (`+configRowSelect+
+		` AND e.value_directory_id = ? AND e.name = ? AND e.config_id != ? AND e.space_id = ?)`,
 		arg.ValueDirectoryID, arg.Name, arg.ID, arg.SpaceID).Scan(&n)
 	return n, err
 }
 
-// ConfigVersionJoinedRow is one spec version row joined with its identity.
-// Pinned version reads stay resolvable for soft-deleted configs.
+func (q *Queries) CountConfigsInDirectory(ctx context.Context, directoryID int64) (int64, error) {
+	var n int64
+	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (`+configRowSelect+
+		` AND e.value_directory_id = ?)`, directoryID).Scan(&n)
+	return n, err
+}
+
+func (q *Queries) ListConfigVersionIDsByConfigID(ctx context.Context, configID int64) ([]int64, error) {
+	return q.listInt64s(ctx, `
+		SELECT id FROM config_event_log
+		WHERE config_id = ? AND value IS NOT NULL
+		ORDER BY value_version`, configID)
+}
+
+func (q *Queries) ListSecretVersionIDsBySecretID(ctx context.Context, secretID int64) ([]int64, error) {
+	return q.listInt64s(ctx, `
+		SELECT id FROM secret_event_log
+		WHERE secret_id = ? AND ciphertext IS NOT NULL
+		ORDER BY value_version`, secretID)
+}
+
+func (q *Queries) listInt64s(ctx context.Context, query string, args ...any) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// ConfigVersionJoinedRow is one pinned value version row overlaid with the
+// identity's current name and space. Pinned version reads stay resolvable for
+// soft-deleted configs.
 type ConfigVersionJoinedRow struct {
 	ID        int64
 	ConfigID  int64
@@ -160,17 +415,21 @@ type ConfigVersionJoinedRow struct {
 
 func (q *Queries) GetConfigVersionByID(ctx context.Context, id int64) (ConfigVersionJoinedRow, error) {
 	var r ConfigVersionJoinedRow
-	err := q.db.QueryRowContext(ctx, `SELECT v.id, v.config_id, v.version, v.value, v.created_at, v.author, c.name, `+configSpaceExpr+`
-FROM config_versions v
-JOIN configs c ON c.id = v.config_id
-WHERE v.id = ?`, id).
+	err := q.db.QueryRowContext(ctx, `
+SELECT v.id, v.config_id, v.value_version, v.value, v.event_time, v.author, c.name, c.space_id
+FROM config_event_log v
+JOIN config_event_log c
+  ON c.config_id = v.config_id
+ AND c.version = (SELECT MAX(version) FROM config_event_log WHERE config_id = v.config_id)
+WHERE v.id = ? AND v.value IS NOT NULL`, id).
 		Scan(&r.ID, &r.ConfigID, &r.Version, &r.Value, &r.CreatedAt, &r.Author, &r.Name, &r.SpaceID)
 	return r, err
 }
 
-// SecretVersionRecordRow is one sealed secret version joined with its
-// identity. Soft-deleted secrets are excluded — deletion drops them from the
-// Manager cache, and the startup load must not resurrect them.
+// SecretVersionRecordRow is one sealed value version overlaid with the
+// identity's current name and space. Soft-deleted secrets are excluded —
+// deletion drops them from the Manager cache, and the startup load must not
+// resurrect them.
 type SecretVersionRecordRow struct {
 	ID         int64
 	SecretID   int64
@@ -185,12 +444,13 @@ type SecretVersionRecordRow struct {
 }
 
 func (q *Queries) ListSecretVersionRecords(ctx context.Context) ([]SecretVersionRecordRow, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT v.id, v.secret_id, v.version, v.smk_version, v.ciphertext, v.nonce, v.created_at, v.author,
-       s.name, `+secretSpaceExpr+`
-FROM secret_versions v
-JOIN secrets s ON s.id = v.secret_id
-WHERE s.deleted_at = 0
-ORDER BY v.secret_id, v.version`)
+	rows, err := q.db.QueryContext(ctx, `
+SELECT v.id, v.secret_id, v.value_version, v.smk_version, v.ciphertext, v.nonce, v.event_time, v.author,
+       l.name, l.space_id
+FROM secret_event_log v
+JOIN (`+secretRowSelect+`) l ON l.secret_id = v.secret_id
+WHERE v.ciphertext IS NOT NULL
+ORDER BY v.secret_id, v.value_version`)
 	if err != nil {
 		return nil, err
 	}

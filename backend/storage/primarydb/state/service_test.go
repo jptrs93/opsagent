@@ -272,19 +272,15 @@ func TestEnsurePrimaryNodeUsesCertificateIdentifier(t *testing.T) {
 	store := Open(dbPath)
 	defer store.Close()
 	seedDB := sqlitedb.MustOpen(dbPath)
-	for _, seed := range []struct{ name, roles string }{
+	for i, seed := range []struct{ name, roles string }{
 		{"coflip-prod", "[1]"},
 		{"primary", "[0]"},
 	} {
 		if _, err := seedDB.Exec(`
-			INSERT INTO nodes (created_at, enrolled_at, name, identifier)
-			VALUES (0, 0, ?1, ?1)`, seed.name); err != nil {
+			INSERT INTO node_event_log (global_seq, event_time, created_time, author, node_id, version,
+				name, identifier, enrolled_time, status, roles, addresses, wg_public_key, allowed_spaces, event_type)
+			VALUES (0, 0, 0, 0, ?1, 1, ?2, ?2, 0, 4, ?3, '[]', '', '[0]', 1)`, i+1, seed.name, seed.roles); err != nil {
 			t.Fatalf("seed node %s: %v", seed.name, err)
-		}
-		if _, err := seedDB.Exec(`
-			INSERT INTO node_versions (node_id, version, created_at, status, roles, addresses, wg_public_key, allowed_spaces, global_seq)
-			SELECT id, 1, 0, 4, ?2, '[]', '', '[0]', 0 FROM nodes WHERE identifier = ?1`, seed.name, seed.roles); err != nil {
-			t.Fatalf("seed node version %s: %v", seed.name, err)
 		}
 	}
 	if err := seedDB.Close(); err != nil {
@@ -374,7 +370,7 @@ func TestSetNodeWGPublicKeyIsDiffGatedAndVersioned(t *testing.T) {
 		t.Fatalf("seq after change = %d, want %d", seq, afterSet+1)
 	}
 
-	versions, err := store.q.ListNodeVersionRows(context.Background(), int64(node.ID))
+	versions, err := store.q.ListNodeEvents(context.Background(), int64(node.ID))
 	if err != nil {
 		t.Fatalf("querying node versions: %v", err)
 	}

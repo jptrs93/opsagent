@@ -1,20 +1,22 @@
 -- Global network override policies; see
--- docs/future-work/network-policy-implementation-plan.md. Content lives in the
--- version log; the identity row carries only soft deletion. Ids are never
--- recycled: a rule referencing a deleted entity compiles to vacant prefixes.
+-- docs/future-work/network-policy-implementation-plan.md. One append-only
+-- event log per policy: every row carries the full content blob (delete rows
+-- carry the last content), the highest-version row is the current state, and
+-- event_type is the deletion truth. Policy ids are allocated as
+-- MAX(policy_id)+1 under the service mutex; the log is never pruned, so ids
+-- are never recycled: a rule referencing a deleted entity compiles to vacant
+-- prefixes. Every event advances the global sequence in the same tx because
+-- policies are cluster network map render inputs.
 
-CREATE TABLE IF NOT EXISTS network_policies (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    deleted_at INTEGER NOT NULL DEFAULT 0  -- epoch ms, 0 = not deleted
-);
-
-CREATE TABLE IF NOT EXISTS network_policy_versions (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    policy_id  INTEGER NOT NULL,
-    version    INTEGER NOT NULL,
-    created_at INTEGER NOT NULL,             -- epoch ms
-    author     INTEGER NOT NULL DEFAULT 0,   -- user id
-    data_blob  BLOB    NOT NULL,
-    global_seq INTEGER NOT NULL DEFAULT 0,
+CREATE TABLE IF NOT EXISTS network_policy_event_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    global_seq   INTEGER NOT NULL,
+    event_time   INTEGER NOT NULL,  -- epoch ms
+    created_time INTEGER NOT NULL,  -- epoch ms, first event's event_time
+    author       INTEGER NOT NULL,
+    policy_id    INTEGER NOT NULL,
+    version      INTEGER NOT NULL,  -- top-level: bumps on every event
+    data_blob    BLOB    NOT NULL,
+    event_type   INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
     UNIQUE (policy_id, version)
 );

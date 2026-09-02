@@ -21,18 +21,20 @@ func TestSpaceAssignmentHistory(t *testing.T) {
 	if err := store.MoveAssetSpaceLocked(v.ID, 2, 0, 9); err != nil {
 		t.Fatalf("repeat asset space move: %v", err)
 	}
-	rows, err := store.q.ListAssetSpaceRowsByAssetID(t.Context(), int64(v.ID))
-	if err != nil {
-		t.Fatal(err)
+	moved, ok := store.GetAsset(v.ID)
+	if !ok {
+		t.Fatal("asset not found after move")
 	}
-	if len(rows) != 2 {
-		t.Fatalf("asset space log rows = %d, want 2", len(rows))
+	if len(moved.SpaceVersions) != 2 {
+		t.Fatalf("asset space log rows = %d, want 2", len(moved.SpaceVersions))
 	}
-	if rows[0].SpaceID != int64(DefaultSpaceID) || rows[0].Author != 5 {
-		t.Fatalf("initial assignment = space %d author %d, want space %d author 5", rows[0].SpaceID, rows[0].Author, DefaultSpaceID)
+	if moved.SpaceVersions[1].SpaceID != DefaultSpaceID || moved.SpaceVersions[1].Author != 5 {
+		t.Fatalf("initial assignment = space %d author %d, want space %d author 5",
+			moved.SpaceVersions[1].SpaceID, moved.SpaceVersions[1].Author, DefaultSpaceID)
 	}
-	if rows[1].SpaceID != 2 || rows[1].Author != 9 {
-		t.Fatalf("move row = space %d author %d, want space 2 author 9", rows[1].SpaceID, rows[1].Author)
+	if moved.SpaceVersions[0].SpaceID != 2 || moved.SpaceVersions[0].Author != 9 {
+		t.Fatalf("move row = space %d author %d, want space 2 author 9",
+			moved.SpaceVersions[0].SpaceID, moved.SpaceVersions[0].Author)
 	}
 	if a, ok := store.GetAssetRow(v.ID); !ok || a.SpaceID != 2 {
 		t.Fatalf("asset row after move = %+v ok=%v, want current space 2", a, ok)
@@ -45,12 +47,14 @@ func TestSpaceAssignmentHistory(t *testing.T) {
 	if err := store.MoveSecretSpaceLocked(sec.SecretID, 2, 0, 9); err != nil {
 		t.Fatalf("move secret space: %v", err)
 	}
-	secRows, err := store.q.ListSecretSpaceRowsBySecretID(t.Context(), int64(sec.SecretID))
-	if err != nil {
-		t.Fatal(err)
+	movedSec, ok := store.GetSecret(sec.SecretID)
+	if !ok {
+		t.Fatal("secret not found after move")
 	}
-	if len(secRows) != 2 || secRows[0].SpaceID != int64(DefaultSpaceID) || secRows[0].Author != 5 || secRows[1].SpaceID != 2 || secRows[1].Author != 9 {
-		t.Fatalf("secret space log = %+v, want initial space %d author 5 then space 2 author 9", secRows, DefaultSpaceID)
+	if len(movedSec.SpaceVersions) != 2 ||
+		movedSec.SpaceVersions[1].SpaceID != DefaultSpaceID || movedSec.SpaceVersions[1].Author != 5 ||
+		movedSec.SpaceVersions[0].SpaceID != 2 || movedSec.SpaceVersions[0].Author != 9 {
+		t.Fatalf("secret space log = %+v, want initial space %d author 5 then space 2 author 9", movedSec.SpaceVersions, DefaultSpaceID)
 	}
 
 	cfg, err := store.CreateConfigWithVersion("mode", DefaultSpaceID, 0, 5, "on")
@@ -60,12 +64,14 @@ func TestSpaceAssignmentHistory(t *testing.T) {
 	if err := store.MoveConfigSpaceLocked(cfg.ID, 2, 0, 9); err != nil {
 		t.Fatalf("move config space: %v", err)
 	}
-	cfgRows, err := store.q.ListConfigSpaceRowsByConfigID(t.Context(), int64(cfg.ID))
-	if err != nil {
-		t.Fatal(err)
+	movedCfg, ok := store.GetConfig(cfg.ID)
+	if !ok {
+		t.Fatal("config not found after move")
 	}
-	if len(cfgRows) != 2 || cfgRows[0].SpaceID != int64(DefaultSpaceID) || cfgRows[0].Author != 5 || cfgRows[1].SpaceID != 2 || cfgRows[1].Author != 9 {
-		t.Fatalf("config space log = %+v, want initial space %d author 5 then space 2 author 9", cfgRows, DefaultSpaceID)
+	if len(movedCfg.SpaceVersions) != 2 ||
+		movedCfg.SpaceVersions[1].SpaceID != DefaultSpaceID || movedCfg.SpaceVersions[1].Author != 5 ||
+		movedCfg.SpaceVersions[0].SpaceID != 2 || movedCfg.SpaceVersions[0].Author != 9 {
+		t.Fatalf("config space log = %+v, want initial space %d author 5 then space 2 author 9", movedCfg.SpaceVersions, DefaultSpaceID)
 	}
 	if c, ok := store.GetConfig(cfg.ID); !ok || c.SpaceID() != 2 {
 		t.Fatalf("config after move = %+v ok=%v, want current space 2", c, ok)

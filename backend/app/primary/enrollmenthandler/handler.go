@@ -75,6 +75,7 @@ var EnrollmentSigningNotConfiguredErr = apigen.NewApiErr("Cluster CA signing key
 var EnrollmentNotFoundErr = apigen.NewApiErr("Enrollment request not found", "enrollment_not_found", http.StatusNotFound)
 var EnrollmentFingerprintNotConfiguredErr = apigen.NewApiErr("Enrollment TLS fingerprint is not configured", "enrollment_fingerprint_not_configured", http.StatusServiceUnavailable)
 var EnrollmentInvalidWGKeyErr = apigen.NewApiErr("Invalid WireGuard public key", "enrollment_invalid_wg_key", http.StatusBadRequest)
+var EnrollmentDuplicateNodeNameErr = apigen.NewApiErr("A node with this display name already exists", "duplicate_node_name", http.StatusConflict)
 
 func (h *Handler) VerifyEnrollmentRequest(ctx context.Context, _ http.ResponseWriter, r *http.Request, _ apigen.AccessPolicy) (apigen.Context, error) {
 	ctx = logu.AddTag(ctx, "Enrollment")
@@ -185,6 +186,9 @@ func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.E
 	status, err := h.store.AcceptEnrollmentRequest(req.ID, nodeName, sess.requestingMachineID, sess.underlayAddress, sess.wgPublicKey, sess.expectedVersion)
 	if errors.Is(err, state.ErrEnrollmentRequestChanged) {
 		return nil, EnrollmentNotConnectedErr
+	}
+	if errors.Is(err, state.ErrDuplicateNodeName) {
+		return nil, EnrollmentDuplicateNodeNameErr
 	}
 	if err != nil {
 		return nil, err

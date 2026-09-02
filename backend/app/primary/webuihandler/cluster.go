@@ -2,6 +2,7 @@ package webuihandler
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -46,7 +47,7 @@ func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRe
 	if err == sql.ErrNoRows {
 		return nil, NodeNotFoundErr
 	}
-	if strings.Contains(err.Error(), "UNIQUE constraint failed: nodes.name") {
+	if errors.Is(err, state.ErrDuplicateNodeName) {
 		return nil, DuplicateNodeNameErr
 	}
 	return nil, err

@@ -23,14 +23,6 @@ type AgentSession struct {
 	ApprovedAt        int64
 }
 
-type Asset struct {
-	ID               int64
-	Key              string
-	AssetDirectoryID int64
-	CreatedAt        int64
-	DeletedAt        int64
-}
-
 type AssetDirectory struct {
 	ID        int64
 	SpaceID   int64
@@ -38,6 +30,24 @@ type AssetDirectory struct {
 	ParentID  int64
 	CreatedAt int64
 	Author    int64
+}
+
+type AssetEventLog struct {
+	ID               int64
+	GlobalSeq        int64
+	EventTime        int64
+	CreatedTime      int64
+	Author           int64
+	AssetID          int64
+	Version          int64
+	ValueVersion     int64
+	SpaceVersion     int64
+	Key              string
+	AssetDirectoryID int64
+	SpaceID          int64
+	SizeBytes        sql.NullInt64
+	Sha256           sql.NullString
+	EventType        int64
 }
 
 type AssetMigration struct {
@@ -52,15 +62,6 @@ type AssetMigration struct {
 	FinishedAt         int64
 }
 
-type AssetSpace struct {
-	ID        int64
-	AssetID   int64
-	Author    int64
-	CreatedAt int64
-	SpaceID   int64
-	GlobalSeq int64
-}
-
 type AssetStore struct {
 	ID           string
 	Sha256       string
@@ -69,17 +70,6 @@ type AssetStore struct {
 	LocalStatus  int64
 	RemoteStatus int64
 	CreatedAt    int64
-}
-
-type AssetVersion struct {
-	ID        int64
-	AssetID   int64
-	Version   int64
-	CreatedAt int64
-	Author    int64
-	SizeBytes int64
-	Sha256    string
-	GlobalSeq int64
 }
 
 type AuthzGrant struct {
@@ -109,31 +99,21 @@ type AuthzRuleTemplateVersion struct {
 	GlobalSeq  int64
 }
 
-type Config struct {
+type ConfigEventLog struct {
 	ID               int64
+	GlobalSeq        int64
+	EventTime        int64
+	CreatedTime      int64
+	Author           int64
+	ConfigID         int64
+	Version          int64
+	ValueVersion     int64
+	SpaceVersion     int64
 	Name             string
 	ValueDirectoryID int64
-	CreatedAt        int64
-	DeletedAt        int64
-}
-
-type ConfigSpace struct {
-	ID        int64
-	ConfigID  int64
-	Author    int64
-	CreatedAt int64
-	SpaceID   int64
-	GlobalSeq int64
-}
-
-type ConfigVersion struct {
-	ID        int64
-	ConfigID  int64
-	Version   int64
-	Value     string
-	CreatedAt int64
-	Author    int64
-	GlobalSeq int64
+	SpaceID          int64
+	Value            sql.NullString
+	EventType        int64
 }
 
 type DeploymentEvent struct {
@@ -165,27 +145,35 @@ type GlobalSeq struct {
 	Value int64
 }
 
-type NetworkPolicy struct {
-	ID        int64
-	DeletedAt int64
+type NetworkPolicyEventLog struct {
+	ID          int64
+	GlobalSeq   int64
+	EventTime   int64
+	CreatedTime int64
+	Author      int64
+	PolicyID    int64
+	Version     int64
+	DataBlob    []byte
+	EventType   int64
 }
 
-type NetworkPolicyVersion struct {
-	ID        int64
-	PolicyID  int64
-	Version   int64
-	CreatedAt int64
-	Author    int64
-	DataBlob  []byte
-	GlobalSeq int64
-}
-
-type NodeRow struct {
-	ID         int64
-	CreatedAt  int64
-	EnrolledAt int64
-	Name       string
-	Identifier string
+type NodeEventLog struct {
+	ID            int64
+	GlobalSeq     int64
+	EventTime     int64
+	CreatedTime   int64
+	Author        int64
+	NodeID        int64
+	Version       int64
+	Name          string
+	Identifier    string
+	EnrolledTime  int64
+	Status        int64
+	Roles         string
+	Addresses     string
+	WgPublicKey   string
+	AllowedSpaces string
+	EventType     int64
 }
 
 type NodeStatus struct {
@@ -196,20 +184,6 @@ type NodeStatus struct {
 	OpendeployVersion string
 	RemoteAddress     string
 	EnrollmentPending int64
-}
-
-type NodeVersion struct {
-	ID            int64
-	NodeID        int64
-	Version       int64
-	CreatedAt     int64
-	Author        int64
-	Status        int64
-	Roles         string
-	Addresses     string
-	WgPublicKey   string
-	AllowedSpaces string
-	GlobalSeq     int64
 }
 
 type PersonalSession struct {
@@ -263,12 +237,23 @@ type ScheduledInstanceStatus struct {
 	RunnerExitCode       sql.NullInt64
 }
 
-type Secret struct {
+type SecretEventLog struct {
 	ID               int64
+	GlobalSeq        int64
+	EventTime        int64
+	CreatedTime      int64
+	Author           int64
+	SecretID         int64
+	Version          int64
+	ValueVersion     int64
+	SpaceVersion     int64
 	Name             string
 	ValueDirectoryID int64
-	CreatedAt        int64
-	DeletedAt        int64
+	SpaceID          int64
+	SmkVersion       sql.NullInt64
+	Ciphertext       []byte
+	Nonce            []byte
+	EventType        int64
 }
 
 type SecretKeyslot struct {
@@ -278,27 +263,6 @@ type SecretKeyslot struct {
 	Nonce      []byte
 	KdfSalt    []byte
 	CreatedAt  int64
-}
-
-type SecretSpace struct {
-	ID        int64
-	SecretID  int64
-	Author    int64
-	CreatedAt int64
-	SpaceID   int64
-	GlobalSeq int64
-}
-
-type SecretVersion struct {
-	ID         int64
-	SecretID   int64
-	Version    int64
-	SmkVersion int64
-	Ciphertext []byte
-	Nonce      []byte
-	CreatedAt  int64
-	Author     int64
-	GlobalSeq  int64
 }
 
 type Space struct {

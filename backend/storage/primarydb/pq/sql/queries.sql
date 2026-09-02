@@ -239,53 +239,9 @@ SELECT kid, key_bytes FROM public_keys WHERE kid = ?;
 INSERT INTO public_keys (kid, key_bytes) VALUES (?, ?)
 ON CONFLICT(kid) DO UPDATE SET key_bytes = excluded.key_bytes;
 
--- Container reads are hand-written in values.go: the current space is the
--- newest config_spaces row and reads exclude soft-deleted configs.
-
--- name: InsertConfigRow :one
-INSERT INTO configs (name, value_directory_id, created_at)
-VALUES (?, ?, ?)
-RETURNING id;
-
--- name: InsertConfigSpaceRow :exec
-INSERT INTO config_spaces (config_id, author, created_at, space_id, global_seq)
-VALUES (?, ?, ?, ?, ?);
-
--- name: ListConfigSpaceRowsByConfigID :many
-SELECT id, config_id, author, created_at, space_id, global_seq
-FROM config_spaces WHERE config_id = ?
-ORDER BY id ASC;
-
--- name: ListConfigSpaceRows :many
-SELECT id, config_id, author, created_at, space_id, global_seq
-FROM config_spaces
-ORDER BY config_id, id ASC;
-
--- name: RenameConfigRow :exec
-UPDATE configs SET name = ? WHERE id = ?;
-
--- name: SoftDeleteConfigRow :exec
-UPDATE configs SET deleted_at = ? WHERE id = ?;
-
--- name: ListConfigVersionRows :many
-SELECT id, config_id, version, value, created_at, author, global_seq
-FROM config_versions
-ORDER BY config_id, version;
-
--- name: ListConfigVersionsByConfigID :many
-SELECT id, config_id, version, value, created_at, author, global_seq
-FROM config_versions WHERE config_id = ?
-ORDER BY version ASC;
-
--- name: GetNextConfigVersionNumber :one
-SELECT COALESCE(MAX(version), 0) + 1
-FROM config_versions
-WHERE config_id = ?;
-
--- name: InsertConfigVersion :one
-INSERT INTO config_versions (config_id, version, value, created_at, author, global_seq)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, config_id, version, value, created_at, author, global_seq;
+-- Config and secret reads and writes are hand-written in values.go: the
+-- current state is the highest-version event row, event_type is the deletion
+-- truth, and a row with a non-NULL value payload is a pinnable value version.
 
 -- name: CountValueDirectorySiblingsWithName :one
 SELECT COUNT(*) FROM value_directories
@@ -318,52 +274,13 @@ DELETE FROM value_directories WHERE id = ?;
 -- name: CountChildValueDirectories :one
 SELECT COUNT(*) FROM value_directories WHERE parent_id = ?;
 
--- name: CountSecretsInDirectory :one
-SELECT COUNT(*) FROM secrets WHERE value_directory_id = ? AND deleted_at = 0;
-
--- name: CountConfigsInDirectory :one
-SELECT COUNT(*) FROM configs WHERE value_directory_id = ? AND deleted_at = 0;
-
--- name: SetSecretValueDirectoryID :exec
-UPDATE secrets SET value_directory_id = ? WHERE id = ?;
-
--- name: SetConfigValueDirectoryID :exec
-UPDATE configs SET value_directory_id = ? WHERE id = ?;
-
--- Container reads are hand-written in assets.go: the current space is the
--- newest asset_spaces row and reads exclude soft-deleted assets.
+-- Asset reads and writes are hand-written in assets.go: the current state is
+-- the highest-version event row, event_type is the deletion truth, and a row
+-- with a non-NULL content payload is a pinnable content version.
 
 -- name: CountDirectorySiblingsWithKey :one
 SELECT COUNT(*) FROM asset_directories
 WHERE space_id = ? AND parent_id = ? AND key = ? AND id != ?;
-
--- name: InsertAssetRow :one
-INSERT INTO assets (key, asset_directory_id, created_at)
-VALUES (?, ?, ?)
-RETURNING id;
-
--- name: InsertAssetSpaceRow :exec
-INSERT INTO asset_spaces (asset_id, author, created_at, space_id, global_seq)
-VALUES (?, ?, ?, ?, ?);
-
--- name: ListAssetSpaceRowsByAssetID :many
-SELECT id, asset_id, author, created_at, space_id, global_seq
-FROM asset_spaces WHERE asset_id = ?
-ORDER BY id ASC;
-
--- name: ListAssetSpaceRows :many
-SELECT id, asset_id, author, created_at, space_id, global_seq
-FROM asset_spaces
-ORDER BY asset_id, id ASC;
-
--- name: RenameAssetKey :exec
-UPDATE assets SET key = ? WHERE id = ?;
-
--- name: SetAssetDirectoryID :exec
-UPDATE assets SET asset_directory_id = ? WHERE id = ?;
-
--- name: SoftDeleteAssetRow :exec
-UPDATE assets SET deleted_at = ? WHERE id = ?;
 
 -- name: GetAssetDirectoryByID :one
 SELECT id, space_id, key, parent_id, created_at, author
@@ -389,27 +306,8 @@ UPDATE asset_directories SET parent_id = ? WHERE id = ?;
 -- name: DeleteAssetDirectory :exec
 DELETE FROM asset_directories WHERE id = ?;
 
--- name: CountAssetsInDirectory :one
-SELECT COUNT(*) FROM assets WHERE asset_directory_id = ? AND deleted_at = 0;
-
 -- name: CountChildAssetDirectories :one
 SELECT COUNT(*) FROM asset_directories WHERE parent_id = ?;
-
--- name: GetNextAssetVersionNumber :one
-SELECT COALESCE(MAX(version), 0) + 1
-FROM asset_versions
-WHERE asset_id = ?;
-
--- name: InsertAssetVersion :one
-INSERT INTO asset_versions (asset_id, version, created_at, author, size_bytes, sha256, global_seq)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, asset_id, version, created_at, author, size_bytes, sha256, global_seq;
-
--- name: CountAssetVersionsBySha :one
-SELECT COUNT(*) FROM asset_versions WHERE sha256 = ?;
-
--- name: ListAssetIDsBySha :many
-SELECT DISTINCT asset_id FROM asset_versions WHERE sha256 = ?;
 
 -- name: InsertAssetStoreRow :one
 INSERT INTO asset_store (id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at)
@@ -433,7 +331,7 @@ FROM asset_store;
 -- name: ListUnreferencedAssetStoreRows :many
 SELECT s.id, s.sha256, s.size_bytes, CAST(LENGTH(s.inline_blob) AS INTEGER) AS inline_size, s.local_status, s.remote_status, s.created_at
 FROM asset_store s
-WHERE s.created_at < ? AND NOT EXISTS (SELECT 1 FROM asset_versions v WHERE v.sha256 = s.sha256);
+WHERE s.created_at < ? AND NOT EXISTS (SELECT 1 FROM asset_event_log v WHERE v.sha256 = s.sha256);
 
 -- name: CompleteAssetStoreRow :exec
 UPDATE asset_store SET sha256 = ?, local_status = ?, remote_status = ? WHERE id = ?;
@@ -497,61 +395,6 @@ ON CONFLICT(slot) DO UPDATE SET
     nonce = excluded.nonce,
     kdf_salt = excluded.kdf_salt,
     created_at = excluded.created_at;
-
--- Container reads and the version-record list are hand-written in values.go:
--- the current space is the newest secret_spaces row and reads exclude
--- soft-deleted secrets.
-
--- name: InsertSecretRow :one
-INSERT INTO secrets (name, value_directory_id, created_at)
-VALUES (?, ?, ?)
-RETURNING id;
-
--- name: InsertSecretSpaceRow :exec
-INSERT INTO secret_spaces (secret_id, author, created_at, space_id, global_seq)
-VALUES (?, ?, ?, ?, ?);
-
--- name: ListSecretSpaceRowsBySecretID :many
-SELECT id, secret_id, author, created_at, space_id, global_seq
-FROM secret_spaces WHERE secret_id = ?
-ORDER BY id ASC;
-
--- name: ListSecretSpaceRows :many
-SELECT id, secret_id, author, created_at, space_id, global_seq
-FROM secret_spaces
-ORDER BY secret_id, id ASC;
-
--- name: RenameSecretRow :exec
-UPDATE secrets SET name = ? WHERE id = ?;
-
--- name: SoftDeleteSecretRow :exec
-UPDATE secrets SET deleted_at = ? WHERE id = ?;
-
--- name: ListSecretVersionMetas :many
-SELECT id, secret_id, version, created_at, author, global_seq
-FROM secret_versions
-ORDER BY secret_id, version;
-
--- name: GetNextSecretVersionNumber :one
-SELECT COALESCE(MAX(version), 0) + 1
-FROM secret_versions
-WHERE secret_id = ?;
-
--- name: InsertSecretVersion :one
-INSERT INTO secret_versions (secret_id, version, smk_version, ciphertext, nonce, created_at, author, global_seq)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, secret_id, version, smk_version, ciphertext, nonce, created_at, author, global_seq;
-
--- name: ListSecretVersionIDsBySecretID :many
-SELECT id FROM secret_versions WHERE secret_id = ? ORDER BY version;
-
--- name: ListSecretVersionsBySecretID :many
-SELECT id, secret_id, version, created_at, author, global_seq
-FROM secret_versions WHERE secret_id = ?
-ORDER BY version ASC;
-
--- name: ListConfigVersionIDsByConfigID :many
-SELECT id FROM config_versions WHERE config_id = ? ORDER BY version;
 
 -- name: GetSystemSecret :one
 SELECT name, smk_version, ciphertext, nonce, created_at, updated_at
@@ -632,19 +475,7 @@ UPDATE global_access_rules SET deleted_at = ? WHERE id = ?;
 -- name: CountGlobalAccessRuleRowsByName :one
 SELECT COUNT(*) FROM global_access_rules WHERE name = ?;
 
--- Network policy content lives in network_policy_versions; the list read is
--- hand-written in network_policies.go (identity joined with the latest
--- version row). Every content write advances the global sequence in the same
--- tx because policies are cluster network map render inputs.
-
--- name: CreateNetworkPolicyRow :one
-INSERT INTO network_policies (deleted_at) VALUES (0) RETURNING id;
-
--- name: AppendNetworkPolicyVersion :exec
-INSERT INTO network_policy_versions (policy_id, version, created_at, author, data_blob, global_seq)
-SELECT @policy_id, COALESCE(MAX(version), 0) + 1, @created_at, @author, @data_blob, @global_seq
-FROM network_policy_versions
-WHERE policy_id = @policy_id;
-
--- name: SetNetworkPolicyDeletedAt :exec
-UPDATE network_policies SET deleted_at = ? WHERE id = ?;
+-- Network policy reads and writes are hand-written in network_policies.go:
+-- the current state is the highest-version event row, event_type is the
+-- deletion truth, and every event advances the global sequence in the same tx
+-- because policies are cluster network map render inputs.
