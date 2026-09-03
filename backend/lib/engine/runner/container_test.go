@@ -459,9 +459,6 @@ func TestContainerNaming(t *testing.T) {
 	if id := containerID(family, 5); id != "opendeploy-7-3-42-5" {
 		t.Fatalf("id = %s", id)
 	}
-	if legacy := legacyContainerID(7, 3); legacy != "opendeploy-7-v3" {
-		t.Fatalf("legacy = %s", legacy)
-	}
 	cases := map[string]int32{
 		"opendeploy-7-3-42-5":   5,
 		"opendeploy-7-3-42-12":  12,

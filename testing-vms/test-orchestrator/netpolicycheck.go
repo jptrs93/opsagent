@@ -52,9 +52,8 @@ cat >/tmp/opd-netpol-connect.py <<'PYEOF'
 PYEOF
 
 # Container ids (and so netns names) are opendeploy-<dep>-<version>-<si>-<run>;
-# the legacy opendeploy-<dep>-v<version> form is matched for agents that
-# predate run-numbered ids. The highest run wins when several are present.
-ns_for() { ls /run/netns 2>/dev/null | grep -E "^opendeploy-$1-([0-9]+-[0-9]+-[0-9]+|v[0-9]+)$" | sort -t- -k5,5n | tail -1; }
+# the highest run wins when several are present.
+ns_for() { ls /run/netns 2>/dev/null | grep -E "^opendeploy-$1-[0-9]+-[0-9]+-[0-9]+$" | sort -t- -k5,5n | tail -1; }
 
 addr6_of() { ip netns exec "$1" ip -6 -o addr show dev eth0 scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1; }
 addr4_of() { ip netns exec "$1" ip -4 -o addr show dev eth0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1; }

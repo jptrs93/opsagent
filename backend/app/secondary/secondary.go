@@ -18,6 +18,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixdocker"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/opendeployrelease"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
+	"github.com/jptrs93/opsagent/backend/lib/engine/runner"
 	"github.com/jptrs93/opsagent/backend/lib/localinputs"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
@@ -155,6 +156,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 		case <-ctx.Done():
 			return
 		}
+		runner.SweepForeignContainers(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID))
 		engine.DeploymentOperator{
 			Store:             store,
 			OpendeployRelease: opendeployReleasePreparer,

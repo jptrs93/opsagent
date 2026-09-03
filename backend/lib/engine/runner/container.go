@@ -135,12 +135,6 @@ func containerID(family string, runNumber int32) string {
 	return fmt.Sprintf("%s-%d", family, runNumber)
 }
 
-// legacyContainerID is the pre-run-numbered id, looked up on adoption until
-// every container started by an older agent has been restarted once.
-func legacyContainerID(deploymentID int32, configVersion int32) string {
-	return fmt.Sprintf("opendeploy-%d-v%d", deploymentID, configVersion)
-}
-
 func parseContainerRun(id, family string) (int32, bool) {
 	rest, ok := strings.CutPrefix(id, family+"-")
 	if !ok {
@@ -782,8 +776,7 @@ func (r *containerRunner) currentRunNumber() int32 {
 // than an exact name: the restart counter is only persisted after the task is
 // created, and a crash in between leaves the container one run ahead of the
 // status. The newest run wins, its number is written back, and any older
-// leftovers are removed. Containers started by an agent before run-numbered
-// ids are found under the legacy name.
+// leftovers are removed.
 func (r *containerRunner) adoptTask() (*ctrd.Task, error) {
 	ids, err := ctrd.Default.ListContainerIDs(r.ctx, r.containerFamily+"-")
 	if err != nil {
@@ -812,24 +805,18 @@ func (r *containerRunner) adoptTask() (*ctrd.Task, error) {
 		// watching); its number must not be reused for the fresh start.
 		r.status.NumberOfRestarts = max(r.status.NumberOfRestarts, bestRun)
 	}
-	legacy := legacyContainerID(r.deploymentID, r.status.DeploymentSpecVersion)
-	if task, err := ctrd.Default.LoadTask(r.ctx, legacy); err == nil {
-		r.containerID = legacy
-		return task, nil
-	}
 	r.containerID = containerID(r.containerFamily, r.currentRunNumber())
 	return nil, ctrd.ErrNotFound
 }
 
 // removeStaleContainers deletes every container of this placement's family
-// other than the one about to start, plus the legacy-named one, so a crash
-// between a task delete and the next create never leaves a run behind.
+// other than the one about to start, so a crash between a task delete and
+// the next create never leaves a run behind.
 func (r *containerRunner) removeStaleContainers() {
 	ids, err := ctrd.Default.ListContainerIDs(r.ctx, r.containerFamily+"-")
 	if err != nil {
 		slog.WarnContext(r.ctx, "listing stale containers failed", "err", err)
 	}
-	ids = append(ids, legacyContainerID(r.deploymentID, r.status.DeploymentSpecVersion))
 	for _, id := range ids {
 		if id != r.containerID {
 			_ = ctrd.Default.Remove(r.ctx, id)

@@ -23,6 +23,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixdocker"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/opendeployrelease"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
+	"github.com/jptrs93/opsagent/backend/lib/engine/runner"
 	"github.com/jptrs93/opsagent/backend/lib/engine/secretdist"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/lib/issuedtls"
@@ -169,7 +170,10 @@ func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string
 	go netaudit.Run(ctx, network.Default, netaudit.DefaultInterval)
 	metricstore.Default = metricstore.Start(ctx, ainit.StaticConfig.MetricsDir, nodeID)
 	go metrics.Default.Run(ctx, metrics.DefaultInterval, metricstore.Default)
-	go r.operator.RunAll(predicate)
+	go func() {
+		runner.SweepForeignContainers(ctx, r.store, predicate)
+		r.operator.RunAll(predicate)
+	}()
 }
 
 // localAssetProvider narrows assetstore's OpenAsset to the operator's pure

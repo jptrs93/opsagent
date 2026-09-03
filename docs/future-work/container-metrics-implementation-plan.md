@@ -31,8 +31,7 @@ presentation are out of scope and decided later.
   run a node ever creates has its own cgroup under `/sys/fs/cgroup/opendeploy`
   without the runner setting a path: a respawn is a new directory, never a
   reused one. The runner hands the sampler the path read back from the task's
-  OCI spec, which also covers containers adopted from an older agent under
-  the legacy `opendeploy-{deploymentID}-v{specVersion}` name. The installer's
+  OCI spec, for created and adopted containers alike. The installer's
   containerd config uses the cgroupfs driver, under which the path is taken
   literally. `/proc/<pid>/cgroup` is read once at registration as a tripwire
   that logs a mismatch; it is verification, not resolution.
