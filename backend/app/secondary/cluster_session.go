@@ -201,6 +201,10 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 		msgType = "deployment_log_request"
 	case msg.LogQueryRequest != nil:
 		msgType = "log_query_request"
+	case msg.MetricsQueryRequest != nil:
+		msgType = "metrics_query_request"
+	case msg.MetricsLatestRequest != nil:
+		msgType = "metrics_latest_request"
 	case msg.StopLogRequestID != "":
 		msgType = "stop_log_request"
 	case msg.ClusterNetwork != nil:
@@ -266,6 +270,15 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 			defer tracker.remove(requestID)
 			runLogQuery(queryCtx, out, msg.LogQueryRequest)
 		}()
+	case msg.MetricsQueryRequest != nil:
+		requestID := msg.MetricsQueryRequest.RequestID
+		queryCtx := tracker.start(ctx, requestID)
+		go func() {
+			defer tracker.remove(requestID)
+			runMetricsQuery(queryCtx, out, msg.MetricsQueryRequest)
+		}()
+	case msg.MetricsLatestRequest != nil:
+		runMetricsLatest(ctx, out, msg.MetricsLatestRequest)
 	}
 }
 

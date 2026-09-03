@@ -29,7 +29,7 @@ cleared, so the user lands on the login page on the next render.
 ## Layout
 
 The dashboard uses a split-pane layout:
-- `components/sidebar.js` — left sidebar with top-level navigation (Deployments, Logs, Secrets / Configs, Assets, Spaces, IAM, Sessions, Nodes, Settings).
+- `components/sidebar.js` — left sidebar with top-level navigation (Deployments, Logs, Metrics, Secrets / Configs, Assets, Spaces, Network, IAM, Sessions, Nodes, Settings).
 - The main pane is split horizontally with a draggable divider (width persisted to `localStorage`). The right-hand pane shows the deployment history sidebar when a card action opens one.
 - The active page is tracked via a `van.state` value. Clicking a sidebar item swaps the main content.
 
@@ -53,6 +53,12 @@ The dashboard uses a split-pane layout:
 - The deployment editor card has independent UI and HCL editor surfaces over one API-shaped authoring document. Valid HCL updates the shared document; invalid HCL is retained privately while the UI continues to show the last valid state. CodeMirror is loaded only when Code mode is first opened.
 - Prepare output opens `components/prepareOutputOverlay.js`; run output navigates to the Logs page (`pages/logs.js`); the history view is the `components/deploymentHistory.js` sidebar. History and prepare output show "Connection error" on network failure.
 - Deployment history (`components/deploymentHistory.js`) color-codes entries: green for stable running, grey for other status transitions, orange for config changes.
+
+### Metrics (`pages/metrics.js`)
+- With no deployment selected it is a live overview from `POST /v1/metrics/latest`: one row per running container (deployment, node, run, CPU cores, memory, network and disk rates, PIDs, TCP connections, sample age); clicking a row selects that deployment.
+- With a deployment selected it queries `POST /v1/metrics/query` for the current time range and renders a grid of `components/lineChart.js` panels: CPU (total/user/system/throttled cores), memory (current/anon/file), network and disk rates, processes and file descriptors, TCP connection states, pressure stall averages, and per-bucket events (OOM kills, throttle periods, dropped packets). Series from several instance runs are summed per bucket by default; "Split by run" plots them separately. The page fetches once on load and when the deployment or time range changes; there is no automatic refresh, the Refresh button re-runs the query.
+- `components/timeRangePicker.js` is the quick-preset plus custom-range dropdown shared with the Logs page; `components/lineChart.js` is a dependency-free SVG chart with unit-aware axes, a crosshair tooltip, and a legend that toggles series.
+- `window.__metricsResult` and `window.__metricsLatest` mirror the last responses for e2e assertions, like the Logs page's `__logsResult`.
 
 ### Cluster (`pages/cluster.js`)
 - Shows primary + worker machines and connection state, derived client-side from the state stream's `ClusterNode` and `ClusterNodeStatus` snapshots.

@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message MetricsSample {
+  int64 time = 1;
+  int32 deployment_id = 2;
+  int32 scheduled_instance_id = 3;
+  int32 ordinal = 4;
+  int32 spec_version = 5;
+  int32 run = 6;
+  int32 node_id = 7;
+  bool terminal = 8;
+
+  optional int64 cpu_usage_usec = 10;
+  optional int64 cpu_user_usec = 11;
+  optional int64 cpu_system_usec = 12;
+  optional int64 cpu_throttled_usec = 13;
+  optional int64 cpu_nr_throttled = 14;
+
+  optional int64 mem_current = 20;
+  optional int64 mem_peak = 21;
+  optional int64 mem_anon = 22;
+  optional int64 mem_file = 23;
+  optional int64 mem_kernel = 24;
+  optional int64 mem_shmem = 25;
+  optional int64 mem_oom = 26;
+  optional int64 mem_oom_kill = 27;
+
+  optional int64 io_read_bytes = 30;
+  optional int64 io_write_bytes = 31;
+  optional int64 io_read_ops = 32;
+  optional int64 io_write_ops = 33;
+
+  optional int64 pids = 40;
+
+  optional double psi_cpu_some_avg10 = 50;
+  optional double psi_cpu_some_avg60 = 51;
+  optional double psi_cpu_some_avg300 = 52;
+  optional int64 psi_cpu_some_total_usec = 53;
+  optional double psi_cpu_full_avg10 = 54;
+  optional double psi_cpu_full_avg60 = 55;
+  optional double psi_cpu_full_avg300 = 56;
+  optional int64 psi_cpu_full_total_usec = 57;
+  optional double psi_mem_some_avg10 = 60;
+  optional double psi_mem_some_avg60 = 61;
+  optional double psi_mem_some_avg300 = 62;
+  optional int64 psi_mem_some_total_usec = 63;
+  optional double psi_mem_full_avg10 = 64;
+  optional double psi_mem_full_avg60 = 65;
+  optional double psi_mem_full_avg300 = 66;
+  optional int64 psi_mem_full_total_usec = 67;
+  optional double psi_io_some_avg10 = 70;
+  optional double psi_io_some_avg60 = 71;
+  optional double psi_io_some_avg300 = 72;
+  optional int64 psi_io_some_total_usec = 73;
+  optional double psi_io_full_avg10 = 74;
+  optional double psi_io_full_avg60 = 75;
+  optional double psi_io_full_avg300 = 76;
+  optional int64 psi_io_full_total_usec = 77;
+
+  optional int64 net_rx_bytes = 80;
+  optional int64 net_rx_packets = 81;
+  optional int64 net_rx_dropped = 82;
+  optional int64 net_tx_bytes = 83;
+  optional int64 net_tx_packets = 84;
+  optional int64 net_tx_dropped = 85;
+
+  optional int64 tcp_established = 90;
+  optional int64 tcp_listen = 91;
+  optional int64 tcp_time_wait = 92;
+  optional int64 tcp_close_wait = 93;
+  optional int64 tcp_other = 94;
+
+  optional int64 open_fds = 100;
+}

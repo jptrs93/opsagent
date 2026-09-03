@@ -486,6 +486,29 @@ func (p *Handler) RequestLogQuery(ctx context.Context, nodeID int32, req *apigen
 	return sess.requestLogQuery(ctx, req)
 }
 
+// RequestMetricsQuery runs a one-shot metrics rollup on a secondary.
+func (p *Handler) RequestMetricsQuery(ctx context.Context, nodeID int32, req *apigen.MetricsQueryRequest) (*apigen.MetricsQueryResponse, error) {
+	p.mu.RLock()
+	sess, ok := p.sessions[nodeID]
+	p.mu.RUnlock()
+	if !ok {
+		return nil, &NodeNotConnectedError{NodeID: nodeID}
+	}
+	return sess.requestMetricsQuery(ctx, req)
+}
+
+// RequestMetricsLatest fetches the latest sample per running container from
+// a secondary.
+func (p *Handler) RequestMetricsLatest(ctx context.Context, nodeID int32) (*apigen.MetricsLatestResponse, error) {
+	p.mu.RLock()
+	sess, ok := p.sessions[nodeID]
+	p.mu.RUnlock()
+	if !ok {
+		return nil, &NodeNotConnectedError{NodeID: nodeID}
+	}
+	return sess.requestMetricsLatest(ctx)
+}
+
 func (p *Handler) ConnectedNodes() map[int32]time.Time {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

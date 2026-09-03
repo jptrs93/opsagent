@@ -18,6 +18,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
+	"github.com/jptrs93/opsagent/backend/lib/metrics/metricstore"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
@@ -59,6 +60,9 @@ type Handler struct {
 
 	// LogManager serves log searches for deployments running on this node.
 	LogManager *logmanager.Manager
+
+	// Metrics serves container metrics for deployments running on this node.
+	Metrics *metricstore.Store
 
 	// Enrollment owns the enrollment stream and operator enrollment actions.
 	Enrollment *enrollmenthandler.Handler

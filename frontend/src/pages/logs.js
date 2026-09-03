@@ -3,7 +3,6 @@ import {capi} from "../capi/index.js";
 import {
     caretRightIcon,
     checkIcon,
-    chevronDownIcon,
     columnsIcon,
     copyIcon,
     searchIcon,
@@ -15,6 +14,7 @@ import {nodeDisplayName} from "../lib/machines.js";
 import {deploymentDeleted} from "../lib/deployment.js";
 import {logScopePicker} from "../components/logScopePicker.js";
 import {spacesFilter} from "../components/spacesFilter.js";
+import {fmtShortTime as fmtShort, resolveRange as resolveRangeOf, timeRangePicker} from "../components/timeRangePicker.js";
 
 const {button, div, input, option, p, pre, select, span} = van.tags;
 const {svg: svgEl, rect, line: svgLine} = van.tags("http://www.w3.org/2000/svg");
@@ -66,25 +66,6 @@ const COLUMN_DEFS = {
 
 const META_FIELDS = new Set(['version', 'node', 'run', 'instance', 'stream']);
 
-const DAY = 24 * HOUR;
-// Ordered column-major for the two-column picker: minutes/hours down the left
-// column, days down the right.
-const PRESETS = [
-    {key: '5m', label: 'Last 5 minutes', ms: 5 * MIN},
-    {key: '15m', label: 'Last 15 minutes', ms: 15 * MIN},
-    {key: '30m', label: 'Last 30 minutes', ms: 30 * MIN},
-    {key: '1h', label: 'Last hour', ms: HOUR},
-    {key: '3h', label: 'Last 3 hours', ms: 3 * HOUR},
-    {key: '6h', label: 'Last 6 hours', ms: 6 * HOUR},
-    {key: '12h', label: 'Last 12 hours', ms: 12 * HOUR},
-    {key: '24h', label: 'Last 24 hours', ms: 24 * HOUR},
-    {key: '2d', label: 'Last 2 days', ms: 2 * DAY},
-    {key: '4d', label: 'Last 4 days', ms: 4 * DAY},
-    {key: '7d', label: 'Last 7 days', ms: 7 * DAY},
-    {key: '14d', label: 'Last 14 days', ms: 14 * DAY},
-    {key: '21d', label: 'Last 21 days', ms: 21 * DAY},
-    {key: '30d', label: 'Last 30 days', ms: 30 * DAY},
-];
 const DEFAULT_PRESET = '12h';
 
 // A row is as tall as the lines its message occupies: leading per line plus the
@@ -127,20 +108,10 @@ function fmtClock(ts) {
     return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`;
 }
 
-function fmtShort(ts) {
-    const d = new Date(ts);
-    return `${MONTHS[d.getMonth()]} ${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-}
-
 function fmtNum(n) {
     if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
     if (n >= 1e4) return `${Math.round(n / 1e3)}k`;
     return n.toLocaleString();
-}
-
-function toLocalInputValue(ts) {
-    const d = new Date(ts);
-    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 function deploymentLabel(item, machines) {
@@ -315,7 +286,6 @@ export function logsPage(selectedDeploymentId) {
     const context = van.state(null);        // {rec}
     const sidebarOpen = van.state(true);
     const fieldOpen = van.state('');
-    const timeOpen = van.state(false);
     const jsonCopied = van.state(false);
     let searchGen = 0;
     let autoSearchedDeploymentId = 0;
@@ -333,19 +303,7 @@ export function logsPage(selectedDeploymentId) {
         };
     };
 
-    const resolveRange = () => {
-        const r = range.val;
-        if (r.kind === 'custom') return {startTs: r.startTs, endTs: r.endTs};
-        const preset = PRESETS.find(pr => pr.key === r.key) || PRESETS[PRESETS.length - 1];
-        const endTs = Date.now();
-        return {startTs: endTs - preset.ms, endTs};
-    };
-
-    const rangeLabel = () => {
-        const r = range.val;
-        if (r.kind === 'custom') return `${fmtShort(r.startTs)} – ${fmtShort(r.endTs)}`;
-        return (PRESETS.find(pr => pr.key === r.key) || PRESETS[PRESETS.length - 1]).label;
-    };
+    const resolveRange = () => resolveRangeOf(range.val);
 
     const currentRequest = () => {
         const {filters, specVersion} = tokensToRequest(parseQuery(queryText.val));
@@ -588,82 +546,11 @@ export function logsPage(selectedDeploymentId) {
         onkeydown: (e) => { if (e.key === 'Enter') void runSearch(); },
     });
 
-    const presetRow = (preset) => button({
-        type: "button",
-        class: "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-200 hover:bg-gray-800 cursor-pointer",
-        onclick: () => {
-            range.val = {kind: 'preset', key: preset.key};
-            timeOpen.val = false;
-            void runSearch();
-        },
-    },
-        span({class: "w-4"}, () => range.val.kind === 'preset' && range.val.key === preset.key ? checkIcon({class: "w-3.5 h-3.5 text-brand"}) : ''),
-        preset.label);
-
-    // The custom inputs need [color-scheme:dark]: without it the browser
-    // renders the native picker chrome for a light page, which on this surface
-    // leaves the calendar control invisible.
-    // The inputs stay plain DOM state read back at apply time: binding their
-    // values through van states makes them dependencies of the enclosing
-    // dropdown binding, which then rebuilds — and resets both fields — on
-    // every edit. That is what made the pickers unusable before.
-    const customRange = () => {
-        const rangeError = van.state('');
-        const dtInput = (testid, ts) => input({
-            "data-testid": testid,
-            class: "input min-w-0 flex-1 py-1 text-xs [color-scheme:dark]",
-            type: "datetime-local",
-            value: toLocalInputValue(ts),
-            oninput: () => { rangeError.val = ''; },
-        });
-        const {startTs, endTs} = resolveRange();
-        const startInput = dtInput("logs-custom-start", startTs);
-        const endInput = dtInput("logs-custom-end", endTs);
-        const dtField = (label, el) => div(
-            {class: "flex items-center gap-2"},
-            span({class: "w-8 flex-none text-[10px] text-gray-500"}, label),
-            el,
-        );
-        return div(
-            {class: "border-t border-gray-800 p-3 flex flex-col gap-1.5"},
-            span({class: "text-[10px] uppercase tracking-wide text-gray-500"}, "custom range"),
-            dtField("from", startInput),
-            dtField("to", endInput),
-            () => rangeError.val ? span({class: "text-[10px] text-red-400"}, rangeError.val) : '',
-            button({
-                "data-testid": "logs-custom-apply",
-                type: "button",
-                class: "mt-1 cursor-pointer rounded-[0.3rem] border border-gray-600 bg-gray-700 py-1 text-xs text-gray-200 transition-colors hover:bg-gray-600",
-                onclick: () => {
-                    const start = new Date(startInput.value).getTime();
-                    const end = new Date(endInput.value).getTime();
-                    if (!Number.isFinite(start) || !Number.isFinite(end)) { rangeError.val = 'Enter a complete start and end date.'; return; }
-                    if (end <= start) { rangeError.val = 'End must be after start.'; return; }
-                    range.val = {kind: 'custom', startTs: start, endTs: end};
-                    timeOpen.val = false;
-                    void runSearch();
-                },
-            }, "Apply"),
-        );
-    };
-
-    const timePicker = div(
-        {class: "relative"},
-        button({
-            "data-testid": "logs-time-button",
-            type: "button",
-            class: "input flex h-[30px] items-center gap-1.5 whitespace-nowrap text-xs text-gray-200 cursor-pointer hover:bg-gray-700",
-            onclick: () => { timeOpen.val = !timeOpen.val; },
-        }, () => rangeLabel(), chevronDownIcon({class: "w-3 h-3 text-gray-500"})),
-        () => !timeOpen.val ? '' : div(
-            div({class: "fixed inset-0 z-20", onclick: () => { timeOpen.val = false; }}),
-            div(
-                {class: "absolute right-0 top-full z-30 mt-1 w-[22rem] rounded border border-gray-700 bg-gray-900 py-1 shadow-xl"},
-                div({class: "grid grid-flow-col grid-cols-2 grid-rows-[repeat(7,auto)]"}, ...PRESETS.map(presetRow)),
-                customRange(),
-            ),
-        ),
-    );
+    const timePicker = timeRangePicker({
+        rangeS: range,
+        testid: "logs",
+        onChange: () => void runSearch(),
+    });
 
     const chip = (token, pos) => span(
         {class: `inline-flex items-center gap-1 rounded border px-1.5 py-px font-mono text-[11px] ${token.neg

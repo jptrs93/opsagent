@@ -856,6 +856,44 @@ func (c *ApiServerCapi) PostV1DeploymentsRunReport(ctx context.Context, req *Dep
 	return DecodeDeploymentRunReport(body)
 }
 
+func (c *ApiServerCapi) PostV1MetricsQuery(ctx context.Context, req *MetricsQueryRequest) (*MetricsQueryResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1MetricsQuery request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/metrics/query", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeMetricsQueryResponse(body)
+}
+
+func (c *ApiServerCapi) PostV1MetricsLatest(ctx context.Context, req *MetricsLatestRequest) (*MetricsLatestResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1MetricsLatest request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/metrics/latest", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeMetricsLatestResponse(body)
+}
+
 func (c *ApiServerCapi) PostV1DeploymentsPrepareOutput(ctx context.Context, req *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error] {
 	return func(yield func(*PrepareOutputChunk, error) bool) {
 		if req == nil {

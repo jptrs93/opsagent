@@ -301,6 +301,55 @@ func SetStreamHeaders(w http.ResponseWriter) {
 	h.Set("X-Accel-Buffering", "no")
 }
 
+// PartsWriter writes a multipart response: one uvarint length-prefixed frame
+// per part, flushed after each, with the headers committed on the first frame.
+// It differs from StreamWriter only in how it ends - see Abort.
+type PartsWriter struct {
+	w       http.ResponseWriter
+	control *http.ResponseController
+	started bool
+}
+
+func NewPartsWriter(w http.ResponseWriter) *PartsWriter {
+	return &PartsWriter{w: w, control: http.NewResponseController(w)}
+}
+
+// Write emits one part. An absent part is a zero-length frame, so the frame
+// count always matches the number of parts the contract declares.
+func (p *PartsWriter) Write(payload []byte) error {
+	if !p.started {
+		p.started = true
+		SetPartsHeaders(p.w)
+	}
+	if err := WriteStreamFrame(p.w, payload); err != nil {
+		return err
+	}
+	return p.control.Flush()
+}
+
+// Abort ends a response that has already been committed, so the status code is
+// spent and the failure cannot be reported as a 4xx/5xx. Panicking with
+// http.ErrAbortHandler drops the connection without the terminating chunk,
+// leaving the body short. Unlike a stream, a multipart response has a part
+// count the client knows statically, so a short body is unambiguously a
+// failure rather than an absent trailing part.
+func (p *PartsWriter) Abort(ctx context.Context, err error) {
+	slog.ErrorContext(ctx, fmt.Sprintf("multipart response aborted after commit: %v", err))
+	panic(http.ErrAbortHandler)
+}
+
+// SetPartsHeaders sets the response headers for a multipart RPC. The content
+// type is distinct from application/protobuf-stream so that a bounded part
+// sequence cannot be mistaken for an unbounded stream. Buffering is disabled
+// for the same reasons as SetStreamHeaders: a proxy that holds the body defeats
+// the flush between parts.
+func SetPartsHeaders(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("Content-Type", "application/protobuf-parts")
+	h.Set("Cache-Control", "no-cache, no-transform")
+	h.Set("X-Accel-Buffering", "no")
+}
+
 func NewApiErr(displayErr string, internalErr string, code int32) ApiErr {
 	return ApiErr{DisplayErr: displayErr, InternalErr: internalErr, Code: code}
 }

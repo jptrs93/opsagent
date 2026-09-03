@@ -280,17 +280,19 @@ func (m *NetworkingConfig) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, int32(m.Mode), 1)
 	for _, item := range m.PortForwarding {
+		b = AppendTag(b, 2, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	for _, item := range m.Ingress {
+		b = AppendTag(b, 3, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -694,31 +696,34 @@ func (m *ContainerRuntime) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.User, 1)
 	b = AppendMap(b, m.EnvVars, 2, AppendFieldDecorator(AppendStringField, 1), AppendMessageFieldDecorator[*EnvVarValue](2))
-	b = AppendRepeated(b, m.OverrideCommand, AppendFieldDecorator(AppendStringField, 3))
+	b = AppendRepeated(b, m.OverrideCommand, AppendFieldDecorator(AppendStringElem, 3))
 	b = AppendStringField(b, m.OverrideWorkingDir, 4)
 	if !m.DefaultVolume.IsZero() {
 		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, m.DefaultVolume.Encode())
 	}
 	for _, item := range m.CrossDeploymentMounts {
+		b = AppendTag(b, 6, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	for _, item := range m.AssetMounts {
+		b = AppendTag(b, 8, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 8, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	for _, item := range m.Mounts {
+		b = AppendTag(b, 7, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 7, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	b = AppendInt32Field(b, m.DevShmSizeKb, 13)
@@ -847,8 +852,8 @@ func DecodeContainerReadinessSignal(b []byte) (*ContainerReadinessSignal, error)
 
 func (m *IpFilter) Encode() []byte {
 	var b []byte
-	b = AppendRepeated(b, m.Allow, AppendFieldDecorator(AppendStringField, 1))
-	b = AppendRepeated(b, m.Deny, AppendFieldDecorator(AppendStringField, 2))
+	b = AppendRepeated(b, m.Allow, AppendFieldDecorator(AppendStringElem, 1))
+	b = AppendRepeated(b, m.Deny, AppendFieldDecorator(AppendStringElem, 2))
 	return b
 }
 
@@ -1247,7 +1252,7 @@ func DecodeCustomHostMount(b []byte) (*CustomHostMount, error) {
 func (m *IssuedTLSMount) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.ContainerPath, 1)
-	b = AppendRepeated(b, m.ExtraNames, AppendFieldDecorator(AppendStringField, 2))
+	b = AppendRepeated(b, m.ExtraNames, AppendFieldDecorator(AppendStringElem, 2))
 	b = AppendBoolField(b, m.CaOnly, 3)
 	return b
 }
@@ -1401,10 +1406,11 @@ func DecodeSecretCertSource(b []byte) (*SecretCertSource, error) {
 func (m *DeploymentSnapshot) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -1683,10 +1689,11 @@ func DecodeScheduledInstanceState(b []byte) (*ScheduledInstanceState, error) {
 func (m *ScheduledInstanceSnapshot) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -1797,7 +1804,7 @@ func (m *RunnerStatus) Encode() []byte {
 	b = AppendInt32Field(b, m.NumberOfRestarts, 6)
 	b = AppendInt64FromTime(b, m.LastRestartAt, 7)
 	b = AppendStringField(b, m.RunningVersion, 8)
-	b = AppendRepeated(b, m.NetworkDiagnostics, AppendFieldDecorator(AppendStringField, 10))
+	b = AppendRepeated(b, m.NetworkDiagnostics, AppendFieldDecorator(AppendStringElem, 10))
 	b = AppendInt32FieldOpt(b, m.ExitCode, 11)
 	return b
 }
@@ -2171,10 +2178,11 @@ func DecodeRecentlyDeletedDeploymentsRequest(b []byte) (*RecentlyDeletedDeployme
 func (m *RecentlyDeletedDeployments) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -2352,13 +2360,14 @@ func DecodeDeploymentVersions(b []byte) (*DeploymentVersions, error) {
 
 func (m *DeploymentNixDockerBuildVersions) Encode() []byte {
 	var b []byte
-	b = AppendRepeated(b, m.Branches, AppendFieldDecorator(AppendStringField, 1))
+	b = AppendRepeated(b, m.Branches, AppendFieldDecorator(AppendStringElem, 1))
 	b = AppendStringField(b, m.SelectedBranch, 2)
 	for _, item := range m.Commits {
+		b = AppendTag(b, 3, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -2406,10 +2415,11 @@ func DecodeDeploymentNixDockerBuildVersions(b []byte) (*DeploymentNixDockerBuild
 func (m *DeploymentGithubReleaseVersions) Encode() []byte {
 	var b []byte
 	for _, item := range m.Releases {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -2449,10 +2459,11 @@ func DecodeDeploymentGithubReleaseVersions(b []byte) (*DeploymentGithubReleaseVe
 func (m *DeploymentContainerImageVersions) Encode() []byte {
 	var b []byte
 	for _, item := range m.Tags {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -2781,10 +2792,11 @@ func (m *AvailableCommits) Encode() []byte {
 	b = AppendStringField(b, m.Branch, 2)
 	b = AppendStringFieldOpt(b, m.Errormessage, 3)
 	for _, item := range m.Commits {
+		b = AppendTag(b, 4, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -2837,7 +2849,7 @@ func (m *AvailableBranches) Encode() []byte {
 	var b []byte
 	b = AppendBoolField(b, m.Loaded, 1)
 	b = AppendStringFieldOpt(b, m.Errormessage, 2)
-	b = AppendRepeated(b, m.Branches, AppendFieldDecorator(AppendStringField, 3))
+	b = AppendRepeated(b, m.Branches, AppendFieldDecorator(AppendStringElem, 3))
 	return b
 }
 
@@ -3005,10 +3017,11 @@ func (m *ValidateContainerImageSourceResponse) Encode() []byte {
 		b = AppendBytes(b, m.Image.Encode())
 	}
 	for _, item := range m.Tags {
+		b = AppendTag(b, 2, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -3192,10 +3205,11 @@ func DecodeDeploymentHistoryEntry(b []byte) (*DeploymentHistoryEntry, error) {
 func (m *DeploymentHistory) Encode() []byte {
 	var b []byte
 	for _, item := range m.Entries {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -3275,8 +3289,8 @@ func (m *DeploymentRunReport) Encode() []byte {
 	b = AppendInt64FromTime(b, m.StartedAt, 7)
 	b = AppendInt64FromTime(b, m.StoppedAt, 8)
 	b = AppendInt32FieldOpt(b, m.ExitCode, 9)
-	b = AppendRepeated(b, m.LogLines, AppendFieldDecorator(AppendStringField, 10))
-	b = AppendRepeated(b, m.Warnings, AppendFieldDecorator(AppendStringField, 11))
+	b = AppendRepeated(b, m.LogLines, AppendFieldDecorator(AppendStringElem, 10))
+	b = AppendRepeated(b, m.Warnings, AppendFieldDecorator(AppendStringElem, 11))
 	b = AppendInt32Field(b, int32(m.Status), 12)
 	return b
 }
@@ -3562,7 +3576,7 @@ func (m *LogFilter) Encode() []byte {
 	b = AppendStringField(b, m.Field, 1)
 	b = AppendStringField(b, m.Op, 2)
 	b = AppendStringField(b, m.Value, 3)
-	b = AppendRepeated(b, m.Values, AppendFieldDecorator(AppendStringField, 4))
+	b = AppendRepeated(b, m.Values, AppendFieldDecorator(AppendStringElem, 4))
 	return b
 }
 
@@ -3607,10 +3621,11 @@ func (m *LogQueryRequest) Encode() []byte {
 	b = AppendInt64FromTime(b, m.TimeStart, 4)
 	b = AppendInt64FromTime(b, m.TimeEnd, 5)
 	for _, item := range m.Filters {
+		b = AppendTag(b, 6, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	b = AppendInt32Field(b, m.Limit, 7)
@@ -3759,10 +3774,11 @@ func (m *LogHistogram) Encode() []byte {
 	b = AppendInt64Field(b, m.BucketMs, 1)
 	b = AppendInt64FromTime(b, m.StartTime, 2)
 	for _, item := range m.Series {
+		b = AppendTag(b, 3, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -3841,10 +3857,11 @@ func (m *LogFieldStats) Encode() []byte {
 	b = AppendFloat64Field(b, m.Coverage, 2)
 	b = AppendInt64Field(b, m.Distinct, 3)
 	for _, item := range m.Top {
+		b = AppendTag(b, 4, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	b = AppendInt64Field(b, m.Other, 5)
@@ -3901,20 +3918,22 @@ func (m *LogQueryResponse) Encode() []byte {
 		b = AppendBytes(b, m.Histogram.Encode())
 	}
 	for _, item := range m.Fields {
+		b = AppendTag(b, 3, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	for _, item := range m.Records {
+		b = AppendTag(b, 4, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
-	b = AppendRepeated(b, m.Warnings, AppendFieldDecorator(AppendStringField, 5))
+	b = AppendRepeated(b, m.Warnings, AppendFieldDecorator(AppendStringElem, 5))
 	return b
 }
 
@@ -3982,6 +4001,563 @@ func DecodeLogQueryResponse(b []byte) (*LogQueryResponse, error) {
 	return &m, nil
 }
 
+func (m *MetricsSample) Encode() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.Time, 1)
+	b = AppendInt32Field(b, m.DeploymentID, 2)
+	b = AppendInt32Field(b, m.ScheduledInstanceID, 3)
+	b = AppendInt32Field(b, m.Ordinal, 4)
+	b = AppendInt32Field(b, m.SpecVersion, 5)
+	b = AppendInt32Field(b, m.Run, 6)
+	b = AppendInt32Field(b, m.NodeID, 7)
+	b = AppendBoolField(b, m.Terminal, 8)
+	b = AppendInt64FieldOpt(b, m.CpuUsageUsec, 10)
+	b = AppendInt64FieldOpt(b, m.CpuUserUsec, 11)
+	b = AppendInt64FieldOpt(b, m.CpuSystemUsec, 12)
+	b = AppendInt64FieldOpt(b, m.CpuThrottledUsec, 13)
+	b = AppendInt64FieldOpt(b, m.CpuNrThrottled, 14)
+	b = AppendInt64FieldOpt(b, m.MemCurrent, 20)
+	b = AppendInt64FieldOpt(b, m.MemPeak, 21)
+	b = AppendInt64FieldOpt(b, m.MemAnon, 22)
+	b = AppendInt64FieldOpt(b, m.MemFile, 23)
+	b = AppendInt64FieldOpt(b, m.MemKernel, 24)
+	b = AppendInt64FieldOpt(b, m.MemShmem, 25)
+	b = AppendInt64FieldOpt(b, m.MemOom, 26)
+	b = AppendInt64FieldOpt(b, m.MemOomKill, 27)
+	b = AppendInt64FieldOpt(b, m.IoReadBytes, 30)
+	b = AppendInt64FieldOpt(b, m.IoWriteBytes, 31)
+	b = AppendInt64FieldOpt(b, m.IoReadOps, 32)
+	b = AppendInt64FieldOpt(b, m.IoWriteOps, 33)
+	b = AppendInt64FieldOpt(b, m.Pids, 40)
+	b = AppendFloat64FieldOpt(b, m.PsiCpuSomeAvg10, 50)
+	b = AppendFloat64FieldOpt(b, m.PsiCpuSomeAvg60, 51)
+	b = AppendFloat64FieldOpt(b, m.PsiCpuSomeAvg300, 52)
+	b = AppendInt64FieldOpt(b, m.PsiCpuSomeTotalUsec, 53)
+	b = AppendFloat64FieldOpt(b, m.PsiCpuFullAvg10, 54)
+	b = AppendFloat64FieldOpt(b, m.PsiCpuFullAvg60, 55)
+	b = AppendFloat64FieldOpt(b, m.PsiCpuFullAvg300, 56)
+	b = AppendInt64FieldOpt(b, m.PsiCpuFullTotalUsec, 57)
+	b = AppendFloat64FieldOpt(b, m.PsiMemSomeAvg10, 60)
+	b = AppendFloat64FieldOpt(b, m.PsiMemSomeAvg60, 61)
+	b = AppendFloat64FieldOpt(b, m.PsiMemSomeAvg300, 62)
+	b = AppendInt64FieldOpt(b, m.PsiMemSomeTotalUsec, 63)
+	b = AppendFloat64FieldOpt(b, m.PsiMemFullAvg10, 64)
+	b = AppendFloat64FieldOpt(b, m.PsiMemFullAvg60, 65)
+	b = AppendFloat64FieldOpt(b, m.PsiMemFullAvg300, 66)
+	b = AppendInt64FieldOpt(b, m.PsiMemFullTotalUsec, 67)
+	b = AppendFloat64FieldOpt(b, m.PsiIoSomeAvg10, 70)
+	b = AppendFloat64FieldOpt(b, m.PsiIoSomeAvg60, 71)
+	b = AppendFloat64FieldOpt(b, m.PsiIoSomeAvg300, 72)
+	b = AppendInt64FieldOpt(b, m.PsiIoSomeTotalUsec, 73)
+	b = AppendFloat64FieldOpt(b, m.PsiIoFullAvg10, 74)
+	b = AppendFloat64FieldOpt(b, m.PsiIoFullAvg60, 75)
+	b = AppendFloat64FieldOpt(b, m.PsiIoFullAvg300, 76)
+	b = AppendInt64FieldOpt(b, m.PsiIoFullTotalUsec, 77)
+	b = AppendInt64FieldOpt(b, m.NetRxBytes, 80)
+	b = AppendInt64FieldOpt(b, m.NetRxPackets, 81)
+	b = AppendInt64FieldOpt(b, m.NetRxDropped, 82)
+	b = AppendInt64FieldOpt(b, m.NetTxBytes, 83)
+	b = AppendInt64FieldOpt(b, m.NetTxPackets, 84)
+	b = AppendInt64FieldOpt(b, m.NetTxDropped, 85)
+	b = AppendInt64FieldOpt(b, m.TcpEstablished, 90)
+	b = AppendInt64FieldOpt(b, m.TcpListen, 91)
+	b = AppendInt64FieldOpt(b, m.TcpTimeWait, 92)
+	b = AppendInt64FieldOpt(b, m.TcpCloseWait, 93)
+	b = AppendInt64FieldOpt(b, m.TcpOther, 94)
+	b = AppendInt64FieldOpt(b, m.OpenFds, 100)
+	return b
+}
+
+func DecodeMetricsSample(b []byte) (*MetricsSample, error) {
+	var m MetricsSample
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Time, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.ScheduledInstanceID, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.Ordinal, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.Run, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
+		case 8:
+			b, m.Terminal, err = ConsumeBool(b, typ)
+		case 10:
+			b, m.CpuUsageUsec, err = ConsumeVarInt64Opt(b, typ)
+		case 11:
+			b, m.CpuUserUsec, err = ConsumeVarInt64Opt(b, typ)
+		case 12:
+			b, m.CpuSystemUsec, err = ConsumeVarInt64Opt(b, typ)
+		case 13:
+			b, m.CpuThrottledUsec, err = ConsumeVarInt64Opt(b, typ)
+		case 14:
+			b, m.CpuNrThrottled, err = ConsumeVarInt64Opt(b, typ)
+		case 20:
+			b, m.MemCurrent, err = ConsumeVarInt64Opt(b, typ)
+		case 21:
+			b, m.MemPeak, err = ConsumeVarInt64Opt(b, typ)
+		case 22:
+			b, m.MemAnon, err = ConsumeVarInt64Opt(b, typ)
+		case 23:
+			b, m.MemFile, err = ConsumeVarInt64Opt(b, typ)
+		case 24:
+			b, m.MemKernel, err = ConsumeVarInt64Opt(b, typ)
+		case 25:
+			b, m.MemShmem, err = ConsumeVarInt64Opt(b, typ)
+		case 26:
+			b, m.MemOom, err = ConsumeVarInt64Opt(b, typ)
+		case 27:
+			b, m.MemOomKill, err = ConsumeVarInt64Opt(b, typ)
+		case 30:
+			b, m.IoReadBytes, err = ConsumeVarInt64Opt(b, typ)
+		case 31:
+			b, m.IoWriteBytes, err = ConsumeVarInt64Opt(b, typ)
+		case 32:
+			b, m.IoReadOps, err = ConsumeVarInt64Opt(b, typ)
+		case 33:
+			b, m.IoWriteOps, err = ConsumeVarInt64Opt(b, typ)
+		case 40:
+			b, m.Pids, err = ConsumeVarInt64Opt(b, typ)
+		case 50:
+			b, m.PsiCpuSomeAvg10, err = ConsumeFloat64Opt(b, typ)
+		case 51:
+			b, m.PsiCpuSomeAvg60, err = ConsumeFloat64Opt(b, typ)
+		case 52:
+			b, m.PsiCpuSomeAvg300, err = ConsumeFloat64Opt(b, typ)
+		case 53:
+			b, m.PsiCpuSomeTotalUsec, err = ConsumeVarInt64Opt(b, typ)
+		case 54:
+			b, m.PsiCpuFullAvg10, err = ConsumeFloat64Opt(b, typ)
+		case 55:
+			b, m.PsiCpuFullAvg60, err = ConsumeFloat64Opt(b, typ)
+		case 56:
+			b, m.PsiCpuFullAvg300, err = ConsumeFloat64Opt(b, typ)
+		case 57:
+			b, m.PsiCpuFullTotalUsec, err = ConsumeVarInt64Opt(b, typ)
+		case 60:
+			b, m.PsiMemSomeAvg10, err = ConsumeFloat64Opt(b, typ)
+		case 61:
+			b, m.PsiMemSomeAvg60, err = ConsumeFloat64Opt(b, typ)
+		case 62:
+			b, m.PsiMemSomeAvg300, err = ConsumeFloat64Opt(b, typ)
+		case 63:
+			b, m.PsiMemSomeTotalUsec, err = ConsumeVarInt64Opt(b, typ)
+		case 64:
+			b, m.PsiMemFullAvg10, err = ConsumeFloat64Opt(b, typ)
+		case 65:
+			b, m.PsiMemFullAvg60, err = ConsumeFloat64Opt(b, typ)
+		case 66:
+			b, m.PsiMemFullAvg300, err = ConsumeFloat64Opt(b, typ)
+		case 67:
+			b, m.PsiMemFullTotalUsec, err = ConsumeVarInt64Opt(b, typ)
+		case 70:
+			b, m.PsiIoSomeAvg10, err = ConsumeFloat64Opt(b, typ)
+		case 71:
+			b, m.PsiIoSomeAvg60, err = ConsumeFloat64Opt(b, typ)
+		case 72:
+			b, m.PsiIoSomeAvg300, err = ConsumeFloat64Opt(b, typ)
+		case 73:
+			b, m.PsiIoSomeTotalUsec, err = ConsumeVarInt64Opt(b, typ)
+		case 74:
+			b, m.PsiIoFullAvg10, err = ConsumeFloat64Opt(b, typ)
+		case 75:
+			b, m.PsiIoFullAvg60, err = ConsumeFloat64Opt(b, typ)
+		case 76:
+			b, m.PsiIoFullAvg300, err = ConsumeFloat64Opt(b, typ)
+		case 77:
+			b, m.PsiIoFullTotalUsec, err = ConsumeVarInt64Opt(b, typ)
+		case 80:
+			b, m.NetRxBytes, err = ConsumeVarInt64Opt(b, typ)
+		case 81:
+			b, m.NetRxPackets, err = ConsumeVarInt64Opt(b, typ)
+		case 82:
+			b, m.NetRxDropped, err = ConsumeVarInt64Opt(b, typ)
+		case 83:
+			b, m.NetTxBytes, err = ConsumeVarInt64Opt(b, typ)
+		case 84:
+			b, m.NetTxPackets, err = ConsumeVarInt64Opt(b, typ)
+		case 85:
+			b, m.NetTxDropped, err = ConsumeVarInt64Opt(b, typ)
+		case 90:
+			b, m.TcpEstablished, err = ConsumeVarInt64Opt(b, typ)
+		case 91:
+			b, m.TcpListen, err = ConsumeVarInt64Opt(b, typ)
+		case 92:
+			b, m.TcpTimeWait, err = ConsumeVarInt64Opt(b, typ)
+		case 93:
+			b, m.TcpCloseWait, err = ConsumeVarInt64Opt(b, typ)
+		case 94:
+			b, m.TcpOther, err = ConsumeVarInt64Opt(b, typ)
+		case 100:
+			b, m.OpenFds, err = ConsumeVarInt64Opt(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *MetricsQueryRequest) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DeploymentID, 1)
+	b = AppendInt32Field(b, m.TargetNodeID, 2)
+	b = AppendInt32Field(b, m.ScheduledInstanceID, 3)
+	b = AppendInt32Field(b, m.SpecVersion, 4)
+	b = AppendInt32Field(b, m.Run, 5)
+	b = AppendInt64FromTime(b, m.TimeStart, 6)
+	b = AppendInt64FromTime(b, m.TimeEnd, 7)
+	b = AppendInt64Field(b, m.StepMs, 8)
+	b = AppendRepeated(b, m.Fields, AppendFieldDecorator(AppendStringElem, 9))
+	b = AppendStringField(b, m.RequestID, 10)
+	return b
+}
+
+func DecodeMetricsQueryRequest(b []byte) (*MetricsQueryRequest, error) {
+	var m MetricsQueryRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.TargetNodeID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.ScheduledInstanceID, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.Run, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.TimeStart, err = ConsumeTimeFromInt64(b, typ)
+		case 7:
+			b, m.TimeEnd, err = ConsumeTimeFromInt64(b, typ)
+		case 8:
+			b, m.StepMs, err = ConsumeVarInt64(b, typ)
+		case 9:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Fields = append(m.Fields, item)
+			}
+		case 10:
+			b, m.RequestID, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *MetricsSeries) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ScheduledInstanceID, 1)
+	b = AppendInt32Field(b, m.Ordinal, 2)
+	b = AppendInt32Field(b, m.SpecVersion, 3)
+	b = AppendInt32Field(b, m.Run, 4)
+	b = AppendInt32Field(b, m.NodeID, 5)
+	b = AppendStringField(b, m.Field, 6)
+	b = AppendInt32Field(b, m.Kind, 7)
+	b = AppendRepeatedCompact(b, m.Values, 8, AppendCompactDecorator(AppendFloat64Compact))
+	return b
+}
+
+func DecodeMetricsSeries(b []byte) (*MetricsSeries, error) {
+	var m MetricsSeries
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ScheduledInstanceID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Ordinal, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.Run, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
+		case 6:
+			b, m.Field, err = ConsumeString(b, typ)
+		case 7:
+			b, m.Kind, err = ConsumeVarInt32(b, typ)
+		case 8:
+			b, m.Values, err = ConsumeRepeatedCompact(b, typ, Fixed64Type, ConsumeFloat64)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *MetricsQueryResponse) Encode() []byte {
+	var b []byte
+	b = AppendInt64FromTime(b, m.TimeStart, 1)
+	b = AppendInt64Field(b, m.StepMs, 2)
+	b = AppendInt32Field(b, m.Buckets, 3)
+	for _, item := range m.Series {
+		b = AppendTag(b, 4, BytesType)
+		if item == nil {
+			b = AppendBytes(b, nil)
+			continue
+		}
+		b = AppendBytes(b, item.Encode())
+	}
+	b = AppendInt64Field(b, m.ScannedRows, 5)
+	b = AppendInt32Field(b, m.TookMs, 6)
+	b = AppendRepeated(b, m.Warnings, AppendFieldDecorator(AppendStringElem, 7))
+	return b
+}
+
+func DecodeMetricsQueryResponse(b []byte) (*MetricsQueryResponse, error) {
+	var m MetricsQueryResponse
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.TimeStart, err = ConsumeTimeFromInt64(b, typ)
+		case 2:
+			b, m.StepMs, err = ConsumeVarInt64(b, typ)
+		case 3:
+			b, m.Buckets, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *MetricsSeries
+				item, err = DecodeMetricsSeries(msgBytes)
+				if err == nil {
+					m.Series = append(m.Series, item)
+				}
+			}
+		case 5:
+			b, m.ScannedRows, err = ConsumeVarInt64(b, typ)
+		case 6:
+			b, m.TookMs, err = ConsumeVarInt32(b, typ)
+		case 7:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Warnings = append(m.Warnings, item)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *MetricsLatestRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.RequestID, 1)
+	return b
+}
+
+func DecodeMetricsLatestRequest(b []byte) (*MetricsLatestRequest, error) {
+	var m MetricsLatestRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.RequestID, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *MetricsRate) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Field, 1)
+	b = AppendFloat64Field(b, m.PerSecond, 2)
+	return b
+}
+
+func DecodeMetricsRate(b []byte) (*MetricsRate, error) {
+	var m MetricsRate
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Field, err = ConsumeString(b, typ)
+		case 2:
+			b, m.PerSecond, err = ConsumeFloat64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *MetricsLatestEntry) Encode() []byte {
+	var b []byte
+	if m.Sample != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Sample.Encode())
+	}
+	for _, item := range m.Rates {
+		b = AppendTag(b, 2, BytesType)
+		if item == nil {
+			b = AppendBytes(b, nil)
+			continue
+		}
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeMetricsLatestEntry(b []byte) (*MetricsLatestEntry, error) {
+	var m MetricsLatestEntry
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *MetricsSample
+				item, err = DecodeMetricsSample(msgBytes)
+				if err == nil {
+					m.Sample = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *MetricsRate
+				item, err = DecodeMetricsRate(msgBytes)
+				if err == nil {
+					m.Rates = append(m.Rates, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *MetricsLatestResponse) Encode() []byte {
+	var b []byte
+	for _, item := range m.Entries {
+		b = AppendTag(b, 1, BytesType)
+		if item == nil {
+			b = AppendBytes(b, nil)
+			continue
+		}
+		b = AppendBytes(b, item.Encode())
+	}
+	b = AppendRepeated(b, m.Warnings, AppendFieldDecorator(AppendStringElem, 2))
+	return b
+}
+
+func DecodeMetricsLatestResponse(b []byte) (*MetricsLatestResponse, error) {
+	var m MetricsLatestResponse
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *MetricsLatestEntry
+				item, err = DecodeMetricsLatestEntry(msgBytes)
+				if err == nil {
+					m.Entries = append(m.Entries, item)
+				}
+			}
+		case 2:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Warnings = append(m.Warnings, item)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *Secret) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
@@ -3991,17 +4567,19 @@ func (m *Secret) Encode() []byte {
 		b = AppendBytes(b, m.Fs.Encode())
 	}
 	for _, item := range m.SpaceVersions {
+		b = AppendTag(b, 4, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	for _, item := range m.Versions {
+		b = AppendTag(b, 5, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -4177,10 +4755,11 @@ func DecodeSecretVersion(b []byte) (*SecretVersion, error) {
 func (m *SecretList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -4261,10 +4840,11 @@ func (m *SecretSetRequest) Encode() []byte {
 	b = AppendBytesField(b, m.Value, 2)
 	b = AppendBoolField(b, m.UpdateReferencingDeployments, 3)
 	for _, item := range m.ReferencingDeployments {
+		b = AppendTag(b, 4, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -4638,17 +5218,19 @@ func (m *Config) Encode() []byte {
 		b = AppendBytes(b, m.Fs.Encode())
 	}
 	for _, item := range m.SpaceVersions {
+		b = AppendTag(b, 4, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	for _, item := range m.ValueVersions {
+		b = AppendTag(b, 5, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -4874,10 +5456,11 @@ func DecodeValueDirectory(b []byte) (*ValueDirectory, error) {
 func (m *ConfigList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -4958,10 +5541,11 @@ func (m *ConfigSetRequest) Encode() []byte {
 	b = AppendStringField(b, m.Value, 2)
 	b = AppendBoolField(b, m.UpdateReferencingDeployments, 3)
 	for _, item := range m.ReferencingDeployments {
+		b = AppendTag(b, 4, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -5109,17 +5693,19 @@ func (m *Asset) Encode() []byte {
 		b = AppendBytes(b, m.Fs.Encode())
 	}
 	for _, item := range m.SpaceVersions {
+		b = AppendTag(b, 4, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	for _, item := range m.ContentVersions {
+		b = AppendTag(b, 5, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -5348,10 +5934,11 @@ func DecodeAssetDirectory(b []byte) (*AssetDirectory, error) {
 func (m *AssetList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -5487,10 +6074,11 @@ func DecodeAssetMoveRequest(b []byte) (*AssetMoveRequest, error) {
 func (m *ValueDirectoryList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -5661,10 +6249,11 @@ func DecodeValueDirectoryDeleteRequest(b []byte) (*ValueDirectoryDeleteRequest, 
 func (m *AssetDirectoryList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -5870,10 +6459,11 @@ func DecodeSpace(b []byte) (*Space, error) {
 func (m *SpaceList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -6047,10 +6637,11 @@ func (m *InternalUser) Encode() []byte {
 	b = AppendBytesField(b, m.WebAuthNID, 2)
 	b = AppendStringField(b, m.Name, 3)
 	for _, item := range m.Credentials {
+		b = AppendTag(b, 4, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	b = AppendBoolField(b, m.Delegated, 5)
@@ -6222,7 +6813,7 @@ func (m *LoginResponse) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Token, 1)
 	b = AppendInt32Field(b, m.UserID, 2)
-	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 3))
+	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringElem, 3))
 	b = AppendStringField(b, m.Name, 4)
 	b = AppendInt64FromTime(b, m.Expiry, 5)
 	return b
@@ -6333,7 +6924,7 @@ func (m *AgentSession) Encode() []byte {
 	b = AppendInt64FromTime(b, m.CreatedAt, 2)
 	b = AppendInt64FromTime(b, m.ExpiresAt, 3)
 	b = AppendStringField(b, m.TokenPrefix, 4)
-	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 5))
+	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringElem, 5))
 	b = AppendInt32Field(b, int32(m.Status), 6)
 	b = AppendStringField(b, m.RequestingAddress, 7)
 	b = AppendStringField(b, m.ApprovalCode, 8)
@@ -6483,10 +7074,11 @@ func DecodeAgentSessionRequest(b []byte) (*AgentSessionRequest, error) {
 func (m *AgentSessionList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -6598,10 +7190,11 @@ func DecodeAgentSessionRevokeRequest(b []byte) (*AgentSessionRevokeRequest, erro
 func (m *PersonalSessionList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -6948,17 +7541,19 @@ func DecodeAuthzTemplateArgument(b []byte) (*AuthzTemplateArgument, error) {
 func (m *AuthzRuleTemplate) Encode() []byte {
 	var b []byte
 	for _, item := range m.Arguments {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	for _, item := range m.Rules {
+		b = AppendTag(b, 2, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -7097,10 +7692,11 @@ func DecodeAuthzArgumentBinding(b []byte) (*AuthzArgumentBinding, error) {
 func (m *AuthzGrant) Encode() []byte {
 	var b []byte
 	for _, item := range m.Args {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	if m.Rule != nil {
@@ -7348,10 +7944,11 @@ func DecodeAuthzGlobalRuleRecord(b []byte) (*AuthzGlobalRuleRecord, error) {
 func (m *AuthzRuleTemplateList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -7509,10 +8106,11 @@ func DecodeAuthzRuleTemplateDeleteRequest(b []byte) (*AuthzRuleTemplateDeleteReq
 func (m *AuthzGrantList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -7630,10 +8228,11 @@ func DecodeAuthzGrantDeleteRequest(b []byte) (*AuthzGrantDeleteRequest, error) {
 func (m *AuthzGlobalRuleList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -7749,7 +8348,7 @@ func (m *ClusterNode) Encode() []byte {
 	b = AppendStringField(b, m.Identifier, 4)
 	b = AppendRepeatedCompact(b, m.Roles, 5, AppendCompactDecorator(AppendInt32Compact))
 	b = AppendStringField(b, m.WgPublicKey, 6)
-	b = AppendRepeated(b, m.Addresses, AppendFieldDecorator(AppendStringField, 7))
+	b = AppendRepeated(b, m.Addresses, AppendFieldDecorator(AppendStringElem, 7))
 	b = AppendInt64FromTime(b, m.EnrolledAt, 8)
 	b = AppendInt32Field(b, int32(m.Status), 10)
 	b = AppendRepeatedCompact(b, m.AllowedSpaces, 9, AppendCompactDecorator(AppendInt32Compact))
@@ -7991,10 +8590,11 @@ func DecodeNodeAllowedSpacesRequest(b []byte) (*NodeAllowedSpacesRequest, error)
 func (m *ClusterNodeList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -8034,10 +8634,11 @@ func DecodeClusterNodeList(b []byte) (*ClusterNodeList, error) {
 func (m *ClusterNodeStatusList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -8078,17 +8679,19 @@ func (m *AcmeState) Encode() []byte {
 	var b []byte
 	b = AppendInt64Field(b, m.Seq, 1)
 	for _, item := range m.CertBindings {
+		b = AppendTag(b, 2, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	for _, item := range m.Challenges {
+		b = AppendTag(b, 3, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -8202,32 +8805,36 @@ func (m *ClusterNetMap) Encode() []byte {
 	b = AppendInt32Field(b, m.TargetNodeID, 3)
 	b = AppendBytesField(b, m.UlaPrefix, 4)
 	for _, item := range m.Nodes {
+		b = AppendTag(b, 5, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	for _, item := range m.Routes {
+		b = AppendTag(b, 6, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	b = AppendInt64Field(b, m.DerivedFromSeq, 7)
 	for _, item := range m.PolicyRules {
+		b = AppendTag(b, 8, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 8, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	for _, item := range m.DnsServices {
+		b = AppendTag(b, 9, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 9, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -8303,10 +8910,11 @@ func (m *ClusterNetMapService) Encode() []byte {
 	b = AppendInt32Field(b, m.SpaceID, 2)
 	b = AppendInt32Field(b, m.DeploymentID, 3)
 	for _, item := range m.Ordinals {
+		b = AppendTag(b, 4, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -8389,10 +8997,11 @@ func (m *NetPolicyRule) Encode() []byte {
 		b = AppendBytes(b, m.Destination.Encode())
 	}
 	for _, item := range m.Ports {
+		b = AppendTag(b, 3, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -8629,25 +9238,28 @@ func (m *NetState) Encode() []byte {
 	b = AppendBytesField(b, m.UlaPrefix, 2)
 	b = AppendStringField(b, m.NodeIdentifier, 3)
 	for _, item := range m.DnsServices {
+		b = AppendTag(b, 4, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
-	b = AppendRepeated(b, m.UpstreamResolvers, AppendFieldDecorator(AppendStringField, 5))
+	b = AppendRepeated(b, m.UpstreamResolvers, AppendFieldDecorator(AppendStringElem, 5))
 	for _, item := range m.Ingress {
+		b = AppendTag(b, 6, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	for _, item := range m.AcmeChallenges {
+		b = AppendTag(b, 7, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 7, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -8751,10 +9363,11 @@ func (m *DnsService) Encode() []byte {
 	b = AppendStringField(b, m.Name, 1)
 	b = AppendStringField(b, m.Environment, 2)
 	for _, item := range m.Endpoints {
+		b = AppendTag(b, 3, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -8906,10 +9519,11 @@ func (m *HttpsNetIngress) Encode() []byte {
 	b = AppendInt32Field(b, m.FlushIntervalMs, 5)
 	b = AppendStringField(b, m.CertID, 6)
 	for _, item := range m.Backends {
+		b = AppendTag(b, 7, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 7, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -8966,10 +9580,11 @@ func (m *CertBundle) Encode() []byte {
 	var b []byte
 	b = AppendInt64Field(b, m.Seq, 1)
 	for _, item := range m.Certs {
+		b = AppendTag(b, 2, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -9044,10 +9659,11 @@ func (m *TlsPassthroughNetIngress) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.HostPort, 1)
 	for _, item := range m.Backends {
+		b = AppendTag(b, 2, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -9132,10 +9748,11 @@ func (m *NetworkPolicy) Encode() []byte {
 		b = AppendBytes(b, m.Destination.Encode())
 	}
 	for _, item := range m.Ports {
+		b = AppendTag(b, 6, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	b = AppendBoolField(b, m.Deleted, 7)
@@ -9242,10 +9859,11 @@ func DecodeNetworkPolicyPeerRef(b []byte) (*NetworkPolicyPeerRef, error) {
 func (m *NetworkPolicyList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -9294,10 +9912,11 @@ func (m *NetworkPolicyCreateRequest) Encode() []byte {
 		b = AppendBytes(b, m.Destination.Encode())
 	}
 	for _, item := range m.Ports {
+		b = AppendTag(b, 4, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -9372,10 +9991,11 @@ func (m *NetworkPolicyUpdateRequest) Encode() []byte {
 		b = AppendBytes(b, m.Destination.Encode())
 	}
 	for _, item := range m.Ports {
+		b = AppendTag(b, 6, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -9533,6 +10153,14 @@ func (m *MsgToSecondary) Encode() []byte {
 		b = AppendTag(b, 11, BytesType)
 		b = AppendBytes(b, m.LogQueryRequest.Encode())
 	}
+	if m.MetricsQueryRequest != nil {
+		b = AppendTag(b, 12, BytesType)
+		b = AppendBytes(b, m.MetricsQueryRequest.Encode())
+	}
+	if m.MetricsLatestRequest != nil {
+		b = AppendTag(b, 13, BytesType)
+		b = AppendBytes(b, m.MetricsLatestRequest.Encode())
+	}
 	return b
 }
 
@@ -9615,6 +10243,24 @@ func DecodeMsgToSecondary(b []byte) (*MsgToSecondary, error) {
 					m.LogQueryRequest = item
 				}
 			}
+		case 12:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *MetricsQueryRequest
+				item, err = DecodeMetricsQueryRequest(msgBytes)
+				if err == nil {
+					m.MetricsQueryRequest = item
+				}
+			}
+		case 13:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *MetricsLatestRequest
+				item, err = DecodeMetricsLatestRequest(msgBytes)
+				if err == nil {
+					m.MetricsLatestRequest = item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -9682,6 +10328,14 @@ func (m *MsgToPrimary) Encode() []byte {
 		b = AppendBytes(b, m.LogQueryResponse.Encode())
 	}
 	b = AppendStringField(b, m.LogQueryError, 8)
+	if m.MetricsQueryResponse != nil {
+		b = AppendTag(b, 9, BytesType)
+		b = AppendBytes(b, m.MetricsQueryResponse.Encode())
+	}
+	if m.MetricsLatestResponse != nil {
+		b = AppendTag(b, 10, BytesType)
+		b = AppendBytes(b, m.MetricsLatestResponse.Encode())
+	}
 	return b
 }
 
@@ -9741,6 +10395,24 @@ func DecodeMsgToPrimary(b []byte) (*MsgToPrimary, error) {
 			}
 		case 8:
 			b, m.LogQueryError, err = ConsumeString(b, typ)
+		case 9:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *MetricsQueryResponse
+				item, err = DecodeMetricsQueryResponse(msgBytes)
+				if err == nil {
+					m.MetricsQueryResponse = item
+				}
+			}
+		case 10:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *MetricsLatestResponse
+				item, err = DecodeMetricsLatestResponse(msgBytes)
+				if err == nil {
+					m.MetricsLatestResponse = item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -9815,10 +10487,11 @@ func DecodeClusterSecretValue(b []byte) (*ClusterSecretValue, error) {
 func (m *ClusterSecretsResponse) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -9919,10 +10592,11 @@ func DecodeClusterConfigValue(b []byte) (*ClusterConfigValue, error) {
 func (m *ClusterConfigsResponse) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -10204,10 +10878,11 @@ func DecodeEnrollmentPrimaryMsg(b []byte) (*EnrollmentPrimaryMsg, error) {
 func (m *EnrollmentRequestList) Encode() []byte {
 	var b []byte
 	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 1, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	return b
@@ -11377,10 +12052,11 @@ func (m *State) Encode() []byte {
 		b = AppendBytes(b, m.DeploymentUpdate.Encode())
 	}
 	for _, item := range m.UsersSnapshot {
+		b = AppendTag(b, 4, BytesType)
 		if item == nil {
+			b = AppendBytes(b, nil)
 			continue
 		}
-		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, item.Encode())
 	}
 	if m.UserUpdate != nil {
@@ -11961,7 +12637,7 @@ func DecodeGlobalState(b []byte) (*GlobalState, error) {
 func (m *AccessPolicy) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, int32(m.PolicyType), 1)
-	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringField, 2))
+	b = AppendRepeated(b, m.Scopes, AppendFieldDecorator(AppendStringElem, 2))
 	return b
 }
 

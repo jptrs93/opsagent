@@ -5,6 +5,7 @@ package opsagent.v1;
 import "api-contract/model/deployments.proto";
 import "api-contract/model/logs.proto";
 import "api-contract/model_logs_operations.proto";
+import "api-contract/model_metrics_operations.proto";
 import "api-contract/model/networking.proto";
 import "api-contract/options.proto";
 import "api-contract/model/scheduled_instances.proto";
@@ -31,6 +32,8 @@ message MsgToSecondary {
   int32 cluster_protocol_version = 9;
   AcmeState acme_state = 10;
   LogQueryRequest log_query_request = 11;  // One-shot structured log query; reply is log_query_response.
+  MetricsQueryRequest metrics_query_request = 12;    // One-shot metrics rollup; reply is metrics_query_response.
+  MetricsLatestRequest metrics_latest_request = 13;  // Latest sample per running container; reply is metrics_latest_response.
 }
 
 // ClusterHello is the first frame sent by a secondary on each authenticated
@@ -52,6 +55,8 @@ message MsgToPrimary {
   ClusterHello cluster_hello = 6;
   LogQueryResponse log_query_response = 7;
   string log_query_error = 8;  // Secondary-side failure for the query tagged by log_request_id.
+  MetricsQueryResponse metrics_query_response = 9;    // Tagged by log_request_id.
+  MetricsLatestResponse metrics_latest_response = 10; // Tagged by log_request_id.
 }
 
 message ClusterSecretsRequest {

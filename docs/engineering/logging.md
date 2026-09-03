@@ -102,6 +102,7 @@ One tag per component boundary; PascalCase. Current tags:
 | `NetAudit` | `lib/netaudit` |
 | `AcmeIssue` | `lib/acmeissue` |
 | `LogCollector` | `lib/log/logmanager` |
+| `Metrics` | `lib/metrics` (`Sampler.Run`), `lib/metrics/metricstore` (`Start`) |
 | `LocalInputs` | `lib/localinputs` (`Open`, tags the worker run ctx) |
 | `Store` | storage layer fallbacks where no caller ctx exists |
 

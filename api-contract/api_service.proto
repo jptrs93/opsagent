@@ -233,6 +233,16 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1MetricsQuery(MetricsQueryRequest) returns (MetricsQueryResponse) {
+    option (cp.url) = "/v1/metrics/query";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1MetricsLatest(MetricsLatestRequest) returns (MetricsLatestResponse) {
+    option (cp.url) = "/v1/metrics/latest";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   rpc PostV1DeploymentsPrepareOutput(PrepareOutputRequest) returns (stream PrepareOutputChunk) {
     option (cp.url) = "/v1/deployments/prepare-output";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };

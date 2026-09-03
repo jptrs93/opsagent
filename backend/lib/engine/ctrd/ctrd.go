@@ -48,6 +48,8 @@ type ContainerSpec struct {
 	LogNode       int32
 	LogOrdinal    int32
 
+	CgroupsPath string
+
 	// NetnsPath joins the container to a pre-created network namespace (the
 	// virtual network). Empty = host networking.
 	NetnsPath string

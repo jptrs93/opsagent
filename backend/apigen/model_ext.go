@@ -14,7 +14,8 @@ import (
 // issued-TLS deployment without its cert material.
 // Bumped to 10 when the streaming log search was replaced by the one-shot
 // structured log query round trip (per-field stats ride in its response).
-const ClusterProtocolVersion int32 = 10
+// Bumped to 11 when the metrics query and latest-sample round trips were added.
+const ClusterProtocolVersion int32 = 11
 
 // WantsRunning reports whether a node should be running this placement. The
 // three RUN_* states are deliberately indistinguishable here: they differ only

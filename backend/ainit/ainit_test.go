@@ -58,6 +58,7 @@ func TestEnsureStaticDirsCreatesCompleteAgentLayout(t *testing.T) {
 		cfg.LargeAssetsDir,
 		cfg.ACMECacheDir,
 		cfg.TLSDir,
+		cfg.MetricsDir,
 	} {
 		if info, err := os.Stat(path); err != nil || !info.IsDir() {
 			t.Errorf("static directory %q was not created: %v", path, err)

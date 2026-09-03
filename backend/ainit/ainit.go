@@ -48,6 +48,7 @@ func ensureStaticDirs(command Command, cfg *StaticConfiguration, dataDir string)
 	cfg.PrepareOutputDir = dataDir + "-build-logs"
 	cfg.LogWALDir = dataDir + "-run-logs"
 	cfg.LogArchiveDir = dataDir + "-log-archive"
+	cfg.MetricsDir = dataDir + "-metrics"
 	cfg.LargeAssetsDir = path.Join(dataDir, "large-assets")
 	cfg.GitCacheDir = path.Join(dataDir, "git-cache")
 	cfg.GitMetadataDir = path.Join(cfg.GitCacheDir, "metadata")
@@ -68,6 +69,7 @@ func ensureStaticDirs(command Command, cfg *StaticConfiguration, dataDir string)
 	fileu.MustEnsureDirWithPerm(cfg.PrepareOutputDir, 0o750)
 	fileu.MustEnsureDirWithPerm(cfg.LogWALDir, 0o750)
 	fileu.MustEnsureDirWithPerm(cfg.LogArchiveDir, 0o750)
+	fileu.MustEnsureDirWithPerm(cfg.MetricsDir, 0o750)
 	fileu.MustEnsureDirWithPerm(cfg.VolumesDir, 0o755)
 	fileu.MustEnsureDirWithPerm(cfg.ReleasesDir, 0o755)
 	fileu.MustEnsureDirWithPerm(cfg.LargeAssetsDir, 0o750)
@@ -86,6 +88,7 @@ type StaticConfiguration struct {
 	AssetCacheDir     string
 	LogWALDir         string
 	LogArchiveDir     string
+	MetricsDir        string
 	PrepareOutputDir  string
 	VolumesDir        string
 	ReleasesDir       string

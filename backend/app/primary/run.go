@@ -20,6 +20,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/webui"
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
+	"github.com/jptrs93/opsagent/backend/lib/metrics/metricstore"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/clientaddr"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/ratelimit"
 	"github.com/jptrs93/opsagent/backend/lib/network"
@@ -110,6 +111,7 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	webUIHandler.LogManager = logmanager.StartManager(ctx, primaryRuntime.store, func(state apigen.ScheduledInstanceState) bool {
 		return state.Instance.NodeID == primaryNode.ID
 	})
+	webUIHandler.Metrics = metricstore.Default
 	webUIHandler.Enrollment = enrollmentHandler
 	enrollmentMiddlewares := []apigen.MiddlewareFunc{
 		ratelimit.PerIP(rate.Limit(0.2), 5, time.Minute),

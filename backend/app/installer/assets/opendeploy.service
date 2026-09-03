@@ -36,8 +36,10 @@ RestartSec=5
 # namespace/mount operations, CAP_NET_ADMIN for virtual networking
 # (sysctls, netns/veth/routes, and nftables host-port rules), and DAC caps
 # to access root-owned containerd/netns paths while the service runs as
-# the opendeploy user.
-AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_SYS_ADMIN CAP_NET_ADMIN
+# the opendeploy user. CAP_SYS_PTRACE lets the metrics sampler list
+# /proc/<pid>/fd of container processes that run as another uid; that
+# directory is ptrace-gated and the DAC caps do not cover it.
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_SYS_ADMIN CAP_NET_ADMIN CAP_SYS_PTRACE
 
 [Install]
 WantedBy=multi-user.target

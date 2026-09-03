@@ -38,6 +38,8 @@ import {
   decodeGlobalState,
   decodeLogQueryResponse,
   decodeLoginResponse,
+  decodeMetricsLatestResponse,
+  decodeMetricsQueryResponse,
   decodeMsgToSecondary,
   decodeNetworkPolicy,
   decodeNetworkPolicyList,
@@ -96,6 +98,8 @@ import {
   encodeMasterPasswordRequest,
   encodeMasterPasswordSaveRequest,
   encodeMasterPasswordVerifyRequest,
+  encodeMetricsLatestRequest,
+  encodeMetricsQueryRequest,
   encodeMsgToPrimary,
   encodeNetworkPolicyCreateRequest,
   encodeNetworkPolicyDeleteRequest,
@@ -126,6 +130,7 @@ import {
 /** @typedef {() => Object.<string, string>} HeaderProvider */
 /** @typedef {(response: Response) => Promise<never>} ErrorHandler */
 /** @typedef {BodyInit|Uint8Array} RequestBody */
+/** @typedef {Omit<RequestInit, 'method' | 'headers' | 'body' | 'signal'>} FetchDefaults */
 
 async function* readLengthPrefixedFrames(body, decode) {
   const reader = body.getReader();
@@ -203,11 +208,13 @@ export class Capi {
    * @param {string} [baseURL='']
    * @param {HeaderProvider | null} [headerProvider=null]
    * @param {ErrorHandler | null} [errorHandler=null]
+   * @param {FetchDefaults} [fetchDefaults={}]
    */
-  constructor(baseURL = '', headerProvider = null, errorHandler = null) {
+  constructor(baseURL = '', headerProvider = null, errorHandler = null, fetchDefaults = {}) {
     this.baseURL = baseURL;
     this.headerProvider = headerProvider == null ? () => ({}) : headerProvider;
     this.errorHandler = errorHandler == null ? async (response) => { throw new Error(`HTTP ${response.status}`); } : errorHandler;
+    this.fetchDefaults = fetchDefaults;
   }
 
   /**
@@ -221,16 +228,17 @@ export class Capi {
     if (body !== undefined) {
       headers['Content-Type'] = contentType || 'application/x-protobuf';
     }
-    const init = { method, headers, body, signal };
+    const init = { ...this.fetchDefaults, method, headers, body, signal };
     if (duplex) { init.duplex = duplex; }
     return fetch(`${this.baseURL}${path}`, init);
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async getV1Healthz() {
-    const response = await this.#request("/v1/healthz", { method: 'GET' });
+  async getV1Healthz(options = {}) {
+    const response = await this.#request("/v1/healthz", { method: 'GET', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -238,10 +246,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ClusterSettings>}
    */
-  async postV1ClusterSettingsGet() {
-    const response = await this.#request("/v1/cluster-settings/get", { method: 'POST' });
+  async postV1ClusterSettingsGet(options = {}) {
+    const response = await this.#request("/v1/cluster-settings/get", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -250,10 +259,11 @@ export class Capi {
 
   /**
    * @param {ClusterSettings} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ClusterSettings>}
    */
-  async postV1ClusterSettingsUpdate(payload) {
-    const response = await this.#request("/v1/cluster-settings/update", { method: 'POST', body: encodeClusterSettings(payload) });
+  async postV1ClusterSettingsUpdate(payload, options = {}) {
+    const response = await this.#request("/v1/cluster-settings/update", { method: 'POST', body: encodeClusterSettings(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -262,10 +272,11 @@ export class Capi {
 
   /**
    * @param {MasterPasswordRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<LoginResponse>}
    */
-  async postV1AuthMaster(payload) {
-    const response = await this.#request("/v1/auth/master", { method: 'POST', body: encodeMasterPasswordRequest(payload) });
+  async postV1AuthMaster(payload, options = {}) {
+    const response = await this.#request("/v1/auth/master", { method: 'POST', body: encodeMasterPasswordRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -274,10 +285,11 @@ export class Capi {
 
   /**
    * @param {MasterPasswordSaveRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1AuthMasterPasswordSave(payload) {
-    const response = await this.#request("/v1/auth/master/password/save", { method: 'POST', body: encodeMasterPasswordSaveRequest(payload) });
+  async postV1AuthMasterPasswordSave(payload, options = {}) {
+    const response = await this.#request("/v1/auth/master/password/save", { method: 'POST', body: encodeMasterPasswordSaveRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -286,10 +298,11 @@ export class Capi {
 
   /**
    * @param {MasterPasswordVerifyRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1AuthMasterPasswordVerify(payload) {
-    const response = await this.#request("/v1/auth/master/password/verify", { method: 'POST', body: encodeMasterPasswordVerifyRequest(payload) });
+  async postV1AuthMasterPasswordVerify(payload, options = {}) {
+    const response = await this.#request("/v1/auth/master/password/verify", { method: 'POST', body: encodeMasterPasswordVerifyRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -297,10 +310,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<LoginResponse>}
    */
-  async getV1AuthCurrentSession() {
-    const response = await this.#request("/v1/auth/current/session", { method: 'GET' });
+  async getV1AuthCurrentSession(options = {}) {
+    const response = await this.#request("/v1/auth/current/session", { method: 'GET', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -308,10 +322,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<WebAuthNOptionsResponse>}
    */
-  async postV1AuthPasskeyRegisterStart() {
-    const response = await this.#request("/v1/auth/passkey/register/start", { method: 'POST' });
+  async postV1AuthPasskeyRegisterStart(options = {}) {
+    const response = await this.#request("/v1/auth/passkey/register/start", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -320,10 +335,11 @@ export class Capi {
 
   /**
    * @param {WebAuthNFinishRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<LoginResponse>}
    */
-  async postV1AuthPasskeyRegisterFinish(payload) {
-    const response = await this.#request("/v1/auth/passkey/register/finish", { method: 'POST', body: encodeWebAuthNFinishRequest(payload) });
+  async postV1AuthPasskeyRegisterFinish(payload, options = {}) {
+    const response = await this.#request("/v1/auth/passkey/register/finish", { method: 'POST', body: encodeWebAuthNFinishRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -331,10 +347,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<WebAuthNOptionsResponse>}
    */
-  async postV1AuthPasskeyLoginStart() {
-    const response = await this.#request("/v1/auth/passkey/login/start", { method: 'POST' });
+  async postV1AuthPasskeyLoginStart(options = {}) {
+    const response = await this.#request("/v1/auth/passkey/login/start", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -343,10 +360,11 @@ export class Capi {
 
   /**
    * @param {WebAuthNFinishRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<LoginResponse>}
    */
-  async postV1AuthPasskeyLoginFinish(payload) {
-    const response = await this.#request("/v1/auth/passkey/login/finish", { method: 'POST', body: encodeWebAuthNFinishRequest(payload) });
+  async postV1AuthPasskeyLoginFinish(payload, options = {}) {
+    const response = await this.#request("/v1/auth/passkey/login/finish", { method: 'POST', body: encodeWebAuthNFinishRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -354,10 +372,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async getV1AgentSessionsInstructions() {
-    const response = await this.#request("/v1/agent-sessions/instructions", { method: 'GET' });
+  async getV1AgentSessionsInstructions(options = {}) {
+    const response = await this.#request("/v1/agent-sessions/instructions", { method: 'GET', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -366,10 +385,11 @@ export class Capi {
 
   /**
    * @param {AgentSessionRequestStartRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AgentSessionRequest>}
    */
-  async postV1AgentSessionsRequestStart(payload) {
-    const response = await this.#request("/v1/agent-sessions/request-start", { method: 'POST', body: encodeAgentSessionRequestStartRequest(payload) });
+  async postV1AgentSessionsRequestStart(payload, options = {}) {
+    const response = await this.#request("/v1/agent-sessions/request-start", { method: 'POST', body: encodeAgentSessionRequestStartRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -378,10 +398,11 @@ export class Capi {
 
   /**
    * @param {AgentSessionGetRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AgentSessionPickup>}
    */
-  async postV1AgentSessionsGetSession(payload) {
-    const response = await this.#request("/v1/agent-sessions/get-session", { method: 'POST', body: encodeAgentSessionGetRequest(payload) });
+  async postV1AgentSessionsGetSession(payload, options = {}) {
+    const response = await this.#request("/v1/agent-sessions/get-session", { method: 'POST', body: encodeAgentSessionGetRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -390,10 +411,11 @@ export class Capi {
 
   /**
    * @param {AgentSessionApproveRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AgentSession>}
    */
-  async postV1AgentSessionsApprove(payload) {
-    const response = await this.#request("/v1/agent-sessions/approve", { method: 'POST', body: encodeAgentSessionApproveRequest(payload) });
+  async postV1AgentSessionsApprove(payload, options = {}) {
+    const response = await this.#request("/v1/agent-sessions/approve", { method: 'POST', body: encodeAgentSessionApproveRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -401,10 +423,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AgentSessionCreated>}
    */
-  async postV1AgentSessionsCreate() {
-    const response = await this.#request("/v1/agent-sessions/create", { method: 'POST' });
+  async postV1AgentSessionsCreate(options = {}) {
+    const response = await this.#request("/v1/agent-sessions/create", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -412,10 +435,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AgentSessionList>}
    */
-  async postV1AgentSessionsList() {
-    const response = await this.#request("/v1/agent-sessions/list", { method: 'POST' });
+  async postV1AgentSessionsList(options = {}) {
+    const response = await this.#request("/v1/agent-sessions/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -424,10 +448,11 @@ export class Capi {
 
   /**
    * @param {AgentSessionRevokeRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1AgentSessionsRevoke(payload) {
-    const response = await this.#request("/v1/agent-sessions/revoke", { method: 'POST', body: encodeAgentSessionRevokeRequest(payload) });
+  async postV1AgentSessionsRevoke(payload, options = {}) {
+    const response = await this.#request("/v1/agent-sessions/revoke", { method: 'POST', body: encodeAgentSessionRevokeRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -435,10 +460,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<PersonalSessionList>}
    */
-  async postV1PersonalSessionsList() {
-    const response = await this.#request("/v1/personal-sessions/list", { method: 'POST' });
+  async postV1PersonalSessionsList(options = {}) {
+    const response = await this.#request("/v1/personal-sessions/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -447,10 +473,11 @@ export class Capi {
 
   /**
    * @param {PersonalSessionRevokeRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1PersonalSessionsRevoke(payload) {
-    const response = await this.#request("/v1/personal-sessions/revoke", { method: 'POST', body: encodePersonalSessionRevokeRequest(payload) });
+  async postV1PersonalSessionsRevoke(payload, options = {}) {
+    const response = await this.#request("/v1/personal-sessions/revoke", { method: 'POST', body: encodePersonalSessionRevokeRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -458,10 +485,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AuthzRuleTemplateList>}
    */
-  async postV1AccessRuleTemplatesList() {
-    const response = await this.#request("/v1/access/rule-templates/list", { method: 'POST' });
+  async postV1AccessRuleTemplatesList(options = {}) {
+    const response = await this.#request("/v1/access/rule-templates/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -470,10 +498,11 @@ export class Capi {
 
   /**
    * @param {AuthzRuleTemplateCreateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AuthzRuleTemplateRecord>}
    */
-  async postV1AccessRuleTemplatesCreate(payload) {
-    const response = await this.#request("/v1/access/rule-templates/create", { method: 'POST', body: encodeAuthzRuleTemplateCreateRequest(payload) });
+  async postV1AccessRuleTemplatesCreate(payload, options = {}) {
+    const response = await this.#request("/v1/access/rule-templates/create", { method: 'POST', body: encodeAuthzRuleTemplateCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -482,10 +511,11 @@ export class Capi {
 
   /**
    * @param {AuthzRuleTemplateUpdateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AuthzRuleTemplateRecord>}
    */
-  async postV1AccessRuleTemplatesUpdate(payload) {
-    const response = await this.#request("/v1/access/rule-templates/update", { method: 'POST', body: encodeAuthzRuleTemplateUpdateRequest(payload) });
+  async postV1AccessRuleTemplatesUpdate(payload, options = {}) {
+    const response = await this.#request("/v1/access/rule-templates/update", { method: 'POST', body: encodeAuthzRuleTemplateUpdateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -494,10 +524,11 @@ export class Capi {
 
   /**
    * @param {AuthzRuleTemplateDeleteRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1AccessRuleTemplatesDelete(payload) {
-    const response = await this.#request("/v1/access/rule-templates/delete", { method: 'POST', body: encodeAuthzRuleTemplateDeleteRequest(payload) });
+  async postV1AccessRuleTemplatesDelete(payload, options = {}) {
+    const response = await this.#request("/v1/access/rule-templates/delete", { method: 'POST', body: encodeAuthzRuleTemplateDeleteRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -505,10 +536,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AuthzGrantList>}
    */
-  async postV1AccessGrantsList() {
-    const response = await this.#request("/v1/access/grants/list", { method: 'POST' });
+  async postV1AccessGrantsList(options = {}) {
+    const response = await this.#request("/v1/access/grants/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -517,10 +549,11 @@ export class Capi {
 
   /**
    * @param {AuthzGrantCreateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AuthzGrantRecord>}
    */
-  async postV1AccessGrantsCreate(payload) {
-    const response = await this.#request("/v1/access/grants/create", { method: 'POST', body: encodeAuthzGrantCreateRequest(payload) });
+  async postV1AccessGrantsCreate(payload, options = {}) {
+    const response = await this.#request("/v1/access/grants/create", { method: 'POST', body: encodeAuthzGrantCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -529,10 +562,11 @@ export class Capi {
 
   /**
    * @param {AuthzGrantDeleteRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1AccessGrantsDelete(payload) {
-    const response = await this.#request("/v1/access/grants/delete", { method: 'POST', body: encodeAuthzGrantDeleteRequest(payload) });
+  async postV1AccessGrantsDelete(payload, options = {}) {
+    const response = await this.#request("/v1/access/grants/delete", { method: 'POST', body: encodeAuthzGrantDeleteRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -540,10 +574,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AuthzGlobalRuleList>}
    */
-  async postV1AccessGlobalRulesList() {
-    const response = await this.#request("/v1/access/global-rules/list", { method: 'POST' });
+  async postV1AccessGlobalRulesList(options = {}) {
+    const response = await this.#request("/v1/access/global-rules/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -552,10 +587,11 @@ export class Capi {
 
   /**
    * @param {AuthzGlobalRuleCreateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AuthzGlobalRuleRecord>}
    */
-  async postV1AccessGlobalRulesCreate(payload) {
-    const response = await this.#request("/v1/access/global-rules/create", { method: 'POST', body: encodeAuthzGlobalRuleCreateRequest(payload) });
+  async postV1AccessGlobalRulesCreate(payload, options = {}) {
+    const response = await this.#request("/v1/access/global-rules/create", { method: 'POST', body: encodeAuthzGlobalRuleCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -564,10 +600,11 @@ export class Capi {
 
   /**
    * @param {AuthzGlobalRuleDeleteRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1AccessGlobalRulesDelete(payload) {
-    const response = await this.#request("/v1/access/global-rules/delete", { method: 'POST', body: encodeAuthzGlobalRuleDeleteRequest(payload) });
+  async postV1AccessGlobalRulesDelete(payload, options = {}) {
+    const response = await this.#request("/v1/access/global-rules/delete", { method: 'POST', body: encodeAuthzGlobalRuleDeleteRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -575,10 +612,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<GlobalState>}
    */
-  async getV1GlobalState() {
-    const response = await this.#request("/v1/global/state", { method: 'GET' });
+  async getV1GlobalState(options = {}) {
+    const response = await this.#request("/v1/global/state", { method: 'GET', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -603,10 +641,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ExportedConfigBlob>}
    */
-  async postV1GlobalExportedConfig() {
-    const response = await this.#request("/v1/global/exported-config", { method: 'POST' });
+  async postV1GlobalExportedConfig(options = {}) {
+    const response = await this.#request("/v1/global/exported-config", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -615,10 +654,11 @@ export class Capi {
 
   /**
    * @param {DeploymentGetRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<DeploymentState>}
    */
-  async postV1DeploymentsGet(payload) {
-    const response = await this.#request("/v1/deployments/get", { method: 'POST', body: encodeDeploymentGetRequest(payload) });
+  async postV1DeploymentsGet(payload, options = {}) {
+    const response = await this.#request("/v1/deployments/get", { method: 'POST', body: encodeDeploymentGetRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -627,10 +667,11 @@ export class Capi {
 
   /**
    * @param {DeploymentCreateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Deployment>}
    */
-  async postV1DeploymentsCreate(payload) {
-    const response = await this.#request("/v1/deployments/create", { method: 'POST', body: encodeDeploymentCreateRequest(payload) });
+  async postV1DeploymentsCreate(payload, options = {}) {
+    const response = await this.#request("/v1/deployments/create", { method: 'POST', body: encodeDeploymentCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -639,10 +680,11 @@ export class Capi {
 
   /**
    * @param {DeploymentUpdateRequestV2} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Deployment>}
    */
-  async postV2DeploymentsUpdate(payload) {
-    const response = await this.#request("/v2/deployments/update", { method: 'POST', body: encodeDeploymentUpdateRequestV2(payload) });
+  async postV2DeploymentsUpdate(payload, options = {}) {
+    const response = await this.#request("/v2/deployments/update", { method: 'POST', body: encodeDeploymentUpdateRequestV2(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -651,10 +693,11 @@ export class Capi {
 
   /**
    * @param {DeploymentDeleteRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1DeploymentsDelete(payload) {
-    const response = await this.#request("/v1/deployments/delete", { method: 'POST', body: encodeDeploymentDeleteRequest(payload) });
+  async postV1DeploymentsDelete(payload, options = {}) {
+    const response = await this.#request("/v1/deployments/delete", { method: 'POST', body: encodeDeploymentDeleteRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -663,10 +706,11 @@ export class Capi {
 
   /**
    * @param {RecentlyDeletedDeploymentsRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<RecentlyDeletedDeployments>}
    */
-  async postV1DeploymentsRecentlyDeleted(payload) {
-    const response = await this.#request("/v1/deployments/recently-deleted", { method: 'POST', body: encodeRecentlyDeletedDeploymentsRequest(payload) });
+  async postV1DeploymentsRecentlyDeleted(payload, options = {}) {
+    const response = await this.#request("/v1/deployments/recently-deleted", { method: 'POST', body: encodeRecentlyDeletedDeploymentsRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -675,10 +719,11 @@ export class Capi {
 
   /**
    * @param {DeploymentHistoryRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<DeploymentHistory>}
    */
-  async postV1DeploymentsHistory(payload) {
-    const response = await this.#request("/v1/deployments/history", { method: 'POST', body: encodeDeploymentHistoryRequest(payload) });
+  async postV1DeploymentsHistory(payload, options = {}) {
+    const response = await this.#request("/v1/deployments/history", { method: 'POST', body: encodeDeploymentHistoryRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -687,10 +732,11 @@ export class Capi {
 
   /**
    * @param {DeploymentVersionsRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<DeploymentVersions>}
    */
-  async postV1DeploymentsVersions(payload) {
-    const response = await this.#request("/v1/deployments/versions", { method: 'POST', body: encodeDeploymentVersionsRequest(payload) });
+  async postV1DeploymentsVersions(payload, options = {}) {
+    const response = await this.#request("/v1/deployments/versions", { method: 'POST', body: encodeDeploymentVersionsRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -699,10 +745,11 @@ export class Capi {
 
   /**
    * @param {LogQueryRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<LogQueryResponse>}
    */
-  async postV1DeploymentsLogQuery(payload) {
-    const response = await this.#request("/v1/deployments/log-query", { method: 'POST', body: encodeLogQueryRequest(payload) });
+  async postV1DeploymentsLogQuery(payload, options = {}) {
+    const response = await this.#request("/v1/deployments/log-query", { method: 'POST', body: encodeLogQueryRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -711,14 +758,41 @@ export class Capi {
 
   /**
    * @param {DeploymentRunReportRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<DeploymentRunReport>}
    */
-  async postV1DeploymentsRunReport(payload) {
-    const response = await this.#request("/v1/deployments/run-report", { method: 'POST', body: encodeDeploymentRunReportRequest(payload) });
+  async postV1DeploymentsRunReport(payload, options = {}) {
+    const response = await this.#request("/v1/deployments/run-report", { method: 'POST', body: encodeDeploymentRunReportRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
     return decodeDeploymentRunReport(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {MetricsQueryRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<MetricsQueryResponse>}
+   */
+  async postV1MetricsQuery(payload, options = {}) {
+    const response = await this.#request("/v1/metrics/query", { method: 'POST', body: encodeMetricsQueryRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeMetricsQueryResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {MetricsLatestRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<MetricsLatestResponse>}
+   */
+  async postV1MetricsLatest(payload, options = {}) {
+    const response = await this.#request("/v1/metrics/latest", { method: 'POST', body: encodeMetricsLatestRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeMetricsLatestResponse(await response.arrayBuffer());
   }
 
   /**
@@ -741,10 +815,11 @@ export class Capi {
 
   /**
    * @param {RepoValidateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<RepoValidateResponse>}
    */
-  async postV1ReposValidate(payload) {
-    const response = await this.#request("/v1/repos/validate", { method: 'POST', body: encodeRepoValidateRequest(payload) });
+  async postV1ReposValidate(payload, options = {}) {
+    const response = await this.#request("/v1/repos/validate", { method: 'POST', body: encodeRepoValidateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -752,10 +827,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ClusterNodeList>}
    */
-  async postV1NodesList() {
-    const response = await this.#request("/v1/nodes/list", { method: 'POST' });
+  async postV1NodesList(options = {}) {
+    const response = await this.#request("/v1/nodes/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -764,10 +840,11 @@ export class Capi {
 
   /**
    * @param {NodeRenameRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ClusterNode>}
    */
-  async postV1NodesRename(payload) {
-    const response = await this.#request("/v1/nodes/rename", { method: 'POST', body: encodeNodeRenameRequest(payload) });
+  async postV1NodesRename(payload, options = {}) {
+    const response = await this.#request("/v1/nodes/rename", { method: 'POST', body: encodeNodeRenameRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -776,10 +853,11 @@ export class Capi {
 
   /**
    * @param {NodeAllowedSpacesRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ClusterNode>}
    */
-  async postV1NodesAllowedSpaces(payload) {
-    const response = await this.#request("/v1/nodes/allowed-spaces", { method: 'POST', body: encodeNodeAllowedSpacesRequest(payload) });
+  async postV1NodesAllowedSpaces(payload, options = {}) {
+    const response = await this.#request("/v1/nodes/allowed-spaces", { method: 'POST', body: encodeNodeAllowedSpacesRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -787,10 +865,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<NodeEnrollmentInfo>}
    */
-  async getV1NodesEnrollmentsInfo() {
-    const response = await this.#request("/v1/nodes/enrollments/info", { method: 'GET' });
+  async getV1NodesEnrollmentsInfo(options = {}) {
+    const response = await this.#request("/v1/nodes/enrollments/info", { method: 'GET', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -798,10 +877,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<EnrollmentRequestList>}
    */
-  async postV1NodesEnrollmentsList() {
-    const response = await this.#request("/v1/nodes/enrollments/list", { method: 'POST' });
+  async postV1NodesEnrollmentsList(options = {}) {
+    const response = await this.#request("/v1/nodes/enrollments/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -810,10 +890,11 @@ export class Capi {
 
   /**
    * @param {EnrollmentAcceptRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<EnrollmentRequestStatus>}
    */
-  async postV1NodesEnrollmentsAccept(payload) {
-    const response = await this.#request("/v1/nodes/enrollments/accept", { method: 'POST', body: encodeEnrollmentAcceptRequest(payload) });
+  async postV1NodesEnrollmentsAccept(payload, options = {}) {
+    const response = await this.#request("/v1/nodes/enrollments/accept", { method: 'POST', body: encodeEnrollmentAcceptRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -822,10 +903,11 @@ export class Capi {
 
   /**
    * @param {SpaceSetRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Space>}
    */
-  async postV1SpacesCreate(payload) {
-    const response = await this.#request("/v1/spaces/create", { method: 'POST', body: encodeSpaceSetRequest(payload) });
+  async postV1SpacesCreate(payload, options = {}) {
+    const response = await this.#request("/v1/spaces/create", { method: 'POST', body: encodeSpaceSetRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -834,10 +916,11 @@ export class Capi {
 
   /**
    * @param {SpaceSetRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Space>}
    */
-  async postV1SpacesUpdate(payload) {
-    const response = await this.#request("/v1/spaces/update", { method: 'POST', body: encodeSpaceSetRequest(payload) });
+  async postV1SpacesUpdate(payload, options = {}) {
+    const response = await this.#request("/v1/spaces/update", { method: 'POST', body: encodeSpaceSetRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -846,10 +929,11 @@ export class Capi {
 
   /**
    * @param {SpaceDeleteRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1SpacesDelete(payload) {
-    const response = await this.#request("/v1/spaces/delete", { method: 'POST', body: encodeSpaceDeleteRequest(payload) });
+  async postV1SpacesDelete(payload, options = {}) {
+    const response = await this.#request("/v1/spaces/delete", { method: 'POST', body: encodeSpaceDeleteRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -857,10 +941,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<NetworkPolicyList>}
    */
-  async postV1NetworkPoliciesList() {
-    const response = await this.#request("/v1/network-policies/list", { method: 'POST' });
+  async postV1NetworkPoliciesList(options = {}) {
+    const response = await this.#request("/v1/network-policies/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -869,10 +954,11 @@ export class Capi {
 
   /**
    * @param {NetworkPolicyCreateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<NetworkPolicy>}
    */
-  async postV1NetworkPoliciesCreate(payload) {
-    const response = await this.#request("/v1/network-policies/create", { method: 'POST', body: encodeNetworkPolicyCreateRequest(payload) });
+  async postV1NetworkPoliciesCreate(payload, options = {}) {
+    const response = await this.#request("/v1/network-policies/create", { method: 'POST', body: encodeNetworkPolicyCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -881,10 +967,11 @@ export class Capi {
 
   /**
    * @param {NetworkPolicyUpdateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<NetworkPolicy>}
    */
-  async postV1NetworkPoliciesUpdate(payload) {
-    const response = await this.#request("/v1/network-policies/update", { method: 'POST', body: encodeNetworkPolicyUpdateRequest(payload) });
+  async postV1NetworkPoliciesUpdate(payload, options = {}) {
+    const response = await this.#request("/v1/network-policies/update", { method: 'POST', body: encodeNetworkPolicyUpdateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -893,10 +980,11 @@ export class Capi {
 
   /**
    * @param {NetworkPolicyDeleteRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1NetworkPoliciesDelete(payload) {
-    const response = await this.#request("/v1/network-policies/delete", { method: 'POST', body: encodeNetworkPolicyDeleteRequest(payload) });
+  async postV1NetworkPoliciesDelete(payload, options = {}) {
+    const response = await this.#request("/v1/network-policies/delete", { method: 'POST', body: encodeNetworkPolicyDeleteRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -904,10 +992,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<SecretList>}
    */
-  async postV1SecretsList() {
-    const response = await this.#request("/v1/secrets/list", { method: 'POST' });
+  async postV1SecretsList(options = {}) {
+    const response = await this.#request("/v1/secrets/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -916,10 +1005,11 @@ export class Capi {
 
   /**
    * @param {SecretCreateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Secret>}
    */
-  async postV1SecretsCreate(payload) {
-    const response = await this.#request("/v1/secrets/create", { method: 'POST', body: encodeSecretCreateRequest(payload) });
+  async postV1SecretsCreate(payload, options = {}) {
+    const response = await this.#request("/v1/secrets/create", { method: 'POST', body: encodeSecretCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -928,10 +1018,11 @@ export class Capi {
 
   /**
    * @param {SecretSetRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Secret>}
    */
-  async postV1SecretsSet(payload) {
-    const response = await this.#request("/v1/secrets/set", { method: 'POST', body: encodeSecretSetRequest(payload) });
+  async postV1SecretsSet(payload, options = {}) {
+    const response = await this.#request("/v1/secrets/set", { method: 'POST', body: encodeSecretSetRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -940,10 +1031,11 @@ export class Capi {
 
   /**
    * @param {SecretGenerateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Secret>}
    */
-  async postV1SecretsGenerate(payload) {
-    const response = await this.#request("/v1/secrets/generate", { method: 'POST', body: encodeSecretGenerateRequest(payload) });
+  async postV1SecretsGenerate(payload, options = {}) {
+    const response = await this.#request("/v1/secrets/generate", { method: 'POST', body: encodeSecretGenerateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -952,10 +1044,11 @@ export class Capi {
 
   /**
    * @param {SecretRenameRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Secret>}
    */
-  async postV1SecretsRename(payload) {
-    const response = await this.#request("/v1/secrets/rename", { method: 'POST', body: encodeSecretRenameRequest(payload) });
+  async postV1SecretsRename(payload, options = {}) {
+    const response = await this.#request("/v1/secrets/rename", { method: 'POST', body: encodeSecretRenameRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -964,10 +1057,11 @@ export class Capi {
 
   /**
    * @param {SecretMoveRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Secret>}
    */
-  async postV1SecretsMove(payload) {
-    const response = await this.#request("/v1/secrets/move", { method: 'POST', body: encodeSecretMoveRequest(payload) });
+  async postV1SecretsMove(payload, options = {}) {
+    const response = await this.#request("/v1/secrets/move", { method: 'POST', body: encodeSecretMoveRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -976,10 +1070,11 @@ export class Capi {
 
   /**
    * @param {SecretRevealRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<SecretRevealResponse>}
    */
-  async postV1SecretsReveal(payload) {
-    const response = await this.#request("/v1/secrets/reveal", { method: 'POST', body: encodeSecretRevealRequest(payload) });
+  async postV1SecretsReveal(payload, options = {}) {
+    const response = await this.#request("/v1/secrets/reveal", { method: 'POST', body: encodeSecretRevealRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -988,10 +1083,11 @@ export class Capi {
 
   /**
    * @param {SecretDeleteRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1SecretsDelete(payload) {
-    const response = await this.#request("/v1/secrets/delete", { method: 'POST', body: encodeSecretDeleteRequest(payload) });
+  async postV1SecretsDelete(payload, options = {}) {
+    const response = await this.#request("/v1/secrets/delete", { method: 'POST', body: encodeSecretDeleteRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -999,10 +1095,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<SecretsStatusResponse>}
    */
-  async postV1SecretsStatus() {
-    const response = await this.#request("/v1/secrets/status", { method: 'POST' });
+  async postV1SecretsStatus(options = {}) {
+    const response = await this.#request("/v1/secrets/status", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1010,10 +1107,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<SecretRecoveryCodeResponse>}
    */
-  async postV1SecretsRotateRecoveryCode() {
-    const response = await this.#request("/v1/secrets/rotate-recovery-code", { method: 'POST' });
+  async postV1SecretsRotateRecoveryCode(options = {}) {
+    const response = await this.#request("/v1/secrets/rotate-recovery-code", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1022,10 +1120,11 @@ export class Capi {
 
   /**
    * @param {SecretUnlockRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<SecretsStatusResponse>}
    */
-  async postV1SecretsUnlock(payload) {
-    const response = await this.#request("/v1/secrets/unlock", { method: 'POST', body: encodeSecretUnlockRequest(payload) });
+  async postV1SecretsUnlock(payload, options = {}) {
+    const response = await this.#request("/v1/secrets/unlock", { method: 'POST', body: encodeSecretUnlockRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1033,10 +1132,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ConfigList>}
    */
-  async postV1ConfigsList() {
-    const response = await this.#request("/v1/configs/list", { method: 'POST' });
+  async postV1ConfigsList(options = {}) {
+    const response = await this.#request("/v1/configs/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1045,10 +1145,11 @@ export class Capi {
 
   /**
    * @param {ConfigCreateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Config>}
    */
-  async postV1ConfigsCreate(payload) {
-    const response = await this.#request("/v1/configs/create", { method: 'POST', body: encodeConfigCreateRequest(payload) });
+  async postV1ConfigsCreate(payload, options = {}) {
+    const response = await this.#request("/v1/configs/create", { method: 'POST', body: encodeConfigCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1057,10 +1158,11 @@ export class Capi {
 
   /**
    * @param {ConfigSetRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Config>}
    */
-  async postV1ConfigsSet(payload) {
-    const response = await this.#request("/v1/configs/set", { method: 'POST', body: encodeConfigSetRequest(payload) });
+  async postV1ConfigsSet(payload, options = {}) {
+    const response = await this.#request("/v1/configs/set", { method: 'POST', body: encodeConfigSetRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1069,10 +1171,11 @@ export class Capi {
 
   /**
    * @param {ConfigRenameRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Config>}
    */
-  async postV1ConfigsRename(payload) {
-    const response = await this.#request("/v1/configs/rename", { method: 'POST', body: encodeConfigRenameRequest(payload) });
+  async postV1ConfigsRename(payload, options = {}) {
+    const response = await this.#request("/v1/configs/rename", { method: 'POST', body: encodeConfigRenameRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1081,10 +1184,11 @@ export class Capi {
 
   /**
    * @param {ConfigDeleteRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1ConfigsDelete(payload) {
-    const response = await this.#request("/v1/configs/delete", { method: 'POST', body: encodeConfigDeleteRequest(payload) });
+  async postV1ConfigsDelete(payload, options = {}) {
+    const response = await this.#request("/v1/configs/delete", { method: 'POST', body: encodeConfigDeleteRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1093,10 +1197,11 @@ export class Capi {
 
   /**
    * @param {ConfigMoveRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Config>}
    */
-  async postV1ConfigsMove(payload) {
-    const response = await this.#request("/v1/configs/move", { method: 'POST', body: encodeConfigMoveRequest(payload) });
+  async postV1ConfigsMove(payload, options = {}) {
+    const response = await this.#request("/v1/configs/move", { method: 'POST', body: encodeConfigMoveRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1104,10 +1209,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ValueDirectoryList>}
    */
-  async postV1ValueDirectoriesList() {
-    const response = await this.#request("/v1/value-directories/list", { method: 'POST' });
+  async postV1ValueDirectoriesList(options = {}) {
+    const response = await this.#request("/v1/value-directories/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1116,10 +1222,11 @@ export class Capi {
 
   /**
    * @param {ValueDirectoryCreateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ValueDirectory>}
    */
-  async postV1ValueDirectoriesCreate(payload) {
-    const response = await this.#request("/v1/value-directories/create", { method: 'POST', body: encodeValueDirectoryCreateRequest(payload) });
+  async postV1ValueDirectoriesCreate(payload, options = {}) {
+    const response = await this.#request("/v1/value-directories/create", { method: 'POST', body: encodeValueDirectoryCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1128,10 +1235,11 @@ export class Capi {
 
   /**
    * @param {ValueDirectoryMoveRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ValueDirectory>}
    */
-  async postV1ValueDirectoriesMove(payload) {
-    const response = await this.#request("/v1/value-directories/move", { method: 'POST', body: encodeValueDirectoryMoveRequest(payload) });
+  async postV1ValueDirectoriesMove(payload, options = {}) {
+    const response = await this.#request("/v1/value-directories/move", { method: 'POST', body: encodeValueDirectoryMoveRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1140,10 +1248,11 @@ export class Capi {
 
   /**
    * @param {ValueDirectoryRenameRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ValueDirectory>}
    */
-  async postV1ValueDirectoriesRename(payload) {
-    const response = await this.#request("/v1/value-directories/rename", { method: 'POST', body: encodeValueDirectoryRenameRequest(payload) });
+  async postV1ValueDirectoriesRename(payload, options = {}) {
+    const response = await this.#request("/v1/value-directories/rename", { method: 'POST', body: encodeValueDirectoryRenameRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1152,10 +1261,11 @@ export class Capi {
 
   /**
    * @param {ValueDirectoryDeleteRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1ValueDirectoriesDelete(payload) {
-    const response = await this.#request("/v1/value-directories/delete", { method: 'POST', body: encodeValueDirectoryDeleteRequest(payload) });
+  async postV1ValueDirectoriesDelete(payload, options = {}) {
+    const response = await this.#request("/v1/value-directories/delete", { method: 'POST', body: encodeValueDirectoryDeleteRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1163,10 +1273,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AssetList>}
    */
-  async postV1AssetsList() {
-    const response = await this.#request("/v1/assets/list", { method: 'POST' });
+  async postV1AssetsList(options = {}) {
+    const response = await this.#request("/v1/assets/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1174,10 +1285,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async getV1AssetsContent() {
-    const response = await this.#request("/v1/assets/content", { method: 'GET' });
+  async getV1AssetsContent(options = {}) {
+    const response = await this.#request("/v1/assets/content", { method: 'GET', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1185,10 +1297,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Asset>}
    */
-  async postV1AssetsUpload() {
-    const response = await this.#request("/v1/assets/upload", { method: 'POST' });
+  async postV1AssetsUpload(options = {}) {
+    const response = await this.#request("/v1/assets/upload", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1197,10 +1310,11 @@ export class Capi {
 
   /**
    * @param {AssetRenameRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Asset>}
    */
-  async postV1AssetsRename(payload) {
-    const response = await this.#request("/v1/assets/rename", { method: 'POST', body: encodeAssetRenameRequest(payload) });
+  async postV1AssetsRename(payload, options = {}) {
+    const response = await this.#request("/v1/assets/rename", { method: 'POST', body: encodeAssetRenameRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1209,10 +1323,11 @@ export class Capi {
 
   /**
    * @param {AssetDeleteRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1AssetsDelete(payload) {
-    const response = await this.#request("/v1/assets/delete", { method: 'POST', body: encodeAssetDeleteRequest(payload) });
+  async postV1AssetsDelete(payload, options = {}) {
+    const response = await this.#request("/v1/assets/delete", { method: 'POST', body: encodeAssetDeleteRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1221,10 +1336,11 @@ export class Capi {
 
   /**
    * @param {AssetMoveRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<Asset>}
    */
-  async postV1AssetsMove(payload) {
-    const response = await this.#request("/v1/assets/move", { method: 'POST', body: encodeAssetMoveRequest(payload) });
+  async postV1AssetsMove(payload, options = {}) {
+    const response = await this.#request("/v1/assets/move", { method: 'POST', body: encodeAssetMoveRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1232,10 +1348,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AssetDirectoryList>}
    */
-  async postV1AssetDirectoriesList() {
-    const response = await this.#request("/v1/asset-directories/list", { method: 'POST' });
+  async postV1AssetDirectoriesList(options = {}) {
+    const response = await this.#request("/v1/asset-directories/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1244,10 +1361,11 @@ export class Capi {
 
   /**
    * @param {AssetDirectoryCreateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AssetDirectory>}
    */
-  async postV1AssetDirectoriesCreate(payload) {
-    const response = await this.#request("/v1/asset-directories/create", { method: 'POST', body: encodeAssetDirectoryCreateRequest(payload) });
+  async postV1AssetDirectoriesCreate(payload, options = {}) {
+    const response = await this.#request("/v1/asset-directories/create", { method: 'POST', body: encodeAssetDirectoryCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1256,10 +1374,11 @@ export class Capi {
 
   /**
    * @param {AssetDirectoryMoveRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AssetDirectory>}
    */
-  async postV1AssetDirectoriesMove(payload) {
-    const response = await this.#request("/v1/asset-directories/move", { method: 'POST', body: encodeAssetDirectoryMoveRequest(payload) });
+  async postV1AssetDirectoriesMove(payload, options = {}) {
+    const response = await this.#request("/v1/asset-directories/move", { method: 'POST', body: encodeAssetDirectoryMoveRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1268,10 +1387,11 @@ export class Capi {
 
   /**
    * @param {AssetDirectoryRenameRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<AssetDirectory>}
    */
-  async postV1AssetDirectoriesRename(payload) {
-    const response = await this.#request("/v1/asset-directories/rename", { method: 'POST', body: encodeAssetDirectoryRenameRequest(payload) });
+  async postV1AssetDirectoriesRename(payload, options = {}) {
+    const response = await this.#request("/v1/asset-directories/rename", { method: 'POST', body: encodeAssetDirectoryRenameRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1280,10 +1400,11 @@ export class Capi {
 
   /**
    * @param {AssetDirectoryDeleteRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1AssetDirectoriesDelete(payload) {
-    const response = await this.#request("/v1/asset-directories/delete", { method: 'POST', body: encodeAssetDirectoryDeleteRequest(payload) });
+  async postV1AssetDirectoriesDelete(payload, options = {}) {
+    const response = await this.#request("/v1/asset-directories/delete", { method: 'POST', body: encodeAssetDirectoryDeleteRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1291,10 +1412,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<GithubCredentials>}
    */
-  async getV1ClusterGithubCredentials() {
-    const response = await this.#request("/v1/cluster/github-credentials", { method: 'GET' });
+  async getV1ClusterGithubCredentials(options = {}) {
+    const response = await this.#request("/v1/cluster/github-credentials", { method: 'GET', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1302,10 +1424,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async getV1ClusterAsset() {
-    const response = await this.#request("/v1/cluster/asset", { method: 'GET' });
+  async getV1ClusterAsset(options = {}) {
+    const response = await this.#request("/v1/cluster/asset", { method: 'GET', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1314,10 +1437,11 @@ export class Capi {
 
   /**
    * @param {ClusterSecretsRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ClusterSecretsResponse>}
    */
-  async getV1ClusterSecrets(payload) {
-    const response = await this.#request("/v1/cluster/secrets", { method: 'GET', body: encodeClusterSecretsRequest(payload) });
+  async getV1ClusterSecrets(payload, options = {}) {
+    const response = await this.#request("/v1/cluster/secrets", { method: 'GET', body: encodeClusterSecretsRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1326,10 +1450,11 @@ export class Capi {
 
   /**
    * @param {ClusterConfigsRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ClusterConfigsResponse>}
    */
-  async getV1ClusterConfigs(payload) {
-    const response = await this.#request("/v1/cluster/configs", { method: 'GET', body: encodeClusterConfigsRequest(payload) });
+  async getV1ClusterConfigs(payload, options = {}) {
+    const response = await this.#request("/v1/cluster/configs", { method: 'GET', body: encodeClusterConfigsRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1338,10 +1463,11 @@ export class Capi {
 
   /**
    * @param {ClusterIssuedTLSRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ClusterIssuedTLSResponse>}
    */
-  async getV1ClusterIssuedTls(payload) {
-    const response = await this.#request("/v1/cluster/issued-tls", { method: 'GET', body: encodeClusterIssuedTLSRequest(payload) });
+  async getV1ClusterIssuedTls(payload, options = {}) {
+    const response = await this.#request("/v1/cluster/issued-tls", { method: 'GET', body: encodeClusterIssuedTLSRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -1349,10 +1475,11 @@ export class Capi {
   }
 
   /**
+   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<ClusterRenewCertificateResponse>}
    */
-  async getV1ClusterRenewCertificate() {
-    const response = await this.#request("/v1/cluster/renew-certificate", { method: 'GET' });
+  async getV1ClusterRenewCertificate(options = {}) {
+    const response = await this.#request("/v1/cluster/renew-certificate", { method: 'GET', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }

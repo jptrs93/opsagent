@@ -131,9 +131,10 @@ func (c *Client) ImageReady(ctx context.Context, ref string) error {
 }
 
 type Task struct {
-	client    *Client
-	container containerd.Container
-	task      containerd.Task
+	client      *Client
+	container   containerd.Container
+	task        containerd.Task
+	cgroupsPath string
 }
 
 // RunTask creates and starts a container from spec. It first removes any
@@ -202,6 +203,9 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 		// Host networking: explicit networking.mode=host opt-out.
 		specOpts = append(specOpts, oci.WithHostNamespace(specs.NetworkNamespace), oci.WithHostResolvconf)
 	}
+	if spec.CgroupsPath != "" {
+		specOpts = append(specOpts, oci.WithCgroup(spec.CgroupsPath))
+	}
 	if spec.User != "" {
 		specOpts = append(specOpts, oci.WithUser(spec.User))
 	}
@@ -253,7 +257,7 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
 		return nil, fmt.Errorf("starting task: %w", err)
 	}
-	return &Task{client: c, container: container, task: task}, nil
+	return &Task{client: c, container: container, task: task, cgroupsPath: spec.CgroupsPath}, nil
 }
 
 func newLogConsumer(spec ContainerSpec) (cio.Creator, error) {
@@ -305,7 +309,15 @@ func (c *Client) LoadTask(ctx context.Context, id string) (*Task, error) {
 	if err != nil || st.Status != containerd.Running {
 		return nil, ErrNotFound
 	}
-	return &Task{client: c, container: container, task: task}, nil
+	t := &Task{client: c, container: container, task: task}
+	if spec, err := container.Spec(ctx); err == nil && spec.Linux != nil {
+		t.cgroupsPath = spec.Linux.CgroupsPath
+	}
+	return t, nil
+}
+
+func (t *Task) CgroupsPath() string {
+	return t.cgroupsPath
 }
 
 func (t *Task) Pid() uint32 {

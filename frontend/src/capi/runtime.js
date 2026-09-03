@@ -210,12 +210,15 @@ export class Reader {
       if (this.pos >= this.len) {
         throw new Error("cleanproto runtime: truncated message");
       }
-      // A varint is at most 10 bytes; text misread as continuation bytes would
-      // otherwise walk arbitrarily far into the buffer.
-      if (shift > 63n) {
+      const b = this.buf[this.pos++];
+      // A varint is at most 10 bytes, and the tenth may only carry bit 63: a
+      // higher payload bit or a continuation bit would overflow uint64.
+      // Rejecting both bounds the walk (text misread as continuation bytes
+      // would otherwise run on) and matches the Go runtime's ConsumeVarint,
+      // which answers the same bytes with errCodeOverflow.
+      if (shift === 63n && b > 1) {
         throw new Error("cleanproto runtime: malformed varint");
       }
-      const b = this.buf[this.pos++];
       result |= BigInt(b & 0x7f) << shift;
       if ((b & 0x80) === 0) break;
       shift += 7n;

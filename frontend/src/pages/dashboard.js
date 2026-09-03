@@ -12,6 +12,7 @@ import {usersPage} from "./users.js";
 import {settingsPage} from "./settings.js";
 import {sessionsPage} from "./sessions.js";
 import {logsPage} from "./logs.js";
+import {metricsPage} from "./metrics.js";
 import {preloadDeploymentCodeWidget} from "../components/deploymentEditorWidget.js";
 
 const { div, h1, span } = van.tags;
@@ -24,6 +25,7 @@ export function dashboard() {
 
     const activePage = van.state('status');
     const selectedLogDeploymentId = van.state(0);
+    const selectedMetricsDeploymentId = van.state(0);
 
     const openLogsForDeployment = (deploymentId) => {
         selectedLogDeploymentId.val = deploymentId;
@@ -43,6 +45,7 @@ export function dashboard() {
             () => {
                 if (activePage.val === 'status') return statusPage(openLogsForDeployment);
                 if (activePage.val === 'logs') return logsPage(selectedLogDeploymentId);
+                if (activePage.val === 'metrics') return metricsPage(selectedMetricsDeploymentId);
                 if (activePage.val === 'secrets') return secretsPage();
                 if (activePage.val === 'configs') return secretsPage();
                 if (activePage.val === 'assets') return assetsPage();

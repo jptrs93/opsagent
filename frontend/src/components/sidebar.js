@@ -43,6 +43,7 @@ export function sidebar(activePage) {
             {class: "p-3 flex flex-col gap-1"},
             item("Deployments", "status"),
             item("Logs", "logs"),
+            item("Metrics", "metrics"),
             item("Secrets / Configs", "secrets"),
             item("Assets", "assets"),
             item("Spaces", "spaces"),

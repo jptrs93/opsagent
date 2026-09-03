@@ -56,10 +56,12 @@ type Session struct {
 }
 
 type logChunk struct {
-	data      []byte
-	queryResp *apigen.LogQueryResponse
-	errMsg    string
-	end       bool
+	data        []byte
+	queryResp   *apigen.LogQueryResponse
+	metricsResp *apigen.MetricsQueryResponse
+	latestResp  *apigen.MetricsLatestResponse
+	errMsg      string
+	end         bool
 }
 
 func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID int32, identifier string, predicate storage.ScheduledInstancePredicate, store *state.Service, networkMaps networkMapProvider) *Session {
@@ -230,6 +232,10 @@ func (s *Session) handleIncoming(msg *apigen.MsgToPrimary) {
 		s.routeLogChunk(msg.LogRequestID, logChunk{queryResp: msg.LogQueryResponse})
 	case msg.LogQueryError != "":
 		s.routeLogChunk(msg.LogRequestID, logChunk{errMsg: msg.LogQueryError})
+	case msg.MetricsQueryResponse != nil:
+		s.routeLogChunk(msg.LogRequestID, logChunk{metricsResp: msg.MetricsQueryResponse})
+	case msg.MetricsLatestResponse != nil:
+		s.routeLogChunk(msg.LogRequestID, logChunk{latestResp: msg.MetricsLatestResponse})
 	case msg.LogEnd:
 		s.routeLogChunk(msg.LogRequestID, logChunk{end: true})
 	}
@@ -390,6 +396,39 @@ func (s *Session) requestLogQuery(ctx context.Context, req *apigen.LogQueryReque
 		return nil, fmt.Errorf("secondary %s sent an unexpected log query reply", s.identifier)
 	}
 	return chunk.queryResp, nil
+}
+
+func (s *Session) requestMetricsQuery(ctx context.Context, req *apigen.MetricsQueryRequest) (*apigen.MetricsQueryResponse, error) {
+	start := time.Now()
+	chunk, err := s.requestOneShot(ctx, &apigen.MsgToSecondary{MetricsQueryRequest: req}, func(id string) { req.RequestID = id })
+	elapsed := time.Since(start).Round(time.Millisecond)
+	if err != nil {
+		slog.InfoContext(s.sessCtx, fmt.Sprintf("secondary metrics query failed after %s requestID=%s", elapsed, req.RequestID), "dep", req.DeploymentID, "err", err)
+		return nil, err
+	}
+	slog.DebugContext(s.sessCtx, fmt.Sprintf("secondary metrics query round trip %s requestID=%s", elapsed, req.RequestID), "dep", req.DeploymentID)
+	if chunk.errMsg != "" {
+		return nil, fmt.Errorf("%s", chunk.errMsg)
+	}
+	if chunk.metricsResp == nil {
+		return nil, fmt.Errorf("secondary %s sent an unexpected metrics query reply", s.identifier)
+	}
+	return chunk.metricsResp, nil
+}
+
+func (s *Session) requestMetricsLatest(ctx context.Context) (*apigen.MetricsLatestResponse, error) {
+	req := &apigen.MetricsLatestRequest{}
+	chunk, err := s.requestOneShot(ctx, &apigen.MsgToSecondary{MetricsLatestRequest: req}, func(id string) { req.RequestID = id })
+	if err != nil {
+		return nil, err
+	}
+	if chunk.errMsg != "" {
+		return nil, fmt.Errorf("%s", chunk.errMsg)
+	}
+	if chunk.latestResp == nil {
+		return nil, fmt.Errorf("secondary %s sent an unexpected metrics reply", s.identifier)
+	}
+	return chunk.latestResp, nil
 }
 
 type logReader struct {

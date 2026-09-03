@@ -23,6 +23,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
+	"github.com/jptrs93/opsagent/backend/lib/metrics"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"golang.org/x/sys/unix"
@@ -39,6 +40,8 @@ const (
 	containerReadinessSocketName     = "readiness.sock"
 	containerReadinessContainerPath  = containerReadinessContainerDir + "/" + containerReadinessSocketName
 	containerDefaultDevShmSizeKB     = 64 * 1024
+
+	containerInstanceOrdinal int32 = 0
 )
 
 // containerRunner owns the create/start/monitor/respawn/backoff lifecycle of a
@@ -97,10 +100,11 @@ type containerRunner struct {
 	servingMu sync.Mutex
 	serving   bool
 
-	taskMu sync.Mutex
-	task   *ctrd.Task
-	netMu  sync.Mutex
-	net    *network.ContainerNet
+	taskMu   sync.Mutex
+	task     *ctrd.Task
+	sampling *metrics.Registration
+	netMu    sync.Mutex
+	net      *network.ContainerNet
 
 	readyOnce       sync.Once
 	readyCh         chan error
@@ -392,6 +396,7 @@ func (r *containerRunner) run() {
 				hadProcess = true
 				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
 			} else {
+				r.registerSampling(task, r.currentRunNumber())
 				if r.usesLatestNetworkConfig() {
 					r.updateStatus(apigen.RunningStatus_RUNNING, int32(task.Pid()))
 				}
@@ -528,9 +533,8 @@ func (r *containerRunner) run() {
 
 			LogDeployment: r.deploymentID,
 			LogNode:       r.nodeID,
-			// The scheduler only ever assigns defaultInstanceOrdinal today; this
-			// becomes a real per-instance value when multi-instance lands.
-			LogOrdinal: 0,
+			LogOrdinal:    containerInstanceOrdinal,
+			CgroupsPath:   r.cgroupsPath(runNumber),
 		}
 		if cn != nil {
 			spec.NetnsPath = cn.NetnsPath
@@ -580,6 +584,7 @@ func (r *containerRunner) run() {
 				continue
 			}
 		}
+		r.registerSampling(task, runNumber)
 		// RUNNING is the scheduler's promotion trigger, so a candidate must not
 		// publish it before the container has said it is ready — that would hand
 		// over the instance address with the readiness gate still closed.
@@ -743,6 +748,36 @@ func (r *containerRunner) logContainerEvent(action string, runNumber int32, moun
 
 func (r *containerRunner) currentRunNumber() int32 {
 	return r.status.NumberOfRestarts + 1
+}
+
+func (r *containerRunner) cgroupsPath(runNumber int32) string {
+	return fmt.Sprintf("/opendeploy/%d-p%d-v%d-r%d", r.deploymentID, r.scheduledInstanceID, r.status.DeploymentSpecVersion, runNumber)
+}
+
+func (r *containerRunner) registerSampling(task *ctrd.Task, runNumber int32) {
+	reg := metrics.Default.Register(r.ctx, metrics.TargetSpec{
+		Key: metrics.TargetKey{
+			DeploymentID:        r.deploymentID,
+			ScheduledInstanceID: r.scheduledInstanceID,
+			Ordinal:             containerInstanceOrdinal,
+			SpecVersion:         r.status.DeploymentSpecVersion,
+			Run:                 runNumber,
+		},
+		PID:         task.Pid(),
+		CgroupsPath: task.CgroupsPath(),
+		HostNetwork: !r.virtualNetwork(),
+	})
+	r.taskMu.Lock()
+	r.sampling = reg
+	r.taskMu.Unlock()
+}
+
+func (r *containerRunner) closeSampling() {
+	r.taskMu.Lock()
+	reg := r.sampling
+	r.sampling = nil
+	r.taskMu.Unlock()
+	reg.Close()
 }
 
 func (r *containerRunner) effectiveDevShmSizeKB() int64 {
@@ -1037,6 +1072,7 @@ func (r *containerRunner) deleteTask(task *ctrd.Task) {
 	if task == nil {
 		return
 	}
+	r.closeSampling()
 	if err := task.Delete(context.Background()); err != nil {
 		slog.WarnContext(r.ctx, "deleting container failed", "err", err)
 	}

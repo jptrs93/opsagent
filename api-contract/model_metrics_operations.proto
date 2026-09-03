@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model/metrics.proto";
+import "api-contract/options.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message MetricsQueryRequest {
+  int32 deployment_id = 1;
+  int32 target_node_id = 2;         // Internal: set by the primary when fanning out to one node.
+  int32 scheduled_instance_id = 3;  // 0 = all instances.
+  int32 spec_version = 4;           // 0 = all versions.
+  int32 run = 5;                    // 0 = all runs.
+  int64 time_start = 6 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];  // Inclusive; 0 = time_end - 1h.
+  int64 time_end = 7 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];    // Exclusive; 0 = now.
+  int64 step_ms = 8;                // Bucket width; 0 = server picks for ~300 points. Minimum 30000.
+  repeated string fields = 9;       // Metric names to return; empty = all.
+  string request_id = 10;           // Internal: correlates cluster round trips.
+}
+
+message MetricsSeries {
+  int32 scheduled_instance_id = 1;
+  int32 ordinal = 2;
+  int32 spec_version = 3;
+  int32 run = 4;
+  int32 node_id = 5;
+  string field = 6;
+  int32 kind = 7;                   // 0 = counter (values are per-second rates), 1 = gauge (bucket mean), 2 = kernel average (bucket mean).
+  repeated double values = 8;       // One per bucket, oldest first; NaN = no data in the bucket.
+}
+
+message MetricsQueryResponse {
+  int64 time_start = 1 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];  // Left edge of the first bucket.
+  int64 step_ms = 2;
+  int32 buckets = 3;
+  repeated MetricsSeries series = 4;
+  int64 scanned_rows = 5;
+  int32 took_ms = 6;
+  repeated string warnings = 7;
+}
+
+message MetricsLatestRequest {
+  string request_id = 1;            // Internal: correlates cluster round trips.
+}
+
+message MetricsRate {
+  string field = 1;
+  double per_second = 2;
+}
+
+message MetricsLatestEntry {
+  MetricsSample sample = 1;
+  repeated MetricsRate rates = 2;   // Counter fields differenced against the previous sample of the same run.
+}
+
+message MetricsLatestResponse {
+  repeated MetricsLatestEntry entries = 1;
+  repeated string warnings = 2;
+}

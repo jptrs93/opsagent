@@ -1,5 +1,5 @@
 #!/bin/sh
-go install github.com/jptrs93/cleanproto/cmd/cleanproto@v1.19.0
+go install github.com/jptrs93/cleanproto/cmd/cleanproto@v1.24.0
 set -e
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -16,6 +16,7 @@ trap 'rm -f "$COMBINED_PROTO"' EXIT
   for proto in api-contract/model/deployments.proto api-contract/model/scheduled_instances.proto \
                api-contract/model_deployments_operations.proto \
                api-contract/model/logs.proto api-contract/model_logs_operations.proto \
+               api-contract/model/metrics.proto api-contract/model_metrics_operations.proto \
                api-contract/model/secrets.proto api-contract/model_secrets_operations.proto \
                api-contract/model/configs.proto api-contract/model_configs_operations.proto \
                api-contract/model/assets.proto api-contract/model_assets_operations.proto \

@@ -16,6 +16,7 @@ import {networkPolicyCases} from './network-policy.js';
 import {networkPolicyCrossNodeCases} from './network-policy-cross-node.js';
 import {networkPolicyInteractionCases} from './network-policy-interactions.js';
 import {pgBackRestCases} from './postgres-pgbackrest.js';
+import {metricsAfterUpgradeCases, metricsDeployCases, metricsVerifyCases} from './metrics.js';
 import {installVirtualAuthenticator} from '../helpers/webauthn.js';
 import {
   acceptWaitingWorker,
@@ -183,6 +184,7 @@ export const orderedCases = [
   },
   nixDockerBaselineCase,
   nixDockerVirtualNetworkCase,
+  ...metricsDeployCases,
   hostRolloverCase,
   virtualRolloverCase,
   virtualPortForwardingCase,
@@ -194,6 +196,7 @@ export const orderedCases = [
   ...protoStreamCases,
   ...websocketCases,
   ...issuedTLSCases,
+  ...metricsVerifyCases,
   ...networkPolicyCases,
   ...networkPolicyCrossNodeCases,
   ...networkPolicyInteractionCases,
@@ -541,6 +544,7 @@ export const orderedCases = [
       });
     },
   },
+  ...metricsAfterUpgradeCases,
   {
     id: 'postgres-deployment-created',
     title: 'create virtual-network postgres deployment',

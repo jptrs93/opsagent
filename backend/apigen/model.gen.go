@@ -736,6 +736,124 @@ type LogQueryResponse struct {
 	Warnings  []string         `json:"warnings,omitempty"`
 }
 
+type MetricsSample struct {
+	Time                int64    `json:"time"`
+	DeploymentID        int32    `json:"deployment_id"`
+	ScheduledInstanceID int32    `json:"scheduled_instance_id"`
+	Ordinal             int32    `json:"ordinal"`
+	SpecVersion         int32    `json:"spec_version"`
+	Run                 int32    `json:"run"`
+	NodeID              int32    `json:"node_id"`
+	Terminal            bool     `json:"terminal"`
+	CpuUsageUsec        *int64   `json:"cpu_usage_usec,omitempty"`
+	CpuUserUsec         *int64   `json:"cpu_user_usec,omitempty"`
+	CpuSystemUsec       *int64   `json:"cpu_system_usec,omitempty"`
+	CpuThrottledUsec    *int64   `json:"cpu_throttled_usec,omitempty"`
+	CpuNrThrottled      *int64   `json:"cpu_nr_throttled,omitempty"`
+	MemCurrent          *int64   `json:"mem_current,omitempty"`
+	MemPeak             *int64   `json:"mem_peak,omitempty"`
+	MemAnon             *int64   `json:"mem_anon,omitempty"`
+	MemFile             *int64   `json:"mem_file,omitempty"`
+	MemKernel           *int64   `json:"mem_kernel,omitempty"`
+	MemShmem            *int64   `json:"mem_shmem,omitempty"`
+	MemOom              *int64   `json:"mem_oom,omitempty"`
+	MemOomKill          *int64   `json:"mem_oom_kill,omitempty"`
+	IoReadBytes         *int64   `json:"io_read_bytes,omitempty"`
+	IoWriteBytes        *int64   `json:"io_write_bytes,omitempty"`
+	IoReadOps           *int64   `json:"io_read_ops,omitempty"`
+	IoWriteOps          *int64   `json:"io_write_ops,omitempty"`
+	Pids                *int64   `json:"pids,omitempty"`
+	PsiCpuSomeAvg10     *float64 `json:"psi_cpu_some_avg10,omitempty"`
+	PsiCpuSomeAvg60     *float64 `json:"psi_cpu_some_avg60,omitempty"`
+	PsiCpuSomeAvg300    *float64 `json:"psi_cpu_some_avg300,omitempty"`
+	PsiCpuSomeTotalUsec *int64   `json:"psi_cpu_some_total_usec,omitempty"`
+	PsiCpuFullAvg10     *float64 `json:"psi_cpu_full_avg10,omitempty"`
+	PsiCpuFullAvg60     *float64 `json:"psi_cpu_full_avg60,omitempty"`
+	PsiCpuFullAvg300    *float64 `json:"psi_cpu_full_avg300,omitempty"`
+	PsiCpuFullTotalUsec *int64   `json:"psi_cpu_full_total_usec,omitempty"`
+	PsiMemSomeAvg10     *float64 `json:"psi_mem_some_avg10,omitempty"`
+	PsiMemSomeAvg60     *float64 `json:"psi_mem_some_avg60,omitempty"`
+	PsiMemSomeAvg300    *float64 `json:"psi_mem_some_avg300,omitempty"`
+	PsiMemSomeTotalUsec *int64   `json:"psi_mem_some_total_usec,omitempty"`
+	PsiMemFullAvg10     *float64 `json:"psi_mem_full_avg10,omitempty"`
+	PsiMemFullAvg60     *float64 `json:"psi_mem_full_avg60,omitempty"`
+	PsiMemFullAvg300    *float64 `json:"psi_mem_full_avg300,omitempty"`
+	PsiMemFullTotalUsec *int64   `json:"psi_mem_full_total_usec,omitempty"`
+	PsiIoSomeAvg10      *float64 `json:"psi_io_some_avg10,omitempty"`
+	PsiIoSomeAvg60      *float64 `json:"psi_io_some_avg60,omitempty"`
+	PsiIoSomeAvg300     *float64 `json:"psi_io_some_avg300,omitempty"`
+	PsiIoSomeTotalUsec  *int64   `json:"psi_io_some_total_usec,omitempty"`
+	PsiIoFullAvg10      *float64 `json:"psi_io_full_avg10,omitempty"`
+	PsiIoFullAvg60      *float64 `json:"psi_io_full_avg60,omitempty"`
+	PsiIoFullAvg300     *float64 `json:"psi_io_full_avg300,omitempty"`
+	PsiIoFullTotalUsec  *int64   `json:"psi_io_full_total_usec,omitempty"`
+	NetRxBytes          *int64   `json:"net_rx_bytes,omitempty"`
+	NetRxPackets        *int64   `json:"net_rx_packets,omitempty"`
+	NetRxDropped        *int64   `json:"net_rx_dropped,omitempty"`
+	NetTxBytes          *int64   `json:"net_tx_bytes,omitempty"`
+	NetTxPackets        *int64   `json:"net_tx_packets,omitempty"`
+	NetTxDropped        *int64   `json:"net_tx_dropped,omitempty"`
+	TcpEstablished      *int64   `json:"tcp_established,omitempty"`
+	TcpListen           *int64   `json:"tcp_listen,omitempty"`
+	TcpTimeWait         *int64   `json:"tcp_time_wait,omitempty"`
+	TcpCloseWait        *int64   `json:"tcp_close_wait,omitempty"`
+	TcpOther            *int64   `json:"tcp_other,omitempty"`
+	OpenFds             *int64   `json:"open_fds,omitempty"`
+}
+
+type MetricsQueryRequest struct {
+	DeploymentID        int32     `json:"deployment_id"`
+	TargetNodeID        int32     `json:"target_node_id"`
+	ScheduledInstanceID int32     `json:"scheduled_instance_id"`
+	SpecVersion         int32     `json:"spec_version"`
+	Run                 int32     `json:"run"`
+	TimeStart           time.Time `json:"time_start"`
+	TimeEnd             time.Time `json:"time_end"`
+	StepMs              int64     `json:"step_ms"`
+	Fields              []string  `json:"fields,omitempty"`
+	RequestID           string    `json:"request_id,omitempty"`
+}
+
+type MetricsSeries struct {
+	ScheduledInstanceID int32     `json:"scheduled_instance_id"`
+	Ordinal             int32     `json:"ordinal"`
+	SpecVersion         int32     `json:"spec_version"`
+	Run                 int32     `json:"run"`
+	NodeID              int32     `json:"node_id"`
+	Field               string    `json:"field,omitempty"`
+	Kind                int32     `json:"kind"`
+	Values              []float64 `json:"values,omitempty"`
+}
+
+type MetricsQueryResponse struct {
+	TimeStart   time.Time        `json:"time_start"`
+	StepMs      int64            `json:"step_ms"`
+	Buckets     int32            `json:"buckets"`
+	Series      []*MetricsSeries `json:"series,omitempty"`
+	ScannedRows int64            `json:"scanned_rows"`
+	TookMs      int32            `json:"took_ms"`
+	Warnings    []string         `json:"warnings,omitempty"`
+}
+
+type MetricsLatestRequest struct {
+	RequestID string `json:"request_id,omitempty"`
+}
+
+type MetricsRate struct {
+	Field     string  `json:"field,omitempty"`
+	PerSecond float64 `json:"per_second"`
+}
+
+type MetricsLatestEntry struct {
+	Sample *MetricsSample `json:"sample"`
+	Rates  []*MetricsRate `json:"rates,omitempty"`
+}
+
+type MetricsLatestResponse struct {
+	Entries  []*MetricsLatestEntry `json:"entries,omitempty"`
+	Warnings []string              `json:"warnings,omitempty"`
+}
+
 type Secret struct {
 	ID            int32                 `json:"id"`
 	DeletedAt     time.Time             `json:"deleted_at"`
@@ -1517,6 +1635,8 @@ type MsgToSecondary struct {
 	ClusterProtocolVersion     int32                      `json:"cluster_protocol_version"`
 	AcmeState                  *AcmeState                 `json:"acme_state"`
 	LogQueryRequest            *LogQueryRequest           `json:"log_query_request"`
+	MetricsQueryRequest        *MetricsQueryRequest       `json:"metrics_query_request"`
+	MetricsLatestRequest       *MetricsLatestRequest      `json:"metrics_latest_request"`
 }
 
 type ClusterHello struct {
@@ -1526,14 +1646,16 @@ type ClusterHello struct {
 }
 
 type MsgToPrimary struct {
-	StatusWrite      *ScheduledInstanceStatus `json:"status_write"`
-	LogData          []byte                   `json:"log_data"`
-	LogEnd           bool                     `json:"log_end"`
-	LogRequestID     string                   `json:"log_request_id,omitempty"`
-	NetMapStatus     *NetMapStatus            `json:"net_map_status"`
-	ClusterHello     *ClusterHello            `json:"cluster_hello"`
-	LogQueryResponse *LogQueryResponse        `json:"log_query_response"`
-	LogQueryError    string                   `json:"log_query_error,omitempty"`
+	StatusWrite           *ScheduledInstanceStatus `json:"status_write"`
+	LogData               []byte                   `json:"log_data"`
+	LogEnd                bool                     `json:"log_end"`
+	LogRequestID          string                   `json:"log_request_id,omitempty"`
+	NetMapStatus          *NetMapStatus            `json:"net_map_status"`
+	ClusterHello          *ClusterHello            `json:"cluster_hello"`
+	LogQueryResponse      *LogQueryResponse        `json:"log_query_response"`
+	LogQueryError         string                   `json:"log_query_error,omitempty"`
+	MetricsQueryResponse  *MetricsQueryResponse    `json:"metrics_query_response"`
+	MetricsLatestResponse *MetricsLatestResponse   `json:"metrics_latest_response"`
 }
 
 type ClusterSecretsRequest struct {

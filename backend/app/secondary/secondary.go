@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
@@ -20,6 +21,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/localinputs"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
+	"github.com/jptrs93/opsagent/backend/lib/metrics"
+	"github.com/jptrs93/opsagent/backend/lib/metrics/metricstore"
 	"github.com/jptrs93/opsagent/backend/lib/netaudit"
 	"github.com/jptrs93/opsagent/backend/lib/netmapstate"
 	"github.com/jptrs93/opsagent/backend/lib/network"
@@ -133,6 +136,8 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	}
 	go netproxy.RunNetStateWriter(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID), cfg.NodeIdentifier, cfg.NetproxyStatePath, runtimeInputs, acmeHolder, netMapHolder, runtimeInputs.EnsureSecretIDs)
 	go netaudit.Run(ctx, network.Default, netaudit.DefaultInterval)
+	metricstore.Default = metricstore.Start(ctx, ainit.StaticConfig.MetricsDir, cfg.NodeID)
+	go metrics.Default.Run(ctx, metrics.DefaultInterval, metricstore.Default)
 	logManager = logmanager.StartManager(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID))
 	go runRuntimeInputRetention(ctx, store, runtimeInputs, scheduledInstancePredicateForNode(cfg.NodeID), acmeHolder)
 
