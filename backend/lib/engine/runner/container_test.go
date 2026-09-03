@@ -450,3 +450,31 @@ func TestContainerNetAddresses(t *testing.T) {
 		t.Fatal("two scheduled instances received the same outbound address")
 	}
 }
+
+func TestContainerNaming(t *testing.T) {
+	family := containerFamily(7, 3, 42)
+	if family != "opendeploy-7-3-42" {
+		t.Fatalf("family = %s", family)
+	}
+	if id := containerID(family, 5); id != "opendeploy-7-3-42-5" {
+		t.Fatalf("id = %s", id)
+	}
+	if legacy := legacyContainerID(7, 3); legacy != "opendeploy-7-v3" {
+		t.Fatalf("legacy = %s", legacy)
+	}
+	cases := map[string]int32{
+		"opendeploy-7-3-42-5":   5,
+		"opendeploy-7-3-42-12":  12,
+		"opendeploy-7-3-42-0":   0,
+		"opendeploy-7-3-42-x":   0,
+		"opendeploy-7-3-421-5":  0,
+		"opendeploy-7-v3":       0,
+		"opendeploy-7-3-42-5-1": 0,
+	}
+	for id, want := range cases {
+		run, ok := parseContainerRun(id, family)
+		if ok != (want != 0) || run != want {
+			t.Fatalf("parse %s = %d %v, want %d", id, run, ok, want)
+		}
+	}
+}

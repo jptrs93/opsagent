@@ -802,11 +802,15 @@ func (r *containerRunner) adoptTask() (*ctrd.Task, error) {
 		}
 	}
 	if best != "" {
-		if bestRun != r.currentRunNumber() {
+		task, err := ctrd.Default.LoadTask(r.ctx, best)
+		if err == nil {
 			r.status.NumberOfRestarts = bestRun - 1
+			r.containerID = best
+			return task, nil
 		}
-		r.containerID = best
-		return ctrd.Default.LoadTask(r.ctx, best)
+		// The run happened but its task is gone (exited while no agent was
+		// watching); its number must not be reused for the fresh start.
+		r.status.NumberOfRestarts = max(r.status.NumberOfRestarts, bestRun)
 	}
 	legacy := legacyContainerID(r.deploymentID, r.status.DeploymentSpecVersion)
 	if task, err := ctrd.Default.LoadTask(r.ctx, legacy); err == nil {
