@@ -193,7 +193,14 @@
 
 <p class="lead">This guide covers what you need to know to use OpenDeploy networking: the concepts, the defaults, and the configuration you write. Deep implementation detail lives in <a href="#system-design">System design and technical details</a>.</p>
 
-<p>OpenDeploy has an opinionated network design that aims to be simple and scalable. There is nothing to set up and no networking software to install: every deployment is automatically attached to a private cluster network, and a built-in reverse proxy with automatic certificate management means you can serve production-grade external traffic immediately — no separate load balancer, proxy, or certificate tooling to run. Everything — addresses, DNS, routing, firewall rules, ingress — is derived from your deployment configuration.</p>
+<p>OpenDeploy has an opinionated network design where:</p>
+
+<ul>
+  <li>There is nothing to set up and no networking software to install.</li>
+  <li>Every deployment is automatically attached to a private cluster network.</li>
+  <li>A built-in reverse proxy with automatic certificate management means you can serve production-grade external traffic immediately — no separate load balancer, proxy, or certificate tooling to run.</li>
+  <li>Everything — addresses, DNS, routing, firewall rules, ingress — is derived from your deployment configuration.</li>
+</ul>
 
 <p>Functionally, the traffic the system must facilitate breaks into three categories:</p>
 

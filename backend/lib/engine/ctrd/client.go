@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -203,9 +204,6 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 		// Host networking: explicit networking.mode=host opt-out.
 		specOpts = append(specOpts, oci.WithHostNamespace(specs.NetworkNamespace), oci.WithHostResolvconf)
 	}
-	if spec.CgroupsPath != "" {
-		specOpts = append(specOpts, oci.WithCgroup(spec.CgroupsPath))
-	}
 	if spec.User != "" {
 		specOpts = append(specOpts, oci.WithUser(spec.User))
 	}
@@ -257,7 +255,47 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
 		return nil, fmt.Errorf("starting task: %w", err)
 	}
-	return &Task{client: c, container: container, task: task, cgroupsPath: spec.CgroupsPath}, nil
+	return &Task{client: c, container: container, task: task, cgroupsPath: cgroupsPathOf(ctx, container)}, nil
+}
+
+// cgroupsPathOf returns the cgroup containerd assigned in the OCI spec, by
+// default /<namespace>/<container id>.
+func cgroupsPathOf(ctx context.Context, container containerd.Container) string {
+	spec, err := container.Spec(ctx)
+	if err != nil || spec.Linux == nil {
+		return ""
+	}
+	return spec.Linux.CgroupsPath
+}
+
+// ListContainerIDs returns the ids of every container in the namespace whose
+// id starts with prefix.
+func (c *Client) ListContainerIDs(ctx context.Context, prefix string) ([]string, error) {
+	cl, err := c.ensure()
+	if err != nil {
+		return nil, err
+	}
+	containers, err := cl.Containers(c.withNS(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("listing containers: %w", err)
+	}
+	var ids []string
+	for _, container := range containers {
+		if id := container.ID(); strings.HasPrefix(id, prefix) {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+// Remove kills and deletes the container with the given id, if it exists.
+func (c *Client) Remove(ctx context.Context, id string) error {
+	cl, err := c.ensure()
+	if err != nil {
+		return err
+	}
+	c.remove(c.withNS(ctx), cl, id)
+	return nil
 }
 
 func newLogConsumer(spec ContainerSpec) (cio.Creator, error) {
@@ -309,11 +347,7 @@ func (c *Client) LoadTask(ctx context.Context, id string) (*Task, error) {
 	if err != nil || st.Status != containerd.Running {
 		return nil, ErrNotFound
 	}
-	t := &Task{client: c, container: container, task: task}
-	if spec, err := container.Spec(ctx); err == nil && spec.Linux != nil {
-		t.cgroupsPath = spec.Linux.CgroupsPath
-	}
-	return t, nil
+	return &Task{client: c, container: container, task: task, cgroupsPath: cgroupsPathOf(ctx, container)}, nil
 }
 
 func (t *Task) CgroupsPath() string {

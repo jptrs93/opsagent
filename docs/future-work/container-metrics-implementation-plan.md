@@ -25,15 +25,17 @@ presentation are out of scope and decided later.
   counters are the kernel's atomic aggregate over the whole container
   including exited processes. The registered PID is used per tick only for
   the netns-scoped procfs reads.
-- **Runner-assigned cgroup paths.** The runner sets the OCI
-  `linux.cgroupsPath` itself (`ctrd.ContainerSpec.CgroupsPath`) to
-  `/opendeploy/{deploymentID}-p{scheduledInstanceID}-v{specVersion}-r{run}`,
-  so the sampler is handed a known directory under `/sys/fs/cgroup` and
-  resolves nothing. Placement and run in the name make every cgroup a node
-  ever creates unique: a respawn is a new path, never a reused one. The
-  installer's containerd config uses the cgroupfs driver, under which the
-  path is taken literally. `/proc/<pid>/cgroup` is read once at registration
-  as a tripwire that logs a mismatch; it is verification, not resolution.
+- **One cgroup per run, from the container id.** Container ids are
+  `opendeploy-{deploymentID}-{specVersion}-{scheduledInstanceID}-{run}`, and
+  containerd's default OCI `cgroupsPath` is `/{namespace}/{id}`, so every
+  run a node ever creates has its own cgroup under `/sys/fs/cgroup/opendeploy`
+  without the runner setting a path: a respawn is a new directory, never a
+  reused one. The runner hands the sampler the path read back from the task's
+  OCI spec, which also covers containers adopted from an older agent under
+  the legacy `opendeploy-{deploymentID}-v{specVersion}` name. The installer's
+  containerd config uses the cgroupfs driver, under which the path is taken
+  literally. `/proc/<pid>/cgroup` is read once at registration as a tripwire
+  that logs a mismatch; it is verification, not resolution.
 - **Placement in the key.** Container IDs, volume dirs, and log dirs are
   keyed on deployment ID alone and would collide if two placements of one
   deployment landed on a node. The metrics key carries
@@ -365,16 +367,17 @@ counters; it would not with pre-differenced deltas.
 
 Wired in: the `lib/metrics` package (registry, fast-tier cgroup and procfs
 reads including `memory.peak`, terminal sample on `Close`, aligned ticks),
-the explicit cgroup path on `ctrd.ContainerSpec` and
-`ctrd.Task.CgroupsPath()`, runner registration at the hook points above,
+`ctrd.Task.CgroupsPath()` read from the OCI spec of created and adopted
+containers, runner registration at the hook points above,
 the `MetricsSample` proto, and the `lib/metrics/metricstore` package (WAL
 writer, compactor, retention, `Scan`/`Collect`/`Latest`/`Rate` primitives).
 Primary and secondary start `metricstore.Default` on
 `ainit.StaticConfig.MetricsDir` with their node id and run the sampler into
 it at 10 seconds.
 
-Not verified on Linux end to end yet: runc honouring the nested cgroup path,
-the tripwire, and a real day roll and compaction on a node.
+The e2e metrics flow verifies sampling of freshly started containers and of
+containers adopted after an agent upgrade. A real day roll and compaction on
+a node has not been observed yet.
 
 Served: `POST /v1/metrics/query` (rollup, fanned out by the primary to every
 node holding an instance of the deployment) and `POST /v1/metrics/latest`
@@ -385,8 +388,10 @@ flow deploys `testexamples/loadgen` on a worker and on the primary and
 checks the overview, the charts, the scope controls, and that adopted
 containers are sampled again after an agent upgrade.
 
-Not yet: the slow disk tier, the self-deployment target, the leaked-cgroup
-sweep, rollup, and bucket upload.
+Not yet: the slow disk tier, the self-deployment target, rollup, and bucket
+upload. A leaked-cgroup sweep is no longer needed: a cgroup belongs to a
+container, and the runner removes leftover containers of its family before
+every start.
 
 `open_fds` is read for every run with a pid, host-network runs included,
 since descriptors are per process rather than per network namespace. The

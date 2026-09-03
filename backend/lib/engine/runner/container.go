@@ -59,6 +59,7 @@ type containerRunner struct {
 	spaceID             int32
 	deploymentName      string
 	nodeID              int32
+	containerFamily     string
 	containerID         string
 
 	// derived from the deployment spec version; not part of RunnerStatus.
@@ -123,9 +124,33 @@ const (
 	containerStartupReattachStopped
 )
 
-// containerID is the deterministic containerd id for a deployment spec version.
-func containerID(deploymentID int32, configVersion int32) string {
+// containerFamily names every container a placement of one deployment spec
+// version creates on this node; containerID appends the run number, so each
+// run (and, through containerd's default cgroup path, each cgroup) is unique.
+func containerFamily(deploymentID, configVersion, instanceID int32) string {
+	return fmt.Sprintf("opendeploy-%d-%d-%d", deploymentID, configVersion, instanceID)
+}
+
+func containerID(family string, runNumber int32) string {
+	return fmt.Sprintf("%s-%d", family, runNumber)
+}
+
+// legacyContainerID is the pre-run-numbered id, looked up on adoption until
+// every container started by an older agent has been restarted once.
+func legacyContainerID(deploymentID int32, configVersion int32) string {
 	return fmt.Sprintf("opendeploy-%d-v%d", deploymentID, configVersion)
+}
+
+func parseContainerRun(id, family string) (int32, bool) {
+	rest, ok := strings.CutPrefix(id, family+"-")
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(rest, 10, 32)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return int32(n), true
 }
 
 func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, preparerStatus apigen.PreparerStatus) *containerRunner {
@@ -189,9 +214,10 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 
 func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, configVersion int32) *containerRunner {
 	cfg := dep.Def.Spec.Container().Runtime
-	// Layering the container id onto the cancellation context keeps it on every
-	// log line without repeating it per call; cancel() still reaches the child.
-	ctx = logu.AddKV(ctx, "container", containerID(dep.ID, configVersion))
+	family := containerFamily(dep.ID, configVersion, instanceID)
+	// Layering the container family onto the cancellation context keeps it on
+	// every log line without repeating it per call; cancel() still reaches the child.
+	ctx = logu.AddKV(ctx, "container", family)
 	r := &containerRunner{
 		ctx:                 ctx,
 		cancel:              cancel,
@@ -204,7 +230,7 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		spaceID:             dep.Def.SpaceID,
 		deploymentName:      containerDeploymentName(dep),
 		nodeID:              dep.Def.NodeID,
-		containerID:         containerID(dep.ID, configVersion),
+		containerFamily:     family,
 		configVersion:       configVersion,
 		user:                cfg.User,
 		envVars:             cfg.EnvVars,
@@ -378,7 +404,7 @@ func (r *containerRunner) run() {
 	hadProcess := false
 
 	if r.startupMode == containerStartupReattachRunning || r.startupMode == containerStartupReattachStopped {
-		if task, err := ctrd.Default.LoadTask(r.ctx, r.containerID); err == nil {
+		if task, err := r.adoptTask(); err == nil {
 			r.logContainerEvent("re-attach", r.currentRunNumber(), r.mounts)
 			r.setTask(task)
 			if r.startupMode == containerStartupReattachStopped {
@@ -469,6 +495,8 @@ func (r *containerRunner) run() {
 			continue
 		}
 		runNumber := r.status.NumberOfRestarts + 1
+		r.containerID = containerID(r.containerFamily, runNumber)
+		r.removeStaleContainers()
 		logDir := apigen.LogWALDeploymentDir(r.deploymentID)
 		if mkdirErr := os.MkdirAll(logDir, 0o750); mkdirErr != nil {
 			slog.ErrorContext(r.ctx, fmt.Sprintf("creating log wal dir %s failed", logDir), "err", mkdirErr)
@@ -534,7 +562,6 @@ func (r *containerRunner) run() {
 			LogDeployment: r.deploymentID,
 			LogNode:       r.nodeID,
 			LogOrdinal:    containerInstanceOrdinal,
-			CgroupsPath:   r.cgroupsPath(runNumber),
 		}
 		if cn != nil {
 			spec.NetnsPath = cn.NetnsPath
@@ -750,8 +777,60 @@ func (r *containerRunner) currentRunNumber() int32 {
 	return r.status.NumberOfRestarts + 1
 }
 
-func (r *containerRunner) cgroupsPath(runNumber int32) string {
-	return fmt.Sprintf("/opendeploy/%d-p%d-v%d-r%d", r.deploymentID, r.scheduledInstanceID, r.status.DeploymentSpecVersion, runNumber)
+// adoptTask finds the container a previous agent process left running for this
+// placement. Ids carry the run number, so the family prefix is listed rather
+// than an exact name: the restart counter is only persisted after the task is
+// created, and a crash in between leaves the container one run ahead of the
+// status. The newest run wins, its number is written back, and any older
+// leftovers are removed. Containers started by an agent before run-numbered
+// ids are found under the legacy name.
+func (r *containerRunner) adoptTask() (*ctrd.Task, error) {
+	ids, err := ctrd.Default.ListContainerIDs(r.ctx, r.containerFamily+"-")
+	if err != nil {
+		slog.WarnContext(r.ctx, "listing containers for adoption failed", "err", err)
+	}
+	best, bestRun := "", int32(0)
+	for _, id := range ids {
+		if run, ok := parseContainerRun(id, r.containerFamily); ok && run > bestRun {
+			best, bestRun = id, run
+		}
+	}
+	for _, id := range ids {
+		if id != best {
+			slog.WarnContext(r.ctx, fmt.Sprintf("removing leftover container %s", id))
+			_ = ctrd.Default.Remove(r.ctx, id)
+		}
+	}
+	if best != "" {
+		if bestRun != r.currentRunNumber() {
+			r.status.NumberOfRestarts = bestRun - 1
+		}
+		r.containerID = best
+		return ctrd.Default.LoadTask(r.ctx, best)
+	}
+	legacy := legacyContainerID(r.deploymentID, r.status.DeploymentSpecVersion)
+	if task, err := ctrd.Default.LoadTask(r.ctx, legacy); err == nil {
+		r.containerID = legacy
+		return task, nil
+	}
+	r.containerID = containerID(r.containerFamily, r.currentRunNumber())
+	return nil, ctrd.ErrNotFound
+}
+
+// removeStaleContainers deletes every container of this placement's family
+// other than the one about to start, plus the legacy-named one, so a crash
+// between a task delete and the next create never leaves a run behind.
+func (r *containerRunner) removeStaleContainers() {
+	ids, err := ctrd.Default.ListContainerIDs(r.ctx, r.containerFamily+"-")
+	if err != nil {
+		slog.WarnContext(r.ctx, "listing stale containers failed", "err", err)
+	}
+	ids = append(ids, legacyContainerID(r.deploymentID, r.status.DeploymentSpecVersion))
+	for _, id := range ids {
+		if id != r.containerID {
+			_ = ctrd.Default.Remove(r.ctx, id)
+		}
+	}
 }
 
 func (r *containerRunner) registerSampling(task *ctrd.Task, runNumber int32) {
