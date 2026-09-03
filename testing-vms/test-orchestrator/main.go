@@ -174,8 +174,10 @@ func runMain() error {
 		return c.cleanup()
 	case "backup-restore":
 		return c.backupRestore()
+	case "kernel-checks":
+		return c.kernelChecks()
 	case "help", "-h", "--help":
-		fmt.Println("usage: test-orchestrator [run|run-playwright|repo-mirror-up|repo-mirror-down|repo-mirror-status|prepare-mock-artifacts|cleanup|backup-restore]")
+		fmt.Println("usage: test-orchestrator [run|run-playwright|kernel-checks|repo-mirror-up|repo-mirror-down|repo-mirror-status|prepare-mock-artifacts|cleanup|backup-restore]")
 		return nil
 	default:
 		return fmt.Errorf("unknown command %q", cmd)
@@ -437,13 +439,7 @@ func (c *config) run() error {
 		logf("VM e2e run failed; results copied to %s", c.ResultsDir)
 		return err
 	}
-	// After the flows: these assertions read kernel state directly. The
-	// WireGuard checks come first because the last two network policy checks
-	// deliberately break kernel state.
-	if err := c.step("wireguard transport checks", "device config, key custody, no leftover tunnels, transfer", c.wireGuardTransportChecks); err != nil {
-		return err
-	}
-	if err := c.step("network policy kernel checks", "anti-spoofing, IPv4 close, drop counters, netaudit", c.networkPolicyKernelChecks); err != nil {
+	if err := c.kernelChecks(); err != nil {
 		return err
 	}
 	if c.BackupRestore {
@@ -2412,6 +2408,18 @@ echo $! >/tmp/opendeploy-ipv4-egress-listener.pid
 sleep 1
 curl -fsS http://127.0.0.1:%d/ >/dev/null`, ipv4EgressListenerPort, ipv4EgressListenerPort)
 	return c.vmBash(c.Secondary2Name, script)
+}
+
+// kernelChecks runs the post-flow assertions that read kernel state directly.
+// They only need the workload ids the flows left in the results dir, so they
+// can be rerun on a live cluster with the kernel-checks subcommand. The
+// WireGuard checks come first because the last two network policy checks
+// deliberately break kernel state.
+func (c *config) kernelChecks() error {
+	if err := c.step("wireguard transport checks", "device config, key custody, no leftover tunnels, transfer", c.wireGuardTransportChecks); err != nil {
+		return err
+	}
+	return c.step("network policy kernel checks", "anti-spoofing, IPv4 close, drop counters, netaudit", c.networkPolicyKernelChecks)
 }
 
 func (c *config) runPlaywrightFlows() error {
