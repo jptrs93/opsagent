@@ -624,7 +624,7 @@ func TestWalScanSkipsAggregatedRegion(t *testing.T) {
 		t.Fatalf("counts = %#v", counts)
 	}
 	retained := ret.sorted()
-	if len(retained) != 1 || retained[0].msg != "e3" {
+	if len(retained) != 1 || !bytes.Contains(retained[0].rec.Line, []byte(`"msg":"e3"`)) {
 		t.Fatalf("retained = %+v", retained)
 	}
 }
@@ -674,7 +674,9 @@ func TestWalScanBulkVisitsMatchMinutesOnly(t *testing.T) {
 		t.Fatalf("scanned = %d, matched = %d", agg.scanned, agg.matched)
 	}
 	retained := ret.sorted()
-	if len(retained) != 1 || retained[0].msg != "w1" {
+	// a level-only filter resolves just the level on the scan; msg is filled
+	// in from the line when the response is built
+	if len(retained) != 1 || retained[0].level != "WARN" || !bytes.Contains(retained[0].rec.Line, []byte(`"msg":"w1"`)) {
 		t.Fatalf("retained = %+v", retained)
 	}
 }

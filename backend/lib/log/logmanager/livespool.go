@@ -33,6 +33,7 @@ type LiveSegmentSpool struct {
 	levelIDs   map[string]int
 	overflow   bool
 	maxAdded   int64
+	sc         lineScanner // level extraction scratch, guarded by mu
 
 	mu sync.Mutex
 }
@@ -70,7 +71,7 @@ func (s *LiveSegmentSpool) addAggregateLocked(r WrappedRecord) {
 	if s.overflow {
 		return
 	}
-	level, _, _ := parseLine(r.record.Line)
+	level := s.sc.levelOf(r.record.Line)
 	id, ok := s.levelIDs[level]
 	if !ok {
 		if len(s.levels) >= maxSpoolLevels {

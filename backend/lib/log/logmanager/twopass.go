@@ -215,13 +215,14 @@ func (e *queryEngine) scanWalTwoPass(ctx context.Context, committed StreamMarker
 		}
 	}
 	n := 0
+	sc := &lineScanner{}
 	visit := func(r WrappedRecord, retentionOnly bool) error {
 		n++
 		if n&1023 == 0 && ctx.Err() != nil {
 			return ctx.Err()
 		}
 		trace.walRows++
-		v := visitRec{rec: r.record}
+		v := visitRec{rec: r.record, sc: sc}
 		if !retentionOnly {
 			agg.scanned++
 			if v.rec.Time < agg.fromN || v.rec.Time >= agg.tillN {

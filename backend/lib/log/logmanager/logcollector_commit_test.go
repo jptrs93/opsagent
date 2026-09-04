@@ -332,8 +332,9 @@ func TestShredFields(t *testing.T) {
 		{`{"level":"INFO","broken`, "", `{"level":"INFO","broken`},
 		{"", "", ""},
 	}
+	sc := &lineScanner{}
 	for _, c := range cases {
-		level, msg := shredFields(apigen.RawLogLine{Line: []byte(c.line)})
+		level, msg := shredFields(sc, apigen.RawLogLine{Line: []byte(c.line)})
 		if level != c.wantLevel || msg != c.wantMsg {
 			t.Fatalf("shredFields(%q) = %q, %q; want %q, %q", c.line, level, msg, c.wantLevel, c.wantMsg)
 		}

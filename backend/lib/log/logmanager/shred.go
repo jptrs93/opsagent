@@ -93,8 +93,8 @@ func normalizeLevel(s string) string {
 	return strings.ToUpper(strings.TrimSpace(s))
 }
 
-// shredFields extracts the level and msg columns for the parquet commit path.
-func shredFields(r apigen.RawLogLine) (level string, msg string) {
-	level, msg, _ = parseLine(r.Line)
-	return level, msg
+// shredFields extracts the level and msg columns for the parquet commit path
+// through the scanner's view, with parseLine as the fallback authority.
+func shredFields(sc *lineScanner, r apigen.RawLogLine) (level string, msg string) {
+	return sc.shred(r.Line)
 }

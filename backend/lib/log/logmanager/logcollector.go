@@ -211,12 +211,13 @@ func (i *LogStreamCollector) commitSpooledChunk() error {
 		return err
 	}
 	var node int32
+	sc := &lineScanner{}
 	for rec, err := range sortedByTime(StreamDeploymentLogRecordsRange(i.deploymentID, r.start, r.end)) {
 		if err == nil {
 			if w.count == 0 {
 				node = rec.record.Node
 			}
-			level, msg := shredFields(rec.record)
+			level, msg := shredFields(sc, rec.record)
 			err = w.append(logRow{
 				Time:            rec.record.Time,
 				Version:         rec.record.Version,

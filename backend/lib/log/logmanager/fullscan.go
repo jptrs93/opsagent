@@ -123,6 +123,7 @@ func (e *queryEngine) scanRangeFull(ctx context.Context, fromN, tillN int64, tra
 	}
 	var warnings []string
 	n := 0
+	sc := &lineScanner{}
 	cancelled := func() bool {
 		n++
 		return n&1023 == 0 && ctx.Err() != nil
@@ -141,7 +142,7 @@ func (e *queryEngine) scanRangeFull(ctx context.Context, fromN, tillN int64, tra
 				return warnings, ctx.Err()
 			}
 			trace.walRows++
-			v := visitRec{rec: r.record}
+			v := visitRec{rec: r.record, sc: sc}
 			if !visit(&v) {
 				trace.walDur = clock().Sub(walStart)
 				return warnings, nil
@@ -175,6 +176,7 @@ func (e *queryEngine) scanRangeFull(ctx context.Context, fromN, tillN int64, tra
 				level:    row.Level,
 				msg:      row.Msg,
 				shredded: row.Level != "" || row.Msg != "" || len(row.RawMessage) == 0,
+				sc:       sc,
 			}
 			if !visit(&v) {
 				stop = true
