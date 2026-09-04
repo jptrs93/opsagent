@@ -260,7 +260,7 @@ source requires view access on that space; rules whose source and destination
 resolve to the same space are rejected as redundant with the same-space
 default. The `DENY` action exists in the schema and API but is rejected on
 writes until enforced, and its evaluation order is fixed in the plan document.
-The FE presents policies globally on the Network page (the edit surface, which
+The FE presents policies globally on the Network tab of the Policies page (the edit surface, which
 also flags dangling rules referencing deleted entities) and as a derived
 read-only view on the deployment inspector.
 

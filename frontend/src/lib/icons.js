@@ -136,3 +136,9 @@ export const uploadIcon = (attrs) => svg(iconAttrs(attrs),
     polyline({points: "7 9 12 4 17 9"}),
     path({d: "M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"}),
 );
+
+export const logOutIcon = (attrs) => svg(iconAttrs(attrs),
+    path({d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"}),
+    polyline({points: "16 17 21 12 16 7"}),
+    line({x1: "21", y1: "12", x2: "9", y2: "12"}),
+);

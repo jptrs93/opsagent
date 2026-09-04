@@ -2211,7 +2211,7 @@ export async function spaceIdByName(page, name) {
 // `opendeploy-<id>-v<version>`, veth `od<id>s<slot>`), and this is the only
 // place the UI exposes one.
 export async function deploymentIdByName(page, name) {
-  await page.getByTestId('nav-network').click();
+  await page.getByTestId('nav-policies').click();
   await page.getByRole('button', {name: 'Add policy'}).click();
   const form = page.getByTestId('network-policy-form');
   await expect(form).toBeVisible({timeout: LONG_UI_TIMEOUT});
@@ -2269,7 +2269,7 @@ export async function createNetworkPolicy(page, {
   ports = '',
   expectError,
 } = {}) {
-  await page.getByTestId('nav-network').click();
+  await page.getByTestId('nav-policies').click();
   const before = await networkPolicyRowIds(page);
   await page.getByRole('button', {name: 'Add policy'}).click();
   const form = page.getByTestId('network-policy-form');
@@ -2305,7 +2305,7 @@ export async function updateNetworkPolicy(page, {
   ports = '',
   expectError,
 } = {}) {
-  await page.getByTestId('nav-network').click();
+  await page.getByTestId('nav-policies').click();
   await page.getByLabel(`Edit policy ${id}`, {exact: true}).click();
   const form = page.getByTestId('network-policy-form');
   await expect(form).toBeVisible({timeout: LONG_UI_TIMEOUT});
@@ -2324,21 +2324,21 @@ export async function updateNetworkPolicy(page, {
 }
 
 export async function deleteNetworkPolicy(page, policyId) {
-  await page.getByTestId('nav-network').click();
+  await page.getByTestId('nav-policies').click();
   await page.getByLabel(`Delete policy ${policyId}`, {exact: true}).click();
   await page.getByRole('button', {name: 'Confirm', exact: true}).click();
   await expect(page.getByTestId(`network-policy-row-${policyId}`)).toHaveCount(0, {timeout: LONG_UI_TIMEOUT});
 }
 
 export async function expectNetworkPolicyDangling(page, policyId) {
-  await page.getByTestId('nav-network').click();
+  await page.getByTestId('nav-policies').click();
   const row = page.getByTestId(`network-policy-row-${policyId}`);
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await expect(row.getByText('dangling', {exact: true})).toBeVisible({timeout: LONG_UI_TIMEOUT});
 }
 
 export async function expectNetworkPolicyCount(page, count) {
-  await page.getByTestId('nav-network').click();
+  await page.getByTestId('nav-policies').click();
   await expect.poll(async () => (await networkPolicyRowIds(page)).length,
     {message: `expected ${count} visible network policies`, timeout: LONG_UI_TIMEOUT}).toBe(count);
 }
