@@ -46,6 +46,23 @@ export function buildNixCommitDiscoveryRequest(repo, branch, {refresh = true} = 
     }};
 }
 
+// One request for a known branch: repository access, the branch list, the
+// branch check, and that branch's commits.
+export function buildNixListingRequest(repo, branch, {refresh = true} = {}) {
+    return {nixDockerBuild: {
+        repoUrl: clean(repo),
+        selectedBranch: clean(branch),
+        selectedCommit: undefined,
+        selectedFlakePath: '',
+        refreshAvailableBranches: Boolean(refresh),
+        refreshAvailableCommits: Boolean(refresh),
+        checkRepo: true,
+        checkBranch: true,
+        checkCommit: false,
+        checkFlakePath: false,
+    }};
+}
+
 export function buildExactNixValidationRequest(repo, commit, flakePath) {
     return {nixDockerBuild: {
         repoUrl: clean(repo),

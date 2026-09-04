@@ -5,8 +5,8 @@
 OpenDeploy manages deployment configurations and deployment lifecycles. Users
 create each deployment individually through typed protobuf API messages. The
 system fetches available versions (git commits for Nix Docker builds or image
-tags for container images) on demand, prepares images in containerd, and
-supervises running containers with automatic crash recovery.
+tags for container images) when the user asks, prepares images in containerd,
+and supervises running containers with automatic crash recovery.
 
 ## Deployment config
 
@@ -152,7 +152,7 @@ the target `version` and `running` boolean; `OpendeploySpec` carries only the
 target `version` and is always running. Audit fields (`updated_at`, `author`)
 and the config revision remain on the parent `Deployment`.
 
-Nix desired versions, when set, are full immutable commit hashes. Branch selection and the 25 most recent commits are discovery aids and are not persisted as source authority. Creating a running Nix deployment, starting one, changing its target commit, or changing its Nix source while it remains running performs synchronous remote commit and flake verification before persistence. Stopped Nix deployments still require structurally valid source fields but may omit the desired version and do not require remote accessibility until they transition to running.
+Nix desired versions, when set, are full immutable commit hashes. Branch selection and the 25 most recent commits are discovery aids and are not persisted as source authority. Creating a running Nix deployment, starting one, changing its target commit, or changing its Nix source while it remains running performs synchronous remote commit and flake verification before persistence. Stopped Nix deployments still require structurally valid source fields but may omit the desired version and do not require remote accessibility until they transition to running; a stopped deployment may also retarget its version for its next start.
 
 ### Scheduled instance target state
 
@@ -254,15 +254,38 @@ plus "Add deployment" and "Export" on the right. Each row displays:
 - Prepare status with link to prepare output (build/import/pull log)
 - Deployment audit metadata plus History, Update, config, fork, and delete actions
 
+The table is the "Overview" tab of the Deployments page. Update, Add
+deployment, Fork, and restoring a recently deleted deployment each open an
+editor as a further full-page tab beside it, so several edits can be open at
+once; a tab closes on save or Cancel, and asks before discarding unsaved
+edits. The editor has a UI form and an HCL Code surface over the same
+document; Code is the default and the last choice is remembered per browser.
+In HCL, `node`, `name`, and `space` sit directly in the `deployment` block.
+
+## Source validation and versions
+
+Source checks run only when the user asks. The editor footer shows the
+source state as the union of its layers (repository, flake path, and flake
+target for Nix; image for images): not validated, validating, valid,
+invalid, or unchanged for an existing deployment whose source fields are
+untouched. Validate checks the repository and lists its branches and the
+selected branch's commits (or checks the image and lists its tags); picking a
+commit checks the flake file at that commit. Editing any source field drops
+the state back to not validated and clears the loaded versions. The version
+picker beside it is disabled until the source is valid or unchanged, lists
+the newest 25 commits of a branch (or the image's tags) with the deployed
+version marked, and has its own refresh. Saving a running deployment
+requires a valid or unchanged source and a selected version; saving it
+stopped requires only well-formed fields.
+
 ## Deploy workflow
 
-1. The user clicks "Update" on a table row. The overlay fetches available versions
-   for the persisted source with one `POST /v1/deployments/versions` request —
-   25 most recent commits for the selected Nix branch, or available image tags.
-   For Nix updates, selecting a commit, changing branch, refreshing discovery,
-   or starting a stopped deployment does not exact-validate an unchanged
-   persisted repository and flake path in the frontend. Editing the repository
-   or flake path still requires exact frontend preflight validation.
+1. The user clicks "Update" on a table row. An unchanged source is trusted
+   without any request; opening the version picker lists versions with one
+   `POST /v1/deployments/versions` request (25 most recent commits for the
+   branch carrying the deployed commit, or available image tags). Editing the
+   repository or flake path requires Validate before the deployment can be
+   saved running.
 2. The user picks a version (and optionally edits the deployment spec) and submits.
 3. The frontend calls `POST /v2/deployments/update` — a `version_only_update`
    carrying the target version, or a `spec_update` with the new typed `spec`

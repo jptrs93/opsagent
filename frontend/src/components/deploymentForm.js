@@ -214,7 +214,6 @@ export function deploymentForm(form, opts = {}) {
                         {value: SOURCE_DOCKER_IMAGE, label: "Docker image"},
                     ], "w-56", value => {
                         form.runnerType.val = runnerForSource(value);
-                        sourceController.onSourceTypeChange(value);
                     }),
                     () => form.sourceType.val === SOURCE_DOCKER_IMAGE
                         ? dockerImageField(form, sourceController)
@@ -2317,10 +2316,7 @@ function repoField(form, sourceController) {
         div(
             {class: "flex items-center justify-between gap-3"},
             span("Repository"),
-            () => {
-                const c = sourceController.repositoryStatus();
-                return c.status === 'idle' ? '' : span({class: repoMsgClass(c.status)}, c.message);
-            },
+            () => layerMessage(sourceController.layerStatus('repo')),
         ),
         input({
             type: "text",
@@ -2328,11 +2324,7 @@ function repoField(form, sourceController) {
             value: repoState.rawVal,
             placeholder: "github.com/org/repo",
             class: repoInputClass(),
-            oninput: e => {
-                repoState.val = e.target.value;
-                sourceController.onRepositoryInput();
-            },
-            onblur: () => { void sourceController.onRepositoryBlur(); },
+            oninput: e => { repoState.val = e.target.value; },
         }),
     );
 }
@@ -2343,10 +2335,7 @@ function flakeField(form, sourceController) {
         div(
             {class: "flex items-center justify-between gap-3"},
             span("Path to flake.nix"),
-            () => {
-                const c = sourceController.flakeStatus();
-                return c.status === 'idle' ? '' : span({class: repoMsgClass(c.status)}, c.message);
-            },
+            () => layerMessage(sourceController.layerStatus('flake')),
         ),
         input({
             type: "text",
@@ -2354,11 +2343,7 @@ function flakeField(form, sourceController) {
             value: form.nixFlake.rawVal,
             class: repoInputClass(),
             placeholder: "nix/app/flake.nix",
-            oninput: e => {
-                form.nixFlake.val = e.target.value;
-                sourceController.onFlakeInput();
-            },
-            onblur: () => sourceController.onFlakeBlur(),
+            oninput: e => { form.nixFlake.val = e.target.value; },
         }),
     );
 }
@@ -2383,10 +2368,7 @@ function dockerImageField(form, sourceController) {
         div(
             {class: "flex items-center justify-between gap-3"},
             span("Image"),
-            () => {
-                const c = sourceController.imageStatus();
-                return c.status === 'idle' ? '' : span({class: repoMsgClass(c.status)}, c.message);
-            },
+            () => layerMessage(sourceController.layerStatus('image')),
         ),
         input({
             type: "text",
@@ -2399,11 +2381,7 @@ function dockerImageField(form, sourceController) {
             value: form.containerImage.rawVal,
             placeholder: "postgres or ghcr.io/org/app",
             class: repoInputClass(),
-            oninput: e => {
-                form.containerImage.val = e.target.value;
-                sourceController.onImageInput();
-            },
-            onblur: () => { void sourceController.onImageBlur(); },
+            oninput: e => { form.containerImage.val = e.target.value; },
         }),
         span({class: "text-[11px] text-gray-500"}, "Kubernetes-style image path. Docker Hub shorthand such as postgres is supported."),
     );
@@ -2413,10 +2391,16 @@ function repoInputClass() {
     return 'w-full px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand';
 }
 
-function repoMsgClass(status) {
-    if (status === 'ok') return 'text-xs text-green-400';
-    if (status === 'error') return 'text-xs text-red-400';
-    return 'text-xs text-gray-500';
+// layerMessage echoes a source layer's result beside its field. Unvalidated
+// layers stay quiet here: the footer's source status already says so, and
+// the message would repeat on every field.
+function layerMessage(layerState) {
+    const status = layerState?.status;
+    if (!status || status === 'unvalidated') return '';
+    const cls = status === 'ok' || status === 'trusted'
+        ? 'text-xs text-green-400'
+        : (status === 'error' ? 'text-xs text-red-400' : 'text-xs text-gray-500');
+    return span({class: cls}, layerState.message);
 }
 
 // selectField renders a label-above dropdown, consistent with the text fields.

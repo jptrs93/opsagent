@@ -3,11 +3,9 @@ import {autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap} fr
 import {defaultKeymap, history, historyKeymap, indentWithTab} from "@codemirror/commands";
 import {
     bracketMatching,
-    defaultHighlightStyle,
     foldGutter,
     foldKeymap,
     indentOnInput,
-    syntaxHighlighting,
     syntaxTree,
 } from "@codemirror/language";
 import {lintGutter, linter} from "@codemirror/lint";
@@ -29,6 +27,7 @@ import {
     deploymentHclCompletionOptions,
     parseDeploymentHcl,
 } from "./deploymentHcl.js";
+import {deploymentHclTheme} from "./deploymentHclTheme.js";
 
 const {button, div, span} = van.tags;
 
@@ -43,21 +42,20 @@ const schemaProperties = [
 
 const completionOptions = [...deploymentHclCompletionOptions, ...schemaProperties];
 
-const editorTheme = EditorView.theme({
+// Geometry only: how the editor fills its host. Colours, font size, and
+// weights live in deploymentHclTheme so a caller-supplied theme can swap
+// them without re-stating the layout.
+export const editorLayoutTheme = EditorView.theme({
     "&": {
         height: "100%",
         minHeight: "0",
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-        color: "#e5e7eb",
-        backgroundColor: "#111827",
     },
     ".cm-content": {
         fontFamily: 'ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace',
-        fontSize: "13px",
         lineHeight: "1.65",
-        caretColor: "#93c5fd",
         padding: "12px 0 48px",
     },
     ".cm-line": {padding: "0 10px"},
@@ -67,44 +65,10 @@ const editorTheme = EditorView.theme({
         overflowX: "auto",
         overflowY: "auto",
         scrollbarGutter: "stable",
-        scrollbarColor: "#4b5563 #111827",
         scrollbarWidth: "thin",
     },
     ".cm-scroller::-webkit-scrollbar": {width: "8px", height: "8px"},
-    ".cm-scroller::-webkit-scrollbar-track": {background: "#111827"},
-    ".cm-scroller::-webkit-scrollbar-thumb": {
-        background: "#4b5563",
-        border: "2px solid #111827",
-        borderRadius: "999px",
-    },
-    ".cm-scroller::-webkit-scrollbar-thumb:hover": {background: "#6b7280"},
-    ".cm-gutters": {
-        backgroundColor: "#111827",
-        color: "#4b5563",
-        border: "none",
-        paddingLeft: "3px",
-    },
-    ".cm-activeLine": {backgroundColor: "#172033"},
-    ".cm-activeLineGutter": {backgroundColor: "#172033", color: "#9ca3af"},
-    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": {
-        backgroundColor: "#1e3a5f !important",
-    },
-    ".cm-cursor, .cm-dropCursor": {borderLeftColor: "#93c5fd"},
-    ".cm-foldGutter span": {color: "#6b7280"},
-    ".cm-tooltip": {
-        backgroundColor: "#1f2937",
-        border: "1px solid #4b5563",
-        color: "#e5e7eb",
-    },
-    ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
-        backgroundColor: "#1d4ed8",
-        color: "#ffffff",
-    },
-    ".cm-lintRange-error": {backgroundImage: "none", borderBottom: "2px solid #f87171"},
-    ".cm-lintRange-warning": {backgroundImage: "none", borderBottom: "2px solid #fbbf24"},
-    ".cm-reference-function": {color: "#c4b5fd !important", fontWeight: "500"},
-    ".cm-reference-symbol": {color: "#fde68a !important"},
-}, {dark: true});
+});
 
 function stateValue(value) {
     let current = value;
@@ -261,7 +225,10 @@ function catalogVersionCompletionOptions(namespace, catalogs, text, name, spaceN
     return [...versions.values()].sort((left, right) => Number(right.label) - Number(left.label));
 }
 
-function schemaCompletion(catalogs) {
+// versionCompletions, when given, supplies the workload version options
+// (loaded commits or tags) offered inside `version = "…"`: an array or a
+// function returning one, each item {label, apply, detail?, info?}.
+function schemaCompletion(catalogs, versionCompletions) {
     return context => {
         const prefixStart = Math.max(0, context.pos - 160);
         const prefix = context.state.sliceDoc(prefixStart, context.pos);
@@ -285,6 +252,31 @@ function schemaCompletion(catalogs) {
                     spaceName,
                 ),
                 validFor: /^[0-9]*$/,
+            };
+        }
+
+        const workloadVersion = /(?:^|\n)\s*version\s*=\s*"([^"\n]*)$/.exec(prefix);
+        if (workloadVersion && versionCompletions) {
+            const items = typeof versionCompletions === "function" ? versionCompletions() : versionCompletions;
+            // Match the typed text against the full version and the label
+            // ourselves: CodeMirror's fuzzy filter would drop every option
+            // once a full sha sits in the string, and a message word should
+            // find its commit even though the label starts with the sha.
+            const typed = workloadVersion[1].toLowerCase();
+            const options = (items || [])
+                .filter(item => !typed || `${item.apply ?? item.label} ${item.label}`.toLowerCase().includes(typed))
+                .map(item => ({
+                    label: String(item.label),
+                    apply: String(item.apply ?? item.label),
+                    detail: item.detail,
+                    info: item.info,
+                    type: "constant",
+                }));
+            if (!options.length) return null;
+            return {
+                from: context.pos - workloadVersion[1].length,
+                options,
+                filter: false,
             };
         }
 
@@ -450,10 +442,18 @@ export function syntaxDiagnostics(state) {
         if (!cursor.type.isError) continue;
         const from = Math.max(0, Math.min(state.doc.length, cursor.from));
         const to = Math.max(from, Math.min(state.doc.length, cursor.to || from + 1));
-        const key = `${from}:${to}`;
+        const snippet = state.doc.sliceString(from, Math.min(to, from + 24)).replace(/\s+/g, " ").trim();
+        // The parser can emit several error nodes for one bad token; one row
+        // per line and snippet is all the reader needs.
+        const key = `${state.doc.lineAt(from).number}:${snippet}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        diagnostics.push({from, to, severity: "error", message: "Invalid HCL syntax."});
+        diagnostics.push({
+            from,
+            to,
+            severity: "error",
+            message: snippet ? `Syntax invalid near "${snippet}".` : "Syntax invalid: unexpected end of input.",
+        });
     } while (cursor.next());
     return diagnostics;
 }
@@ -466,10 +466,17 @@ export function deploymentCodeWidget(args) {
 
     const catalogs = args.catalogs || {};
     const constraints = args.constraints || {};
+    // args.theme: optional CodeMirror extensions (colour theme + syntax
+    // highlighting) replacing the default palette; layout is always applied.
+    const themeExtensions = Array.isArray(args.theme) && args.theme.length
+        ? args.theme
+        : deploymentHclTheme;
     const serializerOptions = {pinVersions: Boolean(constraints.updateMode)};
     const diagnostics = van.state([]);
-    const hclValid = van.state(true);
     const staleDraft = van.state(false);
+    // draftInvalid mirrors invalidDraft for callers: true while the text holds
+    // edits that have not reached the shared document.
+    const draftInvalid = van.state(false);
     let currentText = deploymentDocumentToHcl(documentModel.read(), catalogs, serializerOptions);
     const host = div({
         class: "flex-1 min-h-0 min-w-0 overflow-hidden",
@@ -484,14 +491,7 @@ export function deploymentCodeWidget(args) {
         div(
             {class: "shrink-0 bg-gray-900/90 text-[11px]"},
             div(
-                {class: "flex min-h-8 items-center justify-between gap-3 px-3 py-1.5"},
-                div(
-                    {class: "flex min-w-0 items-center gap-3"},
-                    span(
-                        {class: () => hclValid.val ? "text-emerald-400" : "text-red-400"},
-                        () => hclValid.val ? "HCL valid" : "HCL invalid",
-                    ),
-                ),
+                {class: "flex min-h-8 items-center justify-end gap-3 px-3 py-1.5"},
                 div(
                     {class: "flex shrink-0 items-center gap-3"},
                     span(
@@ -554,7 +554,6 @@ export function deploymentCodeWidget(args) {
 
         currentText = text;
         diagnostics.val = nextDiagnostics;
-        hclValid.val = !hasSyntaxErrors;
 
         if (!commit) return nextDiagnostics;
         if (hasErrors) {
@@ -567,6 +566,7 @@ export function deploymentCodeWidget(args) {
             invalidBaseKey = '';
             staleDraft.val = false;
         }
+        draftInvalid.val = invalidDraft;
         return nextDiagnostics;
     };
 
@@ -587,6 +587,7 @@ export function deploymentCodeWidget(args) {
         invalidDraft = false;
         invalidBaseKey = '';
         staleDraft.val = false;
+        draftInvalid.val = false;
         evaluate(view.state, false);
     };
 
@@ -602,10 +603,11 @@ export function deploymentCodeWidget(args) {
                 indentOnInput(),
                 bracketMatching(),
                 closeBrackets(),
-                syntaxHighlighting(defaultHighlightStyle, {fallback: true}),
+                editorLayoutTheme,
+                ...themeExtensions,
                 deploymentHcl(),
                 referenceHighlighting,
-                autocompletion({override: [schemaCompletion(catalogs)]}),
+                autocompletion({override: [schemaCompletion(catalogs, args.versionCompletions)]}),
                 linter(editorView => {
                     const parsed = parseDeploymentHcl(editorView.state.doc.toString(), catalogs, constraints);
                     const parsedClean = Boolean(parsed.document) && !parsed.diagnostics.some(item => item.severity === "error");
@@ -623,7 +625,6 @@ export function deploymentCodeWidget(args) {
                     ...foldKeymap,
                     indentWithTab,
                 ]),
-                editorTheme,
                 EditorView.updateListener.of(update => {
                     if (update.docChanged && !suppressUpdates) evaluate(update.state, true);
                 }),
@@ -651,19 +652,49 @@ export function deploymentCodeWidget(args) {
         requestAnimationFrame(() => view?.focus());
     };
 
+    // Activation may be requested before the host is in the document (an
+    // editor that opens straight into code mode); wait a bounded number of
+    // frames for it to land rather than dropping the request.
     const activate = () => {
         activationPending = true;
-        if (host.isConnected) {
-            finishActivation();
+        let framesLeft = 120;
+        const tick = () => {
+            if (!activationPending) return;
+            if (host.isConnected) {
+                finishActivation();
+                return;
+            }
+            if (framesLeft-- > 0) requestAnimationFrame(tick);
+        };
+        tick();
+    };
+
+    // setWorkloadVersion rewrites only the string of the root-level
+    // `version = "…"` attribute, so a version picked outside the editor lands
+    // in the text without re-serialising the document over the user's
+    // comments and formatting. The change goes through the normal update
+    // path, which commits it to the shared document. Falls back to the
+    // canonical text when the attribute is missing.
+    const setWorkloadVersion = version => {
+        if (!view) return;
+        const text = view.state.doc.toString();
+        const match = /(^|\n)([ \t]*version[ \t]*=[ \t]*")([^"\n]*)"/.exec(text);
+        if (!match) {
+            if (!invalidDraft) setCanonicalDocument();
             return;
         }
-        requestAnimationFrame(finishActivation);
+        const from = match.index + match[1].length + match[2].length;
+        const to = from + match[3].length;
+        if (match[3] === String(version)) return;
+        view.dispatch({changes: {from, to, insert: String(version)}});
     };
 
     return {
         element,
         activate,
+        setWorkloadVersion,
         invalidReason: () => diagnostics.val.find(item => item.severity === "error")?.message || "",
         diagnostics,
+        draftInvalid,
     };
 }

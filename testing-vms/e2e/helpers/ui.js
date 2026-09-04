@@ -7,7 +7,6 @@ import path from 'node:path';
 import {expectTLSProbeRejected} from './httpsClient.js';
 
 const LONG_UI_TIMEOUT = 15_000;
-const OPTIONAL_VALIDATION_TIMEOUT = LONG_UI_TIMEOUT;
 // Commit discovery fetches from the repo remote, and the first fetch against a
 // fresh cluster is cold: measured at ~4.5s on the mock mirror, which does not
 // support `--filter`, against 0.02s for every fetch after it. A 5s budget sat
@@ -229,8 +228,12 @@ export async function createNixDockerDeployment(page, {
     await byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'})).click();
   });
 
-  const dialog = byTestId(page, 'create-deployment-dialog', page.locator('.fixed.inset-0.z-50').filter({hasText: 'Deployment identity'}).last());
+  const dialog = editorPanel(page, 'create-deployment-dialog');
   await expect(dialog).toBeVisible();
+  await step(`open editor tab in UI mode ${name}`, async () => {
+    await expect(page.locator('[data-testid^="deployments-tab-create-"]').last()).toHaveAttribute('aria-selected', 'true');
+    await selectEditorMode(dialog, 'ui');
+  });
 
   await step(`fill deployment identity ${name}`, async () => {
     await byTestId(dialog, 'deployment-name-input', textField(dialog, 'Name')).fill(name);
@@ -252,36 +255,43 @@ export async function createNixDockerDeployment(page, {
   const flakeInput = byTestId(dialog, 'deployment-flake-input', textField(dialog, 'Path to flake.nix'));
 
   try {
-    await step(`validate repository ${name}`, async () => {
+    // Validation is human-triggered: typing the source issues nothing, the
+    // footer's Validate lists the repository's branches and the commits of
+    // main (two requests), and picking a commit checks the flake file at it.
+    await step(`validate source ${name}`, async () => {
       await repoInput.fill(repo);
-      await flakeInput.click();
-      await validateRequests.expectCount(2, 'expected repository and commit discovery after setting repository URL');
-      await validateRequests.expectResponseCount(2, 'expected repository and commit discovery responses');
-    });
-
-    await step(`validate flake path ${name}`, async () => {
       await flakeInput.fill(flake);
       await flakeInput.blur();
-      await validateRequests.expectCount(3, 'expected exact source validation after setting flake path');
-      await validateRequests.expectResponseCount(3, 'expected the exact source validation response');
-      await expectPathValidation(dialog);
+      await expectSourceStatus(dialog, 'Source not validated');
+      await validateRequests.expectStableCount(0, 'expected no validate requests before Validate is clicked');
+      await expect(dialog.getByTestId('version-select-button')).toBeDisabled();
+      await dialog.getByTestId('source-validate-button').click();
+      await validateRequests.expectCount(2, 'expected repository and commit listing after Validate');
+      await validateRequests.expectResponseCount(2, 'expected repository and commit listing responses');
+      await expectSourceStatus(dialog, 'Source valid');
     });
 
-    const commitSelect = selectField(dialog, 'Commit');
-    await step(`wait for commit options ${name}`, () => expect(commitSelect).not.toHaveValue('', {timeout: LONG_UI_TIMEOUT}));
+    await step(`select version ${name}`, async () => {
+      await selectDeploymentVersion(dialog, 0);
+      await validateRequests.expectCount(3, 'expected the flake check at the selected commit');
+      await validateRequests.expectResponseCount(3, 'expected the flake check response');
+      await expectSourceStatus(dialog, 'Source valid');
+      await expect(dialog.getByTestId('version-selection')).toBeVisible();
+    });
 
     await step(`refresh source versions ${name}`, async () => {
-      const refreshButton = dialog.getByRole('button', {name: 'Refresh'});
+      const refreshButton = dialog.getByTestId('version-refresh-button');
       await expect(refreshButton).toBeEnabled();
       await refreshButton.click();
-      await validateRequests.expectCount(6, 'expected repository, commit, and exact validation during refresh');
-      await validateRequests.expectResponseCount(6, 'expected refreshed repository, commit, and exact validation responses');
-      await expectPathValidation(dialog);
-      await expect(commitSelect).not.toHaveValue('', {timeout: LONG_UI_TIMEOUT});
+      await validateRequests.expectCount(4, 'expected one listing request for refresh');
+      await validateRequests.expectResponseCount(4, 'expected the refreshed listing response');
+      await expect(refreshButton).toBeEnabled({timeout: LONG_UI_TIMEOUT});
+      await expect(dialog.getByTestId('version-selection')).toBeVisible();
+      await expectSourceStatus(dialog, 'Source valid');
       await expect(dialog.getByText('d is not a function')).toHaveCount(0);
     });
 
-    await step(`verify source validation settled ${name}`, () => validateRequests.expectStableCount(6, 'expected discovery and exact validation requests to settle'));
+    await step(`verify source validation settled ${name}`, () => validateRequests.expectStableCount(4, 'expected listing and flake check requests to settle'));
   } finally {
     validateRequests.stop();
   }
@@ -336,8 +346,9 @@ export async function updateNixDockerDeployment(page, {
     await row.getByRole('button', {name: 'Update'}).click();
   });
 
-  const dialog = page.getByTestId('update-deployment-dialog');
+  const dialog = editorPanel(page, 'update-deployment-dialog');
   await expect(dialog).toBeVisible();
+  await selectEditorMode(dialog, 'ui');
 
   await step(`configure update ${name}`, async () => {
     await setDeploymentUpgradeStrategy(dialog, {strategy: upgradeStrategy, readinessTimeoutSeconds});
@@ -369,12 +380,12 @@ export async function setDeploymentHttpsRoutes(page, {name, machine = 'worker-2'
     await row.getByRole('button', {name: 'Update'}).click();
   });
 
-  const dialog = page.getByTestId('update-deployment-dialog');
+  const dialog = editorPanel(page, 'update-deployment-dialog');
   await expect(dialog).toBeVisible();
 
   const editor = dialog.getByTestId('deployment-hcl-editor').locator('.cm-content');
   await step(`open code editor ${name}`, async () => {
-    await dialog.getByTestId('deployment-editor-mode-code').click();
+    await selectEditorMode(dialog, 'code');
     await expect(editor).toBeVisible({timeout: LONG_UI_TIMEOUT});
   });
 
@@ -389,7 +400,9 @@ export async function setDeploymentHttpsRoutes(page, {name, machine = 'worker-2'
       const view = el.cmTile?.root?.view || el.cmView?.view;
       view.dispatch({changes: {from: 0, to: view.state.doc.length, insert: next}});
     }, withHttpsRoutes(text, routes));
-    await expect(dialog.getByText('HCL valid', {exact: true})).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    // The code widget reports no syntax or schema diagnostics once the
+    // written text is accepted.
+    await expect(dialog.getByText('0 diagnostics', {exact: true})).toBeVisible({timeout: LONG_UI_TIMEOUT});
   });
 
   const submit = dialog.getByRole('button', {name: 'Update deployment'});
@@ -467,12 +480,12 @@ async function openDeploymentHclEditor(page, {name, machine}) {
     await row.getByRole('button', {name: 'Update'}).click();
   });
 
-  const dialog = page.getByTestId('update-deployment-dialog');
+  const dialog = editorPanel(page, 'update-deployment-dialog');
   await expect(dialog).toBeVisible();
 
   const editor = dialog.getByTestId('deployment-hcl-editor').locator('.cm-content');
   await step(`open code editor ${name}`, async () => {
-    await dialog.getByTestId('deployment-editor-mode-code').click();
+    await selectEditorMode(dialog, 'code');
     await expect(editor).toBeVisible({timeout: LONG_UI_TIMEOUT});
   });
   return {dialog, editor};
@@ -500,7 +513,9 @@ export async function setDeploymentIssuedTLSMount(page, {name, machine = 'worker
   await step(`set issued TLS mount ${name}`, async () => {
     const text = await readDeploymentHcl(editor);
     await writeDeploymentHcl(editor, withIssuedTLSMounts(text, mount ? [issuedTLSMountLine(mount)] : []));
-    await expect(dialog.getByText('HCL valid', {exact: true})).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    // The code widget reports no syntax or schema diagnostics once the
+    // written text is accepted.
+    await expect(dialog.getByText('0 diagnostics', {exact: true})).toBeVisible({timeout: LONG_UI_TIMEOUT});
   });
 
   const submit = dialog.getByRole('button', {name: 'Update deployment'});
@@ -581,7 +596,9 @@ export async function setPortForwardAllowList(page, {name, machine = 'worker-1',
       expect(text, `expected rendered HCL to contain allow entry ${entry}`).toContain(JSON.stringify(entry));
     }
     await writeDeploymentHcl(editor, withPortForwardAllow(text, allow));
-    await expect(dialog.getByText('HCL valid', {exact: true})).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    // The code widget reports no syntax or schema diagnostics once the
+    // written text is accepted.
+    await expect(dialog.getByText('0 diagnostics', {exact: true})).toBeVisible({timeout: LONG_UI_TIMEOUT});
   });
 
   await step(`submit port forward allow list ${name}`, async () => {
@@ -621,8 +638,9 @@ export async function expectDeploymentHttpsIngressRows(page, {name, machine = 'w
   const row = deploymentRow(page, {name, machine});
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await row.getByRole('button', {name: 'Update'}).click();
-  const dialog = page.getByTestId('update-deployment-dialog');
+  const dialog = editorPanel(page, 'update-deployment-dialog');
   await expect(dialog).toBeVisible();
+  await selectEditorMode(dialog, 'ui');
   const pane = await openDeploymentNetworkingPane(dialog);
   await expect(pane.getByTestId('deployment-https-ingress-row')).toHaveCount(count, {timeout: LONG_UI_TIMEOUT});
   await pane.getByTitle('Close').click();
@@ -694,7 +712,7 @@ export async function upgradeOpenDeployNetGroup(page, {version} = {}) {
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await row.getByRole('button', {name: 'Update'}).click();
 
-  const dialog = page.getByTestId('update-deployment-dialog');
+  const dialog = editorPanel(page, 'update-deployment-dialog');
   await expect(dialog).toBeVisible();
   const primarySelect = dialog.getByTestId('deployment-target-version-opendeploy-net-primary');
   await expect.poll(async () => {
@@ -1098,8 +1116,9 @@ export async function createContainerImageDeployment(page, {
     await byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'})).click();
   });
 
-  const dialog = byTestId(page, 'create-deployment-dialog', page.locator('.fixed.inset-0.z-50').filter({hasText: 'Deployment identity'}).last());
+  const dialog = editorPanel(page, 'create-deployment-dialog');
   await expect(dialog).toBeVisible();
+  await selectEditorMode(dialog, 'ui');
 
   await step(`fill container deployment ${name}`, async () => {
     await byTestId(dialog, 'deployment-name-input', textField(dialog, 'Name')).fill(name);
@@ -1108,6 +1127,10 @@ export async function createContainerImageDeployment(page, {
     await setDeploymentPortForwarding(dialog, portForwarding);
     await byTestId(dialog, 'deployment-source-type-select', selectField(dialog, 'Source type')).selectOption('containerImage');
     await byTestId(dialog, 'deployment-container-image-input', textField(dialog, 'Image')).fill(image);
+    // A running deployment needs a validated source even when the image
+    // reference pins its own tag.
+    await dialog.getByTestId('source-validate-button').click();
+    await expectSourceStatus(dialog, 'Source valid');
     await setDeploymentEnvVars(dialog, env);
     if (dataMountPath) await setDeploymentDataMountPath(dialog, dataMountPath);
     if (assetMount) await setDeploymentAssetMount(dialog, assetMount);
@@ -1651,7 +1674,7 @@ async function upgradeOpenDeployDeployment(page, {name, machine, version}) {
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await row.getByRole('button', {name: 'Update'}).click();
 
-  const dialog = page.getByTestId('update-deployment-dialog');
+  const dialog = editorPanel(page, 'update-deployment-dialog');
   await expect(dialog).toBeVisible();
   const targetSelect = dialog.getByTestId(`deployment-target-version-${name}-${machine}`);
   await expect.poll(async () => {
@@ -1811,18 +1834,35 @@ async function waitForHealthyApp(page) {
   }, {message: 'expected OpenDeploy web API to recover', timeout: UPGRADE_TIMEOUT}).toBe(true);
 }
 
-async function waitForOptionalPathValidation(dialog) {
-  const pathVerified = dialog.getByText(/Path verified|Flake path '.+' (?:exists|is a regular file)/);
-  const validationFailed = dialog.getByText(/Git repository not accessible|Unable to validate flake path|Flake path not found|Selected commit not found/);
-  return Promise.race([
-    pathVerified.waitFor({state: 'visible', timeout: OPTIONAL_VALIDATION_TIMEOUT}).then(() => true).catch(() => false),
-    validationFailed.waitFor({state: 'visible', timeout: OPTIONAL_VALIDATION_TIMEOUT}).then(() => false).catch(() => false),
-  ]);
+// Deployment editors open as tabs on the Deployments page. Hidden tabs stay
+// mounted, so an editor is always looked up as the visible panel; the system
+// group overlay carries the same test id and resolves the same way.
+function editorPanel(page, testID) {
+  return page.locator(`[data-testid="${testID}"]:visible`).last();
 }
 
-async function expectPathValidation(dialog) {
-  if (await waitForOptionalPathValidation(dialog)) return;
-  await expect(dialog.getByText(/Path verified|Flake path '.+' (?:exists|is a regular file)/)).toBeVisible({timeout: 1});
+// The editor remembers the last UI/Code choice per browser and opens in Code
+// by default, so form-driven helpers switch explicitly.
+async function selectEditorMode(dialog, mode) {
+  const tab = dialog.getByTestId(`deployment-editor-mode-${mode}`);
+  await expect(tab).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  if (await tab.getAttribute('aria-selected') !== 'true') await tab.click();
+  await expect(tab).toHaveAttribute('aria-selected', 'true', {timeout: LONG_UI_TIMEOUT});
+}
+
+// The footer's source status pill reads Source not validated, Validating...,
+// Source valid, Source unchanged, or Source invalid.
+async function expectSourceStatus(dialog, text) {
+  await expect(dialog.getByTestId('source-status-button')).toContainText(text, {timeout: VALIDATE_REQUEST_TIMEOUT});
+}
+
+// Picks the index-th row of the footer version dropdown (newest first).
+async function selectDeploymentVersion(dialog, index = 0) {
+  await dialog.getByTestId('version-select-button').click();
+  const options = dialog.getByTestId('version-option');
+  await expect(options.first()).toBeVisible({timeout: VALIDATE_REQUEST_TIMEOUT});
+  await options.nth(index).click();
+  await expect(dialog.getByTestId('version-select-panel')).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
 
 function byTestId(root, testID, fallback) {
@@ -2338,8 +2378,9 @@ export async function moveDeploymentToSpace(page, {name, machine, space} = {}) {
     await row.getByRole('button', {name: 'Update'}).click();
   });
 
-  const dialog = page.getByTestId('update-deployment-dialog');
+  const dialog = editorPanel(page, 'update-deployment-dialog');
   await expect(dialog).toBeVisible();
+  await selectEditorMode(dialog, 'ui');
 
   await step(`select space ${space} for ${name}`, async () => {
     const spaceSelect = byTestId(dialog, 'deployment-space-select', selectField(dialog, 'Space'));

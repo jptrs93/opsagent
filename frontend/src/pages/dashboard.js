@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {loginS, clearLoginState} from "../state/login.js";
 import {navigate} from "../lib/router.js";
 import {sidebar} from "../components/sidebar.js";
-import {statusPage} from "./status.js";
+import {deploymentsPage} from "./deployments.js";
 import {clusterPage} from "./cluster.js";
 import {secretsPage} from "./secrets.js";
 import {assetsPage, preloadAssetCodeEditor} from "./assets.js";
@@ -37,13 +37,24 @@ export function dashboard() {
         preloadDeploymentCodeWidget();
     });
 
+    // The deployments page stays mounted while other pages show, so its open
+    // editor tabs and drafts survive a detour through Logs or Settings. It is
+    // built here, outside the page binding below: VanJS ties every derive
+    // created inside a reactive child to that child's DOM and drops them once
+    // the child is replaced, which would freeze the table after a detour.
+    const deploymentsHost = div(
+        {class: () => activePage.val === 'status' ? 'h-full' : 'hidden'},
+        deploymentsPage(openLogsForDeployment),
+    );
+
     return div(
         {class: "h-dvh min-h-dvh w-dvw flex overflow-hidden"},
         sidebar(activePage),
         div(
             {class: "h-full flex-1 min-w-0 min-h-0 overflow-hidden"},
+            deploymentsHost,
             () => {
-                if (activePage.val === 'status') return statusPage(openLogsForDeployment);
+                if (activePage.val === 'status') return '';
                 if (activePage.val === 'logs') return logsPage(selectedLogDeploymentId);
                 if (activePage.val === 'metrics') return metricsPage(selectedMetricsDeploymentId);
                 if (activePage.val === 'secrets') return secretsPage();

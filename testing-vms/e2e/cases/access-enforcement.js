@@ -288,8 +288,11 @@ export const accessEnforcementCases = [
       await test.step('deployment dialog offers only the granted space', async () => {
         await page.getByTestId('nav-status').click();
         await page.getByRole('button', {name: 'Add deployment'}).click();
-        const dialog = page.getByTestId('create-deployment-dialog');
+        const dialog = page.locator('[data-testid="create-deployment-dialog"]:visible').last();
         await expect(dialog).toBeVisible({timeout: LONG_UI_TIMEOUT});
+        // The editor opens in Code mode by default; the space picker is a form field.
+        const uiMode = dialog.getByTestId('deployment-editor-mode-ui');
+        if (await uiMode.getAttribute('aria-selected') !== 'true') await uiMode.click();
         const spaceOptions = dialog.getByTestId('deployment-space-select').locator('option');
         await expect(spaceOptions.filter({hasText: RESTRICTED_SPACE})).toHaveCount(1, {timeout: LONG_UI_TIMEOUT});
         await expect(spaceOptions.filter({hasText: 'global'})).toHaveCount(0);

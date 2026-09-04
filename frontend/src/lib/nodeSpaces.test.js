@@ -5,6 +5,8 @@ import {
     editableSpaceIDs,
     isFixedSpace,
     nodeAllowsSpace,
+    defaultPlacement,
+    placeholderDeploymentName,
     nodesForSpace,
     selectableSpaces,
 } from "./nodeSpaces.js";
@@ -50,4 +52,27 @@ test("allowedSpaceNames shows an unknown id rather than dropping it", () => {
         allowedSpaceNames(node("a", [0, 1, 7]), spaces),
         ["_system", "global", "space 7"],
     );
+});
+
+test("defaultPlacement prefers the global space when a node hosts it", () => {
+    const spaces = [{id: 0, name: "_system"}, {id: 1, name: "global"}, {id: 2, name: "prod"}];
+    const nodes = [{id: 11, allowedSpaces: [0, 2]}, {id: 12, allowedSpaces: [0, 1, 2]}];
+    assert.deepEqual(defaultPlacement(spaces, nodes), {spaceId: 1, nodeId: 12});
+});
+
+test("defaultPlacement falls back to the first visible space some node hosts", () => {
+    const spaces = [{id: 0, name: "_system"}, {id: 1, name: "global"}, {id: 2, name: "prod"}, {id: 3, name: "staging"}];
+    const nodes = [{id: 11, allowedSpaces: [0, 3]}, {id: 12, allowedSpaces: [0, 2]}];
+    assert.deepEqual(defaultPlacement(spaces, nodes), {spaceId: 2, nodeId: 12});
+});
+
+test("defaultPlacement is null when no node hosts a visible space", () => {
+    const spaces = [{id: 0, name: "_system"}, {id: 1, name: "global"}];
+    assert.equal(defaultPlacement(spaces, [{id: 11, allowedSpaces: [0]}]), null);
+    assert.equal(defaultPlacement(spaces, []), null);
+});
+
+test("placeholderDeploymentName is deployment- plus six lowercase alphanumerics", () => {
+    assert.match(placeholderDeploymentName(), /^deployment-[a-z0-9]{6}$/);
+    assert.equal(placeholderDeploymentName(() => 0), "deployment-aaaaaa");
 });

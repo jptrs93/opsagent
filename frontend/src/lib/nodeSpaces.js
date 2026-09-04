@@ -42,3 +42,32 @@ export function allowedSpaceNames(node, spaces) {
         .map(Number)
         .map((id) => byID.get(id) || `space ${id}`);
 }
+
+// Default placement for a new deployment: the first (space, node) pair the
+// person can see that the allow list permits. The preferred space (global by
+// default) wins when any node hosts it; otherwise selectable spaces are tried
+// in order. Null when no node hosts any visible space, which leaves the form
+// on the global space with no node.
+export function defaultPlacement(spaces, nodes, preferredSpaceID = 1) {
+    const candidates = selectableSpaces(spaces).filter((space) => !space?.deleted);
+    const hosts = (nodes || []).filter((node) => Number(node?.id || 0));
+    const ordered = [
+        ...candidates.filter((space) => Number(space.id) === Number(preferredSpaceID)),
+        ...candidates.filter((space) => Number(space.id) !== Number(preferredSpaceID)),
+    ];
+    for (const space of ordered) {
+        const node = hosts.find((item) => nodeAllowsSpace(item, space.id));
+        if (node) return {spaceId: Number(space.id), nodeId: Number(node.id)};
+    }
+    return null;
+}
+
+// Placeholder name for a new deployment: deployment-<6 random [a-z0-9]>.
+// Names must be unique per node and space, so a random suffix keeps two
+// unedited creates from colliding.
+export function placeholderDeploymentName(random = Math.random) {
+    const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let suffix = "";
+    for (let i = 0; i < 6; i++) suffix += alphabet[Math.floor(random() * alphabet.length) % alphabet.length];
+    return `deployment-${suffix}`;
+}

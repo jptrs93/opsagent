@@ -6,9 +6,7 @@ import {
 import {deploymentsS, deploymentsStreamS, machinesS, spacesS} from "../state/deployments.js";
 import {deploymentHistoryPanel} from "../components/deploymentHistory.js";
 import {deploymentNetworkPolicies} from "../components/networkPolicySummary.js";
-import {deployOverlay} from "../components/deployOverlay.js";
 import {openDeployGroupUpdateOverlay} from "../components/openDeployGroupUpdateOverlay.js";
-import {createOverlay} from "../components/createOverlay.js";
 import {prepareOutputOverlay} from "../components/prepareOutputOverlay.js";
 import {runReportOverlay} from "../components/runReportOverlay.js";
 import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
@@ -517,9 +515,16 @@ const miniTd = (attrs, ...children) => td(
     {...attrs, class: `border-b border-gray-800/50 border-r border-r-gray-800/30 last:border-r-0 px-2 py-[3px] whitespace-nowrap overflow-hidden ${attrs.class || ''}`},
     ...children);
 
-export function statusPage(onOpenLogs = () => {}) {
+// The page owns no deployment editor: hooks.onUpdate(row, rawConfig) opens
+// the editor for ordinary deployment rows (system group rows keep their own
+// overlay), and hooks.onCreate(opts) opens a create editor for every create
+// path: Add deployment, Fork, and restoring a recently deleted deployment.
+// opts carries sourceDeploymentRow, sourceDeployment, and retainIdentity.
+export function statusPage(onOpenLogs = () => {}, hooks = {}) {
+    if (typeof hooks.onUpdate !== 'function' || typeof hooks.onCreate !== 'function') {
+        throw new Error('statusPage requires onUpdate and onCreate hooks');
+    }
     const overlayNode = van.state('');
-    const createOverlayNode = van.state('');
     const search = van.state('');
     const selectedRowId = van.state(null);
     const inspectorTab = van.state('details');
@@ -544,7 +549,7 @@ export function statusPage(onOpenLogs = () => {}) {
     const closeInspector = () => { selectedRowId.val = null; };
 
     const closeOverlay = () => { overlayNode.val = ''; };
-    const closeCreateOverlay = () => { createOverlayNode.val = ''; };
+    const openCreate = (opts = {}) => hooks.onCreate(opts);
 
     const onShowRunOutput = (deploymentRow) => onOpenLogs(deploymentRow.id);
     const onShowPrepareOutput = (deploymentRow) => {
@@ -567,14 +572,13 @@ export function statusPage(onOpenLogs = () => {}) {
             overlayNode.val = openDeployGroupUpdateOverlay(deploymentRow, closeOverlay);
             return;
         }
-        const rawConfig = findRawConfig(deploymentRow.id);
-        overlayNode.val = deployOverlay(deploymentRow, rawConfig, closeOverlay);
+        hooks.onUpdate(deploymentRow, findRawConfig(deploymentRow.id));
     };
 
     const onFork = (deploymentRow) => {
         const rawConfig = findRawConfig(deploymentRow.id);
         if (!rawConfig) return;
-        createOverlayNode.val = createOverlay(closeCreateOverlay, undefined, {
+        openCreate({
             sourceDeploymentRow: deploymentRow,
             sourceDeployment: rawConfig,
         });
@@ -598,9 +602,7 @@ export function statusPage(onOpenLogs = () => {}) {
         );
     };
 
-    const openCreateOverlay = () => {
-        createOverlayNode.val = createOverlay(closeCreateOverlay);
-    };
+    const openCreateOverlay = () => openCreate();
 
     const openExportOverlay = () => {
         overlayNode.val = exportConfigOverlay(closeOverlay);
@@ -614,7 +616,7 @@ export function statusPage(onOpenLogs = () => {}) {
                 // keeps its name, space, and node prefilled. If a new deployment
                 // has since claimed the tuple, create rejects it and the form
                 // reports the conflict.
-                createOverlayNode.val = createOverlay(closeCreateOverlay, undefined, {
+                openCreate({
                     sourceDeployment: config,
                     retainIdentity: true,
                 });
@@ -1299,7 +1301,6 @@ export function statusPage(onOpenLogs = () => {}) {
             inspector),
         () => openMenu.val ? div({class: "fixed inset-0 z-20", onclick: () => { openMenu.val = null; }}) : "",
         () => overlayNode.val || '',
-        () => createOverlayNode.val || '',
     );
 
     new ResizeObserver(() => fitColumns(tableScroll.clientWidth)).observe(tableScroll);

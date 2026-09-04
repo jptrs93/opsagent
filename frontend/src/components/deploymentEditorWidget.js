@@ -2,10 +2,28 @@ import van from "vanjs-core";
 import {spinnerButton} from "./spinnerbutton.js";
 import {formInvalidReason} from "./deploymentForm.js";
 import {deploymentUiHasOpenPane, deploymentUiWidget} from "./deploymentUiWidget.js";
-import {DeploymentCreationUpdate, SOURCE_DOCKER_IMAGE, SOURCE_NIX_DOCKER} from "./deploymentCreationUpdate.js";
-import {imageVersionFromReference} from "./deploymentSource.js";
+import {DeploymentCreationUpdate} from "./deploymentCreationUpdate.js";
+import {sourceFooterWidgets} from "./deploymentSourceFooter.js";
+import {defaultPlacement, placeholderDeploymentName} from "../lib/nodeSpaces.js";
 
 const {div, span, button, p} = van.tags;
+
+// The UI/Code choice is remembered across editors: an editor opens in the
+// last mode chosen in any other, as soon as that mode is available to it.
+// Code is the default until the user picks UI somewhere.
+const EDITOR_MODE_KEY = 'opsagent_deployment_editor_mode';
+const loadEditorMode = () => {
+    try {
+        return localStorage.getItem(EDITOR_MODE_KEY) === 'ui' ? 'ui' : 'code';
+    } catch {
+        return 'code';
+    }
+};
+const saveEditorMode = mode => {
+    try {
+        localStorage.setItem(EDITOR_MODE_KEY, mode);
+    } catch {}
+};
 
 const stateValue = (value) => value && typeof value === 'object' && 'val' in value ? value.val : value;
 const asState = (value, fallback) => value && typeof value === 'object' && 'val' in value
@@ -23,6 +41,12 @@ export function preloadDeploymentCodeWidget() {
     void loadDeploymentCodeWidget().catch(() => {});
 }
 
+// deploymentEditorWidget(opts)
+//   mode: 'create' | 'update'
+//   layout: 'dialog' (default, a fixed-width card) | 'page' (fills its host)
+//   dirty: optional van.state the editor keeps true while the document
+//          differs from what it opened with, or Code mode holds an
+//          unparsed draft
 export function deploymentEditorWidget(opts) {
     const mode = opts.mode;
     if (mode !== 'create' && mode !== 'update') throw new Error(`Unsupported deployment editor mode: ${mode}`);
@@ -47,6 +71,7 @@ export function deploymentEditorWidget(opts) {
         deploymentRow,
         deployment,
         validateSource: actions.validateSource,
+        loadDeploymentVersions: actions.loadDeploymentVersions,
     });
     const form = deploymentUpdate.form;
     const editorMode = van.state('ui');
@@ -57,7 +82,7 @@ export function deploymentEditorWidget(opts) {
         form.deploymentId.val = 0;
         // Forking a live deployment would collide on (node, space, name), so the
         // identity is cleared for the user to choose. A deleted one has already
-        // released that tuple, so its identity is kept — recovering a deployment
+        // released that tuple, so its identity is kept: recovering a deployment
         // under its old name is the whole point of forking one.
         if (!opts.retainIdentity) {
             form.name.val = '';
@@ -92,49 +117,46 @@ export function deploymentEditorWidget(opts) {
         if (opts.onSuccess) opts.onSuccess({kind, payload, result, form, deploymentUpdate});
     };
 
+    if (mode === 'create' && !opts.fork) {
+        // A blank create starts with a usable identity: a placeholder name
+        // and the first visible space/node pair the allow list permits.
+        // Without such a pair the form stays on the global space with no
+        // node, which the HCL renders as a placeholder node reference.
+        if (!form.name.val) form.name.val = placeholderDeploymentName();
+        const placement = defaultPlacement(stateValue(spaces) || [], stateValue(nodes) || [], form.spaceId.val);
+        if (placement) {
+            form.spaceId.val = placement.spaceId;
+            form.nodeId.val = placement.nodeId;
+        }
+    }
     if (mode === 'create' && !form.nodeId.val) {
+        // A lone node whose allow list has not arrived yet is still the only
+        // possible choice.
         const nodeList = (stateValue(nodes) || []).filter(node => Number(node?.id || 0));
         if (nodeList.length === 1) form.nodeId.val = nodeList[0].id;
     }
 
-    const loadVersions = async (branch, loadOpts = {}) => {
-        return deploymentUpdate.loadVersions({
-            branch,
-            preserveSelection: loadOpts.preserveSelection,
-            refreshAvailableBranches: loadOpts.refreshAvailableBranches,
+    // Dirty tracking starts after the seeded defaults so an untouched editor
+    // reads clean.
+    const initialDocumentKey = JSON.stringify(deploymentUpdate.toDocument());
+    const codeDraftInvalid = van.state(false);
+    if (opts.dirty) {
+        van.derive(() => {
+            opts.dirty.val = codeDraftInvalid.val
+                || JSON.stringify(deploymentUpdate.toDocument()) !== initialDocumentKey;
         });
-    };
-
-    if (mode === 'create' && deploymentUpdate.desiredRunning.val && form.sourceType.val === SOURCE_NIX_DOCKER) {
-        void deploymentUpdate.validateExactNixSelection();
-    }
-
-    if (mode === 'update' && deploymentRow?.variant
-        && (deploymentRow.variant === SOURCE_NIX_DOCKER
-            || (deploymentRow.variant === SOURCE_DOCKER_IMAGE && !imageVersionFromReference(form.containerImage.val)))) {
-        void deploymentUpdate.loadExistingDeploymentVersions(
-            actions.loadDeploymentVersions,
-            deploymentRow.id,
-            {preserveSelection: true},
-        );
     }
 
     const documentInvalidReason = () => {
-        const sourcePathReason = deploymentUpdate.sourcePathInvalidReason();
-        if (sourcePathReason) return sourcePathReason;
+        const sourceReason = deploymentUpdate.sourceInvalidReason();
+        if (sourceReason) return sourceReason;
         const reason = formInvalidReason(form, {
             nodeOptions: stateValue(nodes) || [],
             deployments: stateValue(deployments) || [],
         });
         if (reason) return reason;
-        const runningNixReason = deploymentUpdate.runningNixInvalidReason();
-        if (runningNixReason) return runningNixReason;
-        if (canEditState && deploymentUpdate.desiredRunning.val
-            && form.sourceType.val !== SOURCE_NIX_DOCKER
-            && !deploymentUpdate.createDesiredVersion()) {
-            return 'Select a version before setting the deployment to Running.';
-        }
-        return '';
+        return deploymentUpdate.versionInvalidReason()
+            || (canEditState ? deploymentUpdate.runningInvalidReason() : '');
     };
 
     let codeWidget = null;
@@ -173,12 +195,15 @@ export function deploymentEditorWidget(opts) {
         }
     });
 
+    // A tinted brand button at the footer toolbar height: the solid brand
+    // button read as loud beside the muted footer widgets.
     const submitButton = spinnerButton(
         mode === 'create' ? 'Create' : 'Update deployment',
         doSubmit,
-        'btn-primary text-sm py-1.5 px-4',
+        'h-[30px] border border-blue-400/45 bg-blue-500/15 text-xs text-blue-100 hover:border-blue-300/70 hover:bg-blue-500/30 hover:text-blue-50',
         'button',
         () => Boolean(invalidReason()),
+        {base: 'rounded-md px-3 font-medium', disabledClass: 'opacity-45 cursor-not-allowed'},
     );
     if (mode === 'create') submitButton.dataset.testid = 'create-deployment-submit';
 
@@ -204,15 +229,11 @@ export function deploymentEditorWidget(opts) {
             if (typeof actions.saveVersion !== 'function') throw new Error('actions.saveVersion is required');
             return actions.saveVersion(request);
         }),
-        onRefresh: () => loadVersions(deploymentUpdate.nixDockerBuild.selectedBranch.val, {
-            refreshAvailableBranches: true,
-            preserveSelection: true,
-        }),
     });
+    // Code editing needs the catalogs the HCL resolves names against; the
+    // system deployments have no container spec to edit as code.
     const codeAvailable = () => (mode === 'create' || deploymentRow?.runnerType === 'container')
-        && stateValue(nodesLoaded) !== false
-        && !requestDescription.val
-        && !deploymentUpdate.versionRequestDescription.val;
+        && stateValue(nodesLoaded) !== false;
     const codeHost = div(
         {class: 'flex h-full min-h-0 min-w-0 flex-1 items-center justify-center bg-gray-950'},
         p({class: 'text-xs text-gray-500'}, 'Loading code editor...'),
@@ -227,13 +248,14 @@ export function deploymentEditorWidget(opts) {
             codeWidget = deploymentCodeWidget({
                 document: deploymentUpdate.document,
                 catalogs: {spaces, nodes, assets, secretRefs, configRefs, deployments},
+                versionCompletions: () => deploymentUpdate.versionOptions(),
                 constraints: mode === 'update' ? {
                     immutableName: form.name.val,
                     immutableNodeId: form.nodeId.val,
                     updateMode: true,
-                    initialVersion: deploymentUpdate.createDesiredVersion(),
                 } : {},
             });
+            van.derive(() => { codeDraftInvalid.val = codeWidget.draftInvalid.val; });
             codeHost.replaceChildren(codeWidget.element);
             codeEditorStatus.val = 'ready';
             return codeWidget;
@@ -244,27 +266,52 @@ export function deploymentEditorWidget(opts) {
             return null;
         }
     };
-    const selectEditorMode = nextMode => {
+    const selectEditorMode = (nextMode, {remember = true} = {}) => {
         if (nextMode === 'code' && !codeAvailable()) return;
         editorMode.val = nextMode;
+        if (remember) saveEditorMode(nextMode);
         if (nextMode === 'code') {
-            deploymentUpdate.cancelSourceRequests();
-            requestDescription.val = '';
             void ensureCodeWidget().then(widget => {
                 if (widget && editorMode.val === 'code') requestAnimationFrame(() => widget.activate());
             });
         }
     };
+    // Honour a remembered Code preference as soon as code editing is
+    // available (catalogs loaded). Applying the preference is not itself a
+    // choice, so it is not re-saved.
+    let preferCode = loadEditorMode() === 'code';
+    van.derive(() => {
+        if (preferCode && codeAvailable()) {
+            preferCode = false;
+            selectEditorMode('code', {remember: false});
+        }
+    });
     const hasOpenPane = () => editorMode.val === 'ui'
         && deploymentUiHasOpenPane(form);
     const editorHeight = opts.maxHeight || '88vh';
     const modeToggle = editorModeToggle({editorMode, codeAvailable, selectEditorMode});
+    // A footer version pick also patches the HCL text in Code mode. In UI
+    // mode the form is the source of truth and committing a stale code draft
+    // would revert form edits, so only Code mode patches the text.
+    const footerWidgets = sourceFooterWidgets({
+        deploymentUpdate,
+        onSelectVersion: version => {
+            if (editorMode.val === 'code' && codeWidget) codeWidget.setWorkloadVersion(version);
+        },
+    });
+    // layout 'page' fills whatever hosts it (a page tab) instead of framing
+    // itself as a fixed-width dialog.
+    const pageLayout = opts.layout === 'page';
 
     return div(
         {
-            class: 'bg-gray-900 border border-gray-600 rounded-lg shadow-[0_28px_90px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden',
+            class: pageLayout
+                ? 'bg-gray-900 flex h-full w-full flex-col overflow-hidden'
+                : 'bg-gray-900 border border-gray-600 rounded-lg shadow-[0_28px_90px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden',
             'data-testid': mode === 'create' ? 'create-deployment-dialog' : 'update-deployment-dialog',
-            style: () => `width: ${hasOpenPane() ? 1560 : 1120}px; max-width: 100%; height: ${editorHeight}; max-height: ${editorHeight};`,
+            style: () => pageLayout
+                ? ''
+                : `width: ${hasOpenPane() ? 1560 : 1120}px; max-width: 100%; height: ${editorHeight}; max-height: ${editorHeight};`,
         },
         div(
             {class: 'flex-1 min-h-0 min-w-0'},
@@ -283,8 +330,9 @@ export function deploymentEditorWidget(opts) {
         editorFooter({
             mode,
             modeToggle,
+            footerWidgets,
             invalidReason,
-            requestDescription: van.derive(() => requestDescription.val || deploymentUpdate.versionRequestDescription.val),
+            requestDescription,
             submitButton,
             onCancel: opts.onCancel,
         }),
@@ -298,7 +346,7 @@ function editorModeToggle(args) {
         'data-testid': `deployment-editor-mode-${mode}`,
         'aria-selected': () => String(args.editorMode.val === mode),
         disabled: () => mode === 'code' && !args.codeAvailable(),
-        title: () => mode === 'code' && !args.codeAvailable() ? 'Code editing is unavailable until configuration data is loaded and current requests finish' : '',
+        title: () => mode === 'code' && !args.codeAvailable() ? 'Code editing is unavailable until configuration data is loaded' : '',
         class: () => args.editorMode.val === mode
             ? 'rounded-md bg-gray-700 px-2.5 py-1 text-[11px] font-medium text-gray-100 shadow-sm cursor-pointer'
             : 'rounded-md px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-800 hover:text-gray-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed',
@@ -313,32 +361,21 @@ function editorModeToggle(args) {
 }
 
 function editorFooter(args) {
-    if (args.mode === 'create') {
-        return div(
-            {class: 'flex shrink-0 items-center justify-between gap-4 bg-gray-950/90 px-4 py-2.5'},
-            args.modeToggle,
-            div(
-                {class: 'flex min-w-0 items-center justify-end gap-3'},
-                () => args.invalidReason()
-                    ? p({class: 'truncate text-xs text-amber-300', 'data-testid': 'create-validation-reason'}, args.invalidReason())
-                    : '',
-                cancelButton(args.onCancel),
-                args.submitButton,
-            ),
-        );
-    }
-
     return div(
         {class: 'flex shrink-0 items-center justify-between gap-3 bg-gray-950/90 px-4 py-2.5'},
         div(
             {class: 'flex min-w-0 items-center gap-3'},
             args.modeToggle,
+            ...args.footerWidgets,
             requestStatus(args.requestDescription),
         ),
         div(
             {class: 'flex min-w-0 items-center justify-end gap-3'},
             () => args.invalidReason()
-                ? p({class: 'truncate text-xs text-amber-400'}, args.invalidReason())
+                ? p({
+                    class: 'truncate text-xs text-amber-300',
+                    'data-testid': args.mode === 'create' ? 'create-validation-reason' : 'update-validation-reason',
+                }, args.invalidReason())
                 : '',
             cancelButton(args.onCancel),
             args.submitButton,
@@ -356,7 +393,7 @@ function cancelButton(onCancel) {
 
 function requestStatus(requestDescription) {
     return span(
-        {class: () => requestDescription.val ? 'inline-flex items-center gap-2 text-xs text-gray-400' : 'invisible text-xs'},
+        {class: () => requestDescription.val ? 'inline-flex items-center gap-2 text-xs text-gray-400' : 'hidden'},
         span({class: 'w-[1.1em] h-[1.1em] border-[0.15em] border-gray-500/30 border-t-gray-300 rounded-full animate-spin'}),
         span(() => requestDescription.val || 'Idle'),
     );

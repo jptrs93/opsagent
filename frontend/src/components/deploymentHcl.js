@@ -18,7 +18,6 @@ const GLOBAL_SPACE_ID = 1;
 
 export const deploymentHclCompletionOptions = [
     {label: "deployment", type: "keyword", info: "Root deployment block"},
-    {label: "identity", type: "keyword", info: "Deployment name and space"},
     {label: "container", type: "keyword", info: "Container workload"},
     {label: "source", type: "keyword", info: "Container source"},
     {label: "container_image", type: "keyword", info: "Existing container image"},
@@ -439,12 +438,11 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     const add = (depth, line = "") => lines.push(`${"  ".repeat(depth)}${line}`);
 
     add(0, "deployment {");
-    add(1, `node = node(${quote(nameForID(refs, "node", doc.nodeId))})`);
-    add(0);
-    add(1, "identity {");
-    add(2, `name = ${quote(identity.name)}`);
-    add(2, `space = space(${quote(nameForID(refs, "space", spaceId))})`);
-    add(1, "}");
+    // No placement yet reads as a placeholder the person is meant to replace,
+    // not as an unresolved id.
+    add(1, `node = node(${quote(doc.nodeId ? nameForID(refs, "node", doc.nodeId) : "select-a-node")})`);
+    add(1, `name = ${quote(identity.name)}`);
+    add(1, `space = space(${quote(nameForID(refs, "space", spaceId))})`);
     add(0);
     add(1, "container {");
     add(2, "source {");
@@ -1119,24 +1117,19 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
     if (roots.length !== 1) diagnostics.push(diagnostic(text, roots[1] || ast, "Document requires exactly one deployment block."));
     const deployment = roots[0];
     if (!deployment) return null;
-    validateMembers(text, diagnostics, deployment, new Set(["node", "desired_running"]), new Set(["identity", "container", "network"]));
+    // Placement and identity are root attributes: node, name, and space sit
+    // directly in the deployment block. The document still exposes them as
+    // nodeId plus an identity object, matching the API shape.
+    validateMembers(text, diagnostics, deployment, new Set(["node", "name", "space", "desired_running"]), new Set(["container", "network"]));
 
-    const identity = exactlyOneBlock(text, diagnostics, deployment, "identity");
-    let name = null;
-    let spaceId = null;
-    let nodeId = null;
-    let nameAttr = null;
     const nodeAttr = requireAttribute(text, diagnostics, deployment, "node");
     const node = typedReference(text, diagnostics, nodeAttr, "node", "node", catalogs);
-    nodeId = node ? Number(node.id) : null;
-    if (identity) {
-        validateMembers(text, diagnostics, identity, new Set(["name", "space"]), new Set());
-        nameAttr = requireAttribute(text, diagnostics, identity, "name");
-        const spaceAttr = requireAttribute(text, diagnostics, identity, "space");
-        name = stringValue(text, diagnostics, nameAttr, "Deployment name", {nonempty: true});
-        const space = typedReference(text, diagnostics, spaceAttr, "space", "space", catalogs);
-        spaceId = space ? Number(space.id) : null;
-    }
+    const nodeId = node ? Number(node.id) : null;
+    const nameAttr = requireAttribute(text, diagnostics, deployment, "name");
+    const spaceAttr = requireAttribute(text, diagnostics, deployment, "space");
+    const name = stringValue(text, diagnostics, nameAttr, "Deployment name", {nonempty: true});
+    const space = typedReference(text, diagnostics, spaceAttr, "space", "space", catalogs);
+    const spaceId = space ? Number(space.id) : null;
 
     const containers = members(deployment, "block", "container");
     if (containers.length !== 1) diagnostics.push(diagnostic(text, containers[1] || deployment, "Deployment requires exactly one container block."));
@@ -1254,16 +1247,11 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
         diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, "Version cannot be empty while desired_running is true."));
     }
     if (sourceSpec.nixDockerBuild && version && !FULL_GIT_COMMIT_RE.test(version)) {
-        diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, "Nix versions must be full 40-character commits."));
+        diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, "Version must be a full 40-character commit sha."));
     }
     const explicitImageVersion = imageReferenceVersion(sourceSpec.remoteImage?.image);
     if (explicitImageVersion && version !== null && version !== explicitImageVersion) {
         diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, `Version must match ${quote(explicitImageVersion)} from the image reference.`));
-    }
-    const initialVersion = unwrap(constraints?.initialVersion);
-    if (constraints?.updateMode && running === false && initialVersion !== undefined && initialVersion !== null
-        && version !== null && version !== String(initialVersion)) {
-        diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, "Version cannot change while an updated deployment is stopped."));
     }
     const immutableName = unwrap(constraints?.immutableName);
     if (immutableName !== undefined && immutableName !== null && name !== null && name !== String(immutableName)) {

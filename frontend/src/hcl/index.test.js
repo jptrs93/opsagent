@@ -22,11 +22,8 @@ function nodeNames(source) {
 
 const fullConfig = `deployment {
   node = node("worker-1")
-
-  identity {
-    name = "api"
-    space = space("prod")
-  }
+  name = "api"
+  space = space("prod")
 
   container {
     source {

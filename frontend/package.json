@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "node --test src/state/deploymentMerge.test.js src/lib/agentSessions.test.js src/lib/envVarGrouping.test.js src/lib/nodeSpaces.test.js src/lib/networkPolicies.test.js src/lib/valueExplorer.test.js src/lib/assetExplorer.test.js src/lib/authz.test.js src/lib/metricsData.test.js src/hcl/index.test.js",
+    "test": "node --test src/components/deploymentCreationUpdate.test.js src/state/deploymentMerge.test.js src/lib/agentSessions.test.js src/lib/envVarGrouping.test.js src/lib/nodeSpaces.test.js src/lib/networkPolicies.test.js src/lib/valueExplorer.test.js src/lib/assetExplorer.test.js src/lib/authz.test.js src/lib/metricsData.test.js src/hcl/index.test.js",
     "generate:hcl-parser": "node src/hcl/generate.js",
     "build": "vite build",
     "preview": "vite preview"
