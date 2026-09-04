@@ -77,7 +77,7 @@ func drainStream(t *testing.T, ctx context.Context, deploymentID int32, m Stream
 		if err != nil {
 			t.Fatal(err)
 		}
-		got = append(got, r)
+		got = append(got, r.owned())
 	}
 	return got
 }

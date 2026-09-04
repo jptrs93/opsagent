@@ -15,7 +15,10 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/logdb"
 )
 
-func realDatasetManager(t *testing.T, root string) (*Manager, int32) {
+// realDatasetManager stages test-logs/ and returns the manager, the
+// deployment, and a query window covering every archive file plus a day of
+// WAL tail, so the test follows whatever days the dataset holds.
+func realDatasetManager(t *testing.T, root string) (*Manager, int32, time.Time, time.Time) {
 	t.Helper()
 	archiveRoot := filepath.Join(root, "log-archive")
 	walRoot := filepath.Join(root, "run-logs")
@@ -73,6 +76,7 @@ func realDatasetManager(t *testing.T, root string) (*Manager, int32) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var loMs, hiMs int64
 	for _, dd := range dayDirs {
 		day, ok := parseDayDirName(dd.Name())
 		if !ok {
@@ -93,6 +97,10 @@ func realDatasetManager(t *testing.T, root string) (*Manager, int32) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if loMs == 0 || minMs < loMs {
+				loMs = minMs
+			}
+			hiMs = max(hiMs, maxMs)
 			if _, err := db.InsertLogFile(ctx, logdb.InsertLogFileParams{
 				DeploymentID: int64(deploymentID),
 				Day:          int64(day),
@@ -110,7 +118,13 @@ func realDatasetManager(t *testing.T, root string) (*Manager, int32) {
 		}
 	}
 	c := NewLogStreamCollector(deploymentID, db)
-	return &Manager{db: db, collectors: map[int32]*LogStreamCollector{deploymentID: c}}, deploymentID
+	m := &Manager{db: db, collectors: map[int32]*LogStreamCollector{deploymentID: c}}
+	if loMs == 0 {
+		t.Fatalf("no archive files found under %s", archiveRoot)
+	}
+	from := time.UnixMilli(loMs).UTC().Truncate(24 * time.Hour)
+	till := time.UnixMilli(hiMs).UTC().Add(24 * time.Hour)
+	return m, deploymentID, from, till
 }
 
 func TestQueryRealDataset(t *testing.T) {
@@ -125,27 +139,28 @@ func TestQueryRealDataset(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	t.Cleanup(func() { slog.SetDefault(old) })
 	streamTiming(t, time.Minute, time.Millisecond, time.Millisecond)
-	m, dep := realDatasetManager(t, root)
+	m, dep, from, till := realDatasetManager(t, root)
+	t.Logf("query window %s to %s", from.Format(time.RFC3339), till.Format(time.RFC3339))
 	reqs := map[string]*apigen.LogQueryRequest{
 		"levelError": {
 			DeploymentID:     dep,
-			TimeStart:        mustTime(t, "2026-08-23T00:00:00Z"),
-			TimeEnd:          mustTime(t, "2026-08-27T00:00:00Z"),
+			TimeStart:        from,
+			TimeEnd:          till,
 			Limit:            10000,
 			HistogramBuckets: 90,
 			Filters:          []*apigen.LogFilter{{Field: "level", Op: "in", Values: []string{"ERROR"}}},
 		},
 		"aggregatesOnly": {
 			DeploymentID:     dep,
-			TimeStart:        mustTime(t, "2026-08-23T00:00:00Z"),
-			TimeEnd:          mustTime(t, "2026-08-27T00:00:00Z"),
+			TimeStart:        from,
+			TimeEnd:          till,
 			Limit:            -1,
 			HistogramBuckets: 90,
 		},
 		"msgContains": {
 			DeploymentID: dep,
-			TimeStart:    mustTime(t, "2026-08-23T00:00:00Z"),
-			TimeEnd:      mustTime(t, "2026-08-27T00:00:00Z"),
+			TimeStart:    from,
+			TimeEnd:      till,
 			Limit:        1000,
 			Filters:      []*apigen.LogFilter{{Op: "contains", Value: "error"}},
 		},

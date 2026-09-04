@@ -213,15 +213,20 @@ func (h *retainHeap) evictable(r *retainedRec) bool {
 	return c < 0
 }
 
+// offer keeps r if it belongs in the top capacity records seen so far. The
+// line of an offered record may borrow a scan buffer, so it is copied only
+// once the record is actually kept.
 func (h *retainHeap) offer(r retainedRec) {
 	if h.capacity <= 0 {
 		return
 	}
 	if len(h.recs) < h.capacity {
+		r.rec.Line = bytes.Clone(r.rec.Line)
 		heap.Push(h, r)
 		return
 	}
 	if h.evictable(&r) {
+		r.rec.Line = bytes.Clone(r.rec.Line)
 		h.recs[0] = r
 		heap.Fix(h, 0)
 	}
@@ -341,6 +346,8 @@ func fieldStatsList(m map[string]*fieldAccum, sampled int64) []*apigen.LogFieldS
 	return out
 }
 
+// rowToRawLogLine wraps a parquet row without copying its line; the line
+// keeps whatever ownership the row had, and retention copies it.
 func rowToRawLogLine(row logRow, deploymentID int32) apigen.RawLogLine {
 	return apigen.RawLogLine{
 		Time:            row.Time,
@@ -348,7 +355,7 @@ func rowToRawLogLine(row logRow, deploymentID int32) apigen.RawLogLine {
 		Run:             row.Run,
 		Stream:          row.Stream,
 		Seq:             row.Seq,
-		Line:            bytes.Clone(row.RawMessage),
+		Line:            row.RawMessage,
 		Deployment:      deploymentID,
 		Node:            row.Node,
 		InstanceOrdinal: row.InstanceOrdinal,

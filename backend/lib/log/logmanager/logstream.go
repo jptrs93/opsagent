@@ -1,6 +1,7 @@
 package logmanager
 
 import (
+	"bytes"
 	"cmp"
 	"path/filepath"
 	"strings"
@@ -38,10 +39,21 @@ func (m StreamMarker) before(o StreamMarker) bool {
 	return m.byteOffset < o.byteOffset
 }
 
+// WrappedRecord is one WAL record with its stream position. Records yielded by
+// the stream readers borrow record.Line from the reader's buffer: it is valid
+// only for the duration of the yield, and a consumer that keeps the record
+// past that point must clone the line itself. Everything else in the record
+// is by value.
 type WrappedRecord struct {
 	m      StreamMarker
 	record apigen.RawLogLine
 	size   int64
+}
+
+// owned returns the record with its line copied out of the reader's buffer.
+func (r WrappedRecord) owned() WrappedRecord {
+	r.record.Line = bytes.Clone(r.record.Line)
+	return r
 }
 
 func cmpRecordKey(a, b *apigen.RawLogLine) int {

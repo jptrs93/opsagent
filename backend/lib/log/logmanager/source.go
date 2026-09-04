@@ -16,7 +16,8 @@ const (
 
 // parseWalRecord decodes the record at the head of buf. On parseIncomplete the
 // returned size is how many bytes the record needs in total; on parseInvalid the
-// caller resyncs to the next magic candidate.
+// caller resyncs to the next magic candidate. The returned Line aliases buf;
+// the caller owns the copy if it keeps the record past the buffer's reuse.
 func parseWalRecord(buf []byte) (apigen.RawLogLine, int, int) {
 	header := logv2.RecordHeaderLen
 	if len(buf) < header {
@@ -49,7 +50,7 @@ func parseWalRecord(buf []byte) (apigen.RawLogLine, int, int) {
 		Version:         meta.Version,
 		Run:             meta.Run,
 		Stream:          int32(meta.Stream),
-		Line:            bytes.Clone(payload[logv2.RecordPayloadHeaderLen:]),
+		Line:            payload[logv2.RecordPayloadHeaderLen:],
 		Deployment:      meta.Deployment,
 		Node:            meta.Node,
 		InstanceOrdinal: meta.InstanceOrdinal,

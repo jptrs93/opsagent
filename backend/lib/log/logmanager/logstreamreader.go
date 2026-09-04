@@ -65,11 +65,13 @@ func StreamDeploymentLogFiles(producerCtx context.Context, deploymentID int32, m
 }
 
 // StreamDeploymentLogRecords
-// - Streams a deployment log records in order from a given marker.
-// - The underlying log wal files are opened sequentially in the correct order transparently.
-// - Resumes after m: m is the last record already consumed, so it is not re-emitted.
-// - A zero m starts from the earliest available file and record
-// - Whist the producerCtx is not cancelled, the stream blocks waiting for new records to be written.
+//   - Streams a deployment log records in order from a given marker.
+//   - The underlying log wal files are opened sequentially in the correct order transparently.
+//   - Resumes after m: m is the last record already consumed, so it is not re-emitted.
+//   - A zero m starts from the earliest available file and record
+//   - Whist the producerCtx is not cancelled, the stream blocks waiting for new records to be written.
+//   - Yielded lines borrow the reader's buffer and are valid only during the
+//     yield; a consumer that retains a record must take WrappedRecord.owned().
 func StreamDeploymentLogRecords(producerCtx context.Context, deploymentID int32, m StreamMarker) iter.Seq2[WrappedRecord, error] {
 	return streamRecords(producerCtx, deploymentID, m, true)
 }
@@ -104,7 +106,9 @@ var sortBufBytesThresh = int64(8 << 20)
 // key, which yields a fully key-sorted stream because a record can only live
 // in the bucket its timestamp belongs to. If a single bucket exceeds
 // sortBufBytesThresh the sorted bottom half is yielded early, degrading to a
-// sliding-window approximate sort for that bucket.
+// sliding-window approximate sort for that bucket. Buffering retains records,
+// so this is where lines are copied out of the reader's buffer; records it
+// yields are owned.
 func sortedByTime(seq iter.Seq2[WrappedRecord, error]) iter.Seq2[WrappedRecord, error] {
 	return func(yield func(WrappedRecord, error) bool) {
 		var buf []WrappedRecord
@@ -142,7 +146,7 @@ func sortedByTime(seq iter.Seq2[WrappedRecord, error]) iter.Seq2[WrappedRecord, 
 			if len(buf) > 0 && cmpRecordKey(&r.record, &buf[len(buf)-1].record) < 0 {
 				sorted = false
 			}
-			buf = append(buf, r)
+			buf = append(buf, r.owned())
 			bufBytes += r.size
 			if bufBytes > sortBufBytesThresh {
 				if !flush(len(buf) / 2) {
