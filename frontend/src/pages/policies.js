@@ -3,7 +3,7 @@
 
 import van from "vanjs-core";
 import {networkPoliciesPage} from "./networkPolicies.js";
-import {PLANNED, plannedBody} from "./planned.js";
+import {plannedBody} from "./planned.js";
 
 const {button, div, span} = van.tags;
 
@@ -34,7 +34,7 @@ export function policiesPage() {
         ),
         div(
             {class: "flex-1 min-h-0 flex flex-col overflow-hidden"},
-            () => tab.val === "network" ? networkPoliciesPage() : plannedBody(PLANNED.secretPolicies),
+            () => tab.val === "network" ? networkPoliciesPage() : plannedBody(),
         ),
     );
 }

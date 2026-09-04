@@ -63,7 +63,7 @@ export function dashboard() {
                 if (activePage.val === 'assets') return assetsPage();
                 if (activePage.val === 'spaces') return spacesPage();
                 if (activePage.val === 'policies') return policiesPage();
-                if (PLANNED[activePage.val]) return plannedPage(activePage.val);
+                if (PLANNED.has(activePage.val)) return plannedPage();
                 if (activePage.val === 'users') return usersPage();
                 if (activePage.val === 'sessions') return sessionsPage();
                 if (activePage.val === 'cluster') return clusterPage();
