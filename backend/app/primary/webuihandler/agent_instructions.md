@@ -58,7 +58,8 @@ Accept: application/json
 binary protobuf, which will look to you like a corrupted response.
 
 Everything below is `POST` with a JSON body unless marked otherwise. JSON field
-names are `snake_case`, matching the examples exactly. Errors come back as
+names are `snake_case`, matching the examples exactly, and timestamps are RFC
+3339 strings in both directions (`"2026-09-04T05:00:00Z"`). Errors come back as
 `{"code": 403, "display_err": "Access denied"}` — `code` repeats the HTTP
 status. Do not retry a `4xx`; it will fail again. Retry `5xx` and connection
 errors.
@@ -74,8 +75,9 @@ written here.
 Under the builtin rule templates, a delegated agent session gets everything
 in the approving operator's spaces except:
 
-- **Logs.** Deployment logs and build output are withheld by default, because a
-  running workload can echo a secret value into them.
+- **Logs.** Deployment logs, build output, run reports, and container metrics
+  are withheld by default, because a running workload can echo a secret value
+  into its output.
 - **Secret values.** You may list secret metadata and create new secrets. By
   default you may not read, overwrite, rename, move, or delete one.
 - **The cluster itself.** Node management, enrollment, cluster settings,
@@ -106,14 +108,20 @@ one. The one you keep is `/v1/agent-sessions/revoke` for your own session id.
 ## 4. Reading state
 
 `GET /v1/global/state` is the starting point for everything. It returns
-`spaces`, `deployment_configs`, `assets`, `configs`, `secrets`,
+`spaces`, `deployments`, `assets`, `configs`, `secrets`,
 `value_directories`, and `asset_directories` — with the ids the other endpoints
 expect. Read it before you change anything. It is filtered to your access, so
 what is absent is either absent or not yours.
 
 Every collection is a wrapper around a list, so the deployments are at
-`deployment_configs.items`, the secrets at `secrets.items`, and so on. Listing
+`deployments.items`, the secrets at `secrets.items`, and so on. Listing
 endpoints return the same `{"items": [...]}` shape.
+
+A deployment entry is an envelope around its definition. The top level carries
+`id`, `version` (the concurrency guard every change needs), `spec_version`,
+`event_type`, and timestamps; `def` holds what you actually edit — `name`,
+`space_id`, `node_id`, and `spec`. So a deployment's spec lives at
+`deployments.items[].def.spec`.
 
 The same collections have their own endpoints when you want one of them fresh:
 `/v1/assets/list`, `/v1/configs/list`, `/v1/secrets/list`,
@@ -121,14 +129,18 @@ The same collections have their own endpoints when you want one of them fresh:
 
 Per deployment:
 
-- `POST /v1/deployments/get` `{"id": <id>}` — the config plus its live
-  `instances.items`. Each instance carries `status.preparer` (`inputs`, `image`) and
-  `status.runner` (`status`, `running_version`, `number_of_restarts`). That
-  tells you *which stage* failed, not why: the reason is in the build output or
-  the logs. If your session has log access, `POST /v1/deployments/log-query`;
-  otherwise report the stage and ask the operator to look.
-- `POST /v1/deployments/history` `{"deployment_id": <id>}` — past config
-  versions with the status each reached.
+- `POST /v1/deployments/get` `{"id": <id>}` — `config` (the same envelope as
+  global state) plus its live `instances.items`. Each instance carries
+  `instance` (its `id` is the scheduled instance id that logs, run reports,
+  and metrics are keyed by, alongside `node_id`), `status.preparer` (`inputs`,
+  `image`) and `status.runner` (`status`, `running_version`,
+  `number_of_restarts`, `exit_code`). That tells you *which stage* failed, not
+  why: the reason is in the build output or the logs. If your session has log
+  access, use the log query or run report below; otherwise report the stage
+  and ask the operator to look.
+- `POST /v1/deployments/history` `{"deployment_id": <id>}` — `entries`,
+  newest first. Each entry is either a config version (`config`, the envelope)
+  or a status change (`status`), so the two interleave into one timeline.
 - `POST /v1/deployments/versions` `{"deployment_id": <id>}` — what is
   *deployable*: git commits for a nix build (optionally
   `"selected_branch": "main"`), release tags, or image tags. This is where a
@@ -189,7 +201,7 @@ selecting what kind of change it is. Zero or two of them is a `400`.
 **`spec` is a full replacement.** There is no merge and no partial update. Any
 field you leave out is *dropped*, and the call still returns `200`. So always:
 
-1. `GET /v1/global/state` and take the deployment's current `spec` and `version`.
+1. `GET /v1/global/state` and take the deployment's current `def.spec` and `version`.
 2. Modify that object in place.
 3. Send the whole thing back as `spec_update` with `expected_version` set to
    `current + 1`.
@@ -230,6 +242,68 @@ Files are mounted with `runtime.asset_mounts`:
 Every one of these pins an immutable **version row id**, never the stable
 identity. Uploading a new asset version or setting a new config value therefore
 changes nothing until you update the spec to pin the new id.
+
+### Logs, run reports, and metrics
+
+All of these are withheld from agents under the builtin rules (section 3): a
+`403` means ask the operator, not retry. When your session does hold them:
+
+`POST /v1/deployments/log-query` searches one deployment's stored logs and
+returns the newest matches in a single round trip — no pagination, no tailing:
+
+```json
+{"deployment_id": 24,
+ "time_start": "2026-09-04T05:00:00Z", "time_end": "2026-09-04T05:30:00Z",
+ "filters": [{"field": "", "op": "contains", "value": "prediction"}],
+ "limit": 500, "order": "desc"}
+```
+
+- `time_end` defaults to now and `time_start` to 12 hours before it.
+- Every filter has to match. `field` empty matches the message text; `level`
+  and `msg` address those parsed columns; any other name is a structured field
+  of the line. `op` is `eq`, `neq`, `contains`, `not_contains` (the last two
+  case-insensitive), `exists`, `not_exists`, or `in` with `values`.
+- `limit` caps the returned records (default and maximum 10000). `stats` in
+  the response reports `matched_rows` over the whole range and whether the
+  result was `truncated`; narrow the window or the filters rather than raising
+  the limit.
+- Records are in `records`, each with `time` (unix nanoseconds), `level`,
+  `msg`, `fields`, and `run`.
+- `deployment_id: 0` with `target_node_id` searches that node's own OpenDeploy
+  agent log instead of a workload's.
+
+`POST /v1/deployments/run-report` `{"scheduled_instance_id": 807, "run": 1}`
+summarises one run of one instance: start and stop times, exit code, and the
+last 20 log lines. The instance id comes from `/v1/deployments/get`; runs
+count from 1 and go up by one on every restart.
+
+`POST /v1/metrics/latest` (empty body) is the live overview: the newest
+sample of every running container you can see, in `entries`. Each carries the
+raw `sample` (cgroup counters and gauges such as `cpu_usage_usec`,
+`mem_current`, `pids`, and the `psi_*` pressure values) and `rates`, the
+per-second rate of every counter against the previous sample. CPU rates are
+in microseconds per second, so `cpu_usage_usec` divided by 1e6 is the number
+of CPUs in use.
+
+`POST /v1/metrics/query` returns one deployment's history on a time grid:
+
+```json
+{"deployment_id": 24,
+ "time_start": "2026-09-03T18:00:00Z", "time_end": "2026-09-04T06:00:00Z",
+ "step_ms": 120000, "fields": ["cpu_usage_usec", "mem_current"]}
+```
+
+- The range defaults to the last hour. `step_ms` is the bucket width (at least
+  10000; `0` lets the server pick about 300 buckets). `fields` empty means
+  every metric. Optional `scheduled_instance_id`, `spec_version`, and `run`
+  narrow the result to one placement.
+- The response carries `time_start`, `step_ms`, `buckets`, and one entry in
+  `series` per (run, field) with `values`: one number per bucket, oldest
+  first. A counter series (`kind` `0`) is already a per-second rate; gauges
+  (`kind` `1`) and kernel averages (`kind` `2`) are bucket means. A bucket
+  with no data is `null`.
+- Prefer one wide window at a coarse step over many narrow ones; each call
+  fans out to every node holding the deployment.
 
 ## 6. Assets
 
@@ -374,6 +448,31 @@ Spaces come from `spaces` in global state. You can rename one
 most destructive call in this
 API; treat it as section 10 and expect to be told no.
 
+### Network policies
+
+Workloads reach each other within a space, and anything can reach the
+`global` space (id `1`), by default. Crossing any other space boundary needs
+an explicit policy. Policies are global entities, not part of a spec;
+`POST /v1/network-policies/list` (empty body) returns the ones whose peers
+you can see as `{"items": [...]}`.
+
+```json
+{"action": 1,
+ "source": {"kind": 1, "id": 2},
+ "destination": {"kind": 2, "id": 9},
+ "ports": [{"protocol": 1, "port": 5432}]}
+```
+
+`action` `1` is allow (`2`, deny, is reserved and rejected). A peer `kind` is
+`1` for a whole space or `2` for one deployment, with the matching id; a
+deployment peer follows the deployment if it moves space. `ports` empty means
+every port and protocol; `protocol` is `1` for TCP or `2` for UDP, and
+`port_end` turns `port` into a range. Writing needs update rights on the
+destination's space, and a policy whose source and destination resolve to the
+same space is rejected as redundant. `/update` takes the policy's `id` and its
+**current** `version` (not `+ 1` as for deployments) plus the same fields;
+`/delete` takes `{"id": <id>}` and is destructive (section 10).
+
 ## 10. Rules that apply everywhere
 
 - **Destructive operations need explicit confirmation first.** Deleting a
@@ -404,8 +503,10 @@ the live API's answer is the truth. A `403` will not change on retry: ask.
 | `POST /v1/configs/list`, `/v1/secrets/list`, `/v1/secrets/status` | yes |
 | `POST /v1/value-directories/list`, `/v1/asset-directories/list` | yes |
 | `POST /v1/repos/validate` | yes |
+| `POST /v1/network-policies/list` | yes |
 | `GET /v1/healthz` | yes, no auth |
-| `POST /v1/deployments/log-query` | operator (logs) |
+| `POST /v1/deployments/log-query` `/run-report` | operator (logs) |
+| `POST /v1/metrics/query` `/latest` | operator (logs) |
 | `POST /v1/deployments/prepare-output` | operator (logs), protobuf stream |
 | `POST /v1/global/state-stream` | protobuf stream |
 | `POST /v1/global/exported-config` | operator (cluster) |
@@ -421,6 +522,7 @@ the live API's answer is the truth. A `403` will not change on retry: ask.
 | `POST /v1/value-directories/create` `/move` `/rename` `/delete` | yes |
 | `POST /v1/secrets/generate` | yes |
 | `POST /v1/spaces/update` `/delete` | yes |
+| `POST /v1/network-policies/create` `/update` `/delete` | yes |
 | `POST /v1/spaces/create` | operator |
 | `POST /v1/secrets/create` `/set` `/reveal` `/rename` `/move` `/delete` | operator (secret values) |
 | `POST /v1/secrets/unlock` `/rotate-recovery-code` | operator (cluster) |

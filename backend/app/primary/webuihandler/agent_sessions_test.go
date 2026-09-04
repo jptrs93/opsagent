@@ -308,6 +308,17 @@ func TestAgentInstructionsRender(t *testing.T) {
 	if !strings.Contains(body, fmt.Sprintf(`"user_id": %d`, user.ID)) {
 		t.Fatalf("instructions did not carry the user id: %s", body)
 	}
+	// The page is an agent's only map of the API, so it has to name the
+	// shapes the server actually serves: the global-state deployment envelope
+	// and the log/metrics endpoints an operator may grant.
+	for _, want := range []string{"`deployments.items`", "def.spec", "/v1/deployments/log-query", "/v1/deployments/run-report", "/v1/metrics/query", "/v1/metrics/latest", "/v1/network-policies/list"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("instructions omit %s", want)
+		}
+	}
+	if strings.Contains(body, "deployment_configs") {
+		t.Fatal("instructions still describe the retired deployment_configs collection")
+	}
 	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/markdown") {
 		t.Fatalf("content type = %q, want markdown", ct)
 	}
