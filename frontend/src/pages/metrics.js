@@ -8,11 +8,62 @@ import {spacesFilter, spaceDot} from "../components/spacesFilter.js";
 import {resolveRange, timeRangePicker} from "../components/timeRangePicker.js";
 import {formatValue, lineChart} from "../components/lineChart.js";
 import {CHARTS, QUERY_FIELDS, buildChartData, runLabel} from "../lib/metricsData.js";
+import {sortArrowIcon} from "../lib/icons.js";
 
 const {button, div, option, p, select, span, table, tbody, td, th, thead, tr} = van.tags;
 
 const DEFAULT_PRESET = '1h';
 const HIDDEN_SPACES_KEY = 'opsagent_metrics_hidden_spaces';
+const OVERVIEW_SORT_KEY = 'opsagent_metrics_overview_sort';
+
+const OVERVIEW_COLUMNS = [
+    {key: 'name', label: 'Deployment', value: r => r.name},
+    {key: 'node', label: 'Node', value: r => r.node},
+    {key: 'run', label: 'Run', value: r => r.run},
+    {key: 'cpu', label: 'CPU', num: true, value: r => r.cpu},
+    {key: 'mem', label: 'Memory', num: true, value: r => r.mem},
+    {key: 'rx', label: 'Net rx', num: true, value: r => r.rx},
+    {key: 'tx', label: 'Net tx', num: true, value: r => r.tx},
+    {key: 'read', label: 'Disk read', num: true, value: r => r.read},
+    {key: 'write', label: 'Disk write', num: true, value: r => r.write},
+    {key: 'pids', label: 'PIDs', num: true, value: r => r.pids},
+    {key: 'tcp', label: 'TCP est', num: true, value: r => r.tcp},
+    {key: 'age', label: 'Age', num: true, value: r => r.age},
+];
+
+function loadOverviewSort() {
+    try {
+        const raw = localStorage.getItem(OVERVIEW_SORT_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (OVERVIEW_COLUMNS.some(c => c.key === parsed?.key) && (parsed.dir === 'asc' || parsed.dir === 'desc')) return parsed;
+        }
+    } catch {}
+    return {key: 'name', dir: 'asc'};
+}
+
+function saveOverviewSort(sort) {
+    try { localStorage.setItem(OVERVIEW_SORT_KEY, JSON.stringify(sort)); } catch {}
+}
+
+const byName = (a, b) => a.name.localeCompare(b.name) || a.runNumber - b.runNumber;
+
+function compareOverviewRows(column, dir) {
+    const sign = dir === 'desc' ? -1 : 1;
+    return (a, b) => {
+        const va = column.value(a);
+        const vb = column.value(b);
+        if (column.num) {
+            const na = Number.isFinite(va);
+            const nb = Number.isFinite(vb);
+            if (na !== nb) return na ? -1 : 1;
+            if (na && va !== vb) return sign * (va - vb);
+        } else if (va !== vb) {
+            return sign * va.localeCompare(vb);
+        }
+        return byName(a, b);
+    };
+}
 
 function loadHiddenSpaces() {
     try {
@@ -201,48 +252,85 @@ export function metricsPage(selectedMetricsDeploymentId) {
 
     const numCell = (v, unit, extra = '') => td({class: `px-2 py-1 text-right tabular-nums ${extra}`}, formatValue(v, unit));
 
+    const overviewSort = van.state(loadOverviewSort());
+    const setOverviewSort = (column) => {
+        const cur = overviewSort.val;
+        const next = cur.key === column.key
+            ? {key: column.key, dir: cur.dir === 'asc' ? 'desc' : 'asc'}
+            : {key: column.key, dir: column.num ? 'desc' : 'asc'};
+        overviewSort.val = next;
+        saveOverviewSort(next);
+    };
+
+    const overviewHeader = (column) => {
+        const sort = overviewSort.val;
+        const active = sort.key === column.key;
+        return th({
+            "data-testid": `metrics-overview-sort-${column.key}`,
+            class: `group/th cursor-pointer select-none px-2 py-1 text-[10px] font-medium uppercase tracking-wide whitespace-nowrap ${column.num ? 'text-right' : 'text-left'} ${active ? 'text-gray-100' : 'text-gray-500 hover:text-gray-300'}`,
+            ...(active ? {"aria-sort": sort.dir === 'desc' ? 'descending' : 'ascending'} : {}),
+            onclick: () => setOverviewSort(column),
+        }, span({class: `inline-flex items-center gap-1 ${column.num ? 'flex-row-reverse' : ''}`},
+            column.label,
+            active
+                ? sortArrowIcon({class: `h-2.5 w-2.5 text-brand ${sort.dir === 'desc' ? 'rotate-180' : ''}`})
+                : sortArrowIcon({class: "h-2.5 w-2.5 text-gray-600 opacity-0 transition-opacity group-hover/th:opacity-100"})));
+    };
+
     const overviewTable = () => {
         const l = latest.val;
         if (!l) return '';
         const items = liveDeployments();
         const hidden = hiddenSpaces.val;
+        const machines = machinesS.val;
         const rows = l.entries.map(e => {
-            const item = selectedDeployment(items, Number(e.sample?.deploymentId || 0));
-            return {entry: e, item, name: item?.config?.def?.name || `#${e.sample?.deploymentId}`, spaceId: deploymentSpaceID(item)};
+            const s = e.sample;
+            const item = selectedDeployment(items, Number(s?.deploymentId || 0));
+            return {
+                entry: e, item,
+                name: item?.config?.def?.name || `#${s?.deploymentId}`,
+                spaceId: deploymentSpaceID(item),
+                node: nodeDisplayName(s.nodeId, machines) || '',
+                run: runLabel(s),
+                runNumber: Number(s.run),
+                cpu: rateOf(e, 'cpu_usage_usec') / 1e6,
+                mem: gaugeOf(e, 'memCurrent'),
+                rx: rateOf(e, 'net_rx_bytes'),
+                tx: rateOf(e, 'net_tx_bytes'),
+                read: rateOf(e, 'io_read_bytes'),
+                write: rateOf(e, 'io_write_bytes'),
+                pids: gaugeOf(e, 'pids'),
+                tcp: gaugeOf(e, 'tcpEstablished'),
+                age: Math.max(0, Math.round((l.fetchedAt - Number(s.time)) / 1000)),
+            };
         }).filter(r => !r.item || !hidden.has(r.spaceId));
-        rows.sort((a, b) => a.name.localeCompare(b.name) || Number(a.entry.sample.run) - Number(b.entry.sample.run));
         if (rows.length === 0) {
             return div({"data-testid": "metrics-overview-empty", class: "p-6 text-center text-xs text-gray-500"}, "No running containers are reporting metrics.");
         }
-        const hdr = (t, right = false) => th({class: `px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-gray-500 ${right ? 'text-right' : 'text-left'}`}, t);
+        const sort = overviewSort.val;
+        const column = OVERVIEW_COLUMNS.find(c => c.key === sort.key) || OVERVIEW_COLUMNS[0];
+        rows.sort(compareOverviewRows(column, sort.dir));
         return table(
             {"data-testid": "metrics-overview-table", class: "w-full border-collapse text-xs"},
-            thead(tr({class: "border-b border-gray-800"},
-                hdr("Deployment"), hdr("Node"), hdr("Run"),
-                hdr("CPU", true), hdr("Memory", true), hdr("Net rx", true), hdr("Net tx", true),
-                hdr("Disk read", true), hdr("Disk write", true), hdr("PIDs", true), hdr("TCP est", true), hdr("Age", true))),
-            tbody(...rows.map(r => {
-                const s = r.entry.sample;
-                const age = Math.max(0, Math.round((l.fetchedAt - Number(s.time)) / 1000));
-                return tr({
-                    "data-testid": `metrics-overview-row-${r.name}`,
-                    class: "cursor-pointer border-b border-gray-800/60 hover:bg-gray-800/40",
-                    onclick: () => { if (r.item) deploymentId.val = r.item.config.id; },
-                },
-                    td({class: "px-2 py-1"}, span({class: "flex items-center gap-1.5"}, spaceDot(r.spaceId), span({class: "text-gray-200"}, r.name))),
-                    td({class: "px-2 py-1 text-gray-400"}, nodeDisplayName(s.nodeId, machinesS.val)),
-                    td({class: "px-2 py-1 font-mono text-gray-500"}, runLabel(s)),
-                    numCell(rateOf(r.entry, 'cpu_usage_usec') / 1e6, 'cores', 'text-gray-200'),
-                    numCell(gaugeOf(r.entry, 'memCurrent'), 'bytes', 'text-gray-200'),
-                    numCell(rateOf(r.entry, 'net_rx_bytes'), 'bytes/s'),
-                    numCell(rateOf(r.entry, 'net_tx_bytes'), 'bytes/s'),
-                    numCell(rateOf(r.entry, 'io_read_bytes'), 'bytes/s'),
-                    numCell(rateOf(r.entry, 'io_write_bytes'), 'bytes/s'),
-                    numCell(gaugeOf(r.entry, 'pids'), 'count'),
-                    numCell(gaugeOf(r.entry, 'tcpEstablished'), 'count'),
-                    td({class: "px-2 py-1 text-right tabular-nums text-gray-500"}, `${age}s`),
-                );
-            })),
+            thead(tr({class: "border-b border-gray-800"}, ...OVERVIEW_COLUMNS.map(overviewHeader))),
+            tbody(...rows.map(r => tr({
+                "data-testid": `metrics-overview-row-${r.name}`,
+                class: "cursor-pointer border-b border-gray-800/60 hover:bg-gray-800/40",
+                onclick: () => { if (r.item) deploymentId.val = r.item.config.id; },
+            },
+                td({class: "px-2 py-1"}, span({class: "flex items-center gap-1.5"}, spaceDot(r.spaceId), span({class: "text-gray-200"}, r.name))),
+                td({class: "px-2 py-1 text-gray-400"}, r.node),
+                td({class: "px-2 py-1 font-mono text-gray-500"}, r.run),
+                numCell(r.cpu, 'cores', 'text-gray-200'),
+                numCell(r.mem, 'bytes', 'text-gray-200'),
+                numCell(r.rx, 'bytes/s'),
+                numCell(r.tx, 'bytes/s'),
+                numCell(r.read, 'bytes/s'),
+                numCell(r.write, 'bytes/s'),
+                numCell(r.pids, 'count'),
+                numCell(r.tcp, 'count'),
+                td({class: "px-2 py-1 text-right tabular-nums text-gray-500"}, `${r.age}s`),
+            ))),
         );
     };
 
