@@ -40,6 +40,8 @@ message ClusterNodeStatus {
   int32 node_id = 2;
   int64 last_connected_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   bool is_connected = 4;
+  // Host addresses the node last reported (see ClusterHello.host_addresses).
+  repeated string host_addresses = 5;
 }
 
 message EnrollmentRequestStatus {

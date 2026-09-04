@@ -72,7 +72,7 @@ self-deployment. Public create/update validation rejects it.
 
 | Variant | Fields | Description |
 |---|---|---|
-| `runtime` | `user`, `envVars`, `overrideCommand`, `overrideWorkingDir`, `defaultVolume`, `crossDeploymentMounts`, `mounts`, `assetMounts`, `devShmSizeKb`, `fileDescriptorLimit` | Runs the selected source as a container via containerd with OpenDeploy-supervised crash/backoff. Networking is controlled by `spec.networking`. `envVars` contains typed literal, pinned secret/config, asset, or address references. A deployment may reference secrets only from its own space or the global space; creates, updates, and space moves reject other pins with `secret_reference_outside_space`, and the editor applies the same own-or-global scoping to `secret("name")`, `config("name")`, and `asset("name")` with the deployment's own space shadowing a same-named global item (an explicit `{ space = "name" }` option targets one of the two spaces exactly; the server enforces own-or-global locality for secret, config, and asset pins). `defaultVolume` controls the per-deployment data volume. `crossDeploymentMounts` references another same-node deployment by ID; `mounts` is the raw host-path escape hatch. Mount permissions are explicit `READ_WRITE`, `READ_ONLY`, or, where supported, `READ_EXECUTE`. Upgrade strategy and readiness are fields on `container1Spec`. Linux only. |
+| `runtime` | `user`, `envVars`, `overrideCommand`, `overrideWorkingDir`, `defaultVolume`, `crossDeploymentMounts`, `mounts`, `assetMounts`, `devShmSizeKb`, `fileDescriptorLimit` | Runs the selected source as a container via containerd with OpenDeploy-supervised crash/backoff. Networking is controlled by `spec.networking`. `envVars` contains typed literal, pinned secret/config, asset, or address references. A deployment may reference secrets only from its own space or the global space; creates, updates, and space moves reject other pins with `secret_reference_outside_space`, and the editor's HCL references are fully qualified as `secret("space", "folder/name"[, version])`, `config(...)`, and `asset("space", "folder/key"[, version])`, where the space must be one of those two (the server enforces own-or-global locality for secret, config, and asset pins). `defaultVolume` controls the per-deployment data volume. `crossDeploymentMounts` references another same-node deployment by ID; `mounts` is the raw host-path escape hatch. Mount permissions are explicit `READ_WRITE`, `READ_ONLY`, or, where supported, `READ_EXECUTE`. Upgrade strategy and readiness are fields on `container1Spec`. Linux only. |
 
 `opendeploySpec` remains an internal-only workload for the `OPENDEPLOY`
 self-deployment. It carries only the desired release version; public
@@ -87,7 +87,7 @@ stopped.
 - `HOST` joins the host network namespace.
 - `VIRTUAL` creates a per-run network namespace with stable inbound IPv6 address `I`, run-scoped preferred outbound IPv6 address `O`, and a machine-local IPv4 egress address. Both IPv6 addresses are preassigned; `I` is non-preferred and routed only to the current run, while `O` remains preferred and routed for that run's full lifetime.
 - `portForwarding` publishes host-interface TCP or UDP ports to container ports through nftables DNAT and requires `VIRTUAL`, e.g. `{protocol: TCP, hostPort: 443, containerPort: 443}`.
-- `ingress` currently accepts `TLS_PASSTHROUGH` routes in virtual mode. Each route has a hostname and `tlsPassthroughConfig: {hostPort, containerPort}`; `hostPort: 0` defaults to `443`. Routes are rendered into local netproxy state, which selects by TLS SNI and relays the original TCP stream to a READY backend without TLS termination. The primary node reserves `:443` for the Web UI until both share one listener.
+- `ingress` accepts `TLS_PASSTHROUGH` and `HTTPS` routes in virtual mode. A passthrough route has a hostname and `tlsPassthroughConfig: {hostPort, containerPort}` (`hostPort: 0` defaults to `443`); netproxy selects by TLS SNI and relays the original TCP stream to a READY backend without termination. An HTTPS route is terminated by netproxy and routed by hostname and path prefix. Every route carries `listen` selectors (node and address) choosing which node addresses it is published on; empty means every address of the node the deployment is scheduled on, and `any_node()` opts into every node that can reach the backend. The primary Web UI's listener is a reserved claim: routes that would land on it are excluded (wildcard selectors) or rejected (literal selectors).
 - Virtual-mode deployments publish endpoint status for `.internal` DNS discovery through the per-machine netproxy deployment.
 - An environment variable of type `Address` selects a same-node virtual deployment and stores its deployment and space IDs. The consuming container receives that target's stable inbound IPv6 address `I` when it starts; run-scoped `O` is never exposed through Address refs. A target cannot be deleted, changed out of virtual networking, or moved to another space while Address references remain (see Config versioning).
 - Workers reconcile cross-machine fixed tunnels and workload routes. Equivalent primary-node remote routing, unpublished candidate `O` distribution, policy, and public ingress remain incomplete.
@@ -260,7 +260,10 @@ editor as a further full-page tab beside it, so several edits can be open at
 once; a tab closes on save or Cancel, and asks before discarding unsaved
 edits. The editor has a UI form and an HCL Code surface over the same
 document; Code is the default and the last choice is remembered per browser.
-In HCL, `node`, `name`, and `space` sit directly in the `deployment` block.
+In HCL, `name` and `space` sit directly in the `deployment` block; the
+node and `desired_running` form a `scheduling` block, and the version sits in
+the source block: a Nix commit beside its repository, or the tag or digest of
+the container image reference itself.
 
 ## Source validation and versions
 

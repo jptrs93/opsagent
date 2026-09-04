@@ -62,6 +62,9 @@ func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.Cl
 		}
 		return nil, apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
 	}
+	if err := h.validateIngressAgainstSettings(resolved); err != nil {
+		return nil, apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
+	}
 	if err := h.ConfigService.UpdateSettingsLocked(*stored); err != nil {
 		if errors.Is(err, state.ErrAssetMigrationInProgress) {
 			return nil, apigen.NewApiErr(

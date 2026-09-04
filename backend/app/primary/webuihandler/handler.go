@@ -66,6 +66,14 @@ type Handler struct {
 
 	// Enrollment owns the enrollment stream and operator enrollment actions.
 	Enrollment *enrollmenthandler.Handler
+
+	// IngressDiagnostics supplies the ingress evaluation warnings shown per
+	// deployment; nil when no publisher is wired (tests).
+	IngressDiagnostics IngressDiagnosticsSource
+}
+
+type IngressDiagnosticsSource interface {
+	DiagnosticsSnapshotAndSubscribe() (*apigen.IngressDiagnosticList, <-chan *apigen.IngressDiagnosticList, func())
 }
 
 type Dependencies struct {

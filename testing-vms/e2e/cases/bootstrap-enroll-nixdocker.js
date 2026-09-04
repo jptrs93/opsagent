@@ -8,6 +8,7 @@ import {portForwardIpFilterCases} from './port-forward-ipfilter.js';
 import {expectTLSPassthroughRoutes, tlsPassthroughCases} from './tls-passthrough.js';
 import {expectHTTPSIngressRoutes, httpsIngressCases} from './https-ingress.js';
 import {rolloverIngressCases} from './rollover-ingress.js';
+import {ingressListenCases} from './ingress-listen.js';
 import {httpsHeaderCases} from './https-headers.js';
 import {expectProtoStreamRoutes, protoStreamCases} from './proto-stream.js';
 import {expectWebSocketRoute, websocketCases} from './websocket.js';
@@ -191,6 +192,7 @@ export const orderedCases = [
   ...portForwardIpFilterCases,
   ...tlsPassthroughCases,
   ...httpsIngressCases,
+  ...ingressListenCases,
   ...rolloverIngressCases,
   ...httpsHeaderCases,
   ...protoStreamCases,

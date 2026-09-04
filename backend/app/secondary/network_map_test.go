@@ -209,3 +209,42 @@ func testClusterNetMap(t *testing.T, prefix network.Prefix, seq int64) *apigen.C
 		},
 	}
 }
+
+func TestValidateClusterNetMapNormalizesIngressPublish(t *testing.T) {
+	prefix := network.GeneratePrefix()
+	candidate := testClusterNetMap(t, prefix, 1)
+	candidate.Nodes[0].IngressPublish = []*apigen.IngressPublish{
+		{Address: "203.0.113.10", Port: 443},
+		{Address: "", Port: 80},
+		{Address: "203.0.113.10", Port: 443},
+		{Address: "::ffff:203.0.113.11", Port: 443},
+	}
+	normalized, _, err := validateClusterNetMap(candidate, 1, prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := normalized.Nodes[0].IngressPublish
+	want := []*apigen.IngressPublish{{Address: "", Port: 80}, {Address: "203.0.113.10", Port: 443}, {Address: "203.0.113.11", Port: 443}}
+	if len(got) != len(want) {
+		t.Fatalf("publish = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i].Address != want[i].Address || got[i].Port != want[i].Port {
+			t.Fatalf("publish[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	for name, entry := range map[string]*apigen.IngressPublish{
+		"bad address": {Address: "not-an-ip", Port: 443},
+		"zoned":       {Address: "fe80::1%eth0", Port: 443},
+		"zero port":   {Address: "203.0.113.10"},
+		"big port":    {Address: "203.0.113.10", Port: 70000},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := testClusterNetMap(t, prefix, 1)
+			candidate.Nodes[0].IngressPublish = []*apigen.IngressPublish{entry}
+			if _, _, err := validateClusterNetMap(candidate, 1, prefix); err == nil {
+				t.Fatal("malformed ingress publish entry was accepted")
+			}
+		})
+	}
+}

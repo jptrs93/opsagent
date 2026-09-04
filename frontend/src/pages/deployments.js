@@ -9,12 +9,14 @@ import {deploymentEditorWidget} from "../components/deploymentEditorWidget.js";
 import {capi} from "../capi/index.js";
 import {loadAssetPreview, uploadAsset} from "../lib/assetContent.js";
 import {
+    assetDirectoriesS,
     assetMetasS,
     deploymentsS,
     nodesS,
     secretRefsS,
     spacesS,
     userConfigRefsS,
+    valueDirectoriesS,
 } from "../state/deployments.js";
 import {closeIcon, editIcon, plusIcon} from "../lib/icons.js";
 import {spaceHue} from "../lib/valueExplorer.js";
@@ -46,6 +48,8 @@ export function deploymentsPage(onOpenLogs = () => {}, options = {}) {
         assets: assetMetasS,
         secretRefs: secretRefsS,
         configRefs: userConfigRefsS,
+        valueDirectories: valueDirectoriesS,
+        assetDirectories: assetDirectoriesS,
     });
 
     const tabs = van.state([]);

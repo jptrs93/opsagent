@@ -259,6 +259,8 @@ func (s *Session) handleClusterHello(hello *apigen.ClusterHello) {
 		slog.WarnContext(s.sessCtx, fmt.Sprintf("secondary sent invalid WireGuard public key %q", hello.WgPublicKey), "err", err)
 		return
 	}
+	// Diff-gated in the store; a hello re-sent for an unchanged set is a no-op.
+	s.store.SetNodeHostAddresses(s.identifier, hello.HostAddresses)
 	for _, node := range s.store.ListNodes() {
 		if node == nil || node.ID != s.NodeID {
 			continue

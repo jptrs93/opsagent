@@ -174,7 +174,11 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 		if wgListenPort < 1 || wgListenPort > 65535 {
 			return nil, network.Prefix{}, fmt.Errorf("node %d has invalid WireGuard listen port %d", node.NodeID, node.WgListenPort)
 		}
-		normalized.Nodes = append(normalized.Nodes, &apigen.ClusterNetMapNode{NodeID: node.NodeID, UnderlayAddress: underlay, WgPublicKey: wgPublicKey, WgListenPort: wgListenPort})
+		publish, err := normalizeIngressPublish(node.IngressPublish)
+		if err != nil {
+			return nil, network.Prefix{}, fmt.Errorf("node %d ingress publish: %w", node.NodeID, err)
+		}
+		normalized.Nodes = append(normalized.Nodes, &apigen.ClusterNetMapNode{NodeID: node.NodeID, UnderlayAddress: underlay, WgPublicKey: wgPublicKey, WgListenPort: wgListenPort, IngressPublish: publish})
 	}
 	if !targetPresent {
 		return nil, network.Prefix{}, fmt.Errorf("cluster network map does not contain target node %d", nodeID)
@@ -239,4 +243,41 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 		})
 	}
 	return normalized, prefix, nil
+}
+
+// normalizeIngressPublish validates and canonicalises one node's publish set:
+// every port in range, every non-empty address a plain IP, sorted and
+// deduplicated. An empty address is the wildcard.
+func normalizeIngressPublish(entries []*apigen.IngressPublish) ([]*apigen.IngressPublish, error) {
+	out := make([]*apigen.IngressPublish, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry == nil {
+			return nil, fmt.Errorf("nil entry")
+		}
+		if entry.Port < 1 || entry.Port > 65535 {
+			return nil, fmt.Errorf("invalid port %d", entry.Port)
+		}
+		address := strings.TrimSpace(entry.Address)
+		if address != "" {
+			addr, err := netip.ParseAddr(address)
+			if err != nil || addr.Zone() != "" {
+				return nil, fmt.Errorf("invalid address %q", entry.Address)
+			}
+			address = addr.Unmap().String()
+		}
+		key := fmt.Sprintf("%s|%d", address, entry.Port)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, &apigen.IngressPublish{Address: address, Port: entry.Port})
+	}
+	slices.SortFunc(out, func(a, b *apigen.IngressPublish) int {
+		if c := cmp.Compare(a.Port, b.Port); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Address, b.Address)
+	})
+	return out, nil
 }

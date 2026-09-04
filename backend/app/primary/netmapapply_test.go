@@ -31,9 +31,10 @@ func testNetMapApplier(t *testing.T, reconcile func(network.Topology) error) (*n
 			}
 			applied <- appliedSeq
 		},
-		reconcile:      reconcile,
-		setPolicyRules: func([]network.PolicyRule) error { return nil },
-		retryDelay:     5 * time.Millisecond,
+		reconcile:          reconcile,
+		setPolicyRules:     func([]network.PolicyRule) error { return nil },
+		setNetproxyPublish: func([]network.IngressPublish) error { return nil },
+		retryDelay:         5 * time.Millisecond,
 	}, updates, applied
 }
 

@@ -4,6 +4,7 @@ import {
   createNixDockerDeployment,
   createSecret,
   NETWORKING_VIRTUAL,
+  httpsRouteBlock,
   setDeploymentHttpsRoutes,
 } from '../helpers/ui.js';
 import {ingressCertificateBundle} from '../helpers/httpsClient.js';
@@ -75,8 +76,8 @@ export const protoStreamCases = [
       await setDeploymentHttpsRoutes(ctx.page, {
         name: 'protostream',
         routes: [
-          `https("${STREAM_HOST}", 8080, { backend = "h2c", cert = secret("${STREAM_CERT_SECRET}", { version = 1 }) })`,
-          `https("${STREAM_H1_HOST}", 8080, { cert = secret("${STREAM_H1_CERT_SECRET}", { version = 1 }) })`,
+          httpsRouteBlock({hostname: STREAM_HOST, containerPort: 8080, backend: 'h2c', cert: `secret("global", "${STREAM_CERT_SECRET}", 1)`}),
+          httpsRouteBlock({hostname: STREAM_H1_HOST, containerPort: 8080, cert: `secret("global", "${STREAM_H1_CERT_SECRET}", 1)`}),
         ],
       });
       await expectProtoStreamRoutes();

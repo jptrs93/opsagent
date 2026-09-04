@@ -15,6 +15,8 @@ import (
 
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
+	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
@@ -39,11 +41,20 @@ type Publisher struct {
 	lastRenderedSeq   int64
 	subscribers       map[*subscriber]struct{}
 	nodeUpdates       <-chan apigen.ClusterNode
+	nodeStatusUpdates <-chan apigen.ClusterNodeStatus
 	instanceUpdates   <-chan apigen.ScheduledInstanceState
 	policyUpdates     <-chan apigen.NetworkPolicy
 	deploymentUpdates <-chan apigen.Deployment
 	unsubscribe       []func()
 	closeOnce         sync.Once
+
+	// Ingress evaluation warnings from the newest render, published to the
+	// state stream. Guarded by mu.
+	diagnostics     *apigen.IngressDiagnosticList
+	diagnosticsSubs map[chan *apigen.IngressDiagnosticList]struct{}
+	// reservations supplies the Web UI listeners for the render; nil reserves
+	// nothing.
+	reservations func() []ingressplan.Reservation
 
 	// Acknowledgement state is kept under its own lock so recording a secondary's
 	// applied sequence never contends with rendering or publishing a map.
@@ -52,7 +63,9 @@ type Publisher struct {
 	ackUpdates chan struct{}
 }
 
-func New(store *state.Service, prefix network.Prefix) (*Publisher, error) {
+// New builds the publisher. reservations supplies the Web UI listeners the
+// ingress evaluation must honour; nil reserves nothing.
+func New(store *state.Service, prefix network.Prefix, reservations func() []ingressplan.Reservation) (*Publisher, error) {
 	if store == nil {
 		return nil, fmt.Errorf("network-map store is nil")
 	}
@@ -60,6 +73,7 @@ func New(store *state.Service, prefix network.Prefix) (*Publisher, error) {
 		return nil, fmt.Errorf("network-map prefix is not configured")
 	}
 	nodeSub, unsubscribeNodes := store.SubscribeNodeUpdates()
+	nodeStatusSub, unsubscribeNodeStatuses := store.SubscribeNodeStatusUpdates()
 	_, instanceUpdates, unsubscribeInstances := store.MustFetchScheduledSnapshotAndSubscribe(nil)
 	policySub, unsubscribePolicies := store.SubscribeNetworkPolicyUpdates()
 	_, deploymentUpdates, unsubscribeDeployments := store.MustFetchDeploymentSnapshotAndSubscribe(nil)
@@ -68,12 +82,16 @@ func New(store *state.Service, prefix network.Prefix) (*Publisher, error) {
 		prefix:            prefix,
 		subscribers:       make(map[*subscriber]struct{}),
 		nodeUpdates:       nodeSub.Ch,
+		nodeStatusUpdates: nodeStatusSub.Ch,
 		instanceUpdates:   instanceUpdates,
 		policyUpdates:     policySub.Ch,
 		deploymentUpdates: deploymentUpdates,
-		unsubscribe:       []func(){unsubscribeNodes, unsubscribeInstances, unsubscribePolicies, unsubscribeDeployments},
+		unsubscribe:       []func(){unsubscribeNodes, unsubscribeNodeStatuses, unsubscribeInstances, unsubscribePolicies, unsubscribeDeployments},
 		applied:           make(map[int32]int64),
 		ackUpdates:        make(chan struct{}, 1),
+		diagnostics:       &apigen.IngressDiagnosticList{Items: []*apigen.IngressDiagnostic{}},
+		diagnosticsSubs:   make(map[chan *apigen.IngressDiagnosticList]struct{}),
+		reservations:      reservations,
 	}
 	if err := p.Refresh(); err != nil {
 		p.Close()
@@ -98,6 +116,10 @@ func (p *Publisher) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case _, ok := <-p.nodeUpdates:
+			if !ok {
+				return
+			}
+		case _, ok := <-p.nodeStatusUpdates:
 			if !ok {
 				return
 			}
@@ -127,7 +149,11 @@ func (p *Publisher) Refresh() error {
 	defer p.refreshMu.Unlock()
 	inputs := p.store.FetchNetworkMapInputs()
 	seq := inputs.Seq
-	next, err := render(p.prefix, inputs)
+	var reservations []ingressplan.Reservation
+	if p.reservations != nil {
+		reservations = p.reservations()
+	}
+	next, diagnostics, err := render(p.prefix, inputs, reservations)
 	if err != nil {
 		return err
 	}
@@ -138,6 +164,7 @@ func (p *Publisher) Refresh() error {
 	if seq > p.lastRenderedSeq {
 		p.lastRenderedSeq = seq
 	}
+	p.publishDiagnosticsLocked(diagnostics)
 	if p.current != nil && slices.Equal(canonicalContent(p.current), canonicalContent(next)) {
 		return nil
 	}
@@ -178,6 +205,51 @@ func (p *Publisher) SnapshotAndSubscribe(nodeID int32) (*apigen.ClusterNetMap, <
 	}
 }
 
+// Diagnostics returns the ingress warnings of the newest render.
+func (p *Publisher) Diagnostics() *apigen.IngressDiagnosticList {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.diagnostics
+}
+
+// DiagnosticsSnapshotAndSubscribe returns the current ingress warnings and a
+// capacity-one stream of replacements.
+func (p *Publisher) DiagnosticsSnapshotAndSubscribe() (*apigen.IngressDiagnosticList, <-chan *apigen.IngressDiagnosticList, func()) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	ch := make(chan *apigen.IngressDiagnosticList, 1)
+	p.diagnosticsSubs[ch] = struct{}{}
+	var once sync.Once
+	return p.diagnostics, ch, func() {
+		once.Do(func() {
+			p.mu.Lock()
+			delete(p.diagnosticsSubs, ch)
+			p.mu.Unlock()
+		})
+	}
+}
+
+func (p *Publisher) publishDiagnosticsLocked(next *apigen.IngressDiagnosticList) {
+	if p.diagnostics != nil && slices.Equal(p.diagnostics.Encode(), next.Encode()) {
+		return
+	}
+	p.diagnostics = next
+	for ch := range p.diagnosticsSubs {
+		select {
+		case ch <- next:
+		default:
+			select {
+			case <-ch:
+			default:
+			}
+			select {
+			case ch <- next:
+			default:
+			}
+		}
+	}
+}
+
 func publishLatest(ch chan *apigen.ClusterNetMap, next *apigen.ClusterNetMap) {
 	select {
 	case ch <- next:
@@ -213,11 +285,12 @@ func canonicalContent(source *apigen.ClusterNetMap) []byte {
 	return canonical.Encode()
 }
 
-func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.ClusterNetMap, error) {
+func render(prefix network.Prefix, inputs state.NetworkMapInputs, reservations []ingressplan.Reservation) (*apigen.ClusterNetMap, *apigen.IngressDiagnosticList, error) {
 	nodes, instances := inputs.Nodes, inputs.Instances
 	netNodes := make([]*apigen.ClusterNetMapNode, 0, len(nodes))
 	knownNodes := make(map[int32]struct{}, len(nodes))
 	underlayBits := 0
+	plan := renderIngressPlan(inputs, reservations)
 	for _, node := range nodes {
 		if node == nil || node.ID <= 0 {
 			continue
@@ -228,21 +301,21 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.Clust
 			if underlay != "" {
 				addr, err := netip.ParseAddr(underlay)
 				if err != nil || addr.Zone() != "" {
-					return nil, fmt.Errorf("node %d has invalid underlay address %q", node.ID, underlay)
+					return nil, nil, fmt.Errorf("node %d has invalid underlay address %q", node.ID, underlay)
 				}
 				addr = addr.Unmap()
 				if underlayBits != 0 && addr.BitLen() != underlayBits {
-					return nil, fmt.Errorf("node %d underlay address family differs from cluster", node.ID)
+					return nil, nil, fmt.Errorf("node %d underlay address family differs from cluster", node.ID)
 				}
 				underlayBits = addr.BitLen()
 				underlay = addr.String()
 			}
 		}
 		if node.WGPublicKey == "" {
-			return nil, fmt.Errorf("node %d has no WireGuard public key", node.ID)
+			return nil, nil, fmt.Errorf("node %d has no WireGuard public key", node.ID)
 		}
 		knownNodes[node.ID] = struct{}{}
-		netNodes = append(netNodes, &apigen.ClusterNetMapNode{NodeID: node.ID, UnderlayAddress: underlay, WgPublicKey: node.WGPublicKey, WgListenPort: int32(network.DefaultWGListenPort)})
+		netNodes = append(netNodes, &apigen.ClusterNetMapNode{NodeID: node.ID, UnderlayAddress: underlay, WgPublicKey: node.WGPublicKey, WgListenPort: int32(network.DefaultWGListenPort), IngressPublish: plan.publish[node.ID]})
 	}
 	slices.SortFunc(netNodes, func(a, b *apigen.ClusterNetMapNode) int { return cmp.Compare(a.NodeID, b.NodeID) })
 
@@ -282,14 +355,14 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.Clust
 			continue
 		}
 		if _, ok := knownNodes[inst.NodeID]; !ok {
-			return nil, fmt.Errorf("scheduled instance %d references unknown node %d", inst.ID, inst.NodeID)
+			return nil, nil, fmt.Errorf("scheduled instance %d references unknown node %d", inst.ID, inst.NodeID)
 		}
 		placement, err := prefix.PlacementCIDR(cfg.Def.SpaceID, cfg.ID, inst.InstanceOrdinal, inst.ID)
 		if err != nil {
-			return nil, fmt.Errorf("deriving placement prefix for scheduled instance %d: %w", inst.ID, err)
+			return nil, nil, fmt.Errorf("deriving placement prefix for scheduled instance %d: %w", inst.ID, err)
 		}
 		if err := setRoute(placement, inst.NodeID); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		key := ordinalKey{cfg.ID, inst.InstanceOrdinal}
 		states := statesByOrdinal[key]
@@ -308,12 +381,12 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.Clust
 		states.serving = true
 		instancePrefix, err := prefix.InstanceCIDR(cfg.Def.SpaceID, cfg.ID, inst.InstanceOrdinal)
 		if err != nil {
-			return nil, fmt.Errorf("deriving instance prefix for scheduled instance %d: %w", inst.ID, err)
+			return nil, nil, fmt.Errorf("deriving instance prefix for scheduled instance %d: %w", inst.ID, err)
 		}
 		// Two serving placements of one ordinal is a scheduler bug, not a
 		// transient: the map has no way to express it and must not guess.
 		if err := setRoute(instancePrefix, inst.NodeID); err != nil {
-			return nil, fmt.Errorf("deployment %d ordinal %d has more than one serving placement: %w",
+			return nil, nil, fmt.Errorf("deployment %d ordinal %d has more than one serving placement: %w",
 				cfg.ID, inst.InstanceOrdinal, err)
 		}
 	}
@@ -358,7 +431,53 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs) (*apigen.Clust
 		Routes:      routes,
 		PolicyRules: renderPolicyRules(inputs.Policies, inputs.DeploymentSpaces),
 		DnsServices: dnsServices,
-	}, nil
+	}, plan.diagnostics, nil
+}
+
+type ingressPlan struct {
+	publish     map[int32][]*apigen.IngressPublish
+	diagnostics *apigen.IngressDiagnosticList
+}
+
+// renderIngressPlan evaluates every deployment's listen selectors against the
+// node inventory. Errors here cannot reject anything (the deployments are
+// already stored), so they surface as diagnostics like the warnings.
+func renderIngressPlan(inputs state.NetworkMapInputs, reservations []ingressplan.Reservation) ingressPlan {
+	in := ingressplan.Inputs{Reservations: reservations}
+	for _, node := range inputs.Nodes {
+		if node == nil {
+			continue
+		}
+		in.Nodes = append(in.Nodes, ingressplan.Node{ID: node.ID, HostAddresses: ingressplan.ParseHostAddresses(node.HostAddresses)})
+	}
+	for _, cfg := range inputs.Deployments {
+		if cfg == nil || internaldeploy.IsInternalConfig(cfg) {
+			continue
+		}
+		in.Deployments = append(in.Deployments, ingressplan.DeploymentFromSpec(cfg.ID, cfg.Def.NodeID, cfg.Def.Name, &cfg.Def.Spec))
+	}
+	result := ingressplan.Evaluate(in)
+	plan := ingressPlan{publish: make(map[int32][]*apigen.IngressPublish, len(result.Publish)), diagnostics: &apigen.IngressDiagnosticList{Items: []*apigen.IngressDiagnostic{}}}
+	for nodeID, entries := range result.Publish {
+		for _, entry := range entries {
+			address := ""
+			if entry.Address.IsValid() {
+				address = entry.Address.String()
+			}
+			plan.publish[nodeID] = append(plan.publish[nodeID], &apigen.IngressPublish{Address: address, Port: entry.Port})
+		}
+	}
+	diagnostics := append(result.Diagnostics(), result.Errors...)
+	slices.SortStableFunc(diagnostics, func(a, b ingressplan.Diagnostic) int {
+		if c := cmp.Compare(a.DeploymentID, b.DeploymentID); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Message, b.Message)
+	})
+	for _, diag := range diagnostics {
+		plan.diagnostics.Items = append(plan.diagnostics.Items, &apigen.IngressDiagnostic{DeploymentID: diag.DeploymentID, Message: diag.Message})
+	}
+	return plan
 }
 
 // renderPolicyRules resolves stored single-id peer anchors to wire tuples: a

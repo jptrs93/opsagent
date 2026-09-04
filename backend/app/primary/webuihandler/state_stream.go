@@ -56,6 +56,13 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 		defer authzUnsub()
 		networkPolicySub, networkPolicyUnsub := h.Store.SubscribeNetworkPolicyUpdates()
 		defer networkPolicyUnsub()
+		var ingressDiagnostics *apigen.IngressDiagnosticList
+		var ingressDiagnosticsCh <-chan *apigen.IngressDiagnosticList
+		if h.IngressDiagnostics != nil {
+			var unsub func()
+			ingressDiagnostics, ingressDiagnosticsCh, unsub = h.IngressDiagnostics.DiagnosticsSnapshotAndSubscribe()
+			defer unsub()
+		}
 
 		latestConfig := configSub.InitialValue
 
@@ -143,6 +150,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				NodeStatusesSnapshot:       &apigen.ClusterNodeStatusList{Items: h.filterNodeStatuses(ctx, h.Store.ListNodeStatuses())},
 				AgentSessionsSnapshot:      agentSessions,
 				NetworkPoliciesSnapshot:    &apigen.NetworkPolicyList{Items: h.visibleNetworkPolicies(ctx)},
+				IngressDiagnosticsSnapshot: h.filterIngressDiagnostics(ctx, ingressDiagnostics),
 			}
 			if seesCluster() {
 				backupStatus := h.Store.CurrentBackupStatus()
@@ -217,6 +225,15 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 					return
 				}
 				if !yield(&apigen.State{SecretsStatusSnapshot: &status}, nil) {
+					return
+				}
+			case diagnostics, ok := <-ingressDiagnosticsCh:
+				if !ok {
+					ingressDiagnosticsCh = nil
+					continue
+				}
+				ingressDiagnostics = diagnostics
+				if !yield(&apigen.State{IngressDiagnosticsSnapshot: h.filterIngressDiagnostics(ctx, diagnostics)}, nil) {
 					return
 				}
 			case config, ok := <-configSub.Ch:

@@ -19,6 +19,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/netmappublisher"
 	"github.com/jptrs93/opsagent/backend/app/primary/webui"
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
+	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
 	"github.com/jptrs93/opsagent/backend/lib/metrics/metricstore"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/clientaddr"
@@ -85,7 +86,12 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	// The publisher is created before the runtime starts: the scheduler waits on
 	// its applied-sequence barrier before retiring a drained placement, so it
 	// cannot be started without one.
-	networkMaps, err := netmappublisher.New(primaryRuntime.store, primaryRuntime.configService.NetworkPrefix())
+	networkMaps, err := netmappublisher.New(primaryRuntime.store, primaryRuntime.configService.NetworkPrefix(), func() []ingressplan.Reservation {
+		settings := primaryRuntime.configService.Snapshot().Settings
+		return ingressplan.WebUIReservations(primaryNode.ID,
+			primaryRuntime.configService.MustLoadConfigBoolValue(settings.HttpsWeb.Enabled), primaryRuntime.configService.MustLoadConfigStringValue(settings.HttpsWeb.Listen),
+			primaryRuntime.configService.MustLoadConfigBoolValue(settings.HttpWeb.Enabled), primaryRuntime.configService.MustLoadConfigStringValue(settings.HttpWeb.Listen))
+	})
 	if err != nil {
 		return fmt.Errorf("creating network map publisher: %w", err)
 	}
@@ -108,6 +114,7 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	clusterHandler := clusterhandler.New(primaryRuntime.store, primaryRuntime.assets, primaryRuntime.github, primaryRuntime.secrets, primaryRuntime.configService.NetworkPrefix(), networkMaps, primaryRuntime.acmeHolder, primaryRuntime.issuedTLS)
 	enrollmentHandler := enrollmenthandler.New(primaryRuntime.store, primaryRuntime.secrets, primaryRuntime.configService, enrollmentFingerprint, networkMaps)
 	webUIHandler.Cluster = clusterHandler
+	webUIHandler.IngressDiagnostics = networkMaps
 	webUIHandler.LogManager = logmanager.StartManager(ctx, primaryRuntime.store, func(state apigen.ScheduledInstanceState) bool {
 		return state.Instance.NodeID == primaryNode.ID
 	})

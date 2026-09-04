@@ -11,17 +11,57 @@ import (
 // ApplyClusterNetMap converts a targeted cluster map into kernel intent and
 // hands it to the given sinks: remote topology first, then policy rules, so a
 // rule referencing a newly routed peer is never enforced against routes that
-// do not exist yet. Only remote paths are applied — local workload routes are
-// installed by the container lifecycle and take precedence if map state lags.
-func ApplyClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, prefix Prefix, reconcile func(Topology) error, setPolicyRules func([]PolicyRule) error) error {
+// do not exist yet, then the node's ingress publish set. Only remote paths are
+// applied — local workload routes are installed by the container lifecycle and
+// take precedence if map state lags.
+func ApplyClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, prefix Prefix, reconcile func(Topology) error, setPolicyRules func([]PolicyRule) error, setNetproxyPublish func([]IngressPublish) error) error {
 	topology, err := TopologyFromClusterNetMap(clusterMap, nodeID, prefix)
+	if err != nil {
+		return err
+	}
+	publish, err := NetproxyPublishFromClusterNetMap(clusterMap, nodeID)
 	if err != nil {
 		return err
 	}
 	if err := reconcile(topology); err != nil {
 		return err
 	}
-	return setPolicyRules(PolicyRulesFromNetMap(clusterMap.PolicyRules))
+	if err := setPolicyRules(PolicyRulesFromNetMap(clusterMap.PolicyRules)); err != nil {
+		return err
+	}
+	return setNetproxyPublish(publish)
+}
+
+// NetproxyPublishFromClusterNetMap extracts the local node's ingress publish
+// set. An empty address is the wildcard (every local address).
+func NetproxyPublishFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32) ([]IngressPublish, error) {
+	if clusterMap == nil {
+		return nil, fmt.Errorf("network map is nil")
+	}
+	var out []IngressPublish
+	for _, node := range clusterMap.Nodes {
+		if node == nil || node.NodeID != nodeID {
+			continue
+		}
+		for _, entry := range node.IngressPublish {
+			if entry == nil {
+				continue
+			}
+			if entry.Port < 1 || entry.Port > 65535 {
+				return nil, fmt.Errorf("network map ingress publish has invalid port %d", entry.Port)
+			}
+			publish := IngressPublish{Port: uint16(entry.Port)}
+			if entry.Address != "" {
+				addr, err := netip.ParseAddr(entry.Address)
+				if err != nil || addr.Zone() != "" {
+					return nil, fmt.Errorf("network map ingress publish has invalid address %q", entry.Address)
+				}
+				publish.Address = addr.Unmap()
+			}
+			out = append(out, publish)
+		}
+	}
+	return out, nil
 }
 
 func TopologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, prefix Prefix) (Topology, error) {

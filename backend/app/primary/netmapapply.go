@@ -19,6 +19,7 @@ type netMapApplier struct {
 	recordApplied        func(nodeID int32, appliedSeq int64)
 	reconcile            func(network.Topology) error
 	setPolicyRules       func([]network.PolicyRule) error
+	setNetproxyPublish   func([]network.IngressPublish) error
 	retryDelay           time.Duration
 }
 
@@ -30,6 +31,7 @@ func newNetMapApplier(nodeID int32, prefix network.Prefix, maps *netmappublisher
 		recordApplied:        maps.RecordApplied,
 		reconcile:            network.Default.ReconcileTopology,
 		setPolicyRules:       network.Default.SetPolicyRules,
+		setNetproxyPublish:   network.Default.SetNetproxyPublish,
 		retryDelay:           15 * time.Second,
 	}
 }
@@ -66,5 +68,5 @@ func (a *netMapApplier) run(ctx context.Context) {
 }
 
 func (a *netMapApplier) apply(clusterMap *apigen.ClusterNetMap) error {
-	return network.ApplyClusterNetMap(clusterMap, a.nodeID, a.prefix, a.reconcile, a.setPolicyRules)
+	return network.ApplyClusterNetMap(clusterMap, a.nodeID, a.prefix, a.reconcile, a.setPolicyRules, a.setNetproxyPublish)
 }

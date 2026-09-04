@@ -47,8 +47,9 @@ func (f ClusterNetMapSourceFunc) SnapshotAndSubscribe() (*apigen.ClusterNetMap, 
 // RunNetStateWriter writes full protobuf netstate snapshots for the local
 // netproxy process. It is intentionally full-state and idempotent. Each output
 // file carries its own sequence and is rewritten only when its rendered
-// content changed; the first write after startup is unconditional so the
-// ingress port forwarding is reconciled from an unknown machine state.
+// content changed. Host-port forwarding to netproxy is not derived here: the
+// primary evaluates each route's listen selectors and distributes the publish
+// set in the cluster network map.
 func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predicate storage.ScheduledInstancePredicate, nodeIdentifier, path string, certs CertSecretResolver, acme *acmestate.Holder, netMaps ClusterNetMapSource, ensureSecrets func(context.Context, []int32) error) {
 	ctx = logu.AddTag(ctx, "NetStateWriter")
 	bundlePath := filepath.Join(filepath.Dir(path), CertBundleFileName)
@@ -104,9 +105,6 @@ func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predic
 				return
 			}
 			lastState = b
-			if err := network.Default.SetNetproxyIngress(state.Ingress); err != nil {
-				slog.WarnContext(ctx, "reconciling netproxy ingress forwarding failed", "err", err)
-			}
 		}
 	}
 	snapshot, updates, unsub := store.MustFetchScheduledSnapshotAndSubscribe(predicate)

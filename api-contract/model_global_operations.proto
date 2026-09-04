@@ -74,6 +74,9 @@ message State {
   // Network policies are small and mutate rarely; each change re-emits the
   // full snapshot like the authz collections.
   NetworkPolicyList network_policies_snapshot = 35;
+  // Ingress evaluation warnings per deployment, re-emitted in full whenever the
+  // cluster network map is re-rendered.
+  IngressDiagnosticList ingress_diagnostics_snapshot = 36;
 }
 
 message GlobalState {

@@ -2,10 +2,14 @@ package netmappublisher
 
 import (
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/version"
@@ -17,7 +21,8 @@ const (
 )
 
 func renderNI(prefix network.Prefix, nodes []*state.Node, instances []apigen.ScheduledInstanceState) (*apigen.ClusterNetMap, error) {
-	return render(prefix, state.NetworkMapInputs{Nodes: nodes, Instances: instances})
+	got, _, err := render(prefix, state.NetworkMapInputs{Nodes: nodes, Instances: instances}, nil)
+	return got, err
 }
 
 func TestPublisherStampsAndCoalescesLatestMap(t *testing.T) {
@@ -29,7 +34,7 @@ func TestPublisherStampsAndCoalescesLatestMap(t *testing.T) {
 	store.MustSetNodeWGPublicKey(node.ID, testWGKeyA)
 	store.EnsureNetproxyDeployment(node.ID, version.Version)
 
-	publisher, err := New(store, prefix)
+	publisher, err := New(store, prefix, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +78,7 @@ func TestPublisherStampsAndCoalescesLatestMap(t *testing.T) {
 	}
 	store = state.Open(dbPath)
 	defer store.Close()
-	restarted, err := New(store, prefix)
+	restarted, err := New(store, prefix, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,5 +407,47 @@ func servingInstance(instanceID, deploymentID, nodeID, spaceID int32) apigen.Sch
 			DeploymentSpecVersion: 1,
 			Status:                apigen.RunningStatus_RUNNING,
 		}},
+	}
+}
+
+func TestRenderIngressPublishPerNode(t *testing.T) {
+	prefix := network.GeneratePrefix()
+	nodes := []*state.Node{
+		{ID: 1, Addresses: []string{"192.0.2.10"}, WGPublicKey: testWGKeyA, HostAddresses: []string{"192.0.2.10", "2001:db8::10"}},
+		{ID: 2, Addresses: []string{"192.0.2.20"}, WGPublicKey: testWGKeyB, HostAddresses: []string{"192.0.2.20"}},
+	}
+	virtual := func(id, nodeID int32, listen ...*apigen.IngressListen) *apigen.Deployment {
+		return &apigen.Deployment{ID: id, Def: apigen.DeploymentDef{NodeID: nodeID, SpaceID: 1, Name: "d", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
+			Mode:    apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+			Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_HTTPS, Hostname: "app.example.test", HttpsConfig: &apigen.HttpsConfig{ContainerPort: 8080, PathPrefix: "/"}, Listen: listen}},
+		}}}}
+	}
+	ipv6 := &apigen.IngressListen{Address: &apigen.AddressSelector{Family: apigen.AddressFamily_ADDRESS_FAMILY_IPV6}}
+	inputs := state.NetworkMapInputs{Nodes: nodes, Deployments: []*apigen.Deployment{virtual(10, 1, ipv6), virtual(11, 2)}}
+	reservations := []ingressplan.Reservation{{NodeID: 1, Port: 80, Name: "primary Web UI (http_web.listen)"}}
+	got, diagnostics, err := render(prefix, inputs, reservations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publish := func(nodeID int32) []string {
+		for _, node := range got.Nodes {
+			if node.NodeID == nodeID {
+				out := make([]string, 0, len(node.IngressPublish))
+				for _, entry := range node.IngressPublish {
+					out = append(out, entry.Address+":"+strconv.Itoa(int(entry.Port)))
+				}
+				return out
+			}
+		}
+		return nil
+	}
+	if want := []string{"2001:db8::10:443"}; !slices.Equal(publish(1), want) {
+		t.Fatalf("node 1 publish = %v, want %v (ipv6 only, port 80 reserved)", publish(1), want)
+	}
+	if want := []string{"192.0.2.20:80", "192.0.2.20:443"}; !slices.Equal(publish(2), want) {
+		t.Fatalf("node 2 publish = %v, want %v", publish(2), want)
+	}
+	if len(diagnostics.Items) != 1 || diagnostics.Items[0].DeploymentID != 10 || !strings.Contains(diagnostics.Items[0].Message, "reserved by the primary Web UI") {
+		t.Fatalf("diagnostics = %+v, want the port 80 exclusion for deployment 10", diagnostics.Items)
 	}
 }

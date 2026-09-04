@@ -1,5 +1,6 @@
 import van from "vanjs-core";
 import {assetPreviewOverlay} from "./assetPreviewOverlay.js";
+import {ingressDiagnosticsS} from "../state/deployments.js";
 import {
     assetMountEditorOverlay,
     assetMountsPane,
@@ -77,7 +78,7 @@ export function deploymentUiWidget(args) {
         }),
         upgradeStrategyPane(form),
         resourcesPane(form),
-        networkingPane(form),
+        networkingPane(form, {nodes, ingressDiagnostics: ingressDiagnosticsS}),
         () => editAssetTarget.val
             ? assetMountEditorOverlay(form, editAssetTarget.val, {
                 assets,

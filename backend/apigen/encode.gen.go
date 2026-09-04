@@ -569,6 +569,14 @@ func (m *Ingress) Encode() []byte {
 		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, m.HttpsConfig.Encode())
 	}
+	for _, item := range m.Listen {
+		b = AppendTag(b, 5, BytesType)
+		if item == nil {
+			b = AppendBytes(b, nil)
+			continue
+		}
+		b = AppendBytes(b, item.Encode())
+	}
 	return b
 }
 
@@ -609,6 +617,140 @@ func DecodeIngress(b []byte) (*Ingress, error) {
 				if err == nil {
 					m.HttpsConfig = item
 				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *IngressListen
+				item, err = DecodeIngressListen(msgBytes)
+				if err == nil {
+					m.Listen = append(m.Listen, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *IngressListen) Encode() []byte {
+	var b []byte
+	if m.Node != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Node.Encode())
+	}
+	if m.Address != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Address.Encode())
+	}
+	return b
+}
+
+func DecodeIngressListen(b []byte) (*IngressListen, error) {
+	var m IngressListen
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeSelector
+				item, err = DecodeNodeSelector(msgBytes)
+				if err == nil {
+					m.Node = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AddressSelector
+				item, err = DecodeAddressSelector(msgBytes)
+				if err == nil {
+					m.Address = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NodeSelector) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Any, 1)
+	b = AppendInt32Field(b, m.NodeID, 2)
+	return b
+}
+
+func DecodeNodeSelector(b []byte) (*NodeSelector, error) {
+	var m NodeSelector
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Any, err = ConsumeBool(b, typ)
+		case 2:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AddressSelector) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, int32(m.Family), 1)
+	b = AppendRepeated(b, m.Prefixes, AppendFieldDecorator(AppendStringElem, 2))
+	return b
+}
+
+func DecodeAddressSelector(b []byte) (*AddressSelector, error) {
+	var m AddressSelector
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Family = AddressFamily(raw)
+			}
+		case 2:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Prefixes = append(m.Prefixes, item)
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -8408,6 +8550,7 @@ func (m *ClusterNodeStatus) Encode() []byte {
 	b = AppendInt32Field(b, m.NodeID, 2)
 	b = AppendInt64FromTime(b, m.LastConnectedAt, 3)
 	b = AppendBoolField(b, m.IsConnected, 4)
+	b = AppendRepeated(b, m.HostAddresses, AppendFieldDecorator(AppendStringElem, 5))
 	return b
 }
 
@@ -8430,6 +8573,12 @@ func DecodeClusterNodeStatus(b []byte) (*ClusterNodeStatus, error) {
 			b, m.LastConnectedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 4:
 			b, m.IsConnected, err = ConsumeBool(b, typ)
+		case 5:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.HostAddresses = append(m.HostAddresses, item)
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -9133,6 +9282,14 @@ func (m *ClusterNetMapNode) Encode() []byte {
 	b = AppendStringField(b, m.UnderlayAddress, 2)
 	b = AppendStringField(b, m.WgPublicKey, 3)
 	b = AppendInt32Field(b, m.WgListenPort, 4)
+	for _, item := range m.IngressPublish {
+		b = AppendTag(b, 5, BytesType)
+		if item == nil {
+			b = AppendBytes(b, nil)
+			continue
+		}
+		b = AppendBytes(b, item.Encode())
+	}
 	return b
 }
 
@@ -9141,6 +9298,7 @@ func DecodeClusterNetMapNode(b []byte) (*ClusterNetMapNode, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -9155,6 +9313,123 @@ func DecodeClusterNetMapNode(b []byte) (*ClusterNetMapNode, error) {
 			b, m.WgPublicKey, err = ConsumeString(b, typ)
 		case 4:
 			b, m.WgListenPort, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *IngressPublish
+				item, err = DecodeIngressPublish(msgBytes)
+				if err == nil {
+					m.IngressPublish = append(m.IngressPublish, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *IngressPublish) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Address, 1)
+	b = AppendInt32Field(b, m.Port, 2)
+	return b
+}
+
+func DecodeIngressPublish(b []byte) (*IngressPublish, error) {
+	var m IngressPublish
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Address, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Port, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *IngressDiagnostic) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.DeploymentID, 1)
+	b = AppendStringField(b, m.Message, 2)
+	return b
+}
+
+func DecodeIngressDiagnostic(b []byte) (*IngressDiagnostic, error) {
+	var m IngressDiagnostic
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Message, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *IngressDiagnosticList) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
+		if item == nil {
+			b = AppendBytes(b, nil)
+			continue
+		}
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeIngressDiagnosticList(b []byte) (*IngressDiagnosticList, error) {
+	var m IngressDiagnosticList
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *IngressDiagnostic
+				item, err = DecodeIngressDiagnostic(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -10276,6 +10551,7 @@ func (m *ClusterHello) Encode() []byte {
 	b = AppendStringField(b, m.UnderlayAddress, 1)
 	b = AppendInt32Field(b, m.ClusterProtocolVersion, 2)
 	b = AppendStringField(b, m.WgPublicKey, 3)
+	b = AppendRepeated(b, m.HostAddresses, AppendFieldDecorator(AppendStringElem, 4))
 	return b
 }
 
@@ -10296,6 +10572,12 @@ func DecodeClusterHello(b []byte) (*ClusterHello, error) {
 			b, m.ClusterProtocolVersion, err = ConsumeVarInt32(b, typ)
 		case 3:
 			b, m.WgPublicKey, err = ConsumeString(b, typ)
+		case 4:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.HostAddresses = append(m.HostAddresses, item)
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -12183,6 +12465,10 @@ func (m *State) Encode() []byte {
 		b = AppendTag(b, 35, BytesType)
 		b = AppendBytes(b, m.NetworkPoliciesSnapshot.Encode())
 	}
+	if m.IngressDiagnosticsSnapshot != nil {
+		b = AppendTag(b, 36, BytesType)
+		b = AppendBytes(b, m.IngressDiagnosticsSnapshot.Encode())
+	}
 	return b
 }
 
@@ -12504,6 +12790,15 @@ func DecodeState(b []byte) (*State, error) {
 				item, err = DecodeNetworkPolicyList(msgBytes)
 				if err == nil {
 					m.NetworkPoliciesSnapshot = item
+				}
+			}
+		case 36:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *IngressDiagnosticList
+				item, err = DecodeIngressDiagnosticList(msgBytes)
+				if err == nil {
+					m.IngressDiagnosticsSnapshot = item
 				}
 			}
 		default:

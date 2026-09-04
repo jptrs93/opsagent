@@ -79,7 +79,9 @@ export function buildExactNixValidationRequest(repo, commit, flakePath) {
 }
 
 export function buildImageDiscoveryRequest(image, {refresh = true} = {}) {
-    return {containerImage: {image: clean(image), refreshVersions: Boolean(refresh)}};
+    // Tags are listed for the repository; a tag typed into the reference is
+    // a version selection, not a narrower source.
+    return {containerImage: {image: imageRepositoryFromReference(image), refreshVersions: Boolean(refresh)}};
 }
 
 export function attestNixRepositoryResponse(response, repo) {
@@ -116,6 +118,28 @@ export function attestExactNixValidationResponse(response, repo, commit, flakePa
 export function attestImageDiscoveryResponse(response) {
     const result = response?.containerImage;
     return result?.image?.checked ? result : null;
+}
+
+// imageRepositoryFromReference drops the tag or digest from an image
+// reference, keeping the rest as typed. The tag is the last colon after the
+// last slash, so a registry port survives.
+export function imageRepositoryFromReference(raw) {
+    const image = clean(raw);
+    const digestIdx = image.indexOf('@');
+    if (digestIdx >= 0) return image.slice(0, digestIdx);
+    const lastSlash = image.lastIndexOf('/');
+    const lastColon = image.lastIndexOf(':');
+    if (lastColon > lastSlash) return image.slice(0, lastColon);
+    return image;
+}
+
+// imageReference joins a repository and a version back into one reference:
+// a digest attaches with '@', anything else is a tag.
+export function imageReference(repository, version) {
+    const base = imageRepositoryFromReference(repository);
+    const tag = clean(version);
+    if (!tag) return base;
+    return `${base}${tag.startsWith('sha256:') ? '@' : ':'}${tag}`;
 }
 
 export function imageVersionFromReference(raw) {

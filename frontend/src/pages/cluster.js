@@ -63,6 +63,7 @@ export function clusterPage() {
                 headerCell("Node", "pr-3 w-[24rem]"),
                 headerCell("Role"),
                 headerCell("Address"),
+                headerCell("Host addresses"),
                 headerCell("Transport key"),
                 headerCell("Spaces"),
                 headerCell("Status"),
@@ -272,6 +273,8 @@ function machineRow(machine) {
                 : span({class: "text-gray-300"}, "secondary")
         ),
         td({class: "py-1 pr-3 font-mono text-gray-300"}, (machine.addresses || []).join(", ") || "-"),
+        td({class: "py-1 pr-3 font-mono text-gray-300", "data-testid": "node-host-addresses", title: "Addresses an ingress listen selector can publish on"},
+            (machine.hostAddresses || []).join(", ") || "-"),
         td({class: "py-1 pr-3 font-mono text-gray-300", title: machine.wgPublicKey || "No WireGuard key registered"},
             machine.wgPublicKey ? machine.wgPublicKey.slice(0, 8) + "…" : "-"),
         td({class: "py-1 pr-3"}, allowedSpacesCell(machine)),

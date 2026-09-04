@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -124,11 +125,17 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 	out := &outbox{ch: make(chan *apigen.MsgToPrimary, 64), ctx: sessCtx}
 	// The hello must lead the request stream so the primary can publish an
 	// updated network map as soon as this secondary reconnects.
-	out.Send(&apigen.MsgToPrimary{ClusterHello: &apigen.ClusterHello{
-		UnderlayAddress:        underlayAddress,
-		ClusterProtocolVersion: apigen.ClusterProtocolVersion,
-		WgPublicKey:            wgPublicKey,
-	}})
+	hostAddresses := currentHostAddresses(sessCtx)
+	hello := func(addresses []string) *apigen.MsgToPrimary {
+		return &apigen.MsgToPrimary{ClusterHello: &apigen.ClusterHello{
+			UnderlayAddress:        underlayAddress,
+			ClusterProtocolVersion: apigen.ClusterProtocolVersion,
+			WgPublicKey:            wgPublicKey,
+			HostAddresses:          addresses,
+		}}
+	}
+	out.Send(hello(hostAddresses))
+	go hostAddressPushLoop(sessCtx, out, hostAddresses, hello)
 	if prefix, ok := network.Default.PrefixValue(); ok {
 		status, err := cachedClusterNetMapStatus(sessCtx, store, nodeID, prefix, "")
 		if err != nil {
@@ -293,6 +300,40 @@ func applyClusterNetwork(store *state.Service, info *apigen.ClusterNetworkInfo) 
 	network.Default.SetPrefix(p)
 	store.MustSetLocalKV(storage.LocalKVClusterNetwork, info.Encode())
 	return nil
+}
+
+// currentHostAddresses enumerates the addresses an ingress listen selector
+// can expand to on this node. A failed enumeration reports an empty set, which
+// the primary treats as unknown rather than as "no addresses".
+func currentHostAddresses(ctx context.Context) []string {
+	prefix, hasPrefix := network.Default.PrefixValue()
+	addrs, err := network.EnumerateHostAddresses(prefix, hasPrefix)
+	if err != nil {
+		slog.WarnContext(ctx, "enumerating host addresses failed", "err", err)
+		return nil
+	}
+	return network.HostAddressStrings(addrs)
+}
+
+// hostAddressPushLoop re-sends the cluster hello whenever a poll observes a
+// changed host address set, so the primary's inventory follows interface
+// changes without a reconnect.
+func hostAddressPushLoop(ctx context.Context, out *outbox, last []string, hello func([]string) *apigen.MsgToPrimary) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(network.HostAddressPollInterval):
+		}
+		current := currentHostAddresses(ctx)
+		if slices.Equal(current, last) {
+			continue
+		}
+		last = current
+		if !out.Send(hello(current)) {
+			return
+		}
+	}
 }
 
 func statusPushLoop(ctx context.Context, out *outbox, ch <-chan apigen.ScheduledInstanceState) {

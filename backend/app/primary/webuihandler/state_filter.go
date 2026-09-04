@@ -77,3 +77,23 @@ func (h *Handler) filterUsers(ctx apigen.Context, items []*apigen.User) []*apige
 		return h.canAccess(ctx, vView, eUser, 0, int64(u.ID))
 	})
 }
+
+// filterIngressDiagnostics keeps the diagnostics of deployments the caller may
+// view. The result is never nil so the client can treat it as a snapshot.
+func (h *Handler) filterIngressDiagnostics(ctx apigen.Context, list *apigen.IngressDiagnosticList) *apigen.IngressDiagnosticList {
+	out := &apigen.IngressDiagnosticList{Items: []*apigen.IngressDiagnostic{}}
+	if list == nil {
+		return out
+	}
+	for _, item := range list.Items {
+		if item == nil {
+			continue
+		}
+		cfg := h.findConfigByID(item.DeploymentID)
+		if cfg == nil || !h.canAccess(ctx, vView, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID)) {
+			continue
+		}
+		out.Items = append(out.Items, item)
+	}
+	return out
+}

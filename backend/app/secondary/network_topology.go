@@ -6,5 +6,5 @@ import (
 )
 
 func reconcileClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, prefix network.Prefix) error {
-	return network.ApplyClusterNetMap(clusterMap, nodeID, prefix, network.Default.ReconcileTopology, network.Default.SetPolicyRules)
+	return network.ApplyClusterNetMap(clusterMap, nodeID, prefix, network.Default.ReconcileTopology, network.Default.SetPolicyRules, network.Default.SetNetproxyPublish)
 }

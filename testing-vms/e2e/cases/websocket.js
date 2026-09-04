@@ -4,6 +4,7 @@ import {
   createNixDockerDeployment,
   createSecret,
   NETWORKING_VIRTUAL,
+  httpsRouteBlock,
   setDeploymentHttpsRoutes,
 } from '../helpers/ui.js';
 import {ingressCertificateBundle, parseEchoBody, requestHTTPSIngress} from '../helpers/httpsClient.js';
@@ -80,7 +81,7 @@ export const websocketCases = [
     async run(ctx) {
       await setDeploymentHttpsRoutes(ctx.page, {
         name: 'wsecho',
-        routes: [`https("${WS_HOST}", 8080, { cert = secret("${WS_CERT_SECRET}", { version = 1 }) })`],
+        routes: [httpsRouteBlock({hostname: WS_HOST, containerPort: 8080, cert: `secret("global", "${WS_CERT_SECRET}", 1)`})],
       });
       await expectWebSocketRoute();
     },

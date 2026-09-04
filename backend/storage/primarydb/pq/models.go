@@ -197,6 +197,7 @@ type NodeStatus struct {
 	OpendeployVersion string
 	RemoteAddress     string
 	EnrollmentPending int64
+	HostAddresses     string
 }
 
 type PersonalSession struct {

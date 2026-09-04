@@ -1,6 +1,7 @@
 package state
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -36,6 +37,9 @@ type Node struct {
 	// Spaces whose deployments may be placed here. Always contains
 	// OpendeploySpaceID; see normalizeAllowedSpaces.
 	AllowedSpaces []int32
+	// Host addresses the node last reported: the candidates an ingress listen
+	// selector expands to. Runtime state from node_statuses, not versioned.
+	HostAddresses []string
 }
 
 var memberNodeStatuses = []int64{
@@ -283,6 +287,7 @@ type NetworkMapInputs struct {
 	Nodes            []*Node
 	Instances        []apigen.ScheduledInstanceState
 	Policies         []*apigen.NetworkPolicy
+	Deployments      []*apigen.Deployment
 	DeploymentSpaces map[int32]int32
 	Seq              int64
 }
@@ -296,13 +301,17 @@ func (s *Service) FetchNetworkMapInputs() NetworkMapInputs {
 	defer s.Mu.Unlock()
 	seq := erru.Must(s.q.GetGlobalSeq(context.Background()))
 	spaces := make(map[int32]int32, len(s.deploymentCache))
+	deployments := make([]*apigen.Deployment, 0, len(s.deploymentCache))
 	for id, cfg := range s.deploymentCache {
 		spaces[id] = cfg.Def.SpaceID
+		deployments = append(deployments, cfg)
 	}
+	slices.SortFunc(deployments, func(a, b *apigen.Deployment) int { return cmp.Compare(a.ID, b.ID) })
 	return NetworkMapInputs{
 		Nodes:            s.listNodesLocked(),
 		Instances:        s.SnapshotLocked(nil),
 		Policies:         s.listNetworkPoliciesLocked(false),
+		Deployments:      deployments,
 		DeploymentSpaces: spaces,
 		Seq:              seq,
 	}
@@ -357,6 +366,49 @@ func (s *Service) SetNodeStatusByIdentifier(identifier string, connected bool, c
 	if !errors.Is(err, sql.ErrNoRows) {
 		panic(fmt.Sprintf("set node status %q: %v", identifier, err))
 	}
+}
+
+// SetNodeHostAddresses records the host addresses a node reported. Entries
+// that do not parse are dropped and the rest are canonicalised and sorted, so
+// an unchanged set re-reported on every connect is a pure no-op.
+func (s *Service) SetNodeHostAddresses(identifier string, addresses []string) {
+	encoded := nodeAddressesJSON(canonicalHostAddresses(addresses))
+	s.Mu.Lock()
+	ctx := context.Background()
+	if err := s.q.EnsureNodeStatusRowByIdentifier(ctx, identifier); err != nil {
+		s.Mu.Unlock()
+		panic(fmt.Sprintf("ensure node status %q: %v", identifier, err))
+	}
+	row, changed, err := s.q.SetNodeHostAddresses(ctx, identifier, encoded)
+	s.Mu.Unlock()
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return
+		}
+		panic(fmt.Sprintf("set node host addresses %q: %v", identifier, err))
+	}
+	if changed {
+		s.nodeStatusSubs.Notify(*nodeStatusRowToProto(row))
+	}
+}
+
+func canonicalHostAddresses(addresses []string) []string {
+	out := make([]string, 0, len(addresses))
+	seen := make(map[string]struct{}, len(addresses))
+	for _, raw := range addresses {
+		addr, err := netip.ParseAddr(strings.TrimSpace(raw))
+		if err != nil || addr.Zone() != "" {
+			continue
+		}
+		value := addr.Unmap().String()
+		if _, dup := seen[value]; dup {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	slices.Sort(out)
+	return out
 }
 
 func (s *Service) NodeIDByIdentifier(identifier string) (int32, error) {

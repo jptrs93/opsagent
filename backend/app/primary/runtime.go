@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
@@ -150,6 +153,7 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string, networkMaps *netmappublisher.Publisher) {
 	r.store.EnsureSystemDeployment(nodeID, version.Version)
 	r.store.SetNodeStatusByIdentifier(nodeIdentifier, true, time.Now())
+	go r.runHostAddressInventory(ctx, nodeIdentifier)
 	netproxyCfg := r.store.EnsureNetproxyDeployment(nodeID, version.Version)
 	network.Default.SetNetproxyDeploymentID(netproxyCfg.ID)
 	for _, node := range r.store.ListNodes() {
@@ -174,6 +178,29 @@ func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string
 		runner.SweepForeignContainers(ctx, r.store, predicate)
 		r.operator.RunAll(predicate)
 	}()
+}
+
+// runHostAddressInventory keeps the primary's own host address inventory
+// current: the set is stored on startup and whenever a poll observes a change,
+// mirroring what secondaries report through ClusterHello.
+func (r *runtime) runHostAddressInventory(ctx context.Context, nodeIdentifier string) {
+	ctx = logu.AddTag(ctx, "HostAddresses")
+	var last []string
+	for {
+		prefix, hasPrefix := network.Default.PrefixValue()
+		addrs, err := network.EnumerateHostAddresses(prefix, hasPrefix)
+		if err != nil {
+			slog.WarnContext(ctx, "enumerating host addresses failed", "err", err)
+		} else if current := network.HostAddressStrings(addrs); !slices.Equal(current, last) {
+			r.store.SetNodeHostAddresses(nodeIdentifier, current)
+			last = current
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(network.HostAddressPollInterval):
+		}
+	}
 }
 
 // localAssetProvider narrows assetstore's OpenAsset to the operator's pure

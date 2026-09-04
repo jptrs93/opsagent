@@ -67,6 +67,22 @@
  * @property {string} hostname
  * @property {TlsPassthroughConfig} tlsPassthroughConfig
  * @property {HttpsConfig} httpsConfig
+ * @property {IngressListen[]} listen
+ */
+/**
+ * @typedef {Object} IngressListen
+ * @property {NodeSelector} node
+ * @property {AddressSelector} address
+ */
+/**
+ * @typedef {Object} NodeSelector
+ * @property {boolean} any
+ * @property {number} nodeId
+ */
+/**
+ * @typedef {Object} AddressSelector
+ * @property {number} family
+ * @property {string[]} prefixes
  */
 /**
  * @typedef {Object} ContainerBundleSource
@@ -1196,6 +1212,7 @@
  * @property {number} nodeId
  * @property {Date} lastConnectedAt
  * @property {boolean} isConnected
+ * @property {string[]} hostAddresses
  */
 /**
  * @typedef {Object} EnrollmentRequestStatus
@@ -1289,6 +1306,21 @@
  * @property {string} underlayAddress
  * @property {string} wgPublicKey
  * @property {number} wgListenPort
+ * @property {IngressPublish[]} ingressPublish
+ */
+/**
+ * @typedef {Object} IngressPublish
+ * @property {string} address
+ * @property {number} port
+ */
+/**
+ * @typedef {Object} IngressDiagnostic
+ * @property {number} deploymentId
+ * @property {string} message
+ */
+/**
+ * @typedef {Object} IngressDiagnosticList
+ * @property {IngressDiagnostic[]} items
  */
 /**
  * @typedef {Object} ClusterNetMapRoute
@@ -1428,6 +1460,7 @@
  * @property {string} underlayAddress
  * @property {number} clusterProtocolVersion
  * @property {string} wgPublicKey
+ * @property {string[]} hostAddresses
  */
 /**
  * @typedef {Object} MsgToPrimary
@@ -1661,6 +1694,7 @@
  * @property {AuthzGrantList} authzGrantsSnapshot
  * @property {AuthzGlobalRuleList} authzGlobalRulesSnapshot
  * @property {NetworkPolicyList} networkPoliciesSnapshot
+ * @property {IngressDiagnosticList} ingressDiagnosticsSnapshot
  */
 /**
  * @typedef {Object} GlobalState
@@ -2436,6 +2470,13 @@ export function writeIngress(message, writer) {
         writeHttpsConfig(message.httpsConfig, writer);
         writer.ldelim();
     }
+    if (message.listen && message.listen.length > 0) {
+        for (const item of message.listen) {
+            writer.uint32(tag(5, WIRE.LDELIM)).fork();
+            writeIngressListen(item, writer);
+            writer.ldelim();
+        }
+    }
 }
 
 
@@ -2457,7 +2498,7 @@ export function encodeIngress(message) {
  */
 function decodeIngressMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {kind: 0, hostname: "", tlsPassthroughConfig: undefined, httpsConfig: undefined };
+    const message = {kind: 0, hostname: "", tlsPassthroughConfig: undefined, httpsConfig: undefined, listen: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2477,6 +2518,10 @@ function decodeIngressMessage(reader, length) {
                 message.httpsConfig = decodeHttpsConfigMessage(reader, reader.uint32());
                 break;
             }
+            case 5: {
+                message.listen.push(decodeIngressListenMessage(reader, reader.uint32()));
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -2492,6 +2537,201 @@ function decodeIngressMessage(reader, length) {
 export function decodeIngress(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeIngressMessage(reader);
+}
+
+
+
+/**
+ * @param {IngressListen} message
+ * @param {Writer} writer
+ */
+export function writeIngressListen(message, writer) {
+    if (message.node !== undefined && message.node !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeNodeSelector(message.node, writer);
+        writer.ldelim();
+    }
+    if (message.address !== undefined && message.address !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeAddressSelector(message.address, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {IngressListen} message
+ * @returns {Uint8Array}
+ */
+export function encodeIngressListen(message) {
+    const writer = Writer.create();
+    writeIngressListen(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {IngressListen}
+ */
+function decodeIngressListenMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {node: undefined, address: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.node = decodeNodeSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.address = decodeAddressSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {IngressListen}
+ */
+export function decodeIngressListen(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeIngressListenMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeSelector} message
+ * @param {Writer} writer
+ */
+export function writeNodeSelector(message, writer) {
+    if (message.any === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.any);
+    }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.nodeId);
+    }
+}
+
+
+/**
+ * @param {NodeSelector} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeSelector(message) {
+    const writer = Writer.create();
+    writeNodeSelector(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeSelector}
+ */
+function decodeNodeSelectorMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {any: false, nodeId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.any = reader.bool();
+                break;
+            }
+            case 2: {
+                message.nodeId = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeSelector}
+ */
+export function decodeNodeSelector(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeSelectorMessage(reader);
+}
+
+
+
+/**
+ * @param {AddressSelector} message
+ * @param {Writer} writer
+ */
+export function writeAddressSelector(message, writer) {
+    if (message.family !== undefined && message.family !== null && message.family !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.family);
+    }
+    if (message.prefixes && message.prefixes.length > 0) {
+        for (const item of message.prefixes) {
+            writer.uint32(tag(2, WIRE.LDELIM)).string(item);
+        }
+    }
+}
+
+
+/**
+ * @param {AddressSelector} message
+ * @returns {Uint8Array}
+ */
+export function encodeAddressSelector(message) {
+    const writer = Writer.create();
+    writeAddressSelector(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AddressSelector}
+ */
+function decodeAddressSelectorMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {family: 0, prefixes: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.family = reader.int32();
+                break;
+            }
+            case 2: {
+                message.prefixes.push(reader.string());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AddressSelector}
+ */
+export function decodeAddressSelector(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAddressSelectorMessage(reader);
 }
 
 
@@ -15604,6 +15844,11 @@ export function writeClusterNodeStatus(message, writer) {
     if (message.isConnected === true) {
         writer.uint32(tag(4, WIRE.VARINT)).bool(message.isConnected);
     }
+    if (message.hostAddresses && message.hostAddresses.length > 0) {
+        for (const item of message.hostAddresses) {
+            writer.uint32(tag(5, WIRE.LDELIM)).string(item);
+        }
+    }
 }
 
 
@@ -15625,7 +15870,7 @@ export function encodeClusterNodeStatus(message) {
  */
 function decodeClusterNodeStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, nodeId: 0, lastConnectedAt: new Date(0), isConnected: false };
+    const message = {id: 0, nodeId: 0, lastConnectedAt: new Date(0), isConnected: false, hostAddresses: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15643,6 +15888,10 @@ function decodeClusterNodeStatusMessage(reader, length) {
             }
             case 4: {
                 message.isConnected = reader.bool();
+                break;
+            }
+            case 5: {
+                message.hostAddresses.push(reader.string());
                 break;
             }
             default:
@@ -16756,6 +17005,13 @@ export function writeClusterNetMapNode(message, writer) {
     if (message.wgListenPort !== undefined && message.wgListenPort !== null && message.wgListenPort !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.wgListenPort);
     }
+    if (message.ingressPublish && message.ingressPublish.length > 0) {
+        for (const item of message.ingressPublish) {
+            writer.uint32(tag(5, WIRE.LDELIM)).fork();
+            writeIngressPublish(item, writer);
+            writer.ldelim();
+        }
+    }
 }
 
 
@@ -16777,7 +17033,7 @@ export function encodeClusterNetMapNode(message) {
  */
 function decodeClusterNetMapNodeMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {nodeId: 0, underlayAddress: "", wgPublicKey: "", wgListenPort: 0 };
+    const message = {nodeId: 0, underlayAddress: "", wgPublicKey: "", wgListenPort: 0, ingressPublish: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -16797,6 +17053,10 @@ function decodeClusterNetMapNodeMessage(reader, length) {
                 message.wgListenPort = reader.int32();
                 break;
             }
+            case 5: {
+                message.ingressPublish.push(decodeIngressPublishMessage(reader, reader.uint32()));
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -16812,6 +17072,192 @@ function decodeClusterNetMapNodeMessage(reader, length) {
 export function decodeClusterNetMapNode(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeClusterNetMapNodeMessage(reader);
+}
+
+
+
+/**
+ * @param {IngressPublish} message
+ * @param {Writer} writer
+ */
+export function writeIngressPublish(message, writer) {
+    if (message.address !== undefined && message.address !== null && message.address !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.address);
+    }
+    if (message.port !== undefined && message.port !== null && message.port !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.port);
+    }
+}
+
+
+/**
+ * @param {IngressPublish} message
+ * @returns {Uint8Array}
+ */
+export function encodeIngressPublish(message) {
+    const writer = Writer.create();
+    writeIngressPublish(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {IngressPublish}
+ */
+function decodeIngressPublishMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {address: "", port: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.address = reader.string();
+                break;
+            }
+            case 2: {
+                message.port = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {IngressPublish}
+ */
+export function decodeIngressPublish(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeIngressPublishMessage(reader);
+}
+
+
+
+/**
+ * @param {IngressDiagnostic} message
+ * @param {Writer} writer
+ */
+export function writeIngressDiagnostic(message, writer) {
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
+    }
+    if (message.message !== undefined && message.message !== null && message.message !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.message);
+    }
+}
+
+
+/**
+ * @param {IngressDiagnostic} message
+ * @returns {Uint8Array}
+ */
+export function encodeIngressDiagnostic(message) {
+    const writer = Writer.create();
+    writeIngressDiagnostic(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {IngressDiagnostic}
+ */
+function decodeIngressDiagnosticMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {deploymentId: 0, message: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.deploymentId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.message = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {IngressDiagnostic}
+ */
+export function decodeIngressDiagnostic(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeIngressDiagnosticMessage(reader);
+}
+
+
+
+/**
+ * @param {IngressDiagnosticList} message
+ * @param {Writer} writer
+ */
+export function writeIngressDiagnosticList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeIngressDiagnostic(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {IngressDiagnosticList} message
+ * @returns {Uint8Array}
+ */
+export function encodeIngressDiagnosticList(message) {
+    const writer = Writer.create();
+    writeIngressDiagnosticList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {IngressDiagnosticList}
+ */
+function decodeIngressDiagnosticListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeIngressDiagnosticMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {IngressDiagnosticList}
+ */
+export function decodeIngressDiagnosticList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeIngressDiagnosticListMessage(reader);
 }
 
 
@@ -18401,6 +18847,11 @@ export function writeClusterHello(message, writer) {
     if (message.wgPublicKey !== undefined && message.wgPublicKey !== null && message.wgPublicKey !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.wgPublicKey);
     }
+    if (message.hostAddresses && message.hostAddresses.length > 0) {
+        for (const item of message.hostAddresses) {
+            writer.uint32(tag(4, WIRE.LDELIM)).string(item);
+        }
+    }
 }
 
 
@@ -18422,7 +18873,7 @@ export function encodeClusterHello(message) {
  */
 function decodeClusterHelloMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {underlayAddress: "", clusterProtocolVersion: 0, wgPublicKey: "" };
+    const message = {underlayAddress: "", clusterProtocolVersion: 0, wgPublicKey: "", hostAddresses: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -18436,6 +18887,10 @@ function decodeClusterHelloMessage(reader, length) {
             }
             case 3: {
                 message.wgPublicKey = reader.string();
+                break;
+            }
+            case 4: {
+                message.hostAddresses.push(reader.string());
                 break;
             }
             default:
@@ -20996,6 +21451,11 @@ export function writeState(message, writer) {
         writeNetworkPolicyList(message.networkPoliciesSnapshot, writer);
         writer.ldelim();
     }
+    if (message.ingressDiagnosticsSnapshot !== undefined && message.ingressDiagnosticsSnapshot !== null) {
+        writer.uint32(tag(36, WIRE.LDELIM)).fork();
+        writeIngressDiagnosticList(message.ingressDiagnosticsSnapshot, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -21017,7 +21477,7 @@ export function encodeState(message) {
  */
 function decodeStateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, agentSessionsSnapshot: undefined, agentSessionUpdate: undefined, valueDirectoriesSnapshot: undefined, valueDirectoryUpdate: undefined, assetDirectoriesSnapshot: undefined, assetDirectoryUpdate: undefined, authzRuleTemplatesSnapshot: undefined, authzGrantsSnapshot: undefined, authzGlobalRulesSnapshot: undefined, networkPoliciesSnapshot: undefined };
+    const message = {heartbeat: false, deploymentsSnapshot: undefined, deploymentUpdate: undefined, usersSnapshot: [], userUpdate: undefined, enrollmentsSnapshot: undefined, enrollmentUpdate: undefined, secretsStatusSnapshot: undefined, secretMetasSnapshot: undefined, secretMetaUpdate: undefined, userConfigValuesSnapshot: undefined, userConfigValueUpdate: undefined, spacesSnapshot: undefined, spaceUpdate: undefined, assetsSnapshot: undefined, assetUpdate: undefined, nodesSnapshot: undefined, nodeUpdate: undefined, nodeStatusesSnapshot: undefined, nodeStatusUpdate: undefined, backupStatusSnapshot: undefined, backupStatusUpdate: undefined, configSnapshot: undefined, scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, agentSessionsSnapshot: undefined, agentSessionUpdate: undefined, valueDirectoriesSnapshot: undefined, valueDirectoryUpdate: undefined, assetDirectoriesSnapshot: undefined, assetDirectoryUpdate: undefined, authzRuleTemplatesSnapshot: undefined, authzGrantsSnapshot: undefined, authzGlobalRulesSnapshot: undefined, networkPoliciesSnapshot: undefined, ingressDiagnosticsSnapshot: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -21159,6 +21619,10 @@ function decodeStateMessage(reader, length) {
             }
             case 35: {
                 message.networkPoliciesSnapshot = decodeNetworkPolicyListMessage(reader, reader.uint32());
+                break;
+            }
+            case 36: {
+                message.ingressDiagnosticsSnapshot = decodeIngressDiagnosticListMessage(reader, reader.uint32());
                 break;
             }
             default:

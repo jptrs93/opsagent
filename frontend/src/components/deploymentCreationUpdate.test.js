@@ -344,11 +344,15 @@ test("image: validate lists tags; the reference's own tag pins the version", asy
     assert.equal(model.runningInvalidReason(), "");
     assert.deepEqual(model.versionOptions().map(item => item.apply), ["1.2.0", "1.1.0"]);
 
+    // A tag typed into the reference selects that version; the repository is
+    // unchanged, so the validated layers survive.
     model.form.containerImage.val = "docker.io/library/postgres:18";
     await settle();
     assert.equal(model.explicitImageVersion(), "18");
     assert.equal(model.selectedTargetVersion(), "18");
-    assert.equal(model.overallStatus(), "unvalidated");
+    assert.equal(model.overallStatus(), "ok");
+    assert.equal(model.toDocument().spec.container1Spec.source.remoteImage.image, "docker.io/library/postgres");
+    assert.equal(model.toDocument().spec.container1Spec.version, "18");
 });
 
 test("image: an unchanged saved image is trusted even when the deployment is stopped", async () => {

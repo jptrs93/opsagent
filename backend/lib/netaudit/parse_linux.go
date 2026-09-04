@@ -24,6 +24,7 @@ type parsedRule struct {
 	Proto      uint8
 	HostPort   uint16
 	Source     netip.Prefix
+	Dest       netip.Prefix
 	Target     netip.Addr
 	TargetPort uint16
 }
@@ -36,32 +37,34 @@ func parseRuleExprs(exprs []expr.Any) (parsedRule, bool) {
 	var out parsedRule
 	var protoSeen, dportSeen bool
 	var immAddr, immPort []byte
-	var pendingProto, pendingDport, pendingSaddr bool
-	var saddrLen uint32
-	var saddrOnes int
+	var pendingProto, pendingDport, pendingSaddr, pendingDaddr bool
+	var addrLen uint32
+	var addrOnes int
 	for _, e := range exprs {
 		switch v := e.(type) {
 		case *expr.Meta:
 			pendingProto = v.Key == expr.MetaKeyL4PROTO
-			pendingDport, pendingSaddr = false, false
+			pendingDport, pendingSaddr, pendingDaddr = false, false, false
 		case *expr.Payload:
 			pendingDport = v.Base == expr.PayloadBaseTransportHeader && v.Offset == 2 && v.Len == 2
 			pendingProto = false
-			pendingSaddr = v.Base == expr.PayloadBaseNetworkHeader && ((v.Offset == 12 && v.Len == 4) || (v.Offset == 8 && v.Len == 16))
-			if pendingSaddr {
-				saddrLen = v.Len
-				saddrOnes = int(v.Len) * 8
+			network := v.Base == expr.PayloadBaseNetworkHeader
+			pendingSaddr = network && ((v.Offset == 12 && v.Len == 4) || (v.Offset == 8 && v.Len == 16))
+			pendingDaddr = network && ((v.Offset == 16 && v.Len == 4) || (v.Offset == 24 && v.Len == 16))
+			if pendingSaddr || pendingDaddr {
+				addrLen = v.Len
+				addrOnes = int(v.Len) * 8
 			}
 		case *expr.Bitwise:
-			if pendingSaddr && v.Len == saddrLen {
+			if (pendingSaddr || pendingDaddr) && v.Len == addrLen {
 				ones, bits := net.IPMask(v.Mask).Size()
-				if bits == int(saddrLen)*8 {
-					saddrOnes = ones
+				if bits == int(addrLen)*8 {
+					addrOnes = ones
 				} else {
-					pendingSaddr = false
+					pendingSaddr, pendingDaddr = false, false
 				}
 			} else {
-				pendingSaddr = false
+				pendingSaddr, pendingDaddr = false, false
 			}
 		case *expr.Cmp:
 			if pendingProto && len(v.Data) == 1 {
@@ -72,12 +75,16 @@ func parseRuleExprs(exprs []expr.Any) (parsedRule, bool) {
 				out.HostPort = binary.BigEndian.Uint16(v.Data)
 				dportSeen = true
 			}
-			if pendingSaddr && v.Op == expr.CmpOpEq && len(v.Data) == int(saddrLen) {
+			if (pendingSaddr || pendingDaddr) && v.Op == expr.CmpOpEq && len(v.Data) == int(addrLen) {
 				if addr, ok := netip.AddrFromSlice(v.Data); ok {
-					out.Source = netip.PrefixFrom(addr, saddrOnes)
+					if pendingSaddr {
+						out.Source = netip.PrefixFrom(addr, addrOnes)
+					} else {
+						out.Dest = netip.PrefixFrom(addr, addrOnes)
+					}
 				}
 			}
-			pendingProto, pendingDport, pendingSaddr = false, false, false
+			pendingProto, pendingDport, pendingSaddr, pendingDaddr = false, false, false, false
 		case *expr.Immediate:
 			switch v.Register {
 			case 1:
@@ -92,7 +99,7 @@ func parseRuleExprs(exprs []expr.Any) (parsedRule, bool) {
 		}
 	}
 	if out.Masquerade {
-		out.Source = netip.Prefix{}
+		out.Source, out.Dest = netip.Prefix{}, netip.Prefix{}
 		return out, true
 	}
 	addr, addrOK := netip.AddrFromSlice(immAddr)

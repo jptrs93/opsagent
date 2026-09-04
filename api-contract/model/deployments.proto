@@ -94,6 +94,39 @@ message Ingress {
   string hostname = 2;
   TlsPassthroughConfig tls_passthrough_config = 3;
   HttpsConfig https_config = 4;
+  // Where the route is published. Each entry selects a set of (node, host
+  // address) pairs and the route's set is their union. Empty publishes on
+  // every host address of the node(s) the deployment is scheduled on.
+  repeated IngressListen listen = 5;
+}
+
+// IngressListen is one selector over (node, host address) pairs. An unset node
+// means the scheduled node(s); an unset address means every address of any
+// family.
+message IngressListen {
+  NodeSelector node = 1;
+  AddressSelector address = 2;
+}
+
+// NodeSelector picks nodes. cleanproto has no oneof: at most one of any and
+// node_id may be set. Neither set (the default) means the node(s) the
+// deployment is scheduled on; any means every node that can reach the backend.
+message NodeSelector {
+  bool any = 1;
+  int32 node_id = 2;
+}
+
+enum AddressFamily {
+  ADDRESS_FAMILY_ANY = 0;
+  ADDRESS_FAMILY_IPV4 = 1;
+  ADDRESS_FAMILY_IPV6 = 2;
+}
+
+// AddressSelector picks host addresses. prefixes are IP or CIDR literals in
+// canonical form; empty means every address in the family.
+message AddressSelector {
+  AddressFamily family = 1;
+  repeated string prefixes = 2;
 }
 
 message ContainerBundleSource {

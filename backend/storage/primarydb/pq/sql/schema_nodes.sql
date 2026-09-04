@@ -26,5 +26,6 @@ CREATE TABLE IF NOT EXISTS node_statuses (
     opendeploy_version TEXT    NOT NULL DEFAULT '',
     remote_address     TEXT    NOT NULL DEFAULT '',
     enrollment_pending INTEGER NOT NULL DEFAULT 0,
+    host_addresses     TEXT    NOT NULL DEFAULT '[]',  -- JSON, last reported by the node
     UNIQUE(node_id)
 );

@@ -1,9 +1,10 @@
 package network
 
 import (
+	"net/netip"
+	"slices"
 	"sort"
 
-	"github.com/jptrs93/opsagent/backend/apigen"
 	"golang.org/x/sys/unix"
 )
 
@@ -63,17 +64,16 @@ func (m *Manager) ClearHostPorts(deploymentID int32, containerID string) error {
 	return nil
 }
 
-// SetNetproxyIngress updates the rendered ingress listener set. It is derived
-// state, not part of the opendeploy-net deployment spec.
-func (m *Manager) SetNetproxyIngress(ingress []*apigen.NetIngress) error {
-	ports := netproxyIngressPorts(ingress)
-
+// SetNetproxyPublish replaces the ingress publish set the primary evaluated
+// for this node. It is derived state, not part of the opendeploy-net
+// deployment spec.
+func (m *Manager) SetNetproxyPublish(entries []IngressPublish) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.netproxyIngressPorts = ports
+	m.netproxyPublish = slices.Clone(entries)
 	m.reconcileNetproxyHostPortsLocked()
-	// The rendered listener set is authoritative derived state; converge the
-	// kernel by retrying rather than rolling back.
+	// The publish set is authoritative derived state; converge the kernel by
+	// retrying rather than rolling back.
 	if err := m.reconcileNft(); err != nil {
 		m.scheduleReconcileRetryLocked()
 		return err
@@ -81,34 +81,57 @@ func (m *Manager) SetNetproxyIngress(ingress []*apigen.NetIngress) error {
 	return nil
 }
 
-func netproxyIngressPorts(ingress []*apigen.NetIngress) map[uint16]struct{} {
-	ports := make(map[uint16]struct{})
-	for _, route := range ingress {
-		if route == nil {
+// netproxyHostPortRules groups a publish set by port: one rule per port whose
+// Dest lists the addresses published on it. A wildcard entry for a port
+// widens that port to every local address.
+func netproxyHostPortRules(cn *ContainerNet, entries []IngressPublish) []HostPortRule {
+	type portDests struct {
+		wildcard bool
+		dests    []netip.Prefix
+	}
+	byPort := make(map[uint16]*portDests)
+	for _, entry := range entries {
+		if entry.Port == 0 {
 			continue
 		}
-		switch route.Kind {
-		case apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH:
-			if route.TlsPassthrough == nil {
-				continue
-			}
-			port := route.TlsPassthrough.HostPort
-			if port >= 1 && port <= 65535 {
-				ports[uint16(port)] = struct{}{}
-			}
-		case apigen.IngressKind_INGRESS_KIND_HTTPS:
-			if route.Https == nil {
-				continue
-			}
-			ports[443] = struct{}{}
-			ports[80] = struct{}{}
+		group := byPort[entry.Port]
+		if group == nil {
+			group = &portDests{}
+			byPort[entry.Port] = group
 		}
+		if !entry.Address.IsValid() {
+			group.wildcard = true
+			continue
+		}
+		addr := entry.Address.Unmap()
+		group.dests = append(group.dests, netip.PrefixFrom(addr, addr.BitLen()))
 	}
-	return ports
+	ports := make([]int, 0, len(byPort))
+	for port := range byPort {
+		ports = append(ports, int(port))
+	}
+	sort.Ints(ports)
+	rules := make([]HostPortRule, 0, len(ports))
+	for _, port := range ports {
+		group := byPort[uint16(port)]
+		rule := HostPortRule{
+			Protocol:   unix.IPPROTO_TCP,
+			HostPort:   uint16(port),
+			TargetPort: uint16(port),
+			TargetV6:   cn.InboundAddr,
+			TargetV4:   cn.V4,
+		}
+		if !group.wildcard {
+			slices.SortFunc(group.dests, func(a, b netip.Prefix) int { return a.Addr().Compare(b.Addr()) })
+			rule.Dest = slices.Compact(group.dests)
+		}
+		rules = append(rules, rule)
+	}
+	return rules
 }
 
 // PublishNetproxy publishes the current netproxy container and applies the
-// ingress listener set already rendered from local deployment state.
+// ingress publish set already received from the primary.
 func (m *Manager) PublishNetproxy(cn *ContainerNet) error {
 	if cn == nil {
 		return nil
@@ -141,24 +164,14 @@ func (m *Manager) reconcileNetproxyHostPortsLocked() {
 		return
 	}
 	cn := m.current[m.netproxyDeploymentID]
-	if cn == nil || len(m.netproxyIngressPorts) == 0 {
+	if cn == nil {
 		delete(m.hostPorts, m.netproxyDeploymentID)
 		return
 	}
-	ports := make([]int, 0, len(m.netproxyIngressPorts))
-	for port := range m.netproxyIngressPorts {
-		ports = append(ports, int(port))
-	}
-	sort.Ints(ports)
-	rules := make([]HostPortRule, 0, len(ports))
-	for _, port := range ports {
-		rules = append(rules, HostPortRule{
-			Protocol:   unix.IPPROTO_TCP,
-			HostPort:   uint16(port),
-			TargetPort: uint16(port),
-			TargetV6:   cn.InboundAddr,
-			TargetV4:   cn.V4,
-		})
+	rules := netproxyHostPortRules(cn, m.netproxyPublish)
+	if len(rules) == 0 {
+		delete(m.hostPorts, m.netproxyDeploymentID)
+		return
 	}
 	m.hostPorts[m.netproxyDeploymentID] = hostPortsEntry{owner: cn.ContainerID, rules: rules}
 }

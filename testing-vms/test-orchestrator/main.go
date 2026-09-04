@@ -38,6 +38,7 @@ var tlsIngressHosts = []string{
 	"ws.ingress.opendeploy.test",
 	"rollover.ingress.opendeploy.test",
 	"netpol.ingress.opendeploy.test",
+	"listen.ingress.opendeploy.test",
 }
 
 type config struct {
@@ -117,7 +118,10 @@ type config struct {
 	PlaywrightFilteredPorts   string
 	PlaywrightTLSIngressPort  string
 	PlaywrightHTTPIngressPort string
-	PlaywrightTunnelCmds      []*exec.Cmd
+	// PlaywrightListenIngressPort tunnels to worker-1:443 for the ingress
+	// listen cases, which need a node whose 443 publish set they fully own.
+	PlaywrightListenIngressPort string
+	PlaywrightTunnelCmds        []*exec.Cmd
 
 	OpenDeployGitHubToken string
 }
@@ -320,6 +324,7 @@ func loadConfig(resolveLatestRelease bool) (*config, error) {
 	// Not 18080: the ipv4 egress listener binds that port inside worker-2 and
 	// Lima auto-forwards guest listeners to the same host port.
 	c.PlaywrightHTTPIngressPort = env("OPD_PLAYWRIGHT_HTTP_INGRESS_PORT", "18980")
+	c.PlaywrightListenIngressPort = env("OPD_PLAYWRIGHT_LISTEN_INGRESS_PORT", "18444")
 	c.PlaywrightBaseURLSet = os.Getenv("OPD_PLAYWRIGHT_BASE_URL") != ""
 	c.PlaywrightBaseURL = env("OPD_PLAYWRIGHT_BASE_URL", c.WebBaseURL)
 	c.OpenDeployGitHubToken = os.Getenv("OPENDEPLOY_GITHUB_TOKEN")
@@ -2282,6 +2287,20 @@ func (c *config) ensurePlaywrightTLSIngressTunnel() error {
 	if err := waitForLocalTunnelListener(c.PlaywrightHTTPIngressPort); err != nil {
 		return fmt.Errorf("HTTP ingress tunnel on 127.0.0.1:%s: %w", c.PlaywrightHTTPIngressPort, err)
 	}
+	worker1IP, err := c.vmIPv4(c.SecondaryName)
+	if err != nil {
+		return err
+	}
+	// Dialled by the VM's own address, not loopback, so a literal listen
+	// selector naming that address is what the DNAT rule sees.
+	listenCmd, err := c.startSSHTunnel(c.SecondaryName, c.PlaywrightListenIngressPort, worker1IP, "443")
+	if err != nil {
+		return err
+	}
+	c.PlaywrightTunnelCmds = append(c.PlaywrightTunnelCmds, listenCmd)
+	if err := waitForLocalTunnelListener(c.PlaywrightListenIngressPort); err != nil {
+		return fmt.Errorf("listen ingress tunnel on 127.0.0.1:%s: %w", c.PlaywrightListenIngressPort, err)
+	}
 	return nil
 }
 
@@ -2463,12 +2482,14 @@ func (c *config) runPlaywrightFlows() error {
 	tlsIngressHost := c.Secondary2Name
 	tlsIngressPort := c.PlaywrightTLSIngressPort
 	httpIngressPort := c.PlaywrightHTTPIngressPort
+	listenIngressPort := c.PlaywrightListenIngressPort
 	if !c.PlaywrightBaseURLSet {
 		secondaryHost = "host.docker.internal"
 		tlsIngressHost = "host.docker.internal"
 	} else {
 		tlsIngressPort = "443"
 		httpIngressPort = "80"
+		listenIngressPort = "443"
 		if ip, err := c.vmIPv4(c.SecondaryName); err == nil && ip != "" {
 			secondaryHost = ip
 		}
@@ -2485,6 +2506,10 @@ func (c *config) runPlaywrightFlows() error {
 		"OPD_TLS_INGRESS_HOST":            tlsIngressHost,
 		"OPD_TLS_INGRESS_PORT":            tlsIngressPort,
 		"OPD_HTTP_INGRESS_PORT":           httpIngressPort,
+		"OPD_LISTEN_INGRESS_HOST":         secondaryHost,
+		"OPD_LISTEN_INGRESS_PORT":         listenIngressPort,
+		"OPD_WORKER_1_INGRESS_ADDRESS":    worker1IPv4,
+		"OPD_WORKER_2_INGRESS_ADDRESS":    worker2IPv4,
 		"OPD_WORKER_1_MACHINE_ID":         worker1MachineID,
 		"OPD_WORKER_2_MACHINE_ID":         worker2MachineID,
 		"OPD_IPV4_EGRESS_URL":             fmt.Sprintf("http://%s:%d/", worker2IPv4, ipv4EgressListenerPort),

@@ -21,11 +21,13 @@ type NodeCurrentRow struct {
 	OpendeployVersion string
 	RemoteAddress     string
 	EnrollmentPending int64
+	HostAddresses     string
 }
 
 const nodeCurrentColumns = `n.node_id, n.created_time, n.enrolled_time, n.name, n.identifier,
 	n.version, n.status, n.roles, n.addresses, n.wg_public_key, n.allowed_spaces,
-	COALESCE(ns.is_connected, 0), COALESCE(ns.opendeploy_version, ''), COALESCE(ns.remote_address, ''), COALESCE(ns.enrollment_pending, 0)`
+	COALESCE(ns.is_connected, 0), COALESCE(ns.opendeploy_version, ''), COALESCE(ns.remote_address, ''), COALESCE(ns.enrollment_pending, 0),
+	COALESCE(ns.host_addresses, '[]')`
 
 const nodeCurrentFrom = `FROM node_event_log n
 	JOIN (SELECT node_id, MAX(version) AS version
@@ -43,7 +45,7 @@ func scanNodeCurrentRow(scanner nodeScanner) (NodeCurrentRow, error) {
 	var r NodeCurrentRow
 	err := scanner.Scan(&r.ID, &r.CreatedAt, &r.EnrolledAt, &r.Name, &r.Identifier,
 		&r.Version, &r.Status, &r.Roles, &r.Addresses, &r.WgPublicKey, &r.AllowedSpaces,
-		&r.IsConnected, &r.OpendeployVersion, &r.RemoteAddress, &r.EnrollmentPending)
+		&r.IsConnected, &r.OpendeployVersion, &r.RemoteAddress, &r.EnrollmentPending, &r.HostAddresses)
 	return r, err
 }
 
@@ -236,7 +238,7 @@ func (q *Queries) GetNodeIDWithRole(ctx context.Context, role int64, statuses []
 
 func (q *Queries) ListNodeStatusRows(ctx context.Context) ([]NodeStatus, error) {
 	rows, err := q.db.QueryContext(ctx, `
-		SELECT id, node_id, last_connected_at, is_connected, opendeploy_version, remote_address, enrollment_pending
+		SELECT `+nodeStatusColumns+`
 		FROM node_statuses
 		ORDER BY id`)
 	if err != nil {
@@ -245,8 +247,8 @@ func (q *Queries) ListNodeStatusRows(ctx context.Context) ([]NodeStatus, error) 
 	defer rows.Close()
 	var out []NodeStatus
 	for rows.Next() {
-		var r NodeStatus
-		if err := rows.Scan(&r.ID, &r.NodeID, &r.LastConnectedAt, &r.IsConnected, &r.OpendeployVersion, &r.RemoteAddress, &r.EnrollmentPending); err != nil {
+		r, err := scanNodeStatus(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -268,15 +270,46 @@ type SetNodeConnectionStatusParams struct {
 }
 
 func (q *Queries) SetNodeConnectionStatus(ctx context.Context, p SetNodeConnectionStatusParams) (NodeStatus, error) {
-	var r NodeStatus
-	err := q.db.QueryRowContext(ctx, `
+	r, err := scanNodeStatus(q.db.QueryRowContext(ctx, `
 		UPDATE node_statuses
 		SET last_connected_at = CASE WHEN ? = 1 THEN ? ELSE last_connected_at END,
 			is_connected = ?
 		WHERE node_id = `+nodeIDByIdentifierExpr+`
-		RETURNING id, node_id, last_connected_at, is_connected, opendeploy_version, remote_address, enrollment_pending`,
-		p.Connected, p.LastConnectedAt, p.Connected, p.Identifier).
-		Scan(&r.ID, &r.NodeID, &r.LastConnectedAt, &r.IsConnected, &r.OpendeployVersion, &r.RemoteAddress, &r.EnrollmentPending)
+		RETURNING `+nodeStatusColumns,
+		p.Connected, p.LastConnectedAt, p.Connected, p.Identifier))
+	return r, err
+}
+
+// SetNodeHostAddresses replaces the node's reported host address list (JSON).
+// It returns the row even when unchanged; callers diff-gate notifications.
+func (q *Queries) SetNodeHostAddresses(ctx context.Context, identifier, hostAddressesJSON string) (NodeStatus, bool, error) {
+	current, err := q.getNodeStatusByIdentifier(ctx, identifier)
+	if err != nil {
+		return NodeStatus{}, false, err
+	}
+	if current.HostAddresses == hostAddressesJSON {
+		return current, false, nil
+	}
+	r, err := scanNodeStatus(q.db.QueryRowContext(ctx, `
+		UPDATE node_statuses
+		SET host_addresses = ?
+		WHERE node_id = `+nodeIDByIdentifierExpr+`
+		RETURNING `+nodeStatusColumns, hostAddressesJSON, identifier))
+	return r, err == nil, err
+}
+
+func (q *Queries) getNodeStatusByIdentifier(ctx context.Context, identifier string) (NodeStatus, error) {
+	return scanNodeStatus(q.db.QueryRowContext(ctx, `
+		SELECT `+nodeStatusColumns+`
+		FROM node_statuses
+		WHERE node_id = `+nodeIDByIdentifierExpr, identifier))
+}
+
+const nodeStatusColumns = `id, node_id, last_connected_at, is_connected, opendeploy_version, remote_address, enrollment_pending, host_addresses`
+
+func scanNodeStatus(scanner nodeScanner) (NodeStatus, error) {
+	var r NodeStatus
+	err := scanner.Scan(&r.ID, &r.NodeID, &r.LastConnectedAt, &r.IsConnected, &r.OpendeployVersion, &r.RemoteAddress, &r.EnrollmentPending, &r.HostAddresses)
 	return r, err
 }
 

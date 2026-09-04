@@ -203,7 +203,7 @@ func collectNft(kernel *KernelState) error {
 				case parsed.Masquerade:
 					kernel.Masquerade = true
 				case parsed.DNAT:
-					kernel.DNAT[dnatKey(family.name, chain.Name, parsed.Proto, parsed.HostPort, parsed.Source, parsed.Target, parsed.TargetPort)]++
+					kernel.DNAT[dnatKey(family.name, chain.Name, parsed.Proto, parsed.HostPort, parsed.Source, parsed.Dest, parsed.Target, parsed.TargetPort)]++
 				}
 			}
 		}

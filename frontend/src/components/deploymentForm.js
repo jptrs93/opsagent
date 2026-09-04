@@ -5,6 +5,7 @@ import {nodeAllowsSpace} from "../lib/nodeSpaces.js";
 import {deploymentDeleted} from "../lib/deployment.js";
 import {assetEditorOverlay} from "./assetEditor.js";
 import {referencePicker} from "./referencePicker.js";
+import {imageRepositoryFromReference} from "./deploymentSource.js";
 import {
     SOURCE_DOCKER_IMAGE,
     SOURCE_NIX_DOCKER,
@@ -306,7 +307,7 @@ export function formToSpec(form, workloadState = {}) {
         };
     } else if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
         source.remoteImage = {
-            image: form.containerImage.val.trim(),
+            image: imageRepositoryFromReference(form.containerImage.val),
         };
     }
 
@@ -669,7 +670,10 @@ function networkingSummaryText(form) {
     return parts.length === 0 ? "Virtual" : `Virtual, ${parts.join(', ')}`;
 }
 
-export function networkingPane(form) {
+// opts.nodes lists cluster nodes for listen summaries; opts.ingressDiagnostics
+// is the per-deployment warning list from the state stream. Both may be van
+// states or plain arrays.
+export function networkingPane(form, opts = {}) {
     return div(
         {class: () => configurationPaneClass(form.networkingPaneOpen.val)},
         div(
@@ -697,7 +701,7 @@ export function networkingPane(form) {
                     : "Virtual mode gives the container an isolated network namespace on the OpenDeploy virtual network. Add port forwarding when the workload must be reachable from the node's host interfaces."),
             ),
             () => Number(form.networkingMode.val) === NETWORKING_MODE_VIRTUAL ? portForwardingSection(form) : '',
-            () => Number(form.networkingMode.val) === NETWORKING_MODE_VIRTUAL ? ingressSection(form) : '',
+            () => Number(form.networkingMode.val) === NETWORKING_MODE_VIRTUAL ? ingressSection(form, opts) : '',
         ),
     );
 }
@@ -794,7 +798,11 @@ function portForwardingSection(form) {
     );
 }
 
-function ingressSection(form) {
+const unwrapState = (value) => value && typeof value === 'object' && 'val' in value ? value.val : value;
+
+function ingressSection(form, opts = {}) {
+    const nodes = () => unwrapState(opts.nodes) || [];
+    const diagnostics = () => unwrapState(opts.ingressDiagnostics) || [];
     const rows = () => form.ingress.val || [];
     const update = (row, patch) => {
         form.ingress.val = rows().map(route => route.id === row.id ? {...route, ...patch} : route);
@@ -809,7 +817,8 @@ function ingressSection(form) {
     const httpsRowsBody = () => tbody(httpsRoutes().map((route, index) => tr(
         {"data-testid": "deployment-https-ingress-row"},
         td({class: "pr-2 py-1 text-gray-300 whitespace-nowrap"}, "HTTPS"),
-        td({class: "pr-2 py-1 text-gray-400"}, `${route.hostname || ''}${route.httpsConfig?.pathPrefix && route.httpsConfig.pathPrefix !== "/" ? route.httpsConfig.pathPrefix : ''}`),
+        td({class: "pr-2 py-1 text-gray-400", title: `Published on ${listenSummary(route.listen, nodes())}`},
+            `${route.hostname || ''}${route.httpsConfig?.pathPrefix && route.httpsConfig.pathPrefix !== "/" ? route.httpsConfig.pathPrefix : ''}`),
         td({class: "pr-2 py-1 text-gray-500"}, "443"),
         td({class: "pr-2 py-1 text-gray-400"}, String(route.httpsConfig?.containerPort || '')),
         td({class: "py-1 text-right"}, button({
@@ -822,7 +831,7 @@ function ingressSection(form) {
     )));
     const rowsBody = stableRowsBody(rows, row => tr(
         {"data-testid": "deployment-ingress-row"},
-        td({class: "pr-2 py-1 text-gray-300 whitespace-nowrap"}, "TLS passthrough"),
+        td({class: "pr-2 py-1 text-gray-300 whitespace-nowrap", title: `Published on ${listenSummary(row.listen, nodes())}`}, "TLS passthrough"),
         td({class: "pr-2 py-1"}, input({
             type: "text",
             "data-testid": "deployment-ingress-hostname-input",
@@ -865,7 +874,7 @@ function ingressSection(form) {
             {class: "flex items-center justify-between gap-3"},
             div(
                 span({class: "text-xs text-gray-300"}, "Ingress"),
-                p({class: "text-[11px] leading-tight text-gray-500 mt-0.5"}, "TLS passthrough routes by SNI without termination; HTTPS routes terminate TLS and route by hostname and path prefix. HTTPS routes are edited in the HCL editor. The primary node reserves host port 443 for the Web UI."),
+                p({class: "text-[11px] leading-tight text-gray-500 mt-0.5"}, "TLS passthrough routes by SNI without termination; HTTPS routes terminate TLS and route by hostname and path prefix. HTTPS routes and listen selectors (which node addresses a route is published on) are edited in the HCL editor; hover a route for its listen summary."),
             ),
             button({
                 type: "button",
@@ -875,6 +884,13 @@ function ingressSection(form) {
             }, "Add route"),
         ),
         p({class: () => rows().length === 0 && httpsRoutes().length === 0 ? "text-[11px] text-gray-500" : "hidden"}, "No ingress routes configured."),
+        () => {
+            const deploymentId = Number(form.deploymentId?.val || 0);
+            const items = deploymentId ? diagnostics().filter(item => Number(item.deploymentId) === deploymentId) : [];
+            if (!items.length) return '';
+            return div({class: "flex flex-col gap-0.5", "data-testid": "deployment-ingress-warnings"},
+                ...items.map(item => p({class: "text-[11px] leading-tight text-amber-300", "data-testid": "deployment-ingress-warning"}, item.message)));
+        },
         table(
             {class: () => rows().length === 0 && httpsRoutes().length === 0 ? "hidden" : "w-full text-xs"},
             thead(tr(
@@ -915,6 +931,9 @@ function newIngressRow(values = {}) {
         hostname: values.hostname || '',
         hostPort: values.hostPort ? String(values.hostPort) : '',
         containerPort: values.containerPort ? String(values.containerPort) : '',
+        // Listen selectors are edited in HCL only; the form carries them
+        // through unchanged so a form save cannot widen a route.
+        listen: values.listen || [],
     };
 }
 
@@ -925,7 +944,23 @@ function ingressToFormRows(ingress) {
             hostname: route.hostname || '',
             hostPort: route.tlsPassthroughConfig.hostPort || '',
             containerPort: route.tlsPassthroughConfig.containerPort || '',
+            listen: route.listen || [],
         }));
+}
+
+// listenSummary renders a route's listen selectors the way the HCL does,
+// with node ids resolved to names.
+export function listenSummary(listen, nodes = []) {
+    if (!listen?.length) return "scheduled node, any address";
+    const nodeName = id => nodes.find(node => Number(node.id) === Number(id))?.name || `#${id}`;
+    return listen.map(entry => {
+        const node = entry?.node?.any ? "any node" : entry?.node?.nodeId ? `node ${nodeName(entry.node.nodeId)}` : "scheduled node";
+        const prefixes = entry?.address?.prefixes || [];
+        const address = prefixes.length ? prefixes.join(", ")
+            : Number(entry?.address?.family) === 1 ? "any IPv4 address"
+                : Number(entry?.address?.family) === 2 ? "any IPv6 address" : "any address";
+        return `${node}, ${address}`;
+    }).join("; ");
 }
 
 function resourcesSummary(form) {

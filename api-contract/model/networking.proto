@@ -91,6 +91,28 @@ message ClusterNetMapNode {
   // registers a key, and WireGuard is the only cross-node transport.
   string wg_public_key = 3;
   int32 wg_listen_port = 4;
+  // Concrete ingress DNAT set for this node, evaluated by the primary from the
+  // routes' listen selectors against the host address inventory.
+  repeated IngressPublish ingress_publish = 5;
+}
+
+// IngressPublish is one (host address, TCP port) the node forwards to its
+// netproxy. An empty address publishes on every local address.
+message IngressPublish {
+  string address = 1;
+  int32 port = 2;
+}
+
+// IngressDiagnostic is a non-fatal finding from ingress evaluation about one
+// deployment: a claim excluded by a reservation, a collision resolved in
+// another deployment's favour, or host-mode deployments on a published node.
+message IngressDiagnostic {
+  int32 deployment_id = 1;
+  string message = 2;
+}
+
+message IngressDiagnosticList {
+  repeated IngressDiagnostic items = 1;
 }
 
 // ClusterNetMapRoute points one routed prefix at the node hosting it. Only two

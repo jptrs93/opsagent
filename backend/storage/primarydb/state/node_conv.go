@@ -24,6 +24,7 @@ func nodeRowToNode(r pq.NodeCurrentRow) *Node {
 		CreatedAt:     time.UnixMilli(r.CreatedAt),
 		EnrolledAt:    time.UnixMilli(r.EnrolledAt),
 		AllowedSpaces: parseAllowedSpaces(r.AllowedSpaces),
+		HostAddresses: parseNodeAddresses(r.HostAddresses),
 	}
 }
 
@@ -37,6 +38,7 @@ func nodeStatusRowToProto(r pq.NodeStatus) *apigen.ClusterNodeStatus {
 		NodeID:          int32(r.NodeID),
 		LastConnectedAt: connectedAt,
 		IsConnected:     r.IsConnected != 0,
+		HostAddresses:   parseNodeAddresses(r.HostAddresses),
 	}
 }
 

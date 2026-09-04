@@ -25,8 +25,10 @@ import {deploymentDeleted} from "../lib/deployment.js";
 import {
     deploymentDocumentToHcl,
     deploymentHclCompletionOptions,
+    itemPath,
     parseDeploymentHcl,
 } from "./deploymentHcl.js";
+import {imageReference, imageRepositoryFromReference} from "./deploymentSource.js";
 import {deploymentHclTheme} from "./deploymentHclTheme.js";
 
 const {button, div, span} = van.tags;
@@ -36,8 +38,10 @@ const GLOBAL_SPACE_ID = 1;
 const schemaProperties = [
     "name", "space", "node", "image", "repo", "flake", "target", "user", "command",
     "working_dir", "data_mount_path", "mounts", "dev_shm_size_kb", "file_descriptor_limit", "strategy",
-    "readiness_timeout_seconds", "version", "mode", "ingress", "desired_running",
-    "read_only", "executable", "host_port",
+    "readiness_timeout_seconds", "version", "mode", "scheduling", "desired_running",
+    "read_only", "executable", "hostname", "container_port", "host_port", "protocol", "allow",
+    "path_prefix", "strip_prefix", "backend", "max_request_body_bytes", "flush_interval_ms", "cert",
+    "address",
 ].map(label => ({label, type: "property"}));
 
 const completionOptions = [...deploymentHclCompletionOptions, ...schemaProperties];
@@ -94,6 +98,8 @@ function catalogArrays(catalogs) {
         secretRefs: list("secretRefs"),
         configRefs: list("configRefs"),
         deployments: list("deployments"),
+        valueDirectories: list("valueDirectories"),
+        assetDirectories: list("assetDirectories"),
     };
 }
 
@@ -183,27 +189,56 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
     return [...options.values()].sort((left, right) => left.label.localeCompare(right.label));
 }
 
-function catalogVersionCompletionOptions(namespace, catalogs, text, name, spaceName) {
+// referenceSpaceOptions lists the spaces a secret, config, or asset
+// reference may name: the deployment's own space and the global space.
+function referenceSpaceOptions(catalogs, text, insideQuotes) {
     const refs = catalogArrays(catalogs);
-    let collection = namespace === "asset" ? refs.assets
+    const spaceID = selectedSpaceID(text, refs);
+    return refs.spaces
+        .filter(item => !item?.deleted && item?.name
+            && (spaceID === null || Number(item.id) === Number(spaceID) || Number(item.id) === GLOBAL_SPACE_ID))
+        .map(item => ({
+            label: String(item.name),
+            apply: insideQuotes ? String(item.name) : JSON.stringify(String(item.name)),
+            type: "variable",
+            detail: `ID ${item.id ?? "unknown"}`,
+        }))
+        .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function referenceSpaceID(refs, spaceName) {
+    return refs.spaces.find(item => !item?.deleted && item?.name === spaceName)?.id ?? null;
+}
+
+// referencePathOptions lists the folder paths of every item of one kind in
+// the named space, the second argument of a versioned reference.
+function referencePathOptions(namespace, catalogs, spaceName, insideQuotes) {
+    const refs = catalogArrays(catalogs);
+    const spaceID = referenceSpaceID(refs, spaceName);
+    if (spaceID === null) return [];
+    const collection = namespace === "asset" ? refs.assets
         : namespace === "secret" ? refs.secretRefs : refs.configRefs;
-    if (spaceName !== undefined && spaceName !== null) {
-        // An explicit space qualifier scopes versions to exactly that space.
-        const explicitID = refs.spaces.find(item => !item?.deleted && item?.name === spaceName)?.id;
-        if (explicitID === undefined) return [];
-        collection = collection.filter(item => Number(item?.spaceId) === Number(explicitID));
-    } else {
-        const spaceID = selectedSpaceID(text, refs);
-        if (spaceID !== null) {
-            // Same own-or-global scoping as name completion, with the
-            // deployment's own space shadowing a same-named global item.
-            collection = collection.filter(item => Number(item?.spaceId) === Number(spaceID)
-                || Number(item?.spaceId) === GLOBAL_SPACE_ID);
-            const ownSpace = collection.filter(item => Number(item?.spaceId) === Number(spaceID)
-                && catalogName(item, namespace) === name);
-            if (ownSpace.length > 0) collection = ownSpace;
-        }
+    const options = new Map();
+    for (const item of collection) {
+        if (item?.deleted || Number(item?.spaceId) !== Number(spaceID)) continue;
+        const path = itemPath(refs, namespace, item);
+        if (!path || options.has(path)) continue;
+        options.set(path, {
+            label: path,
+            apply: insideQuotes ? path : JSON.stringify(path),
+            type: "variable",
+            detail: `ID ${(namespace === "asset" ? item?.id : item?.stableId ?? item?.id) ?? "unknown"}`,
+        });
     }
+    return [...options.values()].sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function catalogVersionCompletionOptions(namespace, catalogs, spaceName, path) {
+    const refs = catalogArrays(catalogs);
+    const spaceID = referenceSpaceID(refs, spaceName);
+    if (spaceID === null) return [];
+    const collection = namespace === "asset" ? refs.assets
+        : namespace === "secret" ? refs.secretRefs : refs.configRefs;
     const versions = new Map();
     const addVersion = (version, id) => {
         if (version > 0) versions.set(version, {
@@ -213,7 +248,7 @@ function catalogVersionCompletionOptions(namespace, catalogs, text, name, spaceN
         });
     };
     for (const item of collection) {
-        if (item?.deleted || catalogName(item, namespace) !== name) continue;
+        if (item?.deleted || Number(item?.spaceId) !== Number(spaceID) || itemPath(refs, namespace, item) !== path) continue;
         if (namespace === "asset") {
             // Asset catalogs are view models whose pinnable versions live in
             // contentVersions, not at the root.
@@ -232,30 +267,59 @@ function schemaCompletion(catalogs, versionCompletions) {
     return context => {
         const prefixStart = Math.max(0, context.pos - 160);
         const prefix = context.state.sliceDoc(prefixStart, context.pos);
-        const versionReference = /(secret|config|asset)\(\s*"((?:\\.|[^"\\])*)"\s*,\s*\{\s*(?:space\s*=\s*"((?:\\.|[^"\\])*)"\s*,\s*)?version\s*=\s*([0-9]*)$/.exec(prefix);
+        // Versioned references: type("space", "folder/name"[, version]).
+        const versionReference = /(secret|config|asset)\(\s*"((?:\\.|[^"\\])*)"\s*,\s*"((?:\\.|[^"\\])*)"\s*,\s*([0-9]*)$/.exec(prefix);
         if (versionReference) {
-            let name;
             let spaceName;
+            let path;
             try {
-                name = JSON.parse(`"${versionReference[2]}"`);
-                spaceName = versionReference[3] === undefined ? undefined : JSON.parse(`"${versionReference[3]}"`);
+                spaceName = JSON.parse(`"${versionReference[2]}"`);
+                path = JSON.parse(`"${versionReference[3]}"`);
             } catch {
                 return null;
             }
             return {
                 from: context.pos - versionReference[4].length,
-                options: catalogVersionCompletionOptions(
-                    versionReference[1],
-                    catalogs,
-                    context.state.doc.toString(),
-                    name,
-                    spaceName,
-                ),
+                options: catalogVersionCompletionOptions(versionReference[1], catalogs, spaceName, path),
                 validFor: /^[0-9]*$/,
             };
         }
 
-        const workloadVersion = /(?:^|\n)\s*version\s*=\s*"([^"\n]*)$/.exec(prefix);
+        const pathReference = /(secret|config|asset)\(\s*"((?:\\.|[^"\\])*)"\s*,\s*(?:"([^"\n]*)|([A-Za-z0-9_./-]*))$/.exec(prefix);
+        if (pathReference) {
+            let spaceName;
+            try {
+                spaceName = JSON.parse(`"${pathReference[2]}"`);
+            } catch {
+                return null;
+            }
+            const partial = pathReference[3] ?? pathReference[4] ?? "";
+            const insideQuotes = pathReference[3] !== undefined;
+            return {
+                from: context.pos - partial.length,
+                options: referencePathOptions(pathReference[1], catalogs, spaceName, insideQuotes),
+                validFor: insideQuotes ? /^[^"\n]*$/ : /^[A-Za-z0-9_./-]*$/,
+            };
+        }
+
+        const referenceSpace = /(secret|config|asset)\(\s*(?:"([^"\n]*)|([A-Za-z0-9_.-]*))$/.exec(prefix);
+        if (referenceSpace) {
+            const partial = referenceSpace[2] ?? referenceSpace[3] ?? "";
+            const insideQuotes = referenceSpace[2] !== undefined;
+            return {
+                from: context.pos - partial.length,
+                options: referenceSpaceOptions(catalogs, context.state.doc.toString(), insideQuotes),
+                validFor: insideQuotes ? /^[^"\n]*$/ : /^[A-Za-z0-9_.-]*$/,
+            };
+        }
+
+        // The image tag after `image = "repository:` completes from the
+        // same loaded versions as the Nix commit string.
+        const imageTag = /(?:^|\n)\s*image\s*=\s*"([^"\n]*)$/.exec(prefix);
+        const imageTagTyped = imageTag && imageTag[1].length > imageRepositoryFromReference(imageTag[1]).length
+            ? [imageTag[1].slice(imageRepositoryFromReference(imageTag[1]).length + 1)]
+            : null;
+        const workloadVersion = imageTagTyped || /(?:^|\n)\s*version\s*=\s*"([^"\n]*)$/.exec(prefix);
         if (workloadVersion && versionCompletions) {
             const items = typeof versionCompletions === "function" ? versionCompletions() : versionCompletions;
             // Match the typed text against the full version and the label
@@ -277,29 +341,6 @@ function schemaCompletion(catalogs, versionCompletions) {
                 from: context.pos - workloadVersion[1].length,
                 options,
                 filter: false,
-            };
-        }
-
-        const spaceOption = /(?:secret|config|asset)\(\s*"(?:\\.|[^"\\])*"\s*,\s*\{\s*(?:version\s*=\s*[0-9]+\s*,\s*)?space\s*=\s*"([^"\n]*)$/.exec(prefix);
-        if (spaceOption) {
-            const refs = catalogArrays(catalogs);
-            const spaceID = selectedSpaceID(context.state.doc.toString(), refs);
-            // Reference locality: only the deployment's own space and the
-            // global space are valid qualifiers.
-            const options = refs.spaces
-                .filter(item => !item?.deleted && item?.name
-                    && (spaceID === null || Number(item.id) === Number(spaceID) || Number(item.id) === GLOBAL_SPACE_ID))
-                .map(item => ({
-                    label: String(item.name),
-                    apply: String(item.name),
-                    type: "variable",
-                    detail: `ID ${item.id ?? "unknown"}`,
-                }))
-                .sort((left, right) => left.label.localeCompare(right.label));
-            return {
-                from: context.pos - spaceOption[1].length,
-                options,
-                validFor: /^[^"\n]*$/,
             };
         }
 
@@ -333,7 +374,7 @@ function schemaCompletion(catalogs, versionCompletions) {
             };
         }
 
-        const reference = /(secret|config|asset|address|deployment|space|node)\(\s*(?:"([^"\n]*)|([A-Za-z0-9_.-]*))$/.exec(prefix);
+        const reference = /(address|deployment|space|node)\(\s*(?:"([^"\n]*)|([A-Za-z0-9_.-]*))$/.exec(prefix);
         if (reference) {
             const partial = reference[2] ?? reference[3] ?? "";
             const insideQuotes = reference[2] !== undefined;
@@ -669,24 +710,28 @@ export function deploymentCodeWidget(args) {
         tick();
     };
 
-    // setWorkloadVersion rewrites only the string of the root-level
-    // `version = "…"` attribute, so a version picked outside the editor lands
-    // in the text without re-serialising the document over the user's
-    // comments and formatting. The change goes through the normal update
-    // path, which commits it to the shared document. Falls back to the
-    // canonical text when the attribute is missing.
+    // setWorkloadVersion rewrites only the version already in the text — the
+    // Nix block's `version = "…"` string, or the tag of the container image
+    // reference — so a version picked outside the editor lands without
+    // re-serialising the document over the user's comments and formatting.
+    // The change goes through the normal update path, which commits it to
+    // the shared document. Falls back to the canonical text when neither
+    // attribute is present.
     const setWorkloadVersion = version => {
         if (!view) return;
         const text = view.state.doc.toString();
-        const match = /(^|\n)([ \t]*version[ \t]*=[ \t]*")([^"\n]*)"/.exec(text);
+        const versionMatch = /(^|\n)([ \t]*version[ \t]*=[ \t]*")([^"\n]*)"/.exec(text);
+        const imageMatch = /(^|\n)([ \t]*image[ \t]*=[ \t]*")([^"\n]*)"/.exec(text);
+        const match = versionMatch || imageMatch;
         if (!match) {
             if (!invalidDraft) setCanonicalDocument();
             return;
         }
         const from = match.index + match[1].length + match[2].length;
         const to = from + match[3].length;
-        if (match[3] === String(version)) return;
-        view.dispatch({changes: {from, to, insert: String(version)}});
+        const insert = match === versionMatch ? String(version) : imageReference(match[3], String(version));
+        if (match[3] === insert) return;
+        view.dispatch({changes: {from, to, insert}});
     };
 
     return {

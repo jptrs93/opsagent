@@ -13,6 +13,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
+	"github.com/jptrs93/opsagent/backend/lib/engine/imageref"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/network"
@@ -230,6 +231,9 @@ func validateIngress(ingress []*apigen.Ingress, secretStore deploymentSecretReso
 		if !ok {
 			return invalidConfigErrf("networking.ingress.hostname must be a valid DNS hostname")
 		}
+		if err := validateIngressListen(route.Listen); err != nil {
+			return err
+		}
 		switch route.Kind {
 		case apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH:
 			if route.HttpsConfig != nil {
@@ -279,6 +283,66 @@ func validateIngress(ingress []*apigen.Ingress, secretStore deploymentSecretReso
 	for key := range seenHTTPS {
 		if seen[ingressRouteKey{hostPort: defaultIngressHostPort, hostname: key.hostname}] {
 			return invalidConfigErrf("networking.ingress: %s cannot use both HTTPS and TLS_PASSTHROUGH on host port %d", key.hostname, defaultIngressHostPort)
+		}
+	}
+	return nil
+}
+
+// validateIngressListen checks each listen selector's shape and canonicalises
+// its address literals in place: bare addresses stay addresses, CIDRs are
+// masked, and a literal must agree with an explicit family.
+func validateIngressListen(entries []*apigen.IngressListen) error {
+	for _, entry := range entries {
+		if entry == nil {
+			return invalidConfigErrf("networking.ingress.listen: entry is required")
+		}
+		if entry.Node != nil {
+			if entry.Node.Any && entry.Node.NodeID != 0 {
+				return invalidConfigErrf("networking.ingress.listen.node: any and nodeId are mutually exclusive")
+			}
+			if entry.Node.NodeID < 0 {
+				return invalidConfigErrf("networking.ingress.listen.node.nodeId must be positive")
+			}
+		}
+		if entry.Address == nil {
+			continue
+		}
+		switch entry.Address.Family {
+		case apigen.AddressFamily_ADDRESS_FAMILY_ANY, apigen.AddressFamily_ADDRESS_FAMILY_IPV4, apigen.AddressFamily_ADDRESS_FAMILY_IPV6:
+		default:
+			return invalidConfigErrf("networking.ingress.listen.address.family: unsupported value %d", entry.Address.Family)
+		}
+		seen := map[string]bool{}
+		for i, raw := range entry.Address.Prefixes {
+			value := strings.TrimSpace(raw)
+			var canonical string
+			var is6 bool
+			if addr, err := netip.ParseAddr(value); err == nil {
+				if addr.Zone() != "" || addr.Is4In6() {
+					return invalidConfigErrf("networking.ingress.listen.address: %q must be a plain IPv4 or IPv6 address", raw)
+				}
+				canonical, is6 = addr.String(), addr.Is6()
+			} else if prefix, err := netip.ParsePrefix(value); err == nil {
+				if prefix.Addr().Zone() != "" || prefix.Addr().Is4In6() {
+					return invalidConfigErrf("networking.ingress.listen.address: %q must be a plain IPv4 or IPv6 prefix", raw)
+				}
+				if prefix.Bits() == prefix.Addr().BitLen() {
+					canonical = prefix.Addr().String()
+				} else {
+					canonical = prefix.Masked().String()
+				}
+				is6 = prefix.Addr().Is6()
+			} else {
+				return invalidConfigErrf("networking.ingress.listen.address: %q is not an IP address or CIDR prefix", raw)
+			}
+			if entry.Address.Family == apigen.AddressFamily_ADDRESS_FAMILY_IPV4 && is6 || entry.Address.Family == apigen.AddressFamily_ADDRESS_FAMILY_IPV6 && !is6 {
+				return invalidConfigErrf("networking.ingress.listen.address: %q does not belong to the selected family", raw)
+			}
+			if seen[canonical] {
+				return invalidConfigErrf("networking.ingress.listen.address: duplicate entry %q", canonical)
+			}
+			seen[canonical] = true
+			entry.Address.Prefixes[i] = canonical
 		}
 	}
 	return nil
@@ -388,16 +452,6 @@ type httpsRouteKey struct {
 	pathPrefix string
 }
 
-func certSourceClaim(source *apigen.CertSource) string {
-	if source == nil || source.Acme != nil {
-		return "acme"
-	}
-	if source.Secret != nil {
-		return fmt.Sprintf("secret:%d", source.Secret.SecretVersionID)
-	}
-	return "acme"
-}
-
 type ingressRouteKey struct {
 	hostPort int32
 	hostname string
@@ -426,103 +480,6 @@ func ingressHostname(value string) (string, bool) {
 		}
 	}
 	return hostname, true
-}
-
-func validateNodeNetworkingClaims(primaryNodeID int32, live state.LiveState, nodeID, deploymentID int32, candidate *apigen.DeploymentSpec) error {
-	if candidate == nil {
-		return nil
-	}
-	routes := map[ingressRouteKey]int32{}
-	httpsRoutes := map[httpsRouteKey]int32{}
-	httpsHosts := map[string]int32{}
-	httpsHostCerts := map[string]string{}
-	tcpPorts := map[int32]int32{}
-	add := func(id int32, spec apigen.DeploymentSpec) error {
-		if spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
-			return nil
-		}
-		for _, pf := range spec.Networking.PortForwarding {
-			if pf != nil && pf.Protocol == apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP && pf.HostPort >= 1 && pf.HostPort <= 65535 {
-				if _, claimed := tcpPorts[pf.HostPort]; !claimed {
-					tcpPorts[pf.HostPort] = id
-				}
-			}
-		}
-		for _, route := range spec.Networking.Ingress {
-			if route == nil {
-				continue
-			}
-			hostname, ok := ingressHostname(route.Hostname)
-			if !ok {
-				continue
-			}
-			switch {
-			case route.Kind == apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH && route.TlsPassthroughConfig != nil:
-				key := ingressRouteKey{hostPort: ingressHostPort(route.TlsPassthroughConfig.HostPort), hostname: hostname}
-				// The primary Web UI owns :443 until it and ingress share one listener.
-				if id == deploymentID && nodeID == primaryNodeID && key.hostPort == defaultIngressHostPort {
-					return invalidConfigErrf("networking.ingress: host port %d is reserved for the primary Web UI", key.hostPort)
-				}
-				if owner, claimed := routes[key]; claimed && owner != id {
-					return invalidConfigErrf("networking.ingress: %s on host port %d is already claimed by another deployment on this node", hostname, key.hostPort)
-				}
-				routes[key] = id
-			case route.Kind == apigen.IngressKind_INGRESS_KIND_HTTPS && route.HttpsConfig != nil:
-				prefix, ok := normalizeHTTPSPathPrefix(route.HttpsConfig.PathPrefix)
-				if !ok {
-					continue
-				}
-				if id == deploymentID && nodeID == primaryNodeID {
-					return invalidConfigErrf("networking.ingress: host port %d is reserved for the primary Web UI", defaultIngressHostPort)
-				}
-				key := httpsRouteKey{hostname: hostname, pathPrefix: prefix}
-				if owner, claimed := httpsRoutes[key]; claimed && owner != id {
-					return invalidConfigErrf("networking.ingress: HTTPS route %s%s is already claimed by another deployment on this node", hostname, prefix)
-				}
-				httpsRoutes[key] = id
-				httpsHosts[hostname] = id
-				claim := certSourceClaim(route.HttpsConfig.CertSource)
-				if existing, ok := httpsHostCerts[hostname]; ok && existing != claim {
-					return invalidConfigErrf("networking.ingress: certSource for %s must match across all HTTPS routes on this node", hostname)
-				}
-				httpsHostCerts[hostname] = claim
-			}
-		}
-		return nil
-	}
-
-	for _, cfg := range live.Deployments {
-		if cfg.Def.NodeID != nodeID || cfg.ID == deploymentID {
-			continue
-		}
-		if err := add(cfg.ID, cfg.Def.Spec); err != nil {
-			return err
-		}
-	}
-	if err := add(deploymentID, *candidate); err != nil {
-		return err
-	}
-	for key := range routes {
-		if _, claimed := tcpPorts[key.hostPort]; claimed {
-			return invalidConfigErrf("networking: TCP host port %d conflicts with ingress on this node", key.hostPort)
-		}
-		if key.hostPort == defaultIngressHostPort {
-			if _, claimed := httpsHosts[key.hostname]; claimed {
-				return invalidConfigErrf("networking.ingress: %s cannot use both HTTPS and TLS_PASSTHROUGH on host port %d on this node", key.hostname, key.hostPort)
-			}
-		}
-		if key.hostPort == httpsRedirectHostPort && len(httpsRoutes) > 0 {
-			return invalidConfigErrf("networking.ingress: host port %d conflicts with HTTPS ingress redirects on this node", key.hostPort)
-		}
-	}
-	if len(httpsRoutes) > 0 {
-		for _, port := range []int32{defaultIngressHostPort, httpsRedirectHostPort} {
-			if _, claimed := tcpPorts[port]; claimed {
-				return invalidConfigErrf("networking: TCP host port %d conflicts with HTTPS ingress on this node", port)
-			}
-		}
-	}
-	return nil
 }
 
 type portForwardKey struct {
@@ -770,7 +727,14 @@ func sameDesiredVersionSource(a, b *apigen.DeploymentSpec) bool {
 		}
 		return aNix.Repo == bNix.Repo && aFlake == bFlake
 	case aContainer != nil && bContainer != nil && aContainer.Source.RemoteImage != nil && bContainer.Source.RemoteImage != nil:
-		return aContainer.Source.RemoteImage.Image == bContainer.Source.RemoteImage.Image
+		// A tag inside the stored reference is a version, not a source.
+		aImage, bImage := aContainer.Source.RemoteImage.Image, bContainer.Source.RemoteImage.Image
+		aRef, aErr := imageref.RepositoryRef(aImage)
+		bRef, bErr := imageref.RepositoryRef(bImage)
+		if aErr != nil || bErr != nil {
+			return aImage == bImage
+		}
+		return aRef == bRef
 	case a.OpendeploySpec != nil && b.OpendeploySpec != nil:
 		return true
 	default:

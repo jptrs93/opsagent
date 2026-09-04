@@ -64,8 +64,9 @@ in the schema (deny is defined to win over allow) but is not implemented and
 is rejected on config writes, so a restriction can never be saved silently
 unenforced. In the mixed-version window an older agent decodes the spec but
 ignores `ipFilter` and publishes the port unfiltered — upgrade agents before
-relying on a filter. The HCL form is
-`port_forward("tcp", 5432, { allow = ["203.0.113.7", "198.51.100.0/24"] })`.
+relying on a filter. The HCL form is a `port_forward` block inside `ingress`
+with `protocol`, `container_port`, optional `host_port` (default
+`container_port`), and `allow` (see Ingress Shape).
 
 `networking.ingress` also requires virtual mode. The supported kinds are
 `TLS_PASSTHROUGH` and `HTTPS` (see Ingress Shape below). A `TLS_PASSTHROUGH`
@@ -73,8 +74,10 @@ route carries a hostname and a `tlsPassthroughConfig` containing
 `containerPort` plus optional `hostPort` (zero/default is `443`). The route and
 raw TCP forwarding cannot claim the same host port on a node; multiple distinct
 hostnames can share one ingress host port. Netproxy reads the TLS ClientHello to
-match SNI, then forwards the original TCP stream to an established backend. The primary
-node reserves `:443` for the Web UI until both can share one listener.
+match SNI, then forwards the original TCP stream to an established backend. Every
+route carries `listen` selectors choosing the (node, host address) pairs it is
+published on; the primary's Web UI listener is a reserved claim in the same
+evaluation rather than a blanket `:443` reservation (see Listen selectors).
 
 Virtual networking supports ROLLOVER without host-port bind contention because candidate containers bind inside their own network namespace. Host networking also supports ROLLOVER, but it is cooperative: the candidate must not bind conflicting host ports before signaling readiness, then waits for the old runner to stop and release the port.
 
@@ -409,7 +412,7 @@ that run ends.
 
 The proxy-backed ingress config is separate from raw `portForwarding`. Each
 kind owns its configuration message; the envelope carries the kind-independent
-claim fields (kind, hostname):
+claim fields (kind, hostname, listen):
 
 ```js
 ingress: [
@@ -417,6 +420,7 @@ ingress: [
     kind: "TLS_PASSTHROUGH",
     hostname: "db.example.com",
     tlsPassthroughConfig: {hostPort: 443, containerPort: 5432},
+    listen: [],                 // empty = every host address of the scheduled node
   },
   {
     kind: "HTTPS",
@@ -430,9 +434,127 @@ ingress: [
       flushIntervalMs: 0,       // 0 = auto; < 0 = flush every write
       certSource: {acme: {}},   // or {secret: {secretVersionId}}; unset = acme
     },
+    listen: [
+      {node: {nodeId: 2}, address: {prefixes: ["203.0.113.10"]}},
+      {address: {family: "IPV4"}},
+    ],
   },
 ]
 ```
+
+The HCL `network` section is block-form. `ingress` holds repeated `https`,
+`tls_passthrough`, and `port_forward` blocks; ports are always named
+`container_port` and `host_port` (`https` has no `host_port`: it is 443).
+`listen` is a repeated block inside a route whose attributes default to the
+scheduled node and any address:
+
+```hcl
+network {
+  mode = "virtual"
+
+  ingress {
+    https {
+      hostname          = "api.example.com"
+      container_port    = 5001
+      flush_interval_ms = -1
+      cert              = acme()
+
+      listen {
+        node    = node("primary")
+        address = "203.0.113.10"
+      }
+    }
+
+    tls_passthrough {
+      hostname       = "db.example.com"
+      container_port = 5432
+      host_port      = 5433
+      listen { address = ipv6() }
+    }
+
+    port_forward {
+      protocol       = "tcp"
+      container_port = 5432
+      allow          = ["198.51.100.0/24"]
+    }
+  }
+}
+```
+
+`node` is `scheduled_node()` (the default: the node the deployment is
+scheduled on), `node("name")`, or `any_node()` (every node that can reach the
+backend); `address` is an IP or CIDR string, a list of them, `ipv4()`,
+`ipv6()`, or `any_address()`. The renderer omits
+attributes at their default and emits `listen` blocks only when set. The call
+form (`https("host", 8080, {...})`) is not accepted; pasting it produces one
+diagnostic naming the block form.
+
+### Listen selectors
+
+Netproxy binds wildcard ports inside its own namespace and never sees the
+selectors. The restriction is applied by the agent's nftables DNAT rules,
+which match `daddr` against the published addresses instead of `fib daddr type
+local`, so a rule for one port can coexist with another listener on the same
+port at a different address. Because DNAT is per (address, port), two
+hostnames sharing a port on one node share its publish set: restricting one
+route's `listen` narrows nothing while another route on the same node and
+port stays wide.
+
+Each agent reports its host address inventory in `ClusterHello.host_addresses`
+(global unicast addresses on interfaces it does not manage: no loopback,
+link-local, WireGuard underlay, workload veth, cluster ULA, or IPv4 egress
+range) and re-sends it when a 30-second poll sees a change; the primary
+enumerates its own the same way. The inventory lives on `node_statuses` and
+shows on the Machines page. An empty inventory (an agent that does not report
+it yet) is treated as unknown: wildcard selectors publish on every local
+address and literal selectors publish their literal.
+
+The default node selector is the scheduled node, so a route follows its
+workload: an omitted `node` (or `scheduled_node()`) publishes only on the
+node the deployment is scheduled on, and stays there when cross-node dialling
+lands. Widening is opt-in through `any_node()`. Ingress is served by the
+deployment's own node today: netproxy does not yet dial backends on other
+machines, so `node("name")` naming any other node is rejected at create and
+update (and flagged in the editor), and `any_node()` is accepted but expands
+to the hosting node until cross-node dialling exists, at which point routes
+carrying it widen without a config change.
+
+`lib/ingressplan` evaluates every virtual deployment's routes against the
+inventory. Both the save-time validation (`webuihandler`) and the network map
+publisher call it, so the answer given at save cannot differ from the publish
+set distributed to nodes. Expansion per route: the node selector intersected
+with the nodes that can reach the backend (today the hosting node only), each
+node's inventory filtered by the address selector, crossed with the route's
+ports (443 and 80 for HTTPS; the host port for passthrough). The default
+selector bypasses the reachable set and uses the scheduled node directly. Rules:
+
+- The Web UI listeners (`https_web.listen`, `http_web.listen`, when enabled)
+  are reservations on the primary. A literal selector equal to a reserved
+  address (or any literal when the listen host is a wildcard) is an error
+  naming the Web UI; a wildcard or family selector that expands onto a
+  reservation is dropped from the publish set and reported as a warning. A
+  settings change that would turn an existing literal claim into an error is
+  rejected.
+- Two deployments whose expanded claims share (node, address, port, hostname)
+  — for HTTPS, (node, address, hostname, path prefix) — collide. At save time
+  the candidate is rejected; between stored deployments (possible when the
+  inventory changes after save) the lower id keeps the claim and both are
+  warned. Cross-kind hostname claims and `certSource` mismatches on one
+  hostname are collisions too, as are raw TCP port forwards on an ingress
+  port of the same node.
+- A wildcard or family selector expanding onto a node that hosts host-mode
+  deployments produces a warning naming them; their bound ports are not
+  visible to the evaluator.
+
+The publisher distributes each node's concrete set as
+`ClusterNetMapNode.ingress_publish` (`[(address, port)]`, empty address =
+every local address). Secondaries normalise it on acceptance and apply it
+with `network.Manager.SetNetproxyPublish`, which renders one `HostPortRule`
+per port with `Dest` set to that port's addresses; the primary applies its
+own entry through the same map path. `netaudit` parses the `daddr` match
+into its DNAT keys so restricted rules audit clean. Warnings and exclusions
+are published on the state stream (`ingress_diagnostics_snapshot`) and shown
+in the deployment editor's networking pane.
 
 ### HTTPS termination
 

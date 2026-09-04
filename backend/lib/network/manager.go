@@ -30,7 +30,6 @@ func New(prefix Prefix, netproxyDeploymentID int32) *Manager {
 		containerNets:        map[string]*ContainerNet{},
 		filterNets:           map[string]*ContainerNet{},
 		hostPorts:            map[int32]hostPortsEntry{},
-		netproxyIngressPorts: map[uint16]struct{}{},
 		current:              map[int32]*ContainerNet{},
 	}
 }
@@ -62,10 +61,10 @@ type Manager struct {
 	// rebuilt from this map on every change.
 	hostPorts map[int32]hostPortsEntry
 
-	// netproxyIngressPorts is the node-local ingress listener set rendered into
-	// NetState. It is forwarded to the current netproxy container separately
-	// from the immutable netproxy deployment spec.
-	netproxyIngressPorts map[uint16]struct{}
+	// netproxyPublish is the (host address, port) set the primary evaluated for
+	// this node's ingress routes. It is forwarded to the current netproxy
+	// container separately from the immutable netproxy deployment spec.
+	netproxyPublish []IngressPublish
 
 	// current tracks which container currently receives each deployment's stable
 	// route after publication or promotion.
@@ -120,7 +119,9 @@ func (m *Manager) scheduleReconcileRetryLocked() {
 
 // HostPortRule publishes one container port on the machine's host interfaces.
 // IPv4 traffic DNATs to the container's machine-local v4; IPv6 traffic DNATs
-// to the stable inbound address I.
+// to the stable inbound address I. An empty Dest publishes on every local
+// address; otherwise only traffic addressed to one of the Dest prefixes is
+// forwarded, per address family.
 type HostPortRule struct {
 	Protocol   uint8
 	HostPort   uint16
@@ -130,6 +131,29 @@ type HostPortRule struct {
 	Filtered   bool
 	AllowV4    []netip.Prefix
 	AllowV6    []netip.Prefix
+	Dest       []netip.Prefix
+}
+
+// DestFor returns the destination prefixes of one family. restricted reports
+// whether the rule names destinations at all; a restricted rule with no
+// prefixes of the family publishes nothing on that family.
+func (r HostPortRule) DestFor(is6 bool) (dests []netip.Prefix, restricted bool) {
+	if len(r.Dest) == 0 {
+		return nil, false
+	}
+	for _, dest := range r.Dest {
+		if dest.Addr().Is6() == is6 {
+			dests = append(dests, dest)
+		}
+	}
+	return dests, true
+}
+
+// IngressPublish is one (host address, TCP port) the node forwards to its
+// netproxy. A zero Address publishes on every local address.
+type IngressPublish struct {
+	Address netip.Addr
+	Port    uint16
 }
 
 // ContainerNet describes the netns wiring of one running container.
@@ -183,6 +207,9 @@ func validateContainerAddressIdentity(prefix Prefix, deploymentID int32, inbound
 // into the network map. Deliberately not the stock 51820, so a host already
 // running its own WireGuard does not collide with the managed device.
 const DefaultWGListenPort uint16 = 51833
+
+// WGLinkName is the managed WireGuard device carrying cross-node traffic.
+const WGLinkName = "odwg0"
 
 // SetWGPrivateKey installs the node-local WireGuard private key loaded at
 // boot. The key never appears in the network map; the map only carries each

@@ -1129,12 +1129,12 @@ func TestDeploymentCreateRejectsIngressClaimsAlreadyUsedOnNode(t *testing.T) {
 	}
 }
 
-func TestDeploymentCreateRejectsPrimaryIngressOnPort443(t *testing.T) {
+func TestDeploymentCreateAllowsPrimaryIngressAndRejectsOverlap(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := store.EnsurePrimaryNode("primary", "primary")
-	secondary := store.EnsurePrimaryNode("secondary", "secondary")
+	store.SetNodeHostAddresses("primary", []string{"203.0.113.10"})
 	h := &Handler{ConfigService: &config.Service{}, Store: store, NodeID: primary.ID}
-	spec := func() apigen.DeploymentSpec {
+	spec := func(listen ...*apigen.IngressListen) apigen.DeploymentSpec {
 		return remoteDeploymentSpec("postgres", apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 			Ingress: []*apigen.Ingress{{
@@ -1143,24 +1143,30 @@ func TestDeploymentCreateRejectsPrimaryIngressOnPort443(t *testing.T) {
 				TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
 					ContainerPort: 5432,
 				},
+				Listen: listen,
 			}},
 		})
 	}
+	// The primary no longer reserves :443 by fiat; the Web UI listener is a
+	// reserved claim evaluated like any other (see ingress_listen_validation_test).
+	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		SpaceID: 1, Name: "primary-database", NodeID: primary.ID, Spec: spec(),
+	}); err != nil {
+		t.Fatalf("primary :443 ingress was rejected: %v", err)
+	}
 	_, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		SpaceID: 1, Name: "primary-database",
-		NodeID: primary.ID,
-		Spec:   spec(),
+		SpaceID: 1, Name: "primary-database-2", NodeID: primary.ID,
+		Spec: spec(&apigen.IngressListen{Address: &apigen.AddressSelector{Prefixes: []string{"203.0.113.10"}}}),
 	})
-	if err == nil || !strings.Contains(err.Error(), "reserved for the primary Web UI") {
-		t.Fatalf("err = %v, want primary :443 reservation", err)
+	if err == nil || !strings.Contains(err.Error(), "already claimed by another deployment") {
+		t.Fatalf("err = %v, want overlapping listen rejection", err)
 	}
 	_, err = h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		SpaceID: 1, Name: "secondary-database",
-		NodeID: secondary.ID,
-		Spec:   spec(),
+		SpaceID: 1, Name: "primary-database-3", NodeID: primary.ID,
+		Spec: spec(&apigen.IngressListen{Address: &apigen.AddressSelector{Prefixes: []string{"not an address"}}}),
 	})
-	if err != nil {
-		t.Fatalf("secondary :443 ingress was rejected: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "not an IP address or CIDR prefix") {
+		t.Fatalf("err = %v, want listen literal rejection", err)
 	}
 }
 

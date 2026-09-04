@@ -1,12 +1,15 @@
 import {FULL_GIT_COMMIT_RE, validateLocalFlakePath} from "./deploymentSource.js";
 
 import {deploymentDeleted} from "../lib/deployment.js";
+import {imageReference, imageRepositoryFromReference, imageVersionFromReference} from "./deploymentSource.js";
 const NETWORK_VIRTUAL = 1;
 const NETWORK_HOST = 2;
 const PROTOCOL_TCP = 1;
 const PROTOCOL_UDP = 2;
 const INGRESS_TLS_PASSTHROUGH = 1;
 const INGRESS_HTTPS = 2;
+const ADDRESS_FAMILY_IPV4 = 1;
+const ADDRESS_FAMILY_IPV6 = 2;
 const HTTP_BACKEND_H2C = 1;
 const UPGRADE_RECREATE = 1;
 const UPGRADE_ROLLOVER = 2;
@@ -27,21 +30,28 @@ export const deploymentHclCompletionOptions = [
     {label: "resources", type: "keyword", info: "Container resource overrides"},
     {label: "upgrade", type: "keyword", info: "Container upgrade policy"},
     {label: "network", type: "keyword", info: "Deployment networking"},
+    {label: "ingress", type: "keyword", info: "Published routes and ports (virtual mode)"},
+    {label: "https", type: "keyword", info: "Terminate HTTPS and route by hostname and path prefix"},
+    {label: "tls_passthrough", type: "keyword", info: "Route TLS by SNI without termination"},
+    {label: "port_forward", type: "keyword", info: "Publish a TCP or UDP port"},
+    {label: "listen", type: "keyword", info: "Where a route is published: node and address selectors"},
     {label: "space", type: "function", info: "Resolve a space by name"},
     {label: "node", type: "function", info: "Resolve a node by name"},
-    {label: "secret", type: "function", info: "Resolve a secret by name and optional version/space options"},
-    {label: "config", type: "function", info: "Resolve a config by name and optional version/space options"},
-    {label: "asset", type: "function", info: "Resolve an asset by key and optional version/space options"},
+    {label: "secret", type: "function", info: 'Resolve a secret: secret("space", "folder/name"[, version])'},
+    {label: "config", type: "function", info: 'Resolve a config: config("space", "folder/name"[, version])'},
+    {label: "asset", type: "function", info: 'Resolve an asset: asset("space", "folder/key"[, version])'},
     {label: "address", type: "function", info: "Resolve an address by space and deployment name"},
     {label: "mount", type: "function", info: "Mount a typed source"},
     {label: "default_volume", type: "function", info: "The deployment default volume"},
     {label: "deployment", type: "function", info: "Resolve a default volume by space and deployment name"},
     {label: "host_path", type: "function", info: "A host bind-mount path"},
     {label: "issued_tls", type: "function", info: "Platform-issued TLS cert/key files for this deployment; ca_only = true mounts only the workload CA certificate"},
-    {label: "port_forward", type: "function", info: "Publish a TCP or UDP port"},
-    {label: "tls_passthrough", type: "function", info: "Route TLS by SNI"},
-    {label: "https", type: "function", info: "Terminate HTTPS and route by hostname and path prefix"},
     {label: "acme", type: "function", info: "Obtain the route certificate via ACME HTTP-01"},
+    {label: "scheduled_node", type: "function", info: "listen node selector: the node the deployment is scheduled on (the default)"},
+    {label: "any_node", type: "function", info: "listen node selector: every node that can reach the backend"},
+    {label: "any_address", type: "function", info: "listen address selector: every host address"},
+    {label: "ipv4", type: "function", info: "listen address selector: every IPv4 host address"},
+    {label: "ipv6", type: "function", info: "listen address selector: every IPv6 host address"},
 ];
 
 class ParseFailure extends Error {
@@ -271,7 +281,7 @@ function expandAssetVersions(metas) {
     for (const meta of metas) {
         for (const ref of meta.contentVersions || []) {
             if (!Number(ref?.id || 0)) continue;
-            out.push({id: Number(ref.id), key: meta.key, spaceId: meta.spaceId, version: Number(ref.version || 0)});
+            out.push({id: Number(ref.id), key: meta.key, spaceId: meta.spaceId, directoryId: Number(meta.directoryId || 0), version: Number(ref.version || 0)});
         }
     }
     return out;
@@ -290,6 +300,8 @@ function normalizedCatalogs(catalogs) {
         secretRefs: list("secretRefs"),
         configRefs: list("configRefs"),
         deployments: list("deployments"),
+        valueDirectories: list("valueDirectories"),
+        assetDirectories: list("assetDirectories"),
     };
 }
 
@@ -313,8 +325,28 @@ function itemID(item, type) {
     return item?.id;
 }
 
-function isVersionedResource(type) {
-    return type === "asset" || type === "secret" || type === "config";
+function versionedCollection(catalogs, type) {
+    return type === "asset" ? catalogs.assets
+        : type === "secret" ? catalogs.secretRefs : catalogs.configRefs;
+}
+
+// Values and assets are unique per folder, so a reference names an item by
+// its folder path within a space. Directory ids are global; the walk stops
+// at the space root (parent 0) or at a folder the catalog does not carry.
+export function itemPath(catalogs, type, item) {
+    const dirs = (type === "asset" ? catalogs.assetDirectories : catalogs.valueDirectories) || [];
+    const byId = new Map(dirs.map(dir => [Number(dir?.id), dir]));
+    const segments = [itemName(item, type) || ""];
+    const seen = new Set();
+    let current = Number(item?.directoryId || 0);
+    while (current && !seen.has(current)) {
+        seen.add(current);
+        const dir = byId.get(current);
+        if (!dir) break;
+        segments.unshift((type === "asset" ? dir.key : dir.name) || "");
+        current = Number(dir.parentId || 0);
+    }
+    return segments.join("/");
 }
 
 function scopedItems(items, type, spaceId) {
@@ -356,32 +388,21 @@ function nameForID(catalogs, type, id, spaceId) {
     return itemName(item, type) || placeholder(type, id);
 }
 
-function versionedReferenceForID(catalogs, type, id, pinVersions, spaceId) {
-    const collection = type === "asset" ? catalogs.assets
-        : type === "secret" ? catalogs.secretRefs : catalogs.configRefs;
+// versionedReferenceForID renders secret("space", "folder/name"[, version])
+// and the config and asset forms. The version is omitted only when it is the
+// latest and the caller allows unpinned references.
+function versionedReferenceForID(catalogs, type, id, pinVersions) {
+    const collection = versionedCollection(catalogs, type);
     const item = findByID(collection, type, id);
-    const name = itemName(item, type) || placeholder(type, id);
+    const path = item ? itemPath(catalogs, type, item) : placeholder(type, id);
     const referenceSpaceId = itemSpace(item, type);
+    const space = item ? nameForID(catalogs, "space", referenceSpaceId) : placeholder("space", "");
     const version = Number(item?.version || 0);
-    // Names are only unique within a space, so "latest" must compare against
-    // versions of the same-space item, not a same-named one elsewhere.
-    const latestVersion = scopedItems(collection, type)
-        .filter(candidate => itemName(candidate, type) === name
-            && (referenceSpaceId === undefined || referenceSpaceId === null
-                || Number(itemSpace(candidate, type)) === Number(referenceSpaceId)))
+    const latestVersion = scopedItems(collection, type, referenceSpaceId)
+        .filter(candidate => itemPath(catalogs, type, candidate) === path)
         .reduce((latest, candidate) => Math.max(latest, Number(candidate?.version || 0)), 0);
-    const options = [];
-    // An unqualified name resolves in the deployment's space (shadowing the
-    // global space), so cross-space references must carry the space explicitly
-    // or a later same-named item in the deployment's space would capture them.
-    if (item && referenceSpaceId !== undefined && referenceSpaceId !== null
-        && spaceId !== undefined && spaceId !== null
-        && Number(referenceSpaceId) !== Number(spaceId)) {
-        options.push(`space = ${quote(nameForID(catalogs, "space", referenceSpaceId))}`);
-    }
-    if (version > 0 && (pinVersions || version < latestVersion)) options.push(`version = ${version}`);
-    const suffix = options.length ? `, { ${options.join(", ")} }` : "";
-    return `${type}(${quote(name)}${suffix})`;
+    const suffix = version > 0 && (pinVersions || version < latestVersion) ? `, ${version}` : "";
+    return `${type}(${quote(space)}, ${quote(path)}${suffix})`;
 }
 
 function deploymentReferenceForID(catalogs, functionName, id) {
@@ -392,34 +413,48 @@ function deploymentReferenceForID(catalogs, functionName, id) {
     return `${functionName}(${quote(space)}, ${quote(name)})`;
 }
 
-function envValueToHcl(value, catalogs, spaceId, pinVersions) {
+function envValueToHcl(value, catalogs, pinVersions) {
     if (value?.secretVersionId !== undefined && value.secretVersionId !== null) {
-        return versionedReferenceForID(catalogs, "secret", value.secretVersionId, pinVersions, spaceId);
+        return versionedReferenceForID(catalogs, "secret", value.secretVersionId, pinVersions);
     }
     if (value?.configVersionId !== undefined && value.configVersionId !== null) {
-        return versionedReferenceForID(catalogs, "config", value.configVersionId, pinVersions, spaceId);
+        return versionedReferenceForID(catalogs, "config", value.configVersionId, pinVersions);
     }
     if (value?.addressDeploymentId !== undefined && value.addressDeploymentId !== null) {
         return deploymentReferenceForID(catalogs, "address", value.addressDeploymentId);
     }
     if (value?.assetVersionId || value?.asset) {
-        return versionedReferenceForID(catalogs, "asset", value.assetVersionId, pinVersions, spaceId);
+        return versionedReferenceForID(catalogs, "asset", value.assetVersionId, pinVersions);
     }
     return quote(value?.value ?? "");
 }
 
-function imageReferenceVersion(raw) {
-    let image = String(raw || "").trim();
-    image = image.replace(/^docker:\/\//, "").replace(/^https?:\/\//, "").replace(/\/$/, "");
-    const digestIndex = image.indexOf("@");
-    if (digestIndex >= 0) return image.slice(digestIndex + 1);
-    const lastSlash = image.lastIndexOf("/");
-    const lastColon = image.lastIndexOf(":");
-    return lastColon > lastSlash ? image.slice(lastColon + 1) : "";
-}
-
 function mountOption(name, value) {
     return value ? `, { ${name} = true }` : "";
+}
+
+// listenBlockLines renders one listen selector, omitting attributes at their
+// default (scheduled node, any address).
+function listenBlockLines(entry, catalogs) {
+    const lines = [];
+    const node = entry?.node;
+    if (node?.any) {
+        lines.push("node = any_node()");
+    } else if (node?.nodeId) {
+        lines.push(`node = node(${quote(nameForID(catalogs, "node", node.nodeId))})`);
+    }
+    const address = entry?.address;
+    const prefixes = address?.prefixes || [];
+    if (prefixes.length === 1) {
+        lines.push(`address = ${quote(prefixes[0])}`);
+    } else if (prefixes.length > 1) {
+        lines.push(`address = [${prefixes.map(quote).join(", ")}]`);
+    } else if (Number(address?.family) === ADDRESS_FAMILY_IPV4) {
+        lines.push("address = ipv4()");
+    } else if (Number(address?.family) === ADDRESS_FAMILY_IPV6) {
+        lines.push("address = ipv6()");
+    }
+    return lines;
 }
 
 export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
@@ -438,9 +473,6 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     const add = (depth, line = "") => lines.push(`${"  ".repeat(depth)}${line}`);
 
     add(0, "deployment {");
-    // No placement yet reads as a placeholder the person is meant to replace,
-    // not as an unresolved id.
-    add(1, `node = node(${quote(doc.nodeId ? nameForID(refs, "node", doc.nodeId) : "select-a-node")})`);
     add(1, `name = ${quote(identity.name)}`);
     add(1, `space = space(${quote(nameForID(refs, "space", spaceId))})`);
     add(0);
@@ -452,10 +484,11 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
         add(4, `repo = ${quote(nixSource.repo)}`);
         add(4, `flake = ${quote(nixSource.flake)}`);
         if (nixSource.target) add(4, `target = ${quote(nixSource.target)}`);
+        add(4, `version = ${quote(container.version)}`);
         add(3, "}");
     } else {
         add(3, "container_image {");
-        add(4, `image = ${quote(source.remoteImage?.image)}`);
+        add(4, `image = ${quote(imageReference(source.remoteImage?.image, container.version))}`);
         add(3, "}");
     }
     add(2, "}");
@@ -477,7 +510,7 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     if (envNames.length) {
         add(0);
         add(2, "env_vars = {");
-        for (const name of envNames) add(3, `${quote(name)} = ${envValueToHcl(envVars[name], refs, spaceId, pinVersions)}`);
+        for (const name of envNames) add(3, `${quote(name)} = ${envValueToHcl(envVars[name], refs, pinVersions)}`);
         add(2, "}");
     }
 
@@ -494,7 +527,7 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
         mounts.push(`mount(${mountSource}, ${quote(mount?.containerPath)}${mountOption("read_only", mount?.permission === PERMISSION_READ_ONLY)})`);
     }
     for (const mount of runtime.assetMounts || []) {
-        const mountSource = versionedReferenceForID(refs, "asset", mount?.assetVersionId, pinVersions, spaceId);
+        const mountSource = versionedReferenceForID(refs, "asset", mount?.assetVersionId, pinVersions);
         mounts.push(`mount(${mountSource}, ${quote(mount?.containerPath)}${mountOption("executable", mount?.permission === PERMISSION_READ_EXECUTE)})`);
     }
     if (runtime.issuedTlsMount) {
@@ -532,57 +565,74 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
         add(2, "}");
     }
 
-    add(0);
-    add(2, `version = ${quote(container.version)}`);
     add(1, "}");
     add(0);
     add(1, "network {");
     const mode = networking.mode === NETWORK_VIRTUAL ? "virtual"
         : networking.mode === NETWORK_HOST ? "host" : placeholder("network_mode", networking.mode);
     add(2, `mode = ${quote(mode)}`);
-    const ingress = [];
+    const routeBlocks = [];
     for (const route of networking.portForwarding || []) {
         const protocol = route?.protocol === PROTOCOL_UDP ? "udp" : "tcp";
         const containerPort = Number(route?.containerPort || 0);
         const hostPort = Number(route?.hostPort || 0);
-        const parts = [];
-        if (hostPort && hostPort !== containerPort) parts.push(`host_port = ${hostPort}`);
+        const lines = [`protocol = ${quote(protocol)}`, `container_port = ${containerPort}`];
+        if (hostPort && hostPort !== containerPort) lines.push(`host_port = ${hostPort}`);
         const allow = route?.ipFilter?.allow || [];
-        if (allow.length) parts.push(`allow = [${allow.map(quote).join(", ")}]`);
-        const options = parts.length ? `, { ${parts.join(", ")} }` : "";
-        ingress.push(`port_forward(${quote(protocol)}, ${containerPort}${options})`);
+        if (allow.length) lines.push(`allow = [${allow.map(quote).join(", ")}]`);
+        routeBlocks.push({name: "port_forward", lines, listen: []});
     }
     for (const route of networking.ingress || []) {
         if (route?.kind === INGRESS_HTTPS || route?.httpsConfig) {
             const config = route?.httpsConfig || {};
-            const parts = [];
-            if (config.pathPrefix && config.pathPrefix !== "/") parts.push(`path_prefix = ${quote(config.pathPrefix)}`);
-            if (config.stripPrefix) parts.push("strip_prefix = true");
-            if (config.backendProtocol === HTTP_BACKEND_H2C) parts.push('backend = "h2c"');
-            if (config.maxRequestBodyBytes) parts.push(`max_request_body_bytes = ${Number(config.maxRequestBodyBytes)}`);
-            if (config.flushIntervalMs) parts.push(`flush_interval_ms = ${Number(config.flushIntervalMs)}`);
+            const lines = [`hostname = ${quote(route?.hostname)}`, `container_port = ${Number(config.containerPort || 0)}`];
+            if (config.pathPrefix && config.pathPrefix !== "/") lines.push(`path_prefix = ${quote(config.pathPrefix)}`);
+            if (config.stripPrefix) lines.push("strip_prefix = true");
+            if (config.backendProtocol === HTTP_BACKEND_H2C) lines.push('backend = "h2c"');
+            if (config.maxRequestBodyBytes) lines.push(`max_request_body_bytes = ${Number(config.maxRequestBodyBytes)}`);
+            if (config.flushIntervalMs) lines.push(`flush_interval_ms = ${Number(config.flushIntervalMs)}`);
             if (config.certSource?.secret) {
-                parts.push(`cert = ${versionedReferenceForID(refs, "secret", config.certSource.secret.secretVersionId, pinVersions, spaceId)}`);
+                lines.push(`cert = ${versionedReferenceForID(refs, "secret", config.certSource.secret.secretVersionId, pinVersions)}`);
             } else if (config.certSource?.acme) {
-                parts.push("cert = acme()");
+                lines.push("cert = acme()");
             }
-            const options = parts.length ? `, { ${parts.join(", ")} }` : "";
-            ingress.push(`https(${quote(route?.hostname)}, ${Number(config.containerPort || 0)}${options})`);
+            routeBlocks.push({name: "https", lines, listen: route?.listen || []});
             continue;
         }
         const config = route?.tlsPassthroughConfig || {};
-        const options = config.hostPort ? `, { host_port = ${Number(config.hostPort)} }` : "";
-        ingress.push(`tls_passthrough(${quote(route?.hostname)}, ${Number(config.containerPort || 0)}${options})`);
+        const lines = [`hostname = ${quote(route?.hostname)}`, `container_port = ${Number(config.containerPort || 0)}`];
+        if (config.hostPort) lines.push(`host_port = ${Number(config.hostPort)}`);
+        routeBlocks.push({name: "tls_passthrough", lines, listen: route?.listen || []});
     }
-    if (ingress.length) {
+    if (routeBlocks.length) {
         add(0);
-        add(2, "ingress = [");
-        for (const route of ingress) add(3, `${route},`);
-        add(2, "]");
+        add(2, "ingress {");
+        routeBlocks.forEach((block, index) => {
+            if (index) add(0);
+            add(3, `${block.name} {`);
+            for (const line of block.lines) add(4, line);
+            for (const entry of block.listen) {
+                const listenLines = listenBlockLines(entry, refs);
+                if (!listenLines.length) {
+                    add(4, "listen {}");
+                    continue;
+                }
+                add(4, "listen {");
+                for (const line of listenLines) add(5, line);
+                add(4, "}");
+            }
+            add(3, "}");
+        });
+        add(2, "}");
     }
     add(1, "}");
     add(0);
-    add(1, `desired_running = ${container.running ? "true" : "false"}`);
+    add(1, "scheduling {");
+    // No placement yet reads as a placeholder the person is meant to replace,
+    // not as an unresolved id.
+    add(2, `node = node(${quote(doc.nodeId ? nameForID(refs, "node", doc.nodeId) : "select-a-node")})`);
+    add(2, `desired_running = ${container.running ? "true" : "false"}`);
+    add(1, "}");
     add(0, "}");
     return `${lines.join("\n")}\n`;
 }
@@ -599,11 +649,12 @@ function firstBlock(parent, name) {
     return members(parent, "block", name)[0] || null;
 }
 
-function validateMembers(text, diagnostics, parent, allowedAttributes, allowedBlocks, dynamicAttributes = false) {
+function validateMembers(text, diagnostics, parent, allowedAttributes, allowedBlocks, dynamicAttributes = false, repeatableBlocks = new Set()) {
     const seen = new Set();
     for (const item of parent?.body || []) {
         const key = `${item.kind}:${item.name}`;
-        if (seen.has(key)) diagnostics.push(diagnostic(text, item.nameToken, `${item.name} is declared more than once.`));
+        const repeatable = item.kind === "block" && repeatableBlocks.has(item.name);
+        if (seen.has(key) && !repeatable) diagnostics.push(diagnostic(text, item.nameToken, `${item.name} is declared more than once.`));
         seen.add(key);
         if (item.kind === "attribute" && !dynamicAttributes && !allowedAttributes.has(item.name)) {
             diagnostics.push(diagnostic(text, item.nameToken, `Attribute ${item.name} is not valid in ${parent.name || "the document"}.`));
@@ -660,25 +711,9 @@ function integerValue(text, diagnostics, attr, description, minimum = 0, maximum
 function resolveNamed(text, diagnostics, expression, type, name, catalogs, spaceId, options = {}) {
     const collection = type === "space" ? catalogs.spaces
         : type === "node" ? catalogs.nodes
-            : type === "asset" ? catalogs.assets
-                : type === "secret" ? catalogs.secretRefs
-                    : type === "config" ? catalogs.configRefs
-                        : catalogs.deployments;
+            : catalogs.deployments;
     let matches = scopedItems(collection, type, type === "deployment" ? spaceId : undefined)
         .filter(item => itemName(item, type) === name);
-    if (isVersionedResource(type) && options.spaceId !== undefined && options.spaceId !== null) {
-        // Explicit space qualifier: resolve in exactly that space, bypassing
-        // the own-space-shadows-global rule.
-        matches = matches.filter(item => Number(itemSpace(item, type)) === Number(options.spaceId));
-    } else if (isVersionedResource(type) && spaceId !== undefined && spaceId !== null) {
-        // Reference locality: a deployment may pin secrets, configs, and
-        // assets only from its own space or the global space, and its own
-        // space shadows a global name.
-        matches = matches.filter(item => Number(itemSpace(item, type)) === Number(spaceId)
-            || Number(itemSpace(item, type)) === GLOBAL_SPACE_ID);
-        const ownSpace = matches.filter(item => Number(itemSpace(item, type)) === Number(spaceId));
-        if (ownSpace.length > 0) matches = ownSpace;
-    }
     if (type === "deployment" && options.nodeId !== undefined && options.nodeId !== null) {
         matches = matches.filter(item => Number(deploymentOf(item)?.def?.nodeId) === Number(options.nodeId));
     }
@@ -688,23 +723,11 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
         const ownNode = matches.filter(item => Number(deploymentOf(item)?.def?.nodeId) === Number(options.preferNodeId));
         if (ownNode.length > 0) matches = ownNode;
     }
-    if (isVersionedResource(type)) {
-        if (options.version !== undefined && options.version !== null) {
-            matches = matches.filter(item => Number(item?.version || 0) === Number(options.version));
-        } else {
-            const latest = matches.reduce((version, item) => Math.max(version, Number(item?.version || 0)), -1);
-            if (latest >= 0) matches = matches.filter(item => Number(item?.version || 0) === latest);
-        }
-    }
     matches = uniqueByID(matches, type);
     if (matches.length === 0) {
         const scope = type === "node" ? " in the cluster"
             : type === "deployment" ? " in the selected space"
-                : isVersionedResource(type)
-                    ? (options.spaceName !== undefined && options.spaceName !== null
-                        ? ` in space ${quote(options.spaceName)}`
-                        : " in the deployment's space or the global space")
-                    : "";
+                : "";
         diagnostics.push(diagnostic(text, expression, `No ${type} named ${quote(name)} exists${scope}.`));
         return null;
     }
@@ -758,38 +781,65 @@ function optionBoolean(text, diagnostics, options, name) {
     return booleanValue(text, diagnostics, option, `Option ${name}`) ?? false;
 }
 
-// referenceOptions parses the optional {version, space} object on secret,
-// config, and asset references. An explicit space names the space the item
-// lives in — required for cross-space (global) references because bare names
-// resolve own-space-first — and must still satisfy reference locality.
-function referenceOptions(text, diagnostics, expression, description, catalogs, deploymentSpaceId) {
-    if (!expression) return {};
-    const options = validateObject(text, diagnostics, expression, new Set(["version", "space"]));
-    if (!options.get("version") && !options.get("space")) {
-        diagnostics.push(diagnostic(text, expression, `${description} options must contain version or space.`));
-        return {};
+const capitalize = word => `${word[0].toUpperCase()}${word.slice(1)}`;
+
+function referenceShape(type) {
+    return `${type}("space", "${type === "asset" ? "folder/key" : "folder/name"}"[, version])`;
+}
+
+// versionedReference resolves secret("space", "folder/name"[, version]) and
+// the config and asset forms. The space is explicit and must be the
+// deployment's own or the global space; the path is the item's folder path
+// within that space; an omitted version selects the latest.
+function versionedReference(text, diagnostics, expression, type, catalogs, spaceId) {
+    const args = expression?.args || [];
+    const label = `${capitalize(type)} references`;
+    if (args.length === 1 || (args.length === 2 && args[1].kind === "object")) {
+        diagnostics.push(diagnostic(text, expression, `${label} are ${referenceShape(type)}; the { version, space } options object is gone.`));
+        return null;
     }
-    const result = {};
-    const versionAttr = options.get("version");
-    if (versionAttr) {
-        result.version = integerValue(text, diagnostics, versionAttr, `${description} version`, 1) ?? undefined;
+    if (args.length < 2 || args.length > 3 || args[0].kind !== "string" || !args[0].value
+        || args[1].kind !== "string" || !args[1].value) {
+        diagnostics.push(diagnostic(text, expression, `${label} are ${referenceShape(type)}.`));
+        return null;
     }
-    const spaceAttr = options.get("space");
-    if (spaceAttr) {
-        const spaceName = stringValue(text, diagnostics, spaceAttr, `${description} space`, {nonempty: true});
-        if (spaceName !== null) {
-            const space = resolveNamed(text, diagnostics, spaceAttr.value, "space", spaceName, catalogs);
-            if (space) {
-                if (deploymentSpaceId !== undefined && deploymentSpaceId !== null
-                    && Number(space.id) !== Number(deploymentSpaceId) && Number(space.id) !== GLOBAL_SPACE_ID) {
-                    diagnostics.push(diagnostic(text, spaceAttr.value, `${description}s may only use the deployment's space or the global space.`));
-                }
-                result.spaceId = Number(space.id);
-                result.spaceName = spaceName;
-            }
+    let version = null;
+    if (args.length === 3) {
+        if (args[2].kind !== "number" || !Number.isInteger(args[2].value) || args[2].value < 1) {
+            diagnostics.push(diagnostic(text, args[2], `${capitalize(type)} version must be a positive integer.`));
+            return null;
         }
+        version = args[2].value;
     }
-    return result;
+    const space = resolveNamed(text, diagnostics, args[0], "space", args[0].value, catalogs);
+    if (!space) return null;
+    // Reference locality: a deployment may pin secrets, configs, and assets
+    // only from its own space or the global space.
+    if (spaceId !== undefined && spaceId !== null
+        && Number(space.id) !== Number(spaceId) && Number(space.id) !== GLOBAL_SPACE_ID) {
+        diagnostics.push(diagnostic(text, args[0], `${label} may only use the deployment's space or the global space.`));
+        return null;
+    }
+    const path = args[1].value;
+    let matches = scopedItems(versionedCollection(catalogs, type), type, Number(space.id))
+        .filter(item => itemPath(catalogs, type, item) === path);
+    if (version !== null) {
+        matches = matches.filter(item => Number(item?.version || 0) === version);
+    } else {
+        const latest = matches.reduce((best, item) => Math.max(best, Number(item?.version || 0)), -1);
+        if (latest >= 0) matches = matches.filter(item => Number(item?.version || 0) === latest);
+    }
+    matches = uniqueByID(matches, type);
+    if (matches.length === 0) {
+        const suffix = version !== null ? ` version ${version}` : "";
+        diagnostics.push(diagnostic(text, expression, `No ${type} at ${quote(path)}${suffix} exists in space ${quote(args[0].value)}.`));
+        return null;
+    }
+    if (matches.length > 1) {
+        diagnostics.push(diagnostic(text, expression, `${capitalize(type)} reference ${quote(path)} is ambiguous.`));
+        return null;
+    }
+    return matches[0];
 }
 
 function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime) {
@@ -825,10 +875,8 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime
             if (pathExpression.value !== DEFAULT_DATA_PATH) runtime.defaultVolume.containerPath = pathExpression.value;
             continue;
         }
-        if (source.name === "asset" && source.args.length >= 1 && source.args.length <= 2
-            && source.args[0].kind === "string" && source.args[0].value) {
-            const referenceOpts = referenceOptions(text, diagnostics, source.args[1], "Asset reference", catalogs, spaceId);
-            const asset = resolveNamed(text, diagnostics, source, "asset", source.args[0].value, catalogs, spaceId, referenceOpts);
+        if (source.name === "asset") {
+            const asset = versionedReference(text, diagnostics, source, "asset", catalogs, spaceId);
             const options = optionsExpression ? validateObject(text, diagnostics, optionsExpression, new Set(["executable"])) : new Map();
             if (asset) {
                 assetMounts.push({
@@ -896,7 +944,7 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime
             });
             continue;
         }
-        diagnostics.push(diagnostic(text, source, 'Mount source must be default_volume(), asset("key"[, { version = number }]), deployment("space", "deployment"), host_path("/host"), or issued_tls([{ extra_names = [...] }]).'));
+        diagnostics.push(diagnostic(text, source, 'Mount source must be default_volume(), asset("space", "folder/key"[, version]), deployment("space", "deployment"), host_path("/host"), or issued_tls([{ extra_names = [...] }]).'));
     }
     const crossDeploymentMounts = mounts.filter(mount => mount.deploymentId);
     const customMounts = mounts.filter(mount => mount.hostPath);
@@ -931,9 +979,8 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
             setEnv(entry.name, {value: value.value});
             continue;
         }
-        if (value.kind !== "call" || value.args.length < 1 || value.args.length > 2 || value.args[0].kind !== "string" || !value.args[0].value
-            || !["secret", "config", "asset", "address"].includes(value.name)) {
-            diagnostics.push(diagnostic(text, value, 'Environment values must be strings or typed references such as secret("name", { version = 1 }) or address("space", "deployment").'));
+        if (value.kind !== "call" || !["secret", "config", "asset", "address"].includes(value.name)) {
+            diagnostics.push(diagnostic(text, value, 'Environment values must be strings or typed references such as secret("space", "folder/name", 1) or address("space", "deployment").'));
             continue;
         }
         const type = value.name === "address" ? "deployment" : value.name;
@@ -943,9 +990,7 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
             // cross-deployment mounts which are node-local.
             item = deploymentReference(text, diagnostics, value, catalogs, nodeId, {anyNode: true});
         } else {
-            const referenceOpts = referenceOptions(text, diagnostics, value.args[1],
-                `${value.name[0].toUpperCase()}${value.name.slice(1)} reference`, catalogs, spaceId);
-            item = resolveNamed(text, diagnostics, value, type, value.args[0].value, catalogs, spaceId, referenceOpts);
+            item = versionedReference(text, diagnostics, value, type, catalogs, spaceId);
         }
         if (!item) continue;
         if (value.name === "secret") setEnv(entry.name, {secretVersionId: Number(item.id)});
@@ -959,124 +1004,178 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
     container.envVars = envVars;
 }
 
-function parseIngress(text, diagnostics, attr, networking, catalogs, spaceId) {
-    if (!attr) return 0;
-    if (attr.value.kind !== "list") {
-        diagnostics.push(diagnostic(text, attr.value, "ingress must be a list of route function calls."));
-        return 0;
+const INGRESS_BLOCK_HINT = "Ingress routes are declared as blocks: ingress { https { ... } tls_passthrough { ... } port_forward { ... } }.";
+const SCHEDULING_BLOCK_HINT = 'Placement and desired state live in the scheduling block: scheduling { node = node("name") desired_running = true }.';
+const SOURCE_VERSION_HINT = 'version is declared inside the source block: nix_docker_build { version = "…" }, or the tag of container_image { image = "repository:tag" }.';
+const IMAGE_VERSION_HINT = 'A container image is versioned by its reference: image = "repository:tag" or "repository@sha256:…"; there is no separate version attribute.';
+
+function portValue(text, diagnostics, attr, description) {
+    return integerValue(text, diagnostics, attr, description, 1, 65535);
+}
+
+// Ingress is served by the deployment's own node until netproxy can dial
+// backends on other machines, so a node selector may only name that node.
+function parseListenBlocks(text, diagnostics, parent, catalogs, nodeId) {
+    const entries = [];
+    for (const block of members(parent, "block", "listen")) {
+        validateMembers(text, diagnostics, block, new Set(["node", "address"]), new Set());
+        const entry = {};
+        const nodeAttr = firstAttribute(block, "node");
+        if (nodeAttr) {
+            const value = nodeAttr.value;
+            if (value.kind === "call" && value.name === "scheduled_node" && value.args.length === 0) {
+                // The default: omitted from the stored selector.
+            } else if (value.kind === "call" && value.name === "any_node" && value.args.length === 0) {
+                entry.node = {any: true};
+            } else if (value.kind === "call" && value.name === "node" && value.args.length === 1 && value.args[0].kind === "string" && value.args[0].value) {
+                const node = resolveNamed(text, diagnostics, value, "node", value.args[0].value, catalogs);
+                if (node && nodeId !== null && nodeId !== undefined && Number(node.id) !== Number(nodeId)) {
+                    diagnostics.push(diagnostic(text, value, "Ingress is served by the deployment's own node; listen node must be that node."));
+                } else if (node) {
+                    entry.node = {nodeId: Number(node.id)};
+                }
+            } else {
+                diagnostics.push(diagnostic(text, value, 'listen node must be scheduled_node(), node("name"), or any_node().'));
+            }
+        }
+        const addressAttr = firstAttribute(block, "address");
+        if (addressAttr) {
+            const value = addressAttr.value;
+            const literals = value.kind === "string" ? [value] : value.kind === "list" ? value.items : null;
+            if (value.kind === "call" && value.name === "any_address" && value.args.length === 0) {
+                entry.address = {};
+            } else if (value.kind === "call" && value.name === "ipv4" && value.args.length === 0) {
+                entry.address = {family: ADDRESS_FAMILY_IPV4};
+            } else if (value.kind === "call" && value.name === "ipv6" && value.args.length === 0) {
+                entry.address = {family: ADDRESS_FAMILY_IPV6};
+            } else if (literals && literals.length) {
+                const prefixes = [];
+                for (const item of literals) {
+                    if (item.kind !== "string" || !validIpFilterEntry(item.value)) {
+                        diagnostics.push(diagnostic(text, item, "listen address entries must be quoted IP addresses or CIDR prefixes."));
+                        continue;
+                    }
+                    prefixes.push(item.value.trim());
+                }
+                if (prefixes.length) entry.address = {prefixes};
+            } else {
+                diagnostics.push(diagnostic(text, value, 'listen address must be an IP or CIDR string, a list of them, ipv4(), ipv6(), or any_address().'));
+            }
+        }
+        entries.push(entry);
     }
+    return entries;
+}
+
+function parseIngressBlock(text, diagnostics, block, networking, catalogs, spaceId, nodeId) {
+    if (!block) return 0;
+    validateMembers(text, diagnostics, block, new Set(), new Set(["port_forward", "tls_passthrough", "https"]), false,
+        new Set(["port_forward", "tls_passthrough", "https"]));
     const portForwarding = [];
     const ingress = [];
-    for (const route of attr.value.items) {
-        if (route.kind === "call" && route.name === "port_forward" && route.args.length >= 2 && route.args.length <= 3) {
-            const [protocol, containerPort, optionsExpression] = route.args;
-            if (protocol.kind !== "string" || (protocol.value !== "tcp" && protocol.value !== "udp")) {
-                diagnostics.push(diagnostic(text, protocol, 'Port-forward protocol must be "tcp" or "udp".'));
-                continue;
+    let count = 0;
+    for (const route of members(block, "block")) {
+        if (route.name === "port_forward") {
+            count++;
+            validateMembers(text, diagnostics, route, new Set(["protocol", "container_port", "host_port", "allow"]), new Set());
+            const protocolAttr = requireAttribute(text, diagnostics, route, "protocol");
+            const protocol = stringValue(text, diagnostics, protocolAttr, "Port-forward protocol");
+            if (protocolAttr && protocol !== null && protocol !== "tcp" && protocol !== "udp") {
+                diagnostics.push(diagnostic(text, protocolAttr.value, 'Port-forward protocol must be "tcp" or "udp".'));
             }
-            if (containerPort.kind !== "number" || containerPort.value < 1 || containerPort.value > 65535) {
-                diagnostics.push(diagnostic(text, containerPort, "Port-forward container port must be an integer from 1 to 65535."));
-                continue;
-            }
-            const options = optionsExpression ? validateObject(text, diagnostics, optionsExpression, new Set(["host_port", "allow"])) : new Map();
-            const hostPortEntry = options.get("host_port");
-            const hostPort = hostPortEntry
-                ? integerValue(text, diagnostics, hostPortEntry, "Port-forward host_port", 1, 65535)
-                : containerPort.value;
+            const containerPort = portValue(text, diagnostics, requireAttribute(text, diagnostics, route, "container_port"), "Port-forward container_port");
+            const hostPortAttr = firstAttribute(route, "host_port");
+            const hostPort = hostPortAttr ? portValue(text, diagnostics, hostPortAttr, "Port-forward host_port") : containerPort;
+            if (protocol === null || containerPort === null || hostPort === null || (protocol !== "tcp" && protocol !== "udp")) continue;
             const forward = {
-                protocol: protocol.value === "tcp" ? PROTOCOL_TCP : PROTOCOL_UDP,
-                hostPort: hostPort ?? containerPort.value,
-                containerPort: containerPort.value,
+                protocol: protocol === "tcp" ? PROTOCOL_TCP : PROTOCOL_UDP,
+                hostPort,
+                containerPort,
             };
-            const allowEntry = options.get("allow");
-            if (allowEntry) {
-                const allow = ipFilterAllowList(text, diagnostics, allowEntry);
+            const allowAttr = firstAttribute(route, "allow");
+            if (allowAttr) {
+                const allow = ipFilterAllowList(text, diagnostics, allowAttr);
                 if (allow?.length) forward.ipFilter = {allow};
             }
             portForwarding.push(forward);
             continue;
         }
-        if (route.kind === "call" && route.name === "tls_passthrough" && route.args.length >= 2 && route.args.length <= 3) {
-            const [hostname, containerPort, optionsExpression] = route.args;
-            if (hostname.kind !== "string" || !hostname.value) {
-                diagnostics.push(diagnostic(text, hostname, "TLS passthrough hostname must be a non-empty quoted string."));
-                continue;
-            }
-            if (containerPort.kind !== "number" || containerPort.value < 1 || containerPort.value > 65535) {
-                diagnostics.push(diagnostic(text, containerPort, "TLS passthrough container port must be an integer from 1 to 65535."));
-                continue;
-            }
-            const options = optionsExpression ? validateObject(text, diagnostics, optionsExpression, new Set(["host_port"])) : new Map();
-            const hostPortEntry = options.get("host_port");
-            const hostPort = hostPortEntry ? integerValue(text, diagnostics, hostPortEntry, "TLS passthrough host_port", 1, 65535) : 0;
-            ingress.push({kind: INGRESS_TLS_PASSTHROUGH, hostname: hostname.value, tlsPassthroughConfig: {hostPort: hostPort ?? 0, containerPort: containerPort.value}});
+        if (route.name === "tls_passthrough") {
+            count++;
+            validateMembers(text, diagnostics, route, new Set(["hostname", "container_port", "host_port"]), new Set(["listen"]), false, new Set(["listen"]));
+            const hostname = stringValue(text, diagnostics, requireAttribute(text, diagnostics, route, "hostname"), "TLS passthrough hostname", {nonempty: true});
+            const containerPort = portValue(text, diagnostics, requireAttribute(text, diagnostics, route, "container_port"), "TLS passthrough container_port");
+            const hostPortAttr = firstAttribute(route, "host_port");
+            const hostPort = hostPortAttr ? portValue(text, diagnostics, hostPortAttr, "TLS passthrough host_port") : 0;
+            const listen = parseListenBlocks(text, diagnostics, route, catalogs, nodeId);
+            if (hostname === null || containerPort === null || hostPort === null) continue;
+            const entry = {kind: INGRESS_TLS_PASSTHROUGH, hostname, tlsPassthroughConfig: {hostPort, containerPort}};
+            if (listen.length) entry.listen = listen;
+            ingress.push(entry);
             continue;
         }
-        if (route.kind === "call" && route.name === "https" && route.args.length >= 2 && route.args.length <= 3) {
-            const [hostname, containerPort, optionsExpression] = route.args;
-            if (hostname.kind !== "string" || !hostname.value) {
-                diagnostics.push(diagnostic(text, hostname, "HTTPS hostname must be a non-empty quoted string."));
-                continue;
-            }
-            if (containerPort.kind !== "number" || containerPort.value < 1 || containerPort.value > 65535) {
-                diagnostics.push(diagnostic(text, containerPort, "HTTPS container port must be an integer from 1 to 65535."));
-                continue;
-            }
-            const options = optionsExpression
-                ? validateObject(text, diagnostics, optionsExpression, new Set(["path_prefix", "strip_prefix", "backend", "max_request_body_bytes", "flush_interval_ms", "cert"]))
-                : new Map();
-            const httpsConfig = {containerPort: containerPort.value};
-            const pathPrefixEntry = options.get("path_prefix");
-            if (pathPrefixEntry) {
-                const prefix = stringValue(text, diagnostics, pathPrefixEntry, "HTTPS path_prefix", {nonempty: true});
+        if (route.name === "https") {
+            count++;
+            validateMembers(text, diagnostics, route,
+                new Set(["hostname", "container_port", "host_port", "path_prefix", "strip_prefix", "backend", "max_request_body_bytes", "flush_interval_ms", "cert"]),
+                new Set(["listen"]), false, new Set(["listen"]));
+            const hostPortAttr = firstAttribute(route, "host_port");
+            if (hostPortAttr) diagnostics.push(diagnostic(text, hostPortAttr.nameToken, "https is always published on 443; host_port is not configurable."));
+            const hostname = stringValue(text, diagnostics, requireAttribute(text, diagnostics, route, "hostname"), "HTTPS hostname", {nonempty: true});
+            const containerPort = portValue(text, diagnostics, requireAttribute(text, diagnostics, route, "container_port"), "HTTPS container_port");
+            const httpsConfig = {containerPort};
+            const pathPrefixAttr = firstAttribute(route, "path_prefix");
+            if (pathPrefixAttr) {
+                const prefix = stringValue(text, diagnostics, pathPrefixAttr, "HTTPS path_prefix", {nonempty: true});
                 if (prefix !== null && !prefix.startsWith("/")) {
-                    diagnostics.push(diagnostic(text, pathPrefixEntry.value, "HTTPS path_prefix must start with /."));
+                    diagnostics.push(diagnostic(text, pathPrefixAttr.value, "HTTPS path_prefix must start with /."));
                 } else if (prefix !== null) {
                     httpsConfig.pathPrefix = prefix;
                 }
             }
-            if (optionBoolean(text, diagnostics, options, "strip_prefix")) httpsConfig.stripPrefix = true;
-            const backendEntry = options.get("backend");
-            if (backendEntry) {
-                const backend = stringValue(text, diagnostics, backendEntry, "HTTPS backend");
+            const stripAttr = firstAttribute(route, "strip_prefix");
+            if (stripAttr && booleanValue(text, diagnostics, stripAttr, "HTTPS strip_prefix")) httpsConfig.stripPrefix = true;
+            const backendAttr = firstAttribute(route, "backend");
+            if (backendAttr) {
+                const backend = stringValue(text, diagnostics, backendAttr, "HTTPS backend");
                 if (backend !== null && backend !== "h2c" && backend !== "http1") {
-                    diagnostics.push(diagnostic(text, backendEntry.value, 'HTTPS backend must be "http1" or "h2c".'));
+                    diagnostics.push(diagnostic(text, backendAttr.value, 'HTTPS backend must be "http1" or "h2c".'));
                 } else if (backend === "h2c") {
                     httpsConfig.backendProtocol = HTTP_BACKEND_H2C;
                 }
             }
-            const maxBodyEntry = options.get("max_request_body_bytes");
-            if (maxBodyEntry) {
-                const maxBody = integerValue(text, diagnostics, maxBodyEntry, "HTTPS max_request_body_bytes");
+            const maxBodyAttr = firstAttribute(route, "max_request_body_bytes");
+            if (maxBodyAttr) {
+                const maxBody = integerValue(text, diagnostics, maxBodyAttr, "HTTPS max_request_body_bytes");
                 if (maxBody) httpsConfig.maxRequestBodyBytes = maxBody;
             }
-            const flushEntry = options.get("flush_interval_ms");
-            if (flushEntry) {
-                const flush = integerValue(text, diagnostics, flushEntry, "HTTPS flush_interval_ms", -1, 60000);
+            const flushAttr = firstAttribute(route, "flush_interval_ms");
+            if (flushAttr) {
+                const flush = integerValue(text, diagnostics, flushAttr, "HTTPS flush_interval_ms", -1, 60000);
                 if (flush !== null && flush !== 0) httpsConfig.flushIntervalMs = flush;
             }
-            const certEntry = options.get("cert");
-            if (certEntry) {
-                const value = certEntry.value;
+            const certAttr = firstAttribute(route, "cert");
+            if (certAttr) {
+                const value = certAttr.value;
                 if (value.kind === "call" && value.name === "acme" && value.args.length === 0) {
                     httpsConfig.certSource = {acme: {}};
-                } else if (value.kind === "call" && value.name === "secret" && value.args.length >= 1 && value.args.length <= 2
-                    && value.args[0].kind === "string" && value.args[0].value) {
-                    const referenceOpts = referenceOptions(text, diagnostics, value.args[1], "Secret reference", catalogs, spaceId);
-                    const item = resolveNamed(text, diagnostics, value, "secret", value.args[0].value, catalogs, spaceId, referenceOpts);
+                } else if (value.kind === "call" && value.name === "secret") {
+                    const item = versionedReference(text, diagnostics, value, "secret", catalogs, spaceId);
                     if (item) httpsConfig.certSource = {secret: {secretVersionId: Number(item.id)}};
                 } else {
-                    diagnostics.push(diagnostic(text, value, 'HTTPS cert must be acme() or secret("name", { version = 1 }).'));
+                    diagnostics.push(diagnostic(text, value, 'HTTPS cert must be acme() or secret("space", "folder/name"[, version]).'));
                 }
             }
-            ingress.push({kind: INGRESS_HTTPS, hostname: hostname.value, httpsConfig});
-            continue;
+            const listen = parseListenBlocks(text, diagnostics, route, catalogs, nodeId);
+            if (hostname === null || containerPort === null) continue;
+            const entry = {kind: INGRESS_HTTPS, hostname, httpsConfig};
+            if (listen.length) entry.listen = listen;
+            ingress.push(entry);
         }
-        diagnostics.push(diagnostic(text, route, "Ingress routes must use port_forward(...), tls_passthrough(...), or https(...)."));
     }
     if (portForwarding.length) networking.portForwarding = portForwarding;
     if (ingress.length) networking.ingress = ingress;
-    return attr.value.items.length;
+    return count;
 }
 
 function ipFilterAllowList(text, diagnostics, entry) {
@@ -1117,19 +1216,35 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
     if (roots.length !== 1) diagnostics.push(diagnostic(text, roots[1] || ast, "Document requires exactly one deployment block."));
     const deployment = roots[0];
     if (!deployment) return null;
-    // Placement and identity are root attributes: node, name, and space sit
-    // directly in the deployment block. The document still exposes them as
-    // nodeId plus an identity object, matching the API shape.
-    validateMembers(text, diagnostics, deployment, new Set(["node", "name", "space", "desired_running"]), new Set(["container", "network"]));
+    // Identity (name, space) sits directly in the deployment block; placement
+    // and desired state live in the scheduling block. The document still
+    // exposes them as nodeId, identity, and container running, matching the
+    // API shape.
+    // Attributes from the previous shape are accepted by validateMembers so
+    // the hint is their only diagnostic.
+    for (const moved of ["node", "desired_running"]) {
+        const attr = firstAttribute(deployment, moved);
+        if (attr) diagnostics.push(diagnostic(text, attr.nameToken, SCHEDULING_BLOCK_HINT));
+    }
+    validateMembers(text, diagnostics, deployment, new Set(["name", "space", "node", "desired_running"]), new Set(["container", "network", "scheduling"]));
 
-    const nodeAttr = requireAttribute(text, diagnostics, deployment, "node");
-    const node = typedReference(text, diagnostics, nodeAttr, "node", "node", catalogs);
-    const nodeId = node ? Number(node.id) : null;
     const nameAttr = requireAttribute(text, diagnostics, deployment, "name");
     const spaceAttr = requireAttribute(text, diagnostics, deployment, "space");
     const name = stringValue(text, diagnostics, nameAttr, "Deployment name", {nonempty: true});
     const space = typedReference(text, diagnostics, spaceAttr, "space", "space", catalogs);
     const spaceId = space ? Number(space.id) : null;
+
+    const scheduling = exactlyOneBlock(text, diagnostics, deployment, "scheduling");
+    let nodeAttr = null;
+    let nodeId = null;
+    let running = null;
+    if (scheduling) {
+        validateMembers(text, diagnostics, scheduling, new Set(["node", "desired_running"]), new Set());
+        nodeAttr = requireAttribute(text, diagnostics, scheduling, "node");
+        const node = typedReference(text, diagnostics, nodeAttr, "node", "node", catalogs);
+        nodeId = node ? Number(node.id) : null;
+        running = booleanValue(text, diagnostics, requireAttribute(text, diagnostics, scheduling, "desired_running"), "desired_running");
+    }
 
     const containers = members(deployment, "block", "container");
     if (containers.length !== 1) diagnostics.push(diagnostic(text, containers[1] || deployment, "Deployment requires exactly one container block."));
@@ -1140,6 +1255,8 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
     let version = null;
     let versionAttr = null;
     if (containerBlock) {
+        const movedVersion = firstAttribute(containerBlock, "version");
+        if (movedVersion) diagnostics.push(diagnostic(text, movedVersion.nameToken, SOURCE_VERSION_HINT));
         validateMembers(text, diagnostics, containerBlock, new Set(["env_vars", "mounts", "version"]), new Set(["source", "process", "env_vars", "resources", "upgrade"]));
         const source = exactlyOneBlock(text, diagnostics, containerBlock, "source");
         if (source) {
@@ -1150,12 +1267,26 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
             }
             const variant = variants[0];
             if (variant?.name === "container_image") {
-                validateMembers(text, diagnostics, variant, new Set(["image"]), new Set());
-                const image = stringValue(text, diagnostics, requireAttribute(text, diagnostics, variant, "image"), "Container image", {nonempty: true});
-                if (image !== null) sourceSpec.remoteImage = {image};
+                // The version is the reference's tag or digest; a separate
+                // attribute is the previous shape and only earns the hint.
+                const movedVersion = firstAttribute(variant, "version");
+                if (movedVersion) diagnostics.push(diagnostic(text, movedVersion.nameToken, IMAGE_VERSION_HINT));
+                validateMembers(text, diagnostics, variant, new Set(["image", "version"]), new Set());
+                const imageAttr = requireAttribute(text, diagnostics, variant, "image");
+                const reference = stringValue(text, diagnostics, imageAttr, "Container image", {nonempty: true});
+                if (reference !== null) {
+                    const repository = imageRepositoryFromReference(reference);
+                    if (!repository) {
+                        diagnostics.push(diagnostic(text, imageAttr.value, "Container image must name a repository before its tag."));
+                    } else {
+                        sourceSpec.remoteImage = {image: repository};
+                        versionAttr = imageAttr;
+                        version = imageVersionFromReference(reference);
+                    }
+                }
             }
             if (variant?.name === "nix_docker_build") {
-                validateMembers(text, diagnostics, variant, new Set(["repo", "flake", "target"]), new Set());
+                validateMembers(text, diagnostics, variant, new Set(["repo", "flake", "target", "version"]), new Set());
                 const repo = stringValue(text, diagnostics, requireAttribute(text, diagnostics, variant, "repo"), "Nix repository", {nonempty: true});
                 const flakeAttr = requireAttribute(text, diagnostics, variant, "flake");
                 const flake = stringValue(text, diagnostics, flakeAttr, "Nix flake", {nonempty: true});
@@ -1169,6 +1300,10 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
                     sourceSpec.nixDockerBuild = {repo, flake};
                     if (targetAttr && target !== null) sourceSpec.nixDockerBuild.target = target;
                 }
+            }
+            if (variant?.name === "nix_docker_build") {
+                versionAttr = requireAttribute(text, diagnostics, variant, "version");
+                version = stringValue(text, diagnostics, versionAttr, "Version");
             }
         }
 
@@ -1222,15 +1357,14 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
             const timeout = integerValue(text, diagnostics, timeoutAttr, "readiness_timeout_seconds", 0);
             if (timeoutAttr && timeout !== null) container.readinessSignal = {timeoutSeconds: timeout};
         }
-
-        versionAttr = requireAttribute(text, diagnostics, containerBlock, "version");
-        version = stringValue(text, diagnostics, versionAttr, "Version");
     }
 
     const network = exactlyOneBlock(text, diagnostics, deployment, "network");
     const networking = {};
     if (network) {
-        validateMembers(text, diagnostics, network, new Set(["mode", "ingress"]), new Set());
+        const ingressAttr = firstAttribute(network, "ingress");
+        if (ingressAttr) diagnostics.push(diagnostic(text, ingressAttr.nameToken, INGRESS_BLOCK_HINT));
+        validateMembers(text, diagnostics, network, new Set(["mode", "ingress"]), new Set(["ingress"]));
         const modeAttr = requireAttribute(text, diagnostics, network, "mode");
         const mode = stringValue(text, diagnostics, modeAttr, "Network mode");
         if (mode !== "virtual" && mode !== "host") {
@@ -1238,20 +1372,17 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
         } else {
             networking.mode = mode === "virtual" ? NETWORK_VIRTUAL : NETWORK_HOST;
         }
-        const routeCount = parseIngress(text, diagnostics, firstAttribute(network, "ingress"), networking, catalogs, spaceId);
+        const routeCount = parseIngressBlock(text, diagnostics, firstBlock(network, "ingress"), networking, catalogs, spaceId, nodeId);
         if (mode === "host" && routeCount) diagnostics.push(diagnostic(text, network, "Host networking cannot contain ingress routes."));
     }
 
-    const running = booleanValue(text, diagnostics, requireAttribute(text, diagnostics, deployment, "desired_running"), "desired_running");
     if (running && version !== null && !version) {
-        diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, "Version cannot be empty while desired_running is true."));
+        diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, sourceSpec.remoteImage
+            ? 'Container image must include a tag or digest (image = "repository:tag") while desired_running is true.'
+            : "Version cannot be empty while desired_running is true."));
     }
     if (sourceSpec.nixDockerBuild && version && !FULL_GIT_COMMIT_RE.test(version)) {
         diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, "Version must be a full 40-character commit sha."));
-    }
-    const explicitImageVersion = imageReferenceVersion(sourceSpec.remoteImage?.image);
-    if (explicitImageVersion && version !== null && version !== explicitImageVersion) {
-        diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, `Version must match ${quote(explicitImageVersion)} from the image reference.`));
     }
     const immutableName = unwrap(constraints?.immutableName);
     if (immutableName !== undefined && immutableName !== null && name !== null && name !== String(immutableName)) {

@@ -4,6 +4,7 @@ import {
   createNixDockerDeployment,
   createSecret,
   NETWORKING_VIRTUAL,
+  httpsRouteBlock,
   setDeploymentHttpsRoutes,
   updateNixDockerDeployment,
   UPGRADE_ROLLOVER,
@@ -57,7 +58,7 @@ export const rolloverIngressCases = [
       });
       await setDeploymentHttpsRoutes(ctx.page, {
         name: NAME,
-        routes: [`https("${HOST}", 8080, { cert = secret("${CERT_SECRET}", { version = 1 }) })`],
+        routes: [httpsRouteBlock({hostname: HOST, containerPort: 8080, cert: `secret("global", "${CERT_SECRET}", 1)`})],
       });
       await expectGeneration('ingress-v1');
     },

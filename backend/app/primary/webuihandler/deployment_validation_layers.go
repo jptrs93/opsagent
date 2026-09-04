@@ -7,6 +7,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
+	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -113,7 +114,7 @@ func validateNoDuplicateIdentity(live state.LiveState, updated *apigen.Deploymen
 	return nil
 }
 
-func inLockValidateDeploymentCreate(store *state.Service, secretStore *secrets.Manager, primaryNodeID int32, updated *apigen.Deployment, live state.LiveState) error {
+func inLockValidateDeploymentCreate(store *state.Service, secretStore *secrets.Manager, reservations []ingressplan.Reservation, updated *apigen.Deployment, live state.LiveState) error {
 	if internaldeploy.IsInternalIdentity(updated.Def.SpaceID, updated.Def.Name) {
 		return invalidConfigErrf("opendeploy system deployment identity is internal-only")
 	}
@@ -123,7 +124,7 @@ func inLockValidateDeploymentCreate(store *state.Service, secretStore *secrets.M
 	if err := validateNodeAllowsSpace(live, updated.Def.NodeID, updated.Def.SpaceID); err != nil {
 		return err
 	}
-	if err := validateNodeNetworkingClaims(primaryNodeID, live, updated.Def.NodeID, updated.ID, &updated.Def.Spec); err != nil {
+	if err := validateNodeNetworkingClaims(live, reservations, updated.Def.NodeID, updated.ID, &updated.Def.Spec); err != nil {
 		return err
 	}
 	if err := validateAddressEnvRefs(live, updated.Def.NodeID, updated.ID, updated.Def.SpaceID, &updated.Def.Spec); err != nil {
@@ -135,7 +136,7 @@ func inLockValidateDeploymentCreate(store *state.Service, secretStore *secrets.M
 	return validateRefSpaces(store, secretStore, &updated.Def.Spec, updated.Def.SpaceID)
 }
 
-func inLockValidateDeploymentUpdate(store *state.Service, secretStore *secrets.Manager, primaryNodeID int32, existing, updated *apigen.Deployment, expectedVersion int32, live state.LiveState) error {
+func inLockValidateDeploymentUpdate(store *state.Service, secretStore *secrets.Manager, reservations []ingressplan.Reservation, existing, updated *apigen.Deployment, expectedVersion int32, live state.LiveState) error {
 	if existing == nil || existing.Deleted() {
 		return DeploymentNotFoundErr
 	}
@@ -185,7 +186,7 @@ func inLockValidateDeploymentUpdate(store *state.Service, secretStore *secrets.M
 			deploymentUsesAddressID(live, int32Set([]int32{existing.ID})) {
 			return invalidConfigErrf("deployment networking cannot leave virtual mode while address references exist")
 		}
-		if err := validateNodeNetworkingClaims(primaryNodeID, live, updated.Def.NodeID, updated.ID, &updated.Def.Spec); err != nil {
+		if err := validateNodeNetworkingClaims(live, reservations, updated.Def.NodeID, updated.ID, &updated.Def.Spec); err != nil {
 			return err
 		}
 	}

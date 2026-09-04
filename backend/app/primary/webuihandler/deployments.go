@@ -40,7 +40,7 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 	}
 	h.Store.Mu.Lock()
 	defer h.Store.Mu.Unlock()
-	if err := inLockValidateDeploymentCreate(h.Store, h.Secrets, h.NodeID, newDep, h.Store.LiveState()); err != nil {
+	if err := inLockValidateDeploymentCreate(h.Store, h.Secrets, h.webUIReservations(), newDep, h.Store.LiveState()); err != nil {
 		return nil, err
 	}
 	return h.Store.CreateDeploymentLocked(ctx, &newDep.Def), nil
@@ -89,7 +89,7 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	h.Store.Mu.Lock()
 	defer h.Store.Mu.Unlock()
 	live := h.Store.LiveState()
-	if err := inLockValidateDeploymentUpdate(h.Store, h.Secrets, h.NodeID, live.Deployments[req.DeploymentID], updated, req.ExpectedVersion, live); err != nil {
+	if err := inLockValidateDeploymentUpdate(h.Store, h.Secrets, h.webUIReservations(), live.Deployments[req.DeploymentID], updated, req.ExpectedVersion, live); err != nil {
 		return nil, err
 	}
 	return h.Store.UpdateDeploymentLocked(ctx, req.DeploymentID, &updated.Def), nil

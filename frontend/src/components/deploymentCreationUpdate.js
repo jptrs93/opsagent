@@ -17,6 +17,7 @@ import {
     buildNixListingRequest,
     buildNixRepositoryDiscoveryRequest,
     FULL_GIT_COMMIT_RE,
+    imageRepositoryFromReference,
     imageVersionFromReference,
     SOURCE_DOCKER_IMAGE,
     SOURCE_NIX_DOCKER,
@@ -50,7 +51,9 @@ const sourceTupleOf = form => ({
     repo: form.nixRepo.val.trim(),
     flake: form.nixFlake.val.trim(),
     target: form.nixTarget.val.trim(),
-    image: form.containerImage.val.trim(),
+    // Keyed on the repository: a tag in the field selects a version and
+    // must not read as a source change.
+    image: imageRepositoryFromReference(form.containerImage.val),
 });
 const keyOf = tuple => JSON.stringify(tuple);
 

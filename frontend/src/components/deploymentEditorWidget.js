@@ -62,6 +62,9 @@ export function deploymentEditorWidget(opts) {
     const assets = catalogs.assets || [];
     const secretRefs = catalogs.secretRefs || [];
     const configRefs = catalogs.configRefs || [];
+    // Folder trees the HCL resolves reference paths against.
+    const valueDirectories = catalogs.valueDirectories || [];
+    const assetDirectories = catalogs.assetDirectories || [];
     const nodes = asState(catalogs.nodes, []);
     const nodesLoaded = asState(catalogs.nodesLoaded, true);
     const deploymentRow = opts.deploymentRow || null;
@@ -247,7 +250,7 @@ export function deploymentEditorWidget(opts) {
             const deploymentCodeWidget = await loadDeploymentCodeWidget();
             codeWidget = deploymentCodeWidget({
                 document: deploymentUpdate.document,
-                catalogs: {spaces, nodes, assets, secretRefs, configRefs, deployments},
+                catalogs: {spaces, nodes, assets, secretRefs, configRefs, deployments, valueDirectories, assetDirectories},
                 versionCompletions: () => deploymentUpdate.versionOptions(),
                 constraints: mode === 'update' ? {
                     immutableName: form.name.val,

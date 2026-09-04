@@ -268,9 +268,9 @@ func (m *Manager) natSignatureLocked() uint64 {
 	hash := fnv.New64a()
 	for _, id := range m.sortedHostPortIDsLocked() {
 		for _, rule := range m.hostPorts[id].rules {
-			fmt.Fprintf(hash, "%d|%d|%d|%d|%s|%s|%t|%v|%v\n",
+			fmt.Fprintf(hash, "%d|%d|%d|%d|%s|%s|%t|%v|%v|%v\n",
 				id, rule.Protocol, rule.HostPort, rule.TargetPort,
-				rule.TargetV4, rule.TargetV6, rule.Filtered, rule.AllowV4, rule.AllowV6)
+				rule.TargetV4, rule.TargetV6, rule.Filtered, rule.AllowV4, rule.AllowV6, rule.Dest)
 		}
 	}
 	return hash.Sum64()
@@ -414,17 +414,38 @@ func masqueradeExprs() []expr.Any {
 }
 
 func addDNATRules(c *nftables.Conn, tbl *nftables.Table, pre, out *nftables.Chain, rule HostPortRule, target netip.Addr, allow []netip.Prefix, family int) {
-	if rule.Filtered {
-		for _, src := range allow {
-			c.AddRule(&nftables.Rule{Table: tbl, Chain: pre,
-				Exprs: append(addrMatchExprs(src, true), dnatExprs(rule.Protocol, rule.HostPort, target.AsSlice(), rule.TargetPort, family)...)})
-		}
-	} else {
-		c.AddRule(&nftables.Rule{Table: tbl, Chain: pre,
-			Exprs: dnatExprs(rule.Protocol, rule.HostPort, target.AsSlice(), rule.TargetPort, family)})
+	dests, restricted := rule.DestFor(family == unix.AF_INET6)
+	if restricted && len(dests) == 0 {
+		return
 	}
-	c.AddRule(&nftables.Rule{Table: tbl, Chain: out,
-		Exprs: dnatExprs(rule.Protocol, rule.HostPort, target.AsSlice(), rule.TargetPort, family)})
+	// One rule set per destination match: the fib local-address match when
+	// the rule is unrestricted, otherwise one literal daddr match per prefix.
+	matches := [][]expr.Any{fibLocalExprs()}
+	if restricted {
+		matches = matches[:0]
+		for _, dest := range dests {
+			matches = append(matches, addrMatchExprs(dest, false))
+		}
+	}
+	tail := dnatExprs(rule.Protocol, rule.HostPort, target.AsSlice(), rule.TargetPort, family)
+	for _, match := range matches {
+		if rule.Filtered {
+			for _, src := range allow {
+				c.AddRule(&nftables.Rule{Table: tbl, Chain: pre, Exprs: concatExprs(addrMatchExprs(src, true), match, tail)})
+			}
+		} else {
+			c.AddRule(&nftables.Rule{Table: tbl, Chain: pre, Exprs: concatExprs(match, tail)})
+		}
+		c.AddRule(&nftables.Rule{Table: tbl, Chain: out, Exprs: concatExprs(match, tail)})
+	}
+}
+
+func concatExprs(parts ...[]expr.Any) []expr.Any {
+	var out []expr.Any
+	for _, part := range parts {
+		out = append(out, part...)
+	}
+	return out
 }
 
 func addrMatchExprs(prefix netip.Prefix, source bool) []expr.Any {
@@ -448,15 +469,25 @@ func addrMatchExprs(prefix netip.Prefix, source bool) []expr.Any {
 	}
 }
 
-// dnatExprs: fib daddr type local <proto> dport <hostPort> dnat to <target>:<targetPort>
+// fibLocalExprs: fib daddr type local
 //
 // The fib address-type match restricts DNAT to traffic addressed to the
-// machine itself ("published on the machine's host interfaces"). The rule is
-// installed in prerouting for external traffic and output for host-local clients.
-func dnatExprs(proto byte, hostPort uint16, target []byte, targetPort uint16, family int) []expr.Any {
+// machine itself ("published on the machine's host interfaces"). Rules with a
+// destination restriction use addrMatchExprs on the destination instead.
+func fibLocalExprs() []expr.Any {
 	return []expr.Any{
 		&expr.Fib{Register: 1, ResultADDRTYPE: true, FlagDADDR: true},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: binaryutil.NativeEndian.PutUint32(unix.RTN_LOCAL)},
+	}
+}
+
+// dnatExprs: <proto> dport <hostPort> dnat to <target>:<targetPort>
+//
+// Preceded by a destination match (fibLocalExprs or addrMatchExprs). The rule
+// is installed in prerouting for external traffic and output for host-local
+// clients.
+func dnatExprs(proto byte, hostPort uint16, target []byte, targetPort uint16, family int) []expr.Any {
+	return []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{proto}},
 		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2}, // dport

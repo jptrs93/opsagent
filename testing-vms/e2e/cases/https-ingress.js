@@ -5,6 +5,7 @@ import {
   createSecret,
   expectDeploymentHttpsIngressRows,
   expectDeploymentRunning,
+  httpsRouteBlock,
   NETWORKING_VIRTUAL,
   setDeploymentHttpsRoutes,
   updateNixDockerDeployment,
@@ -29,15 +30,15 @@ const API_HOST = 'api.ingress.opendeploy.test';
 const WEB_CERT_SECRET = 'e2e.tls.ingress.web';
 const API_CERT_SECRET = 'e2e.tls.ingress.api';
 
-const webCert = () => `secret("${WEB_CERT_SECRET}", { version = 1 })`;
-const apiCert = () => `secret("${API_CERT_SECRET}", { version = 1 })`;
+const webCert = () => `secret("global", "${WEB_CERT_SECRET}", 1)`;
+const apiCert = () => `secret("global", "${API_CERT_SECRET}", 1)`;
 
 const rootRoutes = () => [
-  `https("${WEB_HOST}", 8080, { cert = ${webCert()} })`,
+  httpsRouteBlock({hostname: WEB_HOST, containerPort: 8080, cert: webCert()}),
 ];
 const apiRoutes = () => [
-  `https("${WEB_HOST}", 8080, { path_prefix = "/api", strip_prefix = true, cert = ${webCert()} })`,
-  `https("${API_HOST}", 8080, { path_prefix = "/svc", max_request_body_bytes = 1024, flush_interval_ms = 50, cert = ${apiCert()} })`,
+  httpsRouteBlock({hostname: WEB_HOST, containerPort: 8080, pathPrefix: '/api', stripPrefix: true, cert: webCert()}),
+  httpsRouteBlock({hostname: API_HOST, containerPort: 8080, pathPrefix: '/svc', maxRequestBodyBytes: 1024, flushIntervalMs: 50, cert: apiCert()}),
 ];
 
 export async function expectHTTPSIngressRoutes() {
@@ -244,7 +245,7 @@ export const httpsIngressCases = [
         name: 'https-echo-root',
         routes: [
           ...rootRoutes(),
-          `https("${WEB_HOST}", 8080, { path_prefix = "/api", strip_prefix = true, cert = ${webCert()} })`,
+          httpsRouteBlock({hostname: WEB_HOST, containerPort: 8080, pathPrefix: '/api', stripPrefix: true, cert: webCert()}),
         ],
         expectError: /already claimed by another deployment/,
       });
@@ -258,7 +259,7 @@ export const httpsIngressCases = [
     async run(ctx) {
       await setDeploymentHttpsRoutes(ctx.page, {
         name: 'https-echo-root',
-        routes: [`https("${WEB_HOST}", 8080, { cert = ${apiCert()} })`],
+        routes: [httpsRouteBlock({hostname: WEB_HOST, containerPort: 8080, cert: apiCert()})],
         expectError: /does not cover web\.ingress\.opendeploy\.test/,
       });
     },
@@ -273,7 +274,7 @@ export const httpsIngressCases = [
         name: 'https-echo-root',
         routes: [
           ...rootRoutes(),
-          `https("${WEB_HOST}", 8080, { path_prefix = "/other", cert = acme() })`,
+          httpsRouteBlock({hostname: WEB_HOST, containerPort: 8080, pathPrefix: '/other', cert: 'acme()'}),
         ],
         expectError: /certSource for web\.ingress\.opendeploy\.test must match/,
       });

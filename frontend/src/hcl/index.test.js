@@ -21,7 +21,6 @@ function nodeNames(source) {
 }
 
 const fullConfig = `deployment {
-  node = node("worker-1")
   name = "api"
   space = space("prod")
 
@@ -31,6 +30,7 @@ const fullConfig = `deployment {
         repo = "github.com/acme/platform"
         flake = "services/api/flake.nix"
         target = ".#api-image"
+        version = "v42"
       }
     }
 
@@ -41,7 +41,7 @@ const fullConfig = `deployment {
     }
 
     env_vars = {
-      "DB_PASS" = secret("db-pass", { version = 3 })
+      "DB_PASS" = secret("prod", "db/db-pass", 3)
       "PEER" = address("prod", "worker")
       "MODE" = "production"
     }
@@ -49,7 +49,7 @@ const fullConfig = `deployment {
     mounts = [
       mount(default_volume(), "/data"),
       mount(host_path("/var/cache"), "/cache", { read_only = true }),
-      mount(asset("geoip", { version = 12 }), "/assets", { executable = true }),
+      mount(asset("global", "geoip", 12), "/assets", { executable = true }),
     ]
 
     resources {
@@ -61,22 +61,52 @@ const fullConfig = `deployment {
       strategy = "rollover"
       readiness_timeout_seconds = 30
     }
-
-    version = "v42"
   }
 
   network {
     mode = "virtual"
 
-    ingress = [
-      port_forward("tcp", 8080, { host_port = 80 }),
-      https("api.example.test", 8080, { cert = acme(), path_prefix = "/v1", strip_prefix = true }),
-      https("admin.example.test", 8443, { cert = secret("admin-cert", { version = 1 }) }),
-      tls_passthrough("raw.example.test", 8443, { host_port = 443 }),
-    ]
+    ingress {
+      port_forward {
+        protocol = "tcp"
+        container_port = 8080
+        host_port = 80
+      }
+
+      https {
+        hostname = "api.example.test"
+        container_port = 8080
+        path_prefix = "/v1"
+        strip_prefix = true
+        cert = acme()
+        listen {
+          node = node("primary")
+          address = "203.0.113.10"
+        }
+      }
+
+      https {
+        hostname = "admin.example.test"
+        container_port = 8443
+        cert = secret("prod", "certs/admin-cert", 1)
+        listen {
+          address = ipv4()
+        }
+        listen {}
+      }
+
+      tls_passthrough {
+        hostname = "raw.example.test"
+        container_port = 8443
+        host_port = 443
+      }
+    }
   }
 
-  desired_running = true
+  scheduling {
+    node = node("worker-1")
+    desired_running = true
+  }
 }
 `;
 
@@ -88,7 +118,7 @@ test("parses function calls in object-value position", () => {
     for (const source of [
         'a = { b = acme() }',
         'env_vars = { "KEY" = secret("db-pass") }',
-        'a = { b = secret("x", { version = 1 }) }',
+        'a = { b = secret("x", "y", 1) }',
         'a = { b = address("space", "deploy") }',
         'ingress = [{ https = acme() }]',
     ]) {

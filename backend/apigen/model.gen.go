@@ -23,6 +23,14 @@ const (
 	NetworkingMode_NETWORKING_MODE_HOST        NetworkingMode = 2
 )
 
+type AddressFamily int32
+
+const (
+	AddressFamily_ADDRESS_FAMILY_ANY  AddressFamily = 0
+	AddressFamily_ADDRESS_FAMILY_IPV4 AddressFamily = 1
+	AddressFamily_ADDRESS_FAMILY_IPV6 AddressFamily = 2
+)
+
 type ContainerUpgradeStrategy int32
 
 const (
@@ -282,6 +290,22 @@ type Ingress struct {
 	Hostname             string                `json:"hostname,omitempty"`
 	TlsPassthroughConfig *TlsPassthroughConfig `json:"tls_passthrough_config"`
 	HttpsConfig          *HttpsConfig          `json:"https_config"`
+	Listen               []*IngressListen      `json:"listen,omitempty"`
+}
+
+type IngressListen struct {
+	Node    *NodeSelector    `json:"node"`
+	Address *AddressSelector `json:"address"`
+}
+
+type NodeSelector struct {
+	Any    bool  `json:"any"`
+	NodeID int32 `json:"node_id"`
+}
+
+type AddressSelector struct {
+	Family   AddressFamily `json:"family"`
+	Prefixes []string      `json:"prefixes,omitempty"`
 }
 
 type ContainerBundleSource struct {
@@ -1411,6 +1435,7 @@ type ClusterNodeStatus struct {
 	NodeID          int32     `json:"node_id"`
 	LastConnectedAt time.Time `json:"last_connected_at"`
 	IsConnected     bool      `json:"is_connected"`
+	HostAddresses   []string  `json:"host_addresses,omitempty"`
 }
 
 type EnrollmentRequestStatus struct {
@@ -1500,10 +1525,25 @@ type NetPortMatch struct {
 }
 
 type ClusterNetMapNode struct {
-	NodeID          int32  `json:"node_id"`
-	UnderlayAddress string `json:"underlay_address,omitempty"`
-	WgPublicKey     string `json:"wg_public_key,omitempty"`
-	WgListenPort    int32  `json:"wg_listen_port"`
+	NodeID          int32             `json:"node_id"`
+	UnderlayAddress string            `json:"underlay_address,omitempty"`
+	WgPublicKey     string            `json:"wg_public_key,omitempty"`
+	WgListenPort    int32             `json:"wg_listen_port"`
+	IngressPublish  []*IngressPublish `json:"ingress_publish,omitempty"`
+}
+
+type IngressPublish struct {
+	Address string `json:"address,omitempty"`
+	Port    int32  `json:"port"`
+}
+
+type IngressDiagnostic struct {
+	DeploymentID int32  `json:"deployment_id"`
+	Message      string `json:"message,omitempty"`
+}
+
+type IngressDiagnosticList struct {
+	Items []*IngressDiagnostic `json:"items,omitempty"`
 }
 
 type ClusterNetMapRoute struct {
@@ -1640,9 +1680,10 @@ type MsgToSecondary struct {
 }
 
 type ClusterHello struct {
-	UnderlayAddress        string `json:"underlay_address,omitempty"`
-	ClusterProtocolVersion int32  `json:"cluster_protocol_version"`
-	WgPublicKey            string `json:"wg_public_key,omitempty"`
+	UnderlayAddress        string   `json:"underlay_address,omitempty"`
+	ClusterProtocolVersion int32    `json:"cluster_protocol_version"`
+	WgPublicKey            string   `json:"wg_public_key,omitempty"`
+	HostAddresses          []string `json:"host_addresses,omitempty"`
 }
 
 type MsgToPrimary struct {
@@ -1876,6 +1917,7 @@ type State struct {
 	AuthzGrantsSnapshot        *AuthzGrantList            `json:"authz_grants_snapshot"`
 	AuthzGlobalRulesSnapshot   *AuthzGlobalRuleList       `json:"authz_global_rules_snapshot"`
 	NetworkPoliciesSnapshot    *NetworkPolicyList         `json:"network_policies_snapshot"`
+	IngressDiagnosticsSnapshot *IngressDiagnosticList     `json:"ingress_diagnostics_snapshot"`
 }
 
 type GlobalState struct {

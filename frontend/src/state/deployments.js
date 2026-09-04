@@ -40,6 +40,9 @@ export const authzGlobalRulesS = van.state([]);
 // networkPoliciesS arrives as a full snapshot on every change, like the authz
 // collections.
 export const networkPoliciesS = van.state([]);
+// ingressDiagnosticsS arrives as a full snapshot whenever the primary
+// re-renders the cluster network map: per-deployment ingress warnings.
+export const ingressDiagnosticsS = van.state([]);
 const SEEDED_SPACES = [{id: 0, name: '_system'}, {id: 1, name: 'global'}];
 
 export const spacesS = van.state(SEEDED_SPACES);
@@ -123,6 +126,7 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         authzGrantsS.val = [];
         authzGlobalRulesS.val = [];
         networkPoliciesS.val = [];
+        ingressDiagnosticsS.val = [];
         spacesS.val = SEEDED_SPACES;
     }
     setStreamState('offline', 'offline');
@@ -305,6 +309,10 @@ const handleStateMessage = (message) => {
         authzGlobalRulesS.val = message.authzGlobalRulesSnapshot.items || [];
     }
 
+    if (message.ingressDiagnosticsSnapshot) {
+        ingressDiagnosticsS.val = message.ingressDiagnosticsSnapshot.items || [];
+    }
+
     if (message.networkPoliciesSnapshot) {
         networkPoliciesS.val = message.networkPoliciesSnapshot.items || [];
     }
@@ -357,6 +365,9 @@ const refreshMachinesFromNodes = () => {
             connected: status.isConnected === true,
             connectedAt: status.lastConnectedAt,
             addresses: node.addresses || [],
+            // Host addresses the node last reported: what an ingress listen
+            // selector can expand to there.
+            hostAddresses: status.hostAddresses || [],
             // Base64 WireGuard public key; empty until the node registers one.
             wgPublicKey: node.wgPublicKey || "",
             // Spaces whose deployments may be placed here. The server always
@@ -385,6 +396,7 @@ export const expandValueVersionRefs = (metas) => (metas || []).flatMap((meta) =>
     stableId: meta.id,
     name: meta.name,
     spaceId: meta.spaceId,
+    directoryId: Number(meta.valueDirectoryId || 0),
     version: ref.version,
     value: ref.value,
     createdAt: ref.createdAt,

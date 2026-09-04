@@ -11,6 +11,7 @@ import {
   expectNetworkPolicyCount,
   moveDeploymentToSpace,
   readDeploymentOutputMatch,
+  httpsRouteBlock,
   setDeploymentHttpsRoutes,
   updateNixDockerDeployment,
   writeNetworkPolicyState,
@@ -64,7 +65,7 @@ export const networkPolicyInteractionCases = [
       await setDeploymentHttpsRoutes(ctx.page, {
         name: SERVER,
         machine: WORKER,
-        routes: [`https("${INGRESS_HOST}", ${SERVER_PORT}, { cert = secret("${INGRESS_CERT_SECRET}", { version = 1 }) })`],
+        routes: [httpsRouteBlock({hostname: INGRESS_HOST, containerPort: SERVER_PORT, cert: `secret("global", "${INGRESS_CERT_SECRET}", 1)`})],
       });
       await expect.poll(async () => {
         try {

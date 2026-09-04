@@ -10,7 +10,18 @@ const INGRESS_READY_TIMEOUT = 180_000;
 const REQUEST_TIMEOUT = 15_000;
 const UNAVAILABLE_PROBE_TIMEOUT = 3_000;
 
-export function ingressTarget() {
+// ingressTarget resolves the tunnel for a node's ingress. worker-2 (the
+// default) carries every shared HTTPS and passthrough route; worker-1 is
+// reserved for the ingress listen cases, which need a node whose 443 publish
+// set they own entirely.
+export function ingressTarget(node = 'worker-2') {
+  if (node === 'worker-1') {
+    return {
+      host: process.env.OPD_LISTEN_INGRESS_HOST || 'host.docker.internal',
+      httpsPort: Number(process.env.OPD_LISTEN_INGRESS_PORT || '18444'),
+      httpPort: 0,
+    };
+  }
   return {
     host: process.env.OPD_TLS_INGRESS_HOST || 'host.docker.internal',
     httpsPort: Number(process.env.OPD_TLS_INGRESS_PORT || '18443'),
@@ -36,8 +47,9 @@ export function requestHTTPSIngress(hostname, {
   headers = {},
   body = null,
   servername = hostname,
+  node,
 } = {}) {
-  const target = ingressTarget();
+  const target = ingressTarget(node);
   const ca = ingressCA();
   return new Promise((resolve, reject) => {
     let fingerprint;
@@ -91,13 +103,14 @@ export function parseEchoBody(body) {
 export async function expectHTTPSEcho(hostname, path, expectedFields, {
   certificateBundle,
   timeout = INGRESS_READY_TIMEOUT,
+  node,
 } = {}) {
   const expectedFingerprint = certificateBundle
     ? new crypto.X509Certificate(Buffer.from(certificateBundle, 'base64')).fingerprint256
     : null;
   await expect.poll(async () => {
     try {
-      const response = await requestHTTPSIngress(hostname, {path});
+      const response = await requestHTTPSIngress(hostname, {path, node});
       if (response.status !== 200) return {status: response.status};
       const result = {status: 200, ...pick(parseEchoBody(response.body), Object.keys(expectedFields))};
       if (expectedFingerprint) result.fingerprint = response.fingerprint;
@@ -145,8 +158,8 @@ export async function expectHTTPSStatus(hostname, path, expectedStatus, {
 // itself is down) and a timeout (packets silently dropped somewhere between
 // the tunnel and netproxy — the signature of an ingress blackhole, worth
 // capturing network state from the worker before restarting anything).
-export function probeTLSIngressClosed(hostname) {
-  const target = ingressTarget();
+export function probeTLSIngressClosed(hostname, {node} = {}) {
+  const target = ingressTarget(node);
   const ca = ingressCA();
   return new Promise(resolve => {
     let done = false;
@@ -187,17 +200,17 @@ export function probeTLSIngressClosed(hostname) {
   });
 }
 
-export async function expectHTTPSIngressUnavailable(hostname, {timeout = INGRESS_READY_TIMEOUT} = {}) {
-  await expectTLSProbeRejected(hostname, `expected HTTPS ingress for ${hostname} to fail closed`, timeout);
+export async function expectHTTPSIngressUnavailable(hostname, {timeout = INGRESS_READY_TIMEOUT, node} = {}) {
+  await expectTLSProbeRejected(hostname, `expected HTTPS ingress for ${hostname} to fail closed`, timeout, {node});
 }
 
 // expectTLSProbeRejected polls until a probe reports the remote side
 // rejecting the connection. A tunnel failure or a silent packet drop aborts
 // the poll immediately with a diagnosis instead of masquerading as a pass
 // (blackholes) or burning the poll budget (dead tunnel).
-export async function expectTLSProbeRejected(hostname, message, timeout) {
+export async function expectTLSProbeRejected(hostname, message, timeout, {node} = {}) {
   await expect.poll(async () => {
-    const probe = await probeTLSIngressClosed(hostname);
+    const probe = await probeTLSIngressClosed(hostname, {node});
     if (probe.kind === 'timeout') {
       throw new Error(`TLS probe for ${hostname} timed out after ${UNAVAILABLE_PROBE_TIMEOUT}ms (${probe.detail}): ` +
         'the ingress path is silently dropping packets instead of refusing — capture nft/conntrack/route state from the worker before restarting anything');

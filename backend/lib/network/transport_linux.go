@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	WGLinkName  = "odwg0"
 	wgLinkAlias = "opendeploy:wg"
 	// wgMTU leaves room for the WireGuard overhead on a normal 1500-byte
 	// underlay: 80 bytes over IPv6, 60 over IPv4, so 1420 is safe for both

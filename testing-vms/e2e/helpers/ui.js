@@ -391,7 +391,7 @@ export async function setDeploymentHttpsRoutes(page, {name, machine = 'worker-2'
 
   await step(`set HTTPS routes ${name}`, async () => {
     // Read/write through the CodeMirror view: innerText is layout-dependent
-    // (soft-wrapped lines gain newlines) and long https(...) lines wrap.
+    // (soft-wrapped lines gain newlines) and long attribute lines wrap.
     const text = await editor.evaluate(el => {
       const view = el.cmTile?.root?.view || el.cmView?.view;
       return view.state.doc.toString();
@@ -435,23 +435,83 @@ export async function setDeploymentHttpsRoutes(page, {name, machine = 'worker-2'
   });
 }
 
+// httpsRouteBlock renders one https block for the HCL editor. listen entries
+// are {node, address} HCL expressions, e.g. {node: 'node("worker-1")',
+// address: '"203.0.113.10"'}.
+export function httpsRouteBlock({hostname, containerPort, pathPrefix, stripPrefix, backend, maxRequestBodyBytes, flushIntervalMs, cert, listen = []}) {
+  const lines = [`hostname = ${JSON.stringify(hostname)}`, `container_port = ${containerPort}`];
+  if (pathPrefix) lines.push(`path_prefix = ${JSON.stringify(pathPrefix)}`);
+  if (stripPrefix) lines.push('strip_prefix = true');
+  if (backend) lines.push(`backend = ${JSON.stringify(backend)}`);
+  if (maxRequestBodyBytes) lines.push(`max_request_body_bytes = ${maxRequestBodyBytes}`);
+  if (flushIntervalMs) lines.push(`flush_interval_ms = ${flushIntervalMs}`);
+  if (cert) lines.push(`cert = ${cert}`);
+  for (const entry of listen) {
+    lines.push('listen {');
+    if (entry.node) lines.push(`  node = ${entry.node}`);
+    if (entry.address) lines.push(`  address = ${entry.address}`);
+    lines.push('}');
+  }
+  return ['https {', ...lines.map(line => `  ${line}`), '}'].join('\n');
+}
+
+// hclBlockRanges returns [start, end] line indexes (inclusive) of every block
+// opened by a line reading `<name> {` at any indent, matched by brace count.
+function hclBlockRanges(lines, name) {
+  const ranges = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!new RegExp(`^\\s*${name} \\{\\s*$`).test(lines[i])) continue;
+    let depth = 0;
+    for (let j = i; j < lines.length; j++) {
+      depth += (lines[j].match(/\{/g) || []).length - (lines[j].match(/\}/g) || []).length;
+      if (depth === 0) {
+        ranges.push([i, j]);
+        i = j;
+        break;
+      }
+    }
+  }
+  return ranges;
+}
+
+function removeHclBlocks(lines, name) {
+  for (const [start, end] of hclBlockRanges(lines, name).reverse()) {
+    let from = start;
+    if (lines[from - 1]?.trim() === '' && (lines[end + 1]?.trim() === '' || lines[end + 1]?.trim() === '}')) from--;
+    lines.splice(from, end - from + 1);
+  }
+  return lines;
+}
+
+// withHttpsRoutes replaces every https block in the deployment HCL with the
+// given block texts, creating or removing the ingress block as needed.
 export function withHttpsRoutes(text, routes) {
-  const lines = text.split('\n').filter(line => !/^\s*https\(/.test(line));
-  const routeLines = routes.map(route => `      ${route},`);
-  const openIndex = lines.findIndex(line => line.trim() === 'ingress = [');
-  if (openIndex >= 0) {
+  const lines = removeHclBlocks(text.split('\n'), 'https');
+  const routeLines = [];
+  routes.forEach((route, index) => {
+    if (index) routeLines.push('');
+    routeLines.push(...route.split('\n').map(line => (line ? `      ${line}` : line)));
+  });
+  const ingress = hclBlockRanges(lines, 'ingress')[0];
+  if (ingress) {
+    const [start, end] = ingress;
+    const body = lines.slice(start + 1, end);
+    if (!routes.length && body.every(line => line.trim() === '')) {
+      const from = lines[start - 1]?.trim() === '' ? start - 1 : start;
+      lines.splice(from, end - from + 1);
+      return lines.join('\n');
+    }
     if (routes.length) {
-      lines.splice(openIndex + 1, 0, ...routeLines);
-    } else if (lines[openIndex + 1]?.trim() === ']') {
-      const start = lines[openIndex - 1]?.trim() === '' ? openIndex - 1 : openIndex;
-      lines.splice(start, openIndex + 2 - start);
+      const insertAt = body.some(line => line.trim() !== '') ? end : start + 1;
+      const separator = insertAt === end && lines[end - 1].trim() !== '' ? [''] : [];
+      lines.splice(insertAt, 0, ...separator, ...routeLines);
     }
     return lines.join('\n');
   }
   if (!routes.length) return lines.join('\n');
   const modeIndex = lines.findIndex(line => /^\s*mode = /.test(line));
   if (modeIndex < 0) throw new Error('network mode attribute not found in deployment HCL');
-  lines.splice(modeIndex + 1, 0, '', '    ingress = [', ...routeLines, '    ]');
+  lines.splice(modeIndex + 1, 0, '', '    ingress {', ...routeLines, '    }');
   return lines.join('\n');
 }
 
@@ -571,19 +631,16 @@ export async function expectIssuedTLSHclDiagnostics(page, {name, machine = 'work
 
 export function withPortForwardAllow(text, allow) {
   const lines = text.split('\n');
-  const index = lines.findIndex(line => line.includes('port_forward('));
-  if (index < 0) throw new Error('port_forward route not found in deployment HCL');
-  const match = lines[index].match(/^(\s*)port_forward\(("[^"]+"),\s*(\d+)(?:,\s*\{\s*(.*?)\s*\})?\)(,?)\s*$/);
-  if (!match) throw new Error(`unrecognized port_forward line: ${lines[index].trim()}`);
-  const [, indent, protocol, containerPort, optionsBody = '', comma] = match;
-  const kept = optionsBody
-    .replace(/allow\s*=\s*\[[^\]]*\]/, '')
-    .split(',')
-    .map(part => part.trim())
-    .filter(Boolean);
-  if (allow.length) kept.push(`allow = [${allow.map(entry => JSON.stringify(entry)).join(', ')}]`);
-  const options = kept.length ? `, { ${kept.join(', ')} }` : '';
-  lines[index] = `${indent}port_forward(${protocol}, ${containerPort}${options})${comma}`;
+  const range = hclBlockRanges(lines, 'port_forward')[0];
+  if (!range) throw new Error('port_forward block not found in deployment HCL');
+  const [start, end] = range;
+  const allowIndex = lines.findIndex((line, index) => index > start && index < end && /^\s*allow = /.test(line));
+  if (allowIndex >= 0) lines.splice(allowIndex, 1);
+  if (allow.length) {
+    const closing = hclBlockRanges(lines, 'port_forward')[0][1];
+    const indent = (lines[start].match(/^(\s*)/) || ['', ''])[1] + '  ';
+    lines.splice(closing, 0, `${indent}allow = [${allow.map(entry => JSON.stringify(entry)).join(', ')}]`);
+  }
   return lines.join('\n');
 }
 
@@ -631,6 +688,67 @@ export async function expectPortForwardAllowDiagnostics(page, {name, machine = '
     await dialog.getByRole('button', {name: 'Cancel'}).click();
     await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
   });
+}
+
+// readDeploymentHclText opens the update dialog in code mode, returns the
+// rendered HCL, and cancels.
+export async function readDeploymentHclText(page, {name, machine}) {
+  const {dialog, editor} = await openDeploymentHclEditor(page, {name, machine});
+  const text = await readDeploymentHcl(editor);
+  await dialog.getByRole('button', {name: 'Cancel'}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  return text;
+}
+
+// expectHttpsRoutesDiagnostic writes routes into the code editor and asserts
+// the editor reports the diagnostic (so the save is blocked client-side),
+// then restores the original text and cancels.
+export async function expectHttpsRoutesDiagnostic(page, {name, machine, routes, diagnostic}) {
+  const {dialog, editor} = await openDeploymentHclEditor(page, {name, machine});
+  const original = await readDeploymentHcl(editor);
+  await step(`expect diagnostic: ${diagnostic}`, async () => {
+    await writeDeploymentHcl(editor, withHttpsRoutes(original, routes));
+    await expect(dialog.getByText(diagnostic).first()).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    await writeDeploymentHcl(editor, original);
+    await expect(dialog.getByText(diagnostic)).toHaveCount(0, {timeout: LONG_UI_TIMEOUT});
+  });
+  await step(`cancel update dialog ${name}`, async () => {
+    await dialog.getByRole('button', {name: 'Cancel'}).click();
+    await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  });
+}
+
+export async function expectNodeHostAddresses(page, {machine, contains = []}) {
+  await byTestId(page, 'nav-cluster', page.getByText('Machines')).click();
+  const row = await clusterMachineRow(page, machine);
+  const cell = row.getByTestId('node-host-addresses');
+  for (const address of contains) {
+    await expect(cell).toContainText(address, {timeout: LONG_UI_TIMEOUT});
+  }
+}
+
+// expectDeploymentIngressWarnings opens the networking pane of the update
+// dialog and asserts each pattern appears among the ingress warnings (or that
+// none are shown when patterns is empty), then cancels.
+export async function expectDeploymentIngressWarnings(page, {name, machine, patterns = []}) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = deploymentRow(page, {name, machine});
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await row.getByRole('button', {name: 'Update'}).click();
+  const dialog = editorPanel(page, 'update-deployment-dialog');
+  await expect(dialog).toBeVisible();
+  await selectEditorMode(dialog, 'ui');
+  const pane = await openDeploymentNetworkingPane(dialog);
+  const warnings = pane.getByTestId('deployment-ingress-warning');
+  if (!patterns.length) {
+    await expect(warnings).toHaveCount(0, {timeout: LONG_UI_TIMEOUT});
+  }
+  for (const pattern of patterns) {
+    await expect(warnings.filter({hasText: pattern}).first()).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  }
+  await pane.getByTitle('Close').click();
+  await dialog.getByRole('button', {name: 'Cancel'}).click();
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
 }
 
 export async function expectDeploymentHttpsIngressRows(page, {name, machine = 'worker-2', count} = {}) {

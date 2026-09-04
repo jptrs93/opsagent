@@ -221,9 +221,10 @@ func diffCounts(expected, actual map[string]int) (missing, unexpected []string) 
 }
 
 // expectedDNATKeys mirrors reconcileNft: each published host port renders an
-// unconditional output rule per address family it has a target for, plus
-// prerouting rules — unconditional when unfiltered, one per allowed source
-// prefix of the family when filtered.
+// output rule per address family it has a target for, plus prerouting rules —
+// unconditional when unfiltered, one per allowed source prefix of the family
+// when filtered. A destination-restricted rule repeats that set once per
+// destination prefix of the family, matching daddr instead of fib local.
 func expectedDNATKeys(rules []network.HostPortRule) map[string]struct{} {
 	keys := make(map[string]struct{})
 	for _, rule := range rules {
@@ -238,23 +239,33 @@ func expectedDNATKeys(rules []network.HostPortRule) map[string]struct{} {
 }
 
 func addExpectedDNATKeys(keys map[string]struct{}, family string, rule network.HostPortRule, target netip.Addr, allow []netip.Prefix) {
-	if rule.Filtered {
-		for _, src := range allow {
-			keys[dnatKey(family, "prerouting", rule.Protocol, rule.HostPort, src, target, rule.TargetPort)] = struct{}{}
-		}
-	} else {
-		keys[dnatKey(family, "prerouting", rule.Protocol, rule.HostPort, netip.Prefix{}, target, rule.TargetPort)] = struct{}{}
+	dests, restricted := rule.DestFor(family == "ip6")
+	if !restricted {
+		dests = []netip.Prefix{{}}
 	}
-	keys[dnatKey(family, "output", rule.Protocol, rule.HostPort, netip.Prefix{}, target, rule.TargetPort)] = struct{}{}
+	for _, dest := range dests {
+		if rule.Filtered {
+			for _, src := range allow {
+				keys[dnatKey(family, "prerouting", rule.Protocol, rule.HostPort, src, dest, target, rule.TargetPort)] = struct{}{}
+			}
+		} else {
+			keys[dnatKey(family, "prerouting", rule.Protocol, rule.HostPort, netip.Prefix{}, dest, target, rule.TargetPort)] = struct{}{}
+		}
+		keys[dnatKey(family, "output", rule.Protocol, rule.HostPort, netip.Prefix{}, dest, target, rule.TargetPort)] = struct{}{}
+	}
 }
 
-func dnatKey(family, chain string, proto uint8, hostPort uint16, source netip.Prefix, target netip.Addr, targetPort uint16) string {
+func dnatKey(family, chain string, proto uint8, hostPort uint16, source, dest netip.Prefix, target netip.Addr, targetPort uint16) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s %s", family, chain, protoName(proto))
 	if source.IsValid() {
-		return fmt.Sprintf("%s %s %s saddr %s dport %d -> %s", family, chain, protoName(proto), source, hostPort,
-			netip.AddrPortFrom(target, targetPort))
+		fmt.Fprintf(&b, " saddr %s", source)
 	}
-	return fmt.Sprintf("%s %s %s dport %d -> %s", family, chain, protoName(proto), hostPort,
-		netip.AddrPortFrom(target, targetPort))
+	if dest.IsValid() {
+		fmt.Fprintf(&b, " daddr %s", dest)
+	}
+	fmt.Fprintf(&b, " dport %d -> %s", hostPort, netip.AddrPortFrom(target, targetPort))
+	return b.String()
 }
 
 func protoName(proto uint8) string {

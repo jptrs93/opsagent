@@ -63,6 +63,20 @@ abrupt-disconnect propagation via its `/state` endpoint
 three route groups are re-verified after the agent and opendeploy-net
 upgrade rollouts.
 
+`cases/ingress-listen.js` covers ingress `listen` selectors on worker-1, the
+one node whose 443 publish set the cases own outright (on worker-2 every other
+route publishes 443 on every address, and DNAT is per address and port, not
+per hostname). The orchestrator opens a third tunnel, `127.0.0.1:18444` to
+worker-1's own IPv4 address on 443 (`OPD_PLAYWRIGHT_LISTEN_INGRESS_PORT`), and
+passes the node addresses as `OPD_WORKER_1_INGRESS_ADDRESS` and
+`OPD_WORKER_2_INGRESS_ADDRESS`. The cases check the Machines page inventory, a
+literal selector serving and round-tripping through HCL, an unmatched literal
+leaving 443 dark, the default selector serving with the host-mode warning,
+a listen node other than the hosting node refused in the editor, an
+overlapping claim rejected, and the primary Web UI listener acting as a
+reserved claim (literal rejected, wildcard accepted with a reported
+exclusion).
+
 `cases/space-moves.js` runs inside that window, while the restricted
 deployment and values still pin references and the restricted session is a
 live second observer. It moves an unreferenced secret and asset between

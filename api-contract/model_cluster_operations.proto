@@ -44,6 +44,10 @@ message ClusterHello {
   // Base64 WireGuard public key, re-reported on every connect. Empty means
   // the secondary has no key (older build); it never clears a stored key.
   string wg_public_key = 3;
+  // Global unicast addresses on interfaces the agent does not manage, the
+  // candidates an ingress listen selector can expand to. Re-sent whenever the
+  // set changes.
+  repeated string host_addresses = 4;
 }
 
 message MsgToPrimary {
