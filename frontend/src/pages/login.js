@@ -145,18 +145,30 @@ export function loginPage() {
 // how to make the browser trust the locally generated Web UI CA. It is shown
 // whenever the server is serving under that CA, collapsed, so someone who
 // continued through the browser warning can find it without leaving the page.
+// The CA PEM is fetched once and inlined into each command as a heredoc, so
+// trusting the CA is a single paste with no file to move around; until the
+// PEM has arrived, or if it cannot be fetched, the file-based commands show.
 function caTrustHelp() {
     const caURL = `${window.location.origin}/v1/tls/ca.crt`;
     const tab = van.state('macos');
     const copied = van.state(false);
     const copyErr = van.state('');
+    const pemS = van.state('');
+
+    const fetchPEM = async () => {
+        const res = await fetch(caURL);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = (await res.text()).trim();
+        if (!text.startsWith('-----BEGIN CERTIFICATE-----')) throw new Error('not a PEM certificate');
+        pemS.val = text;
+        return text;
+    };
+    fetchPEM().catch(() => {});
 
     const copyCA = async () => {
         copyErr.val = '';
         try {
-            const res = await fetch(caURL);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            await navigator.clipboard.writeText(await res.text());
+            await navigator.clipboard.writeText(pemS.val || await fetchPEM());
             copied.val = true;
             setTimeout(() => { copied.val = false; }, 1500);
         } catch (e) {
@@ -164,20 +176,32 @@ function caTrustHelp() {
         }
     };
 
+    // Shown in place of the full PEM inside a displayed command block.
+    const pemPlaceholder = '-----BEGIN CERTIFICATE-----\n…\n-----END CERTIFICATE-----';
+    const heredoc = (pem) => `<<'EOF'\n${pem}\nEOF`;
+    // A step is [title, buildCommand(pem)] where pem is '' when unavailable.
     const platforms = [
         {key: 'macos', label: 'macOS', steps: [
-            ['Trust the CA', 'sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain opendeploy-ca.crt'],
+            ['Write the CA and trust it', (pem) => pem
+                ? `cat > opendeploy-ca.crt ${heredoc(pem)}\nsudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain opendeploy-ca.crt`
+                : 'sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain opendeploy-ca.crt'],
         ]},
         {key: 'linux', label: 'Linux', steps: [
-            ['System store', 'sudo cp opendeploy-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates'],
-            ['Chrome / Chromium also', 'certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "OpenDeploy Local CA" -i opendeploy-ca.crt'],
+            ['System store', (pem) => pem
+                ? `sudo tee /usr/local/share/ca-certificates/opendeploy-ca.crt >/dev/null ${heredoc(pem)}\nsudo update-ca-certificates`
+                : 'sudo cp opendeploy-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates'],
+            ['Chrome / Chromium also', (pem) => pem
+                ? `certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "OpenDeploy Local CA" ${heredoc(pem)}`
+                : 'certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "OpenDeploy Local CA" -i opendeploy-ca.crt'],
         ]},
-        {key: 'windows', label: 'Windows', steps: [
-            ['Trust the CA', 'certutil -addstore -f ROOT opendeploy-ca.crt'],
+        {key: 'windows', label: 'Windows (PowerShell)', steps: [
+            ['Write the CA and trust it', (pem) => pem
+                ? `@'\n${pem}\n'@ | Set-Content -Path opendeploy-ca.crt\ncertutil -addstore -f ROOT opendeploy-ca.crt`
+                : 'certutil -addstore -f ROOT opendeploy-ca.crt'],
         ]},
         {key: 'firefox', label: 'Firefox', steps: [
-            ['Use the OS store: set this to true in about:config', 'security.enterprise_roots.enabled'],
-            ['Or import the file under', 'Settings › Privacy & Security › Certificates › View Certificates › Import'],
+            ['Use the OS store: set this to true in about:config', () => 'security.enterprise_roots.enabled'],
+            ['Or import the downloaded file under', () => 'Settings › Privacy & Security › Certificates › View Certificates › Import'],
         ]},
     ];
 
@@ -192,12 +216,15 @@ function caTrustHelp() {
     }, label);
 
     // Each command block carries its own copy button; the "Copied" state is
-    // per block so copying one does not relabel the others.
-    const cmd = (text) => {
+    // per block so copying one does not relabel the others. The block shows
+    // the PEM collapsed to keep the tab short; the clipboard gets it in full.
+    const cmd = (build) => {
         const done = van.state(false);
+        const full = () => build(pemS.val);
+        const shown = () => pemS.val ? full().replace(pemS.val, pemPlaceholder) : full();
         return div(
             {class: "flex items-start gap-1"},
-            pre({class: "min-w-0 flex-1 whitespace-pre-wrap break-all rounded bg-gray-900 px-2 py-1 text-[11px] text-gray-300 select-all"}, text),
+            pre({class: "min-w-0 flex-1 whitespace-pre-wrap break-all rounded bg-gray-900 px-2 py-1 text-[11px] text-gray-300", "data-testid": "login-ca-cmd"}, shown),
             button({
                 type: "button",
                 class: "shrink-0 rounded border border-gray-600 px-2 py-1 text-[11px] text-gray-300 hover:bg-gray-700 cursor-pointer",
@@ -205,7 +232,7 @@ function caTrustHelp() {
                 "data-testid": "login-ca-cmd-copy",
                 onclick: async () => {
                     try {
-                        await navigator.clipboard.writeText(text);
+                        await navigator.clipboard.writeText(full());
                         done.val = true;
                         setTimeout(() => { done.val = false; }, 1500);
                     } catch (e) {
@@ -221,7 +248,7 @@ function caTrustHelp() {
         summary({class: "cursor-pointer select-none text-gray-400 hover:text-gray-200"}, "Browser warning about the certificate?"),
         div(
             {class: "mt-2 flex max-h-[50vh] min-w-0 flex-col gap-2 overflow-y-auto"},
-            p({class: "text-xs text-gray-400"}, "This server has its own CA. Trust it once, restart the browser, reload."),
+            p({class: "text-xs text-gray-400"}, "This server has its own CA. Paste one command to trust it, restart the browser, reload."),
             div(
                 {class: "flex flex-wrap items-center gap-2"},
                 a({class: "rounded border border-gray-600 px-3 py-1 text-xs text-gray-200 hover:bg-gray-700 cursor-pointer no-underline", href: caURL, download: "opendeploy-ca.crt", "data-testid": "login-ca-download"}, "Download opendeploy-ca.crt"),
@@ -229,11 +256,11 @@ function caTrustHelp() {
                     () => copied.val ? "Copied" : "Copy PEM"),
                 () => copyErr.val ? span({class: "text-xs text-red-400"}, copyErr.val) : '',
             ),
-            div({class: "flex gap-1 border-b border-gray-700", role: "tablist"}, ...platforms.map(tabButton)),
+            div({class: "flex flex-wrap gap-1 border-b border-gray-700", role: "tablist"}, ...platforms.map(tabButton)),
             () => {
                 const active = platforms.find((p) => p.key === tab.val);
                 return div({class: "flex flex-col gap-2"},
-                    ...active.steps.map(([title, text]) => div(p({class: "text-xs text-gray-400"}, title), cmd(text))));
+                    ...active.steps.map(([title, build]) => div(p({class: "text-xs text-gray-400"}, title), cmd(build))));
             },
             p({class: "text-xs text-red-400", "data-testid": "login-ca-warning"},
                 "Careful: a trusted CA can sign certificates for any site. Only do this for a server you control, and only from a machine you trust. Remove the CA when you no longer need it."),
