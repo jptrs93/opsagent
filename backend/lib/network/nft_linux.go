@@ -16,7 +16,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const nftTableName = "opendeploy"
+// NftTableName is the name of the nftables tables (ip and ip6 families) this
+// package owns; the uninstaller deletes them by name.
+const NftTableName = "opendeploy"
 
 const nftNetlinkReadBuffer = 8 << 20
 
@@ -36,8 +38,8 @@ type nftHandles struct {
 
 func newNftHandles() *nftHandles {
 	h := &nftHandles{
-		tbl4: &nftables.Table{Family: nftables.TableFamilyIPv4, Name: nftTableName},
-		tbl6: &nftables.Table{Family: nftables.TableFamilyIPv6, Name: nftTableName},
+		tbl4: &nftables.Table{Family: nftables.TableFamilyIPv4, Name: NftTableName},
+		tbl6: &nftables.Table{Family: nftables.TableFamilyIPv6, Name: NftTableName},
 	}
 	h.post4 = &nftables.Chain{
 		Name: "postrouting", Table: h.tbl4, Type: nftables.ChainTypeNAT,

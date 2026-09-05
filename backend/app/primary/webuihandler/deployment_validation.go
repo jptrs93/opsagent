@@ -960,6 +960,8 @@ var deniedContainerHostMountRoots = []string{
 	"/var/lib/opendeploy-assets",
 	"/var/lib/opendeploy-build-logs",
 	"/var/lib/opendeploy-containerd",
+	"/var/lib/opendeploy-log-archive",
+	"/var/lib/opendeploy-metrics",
 	"/var/lib/opendeploy-releases",
 	"/var/lib/opendeploy-run-logs",
 	"/var/lib/opendeploy-volumes",

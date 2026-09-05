@@ -389,10 +389,6 @@ func deleteNamedNetns(ctx context.Context, containerID string) {
 	}
 }
 
-func hostVethName(deploymentID int32, slot int) string {
-	return "od" + strconv.Itoa(int(deploymentID)) + "s" + strconv.Itoa(slot)
-}
-
 func findContainerVeth(containerID string, deploymentID int32) (netlink.Link, int, error) {
 	nsHandle, err := netns.GetFromName(containerID)
 	if err != nil {

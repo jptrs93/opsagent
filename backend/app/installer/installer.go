@@ -56,7 +56,7 @@ func Run(argv []string) error {
 
 	case "uninstall":
 		fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
-		purge := fs.Bool("purge", false, "also delete all state (data dir, releases, volumes, containerd root, config) and the opendeploy user")
+		purge := fs.Bool("purge", false, "also delete all data (data dir and every /var/lib/opendeploy-* sibling, /etc/opendeploy) and the opendeploy user")
 		yes := fs.Bool("yes", false, "skip the --purge confirmation prompt")
 		fs.BoolVar(&dryRun, "dry-run", false, "print the actions that would be taken without performing them")
 		_ = fs.Parse(argv[2:])
@@ -330,7 +330,7 @@ Usage:
 
 Commands:
   install     Fresh install (needs root) or in-place upgrade (auto-detected).
-  uninstall   Remove the service and binary; --purge also wipes all state.
+  uninstall   Stop services and containers, remove network state, units, and binary; --purge also wipes all data.
 
 Run install with --dry-run to print every action before committing.
 `, prog)
