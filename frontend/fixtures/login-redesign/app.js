@@ -7,6 +7,7 @@ import {currentDesign} from "./designCurrent.js";
 import {centeredDesign} from "./designCentered.js";
 import {minimalDesign} from "./designMinimal.js";
 import {consoleDesign} from "./designConsole.js";
+import {cardDesign} from "./designCard.js";
 
 const {button, div, input, label, p, select, option, span} = van.tags;
 
@@ -15,6 +16,7 @@ const DESIGNS = [
     {key: "centered", label: "A · Centered", render: centeredDesign},
     {key: "minimal", label: "B · Minimal", render: minimalDesign},
     {key: "console", label: "C · Console", render: consoleDesign},
+    {key: "card", label: "D · Card", render: cardDesign},
 ];
 
 // --- hash-persisted state ----------------------------------------------------

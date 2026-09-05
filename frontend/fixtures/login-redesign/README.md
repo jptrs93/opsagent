@@ -1,8 +1,8 @@
 # Login page redesign fixture
 
-> Design A (Centered) was integrated into `src/pages/login.js` and
+> Design D (Card) is what `src/pages/login.js` now ships, with the overlay in
 > `src/components/caTrustHelp.js`. The "Current" option here is a replica of
-> the page as it was before that; B and C remain unadopted alternatives.
+> the page before any of this work; A, B and C are the unadopted alternatives.
 
 Run from `frontend/`:
 
@@ -74,6 +74,20 @@ the top of the body.
 Closest to the rest of the UI and the smallest change to ship; it stays a card
 on the gradient body, so if the card itself is what you dislike this is not
 the one.
+
+### D · Card
+
+Console's shell around Centered's content. The card (header band on the
+card surface, grouped field box with in-field captions, footer band) sits on the
+Centered backdrop. The header band is the single "OpenDeploy Sign in" line,
+the passkey button comes first with the password form after it, both
+buttons in one brand-tinted style between filled and outlined (no hint
+sentence), and the footer band holds the transport row with the "Trust the CA" action
+and the setup link. Certificate help is always the
+overlay; nothing expands inline.
+
+Best if the card is wanted for its framing but the page should keep the
+integrated design's content and behaviour.
 
 ## Adopting one
 
