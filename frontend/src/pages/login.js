@@ -222,8 +222,6 @@ function caTrustHelp() {
         div(
             {class: "mt-2 flex max-h-[50vh] min-w-0 flex-col gap-2 overflow-y-auto"},
             p({class: "text-xs text-gray-400"}, "This server has its own CA. Trust it once, restart the browser, reload."),
-            p({class: "text-xs text-red-400", "data-testid": "login-ca-warning"},
-                "Careful: a trusted CA can sign certificates for any site. Only do this for a server you control, and only from a machine you trust. Remove the CA when you no longer need it."),
             div(
                 {class: "flex flex-wrap items-center gap-2"},
                 a({class: "btn-primary px-3 py-1 text-xs", href: caURL, download: "opendeploy-ca.crt", "data-testid": "login-ca-download"}, "Download opendeploy-ca.crt"),
@@ -237,6 +235,8 @@ function caTrustHelp() {
                 return div({class: "flex flex-col gap-2"},
                     ...active.steps.map(([title, text]) => div(p({class: "text-xs text-gray-400"}, title), cmd(text))));
             },
+            p({class: "text-xs text-red-400", "data-testid": "login-ca-warning"},
+                "Careful: a trusted CA can sign certificates for any site. Only do this for a server you control, and only from a machine you trust. Remove the CA when you no longer need it."),
         ),
     );
 }
