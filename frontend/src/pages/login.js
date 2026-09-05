@@ -176,8 +176,6 @@ function caTrustHelp() {
         }
     };
 
-    // Shown in place of the full PEM inside a displayed command block.
-    const pemPlaceholder = '-----BEGIN CERTIFICATE-----\n…\n-----END CERTIFICATE-----';
     const heredoc = (pem) => `<<'EOF'\n${pem}\nEOF`;
     // A step is [title, buildCommand(pem)] where pem is '' when unavailable.
     const platforms = [
@@ -217,14 +215,13 @@ function caTrustHelp() {
 
     // Each command block carries its own copy button; the "Copied" state is
     // per block so copying one does not relabel the others. The block shows
-    // the PEM collapsed to keep the tab short; the clipboard gets it in full.
+    // exactly what the clipboard gets, PEM included.
     const cmd = (build) => {
         const done = van.state(false);
         const full = () => build(pemS.val);
-        const shown = () => pemS.val ? full().replace(pemS.val, pemPlaceholder) : full();
         return div(
             {class: "flex items-start gap-1"},
-            pre({class: "min-w-0 flex-1 whitespace-pre-wrap break-all rounded bg-gray-900 px-2 py-1 text-[11px] text-gray-300", "data-testid": "login-ca-cmd"}, shown),
+            pre({class: "min-w-0 flex-1 whitespace-pre-wrap break-all rounded bg-gray-900 px-2 py-1 text-[11px] text-gray-300", "data-testid": "login-ca-cmd"}, full),
             button({
                 type: "button",
                 class: "shrink-0 rounded border border-gray-600 px-2 py-1 text-[11px] text-gray-300 hover:bg-gray-700 cursor-pointer",
