@@ -134,8 +134,8 @@ export const orderedCases = [
   },
   {
     id: 'password-login',
-    title: 'enable password login and sign in with a password',
-    description: 'Turns on password login in Settings, creates a second operator through first-time setup with a password, signs in with it, then returns to the passkey operator.',
+    title: 'enable master-password login and sign in with it',
+    description: 'Turns on master-password login in Settings, signs in as a new operator with a name and the setup password, then returns to the passkey operator.',
     requires: ['passkey-login'],
     async run(ctx) {
       await passwordLoginRoundTrip(ctx.page);

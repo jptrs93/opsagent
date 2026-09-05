@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -166,7 +167,14 @@ func New(staticFS fs.FS, nodeID int32, deps Dependencies) (*Handler, error) {
 		},
 	)
 	if err := h.initPasskeyService(); err != nil {
-		return nil, err
+		// With password login on, a relying-party configuration the WebAuthn
+		// library rejects must not take the whole UI down: passkeys become
+		// unavailable and the login page says so.
+		if !h.passwordLoginEnabled() {
+			return nil, err
+		}
+		slog.Error("passkeys unavailable: relying-party configuration rejected", "err", err)
+		h.PasskeyService = nil
 	}
 	return h, nil
 }

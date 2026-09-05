@@ -969,7 +969,6 @@
  * @property {string} name
  * @property {WebAuthnCredential[]} credentials
  * @property {boolean} delegated
- * @property {string} passwordHash
  */
 /**
  * @typedef {Object} PublicKeyRecord
@@ -995,13 +994,10 @@
  * @property {string} password
  */
 /**
- * @typedef {Object} PasswordSetRequest
- * @property {string} password
- */
-/**
  * @typedef {Object} AuthMethodsResponse
  * @property {boolean} passkeyLoginEnabled
  * @property {boolean} passwordLoginEnabled
+ * @property {boolean} localCaAvailable
  */
 /**
  * @typedef {Object} LoginResponse
@@ -12894,9 +12890,6 @@ export function writeInternalUser(message, writer) {
     if (message.delegated === true) {
         writer.uint32(tag(5, WIRE.VARINT)).bool(message.delegated);
     }
-    if (message.passwordHash !== undefined && message.passwordHash !== null && message.passwordHash !== "") {
-        writer.uint32(tag(6, WIRE.LDELIM)).string(message.passwordHash);
-    }
 }
 
 
@@ -12918,7 +12911,7 @@ export function encodeInternalUser(message) {
  */
 function decodeInternalUserMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, webAuthNId: new Uint8Array(0), name: "", credentials: [], delegated: false, passwordHash: "" };
+    const message = {id: 0, webAuthNId: new Uint8Array(0), name: "", credentials: [], delegated: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -12940,10 +12933,6 @@ function decodeInternalUserMessage(reader, length) {
             }
             case 5: {
                 message.delegated = reader.bool();
-                break;
-            }
-            case 6: {
-                message.passwordHash = reader.string();
                 break;
             }
             default:
@@ -13267,62 +13256,6 @@ export function decodePasswordLoginRequest(buffer) {
 
 
 /**
- * @param {PasswordSetRequest} message
- * @param {Writer} writer
- */
-export function writePasswordSetRequest(message, writer) {
-    if (message.password !== undefined && message.password !== null && message.password !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.password);
-    }
-}
-
-
-/**
- * @param {PasswordSetRequest} message
- * @returns {Uint8Array}
- */
-export function encodePasswordSetRequest(message) {
-    const writer = Writer.create();
-    writePasswordSetRequest(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {PasswordSetRequest}
- */
-function decodePasswordSetRequestMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {password: "" };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.password = reader.string();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {PasswordSetRequest}
- */
-export function decodePasswordSetRequest(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodePasswordSetRequestMessage(reader);
-}
-
-
-
-/**
  * @param {AuthMethodsResponse} message
  * @param {Writer} writer
  */
@@ -13332,6 +13265,9 @@ export function writeAuthMethodsResponse(message, writer) {
     }
     if (message.passwordLoginEnabled === true) {
         writer.uint32(tag(2, WIRE.VARINT)).bool(message.passwordLoginEnabled);
+    }
+    if (message.localCaAvailable === true) {
+        writer.uint32(tag(3, WIRE.VARINT)).bool(message.localCaAvailable);
     }
 }
 
@@ -13354,7 +13290,7 @@ export function encodeAuthMethodsResponse(message) {
  */
 function decodeAuthMethodsResponseMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {passkeyLoginEnabled: false, passwordLoginEnabled: false };
+    const message = {passkeyLoginEnabled: false, passwordLoginEnabled: false, localCaAvailable: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -13364,6 +13300,10 @@ function decodeAuthMethodsResponseMessage(reader, length) {
             }
             case 2: {
                 message.passwordLoginEnabled = reader.bool();
+                break;
+            }
+            case 3: {
+                message.localCaAvailable = reader.bool();
                 break;
             }
             default:

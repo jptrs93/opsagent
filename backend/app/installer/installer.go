@@ -93,7 +93,8 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 	passkeyExtraOriginsRaw := fs.String("passkey-extra-origins", "", "set OPENDEPLOY_PASSKEY_EXTRA_ORIGINS (comma-separated WebAuthn origins)")
 	clusterListenRaw := fs.String("cluster-listen", "", "set the initial cluster listen address (for example :9443)")
 	enrollmentListenRaw := fs.String("enrollment-listen", "", "set the initial enrollment listen address (for example :9444)")
-	acmeHostsRaw := fs.String("acme-hosts", "", "set the initial ACME hostnames (comma-separated)")
+	acmeHostsRaw := fs.String("acme-hosts", "", "set the initial web UI hostnames, also used for ACME (comma-separated)")
+	webHostsRaw := fs.String("web-hosts", "", "alias for --acme-hosts: hostnames the web UI is reached by (comma-separated)")
 	primaryNameRaw := fs.String("primary-name", "", "set OPENDEPLOY_PRIMARY_NAME for the primary certificate DNS name")
 	underlayAddressRaw := fs.String("underlay-address", "", "set the node address used for cross-node tunnels")
 	restoreBackupRaw := fs.String("restore-backup", "", "restore primary.db from S3 before first boot (true or false)")
@@ -184,9 +185,13 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 				return
 			}
 			opts.enrollmentListen = &v
-		case "acme-hosts":
-			v := strings.TrimSpace(*acmeHostsRaw)
-			if err := validateEnvValue("--acme-hosts", v); err != nil && parseErr == nil {
+		case "acme-hosts", "web-hosts":
+			raw := *acmeHostsRaw
+			if f.Name == "web-hosts" {
+				raw = *webHostsRaw
+			}
+			v := strings.TrimSpace(raw)
+			if err := validateEnvValue("--"+f.Name, v); err != nil && parseErr == nil {
 				parseErr = err
 				return
 			}
@@ -319,7 +324,7 @@ func usage(prog string) {
 	fmt.Fprintf(os.Stderr, `%[1]s install / uninstall — provision, upgrade, and remove opendeploy
 
 Usage:
-  %[1]s install primary [--version vX.Y.Z|latest] [--http-only true] [--password-login true] [--web-listen :8080] [--web-tls-self-managed true] [--web-tls-cert-pem-file cert.pem] [--passkey-extra-origins https://host:8443] [--cluster-listen :9443] [--enrollment-listen :9444] [--underlay-address 10.0.0.1] [--acme-hosts host1,host2] [--primary-name primary] [--restore-backup true --restore-s3-access-key-id ... --restore-s3-secret-access-key ... --restore-s3-bucket ... --restore-s3-path ... --restore-s3-region ... --recovery-code ...] [--dry-run]
+  %[1]s install primary [--version vX.Y.Z|latest] [--http-only true] [--password-login true] [--web-listen :8080] [--web-tls-self-managed true] [--web-tls-cert-pem-file cert.pem] [--passkey-extra-origins https://host:8443] [--cluster-listen :9443] [--enrollment-listen :9444] [--underlay-address 10.0.0.1] [--web-hosts host1,host2] [--acme-hosts host1,host2] [--primary-name primary] [--restore-backup true --restore-s3-access-key-id ... --restore-s3-secret-access-key ... --restore-s3-bucket ... --restore-s3-path ... --restore-s3-region ... --recovery-code ...] [--dry-run]
   %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 --enrollment-fingerprint sha256:<hex> [--underlay-address 10.0.0.2] [--version vX.Y.Z|latest] [--primary-name primary] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
 

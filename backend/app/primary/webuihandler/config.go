@@ -252,7 +252,7 @@ func (h *Handler) validateWebTLSCert(settings *apigen.ClusterSettings) error {
 		return nil
 	}
 	if id == 0 {
-		_, err := certu.BootstrapWebUISelfSigned(h.Secrets, certu.WebUISelfSignedNames(settings.HttpsWeb.AcmeHosts.Value, settings.HttpsWeb.Listen.Value))
+		_, _, err := certu.EnsureWebUILocalTLS(h.Secrets, certu.WebUITLSNames(settings.HttpsWeb.AcmeHosts.Value, settings.HttpsWeb.Listen.Value))
 		return err
 	}
 	bundle, err := h.Secrets.RevealByID(id)

@@ -70,8 +70,12 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("initializing cluster TLS material: %w", err)
 	}
 	if cfg.Settings.HttpsWeb.Enabled.Value && cfg.Settings.HttpsWeb.TlsSelfManaged.Value && cfg.Settings.HttpsWeb.TlsCertPem.VersionID == 0 {
-		if _, err := certu.BootstrapWebUISelfSigned(secretsMgr, certu.WebUISelfSignedNames(cfg.Settings.HttpsWeb.AcmeHosts.Value, cfg.Settings.HttpsWeb.Listen.Value)); err != nil {
+		_, caCertPEM, err := certu.EnsureWebUILocalTLS(secretsMgr, certu.WebUITLSNames(cfg.Settings.HttpsWeb.AcmeHosts.Value, cfg.Settings.HttpsWeb.Listen.Value))
+		if err != nil {
 			return nil, fmt.Errorf("initializing self-managed Web TLS material: %w", err)
+		}
+		if err := certu.WriteWebUILocalCAFile(s.DataDir, caCertPEM); err != nil {
+			return nil, fmt.Errorf("exporting Web UI CA certificate: %w", err)
 		}
 	}
 	if _, err := config.InitializeService(store, *cfg); err != nil {
@@ -118,7 +122,7 @@ func (s Service) Validate(_ context.Context) error {
 		if settings.HttpsWeb.TlsCertPem.VersionID != 0 {
 			bundle, err = secretsMgr.RevealByID(settings.HttpsWeb.TlsCertPem.VersionID)
 		} else {
-			bundle, err = certu.LoadWebUISelfSigned(secretsMgr)
+			bundle, _, err = certu.EnsureWebUILocalTLS(secretsMgr, certu.WebUITLSNames(configService.MustLoadConfigStringValue(settings.HttpsWeb.AcmeHosts), configService.MustLoadConfigStringValue(settings.HttpsWeb.Listen)))
 		}
 		if err != nil {
 			return fmt.Errorf("loading self-managed Web TLS material: %w", err)

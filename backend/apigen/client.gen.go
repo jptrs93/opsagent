@@ -256,23 +256,16 @@ func (c *ApiServerCapi) PostV1AuthPasswordLogin(ctx context.Context, req *Passwo
 	return DecodeLoginResponse(body)
 }
 
-func (c *ApiServerCapi) PostV1AuthPasswordSet(ctx context.Context, req *PasswordSetRequest) (*LoginResponse, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1AuthPasswordSet request is nil")
-	}
-	resp, err := c.do(ctx, "POST", "/v1/auth/password/set", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) GetV1TlsCaCert(ctx context.Context) error {
+	resp, err := c.do(ctx, "GET", "/v1/tls/ca.crt", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
+		return c.ErrorHandler(ctx, resp)
 	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeLoginResponse(body)
+	return nil
 }
 
 func (c *ApiServerCapi) GetV1AuthCurrentSession(ctx context.Context) (*LoginResponse, error) {

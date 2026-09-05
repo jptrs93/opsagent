@@ -154,7 +154,17 @@ func webUITLSBundle(store *secrets.Manager, loader config.Loader, cfg *apigen.Cl
 		}
 		return value, nil
 	}
-	return certu.LoadWebUISelfSigned(store)
+	// No operator bundle: serve a leaf under the local CA, issuing or
+	// reissuing it here so enabling self-managed TLS later, or changing the
+	// hostnames, never leaves the listener without a certificate.
+	bundle, caCertPEM, err := certu.EnsureWebUILocalTLS(store, webUITLSNames(loader, cfg))
+	if err != nil {
+		return nil, err
+	}
+	if err := certu.WriteWebUILocalCAFile(ainit.StaticConfig.DataDir, caCertPEM); err != nil {
+		return nil, fmt.Errorf("exporting Web UI CA certificate: %w", err)
+	}
+	return bundle, nil
 }
 
 func webUITLSNames(loader config.Loader, cfg *apigen.ClusterSettings) []string {

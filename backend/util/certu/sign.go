@@ -1,7 +1,9 @@
 package certu
 
 import (
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -174,6 +176,89 @@ func SignWorkloadCertificate(caCertPEM, caKeyPEM []byte, commonName string, name
 	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, pub, caKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("signing workload certificate: %w", err)
+	}
+	keyPEM, err = marshalPrivateKey(priv)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}), keyPEM, nil
+}
+
+// GenerateWebUICA creates a CA meant to be imported into OS and browser trust
+// stores. It is ECDSA P-256 rather than Ed25519 like the cluster and workload
+// CAs: Ed25519 server certificates are still rejected by Safari, older
+// LibreSSL/OpenSSL clients, and some trust-store importers, whereas P-256 is
+// accepted everywhere.
+func GenerateWebUICA(name string, validity time.Duration) (certPEM, keyPEM []byte, err error) {
+	if name == "" {
+		return nil, nil, fmt.Errorf("CA name is empty")
+	}
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating CA key: %w", err)
+	}
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, nil, err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: name, Organization: []string{"OpenDeploy"}},
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(validity),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		MaxPathLenZero:        true,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		return nil, nil, fmt.Errorf("signing CA certificate: %w", err)
+	}
+	keyPEM, err = marshalPrivateKey(priv)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}), keyPEM, nil
+}
+
+// SignWebUICertificate issues a browser-facing server certificate (ECDSA
+// P-256, see GenerateWebUICA) under the given CA for the given names.
+func SignWebUICertificate(caCertPEM, caKeyPEM []byte, commonName string, names []string, validity time.Duration) (certPEM, keyPEM []byte, err error) {
+	if commonName == "" {
+		return nil, nil, fmt.Errorf("Web UI certificate common name is empty")
+	}
+	_, caCert, err := parseCertificate(caCertPEM, "Web UI CA cert")
+	if err != nil {
+		return nil, nil, err
+	}
+	caKey, err := parsePrivateKey(caKeyPEM, "Web UI CA key")
+	if err != nil {
+		return nil, nil, err
+	}
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating Web UI key: %w", err)
+	}
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, nil, err
+	}
+	dnsNames, ipAddresses := serverCertificateNames(names)
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: commonName},
+		DNSNames:              dnsNames,
+		IPAddresses:           ipAddresses,
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(validity),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, &priv.PublicKey, caKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("signing Web UI certificate: %w", err)
 	}
 	keyPEM, err = marshalPrivateKey(priv)
 	if err != nil {

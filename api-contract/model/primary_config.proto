@@ -67,9 +67,10 @@ message HttpsWebSettings {
 }
 
 // AuthSettings controls which login methods the Web UI offers. Passkeys are
-// always available; password login is an opt-in for local and evaluation
-// installs where passkeys are impractical (plain HTTP away from localhost,
-// or an untrusted certificate).
+// always available; password login lets the cluster master password open a
+// full session directly, an opt-in for local and evaluation installs where
+// passkeys are impractical (plain HTTP away from localhost, or an untrusted
+// certificate).
 message AuthSettings {
   BoolSetting password_login_enabled = 1 [(cp.go_value) = true];
 }

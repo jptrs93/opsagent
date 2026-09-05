@@ -69,10 +69,12 @@ func TestInitializeCreatesCompletePrimaryState(t *testing.T) {
 	if got := certu.MustCertCommonNameFromPEM(clusterMaterial.PrimaryCert); got != nodes[0].Identifier {
 		t.Fatalf("primary certificate CN = %q, want node identifier %q", got, nodes[0].Identifier)
 	}
-	if bundle, err := certu.LoadWebUISelfSigned(secretsMgr); err != nil {
-		t.Fatalf("certu.LoadWebUISelfSigned: %v", err)
-	} else if len(bundle) == 0 {
-		t.Fatal("self-managed Web TLS bundle is empty")
+	caPEM, err := certu.LoadWebUILocalCA(secretsMgr)
+	if err != nil || len(caPEM) == 0 {
+		t.Fatalf("certu.LoadWebUILocalCA: %v (len %d)", err, len(caPEM))
+	}
+	if exported, err := os.ReadFile(certu.WebUILocalCAPath(dir)); err != nil || string(exported) != string(caPEM) {
+		t.Fatalf("exported CA file: err=%v matches=%v", err, string(exported) == string(caPEM))
 	}
 }
 

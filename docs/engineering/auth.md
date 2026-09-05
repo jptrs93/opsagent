@@ -12,7 +12,7 @@ Key files:
 - `backend/app/primary/webuihandler/agent_sessions.go` — agent session request, approve, pickup, create, list, and revoke.
 - `backend/app/primary/webuihandler/agent_instructions.go` / `.md` — the unauthenticated instructions page an operator hands to an agent.
 - `backend/app/primary/webuihandler/passkey.go` — passkey registration and login handlers, credential persistence, and WebAuthn user adapter.
-- `backend/app/primary/webuihandler/password.go` — opt-in password login, password set, and the unauthenticated auth-methods endpoint.
+- `backend/app/primary/webuihandler/password.go` — opt-in master-password login, the unauthenticated auth-methods endpoint, and the local CA download.
 - `backend/apigen/policy_ext.go` — access control policy enforcement.
 
 ## User model
@@ -29,7 +29,7 @@ The configured master password hash is stored in the persisted OpenDeploy config
 1. Resolve the configured master password hash from the persisted OpenDeploy config envelope.
 2. Verify the request password against the resolved hash using `authu.VerifyPassword` (constant-time comparison).
 3. Look up the request's `username`; if no user with that name exists, create one (next integer id, fresh WebAuthn ID) with a `cluster_admin` grant.
-4. Return a JWT with `scopes: ["passkey:create"]` and 10-minute expiry. The bootstrap page then registers a passkey or, when password login is enabled, sets a password; either ends in a full session.
+4. Return a JWT with `scopes: ["passkey:create"]` and 10-minute expiry. The bootstrap page then registers a passkey, which ends in a full session.
 
 ### Rotation (`POST /v1/auth/master/password/save`)
 
@@ -50,7 +50,7 @@ Tokens are signed with RSA-256 (RS256) via `github.com/jptrs93/goutil/authu`. Ea
 
 Three token types exist:
 - **Bootstrap token**: scopes `["passkey:create"]`, 10-minute expiry. Issued by master password exchange.
-- **Session token**: scopes `["default"]`, 2-day expiry. Issued by passkey registration or login, and by password set or login.
+- **Session token**: scopes `["default"]`, 2-day expiry. Issued by passkey registration or login, and by master-password login when that is enabled.
 - **Agent session token**: the caller's own scopes, 6-hour expiry. Issued under `/v1/agent-sessions/` for command-line, script, and agent use.
 
 `GET /v1/auth/current/session` is an authenticated validation endpoint that echoes the caller's current bearer token without minting a new one. The frontend uses it on app startup to confirm persisted auth state and to force re-login on `401`.
@@ -127,17 +127,24 @@ Credentials are persisted inside each user's `data_blob` column in the SQLite `u
 
 ## Password login
 
-Password login exists for one reason: browsers only expose WebAuthn in a secure context, which means HTTPS with a certificate the browser trusts or plain HTTP on `localhost`. A single-node install reached over plain HTTP at a VM or LAN address cannot use passkeys, and one reached over HTTPS behind a self-signed certificate the operator clicked past is not a reliably supported passkey configuration (Chrome refuses outright; other browsers vary). Passkeys stay the default; password login is an opt-in that is off unless someone turns it on.
+Password login exists for one reason: browsers only expose WebAuthn in a secure context, which means HTTPS with a certificate the browser trusts or plain HTTP on `localhost`. A single-node install reached over plain HTTP at a VM or LAN address cannot use passkeys, and one reached over HTTPS behind a certificate the operator clicked past is not a reliably supported passkey configuration (Chrome refuses outright; other browsers vary). Passkeys stay the default; password login is an opt-in that is off unless someone turns it on.
 
-- **Gate.** `ClusterSettings.auth.password_login_enabled` (installer `--password-login true`, restore override `PASSWORD_LOGIN_ENABLED`, Settings → Authentication). While it is off, the login and set endpoints return `403 password_login_disabled` and the UI shows no password controls, so a production install that never enables it carries no password surface.
-- **Discovery.** `GET /v1/auth/methods` (`NO_AUTH`) reports which methods are on. The login page, bootstrap page, and the personal-sessions password card all read it, because none of them can see cluster settings before a session exists.
-- **Storage.** Each user's Argon2id hash lives in `InternalUser.password_hash`, next to their passkey credentials in the `users` table. An empty hash means the user has no password and cannot log in this way even when the feature is on.
-- **Set** (`POST /v1/auth/password/set`, scopes `passkey:create` or `default`, human only). Sets or replaces the caller's own password (8 to 256 characters). Called with a bootstrap token it mints a full `default` session, like passkey registration, so first-time setup can finish without a passkey; called with an existing `default` session it echoes that session back rather than opening a second one. There is no admin path to set another user's password; recovery is the master-password bootstrap flow as for passkeys.
-- **Discovery is deferred on the client.** The API client reads the login state synchronously to build its auth header, and the login and bootstrap pages are constructed inside the reactive route binding. `frontend/src/state/authMethods.js` therefore issues the methods request from a microtask, so a page never captures a dependency on the login state and is not rebuilt mid-flow when a token is stored.
-- **Usernames are trimmed** on creation and matched trimmed on both sides at login, so accounts created before trimming with surrounding whitespace still authenticate.
-- **Login** (`POST /v1/auth/password/login`, `NO_AUTH`). Username plus password → a normal personal session, identical to a passkey login, recorded in `personal_sessions` and revocable from the Sessions page. An unknown username is verified against a fixed dummy hash so the response takes the same time as a wrong password. Rate limited at 0.2/s burst 10 per IP, the same as the master-password route.
+It is **master-password login**: there are no per-user passwords. With the setting on, the master password, which otherwise only mints a bootstrap token, opens a full session directly for whatever username is supplied, creating that user with `cluster_admin` on first use exactly as first-time setup does. Anyone holding the master password can therefore sign in under any name, which was already true through first-time setup; the setting only makes it the everyday login rather than a bootstrap-only route.
 
-Over plain HTTP the password crosses the network in clear text. The installer prints a warning when `--password-login` is combined with `--http-only`; the intended remedies are a loopback listen, an SSH tunnel, or HTTPS with a trusted certificate.
+- **Gate.** `ClusterSettings.auth.password_login_enabled` (installer `--password-login true`, restore override `PASSWORD_LOGIN_ENABLED`, Settings → Authentication). While it is off, the login endpoint returns `403 password_login_disabled` and the UI shows no password controls, so a production install that never enables it carries no password login surface.
+- **Discovery.** `GET /v1/auth/methods` (`NO_AUTH`) reports which methods are on (`passkey_login_enabled` is false when the WebAuthn service could not be initialised, see below) and whether a local CA is available for download. The login and bootstrap pages read it, because neither can see cluster settings before a session exists. The request is deferred to a microtask in `frontend/src/state/authMethods.js`: the API client reads the login state synchronously to build its auth header, and a page constructed inside the reactive route binding would otherwise capture a dependency on the login state and be rebuilt mid-flow when a token is stored.
+- **Login** (`POST /v1/auth/password/login`, `NO_AUTH`). Username plus master password → a normal personal session, identical to a passkey login, recorded in `personal_sessions` and revocable from the Sessions page. A wrong password answers `401 invalid_master_password`. Rate limited at 0.2/s burst 10 per IP, the same as the bootstrap route. Usernames are trimmed on creation and matched trimmed on both sides, so accounts created before trimming with surrounding whitespace still resolve.
+- **Passkeys stay optional at startup.** `webuihandler.New` fails on a relying-party configuration the WebAuthn library rejects, unless password login is on, in which case passkeys are logged as unavailable, the passkey routes answer `503 passkeys_unavailable`, and the login page says so. A password-only install can therefore never be locked out by its passkey configuration.
+
+Over plain HTTP the master password crosses the network in clear text. The installer prints a warning when `--password-login` is combined with `--http-only`; the intended remedies are a loopback listen with an SSH tunnel, or HTTPS.
+
+### Relying-party derivation
+
+The Web UI hostnames setting (`https_web.acme_hosts`, installer `--web-hosts`, alias `--acme-hosts`) is the single source for both the certificate names and the WebAuthn relying party, in every mode. It defaults to `localhost` for HTTP-only and self-managed TLS installs. The RP ID is the first hostname that is a DNS name (WebAuthn forbids IP addresses; an address-only list falls back to `localhost`). Origins are every hostname under every enabled scheme, with the listen port appended when it is not the scheme default, plus the Vite dev server in HTTP-only mode and `OPENDEPLOY_PASSKEY_EXTRA_ORIGINS`. So `--http-only true --web-listen 127.0.0.1:9090` yields `http://localhost:9090`, and `--web-tls-self-managed true --web-listen :8443 --web-hosts mybox.local` yields `https://mybox.local:8443`.
+
+### Local CA for self-managed TLS
+
+Self-managed Web UI TLS without an operator-supplied bundle serves a leaf issued by a locally generated CA (`certu.EnsureWebUILocalTLS`), not a bare self-signed leaf, so the operator trusts one thing once and the leaf can be reissued freely. The CA and leaf live in the internal secrets store; the CA certificate is also written world-readable to `<data dir>/web-ca.crt` and served unauthenticated at `GET /v1/tls/ca.crt` while the UI is actually being served under it. The leaf covers the configured hostnames, the listen host, `localhost`, and the loopback addresses, and is reissued at startup or on a settings save whenever it no longer covers those names, was not signed by the current CA, or is within 30 days of expiry. The installer prints trust instructions for the OS and browser stores after such an install, and the login page carries the same instructions in a collapsed **Browser warning about the certificate?** section so an operator who continued through the warning can install the CA and reload.
 
 ## Access control
 

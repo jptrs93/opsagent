@@ -78,7 +78,7 @@ type ApiServerHandler interface {
 	PostV1AuthMasterPasswordVerify(Context, *MasterPasswordVerifyRequest) error
 	GetV1AuthMethods(Context) (*AuthMethodsResponse, error)
 	PostV1AuthPasswordLogin(Context, *PasswordLoginRequest) (*LoginResponse, error)
-	PostV1AuthPasswordSet(Context, *PasswordSetRequest) (*LoginResponse, error)
+	GetV1TlsCaCert(Context, *http.Request, http.ResponseWriter) error
 	GetV1AuthCurrentSession(Context) (*LoginResponse, error)
 	PostV1AuthPasskeyRegisterStart(Context) (*WebAuthNOptionsResponse, error)
 	PostV1AuthPasskeyRegisterFinish(Context, *WebAuthNFinishRequest) (*LoginResponse, error)
@@ -272,17 +272,15 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/auth/password/login", buildHandlerFunc(config, verifyAuth, postV1AuthPasswordLoginAccessPolicy, postAuthHandlerPostV1AuthPasswordLogin, compressionModeAuto, false))
-	postV1AuthPasswordSetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"passkey:create", "default"}}
-	postAuthHandlerPostV1AuthPasswordSet := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodePasswordSetRequest)
+	getV1TlsCaCertAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerGetV1TlsCaCert := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		err := h.GetV1TlsCaCert(authCtx, r, w)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-		res, err := h.PostV1AuthPasswordSet(authCtx, req)
-		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("POST /v1/auth/password/set", buildHandlerFunc(config, verifyAuth, postV1AuthPasswordSetAccessPolicy, postAuthHandlerPostV1AuthPasswordSet, compressionModeAuto, false))
+	m.HandleFunc("GET /v1/tls/ca.crt", buildHandlerFunc(config, verifyAuth, getV1TlsCaCertAccessPolicy, postAuthHandlerGetV1TlsCaCert, compressionModeNever, false))
 	getV1AuthCurrentSessionAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"passkey:create", "default"}}
 	postAuthHandlerGetV1AuthCurrentSession := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		res, err := h.GetV1AuthCurrentSession(authCtx)

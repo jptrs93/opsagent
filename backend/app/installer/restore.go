@@ -259,9 +259,14 @@ func applyRestoredPrimaryConfigOverrides(dbPath string, opts installOptions, own
 		}
 		acmeHosts := service.MustLoadConfigStringValue(settings.HttpsWeb.AcmeHosts)
 		listen := service.MustLoadConfigStringValue(settings.HttpsWeb.Listen)
-		if _, err := certu.BootstrapWebUISelfSigned(secretsMgr, certu.WebUISelfSignedNames(acmeHosts, listen)); err != nil {
+		_, caCertPEM, err := certu.EnsureWebUILocalTLS(secretsMgr, certu.WebUITLSNames(acmeHosts, listen))
+		if err != nil {
 			_ = store.Close()
 			return fmt.Errorf("creating restored self-managed Web TLS certificate: %w", err)
+		}
+		if err := certu.WriteWebUILocalCAFile(dataDir, caCertPEM); err != nil {
+			_ = store.Close()
+			return fmt.Errorf("exporting restored Web UI CA certificate: %w", err)
 		}
 	}
 	if err := service.UpdateSettingsInternal(settings); err != nil {

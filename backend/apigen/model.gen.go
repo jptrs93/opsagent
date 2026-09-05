@@ -1187,12 +1187,11 @@ type WebAuthnCredential struct {
 }
 
 type InternalUser struct {
-	ID           int32                 `json:"id"`
-	WebAuthNID   []byte                `json:"web_auth_n_id"`
-	Name         string                `json:"name,omitempty"`
-	Credentials  []*WebAuthnCredential `json:"credentials,omitempty"`
-	Delegated    bool                  `json:"delegated"`
-	PasswordHash string                `json:"password_hash,omitempty"`
+	ID          int32                 `json:"id"`
+	WebAuthNID  []byte                `json:"web_auth_n_id"`
+	Name        string                `json:"name,omitempty"`
+	Credentials []*WebAuthnCredential `json:"credentials,omitempty"`
+	Delegated   bool                  `json:"delegated"`
 }
 
 type PublicKeyRecord struct {
@@ -1218,13 +1217,10 @@ type PasswordLoginRequest struct {
 	Password string `json:"password,omitempty"`
 }
 
-type PasswordSetRequest struct {
-	Password string `json:"password,omitempty"`
-}
-
 type AuthMethodsResponse struct {
 	PasskeyLoginEnabled  bool `json:"passkey_login_enabled"`
 	PasswordLoginEnabled bool `json:"password_login_enabled"`
+	LocalCaAvailable     bool `json:"local_ca_available"`
 }
 
 type LoginResponse struct {

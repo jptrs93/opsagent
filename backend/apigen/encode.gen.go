@@ -6787,7 +6787,6 @@ func (m *InternalUser) Encode() []byte {
 		b = AppendBytes(b, item.Encode())
 	}
 	b = AppendBoolField(b, m.Delegated, 5)
-	b = AppendStringField(b, m.PasswordHash, 6)
 	return b
 }
 
@@ -6820,8 +6819,6 @@ func DecodeInternalUser(b []byte) (*InternalUser, error) {
 			}
 		case 5:
 			b, m.Delegated, err = ConsumeBool(b, typ)
-		case 6:
-			b, m.PasswordHash, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6986,39 +6983,11 @@ func DecodePasswordLoginRequest(b []byte) (*PasswordLoginRequest, error) {
 	return &m, nil
 }
 
-func (m *PasswordSetRequest) Encode() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Password, 1)
-	return b
-}
-
-func DecodePasswordSetRequest(b []byte) (*PasswordSetRequest, error) {
-	var m PasswordSetRequest
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Password, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
 func (m *AuthMethodsResponse) Encode() []byte {
 	var b []byte
 	b = AppendBoolField(b, m.PasskeyLoginEnabled, 1)
 	b = AppendBoolField(b, m.PasswordLoginEnabled, 2)
+	b = AppendBoolField(b, m.LocalCaAvailable, 3)
 	return b
 }
 
@@ -7037,6 +7006,8 @@ func DecodeAuthMethodsResponse(b []byte) (*AuthMethodsResponse, error) {
 			b, m.PasskeyLoginEnabled, err = ConsumeBool(b, typ)
 		case 2:
 			b, m.PasswordLoginEnabled, err = ConsumeBool(b, typ)
+		case 3:
+			b, m.LocalCaAvailable, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

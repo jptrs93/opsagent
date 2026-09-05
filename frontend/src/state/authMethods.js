@@ -6,7 +6,7 @@ import {capi} from "../capi/index.js";
  * before a session exists (login, first-time setup) and for the personal
  * password card. `status` is 'loading' | 'ready' | 'error'.
  */
-export const authMethodsS = van.state({status: 'loading', passkeyLoginEnabled: true, passwordLoginEnabled: false, error: ''});
+export const authMethodsS = van.state({status: 'loading', passkeyLoginEnabled: true, passwordLoginEnabled: false, localCaAvailable: false, error: ''});
 
 /**
  * Fetches the methods. The request is deferred to a microtask on purpose: the
@@ -22,9 +22,9 @@ export function loadAuthMethods() {
         }
         try {
             const m = await capi.getV1AuthMethods();
-            authMethodsS.val = {status: 'ready', passkeyLoginEnabled: !!m.passkeyLoginEnabled, passwordLoginEnabled: !!m.passwordLoginEnabled, error: ''};
+            authMethodsS.val = {status: 'ready', passkeyLoginEnabled: !!m.passkeyLoginEnabled, passwordLoginEnabled: !!m.passwordLoginEnabled, localCaAvailable: !!m.localCaAvailable, error: ''};
         } catch (e) {
-            authMethodsS.val = {status: 'error', passkeyLoginEnabled: true, passwordLoginEnabled: false, error: e?.message || 'request failed'};
+            authMethodsS.val = {status: 'error', passkeyLoginEnabled: true, passwordLoginEnabled: false, localCaAvailable: false, error: e?.message || 'request failed'};
         }
     });
 }

@@ -6,7 +6,7 @@ import {setLoginFromResponse} from "../state/login.js";
 import {authMethodsS, loadAuthMethods} from "../state/authMethods.js";
 import {browserSupportsPasskeys, credentialToJSONBytes, loginOptionsFromJSONBytes, passkeyNotAllowedMessage, passkeyServerErrorMessage} from "../util/webauthn.js";
 
-const { p, div, a, form, input, label } = van.tags;
+const { p, div, a, form, input, label, details, summary, pre, button, span } = van.tags;
 
 export function loginPage() {
     const loginErr = van.state('');
@@ -19,7 +19,10 @@ export function loginPage() {
     // drops bindings on DOM that stays disconnected for about a second, so
     // anything constructed up front and mounted after discovery would lose
     // its spinner and disabled state.
-    const passkeySection = () => {
+    const passkeySection = (available) => {
+        if (!available) {
+            return p({class: "text-gray-500 text-sm text-center"}, "Passkeys are unavailable on this server.");
+        }
         if (!browserSupportsPasskeys()) {
             return p({class: "text-red-400 text-sm text-center"}, "This browser does not support passkeys.");
         }
@@ -52,13 +55,15 @@ export function loginPage() {
         return button;
     };
 
+    // Master-password login: the name is created on first use, so this is
+    // both the login and the account-creation path when it is enabled.
     const passwordForm = () => {
         const usernameInput = input({
             type: "text",
             "data-testid": "login-username-input",
             required: true,
             class: "text-input",
-            placeholder: "Username",
+            placeholder: "Your name",
             autocomplete: "username",
         });
         const passwordInput = input({
@@ -66,7 +71,7 @@ export function loginPage() {
             "data-testid": "login-password-input",
             required: true,
             class: "text-input",
-            placeholder: "Password",
+            placeholder: "Master password",
             autocomplete: "current-password",
         });
         const submit = spinnerButton("Sign in", null, "btn-primary w-full", 'submit', () => busy.val);
@@ -95,7 +100,7 @@ export function loginPage() {
             },
             label({class: "text-sm font-medium"}, "Username"),
             usernameInput,
-            label({class: "text-sm font-medium"}, "Password"),
+            label({class: "text-sm font-medium"}, "Master password"),
             passwordInput,
             submit,
         );
@@ -107,7 +112,7 @@ export function loginPage() {
     return div(
         {class: "min-h-dvh w-dvw flex"},
         div(
-            {class: "card flex flex-col gap-4 p-8 min-w-[min(420px,90%)] mx-auto my-auto"},
+            {class: "card flex flex-col gap-4 p-8 min-w-[min(420px,90%)] max-w-[560px] max-h-dvh overflow-y-auto mx-auto my-auto"},
             () => {
                 const methods = authMethodsS.val;
                 if (methods.status === 'loading') return div({class: "h-12"});
@@ -117,13 +122,14 @@ export function loginPage() {
                         div({class: "flex flex-col gap-1", "data-testid": "login-methods-error"},
                             p({class: "text-yellow-400 text-sm"}, `Could not load the available sign-in methods: ${methods.error}`),
                             a({class: "text-sm text-blue-400 hover:text-blue-300 cursor-pointer", onclick: () => loadAuthMethods()}, "Retry")),
-                        passkeySection(),
+                        passkeySection(true),
                     );
                 }
-                if (!methods.passwordLoginEnabled) return passkeySection();
-                return div({class: "flex flex-col gap-4"}, passwordForm(), divider(), passkeySection());
+                if (!methods.passwordLoginEnabled) return passkeySection(methods.passkeyLoginEnabled);
+                return div({class: "flex flex-col gap-4"}, passwordForm(), divider(), passkeySection(methods.passkeyLoginEnabled));
             },
             () => loginErr.val || '',
+            () => authMethodsS.val.localCaAvailable ? caTrustHelp() : '',
             div(
                 {class: "text-center mt-2"},
                 a({
@@ -132,5 +138,105 @@ export function loginPage() {
                 }, "First time setup")
             )
         )
+    );
+}
+
+// caTrustHelp is the in-page copy of the instructions the installer prints:
+// how to make the browser trust the locally generated Web UI CA. It is shown
+// whenever the server is serving under that CA, collapsed, so someone who
+// continued through the browser warning can find it without leaving the page.
+function caTrustHelp() {
+    const caURL = `${window.location.origin}/v1/tls/ca.crt`;
+    const tab = van.state('macos');
+    const copied = van.state(false);
+    const copyErr = van.state('');
+
+    const copyCA = async () => {
+        copyErr.val = '';
+        try {
+            const res = await fetch(caURL);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            await navigator.clipboard.writeText(await res.text());
+            copied.val = true;
+            setTimeout(() => { copied.val = false; }, 1500);
+        } catch (e) {
+            copyErr.val = `Copy failed: ${e.message}`;
+        }
+    };
+
+    const platforms = [
+        {key: 'macos', label: 'macOS', steps: [
+            ['Trust the CA', 'sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain opendeploy-ca.crt'],
+        ]},
+        {key: 'linux', label: 'Linux', steps: [
+            ['System store', 'sudo cp opendeploy-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates'],
+            ['Chrome / Chromium also', 'certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "OpenDeploy Local CA" -i opendeploy-ca.crt'],
+        ]},
+        {key: 'windows', label: 'Windows', steps: [
+            ['Trust the CA', 'certutil -addstore -f ROOT opendeploy-ca.crt'],
+        ]},
+        {key: 'firefox', label: 'Firefox', steps: [
+            ['Use the OS store: set this to true in about:config', 'security.enterprise_roots.enabled'],
+            ['Or import the file under', 'Settings › Privacy & Security › Certificates › View Certificates › Import'],
+        ]},
+    ];
+
+    const tabButton = ({key, label}) => button({
+        type: "button",
+        role: "tab",
+        "aria-selected": () => String(tab.val === key),
+        class: () => `-mb-px border-b-2 px-2 py-1 text-xs cursor-pointer ${tab.val === key
+            ? "border-brand text-gray-100"
+            : "border-transparent text-gray-400 hover:text-gray-200"}`,
+        onclick: () => { tab.val = key; },
+    }, label);
+
+    // Each command block carries its own copy button; the "Copied" state is
+    // per block so copying one does not relabel the others.
+    const cmd = (text) => {
+        const done = van.state(false);
+        return div(
+            {class: "flex items-start gap-1"},
+            pre({class: "min-w-0 flex-1 whitespace-pre-wrap break-all rounded bg-gray-900 px-2 py-1 text-[11px] text-gray-300 select-all"}, text),
+            button({
+                type: "button",
+                class: "shrink-0 rounded border border-gray-600 px-2 py-1 text-[11px] text-gray-300 hover:bg-gray-700 cursor-pointer",
+                title: "Copy command",
+                "data-testid": "login-ca-cmd-copy",
+                onclick: async () => {
+                    try {
+                        await navigator.clipboard.writeText(text);
+                        done.val = true;
+                        setTimeout(() => { done.val = false; }, 1500);
+                    } catch (e) {
+                        copyErr.val = `Copy failed: ${e.message}`;
+                    }
+                },
+            }, () => done.val ? "Copied" : "Copy"),
+        );
+    };
+
+    return details(
+        {class: "min-w-0 rounded border border-gray-700 bg-gray-800/40 px-3 py-2 text-sm text-gray-300", "data-testid": "login-ca-help"},
+        summary({class: "cursor-pointer select-none text-gray-400 hover:text-gray-200"}, "Browser warning about the certificate?"),
+        div(
+            {class: "mt-2 flex max-h-[50vh] min-w-0 flex-col gap-2 overflow-y-auto"},
+            p({class: "text-xs text-gray-400"}, "This server has its own CA. Trust it once, restart the browser, reload."),
+            p({class: "text-xs text-red-400", "data-testid": "login-ca-warning"},
+                "Careful: a trusted CA can sign certificates for any site. Only do this for a server you control, and only from a machine you trust. Remove the CA when you no longer need it."),
+            div(
+                {class: "flex flex-wrap items-center gap-2"},
+                a({class: "btn-primary px-3 py-1 text-xs", href: caURL, download: "opendeploy-ca.crt", "data-testid": "login-ca-download"}, "Download opendeploy-ca.crt"),
+                button({type: "button", class: "rounded border border-gray-600 px-3 py-1 text-xs text-gray-200 hover:bg-gray-700 cursor-pointer", onclick: copyCA, "data-testid": "login-ca-copy"},
+                    () => copied.val ? "Copied" : "Copy PEM"),
+                () => copyErr.val ? span({class: "text-xs text-red-400"}, copyErr.val) : '',
+            ),
+            div({class: "flex gap-1 border-b border-gray-700", role: "tablist"}, ...platforms.map(tabButton)),
+            () => {
+                const active = platforms.find((p) => p.key === tab.val);
+                return div({class: "flex flex-col gap-2"},
+                    ...active.steps.map(([title, text]) => div(p({class: "text-xs text-gray-400"}, title), cmd(text))));
+            },
+        ),
     );
 }

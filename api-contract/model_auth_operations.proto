@@ -19,20 +19,20 @@ message MasterPasswordSaveRequest {
   string password = 1;
 }
 
+// PasswordLoginRequest signs in with the cluster master password. The named
+// user is created on first use, exactly as first-time setup does.
 message PasswordLoginRequest {
   string username = 1;
   string password = 2;
 }
 
-message PasswordSetRequest {
-  string password = 1;
-}
-
 // AuthMethodsResponse tells the unauthenticated login page which methods the
-// server currently accepts.
+// server currently accepts and whether a locally generated Web UI CA can be
+// downloaded from /v1/tls/ca.crt for the browser to trust.
 message AuthMethodsResponse {
   bool passkey_login_enabled = 1;
   bool password_login_enabled = 2;
+  bool local_ca_available = 3;
 }
 
 message LoginResponse {

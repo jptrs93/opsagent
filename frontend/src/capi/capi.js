@@ -108,7 +108,6 @@ import {
   encodeNodeAllowedSpacesRequest,
   encodeNodeRenameRequest,
   encodePasswordLoginRequest,
-  encodePasswordSetRequest,
   encodePersonalSessionRevokeRequest,
   encodePrepareOutputRequest,
   encodeRecentlyDeletedDeploymentsRequest,
@@ -338,16 +337,15 @@ export class Capi {
   }
 
   /**
-   * @param {PasswordSetRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<LoginResponse>}
+   * @returns {Promise<void>}
    */
-  async postV1AuthPasswordSet(payload, options = {}) {
-    const response = await this.#request("/v1/auth/password/set", { method: 'POST', body: encodePasswordSetRequest(payload), signal: options.signal });
+  async getV1TlsCaCert(options = {}) {
+    const response = await this.#request("/v1/tls/ca.crt", { method: 'GET', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeLoginResponse(await response.arrayBuffer());
+    await response.arrayBuffer();
   }
 
   /**

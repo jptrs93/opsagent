@@ -54,7 +54,7 @@ export function bootstrapPage() {
     // The master-password form is mounted immediately, so it can be built once.
     const masterForm = form(
         {class: "flex flex-col gap-4", onsubmit: handlePasswordSubmit},
-        p({class: "text-sm text-gray-400"}, "Enter your name and the master password to create your account."),
+        p({class: "text-sm text-gray-400"}, "Enter your name and the master password to create your passkey."),
         label({class: "text-sm font-medium"}, "Username"),
         usernameInput,
         label({class: "text-sm font-medium"}, "Master password"),
@@ -104,85 +104,23 @@ export function bootstrapPage() {
         return button;
     };
 
-    const passkeySection = (passwordEnabled) => browserSupportsPasskeys()
+    const passkeySection = () => browserSupportsPasskeys()
         ? div({class: "flex flex-col gap-2"},
-            passwordEnabled
-                ? p({class: "text-sm text-gray-400"}, "Or register a passkey instead. Passkeys need HTTPS with a trusted certificate, or plain HTTP on localhost.")
-                : p({class: "text-sm text-green-400"}, "Authenticated. Now register a passkey for future logins."),
+            p({class: "text-sm text-green-400"}, "Authenticated. Now register a passkey for future logins."),
             registerButton())
         : p({class: "text-red-400 text-sm"}, "This browser does not support passkeys.");
 
-    const setPasswordForm = () => {
-        const newPasswordInput = input({
-            type: "password",
-            "data-testid": "bootstrap-new-password-input",
-            required: true,
-            minlength: 8,
-            class: "text-input",
-            placeholder: "New password (at least 8 characters)",
-            autocomplete: "new-password",
-        });
-        const confirmPasswordInput = input({
-            type: "password",
-            "data-testid": "bootstrap-confirm-password-input",
-            required: true,
-            class: "text-input",
-            placeholder: "Confirm password",
-            autocomplete: "new-password",
-        });
-        const setPasswordButton = spinnerButton("Set password", null, "btn-primary w-full", 'submit');
-        setPasswordButton.dataset.testid = "bootstrap-set-password-button";
-        return form(
-            {
-                class: "flex flex-col gap-3",
-                onsubmit: async (e) => {
-                    e.preventDefault();
-                    if (setPasswordButton.isSubmitting.val) return;
-                    status.val = '';
-                    if (newPasswordInput.value !== confirmPasswordInput.value) {
-                        status.val = p({class: 'text-red-400 text-sm'}, 'Passwords do not match.');
-                        return;
-                    }
-                    setPasswordButton.isSubmitting.val = true;
-                    try {
-                        const response = await capi.postV1AuthPasswordSet({password: newPasswordInput.value});
-                        newPasswordInput.value = '';
-                        confirmPasswordInput.value = '';
-                        setLoginFromResponse(response);
-                        navigate("/");
-                    } catch (err) {
-                        status.val = p({class: 'text-red-400 text-sm'}, err?.message || 'Setting the password failed.');
-                    } finally {
-                        setPasswordButton.isSubmitting.val = false;
-                    }
-                },
-            },
-            p({class: "text-sm text-gray-400"}, "Choose a password for future logins."),
-            newPasswordInput,
-            confirmPasswordInput,
-            setPasswordButton,
-        );
-    };
-
     const stepTwo = () => {
         const methods = authMethodsS.val;
-        if (methods.status === 'loading') return div({class: "h-12"});
-        const passwordEnabled = methods.status === 'ready' && methods.passwordLoginEnabled;
         return div(
             {class: "flex flex-col gap-4"},
-            methods.status === 'error'
-                ? div({class: "flex flex-col gap-1", "data-testid": "bootstrap-methods-error"},
-                    p({class: "text-yellow-400 text-sm"}, `Could not load the available sign-in methods: ${methods.error}`),
-                    a({class: "text-sm text-blue-400 hover:text-blue-300 cursor-pointer", onclick: () => loadAuthMethods()}, "Retry"))
+            passkeySection(),
+            methods.status === 'ready' && methods.passwordLoginEnabled
+                ? p({class: "text-xs text-gray-500"},
+                    "Password login is enabled on this server, so you can also skip the passkey and ",
+                    a({class: "text-blue-400 hover:text-blue-300 cursor-pointer", onclick: () => navigate("/login")}, "sign in with your name and the master password"),
+                    ".")
                 : '',
-            passwordEnabled
-                ? div({class: "flex flex-col gap-4"},
-                    p({class: "text-sm text-green-400"}, "Authenticated."),
-                    setPasswordForm(),
-                    div({class: "flex items-center gap-3 text-xs text-gray-500"},
-                        div({class: "h-px flex-1 bg-gray-700"}), "or", div({class: "h-px flex-1 bg-gray-700"})),
-                    passkeySection(true))
-                : passkeySection(false),
         );
     };
 

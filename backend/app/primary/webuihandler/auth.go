@@ -53,29 +53,8 @@ func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswor
 	if username == "" {
 		return nil, UsernameRequiredErr
 	}
-	user, err := h.Store.FetchUserMatching(func(u *apigen.InternalUser) bool {
-		return strings.TrimSpace(u.Name) == username
-	})
-	if errors.Is(err, state.ErrNotFound) {
-		id := int32(h.Store.UserCount()) + 1
-		webAuthNID, generateErr := authu.GenerateWebAuthnID(32)
-		if generateErr != nil {
-			return nil, generateErr
-		}
-		user = &apigen.InternalUser{
-			ID:         id,
-			WebAuthNID: webAuthNID,
-			Name:       username,
-		}
-		h.Store.WriteUser(user)
-		if _, grantErr := h.Authz.CreateGrant(&apigen.AuthzGrantRecord{
-			UserID:     int64(user.ID),
-			TemplateID: authz.ClusterAdminTemplateID,
-			Grant:      &apigen.AuthzGrant{},
-		}); grantErr != nil {
-			return nil, grantErr
-		}
-	} else if err != nil {
+	user, err := h.resolveOrCreateUser(username)
+	if err != nil {
 		return nil, err
 	}
 	token, err := h.jwtAuth.GenerateTokenWith(user.ID, []string{ScopePasskeyCreate}, 10*time.Minute)
@@ -83,6 +62,41 @@ func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswor
 		return nil, err
 	}
 	return newLoginResponse(user, token, []string{ScopePasskeyCreate}, time.Now().Add(10*time.Minute)), nil
+}
+
+// resolveOrCreateUser finds the user with this (trimmed) name or creates one
+// holding cluster_admin, the same way first-time setup always has. Names are
+// compared trimmed on both sides so accounts created before trimming with
+// surrounding whitespace still resolve.
+func (h *Handler) resolveOrCreateUser(username string) (*apigen.InternalUser, error) {
+	user, err := h.Store.FetchUserMatching(func(u *apigen.InternalUser) bool {
+		return strings.TrimSpace(u.Name) == username
+	})
+	if err == nil {
+		return user, nil
+	}
+	if !errors.Is(err, state.ErrNotFound) {
+		return nil, err
+	}
+	id := int32(h.Store.UserCount()) + 1
+	webAuthNID, err := authu.GenerateWebAuthnID(32)
+	if err != nil {
+		return nil, err
+	}
+	user = &apigen.InternalUser{
+		ID:         id,
+		WebAuthNID: webAuthNID,
+		Name:       username,
+	}
+	h.Store.WriteUser(user)
+	if _, err := h.Authz.CreateGrant(&apigen.AuthzGrantRecord{
+		UserID:     int64(user.ID),
+		TemplateID: authz.ClusterAdminTemplateID,
+		Grant:      &apigen.AuthzGrant{},
+	}); err != nil {
+		return nil, err
+	}
+	return user, nil
 }
 
 func (h *Handler) verifyMasterPassword(password string) error {

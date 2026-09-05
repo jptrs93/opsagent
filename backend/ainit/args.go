@@ -76,7 +76,7 @@ func usage(w io.Writer, prog string) {
 Usage:
   %[1]s primary
   %[1]s secondary
-  %[1]s install primary [--version vX.Y.Z|latest] [--http-only true] [--password-login true] [--web-listen :8080] [--web-tls-self-managed true] [--web-tls-cert-pem-file cert.pem] [--acme-hosts host1,host2] [--primary-name primary] [--dry-run]
+  %[1]s install primary [--version vX.Y.Z|latest] [--http-only true] [--password-login true] [--web-listen :8080] [--web-tls-self-managed true] [--web-tls-cert-pem-file cert.pem] [--web-hosts host1,host2] [--acme-hosts host1,host2] [--primary-name primary] [--dry-run]
   %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 --enrollment-fingerprint sha256:<hex> [--version vX.Y.Z|latest] [--primary-name primary] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
   %[1]s dataplane

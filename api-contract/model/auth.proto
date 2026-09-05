@@ -22,7 +22,7 @@ message InternalUser {
   string name = 3;
   repeated WebAuthnCredential credentials = 4;
   bool delegated = 5; // Transient: set during request verification for agent-session tokens.
-  string password_hash = 6; // Argon2id hash for password login; empty when the user has no password.
+  reserved 6; // password_hash: per-user passwords, replaced by master-password login before any release depended on it.
 }
 
 message PublicKeyRecord {

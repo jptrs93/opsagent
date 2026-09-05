@@ -2,13 +2,15 @@ package webuihandler
 
 import (
 	"errors"
-	"strings"
 	"testing"
-	"time"
 
+	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/authz"
 	"github.com/jptrs93/opsagent/backend/lib/config"
 )
+
+const testMasterPassword = "opendeploy-test-master-password"
 
 func enablePasswordLogin(t *testing.T, h *Handler) {
 	t.Helper()
@@ -17,6 +19,18 @@ func enablePasswordLogin(t *testing.T, h *Handler) {
 	if err := h.ConfigService.UpdateSettings(*settings); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
+	hash, err := authu.HashPassword(testMasterPassword)
+	if err != nil {
+		t.Fatalf("HashPassword: %v", err)
+	}
+	if err := h.ConfigService.SetMasterPasswordHash(hash); err != nil {
+		t.Fatalf("SetMasterPasswordHash: %v", err)
+	}
+	authzService, err := authz.Open(h.Store)
+	if err != nil {
+		t.Fatalf("authz.Open: %v", err)
+	}
+	h.Authz = authzService
 }
 
 func TestPasswordLoginDisabledByDefault(t *testing.T) {
@@ -25,112 +39,76 @@ func TestPasswordLoginDisabledByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetV1AuthMethods: %v", err)
 	}
-	if methods.PasswordLoginEnabled || !methods.PasskeyLoginEnabled {
-		t.Fatalf("methods = %+v, want passkey only", methods)
+	if methods.PasswordLoginEnabled || methods.LocalCaAvailable {
+		t.Fatalf("methods = %+v, want password login off and no local CA", methods)
 	}
-	_, err = h.PostV1AuthPasswordLogin(apigen.Context{}, &apigen.PasswordLoginRequest{Username: user.Name, Password: "irrelevant"})
+	_, err = h.PostV1AuthPasswordLogin(apigen.Context{}, &apigen.PasswordLoginRequest{Username: user.Name, Password: testMasterPassword})
 	if !errors.Is(err, PasswordLoginDisabledErr) {
 		t.Fatalf("login err = %v, want PasswordLoginDisabledErr", err)
 	}
-	_, err = h.PostV1AuthPasswordSet(apigen.Context{User: user}, &apigen.PasswordSetRequest{Password: "correct horse battery"})
-	if !errors.Is(err, PasswordLoginDisabledErr) {
-		t.Fatalf("set err = %v, want PasswordLoginDisabledErr", err)
-	}
 }
 
-func TestPasswordSetThenLoginIssuesDefaultSession(t *testing.T) {
+func TestPasswordLoginUsesMasterPasswordAndCreatesUsers(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	enablePasswordLogin(t, h)
 
-	bootstrapUser := *user
-	setRes, err := h.PostV1AuthPasswordSet(apigen.Context{User: &bootstrapUser}, &apigen.PasswordSetRequest{Password: "correct horse battery"})
-	if err != nil {
-		t.Fatalf("PostV1AuthPasswordSet: %v", err)
-	}
-	if len(setRes.Scopes) != 1 || setRes.Scopes[0] != ScopeDefault {
-		t.Fatalf("set scopes = %v, want [default]", setRes.Scopes)
-	}
-	stored, err := h.Store.FetchUserByID(user.ID)
-	if err != nil {
-		t.Fatalf("FetchUserByID: %v", err)
-	}
-	if stored.PasswordHash == "" || strings.Contains(stored.PasswordHash, "correct horse") {
-		t.Fatalf("stored hash %q is empty or holds the plaintext", stored.PasswordHash)
-	}
-
-	// A user created before names were trimmed may carry padding; both the
-	// padded stored name and the padded login input must still match.
+	// Existing user, padded stored name, padded input: both sides trim.
 	h.Store.UpdateUserMatching(func(u *apigen.InternalUser) bool { return u.ID == user.ID }, func(u *apigen.InternalUser) {
 		u.Name = " operator "
 	})
-	loginRes, err := h.PostV1AuthPasswordLogin(apigen.Context{}, &apigen.PasswordLoginRequest{Username: " operator ", Password: "correct horse battery"})
+	res, err := h.PostV1AuthPasswordLogin(apigen.Context{}, &apigen.PasswordLoginRequest{Username: " operator ", Password: testMasterPassword})
 	if err != nil {
 		t.Fatalf("PostV1AuthPasswordLogin: %v", err)
 	}
-	if loginRes.UserID != user.ID || len(loginRes.Scopes) != 1 || loginRes.Scopes[0] != ScopeDefault {
-		t.Fatalf("login response = %+v, want user %d with [default]", loginRes, user.ID)
+	if res.UserID != user.ID || len(res.Scopes) != 1 || res.Scopes[0] != ScopeDefault {
+		t.Fatalf("login response = %+v, want user %d with [default]", res, user.ID)
 	}
-	if _, _, err := h.jwtAuth.VerifyAndResolveUser(loginRes.Token); err != nil {
+	if _, _, err := h.jwtAuth.VerifyAndResolveUser(res.Token); err != nil {
 		t.Fatalf("issued token does not verify: %v", err)
 	}
+	if sessions, _ := h.Store.ListPersonalSessionsForUser(user.ID); len(sessions) != 1 {
+		t.Fatalf("personal sessions = %d, want 1", len(sessions))
+	}
 
-	for _, tc := range []struct{ name, user, password string }{
-		{"wrong password", "operator", "not the password"},
-		{"unknown user", "nobody", "correct horse battery"},
-		{"empty password", "operator", ""},
+	// Unknown user is created with cluster_admin, as first-time setup does.
+	res, err = h.PostV1AuthPasswordLogin(apigen.Context{}, &apigen.PasswordLoginRequest{Username: "newcomer", Password: testMasterPassword})
+	if err != nil {
+		t.Fatalf("PostV1AuthPasswordLogin (new user): %v", err)
+	}
+	created, err := h.Store.FetchUserByID(res.UserID)
+	if err != nil || created.Name != "newcomer" {
+		t.Fatalf("created user = %+v, err %v", created, err)
+	}
+	grants := h.Authz.GrantsForUser(int64(created.ID))
+	if len(grants) != 1 || grants[0].TemplateID != authz.ClusterAdminTemplateID {
+		t.Fatalf("grants for new user = %+v; want one cluster_admin grant", grants)
+	}
+
+	for _, tc := range []struct {
+		name, user, password string
+		want                 error
+	}{
+		{"wrong password", "operator", "not the password", InvalidPasswordLoginErr},
+		{"empty password", "operator", "", InvalidPasswordLoginErr},
+		{"empty username", "", testMasterPassword, UsernameRequiredErr},
 	} {
 		_, err := h.PostV1AuthPasswordLogin(apigen.Context{}, &apigen.PasswordLoginRequest{Username: tc.user, Password: tc.password})
-		if !errors.Is(err, InvalidPasswordLoginErr) {
-			t.Fatalf("%s: err = %v, want InvalidPasswordLoginErr", tc.name, err)
+		if !errors.Is(err, tc.want) {
+			t.Fatalf("%s: err = %v, want %v", tc.name, err, tc.want)
 		}
 	}
 }
 
-func TestPasswordSetRejectsShortAndDelegated(t *testing.T) {
+func TestPasskeyEndpointsReportUnavailableWithoutService(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	enablePasswordLogin(t, h)
-
-	_, err := h.PostV1AuthPasswordSet(apigen.Context{User: user}, &apigen.PasswordSetRequest{Password: "short"})
-	if !errors.Is(err, PasswordTooShortErr) {
-		t.Fatalf("short err = %v, want PasswordTooShortErr", err)
+	methods, err := h.GetV1AuthMethods(apigen.Context{})
+	if err != nil || methods.PasskeyLoginEnabled {
+		t.Fatalf("methods = %+v, err %v; want passkeys reported unavailable when no service is wired", methods, err)
 	}
-	delegated := *user
-	delegated.Delegated = true
-	_, err = h.PostV1AuthPasswordSet(apigen.Context{User: &delegated}, &apigen.PasswordSetRequest{Password: "correct horse battery"})
-	if !errors.Is(err, DelegationNotPermittedErr) {
-		t.Fatalf("delegated err = %v, want DelegationNotPermittedErr", err)
+	if _, err := h.PostV1AuthPasskeyLoginStart(apigen.Context{}); !errors.Is(err, PasskeysUnavailableErr) {
+		t.Fatalf("login start err = %v, want PasskeysUnavailableErr", err)
 	}
-	stored, err := h.Store.FetchUserByID(user.ID)
-	if err != nil {
-		t.Fatalf("FetchUserByID: %v", err)
-	}
-	if stored.PasswordHash != "" {
-		t.Fatalf("rejected sets still stored a hash %q", stored.PasswordHash)
-	}
-}
-
-func TestPasswordSetWithDefaultSessionEchoesThatSession(t *testing.T) {
-	h, user := newAuthTestHandler(t)
-	enablePasswordLogin(t, h)
-	token := h.mustToken(t, user.ID, []string{ScopeDefault}, time.Hour)
-
-	res, err := h.PostV1AuthPasswordSet(apigen.Context{User: user, Token: token}, &apigen.PasswordSetRequest{Password: "correct horse battery"})
-	if err != nil {
-		t.Fatalf("PostV1AuthPasswordSet: %v", err)
-	}
-	if res.Token != token {
-		t.Fatalf("set with a default session minted a new token; want the caller's own echoed back")
-	}
-	if sessions, _ := h.Store.ListPersonalSessionsForUser(user.ID); len(sessions) != 0 {
-		t.Fatalf("set with a default session created %d personal session rows, want 0", len(sessions))
-	}
-
-	bootstrap := h.mustToken(t, user.ID, []string{ScopePasskeyCreate}, time.Hour)
-	res, err = h.PostV1AuthPasswordSet(apigen.Context{User: user, Token: bootstrap}, &apigen.PasswordSetRequest{Password: "correct horse battery"})
-	if err != nil {
-		t.Fatalf("PostV1AuthPasswordSet (bootstrap): %v", err)
-	}
-	if res.Token == bootstrap || len(res.Scopes) != 1 || res.Scopes[0] != ScopeDefault {
-		t.Fatalf("set with a bootstrap token did not mint a default session: %+v", res)
+	if _, err := h.PostV1AuthPasskeyRegisterStart(apigen.Context{User: user}); !errors.Is(err, PasskeysUnavailableErr) {
+		t.Fatalf("register start err = %v, want PasskeysUnavailableErr", err)
 	}
 }

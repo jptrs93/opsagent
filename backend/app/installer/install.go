@@ -12,6 +12,7 @@ import (
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/app/primarybootstrap"
 	"github.com/jptrs93/opsagent/backend/lib/config"
+	"github.com/jptrs93/opsagent/backend/util/certu"
 	buildversion "github.com/jptrs93/opsagent/backend/util/version"
 )
 
@@ -455,9 +456,7 @@ func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, e
 	if opts.enrollmentListen != nil {
 		initial.EnrollmentListen = *opts.enrollmentListen
 	}
-	if opts.acmeHosts != nil {
-		initial.AcmeHosts = acmeHosts(opts)
-	}
+	initial.AcmeHosts = webHosts(opts)
 	primaryName := "primary"
 	if opts.primaryName != nil {
 		primaryName = *opts.primaryName
@@ -632,10 +631,14 @@ func printInstallComplete(opts installOptions, bootstrap *bootstrapCredentials) 
 		fmt.Print("\nPreserved the existing primary setup credentials.\n")
 	}
 	if opts.passwordLogin != nil && *opts.passwordLogin {
-		fmt.Print("\nPassword login is enabled: sign in with a username and password instead of a passkey.\n")
+		fmt.Print("\nPassword login is enabled: sign in with a username and the master password instead of a passkey.\n")
 		if opts.httpOnly != nil && *opts.httpOnly {
-			fmt.Print("The web UI is plain HTTP, so passwords cross the network unencrypted. Use this only on a trusted network or over an SSH tunnel.\n")
+			fmt.Print("The web UI is plain HTTP, so the master password crosses the network unencrypted. Use this only on a trusted network or over an SSH tunnel.\n")
 		}
+	}
+	if localCAInUse(opts) {
+		addrs := webUIAddrs(opts)
+		fmt.Print("\n" + caTrustInstructions(filepath.Join(dataDir, certu.WebUILocalCAFileName), addrs[0]+"/v1/tls/ca.crt"))
 	}
 	printServiceLogDetails(logDir, logFile)
 }
@@ -679,7 +682,7 @@ func webUIAddrs(opts installOptions) []string {
 	port := listenPort(listen, defaultPort)
 
 	var addrs []string
-	for _, host := range acmeHosts(opts) {
+	for _, host := range webHosts(opts) {
 		addrs = append(addrs, formatURL(scheme, host, port, defaultPort))
 	}
 	if len(addrs) == 0 {
@@ -693,8 +696,15 @@ func webUIAddrs(opts installOptions) []string {
 	return addrs
 }
 
-func acmeHosts(opts installOptions) []string {
+// webHosts are the hostnames the web UI will be reached by. Without an
+// explicit list, a local-style install (HTTP only, or self-managed TLS) is
+// assumed to be reached as localhost; an ACME install keeps the placeholder
+// the operator is expected to replace.
+func webHosts(opts installOptions) []string {
 	if opts.acmeHosts == nil {
+		if localStyleInstall(opts) {
+			return []string{"localhost"}
+		}
 		return []string{"opendeploy.example.com"}
 	}
 	var hosts []string
@@ -704,6 +714,34 @@ func acmeHosts(opts installOptions) []string {
 		}
 	}
 	return hosts
+}
+
+func localStyleInstall(opts installOptions) bool {
+	return (opts.httpOnly != nil && *opts.httpOnly) || (opts.webTLSSelfManaged != nil && *opts.webTLSSelfManaged)
+}
+
+func localCAInUse(opts installOptions) bool {
+	return opts.webTLSSelfManaged != nil && *opts.webTLSSelfManaged && opts.webTLSCertPEM == nil && !(opts.httpOnly != nil && *opts.httpOnly)
+}
+
+// caTrustInstructions is printed after a self-managed TLS install and mirrors
+// the expandable help on the login page.
+func caTrustInstructions(caPath, caURL string) string {
+	return fmt.Sprintf(`The web UI uses a certificate issued by a locally generated CA. Browsers will
+warn until that CA is trusted. Password login works through the warning;
+passkeys need the CA trusted first.
+
+  CA certificate: %s
+  Also served at: %s
+
+Trust it on the machine running the browser:
+  macOS:    sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain opendeploy-ca.crt
+  Linux:    sudo cp opendeploy-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates
+            (Chrome/Chromium on Linux also need: certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "OpenDeploy Local CA" -i opendeploy-ca.crt)
+  Windows:  certutil -addstore -f ROOT opendeploy-ca.crt
+  Firefox:  set security.enterprise_roots.enabled to true in about:config to use the OS store, or import it under Settings > Certificates.
+Then restart the browser and reload the page.
+`, caPath, caURL)
 }
 
 func listenHost(listen string) string {
