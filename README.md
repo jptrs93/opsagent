@@ -87,8 +87,7 @@ curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/insta
 ```
 
 **3. HTTPS with a local CA, passkeys.** Same certificate setup; passkeys need the CA trusted first.
-Trust it using the steps the installer prints (also under *Browser warning about the certificate?*
-on the login page), restart the browser, open `https://mybox.local:8443`, use *First time setup*.
+Trust it using the steps the installer prints (also behind *Trust the CA* on the login page), restart the browser, open `https://mybox.local:8443`, use *First time setup*.
 The host name must resolve to the machine, for example via `/etc/hosts`.
 
 ```bash
@@ -136,6 +135,8 @@ curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/unins
 # Wipes everything.
 curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/uninstall.sh | bash -s -- --purge
 ```
+
+Uninstall always stops the services, kills and deletes every container (and its shim) in the bundled containerd, removes the virtual network state (container netns entries, veths, the WireGuard link, routes, and nftables tables), unmounts and removes runtime state under `/run`, and removes the units, sudoers drop-in, and binary. Without `--purge` all data directories (`/var/lib/opendeploy` and every `/var/lib/opendeploy-*` sibling: assets, releases, volumes, build logs, run logs, log archive, metrics, containerd images) and `/etc/opendeploy` stay in place so a reinstall resumes. `--purge` deletes them and the `opendeploy` user after listing them for confirmation (`--yes` skips the prompt). Add `--dry-run` to print every action first.
 
 ## First-run configuration
 

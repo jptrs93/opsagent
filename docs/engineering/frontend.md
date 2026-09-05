@@ -38,8 +38,10 @@ The dashboard uses a split-pane layout:
 ## Pages
 
 ### Login (`pages/login.js`)
-- Single "Sign in with passkey" button.
-- "First time setup" link navigates to `/bootstrap`.
+- One centred column: a header line (mark, "OpenDeploy", "Sign in"), the sign-in controls, a connection panel, and the setup link. No card.
+- Controls follow `authMethodsS`: with password login enabled the username/master-password form leads and the passkey button is secondary; otherwise the passkey button is the single primary action. Discovery failure shows an amber notice with Retry and still offers the passkey button.
+- The connection panel shows the transport (plain HTTP, HTTPS, or HTTPS under the local CA) and the enabled methods. Under the local CA the transport row carries a "Trust the CA" button that opens `components/caTrustHelp.js`: a three-step overlay (get the certificate with download, copy and SHA-256 fingerprint; trust it per platform with the PEM inlined as a heredoc; restart).
+- "Set up your passkey" navigates to `/bootstrap`.
 
 ### Bootstrap (`pages/bootstrap.js`)
 - Two-step flow: master password entry, then passkey registration.

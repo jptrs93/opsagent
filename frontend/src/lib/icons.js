@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 
-const {svg, path, circle, line, polyline} = van.tags("http://www.w3.org/2000/svg");
+const {svg, path, circle, line, polyline, rect} = van.tags("http://www.w3.org/2000/svg");
 
 const iconAttrs = ({size, class: className, ...attrs} = {}) => ({
     viewBox: "0 0 24 24",
@@ -141,4 +141,47 @@ export const logOutIcon = (attrs) => svg(iconAttrs(attrs),
     path({d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"}),
     polyline({points: "16 17 21 12 16 7"}),
     line({x1: "21", y1: "12", x2: "9", y2: "12"}),
+);
+
+export const fingerprintIcon = (attrs) => svg(iconAttrs(attrs),
+    path({d: "M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"}),
+    path({d: "M14 13.12c0 2.38 0 6.38-1 8.88"}),
+    path({d: "M17.29 21.02c.12-.6.43-2.3.5-3.02"}),
+    path({d: "M2 12a10 10 0 0 1 18-6"}),
+    path({d: "M2 16h.01"}),
+    path({d: "M21.8 16c.2-2 .131-5.354 0-6"}),
+    path({d: "M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"}),
+    path({d: "M8.65 22c.21-.66.45-1.32.57-2"}),
+    path({d: "M9 6.8a6 6 0 0 1 9 5.2v2"}),
+);
+
+export const keyRoundIcon = (attrs) => svg(iconAttrs(attrs),
+    path({d: "M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"}),
+    circle({cx: "16.5", cy: "7.5", r: ".5", fill: "currentColor"}),
+);
+
+export const shieldCheckIcon = (attrs) => svg(iconAttrs(attrs),
+    path({d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"}),
+    path({d: "m9 12 2 2 4-4"}),
+);
+
+export const alertCircleIcon = (attrs) => svg(iconAttrs(attrs),
+    circle({cx: "12", cy: "12", r: "10"}),
+    path({d: "M12 8v4"}),
+    path({d: "M12 16h.01"}),
+);
+
+export const downloadIcon = (attrs) => svg(iconAttrs(attrs),
+    path({d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"}),
+    path({d: "M7 10l5 5 5-5"}),
+    path({d: "M12 15V3"}),
+);
+
+// logoMark is the product mark: a brand tile with a deploy glyph. Sized by
+// `size` in px; decorative, so hidden from assistive tech.
+export const logoMark = ({size = 28, class: className = ""} = {}) => svg(
+    {viewBox: "0 0 32 32", width: size, height: size, class: className, fill: "none", "aria-hidden": "true"},
+    rect({x: "1.5", y: "1.5", width: "29", height: "29", rx: "7.5", fill: "var(--color-brand)"}),
+    path({d: "M16 8.5l7 11.5H9z", fill: "#fff", opacity: "0.95"}),
+    path({d: "M11.5 23.5h9", stroke: "#fff", "stroke-width": "2", "stroke-linecap": "round", opacity: "0.55"}),
 );
