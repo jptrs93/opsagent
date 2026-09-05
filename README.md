@@ -87,17 +87,20 @@ curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/insta
 ```
 
 **3. HTTPS with a local CA, passkeys.** Same certificate setup; passkeys need the CA trusted first.
-Trust it using the steps the installer prints (also behind *Trust the CA* on the login page), restart the browser, open `https://mybox.local:8443`, use *First time setup*.
-The host name must resolve to the machine, for example via `/etc/hosts`.
+Trust it using the steps the installer prints (also behind *Trust the CA* on the login page), restart the browser, open `https://opendeploy.test.local`, use *First time setup*.
+The host name must resolve to the machine, for example via `/etc/hosts`. The cluster and enrollment
+listeners are only used by worker nodes, but binding them explicitly keeps the layout predictable.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_primary.sh | bash -s -- \
   --web-tls-self-managed true \
-  --web-listen :8443 \
-  --web-hosts mybox.local
+  --web-listen :443 \
+  --web-hosts opendeploy.test.local \
+  --cluster-listen :9443 \
+  --enrollment-listen :9444
 ```
 
-CA certificate: `/var/lib/opendeploy/web-ca.crt` on the server, or `https://<host>:8443/v1/tls/ca.crt`.
+CA certificate: `/var/lib/opendeploy/web-ca.crt` on the server, or `https://opendeploy.test.local/v1/tls/ca.crt`.
 
 | Browser machine | Trust command |
 |---|---|
