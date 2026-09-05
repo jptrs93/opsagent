@@ -10,6 +10,7 @@ import {
   decodeAssetDirectory,
   decodeAssetDirectoryList,
   decodeAssetList,
+  decodeAuthMethodsResponse,
   decodeAuthzGlobalRuleList,
   decodeAuthzGlobalRuleRecord,
   decodeAuthzGrantList,
@@ -106,6 +107,8 @@ import {
   encodeNetworkPolicyUpdateRequest,
   encodeNodeAllowedSpacesRequest,
   encodeNodeRenameRequest,
+  encodePasswordLoginRequest,
+  encodePasswordSetRequest,
   encodePersonalSessionRevokeRequest,
   encodePrepareOutputRequest,
   encodeRecentlyDeletedDeploymentsRequest,
@@ -307,6 +310,44 @@ export class Capi {
       return this.errorHandler(response);
     }
     await response.arrayBuffer();
+  }
+
+  /**
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<AuthMethodsResponse>}
+   */
+  async getV1AuthMethods(options = {}) {
+    const response = await this.#request("/v1/auth/methods", { method: 'GET', signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeAuthMethodsResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {PasswordLoginRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<LoginResponse>}
+   */
+  async postV1AuthPasswordLogin(payload, options = {}) {
+    const response = await this.#request("/v1/auth/password/login", { method: 'POST', body: encodePasswordLoginRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeLoginResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {PasswordSetRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<LoginResponse>}
+   */
+  async postV1AuthPasswordSet(payload, options = {}) {
+    const response = await this.#request("/v1/auth/password/set", { method: 'POST', body: encodePasswordSetRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeLoginResponse(await response.arrayBuffer());
   }
 
   /**

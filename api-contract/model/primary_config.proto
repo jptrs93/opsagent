@@ -49,6 +49,7 @@ message ClusterSettings {
   RepoSettings repo = 4 [(cp.go_value) = true];
   BackupSettings backup = 5 [(cp.go_value) = true];
   LargeAssetsSettings large_assets = 6 [(cp.go_value) = true];
+  AuthSettings auth = 7 [(cp.go_value) = true];
 }
 
 message HttpWebSettings {
@@ -63,6 +64,14 @@ message HttpsWebSettings {
   SecretRef tls_cert_pem = 4 [(cp.go_value) = true];
   StringSetting acme_hosts = 5 [(cp.go_value) = true];
   StringSetting acme_email = 6 [(cp.go_value) = true];
+}
+
+// AuthSettings controls which login methods the Web UI offers. Passkeys are
+// always available; password login is an opt-in for local and evaluation
+// installs where passkeys are impractical (plain HTTP away from localhost,
+// or an untrusted certificate).
+message AuthSettings {
+  BoolSetting password_login_enabled = 1 [(cp.go_value) = true];
 }
 
 message ClusterListenSettings {

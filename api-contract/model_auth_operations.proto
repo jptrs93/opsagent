@@ -19,6 +19,22 @@ message MasterPasswordSaveRequest {
   string password = 1;
 }
 
+message PasswordLoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message PasswordSetRequest {
+  string password = 1;
+}
+
+// AuthMethodsResponse tells the unauthenticated login page which methods the
+// server currently accepts.
+message AuthMethodsResponse {
+  bool passkey_login_enabled = 1;
+  bool password_login_enabled = 2;
+}
+
 message LoginResponse {
   string token = 1;
   int32 user_id = 2;

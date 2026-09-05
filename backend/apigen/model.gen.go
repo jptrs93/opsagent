@@ -1187,11 +1187,12 @@ type WebAuthnCredential struct {
 }
 
 type InternalUser struct {
-	ID          int32                 `json:"id"`
-	WebAuthNID  []byte                `json:"web_auth_n_id"`
-	Name        string                `json:"name,omitempty"`
-	Credentials []*WebAuthnCredential `json:"credentials,omitempty"`
-	Delegated   bool                  `json:"delegated"`
+	ID           int32                 `json:"id"`
+	WebAuthNID   []byte                `json:"web_auth_n_id"`
+	Name         string                `json:"name,omitempty"`
+	Credentials  []*WebAuthnCredential `json:"credentials,omitempty"`
+	Delegated    bool                  `json:"delegated"`
+	PasswordHash string                `json:"password_hash,omitempty"`
 }
 
 type PublicKeyRecord struct {
@@ -1210,6 +1211,20 @@ type MasterPasswordVerifyRequest struct {
 
 type MasterPasswordSaveRequest struct {
 	Password string `json:"password,omitempty"`
+}
+
+type PasswordLoginRequest struct {
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
+type PasswordSetRequest struct {
+	Password string `json:"password,omitempty"`
+}
+
+type AuthMethodsResponse struct {
+	PasskeyLoginEnabled  bool `json:"passkey_login_enabled"`
+	PasswordLoginEnabled bool `json:"password_login_enabled"`
 }
 
 type LoginResponse struct {
@@ -1818,6 +1833,7 @@ type ClusterSettings struct {
 	Repo        RepoSettings          `json:"repo"`
 	Backup      BackupSettings        `json:"backup"`
 	LargeAssets LargeAssetsSettings   `json:"large_assets"`
+	Auth        AuthSettings          `json:"auth"`
 }
 
 type HttpWebSettings struct {
@@ -1832,6 +1848,10 @@ type HttpsWebSettings struct {
 	TlsCertPem     SecretRef     `json:"tls_cert_pem"`
 	AcmeHosts      StringSetting `json:"acme_hosts"`
 	AcmeEmail      StringSetting `json:"acme_email"`
+}
+
+type AuthSettings struct {
+	PasswordLoginEnabled BoolSetting `json:"password_login_enabled"`
 }
 
 type ClusterListenSettings struct {

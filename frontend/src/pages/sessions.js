@@ -13,8 +13,9 @@ import {
     sessionStoppable,
 } from "../lib/agentSessions.js";
 import {personalSessionLive, personalSessionStatus, summarizeUserAgent} from "../lib/personalSessions.js";
+import {authMethodsS, loadAuthMethods} from "../state/authMethods.js";
 
-const {button, div, p, span, table, tbody, td, th, thead, tr} = van.tags;
+const {button, div, form, input, p, span, table, tbody, td, th, thead, tr} = van.tags;
 
 const iconButtonClass = "rounded p-1 text-gray-400 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent cursor-pointer";
 
@@ -180,6 +181,7 @@ function personalSessionsTab({sessionsS, error, reload}) {
 
     return div(
         {class: "flex flex-col"},
+        changePasswordCard(),
         errorLine(error, "personal-session-error"),
         () => div(
             {"data-testid": "personal-session-list"},
@@ -239,4 +241,51 @@ export function sessionsPage() {
                 : personalSessionsTab({sessionsS: personalSessionsS, error: personalError, reload: loadPersonalSessions}),
         ),
     );
+}
+
+// changePasswordCard renders only when the server accepts password login; the
+// shared discovery state is the same one the login page reads.
+function changePasswordCard() {
+    const message = van.state("");
+    const tone = van.state("text-gray-400");
+    const busy = van.state(false);
+    loadAuthMethods();
+
+    const inputClass = "rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand";
+    const newPassword = input({type: "password", class: inputClass, placeholder: "New password", minlength: 8, required: true, autocomplete: "new-password", "data-testid": "personal-new-password-input"});
+    const confirmPassword = input({type: "password", class: inputClass, placeholder: "Confirm", required: true, autocomplete: "new-password", "data-testid": "personal-confirm-password-input"});
+
+    const submit = async (e) => {
+        e.preventDefault();
+        message.val = "";
+        if (newPassword.value !== confirmPassword.value) {
+            tone.val = "text-red-400";
+            message.val = "Passwords do not match.";
+            return;
+        }
+        busy.val = true;
+        try {
+            await capi.postV1AuthPasswordSet({password: newPassword.value});
+            newPassword.value = "";
+            confirmPassword.value = "";
+            tone.val = "text-green-400";
+            message.val = "Password updated.";
+        } catch (err) {
+            tone.val = "text-red-400";
+            message.val = err.message || "Request failed";
+        } finally {
+            busy.val = false;
+        }
+    };
+
+    return () => (authMethodsS.val.status === 'ready' && authMethodsS.val.passwordLoginEnabled)
+        ? form(
+            {class: "flex flex-wrap items-center gap-2 border-b border-gray-800/70 px-2 py-1.5", onsubmit: submit, "data-testid": "personal-password-form"},
+            span({class: "text-[11px] text-gray-500"}, "Password login:"),
+            newPassword,
+            confirmPassword,
+            button({type: "submit", class: "rounded px-2 py-1 text-xs text-gray-200 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 cursor-pointer", disabled: () => busy.val, "data-testid": "personal-set-password-button"}, "Set password"),
+            () => message.val ? span({class: `text-xs ${tone.val}`}, message.val) : "",
+        )
+        : "";
 }

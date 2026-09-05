@@ -64,6 +64,18 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc GetV1AuthMethods(cp.Empty) returns (AuthMethodsResponse) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc PostV1AuthPasswordLogin(PasswordLoginRequest) returns (LoginResponse) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc PostV1AuthPasswordSet(PasswordSetRequest) returns (LoginResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
+  }
+
   rpc GetV1AuthCurrentSession(cp.Empty) returns (LoginResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
   }

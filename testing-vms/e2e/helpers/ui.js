@@ -74,6 +74,40 @@ export async function signOutAndLoginWithPasskey(page) {
   await expect(byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'}))).toBeVisible();
 }
 
+// passwordLoginRoundTrip turns password login on in Settings, creates a second
+// operator through first-time setup with a password instead of a passkey,
+// signs in with that password, then signs out and returns to the passkey
+// operator so later cases keep running as the original user.
+export async function passwordLoginRoundTrip(page, {username = 'E2E Password Operator', setupPassword = process.env.OPD_SETUP_PASSWORD || 'opendeploy-setup', password = 'e2e-password-operator'} = {}) {
+  await byTestId(page, 'nav-settings', page.getByText('Settings')).click();
+  await expect(settingRow(page, 'Password login enabled')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await setSettingBool(page, 'Password login enabled', true);
+  await expect(page.getByText('Unsaved changes')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await page.getByRole('button', {name: 'Save changes'}).click();
+  await expect(page.getByText('Unsaved changes')).toBeHidden({timeout: LONG_UI_TIMEOUT});
+
+  await page.goto('/bootstrap');
+  await expect(page.getByRole('heading', {name: 'First time setup'})).toBeVisible();
+  await byTestId(page, 'bootstrap-username-input', page.getByPlaceholder('Your name')).fill(username);
+  await byTestId(page, 'bootstrap-password-input', page.getByPlaceholder('Master password')).fill(setupPassword);
+  await byTestId(page, 'bootstrap-authenticate-button', page.getByRole('button', {name: 'Authenticate'})).click();
+  await byTestId(page, 'bootstrap-new-password-input', page.getByPlaceholder('New password (at least 8 characters)')).fill(password);
+  await byTestId(page, 'bootstrap-confirm-password-input', page.getByPlaceholder('Confirm password')).fill(password);
+  await byTestId(page, 'bootstrap-set-password-button', page.getByRole('button', {name: 'Set password'})).click();
+  await expect(byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'}))).toBeVisible();
+
+  await byTestId(page, 'nav-sign-out', page.getByText('Sign out')).click();
+  await byTestId(page, 'login-username-input', page.getByPlaceholder('Username')).fill(username);
+  await byTestId(page, 'login-password-input', page.getByPlaceholder('Password')).fill('not the password');
+  await byTestId(page, 'login-password-button', page.getByRole('button', {name: 'Sign in', exact: true})).click();
+  await expect(page.getByText('Invalid username or password')).toBeVisible();
+  await byTestId(page, 'login-password-input', page.getByPlaceholder('Password')).fill(password);
+  await byTestId(page, 'login-password-button', page.getByRole('button', {name: 'Sign in', exact: true})).click();
+  await expect(byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'}))).toBeVisible();
+
+  await signOutAndLoginWithPasskey(page);
+}
+
 export async function configureGithubToken(page, token) {
   if (!token) return;
   await byTestId(page, 'nav-settings', page.getByText('Settings')).click();

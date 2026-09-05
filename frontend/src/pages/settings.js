@@ -57,6 +57,9 @@ const emptySettings = () => ({
         listen: stringSetting(":9443"),
         enrollmentListen: stringSetting(":9444"),
     },
+    auth: {
+        passwordLoginEnabled: boolSetting(false),
+    },
     repo: {
         githubToken: secretSetting(),
     },
@@ -130,6 +133,12 @@ const settingsSections = [
             {label: "Web UI ACME email", key: "ACME_EMAIL", type: "text", setting: (cfg) => cfg.httpsWeb?.acmeEmail, apply: (doc, item) => { doc.httpsWeb.acmeEmail = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
             {label: "Web UI HTTP enabled", key: "WEB_HTTP_ENABLED", type: "bool", setting: (cfg) => cfg.httpWeb?.enabled, apply: (doc, item) => { doc.httpWeb.enabled = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value === "true"}; }},
             {label: "Web UI HTTP listen", key: "WEB_HTTP_LISTEN", type: "text", setting: (cfg) => cfg.httpWeb?.listen, apply: (doc, item) => { doc.httpWeb.listen = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }, visible: (draft) => effectiveDraftBoolValue(draft?.WEB_HTTP_ENABLED)},
+        ],
+    },
+    {
+        title: "Authentication",
+        settings: [
+            {label: "Password login enabled", key: "PASSWORD_LOGIN_ENABLED", type: "bool", setting: (cfg) => cfg.auth?.passwordLoginEnabled, apply: (doc, item) => { (doc.auth ||= {}).passwordLoginEnabled = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value === "true"}; }},
         ],
     },
     {
@@ -524,6 +533,7 @@ export function settingsPage() {
 			: effectiveStringSettingValue(httpsWeb.listen, ":443");
         const args = [
             ["--http-only", boolValue(httpOnly)],
+            ["--password-login", boolValue(effectiveBoolSettingValue(cfg.auth?.passwordLoginEnabled, false))],
             ["--web-listen", webListen || ":443"],
             ["--cluster-listen", effectiveStringSettingValue(cfg.cluster?.listen, ":9443")],
             ["--enrollment-listen", effectiveStringSettingValue(cfg.cluster?.enrollmentListen, ":9444")],

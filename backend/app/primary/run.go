@@ -134,6 +134,7 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		ratelimit.PerIP(rate.Limit(40), 100, time.Minute),
 		ratelimit.PerIPAndPrefix("/v1/auth", rate.Limit(1), 10, time.Minute),
 		ratelimit.PerIPAndPrefix("/v1/auth/master", rate.Limit(0.2), 10, time.Minute),
+		ratelimit.PerIPAndPrefix("/v1/auth/password/login", rate.Limit(0.2), 10, time.Minute),
 		// The agent-session family is reachable without a credential.
 		ratelimit.PerIPAndPrefix("/v1/agent-sessions", rate.Limit(2), 30, time.Minute),
 		ratelimit.PerIPAndPrefix("/v1/agent-sessions/instructions", rate.Limit(0.2), 5, time.Minute),

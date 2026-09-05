@@ -221,6 +221,60 @@ func (c *ApiServerCapi) PostV1AuthMasterPasswordVerify(ctx context.Context, req 
 	return nil
 }
 
+func (c *ApiServerCapi) GetV1AuthMethods(ctx context.Context) (*AuthMethodsResponse, error) {
+	resp, err := c.do(ctx, "GET", "/v1/auth/methods", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAuthMethodsResponse(body)
+}
+
+func (c *ApiServerCapi) PostV1AuthPasswordLogin(ctx context.Context, req *PasswordLoginRequest) (*LoginResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AuthPasswordLogin request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/auth/password/login", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeLoginResponse(body)
+}
+
+func (c *ApiServerCapi) PostV1AuthPasswordSet(ctx context.Context, req *PasswordSetRequest) (*LoginResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AuthPasswordSet request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/auth/password/set", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeLoginResponse(body)
+}
+
 func (c *ApiServerCapi) GetV1AuthCurrentSession(ctx context.Context) (*LoginResponse, error) {
 	resp, err := c.do(ctx, "GET", "/v1/auth/current/session", nil, "application/protobuf", "application/protobuf")
 	if err != nil {

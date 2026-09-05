@@ -76,6 +76,9 @@ type ApiServerHandler interface {
 	PostV1AuthMaster(Context, *MasterPasswordRequest) (*LoginResponse, error)
 	PostV1AuthMasterPasswordSave(Context, *MasterPasswordSaveRequest) error
 	PostV1AuthMasterPasswordVerify(Context, *MasterPasswordVerifyRequest) error
+	GetV1AuthMethods(Context) (*AuthMethodsResponse, error)
+	PostV1AuthPasswordLogin(Context, *PasswordLoginRequest) (*LoginResponse, error)
+	PostV1AuthPasswordSet(Context, *PasswordSetRequest) (*LoginResponse, error)
 	GetV1AuthCurrentSession(Context) (*LoginResponse, error)
 	PostV1AuthPasskeyRegisterStart(Context) (*WebAuthNOptionsResponse, error)
 	PostV1AuthPasskeyRegisterFinish(Context, *WebAuthNFinishRequest) (*LoginResponse, error)
@@ -252,6 +255,34 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/auth/master/password/verify", buildHandlerFunc(config, verifyAuth, postV1AuthMasterPasswordVerifyAccessPolicy, postAuthHandlerPostV1AuthMasterPasswordVerify, compressionModeAuto, false))
+	getV1AuthMethodsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerGetV1AuthMethods := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		res, err := h.GetV1AuthMethods(authCtx)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("GET /v1/auth/methods", buildHandlerFunc(config, verifyAuth, getV1AuthMethodsAccessPolicy, postAuthHandlerGetV1AuthMethods, compressionModeAuto, false))
+	postV1AuthPasswordLoginAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerPostV1AuthPasswordLogin := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodePasswordLoginRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AuthPasswordLogin(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/auth/password/login", buildHandlerFunc(config, verifyAuth, postV1AuthPasswordLoginAccessPolicy, postAuthHandlerPostV1AuthPasswordLogin, compressionModeAuto, false))
+	postV1AuthPasswordSetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"passkey:create", "default"}}
+	postAuthHandlerPostV1AuthPasswordSet := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodePasswordSetRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AuthPasswordSet(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/auth/password/set", buildHandlerFunc(config, verifyAuth, postV1AuthPasswordSetAccessPolicy, postAuthHandlerPostV1AuthPasswordSet, compressionModeAuto, false))
 	getV1AuthCurrentSessionAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"passkey:create", "default"}}
 	postAuthHandlerGetV1AuthCurrentSession := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		res, err := h.GetV1AuthCurrentSession(authCtx)

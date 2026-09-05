@@ -31,6 +31,7 @@ type staged struct {
 type installOptions struct {
 	role                  string
 	httpOnly              *bool
+	passwordLogin         *bool
 	webListen             *string
 	webTLSSelfManaged     *bool
 	webTLSCertPEM         *string
@@ -51,7 +52,7 @@ func (o installOptions) hasEnvOverrides() bool {
 }
 
 func (o installOptions) hasPrimaryConfigOverrides() bool {
-	return o.httpOnly != nil || o.webListen != nil || o.webTLSSelfManaged != nil || o.webTLSCertPEM != nil || o.clusterListen != nil || o.enrollmentListen != nil || o.acmeHosts != nil
+	return o.httpOnly != nil || o.passwordLogin != nil || o.webListen != nil || o.webTLSSelfManaged != nil || o.webTLSCertPEM != nil || o.clusterListen != nil || o.enrollmentListen != nil || o.acmeHosts != nil
 }
 
 // doInstall auto-detects fresh-install vs upgrade by whether the systemd unit
@@ -438,6 +439,9 @@ func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, e
 		initial.WebHTTPEnabled = *opts.httpOnly
 		initial.WebHTTPSEnabled = !*opts.httpOnly
 	}
+	if opts.passwordLogin != nil {
+		initial.PasswordLoginEnabled = *opts.passwordLogin
+	}
 	if opts.webListen != nil {
 		initial.WebHTTPListen = *opts.webListen
 		initial.WebHTTPSListen = *opts.webListen
@@ -479,7 +483,7 @@ func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, e
 
 func printSetupPassword(password string) {
 	fmt.Printf("\nTemporary setup password: %s\n", password)
-	fmt.Print("Use this password to register the first passkey. Replace the master password after bootstrap if needed.\n")
+	fmt.Print("Use this password under \"First time setup\" in the web UI to create the first operator account. Replace the master password after bootstrap if needed.\n")
 }
 
 func securePrimaryBootstrapArtifacts(own owner) error {
@@ -626,6 +630,12 @@ func printInstallComplete(opts installOptions, bootstrap *bootstrapCredentials) 
 		fmt.Print("\nThe temporary setup password was printed after primary initialization.\n")
 	} else {
 		fmt.Print("\nPreserved the existing primary setup credentials.\n")
+	}
+	if opts.passwordLogin != nil && *opts.passwordLogin {
+		fmt.Print("\nPassword login is enabled: sign in with a username and password instead of a passkey.\n")
+		if opts.httpOnly != nil && *opts.httpOnly {
+			fmt.Print("The web UI is plain HTTP, so passwords cross the network unencrypted. Use this only on a trusted network or over an SSH tunnel.\n")
+		}
 	}
 	printServiceLogDetails(logDir, logFile)
 }

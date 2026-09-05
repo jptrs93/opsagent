@@ -42,6 +42,7 @@ import {
   expectDeploymentRunning,
   runBackupRestoreSetup,
   signOutAndLoginWithPasskey,
+  passwordLoginRoundTrip,
   uploadAsset,
   upgradeOpenDeployAgents,
   upgradeOpenDeployNet,
@@ -129,6 +130,15 @@ export const orderedCases = [
     requires: ['bootstrap'],
     async run(ctx) {
       await signOutAndLoginWithPasskey(ctx.page);
+    },
+  },
+  {
+    id: 'password-login',
+    title: 'enable password login and sign in with a password',
+    description: 'Turns on password login in Settings, creates a second operator through first-time setup with a password, signs in with it, then returns to the passkey operator.',
+    requires: ['passkey-login'],
+    async run(ctx) {
+      await passwordLoginRoundTrip(ctx.page);
     },
   },
   {

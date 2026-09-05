@@ -56,6 +56,11 @@ type Service struct {
 	// is a method on it. Service owns caches, locking, and notification.
 	q *pq.Queries
 
+	// userMu serialises read-modify-write cycles on a user's data blob so two
+	// concurrent credential updates (a passkey registration and a password
+	// change, say) cannot overwrite each other with stale copies.
+	userMu sync.Mutex
+
 	// deploymentCache holds the latest desired Deployment per live deployment
 	// id. Deletion evicts the entry — tombstones live only in the event log,
 	// where FetchDeployment reads them back on a cache miss. Used by primary
@@ -400,6 +405,8 @@ func (s *Service) FetchUserMatching(predicate func(*apigen.InternalUser) bool) (
 }
 
 func (s *Service) UpdateUserMatching(predicate func(*apigen.InternalUser) bool, f func(*apigen.InternalUser)) {
+	s.userMu.Lock()
+	defer s.userMu.Unlock()
 	user := erru.Must(s.FetchUserMatching(predicate))
 	f(user)
 	s.WriteUser(user)

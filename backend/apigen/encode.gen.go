@@ -6787,6 +6787,7 @@ func (m *InternalUser) Encode() []byte {
 		b = AppendBytes(b, item.Encode())
 	}
 	b = AppendBoolField(b, m.Delegated, 5)
+	b = AppendStringField(b, m.PasswordHash, 6)
 	return b
 }
 
@@ -6819,6 +6820,8 @@ func DecodeInternalUser(b []byte) (*InternalUser, error) {
 			}
 		case 5:
 			b, m.Delegated, err = ConsumeBool(b, typ)
+		case 6:
+			b, m.PasswordHash, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6941,6 +6944,99 @@ func DecodeMasterPasswordSaveRequest(b []byte) (*MasterPasswordSaveRequest, erro
 		switch num {
 		case 1:
 			b, m.Password, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *PasswordLoginRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Username, 1)
+	b = AppendStringField(b, m.Password, 2)
+	return b
+}
+
+func DecodePasswordLoginRequest(b []byte) (*PasswordLoginRequest, error) {
+	var m PasswordLoginRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Username, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Password, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *PasswordSetRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Password, 1)
+	return b
+}
+
+func DecodePasswordSetRequest(b []byte) (*PasswordSetRequest, error) {
+	var m PasswordSetRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Password, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *AuthMethodsResponse) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.PasskeyLoginEnabled, 1)
+	b = AppendBoolField(b, m.PasswordLoginEnabled, 2)
+	return b
+}
+
+func DecodeAuthMethodsResponse(b []byte) (*AuthMethodsResponse, error) {
+	var m AuthMethodsResponse
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.PasskeyLoginEnabled, err = ConsumeBool(b, typ)
+		case 2:
+			b, m.PasswordLoginEnabled, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -11596,7 +11692,8 @@ func (m ClusterSettings) IsZero() bool {
 		m.Cluster.IsZero() &&
 		m.Repo.IsZero() &&
 		m.Backup.IsZero() &&
-		m.LargeAssets.IsZero()
+		m.LargeAssets.IsZero() &&
+		m.Auth.IsZero()
 }
 
 func (m *ClusterSettings) Encode() []byte {
@@ -11624,6 +11721,10 @@ func (m *ClusterSettings) Encode() []byte {
 	if !m.LargeAssets.IsZero() {
 		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, m.LargeAssets.Encode())
+	}
+	if !m.Auth.IsZero() {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.Auth.Encode())
 	}
 	return b
 }
@@ -11692,6 +11793,15 @@ func DecodeClusterSettings(b []byte) (*ClusterSettings, error) {
 				item, err = DecodeLargeAssetsSettings(msgBytes)
 				if err == nil {
 					m.LargeAssets = *item
+				}
+			}
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthSettings
+				item, err = DecodeAuthSettings(msgBytes)
+				if err == nil {
+					m.Auth = *item
 				}
 			}
 		default:
@@ -11864,6 +11974,50 @@ func DecodeHttpsWebSettings(b []byte) (*HttpsWebSettings, error) {
 				item, err = DecodeStringSetting(msgBytes)
 				if err == nil {
 					m.AcmeEmail = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m AuthSettings) IsZero() bool {
+	return m.PasswordLoginEnabled.IsZero()
+}
+
+func (m *AuthSettings) Encode() []byte {
+	var b []byte
+	if !m.PasswordLoginEnabled.IsZero() {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.PasswordLoginEnabled.Encode())
+	}
+	return b
+}
+
+func DecodeAuthSettings(b []byte) (*AuthSettings, error) {
+	var m AuthSettings
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *BoolSetting
+				item, err = DecodeBoolSetting(msgBytes)
+				if err == nil {
+					m.PasswordLoginEnabled = *item
 				}
 			}
 		default:

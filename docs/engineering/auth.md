@@ -2,7 +2,7 @@
 
 ## Overview
 
-Authentication uses passkeys for normal operator login. A master password can issue a short-lived token for passkey registration, including bootstrap and recovery when an operator needs to enroll a replacement authenticator. Both flows produce a JWT token used for subsequent requests. What a token may *do* is decided in one place: per-user authz grants evaluated by `lib/authz` inside the handlers. Scopes remain on each route in the protobuf API contract, but only to separate a bootstrap token from a real session — they no longer carve up what a real session can reach.
+Authentication uses passkeys for normal operator login, with an opt-in username/password login for installs where a browser will not run WebAuthn (see [Password login](#password-login)). A master password can issue a short-lived token for passkey registration or password setup, including bootstrap and recovery when an operator needs to enroll a replacement authenticator. All flows produce a JWT token used for subsequent requests. What a token may *do* is decided in one place: per-user authz grants evaluated by `lib/authz` inside the handlers. Scopes remain on each route in the protobuf API contract, but only to separate a bootstrap token from a real session — they no longer carve up what a real session can reach.
 
 Key files:
 - `backend/app/primary/webuihandler/auth.go` — master password handler, JWT verification, and `VerifyAuth`.
@@ -12,6 +12,7 @@ Key files:
 - `backend/app/primary/webuihandler/agent_sessions.go` — agent session request, approve, pickup, create, list, and revoke.
 - `backend/app/primary/webuihandler/agent_instructions.go` / `.md` — the unauthenticated instructions page an operator hands to an agent.
 - `backend/app/primary/webuihandler/passkey.go` — passkey registration and login handlers, credential persistence, and WebAuthn user adapter.
+- `backend/app/primary/webuihandler/password.go` — opt-in password login, password set, and the unauthenticated auth-methods endpoint.
 - `backend/apigen/policy_ext.go` — access control policy enforcement.
 
 ## User model
@@ -28,7 +29,7 @@ The configured master password hash is stored in the persisted OpenDeploy config
 1. Resolve the configured master password hash from the persisted OpenDeploy config envelope.
 2. Verify the request password against the resolved hash using `authu.VerifyPassword` (constant-time comparison).
 3. Look up the request's `username`; if no user with that name exists, create one (next integer id, fresh WebAuthn ID) with a `cluster_admin` grant.
-4. Return a JWT with `scopes: ["passkey:create"]` and 10-minute expiry.
+4. Return a JWT with `scopes: ["passkey:create"]` and 10-minute expiry. The bootstrap page then registers a passkey or, when password login is enabled, sets a password; either ends in a full session.
 
 ### Rotation (`POST /v1/auth/master/password/save`)
 
@@ -49,7 +50,7 @@ Tokens are signed with RSA-256 (RS256) via `github.com/jptrs93/goutil/authu`. Ea
 
 Three token types exist:
 - **Bootstrap token**: scopes `["passkey:create"]`, 10-minute expiry. Issued by master password exchange.
-- **Session token**: scopes `["default"]`, 2-day expiry. Issued by passkey registration or login.
+- **Session token**: scopes `["default"]`, 2-day expiry. Issued by passkey registration or login, and by password set or login.
 - **Agent session token**: the caller's own scopes, 6-hour expiry. Issued under `/v1/agent-sessions/` for command-line, script, and agent use.
 
 `GET /v1/auth/current/session` is an authenticated validation endpoint that echoes the caller's current bearer token without minting a new one. The frontend uses it on app startup to confirm persisted auth state and to force re-login on `401`.
@@ -123,6 +124,20 @@ No authentication required (discoverable login).
 ### Credential storage
 
 Credentials are persisted inside each user's `data_blob` column in the SQLite `users` table (protobuf-encoded `InternalUser` containing the full credential list). Lookup on login fetches all users and resolves the credential by its raw id.
+
+## Password login
+
+Password login exists for one reason: browsers only expose WebAuthn in a secure context, which means HTTPS with a certificate the browser trusts or plain HTTP on `localhost`. A single-node install reached over plain HTTP at a VM or LAN address cannot use passkeys, and one reached over HTTPS behind a self-signed certificate the operator clicked past is not a reliably supported passkey configuration (Chrome refuses outright; other browsers vary). Passkeys stay the default; password login is an opt-in that is off unless someone turns it on.
+
+- **Gate.** `ClusterSettings.auth.password_login_enabled` (installer `--password-login true`, restore override `PASSWORD_LOGIN_ENABLED`, Settings → Authentication). While it is off, the login and set endpoints return `403 password_login_disabled` and the UI shows no password controls, so a production install that never enables it carries no password surface.
+- **Discovery.** `GET /v1/auth/methods` (`NO_AUTH`) reports which methods are on. The login page, bootstrap page, and the personal-sessions password card all read it, because none of them can see cluster settings before a session exists.
+- **Storage.** Each user's Argon2id hash lives in `InternalUser.password_hash`, next to their passkey credentials in the `users` table. An empty hash means the user has no password and cannot log in this way even when the feature is on.
+- **Set** (`POST /v1/auth/password/set`, scopes `passkey:create` or `default`, human only). Sets or replaces the caller's own password (8 to 256 characters). Called with a bootstrap token it mints a full `default` session, like passkey registration, so first-time setup can finish without a passkey; called with an existing `default` session it echoes that session back rather than opening a second one. There is no admin path to set another user's password; recovery is the master-password bootstrap flow as for passkeys.
+- **Discovery is deferred on the client.** The API client reads the login state synchronously to build its auth header, and the login and bootstrap pages are constructed inside the reactive route binding. `frontend/src/state/authMethods.js` therefore issues the methods request from a microtask, so a page never captures a dependency on the login state and is not rebuilt mid-flow when a token is stored.
+- **Usernames are trimmed** on creation and matched trimmed on both sides at login, so accounts created before trimming with surrounding whitespace still authenticate.
+- **Login** (`POST /v1/auth/password/login`, `NO_AUTH`). Username plus password → a normal personal session, identical to a passkey login, recorded in `personal_sessions` and revocable from the Sessions page. An unknown username is verified against a fixed dummy hash so the response takes the same time as a wrong password. Rate limited at 0.2/s burst 10 per IP, the same as the master-password route.
+
+Over plain HTTP the password crosses the network in clear text. The installer prints a warning when `--password-login` is combined with `--http-only`; the intended remedies are a loopback listen, an SSH tunnel, or HTTPS with a trusted certificate.
 
 ## Access control
 

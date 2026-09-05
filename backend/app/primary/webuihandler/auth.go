@@ -49,11 +49,12 @@ func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswor
 	if err := h.verifyMasterPassword(req.Password); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(req.Username) == "" {
+	username := strings.TrimSpace(req.Username)
+	if username == "" {
 		return nil, UsernameRequiredErr
 	}
 	user, err := h.Store.FetchUserMatching(func(u *apigen.InternalUser) bool {
-		return u.Name == req.Username
+		return strings.TrimSpace(u.Name) == username
 	})
 	if errors.Is(err, state.ErrNotFound) {
 		id := int32(h.Store.UserCount()) + 1
@@ -64,7 +65,7 @@ func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswor
 		user = &apigen.InternalUser{
 			ID:         id,
 			WebAuthNID: webAuthNID,
-			Name:       req.Username,
+			Name:       username,
 		}
 		h.Store.WriteUser(user)
 		if _, grantErr := h.Authz.CreateGrant(&apigen.AuthzGrantRecord{

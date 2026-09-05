@@ -197,6 +197,7 @@ func (h *Handler) settingsConfigRefDetails(ids map[int32]struct{}) []string {
 			{"HTTPS web self-managed TLS", settings.HttpsWeb.TlsSelfManaged.ConfigRef},
 			{"HTTPS web ACME hosts", settings.HttpsWeb.AcmeHosts.ConfigRef},
 			{"HTTPS web ACME email", settings.HttpsWeb.AcmeEmail.ConfigRef},
+			{"password login enabled", settings.Auth.PasswordLoginEnabled.ConfigRef},
 			{"cluster listen", settings.Cluster.Listen.ConfigRef},
 			{"cluster enrollment listen", settings.Cluster.EnrollmentListen.ConfigRef},
 			{"backup enabled", settings.Backup.Enabled.ConfigRef},

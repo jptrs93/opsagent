@@ -42,6 +42,9 @@ type InitialConfig struct {
 	ClusterListen      string
 	EnrollmentListen   string
 	MasterPasswordHash string
+	// PasswordLoginEnabled opts the Web UI into username/password login next
+	// to passkeys. Off by default; local and evaluation installs turn it on.
+	PasswordLoginEnabled bool
 }
 
 func DefaultInitialConfig() InitialConfig {
@@ -93,6 +96,9 @@ func DefaultSettings(initial InitialConfig) *apigen.ClusterSettings {
 			S3Path:            apigen.StringSetting{Value: "opendeploy/assets"},
 			S3Region:          apigen.StringSetting{Value: "us-east-1"},
 			S3Endpoint:        apigen.StringSetting{Value: ""},
+		},
+		Auth: apigen.AuthSettings{
+			PasswordLoginEnabled: apigen.BoolSetting{Value: initial.PasswordLoginEnabled},
 		},
 	}
 }

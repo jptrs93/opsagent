@@ -20,6 +20,7 @@ import (
 const (
 	primaryConfigWebListen         = "WEB_LISTEN"
 	primaryConfigWebHTTPOnly       = "WEB_HTTP_ONLY"
+	primaryConfigPasswordLogin     = "PASSWORD_LOGIN_ENABLED"
 	primaryConfigWebTLSSelfManaged = "WEB_TLS_SELF_MANAGED"
 	primaryConfigWebTLSCertPEM     = "WEB_TLS_CERT_PEM"
 	primaryConfigClusterListen     = "CLUSTER_LISTEN"
@@ -171,6 +172,9 @@ func restoredPrimaryConfigOverrides(opts installOptions) []restoredPrimaryConfig
 	if opts.httpOnly != nil {
 		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigWebHTTPOnly, value: strconv.FormatBool(*opts.httpOnly)})
 	}
+	if opts.passwordLogin != nil {
+		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigPasswordLogin, value: strconv.FormatBool(*opts.passwordLogin)})
+	}
 	if opts.webTLSSelfManaged != nil {
 		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigWebTLSSelfManaged, value: strconv.FormatBool(*opts.webTLSSelfManaged)})
 	}
@@ -218,6 +222,9 @@ func applyRestoredPrimaryConfigOverrides(dbPath string, opts installOptions, own
 			httpOnly, _ := strconv.ParseBool(override.value)
 			settings.HttpWeb.Enabled = apigen.BoolSetting{Value: httpOnly}
 			settings.HttpsWeb.Enabled = apigen.BoolSetting{Value: !httpOnly}
+		case primaryConfigPasswordLogin:
+			enabled, _ := strconv.ParseBool(override.value)
+			settings.Auth.PasswordLoginEnabled = apigen.BoolSetting{Value: enabled}
 		case primaryConfigWebTLSSelfManaged:
 			selfManaged, _ := strconv.ParseBool(override.value)
 			settings.HttpsWeb.TlsSelfManaged = apigen.BoolSetting{Value: selfManaged}
