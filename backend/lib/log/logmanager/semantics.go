@@ -134,7 +134,13 @@ type visitRec struct {
 	view    lineView
 	viewed  bool
 	levelOK bool // level resolved from the view
-	msgOK   bool // msg resolved from the view
+	msgOK   bool // msg resolved from the view or materialised from msgRaw
+
+	// msgRaw is the shredded msg column as borrowed bytes, set by the archive
+	// scan instead of msg so a contains filter never copies it; msgValue
+	// materialises the string only when a caller needs one.
+	msgRaw    []byte
+	hasMsgRaw bool
 }
 
 func (v *visitRec) scanner() *lineScanner {
@@ -179,6 +185,9 @@ func (v *visitRec) levelValue() string {
 }
 
 func (v *visitRec) msgValue() string {
+	if v.hasMsgRaw && !v.msgOK {
+		v.msg, v.msgOK = string(v.msgRaw), true
+	}
 	if v.shredded || v.msgOK {
 		return v.msg
 	}
@@ -199,6 +208,9 @@ func (v *visitRec) msgValue() string {
 func (v *visitRec) fieldBytes(field string) (b []byte, ok bool, fast bool) {
 	switch field {
 	case "", "msg", "message":
+		if v.hasMsgRaw {
+			return v.msgRaw, true, true
+		}
 		if v.shredded || v.msgOK {
 			return nil, false, false
 		}

@@ -334,7 +334,7 @@ func (ev *archiveEval) consume(b *cheapBatch, n int, baseRow int64, sorted bool)
 				v.rec.Seq = b.seqs[i]
 			}
 			if ev.needMsg {
-				v.msg = string(b.msgs[i].ByteArray())
+				v.msgRaw, v.hasMsgRaw = b.msgs[i].ByteArray(), true
 			}
 			if ev.q.specVersion > 0 && v.rec.Version != ev.q.specVersion {
 				continue
