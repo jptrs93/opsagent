@@ -224,7 +224,7 @@ function caTrustHelp() {
             p({class: "text-xs text-gray-400"}, "This server has its own CA. Trust it once, restart the browser, reload."),
             div(
                 {class: "flex flex-wrap items-center gap-2"},
-                a({class: "btn-primary px-3 py-1 text-xs", href: caURL, download: "opendeploy-ca.crt", "data-testid": "login-ca-download"}, "Download opendeploy-ca.crt"),
+                a({class: "rounded border border-gray-600 px-3 py-1 text-xs text-gray-200 hover:bg-gray-700 cursor-pointer no-underline", href: caURL, download: "opendeploy-ca.crt", "data-testid": "login-ca-download"}, "Download opendeploy-ca.crt"),
                 button({type: "button", class: "rounded border border-gray-600 px-3 py-1 text-xs text-gray-200 hover:bg-gray-700 cursor-pointer", onclick: copyCA, "data-testid": "login-ca-copy"},
                     () => copied.val ? "Copied" : "Copy PEM"),
                 () => copyErr.val ? span({class: "text-xs text-red-400"}, copyErr.val) : '',
