@@ -128,6 +128,7 @@ func newRuntime() (*runtime, error) {
 		githubReleaseVersions: versionprovider.NewGithubReleaseVersionProvider(githubClient),
 		secrets:               secretsMgr,
 		operator: engine.DeploymentOperator{
+			GithubCredentials: githubCredentials,
 			Store:             store,
 			OpendeployRelease: opendeployrelease.New(ainit.StaticConfig.ReleasesDir, githubClient),
 			NixDocker:         nixdocker.New(gitManager),
@@ -146,6 +147,7 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 		ConfigService:         r.configService,
 		GitVersions:           r.gitVersions,
 		GithubReleaseVersions: r.githubReleaseVersions,
+		GithubCredentials:     r.github,
 		Secrets:               r.secrets,
 	}
 }

@@ -215,7 +215,7 @@ func validateNixDockerBuildValidateRequest(src *apigen.ValidateNixDockerBuildSou
 
 func (h *Handler) validateContainerImageSource(ctx apigen.Context, src *apigen.ValidateContainerImageSource) (*apigen.RepoValidateResponse, error) {
 	image := src.Image
-	tags, err := versionprovider.ListContainerImageTags(ctx, image)
+	tags, err := versionprovider.ListContainerImageTags(ctx, image, h.GithubCredentials)
 	if err != nil {
 		slog.WarnContext(ctx, fmt.Sprintf("container image validation failed image=%s", image), "err", err)
 		return &apigen.RepoValidateResponse{ContainerImage: &apigen.ValidateContainerImageSourceResponse{Image: validationErr("Image not accessible: " + containerImageRef(image))}}, nil

@@ -11,11 +11,12 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
 	"github.com/jptrs93/opsagent/backend/lib/engine/imageref"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/preparerlog"
+	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 )
 
 // Prepare pulls and unpacks a registry image for immediate use by the
 // container runner.
-func Prepare(ctx context.Context, dep *apigen.Deployment, log *preparerlog.Log) (string, apigen.ImageStatus) {
+func Prepare(ctx context.Context, dep *apigen.Deployment, log *preparerlog.Log, credentials githubcredentials.Provider) (string, apigen.ImageStatus) {
 	container := dep.Def.Spec.Container()
 	version := dep.WorkloadVersion()
 	logPath := dep.PrepareOutputPath()
@@ -28,7 +29,7 @@ func Prepare(ctx context.Context, dep *apigen.Deployment, log *preparerlog.Log) 
 
 	log.Write("pulling image %s", ref)
 
-	resolved, err := ctrd.Default.Pull(ctx, ref)
+	resolved, err := ctrd.Default.Pull(ctx, ref, credentials)
 	if err != nil {
 		slog.ErrorContext(ctx, fmt.Sprintf("image pull of %s failed", ref), "err", err)
 		log.Error("pulling image: %v", err)

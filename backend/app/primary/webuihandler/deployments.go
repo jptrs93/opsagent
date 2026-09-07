@@ -203,7 +203,7 @@ func (h *Handler) PostV1DeploymentsVersions(ctx apigen.Context, req *apigen.Depl
 			},
 		}, nil
 	case container != nil && container.Source.RemoteImage != nil:
-		tags, err := versionprovider.ListContainerImageTags(ctx, container.Source.RemoteImage.Image)
+		tags, err := versionprovider.ListContainerImageTags(ctx, container.Source.RemoteImage.Image, h.GithubCredentials)
 		if err != nil {
 			return nil, fmt.Errorf("listing container image tags: %w", err)
 		}

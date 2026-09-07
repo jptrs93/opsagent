@@ -63,7 +63,9 @@ metadata.
 | Variant | Fields | Description |
 |---|---|---|
 | `nixDockerBuild` | `repo`, `flake`, optional `target` | Uses a full commit hash as the desired version. `flake` must be a safe repository-relative path whose basename is `flake.nix` and whose entry at that exact commit is a regular Git file. Before a running config is saved, the primary contacts the remote and verifies the exact repository-wide commit and flake entry. The preparer checks out the commit, rechecks the file, runs `nix build` without updating the lock file, and expects its selected output to be an executable OCI/Docker image stream such as `pkgs.dockerTools.streamLayeredImage`. An empty target builds the default output; a local selector such as `.#radkitRpaClientImage` selects a named flake output. The stream is imported into OpenDeploy's bundled containerd and returned as a local image ref. Must be paired with the `container` runner. |
-| `remoteImage` | `image` | Pulls `image:version` (version is the workload's desired tag/digest) into containerd's content store and unpacks it. Phase 1 pulls anonymously — no registry credentials. |
+| `remoteImage` | `image` | Pulls `image:version` (version is the workload's desired tag/digest) into containerd's content store and unpacks it. GHCR images (`ghcr.io/owner/image`) use the configured GitHub token for validation, tag discovery, and pulls on primary and secondary nodes. Other registries use anonymous access. |
+
+For private GHCR images, configure the GitHub token in Settings with a classic personal access token that has `read:packages` and access to the package (authorize organization SSO where required). No separate registry credential is needed. Without a configured token, GHCR requests are anonymous. Token changes apply to the next validation or pull. See [GitHub’s container registry authentication documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-to-the-container-registry).
 
 `githubRelease` remains as an internal-only source for the `OPENDEPLOY`
 self-deployment. Public create/update validation rejects it.

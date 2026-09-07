@@ -158,6 +158,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 		}
 		runner.SweepForeignContainers(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID))
 		engine.DeploymentOperator{
+			GithubCredentials: githubCredentials,
 			Store:             store,
 			OpendeployRelease: opendeployReleasePreparer,
 			NixDocker:         nixDockerPreparer,

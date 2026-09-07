@@ -21,6 +21,7 @@ import (
 
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
+	"github.com/jptrs93/opsagent/backend/lib/engine/imageref"
 	"github.com/jptrs93/opsagent/backend/lib/issuedtls"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
@@ -256,6 +257,11 @@ func buildAllowedRefs(snapshot []apigen.ScheduledInstanceState) clusterAllowedRe
 		}
 		if container == nil {
 			continue
+		}
+		if image := container.Source.RemoteImage; image != nil {
+			if ref, err := imageref.Parse(image.Image); err == nil && strings.EqualFold(ref.Registry, "ghcr.io") {
+				refs.usesGithub = true
+			}
 		}
 		for _, value := range container.Runtime.EnvVars {
 			if value == nil {

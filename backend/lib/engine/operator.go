@@ -21,11 +21,13 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/runner"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
 
 type DeploymentOperator struct {
+	GithubCredentials githubcredentials.Provider
 	Store             storage.OperatorStore
 	OpendeployRelease *opendeployrelease.Preparer
 	NixDocker         *nixdocker.Preparer
@@ -340,7 +342,10 @@ func (op DeploymentOperator) prepareImage(ctx context.Context, instanceID int32,
 	case container != nil && container.Source.RemoteImage != nil && container.Source.RemoteImage.Image == internaldeploy.NetproxyImage:
 		started, run = apigen.ImageStatus_IMAGE_DOWNLOADING, op.OpendeployRelease.PrepareImage
 	case container != nil && container.Source.RemoteImage != nil:
-		started, run = apigen.ImageStatus_IMAGE_PULLING, containerimage.Prepare
+		started = apigen.ImageStatus_IMAGE_PULLING
+		run = func(ctx context.Context, dep *apigen.Deployment, log *preparerlog.Log) (string, apigen.ImageStatus) {
+			return containerimage.Prepare(ctx, dep, log, op.GithubCredentials)
+		}
 	default:
 		log.Error("no prepare config found")
 		return prepare.StatusUpdate{

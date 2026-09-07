@@ -12,12 +12,14 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/imageref"
+	"github.com/jptrs93/opsagent/backend/lib/engine/registryauth"
+	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 )
 
-// ListContainerImageTags lists public image tags via the Docker Registry HTTP
+// ListContainerImageTags lists image tags via the Docker Registry HTTP
 // API. It supports Kubernetes-style image names, including Docker Hub shorthand
 // such as "postgres" and "library/postgres".
-func ListContainerImageTags(ctx context.Context, image string) ([]*apigen.Version, error) {
+func ListContainerImageTags(ctx context.Context, image string, credentials githubcredentials.Provider) ([]*apigen.Version, error) {
 	if strings.TrimSpace(image) == "" {
 		return nil, fmt.Errorf("container image missing")
 	}
@@ -25,8 +27,12 @@ func ListContainerImageTags(ctx context.Context, image string) ([]*apigen.Versio
 	if err != nil {
 		return nil, err
 	}
+	client, err := registryauth.Client(ctx, image, credentials)
+	if err != nil {
+		return nil, err
+	}
 	if ref.Version != "" {
-		ok, existsErr := imageVersionExists(ctx, ref)
+		ok, existsErr := imageVersionExists(ctx, client, ref)
 		if existsErr != nil {
 			return nil, existsErr
 		}
@@ -35,7 +41,7 @@ func ListContainerImageTags(ctx context.Context, image string) ([]*apigen.Versio
 		}
 		return []*apigen.Version{{ID: ref.Version, Label: ref.Version}}, nil
 	}
-	tags, err := listImageTags(ctx, ref)
+	tags, err := listImageTags(ctx, client, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -58,8 +64,7 @@ func ContainerImageRef(raw, version string) (string, error) {
 	return imageref.Ref(raw, version)
 }
 
-func listImageTags(ctx context.Context, ref imageref.Repository) ([]string, error) {
-	client := http.DefaultClient
+func listImageTags(ctx context.Context, client *http.Client, ref imageref.Repository) ([]string, error) {
 	nextURL := fmt.Sprintf("%s/tags/list?n=100", ref.URL())
 	var token string
 	var tags []string
@@ -108,8 +113,7 @@ func listImageTags(ctx context.Context, ref imageref.Repository) ([]string, erro
 	return tags, nil
 }
 
-func imageVersionExists(ctx context.Context, ref imageref.Repository) (bool, error) {
-	client := http.DefaultClient
+func imageVersionExists(ctx context.Context, client *http.Client, ref imageref.Repository) (bool, error) {
 	manifestURL := fmt.Sprintf("%s/manifests/%s", ref.URL(), url.PathEscape(ref.Version))
 	var token string
 	for attempt := 0; attempt < 2; attempt++ {

@@ -10,12 +10,15 @@ import (
 	"time"
 
 	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/containerd/errdefs"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/app/logconsumer"
+	"github.com/jptrs93/opsagent/backend/lib/engine/registryauth"
+	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -50,13 +53,18 @@ func (c *Client) withNS(ctx context.Context) context.Context {
 
 // Pull fetches and unpacks an image into the content store/snapshotter and
 // returns the image name as stored (the same ref used to create a container).
-func (c *Client) Pull(ctx context.Context, ref string) (string, error) {
+func (c *Client) Pull(ctx context.Context, ref string, credentials githubcredentials.Provider) (string, error) {
 	cl, err := c.ensure()
 	if err != nil {
 		return "", err
 	}
 	ctx = c.withNS(ctx)
-	img, err := cl.Pull(ctx, ref, containerd.WithPullUnpack)
+	client, err := registryauth.Client(ctx, ref, credentials)
+	if err != nil {
+		return "", err
+	}
+	resolver := docker.NewResolver(docker.ResolverOptions{Client: client})
+	img, err := cl.Pull(ctx, ref, containerd.WithPullUnpack, containerd.WithResolver(resolver))
 	if err != nil {
 		return "", err
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
 	"github.com/jptrs93/opsagent/backend/lib/metrics/metricstore"
+	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
@@ -47,6 +48,7 @@ type Handler struct {
 	Config                *apigen.ClusterSettings
 	GitVersions           GitSourceProvider
 	GithubReleaseVersions *versionprovider.GithubReleaseVersionProvider
+	GithubCredentials     githubcredentials.Provider
 
 	// Secrets is the primary-only encrypted secrets store. Deployment preparation
 	// decrypts referenced secret IDs into the shared RuntimeInputs cache.
@@ -83,6 +85,7 @@ type Dependencies struct {
 	ConfigService         *config.Service
 	GitVersions           GitSourceProvider
 	GithubReleaseVersions *versionprovider.GithubReleaseVersionProvider
+	GithubCredentials     githubcredentials.Provider
 	Secrets               *secrets.Manager
 }
 
@@ -147,6 +150,7 @@ func New(staticFS fs.FS, nodeID int32, deps Dependencies) (*Handler, error) {
 		Config:                &snapshot.Settings,
 		GitVersions:           deps.GitVersions,
 		GithubReleaseVersions: deps.GithubReleaseVersions,
+		GithubCredentials:     deps.GithubCredentials,
 		Secrets:               deps.Secrets,
 		NodeID:                nodeID,
 	}
