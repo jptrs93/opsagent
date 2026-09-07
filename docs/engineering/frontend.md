@@ -37,15 +37,19 @@ The dashboard uses a split-pane layout:
 
 ## Pages
 
+### Auth card (`components/authCard.js`)
+- The shell shared by the login and first-time setup pages: one centred card on a dot-grid backdrop with a header line (mark, "OpenDeploy", the page title), a body, and a footer band. It also exports the one brand-tinted button style both pages use, the grouped field box with in-field captions and the password reveal toggle, the toned notices (error, warning, success), the "or" divider, and the transport footer row (plain HTTP, HTTPS, or HTTPS under the local CA, with the "Trust the CA" button that opens `components/caTrustHelp.js`).
+
 ### Login (`pages/login.js`)
-- One centred card on a dot-grid backdrop: a header band (mark, "OpenDeploy", "Sign in"), the sign-in controls, and a footer band.
+- The auth card titled "Sign in": the sign-in controls in the body, the transport row and the setup link in the footer band.
 - Controls follow `authMethodsS`: the passkey button comes first; with password login enabled an "or" divider and the username/master-password form (a grouped field box with in-field captions) follow. Both buttons share one brand-tinted style. Discovery failure shows an amber notice with Retry and still offers the passkey button.
 - The footer band shows the transport (plain HTTP, HTTPS, or HTTPS under the local CA) and the setup link. Under the local CA the transport row carries a "Trust the CA" button that opens `components/caTrustHelp.js`: a three-step overlay (get the certificate with download, copy and SHA-256 fingerprint; trust it per platform with the PEM inlined as a heredoc; restart).
 - "Set up your passkey" navigates to `/bootstrap`.
 
 ### Bootstrap (`pages/bootstrap.js`)
-- Two-step flow: master password entry, then passkey registration.
-- Steps are tracked via a `van.state('password' | 'register')`.
+- The auth card titled "First time setup". Two-step flow: master password entry, then passkey registration, tracked via a `van.state('password' | 'register')` and shown as a step strip above the form (current step tinted, finished step checked).
+- Step one is the grouped username/master-password box with an "Authenticate" button; step two is a success notice with the "Register passkey" button, plus a note offering master-password login instead when that is enabled. Failures render as notices in place, with a "Go to login" link where a passkey already exists or the browser refused registration.
+- The footer band carries the same transport row as login (so the CA can be trusted before WebAuthn is attempted) and "Back to login", which navigates to `/login`.
 
 ### Deployments (`pages/deployments.js` and `pages/status.js`)
 - `pages/deployments.js` owns a top tab bar: the status table is pinned left as "Overview", and every editor (Update on a row, Add deployment, Fork, restore from recently deleted) opens as a full-page tab. One update tab per deployment (re-opening focuses it), one tab per create; Cancel and a successful save close the tab and activate its neighbour; the × button, middle click, and Delete/Backspace close it too, asking first when the tab carries unsaved edits (an amber dot marks dirty tabs). Panels stay mounted while hidden so drafts survive switching, and `pages/dashboard.js` keeps the whole page mounted behind other pages so tabs survive a detour through Logs. The page takes an `actions` override for the editor's API calls; production uses `capi`.
@@ -102,7 +106,11 @@ collector drops those derives once that DOM leaves the document. A page that
 must stay live while hidden (the deployments page behind the dashboard's page
 switch) is therefore built outside the switching binding and only hidden with
 a class; building it inside the binding would freeze its tables the first
-time the user navigated away.
+time the user navigated away. The settings page is mounted the same way, for
+two reasons: it reads its draft while building its rows, so inside the switch
+every edit would rebuild the page and reset the draft; and caching a detached
+node instead (as it once did) lost its derives to the collector, leaving the
+page stuck on "Loading..." after a sign-out.
 
 ## API usage
 

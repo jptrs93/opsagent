@@ -47,6 +47,12 @@ export function dashboard() {
         {class: () => activePage.val === 'status' ? 'h-full' : 'hidden'},
         deploymentsPage(openLogsForDeployment),
     );
+    // The settings page is kept the same way: it reads its draft while building
+    // its rows, so inside the binding every edit would rebuild the page.
+    const settingsHost = div(
+        {class: () => activePage.val === 'settings' ? 'h-full' : 'hidden'},
+        settingsPage({isActive: () => activePage.val === 'settings'}),
+    );
 
     return div(
         {class: "h-dvh min-h-dvh w-dvw flex overflow-hidden"},
@@ -54,6 +60,7 @@ export function dashboard() {
         div(
             {class: "h-full flex-1 min-w-0 min-h-0 overflow-hidden"},
             deploymentsHost,
+            settingsHost,
             () => {
                 if (activePage.val === 'status') return '';
                 if (activePage.val === 'logs') return logsPage(selectedLogDeploymentId);
@@ -67,7 +74,7 @@ export function dashboard() {
                 if (activePage.val === 'users') return usersPage();
                 if (activePage.val === 'sessions') return sessionsPage();
                 if (activePage.val === 'cluster') return clusterPage();
-                if (activePage.val === 'settings') return settingsPage();
+                if (activePage.val === 'settings') return '';
                 return div({class: "p-3"}, "Unknown page");
             }
         )

@@ -219,8 +219,6 @@ const dirtySettingsFor = (draft) => settings
 const inputClass = "w-full min-w-64 rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-xs text-gray-100 " +
     "focus:outline-none focus:ring-1 focus:ring-brand";
 const compactButtonClass = "h-8 px-3 py-1 rounded-md text-sm leading-none";
-let settingsPageNode = null;
-
 function valueInput(setting, draft, patchDraft, saving, secrets, openCreateSecret, openEditSecret, openingSecretID) {
     const item = () => draft.val?.[setting.key];
     const patch = (next) => patchDraft(setting.key, next);
@@ -236,10 +234,7 @@ function valueInput(setting, draft, patchDraft, saving, secrets, openCreateSecre
         option({value: "config"}, "config"))
         : "";
 
-    const configPicker = () => div(
-        {class: "flex items-center gap-1.5 w-full"},
-        modeSelector,
-        referencePicker({
+    const configPicker = () => referencePicker({
             refs: () => latestRefs(userConfigRefsS.val || [], item()?.configRefID || 0),
             selectedKey: () => item()?.configRefID || "",
             selectedLabel: "",
@@ -252,15 +247,23 @@ function valueInput(setting, draft, patchDraft, saving, secrets, openCreateSecre
             containerClass: "relative min-w-64 flex-1",
             disabled: () => saving.val,
             onSelect: ref => patch({configRefID: ref.id}),
-        }),
-    );
+        });
+    // The value/config-ref choice is a child binding keyed on a derived mode:
+    // switching re-renders the control, while typing never rebuilds it. Reading
+    // the draft synchronously here instead would leak that dependency into
+    // whichever binding is building the page.
+    const withModeSwitch = (valueClass, buildValueControl) => {
+        if (!settingUsesConfigRef(setting)) return div({class: valueClass}, buildValueControl());
+        const modeS = van.derive(mode);
+        return div(
+            {class: () => modeS.val === "config" ? "flex items-center gap-1.5 w-full" : valueClass},
+            modeSelector,
+            () => modeS.val === "config" ? configPicker() : buildValueControl(),
+        );
+    };
 
     if (setting.type === "bool") {
-        if (settingUsesConfigRef(setting) && mode() === "config") return configPicker();
-        return div(
-            {class: "inline-flex items-center gap-2"},
-            modeSelector,
-            labelEl(
+        return withModeSwitch("inline-flex items-center gap-2", () => labelEl(
                 {class: "inline-flex items-center gap-2 cursor-pointer select-none"},
                 input({
                     class: "sr-only peer",
@@ -276,8 +279,7 @@ function valueInput(setting, draft, patchDraft, saving, secrets, openCreateSecre
                         `before:bg-white before:transition-transform ${item()?.value === "true" ? "before:translate-x-4" : ""}`,
                 }),
                 span({class: "text-xs text-gray-300"}, () => item()?.value === "true" ? "true" : "false"),
-            ),
-        );
+            ));
     }
     if (setting.type === "secret") {
         return div(
@@ -318,22 +320,22 @@ function valueInput(setting, draft, patchDraft, saving, secrets, openCreateSecre
             }, "Clear") : "",
         );
     }
-    if (settingUsesConfigRef(setting) && mode() === "config") return configPicker();
-    return div(
-        {class: "flex items-center gap-1.5 w-full"},
-        modeSelector,
-        input({
-            class: inputClass,
-            disabled: () => saving.val,
-            value: () => item()?.value || "",
-            oninput: (e) => patch({value: e.target.value}),
-        }),
-    );
+    return withModeSwitch("flex items-center gap-1.5 w-full", () => input({
+        class: inputClass,
+        disabled: () => saving.val,
+        value: () => item()?.value || "",
+        oninput: (e) => patch({value: e.target.value}),
+    }));
 }
 
-export function settingsPage() {
-    if (settingsPageNode) return settingsPageNode;
-
+// Built once by the dashboard, outside its page-switch binding, and kept
+// mounted but hidden while other pages show (see docs/engineering/frontend.md).
+// The page reads `draft` while it builds its rows, so building it inside the
+// switch would make every draft edit rebuild the whole page; and caching a
+// detached node instead loses its derives to VanJS's collector, which left the
+// page stuck on "Loading..." after a sign-out. `isActive` defers the secrets
+// fetch until the page is first shown.
+export function settingsPage({isActive = () => true} = {}) {
     const draft = van.state(null);
     const dirtyCount = van.state(0);
     const loaded = van.state(false);
@@ -403,7 +405,12 @@ export function settingsPage() {
             error.val = e.message;
         }
     };
-    setTimeout(loadSecrets, 0);
+    let secretsRequested = false;
+    van.derive(() => {
+        if (secretsRequested || !isActive()) return;
+        secretsRequested = true;
+        setTimeout(loadSecrets, 0);
+    });
 
     const dirtySettings = () => dirtySettingsFor(draft.val);
 
@@ -892,7 +899,7 @@ export function settingsPage() {
             "button", () => saving.val),
     ) : "";
 
-    settingsPageNode = div(
+    return div(
         {class: "settings-scroll h-full min-h-0 overflow-y-auto overflow-x-hidden p-3 flex flex-col gap-3"},
         () => error.val ? p({class: "text-red-400"}, `Error: ${error.val}`) : "",
         p({class: () => loaded.val ? "hidden" : "text-gray-400"}, "Loading..."),
@@ -907,5 +914,4 @@ export function settingsPage() {
         createSecretDialog,
         editSecretDialog,
     );
-    return settingsPageNode;
 }

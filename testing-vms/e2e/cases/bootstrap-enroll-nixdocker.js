@@ -133,15 +133,6 @@ export const orderedCases = [
     },
   },
   {
-    id: 'password-login',
-    title: 'enable master-password login and sign in with it',
-    description: 'Turns on master-password login in Settings, signs in as a new operator with a name and the setup password, then returns to the passkey operator.',
-    requires: ['passkey-login'],
-    async run(ctx) {
-      await passwordLoginRoundTrip(ctx.page);
-    },
-  },
-  {
     id: 'github-token-configured',
     title: 'configure github token',
     description: 'Configures the GitHub token secret when OPENDEPLOY_GITHUB_TOKEN is available.',
@@ -166,6 +157,19 @@ export const orderedCases = [
     requires: ['passkey-login'],
     async run(ctx) {
       await expectOpenDeployLogs(ctx.page);
+    },
+  },
+  // Runs a few cases after bootstrap on purpose: the primary's /v1/auth
+  // limiter allows a burst of 10 then one request per second per client, and
+  // bootstrap plus the passkey round trip already spend seven of those. This
+  // round trip needs another six, so it waits for the bucket to refill.
+  {
+    id: 'password-login',
+    title: 'enable master-password login and sign in with it',
+    description: 'Turns on master-password login in Settings, signs in as a new operator with a name and the setup password, then returns to the passkey operator.',
+    requires: ['passkey-login'],
+    async run(ctx) {
+      await passwordLoginRoundTrip(ctx.page);
     },
   },
   {

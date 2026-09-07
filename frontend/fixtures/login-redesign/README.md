@@ -97,8 +97,8 @@ integrated design's content and behaviour.
 - `caHelpBody`/`caHelpModal` are the current `caTrustHelp` reworked as three
   steps (get, trust, restart) with a platform picker, a header bar per command
   block, and the CA's SHA-256 fingerprint computed from the fetched PEM so it
-  can be checked against the installer output. They would move to
-  `src/components/` since the bootstrap page could use the same overlay.
+  can be checked against the installer output. They live in
+  `src/components/caTrustHelp.js`, shared by the login and bootstrap pages.
 - `fingerprintIcon`, `keyIcon`, `shieldIcon`, `alertIcon`, `downloadIcon` and `logoMark` would
   move to `src/lib/icons.js`. The mark is a placeholder glyph; the sidebar
   header could carry it too.
