@@ -138,11 +138,11 @@ func validateNetworkingConfig(cfg *apigen.NetworkingConfig, secretStore deployme
 	if cfg == nil {
 		return nil
 	}
-	if cfg.IsZero() {
-		return invalidConfigErrf("networking is required")
-	}
+	// Virtual mode is the default. An unspecified mode is normalised here so
+	// every stored spec carries an explicit mode and downstream code never sees
+	// the zero value.
 	if cfg.Mode == apigen.NetworkingMode_NETWORKING_MODE_UNSPECIFIED {
-		return invalidConfigErrf("networking.mode is required")
+		cfg.Mode = apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL
 	}
 	switch cfg.Mode {
 	case apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL:

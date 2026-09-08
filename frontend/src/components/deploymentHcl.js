@@ -566,11 +566,15 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     }
 
     add(1, "}");
-    add(0);
-    add(1, "network {");
-    const mode = networking.mode === NETWORK_VIRTUAL ? "virtual"
-        : networking.mode === NETWORK_HOST ? "host" : placeholder("network_mode", networking.mode);
-    add(2, `mode = ${quote(mode)}`);
+    // Virtual mode is the default, so the network block is rendered only when
+    // it carries something: the host-mode opt-out or ingress routes.
+    const networkLines = [];
+    const addNetwork = (indent, line) => networkLines.push([indent, line]);
+    if (networking.mode === NETWORK_HOST) {
+        addNetwork(2, 'mode = "host"');
+    } else if (networking.mode && networking.mode !== NETWORK_VIRTUAL) {
+        addNetwork(2, `mode = ${quote(placeholder("network_mode", networking.mode))}`);
+    }
     const routeBlocks = [];
     for (const route of networking.portForwarding || []) {
         const protocol = route?.protocol === PROTOCOL_UDP ? "udp" : "tcp";
@@ -605,27 +609,32 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
         routeBlocks.push({name: "tls_passthrough", lines, listen: route?.listen || []});
     }
     if (routeBlocks.length) {
-        add(0);
-        add(2, "ingress {");
+        if (networkLines.length) addNetwork(0);
+        addNetwork(2, "ingress {");
         routeBlocks.forEach((block, index) => {
-            if (index) add(0);
-            add(3, `${block.name} {`);
-            for (const line of block.lines) add(4, line);
+            if (index) addNetwork(0);
+            addNetwork(3, `${block.name} {`);
+            for (const line of block.lines) addNetwork(4, line);
             for (const entry of block.listen) {
                 const listenLines = listenBlockLines(entry, refs);
                 if (!listenLines.length) {
-                    add(4, "listen {}");
+                    addNetwork(4, "listen {}");
                     continue;
                 }
-                add(4, "listen {");
-                for (const line of listenLines) add(5, line);
-                add(4, "}");
+                addNetwork(4, "listen {");
+                for (const line of listenLines) addNetwork(5, line);
+                addNetwork(4, "}");
             }
-            add(3, "}");
+            addNetwork(3, "}");
         });
-        add(2, "}");
+        addNetwork(2, "}");
     }
-    add(1, "}");
+    if (networkLines.length) {
+        add(0);
+        add(1, "network {");
+        for (const [indent, line] of networkLines) add(indent, line);
+        add(1, "}");
+    }
     add(0);
     add(1, "scheduling {");
     // No placement yet reads as a placeholder the person is meant to replace,
@@ -669,6 +678,12 @@ function requireAttribute(text, diagnostics, parent, name) {
     const attr = firstAttribute(parent, name);
     if (!attr) diagnostics.push(diagnostic(text, parent, `Required attribute ${name} is missing.`));
     return attr;
+}
+
+function atMostOneBlock(text, diagnostics, parent, name) {
+    const blocks = members(parent, "block", name);
+    if (blocks.length > 1) diagnostics.push(diagnostic(text, blocks[1], `${parent.name || "Document"} allows at most one ${name} block.`));
+    return blocks[0] || null;
 }
 
 function exactlyOneBlock(text, diagnostics, parent, name) {
@@ -1359,18 +1374,20 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
         }
     }
 
-    const network = exactlyOneBlock(text, diagnostics, deployment, "network");
-    const networking = {};
+    // The network block is optional: virtual mode is the default, and the block
+    // exists to opt out with mode = "host" or to declare ingress routes.
+    const network = atMostOneBlock(text, diagnostics, deployment, "network");
+    const networking = {mode: NETWORK_VIRTUAL};
     if (network) {
         const ingressAttr = firstAttribute(network, "ingress");
         if (ingressAttr) diagnostics.push(diagnostic(text, ingressAttr.nameToken, INGRESS_BLOCK_HINT));
         validateMembers(text, diagnostics, network, new Set(["mode", "ingress"]), new Set(["ingress"]));
-        const modeAttr = requireAttribute(text, diagnostics, network, "mode");
+        const modeAttr = firstAttribute(network, "mode");
         const mode = stringValue(text, diagnostics, modeAttr, "Network mode");
-        if (mode !== "virtual" && mode !== "host") {
-            if (mode !== null) diagnostics.push(diagnostic(text, modeAttr.value, 'Network mode must be "virtual" or "host".'));
-        } else {
-            networking.mode = mode === "virtual" ? NETWORK_VIRTUAL : NETWORK_HOST;
+        if (mode !== null && mode !== "virtual" && mode !== "host") {
+            diagnostics.push(diagnostic(text, modeAttr.value, 'Network mode must be "virtual" or "host".'));
+        } else if (mode === "host") {
+            networking.mode = NETWORK_HOST;
         }
         const routeCount = parseIngressBlock(text, diagnostics, firstBlock(network, "ingress"), networking, catalogs, spaceId, nodeId);
         if (mode === "host" && routeCount) diagnostics.push(diagnostic(text, network, "Host networking cannot contain ingress routes."));

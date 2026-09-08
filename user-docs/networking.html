@@ -12,6 +12,7 @@
     --ok:#059669; --ok-bg:#ecfdf5; --ok-line:#a7f3d0;
     --warn:#b45309; --warn-bg:#fffbeb; --warn-line:#fde68a;
     --stop:#b91c1c; --stop-bg:#fef2f2; --stop-line:#fecaca;
+    --note:#6d28d9; --note-bg:#f5f3ff; --note-line:#ddd6fe;
     --side-bg:#0f172a; --side-ink:#e2e8f0; --side-sub:#94a3b8; --side-line:#1e293b;
     --side-active:#1d4ed8; --side-active-soft:rgba(37,99,235,.16);
     --sidebar-w:264px;
@@ -24,6 +25,7 @@
       --ok:#34d399; --ok-bg:#052e23; --ok-line:#065f46;
       --warn:#fbbf24; --warn-bg:#2c1f05; --warn-line:#78350f;
       --stop:#fca5a5; --stop-bg:#2b0f0f; --stop-line:#7f1d1d;
+      --note:#c4b5fd; --note-bg:#1b1433; --note-line:#4c1d95;
       --side-bg:#0a0f1c; --side-line:#151d30;
     }
   }
@@ -50,22 +52,22 @@
   .nav-item.soon{color:var(--side-sub);cursor:default}
   .nav-item .soon-tag{font-size:9.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
     border:1px solid var(--side-line);border-radius:999px;padding:1px 7px;color:var(--side-sub);white-space:nowrap}
-  .subnav{margin:2px 0 6px;padding-left:10px;border-left:1px solid var(--side-line);margin-left:16px}
-  .subnav .part{display:block;padding:6px 10px 2px;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--side-sub);font-weight:700}
-  .subnav a{display:block;padding:4px 10px;border-radius:6px;font-size:13px;color:var(--side-sub)}
+  .subnav{margin:2px 0 6px;padding-left:10px;border-left:1px solid var(--side-line);margin-left:20px}
+  .subnav a{display:block;padding:4px 10px 4px 18px;border-radius:6px;font-size:13px;color:var(--side-sub)}
   .subnav a:hover{color:var(--side-ink);text-decoration:none}
   .subnav a.current{color:#93c5fd;font-weight:600;background:rgba(37,99,235,.1)}
-  .subnav .soon-item{display:block;padding:4px 10px;font-size:13px;color:var(--side-sub);opacity:.55}
 
   /* ---------- content ---------- */
   .content{margin-left:var(--sidebar-w)}
   .wrap{max-width:880px;margin:0 auto;padding:38px 40px 90px}
 
-  section.page{display:none}
-  section.page.visible{display:block}
-  .eyebrow{font-size:12px;font-weight:800;letter-spacing:1.3px;text-transform:uppercase;color:var(--faint);margin:0 0 4px}
+  section.page{scroll-margin-top:28px}
+  section.page + section.page{margin-top:56px}
+  .page-title{margin:0 0 10px;font-size:34px;line-height:1.2;letter-spacing:-.6px}
+  .page-title + .lead{margin-bottom:34px}
   h2{font-size:26px;margin:0 0 6px;padding-bottom:10px;border-bottom:2px solid var(--line);letter-spacing:-.4px}
   h3{font-size:17px;margin:28px 0 6px;letter-spacing:-.1px}
+  h3 .pill{vertical-align:2px;margin-left:8px}
   p{margin:11px 0}
   ul,ol{margin:11px 0;padding-left:22px}
   li{margin:6px 0}
@@ -88,9 +90,11 @@
   .callout{border-radius:10px;padding:13px 17px;margin:16px 0;border:1px solid var(--accent-line);background:var(--accent-soft)}
   .callout .k{font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--accent);margin-bottom:3px}
   .callout p{margin:4px 0}
+  .callout pre{margin:10px 0 4px}
   .callout.warn{background:var(--warn-bg);border-color:var(--warn-line)} .callout.warn .k{color:var(--warn)}
   .callout.ok{background:var(--ok-bg);border-color:var(--ok-line)} .callout.ok .k{color:var(--ok)}
   .callout.stop{background:var(--stop-bg);border-color:var(--stop-line)} .callout.stop .k{color:var(--stop)}
+  .callout.note{background:var(--note-bg);border-color:var(--note-line)} .callout.note .k{color:var(--note)}
 
   .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:18px 0}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
@@ -111,28 +115,6 @@
   .p-no{background:var(--stop-bg);color:var(--stop);border:1px solid var(--stop-line)}
   .p-wip{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-line)}
 
-  .pager{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:48px;padding-top:26px;border-top:1px solid var(--line)}
-  .pager a{display:flex;align-items:center;gap:14px;border:1px solid var(--line);background:var(--card);border-radius:12px;
-    padding:14px 18px;line-height:1.35;transition:border-color .15s ease,box-shadow .15s ease}
-  .pager a:hover{text-decoration:none;border-color:var(--accent);box-shadow:0 3px 12px rgba(37,99,235,.14)}
-  .pager .arrow{font-size:19px;color:var(--faint);transition:transform .15s ease,color .15s ease;flex:none}
-  .pager a:hover .arrow{color:var(--accent)}
-  .pager a.prev:hover .arrow{transform:translateX(-3px)}
-  .pager a.next:hover .arrow{transform:translateX(3px)}
-  .pager .txt{min-width:0}
-  .pager .dir{display:block;font-size:10.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--faint);margin-bottom:2px}
-  .pager .title{display:block;font-size:15px;font-weight:650;color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .pager a.prev{grid-column:1}
-  .pager a.next{grid-column:2;flex-direction:row-reverse;text-align:right}
-  @media (max-width: 560px){
-    .pager{grid-template-columns:1fr}
-    .pager a.prev,.pager a.next{grid-column:1}
-  }
-
-  .stub{border:1px dashed var(--line);border-radius:12px;padding:26px 28px;background:var(--card);color:var(--sub);margin:18px 0}
-  .stub h4{margin:0 0 8px;font-size:15px;color:var(--ink)}
-  .stub p{margin:6px 0;font-size:14.5px}
-
   /* ---------- mobile ---------- */
   .menu-btn{display:none;position:fixed;top:14px;left:14px;z-index:50;background:var(--side-bg);color:var(--side-ink);
     border:1px solid var(--side-line);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:700;cursor:pointer}
@@ -141,9 +123,7 @@
     .sidebar.open{transform:translateX(0)}
     .content{margin-left:0}
     .menu-btn{display:block}
-    .page-head{padding:60px 24px 34px}
-    .wrap{padding:24px 24px 80px}
-    footer{padding:0 24px 60px}
+    .wrap{padding:60px 24px 80px}
   }
 </style>
 </head>
@@ -158,22 +138,26 @@
   </div>
 
   <div class="nav-group">
-    <h5>Guides</h5>
+    <h5>System Design</h5>
     <span class="nav-item soon">Getting started <span class="soon-tag">soon</span></span>
     <span class="nav-item soon">Deployments <span class="soon-tag">soon</span></span>
-    <a class="nav-item active" href="#overview">Networking</a>
+    <a class="nav-item active" href="#top">Networking</a>
     <nav class="subnav" id="page-nav">
-      <span class="part">User guide</span>
-      <a href="#overview">Overview</a>
-      <a href="#east-west">East–west traffic</a>
-      <a href="#egress">Egress traffic</a>
-      <a href="#ingress">Ingress traffic</a>
-      <span class="part">System design</span>
-      <a href="#system-design">Technical details</a>
+      <a href="#goals">Design overview</a>
+      <a href="#addressing">Addressing</a>
+      <a href="#discovery">Service discovery</a>
+      <a href="#balancing">Load balancing</a>
+      <a href="#routing">Routing and transport</a>
+      <a href="#rollover">Rollover</a>
+      <a href="#policy">Network policy</a>
+      <a href="#egress">Egress</a>
+      <a href="#ingress">Ingress</a>
+      <a href="#status">Where things stand</a>
     </nav>
     <span class="nav-item soon">Secrets &amp; config <span class="soon-tag">soon</span></span>
     <span class="nav-item soon">Assets <span class="soon-tag">soon</span></span>
-    <span class="nav-item soon">Logs &amp; observability <span class="soon-tag">soon</span></span>
+    <a class="nav-item" href="logging.html">Logging</a>
+    <span class="nav-item soon">Observability <span class="soon-tag">soon</span></span>
   </div>
 
   <div class="nav-group">
@@ -187,119 +171,217 @@
 
 <div class="wrap">
 
-<section id="overview" class="page">
-<p class="eyebrow">Networking · User guide</p>
-<h2>Overview</h2>
+<h1 class="page-title">Networking</h1>
+<p class="lead">This page explains how OpenDeploy networking works: the concepts and design choices. It describes the complete design. Mechanisms that are not yet built are marked <span class="pill p-wip">planned</span>, and the <a href="#status">status table</a> at the end lists what has shipped.</p>
 
-<p class="lead">This guide covers what you need to know to use OpenDeploy networking: the concepts, the defaults, and the configuration you write. Deep implementation detail lives in <a href="#system-design">System design and technical details</a>.</p>
+<!-- ============================================================ -->
+<section id="goals" class="page">
+<h2>Design overview</h2>
 
-<p>OpenDeploy has an opinionated network design where:</p>
+<p>OpenDeploy ships a networking implementation that serves production traffic out of the box. There are no additional components to install, such as plugins, reverse proxies, or certificate managers. Every deployment is attached to a private cluster network the moment it exists, and a built-in reverse proxy configures itself from the deployment's ingress routes to serve external traffic, with certificates managed by a built-in certificate manager. Almost all networking configuration lives inline on the deployment itself: a deployment's config declares its network mode, its ingress routes, and its references to other services, and the cluster derives every address, name, route, firewall rule, and ingress listener from those declarations. There is no separate network object to create or keep in sync. A few decisions shape everything that follows:</p>
 
 <ul>
-  <li>There is nothing to set up and no networking software to install.</li>
-  <li>Every deployment is automatically attached to a private cluster network.</li>
-  <li>A built-in reverse proxy with automatic certificate management means you can serve production-grade external traffic immediately — no separate load balancer, proxy, or certificate tooling to run.</li>
-  <li>Everything — addresses, DNS, routing, firewall rules, ingress — is derived from your deployment configuration.</li>
+  <li><strong>Addresses are derived, not allocated.</strong> An address is a pure function of the identity it belongs to. There is no address allocator, no allocation table, and no reuse policy, so there is no allocation state to lose, leak, or reconcile.</li>
+  <li><strong>One logical network for the whole cluster.</strong> A single private IPv6 network spans every node. A space is a security domain with its own prefix inside that network, not a separate virtual network or tunnel set.</li>
+  <li><strong>Spaces are the trust boundary.</strong> Deployments in the same space can reach each other. Traffic between spaces is dropped unless a policy allows it. Egress to the outside world is open.</li>
+  <li><strong>Wire addresses are true.</strong> A packet on the wire always carries the real source and destination instance addresses. No address is translated as the universal path between workloads. Where translation exists at all, it is scoped, sender-side, and never crosses a link.</li>
+  <li><strong>The primary is control plane only.</strong> It computes and distributes network state. It is never on the packet path. If the primary is down, topology stops changing; traffic does not stop.</li>
+  <li><strong>The kernel forwards, the agent programs.</strong> Routes, tunnels, and firewall rules are ordinary Linux routes, WireGuard peers, and nftables rules. Nothing proxies east–west traffic.</li>
+  <li><strong>Cross-node traffic is encrypted and authenticated.</strong> WireGuard is the underlay between nodes. Every packet that crosses a node boundary inside the virtual network is encrypted, and the receiving node knows which node sent it.</li>
 </ul>
 
-<p>Functionally, the traffic the system must facilitate breaks into three categories:</p>
+<p>The traffic the design must carry falls into three categories. The private network handles the first natively. The other two cross the edge of the cluster and have their own sections.</p>
 
 <div class="cards">
   <div class="card">
     <span class="tag">East–west</span>
     <h4>Service to service</h4>
-    <p>Internal communication between your deployments, over the cluster's private IPv6 network — same node or across nodes.</p>
+    <p>Communication between deployments over the private IPv6 network, on the same node or across nodes.</p>
   </div>
   <div class="card">
     <span class="tag">Egress</span>
     <h4>Out to the world</h4>
-    <p>Outgoing requests from your services to the external network — package registries, third-party APIs, upstream databases.</p>
+    <p>Outgoing connections from a workload to the external network.</p>
   </div>
   <div class="card">
     <span class="tag">Ingress</span>
     <h4>In from the world</h4>
-    <p>Inbound traffic from the external network to specific services — raw port publishing, TLS passthrough, or terminated HTTPS.</p>
+    <p>Inbound connections from the external network to a published service.</p>
   </div>
 </div>
 
 <figure>
-<svg viewBox="0 0 880 250" role="img" aria-label="Three traffic categories: east-west between services inside the cluster network, egress from services out to the internet, and ingress from the internet in through a published entry point.">
+<svg viewBox="0 0 880 340" role="img" aria-label="Two nodes on one private IPv6 network. Each node holds workloads with cluster addresses inside a dashed cluster-network region and a host address at its edge. East-west traffic between nodes crosses a WireGuard link. Egress leaves a workload through its node's host address, masqueraded, to the external network. Ingress arrives from the external network at a node's host address and is delivered by the proxy on that node to a workload.">
   <defs>
-    <marker id="arA" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0 0.5 L8 4.5 L0 8.5 z" fill="var(--sub)"/></marker>
+    <marker id="arSub" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0 0.5 L8 4.5 L0 8.5 z" fill="var(--sub)"/></marker>
+    <marker id="arOk" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0 0.5 L8 4.5 L0 8.5 z" fill="var(--ok)"/></marker>
+    <marker id="arWarn" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0 0.5 L8 4.5 L0 8.5 z" fill="var(--warn)"/></marker>
   </defs>
-  <!-- cluster -->
-  <rect x="14" y="20" width="560" height="210" rx="12" class="svg-card svg-stroke" stroke-width="1.5"/>
-  <text x="32" y="45" font-size="13" font-weight="700" class="svg-ink">Cluster — private IPv6 network (ULA /48)</text>
 
-  <rect x="40" y="70" width="150" height="60" rx="9" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
-  <text x="115" y="96" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">api</text>
-  <text x="115" y="114" font-size="11" text-anchor="middle" class="m svg-sub">fd5a:…:1</text>
+  <!-- network label spanning both nodes -->
+  <text x="430" y="24" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">One private IPv6 network (ULA /48) across every node</text>
 
-  <rect x="250" y="70" width="150" height="60" rx="9" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
-  <text x="325" y="96" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">postgres</text>
-  <text x="325" y="114" font-size="11" text-anchor="middle" class="m svg-sub">fd5a:…:2</text>
+  <!-- node A -->
+  <rect x="20" y="40" width="370" height="200" rx="12" class="svg-card svg-stroke" stroke-width="1.5"/>
+  <text x="36" y="62" font-size="12" font-weight="700" class="svg-ink">Node A</text>
+  <rect x="36" y="72" width="338" height="100" rx="9" fill="none" stroke="var(--accent-line)" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="46" y="167" font-size="9.5" class="svg-sub">cluster network</text>
 
-  <rect x="250" y="155" width="150" height="55" rx="9" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
-  <text x="325" y="179" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">secondary</text>
-  <text x="325" y="196" font-size="11" text-anchor="middle" class="m svg-sub">fd5a:…:3</text>
+  <rect x="52" y="88" width="130" height="60" rx="9" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
+  <text x="117" y="113" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">api</text>
+  <text x="117" y="131" font-size="11" text-anchor="middle" class="m svg-sub">fd5a:…:1</text>
 
-  <!-- east-west arrows -->
-  <line x1="190" y1="100" x2="244" y2="100" stroke="var(--sub)" stroke-width="1.5" marker-end="url(#arA)"/>
-  <text x="217" y="90" font-size="10.5" text-anchor="middle" class="svg-sub">east–west</text>
-  <line x1="190" y1="118" x2="244" y2="170" stroke="var(--sub)" stroke-width="1.5" marker-end="url(#arA)"/>
+  <rect x="232" y="88" width="130" height="60" rx="9" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
+  <text x="297" y="113" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">worker</text>
+  <text x="297" y="131" font-size="11" text-anchor="middle" class="m svg-sub">fd5a:…:3</text>
 
-  <!-- ingress entry -->
-  <rect x="452" y="70" width="104" height="60" rx="9" fill="var(--ok-bg)" stroke="var(--ok-line)" stroke-width="1.5"/>
-  <text x="504" y="96" font-size="12" font-weight="700" text-anchor="middle" class="svg-ink">ingress</text>
-  <text x="504" y="113" font-size="10.5" text-anchor="middle" class="svg-sub">:443 / ports</text>
-  <line x1="452" y1="100" x2="406" y2="100" stroke="var(--sub)" stroke-width="1.5" marker-end="url(#arA)"/>
+  <rect x="36" y="190" width="338" height="34" rx="7" fill="var(--inline-bg)" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="205" y="207" font-size="11" font-weight="700" text-anchor="middle" class="svg-ink">host address 203.0.113.10</text>
+  <text x="205" y="219" font-size="9.5" text-anchor="middle" class="svg-sub">IPv4 egress, masqueraded</text>
 
-  <!-- internet -->
-  <rect x="690" y="70" width="150" height="110" rx="12" fill="none" stroke="var(--sub)" stroke-width="1.5" stroke-dasharray="5 4"/>
-  <text x="765" y="120" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">External</text>
-  <text x="765" y="138" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">network</text>
+  <!-- node B -->
+  <rect x="470" y="40" width="370" height="200" rx="12" class="svg-card svg-stroke" stroke-width="1.5"/>
+  <text x="486" y="62" font-size="12" font-weight="700" class="svg-ink">Node B</text>
+  <rect x="486" y="72" width="338" height="100" rx="9" fill="none" stroke="var(--accent-line)" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="496" y="167" font-size="9.5" class="svg-sub">cluster network</text>
 
-  <line x1="686" y1="100" x2="562" y2="100" stroke="var(--ok)" stroke-width="1.8" marker-end="url(#arA)"/>
-  <text x="624" y="90" font-size="10.5" text-anchor="middle" class="svg-sub">ingress</text>
-  <line x1="578" y1="182" x2="686" y2="150" stroke="var(--warn)" stroke-width="1.8" marker-end="url(#arA)"/>
-  <text x="630" y="188" font-size="10.5" text-anchor="middle" class="svg-sub">egress</text>
-  <line x1="400" y1="182" x2="574" y2="182" stroke="var(--warn)" stroke-width="1.8"/>
+  <rect x="502" y="88" width="130" height="60" rx="9" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
+  <text x="567" y="113" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">postgres</text>
+  <text x="567" y="131" font-size="11" text-anchor="middle" class="m svg-sub">fd5a:…:2</text>
+
+  <rect x="682" y="88" width="130" height="60" rx="9" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
+  <text x="747" y="113" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">web</text>
+  <text x="747" y="131" font-size="11" text-anchor="middle" class="m svg-sub">fd5a:…:4</text>
+
+  <rect x="486" y="190" width="338" height="34" rx="7" fill="var(--inline-bg)" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="655" y="207" font-size="11" font-weight="700" text-anchor="middle" class="svg-ink">host address 203.0.113.11</text>
+  <text x="655" y="219" font-size="9.5" text-anchor="middle" class="svg-sub">ingress listener :443, built-in proxy</text>
+
+  <!-- WireGuard link between the nodes -->
+  <rect x="390" y="98" width="80" height="44" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
+  <text x="430" y="135" font-size="10.5" font-weight="700" text-anchor="middle" class="svg-ink">WireGuard</text>
+
+  <!-- east-west: same node, and across the link -->
+  <line x1="182" y1="118" x2="226" y2="118" stroke="var(--sub)" stroke-width="1.5" marker-end="url(#arSub)"/>
+  <line x1="362" y1="115" x2="496" y2="115" stroke="var(--sub)" stroke-width="1.5" marker-end="url(#arSub)"/>
+  <text x="430" y="90" font-size="10.5" text-anchor="middle" class="svg-sub">east–west</text>
+
+  <!-- egress: worker → host address → external -->
+  <line x1="297" y1="148" x2="297" y2="184" stroke="var(--warn)" stroke-width="1.8" marker-end="url(#arWarn)"/>
+  <line x1="205" y1="224" x2="205" y2="274" stroke="var(--warn)" stroke-width="1.8" marker-end="url(#arWarn)"/>
+  <text x="216" y="254" font-size="10.5" class="svg-sub">egress</text>
+
+  <!-- ingress: external → host address → proxy → web -->
+  <line x1="655" y1="280" x2="655" y2="230" stroke="var(--ok)" stroke-width="1.8" marker-end="url(#arOk)"/>
+  <text x="666" y="254" font-size="10.5" class="svg-sub">ingress</text>
+  <line x1="747" y1="190" x2="747" y2="154" stroke="var(--ok)" stroke-width="1.8" marker-end="url(#arOk)"/>
+  <text x="758" y="176" font-size="10.5" class="svg-sub">proxy</text>
+
+  <!-- external network -->
+  <rect x="20" y="280" width="820" height="44" rx="12" fill="none" stroke="var(--sub)" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="430" y="307" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">External network</text>
 </svg>
-<figcaption>The three traffic categories. Each is covered in its own section below.</figcaption>
+<figcaption>Two nodes on one private IPv6 network. East–west traffic crosses the WireGuard link unchanged. Egress and ingress cross a node's host address.</figcaption>
 </figure>
 
-<p>A few properties shape everything on this page:</p>
-
-<ul>
-  <li><strong>One private IPv6 network for the whole cluster.</strong> Every deployment runs in its own network namespace with addresses on a cluster-wide private IPv6 network. It looks the same whether your cluster is one node or many.</li>
-  <li><strong>Addresses are derived, not allocated.</strong> A deployment's address is computed from its identity — space, name, instance — so it is known the moment the deployment is defined, and it never changes.</li>
-  <li><strong>Spaces are the trust boundary.</strong> Deployments in the same space can talk to each other by default; traffic crossing spaces requires an explicit network policy. Egress is open; the boundary controls who may reach a service, not where a service may go.</li>
-  <li><strong>The kernel forwards, the agent programs.</strong> Nothing proxies your east–west traffic. Routing, NAT, and policy are ordinary kernel routes and firewall rules that OpenDeploy writes and audits for you.</li>
-</ul>
-
-<p>Networking is configured in the <code class="inl">network</code> block of a deployment's config:</p>
-
-<pre>network {
-  mode = <span class="st">"virtual"</span>
-}</pre>
+<p>All of this is the default. A deployment with no <code class="inl">network</code> block at all is attached to the cluster network; the block exists only to declare ingress routes or to opt out.</p>
 
 <div class="callout">
-  <div class="k">Host mode is an escape hatch</div>
-  <p><code class="inl">mode = "host"</code> attaches the container directly to the host's network stack instead — no cluster address, no DNS name, no ingress, no policy. It exists for the rare workload that genuinely needs the host's network view. Everything else on this page assumes virtual mode.</p>
+  <div class="k">Host mode is the escape hatch</div>
+  <p>Setting the mode to host attaches the container to the host's network stack instead. It gets no cluster address, no name, no ingress, and no policy. It exists for the rare workload that needs the host's network view. The rest of this page assumes the default.</p>
+<pre>network {
+  mode = <span class="st">"host"</span>
+}</pre>
 </div>
 </section>
 
-<section id="east-west" class="page">
-<p class="eyebrow">Networking · User guide</p>
-<h2>East–west traffic</h2>
+<!-- ============================================================ -->
+<section id="addressing" class="page">
+<h2>Addressing</h2>
 
-<p>OpenDeploy runs a private (RFC&nbsp;4193) IPv6 ULA <code class="inl">/48</code> virtual network. Deployments communicate with each other across this network. The ULA prefix is generated when the cluster is installed and fixed thereafter, so cluster-internal addresses are stable for the life of the cluster.</p>
+<p>The cluster owns one private IPv6 prefix: an RFC&nbsp;4193 unique local address block of length <code class="inl">/48</code>, generated once at install and fixed for the life of the cluster. Every workload address in the cluster lies inside it. The 80 bits below the prefix encode identity, and the layout is fixed:</p>
 
-<h3>Stable inbound addresses</h3>
+<figure>
+<svg viewBox="0 0 880 150" role="img" aria-label="128-bit address layout: 48-bit cluster prefix, 16-bit space, 24-bit deployment, 12-bit ordinal, 20-bit placement slot, 8-bit run slot.">
+  <defs>
+    <linearGradient id="gPfx" x1="0" x2="1"><stop offset="0" stop-color="var(--inline-bg)"/><stop offset="1" stop-color="var(--inline-bg)"/></linearGradient>
+  </defs>
+  <!-- boxes: 840px for 128 bits = 6.5625 px/bit, origin x=20 -->
+  <rect x="20"    y="30" width="315"   height="48" fill="var(--inline-bg)" stroke="var(--line)" stroke-width="1.5"/>
+  <rect x="335"   y="30" width="105"   height="48" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
+  <rect x="440"   y="30" width="157.5" height="48" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
+  <rect x="597.5" y="30" width="78.75" height="48" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
+  <rect x="676.25" y="30" width="131.25" height="48" fill="var(--warn-bg)" stroke="var(--warn-line)" stroke-width="1.5"/>
+  <rect x="807.5" y="30" width="52.5"  height="48" fill="var(--warn-bg)" stroke="var(--warn-line)" stroke-width="1.5"/>
 
-<p>Every deployment instance is assigned a <strong>fixed, unchanging inbound IPv6 address</strong> for its full lifetime. If an instance restarts, is upgraded, or moves to a new node, its inbound address stays the same.</p>
+  <text x="177.5" y="50" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">cluster prefix</text>
+  <text x="177.5" y="67" font-size="11" text-anchor="middle" class="m svg-sub">48 bits</text>
+  <text x="387.5" y="50" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">space</text>
+  <text x="387.5" y="67" font-size="11" text-anchor="middle" class="m svg-sub">16</text>
+  <text x="518.75" y="50" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">deployment</text>
+  <text x="518.75" y="67" font-size="11" text-anchor="middle" class="m svg-sub">24</text>
+  <text x="636.9" y="50" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">ordinal</text>
+  <text x="636.9" y="67" font-size="11" text-anchor="middle" class="m svg-sub">12</text>
+  <text x="741.9" y="50" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">placement</text>
+  <text x="741.9" y="67" font-size="11" text-anchor="middle" class="m svg-sub">20</text>
+  <text x="833.75" y="50" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">run</text>
+  <text x="833.75" y="67" font-size="11" text-anchor="middle" class="m svg-sub">8</text>
 
-<p>Static inbound addressing is what keeps service discovery simple. An instance's address is a pure derivation of cluster state — which space it is in, what it is called, which ordinal it is — so the address of every service is known at the time you define any new deployment. A dependency on another service can therefore be written as a plain reference in config. For example, this sets an environment variable to the inbound address of the <code class="inl">postgres</code> deployment in the <code class="inl">prod</code> space:</p>
+  <!-- prefix boundary ticks -->
+  <g class="m" font-size="11" fill="var(--sub)">
+    <line x1="335" y1="78" x2="335" y2="96" stroke="var(--line)"/>
+    <text x="335" y="112" text-anchor="middle" class="svg-sub">/48</text>
+    <line x1="440" y1="78" x2="440" y2="96" stroke="var(--line)"/>
+    <text x="440" y="112" text-anchor="middle" class="svg-sub">/64</text>
+    <line x1="597.5" y1="78" x2="597.5" y2="96" stroke="var(--line)"/>
+    <text x="597.5" y="112" text-anchor="middle" class="svg-sub">/88</text>
+    <line x1="676.25" y1="78" x2="676.25" y2="96" stroke="var(--line)"/>
+    <text x="676.25" y="112" text-anchor="middle" class="svg-sub">/100</text>
+    <line x1="807.5" y1="78" x2="807.5" y2="96" stroke="var(--line)"/>
+    <text x="807.5" y="112" text-anchor="middle" class="svg-sub">/120</text>
+    <line x1="860" y1="78" x2="860" y2="96" stroke="var(--line)"/>
+    <text x="860" y="112" text-anchor="middle" class="svg-sub">/128</text>
+  </g>
+  <text x="335" y="136" font-size="11" text-anchor="middle" class="svg-sub">cluster</text>
+  <text x="440" y="136" font-size="11" text-anchor="middle" class="svg-sub">space</text>
+  <text x="597.5" y="136" font-size="11" text-anchor="middle" class="svg-sub">deployment</text>
+  <text x="676.25" y="136" font-size="11" text-anchor="middle" class="svg-sub">instance</text>
+  <text x="807.5" y="136" font-size="11" text-anchor="middle" class="svg-sub">placement</text>
+</svg>
+<figcaption>The address layout. Each prefix boundary is a level of identity, and routes and policy rules are prefixes at these boundaries.</figcaption>
+</figure>
+
+<p>Because the layout is fixed, every prefix boundary means something. A space is a <code class="inl">/64</code>. A deployment is a <code class="inl">/88</code>. An instance, meaning one ordinal of a deployment, is a <code class="inl">/100</code>. A placement, meaning one scheduling of that instance onto a node, is a <code class="inl">/120</code>. Routes and policy rules are written against these prefixes, which is what lets the rest of the design stay stateless.</p>
+
+<h3>Three addresses per deployment</h3>
+
+<p>A deployment has three kinds of address. All three are derived. None is allocated.</p>
+
+<table>
+  <thead><tr><th>Address</th><th>Identifies</th><th>Stable for</th><th>Used by</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Inbound address</strong></td>
+      <td>One instance: space, deployment, ordinal. Placement and run fields are zero.</td>
+      <td>The life of the instance. Restarts, upgrades, and node moves do not change it.</td>
+      <td>DNS answers, address references in config, ingress backends, and any client that dials the instance directly.</td>
+    </tr>
+    <tr>
+      <td><strong>Outbound address</strong></td>
+      <td>One run of one placement. Placement and run fields are nonzero.</td>
+      <td>One container run. A restart is a new run and a new outbound address.</td>
+      <td>The kernel's preferred source for every connection the workload opens. Never published anywhere.</td>
+    </tr>
+    <tr>
+      <td><strong>Service address</strong> <span class="pill p-wip">planned</span></td>
+      <td>One deployment as a whole: space and deployment, in a reserved region of the deployment's <code class="inl">/88</code>.</td>
+      <td>The life of the deployment.</td>
+      <td>Clients that want the cluster to pick a ready instance for them. See <a href="#balancing">Load balancing</a>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>The inbound address is the identity of an instance.</strong> It is computed from the space, the deployment name, and the ordinal, so it is known the moment the deployment is defined, before anything is scheduled or started. That is what makes it referenceable from other configuration. A dependency on another service is a plain reference, and the reference is a real dependency: while it exists, the target cannot be deleted or changed in a way that would break it.</p>
 
 <pre>container {
   env_vars = {
@@ -307,182 +389,357 @@
   }
 }</pre>
 
-<p>Where possible, this is the encouraged approach. It cuts out the need for DNS entirely, and it explicitly captures the dependency between the two deployments: while the reference exists, the target cannot be deleted or altered in a way that would violate other constraints.</p>
+<p><strong>The outbound address exists because of rollover.</strong> During a zero-downtime replacement, the new container warms up while the old one still owns the inbound address. The new container must be able to open connections during warm-up, and its replies must come back to it and not to the old container. Giving every run its own outbound address, and routing that address to the run for the run's whole life, solves this without any special case. Every run holds both addresses from before its process starts. The inbound address is present but not preferred, so the kernel never chooses it as a source. Promotion changes only where inbound traffic is routed; a promoted run keeps sourcing from its outbound address until it ends.</p>
+
+<p>In practice: connect to a service's inbound address, and expect its outgoing connections to arrive from an outbound address. Both belong to the same deployment and both fall under the same policy rules, so the split is invisible to policy.</p>
+
+<p><strong>The service address is one address for the whole deployment.</strong> Where the inbound address names exactly one instance, the service address names all of them and leaves the choice of instance to the cluster. It is never routed, never accepted as a packet source, and never leaves the host it was dialled on: the choice of instance is made on the sender's node and the packet carries a real inbound address by the time it reaches the wire. On a node without the balancing machinery it falls to the cluster's unreachable route and fails closed.</p>
+
+<h3>What derivation buys</h3>
+
+<ul>
+  <li><strong>No IPAM.</strong> There is no allocator to run, back up, or reconcile after a crash. Two nodes can never disagree about which address belongs to which instance.</li>
+  <li><strong>Addresses survive everything but identity changes.</strong> Moving an instance to another node does not change its inbound address. Moving a deployment to another space does, because the space is part of the address. A space move is therefore a deliberate security-domain migration, carried out as a rollover so old-space and new-space placements coexist until the flip.</li>
+  <li><strong>Every address is self-describing.</strong> Given any packet capture, the source and destination addresses decode to a space, a deployment, an ordinal, and a run, with no lookup table that can lag or drift.</li>
+  <li><strong>Policy compiles to prefixes.</strong> "Same space" is one <code class="inl">/64</code> match. "This deployment" is one <code class="inl">/88</code> match. There is no identity table to distribute.</li>
+</ul>
+
+<p>The layout fixes the capacities: 65,536 spaces, about 16 million deployments, 4,096 ordinals per deployment, and about a million placement slots and 255 run slots per instance. Placement and run slots wrap; a live collision on an outbound address is rejected rather than allowed.</p>
+
+<h3>Inside the container</h3>
+
+<p>A container has one interface, <code class="inl">eth0</code>, the container end of a veth pair whose other end is on the node. Listing its addresses shows four. Two are the cluster addresses above. The other two exist only to get packets to the node and out to the internet.</p>
+
+<table>
+  <thead><tr><th>Address</th><th>Form</th><th>Used for</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Outbound address</strong></td>
+      <td>Cluster IPv6, <code class="inl">/128</code></td>
+      <td>The source of every connection the container opens, whether to another deployment or to the external network.</td>
+      <td>The only preferred IPv6 address, so the kernel picks it without being asked. New for every run.</td>
+    </tr>
+    <tr>
+      <td><strong>Inbound address</strong></td>
+      <td>Cluster IPv6, <code class="inl">/128</code>, flagged <code class="inl">deprecated</code></td>
+      <td>What other deployments, DNS answers, and ingress backends dial to reach this instance.</td>
+      <td>Accepted as a destination and never chosen as a source. A UDP server that must reply from it should bind it explicitly rather than the wildcard address.</td>
+    </tr>
+    <tr>
+      <td><strong>Link-local address</strong></td>
+      <td><code class="inl">fe80::/64</code>, generated by the kernel</td>
+      <td>Reaching the node, which answers as <code class="inl">fe80::1</code> on its end of the veth. The IPv6 default route points there.</td>
+      <td>Valid only on the veth and never seen in traffic. Every container has the same gateway and the same default route, whatever node or space it is in.</td>
+    </tr>
+    <tr>
+      <td><strong>IPv4 address</strong></td>
+      <td><code class="inl">10.201.0.0/16</code>, one <code class="inl">/30</code> per container</td>
+      <td>IPv4 <a href="#egress">egress</a> only. The IPv4 default route points at the node's end of the <code class="inl">/30</code>.</td>
+      <td>Machine-local. The same range is reused on every node, it is never routed between nodes, and the firewall closes it to workload-to-workload traffic.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The routing table is as small as the address list. There is one default route per family, both via the node, and no route for the cluster prefix or the space prefix. The container cannot tell which destinations are on its own node and which are elsewhere; it hands every packet to the node and the node's routes decide. Rollover changes nothing here: a promoted container has exactly the addresses and routes it started with, because promotion is a route change on the node.</p>
+
+<p>The resolver in <code class="inl">/etc/resolv.conf</code> is the inbound address of the node's built-in DNS service, which is itself a deployment in the system space and so is derived like any other address.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="discovery" class="page">
+<h2>Service discovery</h2>
+
+<p>Discovery is always on. A deployment has a name the moment it exists, and there is nothing to enable. Two forms of discovery exist, and they answer different questions.</p>
+
+<h3>Address references</h3>
+
+<p>When the dependency is known at configuration time, reference the inbound address directly with <code class="inl">address(space, name)</code>, as shown in <a href="#addressing">Addressing</a>. The reference is recorded as a dependency, so the target cannot be deleted or changed in a way that would break it.</p>
 
 <h3>DNS</h3>
 
-<p>When a runtime lookup is preferable to a start-time reference — for example to pick up new instances of a scaled deployment — every workload can resolve internal names. Containers are pointed at the cluster's internal resolver automatically; no configuration is needed. Two name forms exist:</p>
+<p>When the set of instances must be discovered at runtime, every workload can resolve internal names. Containers are pointed at the cluster's resolver automatically. Two name forms exist:</p>
 
-<pre><span class="cm"># all ready instances of a deployment (one AAAA record per instance)</span>
+<pre><span class="cm"># every established instance of a deployment: one AAAA record per instance</span>
 {name}.space-{spaceId}.internal
 
 <span class="cm"># one specific instance</span>
 {ordinal}.{name}.space-{spaceId}.internal</pre>
 
-<p>Answers are the stable inbound addresses of instances that are actually running and serving — never an instance that is down or still warming up. A known service with no live instance resolves to an empty answer rather than "no such name", so a temporarily-down service is never cached as nonexistent. Names outside the cluster are forwarded to the normal upstream resolvers, so external DNS just works.</p>
+<p>Names are lowercase DNS labels; underscores in deployment names become dashes. Answers are inbound addresses and nothing else.</p>
 
-<div class="callout warn">
-  <div class="k">DNS is currently node-local</div>
-  <p><code class="inl">.internal</code> names resolve only for deployments running on the same node as the caller. To reach a service on another node, use an <code class="inl">address(…)</code> reference — those work cluster-wide. Cross-node DNS is planned.</p>
+<p><strong>Resolution is cluster-wide and follows target state.</strong> The primary publishes a DNS catalog in the cluster map, one entry per deployment listing its established ordinals, and every node's resolver answers from it. An ordinal is established when a placement has been told to serve it. Runner health is not an input. A crashed container keeps its records, and an instance that is still warming up has none. This is deliberate: naming answers "which addresses exist for this service", and health belongs to the <a href="#balancing">load-balancing</a> layer, which has the information to act on it per connection rather than per cached DNS answer.</p>
+
+<p><strong>Names of known services never fall through.</strong> A service that exists but has no established instance resolves to an empty answer, not to "no such name". A temporarily-down service is therefore never cached as nonexistent, and internal names are never leaked to upstream resolvers. Names outside the cluster are forwarded to the node's normal upstream resolvers.</p>
+
+<p><strong>Answers carry no locality.</strong> The catalog has no node information and no per-node ordering. Preferring a local instance is a balancing decision, made in the balancing layer, so that a DNS answer means the same thing wherever it is resolved.</p>
+
+<div class="callout note">
+  <div class="k">Design note: reference by address, not by name</div>
+  <p>Deployments are encouraged to reference each other by inbound address rather than by DNS name. The inbound address is derived from identity alone, so a reference from one deployment to another is independent of where and when the target is scheduled. It is valid before the target is placed, it survives the target moving to another node, and it survives the target being replaced during a rollover. The application holds a constant value, and the platform moves the route beneath it. A name would tie the reference to a runtime lookup that has to be repeated whenever placement changes; an address needs no lookup at all.</p>
 </div>
 
-<h3>Spaces and the policy boundary</h3>
+</section>
 
-<p>A space is the unit of network trust. The defaults require no configuration:</p>
+<!-- ============================================================ -->
+<section id="balancing" class="page">
+<h2>Load balancing</h2>
+
+<p>Direct instance traffic needs no balancing: the inbound address already names exactly the instance a client wants, and it stays valid across restarts and moves. Balancing exists for the other case, where a client wants the deployment and does not care which instance serves it. The only thing a user sets is a replica count. Everything below is automatic.</p>
+
+<p><strong>Balancing is a ladder of binding points.</strong> Each rung fixes the failure mode of the rung above it, and a connection takes a lower rung only where the higher one cannot see it. All rungs consume the same distributed set of ready instances.</p>
+
+<table>
+  <thead><tr><th>Rung</th><th>Decision made at</th><th>State it leaves behind</th><th>Covers</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>DNS</strong> over established instances <span class="pill p-ok">shipped</span></td>
+      <td>Name resolution</td>
+      <td>Client caches, outside the cluster's control</td>
+      <td>Everything, weakly. Long-lived connections pin to one instance.</td>
+    </tr>
+    <tr>
+      <td><strong>Connect hook</strong> on the service address <span class="pill p-wip">planned</span></td>
+      <td>The <code class="inl">connect()</code> call, before any packet exists</td>
+      <td>None. The socket itself holds the decision.</td>
+      <td>Connections the host can see: container runtimes where the syscall is host-visible.</td>
+    </tr>
+    <tr>
+      <td><strong>Sender-side DNAT</strong> on the service address <span class="pill p-wip">planned</span></td>
+      <td>The first packet of a flow</td>
+      <td>One conntrack entry per flow, on the sender's node</td>
+      <td>Everything the hook cannot see: VM-isolated runtimes, unconnected UDP.</td>
+    </tr>
+    <tr>
+      <td><strong>Layer 7</strong> through the built-in proxy, opt-in <span class="pill p-wip">planned</span></td>
+      <td>Each request</td>
+      <td>Proxy connection state</td>
+      <td>HTTP workloads that want retries, traffic splitting, and drain-aware handoff.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The rungs dispatch themselves by destination address. A client that dials an inbound address matches no rung and is routed as-is. A client that dials the service address is caught by the connect hook where the host can see the syscall; the packets it then sends already carry a real inbound address, so the DNAT rule never matches. A client whose syscalls the host cannot see sends packets that still carry the service address, and the DNAT rung catches those. No per-runtime configuration exists on the data path.</p>
+
+<div class="callout">
+  <div class="k">Two invariants</div>
+  <p><strong>Inbound addresses are never translated.</strong> A DNS answer, an address reference, and an <code class="inl">{ordinal}.{name}</code> lookup always mean exactly the instance they name.</p>
+  <p><strong>The service address never crosses a link.</strong> All translation happens on the sender's node at the point where the workload attaches to the host. The wire, the tunnels, and the receiving node's policy only ever see real instance addresses.</p>
+</div>
+
+<p>The connect hook is the preferred rung. It rewrites the destination before a packet exists, costs nothing per packet, keeps no translation state, and its decision dies with the socket. The DNAT rung is one nftables rule per node that maps the service range to a backend map the agent updates as readiness changes. Conntrack records the chosen backend at flow birth and applies it for the flow's life, so a backend change steers only new flows. Selection at both rungs is uniform over the ready set; anything smarter belongs at layer 7.</p>
+
+<p>This is a deliberate exception to the "wire addresses are true" principle, and a narrow one. What that principle rejects is translation as the universal path, with wire addresses that lie and cluster-wide correctness resting on conntrack. Sender-side DNAT scoped to an opt-in service range keeps wire addresses true and confines flow-state criticality to flows that chose balancing.</p>
+
+<h3>Traffic policy <span class="pill p-wip">planned</span></h3>
+
+<p>A deployment will be able to declare how balancing should treat locality: spread across all instances, prefer instances on the sender's node, or use local instances only. This is resolved inside the balancing rungs and never by DNS answer content, which stays locality-free.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="routing" class="page">
+<h2>Routing and transport</h2>
+
+<p>Every virtual-mode container runs in its own Linux network namespace, connected to the host by a veth pair. The container side holds the inbound address, the outbound address, and the egress IPv4 address. The host side holds a <code class="inl">/128</code> route for each address pointing into the namespace. Nothing proxies east–west traffic: a packet from one container to another on the same node is forwarded by the kernel from one veth to the other.</p>
+
+<h3>The cluster map</h3>
+
+<p><strong>Cross-node routing is derived from scheduling alone.</strong> The primary renders a cluster map from its database: one entry per node with its underlay address and WireGuard public key, the routed prefixes that node owns, the DNS catalog, and the network policy rules. Every live placement contributes its <code class="inl">/120</code>, pointed at its node, for as long as it exists. The placement that is serving an instance additionally contributes the instance's <code class="inl">/100</code>, which is the prefix that carries the inbound address. Longest-prefix match then delivers each placement's reply traffic to the node running it, while inbound traffic follows whichever placement is serving.</p>
+
+<p>Runner status is not an input to the map. Container restarts and crashes never move a route or republish the map, because run numbers live below the <code class="inl">/120</code> boundary. Only two routed prefix lengths are legal, <code class="inl">/100</code> and <code class="inl">/120</code>; nodes reject anything else. A <code class="inl">/128</code> would pin a single run, and a deployment-wide prefix would send every ordinal to one node.</p>
+
+<p><strong>The map is derived state and is never persisted on the primary.</strong> Every render is stamped with the global write sequence its inputs reflect, and a new map is published only when the rendered content changes. Nodes validate and persist accepted maps, so forwarding survives a primary outage and an agent restart. Each node reports the stamp it has applied to its kernel, and the primary uses those reports as a barrier: a superseded placement keeps running, and keeps its routes, until every node has applied the map that replaced it.</p>
+
+<h3>Node transport</h3>
+
+<p>Cross-node traffic rides one WireGuard device per node. Each node mints a static key pair at first boot; the private key never leaves the machine, and the public key is registered with the primary and carried in the map. Nodes reconcile one peer per remote node, with that peer's allowed prefixes set to exactly the prefixes the map routes to it. This turns cryptokey routing into node-level source attribution: the kernel drops any decrypted packet whose source lies outside the sending node's prefixes, before policy ever sees it.</p>
+
+<p>The transport preserves the complete logical packet. There is no translation at either end, so a receiving node's policy evaluates the same source and destination addresses whether the sender was local or remote. The initial design targets a full mesh of at most about 100 nodes; larger clusters need a different tunnel topology, and that change would not alter any workload address.</p>
+
+<p>Two guards keep unknown destinations from escaping. An <code class="inl">unreachable</code> route for the whole cluster <code class="inl">/48</code> sits below every workload route, so a logical address nothing routes to is rejected rather than sent to the host's default gateway. And local <code class="inl">/128</code> workload routes always win over a routed prefix, so a map that lags a placement arriving on this node cannot divert that placement's traffic elsewhere.</p>
+
+<p><strong>The agent audits what it wrote.</strong> Kernel state is written once and assumed to persist, so every 60 seconds the agent compares its desired routes and nftables rules against the live kernel and logs any divergence. It never silently repairs. Divergence is evidence of a bug or outside interference and is meant to stay visible.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="rollover" class="page">
+<h2>Rollover</h2>
+
+<p>A rollover replaces a running instance with a new one without changing its inbound address. Because the address is a function of identity, not of the container, the replacement inherits it by definition. The only question is when inbound traffic switches, and that is a route flip.</p>
+
+<p><strong>A placement is in one of three states.</strong> The node's operator treats all three as "run this placement". They differ only in the network state that derives from them.</p>
+
+<table>
+  <thead><tr><th>State</th><th>Owns</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Serving</strong></td><td>The instance's <code class="inl">/100</code> and its inbound address</td><td>Exactly one placement per instance holds this.</td></tr>
+    <tr><td><strong>Standby</strong></td><td>Its own <code class="inl">/120</code></td><td>A warming replacement. Its outbound traffic is routable before it serves. It is absent from DNS and ingress because the inbound address does not route to it yet.</td></tr>
+    <tr><td><strong>Draining</strong></td><td>Its own <code class="inl">/120</code></td><td>A superseded placement still running. Replies to work already in flight still reach it after the inbound address has moved.</td></tr>
+  </tbody>
+</table>
+
+<p>A replacement is created as standby from its very first write whenever a serving placement already exists. Creating it as serving, even briefly, would point the inbound route at a node whose container does not exist yet.</p>
+
+<h3>Same-node rollover</h3>
+
+<ol>
+  <li>The old container keeps the inbound route.</li>
+  <li>The candidate starts in a new namespace with its own outbound address routed, and the inbound address configured but not routed to it.</li>
+  <li>The candidate signals readiness.</li>
+  <li>The agent flips the host route for the inbound address to the candidate and moves host-port forwarding across.</li>
+  <li>The old container is stopped and its network state removed.</li>
+</ol>
+
+<p>The cluster map does not change. Both placements already point their <code class="inl">/120</code> at this node and the <code class="inl">/100</code> never moves, so the render is byte-identical and nothing is published. This needs no special case; it falls out of deriving routes from assignments. Candidates bind ports inside their own namespace, so there is no host-port contention. Established TCP connections to the old container can still break at promotion; holding and releasing them through ingress is <a href="#status">planned</a>.</p>
+
+<h3>Cross-node rollover</h3>
+
+<ol>
+  <li>The standby starts on the new node. It owns its <code class="inl">/120</code> immediately, so its outbound traffic is routable, and it does not claim the inbound address.</li>
+  <li>The standby reports running. The scheduler moves the old placement to draining and the standby to serving in one atomic commit. The map re-renders with the <code class="inl">/100</code> pointing at the new node. No snapshot can observe the flip half-applied, so no rendered map ever drops the instance's route or its DNS record.</li>
+  <li>The scheduler waits until every node holding network state has applied the new map, then tells the draining placement to terminate. A timeout backstops a node that is connected but wedged.</li>
+</ol>
+
+<p>Claiming the inbound address is gated on target state, not on local readiness. A node installs the inbound route only once its placement is serving. Without that gate the standby would install the route on its own node while the old node still had one, and traffic originating on each node would reach a different container until the map propagated. If the serving placement dies while a standby is warming, the standby is promoted immediately.</p>
+
+<h3>Multi-instance rollover <span class="pill p-wip">planned</span></h3>
+
+<p>A deployment with several instances rolls one ordinal at a time behind its endpoint set. An ordinal is marked draining, drops out of DNS and balancing, and the remaining instances carry load. The replacement starts, reaches ready, and is marked serving before the next ordinal begins. A new version that never reaches ready halts the rollout with the remaining old instances serving; there is no automatic rollback. Surge mode applies the single-instance candidate flow per ordinal, so it is the same primitive.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="policy" class="page">
+<h2>Network policy</h2>
+
+<p>A space is the unit of trust. Isolation is enforced by firewall rules rather than by separate virtual networks, so it is one address layout and one route table for the whole cluster with policy layered on top. The defaults need no configuration:</p>
 
 <table>
   <thead><tr><th>Traffic</th><th>Default</th></tr></thead>
   <tbody>
     <tr><td>Between deployments in the same space</td><td><span class="pill p-ok">allowed</span></td></tr>
-    <tr><td>From a deployment in the global space, to anywhere</td><td><span class="pill p-ok">allowed</span> — and global-space deployments accept traffic from every space</td></tr>
-    <tr><td>Any workload → internal DNS</td><td><span class="pill p-ok">allowed</span></td></tr>
+    <tr><td>From a deployment in the global space, to anywhere</td><td><span class="pill p-ok">allowed</span>. Global-space deployments also accept traffic from every space.</td></tr>
+    <tr><td>Any workload to internal DNS</td><td><span class="pill p-ok">allowed</span></td></tr>
+    <tr><td>Any workload to the external network</td><td><span class="pill p-ok">allowed</span></td></tr>
     <tr><td>Between deployments in different spaces</td><td><span class="pill p-no">dropped</span></td></tr>
   </tbody>
 </table>
 
-<p>To allow specific cross-space traffic you create a <strong>network policy</strong> on the Network page. A policy names a source and a destination — each either a whole space or a single deployment — optionally narrowed by protocol and ports. Creating one requires update access on the <em>destination's</em> space: the receiving side consents to being reachable. Policies are enforced the same way whether the two deployments share a node or not, and replies to an allowed connection are always allowed — you never write a rule for return traffic.</p>
+<p>Cross-space traffic is allowed by creating a <strong>network policy</strong>. A policy names a source and a destination, each either a whole space or one deployment, optionally narrowed by protocol and port. Creating one requires update access on the destination's space: the receiving side consents to being reachable. Policies are global entities with their own history, not part of any deployment's config. Enforcement is stateful. An allow means "may initiate connections toward", and replies ride the connection, so there is never a rule for return traffic.</p>
 
-<h3>Two addresses: a technical note</h3>
+<h3>Two enforcement layers</h3>
 
-<p>Each container actually holds a second IPv6 address alongside its fixed inbound address. This second address is not stable — it is scoped to one run of the container — and it is configured as the <em>preferred</em> address for outbound connections. It exists because of zero-downtime upgrades: during a rollover, the incoming replacement container may need to make outgoing requests as part of its warm-up while the old container still owns the fixed inbound address, so a run can never source traffic from an identity it does not yet hold.</p>
+<p><strong>Source anti-spoofing at the attachment boundary.</strong> A packet entering the host from a workload's veth may carry only that run's inbound or outbound address as its source. Anything else is dropped and counted. This is the root of trust for every other rule: policy matches on source address, so source address must be enforced, not assumed. Replies to spoofed traffic usually going elsewhere is not enough for UDP, for audit correctness, or for privileged-source allow lists.</p>
 
-<p>In practice: <em>connect to a service's inbound address; expect its outgoing connections to arrive from its outbound address.</em> Both belong to the same deployment and both are covered by the same policy rules, so this is invisible — with one exception:</p>
+<p><strong>Destination policy before delivery.</strong> A packet about to enter a workload's veth is dropped unless its source is in the same space, an explicit policy allows it, or it is a system path. The rules bind to delivery into local attachments, never to blanket prefix pairs.</p>
 
-<div class="callout stop">
-  <div class="k">UDP servers: bind the inbound address explicitly</div>
-  <p>A UDP server bound to the wildcard address (<code class="inl">::</code>) replies from the kernel's preferred source — the outbound address, not the inbound address the client sent to — and a connected UDP client will discard that reply as coming from the wrong peer. If your workload serves UDP, bind its socket to the inbound address explicitly. TCP is unaffected.</p>
+<div class="callout">
+  <div class="k">Policy evaluates once, at the destination</div>
+  <p>A cross-node packet leaves the sender's node unfiltered, crosses the WireGuard link, and is evaluated after decryption on the receiving node. Same-node and cross-node traffic therefore see identical policy, on identical addresses, at the same point.</p>
 </div>
+
+<p><strong>Rules compile to prefixes.</strong> Because the address layout is fixed, "same space" is one <code class="inl">/64</code> match and "this deployment" is one <code class="inl">/88</code> match. The rule program on every node is fixed; per-workload variability lives in named sets and a dispatch map, and it is applied in the same atomic kernel transaction as the routes and NAT rules, so there is never a window with routes but no policy. An attachment whose address cannot be decoded fails closed in both directions.</p>
+
+<p>Policies travel to nodes inside the cluster map as resolved tuples. A rule that names a deleted entity compiles to a prefix nothing matches, so it stays fail-closed until it is cleaned up.</p>
+
+<h3>The attachment boundary and runtimes <span class="pill p-wip">planned</span></h3>
+
+<p>The point where a workload attaches to the host gains one more rule: a flow initiated with the inbound address as its source is rewritten to that run's outbound address at flow birth. A workload that already sources from its outbound address, which the kernel does for any container that sees both addresses, never matches the rule and stays stateless. This turns the outbound-address convention into enforcement: no run, old or candidate, can ever source traffic from an identity it does not currently hold.</p>
+
+<p>The same rule makes every container runtime uniform. A VM-isolated runtime whose guest configures only one address costs one NAT binding per initiated flow and nothing else. Anti-spoofing, destination policy, service balancing, and routes are the same program for every attachment; runtime differences reduce to how the attachment is plumbed.</p>
 </section>
 
+<!-- ============================================================ -->
 <section id="egress" class="page">
-<p class="eyebrow">Networking · User guide</p>
-<h2>Egress traffic</h2>
+<h2>Egress</h2>
 
-<p>Egress is <strong>open by default</strong>. The policy boundary governs who may reach a workload; it never restricts where a workload may connect out to. There is nothing to configure to let a service call an external API, pull from a package registry, or reach an upstream database.</p>
-
-<p>How outbound traffic leaves depends on where it is going:</p>
+<p>Egress is open by default. The policy boundary governs who may reach a workload and never where a workload may connect to. How a connection leaves depends only on where it is going.</p>
 
 <table>
   <thead><tr><th>Destination</th><th>Path</th></tr></thead>
   <tbody>
     <tr>
-      <td>Another deployment in the cluster</td>
-      <td>Routed natively over the private IPv6 network — same node or through the node-to-node WireGuard transport. No NAT; the receiver sees the sender's real cluster address, which is what policy rules match on.</td>
+      <td>Another deployment</td>
+      <td>Routed natively over the private IPv6 network, on the node or through the WireGuard transport. No translation. The receiver sees the sender's real address, which is what policy matches on.</td>
     </tr>
     <tr>
       <td>The external network</td>
-      <td>Each container also carries a machine-local IPv4 address for exactly this purpose. Outbound IPv4 connections are masqueraded through the node, so external services see the node's own address.</td>
+      <td>Masqueraded through the node. IPv6 leaves from the outbound address and IPv4 from the container's machine-local address, and in both cases external services see the node's own address for that family.</td>
     </tr>
   </tbody>
 </table>
 
-<p>The private IPv6 addresses are not routable on the public internet, so external egress is an IPv4 path. DNS lookups for external names are forwarded to the node's normal upstream resolvers, so name resolution behaves as it would anywhere else.</p>
+<p>The private IPv6 addresses are not routable on the public internet, so the node translates both families at its uplink. A node without a global IPv6 address has no IPv6 egress path, and dual-stack clients fall back to IPv4. DNS for external names is forwarded to the node's upstream resolvers.</p>
 
-<div class="callout">
-  <div class="k">IPv4 is egress-only</div>
-  <p>The machine-local IPv4 address exists solely to reach the outside world. There is deliberately no IPv4 path between workloads — service-to-service traffic is IPv6 on the cluster network, where addresses are stable and policy applies. Don't point one deployment at another's IPv4 address; it is closed.</p>
-</div>
+<p><strong>IPv4 is egress-only.</strong> There is deliberately no IPv4 path between workloads. Service-to-service traffic is IPv6 on the cluster network, where addresses are stable and policy applies, and the firewall closes the IPv4 range to workload-to-workload traffic so that the invariant cannot be bypassed.</p>
 </section>
 
+<!-- ============================================================ -->
 <section id="ingress" class="page">
-<p class="eyebrow">Networking · User guide</p>
-<h2>Ingress traffic</h2>
+<h2>Ingress</h2>
 
-<p>Three mechanisms publish a service to the external network. They are independent and can be mixed on one node; all are declared in the <code class="inl">ingress</code> list of the <code class="inl">network</code> block.</p>
+<p>Ingress publishes a service to the external network. Three mechanisms exist, and they are chosen by what the traffic is rather than by where it lands. All three are declared in the deployment's <code class="inl">network</code> block and all three are derived into kernel rules and proxy state by the agent.</p>
 
 <table>
-  <thead><tr><th>Mechanism</th><th>Layer</th><th>Use when</th></tr></thead>
+  <thead><tr><th>Mechanism</th><th>Layer</th><th>What it does</th></tr></thead>
   <tbody>
-    <tr><td class="mono">port_forward</td><td>Raw TCP/UDP</td><td>Non-HTTP protocols, or you want a specific host port exposed directly (databases, game servers, custom protocols).</td></tr>
-    <tr><td class="mono">tls_passthrough</td><td>TLS (SNI routed)</td><td>Your service terminates its own TLS and you want end-to-end encryption, with many hostnames sharing port 443.</td></tr>
-    <tr><td class="mono">https</td><td>HTTP (terminated)</td><td>You want OpenDeploy to own TLS: automatic certificates, hostname + path routing, HTTP→HTTPS redirect.</td></tr>
+    <tr><td class="mono">port_forward</td><td>Raw TCP/UDP</td><td>Maps a host port straight to a container port with an nftables DNAT rule, optionally restricted to an allow list of source addresses. For non-HTTP protocols.</td></tr>
+    <tr><td class="mono">tls_passthrough</td><td>TLS, routed by SNI</td><td>The built-in proxy reads the hostname from the TLS handshake and relays the raw stream to the container without decrypting it. Many hostnames share one port; the service owns its own certificate.</td></tr>
+    <tr><td class="mono">https</td><td>HTTP, terminated</td><td>The proxy owns TLS with automatic certificates, routes by hostname and longest path prefix, and redirects HTTP to HTTPS. Port 443 is shared with passthrough; the hostname in the handshake selects which handling applies.</td></tr>
   </tbody>
 </table>
 
-<h3>Port forwarding</h3>
+<p>Certificates for terminated routes are issued centrally on the primary and stored as versioned secrets. Private keys reach a node in a separate, restricted bundle beside the proxy's state and never enter the state file itself. Challenge answers are distributed so that any node can answer them without holding the account credentials.</p>
 
-<p><code class="inl">port_forward</code> maps a port on the host's interfaces straight to a container port:</p>
+<h3>Listen selectors</h3>
 
-<pre>network {
-  mode = <span class="st">"virtual"</span>
-  ingress = [
-    <span class="cm"># host port defaults to the container port</span>
-    <span class="nm">port_forward</span>(<span class="st">"tcp"</span>, <span class="kw">5432</span>),
+<p><strong>Where a route is published is a selector over nodes and addresses.</strong> Each node reports the global unicast addresses on the interfaces it does not manage. A route's <code class="inl">listen</code> selectors are evaluated against that inventory: a node selector, defaulting to the node the deployment is scheduled on, crossed with an address selector, defaulting to every address. The result is a concrete set of address and port pairs per node, and the same evaluator runs at save time and at publish time so the answer given when the config is saved cannot differ from what nodes receive.</p>
 
-    <span class="cm"># explicit host port, restricted to allowed sources</span>
-    <span class="nm">port_forward</span>(<span class="st">"tcp"</span>, <span class="kw">5432</span>, {
-      host_port = <span class="kw">15432</span>,
-      allow = [<span class="st">"203.0.113.7"</span>, <span class="st">"198.51.100.0/24"</span>],
-    }),
-  ]
+<pre>ingress {
+  https {
+    hostname       = <span class="st">"api.example.com"</span>
+    container_port = <span class="kw">5001</span>
+    cert           = <span class="nm">acme</span>()
+    listen {
+      node    = <span class="nm">node</span>(<span class="st">"edge-1"</span>)
+      address = <span class="st">"203.0.113.10"</span>
+    }
+  }
 }</pre>
 
-<p>Behaviour worth knowing:</p>
-<ul>
-  <li>A host port is claimed per protocol — the same number can be forwarded once for TCP and once for UDP, and two deployments on a node cannot claim the same one.</li>
-  <li><code class="inl">allow</code> takes source IPs or CIDR prefixes, IPv4 or IPv6. It applies <strong>per address family</strong>: an allow list containing only IPv4 entries closes the port's IPv6 side entirely.</li>
-  <li>To non-allowed sources the port looks closed, not refused.</li>
-  <li>Tightening an allow list does not kill connections that are already established — the same applies to removing the forward.</li>
-</ul>
+<p>The Web UI's own listener is a reserved claim in the same evaluation rather than a blanket reservation of port 443 on the primary. A route can publish beside it on another address; a route that would land on it exactly is an error, and a wildcard that expands onto it is dropped from the publish set with a warning. Two deployments whose expanded claims share a node, address, port, and hostname collide, and the collision is rejected at save. The DNAT rules that admit traffic match on destination address, not just port, so a restricted listener genuinely publishes only where it says.</p>
 
-<h3>TLS passthrough</h3>
+<h3>Multi-node ingress <span class="pill p-wip">planned</span></h3>
 
-<p><code class="inl">tls_passthrough</code> routes TLS connections by hostname without ever decrypting them. OpenDeploy listens on the host port (default <code class="inl">443</code>), reads the hostname from the TLS handshake (SNI, matched exactly), and relays the raw stream to your container. Your service keeps end-to-end encryption and owns its own certificate.</p>
-
-<pre>ingress = [
-  <span class="nm">tls_passthrough</span>(<span class="st">"db.example.com"</span>, <span class="kw">8443</span>),
-  <span class="cm"># or on a non-default host port:</span>
-  <span class="nm">tls_passthrough</span>(<span class="st">"db.example.com"</span>, <span class="kw">8443</span>, { host_port = <span class="kw">9443</span> }),
-]</pre>
-
-<p>Many hostnames — from many deployments — can share one host port; each hostname routes to its own backend. Connections with no usable SNI or an unknown hostname are closed. A passthrough route and a raw <code class="inl">port_forward</code> cannot claim the same host port on a node.</p>
-
-<h3>HTTPS termination</h3>
-
-<p><code class="inl">https</code> routes are terminated by OpenDeploy's built-in proxy, which claims port <code class="inl">443</code> plus <code class="inl">80</code> (for the HTTP→HTTPS redirect and certificate challenges). Port 443 is shared with passthrough routes: the hostname in the handshake selects which handling applies.</p>
-
-<pre>ingress = [
-  <span class="nm">https</span>(<span class="st">"app.example.com"</span>, <span class="kw">8080</span>, { cert = <span class="nm">acme</span>() }),
-
-  <span class="cm"># route a path prefix of the same hostname to a different deployment</span>
-  <span class="nm">https</span>(<span class="st">"app.example.com"</span>, <span class="kw">9090</span>, {
-    path_prefix = <span class="st">"/api"</span>,
-    strip_prefix = <span class="kw">true</span>,
-    backend = <span class="st">"h2c"</span>,          <span class="cm"># backend speaks HTTP/2 cleartext (e.g. gRPC)</span>
-    cert = <span class="nm">acme</span>(),
-  }),
-
-  <span class="cm"># bring your own certificate from the secrets store</span>
-  <span class="nm">https</span>(<span class="st">"legacy.example.com"</span>, <span class="kw">8081</span>, { cert = <span class="nm">secret</span>(<span class="st">"legacy-cert"</span>) }),
-]</pre>
-
-<ul>
-  <li><strong>Certificates are automatic</strong> with <code class="inl">cert = acme()</code>: issued when you save the config, renewed 30 days before expiry, stored as versioned secrets. Or pass a <code class="inl">secret(…)</code> reference to bring your own.</li>
-  <li><strong>Routing</strong> is by hostname and longest matching <code class="inl">path_prefix</code>, on segment boundaries — deterministic, no priorities, no regex. Prefixes from different deployments compose on one hostname; all routes sharing a hostname must agree on the certificate source.</li>
-  <li><code class="inl">strip_prefix = true</code> removes the prefix before proxying and tells the backend via <code class="inl">X-Forwarded-Prefix</code>. Requests carry the usual <code class="inl">X-Forwarded-For</code> / <code class="inl">-Proto</code> / <code class="inl">-Host</code> headers.</li>
-  <li>WebSockets pass through; streaming responses (SSE) flush immediately; <code class="inl">backend = "h2c"</code> gives full-duplex HTTP/2 to the backend — gRPC works end to end when the client speaks HTTP/2.</li>
-</ul>
-
-<div class="callout warn">
-  <div class="k">Port 443 on the primary node</div>
-  <p>The primary node currently reserves <code class="inl">:443</code> for the OpenDeploy Web UI. Plan HTTPS and passthrough ingress on secondary nodes, or use a non-default host port on the primary.</p>
-</div>
-
-<div class="callout">
-  <div class="k">Ingress is node-local today</div>
-  <p>An ingress route accepts traffic on the node its deployment runs on, and serves backends on that node. Point external DNS at the node hosting the deployment. Cluster-wide ingress (any node accepting for any backend) is planned.</p>
-</div>
+<p>Ingress backends already come from the cluster-wide catalog and can live on any node. The remaining step is for the proxy to dial a backend on another node over the logical routes, at which point a route with <code class="inl">any_node()</code> publishes on every node that can reach its backend without a config change. Public DNS then holds one record per ingress node, and DNS round robin is the availability model. Floating addresses and managed-DNS health checks are underlay concerns and stay out of scope. The Web UI is served as a route through the same proxy, and the proxy becomes drain-aware: it stops selecting draining instances, and during a single-instance promotion it holds new requests for the route flip and releases them to the new instance.</p>
 </section>
 
-<section id="system-design" class="page">
-<p class="eyebrow">Networking · System design</p>
-<h2>System design and technical details</h2>
+<!-- ============================================================ -->
+<section id="status" class="page">
+<h2>Where things stand</h2>
 
-<div class="stub">
-  <h4>Coming soon</h4>
-  <p>This part will cover the design and implementation underneath the user guide: the address derivation scheme and prefix hierarchy, the two-address model in full, the cluster network map and the WireGuard node transport, the nftables policy program and anti-spoofing, DNS and ingress internals, and how rollover interacts with routing.</p>
-  <p>Until then, the engineering documentation in the repository (<code class="inl">docs/engineering/networking.md</code>) is the authoritative reference.</p>
-</div>
+<p>This page describes the complete design. The table records what has shipped and what remains, so the body text can stay in the present tense.</p>
+
+<table>
+  <thead><tr><th>Concept</th><th>Status</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Derived inbound and outbound addresses</td><td><span class="pill p-ok">shipped</span></td><td></td></tr>
+    <tr><td>Service address</td><td><span class="pill p-wip">planned</span></td><td>Needs its own allocation design inside the reserved region of the deployment prefix.</td></tr>
+    <tr><td>Address references in config</td><td><span class="pill p-ok">shipped</span></td><td></td></tr>
+    <tr><td>Cluster-wide DNS from the catalog</td><td><span class="pill p-ok">shipped</span></td><td></td></tr>
+    <tr><td>DNS balancing over established instances</td><td><span class="pill p-ok">shipped</span></td><td>Meaningful once deployments can have more than one instance.</td></tr>
+    <tr><td>Multi-instance deployments</td><td><span class="pill p-wip">planned</span></td><td>Replica counts, rolling and surge rollover.</td></tr>
+    <tr><td>Connect-hook and sender-side DNAT balancing</td><td><span class="pill p-wip">planned</span></td><td>Depends on the service address and on distributing the ready set to every node.</td></tr>
+    <tr><td>Layer 7 east–west through the proxy</td><td><span class="pill p-wip">planned</span></td><td>Opt-in per deployment.</td></tr>
+    <tr><td>Traffic policy</td><td><span class="pill p-wip">planned</span></td><td>With daemon sets.</td></tr>
+    <tr><td>Cluster map, WireGuard transport, route barrier</td><td><span class="pill p-ok">shipped</span></td><td>Full mesh, about 100 nodes.</td></tr>
+    <tr><td>Same-node and cross-node rollover</td><td><span class="pill p-ok">shipped</span></td><td>Ingress hold-and-release during promotion is planned.</td></tr>
+    <tr><td>Anti-spoofing, default policy, cross-space policies</td><td><span class="pill p-ok">shipped</span></td><td>Deny rules exist in the schema and are rejected until enforced.</td></tr>
+    <tr><td>Conditional SNAT at the attachment boundary</td><td><span class="pill p-wip">planned</span></td><td>With VM-isolated runtimes.</td></tr>
+    <tr><td>Port forwarding, TLS passthrough, HTTPS termination</td><td><span class="pill p-ok">shipped</span></td><td>Served by the node hosting the deployment.</td></tr>
+    <tr><td>Listen selectors and host address inventory</td><td><span class="pill p-ok">shipped</span></td><td>A node selector naming another node is rejected until cross-node dialling exists.</td></tr>
+    <tr><td>Multi-node ingress</td><td><span class="pill p-wip">planned</span></td><td>Cross-node backend dialling, Web UI through the proxy, drain awareness.</td></tr>
+    <tr><td>Flow observability</td><td><span class="pill p-wip">planned</span></td><td>Read-only eBPF flow metrics; the first eBPF adoption.</td></tr>
+  </tbody>
+</table>
 </section>
 
 </div>
@@ -490,32 +747,34 @@
 </div>
 
 <script>
-  // Each section is its own page; the location hash selects which one is shown.
+  // One continuous page: sidebar links jump to sections, and the link for the
+  // section currently in view is highlighted as you scroll.
   (function(){
+    const sidebar = document.querySelector('.sidebar');
     const pages = Array.from(document.querySelectorAll('section.page'));
     const links = Array.from(document.querySelectorAll('#page-nav a[href^="#"]'));
-    const titles = new Map(pages.map(p => [p.id, p.querySelector('h2').textContent]));
+    const linkFor = new Map(links.map(a => [a.getAttribute('href').slice(1), a]));
 
-    for (let i = 0; i < pages.length; i++) {
-      const pager = document.createElement('nav');
-      pager.className = 'pager';
-      const prev = pages[i - 1], next = pages[i + 1];
-      if (prev) pager.insertAdjacentHTML('beforeend',
-        `<a class="prev" href="#${prev.id}"><span class="arrow">←</span><span class="txt"><span class="dir">Previous</span><span class="title">${titles.get(prev.id)}</span></span></a>`);
-      if (next) pager.insertAdjacentHTML('beforeend',
-        `<a class="next" href="#${next.id}"><span class="arrow">→</span><span class="txt"><span class="dir">Next</span><span class="title">${titles.get(next.id)}</span></span></a>`);
-      if (prev || next) pages[i].appendChild(pager);
-    }
+    links.forEach(a => a.addEventListener('click', () => sidebar.classList.remove('open')));
 
-    const show = () => {
-      const id = titles.has(location.hash.slice(1)) ? location.hash.slice(1) : pages[0].id;
-      pages.forEach(p => p.classList.toggle('visible', p.id === id));
-      links.forEach(a => a.classList.toggle('current', a.getAttribute('href') === '#' + id));
-      document.querySelector('.sidebar').classList.remove('open');
-      window.scrollTo(0, 0);
+    let current = null;
+    const mark = id => {
+      if (id === current) return;
+      current = id;
+      links.forEach(a => a.classList.toggle('current', a === linkFor.get(id)));
     };
-    window.addEventListener('hashchange', show);
-    show();
+
+    const update = () => {
+      const probe = window.scrollY + Math.min(window.innerHeight * 0.3, 200);
+      let id = pages[0].id;
+      for (const p of pages) if (p.offsetTop <= probe) id = p.id;
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) id = pages[pages.length - 1].id;
+      mark(id);
+    };
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    window.addEventListener('load', update);
+    update();
   })();
 </script>
 

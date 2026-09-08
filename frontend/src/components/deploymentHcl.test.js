@@ -25,6 +25,13 @@ function document(networking) {
     };
 }
 
+// Inserts a network block carrying `body` ahead of the scheduling block, since
+// a virtual-mode document with no routes renders no network block at all.
+function withNetwork(text, body) {
+    assert.match(text, /\n {2}scheduling \{/);
+    return text.replace("\n  scheduling {", `\n  network {\n    ${body}\n  }\n\n  scheduling {`);
+}
+
 function roundTrip(networking) {
     const text = deploymentDocumentToHcl(document(networking), catalogs);
     const {document: parsed, diagnostics} = parseDeploymentHcl(text, catalogs);
@@ -75,17 +82,19 @@ test("renders and parses every ingress block kind with listen selectors", () => 
     assert.deepEqual(parsed, networking);
 });
 
-test("omits the ingress block when nothing is published and defaults host ports", () => {
+test("omits the network block for virtual mode with no routes and defaults host ports", () => {
     const {text, networking} = roundTrip({mode: 1});
-    assert.doesNotMatch(text, /ingress/);
+    assert.doesNotMatch(text, /network|ingress/, "virtual mode is the default and renders nothing");
     assert.deepEqual(networking, {mode: 1});
+    const {text: forwardedText} = roundTrip({mode: 1, portForwarding: [{protocol: 1, hostPort: 8080, containerPort: 8080}]});
+    assert.match(forwardedText, /network \{\n {4}ingress \{/, "routes render without a mode attribute");
+    assert.doesNotMatch(forwardedText, /mode = /);
     const {networking: forwarded} = roundTrip({mode: 1, portForwarding: [{protocol: 1, hostPort: 8080, containerPort: 8080}]});
     assert.deepEqual(forwarded, {mode: 1, portForwarding: [{protocol: 1, hostPort: 8080, containerPort: 8080}]});
 });
 
 test("listen block defaults to the scheduled node and any address", () => {
-    const source = deploymentDocumentToHcl(document({mode: 1}), catalogs).replace('mode = "virtual"', `mode = "virtual"
-    ingress {
+    const source = withNetwork(deploymentDocumentToHcl(document({mode: 1}), catalogs), `ingress {
       https {
         hostname = "api.example.test"
         container_port = 8080
@@ -119,7 +128,7 @@ test("rejects host_port on https, the call form, and bad selectors", () => {
         [`ingress {\n      https {\n        hostname = "a.example"\n        container_port = 80\n      }\n      https {\n        hostname = "b.example"\n        container_port = 80\n      }\n    }`, null],
     ];
     for (const [snippet, expected] of cases) {
-        const source = base.replace('mode = "virtual"', `mode = "virtual"\n    ${snippet}`);
+        const source = withNetwork(base, snippet);
         const {diagnostics} = parseDeploymentHcl(source, catalogs);
         if (expected === null) {
             assert.deepEqual(diagnostics, [], snippet);

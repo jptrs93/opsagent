@@ -651,11 +651,25 @@ func TestValidateDeploymentSpecAcceptsKnownEnvRefs(t *testing.T) {
 	}
 }
 
-func TestValidateDeploymentSpecRejectsMissingNetworking(t *testing.T) {
+func TestValidateDeploymentSpecDefaultsToVirtualNetworking(t *testing.T) {
 	input := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{})
-	_, err := validateDeploymentSpecWithAssets(&input, nil)
-	if err == nil || !strings.Contains(err.Error(), "networking is required") {
-		t.Fatalf("err = %v, want networking required", err)
+	spec, err := validateDeploymentSpecWithAssets(&input, nil)
+	if err != nil {
+		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
+	}
+	if spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		t.Fatalf("networking mode = %v, want virtual", spec.Networking.Mode)
+	}
+
+	forwarded := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{
+		PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080}},
+	})
+	spec, err = validateDeploymentSpecWithAssets(&forwarded, nil)
+	if err != nil {
+		t.Fatalf("validateDeploymentSpecWithAssets failed: %v", err)
+	}
+	if spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL || len(spec.Networking.PortForwarding) != 1 {
+		t.Fatalf("networking = %+v, want virtual mode with one port forward", spec.Networking)
 	}
 }
 
@@ -749,11 +763,6 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 		networking apigen.NetworkingConfig
 		want       string
 	}{
-		{
-			name:       "unspecified mode with port forwarding",
-			networking: apigen.NetworkingConfig{PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080}}},
-			want:       "networking.mode is required",
-		},
 		{
 			name: "host mode with port forwarding",
 			networking: apigen.NetworkingConfig{

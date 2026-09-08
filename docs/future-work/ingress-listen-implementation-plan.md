@@ -157,8 +157,6 @@ block whose attributes default to `any`.
 
 ```hcl
 network {
-  mode = "virtual"
-
   ingress {
     https {
       hostname          = "api.example.com"

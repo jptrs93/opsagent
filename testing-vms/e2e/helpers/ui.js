@@ -533,9 +533,20 @@ export function withHttpsRoutes(text, routes) {
     return lines.join('\n');
   }
   if (!routes.length) return lines.join('\n');
-  const modeIndex = lines.findIndex(line => /^\s*mode = /.test(line));
-  if (modeIndex < 0) throw new Error('network mode attribute not found in deployment HCL');
-  lines.splice(modeIndex + 1, 0, '', '    ingress {', ...routeLines, '    }');
+  const ingressLines = ['    ingress {', ...routeLines, '    }'];
+  // Virtual mode is the default, so a deployment with no routes renders no
+  // network block at all; create one ahead of the scheduling block when it is
+  // absent, otherwise append the ingress block inside the existing one.
+  const network = hclBlockRanges(lines, 'network')[0];
+  if (network) {
+    const [, end] = network;
+    const separator = lines[end - 1].trim() !== '' ? [''] : [];
+    lines.splice(end, 0, ...separator, ...ingressLines);
+    return lines.join('\n');
+  }
+  const schedulingIndex = lines.findIndex(line => /^\s*scheduling \{/.test(line));
+  if (schedulingIndex < 0) throw new Error('scheduling block not found in deployment HCL');
+  lines.splice(schedulingIndex, 0, '  network {', ...ingressLines, '  }', '');
   return lines.join('\n');
 }
 

@@ -43,7 +43,7 @@ Deployment networking is configured on `DeploymentSpec.networking`.
 
 - `NETWORKING_MODE_HOST` runs the container in the host network namespace.
 - `NETWORKING_MODE_VIRTUAL` runs the container in a managed network namespace.
-- `NETWORKING_MODE_UNSPECIFIED` is invalid for create/update requests. Deployment specs must set an explicit mode.
+- `NETWORKING_MODE_UNSPECIFIED` is normalised to `NETWORKING_MODE_VIRTUAL` on create/update. Virtual mode is the default; host mode is the explicit opt-out. Every stored spec carries an explicit mode.
 
 `networking.portForwarding` maps one host-interface TCP or UDP port to one container port and requires virtual mode. TCP and UDP claims are independent, so the same numeric host port can be published once for TCP and once for UDP.
 
@@ -442,7 +442,10 @@ ingress: [
 ]
 ```
 
-The HCL `network` section is block-form. `ingress` holds repeated `https`,
+The HCL `network` section is block-form and optional. Virtual mode is the
+default, so the renderer emits the block only when it carries the host-mode
+opt-out (`mode = "host"`) or ingress routes; `mode = "virtual"` is accepted
+but never rendered. `ingress` holds repeated `https`,
 `tls_passthrough`, and `port_forward` blocks; ports are always named
 `container_port` and `host_port` (`https` has no `host_port`: it is 443).
 `listen` is a repeated block inside a route whose attributes default to the
@@ -450,8 +453,6 @@ scheduled node and any address:
 
 ```hcl
 network {
-  mode = "virtual"
-
   ingress {
     https {
       hostname          = "api.example.com"

@@ -75,7 +75,7 @@ message OpendeploySpec {
 }
 
 enum NetworkingMode {
-  NETWORKING_MODE_UNSPECIFIED = 0; // invalid for deployment config writes
+  NETWORKING_MODE_UNSPECIFIED = 0; // normalised to VIRTUAL on deployment config writes
   NETWORKING_MODE_VIRTUAL = 1;     // per-container netns on the virtual IPv6 network
   NETWORKING_MODE_HOST = 2;        // explicit opt-out: host network namespace
 }
