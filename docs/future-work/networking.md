@@ -24,13 +24,48 @@ rollover semantics.
 
 Still open here:
 
-- Future service virtual addresses require a separate allocation and address
-  design. The workload ABI allocates only `I` and `O`, with no compatibility
-  range for a service virtual address.
+- The service virtual address layout is decided (the deployment `/88` with
+  the reserved top ordinal 4095, zero discriminator; see
+  `service-balancing-and-attachment-nat.md`), but the address code does not
+  yet reserve the ordinal and the balancing rungs that consume it are not
+  built. The workload ABI allocates only `I` and `O`.
 - Full snapshots are acceptable for the initial approximately 100-node target;
   later scale requires incremental and sharded distribution, and a flow-based
   tunnel or bounded-degree gateway topology in place of the `N * (N - 1)`
   fixed-tunnel mesh.
+- Route pruning by reachability. Identity addressing cannot aggregate routes
+  by node, so a node's route count is the cluster's placement count unless
+  routes are pruned. The only sound basis for pruning is policy-derived
+  reachability: a node carries routes for placements in the spaces its local
+  workloads may reach (own space, global space, explicitly allowed spaces)
+  plus any placement its ingress routes back. Pruning by observed traffic is
+  rejected — it reintroduces a runtime lookup on the path.
+- The rollover barrier at scale. Today a drained placement is terminated only
+  once every connected node has applied the map that replaced it, with a
+  fixed 30 s backstop for a node that is connected but wedged
+  (`drainTimeout`). The barrier gates only the kill of the old container, not
+  the route flip, and with incremental distribution it completes in one round
+  trip; the scale problem is that at thousands of nodes some node is nearly
+  always slow, so drains routinely run to the backstop. Decided refinements,
+  in order:
+  1. Membership by progress, not by a fixed clock. Extend the existing rule
+     that a disconnected node does not hold the barrier: a connected node that
+     has not applied a map within a short liveness window (a few heartbeats)
+     drops out of the barrier and is flagged unhealthy. The fixed backstop
+     stays as the last resort and is expected never to fire in practice.
+  2. Membership by reachability. Once routes are pruned by policy, the barrier
+     waits only on nodes that hold a route to the old placement or an ingress
+     route to it — the same set the pruning rule produces.
+  3. Balanced traffic never depends on the barrier: a draining instance leaves
+     the ready set, so clients dialing the service address are steered away
+     as soon as their own node sees the readiness change. The barrier matters
+     only to clients that dial an inbound address directly.
+  Rejected: a percentage-of-nodes quorum (the denominator is wrong — the node
+  still sending traffic can be in the excluded fraction — and the threshold
+  has no principled value), and a forwarding stub on the old node after the
+  container dies (WireGuard cryptokey routing drops a decrypted packet whose
+  source is not in the sending peer's allowed prefixes, and the source is a
+  client on a third node; making it pass would require source translation).
 - NAT traversal and relaying are out of scope for the current transport. The
   base transport remains unauthenticated and unencrypted; the planned
   replacement is WireGuard with static node keys — cryptographic node-level
@@ -92,11 +127,11 @@ Policy always evaluates the unchanged logical source and destination addresses. 
 kube-proxy exists to translate stable virtual addresses to ephemeral endpoints. Stable inbound instance addresses remove that need for direct instance traffic. Balancing arrives in stages; users only ever set a replica count. The agreed rung-by-rung design — service virtual addresses, the connect hook, the sender-side DNAT fallback for Kata, and the attachment NAT boundary — is recorded in `service-balancing-and-attachment-nat.md`.
 
 1. **DNS over ready endpoint sets.** Health-aware by construction: not-ready instances do not resolve. Known limits (client caching, long-lived connection pinning) are acceptable for internal traffic.
-2. **eBPF socket-level balancing** (`cgroup/connect6` hook via `cilium/ebpf`). A future service virtual address is rewritten at `connect()` to a chosen READY `I`, per connection, before any packet exists — no translation state, the socket itself holds the decision. Depends on the separate service-address allocation design (the workload ABI allocates only `I` and `O`). Host-visible syscalls only: Kata guests fall through to the next rung.
+2. **eBPF socket-level balancing** (`cgroup/connect6` hook via `cilium/ebpf`). A future service virtual address is rewritten at `connect()` to a chosen READY `I`, per connection, before any packet exists — no translation state, the socket itself holds the decision. The service address is the deployment's reserved ordinal 4095 (see `service-balancing-and-attachment-nat.md`); the workload ABI allocates only `I` and `O`. Host-visible syscalls only: Kata guests fall through to the next rung.
 3. **Sender-side service DNAT** at the source attachment boundary, for workloads the connect hook cannot see (Kata guests, unconnected UDP). The wire still carries real instance addresses; conntrack pins each flow's backend at flow birth. Confined to flows addressed to the service range — direct-address traffic keeps the stateless guarantee.
 4. **L7 east-west through the embedded proxy** (opt-in, per deployment): retries, traffic splitting, per-route metrics for HTTP workloads. Ingress traffic already gets endpoint-set balancing from stage 1.
 
-Interim DNAT-based virtual IPs remain rejected: no VIP ships before the service-address design, translation is never the universal east-west path, and a service address never transits a link. The scoped sender-side DNAT rung above is the deliberate exception, not a reversal — see `service-balancing-and-attachment-nat.md` for the reconciliation.
+Interim DNAT-based virtual IPs remain rejected: no VIP ships before the balancing rungs, translation is never the universal east-west path, and a service address never transits a link. The scoped sender-side DNAT rung above is the deliberate exception, not a reversal — see `service-balancing-and-attachment-nat.md` for the reconciliation.
 
 Traffic policy (future, with daemon sets): per-deployment `trafficPolicy: spread | prefer-local | local-only`, resolved in the balancing rungs (local-preference in the socket hook and below) — never by DNS answer content or ordering; DNS stays locality-free. Machine locality is derivable from the cluster map's routes.
 
@@ -195,5 +230,5 @@ Coupled to the scheduler/replicas backlog item; networking consumes placements a
 
 - Endpoint sets with n > 1; rolling recreate and surge upgrade strategies; per-instance runner status/history keyed by `(deployment, ordinal)`.
 - DNS multi-AAAA balancing (stage 1) arrives automatically.
-- A separately allocated service virtual address design; eBPF `connect6` for runc with sender-side service DNAT as the Kata-compatible fallback (see `service-balancing-and-attachment-nat.md`). Traffic policy for daemon sets remains part of this phase.
+- The service virtual address at reserved ordinal 4095; eBPF `connect6` for runc with sender-side service DNAT as the Kata-compatible fallback (see `service-balancing-and-attachment-nat.md`). Traffic policy for daemon sets remains part of this phase.
 - L7 east-west through the proxy (stage 3), opt-in.

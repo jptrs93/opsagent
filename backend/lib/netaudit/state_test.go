@@ -174,6 +174,7 @@ func filterDesired(t *testing.T) network.AuditState {
 func TestCompareFilterInSync(t *testing.T) {
 	desired := filterDesired(t)
 	kernel := kernelWithRules()
+	kernel.Masquerade6 = desired.Prefix.CIDR()
 	kernel.Filter = desired.FilterState().RuleKeys()
 	kernel.Elements = desired.FilterState().ElementKeys()
 	if diff := Compare(desired, kernel); !diff.InSync() {
@@ -240,6 +241,29 @@ func TestCompareMissingMasquerade(t *testing.T) {
 	}
 }
 
+func TestCompareMasquerade6FollowsPrefix(t *testing.T) {
+	desired := filterDesired(t)
+	kernel := kernelWithRules()
+	kernel.Filter = desired.FilterState().RuleKeys()
+	kernel.Elements = desired.FilterState().ElementKeys()
+	if diff := Compare(desired, kernel); !diff.MissingMasquerade6 {
+		t.Fatalf("expected missing ip6 masquerade with prefix known, got %+v", diff)
+	}
+	kernel.Masquerade6 = netip.MustParsePrefix("fd99::/48")
+	if diff := Compare(desired, kernel); !diff.MissingMasquerade6 {
+		t.Fatalf("expected ip6 masquerade on the wrong prefix to count as missing, got %+v", diff)
+	}
+	kernel.Masquerade6 = desired.Prefix.CIDR()
+	if diff := Compare(desired, kernel); !diff.InSync() {
+		t.Fatalf("expected in sync with ip6 masquerade on the cluster prefix, got %+v", diff)
+	}
+	noPrefix := network.AuditState{}
+	kernel = kernelWithRules()
+	if diff := Compare(noPrefix, kernel); diff.MissingMasquerade6 {
+		t.Fatalf("ip6 masquerade must not be expected before the prefix is known: %+v", diff)
+	}
+}
+
 func TestCompareFallbackRouteOnlyExpectedWithWorkloads(t *testing.T) {
 	kernel := kernelWithRules()
 	noWorkloads := network.AuditState{HasPrefix: true}
@@ -251,6 +275,7 @@ func TestCompareFallbackRouteOnlyExpectedWithWorkloads(t *testing.T) {
 		WorkloadRoutes: []network.AuditRoute{{Addr: targetV6, LinkIndex: 2}},
 	}
 	kernel.Routes[targetV6] = 2
+	kernel.Masquerade6 = withWorkload.Prefix.CIDR()
 	if diff := Compare(withWorkload, kernel); !diff.MissingFallbackRoute {
 		t.Fatalf("expected missing fallback route, got %+v", diff)
 	}

@@ -30,7 +30,8 @@ type parsedRule struct {
 }
 
 // parseRuleExprs recognizes the rule shapes the manager writes (see
-// dnatExprs, saddrMatchExprs, and masqueradeExprs in the network package)
+// dnatExprs, saddrMatchExprs, masqueradeExprs, and Masquerade6Exprs in the
+// network package)
 // from a decoded expression list. Anything else in the table is reported as
 // unrecognized.
 func parseRuleExprs(exprs []expr.Any) (parsedRule, bool) {
@@ -99,7 +100,9 @@ func parseRuleExprs(exprs []expr.Any) (parsedRule, bool) {
 		}
 	}
 	if out.Masquerade {
-		out.Source, out.Dest = netip.Prefix{}, netip.Prefix{}
+		// Source is the masqueraded prefix (the machine-local v4 range or the
+		// cluster /48); Dest is the negated match and is left unset.
+		out.Dest = netip.Prefix{}
 		return out, true
 	}
 	addr, addrOK := netip.AddrFromSlice(immAddr)

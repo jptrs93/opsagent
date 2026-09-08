@@ -14,7 +14,11 @@ import (
 // manager installs.
 type KernelState struct {
 	TableV4, TableV6 bool
-	Masquerade       bool
+	// Masquerade reports the ip4 egress masquerade rule.
+	Masquerade bool
+	// Masquerade6 is the source prefix of the ip6 egress masquerade rule,
+	// zero when the rule is absent.
+	Masquerade6 netip.Prefix
 	// DNAT holds one key per DNAT rule found in the opendeploy tables.
 	DNAT map[string]int
 	// Filter holds one key per filter rule found in the opendeploy tables'
@@ -53,14 +57,17 @@ type KernelWGPeer struct {
 type Diff struct {
 	NotInstalled bool // nothing desired and no opendeploy tables: agent has not touched the kernel yet
 
-	MissingNft           []string
-	UnexpectedNft        []string
-	UnrecognizedNft      []string
-	MissingFilter        []string
-	UnexpectedFilter     []string
-	MissingElements      []string
-	UnexpectedElements   []string
-	MissingMasquerade    bool
+	MissingNft         []string
+	UnexpectedNft      []string
+	UnrecognizedNft    []string
+	MissingFilter      []string
+	UnexpectedFilter   []string
+	MissingElements    []string
+	UnexpectedElements []string
+	MissingMasquerade  bool
+	// MissingMasquerade6 reports an absent ip6 masquerade rule, or one whose
+	// source prefix is not the cluster prefix, once the prefix is known.
+	MissingMasquerade6   bool
 	MissingRoutes        []string
 	WrongLinkRoutes      []string
 	UnexpectedRoutes     []string
@@ -80,7 +87,7 @@ type Diff struct {
 }
 
 func (d Diff) InSync() bool {
-	return !d.MissingMasquerade && !d.MissingFallbackRoute &&
+	return !d.MissingMasquerade && !d.MissingMasquerade6 && !d.MissingFallbackRoute &&
 		len(d.MissingNft) == 0 && len(d.UnexpectedNft) == 0 && len(d.UnrecognizedNft) == 0 &&
 		len(d.MissingFilter) == 0 && len(d.UnexpectedFilter) == 0 &&
 		len(d.MissingElements) == 0 && len(d.UnexpectedElements) == 0 &&
@@ -117,6 +124,7 @@ func Compare(desired network.AuditState, kernel KernelState) Diff {
 	}
 	d.UnrecognizedNft = append(d.UnrecognizedNft, kernel.Unrecognized...)
 	d.MissingMasquerade = !kernel.Masquerade
+	d.MissingMasquerade6 = desired.HasPrefix && kernel.Masquerade6 != desired.Prefix.CIDR()
 
 	filterState := desired.FilterState()
 	d.MissingFilter, d.UnexpectedFilter = diffCounts(filterState.RuleKeys(), kernel.Filter)

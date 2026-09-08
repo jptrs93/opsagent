@@ -72,7 +72,7 @@ func TestParseRuleExprsDNATWithV6SourceMatch(t *testing.T) {
 	}
 }
 
-func TestParseRuleExprsMasqueradeSourceIgnored(t *testing.T) {
+func TestParseRuleExprsMasqueradeSource(t *testing.T) {
 	exprs := []expr.Any{
 		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4},
 		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: []byte{0xff, 0xff, 0, 0}, Xor: []byte{0, 0, 0, 0}},
@@ -80,8 +80,20 @@ func TestParseRuleExprsMasqueradeSourceIgnored(t *testing.T) {
 		&expr.Masq{},
 	}
 	parsed, ok := parseRuleExprs(exprs)
-	if !ok || !parsed.Masquerade || parsed.Source.IsValid() {
-		t.Fatalf("expected masquerade with no source, got %+v ok=%v", parsed, ok)
+	want := netip.MustParsePrefix("10.100.0.0/16")
+	if !ok || !parsed.Masquerade || parsed.Source != want || parsed.Dest.IsValid() {
+		t.Fatalf("expected masquerade with source %v, got %+v ok=%v", want, parsed, ok)
+	}
+}
+
+func TestParseRuleExprsMasquerade6(t *testing.T) {
+	prefix, err := network.ParsePrefix([]byte{0xfd, 0x11, 0x22, 0x33, 0x44, 0x55})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, ok := parseRuleExprs(network.Masquerade6Exprs(prefix))
+	if !ok || !parsed.Masquerade || parsed.Source != prefix.CIDR() || parsed.Dest.IsValid() {
+		t.Fatalf("expected ip6 masquerade with source %v, got %+v ok=%v", prefix.CIDR(), parsed, ok)
 	}
 }
 

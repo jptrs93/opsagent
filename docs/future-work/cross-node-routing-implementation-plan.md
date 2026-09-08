@@ -158,6 +158,9 @@ unchanged because they refer to node identity rather than outer addresses.
 - Flow-based single-tunnel dataplanes.
 - Bounded-degree gateway topology for clusters materially above 100 nodes.
 - Incremental or sharded network-map distribution.
+- Route pruning by policy-derived reachability, and the rollover barrier
+  refinements that build on it (progress-based membership, reachability-scoped
+  membership); see the open items in `networking.md`.
 - Full workload egress policy and exfiltration controls.
 - Cross-node scheduling and movement automation.
 

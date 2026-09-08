@@ -31,7 +31,7 @@ func NewNftConn() (*nftables.Conn, error) {
 type nftHandles struct {
 	tbl4, tbl6                             *nftables.Table
 	post4, pre4, out4, fwd4                *nftables.Chain
-	pre6, out6, fwd6                       *nftables.Chain
+	post6, pre6, out6, fwd6                *nftables.Chain
 	managed4, srcOK4                       *nftables.Set
 	managed6, srcOK6, blockedOut, dispatch *nftables.Set
 }
@@ -52,6 +52,10 @@ func newNftHandles() *nftHandles {
 	h.out4 = &nftables.Chain{
 		Name: "output", Table: h.tbl4, Type: nftables.ChainTypeNAT,
 		Hooknum: nftables.ChainHookOutput, Priority: nftables.ChainPriorityNATDest,
+	}
+	h.post6 = &nftables.Chain{
+		Name: "postrouting", Table: h.tbl6, Type: nftables.ChainTypeNAT,
+		Hooknum: nftables.ChainHookPostrouting, Priority: nftables.ChainPriorityNATSource,
 	}
 	h.pre6 = &nftables.Chain{
 		Name: "prerouting", Table: h.tbl6, Type: nftables.ChainTypeNAT,
@@ -95,8 +99,12 @@ func (h *nftHandles) sets() []*nftables.Set {
 	return []*nftables.Set{h.managed4, h.srcOK4, h.managed6, h.srcOK6, h.blockedOut, h.dispatch}
 }
 
+// natChains are the chains rebuilt together whenever the NAT signature
+// changes: the DNAT chains and the ip6 postrouting chain, whose masquerade
+// rule depends on the cluster prefix. The ip4 masquerade rule needs no
+// runtime input and lives in the static skeleton instead.
 func (h *nftHandles) natChains() []*nftables.Chain {
-	return []*nftables.Chain{h.pre4, h.out4, h.pre6, h.out6}
+	return []*nftables.Chain{h.pre4, h.out4, h.post6, h.pre6, h.out6}
 }
 
 func buildSkeleton(c *nftables.Conn, h *nftHandles) error {
@@ -106,7 +114,7 @@ func buildSkeleton(c *nftables.Conn, h *nftHandles) error {
 	c.AddTable(h.tbl6)
 	c.DelTable(h.tbl6)
 	c.AddTable(h.tbl6)
-	for _, chain := range []*nftables.Chain{h.post4, h.pre4, h.out4, h.fwd4, h.pre6, h.out6, h.fwd6} {
+	for _, chain := range []*nftables.Chain{h.post4, h.pre4, h.out4, h.fwd4, h.post6, h.pre6, h.out6, h.fwd6} {
 		c.AddChain(chain)
 	}
 	for _, set := range h.sets() {
@@ -268,6 +276,7 @@ func dstChainHash(chain FilterChain) uint64 {
 
 func (m *Manager) natSignatureLocked() uint64 {
 	hash := fnv.New64a()
+	fmt.Fprintf(hash, "prefix|%t|%s\n", m.hasPrefix, m.prefix)
 	for _, id := range m.sortedHostPortIDsLocked() {
 		for _, rule := range m.hostPorts[id].rules {
 			fmt.Fprintf(hash, "%d|%d|%d|%d|%s|%s|%t|%v|%v|%v\n",
@@ -288,6 +297,9 @@ func (m *Manager) sortedHostPortIDsLocked() []int32 {
 }
 
 func (m *Manager) addNatRulesLocked(c *nftables.Conn, h *nftHandles) {
+	if m.hasPrefix {
+		c.AddRule(&nftables.Rule{Table: h.tbl6, Chain: h.post6, Exprs: Masquerade6Exprs(m.prefix)})
+	}
 	for _, id := range m.sortedHostPortIDsLocked() {
 		for _, rule := range m.hostPorts[id].rules {
 			if rule.TargetV4.Is4() {
@@ -410,6 +422,38 @@ func masqueradeExprs() []expr.Any {
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: base},
 		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4}, // daddr
 		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: mask, Xor: []byte{0, 0, 0, 0}},
+		&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: base},
+		&expr.Masq{},
+	}
+}
+
+// Masquerade6Exprs renders the ip6 egress masquerade rule; exported so the
+// audit parser test can check the real rule shape.
+//
+// Rule: ip6 saddr <cluster /48> ip6 daddr != <cluster /48> masquerade
+//
+// External IPv6 egress. Workload sources are cluster ULA addresses, which are
+// not routable beyond the node, so a flow leaving the cluster prefix takes the
+// address of the host's outgoing interface. Traffic staying inside the prefix
+// (same node, or toward the WireGuard device) is untouched, keeping wire
+// addresses true everywhere policy is evaluated. Only the first packet of a
+// flow consults this chain, so replies to DNAT'd ingress are reverse-mapped
+// by conntrack and never masqueraded. A host with an IPv6 default route but
+// no global address on its uplink drops the packet here rather than leaking a
+// ULA source.
+func Masquerade6Exprs(prefix Prefix) []expr.Any {
+	base := prefix.CIDR().Addr().AsSlice()
+	mask := make([]byte, 16)
+	for i := range PrefixLen {
+		mask[i] = 0xff
+	}
+	zero := make([]byte, 16)
+	return []expr.Any{
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 8, Len: 16}, // saddr
+		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 16, Mask: mask, Xor: zero},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: base},
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 24, Len: 16}, // daddr
+		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 16, Mask: mask, Xor: zero},
 		&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: base},
 		&expr.Masq{},
 	}

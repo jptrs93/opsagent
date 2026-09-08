@@ -189,8 +189,9 @@ This is appropriate for ingress and opt-in L7 east-west traffic. It should not b
 
 ## Load balancing conclusion
 
-The `networking.md` plan leaves future service virtual addresses outside the
-workload ABI and requires a separate allocation and design. One possible
+The `networking.md` plan keeps service virtual addresses outside the
+workload ABI (`I` and `O` only); the address itself is the deployment's
+reserved ordinal 4095 (see `service-balancing-and-attachment-nat.md`). One possible
 consumer is host eBPF `cgroup/connect6` balancing, but that approach is
 runc-centric because the host sees container `connect()` calls. With Kata, the
 workload `connect()` happens inside the guest kernel, so host `cgroup/connect6`
@@ -205,7 +206,7 @@ rung, scoped to the service range only).
 Preferred long-term stance:
 
 - DNS endpoint-set balancing is the default internal service discovery mechanism.
-- No service virtual address is allocated until there is a separate design; the implementation is the connect hook for host-visible workloads with the sender-side DNAT rung as the Kata-compatible fallback.
+- The service virtual address is the deployment's reserved ordinal 4095; the implementation is the connect hook for host-visible workloads with the sender-side DNAT rung as the Kata-compatible fallback.
 - Guest eBPF is not a good default because it couples OpenDeploy to guest images and guest kernel capabilities.
 - L7 proxying remains opt-in for HTTP semantics.
 

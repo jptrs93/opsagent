@@ -13,11 +13,20 @@ stances. Nothing here is scheduled; prerequisites are listed at the end.
   resolution-time (DNS), connection-time (host `connect` hook), packet-time
   (sender-side service DNAT), request-time (opt-in L7 through netproxy). All
   rungs consume one distributed ready-endpoint set.
-- A service virtual address is a new derived range: a pure function of
-  `(space, deployment)`, in a region of the deployment `/88` reserved by a
-  future allocation design. It is never routed, never appears in `src_ok`, and
-  never leaves a host: on a node missing the balancing machinery it falls to
-  the `unreachable` cluster `/48` route — fail closed.
+- A service virtual address is derived, not allocated: `S = Address(prefix,
+  space, deployment, 4095, 0, 0)`. Ordinal 4095 — the top value of the 12-bit
+  field, all ones — is reserved for it, so instances use ordinals `0..4094`
+  (4,095 per deployment). `S` is the instance `/100` of the reserved ordinal
+  with a zero discriminator. It is never routed (no `/100` is ever emitted for
+  ordinal 4095), never appears in `src_ok`, never has DNS records, and never
+  leaves a host: on a node missing the balancing machinery it falls to the
+  `unreachable` cluster `/48` route — fail closed. Implementation notes for
+  `lib/network`: `InboundAddr`/`OutboundAddr` reject ordinal 4095 for
+  instances, a `ServiceAddr(space, deployment)` helper mints `S`, `ParseAddr`
+  classifies ordinal 4095 with a zero discriminator as a service address, the
+  scheduler caps replica counts at 4,095, and the DNAT rung keys one `/128`
+  per deployment in its backend map (service addresses are not a contiguous
+  range).
 - Instance inbound addresses `I` are never balance-translated. DNS answers,
   `Address` env refs, and `{ordinal}.{name}` names must keep meaning the exact
   instance they name.

@@ -79,6 +79,11 @@
   th{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);font-weight:700;white-space:nowrap}
   tbody tr:last-child td{border-bottom:none}
   td.mono,th.mono{font-family:ui-monospace,monospace;font-size:13.5px;white-space:nowrap}
+  td.nw{white-space:nowrap}
+  .f-pfx{color:var(--sub);font-weight:700}
+  .f-id{color:var(--accent);font-weight:700}
+  .f-ord{color:var(--ok);font-weight:700}
+  .f-disc{color:var(--warn);font-weight:700}
 
   pre{background:var(--code-bg);color:var(--code-ink);border-radius:10px;padding:15px 17px;overflow-x:auto;font-size:13px;line-height:1.55;margin:12px 0}
   pre .cm{color:#64748b}
@@ -113,7 +118,6 @@
   .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;letter-spacing:.3px}
   .p-ok{background:var(--ok-bg);color:var(--ok);border:1px solid var(--ok-line)}
   .p-no{background:var(--stop-bg);color:var(--stop);border:1px solid var(--stop-line)}
-  .p-wip{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-line)}
 
   /* ---------- mobile ---------- */
   .menu-btn{display:none;position:fixed;top:14px;left:14px;z-index:50;background:var(--side-bg);color:var(--side-ink);
@@ -145,14 +149,13 @@
     <nav class="subnav" id="page-nav">
       <a href="#goals">Design overview</a>
       <a href="#addressing">Addressing</a>
-      <a href="#discovery">Service discovery</a>
+      <a href="#dns">DNS</a>
       <a href="#balancing">Load balancing</a>
       <a href="#routing">Routing and transport</a>
       <a href="#rollover">Rollover</a>
       <a href="#policy">Network policy</a>
       <a href="#egress">Egress</a>
       <a href="#ingress">Ingress</a>
-      <a href="#status">Where things stand</a>
     </nav>
     <span class="nav-item soon">Secrets &amp; config <span class="soon-tag">soon</span></span>
     <span class="nav-item soon">Assets <span class="soon-tag">soon</span></span>
@@ -172,22 +175,24 @@
 <div class="wrap">
 
 <h1 class="page-title">Networking</h1>
-<p class="lead">This page explains how OpenDeploy networking works: the concepts and design choices. It describes the complete design. Mechanisms that are not yet built are marked <span class="pill p-wip">planned</span>, and the <a href="#status">status table</a> at the end lists what has shipped.</p>
+<p class="lead">This page explains how OpenDeploy networking works: the concepts and design choices.</p>
 
 <!-- ============================================================ -->
 <section id="goals" class="page">
 <h2>Design overview</h2>
 
-<p>OpenDeploy ships a networking implementation that serves production traffic out of the box. There are no additional components to install, such as plugins, reverse proxies, or certificate managers. Every deployment is attached to a private cluster network the moment it exists, and a built-in reverse proxy configures itself from the deployment's ingress routes to serve external traffic, with certificates managed by a built-in certificate manager. Almost all networking configuration lives inline on the deployment itself: a deployment's config declares its network mode, its ingress routes, and its references to other services, and the cluster derives every address, name, route, firewall rule, and ingress listener from those declarations. There is no separate network object to create or keep in sync. A few decisions shape everything that follows:</p>
+<p>OpenDeploy ships a networking implementation that serves production traffic out of the box. Every deployment is attached to a private cluster network, and a built-in reverse proxy configures itself from the deployment's ingress routes to serve external traffic, with certificates managed by a built-in certificate manager. Almost all networking configuration lives inline on the deployment itself: a deployment's config declares its network mode, its ingress routes, and its references to other services, and the cluster derives every address, name, route, firewall rule, and ingress listener from those declarations. There is no separate network object to create or keep in sync.</p>
+
+<p>The following are some decisions that shape the design:</p>
 
 <ul>
-  <li><strong>Addresses are derived, not allocated.</strong> An address is a pure function of the identity it belongs to. There is no address allocator, no allocation table, and no reuse policy, so there is no allocation state to lose, leak, or reconcile.</li>
+  <li><strong>Addresses are derived, not allocated.</strong> An internal address is a function of the identity it belongs to. This simplifies service discovery and removes a whole class of problems around allocation state.</li>
   <li><strong>One logical network for the whole cluster.</strong> A single private IPv6 network spans every node. A space is a security domain with its own prefix inside that network, not a separate virtual network or tunnel set.</li>
   <li><strong>Spaces are the trust boundary.</strong> Deployments in the same space can reach each other. Traffic between spaces is dropped unless a policy allows it. Egress to the outside world is open.</li>
-  <li><strong>Wire addresses are true.</strong> A packet on the wire always carries the real source and destination instance addresses. No address is translated as the universal path between workloads. Where translation exists at all, it is scoped, sender-side, and never crosses a link.</li>
+  <li><strong>Wire addresses are true inside the cluster.</strong> Traffic between workloads carries the sender's and receiver's real addresses. Policy is enforced on identity, and no translation state sits between workloads. Translation exists only at the cluster edge, and on the sender's node for load balancing.</li>
   <li><strong>The primary is control plane only.</strong> It computes and distributes network state. It is never on the packet path. If the primary is down, topology stops changing; traffic does not stop.</li>
   <li><strong>The kernel forwards, the agent programs.</strong> Routes, tunnels, and firewall rules are ordinary Linux routes, WireGuard peers, and nftables rules. Nothing proxies east–west traffic.</li>
-  <li><strong>Cross-node traffic is encrypted and authenticated.</strong> WireGuard is the underlay between nodes. Every packet that crosses a node boundary inside the virtual network is encrypted, and the receiving node knows which node sent it.</li>
+  <li><strong>Cross-node traffic is always encrypted and authenticated.</strong> WireGuard is the underlay between nodes. Every packet that crosses a node boundary inside the virtual network is encrypted, and the receiving node knows which node sent it.</li>
 </ul>
 
 <p>The traffic the design must carry falls into three categories. The private network handles the first natively. The other two cross the edge of the cluster and have their own sections.</p>
@@ -302,7 +307,7 @@
 <p>The cluster owns one private IPv6 prefix: an RFC&nbsp;4193 unique local address block of length <code class="inl">/48</code>, generated once at install and fixed for the life of the cluster. Every workload address in the cluster lies inside it. The 80 bits below the prefix encode identity, and the layout is fixed:</p>
 
 <figure>
-<svg viewBox="0 0 880 150" role="img" aria-label="128-bit address layout: 48-bit cluster prefix, 16-bit space, 24-bit deployment, 12-bit ordinal, 20-bit placement slot, 8-bit run slot.">
+<svg viewBox="0 0 880 150" role="img" aria-label="128-bit address layout: 48-bit cluster prefix, 16-bit space, 24-bit deployment, 12-bit instance ordinal, 28-bit outbound discriminator that is all zeros for inbound addresses.">
   <defs>
     <linearGradient id="gPfx" x1="0" x2="1"><stop offset="0" stop-color="var(--inline-bg)"/><stop offset="1" stop-color="var(--inline-bg)"/></linearGradient>
   </defs>
@@ -310,22 +315,21 @@
   <rect x="20"    y="30" width="315"   height="48" fill="var(--inline-bg)" stroke="var(--line)" stroke-width="1.5"/>
   <rect x="335"   y="30" width="105"   height="48" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
   <rect x="440"   y="30" width="157.5" height="48" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
-  <rect x="597.5" y="30" width="78.75" height="48" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
-  <rect x="676.25" y="30" width="131.25" height="48" fill="var(--warn-bg)" stroke="var(--warn-line)" stroke-width="1.5"/>
-  <rect x="807.5" y="30" width="52.5"  height="48" fill="var(--warn-bg)" stroke="var(--warn-line)" stroke-width="1.5"/>
+  <rect x="597.5" y="30" width="78.75" height="48" fill="var(--ok-bg)" stroke="var(--ok-line)" stroke-width="1.5"/>
+  <rect x="676.25" y="30" width="183.75" height="48" fill="var(--warn-bg)" stroke="var(--warn-line)" stroke-width="1.5"/>
 
-  <text x="177.5" y="50" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">cluster prefix</text>
+  <text x="177.5" y="50" font-size="12.5" font-weight="700" text-anchor="middle" fill="var(--sub)">cluster prefix</text>
   <text x="177.5" y="67" font-size="11" text-anchor="middle" class="m svg-sub">48 bits</text>
-  <text x="387.5" y="50" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">space</text>
+  <text x="387.5" y="50" font-size="12.5" font-weight="700" text-anchor="middle" fill="var(--accent)">space</text>
   <text x="387.5" y="67" font-size="11" text-anchor="middle" class="m svg-sub">16</text>
-  <text x="518.75" y="50" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">deployment</text>
+  <text x="518.75" y="50" font-size="12.5" font-weight="700" text-anchor="middle" fill="var(--accent)">deployment</text>
   <text x="518.75" y="67" font-size="11" text-anchor="middle" class="m svg-sub">24</text>
-  <text x="636.9" y="50" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">ordinal</text>
-  <text x="636.9" y="67" font-size="11" text-anchor="middle" class="m svg-sub">12</text>
-  <text x="741.9" y="50" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">placement</text>
-  <text x="741.9" y="67" font-size="11" text-anchor="middle" class="m svg-sub">20</text>
-  <text x="833.75" y="50" font-size="12.5" font-weight="700" text-anchor="middle" class="svg-ink">run</text>
-  <text x="833.75" y="67" font-size="11" text-anchor="middle" class="m svg-sub">8</text>
+  <text x="636.9" y="46" font-size="12.5" font-weight="700" text-anchor="middle" fill="var(--ok)">instance</text>
+  <text x="636.9" y="59" font-size="12.5" font-weight="700" text-anchor="middle" fill="var(--ok)">ordinal</text>
+  <text x="636.9" y="72" font-size="11" text-anchor="middle" class="m svg-sub">12</text>
+  <text x="768.1" y="46" font-size="12.5" font-weight="700" text-anchor="middle" fill="var(--warn)">outbound discriminator</text>
+  <text x="768.1" y="59" font-size="11" text-anchor="middle" class="svg-sub">all zeros for inbound addresses</text>
+  <text x="768.1" y="72" font-size="11" text-anchor="middle" class="m svg-sub">28</text>
 
   <!-- prefix boundary ticks -->
   <g class="m" font-size="11" fill="var(--sub)">
@@ -337,8 +341,6 @@
     <text x="597.5" y="112" text-anchor="middle" class="svg-sub">/88</text>
     <line x1="676.25" y1="78" x2="676.25" y2="96" stroke="var(--line)"/>
     <text x="676.25" y="112" text-anchor="middle" class="svg-sub">/100</text>
-    <line x1="807.5" y1="78" x2="807.5" y2="96" stroke="var(--line)"/>
-    <text x="807.5" y="112" text-anchor="middle" class="svg-sub">/120</text>
     <line x1="860" y1="78" x2="860" y2="96" stroke="var(--line)"/>
     <text x="860" y="112" text-anchor="middle" class="svg-sub">/128</text>
   </g>
@@ -346,67 +348,52 @@
   <text x="440" y="136" font-size="11" text-anchor="middle" class="svg-sub">space</text>
   <text x="597.5" y="136" font-size="11" text-anchor="middle" class="svg-sub">deployment</text>
   <text x="676.25" y="136" font-size="11" text-anchor="middle" class="svg-sub">instance</text>
-  <text x="807.5" y="136" font-size="11" text-anchor="middle" class="svg-sub">placement</text>
 </svg>
 <figcaption>The address layout. Each prefix boundary is a level of identity, and routes and policy rules are prefixes at these boundaries.</figcaption>
 </figure>
 
-<p>Because the layout is fixed, every prefix boundary means something. A space is a <code class="inl">/64</code>. A deployment is a <code class="inl">/88</code>. An instance, meaning one ordinal of a deployment, is a <code class="inl">/100</code>. A placement, meaning one scheduling of that instance onto a node, is a <code class="inl">/120</code>. Routes and policy rules are written against these prefixes, which is what lets the rest of the design stay stateless.</p>
+<p>Each prefix boundary is a level of identity, so routes and policy rules can be expressed, distributed, and programmed efficiently.</p>
 
-<h3>Three addresses per deployment</h3>
-
-<p>A deployment has three kinds of address. All three are derived. None is allocated.</p>
+<p>As the diagram shows, an address is a value that can be computed in advance, before anything is scheduled or started. For a cluster prefix of <code class="inl">fd11:2233:4455::/48</code>, space <code class="inl">prod</code> with id 1, and deployment <code class="inl">payments-api</code> with id 42 (<code class="inl">2a</code> hex), a three-instance deployment has these addresses. Fields are in hex, coloured as in the diagram above:</p>
 
 <table>
-  <thead><tr><th>Address</th><th>Identifies</th><th>Stable for</th><th>Used by</th></tr></thead>
+  <thead><tr><th>Address</th><th class="mono f-id">space</th><th class="mono f-id">deployment</th><th class="mono f-ord">ordinal</th><th>Written out</th></tr></thead>
   <tbody>
-    <tr>
-      <td><strong>Inbound address</strong></td>
-      <td>One instance: space, deployment, ordinal. Placement and run fields are zero.</td>
-      <td>The life of the instance. Restarts, upgrades, and node moves do not change it.</td>
-      <td>DNS answers, address references in config, ingress backends, and any client that dials the instance directly.</td>
-    </tr>
-    <tr>
-      <td><strong>Outbound address</strong></td>
-      <td>One run of one placement. Placement and run fields are nonzero.</td>
-      <td>One container run. A restart is a new run and a new outbound address.</td>
-      <td>The kernel's preferred source for every connection the workload opens. Never published anywhere.</td>
-    </tr>
-    <tr>
-      <td><strong>Service address</strong> <span class="pill p-wip">planned</span></td>
-      <td>One deployment as a whole: space and deployment, in a reserved region of the deployment's <code class="inl">/88</code>.</td>
-      <td>The life of the deployment.</td>
-      <td>Clients that want the cluster to pick a ready instance for them. See <a href="#balancing">Load balancing</a>.</td>
-    </tr>
+    <tr><td class="nw">Inbound, ordinal 0</td><td class="mono">0001</td><td class="mono">00002a</td><td class="mono">000</td><td class="mono"><span class="f-pfx">fd11:2233:4455</span>:<span class="f-id">0001:0000:2a</span><span class="f-ord">00</span>:<span class="f-ord">0</span><span class="f-disc">000:0000</span></td></tr>
+    <tr><td class="nw">Inbound, ordinal 1</td><td class="mono">0001</td><td class="mono">00002a</td><td class="mono">001</td><td class="mono"><span class="f-pfx">fd11:2233:4455</span>:<span class="f-id">0001:0000:2a</span><span class="f-ord">00</span>:<span class="f-ord">1</span><span class="f-disc">000:0000</span></td></tr>
+    <tr><td class="nw">Inbound, ordinal 2</td><td class="mono">0001</td><td class="mono">00002a</td><td class="mono">002</td><td class="mono"><span class="f-pfx">fd11:2233:4455</span>:<span class="f-id">0001:0000:2a</span><span class="f-ord">00</span>:<span class="f-ord">2</span><span class="f-disc">000:0000</span></td></tr>
+    <tr><td class="nw">Service</td><td class="mono">0001</td><td class="mono">00002a</td><td class="mono">fff</td><td class="mono"><span class="f-pfx">fd11:2233:4455</span>:<span class="f-id">0001:0000:2a</span><span class="f-ord">ff</span>:<span class="f-ord">f</span><span class="f-disc">000:0000</span></td></tr>
   </tbody>
 </table>
 
-<p><strong>The inbound address is the identity of an instance.</strong> It is computed from the space, the deployment name, and the ordinal, so it is known the moment the deployment is defined, before anything is scheduled or started. That is what makes it referenceable from other configuration. A dependency on another service is a plain reference, and the reference is a real dependency: while it exists, the target cannot be deleted or changed in a way that would break it.</p>
+<p>The service address uses the top ordinal value, 4095, which is reserved for it, so a deployment can have up to 4,095 instances. Each connection to the service address is balanced to one ready instance, as described under <a href="#balancing">Load balancing</a>.</p>
+
+<p>Each one is a function of space, deployment, and ordinal, and that is how configuration writes them:</p>
+
+<pre><span class="nm">address</span>(<span class="st">"prod"</span>, <span class="st">"payments-api"</span>, 2)       <span class="cm"># inbound address of one instance</span>
+<span class="nm">service_address</span>(<span class="st">"prod"</span>, <span class="st">"payments-api"</span>)  <span class="cm"># the deployment as a whole; no ordinal</span></pre>
+
+<p>This is the encouraged way to hand one service the address of another. A deployment that talks to <code class="inl">payments-api</code> sets an environment variable in its config:</p>
 
 <pre>container {
   env_vars = {
-    <span class="st">"DATABASE_HOST"</span> = <span class="nm">address</span>(<span class="st">"prod"</span>, <span class="st">"postgres"</span>)
+    <span class="st">"PAYMENTS_API_HOST"</span> = <span class="nm">address</span>(<span class="st">"prod"</span>, <span class="st">"payments-api"</span>, 0)
   }
 }</pre>
 
-<p><strong>The outbound address exists because of rollover.</strong> During a zero-downtime replacement, the new container warms up while the old one still owns the inbound address. The new container must be able to open connections during warm-up, and its replies must come back to it and not to the old container. Giving every run its own outbound address, and routing that address to the run for the run's whole life, solves this without any special case. Every run holds both addresses from before its process starts. The inbound address is present but not preferred, so the kernel never chooses it as a source. Promotion changes only where inbound traffic is routed; a promoted run keeps sourcing from its outbound address until it ends.</p>
+<p>The application reads the variable and dials it. The reference is recorded as a dependency, so <code class="inl">payments-api</code> cannot be deleted or changed in a way that would break it, and nothing is resolved at runtime. <a href="#dns">DNS</a> covers the cases where a runtime lookup is needed.</p>
 
-<p>In practice: connect to a service's inbound address, and expect its outgoing connections to arrive from an outbound address. Both belong to the same deployment and both fall under the same policy rules, so the split is invisible to policy.</p>
+<h3>Outbound addresses and rollover</h3>
 
-<p><strong>The service address is one address for the whole deployment.</strong> Where the inbound address names exactly one instance, the service address names all of them and leaves the choice of instance to the cluster. It is never routed, never accepted as a packet source, and never leaves the host it was dialled on: the choice of instance is made on the sender's node and the packet carries a real inbound address by the time it reaches the wire. On a node without the balancing machinery it falls to the cluster's unreachable route and fails closed.</p>
+<p>Every instance has a second internal address alongside its inbound address: the outbound address. It shares the instance's prefix, and the 28 discriminator bits, which are all zeros in the inbound address, hold a value unique to the placement and run number. Each container run uses it as the source for the connections it opens, so it is the address other services see when this instance connects to them. It is never published: not in DNS, and not through config references.</p>
 
-<h3>What derivation buys</h3>
+<p>The pattern exists because of rollover. During a zero-downtime upgrade, two containers for the same instance ordinal run at once: the existing container, and the new one warming up to take over. Warm-up may itself need to open connections, and the replies must come back to the container that opened them. Each container run therefore needs its own address for outbound connections at a minimum.</p>
 
-<ul>
-  <li><strong>No IPAM.</strong> There is no allocator to run, back up, or reconcile after a crash. Two nodes can never disagree about which address belongs to which instance.</li>
-  <li><strong>Addresses survive everything but identity changes.</strong> Moving an instance to another node does not change its inbound address. Moving a deployment to another space does, because the space is part of the address. A space move is therefore a deliberate security-domain migration, carried out as a rollover so old-space and new-space placements coexist until the flip.</li>
-  <li><strong>Every address is self-describing.</strong> Given any packet capture, the source and destination addresses decode to a space, a deployment, an ordinal, and a run, with no lookup table that can lag or drift.</li>
-  <li><strong>Policy compiles to prefixes.</strong> "Same space" is one <code class="inl">/64</code> match. "This deployment" is one <code class="inl">/88</code> match. There is no identity table to distribute.</li>
-</ul>
+<p>Throughout the rollover, the inbound address stays routed to the existing container. When the new container signals it is ready, the route flips and the new container receives everything sent to the inbound address. Nothing inside either container changes: both hold both addresses from the start, and promotion is a route change on the node. The promoted container keeps sending from its outbound address for the rest of its life.</p>
 
-<p>The layout fixes the capacities: 65,536 spaces, about 16 million deployments, 4,096 ordinals per deployment, and about a million placement slots and 255 run slots per instance. Placement and run slots wrap; a live collision on an outbound address is rejected rather than allowed.</p>
+<p>In practice: connect to a service's inbound address, and expect its connections to arrive from an outbound address. Both belong to the same deployment and fall under the same policy rules, so the split is invisible to policy.</p>
 
-<h3>Inside the container</h3>
+<h3>What the container sees</h3>
 
 <p>A container has one interface, <code class="inl">eth0</code>, the container end of a veth pair whose other end is on the node. Listing its addresses shows four. Two are the cluster addresses above. The other two exist only to get packets to the node and out to the internet.</p>
 
@@ -443,21 +430,27 @@
 <p>The routing table is as small as the address list. There is one default route per family, both via the node, and no route for the cluster prefix or the space prefix. The container cannot tell which destinations are on its own node and which are elsewhere; it hands every packet to the node and the node's routes decide. Rollover changes nothing here: a promoted container has exactly the addresses and routes it started with, because promotion is a route change on the node.</p>
 
 <p>The resolver in <code class="inl">/etc/resolv.conf</code> is the inbound address of the node's built-in DNS service, which is itself a deployment in the system space and so is derived like any other address.</p>
+
+<div class="callout">
+  <div class="k">Addressing approach trade-off notes</div>
+  <p>The usual addressing approach alternative gives each node its own prefix and allocates an address per placement, the way Kubernetes hands each node a pod range. Routing then aggregates: one route per node, and the routing table never changes when workloads are scheduled. Deriving addresses from identity gives that up, and gets the following in return.</p>
+  <ul>
+    <li><strong>No IPAM.</strong> There is no allocator to run, back up, or reconcile after a crash. Two nodes can never disagree about which address belongs to which instance.</li>
+    <li><strong>Addresses survive everything but identity changes.</strong> Moving an instance to another node does not change its inbound address. Moving a deployment to another space does, because the space is part of the address. A space move is therefore a deliberate security-domain migration, carried out as a rollover so old-space and new-space placements coexist until the flip.</li>
+    <li><strong>Every address is self-describing.</strong> Given any packet capture, the source and destination addresses decode to a space, a deployment, an ordinal, and a run, with no lookup table that can lag or drift.</li>
+    <li><strong>Policy compiles to prefixes.</strong> "Same space" is one <code class="inl">/64</code> match. "This deployment" is one <code class="inl">/88</code> match. There is no identity table to distribute.</li>
+  </ul>
+  <p><strong>What it costs is route aggregation.</strong> An address says nothing about where its instance runs, so every placement needs its own route, a <code class="inl">/100</code> or <code class="inl">/120</code>, on every node, and every scheduling change republishes the cluster map. The worst case is many nodes with deployments from many spaces intermixed across them: each node then holds one route per placement in the cluster, and each WireGuard peer entry lists every prefix placed on that peer. Neither is a practical limit at the design's target. Linux route lookup and WireGuard's allowed-ips are both trie-based, so tens of thousands of entries cost nothing measurable, and a map of ten thousand placements is a few hundred kilobytes. What grows is distribution: each change ships the full map to every node, which is why the design targets clusters of about a hundred nodes with full snapshots and leaves incremental distribution to larger scale.</p>
+  <p>The per-node prefix model pays in the other currency: an allocator to run and back up, an address that changes whenever an instance moves so DNS or clients must carry every move, and an identity table that policy and packet captures need before an address means anything.</p>
+  <p>The layout fixes the capacities: 65,536 spaces, about 16 million deployments, 4,095 instances per deployment plus the reserved service ordinal, and about a million placement slots and 255 run slots per instance. Placement and run slots wrap; a live collision on an outbound address is rejected rather than allowed.</p>
+</div>
 </section>
 
 <!-- ============================================================ -->
-<section id="discovery" class="page">
-<h2>Service discovery</h2>
+<section id="dns" class="page">
+<h2>DNS</h2>
 
-<p>Discovery is always on. A deployment has a name the moment it exists, and there is nothing to enable. Two forms of discovery exist, and they answer different questions.</p>
-
-<h3>Address references</h3>
-
-<p>When the dependency is known at configuration time, reference the inbound address directly with <code class="inl">address(space, name)</code>, as shown in <a href="#addressing">Addressing</a>. The reference is recorded as a dependency, so the target cannot be deleted or changed in a way that would break it.</p>
-
-<h3>DNS</h3>
-
-<p>When the set of instances must be discovered at runtime, every workload can resolve internal names. Containers are pointed at the cluster's resolver automatically. Two name forms exist:</p>
+<p>DNS covers what an address reference cannot: discovering a deployment's instances at runtime, or reaching one from something that has no configuration to hold a reference. Every workload can resolve internal names, and containers are pointed at the cluster's resolver automatically. Two name forms exist:</p>
 
 <pre><span class="cm"># every established instance of a deployment: one AAAA record per instance</span>
 {name}.space-{spaceId}.internal
@@ -473,11 +466,6 @@
 
 <p><strong>Answers carry no locality.</strong> The catalog has no node information and no per-node ordering. Preferring a local instance is a balancing decision, made in the balancing layer, so that a DNS answer means the same thing wherever it is resolved.</p>
 
-<div class="callout note">
-  <div class="k">Design note: reference by address, not by name</div>
-  <p>Deployments are encouraged to reference each other by inbound address rather than by DNS name. The inbound address is derived from identity alone, so a reference from one deployment to another is independent of where and when the target is scheduled. It is valid before the target is placed, it survives the target moving to another node, and it survives the target being replaced during a rollover. The application holds a constant value, and the platform moves the route beneath it. A name would tie the reference to a runtime lookup that has to be repeated whenever placement changes; an address needs no lookup at all.</p>
-</div>
-
 </section>
 
 <!-- ============================================================ -->
@@ -492,25 +480,25 @@
   <thead><tr><th>Rung</th><th>Decision made at</th><th>State it leaves behind</th><th>Covers</th></tr></thead>
   <tbody>
     <tr>
-      <td><strong>DNS</strong> over established instances <span class="pill p-ok">shipped</span></td>
+      <td><strong>DNS</strong> over established instances</td>
       <td>Name resolution</td>
       <td>Client caches, outside the cluster's control</td>
       <td>Everything, weakly. Long-lived connections pin to one instance.</td>
     </tr>
     <tr>
-      <td><strong>Connect hook</strong> on the service address <span class="pill p-wip">planned</span></td>
+      <td><strong>Connect hook</strong> on the service address</td>
       <td>The <code class="inl">connect()</code> call, before any packet exists</td>
       <td>None. The socket itself holds the decision.</td>
       <td>Connections the host can see: container runtimes where the syscall is host-visible.</td>
     </tr>
     <tr>
-      <td><strong>Sender-side DNAT</strong> on the service address <span class="pill p-wip">planned</span></td>
+      <td><strong>Sender-side DNAT</strong> on the service address</td>
       <td>The first packet of a flow</td>
       <td>One conntrack entry per flow, on the sender's node</td>
       <td>Everything the hook cannot see: VM-isolated runtimes, unconnected UDP.</td>
     </tr>
     <tr>
-      <td><strong>Layer 7</strong> through the built-in proxy, opt-in <span class="pill p-wip">planned</span></td>
+      <td><strong>Layer 7</strong> through the built-in proxy, opt-in</td>
       <td>Each request</td>
       <td>Proxy connection state</td>
       <td>HTTP workloads that want retries, traffic splitting, and drain-aware handoff.</td>
@@ -526,13 +514,13 @@
   <p><strong>The service address never crosses a link.</strong> All translation happens on the sender's node at the point where the workload attaches to the host. The wire, the tunnels, and the receiving node's policy only ever see real instance addresses.</p>
 </div>
 
-<p>The connect hook is the preferred rung. It rewrites the destination before a packet exists, costs nothing per packet, keeps no translation state, and its decision dies with the socket. The DNAT rung is one nftables rule per node that maps the service range to a backend map the agent updates as readiness changes. Conntrack records the chosen backend at flow birth and applies it for the flow's life, so a backend change steers only new flows. Selection at both rungs is uniform over the ready set; anything smarter belongs at layer 7.</p>
+<p>The connect hook is the preferred rung. It rewrites the destination before a packet exists, costs nothing per packet, keeps no translation state, and its decision dies with the socket. The DNAT rung is one nftables rule per node that matches service addresses against a backend map the agent updates as readiness changes. Conntrack records the chosen backend at flow birth and applies it for the flow's life, so a backend change steers only new flows. Selection at both rungs is uniform over the ready set; anything smarter belongs at layer 7.</p>
 
-<p>This is a deliberate exception to the "wire addresses are true" principle, and a narrow one. What that principle rejects is translation as the universal path, with wire addresses that lie and cluster-wide correctness resting on conntrack. Sender-side DNAT scoped to an opt-in service range keeps wire addresses true and confines flow-state criticality to flows that chose balancing.</p>
+<p>This is a deliberate exception to the "wire addresses are true" principle, and a narrow one. What that principle rejects is translation as the universal path, with wire addresses that lie and cluster-wide correctness resting on conntrack. Sender-side DNAT scoped to service addresses keeps wire addresses true and confines flow-state criticality to flows that chose balancing.</p>
 
-<h3>Traffic policy <span class="pill p-wip">planned</span></h3>
+<h3>Traffic policy</h3>
 
-<p>A deployment will be able to declare how balancing should treat locality: spread across all instances, prefer instances on the sender's node, or use local instances only. This is resolved inside the balancing rungs and never by DNS answer content, which stays locality-free.</p>
+<p>A deployment declares how balancing treats locality: spread across all instances, prefer instances on the sender's node, or use local instances only. This is resolved inside the balancing rungs and never by DNS answer content, which stays locality-free.</p>
 </section>
 
 <!-- ============================================================ -->
@@ -601,7 +589,7 @@
 
 <p>Claiming the inbound address is gated on target state, not on local readiness. A node installs the inbound route only once its placement is serving. Without that gate the standby would install the route on its own node while the old node still had one, and traffic originating on each node would reach a different container until the map propagated. If the serving placement dies while a standby is warming, the standby is promoted immediately.</p>
 
-<h3>Multi-instance rollover <span class="pill p-wip">planned</span></h3>
+<h3>Multi-instance rollover</h3>
 
 <p>A deployment with several instances rolls one ordinal at a time behind its endpoint set. An ordinal is marked draining, drops out of DNS and balancing, and the remaining instances carry load. The replacement starts, reaches ready, and is marked serving before the next ordinal begins. A new version that never reaches ready halts the rollout with the remaining old instances serving; there is no automatic rollback. Surge mode applies the single-instance candidate flow per ordinal, so it is the same primitive.</p>
 </section>
@@ -640,9 +628,9 @@
 
 <p>Policies travel to nodes inside the cluster map as resolved tuples. A rule that names a deleted entity compiles to a prefix nothing matches, so it stays fail-closed until it is cleaned up.</p>
 
-<h3>The attachment boundary and runtimes <span class="pill p-wip">planned</span></h3>
+<h3>The attachment boundary and runtimes</h3>
 
-<p>The point where a workload attaches to the host gains one more rule: a flow initiated with the inbound address as its source is rewritten to that run's outbound address at flow birth. A workload that already sources from its outbound address, which the kernel does for any container that sees both addresses, never matches the rule and stays stateless. This turns the outbound-address convention into enforcement: no run, old or candidate, can ever source traffic from an identity it does not currently hold.</p>
+<p>The point where a workload attaches to the host carries one more rule: a flow initiated with the inbound address as its source is rewritten to that run's outbound address at flow birth. A workload that already sources from its outbound address, which the kernel does for any container that sees both addresses, never matches the rule and stays stateless. This turns the outbound-address convention into enforcement: no run, old or candidate, can ever source traffic from an identity it does not currently hold.</p>
 
 <p>The same rule makes every container runtime uniform. A VM-isolated runtime whose guest configures only one address costs one NAT binding per initiated flow and nothing else. Anti-spoofing, destination policy, service balancing, and routes are the same program for every attachment; runtime differences reduce to how the attachment is plumbed.</p>
 </section>
@@ -707,39 +695,9 @@
 
 <p>The Web UI's own listener is a reserved claim in the same evaluation rather than a blanket reservation of port 443 on the primary. A route can publish beside it on another address; a route that would land on it exactly is an error, and a wildcard that expands onto it is dropped from the publish set with a warning. Two deployments whose expanded claims share a node, address, port, and hostname collide, and the collision is rejected at save. The DNAT rules that admit traffic match on destination address, not just port, so a restricted listener genuinely publishes only where it says.</p>
 
-<h3>Multi-node ingress <span class="pill p-wip">planned</span></h3>
+<h3>Multi-node ingress</h3>
 
-<p>Ingress backends already come from the cluster-wide catalog and can live on any node. The remaining step is for the proxy to dial a backend on another node over the logical routes, at which point a route with <code class="inl">any_node()</code> publishes on every node that can reach its backend without a config change. Public DNS then holds one record per ingress node, and DNS round robin is the availability model. Floating addresses and managed-DNS health checks are underlay concerns and stay out of scope. The Web UI is served as a route through the same proxy, and the proxy becomes drain-aware: it stops selecting draining instances, and during a single-instance promotion it holds new requests for the route flip and releases them to the new instance.</p>
-</section>
-
-<!-- ============================================================ -->
-<section id="status" class="page">
-<h2>Where things stand</h2>
-
-<p>This page describes the complete design. The table records what has shipped and what remains, so the body text can stay in the present tense.</p>
-
-<table>
-  <thead><tr><th>Concept</th><th>Status</th><th>Notes</th></tr></thead>
-  <tbody>
-    <tr><td>Derived inbound and outbound addresses</td><td><span class="pill p-ok">shipped</span></td><td></td></tr>
-    <tr><td>Service address</td><td><span class="pill p-wip">planned</span></td><td>Needs its own allocation design inside the reserved region of the deployment prefix.</td></tr>
-    <tr><td>Address references in config</td><td><span class="pill p-ok">shipped</span></td><td></td></tr>
-    <tr><td>Cluster-wide DNS from the catalog</td><td><span class="pill p-ok">shipped</span></td><td></td></tr>
-    <tr><td>DNS balancing over established instances</td><td><span class="pill p-ok">shipped</span></td><td>Meaningful once deployments can have more than one instance.</td></tr>
-    <tr><td>Multi-instance deployments</td><td><span class="pill p-wip">planned</span></td><td>Replica counts, rolling and surge rollover.</td></tr>
-    <tr><td>Connect-hook and sender-side DNAT balancing</td><td><span class="pill p-wip">planned</span></td><td>Depends on the service address and on distributing the ready set to every node.</td></tr>
-    <tr><td>Layer 7 east–west through the proxy</td><td><span class="pill p-wip">planned</span></td><td>Opt-in per deployment.</td></tr>
-    <tr><td>Traffic policy</td><td><span class="pill p-wip">planned</span></td><td>With daemon sets.</td></tr>
-    <tr><td>Cluster map, WireGuard transport, route barrier</td><td><span class="pill p-ok">shipped</span></td><td>Full mesh, about 100 nodes.</td></tr>
-    <tr><td>Same-node and cross-node rollover</td><td><span class="pill p-ok">shipped</span></td><td>Ingress hold-and-release during promotion is planned.</td></tr>
-    <tr><td>Anti-spoofing, default policy, cross-space policies</td><td><span class="pill p-ok">shipped</span></td><td>Deny rules exist in the schema and are rejected until enforced.</td></tr>
-    <tr><td>Conditional SNAT at the attachment boundary</td><td><span class="pill p-wip">planned</span></td><td>With VM-isolated runtimes.</td></tr>
-    <tr><td>Port forwarding, TLS passthrough, HTTPS termination</td><td><span class="pill p-ok">shipped</span></td><td>Served by the node hosting the deployment.</td></tr>
-    <tr><td>Listen selectors and host address inventory</td><td><span class="pill p-ok">shipped</span></td><td>A node selector naming another node is rejected until cross-node dialling exists.</td></tr>
-    <tr><td>Multi-node ingress</td><td><span class="pill p-wip">planned</span></td><td>Cross-node backend dialling, Web UI through the proxy, drain awareness.</td></tr>
-    <tr><td>Flow observability</td><td><span class="pill p-wip">planned</span></td><td>Read-only eBPF flow metrics; the first eBPF adoption.</td></tr>
-  </tbody>
-</table>
+<p>Ingress backends come from the cluster-wide catalog and can live on any node. The proxy dials a backend on another node over the logical routes, so a route with <code class="inl">any_node()</code> publishes on every node that can reach its backend without a config change. Public DNS holds one record per ingress node, and DNS round robin is the availability model. Floating addresses and managed-DNS health checks are underlay concerns and stay out of scope. The Web UI is served as a route through the same proxy, and the proxy is drain-aware: it stops selecting draining instances, and during a single-instance promotion it holds new requests for the route flip and releases them to the new instance.</p>
 </section>
 
 </div>

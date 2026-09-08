@@ -13,10 +13,11 @@ import (
 )
 
 // Manager is the machine-local networking reconciler: it owns per-container
-// netns/veth/route state and the machine's nftables ruleset (IPv4 egress
-// masquerade and port-forwarding DNAT). It runs in-process in the agent; the
-// network data plane itself is the kernel, so manager availability is
-// irrelevant to existing traffic. All operations are full-state and idempotent.
+// netns/veth/route state and the machine's nftables ruleset (egress
+// masquerade for both families and port-forwarding DNAT). It runs in-process
+// in the agent; the network data plane itself is the kernel, so manager
+// availability is irrelevant to existing traffic. All operations are
+// full-state and idempotent.
 //
 // Default is the process-wide instance, wired by the bootstrap.
 var Default = New(Prefix{}, 0)
@@ -307,12 +308,25 @@ func vethPeerIndexesMatch(hostIndex, hostPeerIndex, containerIndex, containerPee
 }
 
 // SetPrefix installs the cluster ULA prefix (from primary config locally, or
-// from the cluster stream on secondaries).
+// from the cluster stream on secondaries). The IPv6 egress masquerade rule is
+// keyed on the prefix, so an already-installed ruleset is rebuilt when the
+// prefix arrives after the base ruleset (secondaries learn it from the first
+// accepted map).
 func (m *Manager) SetPrefix(p Prefix) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.prefix == p {
+		return
+	}
 	m.prefix = p
 	m.hasPrefix = !p.IsZero()
+	if !m.nftSkeletonReady {
+		return
+	}
+	if err := m.reconcileNft(); err != nil {
+		slog.WarnContext(m.ctx, "rebuilding nftables for cluster prefix failed", "err", err)
+		m.scheduleReconcileRetryLocked()
+	}
 }
 
 func (m *Manager) PrefixValue() (Prefix, bool) {

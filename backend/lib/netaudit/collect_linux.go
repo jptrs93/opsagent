@@ -57,8 +57,8 @@ func auditOnce(ctx context.Context, m *network.Manager) {
 		return
 	}
 	slog.WarnContext(ctx, fmt.Sprintf(
-		"netaudit: kernel network state diverged from desired missing_nft=%v unexpected_nft=%v unrecognized_nft=%v missing_filter=%v unexpected_filter=%v missing_elements=%v unexpected_elements=%v missing_masquerade=%v missing_routes=%v wrong_link_routes=%v unexpected_routes=%v missing_fallback_route=%v missing_wg_device=%v unexpected_wg_device=%v wg_device_drift=%v missing_wg_peers=%v unexpected_wg_peers=%v wg_peer_drift=%v",
-		second.MissingNft, second.UnexpectedNft, second.UnrecognizedNft, second.MissingFilter, second.UnexpectedFilter, second.MissingElements, second.UnexpectedElements, second.MissingMasquerade,
+		"netaudit: kernel network state diverged from desired missing_nft=%v unexpected_nft=%v unrecognized_nft=%v missing_filter=%v unexpected_filter=%v missing_elements=%v unexpected_elements=%v missing_masquerade=%v missing_masquerade6=%v missing_routes=%v wrong_link_routes=%v unexpected_routes=%v missing_fallback_route=%v missing_wg_device=%v unexpected_wg_device=%v wg_device_drift=%v missing_wg_peers=%v unexpected_wg_peers=%v wg_peer_drift=%v",
+		second.MissingNft, second.UnexpectedNft, second.UnrecognizedNft, second.MissingFilter, second.UnexpectedFilter, second.MissingElements, second.UnexpectedElements, second.MissingMasquerade, second.MissingMasquerade6,
 		second.MissingRoutes, second.WrongLinkRoutes, second.UnexpectedRoutes, second.MissingFallbackRoute,
 		second.MissingWGDevice, second.UnexpectedWGDevice, second.WGDeviceDrift, second.MissingWGPeers, second.UnexpectedWGPeers, second.WGPeerDrift))
 }
@@ -200,6 +200,8 @@ func collectNft(kernel *KernelState) error {
 				switch {
 				case !ok:
 					kernel.Unrecognized = append(kernel.Unrecognized, family.name+" "+chain.Name)
+				case parsed.Masquerade && family.name == "ip6":
+					kernel.Masquerade6 = parsed.Source
 				case parsed.Masquerade:
 					kernel.Masquerade = true
 				case parsed.DNAT:

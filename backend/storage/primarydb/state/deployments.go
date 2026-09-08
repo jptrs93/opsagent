@@ -19,11 +19,7 @@ import (
 func (s *Service) ListActiveDeployments() []*apigen.Deployment {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	out := make([]*apigen.Deployment, 0, len(s.deploymentCache))
-	for _, cfg := range s.deploymentCache {
-		out = append(out, cfg)
-	}
-	return out
+	return sliceu.MapValues(s.deploymentCache)
 }
 
 func (s *Service) MustFetchDeploymentHistory(ctx context.Context, deploymentID int32) []*apigen.Deployment {

@@ -22,7 +22,7 @@ Implemented today:
 - Workers reconcile the WireGuard device, one peer per remote node, and remote routed prefixes from accepted maps, then report the applied stamp. Each peer's allowed-ips are exactly the routed prefixes the map assigns to that node, so cryptokey routing enforces node-level source attribution: the kernel drops decrypted packets whose source lies outside the sending node's routed prefixes.
 - The primary applies its own targeted map through an in-process applier: it subscribes directly to the publisher, reconciles the same WireGuard peers and remote routes as workers, retries failed reconciliation on a timer (there is no session reconnect to redeliver a map in-process), and records its applied stamp into the same barrier only after a successful kernel apply. It never persists maps — the primary re-renders from its database on every boot.
 - The primary consumes those reports as a barrier: a superseded placement keeps running, and keeps its routes, until every node holding network state has applied the map that replaced it.
-- IPv4 egress is masqueraded from a fixed machine-local private range.
+- External egress is masqueraded for both families. IPv6 flows leaving the cluster `/48` are masqueraded to the host's outgoing-interface address, so a workload dials the internet from `O` and the world sees the node; flows staying inside the `/48` (same node or WireGuard) are never translated. A node with no global IPv6 address has no IPv6 egress path. IPv4 egress is masqueraded from a fixed machine-local private range.
 - `portForwarding` publishes virtual-mode container TCP/UDP ports through nftables DNAT on the machine's host interfaces, optionally restricted to an allow list of source IPs/CIDRs.
 - ROLLOVER in virtual mode starts a candidate with both addresses and promotes it by flipping the stable inbound-address host route. Promotion does not change source-address preference: `O` remains preferred for the promoted run's full lifetime.
 - A placement claims the stable inbound address only when its target state is `RUN_SERVING`, so a replacement warming up on another node cannot hold the same address as the placement it is replacing.
@@ -34,7 +34,7 @@ Implemented today:
 
 Not implemented yet:
 
-- A separate address allocation and design for future service virtual addresses, plus socket-level load balancing. The workload address ABI allocates only `I` and `O`.
+- Service virtual addresses (the reserved top ordinal 4095 of the deployment `/88`, see `docs/future-work/service-balancing-and-attachment-nat.md`) and socket-level load balancing. The address code does not yet reserve the ordinal; the workload address ABI allocates only `I` and `O`.
 - Cross-machine `ingress` route definitions: ingress backends come from the cluster catalog and may live on any node, but the routes themselves (and their host ports) are still rendered only on nodes holding a placement of the declaring deployment.
 
 ## Configuration
@@ -142,7 +142,9 @@ The resulting logical prefix hierarchy is:
 - Individual address: `/128`.
 
 The hard address-layout capacities are 65,536 spaces, 16,777,216 deployment
-field values with deployment `0` invalid, 4,096 ordinals, 1,048,575 nonzero
+field values with deployment `0` invalid, 4,096 ordinal values (ordinal 4095
+is reserved for the future service address, leaving 4,095 instance ordinals;
+the reservation is not yet enforced), 1,048,575 nonzero
 placement slots, and 255 nonzero run slots. Ordinals do not wrap. Placement and
 run slots wrap only through the normalization above; the raw values do not wrap.
 A placement-slot collision requires 1,048,575 intervening scheduled instances
@@ -214,9 +216,14 @@ cluster `/48`, so host traffic, host firewalls, and non-cluster flows are
 untouched.
 
 The static skeleton (both `opendeploy` tables, their base chains, the empty
-sets, the masquerade rule, and the fixed forward-chain program) is recreated on
+sets, the ip4 masquerade rule, and the fixed forward-chain program) is recreated on
 the first reconcile after agent start and persists for the process lifetime, so
-the counters on its drop rules survive steady-state reconciles. The ip6 forward
+the counters on its drop rules survive steady-state reconciles. The ip6
+masquerade rule (`ip6 saddr <cluster /48> ip6 daddr != <cluster /48>
+masquerade` in the ip6 `postrouting` chain) is keyed on the cluster prefix, so
+it is rendered with the DNAT rules and rebuilt when the NAT signature changes;
+`SetPrefix` triggers that rebuild on secondaries, which learn the prefix from
+their first accepted map after the base ruleset exists. The ip6 forward
 chain is: conntrack `established,related` accept; `oifname @blocked_out`
 counted drop; `iifname @managed iifname . ip6 saddr != @src_ok` counted drop;
 `ip6 daddr vmap @dst_dispatch`. The anti-spoofing root of trust for every
@@ -381,7 +388,7 @@ there, not a rollover candidate. The handoff is driven centrally:
 
 1. The standby starts on the new node. It owns its `/120` immediately, so its outbound traffic is routable, but it does **not** claim `I`.
 2. It reports `RUNNING`. The scheduler moves the old placement to `RUN_DRAINING` and the standby to `RUN_SERVING` in one atomic store commit (`FlipScheduledInstanceServing`: one lock hold, one transaction, per-row sequence numbers), which re-renders the map with `/100` pointing at the new node. No snapshot fetched from the store can observe the flip half-applied, so no rendered map ever transiently drops the ordinal's `/100` or its DNS record.
-3. The scheduler waits for its own decision's write sequence to be in force — rendered, and the resulting map applied by every node holding network state — then tells the drained placement to terminate. A timeout backstops a node that is connected but wedged.
+3. The scheduler waits for its own decision's write sequence to be in force — rendered, and the resulting map applied by every node holding network state — then tells the drained placement to terminate. A timeout backstops a node that is connected but wedged. The barrier gates only the termination, never the flip: every node sends to the new placement as soon as it applies the map, and a node that fires the backstop early costs stale clients a fast ICMP unreachable on new connections until they catch up. Planned refinements for large clusters (membership by apply progress rather than a fixed clock, membership scoped by policy-derived reachability) are recorded in `docs/future-work/networking.md`.
 
 Snapshot atomicity ends at the store: the cluster stream re-serializes state as
 per-instance messages, so a worker's local cache still applies the flip as two
