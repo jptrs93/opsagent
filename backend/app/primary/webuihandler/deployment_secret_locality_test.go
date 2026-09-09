@@ -2,34 +2,36 @@ package webuihandler
 
 import (
 	"errors"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"path/filepath"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
 func isSecretRefOutsideSpaceErr(err error) bool {
 	var apiErr apigen.ApiErr
-	return errors.As(err, &apiErr) && apiErr.InternalErr == SecretRefOutsideSpaceErr.InternalErr
+	return errors.As(err, &apiErr) && apiErr.InternalErr == deployments.SecretRefOutsideSpaceErr.InternalErr
 }
 
-func newSecretLocalityHandler(t *testing.T) (*Handler, *state.Node) {
+func newSecretLocalityHandler(t *testing.T) (*Handler, *nodes.Node) {
 	t.Helper()
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := store.EnsurePrimaryNode("primary", "primary")
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 	secretsManager, err := secrets.Initialize(t.TempDir(), store)
 	if err != nil {
 		t.Fatalf("secrets.Initialize: %v", err)
 	}
-	configService, err := config.InitializeService(store, apigen.PrimaryConfig{})
+	configService, err := systemconfig.InitializeService(store, apigen.SystemConfig{})
 	if err != nil {
-		t.Fatalf("config.InitializeService: %v", err)
+		t.Fatalf("systemconfig.InitializeService: %v", err)
 	}
-	return &Handler{ConfigService: configService, Store: store, Secrets: secretsManager}, node
+	return &Handler{SystemConfig: configService, Store: store, Queries: store.Queries(), Secrets: secretsManager}, node
 }
 
 func secretEnvSpec(image string, secretVersionID int32) apigen.DeploymentSpec {
@@ -43,15 +45,15 @@ func secretEnvSpec(image string, secretVersionID int32) apigen.DeploymentSpec {
 
 func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := h.Store.CreateSpace("prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	staging, err := h.Store.CreateSpace("staging")
+	staging, err := nodes.CreateSpace(h.Store, "staging")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	globalSecret, err := h.Secrets.Create("global-token", []byte("g"), 0, state.DefaultSpaceID, 0)
+	globalSecret, err := h.Secrets.Create("global-token", []byte("g"), 0, nodes.DefaultSpaceID, 0)
 	if err != nil {
 		t.Fatalf("creating global secret: %v", err)
 	}
@@ -60,7 +62,7 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		t.Fatalf("creating prod secret: %v", err)
 	}
 
-	create := func(name string, spaceID, secretVersionID int32) (*apigen.Deployment, error) {
+	create := func(name string, spaceID, secretVersionID int32) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			NodeID: node.ID,
@@ -74,11 +76,11 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	if _, err := create("global-ref", prod.ID, globalSecret.ID); err != nil {
 		t.Fatalf("global secret ref rejected: %v", err)
 	}
-	if _, err := create("global-deploy", state.DefaultSpaceID, prodSecret.ID); !isSecretRefOutsideSpaceErr(err) {
-		t.Fatalf("global deployment with prod secret err = %v, want %v", err, SecretRefOutsideSpaceErr)
+	if _, err := create("global-deploy", nodes.DefaultSpaceID, prodSecret.ID); !isSecretRefOutsideSpaceErr(err) {
+		t.Fatalf("global deployment with prod secret err = %v, want %v", err, deployments.SecretRefOutsideSpaceErr)
 	}
 	if _, err := create("staging-deploy", staging.ID, prodSecret.ID); !isSecretRefOutsideSpaceErr(err) {
-		t.Fatalf("staging deployment with prod secret err = %v, want %v", err, SecretRefOutsideSpaceErr)
+		t.Fatalf("staging deployment with prod secret err = %v, want %v", err, deployments.SecretRefOutsideSpaceErr)
 	}
 
 	clean, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
@@ -90,14 +92,14 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		t.Fatalf("creating clean deployment: %v", err)
 	}
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID:    clean.ID,
+		DeploymentID:    clean.DeploymentID,
 		ExpectedVersion: clean.Version + 1,
 		SpecUpdate:      &apigen.SpecUpdate{Spec: secretEnvSpec("nginx", prodSecret.ID)},
 	}); !isSecretRefOutsideSpaceErr(err) {
-		t.Fatalf("update adding prod secret err = %v, want %v", err, SecretRefOutsideSpaceErr)
+		t.Fatalf("update adding prod secret err = %v, want %v", err, deployments.SecretRefOutsideSpaceErr)
 	}
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID:    clean.ID,
+		DeploymentID:    clean.DeploymentID,
 		ExpectedVersion: clean.Version + 1,
 		SpecUpdate:      &apigen.SpecUpdate{Spec: secretEnvSpec("nginx", globalSecret.ID)},
 	}); err != nil {
@@ -107,7 +109,7 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 
 func TestIngressCertSecretRefScopedToSpace(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := h.Store.CreateSpace("prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -135,11 +137,11 @@ func TestIngressCertSecretRefScopedToSpace(t *testing.T) {
 	}
 
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		SpaceID: state.DefaultSpaceID, Name: "web-global",
+		SpaceID: nodes.DefaultSpaceID, Name: "web-global",
 		NodeID: node.ID,
 		Spec:   httpsSpec(),
 	}); !isSecretRefOutsideSpaceErr(err) {
-		t.Fatalf("global deployment with prod cert secret err = %v, want %v", err, SecretRefOutsideSpaceErr)
+		t.Fatalf("global deployment with prod cert secret err = %v, want %v", err, deployments.SecretRefOutsideSpaceErr)
 	}
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: prod.ID, Name: "web-prod",
@@ -152,11 +154,11 @@ func TestIngressCertSecretRefScopedToSpace(t *testing.T) {
 
 func TestSecretMoveToGlobalAllowedWithOutsideRefs(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := h.Store.CreateSpace("prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	staging, err := h.Store.CreateSpace("staging")
+	staging, err := nodes.CreateSpace(h.Store, "staging")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -175,14 +177,14 @@ func TestSecretMoveToGlobalAllowedWithOutsideRefs(t *testing.T) {
 	// The referencing deployment lives in prod: a move to the global space is
 	// reference-safe, a move to any other space is not.
 	if _, err := h.PostV1SecretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
-		SecretID: secret.SecretID, SpaceID: state.DefaultSpaceID,
+		SecretID: secret.SecretID, SpaceID: nodes.DefaultSpaceID,
 	}); err != nil {
 		t.Fatalf("move to global with outside refs: %v", err)
 	}
 	if _, err := h.PostV1SecretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
 		SecretID: secret.SecretID, SpaceID: staging.ID,
-	}); !errors.Is(err, MoveReferencesOutsideSpaceErr) {
-		t.Fatalf("move out of global to staging err = %v, want %v", err, MoveReferencesOutsideSpaceErr)
+	}); !errors.Is(err, deployments.MoveReferencesOutsideSpaceErr) {
+		t.Fatalf("move out of global to staging err = %v, want %v", err, deployments.MoveReferencesOutsideSpaceErr)
 	}
 	if _, err := h.PostV1SecretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
 		SecretID: secret.SecretID, SpaceID: prod.ID,

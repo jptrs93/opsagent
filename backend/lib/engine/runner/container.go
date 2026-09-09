@@ -147,7 +147,7 @@ func parseContainerRun(id, family string) (int32, bool) {
 	return int32(n), true
 }
 
-func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	configVersion := preparerStatus.DeploymentSpecVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, configVersion)
@@ -156,7 +156,7 @@ func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.Runti
 	return r
 }
 
-func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	configVersion := preparerStatus.DeploymentSpecVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, configVersion)
@@ -173,9 +173,9 @@ func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinpu
 // Suppressing its writes is what used to make a candidate that crashed during
 // startup invisible: nothing was recorded, so nothing was notified, so the
 // operator never woke to build a replacement and the rollout stalled in silence.
-func (r *containerRunner) initFreshRun(dep *apigen.Deployment, preparerStatus apigen.PreparerStatus, candidate bool) {
+func (r *containerRunner) initFreshRun(dep *apigen.DeploymentEvent, preparerStatus apigen.PreparerStatus, candidate bool) {
 	if candidate {
-		timeout := containerReadinessTimeout(dep.Def.Spec.Container().ReadinessSignal)
+		timeout := containerReadinessTimeout(dep.Value.Spec.Container().ReadinessSignal)
 		r.readiness = &readinessConfig{timeout: timeout}
 		r.readinessDeadline = time.Now().Add(timeout)
 		r.readinessPending.Store(true)
@@ -190,7 +190,7 @@ func (r *containerRunner) initFreshRun(dep *apigen.Deployment, preparerStatus ap
 	r.writeStatus()
 }
 
-func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
+func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, prev.DeploymentSpecVersion)
 	r.status = prev
@@ -206,9 +206,9 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 	return containerReadinessDefaultTimeout
 }
 
-func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, configVersion int32) *containerRunner {
-	cfg := dep.Def.Spec.Container().Runtime
-	family := containerFamily(dep.ID, configVersion, instanceID)
+func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, configVersion int32) *containerRunner {
+	cfg := dep.Value.Spec.Container().Runtime
+	family := containerFamily(dep.DeploymentID, configVersion, instanceID)
 	// Layering the container family onto the cancellation context keeps it on
 	// every log line without repeating it per call; cancel() still reaches the child.
 	ctx = logu.AddKV(ctx, "container", family)
@@ -220,17 +220,17 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		store:               store,
 		runtimeInputs:       inputs,
 		scheduledInstanceID: instanceID,
-		deploymentID:        dep.ID,
-		spaceID:             dep.Def.SpaceID,
+		deploymentID:        dep.DeploymentID,
+		spaceID:             dep.Value.SpaceID,
 		deploymentName:      containerDeploymentName(dep),
-		nodeID:              dep.Def.NodeID,
+		nodeID:              dep.Value.NodeID,
 		containerFamily:     family,
 		configVersion:       configVersion,
 		user:                cfg.User,
 		envVars:             cfg.EnvVars,
 		command:             cfg.OverrideCommand,
 		cwd:                 cfg.OverrideWorkingDir,
-		networking:          dep.Def.Spec.Networking,
+		networking:          dep.Value.Spec.Networking,
 		latestVersion:       dep.SpecVersion,
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
@@ -241,14 +241,14 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 	return r
 }
 
-func containerDeploymentName(dep *apigen.Deployment) string {
+func containerDeploymentName(dep *apigen.DeploymentEvent) string {
 	if dep == nil {
 		return "<nil>"
 	}
-	if dep.Def.Name != "" {
-		return fmt.Sprintf("%d:%d:%s", dep.Def.SpaceID, dep.Def.NodeID, dep.Def.Name)
+	if dep.Value.Name != "" {
+		return fmt.Sprintf("%d:%d:%s", dep.Value.SpaceID, dep.Value.NodeID, dep.Value.Name)
 	}
-	return fmt.Sprintf("id=%d", dep.ID)
+	return fmt.Sprintf("id=%d", dep.DeploymentID)
 }
 
 func (r *containerRunner) SpecVersion() int32 { return r.status.DeploymentSpecVersion }
@@ -1410,12 +1410,12 @@ func (r *containerRunner) writeStatus() {
 // data volume (unless disabled) followed by any configured mounts. It also
 // returns the default volume's host path (empty when disabled) so the runner can
 // create + chown it at spawn time.
-func containerMounts(dep *apigen.Deployment) ([]ctrd.Mount, string) {
-	cfg := dep.Def.Spec.Container().Runtime
+func containerMounts(dep *apigen.DeploymentEvent) ([]ctrd.Mount, string) {
+	cfg := dep.Value.Spec.Container().Runtime
 	var mounts []ctrd.Mount
 	var dataHost string
 	if !cfg.DefaultVolume.Disabled {
-		dataHost = defaultVolumeHostDir(dep.ID)
+		dataHost = defaultVolumeHostDir(dep.DeploymentID)
 		mounts = append(mounts, ctrd.Mount{
 			Source: dataHost,
 			Dest:   defaultVolumeDest(cfg.DefaultVolume.ContainerPath),
@@ -1450,7 +1450,7 @@ func containerMounts(dep *apigen.Deployment) ([]ctrd.Mount, string) {
 	}
 	if cfg.IssuedTlsMount != nil {
 		mounts = append(mounts, ctrd.Mount{
-			Source:   runtimeinputs.IssuedTLSHostDir(dep.ID),
+			Source:   runtimeinputs.IssuedTLSHostDir(dep.DeploymentID),
 			Dest:     cfg.IssuedTlsMount.ContainerPath,
 			ReadOnly: true,
 		})

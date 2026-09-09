@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
 	"net/http"
 	"slices"
 	"sync"
@@ -16,10 +17,10 @@ import (
 
 const metricsLatestTimeout = 5 * time.Second
 
-func (h *Handler) metricsNodes(cfg *apigen.Deployment) []int32 {
-	nodes := []int32{cfg.Def.NodeID}
+func (h *Handler) metricsNodes(cfg *apigen.DeploymentEvent) []int32 {
+	nodes := []int32{cfg.Value.NodeID}
 	for _, st := range h.Store.FetchScheduledSnapshot(nil) {
-		if st.Instance.DeploymentID == cfg.ID && st.Instance.NodeID > 0 && !slices.Contains(nodes, st.Instance.NodeID) {
+		if st.Instance.DeploymentID == cfg.DeploymentID && st.Instance.NodeID > 0 && !slices.Contains(nodes, st.Instance.NodeID) {
 			nodes = append(nodes, st.Instance.NodeID)
 		}
 	}
@@ -31,20 +32,20 @@ func (h *Handler) PostV1MetricsQuery(ctx apigen.Context, req *apigen.MetricsQuer
 		return nil, MissingKeyErr
 	}
 	if req.SpecVersion < 0 || req.Run < 0 || req.ScheduledInstanceID < 0 || req.StepMs < 0 {
-		return nil, invalidConfigErrf("scope values must not be negative")
+		return nil, deployments.InvalidConfigErrf("scope values must not be negative")
 	}
 	cfg := h.findConfigByID(req.DeploymentID)
 	if cfg == nil {
-		return nil, DeploymentNotFoundErr
+		return nil, deployments.NotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID), deployments.NotFoundErr); err != nil {
 		return nil, err
 	}
 	if _, _, err := metricstore.ResolveRange(req.TimeStart, req.TimeEnd, time.Now()); err != nil {
-		return nil, invalidConfigErrf("%s", err.Error())
+		return nil, deployments.InvalidConfigErrf("%s", err.Error())
 	}
 	if _, err := metricstore.RequestFields(req.Fields); err != nil {
-		return nil, invalidConfigErrf("%s", err.Error())
+		return nil, deployments.InvalidConfigErrf("%s", err.Error())
 	}
 	if req.StepMs < metricstore.MinStep.Milliseconds() {
 		from, to, _ := metricstore.ResolveRange(req.TimeStart, req.TimeEnd, time.Now())
@@ -155,7 +156,7 @@ func (h *Handler) PostV1MetricsLatest(ctx apigen.Context, _ *apigen.MetricsLates
 		ok, seen := visible[id]
 		if !seen {
 			cfg := h.findConfigByID(id)
-			ok = cfg != nil && h.canAccess(ctx, vViewLogs, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID))
+			ok = cfg != nil && h.canAccess(ctx, vViewLogs, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID))
 			visible[id] = ok
 		}
 		return !ok

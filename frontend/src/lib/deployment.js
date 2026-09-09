@@ -5,13 +5,13 @@ export function deploymentDeleted(config) {
 }
 
 export function containerWorkload(config) {
-    return config?.def?.spec?.container1Spec || null;
+    return config?.value?.spec?.container1Spec || null;
 }
 
 export function deploymentWorkload(config) {
     const container = containerWorkload(config);
     if (container) return container;
-    const opendeploy = config?.def?.spec?.opendeploySpec;
+    const opendeploy = config?.value?.spec?.opendeploySpec;
     if (opendeploy) return {...opendeploy, running: true};
     return null;
 }

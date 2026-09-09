@@ -5,6 +5,8 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/agentsessions"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"net/http"
 	"strings"
 	"time"
@@ -12,8 +14,7 @@ import (
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/authz"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
 	"github.com/jptrs93/opsagent/backend/util/jwtu"
 )
 
@@ -69,16 +70,16 @@ func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswor
 // compared trimmed on both sides so accounts created before trimming with
 // surrounding whitespace still resolve.
 func (h *Handler) resolveOrCreateUser(username string) (*apigen.InternalUser, error) {
-	user, err := h.Store.FetchUserMatching(func(u *apigen.InternalUser) bool {
+	user, err := users.Matching(h.Store.Queries(), func(u *apigen.InternalUser) bool {
 		return strings.TrimSpace(u.Name) == username
 	})
 	if err == nil {
 		return user, nil
 	}
-	if !errors.Is(err, state.ErrNotFound) {
+	if !errors.Is(err, users.ErrNotFound) {
 		return nil, err
 	}
-	id := int32(h.Store.UserCount()) + 1
+	id := int32(users.Count(h.Store.Queries())) + 1
 	webAuthNID, err := authu.GenerateWebAuthnID(32)
 	if err != nil {
 		return nil, err
@@ -88,7 +89,7 @@ func (h *Handler) resolveOrCreateUser(username string) (*apigen.InternalUser, er
 		WebAuthNID: webAuthNID,
 		Name:       username,
 	}
-	h.Store.WriteUser(user)
+	users.Write(h.Store, user)
 	if _, err := h.Authz.CreateGrant(&apigen.AuthzGrantRecord{
 		UserID:     int64(user.ID),
 		TemplateID: authz.ClusterAdminTemplateID,
@@ -100,7 +101,7 @@ func (h *Handler) resolveOrCreateUser(username string) (*apigen.InternalUser, er
 }
 
 func (h *Handler) verifyMasterPassword(password string) error {
-	masterPasswordHash, err := h.ConfigService.GetMasterPasswordHash()
+	masterPasswordHash, err := h.SystemConfig.GetMasterPasswordHash()
 	if err != nil {
 		return err
 	}
@@ -132,7 +133,7 @@ func (h *Handler) PostV1AuthMasterPasswordSave(ctx apigen.Context, req *apigen.M
 	if err != nil {
 		return fmt.Errorf("hashing master password: %w", err)
 	}
-	if err := h.ConfigService.SetMasterPasswordHash(hash); err != nil {
+	if err := h.SystemConfig.SetMasterPasswordHash(hash); err != nil {
 		return err
 	}
 	return nil
@@ -173,8 +174,8 @@ func (h *Handler) verifyAgentSession(claims map[string]any, token string) error 
 	if sessionID == "" {
 		return nil
 	}
-	rec, err := h.Store.FetchAgentSession(sessionID)
-	if errors.Is(err, state.ErrNotFound) {
+	rec, err := h.agentSessions().FetchAgentSession(sessionID)
+	if errors.Is(err, agentsessions.ErrNotFound) {
 		return InvalidAuthTokenErr
 	}
 	if err != nil {

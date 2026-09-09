@@ -6,7 +6,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/config"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 )
 
 func TestPasskeyOriginsIncludesExtraOrigins(t *testing.T) {
@@ -15,7 +15,7 @@ func TestPasskeyOriginsIncludesExtraOrigins(t *testing.T) {
 	ainit.StaticConfig.PasskeyExtraOrigins = []string{"https://primary.opendeploy.test:8443", ""}
 
 	h := &Handler{
-		ConfigService: &config.Service{},
+		SystemConfig: &systemconfig.Service{},
 		Config: &apigen.ClusterSettings{
 			HttpWeb: apigen.HttpWebSettings{Enabled: apigen.BoolSetting{Value: false}},
 			HttpsWeb: apigen.HttpsWebSettings{
@@ -93,7 +93,7 @@ func TestPasskeyRPAndOriginsFollowListenPortsAndSchemes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := tc.cfg
-			h := &Handler{ConfigService: &config.Service{}, Config: &cfg}
+			h := &Handler{SystemConfig: &systemconfig.Service{}, Config: &cfg}
 			rpID, err := h.passkeyRPID()
 			if err != nil || rpID != tc.wantRPID {
 				t.Fatalf("passkeyRPID = %q, %v; want %q", rpID, err, tc.wantRPID)

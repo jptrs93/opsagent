@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/pki"
 	"log/slog"
 	"net"
 	"net/http"
@@ -14,8 +15,8 @@ import (
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/debug/acmedebug"
 	"github.com/jptrs93/opsagent/backend/util/stringu"
@@ -24,13 +25,13 @@ import (
 
 const primaryServerShutdownTimeout = 20 * time.Second
 
-func RunPrimaryHTTPWebUI(ctx context.Context, cs *config.Service, webHandler http.Handler) error {
+func RunPrimaryHTTPWebUI(ctx context.Context, cs *systemconfig.Service, webHandler http.Handler) error {
 	ctx = logu.AddTag(ctx, "WebUI")
 	cfg := cs.Snapshot().Settings
-	if !cs.MustLoadConfigBoolValue(cfg.HttpWeb.Enabled) {
+	if !cs.MustLoadBoolSetting(cfg.HttpWeb.Enabled) {
 		return nil
 	}
-	listen := cs.MustLoadConfigStringValue(cfg.HttpWeb.Listen)
+	listen := cs.MustLoadStringSetting(cfg.HttpWeb.Listen)
 	listen = strings.TrimSpace(listen)
 	if listen == "" {
 		return fmt.Errorf("web-http listen address is required")
@@ -48,13 +49,13 @@ func RunPrimaryHTTPWebUI(ctx context.Context, cs *config.Service, webHandler htt
 	return runManagedWebUIServer(ctx, "web-http", srv, func() error { return srv.Serve(ln) })
 }
 
-func RunPrimaryHTTPSWebUI(ctx context.Context, cs *config.Service, secretsMgr *secrets.Manager, webHandler http.Handler) error {
+func RunPrimaryHTTPSWebUI(ctx context.Context, cs *systemconfig.Service, secretsMgr *secrets.Manager, webHandler http.Handler) error {
 	ctx = logu.AddTag(ctx, "WebUI")
 	cfg := cs.Snapshot().Settings
-	if !cs.MustLoadConfigBoolValue(cfg.HttpsWeb.Enabled) {
+	if !cs.MustLoadBoolSetting(cfg.HttpsWeb.Enabled) {
 		return nil
 	}
-	listen := cs.MustLoadConfigStringValue(cfg.HttpsWeb.Listen)
+	listen := cs.MustLoadStringSetting(cfg.HttpsWeb.Listen)
 	listen = strings.TrimSpace(listen)
 	if listen == "" {
 		return fmt.Errorf("web-https listen address is required")
@@ -112,15 +113,15 @@ func managedWebUIServerResult(ctx context.Context, name string, err error) error
 }
 
 func webUITLSConfig(
-	cs *config.Service,
+	cs *systemconfig.Service,
 	secretsMgr *secrets.Manager,
 	cfg *apigen.ClusterSettings) (*tls.Config, error) {
-	tlsSelfManaged := cs.MustLoadConfigBoolValue(cfg.HttpsWeb.TlsSelfManaged)
+	tlsSelfManaged := cs.MustLoadBoolSetting(cfg.HttpsWeb.TlsSelfManaged)
 	if tlsSelfManaged {
 		return selfManagedWebUITLSConfig(secretsMgr, cs, cfg)
 	}
-	acmeHosts := cs.MustLoadConfigStringValue(cfg.HttpsWeb.AcmeHosts)
-	acmeEmail := cs.MustLoadConfigStringValue(cfg.HttpsWeb.AcmeEmail)
+	acmeHosts := cs.MustLoadStringSetting(cfg.HttpsWeb.AcmeHosts)
+	acmeEmail := cs.MustLoadStringSetting(cfg.HttpsWeb.AcmeEmail)
 	certManager := &autocert.Manager{
 		Prompt:      autocert.AcceptTOS,
 		Cache:       autocert.DirCache(ainit.StaticConfig.ACMECacheDir),
@@ -134,7 +135,7 @@ func webUITLSConfig(
 	return tlsConfig, nil
 }
 
-func selfManagedWebUITLSConfig(store *secrets.Manager, loader config.Loader, cfg *apigen.ClusterSettings) (*tls.Config, error) {
+func selfManagedWebUITLSConfig(store *secrets.Manager, loader systemconfig.Loader, cfg *apigen.ClusterSettings) (*tls.Config, error) {
 	bundle, err := webUITLSBundle(store, loader, cfg)
 	if err != nil {
 		return nil, err
@@ -146,7 +147,7 @@ func selfManagedWebUITLSConfig(store *secrets.Manager, loader config.Loader, cfg
 	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13}, nil
 }
 
-func webUITLSBundle(store *secrets.Manager, loader config.Loader, cfg *apigen.ClusterSettings) ([]byte, error) {
+func webUITLSBundle(store *secrets.Manager, loader systemconfig.Loader, cfg *apigen.ClusterSettings) ([]byte, error) {
 	if id := cfg.HttpsWeb.TlsCertPem.VersionID; id != 0 {
 		value, err := store.RevealByID(id)
 		if err != nil {
@@ -157,7 +158,7 @@ func webUITLSBundle(store *secrets.Manager, loader config.Loader, cfg *apigen.Cl
 	// No operator bundle: serve a leaf under the local CA, issuing or
 	// reissuing it here so enabling self-managed TLS later, or changing the
 	// hostnames, never leaves the listener without a certificate.
-	bundle, caCertPEM, err := certu.EnsureWebUILocalTLS(store, webUITLSNames(loader, cfg))
+	bundle, caCertPEM, err := pki.EnsureWebUILocalTLS(store, webUITLSNames(loader, cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -167,9 +168,9 @@ func webUITLSBundle(store *secrets.Manager, loader config.Loader, cfg *apigen.Cl
 	return bundle, nil
 }
 
-func webUITLSNames(loader config.Loader, cfg *apigen.ClusterSettings) []string {
-	acmeHosts := loader.MustLoadConfigStringValue(cfg.HttpsWeb.AcmeHosts)
-	listen := loader.MustLoadConfigStringValue(cfg.HttpsWeb.Listen)
+func webUITLSNames(loader systemconfig.Loader, cfg *apigen.ClusterSettings) []string {
+	acmeHosts := loader.MustLoadStringSetting(cfg.HttpsWeb.AcmeHosts)
+	listen := loader.MustLoadStringSetting(cfg.HttpsWeb.Listen)
 	names := append([]string{}, stringu.ParseStringList(acmeHosts)...)
 	if host := listenHost(listen); host != "" {
 		names = append(names, host)

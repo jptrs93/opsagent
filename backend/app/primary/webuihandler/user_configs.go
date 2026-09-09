@@ -2,12 +2,15 @@ package webuihandler
 
 import (
 	"errors"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"net/http"
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var UserConfigNameRequiredErr = apigen.NewApiErr("Config name is required", "user_config_name_required", http.StatusBadRequest)
@@ -18,25 +21,25 @@ var UserConfigNotFoundErr = apigen.NewApiErr("Config not found", "user_config_no
 
 func mapConfigStoreErr(err error) error {
 	switch {
-	case errors.Is(err, state.ErrValueNotFound):
+	case errors.Is(err, values.ErrNotFound):
 		return UserConfigNotFoundErr
-	case errors.Is(err, state.ErrValueAlreadyExists):
+	case errors.Is(err, values.ErrAlreadyExists):
 		return UserConfigAlreadyExistsErr
-	case errors.Is(err, state.ErrValueNameInvalid):
+	case errors.Is(err, values.ErrNameInvalid):
 		return UserConfigNameInvalidErr
-	case errors.Is(err, state.ErrValueDirectoryNotFound):
+	case errors.Is(err, values.ErrDirectoryNotFound):
 		return ValueDirectoryNotFoundErr
-	case errors.Is(err, state.ErrSpaceMoveUnsupported):
+	case errors.Is(err, values.ErrSpaceMoveUnsupported):
 		return ValueSpaceMoveUnsupportedErr
 	}
 	return err
 }
 
-func (h *Handler) PostV1ConfigsList(ctx apigen.Context) (*apigen.ConfigList, error) {
-	return &apigen.ConfigList{Items: h.filterConfigs(ctx, h.Store.ListConfigs())}, nil
+func (h *Handler) PostV1ConfigsList(ctx apigen.Context) (*apigen.ConfigEventList, error) {
+	return &apigen.ConfigEventList{Items: h.filterConfigs(ctx, values.ListConfigs(h.Store.Queries()))}, nil
 }
 
-func (h *Handler) PostV1ConfigsCreate(ctx apigen.Context, req *apigen.ConfigCreateRequest) (*apigen.Config, error) {
+func (h *Handler) PostV1ConfigsCreate(ctx apigen.Context, req *apigen.ConfigCreateRequest) (*apigen.ConfigEvent, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, UserConfigNameRequiredErr
@@ -44,29 +47,28 @@ func (h *Handler) PostV1ConfigsCreate(ctx apigen.Context, req *apigen.ConfigCrea
 	if err := h.requireAccess(ctx, vCreate, eConfig, valueSpace(req.SpaceID), 0); err != nil {
 		return nil, err
 	}
-	meta, err := h.Store.CreateConfigWithVersion(name, req.SpaceID, req.ValueDirectoryID, requestUserID(ctx), req.Value)
+	meta, err := values.CreateConfig(h.Store, name, req.SpaceID, req.ValueDirectoryID, requestUserID(ctx), req.Value)
 	if err != nil {
 		return nil, mapConfigStoreErr(err)
 	}
-	h.Store.NotifyConfigUpdate(meta)
+
 	return meta, nil
 }
 
-func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequest) (*apigen.Config, error) {
+func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequest) (*apigen.ConfigEvent, error) {
 	if req.ConfigID == 0 {
 		return nil, UserConfigIDRequiredErr
 	}
-	if existing, ok := h.Store.GetConfig(req.ConfigID); !ok {
+	if existing, ok := values.GetConfig(h.Store.Queries(), req.ConfigID); !ok {
 		return nil, UserConfigNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID()), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID()), int64(existing.ConfigID), UserConfigNotFoundErr); err != nil {
 		return nil, err
 	}
 	expected, err := requestedDeploymentVersions(req.UpdateReferencingDeployments, req.ReferencingDeployments)
 	if err != nil {
 		return nil, err
 	}
-	defer h.Store.GlobalLock()()
-	meta, _, err := h.Store.AppendConfigVersionWithDeploymentUpdatesLocked(
+	meta, _, err := values.AppendConfigVersion(h.Store,
 		req.ConfigID,
 		req.Value,
 		requestUserID(ctx),
@@ -74,32 +76,32 @@ func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequ
 		expected,
 	)
 	if err != nil {
-		if errors.Is(err, state.ErrValueNotFound) {
+		if errors.Is(err, values.ErrNotFound) {
 			return nil, UserConfigNotFoundErr
 		}
 		return nil, versionedValueSetError(err)
 	}
-	h.Store.NotifyConfigUpdate(meta)
+
 	return meta, nil
 }
 
-func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRenameRequest) (*apigen.Config, error) {
+func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRenameRequest) (*apigen.ConfigEvent, error) {
 	if req.ConfigID == 0 {
 		return nil, UserConfigIDRequiredErr
 	}
 	if strings.TrimSpace(req.NewName) == "" {
 		return nil, UserConfigNameRequiredErr
 	}
-	if existing, ok := h.Store.GetConfig(req.ConfigID); !ok {
+	if existing, ok := values.GetConfig(h.Store.Queries(), req.ConfigID); !ok {
 		return nil, UserConfigNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID()), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID()), int64(existing.ConfigID), UserConfigNotFoundErr); err != nil {
 		return nil, err
 	}
-	meta, err := h.Store.RenameConfig(req.ConfigID, strings.TrimSpace(req.NewName))
+	meta, err := values.RenameConfig(h.Store, req.ConfigID, strings.TrimSpace(req.NewName))
 	if err != nil {
 		return nil, mapConfigStoreErr(err)
 	}
-	h.Store.NotifyConfigUpdate(meta)
+
 	return meta, nil
 }
 
@@ -109,18 +111,18 @@ func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRena
 // only while nothing outside the destination space references the config:
 // deployments must be able to keep their pins within their own space, and a
 // settings reference pins the value to the global space.
-func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRequest) (*apigen.Config, error) {
+func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRequest) (*apigen.ConfigEvent, error) {
 	if req.ConfigID == 0 {
 		return nil, UserConfigIDRequiredErr
 	}
-	existing, ok := h.Store.GetConfig(req.ConfigID)
+	existing, ok := values.GetConfig(h.Store.Queries(), req.ConfigID)
 	if !ok {
 		return nil, UserConfigNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID()), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID()), int64(existing.ConfigID), UserConfigNotFoundErr); err != nil {
 		return nil, err
 	}
-	destSpace := state.NormalizedUserSpaceID(req.SpaceID)
+	destSpace := nodes.NormalizedUserSpaceID(req.SpaceID)
 	spaceChanging := req.SpaceID != 0 && destSpace != existing.SpaceID()
 	// Moving into another space also needs the right to create a config there.
 	if spaceChanging {
@@ -129,32 +131,39 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 		}
 	}
 	if spaceChanging {
-		// Deployment writes hold the same lock, so no new reference can appear
-		// between the locality check and the move.
-		defer h.Store.GlobalLock()()
-		ids := int32Set(h.Store.ConfigVersionIDs(req.ConfigID))
-		if h.settingsUseConfigID(ids) && destSpace != state.DefaultSpaceID {
-			return nil, MoveReferencesOutsideSpaceErr
+		validate := func(q *pq.Queries) error {
+			if destSpace == nodes.DefaultSpaceID {
+				return nil
+			}
+			ids := deployments.Int32Set(values.ConfigVersionIDs(h.Store.Queries(), req.ConfigID))
+			if h.settingsUseConfigID(ids) {
+				return deployments.MoveReferencesOutsideSpaceErr
+			}
+			live, err := nodes.ReadLiveState(ctx, q)
+			if err != nil {
+				return err
+			}
+			if deployments.ReferencesOutsideSpace(live, ids, runtimeinputs.ConfigRefs, destSpace) {
+				return deployments.MoveReferencesOutsideSpaceErr
+			}
+			return nil
 		}
-		if destSpace != state.DefaultSpaceID && referencesOutsideSpace(h.Store.LiveState(), ids, runtimeinputs.ConfigRefs, destSpace) {
-			return nil, MoveReferencesOutsideSpaceErr
-		}
-		if err := h.Store.MoveConfigSpaceLocked(req.ConfigID, req.SpaceID, req.ValueDirectoryID, ctx.AttributionUserID()); err != nil {
+		if err := values.MoveConfigSpace(h.Store, req.ConfigID, req.SpaceID, req.ValueDirectoryID, ctx.AttributionUserID(), validate); err != nil {
 			return nil, mapConfigStoreErr(err)
 		}
 		// Tombstone for clients that saw the old space but cannot see the new
 		// one — updates a user cannot view are dropped, and nothing else says
 		// "gone". The update below re-adds the row where the destination is
 		// visible.
-		h.Store.NotifyConfigDeleted(existing)
-	} else if _, err := h.Store.MoveConfigDirectory(req.ConfigID, req.ValueDirectoryID); err != nil {
+
+	} else if err := values.MoveConfigDirectory(h.Store, req.ConfigID, req.ValueDirectoryID); err != nil {
 		return nil, mapConfigStoreErr(err)
 	}
-	meta, ok := h.Store.GetConfig(req.ConfigID)
+	meta, ok := values.GetConfig(h.Store.Queries(), req.ConfigID)
 	if !ok {
 		return nil, UserConfigNotFoundErr
 	}
-	h.Store.NotifyConfigUpdate(meta)
+
 	return meta, nil
 }
 
@@ -162,24 +171,29 @@ func (h *Handler) PostV1ConfigsDelete(ctx apigen.Context, req *apigen.ConfigDele
 	if req.ConfigID == 0 {
 		return UserConfigIDRequiredErr
 	}
-	if existing, ok := h.Store.GetConfig(req.ConfigID); !ok {
+	if existing, ok := values.GetConfig(h.Store.Queries(), req.ConfigID); !ok {
 		return UserConfigNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vDelete, eConfig, int64(existing.SpaceID()), int64(existing.ID), UserConfigNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vDelete, eConfig, int64(existing.SpaceID()), int64(existing.ConfigID), UserConfigNotFoundErr); err != nil {
 		return err
 	}
-	defer h.Store.GlobalLock()()
-	ids := int32Set(h.Store.ConfigVersionIDs(req.ConfigID))
-	if len(ids) == 0 {
-		return UserConfigNotFoundErr
+	validate := func(q *pq.Queries) error {
+		ids := deployments.Int32Set(values.ConfigVersionIDs(h.Store.Queries(), req.ConfigID))
+		if len(ids) == 0 {
+			return UserConfigNotFoundErr
+		}
+		live, err := nodes.ReadLiveState(ctx, q)
+		if err != nil {
+			return err
+		}
+		details := append(h.settingsConfigRefDetails(ids), deployments.RefDetails(ctx, q, live, ids, runtimeinputs.ConfigRefs)...)
+		if len(details) > 0 {
+			return deployments.ReferenceInUseDetailErr("Config", details)
+		}
+		return nil
 	}
-	details := append(h.settingsConfigRefDetails(ids), deploymentRefDetails(h.Store, h.Store.LiveState(), ids, runtimeinputs.ConfigRefs)...)
-	if len(details) > 0 {
-		return referenceInUseDetailErr("Config", details)
+	if _, err := values.DeleteConfig(h.Store, req.ConfigID, validate); err != nil {
+		return mapConfigStoreErr(err)
 	}
-	meta, ok := h.Store.DeleteConfigLocked(req.ConfigID)
-	if !ok {
-		return UserConfigNotFoundErr
-	}
-	h.Store.NotifyConfigUpdate(meta)
+
 	return nil
 }

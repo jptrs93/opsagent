@@ -5,7 +5,7 @@ import {cleanDeployment, deploymentToYaml, orderDeployment} from "../yaml/deploy
 const {div, span, pre, button} = van.tags;
 
 function currentDeployment(deploymentId) {
-    return (deploymentsS.val || []).find(item => item.config?.id === deploymentId)?.config || null;
+    return (deploymentsS.val || []).find(item => item.config?.deploymentId === deploymentId)?.config || null;
 }
 
 function deploymentJson(deploymentId) {

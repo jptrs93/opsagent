@@ -68,7 +68,7 @@ message RecentlyDeletedDeployments {
   // Final config of each deleted deployment, most recently deleted first. The
   // spec is intact, so a client can seed a new deployment from one; the id and
   // spec version belong to the deleted deployment and cannot be reused.
-  repeated Deployment items = 1;
+  repeated DeploymentEvent items = 1;
 }
 
 message DeploymentDeleteRequest {
@@ -187,13 +187,14 @@ message DeploymentGetRequest {
   int32 id = 1;
 }
 
-message DeploymentState {
-  Deployment config = 1;
-  ScheduledInstanceSnapshot instances = 2;
+message DeploymentGetResponse {
+  DeploymentEvent deployment_event = 1;
+  repeated ScheduledInstanceEvent scheduled_instance_events = 2;
+  repeated ScheduledInstanceStatus instance_statuses = 3;
 }
 
 message DeploymentHistoryEntry {
-  Deployment config = 1;
+  DeploymentEvent config = 1;
   ScheduledInstanceStatus status = 2;
 }
 

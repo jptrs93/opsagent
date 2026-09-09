@@ -2,24 +2,26 @@ package webuihandler
 
 import (
 	"context"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/config"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
-func newNodeSpacesHandler(t *testing.T) (*Handler, *state.Node) {
+func newNodeSpacesHandler(t *testing.T) (*Handler, *nodes.Node) {
 	t.Helper()
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := store.EnsurePrimaryNode("primary", "primary-id")
-	return &Handler{ConfigService: &config.Service{}, Store: store}, node
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary-id")
+	return &Handler{SystemConfig: &systemconfig.Service{}, Store: store, Queries: store.Queries()}, node
 }
 
-func setAllowed(t *testing.T, h *Handler, identifier string, spaces []int32) (*apigen.ClusterNode, error) {
+func setAllowed(t *testing.T, h *Handler, identifier string, spaces []int32) (*apigen.NodeEvent, error) {
 	t.Helper()
 	return h.PostV1NodesAllowedSpaces(apigen.Context{Ctx: context.Background()},
 		&apigen.NodeAllowedSpacesRequest{Identifier: identifier, SpaceIds: spaces})
@@ -27,7 +29,7 @@ func setAllowed(t *testing.T, h *Handler, identifier string, spaces []int32) (*a
 
 func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 	h, node := newNodeSpacesHandler(t)
-	space, err := h.Store.CreateSpace("staging")
+	space, err := nodes.CreateSpace(h.Store, "staging")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -44,11 +46,11 @@ func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 	}
 
 	// A second space, narrowed off this node while nothing occupies it.
-	fenced, err := h.Store.CreateSpace("fenced")
+	fenced, err := nodes.CreateSpace(h.Store, "fenced")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	if _, err := setAllowed(t, h, node.Identifier, []int32{state.DefaultSpaceID, space.ID}); err != nil {
+	if _, err := setAllowed(t, h, node.Identifier, []int32{nodes.DefaultSpaceID, space.ID}); err != nil {
 		t.Fatalf("narrowing: %v", err)
 	}
 
@@ -64,25 +66,25 @@ func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 
 func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 	h, node := newNodeSpacesHandler(t)
-	space, err := h.Store.CreateSpace("staging")
+	space, err := nodes.CreateSpace(h.Store, "staging")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
 	cfg, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		SpaceID: state.DefaultSpaceID, Name: "web",
+		SpaceID: nodes.DefaultSpaceID, Name: "web",
 		NodeID: node.ID,
 		Spec:   spec,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if _, err := setAllowed(t, h, node.Identifier, []int32{state.DefaultSpaceID}); err != nil {
+	if _, err := setAllowed(t, h, node.Identifier, []int32{nodes.DefaultSpaceID}); err != nil {
 		t.Fatalf("narrowing: %v", err)
 	}
 
 	_, err = h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID:        cfg.ID,
+		DeploymentID:        cfg.DeploymentID,
 		ExpectedVersion:     cfg.Version + 1,
 		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: space.ID},
 	})
@@ -97,7 +99,7 @@ func TestNarrowingIsRejectedWhileDeploymentsUseTheSpace(t *testing.T) {
 	h, node := newNodeSpacesHandler(t)
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		SpaceID: state.DefaultSpaceID, Name: "web",
+		SpaceID: nodes.DefaultSpaceID, Name: "web",
 		NodeID: node.ID,
 		Spec:   spec,
 	}); err != nil {
@@ -109,7 +111,7 @@ func TestNarrowingIsRejectedWhileDeploymentsUseTheSpace(t *testing.T) {
 		t.Fatalf("err = %v, want node_space_in_use", err)
 	}
 	// And the stored list is untouched.
-	if got := nodeAllowsSpaceForTest(h, node.ID, state.DefaultSpaceID); !got {
+	if got := nodeAllowsSpaceForTest(h, node.ID, nodes.DefaultSpaceID); !got {
 		t.Fatal("a rejected narrowing still changed the stored list")
 	}
 }
@@ -133,7 +135,7 @@ func TestSetAllowedSpacesRejectsUnknownAndMissingInput(t *testing.T) {
 // treats every node as disallowing every space.
 func TestClusterNodesCarryAllowedSpaces(t *testing.T) {
 	h, node := newNodeSpacesHandler(t)
-	space, err := h.Store.CreateSpace("staging")
+	space, err := nodes.CreateSpace(h.Store, "staging")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -142,14 +144,14 @@ func TestClusterNodesCarryAllowedSpaces(t *testing.T) {
 	}
 
 	var got []int32
-	for _, item := range h.Store.ListClusterNodes() {
-		if item != nil && item.ID == node.ID {
-			got = item.AllowedSpaces
+	for _, item := range nodes.ListClusterNodes(h.Store.Queries()) {
+		if item != nil && item.NodeID == node.ID {
+			got = item.Value.Operator.AllowedSpaces
 		}
 	}
 	slices.Sort(got)
-	if !slices.Equal(got, []int32{state.OpendeploySpaceID, space.ID}) {
-		t.Fatalf("AllowedSpaces = %v, want [%d %d]", got, state.OpendeploySpaceID, space.ID)
+	if !slices.Equal(got, []int32{internaldeploy.SpaceID, space.ID}) {
+		t.Fatalf("AllowedSpaces = %v, want [%d %d]", got, internaldeploy.SpaceID, space.ID)
 	}
 }
 
@@ -160,16 +162,16 @@ func TestSetAllowedSpacesAlwaysKeepsTheOpendeploySpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetAllowedSpaces: %v", err)
 	}
-	if !slices.Equal(updated.AllowedSpaces, []int32{state.OpendeploySpaceID}) {
-		t.Fatalf("AllowedSpaces = %v, want just the opendeploy space", updated.AllowedSpaces)
+	if !slices.Equal(updated.Value.Operator.AllowedSpaces, []int32{internaldeploy.SpaceID}) {
+		t.Fatalf("AllowedSpaces = %v, want just the opendeploy space", updated.Value.Operator.AllowedSpaces)
 	}
 	// Which means an internal deployment can still be placed there.
-	if !nodeAllowsSpaceForTest(h, node.ID, state.OpendeploySpaceID) {
+	if !nodeAllowsSpaceForTest(h, node.ID, internaldeploy.SpaceID) {
 		t.Fatal("node stopped allowing the opendeploy space")
 	}
 }
 
 func nodeAllowsSpaceForTest(h *Handler, nodeID, spaceID int32) bool {
-	node := h.Store.LiveState().Nodes[nodeID]
+	node := nodes.MustReadLiveState(h.Store.Queries()).Nodes[nodeID]
 	return node != nil && slices.Contains(node.AllowedSpaces, spaceID)
 }

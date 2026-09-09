@@ -72,7 +72,7 @@ func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runti
 			assets[ref.AssetVersionID] = struct{}{}
 		}
 		if runtimeinputs.IssuedTLSMountOf(cfg) != nil {
-			issued[cfg.ID] = struct{}{}
+			issued[cfg.DeploymentID] = struct{}{}
 		}
 	}
 	if acme != nil {

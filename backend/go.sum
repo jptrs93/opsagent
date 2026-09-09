@@ -198,6 +198,8 @@ github.com/jalaali/go-jalaali v0.0.0-20210801064154-80525e88d958 h1:qxLoi6CAcXVz
 github.com/jalaali/go-jalaali v0.0.0-20210801064154-80525e88d958/go.mod h1:Wqfu7mjUHj9WDzSSPI5KfBclTTEnLveRUFr/ujWnTgE=
 github.com/jptrs93/goutil v0.22.0 h1:Ud5Zkqx95cO6oFfoaVRImi69mMSvqqqxy67Ssh5F8pM=
 github.com/jptrs93/goutil v0.22.0/go.mod h1:jbGbwA/V/eRePJCj0AX7/BL5pNVccYcn4GmDf6Dnpi0=
+github.com/jptrs93/goutil v0.23.0 h1:hobjwVE29NR7AvCs3xti1ZKPHcXiQNQSG8OGoVaaGno=
+github.com/jptrs93/goutil v0.23.0/go.mod h1:jbGbwA/V/eRePJCj0AX7/BL5pNVccYcn4GmDf6Dnpi0=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/klauspost/compress v1.18.5 h1:/h1gH5Ce+VWNLSWqPzOVn6XBO+vJbCNGvjoaGBFW2IE=

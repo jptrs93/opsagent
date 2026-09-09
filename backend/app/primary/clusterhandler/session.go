@@ -3,6 +3,8 @@ package clusterhandler
 import (
 	"context"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/scheduledinstances"
 	"io"
 	"iter"
 	"log/slog"
@@ -141,13 +143,16 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 			select {
 			case <-s.sessCtx.Done():
 				return
-			case state, ok := <-updatesCh:
+			case batch, ok := <-updatesCh:
 				if !ok {
+					slog.WarnContext(s.sessCtx, "scheduled instance subscription closed; ending session so the secondary resyncs")
 					return
 				}
-				update := state
-				if !s.send(&apigen.MsgToSecondary{ScheduledInstanceUpdate: &update}) {
-					return
+				for _, state := range batch {
+					update := state
+					if !s.send(&apigen.MsgToSecondary{ScheduledInstanceUpdate: &update}) {
+						return
+					}
 				}
 			case <-heartbeat.C:
 				if !s.send(&apigen.MsgToSecondary{}) {
@@ -247,34 +252,28 @@ func (s *Session) handleClusterHello(hello *apigen.ClusterHello) {
 		s.cancel()
 		return
 	}
-	underlayAddress, err := s.store.NormalizeNodeUnderlay(s.identifier, hello.UnderlayAddress)
+	reported := hello.ReportedValue(s.identifier)
+	if reported.Identifier == "" {
+		reported.Identifier = s.identifier
+	}
+	if reported.Identifier != s.identifier {
+		s.cancel()
+		return
+	}
+	underlay, err := nodes.NormalizeNodeUnderlay(s.store.Queries(), s.identifier, reported.UnderlayAddress)
 	if err != nil {
-		slog.WarnContext(s.sessCtx, fmt.Sprintf("secondary sent invalid underlay address %q", hello.UnderlayAddress), "err", err)
+		slog.WarnContext(s.sessCtx, "secondary sent invalid underlay address", "err", err)
 		return
 	}
-	// The write is diff-gated in the store, so the re-report on every
-	// reconnect is normally a no-op.
-	wgPublicKey, err := wgkey.ValidatePublic(hello.WgPublicKey)
+	key, err := wgkey.ValidatePublic(reported.WgPublicKey)
 	if err != nil {
-		slog.WarnContext(s.sessCtx, fmt.Sprintf("secondary sent invalid WireGuard public key %q", hello.WgPublicKey), "err", err)
+		slog.WarnContext(s.sessCtx, "secondary sent invalid WireGuard public key", "err", err)
 		return
 	}
-	// Diff-gated in the store; a hello re-sent for an unchanged set is a no-op.
-	s.store.SetNodeHostAddresses(s.identifier, hello.HostAddresses)
-	for _, node := range s.store.ListNodes() {
-		if node == nil || node.ID != s.NodeID {
-			continue
-		}
-		if wgPublicKey != node.WGPublicKey {
-			s.store.MustSetNodeWGPublicKey(s.NodeID, wgPublicKey)
-		}
-		if len(node.Addresses) == 1 && node.Addresses[0] == underlayAddress {
-			return
-		}
-		s.store.MustSetNodeAddresses(s.NodeID, []string{underlayAddress})
-		return
-	}
-	slog.WarnContext(s.sessCtx, fmt.Sprintf("secondary cluster hello references unknown node %d", s.NodeID))
+	reported.UnderlayAddress, reported.WgPublicKey = underlay, key
+	nodes.ReportNode(s.store, s.identifier, reported)
+	remoteAddress, _ := s.sessCtx.Value(remoteAddressCtxKey{}).(string)
+	nodes.UpdateNodeObservedMeta(s.store, s.identifier, remoteAddress, hello.OpendeployVersion)
 }
 
 func (s *Session) routeLogChunk(requestID string, chunk logChunk) {
@@ -313,7 +312,7 @@ func (s *Session) handleStatusWrite(st *apigen.ScheduledInstanceStatus) {
 		slog.WarnContext(s.sessCtx, "rejecting cross-machine secondary status write", "scheduled_instance", st.ScheduledInstanceID)
 		return
 	}
-	s.store.MustWriteReplicatedScheduledInstanceStatus(st)
+	scheduledinstances.WriteReplicatedStatus(s.store, st)
 }
 
 // requestLogs sends a log request to the secondary and returns a reader that yields

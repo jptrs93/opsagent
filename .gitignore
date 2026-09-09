@@ -17,3 +17,4 @@ testing-vms/playwright-report/
 testing-vms/images/playwright/packer_cache/
 socks_proxy.sh
 test-logs/
+**/livedb/

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -32,18 +33,17 @@ func runningDeploymentSpec() *apigen.DeploymentSpec {
 	}}
 }
 
-func seedDeployment(t *testing.T, store *Service, name string) *apigen.Deployment {
+func seedDeployment(t *testing.T, store *Service, name string) *apigen.DeploymentEvent {
 	t.Helper()
-	node := store.EnsurePrimaryNode("primary", "primary")
-	return mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, name, node.ID, runningDeploymentSpec())
+	node := testNode(store, "primary")
+	return mustCreateDeploymentForNode(store, apigen.Context{}, defaultSpaceID, name, node.ID, runningDeploymentSpec())
 }
 
 func writeRunnerStatus(t *testing.T, store *Service, instanceID int32, status apigen.RunningStatus) {
 	t.Helper()
-	store.MustWriteScheduledInstanceStatus(instanceID, func(st *apigen.ScheduledInstanceStatus) bool {
+	writeInstanceStatusForTest(store, instanceID, func(st *apigen.ScheduledInstanceStatus) {
 		st.BumpUpdatedAt()
 		st.Runner = apigen.RunnerStatus{Status: status, RunningPid: 4242}
-		return true
 	})
 }
 
@@ -56,22 +56,22 @@ func TestFinalizedInstanceIsRetainedForDisplay(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := seedDeployment(t, store, "app")
 
-	inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	inst := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	writeRunnerStatus(t, store, inst.ID, apigen.RunningStatus_STOPPED)
-	store.SetScheduledInstanceState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
+	setScheduledInstanceState(store, inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 
 	if live := store.FetchScheduledSnapshot(nil); len(live) != 0 {
 		t.Fatalf("reconciliation snapshot = %v, want empty", instanceIDs(live))
 	}
 
-	shown := onlyInstance(t, store.FetchScheduledSnapshotWithLatestFinal(nil))
+	shown := onlyInstance(t, snapshotInstances(store, nil))
 	if shown.Instance.ID != inst.ID {
 		t.Fatalf("displayed instance = %d, want %d", shown.Instance.ID, inst.ID)
 	}
 	if shown.Status.Runner.Status != apigen.RunningStatus_STOPPED {
 		t.Fatalf("displayed status = %v, want the STOPPED it ended on", shown.Status.Runner.Status)
 	}
-	if shown.Config.ID != cfg.ID {
+	if shown.Config.DeploymentID != cfg.DeploymentID {
 		t.Fatal("displayed instance lost the spec version it was pinned to")
 	}
 }
@@ -83,9 +83,9 @@ func TestRetainedFinalInstanceSurvivesRestart(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := Open(dbPath)
 	cfg := seedDeployment(t, store, "app")
-	inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	inst := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	writeRunnerStatus(t, store, inst.ID, apigen.RunningStatus_STOPPED)
-	store.SetScheduledInstanceState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
+	setScheduledInstanceState(store, inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 	if err := store.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestRetainedFinalInstanceSurvivesRestart(t *testing.T) {
 	if live := store.FetchScheduledSnapshot(nil); len(live) != 0 {
 		t.Fatalf("reconciliation snapshot after restart = %v, want empty", instanceIDs(live))
 	}
-	shown := onlyInstance(t, store.FetchScheduledSnapshotWithLatestFinal(nil))
+	shown := onlyInstance(t, snapshotInstances(store, nil))
 	if shown.Instance.ID != inst.ID {
 		t.Fatalf("displayed instance after restart = %d, want %d", shown.Instance.ID, inst.ID)
 	}
@@ -113,11 +113,11 @@ func TestNewInstanceEvictsTheRetainedRun(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := seedDeployment(t, store, "app")
 
-	older := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	store.SetScheduledInstanceState(older.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
-	newer := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	older := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	setScheduledInstanceState(store, older.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
+	newer := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
-	shown := onlyInstance(t, store.FetchScheduledSnapshotWithLatestFinal(nil))
+	shown := onlyInstance(t, snapshotInstances(store, nil))
 	if shown.Instance.ID != newer.ID {
 		t.Fatalf("displayed instance = %d, want the live %d", shown.Instance.ID, newer.ID)
 	}
@@ -125,8 +125,8 @@ func TestNewInstanceEvictsTheRetainedRun(t *testing.T) {
 	// Finalizing the run a live instance already replaced must not resurrect it
 	// into the ordinal's slot: RECREATE creates the replacement in the same pass
 	// that retires the placement it supersedes, so this ordering is the norm.
-	store.SetScheduledInstanceState(older.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
-	shown = onlyInstance(t, store.FetchScheduledSnapshotWithLatestFinal(nil))
+	setScheduledInstanceState(store, older.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
+	shown = onlyInstance(t, snapshotInstances(store, nil))
 	if shown.Instance.ID != newer.ID {
 		t.Fatalf("displayed instance = %d, want the live %d", shown.Instance.ID, newer.ID)
 	}
@@ -139,12 +139,12 @@ func TestRetainedRunIsPerOrdinal(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := seedDeployment(t, store, "app")
 
-	first := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	second := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 1, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	store.SetScheduledInstanceState(first.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
-	store.SetScheduledInstanceState(second.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
+	first := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	second := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 1, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	setScheduledInstanceState(store, first.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
+	setScheduledInstanceState(store, second.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 
-	shown := store.FetchScheduledSnapshotWithLatestFinal(nil)
+	shown := snapshotInstances(store, nil)
 	if len(shown) != 2 {
 		t.Fatalf("displayed instances = %v, want the last run of both ordinals", instanceIDs(shown))
 	}
@@ -158,16 +158,39 @@ func TestDisplaySnapshotAppliesPredicate(t *testing.T) {
 	visible := seedDeployment(t, store, "visible")
 	hidden := seedDeployment(t, store, "hidden")
 
-	shownInst := store.CreateScheduledInstanceForTest(visible.ID, visible.Version, visible.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	hiddenInst := store.CreateScheduledInstanceForTest(hidden.ID, hidden.Version, hidden.Def.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	store.SetScheduledInstanceState(shownInst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
-	store.SetScheduledInstanceState(hiddenInst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
+	shownInst := createScheduledInstanceForTest(store, visible.DeploymentID, visible.Version, visible.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	hiddenInst := createScheduledInstanceForTest(store, hidden.DeploymentID, hidden.Version, hidden.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	setScheduledInstanceState(store, shownInst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
+	setScheduledInstanceState(store, hiddenInst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 
 	predicate := storage.ScheduledInstancePredicate(func(state apigen.ScheduledInstanceState) bool {
-		return state.Instance.DeploymentID == visible.ID
+		return state.Instance.DeploymentID == visible.DeploymentID
 	})
-	got := onlyInstance(t, store.FetchScheduledSnapshotWithLatestFinal(predicate))
+	got := onlyInstance(t, snapshotInstances(store, predicate))
 	if got.Instance.ID != shownInst.ID {
 		t.Fatalf("displayed instance = %d, want %d", got.Instance.ID, shownInst.ID)
 	}
+}
+
+// Reconstruct assignment rows only from the public snapshot's event references.
+func snapshotInstances(store *Service, predicate storage.ScheduledInstancePredicate) []apigen.ScheduledInstanceState {
+	snapshot := store.BuildSnapshot(context.Background())
+	out := []apigen.ScheduledInstanceState{}
+	for _, e := range snapshot.ScheduledInstanceEvents {
+		st := apigen.ScheduledInstanceState{Instance: e.Value}
+		for _, d := range snapshot.DeploymentEvents {
+			if d.DeploymentID == e.Value.DeploymentID && d.Version == e.Value.DeploymentVersion {
+				st.Config = *d
+			}
+		}
+		for _, status := range snapshot.InstanceStatuses {
+			if status.ScheduledInstanceID == e.ScheduledInstanceID {
+				st.Status = *status
+			}
+		}
+		if predicate == nil || predicate(st) {
+			out = append(out, st)
+		}
+	}
+	return out
 }

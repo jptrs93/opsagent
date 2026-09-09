@@ -79,12 +79,12 @@ function saveHiddenSpaces(set) {
 
 function deploymentLabel(item, machines) {
     const cfg = item?.config || {};
-    const node = nodeDisplayName(cfg.def?.nodeId, machines);
-    return [node, cfg.def?.name].filter(Boolean).join(' / ') || `#${cfg.id}`;
+    const node = nodeDisplayName(cfg.value?.nodeId, machines);
+    return [node, cfg.value?.name].filter(Boolean).join(' / ') || `#${cfg.deploymentId}`;
 }
 
-const deploymentSpaceID = (item) => item?.config?.def?.spaceId || 0;
-const selectedDeployment = (items, id) => items.find(item => item.config?.id === id) || null;
+const deploymentSpaceID = (item) => item?.config?.value?.spaceId || 0;
+const selectedDeployment = (items, id) => items.find(item => item.config?.deploymentId === id) || null;
 
 const rateOf = (entry, field) => {
     const r = (entry.rates || []).find(x => x.field === field);
@@ -106,7 +106,7 @@ export function metricsPage(selectedMetricsDeploymentId) {
     const errorMsg = van.state('');
     let queryGen = 0;
 
-    const liveDeployments = () => (deploymentsS.val || []).filter(item => item.config?.id && !deploymentDeleted(item.config));
+    const liveDeployments = () => (deploymentsS.val || []).filter(item => item.config?.deploymentId && !deploymentDeleted(item.config));
     const visibleDeployments = () => liveDeployments().filter(item => !hiddenSpaces.val.has(deploymentSpaceID(item)));
 
     const runQuery = async () => {
@@ -199,7 +199,7 @@ export function metricsPage(selectedMetricsDeploymentId) {
         }
         deploymentSelect.replaceChildren(
             option({value: ""}, "All deployments"),
-            ...filtered.map(item => option({value: String(item.config.id)}, deploymentLabel(item, machinesS.val))),
+            ...filtered.map(item => option({value: String(item.config.deploymentId)}, deploymentLabel(item, machinesS.val))),
         );
         deploymentSelect.value = String(deploymentId.val || '');
     });
@@ -288,7 +288,7 @@ export function metricsPage(selectedMetricsDeploymentId) {
             const item = selectedDeployment(items, Number(s?.deploymentId || 0));
             return {
                 entry: e, item,
-                name: item?.config?.def?.name || `#${s?.deploymentId}`,
+                name: item?.config?.value?.name || `#${s?.deploymentId}`,
                 spaceId: deploymentSpaceID(item),
                 node: nodeDisplayName(s.nodeId, machines) || '',
                 run: runLabel(s),
@@ -316,7 +316,7 @@ export function metricsPage(selectedMetricsDeploymentId) {
             tbody(...rows.map(r => tr({
                 "data-testid": `metrics-overview-row-${r.name}`,
                 class: "cursor-pointer border-b border-gray-800/60 hover:bg-gray-800/40",
-                onclick: () => { if (r.item) deploymentId.val = r.item.config.id; },
+                onclick: () => { if (r.item) deploymentId.val = r.item.config.deploymentId; },
             },
                 td({class: "px-2 py-1"}, span({class: "flex items-center gap-1.5"}, spaceDot(r.spaceId), span({class: "text-gray-200"}, r.name))),
                 td({class: "px-2 py-1 text-gray-400"}, r.node),

@@ -107,21 +107,24 @@ with no prefixes. `PortForward` does not take `listen` in this plan.
 
 ### Inventory
 
-`api-contract/model_cluster_operations.proto`:
+The global state stream implementation now supplies inventory through
+`NodeReported`, shared by enrollment and cluster hello:
 
 ```proto
-message ClusterHello {
-  string underlay_address = 1;
-  int32 cluster_protocol_version = 2;
+message NodeReported {
+  string identifier = 1;
+  string underlay_address = 2;
   string wg_public_key = 3;
-  repeated string host_addresses = 4;  // global unicast addresses on non-OpenDeploy interfaces
+  repeated string host_addresses = 4;
+  bool host_addresses_unknown = 5;
 }
 ```
 
-`api-contract/model/nodes.proto` `NodeStatus` gains `repeated string
-host_addresses = 5`. Host addresses are runtime facts, so they live in
-`node_statuses` (new column `host_addresses TEXT NOT NULL DEFAULT '[]'`), not in
-`node_event_log`.
+`NodeEvent.value.reported.host_addresses` is a network-plan input and lives in
+`node_event_log`. A changed report appends one authored event and advances the
+global sequence; failed enumeration preserves the old inventory, while a known
+empty result clears it. Connection metadata belongs to the separate observed
+`NodeStatus` log.
 
 Eligible addresses are global unicast addresses on interfaces the agent does not
 create. Excluded: loopback, link-local, the WireGuard underlay interface, the
@@ -222,7 +225,7 @@ save-time answer and the distributed publish set cannot diverge.
 Inputs:
 
 - Deployments with virtual networking: id, node, ingress routes with `listen`.
-- Nodes: id, host addresses from `node_statuses`.
+- Nodes: id, host addresses from `NodeEvent.value.reported`.
 - Reservations: the Web UI `https_web.listen` when HTTPS Web is enabled,
   resolved to (primary node, address or wildcard, port).
 - Reachability: the set of nodes that can dial a route's backends. Today this is
@@ -308,7 +311,7 @@ Each phase is independently mergeable and leaves the cluster working.
 
 - Add `IngressListen`, `NodeSelector`, `AddressSelector`, `AddressFamily`, and
   `Ingress.listen` to `deployments.proto`.
-- Add `ClusterHello.host_addresses`, `NodeStatus.host_addresses`,
+- Use the shared `NodeReported.host_addresses`; add
   `ClusterNetMapNode.ingress_publish`, and `IngressPublish`.
 - Regenerate `backend/apigen` and `frontend/src/capi`.
 - `preLockDeploymentValidate`: each `listen` entry has at most one node selector
@@ -320,13 +323,13 @@ Each phase is independently mergeable and leaves the cluster working.
 - `lib/network/hostaddrs.go`: `EnumerateHostAddresses(exclude InterfaceFilter)
   []netip.Addr` with the exclusion rules above. Reuse the enumeration in
   `primary/underlay.go` where it overlaps.
-- Secondary: send `host_addresses` in `ClusterHello`; re-send a hello when a
+- Secondary: send `reported.host_addresses` in `ClusterHello`; re-send a hello when a
   30-second poll observes a changed set.
-- Primary: `clusterhandler/session.go handleClusterHello` stores the list via a
-  new `Service.SetNodeHostAddresses(identifier, addrs)` in `node_statuses`.
-  The primary enumerates and stores its own set on startup and on the same poll.
-- `migrations.sql`: `ALTER TABLE node_statuses ADD COLUMN host_addresses TEXT
-  NOT NULL DEFAULT '[]'`.
+- Primary: `clusterhandler/session.go handleClusterHello` calls `Service.ReportNode`
+  with the complete reported bundle. The primary reports its own inventory on
+  startup and on the same poll. Both paths append changed facts to `node_event_log`.
+- The global state stream migration already moves the old `node_statuses`
+  inventory into the authored log; connection observations use `node_status_log`.
 - `NetworkMapInputs` and `LiveState` expose host addresses per node.
 - Cluster page: show host addresses per machine beside the underlay address.
 

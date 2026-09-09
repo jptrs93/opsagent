@@ -2,12 +2,12 @@ package webuihandler
 
 import (
 	"errors"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/pki"
 	"net/http"
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/util/certu"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 )
 
 // Password login lets the cluster master password open a full session
@@ -25,8 +25,8 @@ var (
 )
 
 func (h *Handler) passwordLoginEnabled() bool {
-	settings := h.ConfigService.Snapshot().Settings
-	return h.ConfigService.MustLoadConfigBoolValue(settings.Auth.PasswordLoginEnabled)
+	settings := h.SystemConfig.Snapshot().Settings
+	return h.SystemConfig.MustLoadBoolSetting(settings.Auth.PasswordLoginEnabled)
 }
 
 // localCAAvailable reports whether the Web UI is served under the locally
@@ -35,13 +35,13 @@ func (h *Handler) localCAAvailable() bool {
 	if h.Secrets == nil {
 		return false
 	}
-	settings := h.ConfigService.Snapshot().Settings
-	if !h.ConfigService.MustLoadConfigBoolValue(settings.HttpsWeb.Enabled) ||
-		!h.ConfigService.MustLoadConfigBoolValue(settings.HttpsWeb.TlsSelfManaged) ||
+	settings := h.SystemConfig.Snapshot().Settings
+	if !h.SystemConfig.MustLoadBoolSetting(settings.HttpsWeb.Enabled) ||
+		!h.SystemConfig.MustLoadBoolSetting(settings.HttpsWeb.TlsSelfManaged) ||
 		settings.HttpsWeb.TlsCertPem.VersionID != 0 {
 		return false
 	}
-	_, err := certu.LoadWebUILocalCA(h.Secrets)
+	_, err := pki.LoadWebUILocalCA(h.Secrets)
 	return err == nil
 }
 
@@ -86,7 +86,7 @@ func (h *Handler) GetV1TlsCaCert(ctx apigen.Context, request *http.Request, writ
 	if !h.localCAAvailable() {
 		return apigen.NewApiErr("No local CA is in use", "local_ca_unavailable", http.StatusNotFound)
 	}
-	caCertPEM, err := certu.LoadWebUILocalCA(h.Secrets)
+	caCertPEM, err := pki.LoadWebUILocalCA(h.Secrets)
 	if err != nil {
 		if errors.Is(err, secrets.ErrNotFound) {
 			return apigen.NewApiErr("No local CA is in use", "local_ca_unavailable", http.StatusNotFound)

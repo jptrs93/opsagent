@@ -39,7 +39,7 @@ var (
 // attachOpendeployRunner publishes the current process as the running
 // opendeploy deployment. Reaching this code proves the service is running;
 // polling systemd only adds transient restart-state races.
-func attachOpendeployRunner(store storage.OperatorStore, instanceID int32, dep *apigen.Deployment, prev apigen.RunnerStatus) *opendeployRunner {
+func attachOpendeployRunner(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentEvent, prev apigen.RunnerStatus) *opendeployRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	if prev.IsZero() {
 		prev.DeploymentSpecVersion = dep.SpecVersion
@@ -53,7 +53,7 @@ func attachOpendeployRunner(store storage.OperatorStore, instanceID int32, dep *
 		done:                make(chan struct{}),
 		store:               store,
 		scheduledInstanceID: instanceID,
-		deploymentID:        dep.ID,
+		deploymentID:        dep.DeploymentID,
 		status:              prev,
 	}
 	close(r.done)
@@ -66,7 +66,7 @@ func attachOpendeployRunner(store storage.OperatorStore, instanceID int32, dep *
 // process reattaches and publishes RUNNING.
 // Called only from runner.Create when the operator has a new artifact ready.
 // No retries — if install or restart fails, it writes CRASHED and exits.
-func newOpendeployRunnerWithRestart(store storage.OperatorStore, instanceID int32, dep *apigen.Deployment, preparerStatus apigen.PreparerStatus) *opendeployRunner {
+func newOpendeployRunnerWithRestart(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentEvent, preparerStatus apigen.PreparerStatus) *opendeployRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	r := &opendeployRunner{
 		ctx:                 ctx,
@@ -74,7 +74,7 @@ func newOpendeployRunnerWithRestart(store storage.OperatorStore, instanceID int3
 		done:                make(chan struct{}),
 		store:               store,
 		scheduledInstanceID: instanceID,
-		deploymentID:        dep.ID,
+		deploymentID:        dep.DeploymentID,
 		status: apigen.RunnerStatus{
 			DeploymentSpecVersion: preparerStatus.DeploymentSpecVersion,
 			RunningPid:            0,

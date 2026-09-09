@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package opsagent.v1;
 
+import "api-contract/model/deployments.proto";
+import "api-contract/options.proto";
+
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 enum AuthzVerb {
@@ -103,4 +106,24 @@ message AuthzGlobalRuleRecord {
   int64 author = 3;
   int64 created_at = 4;
   AuthzGlobalRule rule = 5;
+}
+
+// Grant identity and attribution live in the event envelope. The value retains
+// the subject and bindings on deletes so visibility changes can be routed.
+message AuthzGrantValue {
+  int64 user_id = 1;
+  int64 template_id = 2;
+  AuthzGrant grant = 3;
+}
+
+message AuthzGrantEvent {
+  int64 authz_grant_id = 1;
+  int32 version = 2;
+  int64 seq = 3;
+  int64 event_id = 4;
+  int64 author = 5;
+  EventType event_type = 6;
+  int64 created_time = 7;
+  int64 event_time = 8;
+  AuthzGrantValue value = 9 [(cp.go_value) = true];
 }

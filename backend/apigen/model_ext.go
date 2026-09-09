@@ -3,6 +3,7 @@ package apigen
 import (
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/ainit"
@@ -38,22 +39,18 @@ func (t ScheduledInstanceTarget) IsFinal() bool {
 	return t == ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED
 }
 
-// BumpUpdatedAt advances UpdatedAt as a hybrid logical clock: it takes the
-// current wall clock, but never returns a value <= the previous one (it adds
-// a nanosecond instead). This keeps the value monotonic per scheduled instance
-// across clock regressions and same-tick writes, while tracking physical time
-// closely enough that a node which lost its local state (e.g. a freshly
-// provisioned replacement) resumes above any history the primary retained,
-// with no reseed handshake. UpdatedAt thus serves as both the status's
-// wall-clock time and its monotonic identity/ordering key.
-func (s *ScheduledInstanceStatus) BumpUpdatedAt() {
+// BumpUpdatedAt advances the observation clock past both wall time and the
+// previous persisted observation, including a restored tombstone.
+func (s *ScheduledInstanceStatus) BumpUpdatedAt() { s.UpdatedAt = nextObservationTime(s.UpdatedAt) }
+func (s *NodeStatus) BumpUpdatedAt()              { s.UpdatedAt = nextObservationTime(s.UpdatedAt) }
+
+func nextObservationTime(previous time.Time) time.Time {
 	now := time.Now().Round(0)
-	previous := s.UpdatedAt.Round(0)
+	previous = previous.Round(0)
 	if now.After(previous) {
-		s.UpdatedAt = now
-	} else {
-		s.UpdatedAt = previous.Add(time.Nanosecond)
+		return now
 	}
+	return previous.Add(time.Nanosecond)
 }
 
 func prepareOutputFile(deploymentID int32, version int32) string {
@@ -64,32 +61,32 @@ func LogWALDeploymentDir(deploymentID int32) string {
 	return filepath.Join(ainit.StaticConfig.LogWALDir, fmt.Sprintf("%d", deploymentID))
 }
 
-func (d *Deployment) PrepareOutputPath() string {
-	return prepareOutputFile(d.ID, d.SpecVersion)
+func (d *DeploymentEvent) PrepareOutputPath() string {
+	return prepareOutputFile(d.DeploymentID, d.SpecVersion)
 }
 
-func (d *Deployment) WorkloadVersion() string {
-	return d.Def.Spec.WorkloadVersion()
+func (d *DeploymentEvent) WorkloadVersion() string {
+	return d.Value.Spec.WorkloadVersion()
 }
 
-func (d *Deployment) WorkloadRunning() bool {
-	return d.Def.Spec.WorkloadRunning()
+func (d *DeploymentEvent) WorkloadRunning() bool {
+	return d.Value.Spec.WorkloadRunning()
 }
 
-func (d *Deployment) EffectiveUpgradeStrategy() ContainerUpgradeStrategy {
-	container := d.Def.Spec.Container()
+func (d *DeploymentEvent) EffectiveUpgradeStrategy() ContainerUpgradeStrategy {
+	container := d.Value.Spec.Container()
 	if container == nil || container.UpgradeStrategy == ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED {
 		return ContainerUpgradeStrategy_RECREATE
 	}
 	return container.UpgradeStrategy
 }
 
-func (d *Deployment) SetWorkloadState(version string, running bool) error {
-	return d.Def.Spec.SetWorkloadState(version, running)
+func (d *DeploymentEvent) SetWorkloadState(version string, running bool) error {
+	return d.Value.Spec.SetWorkloadState(version, running)
 }
 
-func (d *Deployment) Deleted() bool {
-	return d.EventType == DeploymentEventType_DEPLOYMENT_EVENT_TYPE_DELETE
+func (d *DeploymentEvent) Deleted() bool {
+	return d.EventType == EventType_EVENT_TYPE_DELETE
 }
 
 func (s *DeploymentSpec) WorkloadVersion() string {
@@ -255,56 +252,81 @@ func (s AccessPolicyType) String() string {
 	}
 }
 
-// SpaceID is the asset's current space: the newest entry of the append-only
-// space log.
-func (a *Asset) SpaceID() int32 {
-	if a == nil || len(a.SpaceVersions) == 0 {
+func (v *SecretEvent) SpaceID() int32 {
+	if v == nil {
 		return 0
 	}
-	return a.SpaceVersions[0].SpaceID
+	return v.Value.SpaceID
 }
-
-// LatestContentVersion is the newest content version, or nil for an asset
-// with no published version (never surfaced by list/get reads).
-func (a *Asset) LatestContentVersion() *AssetContentVersion {
-	if a == nil || len(a.ContentVersions) == 0 {
-		return nil
-	}
-	return a.ContentVersions[0]
-}
-
-// SpaceID is the config's current space: the newest entry of the append-only
-// space log.
-func (c *Config) SpaceID() int32 {
-	if c == nil || len(c.SpaceVersions) == 0 {
+func (v *ConfigEvent) SpaceID() int32 {
+	if v == nil {
 		return 0
 	}
-	return c.SpaceVersions[0].SpaceID
+	return v.Value.SpaceID
 }
-
-// LatestValueVersion is the newest value version, or nil for a config with no
-// version (never surfaced by list/get reads).
-func (c *Config) LatestValueVersion() *ConfigValueVersion {
-	if c == nil || len(c.ValueVersions) == 0 {
-		return nil
-	}
-	return c.ValueVersions[0]
-}
-
-// SpaceID is the secret's current space: the newest entry of the append-only
-// space log.
-func (s *Secret) SpaceID() int32 {
-	if s == nil || len(s.SpaceVersions) == 0 {
+func (v *AssetEvent) SpaceID() int32 {
+	if v == nil {
 		return 0
 	}
-	return s.SpaceVersions[0].SpaceID
+	return v.Value.SpaceID
 }
 
-// LatestVersion is the newest version, or nil for a secret with no version
-// (never surfaced by list/get reads).
-func (s *Secret) LatestVersion() *SecretVersion {
-	if s == nil || len(s.Versions) == 0 {
-		return nil
+// ReportedValue accepts the previous release's flat hello during worker rollout.
+func (h *EnrollmentHello) ReportedValue() NodeReported {
+	if h.Reported != nil {
+		return *h.Reported
 	}
-	return s.Versions[0]
+	return NodeReported{Identifier: h.RequestingMachineID, UnderlayAddress: h.UnderlayAddress, WgPublicKey: h.WgPublicKey}
+}
+
+func (h *ClusterHello) ReportedValue(identifier string) NodeReported {
+	if h.Reported != nil {
+		return *h.Reported
+	}
+	return NodeReported{Identifier: identifier, UnderlayAddress: h.UnderlayAddress, WgPublicKey: h.WgPublicKey, HostAddresses: h.HostAddresses}
+}
+
+func WithRunningVersion(cfg *DeploymentEvent, st ScheduledInstanceStatus) ScheduledInstanceStatus {
+	if st.Runner.IsZero() || cfg == nil {
+		return st
+	}
+	ver := st.Runner.DeploymentSpecVersion
+	if ver == 0 {
+		return st
+	}
+	if ver == cfg.SpecVersion {
+		st.Runner.RunningVersion = cfg.WorkloadVersion()
+	}
+	return st
+}
+
+func (u *CoreUpdate) IsEmpty() bool {
+	value := reflect.ValueOf(u).Elem()
+	for i := 0; i < value.NumField(); i++ {
+		if value.Type().Field(i).Name == "Seq" {
+			continue
+		}
+		field := value.Field(i)
+		switch field.Kind() {
+		case reflect.Slice, reflect.Map:
+			if field.Len() > 0 {
+				return false
+			}
+		default:
+			if !field.IsZero() {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func (u *CoreUpdate) HasObserved() bool {
+	return len(u.InstanceStatuses)+len(u.NodeStatuses) > 0
+}
+
+func (u *CoreUpdate) HasCore() bool {
+	authored := *u
+	authored.InstanceStatuses, authored.NodeStatuses = nil, nil
+	return !authored.IsEmpty()
 }

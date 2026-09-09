@@ -20,7 +20,7 @@ import "api-contract/model/network_policies.proto";
 import "api-contract/model_network_policies_operations.proto";
 import "api-contract/model/nodes.proto";
 import "api-contract/model_nodes_operations.proto";
-import "api-contract/model/primary_config.proto";
+import "api-contract/model/system_config.proto";
 import "api-contract/model/secrets.proto";
 import "api-contract/model_secrets_operations.proto";
 import "api-contract/model/sessions.proto";
@@ -195,11 +195,11 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc GetV1GlobalState(cp.Empty) returns (GlobalState) {
+  rpc GetV1GlobalSnapshot(cp.Empty) returns (Snapshot) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1GlobalStateStream(cp.Empty) returns (stream State) {
+  rpc PostV1GlobalStateStream(cp.Empty) returns (stream StateStreamMsg) {
     option (cp.url) = "/v1/global/state-stream";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -209,15 +209,15 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1DeploymentsGet(DeploymentGetRequest) returns (DeploymentState) {
+  rpc PostV1DeploymentsGet(DeploymentGetRequest) returns (DeploymentGetResponse) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1DeploymentsCreate(DeploymentCreateRequest) returns (Deployment) {
+  rpc PostV1DeploymentsCreate(DeploymentCreateRequest) returns (DeploymentEvent) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV2DeploymentsUpdate(DeploymentUpdateRequestV2) returns (Deployment) {
+  rpc PostV2DeploymentsUpdate(DeploymentUpdateRequestV2) returns (DeploymentEvent) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -267,15 +267,15 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1NodesList(cp.Empty) returns (ClusterNodeList) {
+  rpc PostV1NodesList(cp.Empty) returns (NodeEventList) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1NodesRename(NodeRenameRequest) returns (ClusterNode) {
+  rpc PostV1NodesRename(NodeRenameRequest) returns (NodeEvent) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1NodesAllowedSpaces(NodeAllowedSpacesRequest) returns (ClusterNode) {
+  rpc PostV1NodesAllowedSpaces(NodeAllowedSpacesRequest) returns (NodeEvent) {
     option (cp.url) = "/v1/nodes/allowed-spaces";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -304,17 +304,17 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1NetworkPoliciesList(cp.Empty) returns (NetworkPolicyList) {
+  rpc PostV1NetworkPoliciesList(cp.Empty) returns (NetworkPolicyEventList) {
     option (cp.url) = "/v1/network-policies/list";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1NetworkPoliciesCreate(NetworkPolicyCreateRequest) returns (NetworkPolicy) {
+  rpc PostV1NetworkPoliciesCreate(NetworkPolicyCreateRequest) returns (NetworkPolicyEvent) {
     option (cp.url) = "/v1/network-policies/create";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1NetworkPoliciesUpdate(NetworkPolicyUpdateRequest) returns (NetworkPolicy) {
+  rpc PostV1NetworkPoliciesUpdate(NetworkPolicyUpdateRequest) returns (NetworkPolicyEvent) {
     option (cp.url) = "/v1/network-policies/update";
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
@@ -324,27 +324,27 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1SecretsList(cp.Empty) returns (SecretList) {
+  rpc PostV1SecretsList(cp.Empty) returns (SecretEventList) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1SecretsCreate(SecretCreateRequest) returns (Secret) {
+  rpc PostV1SecretsCreate(SecretCreateRequest) returns (SecretEvent) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1SecretsSet(SecretSetRequest) returns (Secret) {
+  rpc PostV1SecretsSet(SecretSetRequest) returns (SecretEvent) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1SecretsGenerate(SecretGenerateRequest) returns (Secret) {
+  rpc PostV1SecretsGenerate(SecretGenerateRequest) returns (SecretEvent) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1SecretsRename(SecretRenameRequest) returns (Secret) {
+  rpc PostV1SecretsRename(SecretRenameRequest) returns (SecretEvent) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1SecretsMove(SecretMoveRequest) returns (Secret) {
+  rpc PostV1SecretsMove(SecretMoveRequest) returns (SecretEvent) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -369,19 +369,19 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1ConfigsList(cp.Empty) returns (ConfigList) {
+  rpc PostV1ConfigsList(cp.Empty) returns (ConfigEventList) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1ConfigsCreate(ConfigCreateRequest) returns (Config) {
+  rpc PostV1ConfigsCreate(ConfigCreateRequest) returns (ConfigEvent) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1ConfigsSet(ConfigSetRequest) returns (Config) {
+  rpc PostV1ConfigsSet(ConfigSetRequest) returns (ConfigEvent) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1ConfigsRename(ConfigRenameRequest) returns (Config) {
+  rpc PostV1ConfigsRename(ConfigRenameRequest) returns (ConfigEvent) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -389,7 +389,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1ConfigsMove(ConfigMoveRequest) returns (Config) {
+  rpc PostV1ConfigsMove(ConfigMoveRequest) returns (ConfigEvent) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -418,7 +418,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsList(cp.Empty) returns (AssetList) {
+  rpc PostV1AssetsList(cp.Empty) returns (AssetEventList) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -430,13 +430,13 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsUpload(cp.Empty) returns (Asset) {
+  rpc PostV1AssetsUpload(cp.Empty) returns (AssetEvent) {
     option (cp.url) = "/v1/assets/upload";
     option (cp.go_custom) = true;
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsRename(AssetRenameRequest) returns (Asset) {
+  rpc PostV1AssetsRename(AssetRenameRequest) returns (AssetEvent) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
@@ -444,7 +444,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
-  rpc PostV1AssetsMove(AssetMoveRequest) returns (Asset) {
+  rpc PostV1AssetsMove(AssetMoveRequest) returns (AssetEvent) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 

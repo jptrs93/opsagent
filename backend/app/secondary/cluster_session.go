@@ -16,6 +16,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
+	"github.com/jptrs93/opsagent/backend/util/version"
 )
 
 type outbox struct {
@@ -52,7 +53,7 @@ func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Ser
 			underlayAddress, err = resolveDefaultUnderlayAddress(cfg.PrimaryClusterAddr)
 		}
 		if err == nil {
-			err = runSession(ctx, capi, store, cfg.NodeID, underlayAddress, cfg.WGPublicKey, acme, netMaps, notifySynced)
+			err = runSession(ctx, capi, store, cfg.NodeID, underlayAddress, cfg.WGPublicKey, acme, netMaps, notifySynced, cfg.NodeIdentifier)
 		}
 		if ctx.Err() != nil {
 			return
@@ -118,20 +119,23 @@ func scheduledInstancePredicateForNode(nodeID int32) storage.ScheduledInstancePr
 	}
 }
 
-func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID int32, underlayAddress, wgPublicKey string, acme *acmestate.Holder, netMaps *netmapstate.Holder, notifySynced func()) error {
+func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID int32, underlayAddress, wgPublicKey string, acme *acmestate.Holder, netMaps *netmapstate.Holder, notifySynced func(), identifiers ...string) error {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	out := &outbox{ch: make(chan *apigen.MsgToPrimary, 64), ctx: sessCtx}
 	// The hello must lead the request stream so the primary can publish an
 	// updated network map as soon as this secondary reconnects.
+	identifier := ""
+	if len(identifiers) > 0 {
+		identifier = identifiers[0]
+	}
 	hostAddresses := currentHostAddresses(sessCtx)
-	hello := func(addresses []string) *apigen.MsgToPrimary {
+	hello := func(inventory hostAddressInventory) *apigen.MsgToPrimary {
 		return &apigen.MsgToPrimary{ClusterHello: &apigen.ClusterHello{
-			UnderlayAddress:        underlayAddress,
 			ClusterProtocolVersion: apigen.ClusterProtocolVersion,
-			WgPublicKey:            wgPublicKey,
-			HostAddresses:          addresses,
+			OpendeployVersion:      version.Version,
+			Reported:               &apigen.NodeReported{Identifier: identifier, UnderlayAddress: underlayAddress, WgPublicKey: wgPublicKey, HostAddresses: inventory.addresses, HostAddressesUnknown: inventory.unknown},
 		}}
 	}
 	out.Send(hello(hostAddresses))
@@ -145,9 +149,7 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 		}
 	}
 
-	statusCh, unsub := store.SubscribeScheduledInstanceUpdates(scheduledInstancePredicateForNode(nodeID))
-	defer unsub()
-	go statusPushLoop(sessCtx, out, statusCh)
+	go statusPushLoop(sessCtx, out, store, scheduledInstancePredicateForNode(nodeID))
 
 	tracker := newLogStreamTracker()
 
@@ -303,22 +305,27 @@ func applyClusterNetwork(store *state.Service, info *apigen.ClusterNetworkInfo) 
 }
 
 // currentHostAddresses enumerates the addresses an ingress listen selector
-// can expand to on this node. A failed enumeration reports an empty set, which
-// the primary treats as unknown rather than as "no addresses".
-func currentHostAddresses(ctx context.Context) []string {
+// can expand to on this node. Unknown survives protobuf encoding separately
+// from a successful inventory containing no addresses.
+type hostAddressInventory struct {
+	addresses []string
+	unknown   bool
+}
+
+func currentHostAddresses(ctx context.Context) hostAddressInventory {
 	prefix, hasPrefix := network.Default.PrefixValue()
 	addrs, err := network.EnumerateHostAddresses(prefix, hasPrefix)
 	if err != nil {
 		slog.WarnContext(ctx, "enumerating host addresses failed", "err", err)
-		return nil
+		return hostAddressInventory{unknown: true}
 	}
-	return network.HostAddressStrings(addrs)
+	return hostAddressInventory{addresses: network.HostAddressStrings(addrs)}
 }
 
 // hostAddressPushLoop re-sends the cluster hello whenever a poll observes a
 // changed host address set, so the primary's inventory follows interface
 // changes without a reconnect.
-func hostAddressPushLoop(ctx context.Context, out *outbox, last []string, hello func([]string) *apigen.MsgToPrimary) {
+func hostAddressPushLoop(ctx context.Context, out *outbox, last hostAddressInventory, hello func(hostAddressInventory) *apigen.MsgToPrimary) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -326,7 +333,7 @@ func hostAddressPushLoop(ctx context.Context, out *outbox, last []string, hello 
 		case <-time.After(network.HostAddressPollInterval):
 		}
 		current := currentHostAddresses(ctx)
-		if slices.Equal(current, last) {
+		if current.unknown || (!last.unknown && slices.Equal(current.addresses, last.addresses)) {
 			continue
 		}
 		last = current
@@ -336,27 +343,40 @@ func hostAddressPushLoop(ctx context.Context, out *outbox, last []string, hello 
 	}
 }
 
-func statusPushLoop(ctx context.Context, out *outbox, ch <-chan apigen.ScheduledInstanceState) {
+type scheduledInstanceSubscriber interface {
+	MustFetchScheduledSnapshotAndSubscribe(predicate storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan []apigen.ScheduledInstanceState, func())
+}
+
+func statusPushLoop(ctx context.Context, out *outbox, store scheduledInstanceSubscriber, predicate storage.ScheduledInstancePredicate) {
 	lastSent := make(map[int32]time.Time)
+	push := func(state apigen.ScheduledInstanceState) bool {
+		if state.Status.IsZero() || state.Instance.ID == 0 {
+			return true
+		}
+		id := state.Instance.ID
+		if !state.Status.UpdatedAt.After(lastSent[id]) {
+			return true
+		}
+		lastSent[id] = state.Status.UpdatedAt
+		status := state.Status
+		return out.Send(&apigen.MsgToPrimary{StatusWrite: &status})
+	}
+	_, ch, unsub := store.MustFetchScheduledSnapshotAndSubscribe(predicate)
+	defer func() { unsub() }()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case state, ok := <-ch:
+		case batch, ok := <-ch:
 			if !ok {
-				return
+				unsub()
+				slog.WarnContext(ctx, "scheduled instance subscription closed; resubscribing")
+				batch, ch, unsub = store.MustFetchScheduledSnapshotAndSubscribe(predicate)
 			}
-			if state.Status.IsZero() || state.Instance.ID == 0 {
-				continue
-			}
-			id := state.Instance.ID
-			if !state.Status.UpdatedAt.After(lastSent[id]) {
-				continue
-			}
-			lastSent[id] = state.Status.UpdatedAt
-			status := state.Status
-			if !out.Send(&apigen.MsgToPrimary{StatusWrite: &status}) {
-				return
+			for _, state := range batch {
+				if !push(state) {
+					return
+				}
 			}
 		}
 	}

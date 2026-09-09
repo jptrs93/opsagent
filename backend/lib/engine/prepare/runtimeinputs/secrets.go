@@ -144,7 +144,7 @@ func (r *RuntimeInputs) persist(ctx context.Context, secrets, configs map[int32]
 // as a new deployment spec version. Combined with Persistence this is what
 // lets a restarted secondary start its workloads without reaching the primary at
 // all.
-func (r *RuntimeInputs) EnsureSecretsReady(ctx context.Context, cfg *apigen.Deployment) error {
+func (r *RuntimeInputs) EnsureSecretsReady(ctx context.Context, cfg *apigen.DeploymentEvent) error {
 	return r.EnsureSecretIDs(ctx, SecretRefs(cfg))
 }
 
@@ -178,7 +178,7 @@ func (r *RuntimeInputs) EnsureSecretIDs(ctx context.Context, ids []int32) error 
 	return nil
 }
 
-func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.Deployment) error {
+func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.DeploymentEvent) error {
 	if err := r.EnsureAssetsReady(ctx, cfg); err != nil {
 		return err
 	}
@@ -193,7 +193,7 @@ func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.Deployment)
 
 // EnsureConfigsReady is EnsureSecretsReady for plain config values, which share
 // the same immutable-versioned row model.
-func (r *RuntimeInputs) EnsureConfigsReady(ctx context.Context, cfg *apigen.Deployment) error {
+func (r *RuntimeInputs) EnsureConfigsReady(ctx context.Context, cfg *apigen.DeploymentEvent) error {
 	ids := ConfigRefs(cfg)
 	if len(ids) == 0 {
 		return nil
@@ -236,12 +236,12 @@ func (r *RuntimeInputs) ResolveConfig(id int32) (string, bool) {
 	return value, ok
 }
 
-func SecretRefs(cfg *apigen.Deployment) []int32 {
+func SecretRefs(cfg *apigen.DeploymentEvent) []int32 {
 	if cfg == nil {
 		return nil
 	}
 	seen := map[int32]bool{}
-	if container := cfg.Def.Spec.Container(); container != nil {
+	if container := cfg.Value.Spec.Container(); container != nil {
 		for _, item := range container.Runtime.EnvVars {
 			if item == nil || item.SecretVersionID == nil || *item.SecretVersionID == 0 {
 				continue
@@ -249,7 +249,7 @@ func SecretRefs(cfg *apigen.Deployment) []int32 {
 			seen[*item.SecretVersionID] = true
 		}
 	}
-	for _, route := range cfg.Def.Spec.Networking.Ingress {
+	for _, route := range cfg.Value.Spec.Networking.Ingress {
 		if route == nil || route.HttpsConfig == nil || route.HttpsConfig.CertSource == nil {
 			continue
 		}
@@ -265,11 +265,11 @@ func SecretRefs(cfg *apigen.Deployment) []int32 {
 	return ids
 }
 
-func ConfigRefs(cfg *apigen.Deployment) []int32 {
+func ConfigRefs(cfg *apigen.DeploymentEvent) []int32 {
 	if cfg == nil {
 		return nil
 	}
-	container := cfg.Def.Spec.Container()
+	container := cfg.Value.Spec.Container()
 	if container == nil {
 		return nil
 	}

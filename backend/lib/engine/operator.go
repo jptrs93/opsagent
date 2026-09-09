@@ -42,26 +42,26 @@ func preparerReady(status *apigen.ScheduledInstanceStatus, seqNo int32) bool {
 		status.Preparer.Rollup() == apigen.PreparationStatus_READY
 }
 
-func configName(cfg *apigen.Deployment) string {
-	if cfg.Def.Name != "" {
-		return fmt.Sprintf("%d:%d:%s", cfg.Def.SpaceID, cfg.Def.NodeID, cfg.Def.Name)
+func configName(cfg *apigen.DeploymentEvent) string {
+	if cfg.Value.Name != "" {
+		return fmt.Sprintf("%d:%d:%s", cfg.Value.SpaceID, cfg.Value.NodeID, cfg.Value.Name)
 	}
-	return fmt.Sprintf("id=%d", cfg.ID)
+	return fmt.Sprintf("id=%d", cfg.DeploymentID)
 }
 
 // operatorCtx is the log context every operator-owned goroutine works under:
 // the component tag plus the instance/deployment identity keys, so all logs
 // for one scheduled instance are filterable without repeating attrs per call.
-func operatorCtx(instanceID int32, cfg *apigen.Deployment) context.Context {
+func operatorCtx(instanceID int32, cfg *apigen.DeploymentEvent) context.Context {
 	ctx := logu.AddTag(context.Background(), "DeploymentOperator")
 	ctx = logu.AddKV(ctx, "scheduled_instance", instanceID)
-	ctx = logu.AddKV(ctx, "dep", cfg.ID)
+	ctx = logu.AddKV(ctx, "dep", cfg.DeploymentID)
 	return logu.AddKV(ctx, "name", configName(cfg))
 }
 
 func (op DeploymentOperator) RunAll(predicate storage.ScheduledInstancePredicate) {
-	deps, ch, _ := op.Store.MustFetchScheduledSnapshotAndSubscribe(predicate)
-	subs := &pubsubu.PubSub[apigen.ScheduledInstanceState]{}
+	deps, ch, unsubscribe := op.Store.MustFetchScheduledSnapshotAndSubscribe(predicate)
+	subs := &pubsubu.PubSub[[]apigen.ScheduledInstanceState]{}
 
 	rootCtx := logu.AddTag(context.Background(), "DeploymentOperator")
 	slog.InfoContext(rootCtx, fmt.Sprintf("RunAll: snapshot loaded with %d scheduled instances", len(deps)))
@@ -72,8 +72,8 @@ func (op DeploymentOperator) RunAll(predicate storage.ScheduledInstancePredicate
 	start := func(dep apigen.ScheduledInstanceState) {
 		instanceID := dep.Instance.ID
 		running[instanceID] = struct{}{}
-		sub := subs.Subscribe(func(_, dws apigen.ScheduledInstanceState) bool {
-			return dws.Instance.ID == instanceID
+		sub := subs.Subscribe(func(_, dws []apigen.ScheduledInstanceState) bool {
+			return len(dws) == 1 && dws[0].Instance.ID == instanceID
 		})
 		state := dep
 		go op.Run(sub, &state)
@@ -86,26 +86,31 @@ func (op DeploymentOperator) RunAll(predicate storage.ScheduledInstancePredicate
 		start(dep)
 	}
 	go func() {
+		defer unsubscribe()
 		for {
-			v, ok := <-ch
+			batch, ok := <-ch
 			if !ok {
 				return
 			}
-			if _, ok := running[v.Instance.ID]; !ok {
-				slog.InfoContext(operatorCtx(v.Instance.ID, &v.Config), fmt.Sprintf(
-					"RunAll: launching operator for new scheduled instance seqNo=%d", v.Instance.DeploymentSpecVersion))
-				start(v)
-				continue
+			for _, v := range batch {
+				if _, ok := running[v.Instance.ID]; !ok {
+					slog.InfoContext(operatorCtx(v.Instance.ID, &v.Config), fmt.Sprintf(
+						"RunAll: launching operator for new scheduled instance seqNo=%d", v.Instance.DeploymentSpecVersion))
+					start(v)
+					continue
+				}
+				subs.Notify([]apigen.ScheduledInstanceState{v})
 			}
-			subs.Notify(v)
 		}
 	}()
 }
 
 func (op DeploymentOperator) Run(
-	sub *pubsubu.Sub[apigen.ScheduledInstanceState],
+	sub *pubsubu.Sub[[]apigen.ScheduledInstanceState],
 	initial *apigen.ScheduledInstanceState) {
-	defer sub.Unsubscribe()
+	updates, unsubscribe := sub.Ch, sub.Unsubscribe
+	defer func() { unsubscribe() }()
+	currentState := *initial
 
 	instanceID := initial.Instance.ID
 	config := initial.Config
@@ -142,6 +147,7 @@ func (op DeploymentOperator) Run(
 	artifactRepairPending := false
 	artifactRepairStarted := false
 	reconcile := func(update apigen.ScheduledInstanceState) bool {
+		currentState = update
 		config = update.Config
 		status = update.Status
 		target = update.Instance.State
@@ -264,18 +270,27 @@ func (op DeploymentOperator) Run(
 			candidateReady = nil
 			artifactRepairPending = false
 			artifactRepairStarted = false
-		case update, ok := <-sub.Ch:
+		case batch, ok := <-updates:
 			if !ok {
-				return
+				slog.ErrorContext(ctx, "operator subscription overflowed; resubscribing and reconciling current state")
+				unsubscribe()
+				batch, updates, unsubscribe = op.Store.MustFetchScheduledSnapshotAndSubscribe(func(s apigen.ScheduledInstanceState) bool { return s.Instance.ID == instanceID })
+				if len(batch) == 0 {
+					finalized := currentState
+					finalized.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED
+					batch = []apigen.ScheduledInstanceState{finalized}
+				}
 			}
-			if !reconcile(update) {
-				return
+			for _, update := range batch {
+				if !reconcile(update) {
+					return
+				}
 			}
 		}
 	}
 }
 
-func (op DeploymentOperator) startPreparer(instanceID int32, dep *apigen.Deployment) *prepare.Handle {
+func (op DeploymentOperator) startPreparer(instanceID int32, dep *apigen.DeploymentEvent) *prepare.Handle {
 	if dep.WorkloadVersion() == "" {
 		prepare.WriteStatus(op.Store, instanceID, dep, prepare.StatusUpdate{Inputs: apigen.InputsStatus_INPUTS_FAILED})
 		return prepare.Finished(dep.SpecVersion)
@@ -291,10 +306,10 @@ func (op DeploymentOperator) startPreparer(instanceID int32, dep *apigen.Deploym
 
 // preparerCtx layers the Preparer tag and identity keys onto a preparation
 // run's cancellation context.
-func preparerCtx(ctx context.Context, instanceID int32, dep *apigen.Deployment) context.Context {
+func preparerCtx(ctx context.Context, instanceID int32, dep *apigen.DeploymentEvent) context.Context {
 	ctx = logu.AddTag(ctx, "Preparer")
 	ctx = logu.AddKV(ctx, "scheduled_instance", instanceID)
-	ctx = logu.AddKV(ctx, "dep", dep.ID)
+	ctx = logu.AddKV(ctx, "dep", dep.DeploymentID)
 	return logu.AddKV(ctx, "name", configName(dep))
 }
 
@@ -305,7 +320,7 @@ func preparerCtx(ctx context.Context, instanceID int32, dep *apigen.Deployment) 
 // Inputs run first so a cheap, commonly-failing check (a secret the primary has
 // not distributed yet) fails before committing to a build that can take minutes.
 // The stages are otherwise independent.
-func (op DeploymentOperator) prepare(ctx context.Context, instanceID int32, dep *apigen.Deployment) prepare.StatusUpdate {
+func (op DeploymentOperator) prepare(ctx context.Context, instanceID int32, dep *apigen.DeploymentEvent) prepare.StatusUpdate {
 	log, logPath, err := preparerlog.New(ctx, dep)
 	if err != nil {
 		slog.ErrorContext(ctx, fmt.Sprintf("creating prepare log file %s failed", logPath), "err", err)
@@ -326,16 +341,16 @@ func (op DeploymentOperator) prepare(ctx context.Context, instanceID int32, dep 
 
 // prepareImage runs stage 2. Inputs are ready by the time it is called, so every
 // status it publishes carries INPUTS_READY alongside the image progress.
-func (op DeploymentOperator) prepareImage(ctx context.Context, instanceID int32, dep *apigen.Deployment, log *preparerlog.Log) prepare.StatusUpdate {
-	type imagePreparer func(context.Context, *apigen.Deployment, *preparerlog.Log) (string, apigen.ImageStatus)
+func (op DeploymentOperator) prepareImage(ctx context.Context, instanceID int32, dep *apigen.DeploymentEvent, log *preparerlog.Log) prepare.StatusUpdate {
+	type imagePreparer func(context.Context, *apigen.DeploymentEvent, *preparerlog.Log) (string, apigen.ImageStatus)
 
 	var (
 		started apigen.ImageStatus
 		run     imagePreparer
 	)
-	container := dep.Def.Spec.Container()
+	container := dep.Value.Spec.Container()
 	switch {
-	case dep.Def.Spec.OpendeploySpec != nil:
+	case dep.Value.Spec.OpendeploySpec != nil:
 		started, run = apigen.ImageStatus_IMAGE_DOWNLOADING, op.OpendeployRelease.PrepareBinary
 	case container != nil && container.Source.NixDockerBuild != nil:
 		started, run = apigen.ImageStatus_IMAGE_BUILDING, op.NixDocker.Prepare
@@ -343,7 +358,7 @@ func (op DeploymentOperator) prepareImage(ctx context.Context, instanceID int32,
 		started, run = apigen.ImageStatus_IMAGE_DOWNLOADING, op.OpendeployRelease.PrepareImage
 	case container != nil && container.Source.RemoteImage != nil:
 		started = apigen.ImageStatus_IMAGE_PULLING
-		run = func(ctx context.Context, dep *apigen.Deployment, log *preparerlog.Log) (string, apigen.ImageStatus) {
+		run = func(ctx context.Context, dep *apigen.DeploymentEvent, log *preparerlog.Log) (string, apigen.ImageStatus) {
 			return containerimage.Prepare(ctx, dep, log, op.GithubCredentials)
 		}
 	default:
@@ -366,13 +381,13 @@ func (op DeploymentOperator) prepareImage(ctx context.Context, instanceID int32,
 	}
 }
 
-func (op DeploymentOperator) reAttachPreparer(instanceID int32, dep *apigen.Deployment, prev apigen.PreparerStatus) *prepare.Handle {
+func (op DeploymentOperator) reAttachPreparer(instanceID int32, dep *apigen.DeploymentEvent, prev apigen.PreparerStatus) *prepare.Handle {
 	ctx := operatorCtx(instanceID, dep)
 	if prev.DeploymentSpecVersion == dep.SpecVersion && prev.Rollup() == apigen.PreparationStatus_READY {
 		// The image check comes first because it is local and decisive: a missing
 		// image genuinely needs the artifact rebuilt. Runtime inputs are checked
 		// after, so that a primary that is briefly unreachable cannot mask it.
-		if dep.Def.Spec.OpendeploySpec == nil {
+		if dep.Value.Spec.OpendeploySpec == nil {
 			imageReady := op.ImageReady
 			if imageReady == nil {
 				imageReady = ctrd.Default.ImageReady
@@ -392,7 +407,7 @@ func (op DeploymentOperator) reAttachPreparer(instanceID int32, dep *apigen.Depl
 		slog.InfoContext(ctx, fmt.Sprintf("reAttachPreparer: no version to prepare specVersion=%d", dep.SpecVersion))
 		return prepare.Finished(dep.SpecVersion)
 	}
-	if dep.Def.Spec.OpendeploySpec != nil && prev.IsZero() && dep.WorkloadVersion() == version.Version {
+	if dep.Value.Spec.OpendeploySpec != nil && prev.IsZero() && dep.WorkloadVersion() == version.Version {
 		slog.InfoContext(ctx, fmt.Sprintf("reAttachPreparer: current opendeploy build already installed specVersion=%d workloadVersion=%s", dep.SpecVersion, dep.WorkloadVersion()))
 		return prepare.Finished(dep.SpecVersion)
 	}
@@ -436,7 +451,7 @@ var newRuntimeInputsBackoff = func() *timeu.Backoff {
 // rollup that gates the runner both survive, and the reason the instance is
 // stuck is finally visible instead of being invisible as it was when the
 // preparer had only one status to write.
-func (op DeploymentOperator) retryRuntimeInputs(instanceID int32, dep *apigen.Deployment, prev apigen.PreparerStatus) *prepare.Handle {
+func (op DeploymentOperator) retryRuntimeInputs(instanceID int32, dep *apigen.DeploymentEvent, prev apigen.PreparerStatus) *prepare.Handle {
 	handle, ctx := prepare.NewHandle(dep.SpecVersion)
 	ctx = preparerCtx(ctx, instanceID, dep)
 	// Callers reach here only for an instance whose rollup is READY and whose
@@ -487,14 +502,14 @@ func waitForRolloverCandidate(candidate runner.RolloverCandidate, version int32)
 	return ch
 }
 
-func containerUpgradeStrategy(config *apigen.Deployment) apigen.ContainerUpgradeStrategy {
+func containerUpgradeStrategy(config *apigen.DeploymentEvent) apigen.ContainerUpgradeStrategy {
 	if config == nil {
 		return apigen.ContainerUpgradeStrategy_RECREATE
 	}
 	return config.EffectiveUpgradeStrategy()
 }
 
-func writeTerminalStopped(store storage.OperatorStore, instanceID int32, dep *apigen.Deployment, status *apigen.ScheduledInstanceStatus) {
+func writeTerminalStopped(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentEvent, status *apigen.ScheduledInstanceStatus) {
 	if status != nil && status.Runner.Status == apigen.RunningStatus_STOPPED {
 		return
 	}
@@ -504,7 +519,7 @@ func writeTerminalStopped(store storage.OperatorStore, instanceID int32, dep *ap
 		}
 		s.BumpUpdatedAt()
 		s.ScheduledInstanceID = instanceID
-		s.DeploymentID = dep.ID
+		s.DeploymentID = dep.DeploymentID
 		runnerStatus := s.Runner
 		if runnerStatus.IsZero() && status != nil {
 			runnerStatus = status.Runner

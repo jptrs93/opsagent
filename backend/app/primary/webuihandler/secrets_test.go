@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,12 +14,12 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 )
 
 const generatorSymbols = "!@#$%^&*()-_=+[]{}"
 
-func generateSecret(t *testing.T, h *Handler, user *apigen.InternalUser, req *apigen.SecretGenerateRequest) (*apigen.Secret, error) {
+func generateSecret(t *testing.T, h *Handler, user *apigen.InternalUser, req *apigen.SecretGenerateRequest) (*apigen.SecretEvent, error) {
 	t.Helper()
 	return h.PostV1SecretsGenerate(apigen.Context{Ctx: context.Background(), User: user}, req)
 }
@@ -33,17 +34,17 @@ func TestGenerateSecretStoresAValueTheCallerNeverSees(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1SecretsGenerate: %v", err)
 	}
-	if meta.Fs.Name != "db-password" || meta.ID == 0 || len(meta.Versions) != 1 {
+	if meta.Value.Fs.Name != "db-password" || meta.SecretID == 0 || len(statetest.ValueVersions(h.Store, meta)) != 1 {
 		t.Fatalf("secret = %+v, want a named secret with an id and one version", meta)
 	}
-	if meta.Versions[0].Author != user.ID {
-		t.Fatalf("Author = %d, want the approving operator %d", meta.Versions[0].Author, user.ID)
+	if statetest.ValueVersions(h.Store, meta)[0].Author != user.ID {
+		t.Fatalf("Author = %d, want the approving operator %d", statetest.ValueVersions(h.Store, meta)[0].Author, user.ID)
 	}
 
 	// The response type has no value field at all, so the only way to confirm
 	// something real was stored is to go and reveal it.
 	revealed, err := h.PostV1SecretsReveal(apigen.Context{Ctx: context.Background(), User: user},
-		&apigen.SecretRevealRequest{ID: meta.Versions[0].ID})
+		&apigen.SecretRevealRequest{ID: statetest.ValueVersions(h.Store, meta)[0].ID})
 	if err != nil {
 		t.Fatalf("PostV1SecretsReveal: %v", err)
 	}
@@ -67,7 +68,7 @@ func TestGenerateSecretHonoursTheSpecification(t *testing.T) {
 		t.Fatalf("PostV1SecretsGenerate: %v", err)
 	}
 	revealed, err := h.PostV1SecretsReveal(apigen.Context{Ctx: context.Background(), User: user},
-		&apigen.SecretRevealRequest{ID: meta.Versions[0].ID})
+		&apigen.SecretRevealRequest{ID: statetest.ValueVersions(h.Store, meta)[0].ID})
 	if err != nil {
 		t.Fatalf("PostV1SecretsReveal: %v", err)
 	}
@@ -93,7 +94,7 @@ func TestGenerateSecretIsCreateOnly(t *testing.T) {
 	// The same secret set explicitly still rotates, so the guard is on this
 	// route and not on the store.
 	if _, err := h.PostV1SecretsSet(apigen.Context{Ctx: context.Background(), User: user},
-		&apigen.SecretSetRequest{SecretID: generated.ID, Value: []byte("manual")}); err != nil {
+		&apigen.SecretSetRequest{SecretID: generated.SecretID, Value: []byte("manual")}); err != nil {
 		t.Fatalf("PostV1SecretsSet over a generated secret: %v", err)
 	}
 }
@@ -119,7 +120,7 @@ func TestGenerateSecretRejectsBadRequests(t *testing.T) {
 			if _, err := generateSecret(t, h, user, tc.req); !errors.Is(err, tc.want) {
 				t.Fatalf("err = %v, want %v", err, tc.want)
 			}
-			if _, exists := h.Store.GetSecretInRootByName(1, strings.TrimSpace(tc.req.Name)); exists {
+			if _, exists := secrets.IDByName(h.Store.Queries(), 1, strings.TrimSpace(tc.req.Name)); exists {
 				t.Fatalf("a rejected request still stored %q", tc.req.Name)
 			}
 		})
@@ -165,18 +166,18 @@ func TestGenerateSecretNeverEchoesTheValue(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("generate: status %d, want 200", status)
 	}
-	id, _ := generated["id"].(float64)
+	id, _ := generated["secret_id"].(float64)
 	if id == 0 {
 		t.Fatalf("generate returned no id: %#v", generated)
 	}
-	if _, ok := generated["value"]; ok {
-		t.Fatalf("generate response carried a value: %#v", generated)
+	valueEnvelope, ok := generated["value"].(map[string]any)
+	if !ok {
+		t.Fatal("missing secret metadata value")
 	}
-	refs, _ := generated["versions"].([]any)
-	if len(refs) != 1 {
-		t.Fatalf("generate returned no versions: %#v", generated)
+	if _, ok := valueEnvelope["value"]; ok {
+		t.Fatalf("generate exposed secret bytes: %#v", generated)
 	}
-	versionID, _ := refs[0].(map[string]any)["id"].(float64)
+	versionID, _ := generated["event_id"].(float64)
 	if versionID == 0 {
 		t.Fatalf("generate returned no version id: %#v", generated)
 	}

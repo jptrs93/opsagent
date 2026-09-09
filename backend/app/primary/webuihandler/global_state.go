@@ -1,59 +1,60 @@
 package webuihandler
 
 import (
-	"cmp"
-	"slices"
-
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
 )
 
-func (h *Handler) GetV1GlobalState(ctx apigen.Context) (*apigen.GlobalState, error) {
-	configs := h.filterDeployments(ctx, h.Store.ListActiveDeployments())
-	configItems := make([]*apigen.Deployment, 0, len(configs))
-	for _, cfg := range configs {
-		configItems = append(configItems, cfg)
-	}
-	slices.SortFunc(configItems, func(a, b *apigen.Deployment) int {
-		return cmp.Compare(a.ID, b.ID)
-	})
-	return &apigen.GlobalState{
-		Spaces:           &apigen.SpaceList{Items: h.filterSpaces(ctx, h.Store.ListSpaces())},
-		Assets:           &apigen.AssetList{Items: h.filterAssets(ctx, h.Store.ListAssets())},
-		Configs:          &apigen.ConfigList{Items: h.filterConfigs(ctx, h.Store.ListConfigs())},
-		Secrets:          &apigen.SecretList{Items: h.filterSecrets(ctx, h.Store.ListSecrets())},
-		Deployments:      &apigen.DeploymentSnapshot{Items: configItems},
-		ValueDirectories: &apigen.ValueDirectoryList{Items: h.filterValueDirectories(ctx, h.Store.ListValueDirectories())},
-		AssetDirectories: &apigen.AssetDirectoryList{Items: h.filterAssetDirectories(ctx, h.Store.ListAssetDirectories())},
-	}, nil
+func (h *Handler) GetV1GlobalSnapshot(ctx apigen.Context) (*apigen.Snapshot, error) {
+	return h.visibleSnapshot(ctx, h.snapshotWithSidecars(ctx)), nil
 }
 
-func (h *Handler) PostV1DeploymentsGet(ctx apigen.Context, req *apigen.DeploymentGetRequest) (*apigen.DeploymentState, error) {
+func (h *Handler) snapshotWithSidecars(ctx apigen.Context) *apigen.Snapshot {
+	snapshot := h.Store.BuildSnapshot(ctx)
+	status, ok := h.secretsUpdates.ValueOK()
+	if !ok {
+		status = h.secretsStatus()
+	}
+	snapshot.SecretsStatus = &status
+	snapshot.BackupStatus = &apigen.BackupStatus{}
+	if h.BackupStatus != nil {
+		status := h.BackupStatus.Snapshot()
+		snapshot.BackupStatus = &status
+	}
+	if ctx.User != nil {
+		snapshot.AgentSessions = erru.Must(h.agentSessions().Snapshot(ctx.User.ID))
+	}
+	if h.IngressDiagnostics != nil {
+		initial, _, unsubscribe := h.IngressDiagnostics.DiagnosticsSnapshotAndSubscribe()
+		unsubscribe()
+		snapshot.IngressDiagnostics = initial
+	}
+	return snapshot
+}
+
+func (h *Handler) PostV1DeploymentsGet(ctx apigen.Context, req *apigen.DeploymentGetRequest) (*apigen.DeploymentGetResponse, error) {
 	if req.ID <= 0 {
 		return nil, MissingKeyErr
 	}
-	cfg := h.findConfigByID(req.ID)
+	cfg := h.deploymentByID(req.ID)
 	if cfg == nil || cfg.Deleted() {
-		return nil, DeploymentNotFoundErr
+		return nil, deployments.NotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID), deployments.NotFoundErr); err != nil {
 		return nil, err
 	}
-	states := make([]apigen.ScheduledInstanceState, 0, 2)
-	for _, state := range h.Store.FetchScheduledSnapshotWithLatestFinal(nil) {
-		if state.Instance.DeploymentID != req.ID {
-			continue
+	snapshot := h.Store.BuildSnapshot(ctx)
+	out := &apigen.DeploymentGetResponse{DeploymentEvent: cfg}
+	for _, e := range snapshot.ScheduledInstanceEvents {
+		if e.Value.DeploymentID == req.ID {
+			out.ScheduledInstanceEvents = append(out.ScheduledInstanceEvents, e)
 		}
-		states = append(states, state)
 	}
-	slices.SortFunc(states, func(a, b apigen.ScheduledInstanceState) int {
-		return cmp.Compare(b.Instance.ID, a.Instance.ID)
-	})
-	instances := make([]*apigen.ScheduledInstanceState, 0, len(states))
-	for i := range states {
-		instances = append(instances, &states[i])
+	for _, status := range snapshot.InstanceStatuses {
+		if status.DeploymentID == req.ID {
+			out.InstanceStatuses = append(out.InstanceStatuses, status)
+		}
 	}
-	return &apigen.DeploymentState{
-		Config:    cfg,
-		Instances: &apigen.ScheduledInstanceSnapshot{Items: instances},
-	}, nil
+	return out, nil
 }

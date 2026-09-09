@@ -4,7 +4,7 @@ import {referencePicker} from "../components/referencePicker.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {valueOverlay} from "../components/valueOverlay.js";
 import {checkIcon, copyIcon, eyeOffIcon, eyeOpenIcon} from "../lib/icons.js";
-import {primaryConfigS, secretRefsS, userConfigRefsS, expandValueVersionRefs, secretViewModel} from "../state/deployments.js";
+import {systemConfigS, secretRefsS, userConfigRefsS} from "../state/deployments.js";
 
 const { div, h2, p, pre, span, button, input, select, option, label: labelEl } = van.tags;
 
@@ -219,7 +219,7 @@ const dirtySettingsFor = (draft) => settings
 const inputClass = "w-full min-w-64 rounded-sm bg-gray-800 border border-gray-700 px-1.5 py-1 text-xs text-gray-100 " +
     "focus:outline-none focus:ring-1 focus:ring-brand";
 const compactButtonClass = "h-8 px-3 py-1 rounded-md text-sm leading-none";
-function valueInput(setting, draft, patchDraft, saving, secrets, openCreateSecret, openEditSecret, openingSecretID) {
+function valueInput(setting, draft, patchDraft, saving, openCreateSecret, openEditSecret, openingSecretID) {
     const item = () => draft.val?.[setting.key];
     const patch = (next) => patchDraft(setting.key, next);
     const mode = () => item()?.mode || "value";
@@ -285,7 +285,7 @@ function valueInput(setting, draft, patchDraft, saving, secrets, openCreateSecre
         return div(
             {class: "flex flex-wrap items-center gap-1.5"},
             referencePicker({
-                refs: () => latestRefs([...(secretRefsS.val || []), ...(secrets.val || [])], item()?.secretId || 0),
+                refs: () => latestRefs(secretRefsS.val || [], item()?.secretId || 0),
                 selectedKey: () => item()?.secretId || "",
                 selectedLabel: "",
                 getKey: ref => ref.id,
@@ -342,7 +342,6 @@ export function settingsPage({isActive = () => true} = {}) {
     const settingsChangedElsewhere = van.state(false);
     const error = van.state(null);
     const saving = van.state(false);
-    const secrets = van.state([]);
     const recoveryStatus = van.state(null);
     const recoveryCode = van.state("");
     const recoveryExampleOpen = van.state(false);
@@ -369,10 +368,10 @@ export function settingsPage({isActive = () => true} = {}) {
         setDraft({...current, [key]: {...current[key], ...next}});
     };
 
-    const currentSettings = () => primaryConfigS.val?.config?.settings || null;
+    const currentSettings = () => systemConfigS.val?.config?.settings || null;
     let loadedConfigVersion = 0;
     van.derive(() => {
-        const versioned = primaryConfigS.val;
+        const versioned = systemConfigS.val;
         const settings = versioned?.config?.settings;
         if (!settings) {
             loadedConfigVersion = 0;
@@ -400,7 +399,6 @@ export function settingsPage({isActive = () => true} = {}) {
             error.val = null;
             const secretsStatus = await capi.postV1SecretsStatus();
             recoveryStatus.val = secretsStatus;
-            secrets.val = secretsStatus.unlocked ? expandValueVersionRefs(((await capi.postV1SecretsList()).items || []).map(secretViewModel)) : [];
         } catch (e) {
             error.val = e.message;
         }
@@ -423,7 +421,6 @@ export function settingsPage({isActive = () => true} = {}) {
 
     const reloadSecrets = async () => {
         recoveryStatus.val = await capi.postV1SecretsStatus();
-        secrets.val = recoveryStatus.val.unlocked ? expandValueVersionRefs(((await capi.postV1SecretsList()).items || []).map(secretViewModel)) : [];
     };
 
     const openCreateSecret = (setting) => {
@@ -447,7 +444,7 @@ export function settingsPage({isActive = () => true} = {}) {
                 value: new TextEncoder().encode(value),
             });
             await reloadSecrets();
-            patchDraft(target.settingKey, {secretId: Number(saved?.versions?.[0]?.id || 0)});
+            patchDraft(target.settingKey, {secretId: Number(saved?.eventId || 0)});
         } catch (e) {
             error.val = e.message;
             throw e;
@@ -461,7 +458,7 @@ export function settingsPage({isActive = () => true} = {}) {
         try {
             error.val = null;
             const res = await capi.postV1SecretsReveal({id});
-            const refs = [...(secrets.val || []), ...(secretRefsS.val || [])];
+            const refs = secretRefsS.val || [];
             const meta = refs.find(ref => Number(ref.id || 0) === id);
             if (!meta) throw new Error("Selected secret metadata is unavailable");
             editSecretTarget.val = {
@@ -494,7 +491,7 @@ export function settingsPage({isActive = () => true} = {}) {
                 value: new TextEncoder().encode(value),
             });
             await reloadSecrets();
-            patchDraft(target.settingKey, {secretId: Number(saved?.versions?.[0]?.id || 0)});
+            patchDraft(target.settingKey, {secretId: Number(saved?.eventId || 0)});
         } catch (e) {
             error.val = e.message;
             throw e;
@@ -840,7 +837,6 @@ export function settingsPage({isActive = () => true} = {}) {
             draft,
             patchDraft,
             saving,
-            secrets,
             openCreateSecret,
             openEditSecret,
             openingSecretID,

@@ -19,7 +19,7 @@ import {
     metaVersions, sameSet, spaceHue,
 } from "../lib/valueExplorer.js";
 import {
-    deploymentsS, machinesS, primaryConfigS, secretMetasS, secretsStatusS, spacesS,
+    deploymentsS, machinesS, systemConfigS, secretMetasS, secretsStatusS, spacesS,
     userConfigsS, valueDirectoriesS,
 } from "../state/deployments.js";
 import {resolveUserDisplayName} from "../lib/users.js";
@@ -160,8 +160,8 @@ export function secretsPage() {
     const usageForItem = (item) => {
         const refIds = new Set(metaVersions(item.meta).map((ref) => Number(ref.id)));
         const settings = (item.kind === "secret"
-            ? settingSecretRefs(primaryConfigS.val?.config?.settings)
-            : settingConfigRefs(primaryConfigS.val?.config?.settings)
+            ? settingSecretRefs(systemConfigS.val?.config?.settings)
+            : settingConfigRefs(systemConfigS.val?.config?.settings)
         ).filter((ref) => refIds.has(ref.id));
         const referenceKey = item.kind === "secret" ? "secretVersionId" : "configVersionId";
         const deployments = deploymentUsages(deploymentsS.val, spacesS.val, machinesS.val, (deployment) => {
@@ -177,7 +177,7 @@ export function secretsPage() {
         const refIds = new Set(metaVersions(item.meta).map((ref) => Number(ref.id)));
         return (deploymentsS.val || []).map((deployment) => deployment?.config).filter((cfg) =>
             cfg && !deploymentDeleted(cfg) && deploymentUsesEnvReferences(cfg, item.kind, refIds),
-        ).map((cfg) => ({id: cfg.id, specVersion: cfg.specVersion}));
+        ).map((cfg) => ({id: cfg.deploymentId, specVersion: cfg.specVersion}));
     };
 
     const resolveSelection = () => {
@@ -342,7 +342,7 @@ export function secretsPage() {
             persistView();
         }
         expandTo(spaceId, directoryId);
-        selectedKey.val = `${type}:${meta.id}`;
+        selectedKey.val = `${type}:${type === "secret" ? meta.secretId : meta.configId}`;
     };
 
     const openNewFolder = () => {

@@ -104,16 +104,14 @@ export function assetEditor({
         originalRevision.val += 1;
     };
 
-    // Save responses are wire Assets (identity + newest-first content log, no
-    // content bytes); the editor keeps the content it just saved.
+    // Upload responses are AssetEvents; the editor keeps the content it saved.
     const hydrateFromSaved = (saved, blob) => {
-        const latest = saved?.contentVersions?.[0];
         hydrate({
-            assetId: Number(saved?.id || 0),
-            key: saved?.fs?.key || "",
-            version: Number(latest?.version || 0),
-            createdAt: latest?.createdAt || null,
-            sizeBytes: Number(latest?.sizeBytes || 0),
+            assetId: Number(saved?.assetId || 0),
+            key: saved?.value?.fs?.key || "",
+            version: Number(saved?.valueVersion || 0),
+            createdAt: saved?.eventTime ? new Date(saved.eventTime) : null,
+            sizeBytes: Number(saved?.value?.sizeBytes || 0),
             large: false,
             blob,
         });

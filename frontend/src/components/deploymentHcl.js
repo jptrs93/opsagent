@@ -310,18 +310,18 @@ function deploymentOf(item) {
 }
 
 function itemSpace(item, type) {
-    if (type === "deployment") return deploymentOf(item)?.def?.spaceId;
+    if (type === "deployment") return deploymentOf(item)?.value?.spaceId;
     return item?.spaceId;
 }
 
 function itemName(item, type) {
     if (type === "asset") return item?.key;
-    if (type === "deployment") return deploymentOf(item)?.def?.name;
+    if (type === "deployment") return deploymentOf(item)?.value?.name;
     return item?.name;
 }
 
 function itemID(item, type) {
-    if (type === "deployment") return deploymentOf(item)?.id;
+    if (type === "deployment") return deploymentOf(item)?.deploymentId;
     return item?.id;
 }
 
@@ -730,12 +730,12 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
     let matches = scopedItems(collection, type, type === "deployment" ? spaceId : undefined)
         .filter(item => itemName(item, type) === name);
     if (type === "deployment" && options.nodeId !== undefined && options.nodeId !== null) {
-        matches = matches.filter(item => Number(deploymentOf(item)?.def?.nodeId) === Number(options.nodeId));
+        matches = matches.filter(item => Number(deploymentOf(item)?.value?.nodeId) === Number(options.nodeId));
     }
     if (type === "deployment" && options.preferNodeId !== undefined && options.preferNodeId !== null) {
         // Same name may exist on several nodes; the local node shadows the
         // others, but a name unique to another node still resolves.
-        const ownNode = matches.filter(item => Number(deploymentOf(item)?.def?.nodeId) === Number(options.preferNodeId));
+        const ownNode = matches.filter(item => Number(deploymentOf(item)?.value?.nodeId) === Number(options.preferNodeId));
         if (ownNode.length > 0) matches = ownNode;
     }
     matches = uniqueByID(matches, type);
@@ -909,7 +909,7 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime
             const deployment = deploymentReference(text, diagnostics, source, catalogs, nodeId);
             if (!deployment) continue;
             mounts.push({
-                deploymentId: Number(deploymentOf(deployment).id),
+                deploymentId: Number(deploymentOf(deployment).deploymentId),
                 containerPath: pathExpression.value,
                 permission: optionBoolean(text, diagnostics, options, "read_only")
                     ? PERMISSION_READ_ONLY
@@ -1013,7 +1013,7 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
         if (value.name === "asset") setEnv(entry.name, {asset: item.key, assetVersionId: Number(item.id)});
         if (value.name === "address") {
             const config = deploymentOf(item);
-            setEnv(entry.name, {addressDeploymentId: Number(config.id), addressSpaceId: Number(config.def?.spaceId)});
+            setEnv(entry.name, {addressDeploymentId: Number(config.deploymentId), addressSpaceId: Number(config.value?.spaceId)});
         }
     }
     container.envVars = envVars;

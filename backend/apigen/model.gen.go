@@ -6,13 +6,13 @@ import (
 	"time"
 )
 
-type DeploymentEventType int32
+type EventType int32
 
 const (
-	DeploymentEventType_DEPLOYMENT_EVENT_TYPE_UNSPECIFIED DeploymentEventType = 0
-	DeploymentEventType_DEPLOYMENT_EVENT_TYPE_CREATE      DeploymentEventType = 1
-	DeploymentEventType_DEPLOYMENT_EVENT_TYPE_UPDATE      DeploymentEventType = 2
-	DeploymentEventType_DEPLOYMENT_EVENT_TYPE_DELETE      DeploymentEventType = 3
+	EventType_EVENT_TYPE_UNSPECIFIED EventType = 0
+	EventType_EVENT_TYPE_CREATE      EventType = 1
+	EventType_EVENT_TYPE_UPDATE      EventType = 2
+	EventType_EVENT_TYPE_DELETE      EventType = 3
 )
 
 type NetworkingMode int32
@@ -223,24 +223,26 @@ const (
 	AccessPolicyType_ANY_OF                         AccessPolicyType = 3
 )
 
-type DeploymentDef struct {
+type Deployment struct {
 	NodeID  int32          `json:"node_id"`
 	Spec    DeploymentSpec `json:"spec"`
 	SpaceID int32          `json:"space_id"`
 	Name    string         `json:"name,omitempty"`
 }
 
-type Deployment struct {
-	ID           int32               `json:"id"`
-	Version      int32               `json:"version"`
-	SpecVersion  int32               `json:"spec_version"`
-	SpaceVersion int32               `json:"space_version"`
-	NameVersion  int32               `json:"name_version"`
-	Author       int32               `json:"author"`
-	EventType    DeploymentEventType `json:"event_type"`
-	CreatedTime  time.Time           `json:"created_time"`
-	EventTime    time.Time           `json:"event_time"`
-	Def          DeploymentDef       `json:"def"`
+type DeploymentEvent struct {
+	DeploymentID int32      `json:"deployment_id"`
+	Version      int32      `json:"version"`
+	Seq          int64      `json:"seq"`
+	EventID      int64      `json:"event_id"`
+	Author       int32      `json:"author"`
+	EventType    EventType  `json:"event_type"`
+	CreatedTime  time.Time  `json:"created_time"`
+	EventTime    time.Time  `json:"event_time"`
+	SpecVersion  int32      `json:"spec_version"`
+	SpaceVersion int32      `json:"space_version"`
+	NameVersion  int32      `json:"name_version"`
+	Value        Deployment `json:"value"`
 }
 
 type DeploymentSpec struct {
@@ -413,10 +415,6 @@ type SecretCertSource struct {
 	SecretVersionID int32 `json:"secret_version_id"`
 }
 
-type DeploymentSnapshot struct {
-	Items []*Deployment `json:"items,omitempty"`
-}
-
 type DeploymentSpecVersionRef struct {
 	ID          int32 `json:"id"`
 	SpecVersion int32 `json:"spec_version"`
@@ -444,7 +442,7 @@ type ScheduledInstanceStatus struct {
 
 type ScheduledInstanceState struct {
 	Instance ScheduledInstance       `json:"instance"`
-	Config   Deployment              `json:"config"`
+	Config   DeploymentEvent         `json:"config"`
 	Status   ScheduledInstanceStatus `json:"status"`
 }
 
@@ -469,6 +467,18 @@ type RunnerStatus struct {
 	RunningVersion        string        `json:"running_version,omitempty"`
 	NetworkDiagnostics    []string      `json:"network_diagnostics,omitempty"`
 	ExitCode              *int32        `json:"exit_code,omitempty"`
+}
+
+type ScheduledInstanceEvent struct {
+	ScheduledInstanceID int32             `json:"scheduled_instance_id"`
+	Version             int32             `json:"version"`
+	Seq                 int64             `json:"seq"`
+	EventID             int64             `json:"event_id"`
+	Author              int32             `json:"author"`
+	EventType           EventType         `json:"event_type"`
+	CreatedTime         int64             `json:"created_time"`
+	EventTime           int64             `json:"event_time"`
+	Value               ScheduledInstance `json:"value"`
 }
 
 type DeploymentUpdateRequestV2 struct {
@@ -512,7 +522,7 @@ type RecentlyDeletedDeploymentsRequest struct {
 }
 
 type RecentlyDeletedDeployments struct {
-	Items []*Deployment `json:"items,omitempty"`
+	Items []*DeploymentEvent `json:"items,omitempty"`
 }
 
 type DeploymentDeleteRequest struct {
@@ -622,13 +632,14 @@ type DeploymentGetRequest struct {
 	ID int32 `json:"id"`
 }
 
-type DeploymentState struct {
-	Config    *Deployment                `json:"config"`
-	Instances *ScheduledInstanceSnapshot `json:"instances"`
+type DeploymentGetResponse struct {
+	DeploymentEvent         *DeploymentEvent           `json:"deployment_event"`
+	ScheduledInstanceEvents []*ScheduledInstanceEvent  `json:"scheduled_instance_events,omitempty"`
+	InstanceStatuses        []*ScheduledInstanceStatus `json:"instance_statuses,omitempty"`
 }
 
 type DeploymentHistoryEntry struct {
-	Config *Deployment              `json:"config"`
+	Config *DeploymentEvent         `json:"config"`
 	Status *ScheduledInstanceStatus `json:"status"`
 }
 
@@ -878,12 +889,23 @@ type MetricsLatestResponse struct {
 	Warnings []string              `json:"warnings,omitempty"`
 }
 
+type SecretEvent struct {
+	SecretID     int32     `json:"secret_id"`
+	Version      int32     `json:"version"`
+	Seq          int64     `json:"seq"`
+	EventID      int64     `json:"event_id"`
+	Author       int32     `json:"author"`
+	EventType    EventType `json:"event_type"`
+	CreatedTime  int64     `json:"created_time"`
+	EventTime    int64     `json:"event_time"`
+	ValueVersion int32     `json:"value_version"`
+	SpaceVersion int32     `json:"space_version"`
+	Value        Secret    `json:"value"`
+}
+
 type Secret struct {
-	ID            int32                 `json:"id"`
-	DeletedAt     time.Time             `json:"deleted_at"`
-	Fs            *SecretFs             `json:"fs"`
-	SpaceVersions []*SecretSpaceVersion `json:"space_versions,omitempty"`
-	Versions      []*SecretVersion      `json:"versions,omitempty"`
+	Fs      *SecretFs `json:"fs"`
+	SpaceID int32     `json:"space_id"`
 }
 
 type SecretFs struct {
@@ -891,24 +913,8 @@ type SecretFs struct {
 	DirectoryID int32  `json:"directory_id"`
 }
 
-type SecretSpaceVersion struct {
-	ID        int32     `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	Author    int32     `json:"author"`
-	SpaceID   int32     `json:"space_id"`
-	GlobalSeq int64     `json:"global_seq"`
-}
-
-type SecretVersion struct {
-	ID        int32     `json:"id"`
-	Version   int32     `json:"version"`
-	CreatedAt time.Time `json:"created_at"`
-	Author    int32     `json:"author"`
-	GlobalSeq int64     `json:"global_seq"`
-}
-
-type SecretList struct {
-	Items []*Secret `json:"items,omitempty"`
+type SecretEventList struct {
+	Items []*SecretEvent `json:"items,omitempty"`
 }
 
 type SecretCreateRequest struct {
@@ -972,34 +978,29 @@ type SecretUnlockRequest struct {
 	Code string `json:"code,omitempty"`
 }
 
+type ConfigEvent struct {
+	ConfigID     int32     `json:"config_id"`
+	Version      int32     `json:"version"`
+	Seq          int64     `json:"seq"`
+	EventID      int64     `json:"event_id"`
+	Author       int32     `json:"author"`
+	EventType    EventType `json:"event_type"`
+	CreatedTime  int64     `json:"created_time"`
+	EventTime    int64     `json:"event_time"`
+	ValueVersion int32     `json:"value_version"`
+	SpaceVersion int32     `json:"space_version"`
+	Value        Config    `json:"value"`
+}
+
 type Config struct {
-	ID            int32                 `json:"id"`
-	DeletedAt     time.Time             `json:"deleted_at"`
-	Fs            *ConfigFs             `json:"fs"`
-	SpaceVersions []*ConfigSpaceVersion `json:"space_versions,omitempty"`
-	ValueVersions []*ConfigValueVersion `json:"value_versions,omitempty"`
+	Fs      *ConfigFs `json:"fs"`
+	SpaceID int32     `json:"space_id"`
+	Value   string    `json:"value,omitempty"`
 }
 
 type ConfigFs struct {
 	Name        string `json:"name,omitempty"`
 	DirectoryID int32  `json:"directory_id"`
-}
-
-type ConfigSpaceVersion struct {
-	ID        int32     `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	Author    int32     `json:"author"`
-	SpaceID   int32     `json:"space_id"`
-	GlobalSeq int64     `json:"global_seq"`
-}
-
-type ConfigValueVersion struct {
-	ID        int32     `json:"id"`
-	Version   int32     `json:"version"`
-	Value     string    `json:"value,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	Author    int32     `json:"author"`
-	GlobalSeq int64     `json:"global_seq"`
 }
 
 type ValueDirectory struct {
@@ -1012,8 +1013,8 @@ type ValueDirectory struct {
 	Deleted   bool      `json:"deleted"`
 }
 
-type ConfigList struct {
-	Items []*Config `json:"items,omitempty"`
+type ConfigEventList struct {
+	Items []*ConfigEvent `json:"items,omitempty"`
 }
 
 type ConfigCreateRequest struct {
@@ -1045,35 +1046,30 @@ type ConfigMoveRequest struct {
 	SpaceID          int32 `json:"space_id"`
 }
 
+type AssetEvent struct {
+	AssetID      int32     `json:"asset_id"`
+	Version      int32     `json:"version"`
+	Seq          int64     `json:"seq"`
+	EventID      int64     `json:"event_id"`
+	Author       int32     `json:"author"`
+	EventType    EventType `json:"event_type"`
+	CreatedTime  int64     `json:"created_time"`
+	EventTime    int64     `json:"event_time"`
+	ValueVersion int32     `json:"value_version"`
+	SpaceVersion int32     `json:"space_version"`
+	Value        Asset     `json:"value"`
+}
+
 type Asset struct {
-	ID              int32                  `json:"id"`
-	DeletedAt       time.Time              `json:"deleted_at"`
-	Fs              *AssetFs               `json:"fs"`
-	SpaceVersions   []*AssetSpaceVersion   `json:"space_versions,omitempty"`
-	ContentVersions []*AssetContentVersion `json:"content_versions,omitempty"`
+	Fs        *AssetFs `json:"fs"`
+	SpaceID   int32    `json:"space_id"`
+	Sha256    string   `json:"sha256,omitempty"`
+	SizeBytes int64    `json:"size_bytes"`
 }
 
 type AssetFs struct {
 	Key         string `json:"key,omitempty"`
 	DirectoryID int32  `json:"directory_id"`
-}
-
-type AssetSpaceVersion struct {
-	ID        int32     `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	Author    int32     `json:"author"`
-	SpaceID   int32     `json:"space_id"`
-	GlobalSeq int64     `json:"global_seq"`
-}
-
-type AssetContentVersion struct {
-	ID        int32     `json:"id"`
-	Version   int32     `json:"version"`
-	CreatedAt time.Time `json:"created_at"`
-	Author    int32     `json:"author"`
-	Sha256    string    `json:"sha256,omitempty"`
-	SizeBytes int64     `json:"size_bytes"`
-	GlobalSeq int64     `json:"global_seq"`
 }
 
 type AssetDirectory struct {
@@ -1086,8 +1082,8 @@ type AssetDirectory struct {
 	Deleted   bool      `json:"deleted"`
 }
 
-type AssetList struct {
-	Items []*Asset `json:"items,omitempty"`
+type AssetEventList struct {
+	Items []*AssetEvent `json:"items,omitempty"`
 }
 
 type AssetRenameRequest struct {
@@ -1242,6 +1238,7 @@ type WebAuthNFinishRequest struct {
 }
 
 type AgentSession struct {
+	UserID            int32              `json:"user_id"`
 	ID                string             `json:"id,omitempty"`
 	CreatedAt         time.Time          `json:"created_at"`
 	ExpiresAt         time.Time          `json:"expires_at"`
@@ -1382,6 +1379,24 @@ type AuthzGlobalRuleRecord struct {
 	Rule      *AuthzGlobalRule `json:"rule"`
 }
 
+type AuthzGrantValue struct {
+	UserID     int64       `json:"user_id"`
+	TemplateID int64       `json:"template_id"`
+	Grant      *AuthzGrant `json:"grant"`
+}
+
+type AuthzGrantEvent struct {
+	AuthzGrantID int64           `json:"authz_grant_id"`
+	Version      int32           `json:"version"`
+	Seq          int64           `json:"seq"`
+	EventID      int64           `json:"event_id"`
+	Author       int64           `json:"author"`
+	EventType    EventType       `json:"event_type"`
+	CreatedTime  int64           `json:"created_time"`
+	EventTime    int64           `json:"event_time"`
+	Value        AuthzGrantValue `json:"value"`
+}
+
 type AuthzRuleTemplateList struct {
 	Items []*AuthzRuleTemplateRecord `json:"items,omitempty"`
 }
@@ -1429,24 +1444,47 @@ type AuthzGlobalRuleDeleteRequest struct {
 	ID int64 `json:"id"`
 }
 
-type ClusterNode struct {
-	ID            int32               `json:"id"`
-	Name          string              `json:"name,omitempty"`
-	Identifier    string              `json:"identifier,omitempty"`
-	Roles         []int32             `json:"roles,omitempty"`
-	WgPublicKey   string              `json:"wg_public_key,omitempty"`
-	Addresses     []string            `json:"addresses,omitempty"`
-	EnrolledAt    time.Time           `json:"enrolled_at"`
-	Status        NodeLifecycleStatus `json:"status"`
-	AllowedSpaces []int32             `json:"allowed_spaces,omitempty"`
+type NodeReported struct {
+	Identifier           string   `json:"identifier,omitempty"`
+	UnderlayAddress      string   `json:"underlay_address,omitempty"`
+	WgPublicKey          string   `json:"wg_public_key,omitempty"`
+	HostAddresses        []string `json:"host_addresses,omitempty"`
+	HostAddressesUnknown bool     `json:"host_addresses_unknown"`
 }
 
-type ClusterNodeStatus struct {
-	ID              int32     `json:"id"`
-	NodeID          int32     `json:"node_id"`
-	LastConnectedAt time.Time `json:"last_connected_at"`
-	IsConnected     bool      `json:"is_connected"`
-	HostAddresses   []string  `json:"host_addresses,omitempty"`
+type NodeOperator struct {
+	Name          string  `json:"name,omitempty"`
+	Roles         []int32 `json:"roles,omitempty"`
+	AllowedSpaces []int32 `json:"allowed_spaces,omitempty"`
+	EnrolledTime  int64   `json:"enrolled_time"`
+}
+
+type Node struct {
+	Status                NodeLifecycleStatus `json:"status"`
+	EnrollmentRequestedAt int64               `json:"enrollment_requested_at"`
+	Operator              NodeOperator        `json:"operator"`
+	Reported              NodeReported        `json:"reported"`
+}
+
+type NodeEvent struct {
+	NodeID      int32     `json:"node_id"`
+	Version     int32     `json:"version"`
+	Seq         int64     `json:"seq"`
+	EventID     int64     `json:"event_id"`
+	Author      int32     `json:"author"`
+	EventType   EventType `json:"event_type"`
+	CreatedTime int64     `json:"created_time"`
+	EventTime   int64     `json:"event_time"`
+	Value       Node      `json:"value"`
+}
+
+type NodeStatus struct {
+	NodeID            int32     `json:"node_id"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	IsConnected       bool      `json:"is_connected"`
+	LastConnectedAt   time.Time `json:"last_connected_at"`
+	RemoteAddress     string    `json:"remote_address,omitempty"`
+	OpendeployVersion string    `json:"opendeploy_version,omitempty"`
 }
 
 type EnrollmentRequestStatus struct {
@@ -1474,12 +1512,12 @@ type NodeAllowedSpacesRequest struct {
 	SpaceIds   []int32 `json:"space_ids,omitempty"`
 }
 
-type ClusterNodeList struct {
-	Items []*ClusterNode `json:"items,omitempty"`
+type NodeEventList struct {
+	Items []*NodeEvent `json:"items,omitempty"`
 }
 
-type ClusterNodeStatusList struct {
-	Items []*ClusterNodeStatus `json:"items,omitempty"`
+type NodeStatusList struct {
+	Items []*NodeStatus `json:"items,omitempty"`
 }
 
 type AcmeState struct {
@@ -1633,13 +1671,10 @@ type IngressBackend struct {
 }
 
 type NetworkPolicy struct {
-	ID          int32                 `json:"id"`
-	Version     int32                 `json:"version"`
 	Action      NetworkPolicyAction   `json:"action"`
 	Source      *NetworkPolicyPeerRef `json:"source"`
 	Destination *NetworkPolicyPeerRef `json:"destination"`
 	Ports       []*NetPortMatch       `json:"ports,omitempty"`
-	Deleted     bool                  `json:"deleted"`
 }
 
 type NetworkPolicyPeerRef struct {
@@ -1647,8 +1682,20 @@ type NetworkPolicyPeerRef struct {
 	ID   int32                 `json:"id"`
 }
 
-type NetworkPolicyList struct {
-	Items []*NetworkPolicy `json:"items,omitempty"`
+type NetworkPolicyEvent struct {
+	NetworkPolicyID int32         `json:"network_policy_id"`
+	Version         int32         `json:"version"`
+	Seq             int64         `json:"seq"`
+	EventID         int64         `json:"event_id"`
+	Author          int32         `json:"author"`
+	EventType       EventType     `json:"event_type"`
+	CreatedTime     int64         `json:"created_time"`
+	EventTime       int64         `json:"event_time"`
+	Value           NetworkPolicy `json:"value"`
+}
+
+type NetworkPolicyEventList struct {
+	Items []*NetworkPolicyEvent `json:"items,omitempty"`
 }
 
 type NetworkPolicyCreateRequest struct {
@@ -1691,10 +1738,12 @@ type MsgToSecondary struct {
 }
 
 type ClusterHello struct {
-	UnderlayAddress        string   `json:"underlay_address,omitempty"`
-	ClusterProtocolVersion int32    `json:"cluster_protocol_version"`
-	WgPublicKey            string   `json:"wg_public_key,omitempty"`
-	HostAddresses          []string `json:"host_addresses,omitempty"`
+	OpendeployVersion      string        `json:"opendeploy_version,omitempty"`
+	Reported               *NodeReported `json:"reported"`
+	UnderlayAddress        string        `json:"underlay_address,omitempty"`
+	ClusterProtocolVersion int32         `json:"cluster_protocol_version"`
+	WgPublicKey            string        `json:"wg_public_key,omitempty"`
+	HostAddresses          []string      `json:"host_addresses,omitempty"`
 }
 
 type MsgToPrimary struct {
@@ -1760,11 +1809,12 @@ type EnrollmentSecondaryMsg struct {
 }
 
 type EnrollmentHello struct {
-	RequestingMachineID         string `json:"requesting_machine_id,omitempty"`
-	SecondaryCertificateRequest []byte `json:"secondary_certificate_request"`
-	OpendeployVersion           string `json:"opendeploy_version,omitempty"`
-	UnderlayAddress             string `json:"underlay_address,omitempty"`
-	WgPublicKey                 string `json:"wg_public_key,omitempty"`
+	Reported                    *NodeReported `json:"reported"`
+	RequestingMachineID         string        `json:"requesting_machine_id,omitempty"`
+	SecondaryCertificateRequest []byte        `json:"secondary_certificate_request"`
+	OpendeployVersion           string        `json:"opendeploy_version,omitempty"`
+	UnderlayAddress             string        `json:"underlay_address,omitempty"`
+	WgPublicKey                 string        `json:"wg_public_key,omitempty"`
 }
 
 type EnrollmentPrimaryMsg struct {
@@ -1777,8 +1827,9 @@ type EnrollmentRequestList struct {
 }
 
 type EnrollmentAcceptRequest struct {
-	ID       int32  `json:"id"`
-	NodeName string `json:"node_name,omitempty"`
+	ExpectedVersion int32  `json:"expected_version"`
+	ID              int32  `json:"id"`
+	NodeName        string `json:"node_name,omitempty"`
 }
 
 type EnrollmentAccepted struct {
@@ -1810,16 +1861,16 @@ type BoolSetting struct {
 	ConfigRef ConfigRef `json:"config_ref"`
 }
 
-type PrimaryConfig struct {
+type SystemConfig struct {
 	Settings           ClusterSettings `json:"settings"`
 	MasterPasswordHash string          `json:"master_password_hash,omitempty"`
 	NetworkUlaPrefix   []byte          `json:"network_ula_prefix"`
 }
 
-type PrimaryConfigVersion struct {
-	Version   int64         `json:"version"`
-	UpdatedAt time.Time     `json:"updated_at"`
-	Config    PrimaryConfig `json:"config"`
+type SystemConfigVersion struct {
+	Version   int64        `json:"version"`
+	UpdatedAt time.Time    `json:"updated_at"`
+	Config    SystemConfig `json:"config"`
 }
 
 type ClusterSettings struct {
@@ -1897,53 +1948,60 @@ type BackupStatus struct {
 	AssetError            string    `json:"asset_error,omitempty"`
 }
 
-type State struct {
-	Heartbeat                  bool                       `json:"heartbeat"`
-	DeploymentsSnapshot        *DeploymentSnapshot        `json:"deployments_snapshot"`
-	DeploymentUpdate           *Deployment                `json:"deployment_update"`
-	UsersSnapshot              []*User                    `json:"users_snapshot,omitempty"`
-	UserUpdate                 *User                      `json:"user_update"`
-	EnrollmentsSnapshot        *EnrollmentRequestList     `json:"enrollments_snapshot"`
-	EnrollmentUpdate           *EnrollmentRequestStatus   `json:"enrollment_update"`
-	SecretsStatusSnapshot      *SecretsStatusResponse     `json:"secrets_status_snapshot"`
-	SecretMetasSnapshot        *SecretList                `json:"secret_metas_snapshot"`
-	SecretMetaUpdate           *Secret                    `json:"secret_meta_update"`
-	UserConfigValuesSnapshot   *ConfigList                `json:"user_config_values_snapshot"`
-	UserConfigValueUpdate      *Config                    `json:"user_config_value_update"`
-	SpacesSnapshot             *SpaceList                 `json:"spaces_snapshot"`
-	SpaceUpdate                *Space                     `json:"space_update"`
-	AssetsSnapshot             *AssetList                 `json:"assets_snapshot"`
-	AssetUpdate                *Asset                     `json:"asset_update"`
-	NodesSnapshot              *ClusterNodeList           `json:"nodes_snapshot"`
-	NodeUpdate                 *ClusterNode               `json:"node_update"`
-	NodeStatusesSnapshot       *ClusterNodeStatusList     `json:"node_statuses_snapshot"`
-	NodeStatusUpdate           *ClusterNodeStatus         `json:"node_status_update"`
-	BackupStatusSnapshot       *BackupStatus              `json:"backup_status_snapshot"`
-	BackupStatusUpdate         *BackupStatus              `json:"backup_status_update"`
-	ConfigSnapshot             PrimaryConfigVersion       `json:"config_snapshot"`
-	ScheduledInstancesSnapshot *ScheduledInstanceSnapshot `json:"scheduled_instances_snapshot"`
-	ScheduledInstanceUpdate    *ScheduledInstanceState    `json:"scheduled_instance_update"`
-	AgentSessionsSnapshot      *AgentSessionList          `json:"agent_sessions_snapshot"`
-	AgentSessionUpdate         *AgentSession              `json:"agent_session_update"`
-	ValueDirectoriesSnapshot   *ValueDirectoryList        `json:"value_directories_snapshot"`
-	ValueDirectoryUpdate       *ValueDirectory            `json:"value_directory_update"`
-	AssetDirectoriesSnapshot   *AssetDirectoryList        `json:"asset_directories_snapshot"`
-	AssetDirectoryUpdate       *AssetDirectory            `json:"asset_directory_update"`
-	AuthzRuleTemplatesSnapshot *AuthzRuleTemplateList     `json:"authz_rule_templates_snapshot"`
-	AuthzGrantsSnapshot        *AuthzGrantList            `json:"authz_grants_snapshot"`
-	AuthzGlobalRulesSnapshot   *AuthzGlobalRuleList       `json:"authz_global_rules_snapshot"`
-	NetworkPoliciesSnapshot    *NetworkPolicyList         `json:"network_policies_snapshot"`
-	IngressDiagnosticsSnapshot *IngressDiagnosticList     `json:"ingress_diagnostics_snapshot"`
+type Snapshot struct {
+	Seq                     int64                      `json:"seq"`
+	DeploymentEvents        []*DeploymentEvent         `json:"deployment_events,omitempty"`
+	ScheduledInstanceEvents []*ScheduledInstanceEvent  `json:"scheduled_instance_events,omitempty"`
+	InstanceStatuses        []*ScheduledInstanceStatus `json:"instance_statuses,omitempty"`
+	NodeEvents              []*NodeEvent               `json:"node_events,omitempty"`
+	NodeStatuses            []*NodeStatus              `json:"node_statuses,omitempty"`
+	SecretEvents            []*SecretEvent             `json:"secret_events,omitempty"`
+	ConfigEvents            []*ConfigEvent             `json:"config_events,omitempty"`
+	AssetEvents             []*AssetEvent              `json:"asset_events,omitempty"`
+	ValueDirectories        []*ValueDirectory          `json:"value_directories,omitempty"`
+	AssetDirectories        []*AssetDirectory          `json:"asset_directories,omitempty"`
+	Spaces                  []*Space                   `json:"spaces,omitempty"`
+	NetworkPolicyEvents     []*NetworkPolicyEvent      `json:"network_policy_events,omitempty"`
+	Users                   []*User                    `json:"users,omitempty"`
+	AgentSessions           []*AgentSession            `json:"agent_sessions,omitempty"`
+	AuthzRuleTemplates      []*AuthzRuleTemplateRecord `json:"authz_rule_templates,omitempty"`
+	AuthzGrantEvents        []*AuthzGrantEvent         `json:"authz_grant_events,omitempty"`
+	AuthzGlobalRules        []*AuthzGlobalRuleRecord   `json:"authz_global_rules,omitempty"`
+	SecretsStatus           *SecretsStatusResponse     `json:"secrets_status"`
+	BackupStatus            *BackupStatus              `json:"backup_status"`
+	SystemConfig            *SystemConfigVersion       `json:"system_config"`
+	IngressDiagnostics      *IngressDiagnosticList     `json:"ingress_diagnostics"`
 }
 
-type GlobalState struct {
-	Spaces           *SpaceList          `json:"spaces"`
-	Assets           *AssetList          `json:"assets"`
-	Configs          *ConfigList         `json:"configs"`
-	Secrets          *SecretList         `json:"secrets"`
-	Deployments      *DeploymentSnapshot `json:"deployments"`
-	ValueDirectories *ValueDirectoryList `json:"value_directories"`
-	AssetDirectories *AssetDirectoryList `json:"asset_directories"`
+type CoreUpdate struct {
+	Seq                     int64                      `json:"seq"`
+	DeploymentEvents        []*DeploymentEvent         `json:"deployment_events,omitempty"`
+	ScheduledInstanceEvents []*ScheduledInstanceEvent  `json:"scheduled_instance_events,omitempty"`
+	NodeEvents              []*NodeEvent               `json:"node_events,omitempty"`
+	SecretEvents            []*SecretEvent             `json:"secret_events,omitempty"`
+	ConfigEvents            []*ConfigEvent             `json:"config_events,omitempty"`
+	AssetEvents             []*AssetEvent              `json:"asset_events,omitempty"`
+	NetworkPolicyEvents     []*NetworkPolicyEvent      `json:"network_policy_events,omitempty"`
+	Spaces                  []*Space                   `json:"spaces,omitempty"`
+	Users                   []*User                    `json:"users,omitempty"`
+	ValueDirectories        []*ValueDirectory          `json:"value_directories,omitempty"`
+	AssetDirectories        []*AssetDirectory          `json:"asset_directories,omitempty"`
+	AuthzRuleTemplates      *AuthzRuleTemplateList     `json:"authz_rule_templates"`
+	AuthzGrantEvents        []*AuthzGrantEvent         `json:"authz_grant_events,omitempty"`
+	AuthzGlobalRules        *AuthzGlobalRuleList       `json:"authz_global_rules"`
+	SystemConfig            *SystemConfigVersion       `json:"system_config"`
+	InstanceStatuses        []*ScheduledInstanceStatus `json:"instance_statuses,omitempty"`
+	NodeStatuses            []*NodeStatus              `json:"node_statuses,omitempty"`
+}
+
+type StateStreamMsg struct {
+	Snapshot           *Snapshot              `json:"snapshot"`
+	Core               *CoreUpdate            `json:"core"`
+	Heartbeat          bool                   `json:"heartbeat"`
+	BackupStatus       *BackupStatus          `json:"backup_status"`
+	IngressDiagnostics *IngressDiagnosticList `json:"ingress_diagnostics"`
+	SecretsStatus      *SecretsStatusResponse `json:"secrets_status"`
+	AgentSessions      *AgentSessionList      `json:"agent_sessions"`
 }
 
 type AccessPolicy struct {

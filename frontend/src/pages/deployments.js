@@ -111,7 +111,7 @@ export function deploymentsPage(onOpenLogs = () => {}, options = {}) {
     // tab; there is nothing to de-duplicate on.
     const openCreateTab = (opts = {}) => {
         const id = `create-${nextCreateTab++}`;
-        const sourceName = opts.sourceDeployment?.def?.name || opts.sourceDeploymentRow?.name || "";
+        const sourceName = opts.sourceDeployment?.value?.name || opts.sourceDeploymentRow?.name || "";
         const title = opts.retainIdentity && sourceName ? `Restore ${sourceName}`
             : sourceName ? `Fork of ${sourceName}`
                 : "New deployment";

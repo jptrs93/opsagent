@@ -3,11 +3,12 @@ package webuihandler
 import (
 	"database/sql"
 	"errors"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"net/http"
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var InvalidSpaceErr = apigen.NewApiErr("Invalid space", "invalid_space", http.StatusBadRequest)
@@ -24,7 +25,7 @@ func (h *Handler) PostV1SpacesCreate(ctx apigen.Context, req *apigen.SpaceSetReq
 	if err := h.requireAccess(ctx, vCreate, eSpace, 0, 0); err != nil {
 		return nil, err
 	}
-	space, err := h.Store.CreateSpace(name)
+	space, err := nodes.CreateSpace(h.Store, name)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +40,7 @@ func (h *Handler) PostV1SpacesUpdate(ctx apigen.Context, req *apigen.SpaceSetReq
 	if err := h.requireEntityAccess(ctx, vUpdate, eSpace, int64(req.ID), int64(req.ID), SpaceNotFoundErr); err != nil {
 		return nil, err
 	}
-	space, err := h.Store.UpdateSpace(req.ID, name)
+	space, err := nodes.UpdateSpace(h.Store, req.ID, name)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, SpaceNotFoundErr
 	}
@@ -56,19 +57,19 @@ func (h *Handler) PostV1SpacesDelete(ctx apigen.Context, req *apigen.SpaceDelete
 	if err := h.requireEntityAccess(ctx, vDelete, eSpace, int64(req.ID), int64(req.ID), SpaceNotFoundErr); err != nil {
 		return err
 	}
-	count, err := h.Store.CountDeploymentsForSpace(req.ID)
+	count, err := nodes.CountDeploymentsForSpace(h.Store.Queries(), req.ID)
 	if err != nil {
 		return err
 	}
 	if count > 0 {
 		return SpaceInUseErr
 	}
-	if err := h.Store.DeleteSpace(req.ID); err != nil {
+	if err := nodes.DeleteSpace(h.Store, req.ID); err != nil {
 		return err
 	}
 	return nil
 }
 
 func isSeededSpace(id int32) bool {
-	return id == state.OpendeploySpaceID || id == state.DefaultSpaceID
+	return id == internaldeploy.SpaceID || id == nodes.DefaultSpaceID
 }

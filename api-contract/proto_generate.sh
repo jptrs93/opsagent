@@ -1,5 +1,5 @@
 #!/bin/sh
-go install github.com/jptrs93/cleanproto/cmd/cleanproto@v1.24.0
+go install github.com/jptrs93/cleanproto/cmd/cleanproto@v1.25.1
 set -e
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -30,7 +30,7 @@ trap 'rm -f "$COMBINED_PROTO"' EXIT
                api-contract/model/network_policies.proto api-contract/model_network_policies_operations.proto \
                api-contract/model_cluster_operations.proto \
                api-contract/model_enrollment_operations.proto \
-               api-contract/model/primary_config.proto api-contract/model/backup.proto \
+               api-contract/model/system_config.proto api-contract/model/backup.proto \
                api-contract/model_global_operations.proto \
                api-contract/api_service.proto api-contract/cluster_service.proto api-contract/enrollment_service.proto; do
     sed '/^syntax = /d; /^package /d; /^import /d; /^option go_package = /d' "$proto"

@@ -23,7 +23,7 @@ import (
 
 type scheduledInstanceStore interface {
 	FetchScheduledSnapshot(predicate storage.ScheduledInstancePredicate) []apigen.ScheduledInstanceState
-	MustFetchScheduledSnapshotAndSubscribe(predicate storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan apigen.ScheduledInstanceState, func())
+	MustFetchScheduledSnapshotAndSubscribe(predicate storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan []apigen.ScheduledInstanceState, func())
 }
 
 type CertSecretResolver interface {
@@ -108,7 +108,7 @@ func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predic
 		}
 	}
 	snapshot, updates, unsub := store.MustFetchScheduledSnapshotAndSubscribe(predicate)
-	defer unsub()
+	defer func() { unsub() }()
 	write(snapshot)
 	for {
 		select {
@@ -116,7 +116,11 @@ func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predic
 			return
 		case _, ok := <-updates:
 			if !ok {
-				return
+				unsub()
+				slog.WarnContext(ctx, "scheduled instance subscription closed; resubscribing")
+				snapshot, updates, unsub = store.MustFetchScheduledSnapshotAndSubscribe(predicate)
+				write(snapshot)
+				continue
 			}
 			write(store.FetchScheduledSnapshot(predicate))
 		case _, ok := <-acmeUpdates:
@@ -172,7 +176,7 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 	prefix, _ := network.Default.PrefixValue()
 	virtual := make([]apigen.ScheduledInstanceState, 0, len(items))
 	for _, item := range items {
-		if item.Config.Def.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		if item.Config.Value.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
 		virtual = append(virtual, item)
@@ -219,10 +223,10 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 		type ordinalStates struct{ serving, standby, draining bool }
 		statesByOrdinal := make(map[ordinalKey]*ordinalStates)
 		for _, item := range virtual {
-			if item.Config.ID <= 0 {
+			if item.Config.DeploymentID <= 0 {
 				continue
 			}
-			key := ordinalKey{item.Config.ID, item.Instance.InstanceOrdinal}
+			key := ordinalKey{item.Config.DeploymentID, item.Instance.InstanceOrdinal}
 			states := statesByOrdinal[key]
 			if states == nil {
 				states = &ordinalStates{}
@@ -238,14 +242,14 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 			}
 		}
 		for _, item := range virtual {
-			if item.Config.ID <= 0 {
+			if item.Config.DeploymentID <= 0 {
 				continue
 			}
-			states := statesByOrdinal[ordinalKey{item.Config.ID, item.Instance.InstanceOrdinal}]
+			states := statesByOrdinal[ordinalKey{item.Config.DeploymentID, item.Instance.InstanceOrdinal}]
 			if !states.serving && !(states.standby && states.draining) {
 				continue
 			}
-			addr, err := prefix.InboundAddr(item.Config.Def.SpaceID, item.Config.ID, item.Instance.InstanceOrdinal)
+			addr, err := prefix.InboundAddr(item.Config.Value.SpaceID, item.Config.DeploymentID, item.Instance.InstanceOrdinal)
 			if err != nil {
 				continue
 			}
@@ -254,21 +258,21 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 				Address: addr.String(),
 				State:   apigen.EndpointState_ENDPOINT_READY,
 			}
-			endpointsByDeployment[item.Config.ID] = appendNewEndpoints(endpointsByDeployment[item.Config.ID], []*apigen.Endpoint{endpoint})
+			endpointsByDeployment[item.Config.DeploymentID] = appendNewEndpoints(endpointsByDeployment[item.Config.DeploymentID], []*apigen.Endpoint{endpoint})
 		}
 		for _, item := range virtual {
-			name := network.DNSLabel(item.Config.Def.Name)
+			name := network.DNSLabel(item.Config.Value.Name)
 			if name == "" {
 				continue
 			}
-			addService(name, network.SpaceDNSName(item.Config.Def.SpaceID), endpointsByDeployment[item.Config.ID])
+			addService(name, network.SpaceDNSName(item.Config.Value.SpaceID), endpointsByDeployment[item.Config.DeploymentID])
 		}
 	}
 
 	ingress := make([]*apigen.NetIngress, 0)
 	ingressByRoute := make(map[string]*apigen.NetIngress)
 	for _, item := range virtual {
-		for _, route := range renderIngress(item, endpointsByDeployment[item.Config.ID]) {
+		for _, route := range renderIngress(item, endpointsByDeployment[item.Config.DeploymentID]) {
 			key := ingressRouteKey(route)
 			existing := ingressByRoute[key]
 			if existing == nil {
@@ -308,7 +312,7 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 
 func renderIngress(item apigen.ScheduledInstanceState, endpoints []*apigen.Endpoint) []*apigen.NetIngress {
 	var out []*apigen.NetIngress
-	for _, route := range item.Config.Def.Spec.Networking.Ingress {
+	for _, route := range item.Config.Value.Spec.Networking.Ingress {
 		if route == nil {
 			continue
 		}
@@ -440,10 +444,10 @@ const CertBundleFileName = "certbundle.pb"
 func RenderCertBundle(ctx context.Context, seq int64, items []apigen.ScheduledInstanceState, certs CertSecretResolver, acmeBindings map[string]int32, ensureSecrets func(context.Context, []int32) error) *apigen.CertBundle {
 	wanted := map[string]int32{}
 	for _, item := range items {
-		if item.Config.Def.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		if item.Config.Value.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
-		for _, route := range item.Config.Def.Spec.Networking.Ingress {
+		for _, route := range item.Config.Value.Spec.Networking.Ingress {
 			if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || route.HttpsConfig == nil {
 				continue
 			}

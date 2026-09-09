@@ -14,7 +14,7 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/google/nftables v0.3.0
 	github.com/google/uuid v1.6.0
-	github.com/jptrs93/goutil v0.22.0
+	github.com/jptrs93/goutil v0.23.0
 	github.com/klauspost/compress v1.18.5
 	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42
 	github.com/miekg/dns v1.1.72

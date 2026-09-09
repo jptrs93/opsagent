@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/pki"
 	"io/fs"
 	"log/slog"
 	"time"
@@ -50,22 +52,24 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	if err != nil {
 		return fmt.Errorf("creating primary runtime: %w", err)
 	}
-	clusterMaterial, err := certu.LoadPrimary(primaryRuntime.secrets)
+	clusterMaterial, err := pki.LoadPrimary(primaryRuntime.secrets)
 	if err != nil {
 		return fmt.Errorf("loading cluster TLS material: %w", err)
 	}
 	certificateIdentifier := certu.MustCertCommonNameFromPEM(clusterMaterial.PrimaryCert)
-	primaryNode := primaryRuntime.store.EnsurePrimaryNode("primary", certificateIdentifier)
+	primaryNode := nodes.EnsurePrimaryNode(primaryRuntime.store, "primary", certificateIdentifier)
 	initialConfig := primaryRuntime.configService.Snapshot()
 	underlayAddress := ainit.StaticConfig.UnderlayAddress
 	if underlayAddress == "" {
-		clusterListen := primaryRuntime.configService.MustLoadConfigStringValue(initialConfig.Settings.Cluster.Listen)
+		clusterListen := primaryRuntime.configService.MustLoadStringSetting(initialConfig.Settings.Cluster.Listen)
 		underlayAddress, err = resolvePrimaryUnderlayAddress(clusterListen)
 		if err != nil {
 			return err
 		}
 	}
-	primaryNode = primaryRuntime.store.MustSetNodeAddresses(primaryNode.ID, []string{underlayAddress})
+	reported := primaryNode.Reported()
+	reported.UnderlayAddress = underlayAddress
+	primaryNode = nodes.ReportNode(primaryRuntime.store, primaryNode.Identifier, reported)
 	// The primary's WireGuard key follows the same custody rule as secondaries:
 	// generated locally, private key only ever in the data directory, public
 	// key registered on the node row (a map input, so registration re-renders
@@ -76,7 +80,9 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		return fmt.Errorf("loading WireGuard node key: %w", err)
 	}
 	network.Default.SetWGPrivateKey(nodeKey.Private)
-	primaryRuntime.store.MustSetNodeWGPublicKey(primaryNode.ID, nodeKey.PublicBase64())
+	reported = primaryNode.Reported()
+	reported.WgPublicKey = nodeKey.PublicBase64()
+	nodes.ReportNode(primaryRuntime.store, primaryNode.Identifier, reported)
 	nodeIdentifier := primaryNode.Identifier
 	slog.InfoContext(ctx, fmt.Sprintf("opendeploy starting primary version=%v nodeIdentifier=%v", version.Version, nodeIdentifier))
 	webUIHandler, err := webuihandler.New(staticFS, primaryNode.ID, primaryRuntime.webUIHandlerDependencies())
@@ -89,8 +95,8 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	networkMaps, err := netmappublisher.New(primaryRuntime.store, primaryRuntime.configService.NetworkPrefix(), func() []ingressplan.Reservation {
 		settings := primaryRuntime.configService.Snapshot().Settings
 		return ingressplan.WebUIReservations(primaryNode.ID,
-			primaryRuntime.configService.MustLoadConfigBoolValue(settings.HttpsWeb.Enabled), primaryRuntime.configService.MustLoadConfigStringValue(settings.HttpsWeb.Listen),
-			primaryRuntime.configService.MustLoadConfigBoolValue(settings.HttpWeb.Enabled), primaryRuntime.configService.MustLoadConfigStringValue(settings.HttpWeb.Listen))
+			primaryRuntime.configService.MustLoadBoolSetting(settings.HttpsWeb.Enabled), primaryRuntime.configService.MustLoadStringSetting(settings.HttpsWeb.Listen),
+			primaryRuntime.configService.MustLoadBoolSetting(settings.HttpWeb.Enabled), primaryRuntime.configService.MustLoadStringSetting(settings.HttpWeb.Listen))
 	})
 	if err != nil {
 		return fmt.Errorf("creating network map publisher: %w", err)
@@ -101,7 +107,7 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	}
 	primaryRuntime.start(ctx, primaryNode.ID, nodeIdentifier, networkMaps)
 	assetReconcileDone := primaryRuntime.assets.StartReconciler(ctx)
-	backupDone := backup.StartReplication(ctx, primaryRuntime.configService, primaryRuntime.secrets, primaryRuntime.store, primaryRuntime.assets)
+	backupDone := backup.StartReplication(ctx, primaryRuntime.configService, primaryRuntime.secrets, primaryRuntime.backupStatus, primaryRuntime.assets)
 	defer func() {
 		cancel()
 		<-backupDone

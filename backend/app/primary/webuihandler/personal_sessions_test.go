@@ -3,6 +3,7 @@ package webuihandler
 import (
 	"context"
 	"errors"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -80,7 +81,7 @@ func TestPersonalSessionRevokeForeignID(t *testing.T) {
 	}
 
 	other := &apigen.InternalUser{ID: 2, Name: "other"}
-	h.Store.WriteUser(other)
+	users.Write(h.Store, other)
 	otherCtx := personalSessionCtx(other, h.mustToken(t, other.ID, []string{"default"}, time.Hour))
 
 	if err := h.PostV1PersonalSessionsRevoke(otherCtx, &apigen.PersonalSessionRevokeRequest{ID: list.Items[0].ID}); !errors.Is(err, PersonalSessionNotFoundErr) {

@@ -508,11 +508,12 @@ hostnames sharing a port on one node share its publish set: restricting one
 route's `listen` narrows nothing while another route on the same node and
 port stays wide.
 
-Each agent reports its host address inventory in `ClusterHello.host_addresses`
+Each agent reports its host address inventory in `NodeReported.host_addresses` in both enrollment and cluster hellos
 (global unicast addresses on interfaces it does not manage: no loopback,
 link-local, WireGuard underlay, workload veth, cluster ULA, or IPv4 egress
 range) and re-sends it when a 30-second poll sees a change; the primary
-enumerates its own the same way. The inventory lives on `node_statuses` and
+enumerates its own the same way. Linux excludes temporary IPv6, deprecated, and tentative addresses before
+reporting. The inventory lives in the versioned `node_event_log` reported facet and
 shows on the Machines page. An empty inventory (an agent that does not report
 it yet) is treated as unknown: wildcard selectors publish on every local
 address and literal selectors publish their literal.
@@ -561,7 +562,7 @@ with `network.Manager.SetNetproxyPublish`, which renders one `HostPortRule`
 per port with `Dest` set to that port's addresses; the primary applies its
 own entry through the same map path. `netaudit` parses the `daddr` match
 into its DNAT keys so restricted rules audit clean. Warnings and exclusions
-are published on the state stream (`ingress_diagnostics_snapshot`) and shown
+are published on the state stream (`ingress_diagnostics` in `Snapshot` / `Update`) and shown
 in the deployment editor's networking pane.
 
 ### HTTPS termination
@@ -595,7 +596,7 @@ Certificate private keys never enter `netstate.pb`. The agent renders a
 separate `certbundle.pb` (0600, atomic write-rename) beside it, resolving
 secret-arm refs and ACME bindings from locally persisted secrets; netproxy
 watches and serves from the last loaded bundle, so TLS survives agent restarts.
-ACME issuance runs on the primary only (`lib/acmeissue`): eager issuance on
+ACME issuance runs on the primary only (`app/primary/domain/acmeissue`): eager issuance on
 config save plus a 12-hour renewal loop (30 days before expiry), storing issued
 certs as versioned secrets named `acme.cert.<hostname>`. Hostname→secret
 bindings and pending HTTP-01 tokens are distributed to workers over the cluster

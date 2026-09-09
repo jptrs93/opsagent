@@ -6,10 +6,10 @@ import {
   decodeAgentSessionList,
   decodeAgentSessionPickup,
   decodeAgentSessionRequest,
-  decodeAsset,
   decodeAssetDirectory,
   decodeAssetDirectoryList,
-  decodeAssetList,
+  decodeAssetEvent,
+  decodeAssetEventList,
   decodeAuthMethodsResponse,
   decodeAuthzGlobalRuleList,
   decodeAuthzGlobalRuleRecord,
@@ -19,43 +19,43 @@ import {
   decodeAuthzRuleTemplateRecord,
   decodeClusterConfigsResponse,
   decodeClusterIssuedTLSResponse,
-  decodeClusterNode,
-  decodeClusterNodeList,
   decodeClusterRenewCertificateResponse,
   decodeClusterSecretsResponse,
   decodeClusterSettings,
-  decodeConfig,
-  decodeConfigList,
-  decodeDeployment,
+  decodeConfigEvent,
+  decodeConfigEventList,
+  decodeDeploymentEvent,
+  decodeDeploymentGetResponse,
   decodeDeploymentHistory,
   decodeDeploymentRunReport,
-  decodeDeploymentState,
   decodeDeploymentVersions,
   decodeEnrollmentPrimaryMsg,
   decodeEnrollmentRequestList,
   decodeEnrollmentRequestStatus,
   decodeExportedConfigBlob,
   decodeGithubCredentials,
-  decodeGlobalState,
   decodeLogQueryResponse,
   decodeLoginResponse,
   decodeMetricsLatestResponse,
   decodeMetricsQueryResponse,
   decodeMsgToSecondary,
-  decodeNetworkPolicy,
-  decodeNetworkPolicyList,
+  decodeNetworkPolicyEvent,
+  decodeNetworkPolicyEventList,
   decodeNodeEnrollmentInfo,
+  decodeNodeEvent,
+  decodeNodeEventList,
   decodePersonalSessionList,
   decodePrepareOutputChunk,
   decodeRecentlyDeletedDeployments,
   decodeRepoValidateResponse,
-  decodeSecret,
-  decodeSecretList,
+  decodeSecretEvent,
+  decodeSecretEventList,
   decodeSecretRecoveryCodeResponse,
   decodeSecretRevealResponse,
   decodeSecretsStatusResponse,
+  decodeSnapshot,
   decodeSpace,
-  decodeState,
+  decodeStateStreamMsg,
   decodeValueDirectory,
   decodeValueDirectoryList,
   decodeWebAuthNOptionsResponse,
@@ -652,19 +652,19 @@ export class Capi {
 
   /**
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<GlobalState>}
+   * @returns {Promise<Snapshot>}
    */
-  async getV1GlobalState(options = {}) {
-    const response = await this.#request("/v1/global/state", { method: 'GET', signal: options.signal });
+  async getV1GlobalSnapshot(options = {}) {
+    const response = await this.#request("/v1/global/snapshot", { method: 'GET', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeGlobalState(await response.arrayBuffer());
+    return decodeSnapshot(await response.arrayBuffer());
   }
 
   /**
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {AsyncIterable<State>}
+   * @returns {AsyncIterable<StateStreamMsg>}
    */
   postV1GlobalStateStream(options = {}) {
     const self = this;
@@ -674,7 +674,7 @@ export class Capi {
         if (!response.ok) {
           return self.errorHandler(response);
         }
-        yield* readLengthPrefixedFrames(response.body, decodeState);
+        yield* readLengthPrefixedFrames(response.body, decodeStateStreamMsg);
       },
     };
   }
@@ -694,40 +694,40 @@ export class Capi {
   /**
    * @param {DeploymentGetRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<DeploymentState>}
+   * @returns {Promise<DeploymentGetResponse>}
    */
   async postV1DeploymentsGet(payload, options = {}) {
     const response = await this.#request("/v1/deployments/get", { method: 'POST', body: encodeDeploymentGetRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeDeploymentState(await response.arrayBuffer());
+    return decodeDeploymentGetResponse(await response.arrayBuffer());
   }
 
   /**
    * @param {DeploymentCreateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Deployment>}
+   * @returns {Promise<DeploymentEvent>}
    */
   async postV1DeploymentsCreate(payload, options = {}) {
     const response = await this.#request("/v1/deployments/create", { method: 'POST', body: encodeDeploymentCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeDeployment(await response.arrayBuffer());
+    return decodeDeploymentEvent(await response.arrayBuffer());
   }
 
   /**
    * @param {DeploymentUpdateRequestV2} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Deployment>}
+   * @returns {Promise<DeploymentEvent>}
    */
   async postV2DeploymentsUpdate(payload, options = {}) {
     const response = await this.#request("/v2/deployments/update", { method: 'POST', body: encodeDeploymentUpdateRequestV2(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeDeployment(await response.arrayBuffer());
+    return decodeDeploymentEvent(await response.arrayBuffer());
   }
 
   /**
@@ -867,40 +867,40 @@ export class Capi {
 
   /**
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<ClusterNodeList>}
+   * @returns {Promise<NodeEventList>}
    */
   async postV1NodesList(options = {}) {
     const response = await this.#request("/v1/nodes/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeClusterNodeList(await response.arrayBuffer());
+    return decodeNodeEventList(await response.arrayBuffer());
   }
 
   /**
    * @param {NodeRenameRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<ClusterNode>}
+   * @returns {Promise<NodeEvent>}
    */
   async postV1NodesRename(payload, options = {}) {
     const response = await this.#request("/v1/nodes/rename", { method: 'POST', body: encodeNodeRenameRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeClusterNode(await response.arrayBuffer());
+    return decodeNodeEvent(await response.arrayBuffer());
   }
 
   /**
    * @param {NodeAllowedSpacesRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<ClusterNode>}
+   * @returns {Promise<NodeEvent>}
    */
   async postV1NodesAllowedSpaces(payload, options = {}) {
     const response = await this.#request("/v1/nodes/allowed-spaces", { method: 'POST', body: encodeNodeAllowedSpacesRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeClusterNode(await response.arrayBuffer());
+    return decodeNodeEvent(await response.arrayBuffer());
   }
 
   /**
@@ -981,40 +981,40 @@ export class Capi {
 
   /**
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<NetworkPolicyList>}
+   * @returns {Promise<NetworkPolicyEventList>}
    */
   async postV1NetworkPoliciesList(options = {}) {
     const response = await this.#request("/v1/network-policies/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeNetworkPolicyList(await response.arrayBuffer());
+    return decodeNetworkPolicyEventList(await response.arrayBuffer());
   }
 
   /**
    * @param {NetworkPolicyCreateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<NetworkPolicy>}
+   * @returns {Promise<NetworkPolicyEvent>}
    */
   async postV1NetworkPoliciesCreate(payload, options = {}) {
     const response = await this.#request("/v1/network-policies/create", { method: 'POST', body: encodeNetworkPolicyCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeNetworkPolicy(await response.arrayBuffer());
+    return decodeNetworkPolicyEvent(await response.arrayBuffer());
   }
 
   /**
    * @param {NetworkPolicyUpdateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<NetworkPolicy>}
+   * @returns {Promise<NetworkPolicyEvent>}
    */
   async postV1NetworkPoliciesUpdate(payload, options = {}) {
     const response = await this.#request("/v1/network-policies/update", { method: 'POST', body: encodeNetworkPolicyUpdateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeNetworkPolicy(await response.arrayBuffer());
+    return decodeNetworkPolicyEvent(await response.arrayBuffer());
   }
 
   /**
@@ -1032,79 +1032,79 @@ export class Capi {
 
   /**
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<SecretList>}
+   * @returns {Promise<SecretEventList>}
    */
   async postV1SecretsList(options = {}) {
     const response = await this.#request("/v1/secrets/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecretList(await response.arrayBuffer());
+    return decodeSecretEventList(await response.arrayBuffer());
   }
 
   /**
    * @param {SecretCreateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Secret>}
+   * @returns {Promise<SecretEvent>}
    */
   async postV1SecretsCreate(payload, options = {}) {
     const response = await this.#request("/v1/secrets/create", { method: 'POST', body: encodeSecretCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecret(await response.arrayBuffer());
+    return decodeSecretEvent(await response.arrayBuffer());
   }
 
   /**
    * @param {SecretSetRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Secret>}
+   * @returns {Promise<SecretEvent>}
    */
   async postV1SecretsSet(payload, options = {}) {
     const response = await this.#request("/v1/secrets/set", { method: 'POST', body: encodeSecretSetRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecret(await response.arrayBuffer());
+    return decodeSecretEvent(await response.arrayBuffer());
   }
 
   /**
    * @param {SecretGenerateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Secret>}
+   * @returns {Promise<SecretEvent>}
    */
   async postV1SecretsGenerate(payload, options = {}) {
     const response = await this.#request("/v1/secrets/generate", { method: 'POST', body: encodeSecretGenerateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecret(await response.arrayBuffer());
+    return decodeSecretEvent(await response.arrayBuffer());
   }
 
   /**
    * @param {SecretRenameRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Secret>}
+   * @returns {Promise<SecretEvent>}
    */
   async postV1SecretsRename(payload, options = {}) {
     const response = await this.#request("/v1/secrets/rename", { method: 'POST', body: encodeSecretRenameRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecret(await response.arrayBuffer());
+    return decodeSecretEvent(await response.arrayBuffer());
   }
 
   /**
    * @param {SecretMoveRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Secret>}
+   * @returns {Promise<SecretEvent>}
    */
   async postV1SecretsMove(payload, options = {}) {
     const response = await this.#request("/v1/secrets/move", { method: 'POST', body: encodeSecretMoveRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecret(await response.arrayBuffer());
+    return decodeSecretEvent(await response.arrayBuffer());
   }
 
   /**
@@ -1172,53 +1172,53 @@ export class Capi {
 
   /**
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<ConfigList>}
+   * @returns {Promise<ConfigEventList>}
    */
   async postV1ConfigsList(options = {}) {
     const response = await this.#request("/v1/configs/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfigList(await response.arrayBuffer());
+    return decodeConfigEventList(await response.arrayBuffer());
   }
 
   /**
    * @param {ConfigCreateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Config>}
+   * @returns {Promise<ConfigEvent>}
    */
   async postV1ConfigsCreate(payload, options = {}) {
     const response = await this.#request("/v1/configs/create", { method: 'POST', body: encodeConfigCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfig(await response.arrayBuffer());
+    return decodeConfigEvent(await response.arrayBuffer());
   }
 
   /**
    * @param {ConfigSetRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Config>}
+   * @returns {Promise<ConfigEvent>}
    */
   async postV1ConfigsSet(payload, options = {}) {
     const response = await this.#request("/v1/configs/set", { method: 'POST', body: encodeConfigSetRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfig(await response.arrayBuffer());
+    return decodeConfigEvent(await response.arrayBuffer());
   }
 
   /**
    * @param {ConfigRenameRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Config>}
+   * @returns {Promise<ConfigEvent>}
    */
   async postV1ConfigsRename(payload, options = {}) {
     const response = await this.#request("/v1/configs/rename", { method: 'POST', body: encodeConfigRenameRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfig(await response.arrayBuffer());
+    return decodeConfigEvent(await response.arrayBuffer());
   }
 
   /**
@@ -1237,14 +1237,14 @@ export class Capi {
   /**
    * @param {ConfigMoveRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Config>}
+   * @returns {Promise<ConfigEvent>}
    */
   async postV1ConfigsMove(payload, options = {}) {
     const response = await this.#request("/v1/configs/move", { method: 'POST', body: encodeConfigMoveRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfig(await response.arrayBuffer());
+    return decodeConfigEvent(await response.arrayBuffer());
   }
 
   /**
@@ -1313,14 +1313,14 @@ export class Capi {
 
   /**
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<AssetList>}
+   * @returns {Promise<AssetEventList>}
    */
   async postV1AssetsList(options = {}) {
     const response = await this.#request("/v1/assets/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAssetList(await response.arrayBuffer());
+    return decodeAssetEventList(await response.arrayBuffer());
   }
 
   /**
@@ -1337,27 +1337,27 @@ export class Capi {
 
   /**
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Asset>}
+   * @returns {Promise<AssetEvent>}
    */
   async postV1AssetsUpload(options = {}) {
     const response = await this.#request("/v1/assets/upload", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAsset(await response.arrayBuffer());
+    return decodeAssetEvent(await response.arrayBuffer());
   }
 
   /**
    * @param {AssetRenameRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Asset>}
+   * @returns {Promise<AssetEvent>}
    */
   async postV1AssetsRename(payload, options = {}) {
     const response = await this.#request("/v1/assets/rename", { method: 'POST', body: encodeAssetRenameRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAsset(await response.arrayBuffer());
+    return decodeAssetEvent(await response.arrayBuffer());
   }
 
   /**
@@ -1376,14 +1376,14 @@ export class Capi {
   /**
    * @param {AssetMoveRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Asset>}
+   * @returns {Promise<AssetEvent>}
    */
   async postV1AssetsMove(payload, options = {}) {
     const response = await this.#request("/v1/assets/move", { method: 'POST', body: encodeAssetMoveRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAsset(await response.arrayBuffer());
+    return decodeAssetEvent(await response.arrayBuffer());
   }
 
   /**

@@ -3,8 +3,11 @@ package webuihandler
 import (
 	"cmp"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/jptrs93/goutil/erru"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
 	"io"
 	"iter"
 	"net/http"
@@ -22,39 +25,34 @@ import (
 var InvalidRequestBodyErr = apigen.NewApiErr("Invalid request body", "invalid_request_body", http.StatusBadRequest)
 var MissingKeyErr = apigen.NewApiErr("Missing deployment identifier", "missing_key", http.StatusBadRequest)
 var NoPrepareOutputErr = apigen.NewApiErr("No prepare output found", "prepare_output_not_found", http.StatusNotFound)
-var DeploymentNotFoundErr = apigen.NewApiErr("Deployment not found", "deployment_not_found", http.StatusNotFound)
 
-var DuplicateDeploymentErr = apigen.NewApiErr("A deployment with this name, space, and node already exists", "duplicate_deployment", http.StatusConflict)
-
-var DeploymentAddressReferencedErr = apigen.NewApiErr("Deployment address is referenced by other deployments", "deployment_address_referenced", http.StatusConflict)
+func (h *Handler) deploymentService() *deployments.Service {
+	s := &deployments.Service{Store: h.Store, Secrets: h.Secrets, GitVersions: h.GitVersions, Reservations: h.webUIReservations, PrimaryNodeID: h.NodeID}
+	if h.Cluster != nil {
+		s.Cluster = h.Cluster
+	}
+	return s
+}
 
 const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHub. Please try again."
 
-func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.Deployment, error) {
-	newDep := &apigen.Deployment{Def: apigen.DeploymentDef{NodeID: req.NodeID, SpaceID: req.SpaceID, Name: req.Name, Spec: req.Spec}}
+func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentEvent, error) {
+	newDep := &apigen.DeploymentEvent{Value: apigen.Deployment{NodeID: req.NodeID, SpaceID: req.SpaceID, Name: req.Name, Spec: req.Spec}}
 	if err := h.requireAccess(ctx, vCreate, eDeployment, int64(req.SpaceID), 0); err != nil {
 		return nil, err
 	}
-	if err := preLockValidateDeploymentCreate(h.Store, h.Secrets, h.GitVersions, ctx, newDep); err != nil {
-		return nil, err
-	}
-	h.Store.Mu.Lock()
-	defer h.Store.Mu.Unlock()
-	if err := inLockValidateDeploymentCreate(h.Store, h.Secrets, h.webUIReservations(), newDep, h.Store.LiveState()); err != nil {
-		return nil, err
-	}
-	return h.Store.CreateDeploymentLocked(ctx, &newDep.Def), nil
+	return h.deploymentService().Create(ctx, &newDep.Value)
 }
 
-func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequestV2) (*apigen.Deployment, error) {
+func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequestV2) (*apigen.DeploymentEvent, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
-	cfg := h.Store.FetchDeployment(req.DeploymentID)
+	cfg := h.deploymentByID(req.DeploymentID)
 	if cfg == nil {
-		return nil, DeploymentNotFoundErr
+		return nil, deployments.NotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vUpdate, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID), deployments.NotFoundErr); err != nil {
 		return nil, err
 	}
 	if req.AssignedSpaceUpdate != nil {
@@ -63,78 +61,22 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		}
 	}
 
-	updated, err := cloneDeployment(cfg)
-	if err != nil {
-		return nil, err
-	}
-	switch {
-	case req.VersionOnlyUpdate != nil:
-		if err := setTargetVersion(updated, req.VersionOnlyUpdate.TargetVersion); err != nil {
-			return nil, err
-		}
-	case req.RunningOnlyUpdate != nil:
-		if err := updated.SetWorkloadState(updated.WorkloadVersion(), req.RunningOnlyUpdate.DesiredRunning); err != nil {
-			return nil, invalidConfigErrf("spec: %v", err)
-		}
-	case req.SpecUpdate != nil:
-		updated.Def.Spec = req.SpecUpdate.Spec
-	case req.AssignedSpaceUpdate != nil:
-		updated.Def.SpaceID = req.AssignedSpaceUpdate.SpaceID
-	}
-
-	if err := preLockValidateDeploymentUpdate(h.Store, h.Secrets, h.GitVersions, ctx, cfg, req, updated); err != nil {
-		return nil, err
-	}
-
-	h.Store.Mu.Lock()
-	defer h.Store.Mu.Unlock()
-	live := h.Store.LiveState()
-	if err := inLockValidateDeploymentUpdate(h.Store, h.Secrets, h.webUIReservations(), live.Deployments[req.DeploymentID], updated, req.ExpectedVersion, live); err != nil {
-		return nil, err
-	}
-	return h.Store.UpdateDeploymentLocked(ctx, req.DeploymentID, &updated.Def), nil
-}
-
-func cloneDeployment(cfg *apigen.Deployment) (*apigen.Deployment, error) {
-	spec, err := cloneDeploymentSpec(&cfg.Def.Spec)
-	if err != nil {
-		return nil, err
-	}
-	updated := *cfg
-	updated.Def.Spec = *spec
-	return &updated, nil
-}
-
-func setTargetVersion(updated *apigen.Deployment, targetVersion string) error {
-	if err := updated.SetWorkloadState(targetVersion, true); err != nil {
-		return invalidConfigErrf("spec: %v", err)
-	}
-	return nil
+	return h.deploymentService().Update(ctx, cfg, req)
 }
 
 func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.DeploymentDeleteRequest) error {
 	if req.DeploymentID == 0 {
 		return MissingKeyErr
 	}
-	cfg := h.Store.FetchDeployment(req.DeploymentID)
+	cfg := h.deploymentByID(req.DeploymentID)
 	if cfg == nil || cfg.Deleted() {
-		return DeploymentNotFoundErr
+		return deployments.NotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vDelete, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
-		return err
-	}
-	if err := preLockValidateDeploymentDelete(cfg, req.Version); err != nil {
+	if err := h.requireEntityAccess(ctx, vDelete, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID), deployments.NotFoundErr); err != nil {
 		return err
 	}
 
-	h.Store.Mu.Lock()
-	defer h.Store.Mu.Unlock()
-	live := h.Store.LiveState()
-	if err := inLockValidateDeploymentDelete(h.Store, h.Cluster, h.NodeID, live.Deployments[req.DeploymentID], req.Version, live); err != nil {
-		return err
-	}
-	h.Store.DeleteDeploymentLocked(ctx, req.DeploymentID)
-	return nil
+	return h.deploymentService().Delete(ctx, req.DeploymentID, req.Version-1)
 }
 
 func (h *Handler) PostV1DeploymentsRecentlyDeleted(ctx apigen.Context, req *apigen.RecentlyDeletedDeploymentsRequest) (*apigen.RecentlyDeletedDeployments, error) {
@@ -146,11 +88,11 @@ func (h *Handler) PostV1DeploymentsRecentlyDeleted(ctx apigen.Context, req *apig
 	if limit <= 0 || limit > recentlyDeletedMaxLimit {
 		limit = recentlyDeletedDefaultLimit
 	}
-	configs := h.Store.FetchDeletedDeploymentSnapshot(func(cfg apigen.Deployment) bool {
+	configs := deployments.Deleted(h.Queries, func(cfg apigen.DeploymentEvent) bool {
 		return !internaldeploy.IsInternalConfig(&cfg) &&
-			h.canAccess(ctx, vView, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID))
+			h.canAccess(ctx, vView, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID))
 	}, limit)
-	items := make([]*apigen.Deployment, 0, len(configs))
+	items := make([]*apigen.DeploymentEvent, 0, len(configs))
 	for i := range configs {
 		items = append(items, &configs[i])
 	}
@@ -163,10 +105,10 @@ func (h *Handler) PostV1DeploymentsVersions(ctx apigen.Context, req *apigen.Depl
 	}
 
 	cfg := h.findConfigByID(req.DeploymentID)
-	if cfg == nil || cfg.Def.Spec.IsZero() {
-		return nil, DeploymentNotFoundErr
+	if cfg == nil || cfg.Value.Spec.IsZero() {
+		return nil, deployments.NotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID), deployments.NotFoundErr); err != nil {
 		return nil, err
 	}
 	if internaldeploy.IsInternalConfig(cfg) {
@@ -183,7 +125,7 @@ func (h *Handler) PostV1DeploymentsVersions(ctx apigen.Context, req *apigen.Depl
 		}, nil
 	}
 
-	container := cfg.Def.Spec.Container()
+	container := cfg.Value.Spec.Container()
 	switch {
 	case container != nil && container.Source.NixDockerBuild != nil:
 		if h.GitVersions == nil {
@@ -212,7 +154,7 @@ func (h *Handler) PostV1DeploymentsVersions(ctx apigen.Context, req *apigen.Depl
 			ContainerImage: &apigen.DeploymentContainerImageVersions{Tags: tags},
 		}, nil
 	default:
-		return nil, DeploymentNotFoundErr
+		return nil, deployments.NotFoundErr
 	}
 }
 
@@ -226,7 +168,7 @@ func githubReleaseVersionsErr(err error) apigen.ApiErr {
 // deployment.
 func (h *Handler) logQueryTargetNode(ctx apigen.Context, deploymentID, targetNodeID, specVersion int32) (int32, error) {
 	if specVersion < 0 {
-		return 0, invalidConfigErrf("specVersion must not be negative")
+		return 0, deployments.InvalidConfigErrf("specVersion must not be negative")
 	}
 	if deploymentID == 0 {
 		if targetNodeID <= 0 {
@@ -239,12 +181,12 @@ func (h *Handler) logQueryTargetNode(ctx apigen.Context, deploymentID, targetNod
 	}
 	cfg := h.findConfigByID(deploymentID)
 	if cfg == nil {
-		return 0, DeploymentNotFoundErr
+		return 0, deployments.NotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID), deployments.NotFoundErr); err != nil {
 		return 0, err
 	}
-	return cfg.Def.NodeID, nil
+	return cfg.Value.NodeID, nil
 }
 
 func (h *Handler) PostV1DeploymentsLogQuery(ctx apigen.Context, req *apigen.LogQueryRequest) (*apigen.LogQueryResponse, error) {
@@ -282,19 +224,19 @@ func (h *Handler) PostV1DeploymentsPrepareOutput(ctx apigen.Context, req *apigen
 
 		cfg := h.findConfigByID(req.DeploymentID)
 		if cfg == nil {
-			yield(nil, DeploymentNotFoundErr)
+			yield(nil, deployments.NotFoundErr)
 			return
 		}
-		if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+		if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID), deployments.NotFoundErr); err != nil {
 			yield(nil, err)
 			return
 		}
-		if cfg.Def.NodeID > 0 && cfg.Def.NodeID != h.NodeID && h.Cluster != nil {
-			reader, err := h.Cluster.RequestLogs(cfg.Def.NodeID, &apigen.MsgToSecondary{
+		if cfg.Value.NodeID > 0 && cfg.Value.NodeID != h.NodeID && h.Cluster != nil {
+			reader, err := h.Cluster.RequestLogs(cfg.Value.NodeID, &apigen.MsgToSecondary{
 				DeploymentLogRequest: &apigen.DeploymentLogRequest{PreparerOutput: req},
 			})
 			if err != nil {
-				yield(nil, apigen.NewApiErr(fmt.Sprintf("Secondary node %d is not connected", cfg.Def.NodeID), "secondary_not_connected", 502))
+				yield(nil, apigen.NewApiErr(fmt.Sprintf("Secondary node %d is not connected", cfg.Value.NodeID), "secondary_not_connected", 502))
 				return
 			}
 			defer reader.Close()
@@ -423,12 +365,20 @@ func waitForPrepareOutputFile(ctx context.Context, path string) (*os.File, error
 
 // findConfigByID resolves a live deployment, hiding deleted tombstones from
 // callers that treat existence as "queryable" (history, logs, versions).
-func (h *Handler) findConfigByID(deploymentID int32) *apigen.Deployment {
-	cfg := h.Store.FetchDeployment(deploymentID)
+func (h *Handler) findConfigByID(deploymentID int32) *apigen.DeploymentEvent {
+	cfg := h.deploymentByID(deploymentID)
 	if cfg == nil || cfg.Deleted() {
 		return nil
 	}
 	return cfg
+}
+
+func (h *Handler) deploymentByID(deploymentID int32) *apigen.DeploymentEvent {
+	event, err := h.Queries.GetLatestDeploymentEvent(context.Background(), int64(deploymentID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	return erru.Must(event, err)
 }
 
 // deploymentStatuses returns the observed status of every live scheduled
@@ -439,7 +389,7 @@ func (h *Handler) findConfigByID(deploymentID int32) *apigen.Deployment {
 // entries are what keep prepare output and logs reachable after a stop.
 func (h *Handler) deploymentStatuses(deploymentID int32) []apigen.ScheduledInstanceStatus {
 	states := make([]apigen.ScheduledInstanceState, 0, 2)
-	for _, state := range h.Store.FetchScheduledSnapshotWithLatestFinal(nil) {
+	for _, state := range h.Store.FetchScheduledSnapshot(nil) {
 		if state.Instance.DeploymentID != deploymentID {
 			continue
 		}

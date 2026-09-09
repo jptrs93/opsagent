@@ -8,8 +8,8 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/secondary/localinputs"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
-	"github.com/jptrs93/opsagent/backend/lib/localinputs"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
@@ -53,21 +53,21 @@ func withRetentionAssetDir(t *testing.T, names ...string) string {
 
 // referencing builds a config that references secret 1 and asset 4, matching the
 // values seeded by retentionTestStore and withRetentionAssetDir.
-func referencingConfig(version int32) apigen.Deployment {
-	return apigen.Deployment{
-		ID:          7,
-		SpecVersion: version,
-		Def:         apigen.DeploymentDef{NodeID: 23, SpaceID: 1, Name: "api", Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4}}, EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: ptrInt32(1)}}}}}},
+func referencingConfig(version int32) apigen.DeploymentEvent {
+	return apigen.DeploymentEvent{
+		DeploymentID: 7,
+		SpecVersion:  version,
+		Value:        apigen.Deployment{NodeID: 23, SpaceID: 1, Name: "api", Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4}}, EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: ptrInt32(1)}}}}}},
 	}
 }
 
-func writeInstance(t *testing.T, store *state.Service, instanceID int32, cfg apigen.Deployment, target apigen.ScheduledInstanceTarget, preparerVersion, runnerVersion int32) {
+func writeInstance(t *testing.T, store *state.Service, instanceID int32, cfg apigen.DeploymentEvent, target apigen.ScheduledInstanceTarget, preparerVersion, runnerVersion int32) {
 	t.Helper()
 	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{
 			ID:                    instanceID,
 			NodeID:                23,
-			DeploymentID:          cfg.ID,
+			DeploymentID:          cfg.DeploymentID,
 			DeploymentSpecVersion: cfg.SpecVersion,
 			State:                 target,
 		},
@@ -116,8 +116,8 @@ func TestSweepSkipsEntirelyWhileAnyInstanceIsMidRollout(t *testing.T) {
 	writeInstance(t, store, 11, referencingConfig(3), apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, 3, 3)
 	// A second instance mid-rollout: prepared at v4, still running v3.
 	other := referencingConfig(4)
-	other.ID = 8
-	other.Def.Name = "secondary"
+	other.DeploymentID = 8
+	other.Value.Name = "secondary"
 	writeInstance(t, store, 12, other, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, 4, 3)
 
 	sweepRuntimeInputs(context.Background(), store, inputs, nil, nil)

@@ -2,11 +2,11 @@ package webuihandler
 
 import (
 	"errors"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
 	"net/http"
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var ValueDirectoryNameRequiredErr = apigen.NewApiErr("Folder name is required", "value_directory_name_required", http.StatusBadRequest)
@@ -20,30 +20,24 @@ var ValueSpaceMoveUnsupportedErr = apigen.NewApiErr("Moving between spaces is no
 
 func mapValueDirectoryErr(err error) error {
 	switch {
-	case errors.Is(err, state.ErrValueDirectoryNotFound):
+	case errors.Is(err, values.ErrDirectoryNotFound):
 		return ValueDirectoryNotFoundErr
-	case errors.Is(err, state.ErrValueDirectoryNotEmpty):
+	case errors.Is(err, values.ErrDirectoryNotEmpty):
 		return ValueDirectoryNotEmptyErr
-	case errors.Is(err, state.ErrValueDirectoryCycle):
+	case errors.Is(err, values.ErrDirectoryCycle):
 		return ValueDirectoryCycleErr
-	case errors.Is(err, state.ErrSpaceMoveUnsupported):
+	case errors.Is(err, values.ErrSpaceMoveUnsupported):
 		return ValueSpaceMoveUnsupportedErr
-	case errors.Is(err, state.ErrValueAlreadyExists):
+	case errors.Is(err, values.ErrAlreadyExists):
 		return ValueDirectoryNameTakenErr
-	case errors.Is(err, state.ErrValueNameInvalid):
+	case errors.Is(err, values.ErrNameInvalid):
 		return ValueDirectoryNameInvalidErr
 	}
 	return err
 }
 
-func (h *Handler) notifyValueDirectory(directoryID int32) {
-	if dir, ok := h.Store.GetValueDirectoryMeta(directoryID); ok {
-		h.Store.NotifyValueDirectoryUpdate(*dir)
-	}
-}
-
 func (h *Handler) PostV1ValueDirectoriesList(ctx apigen.Context) (*apigen.ValueDirectoryList, error) {
-	return &apigen.ValueDirectoryList{Items: h.filterValueDirectories(ctx, h.Store.ListValueDirectories())}, nil
+	return &apigen.ValueDirectoryList{Items: h.filterValueDirectories(ctx, values.ListDirectories(h.Store.Queries()))}, nil
 }
 
 func (h *Handler) PostV1ValueDirectoriesCreate(ctx apigen.Context, req *apigen.ValueDirectoryCreateRequest) (*apigen.ValueDirectory, error) {
@@ -55,12 +49,12 @@ func (h *Handler) PostV1ValueDirectoriesCreate(ctx apigen.Context, req *apigen.V
 	if err := h.requireAnyAccess(ctx, vCreate, eValues, valueSpace(req.SpaceID), 0); err != nil {
 		return nil, err
 	}
-	row, err := h.Store.CreateValueDirectory(req.SpaceID, req.ParentID, name, requestUserID(ctx))
+	row, err := values.CreateDirectory(h.Store, req.SpaceID, req.ParentID, name, requestUserID(ctx))
 	if err != nil {
 		return nil, mapValueDirectoryErr(err)
 	}
-	h.notifyValueDirectory(int32(row.ID))
-	dir, ok := h.Store.GetValueDirectoryMeta(int32(row.ID))
+
+	dir, ok := values.DirectoryMeta(h.Store.Queries(), int32(row.ID))
 	if !ok {
 		return nil, ValueDirectoryNotFoundErr
 	}
@@ -71,7 +65,7 @@ func (h *Handler) PostV1ValueDirectoriesMove(ctx apigen.Context, req *apigen.Val
 	if req.DirectoryID == 0 {
 		return nil, ValueDirectoryIDRequiredErr
 	}
-	existing, ok := h.Store.GetValueDirectoryMeta(req.DirectoryID)
+	existing, ok := values.DirectoryMeta(h.Store.Queries(), req.DirectoryID)
 	if !ok {
 		return nil, ValueDirectoryNotFoundErr
 	}
@@ -86,16 +80,16 @@ func (h *Handler) PostV1ValueDirectoriesMove(ctx apigen.Context, req *apigen.Val
 	// The space gate runs first: a rejected cross-space move must not leave the
 	// directory reparented into its own space's root as a side effect.
 	if req.SpaceID != 0 {
-		if err := h.Store.MoveValueDirectorySpace(req.DirectoryID, req.SpaceID); err != nil {
+		if err := values.MoveDirectorySpace(h.Store, req.DirectoryID, req.SpaceID); err != nil {
 			return nil, mapValueDirectoryErr(err)
 		}
 	}
-	row, err := h.Store.MoveValueDirectory(req.DirectoryID, req.NewParentID)
+	row, err := values.MoveDirectory(h.Store, req.DirectoryID, req.NewParentID)
 	if err != nil {
 		return nil, mapValueDirectoryErr(err)
 	}
-	h.notifyValueDirectory(int32(row.ID))
-	dir, ok := h.Store.GetValueDirectoryMeta(int32(row.ID))
+
+	dir, ok := values.DirectoryMeta(h.Store.Queries(), int32(row.ID))
 	if !ok {
 		return nil, ValueDirectoryNotFoundErr
 	}
@@ -109,17 +103,17 @@ func (h *Handler) PostV1ValueDirectoriesRename(ctx apigen.Context, req *apigen.V
 	if strings.TrimSpace(req.NewName) == "" {
 		return nil, ValueDirectoryNameRequiredErr
 	}
-	if existing, ok := h.Store.GetValueDirectoryMeta(req.DirectoryID); !ok {
+	if existing, ok := values.DirectoryMeta(h.Store.Queries(), req.DirectoryID); !ok {
 		return nil, ValueDirectoryNotFoundErr
 	} else if err := h.requireAnyEntityAccess(ctx, vUpdate, eValues, int64(existing.SpaceID), 0, ValueDirectoryNotFoundErr); err != nil {
 		return nil, err
 	}
-	row, err := h.Store.RenameValueDirectory(req.DirectoryID, strings.TrimSpace(req.NewName))
+	row, err := values.RenameDirectory(h.Store, req.DirectoryID, strings.TrimSpace(req.NewName))
 	if err != nil {
 		return nil, mapValueDirectoryErr(err)
 	}
-	h.notifyValueDirectory(int32(row.ID))
-	dir, ok := h.Store.GetValueDirectoryMeta(int32(row.ID))
+
+	dir, ok := values.DirectoryMeta(h.Store.Queries(), int32(row.ID))
 	if !ok {
 		return nil, ValueDirectoryNotFoundErr
 	}
@@ -130,14 +124,14 @@ func (h *Handler) PostV1ValueDirectoriesDelete(ctx apigen.Context, req *apigen.V
 	if req.DirectoryID == 0 {
 		return ValueDirectoryIDRequiredErr
 	}
-	if existing, ok := h.Store.GetValueDirectoryMeta(req.DirectoryID); !ok {
+	if existing, ok := values.DirectoryMeta(h.Store.Queries(), req.DirectoryID); !ok {
 		return ValueDirectoryNotFoundErr
 	} else if err := h.requireAnyEntityAccess(ctx, vDelete, eValues, int64(existing.SpaceID), 0, ValueDirectoryNotFoundErr); err != nil {
 		return err
 	}
-	if err := h.Store.DeleteValueDirectory(req.DirectoryID); err != nil {
+	if err := values.DeleteDirectory(h.Store, req.DirectoryID); err != nil {
 		return mapValueDirectoryErr(err)
 	}
-	h.Store.NotifyValueDirectoryUpdate(apigen.ValueDirectory{ID: req.DirectoryID, Deleted: true})
+
 	return nil
 }

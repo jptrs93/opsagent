@@ -3,14 +3,18 @@ package webuihandler
 import (
 	"context"
 	"errors"
+	"github.com/jptrs93/goutil/erru"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/authz"
-	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
@@ -27,16 +31,16 @@ func newEnforcementTestHandler(t *testing.T) (*Handler, *apigen.Space) {
 	if err != nil {
 		t.Fatalf("secrets.Initialize: %v", err)
 	}
-	configService, err := config.InitializeService(store, apigen.PrimaryConfig{})
+	configService, err := systemconfig.InitializeService(store, apigen.SystemConfig{})
 	if err != nil {
-		t.Fatalf("config.InitializeService: %v", err)
+		t.Fatalf("systemconfig.InitializeService: %v", err)
 	}
 	authzService, err := authz.Open(store)
 	if err != nil {
 		t.Fatalf("authz.Open: %v", err)
 	}
 	for id, name := range map[int32]string{1: "admin", 2: "spaceop", 3: "viewer"} {
-		store.WriteUser(&apigen.InternalUser{ID: id, Name: name})
+		users.Write(store, &apigen.InternalUser{ID: id, Name: name})
 	}
 	if _, err := authzService.CreateGrant(&apigen.AuthzGrantRecord{
 		UserID:     1,
@@ -49,7 +53,7 @@ func newEnforcementTestHandler(t *testing.T) (*Handler, *apigen.Space) {
 		UserID:     2,
 		TemplateID: authz.SpaceAdminTemplateID,
 		Grant: &apigen.AuthzGrant{Args: []*apigen.AuthzArgumentBinding{
-			{ArgumentID: 1, Values: []int64{int64(state.DefaultSpaceID)}},
+			{ArgumentID: 1, Values: []int64{int64(nodes.DefaultSpaceID)}},
 		}},
 	}); err != nil {
 		t.Fatalf("seed space_admin grant: %v", err)
@@ -58,18 +62,18 @@ func newEnforcementTestHandler(t *testing.T) (*Handler, *apigen.Space) {
 		UserID: 3,
 		Grant: &apigen.AuthzGrant{Rule: &apigen.AuthzRule{
 			Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
-			Spaces:      &apigen.AuthzSelector{Include: []int64{int64(state.DefaultSpaceID)}},
+			Spaces:      &apigen.AuthzSelector{Include: []int64{int64(nodes.DefaultSpaceID)}},
 			EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_CONFIG)}},
 			EntityRefs:  &apigen.AuthzSelector{Wildcard: true},
 		}},
 	}); err != nil {
 		t.Fatalf("seed viewer grant: %v", err)
 	}
-	staging, err := store.CreateSpace("staging")
+	staging, err := nodes.CreateSpace(store, "staging")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	h := &Handler{Store: store, Secrets: secretManager, ConfigService: configService, Authz: authzService}
+	h := &Handler{Store: store, Queries: store.Queries(), Secrets: secretManager, SystemConfig: configService, Authz: authzService}
 	return h, staging
 }
 
@@ -85,7 +89,7 @@ func TestEnforcementConfigsBySpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("admin create in staging: %v", err)
 	}
-	granted, err := h.PostV1ConfigsCreate(admin, &apigen.ConfigCreateRequest{Name: "app.conf", SpaceID: state.DefaultSpaceID, Value: "b"})
+	granted, err := h.PostV1ConfigsCreate(admin, &apigen.ConfigCreateRequest{Name: "app.conf", SpaceID: nodes.DefaultSpaceID, Value: "b"})
 	if err != nil {
 		t.Fatalf("admin create in default space: %v", err)
 	}
@@ -104,8 +108,8 @@ func TestEnforcementConfigsBySpace(t *testing.T) {
 		t.Fatalf("list: %v", err)
 	}
 	for _, item := range listed.Items {
-		if item.SpaceID() != state.DefaultSpaceID {
-			t.Fatalf("space-limited list leaked config %q from space %d", item.Fs.Name, item.SpaceID())
+		if item.SpaceID() != nodes.DefaultSpaceID {
+			t.Fatalf("space-limited list leaked config %q from space %d", item.Value.Fs.Name, item.SpaceID())
 		}
 	}
 	if len(listed.Items) != 2 {
@@ -113,14 +117,14 @@ func TestEnforcementConfigsBySpace(t *testing.T) {
 	}
 
 	// Entities outside the caller's view read as absent, not forbidden.
-	if _, err := h.PostV1ConfigsRename(spaceop, &apigen.ConfigRenameRequest{ConfigID: hidden.ID, NewName: "sneaky.conf"}); !errors.Is(err, UserConfigNotFoundErr) {
+	if _, err := h.PostV1ConfigsRename(spaceop, &apigen.ConfigRenameRequest{ConfigID: hidden.ConfigID, NewName: "sneaky.conf"}); !errors.Is(err, UserConfigNotFoundErr) {
 		t.Fatalf("rename of hidden config: got %v, want UserConfigNotFoundErr", err)
 	}
-	if _, err := h.PostV1ConfigsRename(spaceop, &apigen.ConfigRenameRequest{ConfigID: granted.ID, NewName: "renamed.conf"}); err != nil {
+	if _, err := h.PostV1ConfigsRename(spaceop, &apigen.ConfigRenameRequest{ConfigID: granted.ConfigID, NewName: "renamed.conf"}); err != nil {
 		t.Fatalf("rename in granted space: %v", err)
 	}
 	// A viewable entity without the requested verb reads as forbidden.
-	if _, err := h.PostV1ConfigsRename(viewer, &apigen.ConfigRenameRequest{ConfigID: granted.ID, NewName: "viewer.conf"}); !errors.Is(err, AccessDeniedErr) {
+	if _, err := h.PostV1ConfigsRename(viewer, &apigen.ConfigRenameRequest{ConfigID: granted.ConfigID, NewName: "viewer.conf"}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("view-only rename: got %v, want AccessDeniedErr", err)
 	}
 }
@@ -152,29 +156,29 @@ func TestEnforcementDelegated(t *testing.T) {
 	if _, err := h.PostV1ClusterSettingsUpdate(agent, &apigen.ClusterSettings{}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("delegated cluster settings update: got %v, want AccessDeniedErr", err)
 	}
-	if _, err := h.PostV1ConfigsCreate(agent, &apigen.ConfigCreateRequest{Name: "agent.conf", SpaceID: state.DefaultSpaceID, Value: "x"}); err != nil {
+	if _, err := h.PostV1ConfigsCreate(agent, &apigen.ConfigCreateRequest{Name: "agent.conf", SpaceID: nodes.DefaultSpaceID, Value: "x"}); err != nil {
 		t.Fatalf("delegated create in default space: %v", err)
 	}
 
 	// Secrets sit in their own delegable rule that grants view and create and
 	// nothing else. An operator's secret is therefore visible to the agent, but
 	// touching its value comes back forbidden.
-	meta, err := h.Secrets.Create("db_password", []byte("hunter2"), 1, state.DefaultSpaceID, 0)
+	meta, err := h.Secrets.Create("db_password", []byte("hunter2"), 1, nodes.DefaultSpaceID, 0)
 	if err != nil {
 		t.Fatalf("Secrets.Create: %v", err)
 	}
-	stored, ok := h.Store.GetSecret(meta.SecretID)
-	if !ok || len(stored.Versions) == 0 {
+	stored, ok := secrets.Get(h.Store.Queries(), meta.SecretID)
+	if !ok || len(statetest.ValueVersions(h.Store, stored)) == 0 {
 		t.Fatalf("secret missing after create: %+v", stored)
 	}
 	agentList, err := h.PostV1SecretsList(agent)
 	if err != nil {
 		t.Fatalf("delegated list: %v", err)
 	}
-	if len(agentList.Items) != 1 || agentList.Items[0].ID != meta.SecretID {
+	if len(agentList.Items) != 1 || agentList.Items[0].SecretID != meta.SecretID {
 		t.Fatalf("delegated list should show the operator's secret meta, got %+v", agentList.Items)
 	}
-	versionID := stored.Versions[len(stored.Versions)-1].ID
+	versionID := statetest.ValueVersions(h.Store, stored)[len(statetest.ValueVersions(h.Store, stored))-1].ID
 	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: versionID}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("delegated reveal: got %v, want AccessDeniedErr", err)
 	}
@@ -186,10 +190,10 @@ func TestEnforcementDelegated(t *testing.T) {
 	}
 	// Supplying the value on create is a read in disguise — it needs reveal on
 	// top of create, which the delegable rule withholds.
-	if _, err := h.PostV1SecretsCreate(agent, &apigen.SecretCreateRequest{Name: "agent_supplied", SpaceID: state.DefaultSpaceID, Value: []byte("known")}); !errors.Is(err, AccessDeniedErr) {
+	if _, err := h.PostV1SecretsCreate(agent, &apigen.SecretCreateRequest{Name: "agent_supplied", SpaceID: nodes.DefaultSpaceID, Value: []byte("known")}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("delegated value-supplied create: got %v, want AccessDeniedErr", err)
 	}
-	if _, err := h.PostV1SecretsCreate(admin, &apigen.SecretCreateRequest{Name: "admin_supplied", SpaceID: state.DefaultSpaceID, Value: []byte("known")}); err != nil {
+	if _, err := h.PostV1SecretsCreate(admin, &apigen.SecretCreateRequest{Name: "admin_supplied", SpaceID: nodes.DefaultSpaceID, Value: []byte("known")}); err != nil {
 		t.Fatalf("admin value-supplied create: %v", err)
 	}
 	revealed, err := h.PostV1SecretsReveal(admin, &apigen.SecretRevealRequest{ID: versionID})
@@ -203,21 +207,21 @@ func TestEnforcementDelegated(t *testing.T) {
 	// What the agent can do is mint one, which is a value it never sees either.
 	minted, err := h.PostV1SecretsGenerate(agent, &apigen.SecretGenerateRequest{
 		Name:     "agent_minted",
-		SpaceID:  state.DefaultSpaceID,
+		SpaceID:  nodes.DefaultSpaceID,
 		Password: &apigen.SecretPasswordSpec{Length: 32},
 	})
 	if err != nil {
 		t.Fatalf("delegated generate: %v", err)
 	}
-	if len(minted.Versions) != 1 {
-		t.Fatalf("generate returned %d versions, want 1", len(minted.Versions))
+	if len(statetest.ValueVersions(h.Store, minted)) != 1 {
+		t.Fatalf("generate returned %d versions, want 1", len(statetest.ValueVersions(h.Store, minted)))
 	}
-	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: minted.Versions[0].ID}); !errors.Is(err, AccessDeniedErr) {
+	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: statetest.ValueVersions(h.Store, minted)[0].ID}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("delegated reveal of its own secret: got %v, want AccessDeniedErr", err)
 	}
 }
 
-func recvState(t *testing.T, states <-chan *apigen.State) *apigen.State {
+func recvState(t *testing.T, states <-chan *apigen.StateStreamMsg) *apigen.StateStreamMsg {
 	t.Helper()
 	deadline := time.After(3 * time.Second)
 	for {
@@ -243,14 +247,14 @@ func TestEnforcementStreamFiltering(t *testing.T) {
 	if _, err := h.PostV1ConfigsCreate(admin, &apigen.ConfigCreateRequest{Name: "staging.conf", SpaceID: staging.ID, Value: "a"}); err != nil {
 		t.Fatalf("create in staging: %v", err)
 	}
-	visible, err := h.PostV1ConfigsCreate(admin, &apigen.ConfigCreateRequest{Name: "app.conf", SpaceID: state.DefaultSpaceID, Value: "b"})
+	visible, err := h.PostV1ConfigsCreate(admin, &apigen.ConfigCreateRequest{Name: "app.conf", SpaceID: nodes.DefaultSpaceID, Value: "b"})
 	if err != nil {
 		t.Fatalf("create in default space: %v", err)
 	}
 
 	streamCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	states := make(chan *apigen.State, 32)
+	states := make(chan *apigen.StateStreamMsg, 32)
 	go func() {
 		defer close(states)
 		for s, streamErr := range h.PostV1GlobalStateStream(apigen.Context{Ctx: streamCtx, User: &apigen.InternalUser{ID: 2}}) {
@@ -262,27 +266,27 @@ func TestEnforcementStreamFiltering(t *testing.T) {
 	}()
 
 	initial := recvState(t, states)
-	if initial.UserConfigValuesSnapshot == nil || len(initial.UserConfigValuesSnapshot.Items) != 1 ||
-		initial.UserConfigValuesSnapshot.Items[0].ID != visible.ID {
-		t.Fatalf("initial config snapshot = %+v, want only the default-space config", initial.UserConfigValuesSnapshot)
+	if initial.Snapshot == nil || len(initial.Snapshot.ConfigEvents) != 1 ||
+		initial.Snapshot.ConfigEvents[0].ConfigID != visible.ConfigID {
+		t.Fatalf("initial config snapshot = %+v, want only the default-space config", initial.Snapshot)
 	}
-	for _, space := range initial.SpacesSnapshot.Items {
+	for _, space := range initial.Snapshot.Spaces {
 		if space.ID == staging.ID {
 			t.Fatal("staging space leaked into a space-limited stream")
 		}
 	}
-	if len(initial.AuthzGlobalRulesSnapshot.Items) != 0 {
-		t.Fatalf("global rules leaked to a non-admin: %+v", initial.AuthzGlobalRulesSnapshot.Items)
+	if len(initial.Snapshot.AuthzGlobalRules) != 0 {
+		t.Fatalf("global rules leaked to a non-admin: %+v", initial.Snapshot.AuthzGlobalRules)
 	}
-	for _, g := range initial.AuthzGrantsSnapshot.Items {
-		if g.UserID != 2 {
-			t.Fatalf("grant for user %d leaked to user 2", g.UserID)
+	for _, g := range initial.Snapshot.AuthzGrantEvents {
+		if g.Value.UserID != 2 {
+			t.Fatalf("grant for user %d leaked to user 2", g.Value.UserID)
 		}
 	}
-	if len(initial.AuthzRuleTemplatesSnapshot.Items) == 0 {
+	if len(initial.Snapshot.AuthzRuleTemplates) == 0 {
 		t.Fatal("template catalogue should always be sent")
 	}
-	if initial.BackupStatusSnapshot != nil {
+	if initial.Snapshot.BackupStatus != nil && *initial.Snapshot.BackupStatus != (apigen.BackupStatus{}) {
 		t.Fatal("backup status is cluster-scoped and should be withheld")
 	}
 
@@ -290,30 +294,30 @@ func TestEnforcementStreamFiltering(t *testing.T) {
 	if _, err := h.PostV1ConfigsCreate(admin, &apigen.ConfigCreateRequest{Name: "staging2.conf", SpaceID: staging.ID, Value: "c"}); err != nil {
 		t.Fatalf("create in staging: %v", err)
 	}
-	visible2, err := h.PostV1ConfigsCreate(admin, &apigen.ConfigCreateRequest{Name: "app2.conf", SpaceID: state.DefaultSpaceID, Value: "d"})
+	visible2, err := h.PostV1ConfigsCreate(admin, &apigen.ConfigCreateRequest{Name: "app2.conf", SpaceID: nodes.DefaultSpaceID, Value: "d"})
 	if err != nil {
 		t.Fatalf("create in default space: %v", err)
 	}
 	update := recvState(t, states)
-	if update.UserConfigValueUpdate == nil || update.UserConfigValueUpdate.ID != visible2.ID {
+	if update.Core == nil || len(update.Core.ConfigEvents) != 1 || update.Core.ConfigEvents[0].ConfigID != visible2.ConfigID {
 		t.Fatalf("update = %+v, want the default-space config update only", update)
 	}
 
 	// A grant change re-emits the full filtered snapshot so newly visible or
 	// hidden items are reconciled.
 	if _, err := h.Authz.CreateGrant(&apigen.AuthzGrantRecord{
-		UserID:     9,
+		UserID:     2,
 		TemplateID: authz.ClusterAdminTemplateID,
 		Grant:      &apigen.AuthzGrant{},
 	}); err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
 	reEmit := recvState(t, states)
-	if reEmit.UserConfigValuesSnapshot == nil || reEmit.SpacesSnapshot == nil || reEmit.AuthzGrantsSnapshot == nil {
+	if reEmit.Snapshot == nil {
 		t.Fatalf("authz change should re-emit full snapshots, got %+v", reEmit)
 	}
-	if len(reEmit.UserConfigValuesSnapshot.Items) != 2 {
-		t.Fatalf("re-emitted config snapshot has %d items, want 2", len(reEmit.UserConfigValuesSnapshot.Items))
+	if len(reEmit.Snapshot.ConfigEvents) != 4 {
+		t.Fatalf("re-emitted config snapshot has %d items, want 4 after expanded access", len(reEmit.Snapshot.ConfigEvents))
 	}
 }
 
@@ -321,15 +325,15 @@ func TestEnforcementDerivedNodeVisibility(t *testing.T) {
 	h, staging := newEnforcementTestHandler(t)
 	admin, spaceop := enforceCtx(1, false), enforceCtx(2, false)
 
-	node := h.Store.EnsurePrimaryNode("secondary", "secondary-id")
+	node := nodes.EnsurePrimaryNode(h.Store, "secondary", "secondary-id")
 
 	// A new node allows every space, so the space-limited operator sees it
 	// through the derived path — no node:view grant exists below cluster_admin.
-	if nodes := h.filterNodes(spaceop, h.Store.ListClusterNodes()); len(nodes) != 1 || nodes[0].ID != node.ID {
+	if nodes := h.filterNodes(spaceop, nodes.ListClusterNodes(h.Store.Queries())); len(nodes) != 1 || nodes[0].NodeID != node.ID {
 		t.Fatalf("space-limited operator should see the node via its allowed spaces, got %+v", nodes)
 	}
 	agent := enforceCtx(2, true)
-	if nodes := h.filterNodes(agent, h.Store.ListClusterNodes()); len(nodes) != 1 {
+	if nodes := h.filterNodes(agent, nodes.ListClusterNodes(h.Store.Queries())); len(nodes) != 1 {
 		t.Fatalf("the delegated session should inherit derived node visibility, got %+v", nodes)
 	}
 
@@ -343,16 +347,16 @@ func TestEnforcementDerivedNodeVisibility(t *testing.T) {
 	if _, err := h.PostV1NodesAllowedSpaces(admin, &apigen.NodeAllowedSpacesRequest{Identifier: "secondary-id", SpaceIds: []int32{staging.ID}}); err != nil {
 		t.Fatalf("narrow allowed spaces: %v", err)
 	}
-	if nodes := h.filterNodes(spaceop, h.Store.ListClusterNodes()); len(nodes) != 0 {
+	if nodes := h.filterNodes(spaceop, nodes.ListClusterNodes(h.Store.Queries())); len(nodes) != 0 {
 		t.Fatalf("node narrowed to staging should be hidden, got %+v", nodes)
 	}
-	if statuses := h.filterNodeStatuses(spaceop, h.Store.ListNodeStatuses()); len(statuses) != 0 {
+	if statuses := h.filterNodeStatuses(spaceop, erru.Must(h.Queries.ListLatestNodeStatuses(context.Background()))); len(statuses) != 0 {
 		t.Fatalf("node statuses should filter with the node, got %+v", statuses)
 	}
 	if _, err := h.PostV1NodesRename(spaceop, &apigen.NodeRenameRequest{Identifier: "secondary-id", Name: "sneaky"}); !errors.Is(err, NodeNotFoundErr) {
 		t.Fatalf("hidden-node rename: got %v, want NodeNotFoundErr", err)
 	}
-	if nodes := h.filterNodes(admin, h.Store.ListClusterNodes()); len(nodes) != 1 {
+	if nodes := h.filterNodes(admin, nodes.ListClusterNodes(h.Store.Queries())); len(nodes) != 1 {
 		t.Fatalf("cluster_admin keeps explicit node visibility, got %+v", nodes)
 	}
 }
@@ -363,8 +367,8 @@ func TestEnforcementUserRoster(t *testing.T) {
 	// The seeded default_user_visibility rule shows the roster to everyone,
 	// including agents and users with no grants at all.
 	for _, ctx := range []apigen.Context{enforceCtx(3, false), enforceCtx(3, true), enforceCtx(9, false)} {
-		if users := h.filterUsers(ctx, h.Store.ListUsersPublic()); len(users) != 3 {
-			t.Fatalf("expected the full 3-user roster, got %+v", users)
+		if got := h.filterUsers(ctx, users.ListPublic(h.Store.Queries())); len(got) != 3 {
+			t.Fatalf("expected the full 3-user roster, got %+v", got)
 		}
 	}
 
@@ -376,10 +380,10 @@ func TestEnforcementUserRoster(t *testing.T) {
 			}
 		}
 	}
-	if users := h.filterUsers(enforceCtx(3, false), h.Store.ListUsersPublic()); len(users) != 1 || users[0].ID != 3 {
-		t.Fatalf("without the rule a viewer should see only themself, got %+v", users)
+	if got := h.filterUsers(enforceCtx(3, false), users.ListPublic(h.Store.Queries())); len(got) != 1 || got[0].ID != 3 {
+		t.Fatalf("without the rule a viewer should see only themself, got %+v", got)
 	}
-	if users := h.filterUsers(enforceCtx(1, false), h.Store.ListUsersPublic()); len(users) != 3 {
-		t.Fatalf("cluster_admin should keep the roster, got %+v", users)
+	if got := h.filterUsers(enforceCtx(1, false), users.ListPublic(h.Store.Queries())); len(got) != 3 {
+		t.Fatalf("cluster_admin should keep the roster, got %+v", got)
 	}
 }

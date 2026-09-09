@@ -1,35 +1,6 @@
 version: "2"
 sql:
   - engine: "sqlite"
-    queries: "storage/primarydb/pq/sql/queries.sql"
-    schema:
-      - "storage/primarydb/pq/sql/schema.sql"
-      - "storage/primarydb/pq/sql/schema_user.sql"
-      - "storage/primarydb/pq/sql/schema_spaces.sql"
-      - "storage/primarydb/pq/sql/schema_authz.sql"
-      - "storage/primarydb/pq/sql/schema_deployments.sql"
-      - "storage/primarydb/pq/sql/schema_scheduled_instances.sql"
-      - "storage/primarydb/pq/sql/schema_secrets.sql"
-      - "storage/primarydb/pq/sql/schema_configs.sql"
-      - "storage/primarydb/pq/sql/schema_assets.sql"
-      - "storage/primarydb/pq/sql/schema_network_policies.sql"
-      - "storage/primarydb/pq/sql/schema_nodes.sql"
-    gen:
-      go:
-        package: "pq"
-        out: "storage/primarydb/pq"
-        rename:
-          deployment_event_log: DeploymentEvent
-          scheduled_instance_event_log: ScheduledInstanceEvent
-          node_event_log: NodeEvent
-          network_policy_event_log: NetworkPolicyEvent
-          secret_event_log: SecretEvent
-          config_event_log: ConfigEvent
-          asset_event_log: AssetEvent
-          authz_rule_template_event_log: AuthzRuleTemplateEvent
-          authz_grant_event_log: AuthzGrantEvent
-          global_access_rule_event_log: GlobalAccessRuleEvent
-  - engine: "sqlite"
     queries: "storage/secondarydb/sq/sql/queries.sql"
     schema:
       - "storage/secondarydb/sq/sql/schema.sql"

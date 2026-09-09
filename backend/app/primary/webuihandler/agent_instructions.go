@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"html"
 	"net/http"
 	"strconv"
@@ -11,7 +12,6 @@ import (
 	"text/template"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 //go:embed agent_instructions.md
@@ -43,8 +43,8 @@ func (h *Handler) GetV1AgentSessionsInstructions(ctx apigen.Context, request *ht
 	if err != nil {
 		return AgentSessionUserNotFoundErr
 	}
-	user, err := h.Store.FetchUserMatching(func(u *apigen.InternalUser) bool { return u.ID == int32(userID) })
-	if errors.Is(err, state.ErrNotFound) {
+	user, err := users.Matching(h.Store.Queries(), func(u *apigen.InternalUser) bool { return u.ID == int32(userID) })
+	if errors.Is(err, users.ErrNotFound) {
 		return AgentSessionUserNotFoundErr
 	}
 	if err != nil {

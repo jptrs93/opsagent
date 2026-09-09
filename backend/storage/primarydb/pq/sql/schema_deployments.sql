@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS deployment_event_log (
     spec_changed             INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped spec_version
     space_assignment_changed INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped space_assignment_version
     name_changed             INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped name_version
-    value                    BLOB NOT NULL,     -- DeploymentDef snapshot
+    value                    BLOB NOT NULL,     -- Deployment value snapshot
     event_type               INTEGER NOT NULL DEFAULT 0,  -- AuthzVerb value: 1 create / 2 update / 3 delete
     UNIQUE (deployment_id, version)
 );

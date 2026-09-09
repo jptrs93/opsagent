@@ -15,9 +15,9 @@ export function resolvePolicyPeer(peer, spaces, deployments) {
         return {kind, id, label: `space ${space.name || id}`, spaceId: id, dangling: false};
     }
     if (kind === PEER_KIND_DEPLOYMENT) {
-        const row = (deployments || []).find((d) => d?.config && !deploymentDeleted(d.config) && Number(d.config.id) === id);
+        const row = (deployments || []).find((d) => d?.config && !deploymentDeleted(d.config) && Number(d.config.deploymentId) === id);
         if (!row) return {kind, id, label: `deployment #${id}`, spaceId: null, dangling: true};
-        return {kind, id, label: row.config.def?.name || `deployment #${id}`, spaceId: Number(row.config.def?.spaceId || 0), dangling: false};
+        return {kind, id, label: row.config.value?.name || `deployment #${id}`, spaceId: Number(row.config.value?.spaceId || 0), dangling: false};
     }
     return {kind, id, label: "unknown peer", spaceId: null, dangling: true};
 }

@@ -4,15 +4,17 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/pki"
 	"os"
 	"path/filepath"
 	"strconv"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/backup"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/app/primarybootstrap"
-	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
@@ -72,7 +74,7 @@ func restorePrimaryBackup(opts restoreOptions, install installOptions, own owner
 		planned("restore primary database from s3://%s/%s to %s", opts.Bucket, opts.Path, dbPath)
 		planned("unlock restored secrets store and write new local machine key")
 		planned("invalidate restored runtime state for the replacement primary node")
-		for _, override := range restoredPrimaryConfigOverrides(install) {
+		for _, override := range restoredSystemConfigOverrides(install) {
 			planned("set restored primary config %s=%s", override.key, override.displayValue())
 		}
 		return nil
@@ -110,7 +112,7 @@ func restorePrimaryBackup(opts restoreOptions, install installOptions, own owner
 	if err := (primarybootstrap.Service{DataDir: dataDir}).Validate(context.Background()); err != nil {
 		return fmt.Errorf("validating restored primary bootstrap state: %w", err)
 	}
-	if err := applyRestoredPrimaryConfigOverrides(dbPath, install, own); err != nil {
+	if err := applyRestoredSystemConfigOverrides(dbPath, install, own); err != nil {
 		return err
 	}
 	if err := invalidateRestoredPrimaryRuntimeState(dbPath, own); err != nil {
@@ -129,9 +131,9 @@ func restoredPrimaryName(opts installOptions) string {
 
 func invalidateRestoredPrimaryRuntimeState(dbPath string, own owner) error {
 	store := state.Open(dbPath)
-	nodeID, err := store.PrimaryNodeID()
+	nodeID, err := nodes.PrimaryNodeID(store.Queries())
 	if err == nil {
-		count, err := store.InvalidateNodeRuntimeState(nodeID)
+		count, err := nodes.InvalidateNodeRuntimeState(store, nodeID)
 		if err == nil {
 			info("invalidated runtime state for %d replacement-primary deployments", count)
 		}
@@ -151,55 +153,55 @@ func invalidateRestoredPrimaryRuntimeState(dbPath string, own owner) error {
 	return nil
 }
 
-type restoredPrimaryConfigOverride struct {
+type restoredSystemConfigOverride struct {
 	key       string
 	value     string
 	sensitive bool
 }
 
-func (o restoredPrimaryConfigOverride) displayValue() string {
+func (o restoredSystemConfigOverride) displayValue() string {
 	if o.sensitive {
 		return "<redacted>"
 	}
 	return o.value
 }
 
-func restoredPrimaryConfigOverrides(opts installOptions) []restoredPrimaryConfigOverride {
-	overrides := []restoredPrimaryConfigOverride{}
+func restoredSystemConfigOverrides(opts installOptions) []restoredSystemConfigOverride {
+	overrides := []restoredSystemConfigOverride{}
 	if opts.webListen != nil {
-		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigWebListen, value: *opts.webListen})
+		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigWebListen, value: *opts.webListen})
 	}
 	if opts.httpOnly != nil {
-		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigWebHTTPOnly, value: strconv.FormatBool(*opts.httpOnly)})
+		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigWebHTTPOnly, value: strconv.FormatBool(*opts.httpOnly)})
 	}
 	if opts.passwordLogin != nil {
-		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigPasswordLogin, value: strconv.FormatBool(*opts.passwordLogin)})
+		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigPasswordLogin, value: strconv.FormatBool(*opts.passwordLogin)})
 	}
 	if opts.webTLSSelfManaged != nil {
-		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigWebTLSSelfManaged, value: strconv.FormatBool(*opts.webTLSSelfManaged)})
+		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigWebTLSSelfManaged, value: strconv.FormatBool(*opts.webTLSSelfManaged)})
 	}
 	if opts.webTLSCertPEM != nil {
-		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigWebTLSCertPEM, value: *opts.webTLSCertPEM, sensitive: true})
+		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigWebTLSCertPEM, value: *opts.webTLSCertPEM, sensitive: true})
 	}
 	if opts.clusterListen != nil {
-		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigClusterListen, value: *opts.clusterListen})
+		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigClusterListen, value: *opts.clusterListen})
 	}
 	if opts.enrollmentListen != nil {
-		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigEnrollmentListen, value: *opts.enrollmentListen})
+		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigEnrollmentListen, value: *opts.enrollmentListen})
 	}
 	if opts.acmeHosts != nil {
-		overrides = append(overrides, restoredPrimaryConfigOverride{key: primaryConfigAcmeHosts, value: *opts.acmeHosts})
+		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigAcmeHosts, value: *opts.acmeHosts})
 	}
 	return overrides
 }
 
-func applyRestoredPrimaryConfigOverrides(dbPath string, opts installOptions, own owner) error {
-	overrides := restoredPrimaryConfigOverrides(opts)
+func applyRestoredSystemConfigOverrides(dbPath string, opts installOptions, own owner) error {
+	overrides := restoredSystemConfigOverrides(opts)
 	if len(overrides) == 0 {
 		return nil
 	}
 	store := state.Open(dbPath)
-	service, err := config.NewService(store)
+	service, err := systemconfig.NewService(store)
 	if err != nil {
 		_ = store.Close()
 		return fmt.Errorf("init config service: %w", err)
@@ -249,7 +251,7 @@ func applyRestoredPrimaryConfigOverrides(dbPath string, opts installOptions, own
 			settings.HttpsWeb.AcmeHosts = apigen.StringSetting{Value: override.value}
 		}
 	}
-	if service.MustLoadConfigBoolValue(settings.HttpsWeb.Enabled) && service.MustLoadConfigBoolValue(settings.HttpsWeb.TlsSelfManaged) && settings.HttpsWeb.TlsCertPem.VersionID == 0 {
+	if service.MustLoadBoolSetting(settings.HttpsWeb.Enabled) && service.MustLoadBoolSetting(settings.HttpsWeb.TlsSelfManaged) && settings.HttpsWeb.TlsCertPem.VersionID == 0 {
 		if secretsMgr == nil {
 			secretsMgr, err = secrets.Open(dataDir, store)
 			if err != nil {
@@ -257,9 +259,9 @@ func applyRestoredPrimaryConfigOverrides(dbPath string, opts installOptions, own
 				return fmt.Errorf("open restored secrets store: %w", err)
 			}
 		}
-		acmeHosts := service.MustLoadConfigStringValue(settings.HttpsWeb.AcmeHosts)
-		listen := service.MustLoadConfigStringValue(settings.HttpsWeb.Listen)
-		_, caCertPEM, err := certu.EnsureWebUILocalTLS(secretsMgr, certu.WebUITLSNames(acmeHosts, listen))
+		acmeHosts := service.MustLoadStringSetting(settings.HttpsWeb.AcmeHosts)
+		listen := service.MustLoadStringSetting(settings.HttpsWeb.Listen)
+		_, caCertPEM, err := pki.EnsureWebUILocalTLS(secretsMgr, certu.WebUITLSNames(acmeHosts, listen))
 		if err != nil {
 			_ = store.Close()
 			return fmt.Errorf("creating restored self-managed Web TLS certificate: %w", err)

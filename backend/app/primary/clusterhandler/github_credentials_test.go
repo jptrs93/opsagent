@@ -2,6 +2,7 @@ package clusterhandler
 
 import (
 	"context"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"path/filepath"
 	"testing"
 
@@ -36,14 +37,14 @@ func TestGHCRWorkerCredentialAuthorization(t *testing.T) {
 		{"no-assignment", "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			node := store.EnsurePrimaryNode(tc.name, tc.name)
+			node := nodes.EnsurePrimaryNode(store, tc.name, tc.name)
 			if tc.image != "" {
 				spec := &apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 					Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: tc.image}},
 					Version: "latest", Running: true,
 				}}
 				dep := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, tc.name, node.ID, spec)
-				store.CreateScheduledInstanceForTest(dep.ID, dep.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+				statetest.CreateScheduledInstance(store, dep.DeploymentID, dep.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 			}
 			before := provider.calls
 			ctx := apigen.Context{Ctx: context.WithValue(context.Background(), machineCtxKey{}, tc.name)}

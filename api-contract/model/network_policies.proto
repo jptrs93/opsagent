@@ -11,13 +11,11 @@ option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 // of any deployment spec. Peers are single-id anchors: a deployment peer's
 // space resolves at render time, so space moves follow automatically.
 message NetworkPolicy {
-  int32 id = 1;
-  int32 version = 2;
+  reserved 1, 2, 7;
   NetworkPolicyAction action = 3;
   NetworkPolicyPeerRef source = 4;
   NetworkPolicyPeerRef destination = 5;
   repeated NetPortMatch ports = 6; // empty = all ports and protocols
-  bool deleted = 7;
 }
 
 // DENY is schema-reserved and rejected on writes until enforced.
@@ -36,4 +34,16 @@ enum NetworkPolicyPeerKind {
   NETWORK_POLICY_PEER_KIND_UNSPECIFIED = 0;
   NETWORK_POLICY_PEER_KIND_SPACE = 1;
   NETWORK_POLICY_PEER_KIND_DEPLOYMENT = 2;
+}
+
+message NetworkPolicyEvent {
+  int32 network_policy_id = 1;
+  int32 version = 2;
+  int64 seq = 3;
+  int64 event_id = 4;
+  int32 author = 5;
+  EventType event_type = 6;
+  int64 created_time = 7;
+  int64 event_time = 8;
+  NetworkPolicy value = 9 [(cp.go_value) = true];
 }

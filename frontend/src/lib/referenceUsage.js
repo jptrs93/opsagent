@@ -8,12 +8,12 @@ export function deploymentUsages(deployments, spaces, machines, usesDeployment) 
         const config = deployment?.config;
         if (!config || deploymentDeleted(config) || !usesDeployment(deployment)) return [];
 
-        const spaceId = Number(config.def?.spaceId || 0);
+        const spaceId = Number(config.value?.spaceId || 0);
         return [{
-            id: Number(config.id || 0),
+            id: Number(config.deploymentId || 0),
             space: spaceNames.get(spaceId) || `space ${spaceId}`,
-            name: config.def?.name || `deployment ${config.id}`,
-            node: nodeDisplayName(config.def?.nodeId, machines),
+            name: config.value?.name || `deployment ${config.deploymentId}`,
+            node: nodeDisplayName(config.value?.nodeId, machines),
         }];
     }).sort((a, b) => a.space.localeCompare(b.space)
         || a.name.localeCompare(b.name)
@@ -23,7 +23,7 @@ export function deploymentUsages(deployments, spaces, machines, usesDeployment) 
 
 export function deploymentUsesEnvReferences(config, type, referenceIDs) {
     const referenceKey = type === "secret" ? "secretVersionId" : "configVersionId";
-    const envVars = config?.def?.spec?.container1Spec?.runtime?.envVars;
+    const envVars = config?.value?.spec?.container1Spec?.runtime?.envVars;
     return Boolean(envVars && Object.values(envVars).some(
         value => referenceIDs.has(Number(value?.[referenceKey] || 0)),
     ));

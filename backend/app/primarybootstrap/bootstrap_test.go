@@ -2,20 +2,22 @@ package primarybootstrap
 
 import (
 	"context"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/pki"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
 func TestInitializeCreatesCompletePrimaryState(t *testing.T) {
 	dir := t.TempDir()
-	initial := config.DefaultInitialConfig()
+	initial := systemconfig.DefaultInitial()
 	initial.MasterPasswordHash = "test-hash"
 	initial.WebTLSSelfManaged = true
 	service := Service{DataDir: dir}
@@ -44,9 +46,9 @@ func TestInitializeCreatesCompletePrimaryState(t *testing.T) {
 
 	store := state.Open(filepath.Join(dir, "primary.db"))
 	defer store.Close()
-	configService, err := config.NewService(store)
+	configService, err := systemconfig.NewService(store)
 	if err != nil {
-		t.Fatalf("config.NewService: %v", err)
+		t.Fatalf("systemconfig.NewService: %v", err)
 	}
 	if got := configService.Snapshot().MasterPasswordHash; got != "test-hash" {
 		t.Fatalf("MasterPasswordHash = %q, want test-hash", got)
@@ -55,11 +57,11 @@ func TestInitializeCreatesCompletePrimaryState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("secrets.Open: %v", err)
 	}
-	clusterMaterial, err := certu.LoadPrimary(secretsMgr)
+	clusterMaterial, err := pki.LoadPrimary(secretsMgr)
 	if err != nil {
-		t.Fatalf("certu.LoadPrimary: %v", err)
+		t.Fatalf("pki.LoadPrimary: %v", err)
 	}
-	nodes := store.ListNodes()
+	nodes := nodes.ListNodes(store.Queries())
 	if len(nodes) != 1 || nodes[0].Name != "primary" {
 		t.Fatalf("primary nodes = %+v, want one named primary", nodes)
 	}
@@ -69,9 +71,9 @@ func TestInitializeCreatesCompletePrimaryState(t *testing.T) {
 	if got := certu.MustCertCommonNameFromPEM(clusterMaterial.PrimaryCert); got != nodes[0].Identifier {
 		t.Fatalf("primary certificate CN = %q, want node identifier %q", got, nodes[0].Identifier)
 	}
-	caPEM, err := certu.LoadWebUILocalCA(secretsMgr)
+	caPEM, err := pki.LoadWebUILocalCA(secretsMgr)
 	if err != nil || len(caPEM) == 0 {
-		t.Fatalf("certu.LoadWebUILocalCA: %v (len %d)", err, len(caPEM))
+		t.Fatalf("pki.LoadWebUILocalCA: %v (len %d)", err, len(caPEM))
 	}
 	if exported, err := os.ReadFile(certu.WebUILocalCAPath(dir)); err != nil || string(exported) != string(caPEM) {
 		t.Fatalf("exported CA file: err=%v matches=%v", err, string(exported) == string(caPEM))
@@ -80,7 +82,7 @@ func TestInitializeCreatesCompletePrimaryState(t *testing.T) {
 
 func TestInitializeRejectsExistingDatabase(t *testing.T) {
 	dir := t.TempDir()
-	initial := config.DefaultInitialConfig()
+	initial := systemconfig.DefaultInitial()
 	initial.MasterPasswordHash = "test-hash"
 	service := Service{DataDir: dir}
 	if _, err := service.Initialize(context.Background(), Options{Initial: initial, PrimaryName: "primary"}); err != nil {

@@ -15,10 +15,10 @@ func testAssignment(id, deploymentID, nodeID int32) *apigen.ScheduledInstanceSta
 			ID: id, DeploymentID: deploymentID, DeploymentSpecVersion: 1, NodeID: nodeID,
 			State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 		},
-		Config: apigen.Deployment{
-			ID:          deploymentID,
-			SpecVersion: 1,
-			Def:         apigen.DeploymentDef{NodeID: nodeID, Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}}, Runtime: apigen.ContainerRuntime{User: "1000"}}, Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST}}},
+		Config: apigen.DeploymentEvent{
+			DeploymentID: deploymentID,
+			SpecVersion:  1,
+			Value:        apigen.Deployment{NodeID: nodeID, Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}}, Runtime: apigen.ContainerRuntime{User: "1000"}}, Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST}}},
 		},
 	}
 }

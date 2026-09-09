@@ -3,12 +3,13 @@ package webuihandler
 import (
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 func TestConcurrentCreatesRejectDuplicateIdentity(t *testing.T) {
@@ -34,7 +35,7 @@ func TestConcurrentCreatesRejectDuplicateIdentity(t *testing.T) {
 		switch {
 		case err == nil:
 			created++
-		case errors.Is(err, DuplicateDeploymentErr):
+		case errors.Is(err, deployments.DuplicateErr):
 		default:
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -87,11 +88,11 @@ func TestConcurrentCreatesRejectDuplicateIngressClaim(t *testing.T) {
 
 func TestSecretMoveRacingDeploymentCreateKeepsLocality(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := h.Store.CreateSpace("prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	staging, err := h.Store.CreateSpace("staging")
+	staging, err := nodes.CreateSpace(h.Store, "staging")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestSecretMoveRacingDeploymentCreateKeepsLocality(t *testing.T) {
 		}
 		var wg sync.WaitGroup
 		var createErr, moveErr error
-		var created *apigen.Deployment
+		var created *apigen.DeploymentEvent
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
@@ -126,8 +127,8 @@ func TestSecretMoveRacingDeploymentCreateKeepsLocality(t *testing.T) {
 		if !ok {
 			t.Fatalf("round %d: secret version disappeared", round)
 		}
-		if createErr == nil && moveErr == nil && meta.SpaceID != prod.ID && meta.SpaceID != state.DefaultSpaceID {
-			t.Fatalf("round %d: deployment %d pins secret in space %d — locality violated", round, created.ID, meta.SpaceID)
+		if createErr == nil && moveErr == nil && meta.SpaceID != prod.ID && meta.SpaceID != nodes.DefaultSpaceID {
+			t.Fatalf("round %d: deployment %d pins secret in space %d — locality violated", round, created.DeploymentID, meta.SpaceID)
 		}
 	}
 }

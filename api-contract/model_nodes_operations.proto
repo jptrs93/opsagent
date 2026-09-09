@@ -16,10 +16,10 @@ message NodeAllowedSpacesRequest {
   repeated int32 space_ids = 2;
 }
 
-message ClusterNodeList {
-  repeated ClusterNode items = 1;
+message NodeEventList {
+  repeated NodeEvent items = 1;
 }
 
-message ClusterNodeStatusList {
-  repeated ClusterNodeStatus items = 1;
+message NodeStatusList {
+  repeated NodeStatus items = 1;
 }

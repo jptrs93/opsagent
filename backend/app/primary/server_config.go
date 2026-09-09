@@ -5,10 +5,10 @@ import (
 	"log/slog"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/config"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 )
 
-func watchServerConfig(ctx context.Context, cs *config.Service, initial apigen.PrimaryConfig) error {
+func watchServerConfig(ctx context.Context, cs *systemconfig.Service, initial apigen.SystemConfig) error {
 	sub := cs.SnapshotAndSubscribe(serverConfigChanged)
 	defer sub.Unsubscribe()
 	if serverConfigChanged(initial, sub.InitialValue) {
@@ -27,7 +27,7 @@ func watchServerConfig(ctx context.Context, cs *config.Service, initial apigen.P
 	}
 }
 
-func serverConfigChanged(prev, next apigen.PrimaryConfig) bool {
+func serverConfigChanged(prev, next apigen.SystemConfig) bool {
 	return prev.Settings.HttpWeb != next.Settings.HttpWeb ||
 		prev.Settings.HttpsWeb != next.Settings.HttpsWeb ||
 		prev.Settings.Cluster != next.Settings.Cluster

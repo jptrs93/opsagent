@@ -116,21 +116,21 @@ function fmtNum(n) {
 
 function deploymentLabel(item, machines) {
     const cfg = item?.config || {};
-    const node = nodeDisplayName(cfg.def?.nodeId, machines);
-    return [node, cfg.def?.name].filter(Boolean).join(' / ') || `#${cfg.id}`;
+    const node = nodeDisplayName(cfg.value?.nodeId, machines);
+    return [node, cfg.value?.name].filter(Boolean).join(' / ') || `#${cfg.deploymentId}`;
 }
 
 function deploymentSpaceID(item) {
-    return item?.config?.def?.spaceId || 0;
+    return item?.config?.value?.spaceId || 0;
 }
 
 function selectedDeployment(items, id) {
-    return items.find(item => item.config?.id === id) || null;
+    return items.find(item => item.config?.deploymentId === id) || null;
 }
 
 function isSystemDeployment(item) {
-    return item?.config?.def?.name === SYSTEM_DEPLOYMENT_NAME && (
-        deploymentSpaceID(item) === SYSTEM_SPACE_ID || Boolean(item?.config?.def?.spec?.opendeploySpec)
+    return item?.config?.value?.name === SYSTEM_DEPLOYMENT_NAME && (
+        deploymentSpaceID(item) === SYSTEM_SPACE_ID || Boolean(item?.config?.value?.spec?.opendeploySpec)
     );
 }
 
@@ -291,7 +291,7 @@ export function logsPage(selectedDeploymentId) {
     let autoSearchedDeploymentId = 0;
     let scroller;
 
-    const liveDeployments = () => (deploymentsS.val || []).filter(item => item.config?.id && !deploymentDeleted(item.config));
+    const liveDeployments = () => (deploymentsS.val || []).filter(item => item.config?.deploymentId && !deploymentDeleted(item.config));
 
     // scopePayload resolves the deployment scope for a request: the system
     // deployment queries as deployment 0 on its node.
@@ -299,7 +299,7 @@ export function logsPage(selectedDeploymentId) {
         const selected = selectedDeployment(liveDeployments(), Number(deploymentId.val || 0));
         return {
             deploymentId: isSystemDeployment(selected) ? 0 : Number(deploymentId.val || 0),
-            targetNodeId: Number(selected?.config?.def?.nodeId || 0),
+            targetNodeId: Number(selected?.config?.value?.nodeId || 0),
         };
     };
 
@@ -521,7 +521,7 @@ export function logsPage(selectedDeploymentId) {
         }
         deploymentSelect.replaceChildren(
             option({value: ""}, "Select deployment"),
-            ...filtered.map(item => option({value: String(item.config.id)}, deploymentLabel(item, machinesS.val))),
+            ...filtered.map(item => option({value: String(item.config.deploymentId)}, deploymentLabel(item, machinesS.val))),
         );
         deploymentSelect.value = String(deploymentId.val || '');
     });

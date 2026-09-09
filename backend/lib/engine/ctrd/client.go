@@ -16,8 +16,8 @@ import (
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/containerd/errdefs"
 	"github.com/jptrs93/opsagent/backend/ainit"
-	"github.com/jptrs93/opsagent/backend/app/logconsumer"
 	"github.com/jptrs93/opsagent/backend/lib/engine/registryauth"
+	"github.com/jptrs93/opsagent/backend/lib/log/logconsumer"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/opencontainers/runtime-spec/specs-go"
 )

@@ -1,476 +1,284 @@
-// Package scheduler turns desired deployment configs into scheduled instance
-// assignments and advances instance target state from observed status.
-//
-// Target state is the sole input to cross-node routing, so the transitions here
-// are what make network state derivable without consulting status. Exactly one
-// placement per (deployment, ordinal) is RUN_SERVING and owns the instance's
-// stable inbound address; a replacement warms up as RUN_STANDBY, and the
-// placement it supersedes drains as RUN_DRAINING while it still holds its own
-// routes. A draining placement is only told to stop once every node has
-// programmed the routing that replaced it.
 package scheduler
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sort"
+	"slices"
 	"time"
 
-	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 const defaultInstanceOrdinal int32 = 0
-
-// drainTimeout bounds how long a draining placement waits for the cluster to
-// apply the routing that replaced it. The barrier is the mechanism; this is the
-// backstop for a node that is connected but wedged, so one unhealthy node
-// cannot pin a superseded container forever.
 const drainTimeout = 30 * time.Second
-
-// drainPollInterval re-examines draining placements when no acknowledgement
-// has arrived, so the timeout backstop fires without an external wakeup.
 const drainPollInterval = 2 * time.Second
 
-// routeBarrier reports when published network state is in force cluster-wide.
 type routeBarrier interface {
-	// DecisionInForce reports whether the routing implied by the sequenced
-	// write at seq has been rendered and applied by every node holding
-	// network state.
 	DecisionInForce(seq int64) bool
-	// AckUpdates fires when applied stamps or renders advance.
 	AckUpdates() <-chan struct{}
 }
 
 type Scheduler struct {
-	ctx     context.Context
-	store   *state.Service
-	barrier routeBarrier
-
-	// draining records what each draining placement is waiting for: the global
-	// write sequence of the drain decision, which must be in force everywhere,
-	// and the deadline after which it stops waiting. It is in-memory only, so a
-	// restart finds RUN_DRAINING rows on disk with nothing tracking them;
-	// adoptDraining puts them back under a fresh deadline, which only ever waits
-	// longer than the original.
-	draining map[int32]drainWait
-}
-
-type drainWait struct {
-	sequence int64
-	deadline time.Time
-	// adopted marks a wait rebuilt after a restart rather than recorded when the
-	// drain was decided. See retireDrainedInstances for why it ignores the
-	// barrier.
-	adopted bool
+	store    *state.Service
+	barrier  routeBarrier
+	now      func() time.Time
+	bootSeq  int64
+	bootTime time.Time
 }
 
 func New(store *state.Service, barrier routeBarrier) *Scheduler {
-	return &Scheduler{
-		ctx:      logu.AddTag(context.Background(), "Scheduler"),
-		store:    store,
-		barrier:  barrier,
-		draining: make(map[int32]drainWait),
-	}
+	return &Scheduler{store: store, barrier: barrier, now: time.Now}
+}
+
+func (s *Scheduler) Start(ctx context.Context) error {
+	s.store.RegisterUpdateTrigger(func(ctx context.Context, q *pq.Queries, update *state.Update) error {
+		return s.reconcile(ctx, q, update, nil)
+	})
+	return s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+		s.bootSeq, s.bootTime = seq-1, s.now()
+		update := &state.Update{Seq: seq}
+		err := s.reconcile(ctx, q, update, func() ([]int32, error) {
+			rows, err := q.ListLatestDeploymentEvents(ctx)
+			if err != nil {
+				return nil, err
+			}
+			ids := make([]int32, 0, len(rows))
+			for _, row := range rows {
+				ids = append(ids, row.DeploymentID)
+			}
+			return ids, nil
+		})
+		return update, err
+	})
+}
+
+func (s *Scheduler) Sweep(ctx context.Context) error {
+	return s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+		update := &state.Update{Seq: seq}
+		err := s.reconcile(ctx, q, update, func() ([]int32, error) { return q.ListDrainingDeploymentIDs(ctx) })
+		return update, err
+	})
 }
 
 func (s *Scheduler) Run(ctx context.Context) {
-	s.ctx = logu.AddTag(ctx, "Scheduler")
-	configs, configCh, unsubConfigs := s.store.MustFetchDeploymentSnapshotAndSubscribe(nil)
-	defer unsubConfigs()
-	instances, instanceCh, unsubInstances := s.store.MustFetchScheduledSnapshotAndSubscribe(nil)
-	defer unsubInstances()
-
-	// Retire anything already stopped before reconciling, so the first pass sees
-	// only placements that still mean something. Replaying an instance the sweep
-	// finalized is a no-op: onInstance acts on RUN_* and TERMINATE alone.
-	s.finalizeStopped()
-
-	// Process existing instance statuses before creating replacements so an
-	// older RUNNING snapshot cannot terminate a newly created instance.
-	for i := range instances {
-		s.onInstance(instances[i])
-	}
-	for i := range configs {
-		s.onConfig(configs[i])
-	}
-
 	var acks <-chan struct{}
 	if s.barrier != nil {
 		acks = s.barrier.AckUpdates()
 	}
 	poll := time.NewTicker(drainPollInterval)
 	defer poll.Stop()
-
 	for {
 		select {
-		case cfg, ok := <-configCh:
-			if !ok {
-				return
-			}
-			s.onConfig(cfg)
-		case state, ok := <-instanceCh:
-			if !ok {
-				return
-			}
-			s.onInstance(state)
+		case <-ctx.Done():
+			return
 		case <-acks:
-			s.retireDrainedInstances()
 		case <-poll.C:
-			s.retireDrainedInstances()
+		}
+		if err := s.Sweep(ctx); err != nil && ctx.Err() == nil {
+			slog.ErrorContext(ctx, "scheduler reconciliation failed", "err", err)
 		}
 	}
 }
 
-func (s *Scheduler) onConfig(cfg apigen.Deployment) {
-	if cfg.ID == 0 {
-		return
+func (s *Scheduler) reconcile(ctx context.Context, q *pq.Queries, update *state.Update, scope func() ([]int32, error)) error {
+	affected := map[int32]bool{}
+	for _, event := range update.DeploymentEvents {
+		affected[event.DeploymentID] = true
 	}
-	current := s.store.FetchDeployment(cfg.ID)
-	if current == nil || current.SpecVersion != cfg.SpecVersion {
-		return
+	for _, event := range update.ScheduledInstanceEvents {
+		affected[event.Value.DeploymentID] = true
 	}
-	cfg = *current
-	if cfg.Deleted() || !cfg.WorkloadRunning() {
-		s.terminateDeployment(cfg.ID)
-		return
+	for _, status := range update.InstanceStatuses {
+		affected[status.DeploymentID] = true
 	}
-	if cfg.Def.NodeID <= 0 {
-		slog.WarnContext(s.ctx, fmt.Sprintf("scheduler: skipping config without node version=%d", cfg.SpecVersion), "dep", cfg.ID)
-		return
-	}
-
-	active := s.scheduledStates(cfg.ID)
-	var exact *apigen.ScheduledInstanceState
-	serving := false
-	blocked := false
-	for i := range active {
-		state := &active[i]
-		inst := state.Instance
-		if inst.InstanceOrdinal != defaultInstanceOrdinal {
-			continue
+	if scope != nil {
+		ids, err := scope()
+		if err != nil {
+			return err
 		}
-		if inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
-			serving = true
+		for _, id := range ids {
+			affected[id] = true
 		}
-		if inst.DeploymentVersion == cfg.Version && inst.State.WantsRunning() {
-			exact = state
-			continue
+	}
+	ids := make([]int32, 0, len(affected))
+	for id := range affected {
+		if id != 0 {
+			ids = append(ids, id)
 		}
-		if cfg.EffectiveUpgradeStrategy() != apigen.ContainerUpgradeStrategy_RECREATE {
-			// A standby has never held the instance's inbound address, so there is
-			// nothing in flight to drain: the config has moved on and this
-			// placement is simply stale. Retiring it here is what stops a rollout
-			// that keeps failing — a prepare that errors, a container that never
-			// reports ready — from leaving one warming-up placement per pushed
-			// version. Serving and draining placements are left alone; they still
-			// own routes, and only a replacement reporting RUNNING may move those.
-			if inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY {
-				s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
-				slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: terminating a standby superseded by a newer config instanceVersion=%d version=%d", inst.DeploymentVersion, cfg.Version),
-					"scheduled_instance", inst.ID,
-					"dep", cfg.ID,
-				)
+	}
+	slices.Sort(ids)
+	now := s.now()
+	for _, id := range ids {
+		cfg, instances, err := readSchedulingState(ctx, q, id)
+		if err != nil {
+			return err
+		}
+		limit := len(instances)*3 + 8
+		for pass := 0; ; pass++ {
+			tx := transaction{ctx: ctx, q: q, seq: update.Seq, update: update, now: now, scheduler: s}
+			if err := tx.step(cfg, instances); err != nil {
+				return err
 			}
-			continue
+			if !tx.changed {
+				break
+			}
+			if pass >= limit {
+				return fmt.Errorf("scheduler did not stabilize deployment %d", id)
+			}
+			cfg, instances, err = readSchedulingState(ctx, q, id)
+			if err != nil {
+				return err
+			}
 		}
-		// RECREATE has no overlap: the superseded placement must be fully stopped
-		// before a replacement is created, so it goes straight to TERMINATE
-		// rather than draining.
-		switch {
-		case inst.State.WantsRunning():
-			s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
-			blocked = true
-		case inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE:
-			if !terminalRunnerStatus(state.Status.Runner.Status) {
+	}
+	return nil
+}
+
+type transaction struct {
+	ctx       context.Context
+	q         *pq.Queries
+	seq       int64
+	update    *state.Update
+	now       time.Time
+	scheduler *Scheduler
+	changed   bool
+}
+
+func (tx *transaction) publish(event *apigen.ScheduledInstanceEvent) {
+	tx.update.ScheduledInstanceEvents = append(tx.update.ScheduledInstanceEvents, event)
+	tx.changed = true
+}
+
+func (tx *transaction) set(instance *schedulingInstance, target apigen.ScheduledInstanceTarget) error {
+	if instance.Event.Value.State == target {
+		return nil
+	}
+	event, err := tx.q.AppendScheduledInstanceEvent(tx.ctx, tx.seq, &instance.Event.Value, target, tx.now)
+	if err != nil {
+		return err
+	}
+	instance.Event = *event
+	tx.publish(event)
+	return nil
+}
+
+func (tx *transaction) step(cfg *apigen.DeploymentEvent, instances []schedulingInstance) error {
+	running := cfg != nil && !cfg.Deleted() && cfg.WorkloadRunning()
+	for i := range instances {
+		entry := &instances[i]
+		inst := entry.Event.Value
+		obsolete := cfg != nil && inst.DeploymentVersion != cfg.Version && inst.InstanceOrdinal == defaultInstanceOrdinal
+		retire := !running || obsolete && (cfg.EffectiveUpgradeStrategy() == apigen.ContainerUpgradeStrategy_RECREATE || inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
+		if retire && inst.State.WantsRunning() {
+			if err := tx.set(entry, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE); err != nil {
+				return err
+			}
+		}
+		if err := tx.finalizeStopped(entry); err != nil {
+			return err
+		}
+	}
+	if running && cfg.Value.NodeID > 0 {
+		var exact *schedulingInstance
+		serving, blocked := false, false
+		for i := range instances {
+			entry := &instances[i]
+			inst := entry.Event.Value
+			if inst.InstanceOrdinal != defaultInstanceOrdinal {
+				continue
+			}
+			if inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+				serving = true
+			}
+			if inst.DeploymentVersion == cfg.Version && inst.State.WantsRunning() {
+				exact = entry
+			}
+			if cfg.EffectiveUpgradeStrategy() == apigen.ContainerUpgradeStrategy_RECREATE && inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
 				blocked = true
 			}
 		}
-	}
-	if exact != nil {
-		s.promoteIfReady(*exact)
-		return
-	}
-	if blocked {
-		return
-	}
-
-	// A replacement must never be born serving: that would point the instance's
-	// inbound route at a node whose container does not exist yet. It warms up as
-	// a standby and takes over only once it reports RUNNING.
-	initial := apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
-	if serving {
-		initial = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
-	}
-	inst, created := s.store.EnsureRunScheduledInstance(cfg.ID, cfg.Version, cfg.Def.NodeID, defaultInstanceOrdinal, initial)
-	if !created {
-		return
-	}
-	slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: created scheduled instance version=%d state=%v", cfg.Version, initial),
-		"scheduled_instance", inst.ID,
-		"dep", cfg.ID,
-		"node", cfg.Def.NodeID,
-	)
-}
-
-func (s *Scheduler) onInstance(state apigen.ScheduledInstanceState) {
-	inst := state.Instance
-	if inst.ID == 0 {
-		return
-	}
-	switch {
-	case inst.State.WantsRunning():
-		cfg := s.store.FetchDeployment(inst.DeploymentID)
-		if cfg == nil || cfg.Deleted() || !cfg.WorkloadRunning() {
-			s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
-			return
+		if exact == nil && !blocked {
+			target := apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
+			if serving {
+				target = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
+			}
+			event, err := newInstance(tx.ctx, tx.q, tx.seq, cfg, defaultInstanceOrdinal, target, tx.now)
+			if err != nil {
+				return err
+			}
+			tx.publish(event)
 		}
-		if inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
-			s.adoptDraining(inst.ID)
-			s.retireDrainedInstances()
-			return
+		if exact != nil {
+			target := exact.Event.Value.State
+			ready := exact.Status.Runner.Status == apigen.RunningStatus_RUNNING && exact.Status.Runner.DeploymentSpecVersion == exact.Config.SpecVersion
+			if ready && (target == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY || target == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING) {
+				if err := tx.promote(exact, instances); err != nil {
+					return err
+				}
+			} else if target == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY {
+				for i := range instances {
+					old := &instances[i]
+					if old.Event.Value.ID < exact.Event.Value.ID && old.Event.Value.InstanceOrdinal == exact.Event.Value.InstanceOrdinal && old.Event.Value.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING && terminalRunnerStatus(old.Status.Runner.Status) {
+						if err := tx.promote(exact, instances); err != nil {
+							return err
+						}
+						break
+					}
+				}
+			}
 		}
-		if cfg.Version == inst.DeploymentVersion {
-			s.promoteIfReady(state)
-			return
-		}
-		// The serving placement is for a superseded config. If its runner has
-		// died there is nothing left to hand over, so any standby takes the
-		// address immediately rather than waiting for a readiness signal that a
-		// dead container will never produce.
-		if inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING &&
-			terminalRunnerStatus(state.Status.Runner.Status) {
-			s.promoteStandbyForFailedServing(inst)
-		}
-	case inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE:
-		if !terminalRunnerStatus(state.Status.Runner.Status) {
-			return
-		}
-		// Reconcile before finalizing so a RECREATE replacement is created in the
-		// same pass: onConfig treats a terminal TERMINATE as no longer blocking.
-		if cfg := s.store.FetchDeployment(inst.DeploymentID); cfg != nil {
-			s.onConfig(*cfg)
-		}
-		s.finalize(inst)
 	}
-}
-
-// promoteIfReady hands the instance's inbound address to a standby that has
-// reported RUNNING, moving the placement it supersedes into draining. The flip
-// is a single store commit: nothing else moves an address.
-func (s *Scheduler) promoteIfReady(state apigen.ScheduledInstanceState) {
-	inst := state.Instance
-	if inst.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY {
-		// Already serving: still drain anything older it has superseded, which
-		// covers a promotion whose second write did not land.
-		if inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING &&
-			state.Status.Runner.Status == apigen.RunningStatus_RUNNING {
-			s.drainSuperseded(inst)
-		}
-		return
-	}
-	if state.Status.Runner.DeploymentSpecVersion != state.Config.SpecVersion ||
-		state.Status.Runner.Status != apigen.RunningStatus_RUNNING {
-		return
-	}
-	drains := s.supersededInstanceIDs(inst)
-	s.flipServing(drains, inst.ID)
-	for _, id := range drains {
-		slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: draining superseded scheduled instance replacement=%d", inst.ID),
-			"scheduled_instance", id,
-			"dep", inst.DeploymentID,
-		)
-	}
-	slog.InfoContext(s.ctx, "scheduler: scheduled instance took over serving",
-		"scheduled_instance", inst.ID,
-		"dep", inst.DeploymentID,
-		"node", inst.NodeID,
-	)
-}
-
-// promoteStandbyForFailedServing promotes the newest standby when the serving
-// placement has stopped for good. Without this a deployment whose serving
-// container dies mid-rollover would keep its inbound address pointed at a node
-// running nothing.
-func (s *Scheduler) promoteStandbyForFailedServing(failed apigen.ScheduledInstance) {
-	active := s.store.ListNonFinalScheduledInstancesForDeployment(failed.DeploymentID)
-	sort.Slice(active, func(i, j int) bool { return active[i].ID > active[j].ID })
-	for _, inst := range active {
-		if inst.InstanceOrdinal != failed.InstanceOrdinal || inst.ID == failed.ID ||
-			inst.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY {
+	for i := range instances {
+		entry := &instances[i]
+		if entry.Event.Value.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
 			continue
 		}
-		s.flipServing([]int32{failed.ID}, inst.ID)
-		slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: promoted standby over a failed serving instance failed=%d", failed.ID),
-			"scheduled_instance", inst.ID,
-			"dep", failed.DeploymentID,
-		)
-		return
-	}
-}
-
-// drainSuperseded moves every older placement of this ordinal into draining.
-// Draining keeps the container running and its own routes published, so replies
-// to work already in flight still reach it after the address moves.
-func (s *Scheduler) drainSuperseded(current apigen.ScheduledInstance) {
-	for _, id := range s.supersededInstanceIDs(current) {
-		s.beginDraining(id)
-		slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: draining superseded scheduled instance replacement=%d", current.ID),
-			"scheduled_instance", id,
-			"dep", current.DeploymentID,
-		)
-	}
-}
-
-func (s *Scheduler) supersededInstanceIDs(current apigen.ScheduledInstance) []int32 {
-	active := s.store.ListNonFinalScheduledInstancesForDeployment(current.DeploymentID)
-	sort.Slice(active, func(i, j int) bool { return active[i].ID < active[j].ID })
-	ids := make([]int32, 0, len(active))
-	for _, inst := range active {
-		if inst.ID >= current.ID || inst.InstanceOrdinal != current.InstanceOrdinal {
+		if entry.Event.Seq >= tx.seq {
 			continue
 		}
-		if !inst.State.WantsRunning() ||
-			inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
+		adopted := entry.Event.Seq <= tx.scheduler.bootSeq
+		deadline := time.UnixMilli(entry.Event.EventTime).Add(drainTimeout)
+		if adopted {
+			deadline = tx.scheduler.bootTime.Add(drainTimeout)
+		}
+		applied := tx.scheduler.barrier == nil || !adopted && tx.scheduler.barrier.DecisionInForce(entry.Event.Seq)
+		if !applied && tx.now.Before(deadline) {
 			continue
 		}
-		ids = append(ids, inst.ID)
+		if err := tx.set(entry, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE); err != nil {
+			return err
+		}
+		if err := tx.finalizeStopped(entry); err != nil {
+			return err
+		}
 	}
-	return ids
+	return nil
 }
 
-func (s *Scheduler) flipServing(drainIDs []int32, serveID int32) {
-	delete(s.draining, serveID)
-	seq := s.store.FlipScheduledInstanceServing(drainIDs, serveID)
-	deadline := time.Now().Add(drainTimeout)
-	for _, id := range drainIDs {
-		s.draining[id] = drainWait{sequence: seq, deadline: deadline}
-	}
-}
-
-// beginDraining waits on the drain decision's own write sequence: the state
-// change is what produces the map that must propagate, and the sequence its
-// transaction allocated identifies it exactly. If the flip changed no routes at
-// all — both placements on one node — the published map never changes and the
-// wait is satisfied as soon as a render has seen the write.
-func (s *Scheduler) beginDraining(instanceID int32) {
-	seq := s.setState(instanceID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING)
-	s.draining[instanceID] = drainWait{sequence: seq, deadline: time.Now().Add(drainTimeout)}
-}
-
-// adoptDraining puts a RUN_DRAINING placement the scheduler is not tracking
-// back under a wait. This is what makes a restart mid-rollover recoverable:
-// drainSuperseded deliberately skips anything already draining so repeated calls
-// cannot reset a deadline, which means nothing else would ever pick these up and
-// the placement would keep running, and keep its routes published, forever.
-func (s *Scheduler) adoptDraining(instanceID int32) {
-	if _, tracked := s.draining[instanceID]; tracked {
-		return
-	}
-	s.draining[instanceID] = drainWait{deadline: time.Now().Add(drainTimeout), adopted: true}
-	slog.InfoContext(s.ctx, "scheduler: adopted an untracked draining scheduled instance",
-		"scheduled_instance", instanceID)
-}
-
-// retireDrainedInstances tells draining placements to stop once the routing
-// that replaced them is in force everywhere, or once they have waited long
-// enough that a wedged node should not hold them any longer.
-func (s *Scheduler) retireDrainedInstances() {
-	if len(s.draining) == 0 {
-		return
-	}
-	now := time.Now()
-	for instanceID, wait := range s.draining {
-		inst := s.store.FetchScheduledInstance(instanceID)
-		if inst == nil || inst.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
-			delete(s.draining, instanceID)
+func (tx *transaction) promote(current *schedulingInstance, instances []schedulingInstance) error {
+	for i := range instances {
+		old := &instances[i]
+		inst := old.Event.Value
+		if inst.ID >= current.Event.Value.ID || inst.InstanceOrdinal != current.Event.Value.InstanceOrdinal || !inst.State.WantsRunning() || inst.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
 			continue
 		}
-		// An adopted wait cannot use the barrier. Acknowledgements live only in
-		// memory, so straight after a restart the barrier knows of no node and
-		// DecisionInForce is vacuously true — it cannot tell "every node applied
-		// the flip" from "no node has reported yet". Trusting it there would retire
-		// the placement instantly, which is precisely the case the barrier exists to
-		// prevent: a secondary that had not yet applied the flip still points the
-		// instance prefix at a container we just stopped. Adopted waits sit out the
-		// backstop instead, which also gives secondaries time to reconnect and report.
-		applied := s.barrier == nil || (!wait.adopted && s.barrier.DecisionInForce(wait.sequence))
-		expired := now.After(wait.deadline)
-		if !applied && !expired {
-			continue
+		if err := tx.set(old, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING); err != nil {
+			return err
 		}
-		if expired && !applied && !wait.adopted {
-			slog.WarnContext(s.ctx, fmt.Sprintf("scheduler: retiring drained instance before every node acknowledged sequence=%d waited=%v", wait.sequence, drainTimeout),
-				"scheduled_instance", instanceID)
-		}
-		delete(s.draining, instanceID)
-		s.setState(instanceID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
-		slog.InfoContext(s.ctx, fmt.Sprintf("scheduler: drained scheduled instance retired sequence=%d", wait.sequence),
-			"scheduled_instance", instanceID,
-			"dep", inst.DeploymentID)
 	}
-}
-
-func (s *Scheduler) setState(instanceID int32, state apigen.ScheduledInstanceTarget) int64 {
-	if state != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
-		delete(s.draining, instanceID)
-	}
-	return s.store.SetScheduledInstanceState(instanceID, state)
-}
-
-func (s *Scheduler) scheduledStates(deploymentID int32) []apigen.ScheduledInstanceState {
-	return s.store.FetchScheduledSnapshot(storage.ScheduledInstancePredicate(func(state apigen.ScheduledInstanceState) bool {
-		return state.Instance.DeploymentID == deploymentID
-	}))
+	return tx.set(current, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 }
 
 func terminalRunnerStatus(status apigen.RunningStatus) bool {
 	return status == apigen.RunningStatus_STOPPED || status == apigen.RunningStatus_NO_DEPLOYMENT
 }
 
-// finalize retires a placement that has stopped. Target state describes what a
-// placement should be doing, and a stopped one should be doing nothing, so this
-// is unconditional: whether anything replaced it, and whether a user still wants
-// to look at how it ended, are not questions about its schedule. The storage
-// layer retains the last incarnation of each ordinal for display.
-func (s *Scheduler) finalize(inst apigen.ScheduledInstance) {
-	s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
-	slog.InfoContext(s.ctx, "scheduler: finalized scheduled instance",
-		"scheduled_instance", inst.ID,
-		"dep", inst.DeploymentID,
-	)
-}
-
-// finalizeStopped retires every placement already sitting in TERMINATE with a
-// terminal runner status. Finalization is otherwise driven by an instance's own
-// status updates, and a stopped instance produces no more of them, so anything
-// that reached that state while the scheduler was not running — or under a build
-// that declined to retire it — would stay scheduled forever without this sweep.
-func (s *Scheduler) finalizeStopped() {
-	for _, state := range s.store.FetchScheduledSnapshot(nil) {
-		inst := state.Instance
-		if inst.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
-			continue
-		}
-		if !terminalRunnerStatus(state.Status.Runner.Status) {
-			continue
-		}
-		s.finalize(inst)
+func (tx *transaction) finalizeStopped(instance *schedulingInstance) error {
+	if instance.Event.Value.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE && terminalRunnerStatus(instance.Status.Runner.Status) {
+		return tx.set(instance, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 	}
-}
-
-func (s *Scheduler) terminateDeployment(deploymentID int32) {
-	active := s.store.ListNonFinalScheduledInstancesForDeployment(deploymentID)
-	for _, inst := range active {
-		if inst.State.WantsRunning() {
-			s.setState(inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
-			slog.InfoContext(s.ctx, "scheduler: terminate scheduled instance (desired stopped)",
-				"scheduled_instance", inst.ID,
-				"dep", deploymentID,
-			)
-		}
-	}
+	return nil
 }

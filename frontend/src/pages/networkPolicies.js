@@ -41,7 +41,7 @@ export function networkPoliciesPage() {
     const activeSpaces = () => (spacesS.val || []).filter((s) => s && !s.deleted);
     const activeDeployments = () => (deploymentsS.val || [])
         .filter((d) => d?.config && !deploymentDeleted(d.config))
-        .sort((a, b) => (a.config.def?.name || "").localeCompare(b.config.def?.name || ""));
+        .sort((a, b) => (a.config.value?.name || "").localeCompare(b.config.value?.name || ""));
 
     const sortedPolicies = () => [...(networkPoliciesS.val || [])]
         .filter((policy) => policy && !policy.deleted)
@@ -168,10 +168,10 @@ export function networkPoliciesPage() {
                     disabled: saving,
                     onchange: (e) => { idState.val = Number(e.target.value); },
                 },
-                    option({value: -1, selected: () => !activeDeployments().some((d) => Number(d.config.id) === Number(idState.val))}, "select deployment"),
+                    option({value: -1, selected: () => !activeDeployments().some((d) => Number(d.config.deploymentId) === Number(idState.val))}, "select deployment"),
                     ...activeDeployments().map((d) => option(
-                        {value: d.config.id, selected: () => Number(idState.val) === Number(d.config.id)},
-                        `${d.config.def?.name || d.config.id} (space ${d.config.def?.spaceId ?? 0})`)),
+                        {value: d.config.deploymentId, selected: () => Number(idState.val) === Number(d.config.deploymentId)},
+                        `${d.config.value?.name || d.config.deploymentId} (space ${d.config.value?.spaceId ?? 0})`)),
                 ),
         );
     };

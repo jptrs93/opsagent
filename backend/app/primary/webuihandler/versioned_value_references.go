@@ -2,11 +2,11 @@ package webuihandler
 
 import (
 	"errors"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
 	"net/http"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var InvalidReferencingDeploymentsErr = apigen.NewApiErr(
@@ -42,9 +42,9 @@ func requestedDeploymentVersions(update bool, refs []*apigen.DeploymentSpecVersi
 
 func versionedValueSetError(err error) error {
 	switch {
-	case errors.Is(err, state.ErrInvalidReferencingDeployments):
+	case errors.Is(err, values.ErrInvalidReferencingDeployments):
 		return InvalidReferencingDeploymentsErr
-	case errors.Is(err, state.ErrReferencingDeploymentsChanged):
+	case errors.Is(err, values.ErrReferencingDeploymentsChanged):
 		return ReferencingDeploymentsChangedErr
 	default:
 		return err

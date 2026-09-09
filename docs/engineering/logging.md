@@ -56,7 +56,7 @@ whole component. Long-lived identity is attached the same way with
 `logu.AddKV` so it never has to be repeated per call:
 
 ```go
-func operatorCtx(instanceID int32, cfg *apigen.Deployment) context.Context {
+func operatorCtx(instanceID int32, cfg *apigen.DeploymentEvent) context.Context {
     ctx := logu.AddTag(context.Background(), "DeploymentOperator")
     ctx = logu.AddKV(ctx, "scheduled_instance", instanceID)
     ctx = logu.AddKV(ctx, "dep", cfg.ID)
@@ -77,7 +77,7 @@ One tag per component boundary; PascalCase. Current tags:
 | `DeploymentOperator` | `lib/engine/operator.go` (`operatorCtx`) |
 | `Preparer` | `lib/engine/operator.go` (`preparerCtx`), `lib/engine/prepare` (`WriteStatus`) |
 | `Runner` | `lib/engine/runner/runner.go` (`deploymentLogContext`) |
-| `AssetStore` | `lib/engine/assetstore/reconcile.go` (`StartReconciler`) |
+| `AssetStore` | `app/primary/domain/assets/reconcile.go` (`StartReconciler`) |
 | `NetProxy` | `app/netproxy/startup.go` (`Run`) — process-wide root |
 | `DNS` | `app/netproxy/dns.go` (`RunDNS`) |
 | `Ingress` | `app/netproxy/ingress.go` (`RunTLSIngress`) |
@@ -97,13 +97,13 @@ One tag per component boundary; PascalCase. Current tags:
 | `NetmapPublisher` | `app/primary/netmappublisher` |
 | `NetmapApplier` | `app/primary/netmapapply.go` (primary's in-process map applier) |
 | `WebUI` | `app/primary/webui` |
-| `Secrets` | `lib/secrets` |
+| `Secrets` | `app/primary/domain/secrets` |
 | `Network` | `lib/network` |
 | `NetAudit` | `lib/netaudit` |
-| `AcmeIssue` | `lib/acmeissue` |
+| `AcmeIssue` | `app/primary/domain/acmeissue` |
 | `LogCollector` | `lib/log/logmanager` |
 | `Metrics` | `lib/metrics` (`Sampler.Run`), `lib/metrics/metricstore` (`Start`) |
-| `LocalInputs` | `lib/localinputs` (`Open`, tags the worker run ctx) |
+| `LocalInputs` | `app/secondary/localinputs` (`Open`, tags the worker run ctx) |
 | `Store` | storage layer fallbacks where no caller ctx exists |
 
 When adding a component, pick a new tag, create the root context in one place,

@@ -2,11 +2,11 @@
 
 ## Overview
 
-Authentication uses passkeys for normal operator login, with an opt-in username/password login for installs where a browser will not run WebAuthn (see [Password login](#password-login)). A master password can issue a short-lived token for passkey registration or password setup, including bootstrap and recovery when an operator needs to enroll a replacement authenticator. All flows produce a JWT token used for subsequent requests. What a token may *do* is decided in one place: per-user authz grants evaluated by `lib/authz` inside the handlers. Scopes remain on each route in the protobuf API contract, but only to separate a bootstrap token from a real session — they no longer carve up what a real session can reach.
+Authentication uses passkeys for normal operator login, with an opt-in username/password login for installs where a browser will not run WebAuthn (see [Password login](#password-login)). A master password can issue a short-lived token for passkey registration or password setup, including bootstrap and recovery when an operator needs to enroll a replacement authenticator. All flows produce a JWT token used for subsequent requests. What a token may *do* is decided in one place: per-user authz grants evaluated by `app/primary/domain/authz` inside the handlers. Scopes remain on each route in the protobuf API contract, but only to separate a bootstrap token from a real session — they no longer carve up what a real session can reach.
 
 Key files:
 - `backend/app/primary/webuihandler/auth.go` — master password handler, JWT verification, and `VerifyAuth`.
-- `backend/lib/authz/` — grant, rule-template, and global-rule evaluation and storage.
+- `backend/app/primary/domain/authz/` — grant, rule-template, and global-rule evaluation and storage.
 - `backend/app/primary/webuihandler/access_enforce.go` — handler-side authz checks and per-user visibility filters.
 - `backend/app/primary/webuihandler/access.go` — the `/v1/access/` CRUD surface for templates, grants, and global rules.
 - `backend/app/primary/webuihandler/agent_sessions.go` — agent session request, approve, pickup, create, list, and revoke.
@@ -148,7 +148,7 @@ Self-managed Web UI TLS without an operator-supplied bundle serves a leaf issued
 
 ## Access control
 
-Two layers gate every request, but only one of them carries policy. The **scope layer** is token-level and now answers a single question — is this a real session or a bootstrap token: each route in the `api-contract/*_service.proto` files declares an `AccessPolicy` checked by `VerifyAuth` before the handler runs. The **authz layer** is where access is actually decided, per user, entity, and space: handlers ask `lib/authz` whether this user may perform this verb on this entity in this space. Both must pass.
+Two layers gate every request, but only one of them carries policy. The **scope layer** is token-level and now answers a single question — is this a real session or a bootstrap token: each route in the `api-contract/*_service.proto` files declares an `AccessPolicy` checked by `VerifyAuth` before the handler runs. The **authz layer** is where access is actually decided, per user, entity, and space: handlers ask `app/primary/domain/authz` whether this user may perform this verb on this entity in this space. Both must pass.
 
 There is deliberately no third layer. Route-level special cases for delegated tokens (an agent token used to have `secrets_access` stripped from it) have been removed: if agents should not do something, that belongs in a rule, where an admin can see it and change it.
 
@@ -164,7 +164,7 @@ Scopes in use:
 
 `VerifyAuth` reads the route's policy from the generated mux, skips validation for `NO_AUTH`, verifies the bearer JWT's signature and expiry, checks its scopes against the policy, and populates the request context with the resolved user. Tokens carrying a `jti` (agent sessions) additionally mark the user **delegated** (`InternalUser.Delegated`, a runtime-only field never persisted) — the authz layer uses this below.
 
-### Authz layer (`backend/lib/authz`)
+### Authz layer (`backend/app/primary/domain/authz`)
 
 Access is purely additive **grants** evaluated against a `RequestedAccess{verb, space, entity type, entity id, delegated}`; everything not granted is denied. A grant carries either a direct rule or a reference to a **rule template** with bound arguments. A rule is five positions — `spaces : entity types : entity refs : permissions : delegation` — where each of the first four is a selector (wildcard, value list, or template argument, with exclusions applied first) and `delegation_allowed` controls whether the rule matches delegated (agent-token) requests. **Global rules** come in two modes, with allow as the unflagged default. Deny rules (`deny`) are checked before any grant; `delegated_only` narrows one to agents, and they can never target the `access` entity, so an admin cannot deny themselves out of repairing a bad rule. Allow rules are evaluated alongside grants, exactly as if every user held the rule as a grant — `delegation_allowed` decides whether agents receive it too — and denies still beat them, so the order is always: global denies → (grants ∪ global allows). An allow may target `access`: it only adds.
 

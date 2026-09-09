@@ -10,6 +10,9 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/pki"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
 	"io"
 	"iter"
 	"log/slog"
@@ -22,14 +25,12 @@ import (
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/engine/imageref"
-	"github.com/jptrs93/opsagent/backend/lib/issuedtls"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
-	"github.com/jptrs93/opsagent/backend/util/certu"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
@@ -38,6 +39,7 @@ var _ apigen.OpsagentClusterV1Handler = (*Handler)(nil)
 type machineCtxKey struct{}
 
 type peerCertCtxKey struct{}
+type remoteAddressCtxKey struct{}
 
 var clusterForbiddenErr = apigen.NewApiErr("Forbidden", "cluster_request_not_authorized", http.StatusForbidden)
 
@@ -56,6 +58,7 @@ func VerifyClusterPeer(ctx context.Context, _ http.ResponseWriter, r *http.Reque
 	}
 	ctx = context.WithValue(ctx, machineCtxKey{}, machine)
 	ctx = context.WithValue(ctx, peerCertCtxKey{}, peerCert)
+	ctx = context.WithValue(ctx, remoteAddressCtxKey{}, r.RemoteAddr)
 	return apigen.Context{Ctx: ctx}, nil
 }
 
@@ -88,7 +91,7 @@ func (p *Handler) requireScheduledInstancePredicate(ctx context.Context) (storag
 	if err != nil {
 		return nil, err
 	}
-	nodeID, err := p.store.NodeIDByIdentifier(machine)
+	nodeID, err := nodes.NodeIDByIdentifier(p.store.Queries(), machine)
 	if err != nil {
 		return nil, clusterForbiddenErr
 	}
@@ -106,7 +109,7 @@ type Handler struct {
 	networkPrefix     network.Prefix
 	networkMaps       networkMapProvider
 	acme              *acmestate.Holder
-	issuedTLS         *issuedtls.Issuer
+	issuedTLS         *pki.Issuer
 
 	mu          sync.RWMutex
 	sessions    map[int32]*Session  // node ID → session
@@ -126,7 +129,7 @@ type networkMapProvider interface {
 	ForgetNode(nodeID int32)
 }
 
-func New(store *state.Service, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, networkMaps networkMapProvider, acme *acmestate.Holder, issuedTLS *issuedtls.Issuer) *Handler {
+func New(store *state.Service, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, networkMaps networkMapProvider, acme *acmestate.Holder, issuedTLS *pki.Issuer) *Handler {
 	return &Handler{
 		store:             store,
 		assets:            assets,
@@ -216,7 +219,7 @@ func (p *Handler) allowedRefs(predicate storage.ScheduledInstancePredicate) clus
 
 func addIngressCertRefs(refs clusterAllowedRefs, snapshot []apigen.ScheduledInstanceState, bindings map[string]int32) {
 	for _, state := range snapshot {
-		for _, route := range state.Config.Def.Spec.Networking.Ingress {
+		for _, route := range state.Config.Value.Spec.Networking.Ingress {
 			if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || route.HttpsConfig == nil {
 				continue
 			}
@@ -248,10 +251,10 @@ func buildAllowedRefs(snapshot []apigen.ScheduledInstanceState) clusterAllowedRe
 		if state.Instance.ID != 0 {
 			refs.scheduledInstanceIDs[state.Instance.ID] = struct{}{}
 		}
-		if cfg.ID != 0 {
-			refs.deploymentIDs[cfg.ID] = struct{}{}
+		if cfg.DeploymentID != 0 {
+			refs.deploymentIDs[cfg.DeploymentID] = struct{}{}
 		}
-		container := cfg.Def.Spec.Container()
+		container := cfg.Value.Spec.Container()
 		if container != nil && container.Source.NixDockerBuild != nil {
 			refs.usesGithub = true
 		}
@@ -358,7 +361,7 @@ func (p *Handler) GetV1ClusterConfigs(authCtx apigen.Context, req *apigen.Cluste
 	if !p.allowedRefs(predicate).allConfigsAllowed(req.Ids) {
 		return nil, clusterForbiddenErr
 	}
-	values, err := p.store.ResolveConfigs(req.Ids)
+	values, err := values.ResolveConfigs(p.store.Queries(), req.Ids)
 	if err != nil {
 		return nil, err
 	}
@@ -381,10 +384,10 @@ func (p *Handler) GetV1ClusterIssuedTls(authCtx apigen.Context, req *apigen.Clus
 		return nil, err
 	}
 	for _, instance := range p.store.FetchScheduledSnapshot(predicate) {
-		if instance.Config.ID != req.DeploymentID {
+		if instance.Config.DeploymentID != req.DeploymentID {
 			continue
 		}
-		if instance.Config.Def.Spec.Container() == nil || instance.Config.Def.Spec.Container().Runtime.IssuedTlsMount == nil {
+		if instance.Config.Value.Spec.Container() == nil || instance.Config.Value.Spec.Container().Runtime.IssuedTlsMount == nil {
 			return nil, clusterForbiddenErr
 		}
 		return p.issuedTLS.Issue(&instance.Config)
@@ -400,14 +403,14 @@ func (p *Handler) GetV1ClusterRenewCertificate(authCtx apigen.Context) (*apigen.
 	if err != nil {
 		return nil, err
 	}
-	if _, err := p.store.NodeIDByIdentifier(machine); err != nil {
+	if _, err := nodes.NodeIDByIdentifier(p.store.Queries(), machine); err != nil {
 		return nil, clusterForbiddenErr
 	}
 	peerCert := peerCertFromContext(authCtx)
 	if peerCert == nil {
 		return nil, fmt.Errorf("cluster request missing peer certificate")
 	}
-	caCert, secondaryCert, notAfter, err := certu.RenewSecondaryCertificate(p.secrets, machine, peerCert.PublicKey)
+	caCert, secondaryCert, notAfter, err := pki.RenewSecondaryCertificate(p.secrets, machine, peerCert.PublicKey)
 	if err != nil {
 		return nil, err
 	}
@@ -426,7 +429,7 @@ func (p *Handler) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*a
 			yield(nil, fmt.Errorf("cluster connection missing machine identity"))
 			return
 		}
-		nodeID, err := p.store.NodeIDByIdentifier(machine)
+		nodeID, err := nodes.NodeIDByIdentifier(p.store.Queries(), machine)
 		if err != nil {
 			yield(nil, fmt.Errorf("cluster node %q is not registered", machine))
 			return
@@ -455,7 +458,7 @@ func (p *Handler) registerSession(nodeID int32, identifier string, sess *Session
 	p.sessions[nodeID] = sess
 	connectedAt := time.Now()
 	p.connectedAt[nodeID] = connectedAt
-	p.store.SetNodeStatusByIdentifier(identifier, true, connectedAt)
+	nodes.SetNodeStatusByIdentifier(p.store, identifier, true, connectedAt)
 }
 
 func (p *Handler) unregisterSession(nodeID int32, identifier string, expected *Session) {
@@ -464,7 +467,7 @@ func (p *Handler) unregisterSession(nodeID int32, identifier string, expected *S
 	if current, ok := p.sessions[nodeID]; ok && current == expected {
 		delete(p.sessions, nodeID)
 		delete(p.connectedAt, nodeID)
-		p.store.SetNodeStatusByIdentifier(identifier, false, time.Time{})
+		nodes.SetNodeStatusByIdentifier(p.store, identifier, false, time.Time{})
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"net"
 	"net/http"
 	"slices"
@@ -63,7 +64,7 @@ func (h *Handler) initPasskeyService() error {
 		}
 		// The userID was just produced by an in-flight registration session, so
 		// the user must exist. Storage failure → crash; supervisor restarts.
-		h.Store.UpdateUserMatching(userIDMatcher(userID), func(d *apigen.InternalUser) {
+		users.UpdateMatching(h.Store, userIDMatcher(userID), func(d *apigen.InternalUser) {
 			d.Credentials = append(d.Credentials, &apigen.WebAuthnCredential{
 				ID:   credential.ID,
 				Data: b,
@@ -71,9 +72,9 @@ func (h *Handler) initPasskeyService() error {
 		})
 		return nil
 	}, func(userID []byte) (*apigen.InternalUser, error) {
-		return h.Store.FetchUserMatching(userIDMatcher(userID))
+		return users.Matching(h.Store.Queries(), userIDMatcher(userID))
 	}, func(credentialID []byte) (*apigen.InternalUser, error) {
-		return h.Store.FetchUserMatching(credentialIDMatcher(credentialID))
+		return users.Matching(h.Store.Queries(), credentialIDMatcher(credentialID))
 	})
 	if err != nil {
 		return err
@@ -86,7 +87,7 @@ func (h *Handler) initPasskeyService() error {
 // hosts setting (which doubles as the ACME host list when ACME is on), or
 // localhost when none is configured.
 func (h *Handler) webUIHosts() []string {
-	hostsValue := h.ConfigService.MustLoadConfigStringValue(h.Config.HttpsWeb.AcmeHosts)
+	hostsValue := h.SystemConfig.MustLoadStringSetting(h.Config.HttpsWeb.AcmeHosts)
 	var hosts []string
 	for _, host := range stringu.ParseStringList(hostsValue) {
 		if host = strings.TrimSpace(host); host != "" {
@@ -120,10 +121,10 @@ func (h *Handler) passkeyRPID() (string, error) {
 // under each enabled scheme, with the listen port when it is not the scheme
 // default, plus the Vite dev server in HTTP-only mode and any explicit extras.
 func (h *Handler) passkeyOrigins() ([]string, error) {
-	httpEnabled := h.ConfigService.MustLoadConfigBoolValue(h.Config.HttpWeb.Enabled)
-	httpsEnabled := h.ConfigService.MustLoadConfigBoolValue(h.Config.HttpsWeb.Enabled)
-	httpPort := listenPortOrDefault(h.ConfigService.MustLoadConfigStringValue(h.Config.HttpWeb.Listen), "80")
-	httpsPort := listenPortOrDefault(h.ConfigService.MustLoadConfigStringValue(h.Config.HttpsWeb.Listen), "443")
+	httpEnabled := h.SystemConfig.MustLoadBoolSetting(h.Config.HttpWeb.Enabled)
+	httpsEnabled := h.SystemConfig.MustLoadBoolSetting(h.Config.HttpsWeb.Enabled)
+	httpPort := listenPortOrDefault(h.SystemConfig.MustLoadStringSetting(h.Config.HttpWeb.Listen), "80")
+	httpsPort := listenPortOrDefault(h.SystemConfig.MustLoadStringSetting(h.Config.HttpsWeb.Listen), "443")
 	var origins []string
 	add := func(origin string) {
 		if !slices.Contains(origins, origin) {
@@ -154,8 +155,8 @@ func (h *Handler) passkeyOrigins() ([]string, error) {
 }
 
 func (h *Handler) httpOnly() bool {
-	return h.ConfigService.MustLoadConfigBoolValue(h.Config.HttpWeb.Enabled) &&
-		!h.ConfigService.MustLoadConfigBoolValue(h.Config.HttpsWeb.Enabled)
+	return h.SystemConfig.MustLoadBoolSetting(h.Config.HttpWeb.Enabled) &&
+		!h.SystemConfig.MustLoadBoolSetting(h.Config.HttpsWeb.Enabled)
 }
 
 func originFor(scheme, host, port, defaultPort string) string {

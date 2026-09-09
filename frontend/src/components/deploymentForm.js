@@ -96,7 +96,7 @@ export function emptyDeploymentForm() {
 }
 
 export function deploymentToForm(cfg) {
-    const spec = cfg?.def?.spec || {};
+    const spec = cfg?.value?.spec || {};
     const container = spec.container1Spec || {};
     const source = container.source || {};
     const runtime = container.runtime || {};
@@ -107,10 +107,10 @@ export function deploymentToForm(cfg) {
     const devShm = devShmFormState(runtime.devShmSizeKb || 0);
     const fileDescriptorLimit = Number(runtime.fileDescriptorLimit || 0);
     return makeFormState({
-        deploymentId: cfg.id || 0,
-        name: cfg?.def?.name || '',
-        spaceId: cfg?.def?.spaceId ?? DEFAULT_SPACE_ID,
-        nodeId: cfg?.def?.nodeId || 0,
+        deploymentId: cfg.deploymentId || 0,
+        name: cfg?.value?.name || '',
+        spaceId: cfg?.value?.spaceId ?? DEFAULT_SPACE_ID,
+        nodeId: cfg?.value?.nodeId || 0,
         sourceType: source.remoteImage ? SOURCE_DOCKER_IMAGE : SOURCE_NIX_DOCKER,
         nixRepo: nixDocker.repo || '',
         nixFlake: nixDocker.flake || '',
@@ -1393,7 +1393,7 @@ export function assetMountEditorOverlay(form, target, opts = {}) {
     const onSaved = async (saved) => {
         if (opts.onSaved) await opts.onSaved(saved);
         form.assetMounts.val = (form.assetMounts.val || []).map(m => m.id === target.mountID
-            ? {...m, assetVersionId: saved.id}
+            ? {...m, assetVersionId: saved.eventId}
             : m);
         close();
     };
@@ -1463,7 +1463,7 @@ export function volumeMountsPane(form, opts = {}) {
                 },
             },
                 option({value: '', disabled: true, selected: !row.deploymentId}, deploymentOptions(row).length ? "Select deployment..." : "No deployments on this node"),
-                ...deploymentOptions(row).map(d => option({value: String(d.config.id), selected: d.config.id === row.deploymentId}, deploymentVolumeLabel(d, stateValue(opts.spaces) || []))),
+                ...deploymentOptions(row).map(d => option({value: String(d.config.deploymentId), selected: d.config.deploymentId === row.deploymentId}, deploymentVolumeLabel(d, stateValue(opts.spaces) || []))),
             )),
             field("Container mount path", input({
                 class: textInputClass(true),
@@ -1650,7 +1650,7 @@ export function envVarsPane(form, opts = {}) {
                 `${row.id}:${row.type || 'value'}:${toggles && isBooleanRow(row) ? 1 : 0}:${row.addressDeploymentId || 0}:${row.addressSpaceId || 0}:${row.asset || ''}:${row.assetVersionId || 0}:${row.version || 0}`)])]),
             secretRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
             configRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
-            `${form.nodeId.val}:${deployments().map(item => `${item.config?.id || 0}:${item.config?.def?.nodeId || 0}:${item.config?.def?.spaceId ?? 0}:${item.config?.def?.name || ''}:${item.config?.def?.spec?.networking?.mode || 0}:${deploymentDeleted(item.config) ? 1 : 0}`).join('|')}`,
+            `${form.nodeId.val}:${deployments().map(item => `${item.config?.deploymentId || 0}:${item.config?.value?.nodeId || 0}:${item.config?.value?.spaceId ?? 0}:${item.config?.value?.name || ''}:${item.config?.value?.spec?.networking?.mode || 0}:${deploymentDeleted(item.config) ? 1 : 0}`).join('|')}`,
             assets().map(asset => `${asset.id}:${asset.key}:${asset.version}`).join('|'),
             `${form.spaceId.val}:${spaces().map(space => `${space.id}:${space.name || ''}`).join('|')}`,
         ].join('::');
@@ -1863,13 +1863,13 @@ function envAddressAutocomplete(form, row, catalogs) {
         placeholder: "Search deployments",
         noMatchesLabel: "No matching deployments",
         emptyLabel: "No virtual deployments",
-        getKey: deployment => deployment.config?.id,
+        getKey: deployment => deployment.config?.deploymentId,
         getLabel: deployment => addressOptionLabel(deployment, spaces()),
         onSelect: deployment => {
-            selectedKey.val = deployment.config.id;
+            selectedKey.val = deployment.config.deploymentId;
             updateEnvRow(form, row.id, {
-                addressDeploymentId: deployment.config.id,
-                addressSpaceId: deployment.config.def?.spaceId ?? 0,
+                addressDeploymentId: deployment.config.deploymentId,
+                addressSpaceId: deployment.config.value?.spaceId ?? 0,
             });
         },
     });
@@ -1881,17 +1881,17 @@ function addressOptionsForRow(form, row, deployments, spaces) {
     const spaceId = Number(form.spaceId.val || DEFAULT_SPACE_ID);
     const all = deployments || [];
     const selectable = all.filter(item => !deploymentDeleted(item.config)
-        && Number(item.config?.id || 0) !== currentDeploymentID
-        && Number(item.config?.def?.spec?.networking?.mode || 0) === NETWORKING_MODE_VIRTUAL
-        && (Number(item.config?.def?.spaceId ?? 0) === spaceId || Number(item.config?.def?.spaceId ?? 0) === DEFAULT_SPACE_ID));
-    const selected = all.find(item => Number(item.config?.id || 0) === selectedID);
-    if (selected && selectedID !== currentDeploymentID && !selectable.some(item => Number(item.config?.id || 0) === selectedID)) selectable.push(selected);
+        && Number(item.config?.deploymentId || 0) !== currentDeploymentID
+        && Number(item.config?.value?.spec?.networking?.mode || 0) === NETWORKING_MODE_VIRTUAL
+        && (Number(item.config?.value?.spaceId ?? 0) === spaceId || Number(item.config?.value?.spaceId ?? 0) === DEFAULT_SPACE_ID));
+    const selected = all.find(item => Number(item.config?.deploymentId || 0) === selectedID);
+    if (selected && selectedID !== currentDeploymentID && !selectable.some(item => Number(item.config?.deploymentId || 0) === selectedID)) selectable.push(selected);
     return selectable.sort((a, b) => addressOptionLabel(a, spaces).localeCompare(addressOptionLabel(b, spaces)));
 }
 
 function addressOptionLabel(item, spaces) {
     const config = item?.config || {};
-    return `${spaceNameForID(spaces, config.def?.spaceId ?? 0)} / ${config.def?.name || 'deployment'} (#${config.id || 0})`;
+    return `${spaceNameForID(spaces, config.value?.spaceId ?? 0)} / ${config.value?.name || 'deployment'} (#${config.deploymentId || 0})`;
 }
 
 function versionedRefOptions(refs, selectedID, allRefs = refs) {
@@ -2067,7 +2067,7 @@ function invalidVolumeConfigReason(form, opts = {}) {
         const host = (m.kind === 'deployment' && deploymentId) ? defaultVolumeHostPath(deploymentId) : (m.host || '').trim();
         const container = (m.container || '').trim();
         if (!host && !container && !deploymentId) continue;
-        if (m.kind === 'deployment' && !deploymentOptions.some(d => d.config?.id === deploymentId)) return 'Select a deployment volume source.';
+        if (m.kind === 'deployment' && !deploymentOptions.some(d => d.config?.deploymentId === deploymentId)) return 'Select a deployment volume source.';
         if (!validAbsolutePath(host)) return 'Volume host path must be an absolute path without trailing slash or dot segments.';
         if (!validAbsolutePath(container)) return 'Volume container path must be an absolute path without trailing slash or dot segments.';
     }
@@ -2220,18 +2220,18 @@ function deploymentVolumeOptions(deployments, form, spaces, selectedID = 0) {
     const all = deployments || [];
     const options = all.filter(d => {
         const config = d.config;
-        const container = config?.def?.spec?.container1Spec;
-        return config?.id
-            && config.id !== currentID
+        const container = config?.value?.spec?.container1Spec;
+        return config?.deploymentId
+            && config.deploymentId !== currentID
             && !deploymentDeleted(config)
-            && Number(config.def?.nodeId || 0) === nodeId
-            && (Number(config.def?.spaceId ?? 0) === spaceId || Number(config.def?.spaceId ?? 0) === DEFAULT_SPACE_ID)
+            && Number(config.value?.nodeId || 0) === nodeId
+            && (Number(config.value?.spaceId ?? 0) === spaceId || Number(config.value?.spaceId ?? 0) === DEFAULT_SPACE_ID)
             && container
             && !container.runtime?.defaultVolume?.disabled;
     });
     const sel = Number(selectedID || 0);
-    if (sel && sel !== currentID && !options.some(d => Number(d.config?.id || 0) === sel)) {
-        const selected = all.find(d => Number(d.config?.id || 0) === sel);
+    if (sel && sel !== currentID && !options.some(d => Number(d.config?.deploymentId || 0) === sel)) {
+        const selected = all.find(d => Number(d.config?.deploymentId || 0) === sel);
         if (selected) options.push(selected);
     }
     return options.sort((a, b) => deploymentVolumeLabel(a, spaces).localeCompare(deploymentVolumeLabel(b, spaces)));
@@ -2245,8 +2245,8 @@ function optionDeployments(opts) {
 
 function deploymentVolumeLabel(deployment, spaces) {
     const config = deployment.config || {};
-    const space = spaceName(config.def?.spaceId, spaces);
-    return `${config.def?.name || `deployment ${config.id}`} (${space})`;
+    const space = spaceName(config.value?.spaceId, spaces);
+    return `${config.value?.name || `deployment ${config.deploymentId}`} (${space})`;
 }
 
 function spaceName(id, spaces) {
@@ -2540,12 +2540,12 @@ function deploymentNameTaken(form, deployments) {
     if (!name) return false;
     return deployments.some(deployment => {
         const config = deployment?.config || deployment?.currentConfig || deployment;
-        const candidateId = Number(config?.id || deployment?.id || 0);
+        const candidateId = Number(config?.deploymentId || deployment?.id || 0);
         if (deploymentId && candidateId === deploymentId) return false;
-        const def = config?.def;
+        const value = config?.value;
         return !deploymentDeleted(config)
-            && def?.name === name
-            && Number(def?.spaceId) === spaceId
-            && Number(def?.nodeId) === nodeId;
+            && value?.name === name
+            && Number(value?.spaceId) === spaceId
+            && Number(value?.nodeId) === nodeId;
     });
 }

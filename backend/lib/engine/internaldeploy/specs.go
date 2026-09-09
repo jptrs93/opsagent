@@ -10,12 +10,12 @@ const (
 	netproxyFileDescriptorLimit = 65_536
 )
 
-func IsSelfConfig(cfg *apigen.Deployment) bool {
-	return cfg != nil && IsSelfIdentity(cfg.Def.SpaceID, cfg.Def.Name)
+func IsSelfConfig(cfg *apigen.DeploymentEvent) bool {
+	return cfg != nil && IsSelfIdentity(cfg.Value.SpaceID, cfg.Value.Name)
 }
 
-func IsInternalConfig(cfg *apigen.Deployment) bool {
-	return cfg != nil && IsInternalIdentity(cfg.Def.SpaceID, cfg.Def.Name)
+func IsInternalConfig(cfg *apigen.DeploymentEvent) bool {
+	return cfg != nil && IsInternalIdentity(cfg.Value.SpaceID, cfg.Value.Name)
 }
 
 // SelfSpec is the desired spec of the per-node opendeploy system deployment.

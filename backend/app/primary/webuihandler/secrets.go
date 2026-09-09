@@ -3,13 +3,16 @@ package webuihandler
 import (
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"net/http"
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var SecretNameRequiredErr = apigen.NewApiErr("Secret name is required", "secret_name_required", http.StatusBadRequest)
@@ -35,21 +38,24 @@ func mapSecretErr(err error) error {
 		return SecretsLockedErr
 	case errors.Is(err, secrets.ErrReservedName):
 		return SecretReservedNameErr
-	case errors.Is(err, secrets.ErrNotFound), errors.Is(err, state.ErrValueNotFound):
+	case errors.Is(err, secrets.ErrNotFound), errors.Is(err, values.ErrNotFound):
 		return SecretNotFoundErr
-	case errors.Is(err, state.ErrValueAlreadyExists):
+	case errors.Is(err, values.ErrAlreadyExists):
 		return SecretAlreadyExistsErr
-	case errors.Is(err, state.ErrValueNameInvalid):
+	case errors.Is(err, values.ErrNameInvalid):
 		return SecretNameInvalidErr
-	case errors.Is(err, state.ErrValueDirectoryNotFound):
+	case errors.Is(err, values.ErrDirectoryNotFound):
 		return ValueDirectoryNotFoundErr
-	case errors.Is(err, state.ErrSpaceMoveUnsupported):
+	case errors.Is(err, values.ErrSpaceMoveUnsupported):
 		return ValueSpaceMoveUnsupportedErr
 	}
 	return err
 }
 
 func (h *Handler) secretsStatus() apigen.SecretsStatusResponse {
+	if h.Secrets == nil {
+		return apigen.SecretsStatusResponse{}
+	}
 	unlocked, recoveryConfigured := h.Secrets.Status()
 	return apigen.SecretsStatusResponse{
 		Unlocked:           unlocked,
@@ -57,22 +63,16 @@ func (h *Handler) secretsStatus() apigen.SecretsStatusResponse {
 	}
 }
 
-func (h *Handler) notifySecretMeta(secretID int32) {
-	if sec, ok := h.Store.GetSecret(secretID); ok {
-		h.Store.NotifySecretUpdate(sec)
-	}
-}
-
-func (h *Handler) PostV1SecretsList(ctx apigen.Context) (*apigen.SecretList, error) {
-	return &apigen.SecretList{Items: h.filterSecrets(ctx, h.Store.ListSecrets())}, nil
+func (h *Handler) PostV1SecretsList(ctx apigen.Context) (*apigen.SecretEventList, error) {
+	return &apigen.SecretEventList{Items: h.filterSecrets(ctx, secrets.List(h.Store.Queries()))}, nil
 }
 
 // secretForVersionID resolves the identity that owns a version row. Reveal
 // addresses version rows, but access is granted on the identity.
-func (h *Handler) secretForVersionID(versionID int32) *apigen.Secret {
-	for _, sec := range h.Store.ListSecrets() {
-		for _, v := range sec.Versions {
-			if v != nil && v.ID == versionID {
+func (h *Handler) secretForVersionID(versionID int32) *apigen.SecretEvent {
+	for _, sec := range secrets.List(h.Store.Queries()) {
+		for _, id := range secrets.VersionIDs(h.Store.Queries(), sec.SecretID) {
+			if id == versionID {
 				return sec
 			}
 		}
@@ -80,7 +80,7 @@ func (h *Handler) secretForVersionID(versionID int32) *apigen.Secret {
 	return nil
 }
 
-func (h *Handler) PostV1SecretsCreate(ctx apigen.Context, req *apigen.SecretCreateRequest) (*apigen.Secret, error) {
+func (h *Handler) PostV1SecretsCreate(ctx apigen.Context, req *apigen.SecretCreateRequest) (*apigen.SecretEvent, error) {
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, SecretNameRequiredErr
 	}
@@ -96,37 +96,34 @@ func (h *Handler) PostV1SecretsCreate(ctx apigen.Context, req *apigen.SecretCrea
 	if err != nil {
 		return nil, mapSecretErr(err)
 	}
-	h.notifySecretMeta(meta.SecretID)
-	proto, ok := h.Store.GetSecret(meta.SecretID)
+
+	proto, ok := secrets.GetEvent(h.Store.Queries(), meta.SecretID, int64(meta.ID))
 	if !ok {
 		return nil, SecretNotFoundErr
 	}
 	return proto, nil
 }
 
-func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequest) (*apigen.Secret, error) {
+func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequest) (*apigen.SecretEvent, error) {
 	if req.SecretID == 0 {
 		return nil, SecretIDRequiredErr
 	}
-	if existing, ok := h.Store.GetSecret(req.SecretID); !ok {
+	if existing, ok := secrets.Get(h.Store.Queries(), req.SecretID); !ok {
 		return nil, SecretNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vUpdate, eSecret, int64(existing.SpaceID()), int64(existing.ID), SecretNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eSecret, int64(existing.SpaceID()), int64(existing.SecretID), SecretNotFoundErr); err != nil {
 		return nil, err
 	}
 	expected, err := requestedDeploymentVersions(req.UpdateReferencingDeployments, req.ReferencingDeployments)
 	if err != nil {
 		return nil, err
 	}
-	defer h.Store.GlobalLock()()
-	meta, err := h.Secrets.SetWithDeploymentUpdatesLocked(
+	meta, err := h.Secrets.SetWithDeploymentUpdates(
 		req.SecretID,
 		req.Value,
 		requestUserID(ctx),
 		req.UpdateReferencingDeployments,
 		expected,
-		func(committed secrets.Meta) {
-			h.notifySecretMeta(committed.SecretID)
-		},
+		nil,
 	)
 	if err != nil {
 		mapped := mapSecretErr(err)
@@ -135,7 +132,7 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 		}
 		return nil, versionedValueSetError(err)
 	}
-	proto, ok := h.Store.GetSecret(meta.SecretID)
+	proto, ok := secrets.GetEvent(h.Store.Queries(), meta.SecretID, int64(meta.ID))
 	if !ok {
 		return nil, SecretNotFoundErr
 	}
@@ -147,7 +144,7 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 // is what makes secret:create a safe verb to delegate — an agent holding it can
 // mint a credential and reference it from deployment env without ever being
 // able to read one back.
-func (h *Handler) PostV1SecretsGenerate(ctx apigen.Context, req *apigen.SecretGenerateRequest) (*apigen.Secret, error) {
+func (h *Handler) PostV1SecretsGenerate(ctx apigen.Context, req *apigen.SecretGenerateRequest) (*apigen.SecretEvent, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, SecretNameRequiredErr
@@ -160,7 +157,7 @@ func (h *Handler) PostV1SecretsGenerate(ctx apigen.Context, req *apigen.SecretGe
 	// value that neither of them can read back. Rotation stays a browser action.
 	// The storage create enforces the namespace law; this early check just maps
 	// the common case to a clearer error before generating a value.
-	if _, exists := h.Store.GetSecretInRootByName(req.SpaceID, name); exists {
+	if _, exists := secrets.IDByName(h.Store.Queries(), req.SpaceID, name); exists {
 		return nil, SecretAlreadyExistsErr
 	}
 	value, err := generateSecretValue(req)
@@ -173,8 +170,8 @@ func (h *Handler) PostV1SecretsGenerate(ctx apigen.Context, req *apigen.SecretGe
 	if err != nil {
 		return nil, mapSecretErr(err)
 	}
-	h.notifySecretMeta(meta.SecretID)
-	proto, ok := h.Store.GetSecret(meta.SecretID)
+
+	proto, ok := secrets.GetEvent(h.Store.Queries(), meta.SecretID, int64(meta.ID))
 	if !ok {
 		return nil, SecretNotFoundErr
 	}
@@ -201,26 +198,26 @@ func generateSecretValue(req *apigen.SecretGenerateRequest) ([]byte, error) {
 	}
 }
 
-func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRenameRequest) (*apigen.Secret, error) {
+func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRenameRequest) (*apigen.SecretEvent, error) {
 	if req.SecretID == 0 {
 		return nil, SecretIDRequiredErr
 	}
 	if strings.TrimSpace(req.NewName) == "" {
 		return nil, SecretNameRequiredErr
 	}
-	if existing, ok := h.Store.GetSecret(req.SecretID); !ok {
+	if existing, ok := secrets.Get(h.Store.Queries(), req.SecretID); !ok {
 		return nil, SecretNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vUpdate, eSecret, int64(existing.SpaceID()), int64(existing.ID), SecretNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eSecret, int64(existing.SpaceID()), int64(existing.SecretID), SecretNotFoundErr); err != nil {
 		return nil, err
 	}
 	if err := h.Secrets.Rename(req.SecretID, req.NewName); err != nil {
 		return nil, mapSecretErr(err)
 	}
-	proto, ok := h.Store.GetSecret(req.SecretID)
+	proto, ok := secrets.Get(h.Store.Queries(), req.SecretID)
 	if !ok {
 		return nil, SecretNotFoundErr
 	}
-	h.Store.NotifySecretUpdate(proto)
+
 	return proto, nil
 }
 
@@ -233,18 +230,18 @@ func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRena
 // settings reference pins the value to the global space. Reserved opendeploy
 // secrets stay put: install/restore flows find them by name in the space
 // root, so moving one would strand it.
-func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRequest) (*apigen.Secret, error) {
+func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRequest) (*apigen.SecretEvent, error) {
 	if req.SecretID == 0 {
 		return nil, SecretIDRequiredErr
 	}
-	sec, ok := h.Store.GetSecret(req.SecretID)
+	sec, ok := secrets.Get(h.Store.Queries(), req.SecretID)
 	if !ok {
 		return nil, SecretNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vUpdate, eSecret, int64(sec.SpaceID()), int64(sec.ID), SecretNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eSecret, int64(sec.SpaceID()), int64(sec.SecretID), SecretNotFoundErr); err != nil {
 		return nil, err
 	}
-	destSpace := state.NormalizedUserSpaceID(req.SpaceID)
+	destSpace := nodes.NormalizedUserSpaceID(req.SpaceID)
 	spaceChanging := req.SpaceID != 0 && destSpace != sec.SpaceID()
 	// Moving into another space also needs the right to create a secret there.
 	if spaceChanging {
@@ -252,41 +249,43 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 			return nil, err
 		}
 	}
-	if isReservedSecretMetaName(sec.Fs.Name) {
+	if isReservedSecretMetaName(sec.Value.Fs.Name) {
 		return nil, SecretReservedNameErr
 	}
 	if spaceChanging {
-		// Deployment writes hold the same lock, so no new reference can appear
-		// between the locality check and the move.
-		defer h.Store.GlobalLock()()
-		ids := int32Set(h.Store.SecretVersionIDs(req.SecretID))
-		if h.settingsUseSecretID(ids) && destSpace != state.DefaultSpaceID {
-			return nil, MoveReferencesOutsideSpaceErr
+		validate := func(q *pq.Queries) error {
+			if destSpace == nodes.DefaultSpaceID {
+				return nil
+			}
+			ids := deployments.Int32Set(secrets.VersionIDs(h.Store.Queries(), req.SecretID))
+			if h.settingsUseSecretID(ids) {
+				return deployments.MoveReferencesOutsideSpaceErr
+			}
+			live, err := nodes.ReadLiveState(ctx, q)
+			if err != nil {
+				return err
+			}
+			if deployments.ReferencesOutsideSpace(live, ids, runtimeinputs.SecretRefs, destSpace) {
+				return deployments.MoveReferencesOutsideSpaceErr
+			}
+			return nil
 		}
-		// A global secret is referenceable from every space (see
-		// validateSecretRefSpaces), so no deployment pin can veto a move to
-		// the global space.
-		if destSpace != state.DefaultSpaceID && referencesOutsideSpace(h.Store.LiveState(), ids, runtimeinputs.SecretRefs, destSpace) {
-			return nil, MoveReferencesOutsideSpaceErr
-		}
-		// Through the Manager, not the store: cached version records denormalize
-		// the space, and reveal/edit authz reads it.
-		if err := h.Secrets.MoveSpaceLocked(req.SecretID, req.SpaceID, req.ValueDirectoryID, ctx.AttributionUserID()); err != nil {
+		if err := h.Secrets.MoveSpace(req.SecretID, req.SpaceID, req.ValueDirectoryID, ctx.AttributionUserID(), validate); err != nil {
 			return nil, mapSecretErr(err)
 		}
 		// Clients that saw the old space but cannot see the new one would
 		// otherwise keep a stale row forever — updates a user cannot view are
 		// dropped, and nothing else says "gone". The tombstone speaks to them;
 		// the update below re-adds the row for everyone who sees the destination.
-		h.Store.NotifySecretDeleted(sec)
-	} else if _, err := h.Store.MoveSecretDirectory(req.SecretID, req.ValueDirectoryID); err != nil {
+
+	} else if err := secrets.MoveDirectory(h.Store, req.SecretID, req.ValueDirectoryID); err != nil {
 		return nil, mapSecretErr(err)
 	}
-	proto, ok := h.Store.GetSecret(req.SecretID)
+	proto, ok := secrets.Get(h.Store.Queries(), req.SecretID)
 	if !ok {
 		return nil, SecretNotFoundErr
 	}
-	h.Store.NotifySecretUpdate(proto)
+
 	return proto, nil
 }
 
@@ -298,7 +297,7 @@ func (h *Handler) PostV1SecretsReveal(ctx apigen.Context, req *apigen.SecretReve
 	if sec == nil {
 		return nil, SecretNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vReveal, eSecret, int64(sec.SpaceID()), int64(sec.ID), SecretNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vReveal, eSecret, int64(sec.SpaceID()), int64(sec.SecretID), SecretNotFoundErr); err != nil {
 		return nil, err
 	}
 	value, err := h.Secrets.RevealByID(req.ID)
@@ -312,26 +311,32 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 	if req.SecretID == 0 {
 		return SecretIDRequiredErr
 	}
-	sec, ok := h.Store.GetSecret(req.SecretID)
+	sec, ok := secrets.Get(h.Store.Queries(), req.SecretID)
 	if !ok {
 		return SecretNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vDelete, eSecret, int64(sec.SpaceID()), int64(sec.ID), SecretNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vDelete, eSecret, int64(sec.SpaceID()), int64(sec.SecretID), SecretNotFoundErr); err != nil {
 		return err
 	}
-	if isReservedSecretMetaName(sec.Fs.Name) {
+	if isReservedSecretMetaName(sec.Value.Fs.Name) {
 		return SecretReservedNameErr
 	}
-	defer h.Store.GlobalLock()()
-	ids := int32Set(h.Store.SecretVersionIDs(req.SecretID))
-	details := append(h.settingsSecretRefDetails(ids), deploymentRefDetails(h.Store, h.Store.LiveState(), ids, runtimeinputs.SecretRefs)...)
-	if len(details) > 0 {
-		return referenceInUseDetailErr("Secret", details)
+	validate := func(q *pq.Queries) error {
+		ids := deployments.Int32Set(secrets.VersionIDs(h.Store.Queries(), req.SecretID))
+		live, err := nodes.ReadLiveState(ctx, q)
+		if err != nil {
+			return err
+		}
+		details := append(h.settingsSecretRefDetails(ids), deployments.RefDetails(ctx, q, live, ids, runtimeinputs.SecretRefs)...)
+		if len(details) > 0 {
+			return deployments.ReferenceInUseDetailErr("Secret", details)
+		}
+		return nil
 	}
-	if err := h.Secrets.DeleteLocked(req.SecretID); err != nil {
+	if err := h.Secrets.Delete(req.SecretID, validate); err != nil {
 		return mapSecretErr(err)
 	}
-	h.Store.NotifySecretDeleted(sec)
+
 	return nil
 }
 
@@ -361,7 +366,7 @@ func (h *Handler) PostV1SecretsRotateRecoveryCode(ctx apigen.Context) (*apigen.S
 		return nil, mapSecretErr(err)
 	}
 	status := h.secretsStatus()
-	h.Store.NotifySecretsStatusUpdate(status)
+	h.secretsUpdates.Notify(status)
 	return &apigen.SecretRecoveryCodeResponse{Code: code}, nil
 }
 
@@ -380,6 +385,6 @@ func (h *Handler) PostV1SecretsUnlock(ctx apigen.Context, req *apigen.SecretUnlo
 		}
 	}
 	status := h.secretsStatus()
-	h.Store.NotifySecretsStatusUpdate(status)
+	h.secretsUpdates.Notify(status)
 	return &status, nil
 }

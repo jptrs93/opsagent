@@ -53,17 +53,17 @@ export function recentlyDeletedOverlay(onFork, onClose) {
     const row = (config) => tr(
         {
             class: "border-b border-gray-800 last:border-0",
-            "data-testid": `recently-deleted-row-${config.id}`,
+            "data-testid": `recently-deleted-row-${config.deploymentId}`,
         },
         td({class: "px-3 py-2 text-gray-200"},
-            div(config.def?.name || `#${config.id}`),
+            div(config.value?.name || `#${config.deploymentId}`),
             () => {
                 const source = sourceLabel(config);
                 return source ? div({class: "text-xs text-gray-500 truncate"}, source) : '';
             },
         ),
-        td({class: "px-3 py-2 text-gray-400"}, spaceName(config.def?.spaceId)),
-        td({class: "px-3 py-2 text-gray-400"}, nodeDisplayName(config.def?.nodeId, machinesS.val) || '—'),
+        td({class: "px-3 py-2 text-gray-400"}, spaceName(config.value?.spaceId)),
+        td({class: "px-3 py-2 text-gray-400"}, nodeDisplayName(config.value?.nodeId, machinesS.val) || '—'),
         td({class: "px-3 py-2 text-gray-400 whitespace-nowrap"}, formatHistoryTime(config.eventTime) || '—'),
         td({class: "px-3 py-2 text-gray-400"}, resolveUserDisplayName(config.author) || '—'),
         td({class: "px-3 py-2 text-right"},

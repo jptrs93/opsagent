@@ -1,6 +1,7 @@
 package webuihandler
 
 import (
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
 	"sort"
 	"time"
 
@@ -13,14 +14,20 @@ func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.Deplo
 	}
 	cfg := h.findConfigByID(req.DeploymentID)
 	if cfg == nil {
-		return nil, DeploymentNotFoundErr
+		return nil, deployments.NotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID), deployments.NotFoundErr); err != nil {
 		return nil, err
 	}
 
-	configs := h.Store.MustFetchDeploymentHistory(ctx, req.DeploymentID)
-	statuses := h.Store.MustFetchDeploymentStatusHistory(req.DeploymentID)
+	configs, err := h.Queries.ListDeploymentEvents(ctx, int64(req.DeploymentID))
+	if err != nil {
+		return nil, err
+	}
+	statuses, err := h.Queries.ListScheduledInstanceStatusHistoryForDeployment(ctx, req.DeploymentID)
+	if err != nil {
+		return nil, err
+	}
 
 	entries := make([]*apigen.DeploymentHistoryEntry, 0, len(configs)+len(statuses))
 	for _, c := range configs {

@@ -4,6 +4,10 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/pki"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"net"
 	"net/http"
 	"strconv"
@@ -11,10 +15,9 @@ import (
 
 	"github.com/jptrs93/goutil/ptru"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/assets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
@@ -22,14 +25,13 @@ func (h *Handler) PostV1ClusterSettingsGet(ctx apigen.Context) (*apigen.ClusterS
 	if err := h.requireAccess(ctx, vView, eCluster, 0, 0); err != nil {
 		return nil, err
 	}
-	return ptru.To(h.ConfigService.Snapshot().Settings), nil
+	return ptru.To(h.SystemConfig.Snapshot().Settings), nil
 }
 
 func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.ClusterSettings) (*apigen.ClusterSettings, error) {
 	if err := h.requireAccess(ctx, vUpdate, eCluster, 0, 0); err != nil {
 		return nil, err
 	}
-	defer h.ConfigService.LockForUpdate()()
 	stored, resolved, err := validateSettings(req, func(ref *apigen.ConfigRef) (string, bool, error) {
 		if ref == nil {
 			return "", false, nil
@@ -37,7 +39,7 @@ func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.Cl
 		if ref.VersionID == 0 {
 			return "", false, nil
 		}
-		cfg, ok := h.Store.GetConfigVersionByID(ref.VersionID)
+		cfg, ok := values.GetConfigVersion(h.Store.Queries(), ref.VersionID)
 		if !ok {
 			return "", false, nil
 		}
@@ -62,18 +64,25 @@ func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.Cl
 		}
 		return nil, apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
 	}
-	if err := h.validateIngressAgainstSettings(resolved); err != nil {
-		return nil, apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
+	validate := func(q *pq.Queries) error {
+		if err := deployments.ValidateIngressAgainstSettings(ctx, q, h.NodeID, resolved); err != nil {
+			return apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
+		}
+		return nil
 	}
-	if err := h.ConfigService.UpdateSettingsLocked(*stored); err != nil {
-		if errors.Is(err, state.ErrAssetMigrationInProgress) {
+	if err := h.SystemConfig.UpdateSettings(*stored, validate); err != nil {
+		var apiErr *apigen.ApiErr
+		if errors.As(err, &apiErr) {
+			return nil, err
+		}
+		if errors.Is(err, systemconfig.ErrAssetMigrationInProgress) {
 			return nil, apigen.NewApiErr(
 				"Wait for the current large asset migration to finish before changing settings",
 				"asset_migration_in_progress",
 				http.StatusConflict,
 			)
 		}
-		if errors.Is(err, assetstore.ErrAssetS3ConfigChangeRequiresLocal) {
+		if errors.Is(err, assets.ErrAssetS3ConfigChangeRequiresLocal) {
 			return nil, apigen.NewApiErr(
 				"Disable Backup and wait for large assets to migrate locally before changing the large asset S3 configuration",
 				"settings_invalid",
@@ -89,7 +98,7 @@ func validateSettings(req *apigen.ClusterSettings, resolveRef func(*apigen.Confi
 	if req == nil {
 		return nil, nil, fmt.Errorf("settings are required")
 	}
-	stored := config.NormalizeSettings(*req)
+	stored := systemconfig.NormalizeSettings(*req)
 	resolved := *req
 	resolved = stored
 	if err := resolveStringInPlace(&stored.HttpsWeb.Listen, &resolved.HttpsWeb.Listen, "https_web.listen", resolveRef); err != nil {
@@ -252,7 +261,7 @@ func (h *Handler) validateWebTLSCert(settings *apigen.ClusterSettings) error {
 		return nil
 	}
 	if id == 0 {
-		_, _, err := certu.EnsureWebUILocalTLS(h.Secrets, certu.WebUITLSNames(settings.HttpsWeb.AcmeHosts.Value, settings.HttpsWeb.Listen.Value))
+		_, _, err := pki.EnsureWebUILocalTLS(h.Secrets, certu.WebUITLSNames(settings.HttpsWeb.AcmeHosts.Value, settings.HttpsWeb.Listen.Value))
 		return err
 	}
 	bundle, err := h.Secrets.RevealByID(id)

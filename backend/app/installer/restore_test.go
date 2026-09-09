@@ -1,24 +1,25 @@
 package installer
 
 import (
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"path/filepath"
 	"testing"
 
-	"github.com/jptrs93/opsagent/backend/lib/config"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/stringu"
 )
 
-func TestApplyRestoredPrimaryConfigOverrides(t *testing.T) {
+func TestApplyRestoredSystemConfigOverrides(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := state.Open(dbPath)
-	service, err := config.InitializeService(store, *config.DefaultConfig(config.DefaultInitialConfig()))
+	service, err := systemconfig.InitializeService(store, *systemconfig.Default(systemconfig.DefaultInitial()))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
-	settings := config.DefaultSettings(config.DefaultInitialConfig())
+	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
 	settings.HttpWeb.Listen.Value = "10.0.0.1:443"
-	if updateErr := service.UpdateSettings(*settings); updateErr != nil {
+	if updateErr := service.UpdateSettings(*settings, nil); updateErr != nil {
 		t.Fatalf("seed web listen: %v", updateErr)
 	}
 	if closeErr := store.Close(); closeErr != nil {
@@ -30,7 +31,7 @@ func TestApplyRestoredPrimaryConfigOverrides(t *testing.T) {
 	clusterListen := ":9443"
 	enrollmentListen := ":9444"
 	acmeHostList := "new.example.com"
-	err = applyRestoredPrimaryConfigOverrides(dbPath, installOptions{
+	err = applyRestoredSystemConfigOverrides(dbPath, installOptions{
 		httpOnly:         &httpOnly,
 		webListen:        &webListen,
 		clusterListen:    &clusterListen,
@@ -43,7 +44,7 @@ func TestApplyRestoredPrimaryConfigOverrides(t *testing.T) {
 
 	store = state.Open(dbPath)
 	defer store.Close()
-	service, err = config.NewService(store)
+	service, err = systemconfig.NewService(store)
 	if err != nil {
 		t.Fatalf("NewService reopen: %v", err)
 	}
@@ -71,7 +72,7 @@ func TestApplyRestoredPrimaryConfigOverrides(t *testing.T) {
 func TestInvalidateRestoredPrimaryRuntimeState(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := state.Open(dbPath)
-	store.EnsurePrimaryNode("primary", "primary-id")
+	nodes.EnsurePrimaryNode(store, "primary", "primary-id")
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -18,30 +18,48 @@ enum NodeLifecycleStatus {
   NODE_MEMBER_EVICTED = 8;
 }
 
-message ClusterNode {
-  int32 id = 1;
-  string name = 3;
-  string identifier = 4;
-  repeated int32 roles = 5;
-  string wg_public_key = 6;
-  repeated string addresses = 7;
-  int64 enrolled_at = 8 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  NodeLifecycleStatus status = 10;
-  // Spaces whose deployments may be placed on this node. The opendeploy space
-  // is always present: it is unioned in on every read and write, so the list
-  // cannot exclude it however it was written. A node starts out allowing every
-  // space that exists, and creating a space opens it on every node, so the
-  // policy binds only where an operator has deliberately narrowed it.
-  repeated int32 allowed_spaces = 9;
+message NodeReported {
+  string identifier = 1;
+  string underlay_address = 2;
+  string wg_public_key = 3;
+  repeated string host_addresses = 4;
+  // A failed inventory leaves the primary's last known addresses unchanged.
+  bool host_addresses_unknown = 5;
 }
 
-message ClusterNodeStatus {
-  int32 id = 1;
-  int32 node_id = 2;
-  int64 last_connected_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  bool is_connected = 4;
-  // Host addresses the node last reported (see ClusterHello.host_addresses).
-  repeated string host_addresses = 5;
+message NodeOperator {
+  string name = 1;
+  repeated int32 roles = 2;
+  repeated int32 allowed_spaces = 3;
+  int64 enrolled_time = 4;
+}
+
+message Node {
+  NodeLifecycleStatus status = 1;
+  int64 enrollment_requested_at = 2;
+  NodeOperator operator = 3 [(cp.go_value) = true];
+  NodeReported reported = 4 [(cp.go_value) = true];
+}
+
+message NodeEvent {
+  int32 node_id = 1;
+  int32 version = 2;
+  int64 seq = 3;
+  int64 event_id = 4;
+  int32 author = 5;
+  EventType event_type = 6;
+  int64 created_time = 7;
+  int64 event_time = 8;
+  Node value = 9 [(cp.go_value) = true];
+}
+
+message NodeStatus {
+  int32 node_id = 1;
+  google.protobuf.Timestamp updated_at = 2;
+  bool is_connected = 3;
+  int64 last_connected_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string remote_address = 5;
+  string opendeploy_version = 6;
 }
 
 message EnrollmentRequestStatus {

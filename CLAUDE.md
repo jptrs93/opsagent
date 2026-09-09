@@ -11,6 +11,22 @@ frontend/            VanJS + Vite SPA.
 docs/                Project documentation.
 ```
 
+Backend import tiers, top to bottom (a package only imports packages below it):
+
+```
+app/primary                      wiring (run.go, runtime.go)
+app/primary/{webuihandler,clusterhandler,enrollmenthandler,scheduler,netmappublisher}
+app/primary/domain/{deployments,scheduledinstances,nodes,networkpolicies,assets,secrets,values,authz,users,agentsessions,systemconfig,pki,acmeissue}
+                                 primary domain logic: functions over *state.Service / *pq.Queries
+storage/primarydb/{state,pq}
+                                 state = Commit, write mutex, update triggers, pubsub, snapshot; pq = SQL only
+storage, storage/secondarydb/*, storage/sqlitedb, storage/logdb
+lib/*                            shared by primary and secondary; never imports app/* or a concrete store
+apigen, util, ainit
+```
+
+`app/secondary` imports only `lib/*`, `storage`, and `storage/secondarydb/*`.
+
 ## Documentation index
 
 - [docs/documentation.md](docs/documentation.md) — Documentation design and organisation.
@@ -34,6 +50,7 @@ docs/                Project documentation.
 - [docs/future-work/network-policy-e2e-coverage.md](docs/future-work/network-policy-e2e-coverage.md) — E2E coverage of the network policy boundary: the staged probe oracle, same-node semantics, cross-node and primary-node enforcement, kernel checks (spoofing, IPv4 close, drop counters, netaudit), and subsystem interactions.
 - [docs/future-work/udp-reply-source-address.md](docs/future-work/udp-reply-source-address.md) — Wildcard-bound UDP servers reply from the run-scoped outbound address `O` instead of the stable inbound address `I`, so connected clients discard the reply: current addressing behaviour, scope, the adopted workload-side fix (bind `I` explicitly), and the undecided platform-side options.
 - [docs/future-work/deployments-editor-tabs-implementation-plan.md](docs/future-work/deployments-editor-tabs-implementation-plan.md) — Deployments page tabs and editor footer: what is integrated (tabbed page, layered human-triggered source validation, footer version picker, Code default and palette, flat HCL identity, stopped version retarget, create defaults), how it was verified, what is still open (backend target check, stopped retarget e2e, form width, tab overflow), and commit slicing.
+- [docs/future-work/global-state-stream-implementation-plan.md](docs/future-work/global-state-stream-implementation-plan.md) — Primary → browser state stream implementation: event envelopes and snapshot/reducer retention, one global seq per commit with authored events and observed statuses in one `CoreUpdate` (observed values still merged by nanosecond clocks), independently owned sidecars, per-event visibility and targeted reset, overflow recovery, and the operator/reported node split. Every writer uses lock-owning `Commit(ctx, inlockValidate, mutate)`: the `pq.Validator` and mutate callbacks run on the transaction-bound `Queries`, own every read and write, and return a `*CoreUpdate` (`state.Update`); there are no `*Locked` variants and no `GlobalLock`. Registered `UpdateTrigger`s (the scheduler registers one) extend the update inside the same transaction; the store saves the sequence for any commit with content, commits, then publishes one `CoreUpdate` stream. `state.Service` holds no domain logic: deployments, nodes, enrollment, spaces, scheduled instances, assets, secrets, configs, authz and cluster config live in `app/primary/domain/<name>` packages as functions over the store, and handlers read through `pq.Queries` directly. The store holds no in-memory state and `pq` has no caches; the scheduled-instance view is the joined instance/config/status query, and every subscription is `state.Subscribe(store, read, project)`: `read` runs under the write lock and returns the snapshot, `project(update) (T, bool)` runs post-commit under the same lock and returns what to send (callers capture `store.Queries()` themselves), and a subscriber whose channel is full is closed and dropped so the consumer resubscribes. The scheduled-instance feed delivers one `[]ScheduledInstanceState` batch per commit. Primary SQLite transactions reserve the writer before reading; sidecars retain independent locks. Startup recovery is synchronous, ack/timer ticks reconcile persisted drain decisions, and rendering stays outside transactions. `*AtSeq` queries remain solely as a test oracle. Grant tombstones retain their subjects, so visibility resets derive from events without routing metadata. All authored and observed history is retained.
 - [docs/future-work/netstate-split-implementation-plan.md](docs/future-work/netstate-split-implementation-plan.md) — Deferred netstate.pb split (NetConfig + liveness overlay) and the shipped fused-artifact patch: diff-gated writes, complete DNS catalog with authoritative empty answers, wall-clock seq floor.
 - [docs/future-work/ingress-listen-implementation-plan.md](docs/future-work/ingress-listen-implementation-plan.md) — Ingress `listen` selectors (node × address algebra) replacing the primary-node `:443` reservation: host address inventory, the `lib/ingressplan` evaluator with reserved claims and collision rules, per-node `ingress_publish` in the cluster map, destination-restricted DNAT, the block-form HCL `network` section with explicit `container_port`/`host_port`, phases, and compatibility.
 - [docs/product/deployments.md](docs/product/deployments.md) — Deployment config, lifecycle state, and deploy workflow.

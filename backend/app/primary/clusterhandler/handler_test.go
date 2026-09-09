@@ -3,6 +3,7 @@ package clusterhandler
 import (
 	"context"
 	"errors"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,9 +19,9 @@ func TestBuildAllowedRefs(t *testing.T) {
 	configID := int32(9)
 	refs := buildAllowedRefs([]apigen.ScheduledInstanceState{{
 		Instance: apigen.ScheduledInstance{ID: 99},
-		Config: apigen.Deployment{
-			ID:  42,
-			Def: apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/app", Flake: "flake.nix"}}, Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"SECRET": {SecretVersionID: &secretID}, "CONFIG": {ConfigVersionID: &configID}, "ASSET": {Asset: "app.env", AssetVersionID: 3}}, AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_ONLY}}}}}},
+		Config: apigen.DeploymentEvent{
+			DeploymentID: 42,
+			Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/app", Flake: "flake.nix"}}, Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"SECRET": {SecretVersionID: &secretID}, "CONFIG": {ConfigVersionID: &configID}, "ASSET": {Asset: "app.env", AssetVersionID: 3}}, AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_ONLY}}}}}},
 		},
 	}})
 
@@ -46,8 +47,8 @@ func TestBuildAllowedRefs(t *testing.T) {
 
 func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	m1Node := store.EnsurePrimaryNode("m1", "m1")
-	m2Node := store.EnsurePrimaryNode("m2", "m2")
+	m1Node := nodes.EnsurePrimaryNode(store, "m1", "m1")
+	m2Node := nodes.EnsurePrimaryNode(store, "m2", "m2")
 	spec := &apigen.DeploymentSpec{
 		Container1Spec: &apigen.ContainerSpec{
 			Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "docker.io/library/nginx"}},
@@ -57,36 +58,36 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 	}
 	m1 := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "web", m1Node.ID, spec)
 	m2 := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "web", m2Node.ID, spec)
-	m1Inst := store.CreateScheduledInstanceForTest(m1.ID, m1.Version, m1Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	m2Inst := store.CreateScheduledInstanceForTest(m2.ID, m2.Version, m2Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	m1Inst := statetest.CreateScheduledInstance(store, m1.DeploymentID, m1.Version, m1Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	m2Inst := statetest.CreateScheduledInstance(store, m2.DeploymentID, m2.Version, m2Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	sess := newSession(context.Background(), func() {}, m1Node.ID, "m1", scheduledInstancePredicateForNode(m1Node.ID), store, nil)
 	crossMachine := &apigen.ScheduledInstanceStatus{
 		ScheduledInstanceID: m2Inst.ID,
-		DeploymentID:        m2.ID,
+		DeploymentID:        m2.DeploymentID,
 		Runner:              apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING},
 	}
 	crossMachine.BumpUpdatedAt()
 	sess.handleStatusWrite(crossMachine)
-	if got := store.FetchScheduledInstanceStatus(m2Inst.ID); got != nil && got.Runner.Status == apigen.RunningStatus_RUNNING {
+	if got, err := store.Queries().GetLatestScheduledInstanceStatus(context.Background(), m2Inst.ID); err == nil && got.Runner.Status == apigen.RunningStatus_RUNNING {
 		t.Fatal("cross-machine status write was accepted")
 	}
 
 	sameMachine := &apigen.ScheduledInstanceStatus{
 		ScheduledInstanceID: m1Inst.ID,
-		DeploymentID:        m1.ID,
+		DeploymentID:        m1.DeploymentID,
 		Runner:              apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING},
 	}
 	sameMachine.BumpUpdatedAt()
 	sess.handleStatusWrite(sameMachine)
-	if got := store.FetchScheduledInstanceStatus(m1Inst.ID); got == nil || got.Runner.Status != apigen.RunningStatus_RUNNING {
+	if got, err := store.Queries().GetLatestScheduledInstanceStatus(context.Background(), m1Inst.ID); err != nil || got.Runner.Status != apigen.RunningStatus_RUNNING {
 		t.Fatalf("same-machine status write was rejected; status = %v", got)
 	}
 }
 
 func TestSessionRoutingUsesNodeID(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := store.EnsurePrimaryNode("secondary", "secondary-cn")
+	node := nodes.EnsurePrimaryNode(store, "secondary", "secondary-cn")
 	handler := New(store, nil, nil, nil, network.Prefix{}, nil, nil, nil)
 	sess := newSession(context.Background(), func() {}, node.ID, "secondary-cn", scheduledInstancePredicateForNode(node.ID), store, nil)
 	handler.registerSession(node.ID, "secondary-cn", sess)
@@ -146,10 +147,10 @@ func TestSessionRoutingUsesNodeID(t *testing.T) {
 func TestSessionClusterHelloUpdatesAuthenticatedNodeUnderlay(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	primary := store.EnsurePrimaryNode("primary", "primary")
-	store.MustSetNodeAddresses(primary.ID, []string{"192.0.2.1"})
-	secondary := store.EnsurePrimaryNode("secondary", "secondary-cn")
-	store.MustSetNodeAddresses(secondary.ID, []string{"192.0.2.2"})
+	primary := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	nodes.ReportNode(store, primary.Identifier, apigen.NodeReported{Identifier: primary.Identifier, UnderlayAddress: "192.0.2.1", WgPublicKey: primary.WGPublicKey, HostAddresses: primary.HostAddresses})
+	secondary := nodes.EnsurePrimaryNode(store, "secondary", "secondary-cn")
+	nodes.ReportNode(store, secondary.Identifier, apigen.NodeReported{Identifier: secondary.Identifier, UnderlayAddress: "192.0.2.2", WgPublicKey: secondary.WGPublicKey, HostAddresses: secondary.HostAddresses})
 	sess := newSession(context.Background(), func() {}, secondary.ID, secondary.Identifier, scheduledInstancePredicateForNode(secondary.ID), store, nil)
 
 	const helloWGKey = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
@@ -170,7 +171,7 @@ func TestSessionClusterHelloUpdatesAuthenticatedNodeUnderlay(t *testing.T) {
 func TestSessionRejectsClusterProtocolMismatch(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	secondary := store.EnsurePrimaryNode("secondary", "secondary-cn")
+	secondary := nodes.EnsurePrimaryNode(store, "secondary", "secondary-cn")
 	cancelled := false
 	sess := newSession(context.Background(), func() { cancelled = true }, secondary.ID, secondary.Identifier, scheduledInstancePredicateForNode(secondary.ID), store, nil)
 
@@ -182,7 +183,7 @@ func TestSessionRejectsClusterProtocolMismatch(t *testing.T) {
 
 func nodeAddresses(t *testing.T, store *state.Service, nodeID int32) []string {
 	t.Helper()
-	for _, node := range store.ListNodes() {
+	for _, node := range nodes.ListNodes(store.Queries()) {
 		if node.ID == nodeID {
 			return node.Addresses
 		}

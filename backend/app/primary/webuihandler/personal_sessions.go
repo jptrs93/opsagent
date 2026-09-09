@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -15,7 +16,6 @@ import (
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/clientaddr"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 const personalSessionActivityTouchInterval = time.Minute
@@ -43,7 +43,7 @@ func (h *Handler) startPersonalSession(ctx apigen.Context, user *apigen.Internal
 	if err != nil {
 		return nil, fmt.Errorf("generating personal session token: %w", err)
 	}
-	rec := state.PersonalSessionRecord{
+	rec := users.PersonalSession{
 		ID:                sessionID,
 		UserID:            user.ID,
 		CreatedAt:         now,
@@ -53,10 +53,10 @@ func (h *Handler) startPersonalSession(ctx apigen.Context, user *apigen.Internal
 		UserAgent:         clientaddr.UserAgentFrom(ctx),
 		LastActiveAt:      now,
 	}
-	if err := h.Store.InsertPersonalSession(rec); err != nil {
+	if err := users.InsertPersonalSession(h.Store.Queries(), rec); err != nil {
 		return nil, fmt.Errorf("storing personal session: %w", err)
 	}
-	h.Store.TouchUserLastLogin(user.ID)
+	users.TouchLastLogin(h.Store, user.ID)
 	slog.InfoContext(ctx, fmt.Sprintf("started personal session address=%s", rec.RequestingAddress), "session", sessionID, "user", user.ID)
 	return newLoginResponse(user, token, defaultUserScopes, expiry), nil
 }
@@ -66,8 +66,8 @@ func (h *Handler) verifyPersonalSession(ctx context.Context, claims map[string]a
 	if sessionID == "" {
 		return nil
 	}
-	rec, err := h.Store.FetchPersonalSession(sessionID)
-	if errors.Is(err, state.ErrNotFound) {
+	rec, err := users.PersonalSessionByID(h.Store.Queries(), sessionID)
+	if errors.Is(err, users.ErrNotFound) {
 		return InvalidAuthTokenErr
 	}
 	if err != nil {
@@ -80,7 +80,7 @@ func (h *Handler) verifyPersonalSession(ctx context.Context, claims map[string]a
 		return InvalidAuthTokenErr
 	}
 	if now := time.Now(); now.Sub(rec.LastActiveAt) >= personalSessionActivityTouchInterval {
-		if err := h.Store.TouchPersonalSessionActivity(rec.ID, now); err != nil {
+		if err := users.TouchPersonalSession(h.Store.Queries(), rec.ID, now); err != nil {
 			slog.WarnContext(ctx, "failed to touch personal session activity", "session", rec.ID, "err", err)
 		}
 	}
@@ -96,7 +96,7 @@ func (h *Handler) currentPersonalSessionID(ctx apigen.Context) string {
 	return sid
 }
 
-func personalSessionToProto(rec state.PersonalSessionRecord, currentID string) *apigen.PersonalSession {
+func personalSessionToProto(rec users.PersonalSession, currentID string) *apigen.PersonalSession {
 	return &apigen.PersonalSession{
 		ID:                rec.ID,
 		CreatedAt:         rec.CreatedAt,
@@ -113,7 +113,7 @@ func (h *Handler) PostV1PersonalSessionsList(ctx apigen.Context) (*apigen.Person
 	if err := requireHuman(ctx); err != nil {
 		return nil, err
 	}
-	records, err := h.Store.ListPersonalSessionsForUser(ctx.User.ID)
+	records, err := users.ListPersonalSessions(h.Store.Queries(), ctx.User.ID)
 	if err != nil {
 		return nil, fmt.Errorf("listing personal sessions: %w", err)
 	}
@@ -132,12 +132,12 @@ func (h *Handler) PostV1PersonalSessionsRevoke(ctx apigen.Context, req *apigen.P
 	if strings.TrimSpace(req.ID) == "" {
 		return PersonalSessionNotFoundErr
 	}
-	revoked, err := h.Store.RevokePersonalSession(req.ID, ctx.User.ID, time.Now())
+	revoked, err := users.RevokePersonalSession(h.Store.Queries(), req.ID, ctx.User.ID, time.Now())
 	if err != nil {
 		return fmt.Errorf("revoking personal session: %w", err)
 	}
 	if !revoked {
-		rec, fetchErr := h.Store.FetchPersonalSession(req.ID)
+		rec, fetchErr := users.PersonalSessionByID(h.Store.Queries(), req.ID)
 		if fetchErr != nil || rec.UserID != ctx.User.ID {
 			return PersonalSessionNotFoundErr
 		}

@@ -32,11 +32,11 @@ type IssuedTLSPersistence interface {
 	RetainIssuedTLS(keep map[int32]struct{}) (int, error)
 }
 
-func IssuedTLSMountOf(cfg *apigen.Deployment) *apigen.IssuedTLSMount {
+func IssuedTLSMountOf(cfg *apigen.DeploymentEvent) *apigen.IssuedTLSMount {
 	if cfg == nil {
 		return nil
 	}
-	container := cfg.Def.Spec.Container()
+	container := cfg.Value.Spec.Container()
 	if container == nil {
 		return nil
 	}
@@ -47,13 +47,13 @@ func (r *RuntimeInputs) SetIssuedTLSProvider(p IssuedTLSProvider) {
 	r.issuedTLS = p
 }
 
-func (r *RuntimeInputs) EnsureIssuedTLSReady(ctx context.Context, cfg *apigen.Deployment) error {
+func (r *RuntimeInputs) EnsureIssuedTLSReady(ctx context.Context, cfg *apigen.DeploymentEvent) error {
 	mount := IssuedTLSMountOf(cfg)
 	if mount == nil {
 		return nil
 	}
 	r.mu.RLock()
-	held := r.issuedTLSValues[cfg.ID]
+	held := r.issuedTLSValues[cfg.DeploymentID]
 	r.mu.RUnlock()
 	if held != nil && held.SpecVersion == cfg.SpecVersion {
 		return nil
@@ -64,7 +64,7 @@ func (r *RuntimeInputs) EnsureIssuedTLSReady(ctx context.Context, cfg *apigen.De
 		}
 		return fmt.Errorf("no issued TLS provider configured")
 	}
-	value, err := r.issuedTLS.FetchIssuedTLS(ctx, cfg.ID, cfg.SpecVersion)
+	value, err := r.issuedTLS.FetchIssuedTLS(ctx, cfg.DeploymentID, cfg.SpecVersion)
 	if err != nil {
 		if held != nil && time.Now().Before(held.NotAfter) {
 			return nil
@@ -78,9 +78,9 @@ func (r *RuntimeInputs) EnsureIssuedTLSReady(ctx context.Context, cfg *apigen.De
 		return fmt.Errorf("issued TLS provider returned empty material")
 	}
 	r.mu.Lock()
-	r.issuedTLSValues[cfg.ID] = value
+	r.issuedTLSValues[cfg.DeploymentID] = value
 	r.mu.Unlock()
-	r.persistIssuedTLS(ctx, map[int32]*IssuedTLSValue{cfg.ID: value})
+	r.persistIssuedTLS(ctx, map[int32]*IssuedTLSValue{cfg.DeploymentID: value})
 	return nil
 }
 

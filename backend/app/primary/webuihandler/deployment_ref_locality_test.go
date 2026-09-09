@@ -2,11 +2,14 @@ package webuihandler
 
 import (
 	"errors"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/assets"
 )
 
 func isRefOutsideSpaceErr(err error, want apigen.ApiErr) bool {
@@ -50,20 +53,20 @@ func crossMountSpec(image string, sourceDeploymentID int32) apigen.DeploymentSpe
 
 func TestDeploymentRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := h.Store.CreateSpace("prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	globalConfig, err := h.Store.CreateConfigWithVersion("global-endpoint", state.DefaultSpaceID, 0, 0, "https://global")
+	globalConfig, err := values.CreateConfig(h.Store, "global-endpoint", nodes.DefaultSpaceID, 0, 0, "https://global")
 	if err != nil {
 		t.Fatalf("creating global config: %v", err)
 	}
-	prodConfig, err := h.Store.CreateConfigWithVersion("prod-endpoint", prod.ID, 0, 0, "https://prod")
+	prodConfig, err := values.CreateConfig(h.Store, "prod-endpoint", prod.ID, 0, 0, "https://prod")
 	if err != nil {
 		t.Fatalf("creating prod config: %v", err)
 	}
 
-	create := func(name string, spaceID, configVersionID int32) (*apigen.Deployment, error) {
+	create := func(name string, spaceID, configVersionID int32) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			NodeID: node.ID,
@@ -71,25 +74,25 @@ func TestDeploymentRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		})
 	}
 
-	if _, err := create("own-space", prod.ID, prodConfig.ValueVersions[0].ID); err != nil {
+	if _, err := create("own-space", prod.ID, statetest.ValueVersions(h.Store, prodConfig)[0].ID); err != nil {
 		t.Fatalf("own-space config ref rejected: %v", err)
 	}
-	if _, err := create("global-ref", prod.ID, globalConfig.ValueVersions[0].ID); err != nil {
+	if _, err := create("global-ref", prod.ID, statetest.ValueVersions(h.Store, globalConfig)[0].ID); err != nil {
 		t.Fatalf("global config ref rejected: %v", err)
 	}
-	if _, err := create("global-deploy", state.DefaultSpaceID, prodConfig.ValueVersions[0].ID); !isRefOutsideSpaceErr(err, ConfigRefOutsideSpaceErr) {
-		t.Fatalf("global deployment with prod config err = %v, want %v", err, ConfigRefOutsideSpaceErr)
+	if _, err := create("global-deploy", nodes.DefaultSpaceID, statetest.ValueVersions(h.Store, prodConfig)[0].ID); !isRefOutsideSpaceErr(err, deployments.ConfigRefOutsideSpaceErr) {
+		t.Fatalf("global deployment with prod config err = %v, want %v", err, deployments.ConfigRefOutsideSpaceErr)
 	}
 }
 
 func TestDeploymentAssetRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := h.Store.CreateSpace("prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	h.Assets = &assetstore.Store{DB: h.Store}
-	globalAsset, err := createTestAsset(h, apigen.Context{}, "global.conf", state.DefaultSpaceID, 0, []byte("g"))
+	h.Assets = &assets.Store{DB: h.Store}
+	globalAsset, err := createTestAsset(h, apigen.Context{}, "global.conf", nodes.DefaultSpaceID, 0, []byte("g"))
 	if err != nil {
 		t.Fatalf("creating global asset: %v", err)
 	}
@@ -98,7 +101,7 @@ func TestDeploymentAssetRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		t.Fatalf("creating prod asset: %v", err)
 	}
 
-	create := func(name string, spaceID, assetVersionID int32) (*apigen.Deployment, error) {
+	create := func(name string, spaceID, assetVersionID int32) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			NodeID: node.ID,
@@ -106,37 +109,37 @@ func TestDeploymentAssetRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		})
 	}
 
-	if _, err := create("own-space", prod.ID, prodAsset.ID); err != nil {
+	if _, err := create("own-space", prod.ID, prodAsset.AssetID); err != nil {
 		t.Fatalf("own-space asset ref rejected: %v", err)
 	}
-	if _, err := create("global-ref", prod.ID, globalAsset.ID); err != nil {
+	if _, err := create("global-ref", prod.ID, globalAsset.AssetID); err != nil {
 		t.Fatalf("global asset ref rejected: %v", err)
 	}
-	if _, err := create("global-deploy", state.DefaultSpaceID, prodAsset.ID); !isRefOutsideSpaceErr(err, AssetRefOutsideSpaceErr) {
-		t.Fatalf("global deployment with prod asset err = %v, want %v", err, AssetRefOutsideSpaceErr)
+	if _, err := create("global-deploy", nodes.DefaultSpaceID, prodAsset.AssetID); !isRefOutsideSpaceErr(err, deployments.AssetRefOutsideSpaceErr) {
+		t.Fatalf("global deployment with prod asset err = %v, want %v", err, deployments.AssetRefOutsideSpaceErr)
 	}
 }
 
 func TestDeploymentAddressRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := h.Store.CreateSpace("prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	staging, err := h.Store.CreateSpace("staging")
+	staging, err := nodes.CreateSpace(h.Store, "staging")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
 	globalSpec := remoteDeploymentSpec("api", virtualNetworking())
-	globalTarget := createTestDeployment(h.Store, "primary", state.DefaultSpaceID, "global-api", &globalSpec)
+	globalTarget := createTestDeployment(h.Store, "primary", nodes.DefaultSpaceID, "global-api", &globalSpec)
 	prodSpec := remoteDeploymentSpec("api", virtualNetworking())
 	prodTarget := createTestDeployment(h.Store, "primary", prod.ID, "prod-api", &prodSpec)
 
-	create := func(name string, spaceID int32, target *apigen.Deployment) (*apigen.Deployment, error) {
+	create := func(name string, spaceID int32, target *apigen.DeploymentEvent) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			NodeID: node.ID,
-			Spec:   addressEnvSpec("nginx", target.ID, target.Def.SpaceID),
+			Spec:   addressEnvSpec("nginx", target.DeploymentID, target.Value.SpaceID),
 		})
 	}
 
@@ -153,20 +156,20 @@ func TestDeploymentAddressRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 
 func TestDeploymentCrossMountSourcesScopedToOwnOrGlobalSpace(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := h.Store.CreateSpace("prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	staging, err := h.Store.CreateSpace("staging")
+	staging, err := nodes.CreateSpace(h.Store, "staging")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
 	globalSpec := remoteDeploymentSpec("db", hostNetworking())
-	globalSource := createTestDeployment(h.Store, "primary", state.DefaultSpaceID, "global-db", &globalSpec)
+	globalSource := createTestDeployment(h.Store, "primary", nodes.DefaultSpaceID, "global-db", &globalSpec)
 	prodSpec := remoteDeploymentSpec("db", hostNetworking())
 	prodSource := createTestDeployment(h.Store, "primary", prod.ID, "prod-db", &prodSpec)
 
-	create := func(name string, spaceID, sourceID int32) (*apigen.Deployment, error) {
+	create := func(name string, spaceID, sourceID int32) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			NodeID: node.ID,
@@ -174,59 +177,59 @@ func TestDeploymentCrossMountSourcesScopedToOwnOrGlobalSpace(t *testing.T) {
 		})
 	}
 
-	if _, err := create("own-space", prod.ID, prodSource.ID); err != nil {
+	if _, err := create("own-space", prod.ID, prodSource.DeploymentID); err != nil {
 		t.Fatalf("own-space mount source rejected: %v", err)
 	}
-	if _, err := create("global-ref", staging.ID, globalSource.ID); err != nil {
+	if _, err := create("global-ref", staging.ID, globalSource.DeploymentID); err != nil {
 		t.Fatalf("global mount source rejected: %v", err)
 	}
-	if _, err := create("staging-deploy", staging.ID, prodSource.ID); err == nil {
+	if _, err := create("staging-deploy", staging.ID, prodSource.DeploymentID); err == nil {
 		t.Fatal("staging deployment mounting prod source accepted, want error")
 	}
 }
 
 func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := h.Store.CreateSpace("prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	staging, err := h.Store.CreateSpace("staging")
+	staging, err := nodes.CreateSpace(h.Store, "staging")
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	prodConfig, err := h.Store.CreateConfigWithVersion("prod-endpoint", prod.ID, 0, 0, "https://prod")
+	prodConfig, err := values.CreateConfig(h.Store, "prod-endpoint", prod.ID, 0, 0, "https://prod")
 	if err != nil {
 		t.Fatalf("creating prod config: %v", err)
 	}
 	referrer, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: prod.ID, Name: "web",
 		NodeID: node.ID,
-		Spec:   configEnvSpec("nginx", prodConfig.ValueVersions[0].ID),
+		Spec:   configEnvSpec("nginx", statetest.ValueVersions(h.Store, prodConfig)[0].ID),
 	})
 	if err != nil {
 		t.Fatalf("creating referencing deployment: %v", err)
 	}
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: referrer.ID, ExpectedVersion: referrer.Version + 1,
+		DeploymentID: referrer.DeploymentID, ExpectedVersion: referrer.Version + 1,
 		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID},
-	}); !isRefOutsideSpaceErr(err, ConfigRefOutsideSpaceErr) {
-		t.Fatalf("move with prod config ref err = %v, want %v", err, ConfigRefOutsideSpaceErr)
+	}); !isRefOutsideSpaceErr(err, deployments.ConfigRefOutsideSpaceErr) {
+		t.Fatalf("move with prod config ref err = %v, want %v", err, deployments.ConfigRefOutsideSpaceErr)
 	}
 
 	sourceSpec := remoteDeploymentSpec("db", hostNetworking())
 	source := createTestDeployment(h.Store, "primary", prod.ID, "db", &sourceSpec)
-	mounterSpec := crossMountSpec("nginx", source.ID)
+	mounterSpec := crossMountSpec("nginx", source.DeploymentID)
 	createTestDeployment(h.Store, "primary", prod.ID, "mounter", &mounterSpec)
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: source.ID, ExpectedVersion: source.Version + 1,
+		DeploymentID: source.DeploymentID, ExpectedVersion: source.Version + 1,
 		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID},
-	}); !errors.Is(err, MoveReferencesOutsideSpaceErr) {
-		t.Fatalf("mounted source move to staging err = %v, want %v", err, MoveReferencesOutsideSpaceErr)
+	}); !errors.Is(err, deployments.MoveReferencesOutsideSpaceErr) {
+		t.Fatalf("mounted source move to staging err = %v, want %v", err, deployments.MoveReferencesOutsideSpaceErr)
 	}
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: source.ID, ExpectedVersion: source.Version + 1,
-		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: state.DefaultSpaceID},
+		DeploymentID: source.DeploymentID, ExpectedVersion: source.Version + 1,
+		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: nodes.DefaultSpaceID},
 	}); err != nil {
 		t.Fatalf("mounted source move to global: %v", err)
 	}

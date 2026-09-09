@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/instancecache"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/sq"
 )
 
@@ -16,9 +16,15 @@ import (
 // fully independent of the primary's and holds only machine-local runtime
 // state; see sq/sql/schema.sql.
 type Service struct {
-	// Cache is the shared scheduled-instance runtime view; its Mu is the
-	// storage-wide mutex.
-	*instancecache.Cache
+	mu sync.Mutex
+
+	// scheduled holds the authoritative runtime view per scheduled instance id:
+	// assignment row, pinned spec version, and latest status. Live instances
+	// only — a finalized instance is removed, and every consumer that reconciles
+	// or routes depends on that.
+	scheduled   map[int32]*apigen.ScheduledInstanceState
+	subscribers []*subscriber
+	closed      bool
 
 	// q is the SQL layer: every query — sqlc-generated or hand-written —
 	// is a method on it. Service owns the cache, locking, and notification.
@@ -27,19 +33,26 @@ type Service struct {
 
 func Open(dbPath string) *Service {
 	s := &Service{
-		q: sq.Open(dbPath),
+		q:         sq.Open(dbPath),
+		scheduled: make(map[int32]*apigen.ScheduledInstanceState),
 	}
-	s.Cache = instancecache.New(s.persistStatus)
 	s.loadLocalScheduledInstanceCache()
 	return s
 }
 
 func (s *Service) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
+	for _, sub := range s.subscribers {
+		close(sub.ch)
+	}
+	s.subscribers = nil
 	return s.q.Close()
 }
 
-// persistStatus is the instancecache persistence hook: it durably appends a
-// status row, panicking on failure per the storage error policy.
+// persistStatus durably appends a status row, panicking on failure per the
+// storage error policy.
 func (s *Service) persistStatus(ctx context.Context, st *apigen.ScheduledInstanceStatus) {
 	if err := s.q.InsertScheduledInstanceStatus(ctx, scheduledInstanceStatusProtoToInsertParams(st)); err != nil {
 		panic(fmt.Sprintf("InsertScheduledInstanceStatus: %v", err))
@@ -47,8 +60,8 @@ func (s *Service) persistStatus(ctx context.Context, st *apigen.ScheduledInstanc
 }
 
 func (s *Service) loadLocalScheduledInstanceCache() {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	// The durable assignment source is local_scheduled_instance_cache. Each
 	// blob is a full ScheduledInstanceState with its pinned spec version.
 	rows := erru.Must(s.q.ListLocalScheduledInstanceCache(context.Background()))
@@ -61,13 +74,13 @@ func (s *Service) loadLocalScheduledInstanceCache() {
 			continue
 		}
 		cp := *state
-		s.Scheduled[cp.Instance.ID] = &cp
+		s.scheduled[cp.Instance.ID] = &cp
 	}
 	// Prefer durable local status rows over the watermark embedded in the assignment blob.
 	statuses := erru.Must(s.q.ListLatestScheduledInstanceStatuses(context.Background()))
 	for _, row := range statuses {
 		st := scheduledInstanceStatusRowToProto(row)
-		if state, ok := s.Scheduled[st.ScheduledInstanceID]; ok {
+		if state, ok := s.scheduled[st.ScheduledInstanceID]; ok {
 			state.Status = *st
 		}
 	}
@@ -79,8 +92,8 @@ func (s *Service) MustWriteScheduledInstanceAssignment(state *apigen.ScheduledIn
 	if state == nil || state.Instance.ID == 0 {
 		return
 	}
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	ctx := context.Background()
 	id := state.Instance.ID
 
@@ -98,18 +111,18 @@ func (s *Service) MustWriteScheduledInstanceAssignment(state *apigen.ScheduledIn
 
 	cp := *state
 	// Preserve newer local status if the assignment only carries a clock watermark.
-	if existing := s.Scheduled[id]; existing != nil && !existing.Status.IsZero() {
+	if existing := s.scheduled[id]; existing != nil && !existing.Status.IsZero() {
 		if cp.Status.IsZero() || existing.Status.UpdatedAt.After(cp.Status.UpdatedAt) {
 			cp.Status = existing.Status
 		}
 	}
-	s.Scheduled[id] = &cp
-	s.NotifyInstanceLocked(id)
+	s.scheduled[id] = &cp
+	s.notifyInstanceLocked(id)
 }
 
 // finalizeLocked removes an instance from durable local storage and the cache,
 // publishing a FINALIZED state on the way out so the operator tears the workload
-// down rather than merely forgetting about it. Caller must hold s.Mu.
+// down rather than merely forgetting about it. Caller must hold s.mu.
 func (s *Service) finalizeLocked(ctx context.Context, state *apigen.ScheduledInstanceState) {
 	id := state.Instance.ID
 	if err := s.q.DeleteLocalScheduledInstanceCache(ctx, int64(id)); err != nil {
@@ -117,14 +130,14 @@ func (s *Service) finalizeLocked(ctx context.Context, state *apigen.ScheduledIns
 	}
 	cp := *state
 	cp.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED
-	if existing := s.Scheduled[id]; existing != nil && !existing.Status.IsZero() {
+	if existing := s.scheduled[id]; existing != nil && !existing.Status.IsZero() {
 		if cp.Status.IsZero() || existing.Status.UpdatedAt.After(cp.Status.UpdatedAt) {
 			cp.Status = existing.Status
 		}
 	}
-	s.Scheduled[id] = &cp
-	s.NotifyInstanceLocked(id)
-	delete(s.Scheduled, id)
+	s.scheduled[id] = &cp
+	s.notifyInstanceLocked(id)
+	delete(s.scheduled, id)
 }
 
 // MustFinalizeScheduledInstancesAbsent finalizes every locally held instance whose
@@ -136,10 +149,10 @@ func (s *Service) finalizeLocked(ctx context.Context, state *apigen.ScheduledIns
 // can ever arrive. Reconciling only on receipt would leave the assignment, its
 // durable cache row, and its running workload alive across every restart.
 func (s *Service) MustFinalizeScheduledInstancesAbsent(present map[int32]struct{}) []int32 {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	stale := make([]int32, 0)
-	for id := range s.Scheduled {
+	for id := range s.scheduled {
 		if _, ok := present[id]; !ok {
 			stale = append(stale, id)
 		}
@@ -147,14 +160,14 @@ func (s *Service) MustFinalizeScheduledInstancesAbsent(present map[int32]struct{
 	slices.Sort(stale)
 	ctx := context.Background()
 	for _, id := range stale {
-		s.finalizeLocked(ctx, s.Scheduled[id])
+		s.finalizeLocked(ctx, s.scheduled[id])
 	}
 	return stale
 }
 
 func (s *Service) FetchScheduledInstanceStatusHistorySince(instanceID int32, since time.Time) []*apigen.ScheduledInstanceStatus {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	rows := erru.Must(s.q.ListScheduledInstanceStatusHistorySince(context.Background(), sq.ListScheduledInstanceStatusHistorySinceParams{
 		ScheduledInstanceID: int64(instanceID),
 		UpdatedAt:           clockToNanos(since),

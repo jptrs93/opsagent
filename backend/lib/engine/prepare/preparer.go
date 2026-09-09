@@ -94,10 +94,10 @@ func InProgress(p apigen.PreparerStatus) bool {
 // falling back — and it usually lands on the artifact already recorded.
 // Publishing that identity would bump the clock, wake every subscriber, and push
 // a no-op to the primary, for no observable change.
-func WriteStatus(store storage.OperatorStore, instanceID int32, dep *apigen.Deployment, update StatusUpdate) {
+func WriteStatus(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentEvent, update StatusUpdate) {
 	ctx := logu.AddTag(context.Background(), "Preparer")
 	ctx = logu.AddKV(ctx, "scheduled_instance", instanceID)
-	ctx = logu.AddKV(ctx, "dep", dep.ID)
+	ctx = logu.AddKV(ctx, "dep", dep.DeploymentID)
 	next := apigen.PreparerStatus{
 		DeploymentSpecVersion: dep.SpecVersion,
 		Artifact:              update.Artifact,
@@ -120,7 +120,7 @@ func WriteStatus(store storage.OperatorStore, instanceID int32, dep *apigen.Depl
 		slog.InfoContext(ctx, "preparer.writePrepareStatus "+fmtNext())
 		s.BumpUpdatedAt()
 		s.ScheduledInstanceID = instanceID
-		s.DeploymentID = dep.ID
+		s.DeploymentID = dep.DeploymentID
 		s.Preparer = next
 		return true
 	})

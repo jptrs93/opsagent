@@ -16,6 +16,7 @@ enum AgentSessionStatus {
 }
 
 message AgentSession {
+  int32 user_id = 20;
   string id = 1;
   int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int64 expires_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"]; // set on pick up

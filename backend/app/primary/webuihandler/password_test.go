@@ -2,28 +2,29 @@ package webuihandler
 
 import (
 	"errors"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"testing"
 
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/authz"
-	"github.com/jptrs93/opsagent/backend/lib/config"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 )
 
 const testMasterPassword = "opendeploy-test-master-password"
 
 func enablePasswordLogin(t *testing.T, h *Handler) {
 	t.Helper()
-	settings := config.DefaultSettings(config.DefaultInitialConfig())
+	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
 	settings.Auth.PasswordLoginEnabled = apigen.BoolSetting{Value: true}
-	if err := h.ConfigService.UpdateSettings(*settings); err != nil {
+	if err := h.SystemConfig.UpdateSettings(*settings, nil); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
 	hash, err := authu.HashPassword(testMasterPassword)
 	if err != nil {
 		t.Fatalf("HashPassword: %v", err)
 	}
-	if err := h.ConfigService.SetMasterPasswordHash(hash); err != nil {
+	if err := h.SystemConfig.SetMasterPasswordHash(hash); err != nil {
 		t.Fatalf("SetMasterPasswordHash: %v", err)
 	}
 	authzService, err := authz.Open(h.Store)
@@ -53,7 +54,7 @@ func TestPasswordLoginUsesMasterPasswordAndCreatesUsers(t *testing.T) {
 	enablePasswordLogin(t, h)
 
 	// Existing user, padded stored name, padded input: both sides trim.
-	h.Store.UpdateUserMatching(func(u *apigen.InternalUser) bool { return u.ID == user.ID }, func(u *apigen.InternalUser) {
+	users.UpdateMatching(h.Store, func(u *apigen.InternalUser) bool { return u.ID == user.ID }, func(u *apigen.InternalUser) {
 		u.Name = " operator "
 	})
 	res, err := h.PostV1AuthPasswordLogin(apigen.Context{}, &apigen.PasswordLoginRequest{Username: " operator ", Password: testMasterPassword})
@@ -66,7 +67,7 @@ func TestPasswordLoginUsesMasterPasswordAndCreatesUsers(t *testing.T) {
 	if _, _, err := h.jwtAuth.VerifyAndResolveUser(res.Token); err != nil {
 		t.Fatalf("issued token does not verify: %v", err)
 	}
-	if sessions, _ := h.Store.ListPersonalSessionsForUser(user.ID); len(sessions) != 1 {
+	if sessions, _ := users.ListPersonalSessions(h.Store.Queries(), user.ID); len(sessions) != 1 {
 		t.Fatalf("personal sessions = %d, want 1", len(sessions))
 	}
 
@@ -75,7 +76,7 @@ func TestPasswordLoginUsesMasterPasswordAndCreatesUsers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1AuthPasswordLogin (new user): %v", err)
 	}
-	created, err := h.Store.FetchUserByID(res.UserID)
+	created, err := users.ByID(h.Store.Queries(), res.UserID)
 	if err != nil || created.Name != "newcomer" {
 		t.Fatalf("created user = %+v, err %v", created, err)
 	}

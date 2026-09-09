@@ -3,6 +3,7 @@ package logmanager
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -25,7 +26,7 @@ var (
 
 type scheduledInstanceStore interface {
 	FetchScheduledSnapshot(predicate storage.ScheduledInstancePredicate) []apigen.ScheduledInstanceState
-	MustFetchScheduledSnapshotAndSubscribe(predicate storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan apigen.ScheduledInstanceState, func())
+	MustFetchScheduledSnapshotAndSubscribe(predicate storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan []apigen.ScheduledInstanceState, func())
 }
 
 type Manager struct {
@@ -55,15 +56,20 @@ func StartManager(ctx context.Context, store scheduledInstanceStore, predicate s
 	return m
 }
 
-func (m *Manager) runProducerAlignment(ctx context.Context, store scheduledInstanceStore, predicate storage.ScheduledInstancePredicate, producing map[int32]int32, updates chan apigen.ScheduledInstanceState, unsub func()) {
-	defer unsub()
+func (m *Manager) runProducerAlignment(ctx context.Context, store scheduledInstanceStore, predicate storage.ScheduledInstancePredicate, producing map[int32]int32, updates chan []apigen.ScheduledInstanceState, unsub func()) {
+	defer func() { unsub() }()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case _, ok := <-updates:
 			if !ok {
-				return
+				unsub()
+				slog.WarnContext(ctx, "scheduled instance subscription closed; resubscribing")
+				var snapshot []apigen.ScheduledInstanceState
+				snapshot, updates, unsub = store.MustFetchScheduledSnapshotAndSubscribe(predicate)
+				m.alignProducers(producing, snapshot)
+				continue
 			}
 			m.alignProducers(producing, store.FetchScheduledSnapshot(predicate))
 		}
@@ -73,7 +79,7 @@ func (m *Manager) runProducerAlignment(ctx context.Context, store scheduledInsta
 func (m *Manager) alignProducers(producing map[int32]int32, items []apigen.ScheduledInstanceState) {
 	desired := map[int32]int32{}
 	for _, it := range items {
-		if it.Config.Def.Spec.OpendeploySpec != nil {
+		if it.Config.Value.Spec.OpendeploySpec != nil {
 			continue
 		}
 		switch it.Status.Runner.Status {

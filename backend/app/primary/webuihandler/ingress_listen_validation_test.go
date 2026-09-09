@@ -1,6 +1,9 @@
 package webuihandler
 
 import (
+	"context"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"net/netip"
 	"path/filepath"
 	"strings"
@@ -29,19 +32,19 @@ func TestIngressListenOnPrimaryAgainstWebUIReservation(t *testing.T) {
 	dir := t.TempDir()
 	store := state.Open(filepath.Join(dir, "primary.db"))
 	defer store.Close()
-	primary := store.EnsurePrimaryNode("primary", "primary-id")
-	store.SetNodeHostAddresses("primary-id", []string{"203.0.113.10", "2001:db8::10"})
+	primary := nodes.EnsurePrimaryNode(store, "primary", "primary-id")
+	nodes.ReportNode(store, "primary-id", apigen.NodeReported{Identifier: "primary-id", HostAddresses: []string{"203.0.113.10", "2001:db8::10"}})
 	echo := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "echo", primary.ID, httpsSpec("web.example.test"))
 
 	wildcardWebUI := ingressplan.WebUIReservations(primary.ID, true, ":443", false, "")
 	// Default listen: accepted; the reservation drops the 443 claims instead
 	// of rejecting the route.
-	if err := validateNodeNetworkingClaims(store.LiveState(), wildcardWebUI, primary.ID, echo.ID, httpsSpec("web.example.test")); err != nil {
+	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), wildcardWebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test")); err != nil {
 		t.Fatalf("default listen on the primary rejected: %v", err)
 	}
 	// Literal address on the reserved port: rejected naming the Web UI.
 	literal := &apigen.IngressListen{Address: &apigen.AddressSelector{Prefixes: []string{"203.0.113.10"}}}
-	err := validateNodeNetworkingClaims(store.LiveState(), wildcardWebUI, primary.ID, echo.ID, httpsSpec("web.example.test", literal))
+	err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), wildcardWebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", literal))
 	if err == nil || !strings.Contains(err.Error(), "reserved by the primary Web UI") {
 		t.Fatalf("literal listen on a wildcard-reserved port must be rejected, got %v", err)
 	}
@@ -49,30 +52,30 @@ func TestIngressListenOnPrimaryAgainstWebUIReservation(t *testing.T) {
 	// the IPv6 literal is not.
 	v6WebUI := ingressplan.WebUIReservations(primary.ID, true, "[2001:db8::10]:443", false, "")
 	ipv4 := &apigen.IngressListen{Address: &apigen.AddressSelector{Family: apigen.AddressFamily_ADDRESS_FAMILY_IPV4}}
-	if err := validateNodeNetworkingClaims(store.LiveState(), v6WebUI, primary.ID, echo.ID, httpsSpec("web.example.test", ipv4)); err != nil {
+	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), v6WebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", ipv4)); err != nil {
 		t.Fatalf("ipv4() beside an IPv6 Web UI listen rejected: %v", err)
 	}
-	if err := validateNodeNetworkingClaims(store.LiveState(), v6WebUI, primary.ID, echo.ID, httpsSpec("web.example.test", literal)); err != nil {
+	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), v6WebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", literal)); err != nil {
 		t.Fatalf("IPv4 literal beside an IPv6 Web UI listen rejected: %v", err)
 	}
 	v6Literal := &apigen.IngressListen{Address: &apigen.AddressSelector{Prefixes: []string{"2001:db8::10"}}}
-	if err := validateNodeNetworkingClaims(store.LiveState(), v6WebUI, primary.ID, echo.ID, httpsSpec("web.example.test", v6Literal)); err == nil {
+	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), v6WebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", v6Literal)); err == nil {
 		t.Fatal("the literal equal to the Web UI address must be rejected")
 	}
 	// Node selectors must name a registered node, and only the hosting node
 	// until cross-node backend dialling exists.
 	unknown := &apigen.IngressListen{Node: &apigen.NodeSelector{NodeID: 99}}
-	if err := validateNodeNetworkingClaims(store.LiveState(), nil, primary.ID, echo.ID, httpsSpec("web.example.test", unknown)); err == nil || !strings.Contains(err.Error(), "unknown node id 99") {
+	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), nil, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", unknown)); err == nil || !strings.Contains(err.Error(), "unknown node id 99") {
 		t.Fatalf("unknown node selector must be rejected, got %v", err)
 	}
-	other := store.EnsurePrimaryNode("worker-2", "worker-2-id")
+	other := nodes.EnsurePrimaryNode(store, "worker-2", "worker-2-id")
 	crossNode := &apigen.IngressListen{Node: &apigen.NodeSelector{NodeID: other.ID}}
-	err = validateNodeNetworkingClaims(store.LiveState(), nil, primary.ID, echo.ID, httpsSpec("web.example.test", crossNode))
+	err = deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), nil, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", crossNode))
 	if err == nil || !strings.Contains(err.Error(), `node "worker-2" cannot publish a route for a deployment on another node`) {
 		t.Fatalf("cross-node listen selector must be rejected, got %v", err)
 	}
 	ownNode := &apigen.IngressListen{Node: &apigen.NodeSelector{NodeID: primary.ID}}
-	if err := validateNodeNetworkingClaims(store.LiveState(), nil, primary.ID, echo.ID, httpsSpec("web.example.test", ownNode)); err != nil {
+	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), nil, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", ownNode)); err != nil {
 		t.Fatalf("own-node listen selector rejected: %v", err)
 	}
 }
@@ -81,21 +84,21 @@ func TestIngressListenCollisionBetweenDeployments(t *testing.T) {
 	dir := t.TempDir()
 	store := state.Open(filepath.Join(dir, "primary.db"))
 	defer store.Close()
-	worker := store.EnsurePrimaryNode("worker-2", "worker-2-id")
-	store.SetNodeHostAddresses("worker-2-id", []string{"203.0.113.20", "203.0.113.21"})
+	worker := nodes.EnsurePrimaryNode(store, "worker-2", "worker-2-id")
+	nodes.ReportNode(store, "worker-2-id", apigen.NodeReported{Identifier: "worker-2-id", HostAddresses: []string{"203.0.113.20", "203.0.113.21"}})
 	root := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "root", worker.ID, httpsSpec("web.example.test"))
 	api := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "api", worker.ID, &remoteVirtualSpec)
 	_ = root
 	overlap := &apigen.IngressListen{Address: &apigen.AddressSelector{Prefixes: []string{"203.0.113.20"}}}
-	err := validateNodeNetworkingClaims(store.LiveState(), nil, worker.ID, api.ID, httpsSpec("web.example.test", overlap))
+	err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), nil, worker.ID, api.DeploymentID, httpsSpec("web.example.test", overlap))
 	if err == nil || !strings.Contains(err.Error(), "already claimed by another deployment") {
 		t.Fatalf("overlapping selector must be rejected, got %v", err)
 	}
 	// A create (id 0) is evaluated as the newcomer too.
-	if err := validateNodeNetworkingClaims(store.LiveState(), nil, worker.ID, 0, httpsSpec("web.example.test")); err == nil {
+	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), nil, worker.ID, 0, httpsSpec("web.example.test")); err == nil {
 		t.Fatal("a new deployment claiming an owned hostname must be rejected")
 	}
-	if err := validateNodeNetworkingClaims(store.LiveState(), nil, worker.ID, 0, httpsSpec("other.example.test")); err != nil {
+	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), nil, worker.ID, 0, httpsSpec("other.example.test")); err != nil {
 		t.Fatalf("a distinct hostname is accepted: %v", err)
 	}
 }
@@ -117,7 +120,7 @@ func TestValidateIngressListenShape(t *testing.T) {
 		{name: "duplicate", entry: &apigen.IngressListen{Address: &apigen.AddressSelector{Prefixes: []string{"203.0.113.10", "203.0.113.10/32"}}}, wantErr: "duplicate entry"},
 	}
 	for _, tc := range cases {
-		err := validateIngressListen([]*apigen.IngressListen{tc.entry})
+		err := deployments.ValidateIngressListen([]*apigen.IngressListen{tc.entry})
 		if tc.wantErr != "" {
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("%s: got %v, want %q", tc.name, err, tc.wantErr)
@@ -148,23 +151,20 @@ func TestSettingsChangeRejectedWhenLiteralClaimBecomesReserved(t *testing.T) {
 	dir := t.TempDir()
 	store := state.Open(filepath.Join(dir, "primary.db"))
 	defer store.Close()
-	primary := store.EnsurePrimaryNode("primary", "primary-id")
-	store.SetNodeHostAddresses("primary-id", []string{"203.0.113.10", "2001:db8::10"})
-	h := &Handler{Store: store, NodeID: primary.ID}
+	primary := nodes.EnsurePrimaryNode(store, "primary", "primary-id")
+	nodes.ReportNode(store, "primary-id", apigen.NodeReported{Identifier: "primary-id", HostAddresses: []string{"203.0.113.10", "2001:db8::10"}})
 	literal := &apigen.IngressListen{Address: &apigen.AddressSelector{Prefixes: []string{"203.0.113.10"}}}
 	statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "echo", primary.ID, httpsSpec("web.example.test", literal))
 
-	// The handler runs this under the global lock; mirror that here.
-	defer store.GlobalLock()()
 	settings := func(listen string) *apigen.ClusterSettings {
 		return &apigen.ClusterSettings{
 			HttpsWeb: apigen.HttpsWebSettings{Enabled: apigen.BoolSetting{Value: true}, Listen: apigen.StringSetting{Value: listen}},
 		}
 	}
-	if err := h.validateIngressAgainstSettings(settings("[2001:db8::10]:443")); err != nil {
+	if err := deployments.ValidateIngressAgainstSettings(context.Background(), store.Queries(), primary.ID, settings("[2001:db8::10]:443")); err != nil {
 		t.Fatalf("Web UI on the other address is fine: %v", err)
 	}
-	if err := h.validateIngressAgainstSettings(settings(":443")); err == nil || !strings.Contains(err.Error(), `deployment "echo"`) {
+	if err := deployments.ValidateIngressAgainstSettings(context.Background(), store.Queries(), primary.ID, settings(":443")); err == nil || !strings.Contains(err.Error(), `deployment "echo"`) {
 		t.Fatalf("a wildcard Web UI listen must be rejected while a literal claim exists, got %v", err)
 	}
 }

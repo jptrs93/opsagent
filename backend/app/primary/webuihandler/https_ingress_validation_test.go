@@ -1,11 +1,13 @@
 package webuihandler
 
 import (
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"path/filepath"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 	"github.com/jptrs93/opsagent/backend/util/certu"
@@ -18,9 +20,9 @@ func TestHTTPSIngressUpdateOnSecondaryWithPassthrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("secrets.Initialize: %v", err)
 	}
-	primaryNode := store.EnsurePrimaryNode("primary", "primary")
-	secondaryNode := store.EnsurePrimaryNode("secondary-2", "secondary-2")
-	h := &Handler{Store: store, Secrets: secretManager, NodeID: primaryNode.ID}
+	primaryNode := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	secondaryNode := nodes.EnsurePrimaryNode(store, "secondary-2", "secondary-2")
+	h := &Handler{Store: store, Queries: store.Queries(), Secrets: secretManager, NodeID: primaryNode.ID}
 
 	certPEM, keyPEM, err := certu.GenerateSelfSignedServerCertificate([]string{"web.ingress.opendeploy.test"})
 	if err != nil {
@@ -44,7 +46,7 @@ func TestHTTPSIngressUpdateOnSecondaryWithPassthrough(t *testing.T) {
 	}
 	for _, hostname := range []string{"one.ingress.opendeploy.test", "two.ingress.opendeploy.test"} {
 		cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "tls-"+hostname, secondaryNode.ID, passthroughSpec(hostname))
-		if err := validateNodeNetworkingClaims(h.Store.LiveState(), h.webUIReservations(), secondaryNode.ID, cfg.ID, passthroughSpec(hostname)); err != nil {
+		if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(h.Store.Queries()), h.webUIReservations(), secondaryNode.ID, cfg.DeploymentID, passthroughSpec(hostname)); err != nil {
 			t.Fatalf("passthrough claims for %s rejected: %v", hostname, err)
 		}
 	}
@@ -63,11 +65,11 @@ func TestHTTPSIngressUpdateOnSecondaryWithPassthrough(t *testing.T) {
 			},
 		}},
 	})
-	validated, err := validateDeploymentSpec(h.Store, h.Secrets, &updated)
+	validated, err := deployments.ValidateSpec(h.Store, h.Secrets, &updated)
 	if err != nil {
-		t.Fatalf("validateDeploymentSpec rejected HTTPS ingress: %v", err)
+		t.Fatalf("deployments.ValidateSpec rejected HTTPS ingress: %v", err)
 	}
-	if err := validateNodeNetworkingClaims(h.Store.LiveState(), h.webUIReservations(), echo.Def.NodeID, echo.ID, validated); err != nil {
-		t.Fatalf("validateNodeNetworkingClaims rejected HTTPS ingress: %v", err)
+	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(h.Store.Queries()), h.webUIReservations(), echo.Value.NodeID, echo.DeploymentID, validated); err != nil {
+		t.Fatalf("ValidateNodeNetworkingClaims rejected HTTPS ingress: %v", err)
 	}
 }

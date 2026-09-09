@@ -59,20 +59,19 @@
 
   g.addNode({
     id: 'node',
-    title: 'ClusterNode',
-    badge: 'user updated',
+    title: 'NodeEvent',
+    badge: 'operator and node updated',
     tone: 'user',
     versioned: true,
     x: 80, y: 160, w: 400,
-    desc: 'A machine enrolled into the cluster: an immutable identity written once at enrollment, plus a versioned config edited by operators.',
+    desc: 'A versioned machine record. Operators own membership and placement permissions; the node reports the addresses and identity used by cluster plans. Connection observations travel separately as NodeStatus: an append-only history with a nanosecond updatedAt clock. The live view selects the latest observation; empty observations clear status and retain their clock. All history is kept.',
     schema: [
-      f('id', 'int32', { key: true }),
-      f('name', 'string', { note: 'unique' }),
-      f('identifier', 'string', { note: 'immutable machine identifier' }),
-      f('timestamp', 'timestamp', { srv: true }),
-      f('enrolledAt', 'timestamp', { srv: true }),
-      f('config', obj('NodeConfig', [
-        f('author', 'int32', { ref: 'user id', srv: true }),
+      f('nodeId', 'int32', { key: true, srv: true }),
+      f('eventId', 'int64', { srv: true }),
+      f('seq', 'int64', { srv: true, note: 'one sequence per transaction' }),
+      f('author', 'int32', { ref: 'user id', srv: true }),
+      f('eventType', en('EventType', ['CREATE', 'UPDATE', 'DELETE']), { srv: true }),
+      f('value', obj('Node', [
         f('status', en('NodeLifecycleStatus', [
           v('ENROLLMENT_REQUESTED'),
           v('ENROLLMENT_CANCELLED'),
@@ -83,30 +82,39 @@
           v('MEMBER_MISSING'),
           v('MEMBER_EVICTED'),
         ])),
-        f('roles', 'int32', { mod: 'repeated' }),
-        f('addresses', 'string', { mod: 'repeated' }),
-        f('wgPublicKey', 'string', { note: 'base64 Curve25519' }),
-        f('allowedSpaces', 'int32', { mod: 'repeated', ref: 'Space.id' }),
-      ], { versioned: true })),
+        f('enrollmentRequestedAt', 'int64', { srv: true, note: '0 = no pending request' }),
+        f('operator', obj('NodeOperator', [
+          f('name', 'string', { note: 'unique' }),
+          f('roles', 'int32', { mod: 'repeated' }),
+          f('allowedSpaces', 'int32', { mod: 'repeated', ref: 'Space.id' }),
+          f('enrolledTime', 'int64', { srv: true }),
+        ])),
+        f('reported', obj('NodeReported', [
+          f('identifier', 'string', { note: 'immutable machine identifier' }),
+          f('underlayAddress', 'string'),
+          f('wgPublicKey', 'string', { note: 'base64 Curve25519' }),
+          f('hostAddresses', 'string', { mod: 'repeated', note: 'stable host addresses' }),
+        ])),
+      ])),
     ],
   });
 
   g.addNode({
     id: 'deployment',
-    title: 'Deployment',
+    title: 'DeploymentEvent',
     badge: 'user updated',
     tone: 'user',
     versioned: true,
     x: 80, y: 560, w: 400,
     desc: 'The user’s declared intent for one deployment — everything on the right is rendered from this.',
     schema: [
-      f('id', 'int32', { key: true }),
-      f('def', obj('DeploymentDef', [
+      f('deploymentId', 'int32', { key: true, srv: true }),
+      f('eventId', 'int64', { srv: true }),
+      f('seq', 'int64', { srv: true, note: 'one sequence per transaction' }),
+      f('value', obj('Deployment', [
       f('name', 'string', { versioned: true }),
-      f('spaceAssignment', obj('SpaceAssignment', [
-        f('spaceId', 'int32', { ref: 'Space.id' }),
-      ], { versioned: true })),
-      f('nodeId', 'int32', { ref: 'ClusterNode.id' }),
+      f('spaceId', 'int32', { ref: 'Space.id', versioned: true }),
+      f('nodeId', 'int32', { ref: 'NodeEvent.nodeId' }),
       f('spec', obj('DeploymentSpec', [
         f('networking', obj('NetworkingConfig', [
           f('mode', en('NetworkingMode', [
@@ -170,7 +178,7 @@
               f('configVersionId', 'int32', { mod: 'optional', ref: 'config version' }),
               f('assetVersionId', 'int32', { ref: 'asset version' }),
               f('addressSpaceId', 'int32', { mod: 'optional', note: 'typed address ref' }),
-              f('addressDeploymentId', 'int32', { mod: 'optional', ref: 'Deployment.id' }),
+              f('addressDeploymentId', 'int32', { mod: 'optional', ref: 'DeploymentEvent.deploymentId' }),
             ]), { mod: 'map<string, ·>', note: 'one form per value' }),
             f('defaultVolume', obj('DefaultVolumeMount', [
               f('containerPath', 'string'),
@@ -191,11 +199,11 @@
       ], { versioned: true })),
       ])),
       f('author', 'int32', { ref: 'user id', srv: true }),
-      f('eventType', en('DeploymentEventType', ['CREATE', 'UPDATE', 'DELETE']), { srv: true }),
+      f('eventType', en('EventType', ['CREATE', 'UPDATE', 'DELETE']), { srv: true }),
       f('createdTime', 'timestamp', { srv: true }),
       f('eventTime', 'timestamp', { srv: true }),
     ],
-    note: 'Each write creates a new immutable version; secondaries act on the latest.',
+    note: 'Each write creates an immutable event. The browser holds the latest desired version plus versions pinned by retained instances; secondaries receive their pinned assignment.',
   });
 
   g.addNode({
@@ -204,14 +212,14 @@
     badge: 'derived',
     tone: 'derived',
     x: 690, y: 150, w: 420,
-    desc: 'One placement of a deployment instance ordinal on a node, created by the scheduler and pinned to one deployment version — the complete def snapshot it runs. Cross-node routing is a pure function of these assignments — no status input.',
+    desc: 'One placement of a deployment instance ordinal on a node, created by the scheduler and pinned to one deployment version — the immutable deployment value it runs. Cross-node routing is a pure function of these assignments — no status input.',
     schema: [
       f('id', 'int32', { key: true }),
       f('timestamp', 'timestamp', { srv: true }),
-      f('deploymentId', 'int32', { ref: 'Deployment.id' }),
+      f('deploymentId', 'int32', { ref: 'DeploymentEvent.deploymentId' }),
       f('deploymentVersion', 'int32', { note: 'pins one immutable deployment version' }),
       f('deploymentSpecVersion', 'int32', { note: 'denormalised from the pinned version; keys prepared artifacts' }),
-      f('nodeId', 'int32', { ref: 'ClusterNode.id' }),
+      f('nodeId', 'int32', { ref: 'NodeEvent.nodeId' }),
       f('instanceOrdinal', 'int32'),
       f('spaceId', 'int32', { ref: 'Space.id', note: 'denormalised from the pinned version' }),
       f('state', en('ScheduledInstanceTarget', [
@@ -233,18 +241,18 @@
     x: 680, y: 620, w: 440,
     desc: 'Complete placement + underlay snapshot rendered by the primary, targeted to one node. Secondaries persist an accepted map, apply it to the kernel (WireGuard peers, routes, policy), and report both stamps back.',
     schema: [
-      f('targetNodeId', 'int32', { ref: 'ClusterNode.id' }),
+      f('targetNodeId', 'int32', { ref: 'NodeEvent.nodeId' }),
       f('derivedFromSeq', 'int64', { note: 'global write seq at render' }),
       f('ulaPrefix', 'bytes', { note: '6-byte ULA /48' }),
       f('nodes', obj('ClusterNetMapNode', [
-        f('nodeId', 'int32', { ref: 'ClusterNode.id' }),
+        f('nodeId', 'int32', { ref: 'NodeEvent.nodeId' }),
         f('underlayAddress', 'string'),
         f('wgPublicKey', 'string', { note: 'always set; WireGuard is the only transport' }),
         f('wgListenPort', 'int32'),
       ]), { mod: 'repeated' }),
       f('routes', obj('ClusterNetMapRoute', [
         f('logicalPrefix', 'string', { note: '/100 instance or /120 placement' }),
-        f('hostingNodeId', 'int32', { ref: 'ClusterNode.id' }),
+        f('hostingNodeId', 'int32', { ref: 'NodeEvent.nodeId' }),
       ]), { mod: 'repeated' }),
       f('policyRules', obj('NetPolicyRule', [
         f('source', obj('NetPolicyPeer', [
@@ -264,7 +272,7 @@
       f('dnsServices', obj('ClusterNetMapService', [
         f('name', 'string', { note: 'normalized deployment name' }),
         f('spaceId', 'int32'),
-        f('deploymentId', 'int32', { ref: 'Deployment.id' }),
+        f('deploymentId', 'int32', { ref: 'DeploymentEvent.deploymentId' }),
         f('ordinals', obj('ClusterNetMapServiceOrdinal', [
           f('ordinal', 'int32'),
         ]), { mod: 'repeated', note: 'ordinals with a serving placement' }),
@@ -283,7 +291,7 @@
     schema: [
       f('seq', 'int64', { note: 'monotonic; stale snapshots ignored' }),
       f('ulaPrefix', 'bytes'),
-      f('nodeIdentifier', 'string', { ref: 'ClusterNode.identifier' }),
+      f('nodeIdentifier', 'string', { ref: 'NodeEvent.value.reported.identifier' }),
       f('dnsServices', obj('DnsService', [
         f('name', 'string', { note: 'normalized deployment name' }),
         f('environment', 'string', { note: 'normalized space name' }),

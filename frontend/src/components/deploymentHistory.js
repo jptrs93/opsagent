@@ -30,8 +30,8 @@ function describeConfigEntry(config, prevConfig) {
         if (desired.running !== prevDesired.running) {
             parts.push(desired.running ? 'running=true' : 'running=false');
         }
-        if (config.def?.spaceId !== prevConfig.def?.spaceId) {
-            parts.push(`moved to space ${config.def?.spaceId}`);
+        if (config.value?.spaceId !== prevConfig.value?.spaceId) {
+            parts.push(`moved to space ${config.value?.spaceId}`);
         }
         if (deploymentDeleted(config) && !deploymentDeleted(prevConfig)) {
             parts.push('deleted');

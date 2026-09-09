@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/pki"
 	"net"
 	"os"
 	"path/filepath"
@@ -11,8 +13,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
@@ -22,7 +24,7 @@ type Service struct {
 }
 
 type Options struct {
-	Initial       config.InitialConfig
+	Initial       systemconfig.Initial
 	PrimaryName   string
 	WebTLSCertPEM []byte
 }
@@ -54,7 +56,7 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg := config.DefaultConfig(opts.Initial)
+	cfg := systemconfig.Default(opts.Initial)
 	if len(opts.WebTLSCertPEM) != 0 {
 		meta, err := secretsMgr.SetByName(secrets.TLSCertPEMSecretName, opts.WebTLSCertPEM, 0)
 		if err != nil {
@@ -64,13 +66,13 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 		cfg.Settings.HttpsWeb.TlsCertPem = apigen.SecretRef{VersionID: meta.ID}
 	}
 	primaryIdentifier := uuid.NewString()
-	store.EnsurePrimaryNode("primary", primaryIdentifier)
-	clusterMaterial, err := certu.BootstrapPrimary(secretsMgr, primaryIdentifier, opts.PrimaryName)
+	nodes.EnsurePrimaryNode(store, "primary", primaryIdentifier)
+	clusterMaterial, err := pki.BootstrapPrimary(secretsMgr, primaryIdentifier, opts.PrimaryName)
 	if err != nil {
 		return nil, fmt.Errorf("initializing cluster TLS material: %w", err)
 	}
 	if cfg.Settings.HttpsWeb.Enabled.Value && cfg.Settings.HttpsWeb.TlsSelfManaged.Value && cfg.Settings.HttpsWeb.TlsCertPem.VersionID == 0 {
-		_, caCertPEM, err := certu.EnsureWebUILocalTLS(secretsMgr, certu.WebUITLSNames(cfg.Settings.HttpsWeb.AcmeHosts.Value, cfg.Settings.HttpsWeb.Listen.Value))
+		_, caCertPEM, err := pki.EnsureWebUILocalTLS(secretsMgr, certu.WebUITLSNames(cfg.Settings.HttpsWeb.AcmeHosts.Value, cfg.Settings.HttpsWeb.Listen.Value))
 		if err != nil {
 			return nil, fmt.Errorf("initializing self-managed Web TLS material: %w", err)
 		}
@@ -78,7 +80,7 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 			return nil, fmt.Errorf("exporting Web UI CA certificate: %w", err)
 		}
 	}
-	if _, err := config.InitializeService(store, *cfg); err != nil {
+	if _, err := systemconfig.InitializeService(store, *cfg); err != nil {
 		return nil, err
 	}
 	fingerprint, err := certu.CertificatePEMSPKISHA256(clusterMaterial.PrimaryCert)
@@ -109,20 +111,20 @@ func (s Service) Validate(_ context.Context) error {
 	if unlocked, _ := secretsMgr.Status(); !unlocked {
 		return secrets.ErrLocked
 	}
-	configService, err := config.NewService(store)
+	configService, err := systemconfig.NewService(store)
 	if err != nil {
 		return err
 	}
-	if _, err := certu.LoadPrimary(secretsMgr); err != nil {
+	if _, err := pki.LoadPrimary(secretsMgr); err != nil {
 		return fmt.Errorf("loading cluster TLS material: %w", err)
 	}
 	settings := configService.Snapshot().Settings
-	if configService.MustLoadConfigBoolValue(settings.HttpsWeb.Enabled) && configService.MustLoadConfigBoolValue(settings.HttpsWeb.TlsSelfManaged) {
+	if configService.MustLoadBoolSetting(settings.HttpsWeb.Enabled) && configService.MustLoadBoolSetting(settings.HttpsWeb.TlsSelfManaged) {
 		var bundle []byte
 		if settings.HttpsWeb.TlsCertPem.VersionID != 0 {
 			bundle, err = secretsMgr.RevealByID(settings.HttpsWeb.TlsCertPem.VersionID)
 		} else {
-			bundle, _, err = certu.EnsureWebUILocalTLS(secretsMgr, certu.WebUITLSNames(configService.MustLoadConfigStringValue(settings.HttpsWeb.AcmeHosts), configService.MustLoadConfigStringValue(settings.HttpsWeb.Listen)))
+			bundle, _, err = pki.EnsureWebUILocalTLS(secretsMgr, certu.WebUITLSNames(configService.MustLoadStringSetting(settings.HttpsWeb.AcmeHosts), configService.MustLoadStringSetting(settings.HttpsWeb.Listen)))
 		}
 		if err != nil {
 			return fmt.Errorf("loading self-managed Web TLS material: %w", err)

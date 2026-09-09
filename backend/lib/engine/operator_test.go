@@ -23,7 +23,7 @@ type operatorTestStore struct{}
 
 func (operatorTestStore) MustWriteScheduledInstanceStatus(int32, func(*apigen.ScheduledInstanceStatus) bool) {
 }
-func (operatorTestStore) MustFetchScheduledSnapshotAndSubscribe(storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan apigen.ScheduledInstanceState, func()) {
+func (operatorTestStore) MustFetchScheduledSnapshotAndSubscribe(storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan []apigen.ScheduledInstanceState, func()) {
 	return nil, nil, func() {}
 }
 
@@ -38,7 +38,7 @@ func (s *recordingOperatorStore) MustWriteScheduledInstanceStatus(_ int32, updat
 	update(&s.status)
 }
 
-func (s *recordingOperatorStore) MustFetchScheduledSnapshotAndSubscribe(storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan apigen.ScheduledInstanceState, func()) {
+func (s *recordingOperatorStore) MustFetchScheduledSnapshotAndSubscribe(storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan []apigen.ScheduledInstanceState, func()) {
 	return nil, nil, func() {}
 }
 
@@ -106,11 +106,11 @@ func fixedRuntimeInputsBackoff(t *testing.T, interval time.Duration) {
 	t.Cleanup(func() { newRuntimeInputsBackoff = old })
 }
 
-func secretRefDeployment(secretID *int32) *apigen.Deployment {
-	return &apigen.Deployment{
-		ID:          12,
-		SpecVersion: 4,
-		Def:         apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}}, Version: "v1", Running: true, Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: secretID}}}}}},
+func secretRefDeployment(secretID *int32) *apigen.DeploymentEvent {
+	return &apigen.DeploymentEvent{
+		DeploymentID: 12,
+		SpecVersion:  4,
+		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}}, Version: "v1", Running: true, Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: secretID}}}}}},
 	}
 }
 
@@ -217,9 +217,9 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 			RuntimeInputs: runtimeinputs.New(nil, nil, nil),
 			ImageReady:    func(context.Context, string) error { return nil },
 		}
-		dep := &apigen.Deployment{
+		dep := &apigen.DeploymentEvent{
 			SpecVersion: 4,
-			Def:         apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{}}, Version: "v1"}}},
+			Value:       apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{}}, Version: "v1"}}},
 		}
 		handle := op.reAttachPreparer(testScheduledInstanceID, dep, apigen.PreparerStatus{
 			DeploymentSpecVersion: 4,
@@ -242,10 +242,10 @@ func TestReAttachPreparerLifecycle(t *testing.T) {
 			RuntimeInputs:     runtimeinputs.New(nil, nil, nil),
 			OpendeployRelease: opendeployrelease.New(t.TempDir(), githubrepo.NewClient(githubrepo.WithAPIBaseURL("http://127.0.0.1:1"))),
 		}
-		dep := &apigen.Deployment{
-			ID:          1,
-			SpecVersion: 4,
-			Def:         apigen.DeploymentDef{Spec: apigen.DeploymentSpec{OpendeploySpec: &apigen.OpendeploySpec{Version: "v1"}}},
+		dep := &apigen.DeploymentEvent{
+			DeploymentID: 1,
+			SpecVersion:  4,
+			Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{OpendeploySpec: &apigen.OpendeploySpec{Version: "v1"}}},
 		}
 		handle := op.reAttachPreparer(testScheduledInstanceID, dep, apigen.PreparerStatus{})
 		handle.Cancel()
@@ -265,10 +265,10 @@ func TestStartPreparerStopsBeforeArtifactWhenRuntimeInputsFail(t *testing.T) {
 	defer func() { ainit.StaticConfig.PrepareOutputDir = oldOutputDir }()
 
 	secretID := int32(7)
-	dep := &apigen.Deployment{
-		ID:          11,
-		SpecVersion: 3,
-		Def:         apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}}, Version: "v1", Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: &secretID}}}}}},
+	dep := &apigen.DeploymentEvent{
+		DeploymentID: 11,
+		SpecVersion:  3,
+		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}}, Version: "v1", Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: &secretID}}}}}},
 	}
 	store := &recordingOperatorStore{}
 	secrets := &failingSecretProvider{}
@@ -290,9 +290,9 @@ func TestStartPreparerStopsBeforeArtifactWhenRuntimeInputsFail(t *testing.T) {
 
 func TestInitialTerminateWithoutStatusIsAcknowledged(t *testing.T) {
 	store := &recordingOperatorStore{}
-	subs := &pubsubu.PubSub[apigen.ScheduledInstanceState]{}
-	sub := subs.Subscribe(func(_, state apigen.ScheduledInstanceState) bool {
-		return state.Instance.ID == testScheduledInstanceID
+	subs := &pubsubu.PubSub[[]apigen.ScheduledInstanceState]{}
+	sub := subs.Subscribe(func(_, batch []apigen.ScheduledInstanceState) bool {
+		return len(batch) == 1 && batch[0].Instance.ID == testScheduledInstanceID
 	})
 	initial := apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{
@@ -300,7 +300,7 @@ func TestInitialTerminateWithoutStatusIsAcknowledged(t *testing.T) {
 			DeploymentID: 11,
 			State:        apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE,
 		},
-		Config: apigen.Deployment{ID: 11, SpecVersion: 3},
+		Config: apigen.DeploymentEvent{DeploymentID: 11, SpecVersion: 3},
 	}
 	done := make(chan struct{})
 	go func() {
@@ -315,11 +315,11 @@ func TestInitialTerminateWithoutStatusIsAcknowledged(t *testing.T) {
 	if got := store.scheduledStatus().Runner.Status; got != apigen.RunningStatus_STOPPED {
 		t.Fatalf("initial terminate status = %v, want STOPPED", got)
 	}
-	sub.Ch <- apigen.ScheduledInstanceState{
+	sub.Ch <- []apigen.ScheduledInstanceState{{
 		Instance: apigen.ScheduledInstance{ID: testScheduledInstanceID, State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED},
 		Config:   initial.Config,
 		Status:   store.scheduledStatus(),
-	}
+	}}
 	select {
 	case <-done:
 	case <-time.After(time.Second):
@@ -342,10 +342,10 @@ func TestReAttachPreparerRepreparesUnavailableImage(t *testing.T) {
 			return errors.New("image unavailable")
 		},
 	}
-	dep := &apigen.Deployment{
-		ID:          12,
-		SpecVersion: 4,
-		Def:         apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Version: "v1", Running: true}}},
+	dep := &apigen.DeploymentEvent{
+		DeploymentID: 12,
+		SpecVersion:  4,
+		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Version: "v1", Running: true}}},
 	}
 
 	handle := op.reAttachPreparer(testScheduledInstanceID, dep, apigen.PreparerStatus{

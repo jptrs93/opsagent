@@ -103,12 +103,12 @@ type ApiServerHandler interface {
 	PostV1AccessGlobalRulesList(Context) (*AuthzGlobalRuleList, error)
 	PostV1AccessGlobalRulesCreate(Context, *AuthzGlobalRuleCreateRequest) (*AuthzGlobalRuleRecord, error)
 	PostV1AccessGlobalRulesDelete(Context, *AuthzGlobalRuleDeleteRequest) error
-	GetV1GlobalState(Context) (*GlobalState, error)
-	PostV1GlobalStateStream(Context) iter.Seq2[*State, error]
+	GetV1GlobalSnapshot(Context) (*Snapshot, error)
+	PostV1GlobalStateStream(Context) iter.Seq2[*StateStreamMsg, error]
 	PostV1GlobalExportedConfig(Context) (*ExportedConfigBlob, error)
-	PostV1DeploymentsGet(Context, *DeploymentGetRequest) (*DeploymentState, error)
-	PostV1DeploymentsCreate(Context, *DeploymentCreateRequest) (*Deployment, error)
-	PostV2DeploymentsUpdate(Context, *DeploymentUpdateRequestV2) (*Deployment, error)
+	PostV1DeploymentsGet(Context, *DeploymentGetRequest) (*DeploymentGetResponse, error)
+	PostV1DeploymentsCreate(Context, *DeploymentCreateRequest) (*DeploymentEvent, error)
+	PostV2DeploymentsUpdate(Context, *DeploymentUpdateRequestV2) (*DeploymentEvent, error)
 	PostV1DeploymentsDelete(Context, *DeploymentDeleteRequest) error
 	PostV1DeploymentsRecentlyDeleted(Context, *RecentlyDeletedDeploymentsRequest) (*RecentlyDeletedDeployments, error)
 	PostV1DeploymentsHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
@@ -119,47 +119,47 @@ type ApiServerHandler interface {
 	PostV1MetricsLatest(Context, *MetricsLatestRequest) (*MetricsLatestResponse, error)
 	PostV1DeploymentsPrepareOutput(Context, *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error]
 	PostV1ReposValidate(Context, *RepoValidateRequest) (*RepoValidateResponse, error)
-	PostV1NodesList(Context) (*ClusterNodeList, error)
-	PostV1NodesRename(Context, *NodeRenameRequest) (*ClusterNode, error)
-	PostV1NodesAllowedSpaces(Context, *NodeAllowedSpacesRequest) (*ClusterNode, error)
+	PostV1NodesList(Context) (*NodeEventList, error)
+	PostV1NodesRename(Context, *NodeRenameRequest) (*NodeEvent, error)
+	PostV1NodesAllowedSpaces(Context, *NodeAllowedSpacesRequest) (*NodeEvent, error)
 	GetV1NodesEnrollmentsInfo(Context) (*NodeEnrollmentInfo, error)
 	PostV1NodesEnrollmentsList(Context) (*EnrollmentRequestList, error)
 	PostV1NodesEnrollmentsAccept(Context, *EnrollmentAcceptRequest) (*EnrollmentRequestStatus, error)
 	PostV1SpacesCreate(Context, *SpaceSetRequest) (*Space, error)
 	PostV1SpacesUpdate(Context, *SpaceSetRequest) (*Space, error)
 	PostV1SpacesDelete(Context, *SpaceDeleteRequest) error
-	PostV1NetworkPoliciesList(Context) (*NetworkPolicyList, error)
-	PostV1NetworkPoliciesCreate(Context, *NetworkPolicyCreateRequest) (*NetworkPolicy, error)
-	PostV1NetworkPoliciesUpdate(Context, *NetworkPolicyUpdateRequest) (*NetworkPolicy, error)
+	PostV1NetworkPoliciesList(Context) (*NetworkPolicyEventList, error)
+	PostV1NetworkPoliciesCreate(Context, *NetworkPolicyCreateRequest) (*NetworkPolicyEvent, error)
+	PostV1NetworkPoliciesUpdate(Context, *NetworkPolicyUpdateRequest) (*NetworkPolicyEvent, error)
 	PostV1NetworkPoliciesDelete(Context, *NetworkPolicyDeleteRequest) error
-	PostV1SecretsList(Context) (*SecretList, error)
-	PostV1SecretsCreate(Context, *SecretCreateRequest) (*Secret, error)
-	PostV1SecretsSet(Context, *SecretSetRequest) (*Secret, error)
-	PostV1SecretsGenerate(Context, *SecretGenerateRequest) (*Secret, error)
-	PostV1SecretsRename(Context, *SecretRenameRequest) (*Secret, error)
-	PostV1SecretsMove(Context, *SecretMoveRequest) (*Secret, error)
+	PostV1SecretsList(Context) (*SecretEventList, error)
+	PostV1SecretsCreate(Context, *SecretCreateRequest) (*SecretEvent, error)
+	PostV1SecretsSet(Context, *SecretSetRequest) (*SecretEvent, error)
+	PostV1SecretsGenerate(Context, *SecretGenerateRequest) (*SecretEvent, error)
+	PostV1SecretsRename(Context, *SecretRenameRequest) (*SecretEvent, error)
+	PostV1SecretsMove(Context, *SecretMoveRequest) (*SecretEvent, error)
 	PostV1SecretsReveal(Context, *SecretRevealRequest) (*SecretRevealResponse, error)
 	PostV1SecretsDelete(Context, *SecretDeleteRequest) error
 	PostV1SecretsStatus(Context) (*SecretsStatusResponse, error)
 	PostV1SecretsRotateRecoveryCode(Context) (*SecretRecoveryCodeResponse, error)
 	PostV1SecretsUnlock(Context, *SecretUnlockRequest) (*SecretsStatusResponse, error)
-	PostV1ConfigsList(Context) (*ConfigList, error)
-	PostV1ConfigsCreate(Context, *ConfigCreateRequest) (*Config, error)
-	PostV1ConfigsSet(Context, *ConfigSetRequest) (*Config, error)
-	PostV1ConfigsRename(Context, *ConfigRenameRequest) (*Config, error)
+	PostV1ConfigsList(Context) (*ConfigEventList, error)
+	PostV1ConfigsCreate(Context, *ConfigCreateRequest) (*ConfigEvent, error)
+	PostV1ConfigsSet(Context, *ConfigSetRequest) (*ConfigEvent, error)
+	PostV1ConfigsRename(Context, *ConfigRenameRequest) (*ConfigEvent, error)
 	PostV1ConfigsDelete(Context, *ConfigDeleteRequest) error
-	PostV1ConfigsMove(Context, *ConfigMoveRequest) (*Config, error)
+	PostV1ConfigsMove(Context, *ConfigMoveRequest) (*ConfigEvent, error)
 	PostV1ValueDirectoriesList(Context) (*ValueDirectoryList, error)
 	PostV1ValueDirectoriesCreate(Context, *ValueDirectoryCreateRequest) (*ValueDirectory, error)
 	PostV1ValueDirectoriesMove(Context, *ValueDirectoryMoveRequest) (*ValueDirectory, error)
 	PostV1ValueDirectoriesRename(Context, *ValueDirectoryRenameRequest) (*ValueDirectory, error)
 	PostV1ValueDirectoriesDelete(Context, *ValueDirectoryDeleteRequest) error
-	PostV1AssetsList(Context) (*AssetList, error)
+	PostV1AssetsList(Context) (*AssetEventList, error)
 	GetV1AssetsContent(Context, *http.Request, http.ResponseWriter) error
 	PostV1AssetsUpload(Context, *http.Request, http.ResponseWriter) error
-	PostV1AssetsRename(Context, *AssetRenameRequest) (*Asset, error)
+	PostV1AssetsRename(Context, *AssetRenameRequest) (*AssetEvent, error)
 	PostV1AssetsDelete(Context, *AssetDeleteRequest) error
-	PostV1AssetsMove(Context, *AssetMoveRequest) (*Asset, error)
+	PostV1AssetsMove(Context, *AssetMoveRequest) (*AssetEvent, error)
 	PostV1AssetDirectoriesList(Context) (*AssetDirectoryList, error)
 	PostV1AssetDirectoriesCreate(Context, *AssetDirectoryCreateRequest) (*AssetDirectory, error)
 	PostV1AssetDirectoriesMove(Context, *AssetDirectoryMoveRequest) (*AssetDirectory, error)
@@ -518,12 +518,12 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/access/global-rules/delete", buildHandlerFunc(config, verifyAuth, postV1AccessGlobalRulesDeleteAccessPolicy, postAuthHandlerPostV1AccessGlobalRulesDelete, compressionModeAuto, false))
-	getV1GlobalStateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
-	postAuthHandlerGetV1GlobalState := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		res, err := h.GetV1GlobalState(authCtx)
+	getV1GlobalSnapshotAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerGetV1GlobalSnapshot := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		res, err := h.GetV1GlobalSnapshot(authCtx)
 		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("GET /v1/global/state", buildHandlerFunc(config, verifyAuth, getV1GlobalStateAccessPolicy, postAuthHandlerGetV1GlobalState, compressionModeAuto, false))
+	m.HandleFunc("GET /v1/global/snapshot", buildHandlerFunc(config, verifyAuth, getV1GlobalSnapshotAccessPolicy, postAuthHandlerGetV1GlobalSnapshot, compressionModeAuto, false))
 	postV1GlobalStateStreamAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerPostV1GlobalStateStream := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		seq := h.PostV1GlobalStateStream(authCtx)

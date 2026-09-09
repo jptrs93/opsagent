@@ -58,8 +58,10 @@ Accept: application/json
 binary protobuf, which will look to you like a corrupted response.
 
 Everything below is `POST` with a JSON body unless marked otherwise. JSON field
-names are `snake_case`, matching the examples exactly, and timestamps are RFC
-3339 strings in both directions (`"2026-09-04T05:00:00Z"`). Errors come back as
+names are `snake_case`, matching the examples exactly, and timestamp messages are RFC
+3339 strings (`"2026-09-04T05:00:00Z"`). Both observed status types use an
+`updated_at` timestamp with nanosecond precision. Node/value event times are
+integer Unix milliseconds. Errors come back as
 `{"code": 403, "display_err": "Access denied"}` — `code` repeats the HTTP
 status. Do not retry a `4xx`; it will fail again. Retry `5xx` and connection
 errors.
@@ -107,54 +109,56 @@ one. The one you keep is `/v1/agent-sessions/revoke` for your own session id.
 
 ## 4. Reading state
 
-`GET /v1/global/state` is the starting point for everything. It returns
-`spaces`, `deployments`, `assets`, `configs`, `secrets`,
-`value_directories`, and `asset_directories` — with the ids the other endpoints
-expect. Read it before you change anything. It is filtered to your access, so
-what is absent is either absent or not yours.
+`GET /v1/global/snapshot` is the starting point. It returns a `Snapshot` at
+`seq`, filtered to your access. Its collections are arrays directly:
+`deployment_events`, `scheduled_instance_events`, `instance_statuses`,
+`node_events`, `node_statuses`, `secret_events`, `config_events`, `asset_events`,
+`spaces`, `value_directories`, and `asset_directories`. Empty arrays may be
+omitted in JSON; treat missing collections as empty. Listing endpoints retain
+`{"items": [...]}` and return the latest event per visible live entity.
 
-Every collection is a wrapper around a list, so the deployments are at
-`deployments.items`, the secrets at `secrets.items`, and so on. Listing
-endpoints return the same `{"items": [...]}` shape.
+Each event has an envelope: its stable identity (`deployment_id`, `secret_id`,
+`config_id`, `asset_id`, or `node_id`), `version`, `seq`, `event_id` (the log
+row id), `author`, `event_type`, `created_time`, and `event_time`. The entity
+itself is in `value`. A deployment's editable spec is `value.spec`, alongside
+`value.name`, `value.node_id`, and `value.space_id`. Event type `3` is deletion.
+Select the highest `version` for an entity's current state.
 
-A deployment entry is an envelope around its definition. The top level carries
-`id`, `version` (the concurrency guard every change needs), `spec_version`,
-`event_type`, and timestamps; `def` holds what you actually edit — `name`,
-`space_id`, `node_id`, and `spec`. So a deployment's spec lives at
-`deployments.items[].def.spec`.
+Deployment events include the latest desired version and older versions pinned
+by included instances. Resolve each instance's `value.deployment_version`
+against that deployment's event `version`; join its observed status using
+`scheduled_instance_id`. Status `updated_at` is independent of authored `seq`.
+The snapshot includes live instances and the last finalized run for an ordinal
+without a live placement.
 
-The same collections have their own endpoints when you want one of them fresh:
-`/v1/assets/list`, `/v1/configs/list`, `/v1/secrets/list`,
-`/v1/value-directories/list`, `/v1/asset-directories/list`.
+Value histories are complete, oldest first, for every live secret, config,
+and asset. Group by stable identity. The pinnable version ids are the
+`event_id` of events whose `value_version` differs from the previous event's.
+A rename or space move increments `version` but preserves `value_version`:
+its `event_id` is not a new value pin. The latest event provides current
+`value.fs` and `value.space_id`. Secret `value` contains metadata only.
+Create, set, generate, rename, move, and upload return the exact event appended;
+read history from the snapshot when you need earlier versions.
 
 Per deployment:
 
-- `POST /v1/deployments/get` `{"id": <id>}` — `config` (the same envelope as
-  global state) plus its live `instances.items`. Each instance carries
-  `instance` (its `id` is the scheduled instance id that logs, run reports,
-  and metrics are keyed by, alongside `node_id`), `status.preparer` (`inputs`,
-  `image`) and `status.runner` (`status`, `running_version`,
-  `number_of_restarts`, `exit_code`). That tells you *which stage* failed, not
-  why: the reason is in the build output or the logs. If your session has log
-  access, use the log query or run report below; otherwise report the stage
-  and ask the operator to look.
-- `POST /v1/deployments/history` `{"deployment_id": <id>}` — `entries`,
-  newest first. Each entry is either a config version (`config`, the envelope)
-  or a status change (`status`), so the two interleave into one timeline.
-- `POST /v1/deployments/versions` `{"deployment_id": <id>}` — what is
-  *deployable*: git commits for a nix build (optionally
-  `"selected_branch": "main"`), release tags, or image tags. This is where a
-  `target_version` comes from.
-- `POST /v1/deployments/recently-deleted` `{"limit": 25}` — tombstones of
-  deleted deployments, spec intact. Useful as a template for a new one; the id
-  and version in them are dead.
+- `POST /v1/deployments/get` `{"id": <id>}` returns `deployment_event`,
+  `scheduled_instance_events`, and `instance_statuses`. Join by
+  `scheduled_instance_id`; inspect `preparer.inputs`, `preparer.image`, and
+  `runner.status` to find the failing stage. Build output and logs explain why.
+- `POST /v1/deployments/history` `{"deployment_id": <id>}` returns `entries`,
+  newest first, interleaving config events (`config`) and observed statuses.
+- `POST /v1/deployments/versions` `{"deployment_id": <id>}` returns deployable
+  git commits, release tags, or image tags for `target_version`.
+- `POST /v1/deployments/recently-deleted` `{"limit": 25}` returns tombstones,
+  with specs intact for creating a separate deployment.
 
-**Nodes are not in global state.** `node_id` is required to create a
-deployment; `POST /v1/nodes/list` (empty body) returns the nodes visible to
-you as `{"items": [...]}`, each with its `id`, `name`, and `allowed_spaces` —
-the spaces whose deployments the node accepts (space `0` is always listed and
-is not yours). If none of them is the right host, ask the operator which node
-to use.
+Nodes are in `node_events`; `/v1/nodes/list` returns member node events.
+`value.operator` contains `name`, `roles`, `allowed_spaces`, and `enrolled_time`.
+`value.reported` contains `identifier`, `underlay_address`, `wg_public_key`, and
+`host_addresses`. Placement uses `node_id`, not the display name. Enrollment
+acceptance sends the node's reviewed `version` as `expected_version` (the
+current version, unlike the deployment update convention below).
 
 ## 5. Deployments
 
@@ -167,7 +171,7 @@ curl -sS -X POST '{{.BaseURL}}/v1/deployments/create' \
   -d '{"name": "api", "space_id": 2, "node_id": 1, "spec": { ... }}'
 ```
 
-Write the `spec` by copying a working deployment's spec out of global state (or
+Write the `spec` by copying a working deployment's spec out of the snapshot (or
 a tombstone from `recently-deleted`) and editing it. It is a large validated
 shape and inventing one field-by-field mostly produces `400`s. `name` is unique
 per (name, space, node) — a clash is `409 duplicate_deployment` — and the node
@@ -201,7 +205,7 @@ selecting what kind of change it is. Zero or two of them is a `400`.
 **`spec` is a full replacement.** There is no merge and no partial update. Any
 field you leave out is *dropped*, and the call still returns `200`. So always:
 
-1. `GET /v1/global/state` and take the deployment's current `def.spec` and `version`.
+1. `GET /v1/global/snapshot` and take the deployment's current `value.spec` and `version`.
 2. Modify that object in place.
 3. Send the whole thing back as `spec_update` with `expected_version` set to
    `current + 1`.
@@ -307,13 +311,12 @@ of CPUs in use.
 
 ## 6. Assets
 
-An asset is a stable identity — its `id` never changes across renames, moves,
-or new content. Content lives in immutable numbered versions listed newest
-first in `content_versions`; `content_versions[0].id` is what specs pin. The
-name and folder are in `fs` (`fs.key`, `fs.directory_id`), and the space is in
-`space_versions[0].space_id`.
+An asset has a stable `asset_id`. Its current event carries `value.fs.key`,
+`value.fs.directory_id`, `value.space_id`, `value.sha256`, and `value.size_bytes`.
+Read `asset_events` history using the value-version rule in section 4. Specs
+pin the `event_id` of a content-changing event.
 
-Assets live in a per-space folder tree (`asset_directories` in global state,
+Assets live in a per-space folder tree (`asset_directories` in the snapshot,
 root = directory `0`), and keys are unique per folder, not globally.
 
 To update an existing asset, upload against its stable id:
@@ -335,7 +338,7 @@ Only create when the operator asked for a brand-new asset:
 POST /v1/assets/upload?key=nginx.conf&space_id=2&directory_id=0
 ```
 
-The upload response is the asset, and `content_versions[0].id` is the new
+The upload response is an `AssetEvent`; its `event_id` is the new content
 version id. Uploading does not change what deployments serve; update the spec
 to pin that id (section 5).
 
@@ -352,9 +355,10 @@ Reading and organising:
 
 ## 7. Configs
 
-A config is a plaintext value with the same identity/version split as an asset:
-stable `id`, `fs.name`, `fs.directory_id`, and `value_versions` newest first
-carrying both the `value` and the `id` that env refs pin. Configs and secrets
+A config has a stable `config_id`, with `value.fs.name`,
+`value.fs.directory_id`, `value.space_id`, and plaintext `value.value`.
+Create and set return a `ConfigEvent` whose `event_id` env refs can pin.
+Read older values from `config_events` using section 4's history rule. Configs and secrets
 share one folder tree per space (`value_directories`, root = directory `0`).
 Names are unique per folder.
 
@@ -371,7 +375,7 @@ Names are unique per folder.
 to the new version atomically. When you set it you must list **every**
 deployment currently referencing the config with its **current** version;
 anything missing, extra, or stale is `409 referencing_deployments_changed` —
-re-read global state and retry. Leave both fields out to append a version
+re-read the snapshot and retry. Leave both fields out to append a version
 without touching any deployment, then update specs yourself.
 
 - `POST /v1/configs/rename` `{"config_id": 7, "new_name": "log-level"}`
@@ -381,13 +385,13 @@ without touching any deployment, then update specs yourself.
   plus `/move`, `/rename`, `/delete` (must be empty).
 
 **Configs are not secrets.** Their values are stored in plaintext and are
-returned in global state. Never put a credential in one — use section 8.
+returned in the snapshot. Never put a credential in one — use section 8.
 
 ## 8. Secrets
 
 **The default posture: you can create a secret but not read one.** Secret
 metadata is visible to
-you in `secrets` (name, folder, version ids — never a value). Everything that
+you in `secret_events` (name, folder, version ids — never plaintext). Everything that
 would expose or destroy a value is denied by default: `/v1/secrets/reveal`,
 `/v1/secrets/set`, `/v1/secrets/create` (which carries a plaintext value),
 `/v1/secrets/rename`, `/v1/secrets/move`, and `/v1/secrets/delete` return
@@ -404,17 +408,16 @@ curl -sS -X POST '{{.BaseURL}}/v1/secrets/generate' \
   -d '{"name": "postgres-password", "space_id": 2, "password": {"length": 32}}'
 ```
 
-The response is the secret metadata:
+The response is a `SecretEvent`, containing only metadata:
 
 ```json
-{"id": 30, "fs": {"name": "postgres-password", "directory_id": 0},
- "space_versions": [{"id": 8, "space_id": 2}],
- "versions": [{"id": 12, "version": 1}]}
+{"secret_id": 30, "version": 1, "seq": 42, "event_id": 12,
+ "event_type": 1, "value_version": 1, "space_version": 1,
+ "value": {"fs": {"name": "postgres-password", "directory_id": 0}, "space_id": 2}}
 ```
 
-The root `id` is the stable identity; each entry in `versions` is one immutable
-version, newest first. This is the one time you see these ids, so keep them.
-Deployment env refs pin a **version**: put `versions[0].id` into the spec as
+`secret_id` is the stable identity. This creation event changed the value
+facet, so put its `event_id` into the spec as the immutable version pin:
 
 ```json
 "env_vars": {"POSTGRES_PASSWORD": {"secret_version_id": 12}}
@@ -441,7 +444,7 @@ it — that is not something you can fix.
 
 ## 9. Spaces
 
-Spaces come from `spaces` in global state. You can rename one
+Spaces come from `spaces` in the snapshot. You can rename one
 (`/v1/spaces/update` `{"id": 2, "name": "staging"}`) and delete one
 (`/v1/spaces/delete` `{"id": 2}`), but by default **not create one** —
 `/v1/spaces/create` is `403` under the builtin rules. Deleting a space is the
@@ -469,7 +472,9 @@ deployment peer follows the deployment if it moves space. `ports` empty means
 every port and protocol; `protocol` is `1` for TCP or `2` for UDP, and
 `port_end` turns `port` into a range. Writing needs update rights on the
 destination's space, and a policy whose source and destination resolve to the
-same space is rejected as redundant. `/update` takes the policy's `id` and its
+same space is rejected as redundant. List/create/update return
+`NetworkPolicyEvent` envelopes with policy content in `value`. `/update` takes
+the event's `network_policy_id` as request `id` and its
 **current** `version` (not `+ 1` as for deployments) plus the same fields;
 `/delete` takes `{"id": <id>}` and is destructive (section 10).
 
@@ -496,7 +501,7 @@ the live API's answer is the truth. A `403` will not change on retry: ask.
 
 | Endpoint | |
 |---|---|
-| `GET /v1/global/state` | yes |
+| `GET /v1/global/snapshot` | yes |
 | `POST /v1/nodes/list` | yes |
 | `POST /v1/deployments/get` `/history` `/versions` `/recently-deleted` | yes |
 | `POST /v1/assets/list`, `GET /v1/assets/content` | yes |

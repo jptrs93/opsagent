@@ -16,7 +16,7 @@ import "api-contract/model/network_policies.proto";
 import "api-contract/model_network_policies_operations.proto";
 import "api-contract/model/nodes.proto";
 import "api-contract/model_nodes_operations.proto";
-import "api-contract/model/primary_config.proto";
+import "api-contract/model/system_config.proto";
 import "api-contract/model/secrets.proto";
 import "api-contract/model_secrets_operations.proto";
 import "api-contract/model/sessions.proto";
@@ -27,64 +27,61 @@ import "api-contract/options.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-// State is the UI stream envelope. The primary emits initial snapshots on
-// subscribe, then emits updates as the store sees changes, with periodic
-// heartbeats to keep the HTTP connection alive.
-message State {
-  bool heartbeat = 1;
-  DeploymentSnapshot deployments_snapshot = 2;
-  Deployment deployment_update = 3;
-  repeated User users_snapshot = 4;
-  User user_update = 5;
-  EnrollmentRequestList enrollments_snapshot = 6;
-  EnrollmentRequestStatus enrollment_update = 7;
-  SecretsStatusResponse secrets_status_snapshot = 8;
-  SecretList secret_metas_snapshot = 9;
-  Secret secret_meta_update = 10;
-  ConfigList user_config_values_snapshot = 11;
-  Config user_config_value_update = 12;
-  SpaceList spaces_snapshot = 13;
-  Space space_update = 14;
-  AssetList assets_snapshot = 15;
-  Asset asset_update = 16;
-  ClusterNodeList nodes_snapshot = 17;
-  ClusterNode node_update = 18;
-  ClusterNodeStatusList node_statuses_snapshot = 19;
-  ClusterNodeStatus node_status_update = 20;
-  BackupStatus backup_status_snapshot = 21;
-  BackupStatus backup_status_update = 22;
-  // Full redacted primary configuration, emitted initially and after every
-  // persisted configuration change.
-  PrimaryConfigVersion config_snapshot = 23 [(cp.go_value) = true];
-  ScheduledInstanceSnapshot scheduled_instances_snapshot = 24;
-  ScheduledInstanceState scheduled_instance_update = 25;
-  // Filtered to the connected user before it is yielded, unlike every other
-  // field here: agent sessions belong to one operator.
-  AgentSessionList agent_sessions_snapshot = 26;
-  AgentSession agent_session_update = 27;
-  ValueDirectoryList value_directories_snapshot = 28;
-  ValueDirectory value_directory_update = 29;
-  AssetDirectoryList asset_directories_snapshot = 30;
-  AssetDirectory asset_directory_update = 31;
-  // Authz collections are small and mutate rarely, so each change re-emits the
-  // full snapshot instead of tombstoning hard-deleted grants and rules.
-  AuthzRuleTemplateList authz_rule_templates_snapshot = 32;
-  AuthzGrantList authz_grants_snapshot = 33;
-  AuthzGlobalRuleList authz_global_rules_snapshot = 34;
-  // Network policies are small and mutate rarely; each change re-emits the
-  // full snapshot like the authz collections.
-  NetworkPolicyList network_policies_snapshot = 35;
-  // Ingress evaluation warnings per deployment, re-emitted in full whenever the
-  // cluster network map is re-rendered.
-  IngressDiagnosticList ingress_diagnostics_snapshot = 36;
+message Snapshot {
+  int64 seq = 1;
+  repeated DeploymentEvent deployment_events = 2;          // see "Snapshot contents"
+  repeated ScheduledInstanceEvent scheduled_instance_events = 3;
+  repeated ScheduledInstanceStatus instance_statuses = 4;  // observed
+  repeated NodeEvent node_events = 5;
+  repeated NodeStatus node_statuses = 6;                    // observed
+  repeated SecretEvent secret_events = 7;                  // full history per live secret
+  repeated ConfigEvent config_events = 8;
+  repeated AssetEvent asset_events = 9;
+  repeated ValueDirectory value_directories = 10;
+  repeated AssetDirectory asset_directories = 11;
+  repeated Space spaces = 12;
+  repeated NetworkPolicyEvent network_policy_events = 13;
+  repeated User users = 14;
+  repeated AgentSession agent_sessions = 15;
+  repeated AuthzRuleTemplateRecord authz_rule_templates = 16;
+  repeated AuthzGrantEvent authz_grant_events = 17;
+  repeated AuthzGlobalRuleRecord authz_global_rules = 18;
+  SecretsStatusResponse secrets_status = 19;
+  BackupStatus backup_status = 20;
+  SystemConfigVersion system_config = 21;
+  IngressDiagnosticList ingress_diagnostics = 22;
 }
 
-message GlobalState {
-  SpaceList spaces = 1;
-  AssetList assets = 2;
-  ConfigList configs = 3;
-  SecretList secrets = 4;
-  DeploymentSnapshot deployments = 5;
-  ValueDirectoryList value_directories = 6;
-  AssetDirectoryList asset_directories = 7;
+// One commit's authored facts. Every commit that writes core or observed rows
+// consumes one global seq, so a seq gap on one stream is an observed-only commit.
+message CoreUpdate {
+  int64 seq = 1;
+  repeated DeploymentEvent deployment_events = 2;
+  repeated ScheduledInstanceEvent scheduled_instance_events = 3;
+  repeated NodeEvent node_events = 4;
+  repeated SecretEvent secret_events = 5;
+  repeated ConfigEvent config_events = 6;
+  repeated AssetEvent asset_events = 7;
+  repeated NetworkPolicyEvent network_policy_events = 8;
+  repeated Space spaces = 9;
+  repeated User users = 10;
+  repeated ValueDirectory value_directories = 11;
+  repeated AssetDirectory asset_directories = 12;
+  AuthzRuleTemplateList authz_rule_templates = 13;
+  repeated AuthzGrantEvent authz_grant_events = 14;
+  AuthzGlobalRuleList authz_global_rules = 15;
+  SystemConfigVersion system_config = 16;
+  repeated ScheduledInstanceStatus instance_statuses = 17;
+  repeated NodeStatus node_statuses = 18;
+}
+
+message StateStreamMsg {
+  Snapshot snapshot = 1;
+  CoreUpdate core = 2;
+  bool heartbeat = 4;
+  BackupStatus backup_status = 5;
+  IngressDiagnosticList ingress_diagnostics = 6;
+  SecretsStatusResponse secrets_status = 7;
+  // The wrapper distinguishes an empty replacement from an absent update.
+  AgentSessionList agent_sessions = 8;
 }

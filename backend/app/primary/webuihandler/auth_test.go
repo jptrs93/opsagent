@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -14,8 +15,8 @@ import (
 
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/jwtu"
 )
@@ -33,25 +34,25 @@ func newAuthTestHandler(t *testing.T) (*Handler, *apigen.InternalUser) {
 	// InitializeService rather than NewService: nothing has written a primary
 	// config into this throwaway store, and NewService pointedly refuses to
 	// invent one.
-	configService, err := config.InitializeService(store, apigen.PrimaryConfig{})
+	configService, err := systemconfig.InitializeService(store, apigen.SystemConfig{})
 	if err != nil {
-		t.Fatalf("config.InitializeService: %v", err)
+		t.Fatalf("systemconfig.InitializeService: %v", err)
 	}
-	h := &Handler{Store: store, Secrets: secretManager, ConfigService: configService}
+	h := &Handler{Store: store, Queries: store.Queries(), Secrets: secretManager, SystemConfig: configService}
 	h.jwtAuth = authu.NewJWTAuth[*apigen.InternalUser, int32](
 		func(kid string, key []byte) error {
-			h.Store.WritePublicKey(&apigen.PublicKeyRecord{Kid: kid, KeyBytes: key})
+			users.WritePublicKey(h.Store.Queries(), &apigen.PublicKeyRecord{Kid: kid, KeyBytes: key})
 			return nil
 		},
 		func(kid string) ([]byte, error) {
-			rec, err := h.Store.FetchPublicKey(kid)
+			rec, err := users.PublicKey(h.Store.Queries(), kid)
 			if err != nil {
 				return nil, err
 			}
 			return rec.KeyBytes, nil
 		},
 		func(id int32) (*apigen.InternalUser, error) {
-			return h.Store.FetchUserByID(id)
+			return users.ByID(h.Store.Queries(), id)
 		},
 	)
 	webAuthNID, err := authu.GenerateWebAuthnID(32)
@@ -59,7 +60,7 @@ func newAuthTestHandler(t *testing.T) (*Handler, *apigen.InternalUser) {
 		t.Fatalf("GenerateWebAuthnID: %v", err)
 	}
 	user := &apigen.InternalUser{ID: 1, WebAuthNID: webAuthNID, Name: "operator"}
-	store.WriteUser(user)
+	users.Write(store, user)
 	return h, user
 }
 
@@ -242,7 +243,7 @@ func TestAgentSessionStoresOnlyTokenHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
 	}
-	rec, err := h.Store.FetchAgentSession(res.Session.ID)
+	rec, err := h.agentSessions().FetchAgentSession(res.Session.ID)
 	if err != nil {
 		t.Fatalf("FetchAgentSession: %v", err)
 	}
@@ -264,7 +265,7 @@ func TestAgentSessionStoresOnlyTokenHash(t *testing.T) {
 func TestAgentSessionsListReturnsOnlyTheCallersSessions(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	other := &apigen.InternalUser{ID: 2, WebAuthNID: user.WebAuthNID, Name: "other"}
-	h.Store.WriteUser(other)
+	users.Write(h.Store, other)
 
 	mine, err := h.PostV1AgentSessionsCreate(apigen.Context{
 		Ctx: context.Background(), User: user, Token: h.mustToken(t, user.ID, []string{"default"}, time.Hour),
@@ -334,7 +335,7 @@ func TestRevokedAgentSessionTokenFailsVerifyAuth(t *testing.T) {
 func TestAgentSessionRevokeIsScopedToTheOwner(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	other := &apigen.InternalUser{ID: 2, WebAuthNID: user.WebAuthNID, Name: "other"}
-	h.Store.WriteUser(other)
+	users.Write(h.Store, other)
 
 	res, err := h.PostV1AgentSessionsCreate(apigen.Context{
 		Ctx: context.Background(), User: user, Token: h.mustToken(t, user.ID, []string{"default"}, time.Hour),
@@ -350,7 +351,7 @@ func TestAgentSessionRevokeIsScopedToTheOwner(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected another user's revoke to fail")
 	}
-	rec, fetchErr := h.Store.FetchAgentSession(res.Session.ID)
+	rec, fetchErr := h.agentSessions().FetchAgentSession(res.Session.ID)
 	if fetchErr != nil {
 		t.Fatalf("FetchAgentSession: %v", fetchErr)
 	}

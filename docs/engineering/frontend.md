@@ -8,7 +8,10 @@ Key files:
 - `frontend/src/app.js` — bootstraps the app and dispatches routes.
 - `frontend/src/lib/router.js` — `currentPath` / `navigate` helpers over `popstate` + `history.pushState`.
 - `frontend/src/state/login.js` — authentication state management.
-- `frontend/src/state/deployments.js` — live state stream consumer (see `POST /v1/global/state-stream`).
+- `frontend/src/state/deployments.js` — live transport, reconnect and inactivity handling.
+- `frontend/src/state/tree.js` — snapshot/update reducers, authored sequence gate, observed clock merge, and deployment version pruning.
+- `frontend/src/state/derive.js` — VanJS view states derived after each entire transaction. Value pickers derive pins from the events that changed the value facet.
+- `frontend/src/state/deploymentMerge.js` — deployment row derive, selecting live placements or the latest finalized incarnation per ordinal.
 - `frontend/src/pages/` — page-level components.
 - `frontend/src/components/` — reusable UI pieces.
 - `frontend/src/capi/` — generated API client (`capi.js`, `model.js`) plus the stream decoder helper.
@@ -51,9 +54,32 @@ The dashboard uses a split-pane layout:
 - Step one is the grouped username/master-password box with an "Authenticate" button; step two is a success notice with the "Register passkey" button, plus a note offering master-password login instead when that is enabled. Failures render as notices in place, with a "Go to login" link where a passkey already exists or the browser refused registration.
 - The footer band carries the same transport row as login (so the CA can be trusted before WebAuthn is attempted) and "Back to login", which navigates to `/login`.
 
+### Global state
+
+`state/tree.js` owns normalized maps and pure reducers; `state/derive.js`
+projects them into the existing page view models. `applyCore` folds an entire
+transaction before publishing derives and ignores sequences already applied.
+`applyObserved` merges both status collections by their nanosecond `updatedAt`,
+using the generated Date's `epochNanoseconds` when present. Tombstones clear
+the visible entry while retaining its clock until its parent is pruned.
+
+Snapshots replace core and observed maps, including observation watermarks.
+Backup, secrets status, ingress diagnostics, and owner-filtered agent sessions
+have separate replacement reducers; absent sidecars survive core resets.
+Logout clears every context. The stream transport dispatches each message kind
+independently and reconnects after overflow or lost heartbeat. Deployment
+retention uses the same placement selector as the view: live pins and the
+newest final run retain their referenced versions, with obsolete versions
+pruned when those pins disappear.
+
+Grant state follows the event reducer: `authzGrantEvents` populate a map keyed
+by `authzGrantId`, and delete events remove that entry. User-page grant records
+derive their subject, bindings, identity, and attribution from the remaining
+events. A visibility reset replaces the map with the snapshot's live grants.
+
 ### Deployments (`pages/deployments.js` and `pages/status.js`)
 - `pages/deployments.js` owns a top tab bar: the status table is pinned left as "Overview", and every editor (Update on a row, Add deployment, Fork, restore from recently deleted) opens as a full-page tab. One update tab per deployment (re-opening focuses it), one tab per create; Cancel and a successful save close the tab and activate its neighbour; the × button, middle click, and Delete/Backspace close it too, asking first when the tab carries unsaved edits (an amber dot marks dirty tabs). Panels stay mounted while hidden so drafts survive switching, and `pages/dashboard.js` keeps the whole page mounted behind other pages so tabs survive a detour through Logs. The page takes an `actions` override for the editor's API calls; production uses `capi`.
-- `pages/status.js` consumes live deployment state from `POST /v1/global/state-stream` (binary protobuf stream via `AsyncIterable<State>`) and renders one table row per deployment, sorted by OPENDEPLOY-last, then space, name, node, and id (deterministic across stream reconnects). It owns no deployment editor: `statusPage(onOpenLogs, {onUpdate, onCreate})` hands every editor open to the page hooks. Creates POST a typed `DeploymentCreateRequest` via `POST /v1/deployments/create`; updates submit a typed `DeploymentUpdateRequestV2` via `POST /v2/deployments/update`.
+- `pages/status.js` consumes live deployment state from `POST /v1/global/state-stream` (binary protobuf stream via `AsyncIterable<StateStreamMsg>`) and renders one table row per deployment, sorted by OPENDEPLOY-last, then space, name, node, and id (deterministic across stream reconnects). It owns no deployment editor: `statusPage(onOpenLogs, {onUpdate, onCreate})` hands every editor open to the page hooks. Creates POST a typed `DeploymentCreateRequest` via `POST /v1/deployments/create`; updates submit a typed `DeploymentUpdateRequestV2` via `POST /v2/deployments/update`.
 - Each row (`components/statusCard.js`) shows deployment, node, prepare and runtime details, audit metadata, and deployment actions. Status and Version are vertically split into one oldest-first subcell per non-final scheduled instance during rollovers; a candidate uses its pinned target version until its runner reports a version.
 - The per-node internal `opendeploy` and `opendeploy-net` deployments are merged client-side into one group row each (`makeSystemGroups` in `pages/status.js`, rendered by `systemGroupStatusRow`), with Node, Status, Version, Prepare, Restarts, and audit cells split into one subline per node — secondaries first, primary last. Their Update action opens `components/openDeployGroupUpdateOverlay.js`: a per-node table of current and target release dropdowns with an "Align versions" toggle (on by default, the primary's dropdown drives all rows). On confirm the browser orchestrates the rollout itself via sequential `POST /v2/deployments/update` calls — secondaries one at a time, each waiting for the node's runner to report the new version through the state stream, primary last, halting on the first failure. With the toggle off, only nodes whose dropdown was explicitly changed are acted on; untouched nodes are skipped entirely, so successive single-node canary upgrades never revert each other. The `opendeploy` and `opendeploy-net` groups are deliberately uncoupled: rolling one never touches the other.
 - The deployment editor has independent UI and HCL editor surfaces over one API-shaped authoring document. Valid HCL updates the shared document; invalid HCL is retained privately while the UI continues to show the last valid state. Code is the default surface; the last UI/Code choice persists per browser under the `localStorage` key `opsagent_deployment_editor_mode`. CodeMirror is loaded only when Code mode is first opened.
@@ -67,10 +93,10 @@ The dashboard uses a split-pane layout:
 - `window.__metricsResult` and `window.__metricsLatest` mirror the last responses for e2e assertions, like the Logs page's `__logsResult`.
 
 ### Cluster (`pages/cluster.js`)
-- Shows primary + worker machines and connection state, derived client-side from the state stream's `ClusterNode` and `ClusterNodeStatus` snapshots.
+- Shows primary + worker machines and connection state, derived client-side from the state stream's `NodeEvent` and `NodeStatus` arrays.
 - Allows editing a machine's display name without changing its certificate or deployment identity.
 
-Deployment node selectors render `ClusterNode.name` and submit `ClusterNode.id` as `DeploymentCreateRequest.nodeId`.
+Deployment node selectors render `NodeEvent.value.operator.name` and submit `NodeEvent.nodeId` as `DeploymentCreateRequest.nodeId`.
 
 ## Deployment editor
 

@@ -28,6 +28,6 @@ func IsInternalIdentity(spaceID int32, name string) bool {
 	return IsSelfIdentity(spaceID, name) || IsNetproxyIdentity(spaceID, name)
 }
 
-func IsNetproxyConfig(cfg *apigen.Deployment) bool {
-	return cfg != nil && IsNetproxyIdentity(cfg.Def.SpaceID, cfg.Def.Name)
+func IsNetproxyConfig(cfg *apigen.DeploymentEvent) bool {
+	return cfg != nil && IsNetproxyIdentity(cfg.Value.SpaceID, cfg.Value.Name)
 }

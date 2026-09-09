@@ -12,8 +12,8 @@ import (
 	"github.com/jptrs93/goutil/timeu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 )
 
 var (
@@ -28,14 +28,14 @@ type secretStore interface {
 }
 
 type statusPublisher interface {
-	NotifyBackupStatusUpdate(apigen.BackupStatus)
+	Publish(apigen.BackupStatus)
 }
 
 type assetStatusSource interface {
 	AssetStorageStatus() (targetS3 bool, pending int, running bool, err string)
 }
 
-func StartReplication(ctx context.Context, configService *config.Service, secretSource secretStore, publisher statusPublisher, assets assetStatusSource) <-chan struct{} {
+func StartReplication(ctx context.Context, configService *systemconfig.Service, secretSource secretStore, publisher statusPublisher, assets assetStatusSource) <-chan struct{} {
 	ctx = logu.AddTag(ctx, "Backup")
 	done := make(chan struct{})
 	filter := newBackupConfigFilter(configService, secretSource)
@@ -54,7 +54,7 @@ func StartReplication(ctx context.Context, configService *config.Service, secret
 				currentDone = nil
 			}
 		}
-		apply := func(cfg apigen.PrimaryConfig) {
+		apply := func(cfg apigen.SystemConfig) {
 			stopCurrent()
 			if !configured(configService, &cfg.Settings) {
 				if err := stopReplication(context.WithoutCancel(ctx)); err != nil {
@@ -101,7 +101,7 @@ type backupConfigFilter struct {
 	mu      sync.Mutex
 	last    backupConfigSignal
 	seen    bool
-	loader  config.Loader
+	loader  systemconfig.Loader
 	secrets secretStore
 }
 
@@ -117,11 +117,11 @@ type backupConfigSignal struct {
 	ConfigError     string
 }
 
-func newBackupConfigFilter(loader config.Loader, secretSource secretStore) *backupConfigFilter {
+func newBackupConfigFilter(loader systemconfig.Loader, secretSource secretStore) *backupConfigFilter {
 	return &backupConfigFilter{loader: loader, secrets: secretSource}
 }
 
-func (f *backupConfigFilter) Filter(prev, cfg apigen.PrimaryConfig) bool {
+func (f *backupConfigFilter) Filter(prev, cfg apigen.SystemConfig) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	next := backupConfigSignalFromDynamic(f.loader, &cfg.Settings, f.secrets)
@@ -133,20 +133,20 @@ func (f *backupConfigFilter) Filter(prev, cfg apigen.PrimaryConfig) bool {
 	return true
 }
 
-func (f *backupConfigFilter) SetInitial(cfg apigen.PrimaryConfig) {
+func (f *backupConfigFilter) SetInitial(cfg apigen.SystemConfig) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.last = backupConfigSignalFromDynamic(f.loader, &cfg.Settings, f.secrets)
 	f.seen = true
 }
 
-func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.ClusterSettings, secretSource secretStore) backupConfigSignal {
-	enabled := loader.MustLoadConfigBoolValue(cfg.Backup.Enabled)
+func backupConfigSignalFromDynamic(loader systemconfig.Loader, cfg *apigen.ClusterSettings, secretSource secretStore) backupConfigSignal {
+	enabled := loader.MustLoadBoolSetting(cfg.Backup.Enabled)
 	signal := backupConfigSignal{Enabled: enabled}
 	if !signal.Enabled {
 		return signal
 	}
-	signal.AccessKeyID = loader.MustLoadConfigStringValue(cfg.Backup.S3AccessKeyID)
+	signal.AccessKeyID = loader.MustLoadStringSetting(cfg.Backup.S3AccessKeyID)
 	secretRef := cfg.Backup.S3SecretAccessKey
 	signal.SecretID = secretRef.VersionID
 	if secretSource != nil && signal.SecretID != 0 {
@@ -154,14 +154,14 @@ func backupConfigSignalFromDynamic(loader config.Loader, cfg *apigen.ClusterSett
 			signal.SecretUpdatedAt = meta.CreatedAt
 		}
 	}
-	signal.Bucket = loader.MustLoadConfigStringValue(cfg.Backup.S3Bucket)
-	signal.Path = loader.MustLoadConfigStringValue(cfg.Backup.S3Path)
-	signal.Region = loader.MustLoadConfigStringValue(cfg.Backup.S3Region)
-	signal.Endpoint = loader.MustLoadConfigStringValue(cfg.Backup.S3Endpoint)
+	signal.Bucket = loader.MustLoadStringSetting(cfg.Backup.S3Bucket)
+	signal.Path = loader.MustLoadStringSetting(cfg.Backup.S3Path)
+	signal.Region = loader.MustLoadStringSetting(cfg.Backup.S3Region)
+	signal.Endpoint = loader.MustLoadStringSetting(cfg.Backup.S3Endpoint)
 	return signal
 }
 
-func runReplication(ctx context.Context, loader config.Loader, cfg *apigen.ClusterSettings, secretSource secretStore, publisher statusPublisher, assets assetStatusSource) {
+func runReplication(ctx context.Context, loader systemconfig.Loader, cfg *apigen.ClusterSettings, secretSource secretStore, publisher statusPublisher, assets assetStatusSource) {
 	defer func() {
 		if err := stopReplication(context.WithoutCancel(ctx)); err != nil {
 			slog.ErrorContext(ctx, "stop backup replication", "err", err)
@@ -306,7 +306,7 @@ func withAssetStatus(status apigen.BackupStatus, assets assetStatusSource) apige
 
 func publishBackupStatus(publisher statusPublisher, status apigen.BackupStatus) {
 	if publisher != nil {
-		publisher.NotifyBackupStatusUpdate(status)
+		publisher.Publish(status)
 	}
 }
 
@@ -331,22 +331,22 @@ func closeActiveProcess(ctx context.Context) error {
 	return nil
 }
 
-func configured(loader config.Loader, cfg *apigen.ClusterSettings) bool {
-	return loader.MustLoadConfigBoolValue(cfg.Backup.Enabled)
+func configured(loader systemconfig.Loader, cfg *apigen.ClusterSettings) bool {
+	return loader.MustLoadBoolSetting(cfg.Backup.Enabled)
 }
 
-func resolvedBackupConfigFromDynamic(loader config.Loader, cfg *apigen.ClusterSettings, secretSource secretStore) (S3Config, error) {
+func resolvedBackupConfigFromDynamic(loader systemconfig.Loader, cfg *apigen.ClusterSettings, secretSource secretStore) (S3Config, error) {
 	secretAccessKey, err := revealSecretRef(secretSource, cfg.Backup.S3SecretAccessKey)
 	if err != nil {
 		return S3Config{}, fmt.Errorf("reveal backup S3 secret access key: %w", err)
 	}
 	backupCfg := S3Config{
-		AccessKeyID:     loader.MustLoadConfigStringValue(cfg.Backup.S3AccessKeyID),
+		AccessKeyID:     loader.MustLoadStringSetting(cfg.Backup.S3AccessKeyID),
 		SecretAccessKey: secretAccessKey,
-		Bucket:          loader.MustLoadConfigStringValue(cfg.Backup.S3Bucket),
-		Path:            loader.MustLoadConfigStringValue(cfg.Backup.S3Path),
-		Region:          loader.MustLoadConfigStringValue(cfg.Backup.S3Region),
-		Endpoint:        loader.MustLoadConfigStringValue(cfg.Backup.S3Endpoint),
+		Bucket:          loader.MustLoadStringSetting(cfg.Backup.S3Bucket),
+		Path:            loader.MustLoadStringSetting(cfg.Backup.S3Path),
+		Region:          loader.MustLoadStringSetting(cfg.Backup.S3Region),
+		Endpoint:        loader.MustLoadStringSetting(cfg.Backup.S3Endpoint),
 	}
 	if err := validateConfig(backupCfg); err != nil {
 		return S3Config{}, err

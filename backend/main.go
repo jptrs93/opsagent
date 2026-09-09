@@ -12,11 +12,11 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/app/installer"
-	"github.com/jptrs93/opsagent/backend/app/logconsumer"
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
 	"github.com/jptrs93/opsagent/backend/app/primary"
 	"github.com/jptrs93/opsagent/backend/app/primary/backup"
 	"github.com/jptrs93/opsagent/backend/app/secondary"
+	"github.com/jptrs93/opsagent/backend/lib/log/logconsumer"
 )
 
 //go:generate sh -c "cd ../frontend && pnpm install && pnpm run build"

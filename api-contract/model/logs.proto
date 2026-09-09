@@ -6,7 +6,7 @@ option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 message RawLogLine {
   int64 time = 1;              // Unix nanoseconds.
-  int32 version = 2;           // Deployment config version.
+  int32 version = 2;           // DeploymentEvent config version.
   int32 run = 3;               // Run/restart number.
   int32 stream = 4;            // 0 = stdout, 1 = stderr.
   bytes line = 5;              // Raw log line bytes.
@@ -23,7 +23,7 @@ message LogRecord {
   string msg = 3;                  // Parsed message text; the whole line for unstructured lines.
   map<string, string> fields = 4;  // Remaining parsed JSON fields as flat strings.
   bytes raw = 5;                   // Original line bytes; only set when include_raw was requested.
-  int32 version = 6;               // Deployment config version.
+  int32 version = 6;               // DeploymentEvent config version.
   int32 stream = 7;                // 0 = stdout, 1 = stderr.
   int32 instance_ordinal = 8;
   int32 run = 9;

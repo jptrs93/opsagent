@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/pki"
 	"log/slog"
 	"net"
 	"net/http"
@@ -12,7 +13,7 @@ import (
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
-	"github.com/jptrs93/opsagent/backend/lib/config"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
 
@@ -21,13 +22,13 @@ const primaryServerShutdownTimeout = 20 * time.Second
 func RunPrimary(
 	ctx context.Context,
 	h apigen.OpsagentClusterV1Handler,
-	loader config.Loader,
-	material *certu.Material,
+	loader systemconfig.Loader,
+	material *pki.Material,
 	listenSetting apigen.StringSetting,
 ) error {
 	ctx = logu.AddTag(ctx, "ClusterServer")
 	tlsCfg := certu.MustLoadTLSConfigFromPEM(material.CACert, material.PrimaryCert, material.PrimaryKey)
-	listen := loader.MustLoadConfigStringValue(listenSetting)
+	listen := loader.MustLoadStringSetting(listenSetting)
 
 	// The cluster transport is a separate mTLS HTTP/2-only listener; peer
 	// identity comes from the client cert CN. The server emits health-check PINGs
@@ -59,13 +60,13 @@ func RunEnrollment(
 	ctx context.Context,
 	h apigen.EnrollmentV1Handler,
 	verifyAuth apigen.VerifyAuthFunc,
-	loader config.Loader,
-	material *certu.Material,
+	loader systemconfig.Loader,
+	material *pki.Material,
 	listenSetting apigen.StringSetting,
 	middlewares ...apigen.MiddlewareFunc,
 ) error {
 	ctx = logu.AddTag(ctx, "ClusterServer")
-	listen := loader.MustLoadConfigStringValue(listenSetting)
+	listen := loader.MustLoadStringSetting(listenSetting)
 	streamMiddlewares := []apigen.MiddlewareFunc{
 		func(next apigen.HandlerFunc) apigen.HandlerFunc {
 			return func(requestCtx context.Context, w http.ResponseWriter, r *http.Request) {

@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/agentsessions"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -15,7 +17,6 @@ import (
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/clientaddr"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/jwtu"
 )
 
@@ -81,20 +82,6 @@ func generateApprovalCode() (string, error) {
 	return string(out), nil
 }
 
-func agentSessionToProto(rec state.AgentSessionRecord) *apigen.AgentSession {
-	return &apigen.AgentSession{
-		ID:                rec.ID,
-		CreatedAt:         rec.CreatedAt,
-		ExpiresAt:         rec.ExpiresAt,
-		TokenPrefix:       rec.TokenPrefix,
-		Scopes:            append([]string(nil), rec.Scopes...),
-		Status:            rec.Status,
-		RequestingAddress: rec.RequestingAddress,
-		ApprovalCode:      rec.ApprovalCode,
-		ApprovedAt:        rec.ApprovedAt,
-	}
-}
-
 // signAgentToken mints the bearer token for a session. Signed here rather than
 // through GenerateTokenWith so the session id can ride along as jti; VerifyAuth
 // uses it to find the row. The sub encoding matches what authu does for a
@@ -140,7 +127,7 @@ func (h *Handler) PostV1AgentSessionsCreate(ctx apigen.Context) (*apigen.AgentSe
 	if err != nil {
 		return nil, fmt.Errorf("generating agent session token: %w", err)
 	}
-	rec := state.AgentSessionRecord{
+	rec := agentsessions.Record{
 		ID:                sessionID,
 		UserID:            user.ID,
 		CreatedAt:         now,
@@ -152,13 +139,13 @@ func (h *Handler) PostV1AgentSessionsCreate(ctx apigen.Context) (*apigen.AgentSe
 		RequestingAddress: clientaddr.From(ctx),
 		ApprovedAt:        now,
 	}
-	if err := h.Store.InsertAgentSession(rec); err != nil {
+	if err := h.agentSessions().InsertAgentSession(rec); err != nil {
 		return nil, fmt.Errorf("storing agent session: %w", err)
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("started agent session ttl=%s scopes=%v", agentSessionTTL, scopes), "session", sessionID)
 	return &apigen.AgentSessionCreated{
 		Token:   token,
-		Session: agentSessionToProto(rec),
+		Session: agentsessions.ToProto(rec),
 	}, nil
 }
 
@@ -171,15 +158,15 @@ func (h *Handler) PostV1AgentSessionsCreate(ctx apigen.Context) (*apigen.AgentSe
 // asked to choose between two identical-looking requests. Stale ones are closed
 // on the way through rather than by a sweeper.
 func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apigen.AgentSessionRequestStartRequest) (*apigen.AgentSessionRequest, error) {
-	user, err := h.Store.FetchUserMatching(func(u *apigen.InternalUser) bool { return u.ID == req.UserID })
-	if errors.Is(err, state.ErrNotFound) {
+	user, err := users.Matching(h.Store.Queries(), func(u *apigen.InternalUser) bool { return u.ID == req.UserID })
+	if errors.Is(err, users.ErrNotFound) {
 		return nil, AgentSessionUserNotFoundErr
 	}
 	if err != nil {
 		return nil, fmt.Errorf("resolving user for agent session request: %w", err)
 	}
 	now := time.Now()
-	pending, err := h.Store.ListPendingAgentSessionsForUser(user.ID)
+	pending, err := h.agentSessions().ListPendingAgentSessionsForUser(user.ID)
 	if err != nil {
 		return nil, fmt.Errorf("listing pending agent sessions: %w", err)
 	}
@@ -187,7 +174,7 @@ func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apige
 		if now.Sub(rec.CreatedAt) < agentSessionPendingTTL {
 			return nil, AgentSessionRequestPendingErr
 		}
-		if err := h.Store.SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, time.Time{}, now); err != nil {
+		if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, time.Time{}, now); err != nil {
 			return nil, fmt.Errorf("closing stale agent session request: %w", err)
 		}
 		slog.InfoContext(ctx, "closed stale agent session request", "session", rec.ID)
@@ -202,7 +189,7 @@ func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apige
 	if err != nil {
 		return nil, err
 	}
-	rec := state.AgentSessionRecord{
+	rec := agentsessions.Record{
 		ID:                sessionID,
 		UserID:            user.ID,
 		CreatedAt:         now,
@@ -210,7 +197,7 @@ func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apige
 		RequestingAddress: clientaddr.From(ctx),
 		ApprovalCode:      code,
 	}
-	if err := h.Store.InsertAgentSession(rec); err != nil {
+	if err := h.agentSessions().InsertAgentSession(rec); err != nil {
 		return nil, fmt.Errorf("storing agent session request: %w", err)
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("agent session requested address=%s", rec.RequestingAddress), "session", sessionID, "user", user.ID)
@@ -232,8 +219,8 @@ func (h *Handler) PostV1AgentSessionsGetSession(ctx apigen.Context, req *apigen.
 	if strings.TrimSpace(req.ID) == "" {
 		return nil, AgentSessionNotFoundErr
 	}
-	rec, err := h.Store.FetchAgentSession(req.ID)
-	if errors.Is(err, state.ErrNotFound) {
+	rec, err := h.agentSessions().FetchAgentSession(req.ID)
+	if errors.Is(err, agentsessions.ErrNotFound) {
 		return nil, AgentSessionNotFoundErr
 	}
 	if err != nil {
@@ -261,21 +248,21 @@ func (h *Handler) PostV1AgentSessionsGetSession(ctx apigen.Context, req *apigen.
 	}
 }
 
-func (h *Handler) closeAgentSession(ctx apigen.Context, rec state.AgentSessionRecord, now time.Time, msg string) (*apigen.AgentSessionPickup, error) {
-	if err := h.Store.SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, rec.ApprovedAt, now); err != nil {
+func (h *Handler) closeAgentSession(ctx apigen.Context, rec agentsessions.Record, now time.Time, msg string) (*apigen.AgentSessionPickup, error) {
+	if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, rec.ApprovedAt, now); err != nil {
 		return nil, fmt.Errorf("closing agent session: %w", err)
 	}
 	slog.InfoContext(ctx, msg, "session", rec.ID)
 	return &apigen.AgentSessionPickup{Status: apigen.AgentSessionStatus_AGENT_SESSION_REJECTED}, nil
 }
 
-func (h *Handler) mintApprovedAgentSession(ctx apigen.Context, rec state.AgentSessionRecord, now time.Time) (*apigen.AgentSessionPickup, error) {
+func (h *Handler) mintApprovedAgentSession(ctx apigen.Context, rec agentsessions.Record, now time.Time) (*apigen.AgentSessionPickup, error) {
 	expiry := now.Add(agentSessionTTL)
 	token, err := h.signAgentToken(rec.UserID, rec.ID, rec.Scopes, now, expiry)
 	if err != nil {
 		return nil, fmt.Errorf("generating agent session token: %w", err)
 	}
-	claimed, err := h.Store.ClaimAgentSessionToken(rec.ID, hashAgentToken(token), agentTokenPrefix(token), expiry, rec.Scopes)
+	claimed, err := h.agentSessions().ClaimAgentSessionToken(rec.ID, hashAgentToken(token), agentTokenPrefix(token), expiry, rec.Scopes)
 	if err != nil {
 		return nil, fmt.Errorf("claiming agent session token: %w", err)
 	}
@@ -322,19 +309,19 @@ func (h *Handler) PostV1AgentSessionsApprove(ctx apigen.Context, req *apigen.Age
 	// Scopes are frozen here, so the token minted at pickup carries what the
 	// approver held at the moment they approved rather than whatever their
 	// session looks like by the time the agent collects.
-	approved, err := h.Store.ApproveAgentSession(rec.ID, ctx.User.ID, scopes, now)
+	approved, err := h.agentSessions().ApproveAgentSession(rec.ID, ctx.User.ID, scopes, now)
 	if err != nil {
 		return nil, fmt.Errorf("approving agent session: %w", err)
 	}
 	if !approved {
 		return nil, AgentSessionNotPendingErr
 	}
-	updated, err := h.Store.FetchAgentSession(rec.ID)
+	updated, err := h.agentSessions().FetchAgentSession(rec.ID)
 	if err != nil {
 		return nil, fmt.Errorf("fetching approved agent session: %w", err)
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("approved agent session address=%s scopes=%v", rec.RequestingAddress, scopes), "session", rec.ID)
-	return agentSessionToProto(updated), nil
+	return agentsessions.ToProto(updated), nil
 }
 
 // PostV1AgentSessionsList returns the caller's own sessions, newest first.
@@ -344,13 +331,13 @@ func (h *Handler) PostV1AgentSessionsList(ctx apigen.Context) (*apigen.AgentSess
 	if err := requireHuman(ctx); err != nil {
 		return nil, err
 	}
-	records, err := h.Store.ListAgentSessionsForUser(ctx.User.ID)
+	records, err := h.agentSessions().ListAgentSessionsForUser(ctx.User.ID)
 	if err != nil {
 		return nil, fmt.Errorf("listing agent sessions: %w", err)
 	}
 	items := make([]*apigen.AgentSession, 0, len(records))
 	for _, rec := range records {
-		items = append(items, agentSessionToProto(rec))
+		items = append(items, agentsessions.ToProto(rec))
 	}
 	return &apigen.AgentSessionList{Items: items}, nil
 }
@@ -373,7 +360,7 @@ func (h *Handler) PostV1AgentSessionsRevoke(ctx apigen.Context, req *apigen.Agen
 	if rec.Status == apigen.AgentSessionStatus_AGENT_SESSION_PENDING {
 		status = apigen.AgentSessionStatus_AGENT_SESSION_REJECTED
 	}
-	if err := h.Store.RevokeAgentSession(req.ID, ctx.User.ID, status, time.Now()); err != nil {
+	if err := h.agentSessions().RevokeAgentSession(req.ID, ctx.User.ID, status, time.Now()); err != nil {
 		return fmt.Errorf("revoking agent session: %w", err)
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("stopped agent session status=%v", status), "session", req.ID)
@@ -392,16 +379,16 @@ func (h *Handler) agentSessionIDFromToken(token string) string {
 // fetchOwnAgentSession resolves a session the caller owns. Someone else's id
 // and a made-up one are both reported as not found, so a guessed id reveals
 // nothing about whether it exists.
-func (h *Handler) fetchOwnAgentSession(ctx apigen.Context, id string) (state.AgentSessionRecord, error) {
+func (h *Handler) fetchOwnAgentSession(ctx apigen.Context, id string) (agentsessions.Record, error) {
 	if strings.TrimSpace(id) == "" {
-		return state.AgentSessionRecord{}, AgentSessionNotFoundErr
+		return agentsessions.Record{}, AgentSessionNotFoundErr
 	}
-	rec, err := h.Store.FetchAgentSession(id)
-	if errors.Is(err, state.ErrNotFound) || (err == nil && rec.UserID != ctx.User.ID) {
-		return state.AgentSessionRecord{}, AgentSessionNotFoundErr
+	rec, err := h.agentSessions().FetchAgentSession(id)
+	if errors.Is(err, agentsessions.ErrNotFound) || (err == nil && rec.UserID != ctx.User.ID) {
+		return agentsessions.Record{}, AgentSessionNotFoundErr
 	}
 	if err != nil {
-		return state.AgentSessionRecord{}, fmt.Errorf("fetching agent session: %w", err)
+		return agentsessions.Record{}, fmt.Errorf("fetching agent session: %w", err)
 	}
 	return rec, nil
 }

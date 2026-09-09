@@ -99,10 +99,10 @@ export class DeploymentCreationUpdate {
         this.mode = editorMode;
         this.existingState = deploymentRow;
         this.form = deployment ? deploymentToForm(deployment) : emptyDeploymentForm();
-        const workload = deployment?.def?.spec?.container1Spec || deployment?.def?.spec?.opendeploySpec;
+        const workload = deployment?.value?.spec?.container1Spec || deployment?.value?.spec?.opendeploySpec;
         const initialRunning = editorMode === 'create'
             ? (deploymentRow ? Boolean(deploymentRow.desiredRunning) : true)
-            : (deployment?.def?.spec?.opendeploySpec ? true : (workload ? Boolean(workload.running) : Boolean(deploymentRow?.desiredRunning)));
+            : (deployment?.value?.spec?.opendeploySpec ? true : (workload ? Boolean(workload.running) : Boolean(deploymentRow?.desiredRunning)));
         this.desiredRunning = van.state(initialRunning);
         this.documentRevision = van.state(0);
         this.initialSpecKey = JSON.stringify(formToSpec(this.form));
@@ -584,8 +584,8 @@ export class DeploymentCreationUpdate {
         const spec = document?.spec || {};
         const workload = spec.container1Spec || spec.opendeploySpec || {};
         replaceDeploymentFormFromConfig(this.form, {
-            id: Number(this.form.deploymentId.val || 0),
-            def: {
+            deploymentId: Number(this.form.deploymentId.val || 0),
+            value: {
                 name: identity.name || '',
                 spaceId: Number(identity.spaceId || 0),
                 nodeId: Number(document?.nodeId || 0),

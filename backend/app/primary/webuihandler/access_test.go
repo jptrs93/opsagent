@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/authz"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
@@ -26,7 +26,7 @@ func newAccessTestHandler(t *testing.T) (*Handler, apigen.Context) {
 	}); err != nil {
 		t.Fatalf("seed admin grant: %v", err)
 	}
-	h := &Handler{Store: store, Authz: authzService}
+	h := &Handler{Store: store, Queries: store.Queries(), Authz: authzService}
 	ctx := apigen.Context{Ctx: context.Background(), User: &apigen.InternalUser{ID: 1, Name: "operator"}}
 	return h, ctx
 }
@@ -231,7 +231,7 @@ func TestAccessGlobalRuleCRUD(t *testing.T) {
 func TestAccessChangeSubscription(t *testing.T) {
 	h, ctx := newAccessTestHandler(t)
 
-	sub, unsub := h.Authz.SubscribeChanges()
+	sub, unsub := h.Store.SubscribeUpdates()
 	defer unsub()
 
 	if _, err := h.PostV1AccessGrantsCreate(ctx, &apigen.AuthzGrantCreateRequest{
@@ -241,9 +241,9 @@ func TestAccessChangeSubscription(t *testing.T) {
 		t.Fatalf("create grant: %v", err)
 	}
 	select {
-	case kind := <-sub.Ch:
-		if kind != authz.ChangeGrants {
-			t.Fatalf("expected ChangeGrants, got %v", kind)
+	case update := <-sub:
+		if len(update.AuthzGrantEvents) != 1 || update.AuthzGrantEvents[0].Value.UserID != 3 || update.AuthzGrantEvents[0].Seq != update.Seq {
+			t.Fatalf("expected grant transaction, got %+v", update)
 		}
 	default:
 		t.Fatal("grant creation should notify subscribers")

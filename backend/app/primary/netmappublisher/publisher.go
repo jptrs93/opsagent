@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"log/slog"
 	"net/netip"
 	"slices"
@@ -38,15 +39,11 @@ type Publisher struct {
 	// is in force once lastRenderedSeq has reached N and the current map is
 	// applied everywhere: if the render at N changed no routes, the map already
 	// in force encodes it.
-	lastRenderedSeq   int64
-	subscribers       map[*subscriber]struct{}
-	nodeUpdates       <-chan apigen.ClusterNode
-	nodeStatusUpdates <-chan apigen.ClusterNodeStatus
-	instanceUpdates   <-chan apigen.ScheduledInstanceState
-	policyUpdates     <-chan apigen.NetworkPolicy
-	deploymentUpdates <-chan apigen.Deployment
-	unsubscribe       []func()
-	closeOnce         sync.Once
+	lastRenderedSeq int64
+	subscribers     map[*subscriber]struct{}
+	updates         chan state.Update
+	unsubscribe     func()
+	closeOnce       sync.Once
 
 	// Ingress evaluation warnings from the newest render, published to the
 	// state stream. Guarded by mu.
@@ -72,26 +69,18 @@ func New(store *state.Service, prefix network.Prefix, reservations func() []ingr
 	if prefix.IsZero() {
 		return nil, fmt.Errorf("network-map prefix is not configured")
 	}
-	nodeSub, unsubscribeNodes := store.SubscribeNodeUpdates()
-	nodeStatusSub, unsubscribeNodeStatuses := store.SubscribeNodeStatusUpdates()
-	_, instanceUpdates, unsubscribeInstances := store.MustFetchScheduledSnapshotAndSubscribe(nil)
-	policySub, unsubscribePolicies := store.SubscribeNetworkPolicyUpdates()
-	_, deploymentUpdates, unsubscribeDeployments := store.MustFetchDeploymentSnapshotAndSubscribe(nil)
+	updates, unsubscribe := store.SubscribeUpdates()
 	p := &Publisher{
-		store:             store,
-		prefix:            prefix,
-		subscribers:       make(map[*subscriber]struct{}),
-		nodeUpdates:       nodeSub.Ch,
-		nodeStatusUpdates: nodeStatusSub.Ch,
-		instanceUpdates:   instanceUpdates,
-		policyUpdates:     policySub.Ch,
-		deploymentUpdates: deploymentUpdates,
-		unsubscribe:       []func(){unsubscribeNodes, unsubscribeNodeStatuses, unsubscribeInstances, unsubscribePolicies, unsubscribeDeployments},
-		applied:           make(map[int32]int64),
-		ackUpdates:        make(chan struct{}, 1),
-		diagnostics:       &apigen.IngressDiagnosticList{Items: []*apigen.IngressDiagnostic{}},
-		diagnosticsSubs:   make(map[chan *apigen.IngressDiagnosticList]struct{}),
-		reservations:      reservations,
+		store:           store,
+		prefix:          prefix,
+		subscribers:     make(map[*subscriber]struct{}),
+		updates:         updates,
+		unsubscribe:     unsubscribe,
+		applied:         make(map[int32]int64),
+		ackUpdates:      make(chan struct{}, 1),
+		diagnostics:     &apigen.IngressDiagnosticList{Items: []*apigen.IngressDiagnostic{}},
+		diagnosticsSubs: make(map[chan *apigen.IngressDiagnosticList]struct{}),
+		reservations:    reservations,
 	}
 	if err := p.Refresh(); err != nil {
 		p.Close()
@@ -102,9 +91,9 @@ func New(store *state.Service, prefix network.Prefix, reservations func() []ingr
 
 func (p *Publisher) Close() {
 	p.closeOnce.Do(func() {
-		for _, unsubscribe := range p.unsubscribe {
-			unsubscribe()
-		}
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		p.unsubscribe()
 	})
 }
 
@@ -115,25 +104,12 @@ func (p *Publisher) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case _, ok := <-p.nodeUpdates:
+		case _, ok := <-p.updates:
 			if !ok {
-				return
-			}
-		case _, ok := <-p.nodeStatusUpdates:
-			if !ok {
-				return
-			}
-		case _, ok := <-p.instanceUpdates:
-			if !ok {
-				return
-			}
-		case _, ok := <-p.policyUpdates:
-			if !ok {
-				return
-			}
-		case _, ok := <-p.deploymentUpdates:
-			if !ok {
-				return
+				slog.ErrorContext(ctx, "network map subscription overflowed; resubscribing")
+				p.mu.Lock()
+				p.updates, p.unsubscribe = p.store.SubscribeUpdates()
+				p.mu.Unlock()
 			}
 		}
 		if err := p.Refresh(); err != nil {
@@ -147,7 +123,7 @@ func (p *Publisher) Run(ctx context.Context) {
 func (p *Publisher) Refresh() error {
 	p.refreshMu.Lock()
 	defer p.refreshMu.Unlock()
-	inputs := p.store.FetchNetworkMapInputs()
+	inputs := nodes.FetchNetworkMapInputs(p.store)
 	seq := inputs.Seq
 	var reservations []ingressplan.Reservation
 	if p.reservations != nil {
@@ -285,7 +261,7 @@ func canonicalContent(source *apigen.ClusterNetMap) []byte {
 	return canonical.Encode()
 }
 
-func render(prefix network.Prefix, inputs state.NetworkMapInputs, reservations []ingressplan.Reservation) (*apigen.ClusterNetMap, *apigen.IngressDiagnosticList, error) {
+func render(prefix network.Prefix, inputs nodes.NetworkMapInputs, reservations []ingressplan.Reservation) (*apigen.ClusterNetMap, *apigen.IngressDiagnosticList, error) {
 	nodes, instances := inputs.Nodes, inputs.Instances
 	netNodes := make([]*apigen.ClusterNetMapNode, 0, len(nodes))
 	knownNodes := make(map[int32]struct{}, len(nodes))
@@ -345,11 +321,11 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs, reservations [
 		cfg := item.Config
 		inst := item.Instance
 		if inst.ID <= 0 ||
-			cfg.Def.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+			cfg.Value.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
-		if servicesByDeployment[cfg.ID] == nil {
-			servicesByDeployment[cfg.ID] = &apigen.ClusterNetMapService{Name: network.DNSLabel(cfg.Def.Name), SpaceID: cfg.Def.SpaceID, DeploymentID: cfg.ID}
+		if servicesByDeployment[cfg.DeploymentID] == nil {
+			servicesByDeployment[cfg.DeploymentID] = &apigen.ClusterNetMapService{Name: network.DNSLabel(cfg.Value.Name), SpaceID: cfg.Value.SpaceID, DeploymentID: cfg.DeploymentID}
 		}
 		if !inst.State.WantsRunning() {
 			continue
@@ -357,14 +333,14 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs, reservations [
 		if _, ok := knownNodes[inst.NodeID]; !ok {
 			return nil, nil, fmt.Errorf("scheduled instance %d references unknown node %d", inst.ID, inst.NodeID)
 		}
-		placement, err := prefix.PlacementCIDR(cfg.Def.SpaceID, cfg.ID, inst.InstanceOrdinal, inst.ID)
+		placement, err := prefix.PlacementCIDR(cfg.Value.SpaceID, cfg.DeploymentID, inst.InstanceOrdinal, inst.ID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("deriving placement prefix for scheduled instance %d: %w", inst.ID, err)
 		}
 		if err := setRoute(placement, inst.NodeID); err != nil {
 			return nil, nil, err
 		}
-		key := ordinalKey{cfg.ID, inst.InstanceOrdinal}
+		key := ordinalKey{cfg.DeploymentID, inst.InstanceOrdinal}
 		states := statesByOrdinal[key]
 		if states == nil {
 			states = &ordinalStates{}
@@ -379,7 +355,7 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs, reservations [
 			continue
 		}
 		states.serving = true
-		instancePrefix, err := prefix.InstanceCIDR(cfg.Def.SpaceID, cfg.ID, inst.InstanceOrdinal)
+		instancePrefix, err := prefix.InstanceCIDR(cfg.Value.SpaceID, cfg.DeploymentID, inst.InstanceOrdinal)
 		if err != nil {
 			return nil, nil, fmt.Errorf("deriving instance prefix for scheduled instance %d: %w", inst.ID, err)
 		}
@@ -387,7 +363,7 @@ func render(prefix network.Prefix, inputs state.NetworkMapInputs, reservations [
 		// transient: the map has no way to express it and must not guess.
 		if err := setRoute(instancePrefix, inst.NodeID); err != nil {
 			return nil, nil, fmt.Errorf("deployment %d ordinal %d has more than one serving placement: %w",
-				cfg.ID, inst.InstanceOrdinal, err)
+				cfg.DeploymentID, inst.InstanceOrdinal, err)
 		}
 	}
 	// An ordinal stays established while a standby+draining pair exists. The
@@ -442,7 +418,7 @@ type ingressPlan struct {
 // renderIngressPlan evaluates every deployment's listen selectors against the
 // node inventory. Errors here cannot reject anything (the deployments are
 // already stored), so they surface as diagnostics like the warnings.
-func renderIngressPlan(inputs state.NetworkMapInputs, reservations []ingressplan.Reservation) ingressPlan {
+func renderIngressPlan(inputs nodes.NetworkMapInputs, reservations []ingressplan.Reservation) ingressPlan {
 	in := ingressplan.Inputs{Reservations: reservations}
 	for _, node := range inputs.Nodes {
 		if node == nil {
@@ -454,7 +430,7 @@ func renderIngressPlan(inputs state.NetworkMapInputs, reservations []ingressplan
 		if cfg == nil || internaldeploy.IsInternalConfig(cfg) {
 			continue
 		}
-		in.Deployments = append(in.Deployments, ingressplan.DeploymentFromSpec(cfg.ID, cfg.Def.NodeID, cfg.Def.Name, &cfg.Def.Spec))
+		in.Deployments = append(in.Deployments, ingressplan.DeploymentFromSpec(cfg.DeploymentID, cfg.Value.NodeID, cfg.Value.Name, &cfg.Value.Spec))
 	}
 	result := ingressplan.Evaluate(in)
 	plan := ingressPlan{publish: make(map[int32][]*apigen.IngressPublish, len(result.Publish)), diagnostics: &apigen.IngressDiagnosticList{Items: []*apigen.IngressDiagnostic{}}}
@@ -484,9 +460,13 @@ func renderIngressPlan(inputs state.NetworkMapInputs, reservations []ingressplan
 // deployment peer becomes (current space, deployment id), a space peer becomes
 // (space, 0). A rule referencing a deleted deployment cannot be resolved and
 // is not distributed — the deleted deployment's addresses are vacant anyway.
-func renderPolicyRules(policies []*apigen.NetworkPolicy, deploymentSpaces map[int32]int32) []*apigen.NetPolicyRule {
+func renderPolicyRules(policies []*apigen.NetworkPolicyEvent, deploymentSpaces map[int32]int32) []*apigen.NetPolicyRule {
 	rules := make([]*apigen.NetPolicyRule, 0, len(policies))
-	for _, policy := range policies {
+	for _, event := range policies {
+		if event == nil {
+			continue
+		}
+		policy := &event.Value
 		if policy == nil || policy.Action != apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW {
 			continue
 		}

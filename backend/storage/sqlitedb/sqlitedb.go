@@ -18,7 +18,18 @@ import (
 )
 
 func MustOpen(dbPath string) *sql.DB {
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=journal_mode(wal)&_pragma=busy_timeout(5000)")
+	return mustOpen(dbPath, "")
+}
+
+// MustOpenWriter acquires SQLite's writer reservation when a transaction begins.
+// A read followed by a write can otherwise fail with SQLITE_BUSY_SNAPSHOT when
+// an independently locked owner commits on another pooled connection.
+func MustOpenWriter(dbPath string) *sql.DB {
+	return mustOpen(dbPath, "&_txlock=immediate")
+}
+
+func mustOpen(dbPath, options string) *sql.DB {
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=journal_mode(wal)&_pragma=busy_timeout(5000)"+options)
 	if err != nil {
 		panic(fmt.Sprintf("open sqlite: %v", err))
 	}

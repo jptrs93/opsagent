@@ -21,7 +21,7 @@ import (
 type fakeInstanceStore struct {
 	mu    sync.Mutex
 	items []apigen.ScheduledInstanceState
-	subs  []chan apigen.ScheduledInstanceState
+	subs  []chan []apigen.ScheduledInstanceState
 }
 
 func (f *fakeInstanceStore) FetchScheduledSnapshot(storage.ScheduledInstancePredicate) []apigen.ScheduledInstanceState {
@@ -30,10 +30,10 @@ func (f *fakeInstanceStore) FetchScheduledSnapshot(storage.ScheduledInstancePred
 	return slices.Clone(f.items)
 }
 
-func (f *fakeInstanceStore) MustFetchScheduledSnapshotAndSubscribe(storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan apigen.ScheduledInstanceState, func()) {
+func (f *fakeInstanceStore) MustFetchScheduledSnapshotAndSubscribe(storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan []apigen.ScheduledInstanceState, func()) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	ch := make(chan apigen.ScheduledInstanceState, 16)
+	ch := make(chan []apigen.ScheduledInstanceState, 16)
 	f.subs = append(f.subs, ch)
 	return slices.Clone(f.items), ch, func() {}
 }
@@ -44,7 +44,7 @@ func (f *fakeInstanceStore) set(items ...apigen.ScheduledInstanceState) {
 	f.items = items
 	for _, ch := range f.subs {
 		select {
-		case ch <- apigen.ScheduledInstanceState{}:
+		case ch <- []apigen.ScheduledInstanceState{{}}:
 		default:
 		}
 	}
@@ -56,7 +56,7 @@ func instanceState(instanceID, deploymentID int32, status apigen.RunningStatus, 
 	st.Instance.DeploymentID = deploymentID
 	st.Status.Runner.Status = status
 	if opendeploy {
-		st.Config.Def.Spec.OpendeploySpec = &apigen.OpendeploySpec{}
+		st.Config.Value.Spec.OpendeploySpec = &apigen.OpendeploySpec{}
 	}
 	return st
 }

@@ -70,9 +70,9 @@ const nixCreate = (fake, {repo = REPO, flake = FLAKE} = {}) => {
 };
 
 const nixDeployment = ({version = SHA_A, running = true} = {}) => ({
-    id: 7,
+    deploymentId: 7,
     version: 3,
-    def: {
+    value: {
         name: "web",
         spaceId: 1,
         nodeId: 11,
@@ -357,7 +357,7 @@ test("image: validate lists tags; the reference's own tag pins the version", asy
 
 test("image: an unchanged saved image is trusted even when the deployment is stopped", async () => {
     const fake = fakeValidate();
-    const deployment = {id: 9, version: 1, def: {name: "db", spaceId: 1, nodeId: 11, spec: {container1Spec: {version: "17", running: false, source: {remoteImage: {image: "docker.io/library/postgres"}}}}}};
+    const deployment = {deploymentId: 9, version: 1, value: {name: "db", spaceId: 1, nodeId: 11, spec: {container1Spec: {version: "17", running: false, source: {remoteImage: {image: "docker.io/library/postgres"}}}}}};
     const row = {id: 9, version: 1, spaceId: 1, name: "db", variant: SOURCE_DOCKER_IMAGE, deployedVersion: "17", desiredRunning: false, runnerType: "container"};
     const model = new DeploymentCreationUpdate({mode: "update", deploymentRow: row, deployment, validateSource: fake.validateSource});
     await settle();
@@ -366,4 +366,17 @@ test("image: an unchanged saved image is trusted even when the deployment is sto
     model.setDesiredRunning(true);
     assert.equal(model.runningInvalidReason(), "");
     assert.deepEqual(model.toUpdatePayload().versionOnlyUpdate, {targetVersion: "17"});
+});
+
+
+test("code mode: editing a saved document preserves its deployment identity", () => {
+    const model = new DeploymentCreationUpdate({mode: "update", deploymentRow: nixRow(), deployment: nixDeployment(), validateSource: fakeValidate().validateSource});
+    assert.equal(model.form.deploymentId.val, 7);
+    const document = model.toDocument();
+    document.spec.networking = {mode: 1, portForwarding: [{protocol: 1, hostPort: 8080, containerPort: 80, ipFilter: {allow: ["192.0.2.1"]}}]};
+    model.replaceDocument(document);
+    assert.equal(model.form.deploymentId.val, 7);
+    const update = model.toUpdatePayload();
+    assert.equal(update.deploymentId, 7);
+    assert.deepEqual(update.specUpdate.spec.networking, document.spec.networking);
 });

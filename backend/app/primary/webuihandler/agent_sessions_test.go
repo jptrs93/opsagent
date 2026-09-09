@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -168,7 +169,7 @@ func TestStaleRequestIsSupersededRatherThanBlocking(t *testing.T) {
 	if fresh.ID == stale.ID {
 		t.Fatal("expected a new request id")
 	}
-	rec, err := h.Store.FetchAgentSession(stale.ID)
+	rec, err := h.agentSessions().FetchAgentSession(stale.ID)
 	if err != nil {
 		t.Fatalf("FetchAgentSession: %v", err)
 	}
@@ -200,13 +201,13 @@ func TestApprovedSessionExpiresUncollected(t *testing.T) {
 func TestApproveIsScopedToTheRequestedUser(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	other := &apigen.InternalUser{ID: 2, WebAuthNID: user.WebAuthNID, Name: "other"}
-	h.Store.WriteUser(other)
+	users.Write(h.Store, other)
 	req := h.mustRequestStart(t, user.ID)
 
 	if _, err := h.PostV1AgentSessionsApprove(h.operatorCtx(t, other), &apigen.AgentSessionApproveRequest{ID: req.ID}); err == nil {
 		t.Fatal("expected another user's approval to fail")
 	}
-	rec, err := h.Store.FetchAgentSession(req.ID)
+	rec, err := h.agentSessions().FetchAgentSession(req.ID)
 	if err != nil {
 		t.Fatalf("FetchAgentSession: %v", err)
 	}
@@ -255,7 +256,7 @@ func TestRevokeOnAPendingRequestRejectsIt(t *testing.T) {
 	if err := h.PostV1AgentSessionsRevoke(h.operatorCtx(t, user), &apigen.AgentSessionRevokeRequest{ID: req.ID}); err != nil {
 		t.Fatalf("PostV1AgentSessionsRevoke: %v", err)
 	}
-	rec, err := h.Store.FetchAgentSession(req.ID)
+	rec, err := h.agentSessions().FetchAgentSession(req.ID)
 	if err != nil {
 		t.Fatalf("FetchAgentSession: %v", err)
 	}
@@ -311,7 +312,7 @@ func TestAgentInstructionsRender(t *testing.T) {
 	// The page is an agent's only map of the API, so it has to name the
 	// shapes the server actually serves: the global-state deployment envelope
 	// and the log/metrics endpoints an operator may grant.
-	for _, want := range []string{"`deployments.items`", "def.spec", "/v1/deployments/log-query", "/v1/deployments/run-report", "/v1/metrics/query", "/v1/metrics/latest", "/v1/network-policies/list"} {
+	for _, want := range []string{"`deployment_events`", "value.spec", "event_id", "/v1/global/snapshot", "/v1/deployments/log-query", "/v1/deployments/run-report", "/v1/metrics/query", "/v1/metrics/latest", "/v1/network-policies/list"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("instructions omit %s", want)
 		}

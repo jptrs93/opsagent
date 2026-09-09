@@ -3,6 +3,11 @@ package primary
 import (
 	"context"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/agentsessions"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/pki"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/scheduledinstances"
 	"io"
 	"log/slog"
 	"os"
@@ -14,22 +19,23 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
+	"github.com/jptrs93/opsagent/backend/app/primary/backup"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/acmeissue"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/assets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
 	"github.com/jptrs93/opsagent/backend/app/primary/netmappublisher"
 	"github.com/jptrs93/opsagent/backend/app/primary/scheduler"
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
-	"github.com/jptrs93/opsagent/backend/lib/acmeissue"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
-	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/lib/engine"
-	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
 	"github.com/jptrs93/opsagent/backend/lib/engine/configdist"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixdocker"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/opendeployrelease"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/engine/runner"
-	"github.com/jptrs93/opsagent/backend/lib/engine/secretdist"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
-	"github.com/jptrs93/opsagent/backend/lib/issuedtls"
 	"github.com/jptrs93/opsagent/backend/lib/metrics"
 	"github.com/jptrs93/opsagent/backend/lib/metrics/metricstore"
 	"github.com/jptrs93/opsagent/backend/lib/netaudit"
@@ -37,16 +43,16 @@ import (
 	repogit "github.com/jptrs93/opsagent/backend/lib/repo/git"
 	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
 
 type runtime struct {
+	backupStatus          *backup.StatusPublisher
 	store                 *state.Service
-	assets                *assetstore.Store
-	configService         *config.Service
+	assets                *assets.Store
+	configService         *systemconfig.Service
 	github                githubcredentials.Provider
 	gitVersions           *versionprovider.GitVersionProvider
 	githubReleaseVersions *versionprovider.GithubReleaseVersionProvider
@@ -54,7 +60,7 @@ type runtime struct {
 	operator              engine.DeploymentOperator
 	acmeHolder            *acmestate.Holder
 	acmeIssuer            *acmeissue.Manager
-	issuedTLS             *issuedtls.Issuer
+	issuedTLS             *pki.Issuer
 }
 
 func newRuntime() (*runtime, error) {
@@ -70,12 +76,12 @@ func newRuntime() (*runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	configService, err := config.NewService(store)
+	configService, err := systemconfig.NewService(store)
 	if err != nil {
 		return nil, err
 	}
 	network.Default.SetPrefix(configService.NetworkPrefix())
-	assetStore := &assetstore.Store{
+	assetStore := &assets.Store{
 		DB:            store,
 		Secrets:       secretsMgr,
 		Loader:        configService,
@@ -87,21 +93,23 @@ func newRuntime() (*runtime, error) {
 	}
 	configService.AssetOperationMu = assetStore.AssetOperationLocker()
 	configService.ValidateSettingsUpdate = assetStore.ValidateSettingsUpdate
-	githubCredentials := githubcredentials.SecretProvider{
+	githubCredentials := secrets.GithubCredentialsProvider{
 		Secrets: secretsMgr,
 		SecretRef: func(context.Context) apigen.SecretRef {
 			return configService.Snapshot().Settings.Repo.GithubToken
 		},
 	}
 
-	secretProvider := secretdist.NewPrimaryProvider(secretsMgr)
-	configProvider := configdist.NewPrimaryProvider(store)
+	secretProvider := secretsMgr
+	configProvider := configdist.NewPrimaryProvider(func(ids []int32) (map[int32]string, error) {
+		return values.ResolveConfigs(store.Queries(), ids)
+	})
 	runtimeInputs := runtimeinputs.New(localAssetProvider{assetStore}, secretProvider, configProvider)
-	tlsIssuer := &issuedtls.Issuer{Secrets: secretsMgr}
-	runtimeInputs.SetIssuedTLSProvider(&issuedtls.PrimaryProvider{
+	tlsIssuer := &pki.Issuer{Secrets: secretsMgr}
+	runtimeInputs.SetIssuedTLSProvider(&pki.IssuedTLSProvider{
 		Issuer: tlsIssuer,
-		Snapshot: func() []apigen.Deployment {
-			return store.FetchDeploymentSnapshot(nil)
+		Snapshot: func() []apigen.DeploymentEvent {
+			return deployments.Active(store.Queries(), nil)
 		},
 	})
 	gitManager := repogit.NewManager(ainit.StaticConfig.GitCacheDir, githubCredentials)
@@ -113,13 +121,12 @@ func newRuntime() (*runtime, error) {
 		return creds.Token
 	}))
 	acmeHolder := acmestate.NewHolder()
-	acmeIssuer := acmeissue.New(secretsMgr, func() []apigen.Deployment {
-		return store.FetchDeploymentSnapshot(nil)
-	}, func() ([]apigen.Deployment, chan apigen.Deployment, func()) {
-		return store.MustFetchDeploymentSnapshotAndSubscribe(nil)
-	}, acmeHolder)
+	acmeIssuer := acmeissue.New(secretsMgr, func() []apigen.DeploymentEvent {
+		return deployments.Active(store.Queries(), nil)
+	}, store, acmeHolder)
 
 	return &runtime{
+		backupStatus:          &backup.StatusPublisher{},
 		store:                 store,
 		assets:                assetStore,
 		configService:         configService,
@@ -129,7 +136,7 @@ func newRuntime() (*runtime, error) {
 		secrets:               secretsMgr,
 		operator: engine.DeploymentOperator{
 			GithubCredentials: githubCredentials,
-			Store:             store,
+			Store:             scheduledinstances.Store{Service: store},
 			OpendeployRelease: opendeployrelease.New(ainit.StaticConfig.ReleasesDir, githubClient),
 			NixDocker:         nixdocker.New(gitManager),
 			RuntimeInputs:     runtimeInputs,
@@ -142,9 +149,11 @@ func newRuntime() (*runtime, error) {
 
 func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 	return webuihandler.Dependencies{
+		BackupStatus:          r.backupStatus,
 		Store:                 r.store,
+		AgentSessions:         agentsessions.New(r.store.Queries()),
 		Assets:                r.assets,
-		ConfigService:         r.configService,
+		SystemConfig:          r.configService,
 		GitVersions:           r.gitVersions,
 		GithubReleaseVersions: r.githubReleaseVersions,
 		GithubCredentials:     r.github,
@@ -153,21 +162,26 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 }
 
 func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string, networkMaps *netmappublisher.Publisher) {
-	r.store.EnsureSystemDeployment(nodeID, version.Version)
-	r.store.SetNodeStatusByIdentifier(nodeIdentifier, true, time.Now())
+	deployments.EnsureSystem(r.store, nodeID, version.Version)
+	nodes.SetNodeStatusByIdentifier(r.store, nodeIdentifier, true, time.Now())
+	nodes.UpdateNodeObservedMeta(r.store, nodeIdentifier, "", version.Version)
 	go r.runHostAddressInventory(ctx, nodeIdentifier)
-	netproxyCfg := r.store.EnsureNetproxyDeployment(nodeID, version.Version)
-	network.Default.SetNetproxyDeploymentID(netproxyCfg.ID)
-	for _, node := range r.store.ListNodes() {
+	netproxyCfg := deployments.EnsureNetproxy(r.store, nodeID, version.Version)
+	network.Default.SetNetproxyDeploymentID(netproxyCfg.DeploymentID)
+	for _, node := range nodes.ListNodes(r.store.Queries()) {
 		if node.ID != nodeID {
-			r.store.EnsureNetproxyDeployment(node.ID, version.Version)
+			deployments.EnsureNetproxy(r.store, node.ID, version.Version)
 		}
 	}
 
 	predicate := storage.ScheduledInstancePredicate(func(state apigen.ScheduledInstanceState) bool {
 		return state.Instance.NodeID == nodeID
 	})
-	go scheduler.New(r.store, networkMaps).Run(ctx)
+	scheduling := scheduler.New(r.store, networkMaps)
+	if err := scheduling.Start(ctx); err != nil {
+		panic(fmt.Sprintf("start scheduler: %v", err))
+	}
+	go scheduling.Run(ctx)
 	go r.acmeIssuer.Run(ctx)
 	netMapSource := netproxy.ClusterNetMapSourceFunc(func() (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func()) {
 		return networkMaps.SnapshotAndSubscribe(nodeID)
@@ -177,7 +191,7 @@ func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string
 	metricstore.Default = metricstore.Start(ctx, ainit.StaticConfig.MetricsDir, nodeID)
 	go metrics.Default.Run(ctx, metrics.DefaultInterval, metricstore.Default)
 	go func() {
-		runner.SweepForeignContainers(ctx, r.store, predicate)
+		runner.SweepForeignContainers(ctx, scheduledinstances.Store{Service: r.store}, predicate)
 		r.operator.RunAll(predicate)
 	}()
 }
@@ -188,14 +202,23 @@ func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string
 func (r *runtime) runHostAddressInventory(ctx context.Context, nodeIdentifier string) {
 	ctx = logu.AddTag(ctx, "HostAddresses")
 	var last []string
+	haveInventory := false
 	for {
 		prefix, hasPrefix := network.Default.PrefixValue()
 		addrs, err := network.EnumerateHostAddresses(prefix, hasPrefix)
 		if err != nil {
 			slog.WarnContext(ctx, "enumerating host addresses failed", "err", err)
-		} else if current := network.HostAddressStrings(addrs); !slices.Equal(current, last) {
-			r.store.SetNodeHostAddresses(nodeIdentifier, current)
+		} else if current := network.HostAddressStrings(addrs); !haveInventory || !slices.Equal(current, last) {
+			for _, node := range nodes.ListNodes(r.store.Queries()) {
+				if node.Identifier == nodeIdentifier {
+					reported := node.Reported()
+					reported.HostAddresses = current
+					nodes.ReportNode(r.store, nodeIdentifier, reported)
+					break
+				}
+			}
 			last = current
+			haveInventory = true
 		}
 		select {
 		case <-ctx.Done():
@@ -205,10 +228,10 @@ func (r *runtime) runHostAddressInventory(ctx context.Context, nodeIdentifier st
 	}
 }
 
-// localAssetProvider narrows assetstore's OpenAsset to the operator's pure
+// localAssetProvider narrows the assets package's OpenAsset to the operator's pure
 // id-to-stream contract.
 type localAssetProvider struct {
-	store *assetstore.Store
+	store *assets.Store
 }
 
 func (p localAssetProvider) OpenAsset(ctx context.Context, assetVersionID int32) (io.ReadCloser, error) {

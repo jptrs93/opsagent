@@ -39,6 +39,8 @@ message MsgToSecondary {
 // ClusterHello is the first frame sent by a secondary on each authenticated
 // cluster session.
 message ClusterHello {
+  string opendeploy_version = 6;
+  NodeReported reported = 5;
   string underlay_address = 1;
   int32 cluster_protocol_version = 2;
   // Base64 WireGuard public key, re-reported on every connect. Empty means

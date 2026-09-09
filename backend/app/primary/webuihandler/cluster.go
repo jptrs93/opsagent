@@ -4,22 +4,24 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"net/http"
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var InvalidNodeRenameErr = apigen.NewApiErr("Node name and identifier are required", "invalid_node_rename", http.StatusBadRequest)
 var NodeNotFoundErr = apigen.NewApiErr("Node not found", "node_not_found", http.StatusNotFound)
 var DuplicateNodeNameErr = apigen.NewApiErr("A node with this display name already exists", "duplicate_node_name", http.StatusConflict)
 
-func (h *Handler) PostV1NodesList(ctx apigen.Context) (*apigen.ClusterNodeList, error) {
-	return &apigen.ClusterNodeList{Items: h.filterNodes(ctx, h.Store.ListClusterNodes())}, nil
+func (h *Handler) PostV1NodesList(ctx apigen.Context) (*apigen.NodeEventList, error) {
+	return &apigen.NodeEventList{Items: h.filterNodes(ctx, nodes.ListClusterNodes(h.Store.Queries()))}, nil
 }
 
-func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRequest) (*apigen.ClusterNode, error) {
+func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRequest) (*apigen.NodeEvent, error) {
 	if req == nil {
 		return nil, InvalidNodeRenameErr
 	}
@@ -40,14 +42,14 @@ func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRe
 	if err := h.requireAccess(ctx, vUpdate, eNode, 0, int64(existing.ID)); err != nil {
 		return nil, err
 	}
-	node, err := h.Store.RenameNode(identifier, name)
+	node, err := nodes.RenameNode(h.Store, identifier, name)
 	if err == nil {
 		return node, nil
 	}
 	if err == sql.ErrNoRows {
 		return nil, NodeNotFoundErr
 	}
-	if errors.Is(err, state.ErrDuplicateNodeName) {
+	if errors.Is(err, nodes.ErrDuplicateNodeName) {
 		return nil, DuplicateNodeNameErr
 	}
 	return nil, err
@@ -58,7 +60,7 @@ var UnknownSpaceErr = apigen.NewApiErr("One or more spaces do not exist", "unkno
 
 // PostV1NodesAllowedSpaces replaces the set of spaces whose deployments may
 // be placed on a node.
-func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeAllowedSpacesRequest) (*apigen.ClusterNode, error) {
+func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeAllowedSpacesRequest) (*apigen.NodeEvent, error) {
 	if req == nil {
 		return nil, InvalidAllowedSpacesErr
 	}
@@ -80,7 +82,7 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	// A list naming a space that does not exist is a caller mistake, not a
 	// narrowing: accepting it would silently store an id that can never match.
 	existing := map[int32]struct{}{}
-	for _, space := range h.Store.ListSpaces() {
+	for _, space := range nodes.ListSpaces(h.Store.Queries()) {
 		existing[space.ID] = struct{}{}
 	}
 	requested := map[int32]struct{}{}
@@ -92,17 +94,17 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	}
 	// The invariant, applied here too so the check below sees the same list
 	// that will be stored rather than the one the caller sent.
-	requested[state.OpendeploySpaceID] = struct{}{}
+	requested[internaldeploy.SpaceID] = struct{}{}
 
 	// Narrowing must not contradict what is already placed on the node. This is
 	// the same shape as refusing to delete a space with live deployments.
-	for _, cfg := range h.Store.FetchDeploymentSnapshot(nil) {
-		if cfg.Def.NodeID != node.ID {
+	for _, cfg := range deployments.Active(h.Queries, nil) {
+		if cfg.Value.NodeID != node.ID {
 			continue
 		}
-		if _, ok := requested[cfg.Def.SpaceID]; !ok {
+		if _, ok := requested[cfg.Value.SpaceID]; !ok {
 			return nil, apigen.NewApiErr(
-				fmt.Sprintf("Deployment %q is already on this node in a space you are removing", cfg.Def.Name),
+				fmt.Sprintf("Deployment %q is already on this node in a space you are removing", cfg.Value.Name),
 				"node_space_in_use", http.StatusConflict)
 		}
 	}
@@ -111,7 +113,7 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	for id := range requested {
 		spaces = append(spaces, id)
 	}
-	updated, err := h.Store.SetNodeAllowedSpaces(identifier, spaces)
+	updated, err := nodes.SetNodeAllowedSpaces(h.Store, identifier, spaces)
 	if err == sql.ErrNoRows {
 		return nil, NodeNotFoundErr
 	}
@@ -121,14 +123,11 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	// The allow list feeds derived node visibility, and a viewer who just lost
 	// a node has no pending update to take it away — only a full re-filter of
 	// each open stream removes (or reveals) the row.
-	if h.Authz != nil {
-		h.Authz.NotifyVisibilityInputsChanged()
-	}
 	return updated, nil
 }
 
-func (h *Handler) nodeByIdentifier(identifier string) *state.Node {
-	for _, node := range h.Store.ListNodes() {
+func (h *Handler) nodeByIdentifier(identifier string) *nodes.Node {
+	for _, node := range nodes.ListNodes(h.Store.Queries()) {
 		if node != nil && node.Identifier == identifier {
 			return node
 		}

@@ -1,7 +1,10 @@
 package webuihandler
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,26 +19,32 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 	if req.ScheduledInstanceID <= 0 || req.Run <= 0 {
 		return nil, MissingKeyErr
 	}
-	var target *apigen.ScheduledInstanceState
-	for _, state := range h.Store.FetchScheduledSnapshotWithLatestFinal(nil) {
-		if state.Instance.ID == req.ScheduledInstanceID {
-			target = &state
-			break
-		}
+	event, err := h.Queries.GetScheduledInstance(ctx, req.ScheduledInstanceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, deployments.NotFoundErr
 	}
-	if target == nil {
-		return nil, DeploymentNotFoundErr
+	if err != nil {
+		return nil, err
 	}
-	inst := target.Instance
+	inst := event.Value
+	history, err := h.Queries.ListScheduledInstanceStatusHistorySince(ctx, inst.ID, time.Time{})
+	if err != nil {
+		return nil, err
+	}
+	var current apigen.ScheduledInstanceStatus
+	if len(history) > 0 {
+		current = *history[len(history)-1]
+	}
+
 	cfg := h.findConfigByID(inst.DeploymentID)
 	if cfg == nil {
-		return nil, DeploymentNotFoundErr
+		return nil, deployments.NotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Def.SpaceID), int64(cfg.ID), DeploymentNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID), deployments.NotFoundErr); err != nil {
 		return nil, err
 	}
 
-	latest := target.Status.Runner
+	latest := current.Runner
 	currentRun := int32(0)
 	if !latest.IsZero() {
 		currentRun = latest.NumberOfRestarts + 1
@@ -50,7 +59,7 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 	var exitCode *int32
 	var finalStatus apigen.RunningStatus
 	found := false
-	for _, st := range h.Store.MustFetchInstanceStatusHistory(inst.ID) {
+	for _, st := range history {
 		r := st.Runner
 		if r.IsZero() || r.NumberOfRestarts != req.Run-1 {
 			continue
@@ -105,7 +114,6 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 		lq.TimeStart = startedAt.Add(-time.Minute)
 	}
 	var resp *apigen.LogQueryResponse
-	var err error
 	switch {
 	case inst.NodeID > 0 && inst.NodeID != h.NodeID && h.Cluster != nil:
 		resp, err = h.Cluster.RequestLogQuery(ctx, inst.NodeID, lq)

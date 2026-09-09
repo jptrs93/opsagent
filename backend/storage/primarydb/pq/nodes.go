@@ -2,51 +2,93 @@ package pq
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
+
+	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-type NodeCurrentRow struct {
-	ID                int64
-	CreatedAt         int64
-	EnrolledAt        int64
-	Name              string
-	Identifier        string
-	Version           int64
-	Status            int64
-	Roles             string
-	Addresses         string
-	WgPublicKey       string
-	AllowedSpaces     string
-	IsConnected       int64
-	OpendeployVersion string
-	RemoteAddress     string
-	EnrollmentPending int64
-	HostAddresses     string
+// CurrentNode keeps authored and observed data as separate API objects.
+var MemberNodeStatuses = []int64{
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_UNHEALTHY),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_DRAINING),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_MISSING),
+}
+
+var EnrollmentNodeStatuses = []int64{
+	int64(apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED),
+	int64(apigen.NodeLifecycleStatus_NODE_ENROLLMENT_CANCELLED),
+	int64(apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUEST_EXPIRED),
+}
+
+var AllNodeStatuses = []int64{
+	int64(apigen.NodeLifecycleStatus_NODE_STATUS_UNKNOWN),
+	int64(apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED),
+	int64(apigen.NodeLifecycleStatus_NODE_ENROLLMENT_CANCELLED),
+	int64(apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUEST_EXPIRED),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_UNHEALTHY),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_DRAINING),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_MISSING),
+	int64(apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED),
+}
+
+type CurrentNode struct {
+	Event  apigen.NodeEvent
+	Status apigen.NodeStatus
 }
 
 const nodeCurrentColumns = `n.node_id, n.created_time, n.enrolled_time, n.name, n.identifier,
 	n.version, n.status, n.roles, n.addresses, n.wg_public_key, n.allowed_spaces,
-	COALESCE(ns.is_connected, 0), COALESCE(ns.opendeploy_version, ''), COALESCE(ns.remote_address, ''), COALESCE(ns.enrollment_pending, 0),
-	COALESCE(ns.host_addresses, '[]')`
+	COALESCE(ns.is_connected, 0), COALESCE(ns.opendeploy_version, ''), COALESCE(ns.remote_address, ''), n.enrollment_requested_at, n.host_addresses, n.id, n.global_seq, n.author, n.event_type, n.event_time, COALESCE(ns.updated_at, 0), COALESCE(ns.last_connected_at, 0)`
 
 const nodeCurrentFrom = `FROM node_event_log n
 	JOIN (SELECT node_id, MAX(version) AS version
 	      FROM node_event_log GROUP BY node_id) latest
 	  ON latest.node_id = n.node_id AND latest.version = n.version
-	LEFT JOIN node_statuses ns ON ns.node_id = n.node_id`
+	LEFT JOIN node_status_log ns ON ns.node_id = n.node_id
+ AND ns.updated_at = (SELECT MAX(updated_at) FROM node_status_log WHERE node_id = n.node_id)`
 
 const allSpaceIDsExpr = `COALESCE((SELECT '[' || group_concat(id) || ']' FROM spaces), '[0]')`
 
-type nodeScanner interface {
-	Scan(dest ...any) error
+func scanCurrentNode(row scanner) (CurrentNode, error) {
+	var r CurrentNode
+	e, st := &r.Event, &r.Status
+	var roles, addresses, allowed, hosts string
+	var connected, updatedAt, connectedAt int64
+	if err := row.Scan(&e.NodeID, &e.CreatedTime, &e.Value.Operator.EnrolledTime, &e.Value.Operator.Name, &e.Value.Reported.Identifier,
+		&e.Version, &e.Value.Status, &roles, &addresses, &e.Value.Reported.WgPublicKey, &allowed,
+		&connected, &st.OpendeployVersion, &st.RemoteAddress, &e.Value.EnrollmentRequestedAt, &hosts,
+		&e.EventID, &e.Seq, &e.Author, &e.EventType, &e.EventTime, &updatedAt, &connectedAt); err != nil {
+		return r, err
+	}
+	decodeNodeLists(e, roles, addresses, allowed, hosts)
+	st.NodeID = e.NodeID
+	st.IsConnected = connected != 0
+	st.UpdatedAt = nanosToClock(updatedAt)
+	st.LastConnectedAt = millisToTime(connectedAt)
+	return r, nil
 }
 
-func scanNodeCurrentRow(scanner nodeScanner) (NodeCurrentRow, error) {
-	var r NodeCurrentRow
-	err := scanner.Scan(&r.ID, &r.CreatedAt, &r.EnrolledAt, &r.Name, &r.Identifier,
-		&r.Version, &r.Status, &r.Roles, &r.Addresses, &r.WgPublicKey, &r.AllowedSpaces,
-		&r.IsConnected, &r.OpendeployVersion, &r.RemoteAddress, &r.EnrollmentPending, &r.HostAddresses)
-	return r, err
+func decodeNodeLists(e *apigen.NodeEvent, roles, addresses, allowed, hosts string) {
+	_ = json.Unmarshal([]byte(roles), &e.Value.Operator.Roles)
+	_ = json.Unmarshal([]byte(hosts), &e.Value.Reported.HostAddresses)
+	var underlays []string
+	_ = json.Unmarshal([]byte(addresses), &underlays)
+	if len(underlays) > 0 {
+		e.Value.Reported.UnderlayAddress = underlays[0]
+	}
+	var spaces []int32
+	_ = json.Unmarshal([]byte(allowed), &spaces)
+	e.Value.Operator.AllowedSpaces = []int32{0}
+	seen := map[int32]bool{0: true}
+	for _, id := range spaces {
+		if id >= 0 && !seen[id] {
+			e.Value.Operator.AllowedSpaces = append(e.Value.Operator.AllowedSpaces, id)
+			seen[id] = true
+		}
+	}
 }
 
 func statusPlaceholders(statuses []int64) (string, []any) {
@@ -59,89 +101,99 @@ func statusPlaceholders(statuses []int64) (string, []any) {
 	return strings.Join(marks, ", "), args
 }
 
-func (q *Queries) GetNodeRowByID(ctx context.Context, id int64) (NodeCurrentRow, error) {
-	return scanNodeCurrentRow(q.db.QueryRowContext(ctx, `
+func (q *Queries) GetNodeRowByID(ctx context.Context, id int64) (CurrentNode, error) {
+	return scanCurrentNode(q.db.QueryRowContext(ctx, `
 		SELECT `+nodeCurrentColumns+`
 		`+nodeCurrentFrom+`
 		WHERE n.node_id = ?
 		LIMIT 1`, id))
 }
 
-func (q *Queries) GetNodeRowByIdentifier(ctx context.Context, identifier string) (NodeCurrentRow, error) {
-	return scanNodeCurrentRow(q.db.QueryRowContext(ctx, `
+func (q *Queries) GetNodeRowByIdentifier(ctx context.Context, identifier string) (CurrentNode, error) {
+	return scanCurrentNode(q.db.QueryRowContext(ctx, `
 		SELECT `+nodeCurrentColumns+`
 		`+nodeCurrentFrom+`
 		WHERE n.identifier = ?
 		LIMIT 1`, identifier))
 }
 
-type InsertNodeParams struct {
-	CreatedAt     int64
-	EnrolledAt    int64
-	Name          string
-	Identifier    string
-	Status        int64
-	RolesJSON     string
-	AddressesJSON string
-	WgPublicKey   string
-	GlobalSeq     int64
+// NextEnrollmentRequestedAt preserves request identity even when two requests
+// start in one millisecond or the primary's wall clock moves backwards.
+func (q *Queries) NextEnrollmentRequestedAt(ctx context.Context, nodeID, now int64) (int64, error) {
+	var at int64
+	err := q.db.QueryRowContext(ctx, `SELECT MAX(?, COALESCE(MAX(enrollment_requested_at), 0) + 1)
+		FROM node_event_log WHERE node_id = ?`, now, nodeID).Scan(&at)
+	return at, err
 }
 
-func (q *Queries) InsertNodeRow(ctx context.Context, p InsertNodeParams) (NodeCurrentRow, error) {
+type InsertNodeParams struct {
+	HostAddressesJSON     string
+	EnrollmentRequestedAt int64
+	CreatedAt             int64
+	EnrolledAt            int64
+	Name                  string
+	Identifier            string
+	Status                int64
+	RolesJSON             string
+	AddressesJSON         string
+	WgPublicKey           string
+	GlobalSeq             int64
+}
+
+func (q *Queries) InsertNodeRow(ctx context.Context, p InsertNodeParams) (CurrentNode, error) {
 	var nodeID int64
 	err := q.db.QueryRowContext(ctx, `
 		SELECT COALESCE(MAX(node_id), 0) + 1 FROM node_event_log`).Scan(&nodeID)
 	if err != nil {
-		return NodeCurrentRow{}, err
+		return CurrentNode{}, err
 	}
 	_, err = q.db.ExecContext(ctx, `
 		INSERT INTO node_event_log (
 			global_seq, event_time, created_time, author, node_id, version,
 			name, identifier, enrolled_time, status, roles, addresses,
-			wg_public_key, allowed_spaces, event_type)
-		VALUES (?, ?, ?, 0, ?, 1, ?, ?, ?, ?, ?, ?, ?, `+allSpaceIDsExpr+`, ?)`,
+			wg_public_key, allowed_spaces, event_type, host_addresses, enrollment_requested_at)
+		VALUES (?, ?, ?, 0, ?, 1, ?, ?, ?, ?, ?, ?, ?, `+allSpaceIDsExpr+`, ?, ?, ?)`,
 		p.GlobalSeq, p.CreatedAt, p.CreatedAt, nodeID, p.Name, p.Identifier, p.EnrolledAt,
-		p.Status, p.RolesJSON, p.AddressesJSON, p.WgPublicKey, EventCreate)
+		p.Status, p.RolesJSON, p.AddressesJSON, p.WgPublicKey, EventCreate, normalizeHostAddressesJSON(p.HostAddressesJSON), p.EnrollmentRequestedAt)
 	if err != nil {
-		return NodeCurrentRow{}, err
-	}
-	if err := q.ensureNodeStatusRow(ctx, nodeID); err != nil {
-		return NodeCurrentRow{}, err
+		return CurrentNode{}, err
 	}
 	return q.GetNodeRowByID(ctx, nodeID)
 }
 
 type AppendNodeEventParams struct {
-	NodeID            int64
-	EventTime         int64
-	Author            int64
-	Name              string
-	Identifier        string
-	EnrolledTime      int64
-	Status            int64
-	RolesJSON         string
-	AddressesJSON     string
-	WgPublicKey       string
-	AllowedSpacesJSON string
-	GlobalSeq         int64
+	HostAddressesJSON     string
+	EnrollmentRequestedAt int64
+	NodeID                int64
+	EventTime             int64
+	Author                int64
+	Name                  string
+	Identifier            string
+	EnrolledTime          int64
+	Status                int64
+	RolesJSON             string
+	AddressesJSON         string
+	WgPublicKey           string
+	AllowedSpacesJSON     string
+	GlobalSeq             int64
 }
 
-func (q *Queries) AppendNodeEvent(ctx context.Context, p AppendNodeEventParams) (NodeCurrentRow, error) {
+func (q *Queries) AppendNodeEvent(ctx context.Context, p AppendNodeEventParams) (CurrentNode, error) {
 	_, err := q.db.ExecContext(ctx, `
 		INSERT INTO node_event_log (
 			global_seq, event_time, created_time, author, node_id, version,
 			name, identifier, enrolled_time, status, roles, addresses,
-			wg_public_key, allowed_spaces, event_type)
+			wg_public_key, allowed_spaces, event_type, host_addresses, enrollment_requested_at)
 		SELECT ?1, ?2, COALESCE(MIN(created_time), ?2), ?3,
 		       ?4, COALESCE(MAX(version), 0) + 1,
-		       ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
+		       ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15
 		FROM node_event_log
 		WHERE node_id = ?4`,
 		p.GlobalSeq, p.EventTime, p.Author, p.NodeID,
 		p.Name, p.Identifier, p.EnrolledTime, p.Status, p.RolesJSON, p.AddressesJSON,
-		p.WgPublicKey, p.AllowedSpacesJSON, EventUpdate)
+		p.WgPublicKey, p.AllowedSpacesJSON, EventUpdate, normalizeHostAddressesJSON(p.HostAddressesJSON), p.EnrollmentRequestedAt)
 	if err != nil {
-		return NodeCurrentRow{}, err
+		return CurrentNode{}, err
 	}
 	return q.GetNodeRowByID(ctx, p.NodeID)
 }
@@ -158,15 +210,7 @@ func (q *Queries) CountNodesWithName(ctx context.Context, name string, excludeNo
 	return n, err
 }
 
-func (q *Queries) ensureNodeStatusRow(ctx context.Context, nodeID int64) error {
-	_, err := q.db.ExecContext(ctx, `
-		INSERT INTO node_statuses (node_id)
-		VALUES (?)
-		ON CONFLICT(node_id) DO NOTHING`, nodeID)
-	return err
-}
-
-func (q *Queries) ListNodeRows(ctx context.Context, statuses []int64) ([]NodeCurrentRow, error) {
+func (q *Queries) ListNodeRows(ctx context.Context, statuses []int64) ([]CurrentNode, error) {
 	marks, args := statusPlaceholders(statuses)
 	rows, err := q.db.QueryContext(ctx, `
 		SELECT `+nodeCurrentColumns+`
@@ -177,9 +221,9 @@ func (q *Queries) ListNodeRows(ctx context.Context, statuses []int64) ([]NodeCur
 		return nil, err
 	}
 	defer rows.Close()
-	var out []NodeCurrentRow
+	var out []CurrentNode
 	for rows.Next() {
-		r, err := scanNodeCurrentRow(rows)
+		r, err := scanCurrentNode(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -188,20 +232,20 @@ func (q *Queries) ListNodeRows(ctx context.Context, statuses []int64) ([]NodeCur
 	return out, rows.Err()
 }
 
-func (q *Queries) ListEnrollmentNodeRows(ctx context.Context, enrollmentStatuses []int64) ([]NodeCurrentRow, error) {
+func (q *Queries) ListEnrollmentNodeRows(ctx context.Context, enrollmentStatuses []int64) ([]CurrentNode, error) {
 	marks, args := statusPlaceholders(enrollmentStatuses)
 	rows, err := q.db.QueryContext(ctx, `
 		SELECT `+nodeCurrentColumns+`
 		`+nodeCurrentFrom+`
-		WHERE n.status IN (`+marks+`) OR COALESCE(ns.enrollment_pending, 0) = 1
+		WHERE n.status IN (`+marks+`) OR n.enrollment_requested_at != 0
 		ORDER BY n.created_time DESC, n.node_id DESC`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []NodeCurrentRow
+	var out []CurrentNode
 	for rows.Next() {
-		r, err := scanNodeCurrentRow(rows)
+		r, err := scanCurrentNode(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -210,18 +254,10 @@ func (q *Queries) ListEnrollmentNodeRows(ctx context.Context, enrollmentStatuses
 	return out, rows.Err()
 }
 
-const nodeIDByIdentifierExpr = `(SELECT node_id FROM node_event_log WHERE identifier = ? LIMIT 1)`
-
 func (q *Queries) GetNodeIDByIdentifier(ctx context.Context, identifier string) (int64, error) {
 	var nodeID int64
 	err := q.db.QueryRowContext(ctx, `SELECT node_id FROM node_event_log WHERE identifier = ? LIMIT 1`, identifier).Scan(&nodeID)
 	return nodeID, err
-}
-
-func (q *Queries) GetNodeIdentifierByID(ctx context.Context, id int64) (string, error) {
-	var identifier string
-	err := q.db.QueryRowContext(ctx, `SELECT identifier FROM node_event_log WHERE node_id = ? LIMIT 1`, id).Scan(&identifier)
-	return identifier, err
 }
 
 func (q *Queries) GetNodeIDWithRole(ctx context.Context, role int64, statuses []int64) (int64, error) {
@@ -236,108 +272,9 @@ func (q *Queries) GetNodeIDWithRole(ctx context.Context, role int64, statuses []
 	return nodeID, err
 }
 
-func (q *Queries) ListNodeStatusRows(ctx context.Context) ([]NodeStatus, error) {
-	rows, err := q.db.QueryContext(ctx, `
-		SELECT `+nodeStatusColumns+`
-		FROM node_statuses
-		ORDER BY id`)
-	if err != nil {
-		return nil, err
+func normalizeHostAddressesJSON(value string) string {
+	if value == "" {
+		return "[]"
 	}
-	defer rows.Close()
-	var out []NodeStatus
-	for rows.Next() {
-		r, err := scanNodeStatus(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
-func (q *Queries) EnsureNodeStatusRowByIdentifier(ctx context.Context, identifier string) error {
-	_, err := q.db.ExecContext(ctx, `
-		INSERT OR IGNORE INTO node_statuses (node_id)
-		SELECT node_id FROM node_event_log WHERE identifier = ? LIMIT 1`, identifier)
-	return err
-}
-
-type SetNodeConnectionStatusParams struct {
-	Connected       int64
-	LastConnectedAt int64
-	Identifier      string
-}
-
-func (q *Queries) SetNodeConnectionStatus(ctx context.Context, p SetNodeConnectionStatusParams) (NodeStatus, error) {
-	r, err := scanNodeStatus(q.db.QueryRowContext(ctx, `
-		UPDATE node_statuses
-		SET last_connected_at = CASE WHEN ? = 1 THEN ? ELSE last_connected_at END,
-			is_connected = ?
-		WHERE node_id = `+nodeIDByIdentifierExpr+`
-		RETURNING `+nodeStatusColumns,
-		p.Connected, p.LastConnectedAt, p.Connected, p.Identifier))
-	return r, err
-}
-
-// SetNodeHostAddresses replaces the node's reported host address list (JSON).
-// It returns the row even when unchanged; callers diff-gate notifications.
-func (q *Queries) SetNodeHostAddresses(ctx context.Context, identifier, hostAddressesJSON string) (NodeStatus, bool, error) {
-	current, err := q.getNodeStatusByIdentifier(ctx, identifier)
-	if err != nil {
-		return NodeStatus{}, false, err
-	}
-	if current.HostAddresses == hostAddressesJSON {
-		return current, false, nil
-	}
-	r, err := scanNodeStatus(q.db.QueryRowContext(ctx, `
-		UPDATE node_statuses
-		SET host_addresses = ?
-		WHERE node_id = `+nodeIDByIdentifierExpr+`
-		RETURNING `+nodeStatusColumns, hostAddressesJSON, identifier))
-	return r, err == nil, err
-}
-
-func (q *Queries) getNodeStatusByIdentifier(ctx context.Context, identifier string) (NodeStatus, error) {
-	return scanNodeStatus(q.db.QueryRowContext(ctx, `
-		SELECT `+nodeStatusColumns+`
-		FROM node_statuses
-		WHERE node_id = `+nodeIDByIdentifierExpr, identifier))
-}
-
-const nodeStatusColumns = `id, node_id, last_connected_at, is_connected, opendeploy_version, remote_address, enrollment_pending, host_addresses`
-
-func scanNodeStatus(scanner nodeScanner) (NodeStatus, error) {
-	var r NodeStatus
-	err := scanner.Scan(&r.ID, &r.NodeID, &r.LastConnectedAt, &r.IsConnected, &r.OpendeployVersion, &r.RemoteAddress, &r.EnrollmentPending, &r.HostAddresses)
-	return r, err
-}
-
-type UpsertNodeObservedMetaParams struct {
-	NodeID            int64
-	LastConnectedAt   int64
-	IsConnected       int64
-	OpendeployVersion string
-	RemoteAddress     string
-	EnrollmentPending int64
-}
-
-func (q *Queries) UpsertNodeObservedMeta(ctx context.Context, p UpsertNodeObservedMetaParams) error {
-	_, err := q.db.ExecContext(ctx, `
-		INSERT INTO node_statuses (node_id, last_connected_at, is_connected, opendeploy_version, remote_address, enrollment_pending)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(node_id) DO UPDATE SET
-			last_connected_at = excluded.last_connected_at,
-			is_connected = excluded.is_connected,
-			opendeploy_version = excluded.opendeploy_version,
-			remote_address = excluded.remote_address,
-			enrollment_pending = excluded.enrollment_pending`,
-		p.NodeID, p.LastConnectedAt, p.IsConnected, p.OpendeployVersion, p.RemoteAddress, p.EnrollmentPending)
-	return err
-}
-
-func (q *Queries) ClearNodeEnrollmentPending(ctx context.Context, nodeID int64) error {
-	_, err := q.db.ExecContext(ctx, `
-		UPDATE node_statuses SET enrollment_pending = 0 WHERE node_id = ?`, nodeID)
-	return err
+	return value
 }

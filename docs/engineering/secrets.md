@@ -43,7 +43,7 @@ reference-safe, any other destination requires every referencing deployment
 to live there, and a
 cluster-settings reference pins the value to the global space. Both the
 deployment-write check and the check-and-move run under
-`ConfigService.LockReferences()` so neither side can race the other.
+`SystemConfig.LockReferences()` so neither side can race the other.
 `MoveSecretSpace` / `MoveConfigSpace` append one event that bumps the space
 facet (with the acting user as `author`) and carries the new
 `value_directory_id` (the destination directory must belong to the
@@ -63,17 +63,19 @@ reparenting — a refused cross-space move never lands the row at *its own*
 space's root — and the explorer's drag-and-drop and Move dialog surface the
 refusal. Reserved `opendeploy.*` secrets cannot be moved at all:
 install/restore flows find them by name in the space root. Directories ride
-the UI state stream as `value_directories_snapshot` /
-`value_directory_update` and appear in `GET /v1/global/state`.
+the UI state stream as `value_directories` and appear in
+`GET /v1/global/snapshot`.
 
 Values are decrypted during deployment preparation, cached on the node that
 runs the deployment — in memory, and additionally encrypted at rest on a
 secondary — and expanded at process spawn time. They never appear in stored
 deployment config, the UI state stream, the cluster replication feed, or logs.
-The state stream and list APIs carry `Secret` / `Config`: the identity at the
-root (`fs` name and directory plus the append-only `space_versions` log) and
-the version log, NEWEST FIRST (`[0]` is the latest). Config `value_versions`
-include the plaintext value; secret `versions` never do.
+List APIs return the latest live `SecretEvent` / `ConfigEvent`; the snapshot
+contains every event of each live entity, oldest first. Envelopes identify the
+entity and log row (`event_id`), with current filesystem/space fields in
+`value`. Config plaintext is `value.value`; secret `value` is metadata only.
+Version pickers group each history and pin the `event_id` of events whose
+`value_version` changes. Rename and move events preserve that facet.
 
 A signed-in operator can also decrypt a single value on demand via the explicit
 `PostV1SecretsReveal` endpoint (surfaced as the per-row "Reveal" button in the
@@ -122,22 +124,22 @@ values its own deployments reference, and keeps them under a machine key of its
 own — see "Local runtime input persistence" below.
 
 Key files:
-- `backend/lib/secrets/secrets.go` — `Manager`, the key hierarchy, AEAD, and the
-  machine-key boundary.
-- `backend/lib/secrets/generate.go` — the server-side value generators used by
-  `PostV1SecretsGenerate`.
+- `backend/app/primary/domain/secrets/secrets.go` — `Manager`, the key hierarchy, AEAD,
+  and the machine-key boundary.
+- `backend/app/primary/domain/secrets/store.go` — the primary's secret rows
+  (`secret_keyslots`, `secret_event_log`, and `system_secrets` tables) written
+  through `state.Service.Commit`. Sealing happens through a `secrets.SealFunc`
+  callback inside the write transaction, because the id-and-version AAD needs
+  the identity id before the ciphertext can exist.
+- `backend/app/primary/domain/secrets/generate.go` — the server-side value generators
+  used by `PostV1SecretsGenerate`.
+- `backend/app/primary/domain/values/` — the shared secrets/configs namespace law:
+  `ValidName` and the cross-log sibling-uniqueness check.
 - `backend/lib/machinekey/machinekey.go` — the shared `Provider` boundary (KEK
   supply + AEAD helpers) used by both the primary's store and a secondary's
   local cache.
-- `backend/lib/localinputs/localinputs.go` — a secondary's encrypted at-rest
-  copy of the runtime inputs it needs.
-- `backend/storage/primarydb/state/secrets_store.go` — `secrets.Store` on the primary
-  `StorageAdapter` (`secret_keyslots`, `secret_event_log`, and
-  `system_secrets` tables, plus the wire `Secret` builders). Sealing happens
-  through a `secrets.SealFunc` callback inside the write transaction, because
-  the id-and-version AAD needs the identity id before the ciphertext can exist.
-- `backend/storage/primarydb/state/values.go` — the shared secrets/configs namespace
-  law: `ValidValueName` and the cross-log sibling-uniqueness check.
+- `backend/app/secondary/localinputs/localinputs.go` — a secondary's encrypted
+  at-rest copy of the runtime inputs it needs.
 - `backend/lib/engine/prepare/runtimeinputs/secrets.go` — finds typed `secretVersionId`
   / `configVersionId` refs, fetches each needed batch, validates it, and owns the
   prepared in-memory caches.

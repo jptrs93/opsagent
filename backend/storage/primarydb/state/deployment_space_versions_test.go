@@ -10,48 +10,45 @@ import (
 func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := Open(dbPath)
-	node := store.EnsurePrimaryNode("primary", "primary-id")
-	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "web", node.ID, nonEmptySpec())
+	node := testNode(store, "primary-id")
+	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, defaultSpaceID, "web", node.ID, nonEmptySpec())
 	if cfg.SpaceVersion != 1 {
 		t.Fatalf("created config space version = %d, want 1", cfg.SpaceVersion)
 	}
 
-	inst := store.CreateScheduledInstanceForTest(cfg.ID, cfg.Version, cfg.Def.NodeID, 0,
+	inst := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	if inst.SpaceID != DefaultSpaceID {
-		t.Fatalf("placement pin = space %d, want space %d", inst.SpaceID, DefaultSpaceID)
+	if inst.SpaceID != defaultSpaceID {
+		t.Fatalf("placement pin = space %d, want space %d", inst.SpaceID, defaultSpaceID)
 	}
 
 	author9 := apigen.Context{User: &apigen.InternalUser{ID: 9}}
-	moved := moveDeploymentSpace(store, author9, cfg.ID, 2)
-	if moved.Def.SpaceID != 2 || moved.SpecVersion != cfg.SpecVersion || moved.SpaceVersion != 2 {
+	moved := moveDeploymentSpace(store, author9, cfg.DeploymentID, 2)
+	if moved.Value.SpaceID != 2 || moved.SpecVersion != cfg.SpecVersion || moved.SpaceVersion != 2 {
 		t.Fatalf("moved config = v%d space %d spaceV%d, want v%d space 2 spaceV2 (no spec version bump)",
-			moved.SpecVersion, moved.Def.SpaceID, moved.SpaceVersion, cfg.SpecVersion)
+			moved.SpecVersion, moved.Value.SpaceID, moved.SpaceVersion, cfg.SpecVersion)
 	}
-	events, err := store.q.ListDeploymentEvents(t.Context(), int64(cfg.ID))
+	events, err := store.q.ListDeploymentEvents(t.Context(), int64(cfg.DeploymentID))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 2 || events[0].SpaceAssignmentVersion != 1 || events[1].SpaceAssignmentVersion != 2 ||
+	if len(events) != 2 || events[0].SpaceVersion != 1 || events[1].SpaceVersion != 2 ||
 		events[1].Author != 9 || events[1].SpecVersion != 1 {
 		t.Fatalf("event log = %+v, want create at spaceV1 then move to spaceV2 author 9 with no spec bump", events)
 	}
-	if first := deploymentFromRow(events[0]); first.Def.SpaceID != DefaultSpaceID {
-		t.Fatalf("create snapshot space = %d, want %d", first.Def.SpaceID, DefaultSpaceID)
+	if first := events[0]; first.Value.SpaceID != defaultSpaceID {
+		t.Fatalf("create snapshot space = %d, want %d", first.Value.SpaceID, defaultSpaceID)
 	}
-	if second := deploymentFromRow(events[1]); second.Def.SpaceID != 2 {
-		t.Fatalf("move snapshot space = %d, want 2", second.Def.SpaceID)
-	}
-
-	if st := findInstanceState(t, store, inst.ID); st.Config.Def.SpaceID != DefaultSpaceID {
-		t.Fatalf("pinned view after move = space %d, want space %d", st.Config.Def.SpaceID, DefaultSpaceID)
+	if second := events[1]; second.Value.SpaceID != 2 {
+		t.Fatalf("move snapshot space = %d, want 2", second.Value.SpaceID)
 	}
 
-	replacement, created := store.EnsureRunScheduledInstance(cfg.ID, moved.Version, cfg.Def.NodeID, 0,
+	if st := findInstanceState(t, store, inst.ID); st.Config.Value.SpaceID != defaultSpaceID {
+		t.Fatalf("pinned view after move = space %d, want space %d", st.Config.Value.SpaceID, defaultSpaceID)
+	}
+
+	replacement := createScheduledInstanceForTest(store, cfg.DeploymentID, moved.Version, cfg.Value.NodeID, 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
-	if !created {
-		t.Fatal("space move did not require a replacement incarnation")
-	}
 	if replacement.SpaceID != 2 {
 		t.Fatalf("replacement pin = space %d, want space 2", replacement.SpaceID)
 	}
@@ -61,14 +58,14 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 	}
 	store = Open(dbPath)
 	defer store.Close()
-	if cur := store.FetchDeployment(cfg.ID); cur.Def.SpaceID != 2 || cur.SpaceVersion != 2 {
-		t.Fatalf("reloaded config = space %d spaceV%d, want space 2 spaceV2", cur.Def.SpaceID, cur.SpaceVersion)
+	if cur := fetchDeploymentForTest(store, cfg.DeploymentID); cur.Value.SpaceID != 2 || cur.SpaceVersion != 2 {
+		t.Fatalf("reloaded config = space %d spaceV%d, want space 2 spaceV2", cur.Value.SpaceID, cur.SpaceVersion)
 	}
-	if st := findInstanceState(t, store, inst.ID); st.Config.Def.SpaceID != DefaultSpaceID {
-		t.Fatalf("reloaded pinned view = space %d, want space %d", st.Config.Def.SpaceID, DefaultSpaceID)
+	if st := findInstanceState(t, store, inst.ID); st.Config.Value.SpaceID != defaultSpaceID {
+		t.Fatalf("reloaded pinned view = space %d, want space %d", st.Config.Value.SpaceID, defaultSpaceID)
 	}
-	if st := findInstanceState(t, store, replacement.ID); st.Config.Def.SpaceID != 2 {
-		t.Fatalf("reloaded replacement view = space %d, want space 2", st.Config.Def.SpaceID)
+	if st := findInstanceState(t, store, replacement.ID); st.Config.Value.SpaceID != 2 {
+		t.Fatalf("reloaded replacement view = space %d, want space 2", st.Config.Value.SpaceID)
 	}
 }
 
@@ -86,7 +83,7 @@ func findInstanceState(t *testing.T, store *Service, instanceID int32) apigen.Sc
 func TestSpecComparisonSurvivesMapEncodingOrder(t *testing.T) {
 	store := Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := store.EnsurePrimaryNode("primary", "primary-id")
+	node := testNode(store, "primary-id")
 
 	envSpec := func() *apigen.DeploymentSpec {
 		spec := nonEmptySpec()
@@ -99,15 +96,15 @@ func TestSpecComparisonSurvivesMapEncodingOrder(t *testing.T) {
 		return spec
 	}
 
-	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "envy", node.ID, envSpec())
+	cfg := mustCreateDeploymentForNode(store, apigen.Context{}, defaultSpaceID, "envy", node.ID, envSpec())
 
-	updated := updateDeploymentSpec(store, apigen.Context{}, cfg.ID, envSpec())
+	updated := updateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, envSpec())
 	if updated.SpecVersion != cfg.SpecVersion {
 		t.Fatalf("same-spec update = v%d specV%d, want no spec bump from specV%d", updated.Version, updated.SpecVersion, cfg.SpecVersion)
 	}
 
-	for i, target := range []int32{2, DefaultSpaceID, 2, DefaultSpaceID} {
-		moved := moveDeploymentSpace(store, apigen.Context{}, cfg.ID, target)
+	for i, target := range []int32{2, defaultSpaceID, 2, defaultSpaceID} {
+		moved := moveDeploymentSpace(store, apigen.Context{}, cfg.DeploymentID, target)
 		if moved.SpecVersion != cfg.SpecVersion {
 			t.Fatalf("move %d bumped spec version to %d, want %d", i, moved.SpecVersion, cfg.SpecVersion)
 		}

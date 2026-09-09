@@ -98,7 +98,8 @@ func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, ma
 	}
 
 	reqs := func(yield func(*apigen.EnrollmentSecondaryMsg, error) bool) {
-		if !yield(&apigen.EnrollmentSecondaryMsg{Hello: &apigen.EnrollmentHello{RequestingMachineID: machineID, SecondaryCertificateRequest: csrPEM, OpendeployVersion: strings.TrimSpace(cfg.OpendeployVersion), UnderlayAddress: cfg.UnderlayAddress, WgPublicKey: wgPublicKey}}, nil) {
+		inventory := currentHostAddresses(ctx)
+		if !yield(&apigen.EnrollmentSecondaryMsg{Hello: &apigen.EnrollmentHello{Reported: &apigen.NodeReported{Identifier: machineID, UnderlayAddress: cfg.UnderlayAddress, WgPublicKey: wgPublicKey, HostAddresses: inventory.addresses, HostAddressesUnknown: inventory.unknown}, SecondaryCertificateRequest: csrPEM, OpendeployVersion: strings.TrimSpace(cfg.OpendeployVersion)}}, nil) {
 			return
 		}
 		<-ctx.Done()
@@ -136,10 +137,10 @@ func cacheEnrollmentBootstrapState(ctx context.Context, cfg EnrollmentConfig, ac
 	if info == nil || len(info.UlaPrefix) == 0 {
 		return fmt.Errorf("accepted enrollment response missing cluster network")
 	}
-	if accepted.NodeDeployment == nil || accepted.NodeDeployment.Config.ID == 0 {
+	if accepted.NodeDeployment == nil || accepted.NodeDeployment.Config.DeploymentID == 0 {
 		return fmt.Errorf("accepted enrollment response missing node deployment")
 	}
-	if accepted.NodeNetDeployment == nil || accepted.NodeNetDeployment.Config.ID == 0 {
+	if accepted.NodeNetDeployment == nil || accepted.NodeNetDeployment.Config.DeploymentID == 0 {
 		return fmt.Errorf("accepted enrollment response missing node net deployment")
 	}
 	store := state.Open(filepath.Join(cfg.DataDir, "secondary.db"))

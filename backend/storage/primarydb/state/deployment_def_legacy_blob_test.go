@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"github.com/jptrs93/goutil/erru"
 	"path/filepath"
 	"testing"
 
@@ -58,12 +59,12 @@ func TestLegacyFlatBlobRowsDecodeAsDef(t *testing.T) {
 	store = Open(dbPath)
 	defer store.Close()
 
-	cfg := store.FetchDeployment(7)
+	cfg := fetchDeploymentForTest(store, 7)
 	if cfg == nil {
 		t.Fatal("deployment 7 not loaded")
 	}
-	if cfg.Def.NodeID != 3 || cfg.Def.SpaceID != 1 || cfg.Def.Name != "api" || cfg.Def.Spec.WorkloadVersion() != "v2" {
-		t.Fatalf("def not decoded from legacy blob: %+v", cfg.Def)
+	if cfg.Value.NodeID != 3 || cfg.Value.SpaceID != 1 || cfg.Value.Name != "api" || cfg.Value.Spec.WorkloadVersion() != "v2" {
+		t.Fatalf("def not decoded from legacy blob: %+v", cfg.Value)
 	}
 	if cfg.Version != 2 || cfg.SpecVersion != 2 || cfg.SpaceVersion != 1 || cfg.NameVersion != 1 || cfg.Author != 5 {
 		t.Fatalf("envelope not read from columns: %+v", cfg)
@@ -75,14 +76,14 @@ func TestLegacyFlatBlobRowsDecodeAsDef(t *testing.T) {
 		t.Fatal("deployment 7 read as deleted")
 	}
 
-	gone := store.FetchDeployment(8)
+	gone := fetchDeploymentForTest(store, 8)
 	if gone == nil || !gone.Deleted() {
 		t.Fatalf("deployment 8 tombstone not read from event_type: %+v", gone)
 	}
-	if gone.Def.Spec.WorkloadVersion() != "v1" {
+	if gone.Value.Spec.WorkloadVersion() != "v1" {
 		t.Fatal("tombstone lost its spec")
 	}
-	if got := store.FetchDeletedDeploymentSnapshot(nil, 10); len(got) != 1 || got[0].ID != 8 {
+	if got := erru.Must(store.Queries().ListDeletedDeploymentEvents(context.Background())); len(got) != 1 || got[0].DeploymentID != 8 {
 		t.Fatalf("deleted snapshot = %+v, want deployment 8", got)
 	}
 
@@ -94,8 +95,8 @@ func TestLegacyFlatBlobRowsDecodeAsDef(t *testing.T) {
 		t.Fatalf("created_time not carried forward: %d", updated.CreatedTime.UnixMilli())
 	}
 
-	history := store.MustFetchDeploymentHistory(context.Background(), 7)
-	if len(history) != 3 || history[0].Def.Spec.WorkloadVersion() != "v1" || history[2].Def.Spec.WorkloadVersion() != "v3" {
+	history := erru.Must(store.Queries().ListDeploymentEvents(context.Background(), int64(7)))
+	if len(history) != 3 || history[0].Value.Spec.WorkloadVersion() != "v1" || history[2].Value.Spec.WorkloadVersion() != "v3" {
 		t.Fatalf("history = %d entries", len(history))
 	}
 }

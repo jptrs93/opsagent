@@ -4,22 +4,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/pki"
+	"github.com/jptrs93/opsagent/backend/app/primary/scheduler"
 	"iter"
 	"log/slog"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/config"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
 	"github.com/jptrs93/opsagent/backend/lib/wgkey"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
-	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
 
@@ -43,7 +47,7 @@ type enrollmentSession struct {
 type Handler struct {
 	store          *state.Service
 	secrets        *secrets.Manager
-	configService  *config.Service
+	configService  *systemconfig.Service
 	tlsFingerprint string
 	networkMaps    networkMapProvider
 
@@ -56,7 +60,7 @@ type networkMapProvider interface {
 	SnapshotForNode(nodeID int32) *apigen.ClusterNetMap
 }
 
-func New(store *state.Service, secretsMgr *secrets.Manager, configService *config.Service, tlsFingerprint string, networkMaps networkMapProvider) *Handler {
+func New(store *state.Service, secretsMgr *secrets.Manager, configService *systemconfig.Service, tlsFingerprint string, networkMaps networkMapProvider) *Handler {
 	return &Handler{
 		store:          store,
 		secrets:        secretsMgr,
@@ -97,7 +101,8 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			yield(nil, err)
 			return
 		}
-		requestingMachineID := strings.TrimSpace(hello.RequestingMachineID)
+		reported := hello.ReportedValue()
+		requestingMachineID := strings.TrimSpace(reported.Identifier)
 		if requestingMachineID == "" {
 			yield(nil, EnrollmentMachineIDRequiredErr)
 			return
@@ -107,18 +112,19 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			return
 		}
 		opendeployVersion := strings.TrimSpace(hello.OpendeployVersion)
-		underlayAddress, err := h.store.NormalizeNodeUnderlay(requestingMachineID, hello.UnderlayAddress)
+		underlayAddress, err := nodes.NormalizeNodeUnderlay(h.store.Queries(), requestingMachineID, reported.UnderlayAddress)
 		if err != nil {
 			yield(nil, err)
 			return
 		}
-		wgPublicKey, err := wgkey.ValidatePublic(hello.WgPublicKey)
+		wgPublicKey, err := wgkey.ValidatePublic(reported.WgPublicKey)
 		if err != nil {
 			yield(nil, EnrollmentInvalidWGKeyErr)
 			return
 		}
 
-		status, expectedVersion := h.store.MustUpsertEnrollmentRequest(enrollmentRequestIP(ctx), requestingMachineID, opendeployVersion, underlayAddress, wgPublicKey)
+		reported.Identifier, reported.UnderlayAddress, reported.WgPublicKey = requestingMachineID, underlayAddress, wgPublicKey
+		status, expectedVersion := nodes.UpsertEnrollmentRequest(h.store, enrollmentRequestIP(ctx), opendeployVersion, reported)
 		sess := &enrollmentSession{
 			id:                  status.ID,
 			requestingMachineID: requestingMachineID,
@@ -130,9 +136,13 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			accepted:            make(chan *apigen.EnrollmentAccepted, 1),
 		}
 		h.registerEnrollmentSession(sess)
+		expired := false
 		defer func() {
 			if h.unregisterEnrollmentSession(sess) {
-				h.store.MustMarkEnrollmentDisconnected(status.ID, requestingMachineID)
+				nodes.MarkEnrollmentDisconnected(h.store, status.ID, requestingMachineID)
+				if err := nodes.EndEnrollmentRequest(h.store, status.ID, status.CreatedAt.UnixMilli(), expired); err != nil {
+					slog.ErrorContext(ctx, "ending enrollment request", "err", err)
+				}
 			}
 		}()
 
@@ -141,7 +151,11 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 		}
 
 		disconnected := drainEnrollmentStream(reqs)
+		deadline := time.NewTimer(10 * time.Minute)
+		defer deadline.Stop()
 		select {
+		case <-deadline.C:
+			expired = true
 		case accepted := <-sess.accepted:
 			yield(&apigen.EnrollmentPrimaryMsg{Accepted: accepted}, nil)
 		case err := <-disconnected:
@@ -154,7 +168,7 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 }
 
 func (h *Handler) PostV1NodesEnrollmentsList(ctx apigen.Context) (*apigen.EnrollmentRequestList, error) {
-	items, err := h.store.ListEnrollmentRequests()
+	items, err := nodes.ListEnrollmentRequests(h.store.Queries())
 	if err != nil {
 		return nil, err
 	}
@@ -173,32 +187,32 @@ func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.E
 	if sess == nil {
 		return nil, EnrollmentNotConnectedErr
 	}
-	if _, err := h.store.NormalizeNodeUnderlay(sess.requestingMachineID, sess.underlayAddress); err != nil {
+	if _, err := nodes.NormalizeNodeUnderlay(h.store.Queries(), sess.requestingMachineID, sess.underlayAddress); err != nil {
 		return nil, err
 	}
-	caCert, secondaryCert, err := certu.SignSecondaryCertificateRequest(h.secrets, sess.csrPEM, sess.requestingMachineID)
+	caCert, secondaryCert, err := pki.SignSecondaryCertificateRequest(h.secrets, sess.csrPEM, sess.requestingMachineID)
 	if errors.Is(err, secrets.ErrLocked) || errors.Is(err, secrets.ErrNotFound) {
 		return nil, EnrollmentSigningNotConfiguredErr
 	}
 	if err != nil {
 		return nil, fmt.Errorf("signing secondary CSR: %w", err)
 	}
-	status, err := h.store.AcceptEnrollmentRequest(req.ID, nodeName, sess.requestingMachineID, sess.underlayAddress, sess.wgPublicKey, sess.expectedVersion)
-	if errors.Is(err, state.ErrEnrollmentRequestChanged) {
+	status, err := nodes.AcceptEnrollmentRequest(h.store, req.ID, nodeName, sess.requestingMachineID, int64(req.ExpectedVersion))
+	if errors.Is(err, nodes.ErrEnrollmentRequestChanged) {
 		return nil, EnrollmentNotConnectedErr
 	}
-	if errors.Is(err, state.ErrDuplicateNodeName) {
+	if errors.Is(err, nodes.ErrDuplicateNodeName) {
 		return nil, EnrollmentDuplicateNodeNameErr
 	}
 	if err != nil {
 		return nil, err
 	}
-	nodeID, err := h.store.NodeIDByIdentifier(sess.requestingMachineID)
+	nodeID, err := nodes.NodeIDByIdentifier(h.store.Queries(), sess.requestingMachineID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve enrolled secondary %q: %w", sess.requestingMachineID, err)
 	}
-	h.store.EnsureSystemDeployment(nodeID, version.Version)
-	h.store.EnsureNetproxyDeployment(nodeID, version.Version)
+	deployments.EnsureSystem(h.store, nodeID, version.Version)
+	deployments.EnsureNetproxy(h.store, nodeID, version.Version)
 	nodeDeployment, nodeNetDeployment := h.ensureEnrollmentBootstrapInstances(nodeID)
 	if nodeDeployment == nil || nodeNetDeployment == nil {
 		return nil, fmt.Errorf("enrollment bootstrap deployments missing for secondary %q", sess.requestingMachineID)
@@ -233,13 +247,13 @@ func (h *Handler) ensureEnrollmentBootstrapInstances(nodeID int32) (*apigen.Sche
 	predicate := storage.ScheduledInstancePredicate(func(state apigen.ScheduledInstanceState) bool {
 		return state.Instance.NodeID == nodeID
 	})
-	for _, cfg := range h.store.FetchDeploymentSnapshot(func(c apigen.Deployment) bool { return c.Def.NodeID == nodeID }) {
+	for _, cfg := range deployments.Active(h.store.Queries(), func(c apigen.DeploymentEvent) bool { return c.Value.NodeID == nodeID }) {
 		if !internaldeploy.IsSelfConfig(&cfg) && !internaldeploy.IsNetproxyConfig(&cfg) {
 			continue
 		}
 		// A node being enrolled has no placements yet, so its system deployments
 		// start out serving rather than warming up behind something.
-		h.store.EnsureRunScheduledInstance(cfg.ID, cfg.Version, cfg.Def.NodeID, 0,
+		scheduler.EnsureRunInstance(h.store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0,
 			apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	}
 	return enrollmentBootstrapInstances(h.store.FetchScheduledSnapshot(predicate))

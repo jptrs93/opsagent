@@ -32,8 +32,8 @@ func (s *fakeOperatorStore) MustWriteScheduledInstanceStatus(instanceID int32, f
 	s.statuses = append(s.statuses, s.status.Runner)
 }
 
-func (s *fakeOperatorStore) MustFetchScheduledSnapshotAndSubscribe(storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan apigen.ScheduledInstanceState, func()) {
-	return nil, make(chan apigen.ScheduledInstanceState), func() {}
+func (s *fakeOperatorStore) MustFetchScheduledSnapshotAndSubscribe(storage.ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan []apigen.ScheduledInstanceState, func()) {
+	return nil, make(chan []apigen.ScheduledInstanceState), func() {}
 }
 
 func (s *fakeOperatorStore) runnerStatuses() []apigen.RunnerStatus {
@@ -112,7 +112,7 @@ func TestReAttachRunningAttachesOnlyMatchingOpendeployBuild(t *testing.T) {
 	opendeployTestSymlink(t)
 	matchingStore := &fakeOperatorStore{}
 	matching := opendeployTestDeployment()
-	matching.Def.Spec.OpendeploySpec.Version = version.Version
+	matching.Value.Spec.OpendeploySpec.Version = version.Version
 	matchingRunner := ReAttachRunning(matchingStore, nil, opendeployTestInstanceID, matching, apigen.RunnerStatus{})
 	matchingRunner.Stop()
 	statuses := matchingStore.runnerStatuses()
@@ -122,7 +122,7 @@ func TestReAttachRunningAttachesOnlyMatchingOpendeployBuild(t *testing.T) {
 
 	mismatchedStore := &fakeOperatorStore{}
 	mismatched := opendeployTestDeployment()
-	mismatched.Def.Spec.OpendeploySpec.Version = version.Version + "-next"
+	mismatched.Value.Spec.OpendeploySpec.Version = version.Version + "-next"
 	stale := apigen.RunnerStatus{DeploymentSpecVersion: mismatched.SpecVersion, Status: apigen.RunningStatus_STARTING}
 	mismatchedRunner := ReAttachRunning(mismatchedStore, nil, opendeployTestInstanceID, mismatched, stale)
 	mismatchedRunner.Stop()
@@ -190,11 +190,11 @@ func TestOpendeployRestartLeavesStatusStartingForRestartedProcess(t *testing.T) 
 	}
 }
 
-func opendeployTestDeployment() *apigen.Deployment {
-	return &apigen.Deployment{
-		ID:          1,
-		SpecVersion: 7,
-		Def:         apigen.DeploymentDef{Spec: apigen.DeploymentSpec{OpendeploySpec: &apigen.OpendeploySpec{}}},
+func opendeployTestDeployment() *apigen.DeploymentEvent {
+	return &apigen.DeploymentEvent{
+		DeploymentID: 1,
+		SpecVersion:  7,
+		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{OpendeploySpec: &apigen.OpendeploySpec{}}},
 	}
 }
 

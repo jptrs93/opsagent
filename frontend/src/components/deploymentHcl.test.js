@@ -296,3 +296,18 @@ test("container images carry their version as the reference tag or digest", () =
     assert.equal(messages.filter(message => /versioned by its reference/.test(message)).length, 1, messages.join("\n"));
     assert.ok(!messages.some(message => /is not valid in/.test(message)), messages.join("\n"));
 });
+
+
+test("deployment event ids survive address and volume reference round trips", () => {
+    const refs = {...catalogs, deployments: [{config: {deploymentId: 42, version: 1, value: {name: "database", spaceId: 1, nodeId: 2, spec: {networking: {mode: 1}}}}}]};
+    const source = document({mode: 1});
+    source.spec.container1Spec.runtime.envVars = {DATABASE: {addressDeploymentId: 42, addressSpaceId: 1}};
+    source.spec.container1Spec.runtime.crossDeploymentMounts = [{deploymentId: 42, containerPath: "/database", permission: 2}];
+    const text = deploymentDocumentToHcl(source, refs);
+    assert.match(text, /address\("global", "database"\)/);
+    assert.match(text, /deployment\("global", "database"\)/);
+    const {document: parsed, diagnostics} = parseDeploymentHcl(text, refs);
+    assert.deepEqual(diagnostics, [], text);
+    assert.deepEqual(parsed.spec.container1Spec.runtime.envVars, source.spec.container1Spec.runtime.envVars);
+    assert.deepEqual(parsed.spec.container1Spec.runtime.crossDeploymentMounts, source.spec.container1Spec.runtime.crossDeploymentMounts);
+});

@@ -54,7 +54,7 @@ type RolloverCandidate interface {
 // The artifact to execute is taken from status.Preparer.Artifact — the
 // operator only calls Create once the preparer has reached READY for
 // dep.Version.
-func Create(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, status *apigen.ScheduledInstanceStatus) Runner {
+func Create(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, status *apigen.ScheduledInstanceStatus) Runner {
 	var preparer apigen.PreparerStatus
 	if status != nil {
 		preparer = status.Preparer
@@ -67,7 +67,7 @@ func Create(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, in
 	return newContainerRunner(store, inputs, instanceID, dep, preparer)
 }
 
-func CreateRolloverCandidate(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, status *apigen.ScheduledInstanceStatus) RolloverCandidate {
+func CreateRolloverCandidate(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, status *apigen.ScheduledInstanceStatus) RolloverCandidate {
 	var preparer apigen.PreparerStatus
 	if status != nil {
 		preparer = status.Preparer
@@ -84,7 +84,7 @@ func CreateRolloverCandidate(store storage.OperatorStore, inputs *runtimeinputs.
 // The opendeploy self deployment reattaches only when the current process is
 // the desired build; otherwise Stopped is returned so the operator waits for
 // prepare and then Create (install+restart).
-func ReAttachRunning(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, prev apigen.RunnerStatus) Runner {
+func ReAttachRunning(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, prev apigen.RunnerStatus) Runner {
 	if isOpendeploy(dep) {
 		if dep.WorkloadVersion() != version.Version {
 			slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf(
@@ -107,7 +107,7 @@ func ReAttachRunning(store storage.OperatorStore, inputs *runtimeinputs.RuntimeI
 // ReAttachStopped reconciles runtime leftovers for a deployment whose desired
 // state is stopped. Container runners may adopt an existing task only to stop
 // and delete it; they never start a fresh task from this path.
-func ReAttachStopped(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.Deployment, prev apigen.RunnerStatus) Runner {
+func ReAttachStopped(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, prev apigen.RunnerStatus) Runner {
 	if prev.IsZero() {
 		slog.InfoContext(deploymentLogContext(instanceID, dep), "runner.ReAttachStopped: no previous runner, returning stopped")
 		return Stopped()
@@ -130,8 +130,8 @@ func (stoppedRunner) SpecVersion() int32               { return -1 }
 func (stoppedRunner) ArtifactMissing() <-chan struct{} { return nil }
 func (stoppedRunner) Serve() error                     { return nil }
 
-func isOpendeploy(dep *apigen.Deployment) bool {
-	return dep.Def.Spec.OpendeploySpec != nil
+func isOpendeploy(dep *apigen.DeploymentEvent) bool {
+	return dep.Value.Spec.OpendeploySpec != nil
 }
 
 func fmtRunnerStatus(r apigen.RunnerStatus) string {
@@ -143,8 +143,8 @@ func fmtRunnerStatus(r apigen.RunnerStatus) string {
 
 // deploymentLogContext is the root log context for everything a runner does:
 // the component tag plus the instance/deployment identity keys.
-func deploymentLogContext(instanceID int32, dep *apigen.Deployment) context.Context {
+func deploymentLogContext(instanceID int32, dep *apigen.DeploymentEvent) context.Context {
 	ctx := logu.AddTag(context.Background(), "Runner")
 	ctx = logu.AddKV(ctx, "scheduled_instance", instanceID)
-	return logu.AddKV(ctx, "dep", dep.ID)
+	return logu.AddKV(ctx, "dep", dep.DeploymentID)
 }

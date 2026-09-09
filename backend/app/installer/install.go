@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/jptrs93/goutil/authu"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/app/primarybootstrap"
-	"github.com/jptrs93/opsagent/backend/lib/config"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	buildversion "github.com/jptrs93/opsagent/backend/util/version"
 )
@@ -52,7 +52,7 @@ func (o installOptions) hasEnvOverrides() bool {
 	return o.passkeyExtraOrigins != nil || o.clusterAddr != nil || o.enrollmentAddr != nil || o.enrollmentFingerprint != nil || o.primaryName != nil || o.underlayAddress != nil
 }
 
-func (o installOptions) hasPrimaryConfigOverrides() bool {
+func (o installOptions) hasSystemConfigOverrides() bool {
 	return o.httpOnly != nil || o.passwordLogin != nil || o.webListen != nil || o.webTLSSelfManaged != nil || o.webTLSCertPEM != nil || o.clusterListen != nil || o.enrollmentListen != nil || o.acmeHosts != nil
 }
 
@@ -73,7 +73,7 @@ func doInstall(version string, opts installOptions) error {
 	if upgrade && opts.role == "primary" && !pathExists(filepath.Join(dataDir, "primary.db")) && !dryRun {
 		return fmt.Errorf("refusing to upgrade primary because %s is missing", filepath.Join(dataDir, "primary.db"))
 	}
-	if upgrade && opts.role == "primary" && opts.hasPrimaryConfigOverrides() {
+	if upgrade && opts.role == "primary" && opts.hasSystemConfigOverrides() {
 		return fmt.Errorf("initial primary config flags are only supported for fresh installs or backup restore; update an existing primary through its settings")
 	}
 	if upgrade && opts.role == "primary" && opts.primaryName != nil {
@@ -414,7 +414,7 @@ func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, e
 			planned("validate existing primary bootstrap state")
 			return nil, nil
 		}
-		if opts.restore == nil && (opts.hasPrimaryConfigOverrides() || opts.primaryName != nil) {
+		if opts.restore == nil && (opts.hasSystemConfigOverrides() || opts.primaryName != nil) {
 			return nil, fmt.Errorf("initial primary config and primary name flags cannot be applied when preserving an existing database")
 		}
 		if err := service.Validate(context.Background()); err != nil {
@@ -434,7 +434,7 @@ func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, e
 	if err != nil {
 		return nil, err
 	}
-	initial := config.DefaultInitialConfig()
+	initial := systemconfig.DefaultInitial()
 	initial.MasterPasswordHash = bootstrap.hash
 	if opts.httpOnly != nil {
 		initial.WebHTTPEnabled = *opts.httpOnly

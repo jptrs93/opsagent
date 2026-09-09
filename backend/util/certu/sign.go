@@ -99,7 +99,7 @@ func GenerateNodeCertificateWithServerName(caCertPEM, caKeyPEM []byte, commonNam
 	if serverName == "" {
 		return nil, nil, fmt.Errorf("server name is empty")
 	}
-	_, caCert, err := parseCertificate(caCertPEM, "CA cert")
+	_, caCert, err := ParseCertificate(caCertPEM, "CA cert")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -144,7 +144,7 @@ func SignWorkloadCertificate(caCertPEM, caKeyPEM []byte, commonName string, name
 	if commonName == "" {
 		return nil, nil, fmt.Errorf("workload certificate common name is empty")
 	}
-	_, caCert, err := parseCertificate(caCertPEM, "workload CA cert")
+	_, caCert, err := ParseCertificate(caCertPEM, "workload CA cert")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -160,7 +160,7 @@ func SignWorkloadCertificate(caCertPEM, caKeyPEM []byte, commonName string, name
 	if err != nil {
 		return nil, nil, err
 	}
-	dnsNames, ipAddresses := serverCertificateNames(names)
+	dnsNames, ipAddresses := ServerCertificateNames(names)
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
@@ -228,7 +228,7 @@ func SignWebUICertificate(caCertPEM, caKeyPEM []byte, commonName string, names [
 	if commonName == "" {
 		return nil, nil, fmt.Errorf("Web UI certificate common name is empty")
 	}
-	_, caCert, err := parseCertificate(caCertPEM, "Web UI CA cert")
+	_, caCert, err := ParseCertificate(caCertPEM, "Web UI CA cert")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -244,7 +244,7 @@ func SignWebUICertificate(caCertPEM, caKeyPEM []byte, commonName string, names [
 	if err != nil {
 		return nil, nil, err
 	}
-	dnsNames, ipAddresses := serverCertificateNames(names)
+	dnsNames, ipAddresses := ServerCertificateNames(names)
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: commonName},
@@ -276,7 +276,7 @@ func GenerateSelfSignedServerCertificate(names []string) (certPEM, keyPEM []byte
 	if err != nil {
 		return nil, nil, err
 	}
-	dnsNames, ipAddresses := serverCertificateNames(names)
+	dnsNames, ipAddresses := ServerCertificateNames(names)
 	commonName := "opendeploy"
 	if len(dnsNames) > 0 {
 		commonName = dnsNames[0]
@@ -307,7 +307,7 @@ func GenerateSelfSignedServerCertificate(names []string) (certPEM, keyPEM []byte
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}), keyPEM, nil
 }
 
-func serverCertificateNames(names []string) ([]string, []net.IP) {
+func ServerCertificateNames(names []string) ([]string, []net.IP) {
 	dnsSeen := map[string]bool{}
 	ipSeen := map[string]bool{}
 	dnsNames := []string{}
@@ -368,7 +368,7 @@ func SignSecondaryCertificateRequestFromPEM(caCertPEM, caKeyPEM, csrPEM []byte, 
 	if identifier == "" {
 		return nil, nil, fmt.Errorf("secondary identifier is empty")
 	}
-	_, caCert, err := parseCertificate(caCertPEM, "CA cert")
+	_, caCert, err := ParseCertificate(caCertPEM, "CA cert")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -397,7 +397,7 @@ func SignSecondaryCertificateFromPublicKey(caCertPEM, caKeyPEM []byte, identifie
 	if identifier == "" {
 		return nil, time.Time{}, fmt.Errorf("secondary identifier is empty")
 	}
-	_, caCert, err := parseCertificate(caCertPEM, "CA cert")
+	_, caCert, err := ParseCertificate(caCertPEM, "CA cert")
 	if err != nil {
 		return nil, time.Time{}, err
 	}
@@ -431,14 +431,14 @@ func signSecondaryCertificate(caCert *x509.Certificate, caKey any, identifier st
 }
 
 func CertificateNotAfter(certPEM []byte) (time.Time, error) {
-	_, cert, err := parseCertificate(certPEM, "certificate")
+	_, cert, err := ParseCertificate(certPEM, "certificate")
 	if err != nil {
 		return time.Time{}, err
 	}
 	return cert.NotAfter, nil
 }
 
-func parseCertificate(certPEM []byte, label string) ([]byte, *x509.Certificate, error) {
+func ParseCertificate(certPEM []byte, label string) ([]byte, *x509.Certificate, error) {
 	block, _ := pem.Decode(certPEM)
 	if block == nil || block.Type != "CERTIFICATE" {
 		return nil, nil, fmt.Errorf("%s contains no certificate PEM", label)

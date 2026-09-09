@@ -86,7 +86,7 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
     };
 
     const findLive = (deploymentId) => (deploymentsS.rawVal || [])
-        .find(d => Number(d.config?.id || 0) === Number(deploymentId)) || null;
+        .find(d => Number(d.config?.deploymentId || 0) === Number(deploymentId)) || null;
 
     // waitForConvergence watches the state stream until the member's runner
     // reports RUNNING at the target version for the applied spec version, or

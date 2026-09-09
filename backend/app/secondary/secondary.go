@@ -13,13 +13,13 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
+	"github.com/jptrs93/opsagent/backend/app/secondary/localinputs"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/engine"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixdocker"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/opendeployrelease"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/engine/runner"
-	"github.com/jptrs93/opsagent/backend/lib/localinputs"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
 	"github.com/jptrs93/opsagent/backend/lib/metrics"
@@ -103,7 +103,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 
 	assetProvider := NewPrimaryAssetProvider(primaryURL, primaryHTTPClient)
 	secretProvider := NewPrimarySecretProvider(primaryURL, primaryHTTPClient)
-	configProvider := NewPrimaryConfigProvider(primaryURL, primaryHTTPClient)
+	configProvider := NewSystemConfigProvider(primaryURL, primaryHTTPClient)
 
 	// Runtime inputs are loaded from local storage before the operator starts, so
 	// a secondary that reboots while the primary is unreachable can still resolve

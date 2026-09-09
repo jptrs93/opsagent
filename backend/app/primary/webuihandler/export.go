@@ -2,18 +2,22 @@ package webuihandler
 
 import (
 	"encoding/json"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/assets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
 	"sort"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
 type exportedConfigBundle struct {
-	Deployments []*apigen.Deployment   `json:"deployments"`
-	Configs     []*apigen.Config       `json:"configs"`
-	Secrets     []*apigen.Secret       `json:"secrets"`
-	Assets      []*apigen.Asset        `json:"assets"`
-	Spaces      []*apigen.Space        `json:"spaces"`
-	Settings    apigen.ClusterSettings `json:"settings"`
+	Deployments []*apigen.DeploymentEvent `json:"deployments"`
+	Configs     []*apigen.ConfigEvent     `json:"configs"`
+	Secrets     []*apigen.SecretEvent     `json:"secrets"`
+	Assets      []*apigen.AssetEvent      `json:"assets"`
+	Spaces      []*apigen.Space           `json:"spaces"`
+	Settings    apigen.ClusterSettings    `json:"settings"`
 }
 
 func (h *Handler) PostV1GlobalExportedConfig(ctx apigen.Context) (*apigen.ExportedConfigBlob, error) {
@@ -22,29 +26,27 @@ func (h *Handler) PostV1GlobalExportedConfig(ctx apigen.Context) (*apigen.Export
 	if err := h.requireAccess(ctx, vView, eCluster, 0, 0); err != nil {
 		return nil, err
 	}
-	deployments := h.Store.ListActiveDeployments()
-	exportedDeployments := make([]*apigen.Deployment, 0, len(deployments))
-	for _, deployment := range deployments {
-		if deployment == nil {
-			continue
-		}
-		exportedDeployments = append(exportedDeployments, deployment)
+	deployments, err := h.Queries.ListActiveDeployments(ctx)
+	if err != nil {
+		return nil, err
 	}
-	configs := h.Store.ListConfigs()
-	secrets := h.Store.ListSecrets()
-	assets := h.Store.ListAssets()
-	spaces := h.Store.ListSpaces()
-	storedSettings := h.ConfigService.Snapshot().Settings
+	if deployments == nil {
+		deployments = []*apigen.DeploymentEvent{}
+	}
+	configs := values.ListConfigs(h.Store.Queries())
+	secrets := secrets.List(h.Store.Queries())
+	assets := assets.ListAssets(h.Store.Queries())
+	spaces := nodes.ListSpaces(h.Store.Queries())
+	storedSettings := h.SystemConfig.Snapshot().Settings
 	settings := storedSettings
 
-	sort.Slice(exportedDeployments, func(i, j int) bool { return exportedDeployments[i].ID < exportedDeployments[j].ID })
-	sort.Slice(configs, func(i, j int) bool { return configs[i].Fs.Name < configs[j].Fs.Name })
-	sort.Slice(secrets, func(i, j int) bool { return secrets[i].Fs.Name < secrets[j].Fs.Name })
-	sort.Slice(assets, func(i, j int) bool { return assets[i].Fs.Key < assets[j].Fs.Key })
+	sort.Slice(configs, func(i, j int) bool { return configs[i].Value.Fs.Name < configs[j].Value.Fs.Name })
+	sort.Slice(secrets, func(i, j int) bool { return secrets[i].Value.Fs.Name < secrets[j].Value.Fs.Name })
+	sort.Slice(assets, func(i, j int) bool { return assets[i].Value.Fs.Key < assets[j].Value.Fs.Key })
 	sort.Slice(spaces, func(i, j int) bool { return spaces[i].ID < spaces[j].ID })
 
 	content := exportedConfigBundle{
-		Deployments: exportedDeployments,
+		Deployments: deployments,
 		Configs:     configs,
 		Secrets:     secrets,
 		Assets:      assets,

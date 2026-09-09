@@ -3,25 +3,31 @@ package webuihandler
 import (
 	"context"
 	"errors"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/agentsessions"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"io/fs"
 	"log/slog"
 	"mime"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/jptrs93/goutil/authu"
+	"github.com/jptrs93/goutil/pubsubu"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/backup"
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/assets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/app/primary/enrollmenthandler"
-	"github.com/jptrs93/opsagent/backend/lib/authz"
-	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
 	"github.com/jptrs93/opsagent/backend/lib/metrics/metricstore"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
@@ -35,16 +41,22 @@ type GitSourceProvider interface {
 }
 
 type Handler struct {
+	BackupStatus   *backup.StatusPublisher
+	secretsUpdates pubsubu.PubSub[apigen.SecretsStatusResponse]
 	staticFS       fs.FS
 	PasskeyService *authu.PasskeyService[*apigen.InternalUser]
-	jwtAuth        *authu.JWTAuth[*apigen.InternalUser, int32]
+	AgentSessions  *agentsessions.Service
+
+	agentSessionsOnce sync.Once
+	jwtAuth           *authu.JWTAuth[*apigen.InternalUser, int32]
 
 	// Store is the primary-side storage adapter. Handles both deployment
 	// state and auth (users + JWT keys).
+	Queries               *pq.Queries
 	Store                 *state.Service
 	Authz                 *authz.Service
-	Assets                *assetstore.Store
-	ConfigService         *config.Service
+	Assets                *assets.Store
+	SystemConfig          *systemconfig.Service
 	Config                *apigen.ClusterSettings
 	GitVersions           GitSourceProvider
 	GithubReleaseVersions *versionprovider.GithubReleaseVersionProvider
@@ -75,14 +87,25 @@ type Handler struct {
 	IngressDiagnostics IngressDiagnosticsSource
 }
 
+func (h *Handler) agentSessions() *agentsessions.Service {
+	h.agentSessionsOnce.Do(func() {
+		if h.AgentSessions == nil {
+			h.AgentSessions = agentsessions.New(h.Store.Queries())
+		}
+	})
+	return h.AgentSessions
+}
+
 type IngressDiagnosticsSource interface {
 	DiagnosticsSnapshotAndSubscribe() (*apigen.IngressDiagnosticList, <-chan *apigen.IngressDiagnosticList, func())
 }
 
 type Dependencies struct {
+	BackupStatus          *backup.StatusPublisher
 	Store                 *state.Service
-	Assets                *assetstore.Store
-	ConfigService         *config.Service
+	AgentSessions         *agentsessions.Service
+	Assets                *assets.Store
+	SystemConfig          *systemconfig.Service
 	GitVersions           GitSourceProvider
 	GithubReleaseVersions *versionprovider.GithubReleaseVersionProvider
 	GithubCredentials     githubcredentials.Provider
@@ -136,17 +159,20 @@ func (h *Handler) GetV1Healthz(ctx apigen.Context, request *http.Request, writer
 
 // New constructs the Web UI handler without starting application services.
 func New(staticFS fs.FS, nodeID int32, deps Dependencies) (*Handler, error) {
-	snapshot := deps.ConfigService.Snapshot()
+	snapshot := deps.SystemConfig.Snapshot()
 	authzService, err := authz.Open(deps.Store)
 	if err != nil {
 		return nil, err
 	}
 	h := &Handler{
+		BackupStatus:          deps.BackupStatus,
 		staticFS:              staticFS,
 		Store:                 deps.Store,
+		Queries:               deps.Store.Queries(),
+		AgentSessions:         deps.AgentSessions,
 		Authz:                 authzService,
 		Assets:                deps.Assets,
-		ConfigService:         deps.ConfigService,
+		SystemConfig:          deps.SystemConfig,
 		Config:                &snapshot.Settings,
 		GitVersions:           deps.GitVersions,
 		GithubReleaseVersions: deps.GithubReleaseVersions,
@@ -154,20 +180,21 @@ func New(staticFS fs.FS, nodeID int32, deps Dependencies) (*Handler, error) {
 		Secrets:               deps.Secrets,
 		NodeID:                nodeID,
 	}
+	h.secretsUpdates.Notify(h.secretsStatus())
 	h.jwtAuth = authu.NewJWTAuth[*apigen.InternalUser, int32](
 		func(kid string, key []byte) error {
-			h.Store.WritePublicKey(&apigen.PublicKeyRecord{Kid: kid, KeyBytes: key})
+			users.WritePublicKey(h.Store.Queries(), &apigen.PublicKeyRecord{Kid: kid, KeyBytes: key})
 			return nil
 		},
 		func(kid string) ([]byte, error) {
-			rec, err := h.Store.FetchPublicKey(kid)
+			rec, err := users.PublicKey(h.Store.Queries(), kid)
 			if err != nil {
 				return nil, err
 			}
 			return rec.KeyBytes, nil
 		},
 		func(id int32) (*apigen.InternalUser, error) {
-			return h.Store.FetchUserByID(id)
+			return users.ByID(h.Store.Queries(), id)
 		},
 	)
 	if err := h.initPasskeyService(); err != nil {

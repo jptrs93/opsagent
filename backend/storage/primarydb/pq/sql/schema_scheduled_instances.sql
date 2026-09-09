@@ -21,6 +21,7 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_instance_event_log_deployment_ordinal
 CREATE TABLE IF NOT EXISTS scheduled_instance_status (
     scheduled_instance_id   INTEGER NOT NULL,
     updated_at              INTEGER NOT NULL,  -- HLC clock, unix nanoseconds
+    global_seq              INTEGER NOT NULL DEFAULT 0,
     deployment_id           INTEGER NOT NULL DEFAULT 0,
     preparer_spec_version   INTEGER,
     preparer_artifact       TEXT,

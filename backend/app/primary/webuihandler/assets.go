@@ -3,6 +3,9 @@ package webuihandler
 import (
 	"errors"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"io"
 	"log/slog"
 	"math"
@@ -11,9 +14,8 @@ import (
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/engine/assetstore"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/assets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 )
 
 var (
@@ -27,12 +29,12 @@ var (
 // uniqueAssetName suffixes name until it is free among the assets of the
 // target directory (0 = spaceID's root).
 func (h *Handler) uniqueAssetName(name string, spaceID, directoryID int32) string {
-	if _, ok := h.Store.GetAssetInDirectory(spaceID, directoryID, name); !ok {
+	if _, ok := assets.GetAssetInDirectory(h.Store.Queries(), spaceID, directoryID, name); !ok {
 		return name
 	}
 	for suffix := 1; ; suffix++ {
 		candidate := name + strconv.Itoa(suffix)
-		if _, ok := h.Store.GetAssetInDirectory(spaceID, directoryID, candidate); !ok {
+		if _, ok := assets.GetAssetInDirectory(h.Store.Queries(), spaceID, directoryID, candidate); !ok {
 			return candidate
 		}
 	}
@@ -42,22 +44,22 @@ func mapAssetStoreErr(err error) error {
 	if errors.Is(err, secrets.ErrLocked) {
 		return SecretsLockedErr
 	}
-	if errors.Is(err, assetstore.ErrLargeAssetS3Config) {
+	if errors.Is(err, assets.ErrLargeAssetS3Config) {
 		return apigen.NewApiErr(err.Error(), "large_asset_s3_config_required", http.StatusBadRequest)
 	}
-	if errors.Is(err, state.ErrAssetNotFound) {
+	if errors.Is(err, assets.ErrAssetNotFound) {
 		return AssetNotFoundErr
 	}
-	if errors.Is(err, state.ErrAssetAlreadyExists) {
+	if errors.Is(err, assets.ErrAssetAlreadyExists) {
 		return AssetAlreadyExistsErr
 	}
-	if errors.Is(err, state.ErrAssetKeyInvalid) {
+	if errors.Is(err, assets.ErrAssetKeyInvalid) {
 		return AssetKeyInvalidErr
 	}
-	if errors.Is(err, state.ErrDirectoryNotFound) {
+	if errors.Is(err, assets.ErrDirectoryNotFound) {
 		return AssetDirectoryNotFoundErr
 	}
-	if errors.Is(err, state.ErrSpaceMoveUnsupported) {
+	if errors.Is(err, assets.ErrSpaceMoveUnsupported) {
 		return AssetSpaceMoveUnsupportedErr
 	}
 	return err
@@ -67,16 +69,16 @@ func requestUserID(ctx apigen.Context) int32 {
 	return ctx.AttributionUserID()
 }
 
-func (h *Handler) PostV1AssetsList(ctx apigen.Context) (*apigen.AssetList, error) {
-	return &apigen.AssetList{Items: h.filterAssets(ctx, h.Store.ListAssets())}, nil
+func (h *Handler) PostV1AssetsList(ctx apigen.Context) (*apigen.AssetEventList, error) {
+	return &apigen.AssetEventList{Items: h.filterAssets(ctx, assets.ListAssets(h.Store.Queries()))}, nil
 }
 
 func (h *Handler) requireAssetAccess(ctx apigen.Context, verb apigen.AuthzVerb, assetID int32) error {
-	asset, ok := h.Store.GetAsset(assetID)
+	asset, ok := assets.GetAsset(h.Store.Queries(), assetID)
 	if !ok {
 		return AssetNotFoundErr
 	}
-	return h.requireEntityAccess(ctx, verb, eAsset, int64(asset.SpaceID()), int64(asset.ID), AssetNotFoundErr)
+	return h.requireEntityAccess(ctx, verb, eAsset, int64(asset.SpaceID()), int64(asset.AssetID), AssetNotFoundErr)
 }
 
 // GetV1AssetsContent streams the raw bytes of one content version
@@ -88,7 +90,7 @@ func (h *Handler) GetV1AssetsContent(ctx apigen.Context, request *http.Request, 
 	if err != nil || parsed <= 0 {
 		return apigen.NewApiErr("Content version id is required", "asset_content_version_id_required", http.StatusBadRequest)
 	}
-	joined, ok := h.Store.GetAssetVersionJoined(int32(parsed))
+	joined, ok := assets.GetAssetVersionJoined(h.Store.Queries(), int32(parsed))
 	if !ok {
 		return AssetNotFoundErr
 	}
@@ -117,7 +119,7 @@ func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, 
 	return nil
 }
 
-func (h *Handler) uploadAsset(ctx apigen.Context, request *http.Request) (*apigen.Asset, error) {
+func (h *Handler) uploadAsset(ctx apigen.Context, request *http.Request) (*apigen.AssetEvent, error) {
 	query := request.URL.Query()
 	if request.ContentLength < 0 {
 		return nil, apigen.NewApiErr("Asset upload requires a Content-Length header", "asset_upload_content_length_required", http.StatusBadRequest)
@@ -145,7 +147,7 @@ func (h *Handler) uploadAsset(ctx apigen.Context, request *http.Request) (*apige
 	if key == "" {
 		return nil, AssetKeyRequiredErr
 	}
-	if !state.ValidAssetKey(key) {
+	if !assets.ValidAssetKey(key) {
 		return nil, AssetKeyInvalidErr
 	}
 	var spaceID int32
@@ -177,7 +179,7 @@ func (h *Handler) uploadAsset(ctx apigen.Context, request *http.Request) (*apige
 	return asset, nil
 }
 
-func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRenameRequest) (*apigen.Asset, error) {
+func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRenameRequest) (*apigen.AssetEvent, error) {
 	if req.AssetID <= 0 {
 		return nil, AssetIDRequiredErr
 	}
@@ -200,18 +202,18 @@ func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRename
 // pinned mount and reference are untouched either way. A cross-space move is
 // allowed only while no deployment outside the destination space references
 // the asset.
-func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequest) (*apigen.Asset, error) {
+func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequest) (*apigen.AssetEvent, error) {
 	if req.AssetID <= 0 {
 		return nil, AssetIDRequiredErr
 	}
-	existing, ok := h.Store.GetAsset(req.AssetID)
+	existing, ok := assets.GetAsset(h.Store.Queries(), req.AssetID)
 	if !ok {
 		return nil, AssetNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vUpdate, eAsset, int64(existing.SpaceID()), int64(existing.ID), AssetNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eAsset, int64(existing.SpaceID()), int64(existing.AssetID), AssetNotFoundErr); err != nil {
 		return nil, err
 	}
-	destSpace := state.NormalizedUserSpaceID(req.SpaceID)
+	destSpace := nodes.NormalizedUserSpaceID(req.SpaceID)
 	spaceChanging := req.SpaceID != 0 && destSpace != existing.SpaceID()
 	// Moving into another space also needs the right to create an asset there.
 	if spaceChanging {
@@ -220,38 +222,35 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 		}
 	}
 	if spaceChanging {
-		// Deployment writes hold the same lock, so no new reference can appear
-		// between the locality check and the move.
-		defer h.Store.GlobalLock()()
-		if destSpace != state.DefaultSpaceID && referencesOutsideSpace(h.Store.LiveState(), h.assetVersionIDSet(req.AssetID), assetRefIDs, destSpace) {
-			return nil, MoveReferencesOutsideSpaceErr
+		validate := func(q *pq.Queries) error {
+			if destSpace == nodes.DefaultSpaceID {
+				return nil
+			}
+			live, err := nodes.ReadLiveState(ctx, q)
+			if err != nil {
+				return err
+			}
+			if deployments.ReferencesOutsideSpace(live, h.assetVersionIDSet(req.AssetID), deployments.AssetRefIDs, destSpace) {
+				return deployments.MoveReferencesOutsideSpaceErr
+			}
+			return nil
 		}
-		if err := h.Store.MoveAssetSpaceLocked(req.AssetID, req.SpaceID, req.AssetDirectoryID, ctx.AttributionUserID()); err != nil {
+		if err := assets.MoveAssetSpace(h.Store, req.AssetID, req.SpaceID, req.AssetDirectoryID, ctx.AttributionUserID(), validate); err != nil {
 			return nil, mapAssetStoreErr(err)
 		}
-		// Tombstone for clients that saw the old space but cannot see the new
-		// one — updates a user cannot view are dropped, and nothing else says
-		// "gone". The update below re-adds the row where the destination is
-		// visible.
-		h.Store.NotifyAssetDeleted(existing)
-	} else if _, err := h.Store.MoveAssetDirectory(req.AssetID, req.AssetDirectoryID); err != nil {
+	} else if _, err := assets.MoveAssetDirectory(h.Store, req.AssetID, req.AssetDirectoryID); err != nil {
 		return nil, mapAssetStoreErr(err)
 	}
-	asset, ok := h.Store.GetAsset(req.AssetID)
+	asset, ok := assets.GetAsset(h.Store.Queries(), req.AssetID)
 	if !ok {
 		return nil, AssetNotFoundErr
 	}
-	h.Store.NotifyAssetUpdate(asset)
+
 	return asset, nil
 }
 
 func (h *Handler) assetVersionIDSet(assetID int32) map[int32]struct{} {
-	versions := h.Store.ListAssetVersionsJoinedOfAsset(assetID)
-	ids := make([]int32, 0, len(versions))
-	for _, v := range versions {
-		ids = append(ids, int32(v.Version.ID))
-	}
-	return int32Set(ids)
+	return deployments.Int32Set(assets.AssetVersionIDs(h.Store.Queries(), assetID))
 }
 
 func (h *Handler) PostV1AssetsDelete(ctx apigen.Context, req *apigen.AssetDeleteRequest) error {
@@ -267,11 +266,17 @@ func (h *Handler) PostV1AssetsDelete(ctx apigen.Context, req *apigen.AssetDelete
 	assetOps := h.Assets.AssetOperationLocker()
 	assetOps.Lock()
 	defer assetOps.Unlock()
-	defer h.Store.GlobalLock()()
-	if details := deploymentRefDetails(h.Store, h.Store.LiveState(), h.assetVersionIDSet(req.AssetID), assetRefIDs); len(details) > 0 {
-		return referenceInUseDetailErr("Asset", details)
+	validate := func(q *pq.Queries) error {
+		live, err := nodes.ReadLiveState(ctx, q)
+		if err != nil {
+			return err
+		}
+		if details := deployments.RefDetails(ctx, q, live, h.assetVersionIDSet(req.AssetID), deployments.AssetRefIDs); len(details) > 0 {
+			return deployments.ReferenceInUseDetailErr("Asset", details)
+		}
+		return nil
 	}
-	if err := h.Assets.DeleteAssetLocked(ctx, req.AssetID); err != nil {
+	if err := h.Assets.DeleteAssetLocked(ctx, req.AssetID, validate); err != nil {
 		return mapAssetStoreErr(err)
 	}
 	return nil

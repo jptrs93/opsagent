@@ -35,7 +35,7 @@ export function runReportOverlay(target, onClose) {
     let loadSeq = 0;
 
     const deployment = () => (Array.isArray(deploymentsS.val) ? deploymentsS.val : [])
-        .find((d) => d.config?.id === deploymentId) || null;
+        .find((d) => d.config?.deploymentId === deploymentId) || null;
 
     const versionMeta = van.state(null);
     const resolveVersionMeta = async () => {
@@ -195,7 +195,7 @@ export function runReportOverlay(target, onClose) {
         return span({class: "text-xs text-gray-500"}, `${at ? at + ' · ' : ''}${by}`);
     };
 
-    const name = () => deployment()?.config?.def?.name || `#${deploymentId}`;
+    const name = () => deployment()?.config?.value?.name || `#${deploymentId}`;
 
     return div(
         div({class: "fixed inset-0 bg-black/70 z-40", onclick: onClose}),

@@ -23,16 +23,16 @@ const (
 type LocalRuntimeInput = sq.LocalRuntimeInput
 
 func (s *Service) MustSetLocalKV(key string, value []byte) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := s.q.UpsertLocalKV(context.Background(), sq.UpsertLocalKVParams{Key: key, Value: value}); err != nil {
 		panic(fmt.Sprintf("UpsertLocalKV %s: %v", key, err))
 	}
 }
 
 func (s *Service) FetchLocalKV(key string) ([]byte, bool) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	value, err := s.q.GetLocalKV(context.Background(), key)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false
@@ -44,15 +44,15 @@ func (s *Service) FetchLocalKV(key string) ([]byte, bool) {
 }
 
 func (s *Service) DeleteLocalKV(key string) error {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.q.DeleteLocalKV(context.Background(), key)
 }
 
 // MustSetLocalKVs atomically updates related machine-local state.
 func (s *Service) MustSetLocalKVs(values map[string][]byte) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := s.q.Tx(context.Background(), func(q *sq.Queries) error {
 		for key, value := range values {
 			if err := q.UpsertLocalKV(context.Background(), sq.UpsertLocalKVParams{Key: key, Value: value}); err != nil {
@@ -70,15 +70,15 @@ func (s *Service) MustSetLocalKVs(values map[string][]byte) {
 // key, so the storage layer never sees a plaintext runtime input.
 
 func (s *Service) ListLocalRuntimeInputs() []LocalRuntimeInput {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	rows := erru.Must(s.q.ListLocalRuntimeInputs(context.Background()))
 	return rows
 }
 
 func (s *Service) UpsertLocalRuntimeInput(row LocalRuntimeInput) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := s.q.UpsertLocalRuntimeInput(context.Background(), sq.UpsertLocalRuntimeInputParams{
 		Kind:       row.Kind,
 		RefID:      row.RefID,
@@ -91,8 +91,8 @@ func (s *Service) UpsertLocalRuntimeInput(row LocalRuntimeInput) {
 }
 
 func (s *Service) DeleteLocalRuntimeInput(kind, refID int64) {
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := s.q.DeleteLocalRuntimeInput(context.Background(), sq.DeleteLocalRuntimeInputParams{
 		Kind:  kind,
 		RefID: refID,

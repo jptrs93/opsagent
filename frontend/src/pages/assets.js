@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {handleErr} from "../capi/err.js";
-import {decodeAsset} from "../capi/model.js";
+import {decodeAssetEvent} from "../capi/model.js";
 import {assetEditorOverlay, preloadAssetCodeEditor} from "../components/assetEditor.js";
 import {loadAssetPreview, uploadAsset} from "../lib/assetContent.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
@@ -66,7 +66,7 @@ async function uploadAssetFile(file, params, token, onProgress) {
         xhr.onload = async () => {
             if (xhr.status >= 200 && xhr.status < 300) {
                 onProgress(file.size, file.size);
-                resolve(decodeAsset(xhr.response));
+                resolve(decodeAssetEvent(xhr.response));
                 return;
             }
             try {
@@ -491,10 +491,10 @@ export function assetsPage() {
                 uploadLoaded.val = loaded;
                 uploadTotal.val = total || target.file.size;
             });
-            uploadedKey.val = version.fs?.key || "";
-            uploadName.val = version.fs?.key || "";
+            uploadedKey.val = version.value?.fs?.key || "";
+            uploadName.val = version.value?.fs?.key || "";
             expandTo(target.spaceId, target.directoryId);
-            selectedKey.val = `asset:${version.id}`;
+            selectedKey.val = `asset:${version.assetId}`;
         } catch (e) {
             uploadError.val = e.message;
         } finally {
@@ -1451,7 +1451,7 @@ export function assetsPage() {
                 const {spaceId, directoryId} = createDest.val;
                 const created = await uploadAsset({key: request.key, space_id: Number(spaceId || 0), directory_id: Number(directoryId || 0)}, request.blob);
                 expandTo(spaceId, directoryId);
-                selectedKey.val = `asset:${created.id}`;
+                selectedKey.val = `asset:${created.assetId}`;
                 return created;
             },
             saveVersion: (request) => uploadAsset({asset_id: Number(request.assetId)}, request.blob),

@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {sectionBand} from "../components/sectionBand.js";
-import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, primaryConfigS, spacesS, userConfigRefsS} from "../state/deployments.js";
+import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, systemConfigS, spacesS, userConfigRefsS} from "../state/deployments.js";
 import {deploymentWorkload} from "../lib/deployment.js";
 import {allowedSpaceNames, editableSpaceIDs, isFixedSpace} from "../lib/nodeSpaces.js";
 
@@ -21,7 +21,7 @@ const headerCell = (text, cls = "pr-3") => th(
     {class: `py-1.5 ${cls} text-[10px] font-semibold uppercase tracking-wider`}, text);
 
 export function clusterPage() {
-    const config = primaryConfigS;
+    const config = systemConfigS;
     const enrollmentInfo = van.state(null);
     const configError = van.state(null);
     const copied = van.state(false);
@@ -347,9 +347,9 @@ function primaryOpenDeployVersion() {
     const primaryID = Number(machinesS.val.find(machine => machine.isPrimary)?.id || 0);
     if (!primaryID) return "";
     const deployment = deploymentsS.val.find(item =>
-        Number(item.config?.def?.nodeId || 0) === primaryID &&
-        Number(item.config?.def?.spaceId || 0) === 0 &&
-        item.config?.def?.name === "opendeploy",
+        Number(item.config?.value?.nodeId || 0) === primaryID &&
+        Number(item.config?.value?.spaceId || 0) === 0 &&
+        item.config?.value?.name === "opendeploy",
     );
     return (deployment?.status?.runner?.runningVersion || deploymentWorkload(deployment?.config)?.version || "").trim();
 }
@@ -425,7 +425,7 @@ function enrollmentRow(req) {
         accepting.val = true;
         rowError.val = null;
         try {
-            await capi.postV1NodesEnrollmentsAccept({id: req.id, nodeName: name});
+            await capi.postV1NodesEnrollmentsAccept({id: req.id, nodeName: name, expectedVersion: req.version});
             enrollmentNameDrafts.delete(req.id);
         } catch (e) {
             rowError.val = e.message;

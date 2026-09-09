@@ -2,7 +2,7 @@ package storage
 
 import "github.com/jptrs93/opsagent/backend/apigen"
 
-type DeploymentPredicate func(apigen.Deployment) bool
+type DeploymentPredicate func(apigen.DeploymentEvent) bool
 
 type ScheduledInstancePredicate func(apigen.ScheduledInstanceState) bool
 
@@ -13,7 +13,7 @@ type DeploymentSpecVersion struct {
 	SpecVersion int32
 }
 
-func DeploymentKeyMatches(def apigen.DeploymentDef, nodeID, spaceID int32, name string) bool {
+func DeploymentKeyMatches(def apigen.Deployment, nodeID, spaceID int32, name string) bool {
 	return def.NodeID == nodeID &&
 		def.SpaceID == spaceID &&
 		def.Name == name
@@ -23,5 +23,5 @@ func DeploymentKeyMatches(def apigen.DeploymentDef, nodeID, spaceID int32, name 
 // keyed by scheduled instance id.
 type OperatorStore interface {
 	MustWriteScheduledInstanceStatus(instanceID int32, f func(s *apigen.ScheduledInstanceStatus) bool)
-	MustFetchScheduledSnapshotAndSubscribe(predicate ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan apigen.ScheduledInstanceState, func())
+	MustFetchScheduledSnapshotAndSubscribe(predicate ScheduledInstancePredicate) ([]apigen.ScheduledInstanceState, chan []apigen.ScheduledInstanceState, func())
 }

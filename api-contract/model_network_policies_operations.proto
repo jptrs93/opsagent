@@ -7,8 +7,8 @@ import "api-contract/model/networking.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-message NetworkPolicyList {
-  repeated NetworkPolicy items = 1;
+message NetworkPolicyEventList {
+  repeated NetworkPolicyEvent items = 1;
 }
 
 message NetworkPolicyCreateRequest {

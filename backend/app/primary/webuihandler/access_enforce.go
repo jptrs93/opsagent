@@ -1,11 +1,12 @@
 package webuihandler
 
 import (
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"net/http"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/authz"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
 )
 
 var AccessDeniedErr = apigen.NewApiErr("Access denied", "access_denied", http.StatusForbidden)
@@ -109,7 +110,7 @@ func (h *Handler) requireAnyAccess(ctx apigen.Context, verb apigen.AuthzVerb, en
 }
 
 func valueSpace(spaceID int32) int64 {
-	return int64(state.NormalizedUserSpaceID(spaceID))
+	return int64(nodes.NormalizedUserSpaceID(spaceID))
 }
 
 func (h *Handler) canCreateDeploymentSomewhere(ctx apigen.Context) bool {
@@ -119,7 +120,7 @@ func (h *Handler) canCreateDeploymentSomewhere(ctx apigen.Context) bool {
 	if ctx.User == nil {
 		return false
 	}
-	for _, space := range h.Store.ListSpaces() {
+	for _, space := range nodes.ListSpaces(h.Store.Queries()) {
 		if space == nil {
 			continue
 		}
@@ -153,7 +154,7 @@ func (h *Handler) nodeVisible(ctx apigen.Context, nodeID int64, allowedSpaces []
 		return true
 	}
 	for _, spaceID := range allowedSpaces {
-		if spaceID == state.OpendeploySpaceID {
+		if spaceID == internaldeploy.SpaceID {
 			continue
 		}
 		if h.spaceVisible(ctx, int64(spaceID)) {
@@ -167,9 +168,9 @@ func (h *Handler) nodeVisible(ctx apigen.Context, nodeID int64, allowedSpaces []
 // records that carry only a node id.
 func (h *Handler) nodeAllowedSpaces() map[int32][]int32 {
 	out := map[int32][]int32{}
-	for _, node := range h.Store.ListClusterNodes() {
+	for _, node := range nodes.ListClusterNodes(h.Store.Queries()) {
 		if node != nil {
-			out[node.ID] = node.AllowedSpaces
+			out[node.NodeID] = node.Value.Operator.AllowedSpaces
 		}
 	}
 	return out

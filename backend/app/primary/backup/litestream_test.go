@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/config"
-	"github.com/jptrs93/opsagent/backend/lib/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 )
 
 type testSecretStore struct {
@@ -15,8 +15,8 @@ type testSecretStore struct {
 
 type testConfigLoader struct{}
 
-func (testConfigLoader) MustLoadConfigStringValue(v apigen.StringSetting) string { return v.Value }
-func (testConfigLoader) MustLoadConfigBoolValue(v apigen.BoolSetting) bool       { return v.Value }
+func (testConfigLoader) MustLoadStringSetting(v apigen.StringSetting) string { return v.Value }
+func (testConfigLoader) MustLoadBoolSetting(v apigen.BoolSetting) bool       { return v.Value }
 
 func (s testSecretStore) MetaByID(id int32) (secrets.Meta, bool) {
 	updated, ok := s.updated[id]
@@ -27,14 +27,14 @@ func (s testSecretStore) RevealByID(id int32) ([]byte, error) {
 	return []byte("secret"), nil
 }
 
-func configWithSettings(settings *apigen.ClusterSettings) apigen.PrimaryConfig {
-	return apigen.PrimaryConfig{Settings: *settings}
+func configWithSettings(settings *apigen.ClusterSettings) apigen.SystemConfig {
+	return apigen.SystemConfig{Settings: *settings}
 }
 
 func TestBackupConfigFilterOnlyAllowsBackupChanges(t *testing.T) {
 	secretSource := testSecretStore{updated: map[int32]time.Time{10: time.Unix(1, 0)}}
 	filter := newBackupConfigFilter(testConfigLoader{}, secretSource)
-	initial := config.DefaultSettings(config.DefaultInitialConfig())
+	initial := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
 	initial.HttpWeb.Listen = apigen.StringSetting{Value: ":8080"}
 	initial.Backup.Enabled = apigen.BoolSetting{Value: true}
 	initial.Backup.S3AccessKeyID = apigen.StringSetting{Value: "access-key"}
@@ -74,7 +74,7 @@ func TestBackupConfigFilterOnlyAllowsBackupChanges(t *testing.T) {
 
 func TestBackupConfigFilterIgnoresBackupSettingsWhileDisabled(t *testing.T) {
 	filter := newBackupConfigFilter(testConfigLoader{}, nil)
-	initial := config.DefaultSettings(config.DefaultInitialConfig())
+	initial := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
 	initial.Backup.Enabled = apigen.BoolSetting{Value: false}
 	initial.Backup.S3AccessKeyID = apigen.StringSetting{Value: "access-key"}
 	initial.Backup.S3Bucket = apigen.StringSetting{Value: "bucket"}

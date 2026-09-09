@@ -130,7 +130,7 @@ func TestPrepareReusesReadyImageBeforeCheckout(t *testing.T) {
 		return nil
 	}
 	artifact, status := p.Prepare(context.Background(), dep, log)
-	wantRef := imageRef(dep.Def.Spec.Container().Source.NixDockerBuild, dep.WorkloadVersion())
+	wantRef := imageRef(dep.Value.Spec.Container().Source.NixDockerBuild, dep.WorkloadVersion())
 	if status != apigen.ImageStatus_IMAGE_READY {
 		t.Fatalf("status = %v, want READY", status)
 	}
@@ -155,11 +155,11 @@ func TestPrepareFailsOnContainerdCacheCheckError(t *testing.T) {
 	}
 }
 
-func testNixDeployment() *apigen.Deployment {
-	return &apigen.Deployment{
-		ID:          987654,
-		SpecVersion: 3,
-		Def:         apigen.DeploymentDef{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/platform", Flake: "services/api/flake.nix", Target: ".#apiImage"}}, Version: testCommit, Running: true}}},
+func testNixDeployment() *apigen.DeploymentEvent {
+	return &apigen.DeploymentEvent{
+		DeploymentID: 987654,
+		SpecVersion:  3,
+		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/platform", Flake: "services/api/flake.nix", Target: ".#apiImage"}}, Version: testCommit, Running: true}}},
 	}
 }
 

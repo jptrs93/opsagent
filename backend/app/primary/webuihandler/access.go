@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/authz"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
 )
 
 var AccessNotFoundErr = apigen.NewApiErr("Not found", "access_not_found", http.StatusNotFound)

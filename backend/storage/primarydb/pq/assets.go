@@ -2,6 +2,8 @@ package pq
 
 import (
 	"context"
+
+	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
 type AssetVersion struct {
@@ -51,44 +53,33 @@ func scanAssetRow(scan func(dest ...any) error) (AssetRow, error) {
 	return r, err
 }
 
-func (q *Queries) InsertAssetEvent(ctx context.Context, e AssetEvent) error {
-	_, err := q.db.ExecContext(ctx, `
-		INSERT INTO asset_event_log (
-			global_seq, event_time, created_time, author, asset_id, version,
-			value_version, space_version, value_changed, space_changed,
-			key, asset_directory_id, space_id, size_bytes, sha256, event_type
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.AssetID, e.Version,
-		e.ValueVersion, e.SpaceVersion, e.ValueChanged, e.SpaceChanged,
-		e.Key, e.AssetDirectoryID, e.SpaceID, e.SizeBytes, e.Sha256, e.EventType)
-	return err
-}
-
-func (q *Queries) ListAssetRows(ctx context.Context) ([]AssetRow, error) {
-	rows, err := q.db.QueryContext(ctx, assetRowSelect+` ORDER BY e.key`)
+func (q *Queries) InsertAssetEvent(ctx context.Context, e *apigen.AssetEvent) error {
+	row := q.db.QueryRowContext(ctx, `WITH previous AS (
+  SELECT value_version, space_version FROM asset_event_log
+  WHERE asset_id = ? ORDER BY version DESC LIMIT 1
+)
+ INSERT INTO asset_event_log (
+  id, global_seq, event_time, created_time, author,
+  asset_id,version,value_version, space_version,
+  key,asset_directory_id,space_id,size_bytes,sha256,event_type, value_changed, space_changed
+) VALUES (NULLIF(?, 0),?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+ ? > COALESCE((SELECT value_version FROM previous),0), ? > COALESCE((SELECT space_version FROM previous),0))
+RETURNING id, global_seq, event_time, created_time, author,
+  asset_id,version,value_version, space_version,
+  key,asset_directory_id,space_id,size_bytes,sha256,event_type`,
+		e.AssetID, e.EventID, e.Seq, e.EventTime, e.CreatedTime, e.Author, e.AssetID, e.Version, e.ValueVersion, e.SpaceVersion, e.Value.Fs.Key, e.Value.Fs.DirectoryID, e.Value.SpaceID, e.Value.SizeBytes, e.Value.Sha256, e.EventType, e.ValueVersion, e.SpaceVersion)
+	written, err := scanAssetEvent(row)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	defer rows.Close()
-	out := []AssetRow{}
-	for rows.Next() {
-		r, err := scanAssetRow(rows.Scan)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
-func (q *Queries) GetAssetByID(ctx context.Context, id int64) (AssetRow, error) {
-	return scanAssetRow(q.db.QueryRowContext(ctx, assetRowSelect+` AND e.asset_id = ?`, id).Scan)
+	*e = written
+	return nil
 }
 
 type GetAssetInDirectoryByKeyParams struct {
-	SpaceID          int64
 	AssetDirectoryID int64
 	Key              string
+	SpaceID          int64
 }
 
 func (q *Queries) GetAssetInDirectoryByKey(ctx context.Context, arg GetAssetInDirectoryByKeyParams) (AssetRow, error) {
@@ -166,32 +157,6 @@ func scanAssetVersionJoined(scan func(dest ...any) error, r *AssetVersionJoined,
 	return scan(append(dest, extra...)...)
 }
 
-// ListAssetVersionsJoined returns every content version row (inline blobs not
-// loaded) of live assets joined with its store row and owning asset's current
-// identity, ordered by key then version.
-func (q *Queries) ListAssetVersionsJoined(ctx context.Context) ([]AssetVersionJoined, error) {
-	rows, err := q.db.QueryContext(ctx, `
-SELECT `+assetVersionJoinedColumns+`, a.key, a.space_id
-`+assetVersionRowsFrom+`
-`+assetCurrentIdentityJoin+`
-WHERE v.value_changed != 0 AND a.event_type != 3
-ORDER BY a.key, v.value_version`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []AssetVersionJoined{}
-	for rows.Next() {
-		var r AssetVersionJoined
-		if err := scanAssetVersionJoined(rows.Scan, &r, &r.Asset.Key, &r.Asset.SpaceID); err != nil {
-			return nil, err
-		}
-		r.Asset.ID = r.Version.AssetID
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
 const assetCurrentIdentityJoin = `JOIN asset_event_log a
   ON a.asset_id = v.asset_id
  AND a.version = (SELECT MAX(version) FROM asset_event_log WHERE asset_id = v.asset_id)`
@@ -212,47 +177,28 @@ WHERE v.id = ? AND v.value_changed != 0`, assetVersionID).Scan, &r, &r.Store.Inl
 	return r, nil
 }
 
-// ListAssetVersionsOfAsset returns every content version of one asset (inline
-// blobs included), oldest first.
-func (q *Queries) ListAssetVersionsOfAsset(ctx context.Context, assetID int64) ([]AssetVersionJoined, error) {
-	rows, err := q.db.QueryContext(ctx, `
-SELECT `+assetVersionJoinedColumns+`, s.inline_blob
-`+assetVersionRowsFrom+`
-WHERE v.asset_id = ? AND v.value_changed != 0
-ORDER BY v.value_version ASC`, assetID)
+const listAssetVersionIDsByAssetID = `SELECT id FROM asset_event_log WHERE asset_id = ? AND value_changed != 0 ORDER BY value_version
+`
+
+func (q *Queries) ListAssetVersionIDsByAssetID(ctx context.Context, assetID int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listAssetVersionIDsByAssetID, assetID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []AssetVersionJoined{}
+	var items []int64
 	for rows.Next() {
-		var r AssetVersionJoined
-		if err := scanAssetVersionJoined(rows.Scan, &r, &r.Store.InlineBlob); err != nil {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		out = append(out, r)
+		items = append(items, id)
 	}
-	return out, rows.Err()
-}
-
-// GetAssetVersionJoinedByNumber resolves one content version of an asset by
-// number (inline blob included), or the latest when version is 0.
-func (q *Queries) GetAssetVersionJoinedByNumber(ctx context.Context, assetID, version int64) (AssetVersionJoined, error) {
-	query := `
-SELECT ` + assetVersionJoinedColumns + `, s.inline_blob
-` + assetVersionRowsFrom + `
-WHERE v.asset_id = ? AND v.value_changed != 0 AND v.value_version = ?`
-	args := []any{assetID, version}
-	if version == 0 {
-		query = `
-SELECT ` + assetVersionJoinedColumns + `, s.inline_blob
-` + assetVersionRowsFrom + `
-WHERE v.asset_id = ? AND v.value_changed != 0
-ORDER BY v.value_version DESC
-LIMIT 1`
-		args = []any{assetID}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
-	var r AssetVersionJoined
-	err := scanAssetVersionJoined(q.db.QueryRowContext(ctx, query, args...).Scan, &r, &r.Store.InlineBlob)
-	return r, err
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
