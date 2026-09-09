@@ -9,3 +9,5 @@
 -- v0.0.549 spec-version column renames after the v0.0.550 rollout. Upgrading
 -- a database from before then requires stepping through a release that still
 -- carried them.
+
+DELETE FROM local_kv WHERE key = 'migration_deployment_config_v2';

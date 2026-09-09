@@ -1517,10 +1517,7 @@
  * @typedef {Object} ClusterHello
  * @property {string} opendeployVersion
  * @property {NodeReported} reported
- * @property {string} underlayAddress
  * @property {number} clusterProtocolVersion
- * @property {string} wgPublicKey
- * @property {string[]} hostAddresses
  */
 /**
  * @typedef {Object} MsgToPrimary
@@ -1587,11 +1584,8 @@
 /**
  * @typedef {Object} EnrollmentHello
  * @property {NodeReported} reported
- * @property {string} requestingMachineId
  * @property {Uint8Array} secondaryCertificateRequest
  * @property {string} opendeployVersion
- * @property {string} underlayAddress
- * @property {string} wgPublicKey
  */
 /**
  * @typedef {Object} EnrollmentPrimaryMsg
@@ -19464,19 +19458,8 @@ export function writeClusterHello(message, writer) {
         writeNodeReported(message.reported, writer);
         writer.ldelim();
     }
-    if (message.underlayAddress !== undefined && message.underlayAddress !== null && message.underlayAddress !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.underlayAddress);
-    }
     if (message.clusterProtocolVersion !== undefined && message.clusterProtocolVersion !== null && message.clusterProtocolVersion !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.clusterProtocolVersion);
-    }
-    if (message.wgPublicKey !== undefined && message.wgPublicKey !== null && message.wgPublicKey !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.wgPublicKey);
-    }
-    if (message.hostAddresses && message.hostAddresses.length > 0) {
-        for (const item of message.hostAddresses) {
-            writer.uint32(tag(4, WIRE.LDELIM)).string(item);
-        }
     }
 }
 
@@ -19499,7 +19482,7 @@ export function encodeClusterHello(message) {
  */
 function decodeClusterHelloMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {opendeployVersion: "", reported: undefined, underlayAddress: "", clusterProtocolVersion: 0, wgPublicKey: "", hostAddresses: [] };
+    const message = {opendeployVersion: "", reported: undefined, clusterProtocolVersion: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -19511,20 +19494,8 @@ function decodeClusterHelloMessage(reader, length) {
                 message.reported = decodeNodeReportedMessage(reader, reader.uint32());
                 break;
             }
-            case 1: {
-                message.underlayAddress = reader.string();
-                break;
-            }
             case 2: {
                 message.clusterProtocolVersion = reader.int32();
-                break;
-            }
-            case 3: {
-                message.wgPublicKey = reader.string();
-                break;
-            }
-            case 4: {
-                message.hostAddresses.push(reader.string());
                 break;
             }
             default:
@@ -20338,20 +20309,11 @@ export function writeEnrollmentHello(message, writer) {
         writeNodeReported(message.reported, writer);
         writer.ldelim();
     }
-    if (message.requestingMachineId !== undefined && message.requestingMachineId !== null && message.requestingMachineId !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.requestingMachineId);
-    }
     if (message.secondaryCertificateRequest && message.secondaryCertificateRequest.length > 0) {
         writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.secondaryCertificateRequest);
     }
     if (message.opendeployVersion !== undefined && message.opendeployVersion !== null && message.opendeployVersion !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.opendeployVersion);
-    }
-    if (message.underlayAddress !== undefined && message.underlayAddress !== null && message.underlayAddress !== "") {
-        writer.uint32(tag(4, WIRE.LDELIM)).string(message.underlayAddress);
-    }
-    if (message.wgPublicKey !== undefined && message.wgPublicKey !== null && message.wgPublicKey !== "") {
-        writer.uint32(tag(5, WIRE.LDELIM)).string(message.wgPublicKey);
     }
 }
 
@@ -20374,16 +20336,12 @@ export function encodeEnrollmentHello(message) {
  */
 function decodeEnrollmentHelloMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {reported: undefined, requestingMachineId: "", secondaryCertificateRequest: new Uint8Array(0), opendeployVersion: "", underlayAddress: "", wgPublicKey: "" };
+    const message = {reported: undefined, secondaryCertificateRequest: new Uint8Array(0), opendeployVersion: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 6: {
                 message.reported = decodeNodeReportedMessage(reader, reader.uint32());
-                break;
-            }
-            case 1: {
-                message.requestingMachineId = reader.string();
                 break;
             }
             case 2: {
@@ -20392,14 +20350,6 @@ function decodeEnrollmentHelloMessage(reader, length) {
             }
             case 3: {
                 message.opendeployVersion = reader.string();
-                break;
-            }
-            case 4: {
-                message.underlayAddress = reader.string();
-                break;
-            }
-            case 5: {
-                message.wgPublicKey = reader.string();
                 break;
             }
             default:

@@ -365,6 +365,7 @@ export async function updateNixDockerDeployment(page, {
 } = {}) {
   await step(`open update dialog ${name}`, async () => {
     await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+    await showStoppedDeployments(page);
     const row = deploymentRow(page, {name, machine});
     await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
     await row.getByRole('button', {name: 'Update'}).click();
@@ -399,6 +400,7 @@ export async function updateNixDockerDeployment(page, {
 export async function setDeploymentHttpsRoutes(page, {name, machine = 'worker-2', routes = [], expectError} = {}) {
   await step(`open update dialog ${name}`, async () => {
     await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+    await showStoppedDeployments(page);
     const row = deploymentRow(page, {name, machine});
     await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
     await row.getByRole('button', {name: 'Update'}).click();
@@ -570,6 +572,7 @@ export function withIssuedTLSMounts(text, mountLines) {
 async function openDeploymentHclEditor(page, {name, machine}) {
   await step(`open update dialog ${name}`, async () => {
     await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+    await showStoppedDeployments(page);
     const row = deploymentRow(page, {name, machine});
     await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
     await row.getByRole('button', {name: 'Update'}).click();
@@ -965,6 +968,7 @@ export async function stopDeployment(page, {name, machine = 'worker-1'} = {}) {
 
 export async function deleteDeployment(page, {name, machine = 'worker-1'} = {}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  await showStoppedDeployments(page);
   const row = deploymentRow(page, {name, machine});
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await row.locator('td').first().click();
@@ -1924,6 +1928,7 @@ export async function expectDeploymentRunning(page, opts = {}) {
 export async function expectDeploymentStopped(page, opts = {}) {
   const {name, machine} = typeof opts === 'string' ? {name: opts} : opts;
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  await showStoppedDeployments(page);
   const row = deploymentRow(page, {name, machine});
   await expect(row.getByTestId(`deployment-runner-status-${name}`)).toHaveText('Stopped', {timeout: RESTART_TIMEOUT});
 }
@@ -1948,6 +1953,21 @@ async function openDeploymentLogsSearch(page, row) {
     async () => page.evaluate(() => window.__logsResult?.records?.length ?? -1),
     {message: 'expected the run output search to land for the deployment just opened', timeout: LOG_OUTPUT_TIMEOUT},
   ).toBeGreaterThanOrEqual(0);
+}
+
+// The deployments table hides stopped deployments by default; a flow that
+// needs to find one turns the Stopped state back on in the state filter.
+async function showStoppedDeployments(page) {
+  const filter = page.getByTestId('state-filter');
+  if (await filter.count() === 0) return;
+  await filter.click();
+  const item = page.getByTestId('state-filter-row-stopped');
+  await expect(item).toBeVisible();
+  if (await item.getAttribute('aria-checked') !== 'true') {
+    await item.click();
+  }
+  await page.mouse.click(2, 2);
+  await expect(item).toBeHidden();
 }
 
 async function showOpendeployDeployments(page) {
@@ -2526,6 +2546,7 @@ export async function expectDeploymentNetworkPolicies(page, {name, machine, pres
 export async function moveDeploymentToSpace(page, {name, machine, space} = {}) {
   await step(`open update dialog ${name}`, async () => {
     await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+    await showStoppedDeployments(page);
     const row = deploymentRow(page, {name, machine});
     await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
     await row.getByRole('button', {name: 'Update'}).click();

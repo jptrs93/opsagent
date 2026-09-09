@@ -23,27 +23,14 @@
 -- v0.0.566 rollout, and the event-log changed-flag rebuild (v0.0.569:
 -- *_changed columns plus NOT NULL carried-forward payloads on the
 -- deployment/asset/secret/config logs, a Go shape migration in
--- pq/migrate_event_flags.go) after the v0.0.570 rollout.
+-- pq/migrate_event_flags.go) after the v0.0.570 rollout, and the node
+-- observation move (v0.0.587: node_event_log host_addresses and
+-- enrollment_requested_at columns, the one-time copy of the last legacy
+-- node_statuses row into node_status_log, and the global_seq columns on the
+-- two observed status logs) after the v0.0.587 rollout.
 -- Upgrading a database from before then requires stepping through a release
 -- that still carried them. Databases migrated through v0.0.541 keep a dead
 -- NULL-only nodes.enrollment_id column: its UNIQUE constraint blocks
 -- ALTER TABLE DROP COLUMN, and no query references it.
 
-ALTER TABLE node_statuses ADD COLUMN host_addresses TEXT NOT NULL DEFAULT '[]';
-
--- Version node-reported facts and use a clock for observed state.
-ALTER TABLE node_event_log ADD COLUMN host_addresses TEXT NOT NULL DEFAULT '[]';
-ALTER TABLE node_event_log ADD COLUMN enrollment_requested_at INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE node_statuses ADD COLUMN observed_at INTEGER NOT NULL DEFAULT 0;
-
--- Preserve the last legacy observation once, without overwriting newer history.
-INSERT INTO node_status_log (node_id, updated_at, last_connected_at, is_connected, opendeploy_version, remote_address)
-SELECT old.node_id, MAX(old.observed_at * 1000000, old.last_connected_at * 1000000, 1),
-       old.last_connected_at, old.is_connected, old.opendeploy_version, old.remote_address
-FROM node_statuses old
-WHERE (old.observed_at != 0 OR old.last_connected_at != 0 OR old.is_connected != 0 OR old.opendeploy_version != '' OR old.remote_address != '')
-  AND NOT EXISTS (SELECT 1 FROM node_status_log current WHERE current.node_id = old.node_id);
-
--- Every commit that writes an observation now consumes the global sequence.
-ALTER TABLE scheduled_instance_status ADD COLUMN global_seq INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE node_status_log ADD COLUMN global_seq INTEGER NOT NULL DEFAULT 0;
+DROP TABLE IF EXISTS node_statuses;

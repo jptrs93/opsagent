@@ -2,7 +2,7 @@
 // and a footer with the deployments stream status and sign-out.
 //
 // Groups show their title only when collapsed. An open group has a slim
-// chevron handle (the title fades in on hover) and a hairline separates it
+// chevron-only handle (no title, hovered or not) and a hairline separates it
 // from the next group; collapsing it replaces the handle with the title row,
 // which is what you click to reopen. Collapsed groups are remembered in
 // localStorage, a group always opens to reveal the active page, and a
@@ -103,7 +103,7 @@ export function sidebar(activePage, {badges = {}} = {}) {
         const isCollapsed = () => collapsed.val.has(group.key);
         return div({
             "data-testid": `nav-group-${group.key}`,
-            class: () => `group flex items-center gap-1.5 px-2 ${isCollapsed() ? "py-1.5" : "py-0.5"} rounded text-gray-500 select-none cursor-pointer hover:text-gray-300`,
+            class: () => `flex items-center gap-1.5 px-2 ${isCollapsed() ? "py-1.5" : "py-0.5"} rounded text-gray-500 select-none cursor-pointer hover:text-gray-300`,
             title: group.hint,
             role: "button",
             "aria-label": `Toggle ${group.label}`,
@@ -111,9 +111,7 @@ export function sidebar(activePage, {badges = {}} = {}) {
             onclick: () => toggleGroup(group.key),
         },
         () => chevronDownIcon({class: `h-3 w-3 flex-none transition-transform ${isCollapsed() ? "-rotate-90" : ""}`}),
-        () => isCollapsed()
-            ? span({class: "text-[13px] font-medium"}, group.label)
-            : span({class: "text-[10px] font-semibold uppercase tracking-wider opacity-0 transition-opacity group-hover:opacity-100"}, group.label),
+        () => isCollapsed() ? span({class: "text-[13px] font-medium"}, group.label) : "",
         () => {
             if (!isCollapsed()) return "";
             const total = groupBadgeTotal(group);

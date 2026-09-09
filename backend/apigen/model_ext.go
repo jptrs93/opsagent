@@ -273,17 +273,17 @@ func (v *AssetEvent) SpaceID() int32 {
 
 // ReportedValue accepts the previous release's flat hello during worker rollout.
 func (h *EnrollmentHello) ReportedValue() NodeReported {
-	if h.Reported != nil {
-		return *h.Reported
+	if h.Reported == nil {
+		return NodeReported{}
 	}
-	return NodeReported{Identifier: h.RequestingMachineID, UnderlayAddress: h.UnderlayAddress, WgPublicKey: h.WgPublicKey}
+	return *h.Reported
 }
 
-func (h *ClusterHello) ReportedValue(identifier string) NodeReported {
-	if h.Reported != nil {
-		return *h.Reported
+func (h *ClusterHello) ReportedValue() NodeReported {
+	if h.Reported == nil {
+		return NodeReported{}
 	}
-	return NodeReported{Identifier: identifier, UnderlayAddress: h.UnderlayAddress, WgPublicKey: h.WgPublicKey, HostAddresses: h.HostAddresses}
+	return *h.Reported
 }
 
 func WithRunningVersion(cfg *DeploymentEvent, st ScheduledInstanceStatus) ScheduledInstanceStatus {

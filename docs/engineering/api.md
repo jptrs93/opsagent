@@ -254,8 +254,8 @@ reports append nothing. Acceptance checks
 first cluster hello therefore adds no trailing node events. An unaccepted
 session disconnect cancels its request, and a session expires after ten minutes.
 For admitted nodes either outcome clears the request without changing membership.
-The previous flat hello fields and read-only legacy `node_statuses` table remain for
-one release so the primary can accept older workers during rollout.
+The flat hello fields and the legacy `node_statuses` table were removed after the
+v0.0.587 rollout; a hello without `reported` is rejected.
 
 Workers use `EnrollmentV1` only when local cluster CA/cert/key material is missing. The enrollment listener is HTTPS using the primary server certificate. Because workers do not yet have a trust root, secondary installs pin the enrollment listener's `sha256:` SPKI fingerprint from authenticated `GET /v1/nodes/enrollments/info`; the worker verifies the presented TLS certificate matches that fingerprint before sending its CSR. In production, the public enrollment listener also applies the same generated-mux middleware approach as the web UI: per-client-IP request admission is limited to a burst of 5 and a refill rate of 0.2 requests/second. Workers generate their private key locally, send a stable generated `requesting_machine_id` plus a PEM CSR, then keep the stream open until an operator accepts the request. The CSR CN, worker certificate CN, and `NodeEvent.value.reported.identifier` are that stable identifier. Deployment placement, authorization, lookup, and duplicate detection use `node_id`; the operator-selected worker name is mutable display metadata only. Acceptance signs the CSR with the primary's internally stored cluster CA key and returns only the CA certificate and worker certificate; the private key never leaves the worker. By default the worker writes them to `/var/lib/opendeploy/tls/ca.crt`, `/var/lib/opendeploy/tls/node.crt`, and `/var/lib/opendeploy/tls/node.key`, then reconnects to `OpsagentClusterV1` over mTLS. The cert files are written `0644`; the private key is written `0600`.
 

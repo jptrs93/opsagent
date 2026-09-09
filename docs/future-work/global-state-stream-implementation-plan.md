@@ -899,9 +899,9 @@ confirm only that user's page resyncs.
   `NetworkPolicy.deleted`.
 - `ScheduledInstanceSnapshot` remains solely on `MsgToSecondary`; retaining its
   worker assignment shape takes precedence over its removal from the browser API.
-- Drop `node_statuses.enrollment_pending` and `node_statuses.host_addresses`
-  and the flat hello fields one release after Phase 1 has reached every
-  cluster.
+- Done after the v0.0.587 rollout: `node_statuses` dropped, the flat hello
+  fields reserved, and the one-time observation copy removed from
+  `migrations.sql`.
 - Update `docs/engineering/api.md` (stream contract, node model),
   `docs/engineering/networking.md` (host addresses source), and the
   `CLAUDE.md` index.
@@ -1126,8 +1126,8 @@ Part B moves node status onto the instance pattern:
 
 - **`node_status_log`**, append-only. Each write inserts a row; the latest per
   node is a query at snapshot time (`ListLatestNodeStatuses`), the same shape
-  as `ListLatestScheduledInstanceStatuses`. `node_statuses` is dropped a
-  release later, like the columns Part A retired.
+  as `ListLatestScheduledInstanceStatuses`. `node_statuses` was dropped
+  after the v0.0.587 rollout, like the columns Part A retired.
 - **`updated_at`** replaces `observed_at`, with the same HLC type the instance
   status uses. The primary is the only writer of node status, so the merge
   behaviour the instance HLC has for two writers is not exercised, but one
@@ -1344,7 +1344,7 @@ Fix before or with Part B; they are independent of it.
 1. Schema: `node_status_log` with `updated_at` (HLC, same type as the
    instance status), `ListLatestNodeStatuses`, `ListNodeStatusHistorySince`.
    `NodeStatus.observed_at` becomes `updated_at` on the wire. `node_statuses`
-   stops being written; drop it a release later.
+   stops being written; dropped after the v0.0.587 rollout.
 2. Writers append rows: `SetNodeStatusByIdentifier`, `UpsertNodeObservedMeta`
    (enrollment and hello), disconnect. `InvalidateNodeRuntimeState` appends
    tombstone rows for instance and node statuses instead of deleting.

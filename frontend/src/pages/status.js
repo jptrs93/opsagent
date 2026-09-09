@@ -25,6 +25,7 @@ const { div, h2, p, button, input, label: labelTag, a, table, thead, tbody, tr, 
 
 const INSPECTOR_WIDTH_KEY = 'opsagent_status_inspector_width';
 const HIDDEN_SPACES_KEY = 'opsagent_status_hidden_spaces';
+const HIDDEN_STATES_KEY = 'opsagent_status_hidden_states';
 const SHOW_OPENDEPLOY_KEY = 'opsagent_show_opendeploy';
 const OPENDEPLOY_SPACE_ID = 0;
 const STATUS_NO_DEPLOYMENT = 1;
@@ -99,6 +100,29 @@ function loadHiddenSpaces() {
 
 function saveHiddenSpaces(set) {
     try { localStorage.setItem(HIDDEN_SPACES_KEY, JSON.stringify([...set])); } catch {}
+}
+
+// The state filter keys off the deployment's desired state (the running flag
+// in its config), not what the runner currently reports: a crashed or
+// starting deployment that is meant to run belongs with the running ones.
+// Stopped deployments are hidden by default.
+const RUN_STATES = [
+    {key: 'running', label: 'Running', dot: 'bg-green-500'},
+    {key: 'stopped', label: 'Stopped', dot: 'bg-gray-500'},
+];
+const DEFAULT_HIDDEN_STATES = new Set(['stopped']);
+const rowRunState = (row) => (row.isSystemGroup || row.runnerType === 'opendeploy' || row.desiredRunning) ? 'running' : 'stopped';
+
+function loadHiddenStates() {
+    try {
+        const raw = localStorage.getItem(HIDDEN_STATES_KEY);
+        if (raw) return new Set(JSON.parse(raw).map(String));
+    } catch {}
+    return new Set(DEFAULT_HIDDEN_STATES);
+}
+
+function saveHiddenStates(set) {
+    try { localStorage.setItem(HIDDEN_STATES_KEY, JSON.stringify([...set])); } catch {}
 }
 
 const formatDeploymentLabel = (deploymentRow) => {
@@ -530,6 +554,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
     const inspectorTab = van.state('details');
     const historyMemberId = van.state(0);
     const hiddenSpaces = van.state(loadHiddenSpaces());
+    const hiddenStates = van.state(loadHiddenStates());
     const collapsedSpaces = van.state(new Set());
     const openMenu = van.state(null);
     const inspectorWidth = van.state(loadInspectorWidth());
@@ -649,7 +674,8 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
 
     const deploymentViewS = van.derive(() => {
         const allRows = mapDeploymentsToView(deploymentsS.val, spacesS.val, machinesS.val);
-        const visibleRows = allRows.filter(row => !hiddenSpaces.val.has(Number(row.spaceId)));
+        const spaceRows = allRows.filter(row => !hiddenSpaces.val.has(Number(row.spaceId)));
+        const visibleRows = spaceRows.filter(row => !hiddenStates.val.has(rowRunState(row)));
         const {rest, groups} = makeSystemGroups(visibleRows, machinesS.val);
         const filtered = filterDeployments([...rest, ...groups]);
 
@@ -659,8 +685,11 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         if (allRows.length === 0) {
             return {message: 'No deployments configured. Create a deployment config first.', rows: []};
         }
-        if (visibleRows.length === 0) {
+        if (spaceRows.length === 0) {
             return {message: 'No deployments in the selected spaces. Adjust the spaces filter to display them.', rows: []};
+        }
+        if (visibleRows.length === 0) {
+            return {message: 'No deployments in the selected states. Adjust the state filter to display them.', rows: []};
         }
         if (filtered.length === 0) {
             return {message: 'No deployments match your search.', rows: []};
@@ -681,6 +710,11 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
 
     const visibleSpaces = () => orderedSpaces().filter((s) => !hiddenSpaces.val.has(Number(s.id)));
     const spacesDirty = () => !(hiddenSpaces.val.size === 1 && hiddenSpaces.val.has(OPENDEPLOY_SPACE_ID));
+
+    const visibleStates = () => RUN_STATES.filter((s) => !hiddenStates.val.has(s.key));
+    const statesDirty = () => hiddenStates.val.size !== DEFAULT_HIDDEN_STATES.size
+        || [...hiddenStates.val].some((key) => !DEFAULT_HIDDEN_STATES.has(key));
+    const stateDot = (state) => span({class: `inline-block w-[7px] h-[7px] rounded-full flex-none ${state.dot}`});
 
     const spaceDot = (spaceId) => span({
         class: "inline-block w-[7px] h-[7px] rounded-full flex-none",
@@ -961,8 +995,9 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         );
     };
 
-    const filterButton = ({menu, label, ariaLabel}) => button({
+    const filterButton = ({menu, label, ariaLabel, testid}) => button({
         type: "button",
+        ...(testid ? {"data-testid": testid} : {}),
         "aria-haspopup": "true",
         "aria-expanded": () => String(openMenu.val === menu),
         "aria-label": ariaLabel,
@@ -1016,6 +1051,40 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         ] : []),
     );
 
+    const setHiddenStates = (next) => {
+        hiddenStates.val = next;
+        saveHiddenStates(next);
+    };
+
+    const statesMenu = () => menuShell(
+        ...RUN_STATES.map((state) => menuRow(
+            {
+                "data-testid": `state-filter-row-${state.key}`,
+                role: "menuitemcheckbox",
+                "aria-checked": String(!hiddenStates.val.has(state.key)),
+            },
+            () => {
+                const next = new Set(hiddenStates.val);
+                next.has(state.key) ? next.delete(state.key) : next.add(state.key);
+                setHiddenStates(next);
+            },
+            menuCheck(!hiddenStates.val.has(state.key)),
+            stateDot(state),
+            span(state.label),
+        )),
+        ...(statesDirty() ? [
+            div({class: "my-1 border-t border-gray-700"}),
+            menuRow({}, () => setHiddenStates(new Set(DEFAULT_HIDDEN_STATES)),
+                closeIcon({class: "w-3.5 h-3.5 flex-none text-brand"}), "Reset to default"),
+        ] : []),
+    );
+
+    const statesLabel = () => {
+        const shown = visibleStates();
+        if (shown.length === 0) return 'No states';
+        return shown.map((s) => s.label).join(', ');
+    };
+
     const toolbar = () => div(
         {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
         div({class: "relative"},
@@ -1039,6 +1108,18 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                 ],
             }),
             () => openMenu.val === "spaces" ? spacesMenu() : ""),
+        span({class: "relative inline-flex"},
+            filterButton({
+                menu: "states",
+                testid: "state-filter",
+                ariaLabel: "Filter states",
+                label: () => [
+                    span({class: "inline-flex items-center gap-1"}, ...visibleStates().map(stateDot)),
+                    statesLabel(),
+                    chevronDownIcon({class: "w-3 h-3"}),
+                ],
+            }),
+            () => openMenu.val === "states" ? statesMenu() : ""),
         button({
             type: "button",
             "data-testid": "recently-deleted-button",

@@ -252,7 +252,7 @@ func (s *Session) handleClusterHello(hello *apigen.ClusterHello) {
 		s.cancel()
 		return
 	}
-	reported := hello.ReportedValue(s.identifier)
+	reported := hello.ReportedValue()
 	if reported.Identifier == "" {
 		reported.Identifier = s.identifier
 	}

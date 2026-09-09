@@ -108,7 +108,7 @@ message ScheduledInstanceState {
   ScheduledInstanceStatus status = 3 [(cp.go_value) = true];
 }
 
-// Worker assignment snapshot; retained for MsgToSecondary compatibility only.
+// Worker assignment snapshot carried on MsgToSecondary.
 message ScheduledInstanceSnapshot {
   repeated ScheduledInstanceState items = 1;
 }

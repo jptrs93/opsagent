@@ -1740,10 +1740,7 @@ type MsgToSecondary struct {
 type ClusterHello struct {
 	OpendeployVersion      string        `json:"opendeploy_version,omitempty"`
 	Reported               *NodeReported `json:"reported"`
-	UnderlayAddress        string        `json:"underlay_address,omitempty"`
 	ClusterProtocolVersion int32         `json:"cluster_protocol_version"`
-	WgPublicKey            string        `json:"wg_public_key,omitempty"`
-	HostAddresses          []string      `json:"host_addresses,omitempty"`
 }
 
 type MsgToPrimary struct {
@@ -1810,11 +1807,8 @@ type EnrollmentSecondaryMsg struct {
 
 type EnrollmentHello struct {
 	Reported                    *NodeReported `json:"reported"`
-	RequestingMachineID         string        `json:"requesting_machine_id,omitempty"`
 	SecondaryCertificateRequest []byte        `json:"secondary_certificate_request"`
 	OpendeployVersion           string        `json:"opendeploy_version,omitempty"`
-	UnderlayAddress             string        `json:"underlay_address,omitempty"`
-	WgPublicKey                 string        `json:"wg_public_key,omitempty"`
 }
 
 type EnrollmentPrimaryMsg struct {

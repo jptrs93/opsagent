@@ -10921,10 +10921,7 @@ func (m *ClusterHello) Encode() []byte {
 		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, m.Reported.Encode())
 	}
-	b = AppendStringField(b, m.UnderlayAddress, 1)
 	b = AppendInt32Field(b, m.ClusterProtocolVersion, 2)
-	b = AppendStringField(b, m.WgPublicKey, 3)
-	b = AppendRepeated(b, m.HostAddresses, AppendFieldDecorator(AppendStringElem, 4))
 	return b
 }
 
@@ -10951,18 +10948,8 @@ func DecodeClusterHello(b []byte) (*ClusterHello, error) {
 					m.Reported = item
 				}
 			}
-		case 1:
-			b, m.UnderlayAddress, err = ConsumeString(b, typ)
 		case 2:
 			b, m.ClusterProtocolVersion, err = ConsumeVarInt32(b, typ)
-		case 3:
-			b, m.WgPublicKey, err = ConsumeString(b, typ)
-		case 4:
-			var item string
-			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
-			if err == nil {
-				m.HostAddresses = append(m.HostAddresses, item)
-			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -11454,11 +11441,8 @@ func (m *EnrollmentHello) Encode() []byte {
 		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, m.Reported.Encode())
 	}
-	b = AppendStringField(b, m.RequestingMachineID, 1)
 	b = AppendBytesField(b, m.SecondaryCertificateRequest, 2)
 	b = AppendStringField(b, m.OpendeployVersion, 3)
-	b = AppendStringField(b, m.UnderlayAddress, 4)
-	b = AppendStringField(b, m.WgPublicKey, 5)
 	return b
 }
 
@@ -11483,16 +11467,10 @@ func DecodeEnrollmentHello(b []byte) (*EnrollmentHello, error) {
 					m.Reported = item
 				}
 			}
-		case 1:
-			b, m.RequestingMachineID, err = ConsumeString(b, typ)
 		case 2:
 			b, m.SecondaryCertificateRequest, err = ConsumeBytesCopy(b, typ)
 		case 3:
 			b, m.OpendeployVersion, err = ConsumeString(b, typ)
-		case 4:
-			b, m.UnderlayAddress, err = ConsumeString(b, typ)
-		case 5:
-			b, m.WgPublicKey, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
