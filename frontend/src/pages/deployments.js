@@ -150,7 +150,9 @@ export function deploymentsPage(onOpenLogs = () => {}, options = {}) {
                 "aria-selected": () => String(active()),
                 "data-testid": `deployments-tab-${id}`,
                 tabindex: 0,
-                class: () => `group relative -mb-px flex h-8 max-w-[16rem] cursor-pointer select-none items-center gap-1.5 rounded-t-md border border-b-0 px-3 text-xs transition-colors ${pinned ? "shrink-0" : "min-w-0 shrink"} ` + (active()
+                // The pinned Overview tab is flush with the sidebar: no left
+                // padding on the strip, and no left border or rounding on the tab.
+                class: () => `group relative -mb-px flex h-8 max-w-[16rem] cursor-pointer select-none items-center gap-1.5 border border-b-0 px-3 text-xs transition-colors ${pinned ? "shrink-0 rounded-tr-md border-l-0" : "min-w-0 shrink rounded-t-md"} ` + (active()
                     ? `border-gray-700 ${panelTone} text-white`
                     : "border-transparent text-gray-400 hover:bg-white/5 hover:text-gray-200"),
                 onclick: () => { activeTab.val = id; },
@@ -186,7 +188,7 @@ export function deploymentsPage(onOpenLogs = () => {}, options = {}) {
         // Fixed height and no overflow handling: an overflow-x strip would
         // also start scrolling vertically over the active tab's 1px border
         // overlap. Crowded tabs shrink and truncate instead of scrolling.
-        {class: "flex h-[34px] flex-none flex-nowrap items-end gap-0.5 border-b border-gray-700 bg-gray-900/80 px-2 pt-0.5", role: "tablist", "aria-label": "Deployments"},
+        {class: "flex h-[34px] flex-none flex-nowrap items-end gap-0.5 border-b border-gray-700 bg-gray-900/80 pr-2 pt-0.5", role: "tablist", "aria-label": "Deployments"},
         tabButton({id: OVERVIEW, title: "Overview", pinned: true}),
         () => div({class: "contents"}, ...tabs.val.map(tab => tabButton({
             id: tab.id,

@@ -18,15 +18,18 @@ const {button, div, p, span, table, tbody, td, th, thead, tr} = van.tags;
 
 const iconButtonClass = "rounded p-1 text-gray-400 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent cursor-pointer";
 
+// Header cells stick to the top of the scrolling list, so they need an opaque
+// background (gray-950 at 40% over the surface) and an inset shadow in place
+// of a bottom border, which a sticky cell in a border-separate table drops.
 const thCell = (label, extra = "") => th(
-    {class: `border-b border-gray-700/70 border-r border-r-gray-800/40 last:border-r-0 bg-gray-950/40 px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-gray-500 ${extra}`},
+    {class: `sticky top-0 z-[1] border-r border-r-gray-800/40 last:border-r-0 bg-[#141b28] px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-gray-500 shadow-[inset_0_-1px_0_rgba(55,65,81,0.7)] ${extra}`},
     label);
 const tdCell = (extra, ...children) => td(
     {class: `border-b border-gray-800/50 border-r border-r-gray-800/30 last:border-r-0 px-2 py-[3px] ${extra}`},
     ...children);
 
 const denseTable = (headers, bodyRows) => table(
-    {class: "w-full border-collapse text-xs"},
+    {class: "w-full border-separate border-spacing-0 text-xs"},
     thead(tr(...headers)),
     tbody(...bodyRows),
 );
@@ -99,9 +102,9 @@ function agentSessionsTab() {
     const promptText = () => agentPrompt(window.location.origin, loginS.val?.userId || 0);
 
     return div(
-        {class: "flex flex-col"},
+        {class: "flex flex-1 min-h-0 flex-col"},
         div(
-            {class: "flex flex-col gap-1.5 p-2"},
+            {class: "flex flex-none flex-col gap-1.5 p-2"},
             p({class: "text-[11px] text-gray-500"},
                 "Give this to an agent. It will fetch its own instructions and request a session, which you can approve below."),
             codeBlock({
@@ -117,7 +120,7 @@ function agentSessionsTab() {
         () => {
             const ordered = orderSessions(agentSessionsS.val);
             return div(
-                {"data-testid": "agent-session-list"},
+                {class: "app-scroll flex-1 min-h-0 overflow-y-auto", "data-testid": "agent-session-list"},
                 denseTable(
                     [thCell("Started"), thCell("Status"), thCell("Approval code"), thCell("Origin"), thCell("", "w-px")],
                     ordered.length ? ordered.map(row) : [emptyRow(5, "No sessions yet")],
@@ -179,10 +182,10 @@ function personalSessionsTab({sessionsS, error, reload}) {
     };
 
     return div(
-        {class: "flex flex-col"},
+        {class: "flex flex-1 min-h-0 flex-col"},
         errorLine(error, "personal-session-error"),
         () => div(
-            {"data-testid": "personal-session-list"},
+            {class: "app-scroll flex-1 min-h-0 overflow-y-auto", "data-testid": "personal-session-list"},
             denseTable(
                 [thCell("Signed in"), thCell("Status"), thCell("Device"), thCell("IP address"),
                     thCell("Last active"), thCell("Expires"), thCell("", "w-px")],
@@ -232,8 +235,10 @@ export function sessionsPage() {
             tabButton("agent", "Agent sessions", () => agentSessionsS.val.length),
             tabButton("personal", "Personal sessions", () => personalSessionsS.val.length),
         ),
+        // The tab body is a flex column, not a scroller: each tab owns its
+        // own scrolling list so the table header stays fixed.
         div(
-            {class: "flex-1 min-h-0 overflow-y-auto"},
+            {class: "flex flex-1 min-h-0 flex-col overflow-hidden"},
             () => tab.val === "agent"
                 ? agentSessionsTab()
                 : personalSessionsTab({sessionsS: personalSessionsS, error: personalError, reload: loadPersonalSessions}),
