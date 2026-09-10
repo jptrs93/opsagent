@@ -9,12 +9,13 @@ cross-node compaction passes. Files are stored locally on each node first; an
 S3-backed location comes later and uses the identical key scheme, so every
 naming decision here must hold without cross-node coordination.
 
-The concrete build-out lives in
-[logmanager-implementation-plan.md](logmanager-implementation-plan.md):
-package layout, the sqlite catalog schema, commit ordering and crash windows,
-query planning, and milestones. It revises a few decisions here (commit point,
-level numbering, watermark routing) and says so explicitly; where the two
-disagree, the implementation plan wins.
+What has shipped is described in
+[log-storage.md](../engineering/log-storage.md); where this document and the
+shipped behaviour differ (the commit point is the sqlite transaction, not the
+file name; the tail is the range above the commit marker, not a watermark;
+files are committed by raw size rather than per bucket), the engineering
+doc describes what exists. The next steps are in
+[logmanager-implementation-plan.md](logmanager-implementation-plan.md).
 
 ## Existing substrate
 
@@ -26,9 +27,11 @@ disagree, the implementation plan wins.
   `time.Now()` inside the consumer at pipe-read time, and the bucket a record
   lands in is chosen from that timestamp — including reopening an older
   bucket file (`O_CREATE|O_APPEND`) for a late-stamped record.
-- `StructuredLogLine` (`api-contract/model/logs.proto`) is the structured
-  format compaction produces: time, deployment/version/run/instance/node/
-  stream identity, plus four typed key maps (int/float/bool/str).
+- The structured form compaction produces is the parquet schema itself: the
+  identity columns (time, version, run, node, instance ordinal, stream, seq),
+  the parsed `level` and `msg`, the original line as `raw_message`, and the
+  shredded key columns described below. There is no proto message for it;
+  the query API returns `LogRecord`.
 
 ## WAL v2: shared per-deployment bucket files
 
@@ -98,8 +101,7 @@ so promoting the native path to the standard interface later is mechanical.
 ## File and directory layout
 
 ```
-logs/<deployment_id>/<YYYYMMDD>/L0_<minUnixMs>-<maxUnixMs>_n<node>_<seq>.parquet
-logs/<deployment_id>/<YYYYMMDD>/L1_<minUnixMs>-<maxUnixMs>_<ulid>.parquet
+logs/<deployment_id>/<YYYYMMDD>/L<level>_<minUnixMs>-<maxUnixMs>_n<node>_<seq>.parquet
 ```
 
 - **Directory levels are query partitions**: deployment id, then UTC day.
@@ -118,41 +120,47 @@ logs/<deployment_id>/<YYYYMMDD>/L1_<minUnixMs>-<maxUnixMs>_<ulid>.parquet
   bounds. This makes the metadata layer rebuildable from a directory listing
   alone — no parquet footer reads on recovery — and keeps sqlite an index,
   not a source of truth.
-- **`seq` is per (deployment, node, day)**, derived by the single writer as
-  the count of existing files in the day dir (no durable counter). It gives
-  unconditional name uniqueness (without it, uniqueness depends on never
-  splitting a file mid-millisecond) and trivial gap detection for S3 upload
-  reconciliation ("node 3 uploaded seq 0–17, 12 is missing").
-- **Level tag**: `L0` = fresh per-node compactor output; `L1` = optional
-  cross-node merged output, the S3 upload unit of choice.
+- **`seq` is a random 63-bit number drawn per file.** It gives unconditional
+  name uniqueness with no durable counter and no cross-node agreement, and
+  it is the only part of the name that changes when a file is rewritten with
+  the same rows, so the old and new file coexist during a swap.
+- **The level tag is a processing ladder, not a compaction tier.** Each
+  level implies everything below it: `L0` = batch output without key
+  columns (only files written before shredding shipped), `L1` = shredded
+  batch output, `L2` = node day roll-up, `L3` = cross-node merge. Every
+  rewrite re-runs shredding from `raw_message`, so a file's level says
+  exactly what its columns are. The maintenance loop rewrites any file below
+  the target level for its stage; the implementation plan has the protocol.
 - Instance ordinal is deliberately *not* in the path or name: it changes
-  across restarts within a bucket, it is a cheap column, and L1 merging
+  across restarts within a bucket, it is a cheap column, and merging
   would have to erase it anyway.
 - S3 later: identical keys under a bucket prefix; nodes upload their own
   files with zero coordination.
 - Reserve a namespace for system logs now (`logs/system/...` or a sentinel
   deployment id) so the scheme covers them without migration.
 
-Every `StructuredLogLine` field is also a column inside the file, including
-those duplicated in the path — self-describing files work with external
+Every identity field is also a column inside the file, including those
+duplicated in the path — self-describing files work with external
 tools (DuckDB) without path-parsing conventions and survive moves/merges.
 
 ## Column shredding: threshold hybrid
 
-Per-file schema: all keys become real parquet columns up to a threshold N
-(~256–512 distinct keys). Beyond N, the top-N dense keys (ranked by
-row-presence within the batch — deterministic, so consecutive files from
-the same workload converge to the same schema) get columns; the tail spills
-into four typed MAP columns mirroring the proto (`spill_int`, `spill_float`,
-`spill_bool`, `spill_str`). Precedent: ClickHouse's JSON type (typed
-subcolumns up to `max_dynamic_paths`, overflow to a shared column) and the
-Parquet VARIANT shredding spec in Iceberg v3.
+Per-file schema: every parsed key becomes a real parquet column until the
+file's leaf-column budget is spent. The budget is **400 leaf columns**,
+counted over key columns only; identity columns and the spill maps sit
+outside it. Over budget, the densest keys get columns, ranked by row
+presence within the batch (deterministic, so consecutive files from the same
+workload converge to the same schema), and the tail spills into four typed
+MAP columns (`spill_int`, `spill_float`, `spill_bool`, `spill_str`).
+Precedent: ClickHouse's JSON type (typed subcolumns up to
+`max_dynamic_paths`, overflow to a shared column) and the Parquet VARIANT
+shredding spec in Iceberg v3.
 
 Rationale over the alternatives:
 
 - *All keys as columns, always*: fine to a few hundred columns, degrades
   badly (footer bloat, writer memory, tiny pages, schema-union churn) when
-  workloads emit generated key names — which we don't control.
+  workloads emit generated key names, which we don't control.
 - *Fully adaptive per file*: handles everything but makes every deployment's
   schema dynamic; well-behaved users pay the complexity tax for misbehaving
   ones.
@@ -160,14 +168,67 @@ Rationale over the alternatives:
   schemas and never interact with the adaptive machinery; hostile keyspaces
   degrade gracefully instead of blowing up the writer.
 
-Type conflicts are already disambiguated by the proto's typed maps: the same
-key in `int_fields` and `str_fields` is two logical fields. Column naming
-encodes this (`f_<key>__i/__f/__b/__s`) so shredded columns can never
-collide. Never coerce types.
+### Types
 
-Since the compactor writes from complete sealed buckets, two-pass writing
-(scan batch → fix schema → write) is free; there is no streaming-schema
-problem.
+- **The JSON value type is the column type, never coerced.** A key that
+  arrives as `"39"`, `31` and `38.1` in one batch yields three columns,
+  `f_foo__s`, `f_foo__i` and `f_foo__f`. Column names encode the type
+  (`f_<key>__i/__f/__b/__s`) so variants never collide, and the query
+  resolves across them (below). This is what the columnar systems do
+  (ClickHouse Dynamic, Parquet VARIANT, Snowflake). Coercing at ingest
+  (Elasticsearch, Honeycomb) is where mapping conflicts and silent truncation
+  come from.
+- **Int versus float is decided by the number's text.** `2` is int64; `2.0`
+  and `1e3` are float64. JSON has one number type, so the text is the only
+  signal, and producers differ (JavaScript and Go print a whole-valued float
+  as `2`, Python as `2.0`), so one logical field can land in both columns.
+  Accepted: the query reads both, at the cost of one extra column for the
+  affected keys. Integer text outside the int64 range goes to the float
+  column.
+- **A key's variants are placed together.** Either every type variant of a
+  key is a dense column or every one is in the spill maps. Ranking is per
+  key, and a key is admitted only if all its variants fit the remaining
+  budget, so "where is `foo` in this file" is one lookup.
+- **Nested objects flatten to dotted keys** (`obj.subfield`), depth-capped.
+  A literal key containing a dot collides with the nested path; accepted, as
+  in ClickHouse and VictoriaLogs. Arrays stay JSON text in the string
+  variant, matched per element. JSON `null` is absent: no variant, and
+  `exists` is false. Duplicate keys in one object: last wins. `level`, `msg`
+  and `message` lift into the fixed columns; `version`, `node`, `run`,
+  `instance` and `stream` are query names for identity columns and shadow
+  JSON keys of the same name.
+
+### Query resolution
+
+Filters compile to typed literals once, then bind per file to whichever
+variants the catalog says exist there. A literal that parses as a number
+compares numerically against the int and float variants and textually
+against the string variant, so `foo = 68` matches `68`, `68.0` and `"68"`.
+Range operators (`gt`/`gte`/`lt`/`lte`) touch only the numeric variants.
+`contains` runs over the textual rendering of any variant. The WAL tail
+applies the same rules over the line scanner's typed spans through the
+shared shred function, so a line answers identically before and after
+compaction. A key absent from a file short-circuits without opening a
+column. Level 0 files have no key columns and route field filters through
+`raw_message`.
+
+### Writing
+
+The compactor writes from a complete sealed bucket, so the schema is fixed
+by a tally pass before the write pass: the line scanner walks every record
+counting rows per key and the kinds seen, without materialising values. The
+tally is bounded to a few thousand distinct keys per batch; keys first seen
+after the bound are uncounted and spill. Dense keys appear in the first rows
+of any batch, so the bound only costs a hostile keyspace. Rare keys under
+budget are promoted too: a near-empty optional column is a few hundred bytes
+per row group and far cheaper to filter than the spill map.
+
+The per-file cost that scales with columns is the footer: one column-chunk
+metadata entry per column per row group, decoded on every open. At 400
+leaves and 128k-row groups that is about 1MB for a busy file. Open files
+with page indexes and bloom filters skipped and load the time column's index
+on demand, and watch the untruncated ColumnMetaData min/max on string
+variants.
 
 ## File sizing
 
@@ -175,10 +236,12 @@ Roll at `min(target size, partition boundary)` — never time-only (2KB files
 for quiet deployments, multi-GB for chatty ones) and never size-only (files
 straddling retention cutoffs, unbounded staleness).
 
-- **L0**: one parquet per sealed 30-minute bucket, unless the bucket exceeds
-  a size cap (~32–64MB), in which case split — only at millisecond
-  transitions, so ranges in names stay honest.
-- **L1**: merge within a day toward ~128–512MB for S3 economics.
+- **Batch files (L1)**: one parquet per 64MB of raw WAL bytes, or per day
+  for deployments that never reach it. Size, not time, is what bounds the
+  raw tail scan.
+- **Roll-up (L2)**: merge within a day once the day's batch files reach
+  256MB of parquet, and sweep the remainder at day end; each byte is
+  written twice.
 - Rows sorted time-major; row groups sized so per-group min/max time stats
   give intra-file pruning. This matters more for query latency than the
   file-level scheme.
@@ -214,7 +277,7 @@ writes).
   must always reach the node owning the logbin. The query planner's
   "parquet set + tail endpoints" split is a permanent, first-class concept.
 
-## Node-level compactor (WAL → L0)
+## Node-level compactor (WAL → L1)
 
 - **Input**: all eligible WAL files for a deployment (`<bucket>.wal`),
   processed strictly oldest-first. The filename gives the bucket time, so
@@ -247,7 +310,7 @@ writes).
   files each pass, never by remembering "bucket done". This makes grace
   violations degrade instead of cliff: a straggler record recreates its
   (already compacted and deleted) bucket file, and the next pass compacts it
-  into a second L0 for the same range — which the `seq` naming permits. Cost
+  into a second batch file for the same range — which the `seq` naming permits. Cost
   is a few minutes of invisibility for the late lines, not loss.
 - **Commit sequence**: write `*.tmp` → fsync → rename → insert sqlite row →
   advance watermark → delete source logbin. Presence of a well-formed name
@@ -259,20 +322,21 @@ writes).
   identity (path + record count/byte size at consumption), making "is this
   logbin already represented" exact.
 
-## Cross-node merger (L0 → L1) — deferred
+## Cross-node merger (L2 → L3) — deferred
 
 Optional consolidation pass; correctness never depends on it. At current
-scale (~150 L0 files per deployment per day across a few nodes) L0-only is
-fine; add L1 when file counts or S3 GET costs justify it.
+scale (~150 batch files per deployment per day across a few nodes) the
+node-level passes are enough; add the cross-node merge when file counts or
+S3 GET costs justify it.
 
 - **Trigger: previous day + grace**, never "all nodes advanced". Gating on
   node-set completeness turns the merger into a barrier that a dead node
-  blocks forever, forcing a timeout override anyway. Merge whatever L0s
+  blocks forever, forcing a timeout override anyway. Merge whatever files
   exist for day D once D+grace has passed.
-- Record exactly which inputs produced each L1 (sqlite). A late-arriving L0
-  from a recovered node stays valid standalone — the planner reads L0 ∪ L1
-  by name ranges — and a later sweep can fold stragglers into a
-  supplementary L1.
+- Record exactly which inputs produced each merged file (sqlite). A
+  late-arriving file from a recovered node stays valid standalone — the
+  planner reads all levels by name ranges — and a later sweep can fold
+  stragglers into a supplementary merge.
 
 ## Metadata layer (later phase)
 
@@ -285,11 +349,8 @@ is recoverable from names alone, and the rest from footers.
 
 ## Open questions
 
-- Exact dense-key threshold N and the size caps (pick during implementation;
-  the design is insensitive within the stated ranges).
+- The size caps (pick during implementation; the design is insensitive
+  within the stated ranges).
 - Retention policy shape (per-deployment day counts; day dirs make deletion
   trivial).
 - Tail RPC design for cross-node queries in the S3 phase.
-- Whether L1 outputs re-run shredding over the merged batch (better schemas)
-  or concatenate L0 schemas (cheaper); leaning re-run, since the merger
-  already reads every row.

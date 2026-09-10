@@ -7,7 +7,102 @@ package logdb
 
 import (
 	"context"
+	"database/sql"
+	"strings"
 )
+
+const countLevelZeroFiles = `-- name: CountLevelZeroFiles :one
+SELECT COUNT(*) AS file_count, CAST(COALESCE(SUM(byte_size), 0) AS INTEGER) AS byte_total
+FROM log_files WHERE level = 0
+`
+
+type CountLevelZeroFilesRow struct {
+	FileCount int64
+	ByteTotal int64
+}
+
+func (q *Queries) CountLevelZeroFiles(ctx context.Context) (CountLevelZeroFilesRow, error) {
+	row := q.db.QueryRowContext(ctx, countLevelZeroFiles)
+	var i CountLevelZeroFilesRow
+	err := row.Scan(&i.FileCount, &i.ByteTotal)
+	return i, err
+}
+
+const deleteLogFile = `-- name: DeleteLogFile :exec
+DELETE FROM log_files WHERE id = ?
+`
+
+func (q *Queries) DeleteLogFile(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteLogFile, id)
+	return err
+}
+
+const deleteLogFileKeys = `-- name: DeleteLogFileKeys :exec
+DELETE FROM log_file_keys WHERE file_id = ?
+`
+
+func (q *Queries) DeleteLogFileKeys(ctx context.Context, fileID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteLogFileKeys, fileID)
+	return err
+}
+
+const deleteLogFileKeysForDay = `-- name: DeleteLogFileKeysForDay :exec
+DELETE FROM log_file_keys WHERE file_id IN (SELECT id FROM log_files WHERE deployment_id = ? AND day = ?)
+`
+
+type DeleteLogFileKeysForDayParams struct {
+	DeploymentID int64
+	Day          int64
+}
+
+func (q *Queries) DeleteLogFileKeysForDay(ctx context.Context, arg DeleteLogFileKeysForDayParams) error {
+	_, err := q.db.ExecContext(ctx, deleteLogFileKeysForDay, arg.DeploymentID, arg.Day)
+	return err
+}
+
+const deleteLogFilesForDay = `-- name: DeleteLogFilesForDay :exec
+DELETE FROM log_files WHERE deployment_id = ? AND day = ?
+`
+
+type DeleteLogFilesForDayParams struct {
+	DeploymentID int64
+	Day          int64
+}
+
+func (q *Queries) DeleteLogFilesForDay(ctx context.Context, arg DeleteLogFilesForDayParams) error {
+	_, err := q.db.ExecContext(ctx, deleteLogFilesForDay, arg.DeploymentID, arg.Day)
+	return err
+}
+
+const getLogFileBySeq = `-- name: GetLogFileBySeq :one
+SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at
+FROM log_files WHERE deployment_id = ? AND day = ? AND seq = ?
+`
+
+type GetLogFileBySeqParams struct {
+	DeploymentID int64
+	Day          int64
+	Seq          int64
+}
+
+func (q *Queries) GetLogFileBySeq(ctx context.Context, arg GetLogFileBySeqParams) (LogFile, error) {
+	row := q.db.QueryRowContext(ctx, getLogFileBySeq, arg.DeploymentID, arg.Day, arg.Seq)
+	var i LogFile
+	err := row.Scan(
+		&i.ID,
+		&i.DeploymentID,
+		&i.Day,
+		&i.Level,
+		&i.Node,
+		&i.Seq,
+		&i.MinTime,
+		&i.MaxTime,
+		&i.RowCount,
+		&i.ByteSize,
+		&i.CreatedAt,
+	)
+	return i, err
+}
 
 const getLogStreamCommitMarker = `-- name: GetLogStreamCommitMarker :one
 SELECT deployment_id, day, bucket, record_time, byte_offset, updated_at, file
@@ -64,6 +159,317 @@ func (q *Queries) InsertLogFile(ctx context.Context, arg InsertLogFileParams) (i
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertLogFileKey = `-- name: InsertLogFileKey :exec
+INSERT INTO log_file_keys (file_id, key, type, placement, row_count)
+VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertLogFileKeyParams struct {
+	FileID    int64
+	Key       string
+	Type      int64
+	Placement int64
+	RowCount  int64
+}
+
+func (q *Queries) InsertLogFileKey(ctx context.Context, arg InsertLogFileKeyParams) error {
+	_, err := q.db.ExecContext(ctx, insertLogFileKey,
+		arg.FileID,
+		arg.Key,
+		arg.Type,
+		arg.Placement,
+		arg.RowCount,
+	)
+	return err
+}
+
+const listLevelOneDays = `-- name: ListLevelOneDays :many
+SELECT deployment_id, day, COUNT(*) AS file_count, SUM(byte_size) AS byte_total
+FROM log_files WHERE level = 1 GROUP BY deployment_id, day ORDER BY deployment_id, day
+`
+
+type ListLevelOneDaysRow struct {
+	DeploymentID int64
+	Day          int64
+	FileCount    int64
+	ByteTotal    sql.NullFloat64
+}
+
+func (q *Queries) ListLevelOneDays(ctx context.Context) ([]ListLevelOneDaysRow, error) {
+	rows, err := q.db.QueryContext(ctx, listLevelOneDays)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLevelOneDaysRow
+	for rows.Next() {
+		var i ListLevelOneDaysRow
+		if err := rows.Scan(
+			&i.DeploymentID,
+			&i.Day,
+			&i.FileCount,
+			&i.ByteTotal,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLevelZeroNewestFirst = `-- name: ListLevelZeroNewestFirst :many
+SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at
+FROM log_files WHERE level = 0 ORDER BY max_time DESC, id DESC LIMIT 64
+`
+
+func (q *Queries) ListLevelZeroNewestFirst(ctx context.Context) ([]LogFile, error) {
+	rows, err := q.db.QueryContext(ctx, listLevelZeroNewestFirst)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LogFile
+	for rows.Next() {
+		var i LogFile
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeploymentID,
+			&i.Day,
+			&i.Level,
+			&i.Node,
+			&i.Seq,
+			&i.MinTime,
+			&i.MaxTime,
+			&i.RowCount,
+			&i.ByteSize,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLogFileDaysBefore = `-- name: ListLogFileDaysBefore :many
+SELECT DISTINCT deployment_id, day FROM log_files WHERE day < ? ORDER BY deployment_id, day
+`
+
+type ListLogFileDaysBeforeRow struct {
+	DeploymentID int64
+	Day          int64
+}
+
+func (q *Queries) ListLogFileDaysBefore(ctx context.Context, day int64) ([]ListLogFileDaysBeforeRow, error) {
+	rows, err := q.db.QueryContext(ctx, listLogFileDaysBefore, day)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLogFileDaysBeforeRow
+	for rows.Next() {
+		var i ListLogFileDaysBeforeRow
+		if err := rows.Scan(&i.DeploymentID, &i.Day); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLogFileDeployments = `-- name: ListLogFileDeployments :many
+SELECT DISTINCT deployment_id FROM log_files ORDER BY deployment_id
+`
+
+func (q *Queries) ListLogFileDeployments(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listLogFileDeployments)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var deployment_id int64
+		if err := rows.Scan(&deployment_id); err != nil {
+			return nil, err
+		}
+		items = append(items, deployment_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLogFileKeysInRange = `-- name: ListLogFileKeysInRange :many
+SELECT k.file_id, k.key, k.type, k.placement, k.row_count
+FROM log_file_keys k JOIN log_files f ON f.id = k.file_id
+WHERE f.deployment_id = ? AND f.max_time >= ? AND f.min_time < ? AND k.key IN (/*SLICE:keys*/?)
+`
+
+type ListLogFileKeysInRangeParams struct {
+	DeploymentID int64
+	MaxTime      int64
+	MinTime      int64
+	Keys         []string
+}
+
+func (q *Queries) ListLogFileKeysInRange(ctx context.Context, arg ListLogFileKeysInRangeParams) ([]LogFileKey, error) {
+	query := listLogFileKeysInRange
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.DeploymentID)
+	queryParams = append(queryParams, arg.MaxTime)
+	queryParams = append(queryParams, arg.MinTime)
+	if len(arg.Keys) > 0 {
+		for _, v := range arg.Keys {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:keys*/?", strings.Repeat(",?", len(arg.Keys))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:keys*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LogFileKey
+	for rows.Next() {
+		var i LogFileKey
+		if err := rows.Scan(
+			&i.FileID,
+			&i.Key,
+			&i.Type,
+			&i.Placement,
+			&i.RowCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLogFilesForDay = `-- name: ListLogFilesForDay :many
+SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at
+FROM log_files WHERE deployment_id = ? AND day = ?
+ORDER BY min_time, id
+`
+
+type ListLogFilesForDayParams struct {
+	DeploymentID int64
+	Day          int64
+}
+
+func (q *Queries) ListLogFilesForDay(ctx context.Context, arg ListLogFilesForDayParams) ([]LogFile, error) {
+	rows, err := q.db.QueryContext(ctx, listLogFilesForDay, arg.DeploymentID, arg.Day)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LogFile
+	for rows.Next() {
+		var i LogFile
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeploymentID,
+			&i.Day,
+			&i.Level,
+			&i.Node,
+			&i.Seq,
+			&i.MinTime,
+			&i.MaxTime,
+			&i.RowCount,
+			&i.ByteSize,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLogFilesForDayLevel = `-- name: ListLogFilesForDayLevel :many
+SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at
+FROM log_files WHERE deployment_id = ? AND day = ? AND level = ?
+ORDER BY min_time, id
+`
+
+type ListLogFilesForDayLevelParams struct {
+	DeploymentID int64
+	Day          int64
+	Level        int64
+}
+
+func (q *Queries) ListLogFilesForDayLevel(ctx context.Context, arg ListLogFilesForDayLevelParams) ([]LogFile, error) {
+	rows, err := q.db.QueryContext(ctx, listLogFilesForDayLevel, arg.DeploymentID, arg.Day, arg.Level)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LogFile
+	for rows.Next() {
+		var i LogFile
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeploymentID,
+			&i.Day,
+			&i.Level,
+			&i.Node,
+			&i.Seq,
+			&i.MinTime,
+			&i.MaxTime,
+			&i.RowCount,
+			&i.ByteSize,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listLogFilesNewestFirst = `-- name: ListLogFilesNewestFirst :many

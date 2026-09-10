@@ -712,6 +712,7 @@ type LogFilter struct {
 	Op     string   `json:"op,omitempty"`
 	Value  string   `json:"value,omitempty"`
 	Values []string `json:"values,omitempty"`
+	Text   bool     `json:"text"`
 }
 
 type LogQueryRequest struct {

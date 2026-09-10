@@ -1,7 +1,10 @@
 package logmanager
 
 import (
+	"bytes"
+	"cmp"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -9,8 +12,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-// levelOrder is the canonical series order for histograms; "" collects lines
-// with no parsed level.
 var levelOrder = []string{"ERROR", "WARN", "INFO", "DEBUG", ""}
 
 func levelIndex(level string) int {
@@ -22,14 +23,130 @@ func levelIndex(level string) int {
 	return len(levelOrder) - 1
 }
 
+type literal struct {
+	text   string
+	bytes  []byte
+	lower  []byte
+	ascii  bool
+	num    bool
+	isInt  bool
+	i      int64
+	f      float64
+	isBool bool
+	b      bool
+}
+
+func parseLiteral(s string, textOnly bool) literal {
+	lower := strings.ToLower(s)
+	l := literal{text: s, bytes: []byte(s), lower: []byte(lower), ascii: isASCII(lower)}
+	if textOnly {
+		return l
+	}
+	t := strings.TrimSpace(s)
+	if i, ok := parseInt64(strb(t)); ok {
+		l.num, l.isInt, l.i = true, true, i
+		return l
+	}
+	if f, err := strconv.ParseFloat(t, 64); err == nil && !math.IsInf(f, 0) && !math.IsNaN(f) {
+		l.num, l.f = true, f
+		return l
+	}
+	switch lower {
+	case "true":
+		l.isBool, l.b = true, true
+	case "false":
+		l.isBool, l.b = true, false
+	}
+	return l
+}
+
+func (l *literal) asFloat() float64 {
+	if l.isInt {
+		return float64(l.i)
+	}
+	return l.f
+}
+
+func (l *literal) equals(v fieldValue) bool {
+	switch v.typ {
+	case typeInt:
+		if !l.num {
+			return false
+		}
+		if l.isInt {
+			return v.i == l.i
+		}
+		return float64(v.i) == l.f
+	case typeFloat:
+		return l.num && v.f == l.asFloat()
+	case typeBool:
+		return l.isBool && v.b == l.b
+	default:
+		if bytes.EqualFold(v.text, l.bytes) {
+			return true
+		}
+		for _, e := range jsonArrayElements(v.text) {
+			if strings.EqualFold(e, l.text) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+func (l *literal) compare(v fieldValue, op string) bool {
+	if !l.num {
+		return false
+	}
+	var c int
+	switch v.typ {
+	case typeInt:
+		if l.isInt {
+			c = cmp.Compare(v.i, l.i)
+		} else {
+			c = cmp.Compare(float64(v.i), l.f)
+		}
+	case typeFloat:
+		c = cmp.Compare(v.f, l.asFloat())
+	default:
+		return false
+	}
+	switch op {
+	case "gt":
+		return c > 0
+	case "gte":
+		return c >= 0
+	case "lt":
+		return c < 0
+	case "lte":
+		return c <= 0
+	}
+	return false
+}
+
+func (l *literal) contains(v fieldValue, sc *lineScanner) bool {
+	text := v.textBytes(&sc.fmtBuf)
+	if l.ascii {
+		if found, ok := containsFold(&sc.lower, text, l.lower); ok {
+			return found
+		}
+	}
+	return strings.Contains(strings.ToLower(bstr(text)), bstr(l.lower))
+}
+
 type compiledFilter struct {
-	field      string
-	op         string
-	value      string // pre-lowercased for contains ops
-	valueBytes []byte // value as bytes for the allocation-free fold
-	asciiValue bool   // value is pure ASCII, so the byte fold is exact
-	values     []string
-	origValue  string
+	field string
+	op    string
+	lit   literal
+	lits  []literal
+}
+
+func isRangeOp(op string) bool {
+	switch op {
+	case "gt", "gte", "lt", "lte":
+		return true
+	}
+	return false
 }
 
 func compileFilters(fs []*apigen.LogFilter) ([]compiledFilter, error) {
@@ -39,20 +156,21 @@ func compileFilters(fs []*apigen.LogFilter) ([]compiledFilter, error) {
 			continue
 		}
 		switch f.Op {
-		case "eq", "neq", "in", "exists", "not_exists", "contains", "not_contains":
+		case "eq", "neq", "in", "exists", "not_exists", "contains", "not_contains", "gt", "gte", "lt", "lte":
 		default:
 			return nil, apigen.NewApiErr(fmt.Sprintf("Unknown filter op %q", f.Op), "invalid_filter", http.StatusBadRequest)
 		}
-		value := strings.ToLower(f.Value)
-		out = append(out, compiledFilter{
-			field:      f.Field,
-			op:         f.Op,
-			value:      value,
-			valueBytes: []byte(value),
-			asciiValue: isASCII(value),
-			values:     f.Values,
-			origValue:  f.Value,
-		})
+		c := compiledFilter{field: f.Field, op: f.Op, lit: parseLiteral(f.Value, f.Text)}
+		if isRangeOp(f.Op) && !c.lit.num {
+			return nil, apigen.NewApiErr(fmt.Sprintf("Filter op %q needs a numeric value, got %q", f.Op, f.Value), "invalid_filter", http.StatusBadRequest)
+		}
+		if f.Op == "in" {
+			c.lits = make([]literal, 0, len(f.Values))
+			for _, v := range f.Values {
+				c.lits = append(c.lits, parseLiteral(v, f.Text))
+			}
+		}
+		out = append(out, c)
 	}
 	return out, nil
 }
@@ -65,6 +183,19 @@ func isMetaFieldName(field string) bool {
 	return false
 }
 
+func isColumnFieldName(field string) bool {
+	switch field {
+	case "", "msg", "message", "level":
+		return true
+	}
+	return isMetaFieldName(field)
+}
+
+var (
+	stdoutBytes = []byte("stdout")
+	stderrBytes = []byte("stderr")
+)
+
 func streamName(stream int32) string {
 	switch stream {
 	case 0:
@@ -76,17 +207,25 @@ func streamName(stream int32) string {
 	}
 }
 
-func filtersColumnSafe(fs []compiledFilter) bool {
+func streamValue(stream int32) fieldValue {
+	switch stream {
+	case 0:
+		return stringValue(stdoutBytes)
+	case 1:
+		return stringValue(stderrBytes)
+	default:
+		return stringValue([]byte(strconv.Itoa(int(stream))))
+	}
+}
+
+func fieldFilterIdx(fs []compiledFilter) []int {
+	var out []int
 	for i := range fs {
-		switch fs[i].field {
-		case "", "msg", "message", "level":
-		default:
-			if !isMetaFieldName(fs[i].field) {
-				return false
-			}
+		if !isColumnFieldName(fs[i].field) {
+			out = append(out, i)
 		}
 	}
-	return true
+	return out
 }
 
 func filtersLevelOnly(fs []compiledFilter) bool {
@@ -117,28 +256,20 @@ func filtersReferenceMeta(fs []compiledFilter) bool {
 	return false
 }
 
-// visitRec is one record as seen by the query scan. level/msg come from the
-// parquet columns when shredded is set; otherwise they are resolved through
-// the scanner's lineView first and parseLine only when the view declines.
-// The full fields map is parsed lazily so records that are only counted or
-// filtered never pay for a map decode.
 type visitRec struct {
 	rec      apigen.RawLogLine
 	level    string
 	msg      string
-	fields   map[string]string
-	shredded bool // level and msg are authoritative
-	parsed   bool // fields were materialised by parseLine
+	fields   []shredField
+	shredded bool
+	parsed   bool
 
-	sc      *lineScanner // shared by the scan loop; allocated on demand otherwise
+	sc      *lineScanner
 	view    lineView
 	viewed  bool
-	levelOK bool // level resolved from the view
-	msgOK   bool // msg resolved from the view or materialised from msgRaw
+	levelOK bool
+	msgOK   bool
 
-	// msgRaw is the shredded msg column as borrowed bytes, set by the archive
-	// scan instead of msg so a contains filter never copies it; msgValue
-	// materialises the string only when a caller needs one.
 	msgRaw    []byte
 	hasMsgRaw bool
 }
@@ -184,6 +315,21 @@ func (v *visitRec) levelValue() string {
 	return v.level
 }
 
+func (v *visitRec) msgBytes() []byte {
+	if v.hasMsgRaw {
+		return v.msgRaw
+	}
+	if v.shredded || v.msgOK {
+		return strb(v.msg)
+	}
+	view := v.ensureView()
+	if b, ok := v.sc.msgBytes(view); ok {
+		return b
+	}
+	v.ensureParsed()
+	return strb(v.msg)
+}
+
 func (v *visitRec) msgValue() string {
 	if v.hasMsgRaw && !v.msgOK {
 		v.msg, v.msgOK = string(v.msgRaw), true
@@ -200,171 +346,68 @@ func (v *visitRec) msgValue() string {
 	return v.msg
 }
 
-// fieldBytes is the allocation-free form of fieldValue for values that sit
-// on the line as bytes: the message and shredded JSON scalars of a record
-// that has not been parsed or shredded yet. fast is false when the caller
-// must use fieldValue instead, which already holds a string for those cases.
-// The slice is valid until the next scanner call.
-func (v *visitRec) fieldBytes(field string) (b []byte, ok bool, fast bool) {
+func (v *visitRec) typedField(field string) (fieldValue, bool) {
 	switch field {
 	case "", "msg", "message":
-		if v.hasMsgRaw {
-			return v.msgRaw, true, true
-		}
-		if v.shredded || v.msgOK {
-			return nil, false, false
-		}
-		view := v.ensureView()
-		b, ok = v.sc.msgBytes(view)
-		return b, true, ok
-	case "level", "version", "node", "run", "instance", "stream":
-		return nil, false, false
-	}
-	if v.parsed {
-		return nil, false, false
-	}
-	view := v.ensureView()
-	if view.fallback {
-		return nil, false, false
-	}
-	if !view.isJSON {
-		return nil, false, true
-	}
-	sp, found := view.lookup(field)
-	if !found {
-		return nil, false, true
-	}
-	b, ok = v.sc.valueBytes(view, sp)
-	return b, true, ok
-}
-
-// fieldValue addresses one logical column of a record. An empty field name
-// means the message text; "level" and "msg" address the parsed columns;
-// "version", "node", "run", "instance" and "stream" address the record
-// metadata and shadow shredded JSON fields of the same name; anything else is
-// a shredded JSON field.
-func (v *visitRec) fieldValue(field string) (string, bool) {
-	switch field {
-	case "", "msg", "message":
-		return v.msgValue(), true
+		return stringValue(v.msgBytes()), true
 	case "level":
 		l := v.levelValue()
-		return l, l != ""
+		return stringValue(strb(l)), l != ""
 	case "version":
-		return strconv.Itoa(int(v.rec.Version)), true
+		return fieldValue{typ: typeInt, i: int64(v.rec.Version)}, true
 	case "node":
-		return strconv.Itoa(int(v.rec.Node)), true
+		return fieldValue{typ: typeInt, i: int64(v.rec.Node)}, true
 	case "run":
-		return strconv.Itoa(int(v.rec.Run)), true
+		return fieldValue{typ: typeInt, i: int64(v.rec.Run)}, true
 	case "instance":
-		return strconv.Itoa(int(v.rec.InstanceOrdinal)), true
+		return fieldValue{typ: typeInt, i: int64(v.rec.InstanceOrdinal)}, true
 	case "stream":
-		return streamName(v.rec.Stream), true
+		return streamValue(v.rec.Stream), true
 	default:
 		if !v.parsed {
 			if view := v.ensureView(); !view.fallback {
 				if !view.isJSON {
-					return "", false
+					return fieldValue{}, false
 				}
-				sp, found := view.lookup(field)
-				if !found {
-					return "", false
-				}
-				if b, ok := v.sc.valueBytes(view, sp); ok {
-					return string(b), true
-				}
+				return v.sc.typedField(view, field)
 			}
 		}
 		v.ensureParsed()
-		val, ok := v.fields[field]
-		return val, ok
+		return lookupField(v.fields, field)
 	}
-}
-
-// valueEquals is the equality used by eq/neq/in: the whole value, or — when
-// the value is a shredded JSON array — any one of its elements.
-func valueEquals(v, want string) bool {
-	if strings.EqualFold(v, want) {
-		return true
-	}
-	for _, e := range jsonArrayElements(v) {
-		if strings.EqualFold(e, want) {
-			return true
-		}
-	}
-	return false
 }
 
 func (f *compiledFilter) match(rec *visitRec) bool {
-	if f.op == "contains" || f.op == "not_contains" {
-		if matched, fast := f.matchContainsBytes(rec); fast {
-			return matched
-		}
-	}
-	v, ok := rec.fieldValue(f.field)
+	v, ok := rec.typedField(f.field)
+	return f.matchValue(v, ok, rec.scanner())
+}
+
+func (f *compiledFilter) matchValue(v fieldValue, ok bool, sc *lineScanner) bool {
 	switch f.op {
 	case "exists":
 		return ok
 	case "not_exists":
 		return !ok
 	case "eq":
-		return ok && valueEquals(v, f.origValue)
+		return ok && f.lit.equals(v)
 	case "neq":
-		return !(ok && valueEquals(v, f.origValue))
+		return !(ok && f.lit.equals(v))
 	case "in":
-		// A missing field compares as "" so an empty want can select records
-		// without the field (e.g. level in ["ERROR", ""] includes unleveled
-		// lines).
 		if !ok {
-			v = ""
+			v = fieldValue{typ: typeStr}
 		}
-		for _, want := range f.values {
-			if valueEquals(v, want) {
+		for i := range f.lits {
+			if f.lits[i].equals(v) {
 				return true
 			}
 		}
 		return false
 	case "contains":
-		return ok && f.containsValue(rec, v)
+		return ok && f.lit.contains(v, sc)
 	case "not_contains":
-		return !(ok && f.containsValue(rec, v))
+		return !(ok && f.lit.contains(v, sc))
+	case "gt", "gte", "lt", "lte":
+		return ok && f.lit.compare(v, f.op)
 	}
 	return false
-}
-
-// containsValue is the contains test over a value already fetched as a
-// string. The ASCII fold runs without allocating; anything else takes the
-// strings.ToLower path so Unicode case rules stay exactly as before.
-func (f *compiledFilter) containsValue(rec *visitRec, v string) bool {
-	if f.asciiValue {
-		if found, ok := containsFold(&rec.scanner().lower, v, f.valueBytes); ok {
-			return found
-		}
-	}
-	return strings.Contains(strings.ToLower(v), f.value)
-}
-
-// matchContainsBytes evaluates a contains filter against the raw field bytes
-// when the record can supply them, so the message never becomes a string
-// just to be searched. fast is false when the caller should fall through to
-// match.
-func (f *compiledFilter) matchContainsBytes(rec *visitRec) (matched, fast bool) {
-	if !f.asciiValue {
-		return false, false
-	}
-	b, ok, fast := rec.fieldBytes(f.field)
-	if !fast {
-		return false, false
-	}
-	found := false
-	if ok {
-		var folded bool
-		if found, folded = containsFold(&rec.scanner().lower, b, f.valueBytes); !folded {
-			return false, false
-		}
-	}
-	if f.op == "not_contains" {
-		return !found, true
-	}
-	return found, true
 }

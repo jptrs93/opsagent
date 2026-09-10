@@ -18,6 +18,14 @@ type LogFile struct {
 	CreatedAt    int64
 }
 
+type LogFileKey struct {
+	FileID    int64
+	Key       string
+	Type      int64
+	Placement int64
+	RowCount  int64
+}
+
 type LogStreamCommitMarker struct {
 	DeploymentID int64
 	Day          int64

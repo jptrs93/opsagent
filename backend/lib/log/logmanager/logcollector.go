@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,21 +19,19 @@ import (
 
 var (
 	reorderGraceWindow     = time.Minute
-	commitSizeThresh       = int64(400_000_000)
+	commitSizeThresh       = int64(64_000_000)
 	tailPollInterval       = time.Second
 	commitTickInterval     = time.Minute
 	fileListInterval       = 20 * time.Second
 	collectorRetryInterval = 5 * time.Second
 )
 
-// should be started for every existing log deployment directory manages the logs of a single deployment
 type LogStreamCollector struct {
-	// ctx is the component root logging context, tagged at construction and
-	// carrying the deployment id.
 	ctx               context.Context
 	deploymentID      int32
 	liveSpool         *LiveSegmentSpool
 	db                *logdb.Queries
+	onCommit          func(deploymentID, day int32)
 	collectorRunning  bool
 	producerCount     int
 	producerCtxCancel context.CancelFunc
@@ -99,7 +96,6 @@ func (i *LogStreamCollector) RunCollectorOnce(producerCtx context.Context) error
 	defer close(stop)
 	tickErr := make(chan error, 1)
 	go func() {
-		// time based commit is to cover the case where there is no logs emitted by the application for a long period of time
 		for {
 			select {
 			case <-stop:
@@ -158,7 +154,6 @@ func (i *LogStreamCollector) CommitIfNeed(tNow time.Time) error {
 	if len(s.ranges) > 1 && tNow.After(dayCommitDeadline(s.ranges[0].start.day)) {
 		return i.commitSpooledChunk()
 	}
-	// todo: if we are close to the end of the day relative to range[0] then we should just wait till end to commit
 	if s.ranges[0].size >= commitSizeThresh {
 		return i.commitSpooledChunk()
 	}
@@ -201,82 +196,19 @@ func (i *LogStreamCollector) commitSpooledChunk() error {
 	s := i.liveSpool
 	r := s.ranges[0]
 	dayDir := archiveDayDir(i.deploymentID, r.start.day)
-	if err := os.MkdirAll(dayDir, 0o750); err != nil {
-		return err
-	}
-	seq := newArchiveSeq()
-	provisional := filepath.Join(dayDir, provisionalFileName(seq))
-	w, err := newArchiveWriter(provisional)
+	outs, err := writeArchiveFiles(context.Background(), dayDir, i.deploymentID, walSource{deploymentID: i.deploymentID, start: r.start, end: r.end}, 0)
 	if err != nil {
+		if errors.Is(err, errNoRows) {
+			return fmt.Errorf("no records found streaming spooled range %d/%d+%d..%d/%d+%d",
+				r.start.day, r.start.bucket, r.start.byteOffset, r.end.day, r.end.bucket, r.end.byteOffset)
+		}
 		return err
 	}
-	var node int32
-	sc := &lineScanner{}
-	for rec, err := range sortedByTime(StreamDeploymentLogRecordsRange(i.deploymentID, r.start, r.end)) {
-		if err == nil {
-			if w.count == 0 {
-				node = rec.record.Node
-			}
-			level, msg := shredFields(sc, rec.record)
-			err = w.append(logRow{
-				Time:            rec.record.Time,
-				Version:         rec.record.Version,
-				Run:             rec.record.Run,
-				Node:            rec.record.Node,
-				InstanceOrdinal: rec.record.InstanceOrdinal,
-				Stream:          rec.record.Stream,
-				Seq:             rec.record.Seq,
-				Level:           level,
-				Msg:             msg,
-				RawMessage:      rec.record.Line,
-			})
-		}
-		if err != nil {
-			w.abort()
-			_ = os.Remove(provisional)
-			return err
-		}
-	}
-	if w.count == 0 {
-		w.abort()
-		_ = os.Remove(provisional)
-		return fmt.Errorf("no records found streaming spooled range %d/%d+%d..%d/%d+%d",
-			r.start.day, r.start.bucket, r.start.byteOffset, r.end.day, r.end.bucket, r.end.byteOffset)
-	}
-	metadata := map[string]string{"deployment": strconv.Itoa(int(i.deploymentID))}
-	if !w.unsorted {
-		metadata[metadataSortedKey] = metadataSortedVal
-	}
-	if err := w.finish(metadata); err != nil {
-		_ = os.Remove(provisional)
-		return err
-	}
-	if w.unsorted {
-		slog.WarnContext(i.ctx, "archive chunk exceeded the sort buffer out of order; resorting", "rows", w.count)
-		if err := resortArchiveFile(provisional, map[string]string{"deployment": strconv.Itoa(int(i.deploymentID))}); err != nil {
-			_ = os.Remove(provisional)
-			return err
-		}
-	}
-	info, err := os.Stat(provisional)
-	if err != nil {
-		return err
-	}
-	final := archiveFileName(archiveLevelBatch, w.minTime, w.maxTime, node, seq)
+	out := &outs[0]
+	final := archiveFileName(archiveLevelShredded, out.minTime, out.maxTime, out.node, out.seq)
 	ctx := context.Background()
 	err = i.db.Tx(ctx, func(q *logdb.Queries) error {
-		if _, err := q.InsertLogFile(ctx, logdb.InsertLogFileParams{
-			DeploymentID: int64(i.deploymentID),
-			Day:          int64(r.start.day),
-			Level:        archiveLevelBatch,
-			Node:         int64(node),
-			Seq:          seq,
-			MinTime:      w.minTime,
-			MaxTime:      w.maxTime,
-			RowCount:     w.count,
-			ByteSize:     info.Size(),
-			CreatedAt:    clock().UnixMilli(),
-		}); err != nil {
+		if err := insertArchiveOutput(ctx, q, i.deploymentID, r.start.day, archiveLevelShredded, out); err != nil {
 			return err
 		}
 		return q.UpsertLogStreamCommitMarker(ctx, logdb.UpsertLogStreamCommitMarkerParams{
@@ -290,10 +222,10 @@ func (i *LogStreamCollector) commitSpooledChunk() error {
 		})
 	})
 	if err != nil {
-		_ = os.Remove(provisional)
+		_ = os.Remove(out.provisional)
 		return err
 	}
-	if err := os.Rename(provisional, filepath.Join(dayDir, final)); err != nil {
+	if err := os.Rename(out.provisional, filepath.Join(dayDir, final)); err != nil {
 		return err
 	}
 	if err := syncDir(dayDir); err != nil {
@@ -303,6 +235,9 @@ func (i *LogStreamCollector) commitSpooledChunk() error {
 	s.pruneAggregatesLocked(r.end)
 	s.dropFirstLocked()
 	i.deleteConsumedLogWALs(r.end)
+	if i.onCommit != nil {
+		i.onCommit(i.deploymentID, r.start.day)
+	}
 	return nil
 }
 
@@ -362,13 +297,13 @@ func (i *LogStreamCollector) loadCommittedMarker(ctx context.Context) (StreamMar
 	if err != nil {
 		return StreamMarker{}, err
 	}
-	if err := completePendingSwap(i.deploymentID, row); err != nil {
+	if err := completePendingSwap(ctx, i.db, i.deploymentID, row); err != nil {
 		return StreamMarker{}, err
 	}
 	return StreamMarker{day: int32(row.Day), bucket: int32(row.Bucket), byteOffset: row.ByteOffset, time: row.RecordTime}, nil
 }
 
-func completePendingSwap(deploymentID int32, row logdb.LogStreamCommitMarker) error {
+func completePendingSwap(ctx context.Context, db *logdb.Queries, deploymentID int32, row logdb.LogStreamCommitMarker) error {
 	if row.File == "" {
 		return nil
 	}
@@ -385,10 +320,17 @@ func completePendingSwap(deploymentID int32, row logdb.LogStreamCommitMarker) er
 	}
 	provisional := filepath.Join(dayDir, provisionalFileName(seq))
 	if _, err := os.Stat(provisional); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("committed archive file %q missing", row.File)
+		if !os.IsNotExist(err) {
+			return err
 		}
-		return err
+		_, lookupErr := db.GetLogFileBySeq(ctx, logdb.GetLogFileBySeqParams{DeploymentID: int64(deploymentID), Day: row.Day, Seq: seq})
+		if errors.Is(lookupErr, sql.ErrNoRows) {
+			return nil
+		}
+		if lookupErr != nil {
+			return lookupErr
+		}
+		return fmt.Errorf("committed archive file %q missing", row.File)
 	}
 	if err := os.Rename(provisional, final); err != nil {
 		return err
@@ -415,15 +357,18 @@ func (i *LogStreamCollector) removeOrphanTmpFiles() {
 			continue
 		}
 		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), archiveExt+tmpExt) {
-				_ = os.Remove(filepath.Join(dir, e.Name()))
+			if e.IsDir() || !strings.HasSuffix(e.Name(), archiveExt+tmpExt) {
+				continue
 			}
+			if info, err := e.Info(); err == nil && clock().Sub(info.ModTime()) < rewriteGrace {
+				continue
+			}
+			_ = os.Remove(filepath.Join(dir, e.Name()))
 		}
 	}
 }
 
 func (i *LogStreamCollector) hasUncollectedLogs() bool {
-	// for now it harmless to always attempt to collect
 	return true
 }
 

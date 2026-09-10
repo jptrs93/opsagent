@@ -220,26 +220,31 @@ function recordJson(rec) {
 
 // --- query language --------------------------------------------------------
 // One string is the whole filter state: bare words and "quoted phrases" match
-// the message, key:value matches a field (key:* = field exists), a leading -
-// negates. Sidebar and row actions edit this string rather than owning
-// side-channel filter state.
+// the message, key:value matches a field (key:* = field exists), key>10,
+// key>=10, key<10 and key<=10 are numeric range filters, a leading - negates,
+// and a "quoted" value compares as text only. Sidebar and row actions edit
+// this string rather than owning side-channel filter state.
+
+const RANGE_OPS = {'>': 'gt', '>=': 'gte', '<': 'lt', '<=': 'lte'};
 
 function parseQuery(text) {
     const tokens = [];
-    const re = /(-)?(?:([\w.]+):)?(?:"([^"]*)"|([^\s"]+))/g;
+    const re = /(-)?(?:([\w.]+)(:|>=|<=|>|<))?(?:"([^"]*)"|([^\s"]+))/g;
     let m;
     while ((m = re.exec(text))) {
         const neg = Boolean(m[1]);
         const key = m[2] ? m[2].toLowerCase() : '';
-        const value = (m[3] !== undefined ? m[3] : (m[4] || '')).toLowerCase();
+        const sep = m[3] || ':';
+        const quoted = m[4] !== undefined;
+        const value = (quoted ? m[4] : (m[5] || '')).toLowerCase();
         if (!value && !key) continue;
-        tokens.push(key ? {type: 'pair', key, value, neg} : {type: 'text', value, neg});
+        tokens.push(key ? {type: 'pair', key, sep, value, neg, quoted} : {type: 'text', value, neg});
     }
     return tokens;
 }
 
-const quoteValue = (v) => /\s/.test(v) ? `"${v}"` : v;
-const tokenText = (t) => `${t.neg ? '-' : ''}${t.type === 'pair' ? `${t.key}:${quoteValue(t.value)}` : quoteValue(t.value)}`;
+const quoteValue = (v, force = false) => (force || /\s/.test(v)) ? `"${v}"` : v;
+const tokenText = (t) => `${t.neg ? '-' : ''}${t.type === 'pair' ? `${t.key}${t.sep || ':'}${quoteValue(t.value, t.quoted)}` : quoteValue(t.value)}`;
 
 // tokensToRequest converts parsed tokens into wire filters. A non-negated
 // integer version:N token addresses the deployment config version rather than
@@ -252,6 +257,10 @@ function tokensToRequest(tokens) {
             filters.push({op: t.neg ? 'not_contains' : 'contains', value: t.value});
             continue;
         }
+        if (t.sep && t.sep !== ':') {
+            filters.push({field: t.key, op: RANGE_OPS[t.sep], value: t.value});
+            continue;
+        }
         if (t.key === 'version' && !t.neg && /^\d+$/.test(t.value)) {
             specVersion = Number(t.value);
             continue;
@@ -260,7 +269,7 @@ function tokensToRequest(tokens) {
             filters.push({field: t.key, op: t.neg ? 'not_exists' : 'exists'});
             continue;
         }
-        filters.push({field: t.key, op: t.neg ? 'neq' : 'eq', value: t.value});
+        filters.push({field: t.key, op: t.neg ? 'neq' : 'eq', value: t.value, text: t.quoted});
     }
     return {filters, specVersion};
 }
@@ -557,7 +566,7 @@ export function logsPage(selectedDeploymentId) {
             ? "border-red-900/60 bg-red-950/40 text-red-300"
             : "border-gray-700 bg-gray-800 text-gray-200"}`},
         token.neg ? span({class: "font-sans text-[9px] uppercase text-red-400"}, "not") : '',
-        token.type === 'pair' ? `${token.key}:${token.value}` : `"${token.value}"`,
+        token.type === 'pair' ? `${token.key}${token.sep || ':'}${quoteValue(token.value, token.quoted)}` : `"${token.value}"`,
         button({
             type: "button",
             class: "cursor-pointer text-gray-500 hover:text-gray-200",

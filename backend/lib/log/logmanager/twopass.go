@@ -13,14 +13,11 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/logdb"
+	"github.com/parquet-go/parquet-go"
 )
 
 var fetchParallelism = 4
 
-// thinAgg accumulates histogram and match counts. Each distinct level string
-// gets one lazily built bin holding its histogram series index and its
-// verdict from the real compiled-filter match code, so level-only fast paths
-// can never disagree with the row-visiting path.
 type thinAgg struct {
 	fromN, tillN int64
 	bucketFrom   int64
@@ -295,9 +292,95 @@ func (e *queryEngine) scanWalTwoPass(ctx context.Context, committed StreamMarker
 	return nil
 }
 
+type fileKeys map[int64]map[string][]logdb.LogFileKey
+
+type boundFilter struct {
+	f     *compiledFilter
+	slots []int
+}
+
+type filePlan struct {
+	raw   bool
+	skip  bool
+	needs []fieldNeed
+	prune []rowGroupPrune
+	bound []boundFilter
+	plain []*compiledFilter
+}
+
+func planFile(f logdb.LogFile, filters []compiledFilter, fieldIdx []int, keys map[string][]logdb.LogFileKey, sc *lineScanner) filePlan {
+	var p filePlan
+	if len(fieldIdx) == 0 {
+		for i := range filters {
+			p.plain = append(p.plain, &filters[i])
+		}
+		return p
+	}
+	if f.Level == archiveLevelBatch {
+		p.raw = true
+		return p
+	}
+	slotOf := map[fieldNeed]int{}
+	fi := 0
+	for i := range filters {
+		cf := &filters[i]
+		if fi < len(fieldIdx) && fieldIdx[fi] == i {
+			fi++
+		} else {
+			p.plain = append(p.plain, cf)
+			continue
+		}
+		variants := keys[cf.field]
+		if len(variants) == 0 {
+			if !cf.matchValue(fieldValue{}, false, sc) {
+				p.skip = true
+				return p
+			}
+			continue
+		}
+		bf := boundFilter{f: cf}
+		prunable := cf.op == "eq" || isRangeOp(cf.op)
+		var pruneSlots []int
+		for _, v := range variants {
+			need := fieldNeed{key: v.Key, typ: fieldType(v.Type), dense: v.Placement == placementDense}
+			slot, ok := slotOf[need]
+			if !ok {
+				slot = len(p.needs)
+				slotOf[need] = slot
+				p.needs = append(p.needs, need)
+			}
+			bf.slots = append(bf.slots, slot)
+			if need.dense && (need.typ == typeInt || need.typ == typeFloat) {
+				pruneSlots = append(pruneSlots, slot)
+			} else {
+				prunable = false
+			}
+		}
+		p.bound = append(p.bound, bf)
+		if prunable && cf.lit.num {
+			p.prune = append(p.prune, rowGroupPrune{needs: pruneSlots, lit: &cf.lit, op: cf.op})
+		}
+	}
+	return p
+}
+
+func valueFromParquet(pv parquet.Value, typ fieldType) fieldValue {
+	switch typ {
+	case typeInt:
+		return fieldValue{typ: typeInt, i: pv.Int64()}
+	case typeFloat:
+		return fieldValue{typ: typeFloat, f: pv.Double()}
+	case typeBool:
+		return fieldValue{typ: typeBool, b: pv.Boolean()}
+	default:
+		return stringValue(pv.ByteArray())
+	}
+}
+
 type archiveEval struct {
 	deploymentID int32
 	q            *queryParams
+	plan         *filePlan
 	agg          *thinAgg
 	ret          *retainHeap
 	levelOnly    bool
@@ -305,6 +388,7 @@ type archiveEval struct {
 	capture      bool
 	fileIdx      int
 	rows         int64
+	sc           *lineScanner
 }
 
 func (ev *archiveEval) consume(b *cheapBatch, n int, baseRow int64, sorted bool) bool {
@@ -324,7 +408,7 @@ func (ev *archiveEval) consume(b *cheapBatch, n int, baseRow int64, sorted bool)
 				continue
 			}
 		} else {
-			v := visitRec{rec: apigen.RawLogLine{Time: t, Deployment: ev.deploymentID}, level: bin.str, shredded: true, parsed: true}
+			v := visitRec{rec: apigen.RawLogLine{Time: t, Deployment: ev.deploymentID}, level: bin.str, shredded: true, parsed: true, sc: ev.sc}
 			if b.versions != nil {
 				v.rec.Version = b.versions[i]
 				v.rec.Node = b.nodes[i]
@@ -340,8 +424,28 @@ func (ev *archiveEval) consume(b *cheapBatch, n int, baseRow int64, sorted bool)
 				continue
 			}
 			ok := true
-			for fi := range ev.q.filters {
-				if !ev.q.filters[fi].match(&v) {
+			for _, cf := range ev.plan.plain {
+				if !cf.match(&v) {
+					ok = false
+					break
+				}
+			}
+			if !ok {
+				continue
+			}
+			for bi := range ev.plan.bound {
+				bf := &ev.plan.bound[bi]
+				var val fieldValue
+				present := false
+				for _, slot := range bf.slots {
+					pv := b.fields[slot][i]
+					if pv.IsNull() {
+						continue
+					}
+					val, present = valueFromParquet(pv, ev.plan.needs[slot].typ), true
+					break
+				}
+				if !bf.f.matchValue(val, present, ev.sc) {
 					ok = false
 					break
 				}
@@ -373,6 +477,85 @@ func (ev *archiveEval) consume(b *cheapBatch, n int, baseRow int64, sorted bool)
 	return false
 }
 
+func (e *queryEngine) scanFileRaw(ctx context.Context, path string, q *queryParams, agg *thinAgg, ret *retainHeap, capture bool, sc *lineScanner) (int64, error) {
+	var rows int64
+	n := 0
+	for row, rerr := range readArchiveRowsRange(path, agg.fromN, agg.tillN, func(r *logRow) int64 { return r.Time }) {
+		if rerr != nil {
+			return rows, rerr
+		}
+		n++
+		if n&1023 == 0 && ctx.Err() != nil {
+			return rows, ctx.Err()
+		}
+		rows++
+		agg.scanned++
+		if row.Time < agg.fromN || row.Time >= agg.tillN {
+			continue
+		}
+		if q.specVersion > 0 && row.Version != q.specVersion {
+			continue
+		}
+		v := visitRec{
+			rec:      rowToRawLogLine(row, e.deploymentID),
+			level:    row.Level,
+			msg:      row.Msg,
+			shredded: row.Level != "" || row.Msg != "" || len(row.RawMessage) == 0,
+			sc:       sc,
+		}
+		ok := true
+		for fi := range q.filters {
+			if !q.filters[fi].match(&v) {
+				ok = false
+				break
+			}
+		}
+		if !ok {
+			continue
+		}
+		agg.matched++
+		agg.addBucket(row.Time, levelIndex(v.levelValue()))
+		if capture {
+			ret.offer(retainedRec{rec: v.rec, level: v.level, msg: v.msg, fields: v.fields, shredded: v.shredded, fileIdx: -1})
+		}
+	}
+	return rows, nil
+}
+
+func (e *queryEngine) snapshot(ctx context.Context, keys []string, fromN, tillN int64) (StreamMarker, []logdb.LogFile, fileKeys, error) {
+	s := e.spool
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var files []logdb.LogFile
+	fk := fileKeys{}
+	err := e.db.Tx(ctx, func(q *logdb.Queries) error {
+		var err error
+		files, err = q.ListLogFilesNewestFirst(ctx, int64(e.deploymentID))
+		if err != nil || len(keys) == 0 {
+			return err
+		}
+		rows, err := q.ListLogFileKeysInRange(ctx, logdb.ListLogFileKeysInRangeParams{
+			DeploymentID: int64(e.deploymentID), MaxTime: fromN, MinTime: tillN, Keys: keys,
+		})
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			byKey := fk[r.FileID]
+			if byKey == nil {
+				byKey = map[string][]logdb.LogFileKey{}
+				fk[r.FileID] = byKey
+			}
+			byKey[r.Key] = append(byKey[r.Key], r)
+		}
+		return nil
+	})
+	if err != nil {
+		return StreamMarker{}, nil, nil, err
+	}
+	return s.committed, files, fk, nil
+}
+
 func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apigen.LogQueryResponse, error) {
 	start := clock()
 	fromN, tillN := q.from.UnixNano(), q.till.UnixNano()
@@ -385,8 +568,13 @@ func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apig
 	}
 	ret := &retainHeap{capacity: captureK, newest: q.newestFirst}
 	trace := &queryTrace{}
+	fieldIdx := fieldFilterIdx(q.filters)
+	var keyNames []string
+	for _, i := range fieldIdx {
+		keyNames = append(keyNames, q.filters[i].field)
+	}
 	snapStart := clock()
-	committed, files, err := e.snapshot(ctx)
+	committed, files, fk, err := e.snapshot(ctx, keyNames, fromN, tillN)
 	trace.snapshotDur = clock().Sub(snapStart)
 	if err != nil {
 		return nil, err
@@ -398,12 +586,18 @@ func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apig
 	needMsg := filtersNeedMsg(q.filters)
 	levelOnly := filtersLevelOnly(q.filters) && q.specVersion == 0
 	metaFiltered := filtersReferenceMeta(q.filters)
+	sc := &lineScanner{}
 	for fi := range files {
 		f := files[fi]
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		if f.MaxTime < fromN || f.MinTime >= tillN {
+			trace.filesPruned++
+			continue
+		}
+		plan := planFile(f, q.filters, fieldIdx, fk[f.ID], sc)
+		if plan.skip {
 			trace.filesPruned++
 			continue
 		}
@@ -416,22 +610,28 @@ func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apig
 				capture = f.MinTime <= root.Time
 			}
 		}
-		needs := columnNeeds{msg: needMsg, ints: capture || metaFiltered || q.specVersion > 0}
-		ev := &archiveEval{deploymentID: e.deploymentID, q: &q, agg: agg, ret: ret, levelOnly: levelOnly, needMsg: needMsg, capture: capture, fileIdx: fi}
 		path := archiveFilePath(e.deploymentID, f)
-		fs := fileScan{name: archiveFileName(int(f.Level), f.MinTime, f.MaxTime, int32(f.Node), f.Seq), mode: "agg"}
+		fs := fileScan{name: logFileName(f), mode: "agg"}
 		if capture {
 			fs.mode = "capture"
 		}
 		fileStart := clock()
-		scanErr := scanArchiveColumns(ctx, path, fromN, needs, ev.consume)
+		var scanErr error
+		if plan.raw {
+			fs.mode = "full"
+			fs.rows, scanErr = e.scanFileRaw(ctx, path, &q, agg, ret, capture, sc)
+		} else {
+			needs := columnNeeds{msg: needMsg, ints: capture || metaFiltered || q.specVersion > 0, fields: plan.needs, prune: plan.prune}
+			ev := &archiveEval{deploymentID: e.deploymentID, q: &q, plan: &plan, agg: agg, ret: ret, levelOnly: levelOnly, needMsg: needMsg, capture: capture, fileIdx: fi, sc: sc}
+			scanErr = scanArchiveColumns(ctx, path, fromN, needs, ev.consume)
+			fs.rows = ev.rows
+		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		if scanErr != nil {
 			warnings = append(warnings, fmt.Sprintf("skipped unreadable archive file %s: %v", fs.name, scanErr))
 		}
-		fs.rows = ev.rows
 		fs.dur = clock().Sub(fileStart)
 		trace.files = append(trace.files, fs)
 	}
@@ -467,24 +667,16 @@ func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apig
 			accumField(fieldAccums, "run", strconv.Itoa(int(r.rec.Run)), true)
 			accumField(fieldAccums, "instance", strconv.Itoa(int(r.rec.InstanceOrdinal)), true)
 			accumField(fieldAccums, "stream", streamName(r.rec.Stream), true)
-			for k, val := range fields {
-				if !isMetaFieldName(k) {
-					accumField(fieldAccums, k, val, true)
-				}
-			}
+			accumFields(fieldAccums, fields, true)
 		} else if len(fieldAccums) < maxFieldNames {
-			for k, val := range fields {
-				if !isMetaFieldName(k) {
-					accumField(fieldAccums, k, val, false)
-				}
-			}
+			accumFields(fieldAccums, fields, false)
 		}
 		if len(records) < q.limit {
 			out := &apigen.LogRecord{
 				Time:            r.rec.Time,
 				Level:           level,
 				Msg:             msg,
-				Fields:          fields,
+				Fields:          fieldsToDisplay(fields),
 				Version:         r.rec.Version,
 				Stream:          r.rec.Stream,
 				InstanceOrdinal: r.rec.InstanceOrdinal,
@@ -529,7 +721,7 @@ func (e *queryEngine) resolvePending(ret *retainHeap, files []logdb.LogFile, tra
 			for k, i := range idxs {
 				rows[k] = ret.recs[i].rowIdx
 			}
-			name := archiveFileName(int(files[fi].Level), files[fi].MinTime, files[fi].MaxTime, int32(files[fi].Node), files[fi].Seq)
+			name := logFileName(files[fi])
 			fetched, err := fetchArchiveRows(archiveFilePath(e.deploymentID, files[fi]), rows)
 			if err != nil {
 				mu.Lock()

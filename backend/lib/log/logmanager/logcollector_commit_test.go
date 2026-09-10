@@ -186,7 +186,7 @@ func TestRunCollectorOnceCommitsAndResumes(t *testing.T) {
 	}
 	f := files[0]
 	wantDay := mustTime(t, "2026-06-15T00:00:00Z").Unix() / daySeconds
-	if f.RowCount != 2 || f.Level != 0 || f.Node != int64(testNodeID) || f.Day != wantDay {
+	if f.RowCount != 2 || f.Level != archiveLevelShredded || f.Node != int64(testNodeID) || f.Day != wantDay {
 		t.Fatalf("file row = %+v", f)
 	}
 	if f.MinTime != mustTime(t, "2026-06-15T14:30:01Z").UnixNano() || f.MaxTime != mustTime(t, "2026-06-15T14:31:01Z").UnixNano() {
@@ -298,6 +298,10 @@ func TestRunCollectorOnceRemovesOrphanTmpFiles(t *testing.T) {
 	if err := os.WriteFile(orphan, []byte("junk"), 0o640); err != nil {
 		t.Fatal(err)
 	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(orphan, old, old); err != nil {
+		t.Fatal(err)
+	}
 	c := NewLogStreamCollector(testDeploymentID, db)
 	if err := c.RunCollectorOnce(deadProducer()); err != nil {
 		t.Fatal(err)
@@ -334,9 +338,9 @@ func TestShredFields(t *testing.T) {
 	}
 	sc := &lineScanner{}
 	for _, c := range cases {
-		level, msg := shredFields(sc, apigen.RawLogLine{Line: []byte(c.line)})
+		level, msg, _ := sc.shred([]byte(c.line))
 		if level != c.wantLevel || msg != c.wantMsg {
-			t.Fatalf("shredFields(%q) = %q, %q; want %q, %q", c.line, level, msg, c.wantLevel, c.wantMsg)
+			t.Fatalf("shred(%q) = %q, %q; want %q, %q", c.line, level, msg, c.wantLevel, c.wantMsg)
 		}
 	}
 }
@@ -872,6 +876,7 @@ func TestManagerStartupArmsRunningInstancesBeforeDirScan(t *testing.T) {
 
 func TestManagerRunsCollectorsAndServesQueries(t *testing.T) {
 	streamTiming(t, time.Millisecond, time.Millisecond, time.Millisecond)
+	disableRetention(t)
 	oldScan := deploymentScanInterval
 	deploymentScanInterval = time.Millisecond
 	t.Cleanup(func() { deploymentScanInterval = oldScan })

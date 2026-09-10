@@ -21,13 +21,16 @@ message DeploymentLogRequest {
 }
 
 // One predicate of a log query. Filters AND together. A filter with no field
-// matches against the parsed message text. Ops (case-insensitive string
-// semantics): eq | neq | in | exists | not_exists | contains | not_contains.
+// matches against the parsed message text. Ops: eq | neq | in | exists |
+// not_exists | contains | not_contains | gt | gte | lt | lte. A value that
+// parses as a number matches int and float fields numerically and string
+// fields textually (case-insensitive); range ops match numeric fields only.
 message LogFilter {
   string field = 1;            // Empty = match the message text. "level"/"msg" address the parsed columns.
   string op = 2;
   string value = 3;
   repeated string values = 4;  // For op = in.
+  bool text = 5;               // Compare value(s) as text only, never numerically.
 }
 
 // One-shot structured log query: matching records plus the aggregates the

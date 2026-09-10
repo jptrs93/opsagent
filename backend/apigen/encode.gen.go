@@ -3772,6 +3772,7 @@ func (m *LogFilter) Encode() []byte {
 	b = AppendStringField(b, m.Op, 2)
 	b = AppendStringField(b, m.Value, 3)
 	b = AppendRepeated(b, m.Values, AppendFieldDecorator(AppendStringElem, 4))
+	b = AppendBoolField(b, m.Text, 5)
 	return b
 }
 
@@ -3798,6 +3799,8 @@ func DecodeLogFilter(b []byte) (*LogFilter, error) {
 			if err == nil {
 				m.Values = append(m.Values, item)
 			}
+		case 5:
+			b, m.Text, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

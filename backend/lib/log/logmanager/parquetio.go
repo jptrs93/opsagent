@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"math"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -20,23 +21,19 @@ import (
 )
 
 const (
-	archiveLevelBatch = 0
-	rowGroupRows      = 128 * 1024
-	writeBatchRows    = 4096
-	resortBufferRows  = 32 * 1024
-	archiveExt        = ".parquet"
-	tmpExt            = ".tmp"
-	metadataSortedKey = "sorted"
-	metadataSortedVal = "1"
+	archiveLevelBatch    = 0
+	archiveLevelShredded = 1
+	archiveLevelRollup   = 2
+	rowGroupRows         = 128 * 1024
+	writeBatchRows       = 4096
+	writeBatchValues     = 1 << 18
+	resortBufferRows     = 32 * 1024
+	archiveExt           = ".parquet"
+	tmpExt               = ".tmp"
+	metadataSortedKey    = "sorted"
+	metadataSortedVal    = "1"
 )
 
-// TODO: parse JSON lines into StructuredLogLine fields and shred them into
-// their own columns. Until then every line is stored verbatim in raw_message,
-// which is also what unparseable lines will always fall back to.
-// Node is per row, not just per file: an L0 file is node-local and repeats one
-// value, but a cross-node compaction merges rows from several nodes into one
-// file, where the node in the file name and in log_files can no longer describe
-// the contents.
 type logRow struct {
 	Time            int64  `parquet:"time"`
 	Version         int32  `parquet:"version"`
@@ -50,23 +47,38 @@ type logRow struct {
 	RawMessage      []byte `parquet:"raw_message"`
 }
 
+type rowKey struct {
+	time     int64
+	node     int32
+	instance int32
+	run      int32
+	stream   int32
+	seq      int64
+}
+
+func cmpRowKey(a, b *rowKey) int {
+	if a.time != b.time {
+		return cmp.Compare(a.time, b.time)
+	}
+	if a.node != b.node {
+		return cmp.Compare(a.node, b.node)
+	}
+	if a.instance != b.instance {
+		return cmp.Compare(a.instance, b.instance)
+	}
+	if a.run != b.run {
+		return cmp.Compare(a.run, b.run)
+	}
+	if a.stream != b.stream {
+		return cmp.Compare(a.stream, b.stream)
+	}
+	return cmp.Compare(a.seq, b.seq)
+}
+
 func cmpLogRowKey(a, b *logRow) int {
-	if a.Time != b.Time {
-		return cmp.Compare(a.Time, b.Time)
-	}
-	if a.Node != b.Node {
-		return cmp.Compare(a.Node, b.Node)
-	}
-	if a.InstanceOrdinal != b.InstanceOrdinal {
-		return cmp.Compare(a.InstanceOrdinal, b.InstanceOrdinal)
-	}
-	if a.Run != b.Run {
-		return cmp.Compare(a.Run, b.Run)
-	}
-	if a.Stream != b.Stream {
-		return cmp.Compare(a.Stream, b.Stream)
-	}
-	return cmp.Compare(a.Seq, b.Seq)
+	ka := rowKey{a.Time, a.Node, a.InstanceOrdinal, a.Run, a.Stream, a.Seq}
+	kb := rowKey{b.Time, b.Node, b.InstanceOrdinal, b.Run, b.Stream, b.Seq}
+	return cmpRowKey(&ka, &kb)
 }
 
 func sortingColumns() []parquet.SortingColumn {
@@ -82,62 +94,63 @@ func sortingColumns() []parquet.SortingColumn {
 
 type archiveWriter struct {
 	file     *os.File
-	writer   *parquet.GenericWriter[logRow]
-	pending  []logRow
+	writer   *parquet.GenericWriter[any]
+	as       *archiveSchema
+	rb       *rowBuilder
+	keys     *keyTally
 	count    int64
 	minTime  int64
 	maxTime  int64
-	last     logRow
+	last     rowKey
 	unsorted bool
 }
 
-func newArchiveWriter(path string) (*archiveWriter, error) {
+func newArchiveWriter(path string, as *archiveSchema) (*archiveWriter, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
 	if err != nil {
 		return nil, err
 	}
-	w := parquet.NewGenericWriter[logRow](f,
+	w := parquet.NewGenericWriter[any](f,
+		as.schema,
 		parquet.Compression(&zstd.Codec{}),
 		parquet.MaxRowsPerRowGroup(rowGroupRows),
 	)
-	return &archiveWriter{file: f, writer: w, pending: make([]logRow, 0, writeBatchRows)}, nil
+	return &archiveWriter{file: f, writer: w, as: as, rb: newRowBuilder(as), keys: newKeyTally(0)}, nil
 }
 
-func (w *archiveWriter) append(row logRow) error {
-	if w.count == 0 || row.Time < w.minTime {
-		w.minTime = row.Time
+func (w *archiveWriter) append(time int64, version, run, node, instance, stream int32, seq int64, level, msg string, raw []byte, fields []shredField) error {
+	if w.count == 0 || time < w.minTime {
+		w.minTime = time
 	}
-	if w.count == 0 || row.Time > w.maxTime {
-		w.maxTime = row.Time
+	if w.count == 0 || time > w.maxTime {
+		w.maxTime = time
 	}
-	if w.count > 0 && cmpLogRowKey(&row, &w.last) < 0 {
+	key := rowKey{time, node, instance, run, stream, seq}
+	if w.count > 0 && cmpRowKey(&key, &w.last) < 0 {
 		w.unsorted = true
 	}
-	w.last = logRow{
-		Time:            row.Time,
-		Node:            row.Node,
-		InstanceOrdinal: row.InstanceOrdinal,
-		Run:             row.Run,
-		Stream:          row.Stream,
-		Seq:             row.Seq,
-	}
+	w.last = key
 	w.count++
-	w.pending = append(w.pending, row)
-	if len(w.pending) >= writeBatchRows {
+	w.keys.add(fields)
+	w.rb.add(time, version, run, node, instance, stream, seq, level, msg, raw, fields)
+	if len(w.rb.rows) >= writeBatchRows || w.rb.values >= writeBatchValues {
 		return w.flush()
 	}
 	return nil
 }
 
+func (w *archiveWriter) appendRow(row logRow, sc *lineScanner) error {
+	level, msg, fields := sc.shred(row.RawMessage)
+	return w.append(row.Time, row.Version, row.Run, row.Node, row.InstanceOrdinal, row.Stream, row.Seq, level, msg, row.RawMessage, fields)
+}
+
 func (w *archiveWriter) flush() error {
-	if len(w.pending) == 0 {
+	if len(w.rb.rows) == 0 {
 		return nil
 	}
-	if _, err := w.writer.Write(w.pending); err != nil {
-		return err
-	}
-	w.pending = w.pending[:0]
-	return nil
+	_, err := w.writer.WriteRows(w.rb.rows)
+	w.rb.reset()
+	return err
 }
 
 func (w *archiveWriter) finish(metadata map[string]string) error {
@@ -160,18 +173,49 @@ func (w *archiveWriter) abort() {
 	_ = w.file.Close()
 }
 
+func (w *archiveWriter) catalogKeys() []logdb.InsertLogFileKeyParams {
+	variants := w.keys.variants()
+	out := make([]logdb.InsertLogFileKeyParams, 0, len(variants))
+	for _, v := range variants {
+		placement := int64(placementSpill)
+		if idx, ok := w.as.denseIdx[v.key]; ok && idx[v.typ] >= 0 {
+			placement = placementDense
+		}
+		out = append(out, logdb.InsertLogFileKeyParams{Key: v.key, Type: int64(v.typ), Placement: placement, RowCount: v.rows})
+	}
+	return out
+}
+
+func openArchive(f *os.File) (*parquet.File, error) {
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	return parquet.OpenFile(f, st.Size(), parquet.SkipPageIndex(true), parquet.SkipBloomFilters(true))
+}
+
 func resortArchiveFile(path string, metadata map[string]string) error {
 	base := strings.TrimSuffix(path, archiveExt+tmpExt)
 	unsortedPath := base + ".unsorted" + archiveExt + tmpExt
 	if err := os.Rename(path, unsortedPath); err != nil {
 		return err
 	}
+	in, err := os.Open(unsortedPath)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	pf, err := openArchive(in)
+	if err != nil {
+		return err
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
 	if err != nil {
 		return err
 	}
-	w := parquet.NewSortingWriter[logRow](f,
+	w := parquet.NewSortingWriter[any](f,
 		resortBufferRows,
+		pf.Schema(),
 		parquet.Compression(&zstd.Codec{}),
 		parquet.MaxRowsPerRowGroup(rowGroupRows),
 		parquet.SortingWriterConfig(
@@ -183,28 +227,31 @@ func resortArchiveFile(path string, metadata map[string]string) error {
 		_ = f.Close()
 		return err
 	}
-	batch := make([]logRow, 0, writeBatchRows)
-	flush := func() error {
-		if len(batch) == 0 {
-			return nil
-		}
-		_, err := w.Write(batch)
-		batch = batch[:0]
-		return err
-	}
-	for row, err := range readArchiveRows(unsortedPath, 0) {
-		if err != nil {
-			return fail(err)
-		}
-		batch = append(batch, row)
-		if len(batch) >= writeBatchRows {
-			if err := flush(); err != nil {
-				return fail(err)
+	buf := make([]parquet.Row, 1024)
+	for _, rg := range pf.RowGroups() {
+		rows := rg.Rows()
+		for {
+			n, rerr := rows.ReadRows(buf)
+			if n > 0 {
+				if _, err := w.WriteRows(buf[:n]); err != nil {
+					_ = rows.Close()
+					return fail(err)
+				}
+				for i := range buf[:n] {
+					buf[i] = buf[i][:0]
+				}
+			}
+			if rerr != nil {
+				if !errors.Is(rerr, io.EOF) {
+					_ = rows.Close()
+					return fail(rerr)
+				}
+				break
 			}
 		}
-	}
-	if err := flush(); err != nil {
-		return fail(err)
+		if err := rows.Close(); err != nil {
+			return fail(err)
+		}
 	}
 	for k, v := range metadata {
 		w.SetKeyValueMetadata(k, v)
@@ -253,6 +300,10 @@ func archiveFilePath(deploymentID int32, f logdb.LogFile) string {
 	)
 }
 
+func logFileName(f logdb.LogFile) string {
+	return archiveFileName(int(f.Level), f.MinTime, f.MaxTime, int32(f.Node), f.Seq)
+}
+
 func archiveGroupMaxTime(rg parquet.RowGroup, timeCol int) (int64, bool) {
 	ci, err := rg.ColumnChunks()[timeCol].ColumnIndex()
 	if err != nil || ci == nil {
@@ -272,9 +323,23 @@ func archiveGroupMaxTime(rg parquet.RowGroup, timeCol int) (int64, bool) {
 	return maxTime, found
 }
 
+type fieldNeed struct {
+	key   string
+	typ   fieldType
+	dense bool
+}
+
+type rowGroupPrune struct {
+	needs []int
+	lit   *literal
+	op    string
+}
+
 type columnNeeds struct {
-	msg  bool
-	ints bool
+	msg    bool
+	ints   bool
+	fields []fieldNeed
+	prune  []rowGroupPrune
 }
 
 type cheapBatch struct {
@@ -287,12 +352,16 @@ type cheapBatch struct {
 	runs      []int32
 	streams   []int32
 	seqs      []int64
+	fields    [][]parquet.Value
 }
 
 type cheapCols struct {
 	time, level, msg                     int
 	version, node, instance, run, stream int
 	seq                                  int
+	dense                                []int
+	spill                                [fieldTypes]spillCols
+	spillUsed                            [fieldTypes]bool
 }
 
 func scanArchiveColumns(ctx context.Context, path string, fromN int64, needs columnNeeds, consume func(b *cheapBatch, n int, baseRow int64, sorted bool) bool) error {
@@ -301,19 +370,15 @@ func scanArchiveColumns(ctx context.Context, path string, fromN int64, needs col
 		return err
 	}
 	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	pf, err := parquet.OpenFile(f, st.Size())
+	pf, err := openArchive(f)
 	if err != nil {
 		return err
 	}
 	schema := pf.Schema()
-	lookup := func(name string) (int, error) {
-		c, ok := schema.Lookup(name)
+	lookup := func(name ...string) (int, error) {
+		c, ok := schema.Lookup(name...)
 		if !ok {
-			return 0, fmt.Errorf("missing column %s", name)
+			return 0, fmt.Errorf("missing column %s", strings.Join(name, "."))
 		}
 		return c.ColumnIndex, nil
 	}
@@ -342,6 +407,25 @@ func scanArchiveColumns(ctx context.Context, path string, fromN int64, needs col
 			}
 		}
 	}
+	cols.dense = make([]int, len(needs.fields))
+	for i, fn := range needs.fields {
+		if fn.dense {
+			if cols.dense[i], err = lookup(denseColumnName(fn.key, fn.typ)); err != nil {
+				return err
+			}
+			continue
+		}
+		cols.dense[i] = -1
+		if !cols.spillUsed[fn.typ] {
+			cols.spillUsed[fn.typ] = true
+			if cols.spill[fn.typ].key, err = lookup(spillColNames[fn.typ], "key_value", "key"); err != nil {
+				return err
+			}
+			if cols.spill[fn.typ].val, err = lookup(spillColNames[fn.typ], "key_value", "value"); err != nil {
+				return err
+			}
+		}
+	}
 	sortedVal, _ := pf.Lookup(metadataSortedKey)
 	sorted := sortedVal == metadataSortedVal
 	b := &cheapBatch{
@@ -359,10 +443,18 @@ func scanArchiveColumns(ctx context.Context, path string, fromN int64, needs col
 		b.streams = make([]int32, writeBatchRows)
 		b.seqs = make([]int64, writeBatchRows)
 	}
+	b.fields = make([][]parquet.Value, len(needs.fields))
+	for i := range b.fields {
+		b.fields[i] = make([]parquet.Value, writeBatchRows)
+	}
 	base := int64(0)
 	for _, rg := range pf.RowGroups() {
 		nrows := rg.NumRows()
 		if maxTime, ok := archiveGroupMaxTime(rg, cols.time); ok && maxTime < fromN {
+			base += nrows
+			continue
+		}
+		if pruneRowGroup(rg, cols, needs) {
 			base += nrows
 			continue
 		}
@@ -379,6 +471,83 @@ func scanArchiveColumns(ctx context.Context, path string, fromN int64, needs col
 		base += nrows
 	}
 	return nil
+}
+
+func pruneRowGroup(rg parquet.RowGroup, cols cheapCols, needs columnNeeds) bool {
+	if len(needs.prune) == 0 {
+		return false
+	}
+	chunks := rg.ColumnChunks()
+	for _, p := range needs.prune {
+		canMatch := false
+		for _, ni := range p.needs {
+			lo, hi, ok := chunkNumericBounds(chunks[cols.dense[ni]])
+			if !ok {
+				continue
+			}
+			lit := p.lit.asFloat()
+			var possible bool
+			switch p.op {
+			case "eq":
+				possible = lit >= lo && lit <= hi
+			case "gt":
+				possible = hi > lit
+			case "gte":
+				possible = hi >= lit
+			case "lt":
+				possible = lo < lit
+			case "lte":
+				possible = lo <= lit
+			default:
+				possible = true
+			}
+			if possible {
+				canMatch = true
+				break
+			}
+		}
+		if !canMatch {
+			return true
+		}
+	}
+	return false
+}
+
+func chunkNumericBounds(chunk parquet.ColumnChunk) (lo, hi float64, ok bool) {
+	ci, err := chunk.ColumnIndex()
+	if err != nil || ci == nil {
+		return 0, 0, false
+	}
+	found := false
+	for i := 0; i < ci.NumPages(); i++ {
+		if ci.NullPage(i) {
+			continue
+		}
+		mn, mx := numericStat(ci.MinValue(i)), numericStat(ci.MaxValue(i))
+		if math.IsNaN(mn) || math.IsNaN(mx) {
+			return 0, 0, false
+		}
+		if !found {
+			lo, hi, found = mn, mx, true
+			continue
+		}
+		lo, hi = min(lo, mn), max(hi, mx)
+	}
+	return lo, hi, found
+}
+
+func numericStat(v parquet.Value) float64 {
+	switch v.Kind() {
+	case parquet.Int64:
+		return float64(v.Int64())
+	case parquet.Double:
+		return v.Double()
+	case parquet.Int32:
+		return float64(v.Int32())
+	case parquet.Float:
+		return float64(v.Float())
+	}
+	return math.NaN()
 }
 
 func scanColumnsRowGroup(rg parquet.RowGroup, cols cheapCols, needs columnNeeds, base int64, sorted bool, b *cheapBatch, consume func(b *cheapBatch, n int, baseRow int64, sorted bool) bool) (bool, error) {
@@ -411,6 +580,26 @@ func scanColumnsRowGroup(rg parquet.RowGroup, cols cheapCols, needs columnNeeds,
 		qp := chunks[cols.seq].Pages()
 		defer qp.Close()
 		qc = &int64Cursor{pages: qp, vbuf: make([]parquet.Value, writeBatchRows)}
+	}
+	dense := make([]*valueCursor, len(needs.fields))
+	var spill [fieldTypes]*spillCursor
+	for i, fn := range needs.fields {
+		if fn.dense {
+			p := chunks[cols.dense[i]].Pages()
+			defer p.Close()
+			dense[i] = &valueCursor{pages: p}
+			continue
+		}
+		sp := spill[fn.typ]
+		if sp == nil {
+			kp := chunks[cols.spill[fn.typ].key].Pages()
+			defer kp.Close()
+			vp := chunks[cols.spill[fn.typ].val].Pages()
+			defer vp.Close()
+			sp = &spillCursor{keys: levelCursor{pages: kp}, vals: levelCursor{pages: vp}, wants: map[string]int{}}
+			spill[fn.typ] = sp
+		}
+		sp.wants[fn.key] = i
 	}
 	fillValues := func(c *valueCursor, dst []parquet.Value, n int, name string) error {
 		for got := 0; got < n; {
@@ -488,6 +677,23 @@ func scanColumnsRowGroup(rg parquet.RowGroup, cols cheapCols, needs columnNeeds,
 				return false, err
 			}
 		}
+		for i, fn := range needs.fields {
+			if fn.dense {
+				if err := fillValues(dense[i], b.fields[i], n, denseColumnName(fn.key, fn.typ)); err != nil {
+					return false, err
+				}
+				continue
+			}
+			clear(b.fields[i][:n])
+		}
+		for typ := range spill {
+			if spill[typ] == nil {
+				continue
+			}
+			if err := spill[typ].fillRows(b, n); err != nil {
+				return false, fmt.Errorf("%s: %w", spillColNames[typ], err)
+			}
+		}
 		if consume(b, n, base+consumed, sorted) {
 			return true, nil
 		}
@@ -517,11 +723,7 @@ func fetchArchiveRows(path string, rowIdxs []int64) ([]logRow, error) {
 		return nil, err
 	}
 	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	pf, err := parquet.OpenFile(f, st.Size())
+	pf, err := openArchive(f)
 	if err != nil {
 		return nil, err
 	}
@@ -590,10 +792,6 @@ func fetchArchiveRows(path string, rowIdxs []int64) ([]logRow, error) {
 	return out, nil
 }
 
-// int64Cursor streams a required int64 column chunk page by page, using the
-// typed reader when the page offers one and boxed values otherwise. read
-// never returns (0, nil): it advances pages until it has values or the chunk
-// ends with io.EOF.
 type int64Cursor struct {
 	pages parquet.Pages
 	ir    parquet.Int64Reader
@@ -684,12 +882,6 @@ func (c *int32Cursor) read(buf []int32) (int, error) {
 	}
 }
 
-// valueCursor streams a column chunk as boxed values page by page. For a
-// dictionary-encoded chunk the byte-array values point into the dictionary
-// buffer, so no per-value allocation happens; nulls (how optional empty
-// levels are stored) come through as null values. read never returns
-// (0, nil): it advances pages until it has values or the chunk ends with
-// io.EOF.
 type valueCursor struct {
 	pages parquet.Pages
 	vr    parquet.ValueReader
@@ -715,6 +907,107 @@ func (c *valueCursor) read(buf []parquet.Value) (int, error) {
 	}
 }
 
+type levelCursor struct {
+	pages parquet.Pages
+	vr    parquet.ValueReader
+	buf   [256]parquet.Value
+	pos   int
+	n     int
+	eof   bool
+}
+
+func (c *levelCursor) fill() error {
+	for !c.eof {
+		if c.vr != nil {
+			n, err := c.vr.ReadValues(c.buf[:])
+			if err != nil && !errors.Is(err, io.EOF) {
+				return err
+			}
+			if errors.Is(err, io.EOF) {
+				c.vr = nil
+			}
+			if n > 0 {
+				c.pos, c.n = 0, n
+				return nil
+			}
+			continue
+		}
+		p, err := c.pages.ReadPage()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				c.eof = true
+				return nil
+			}
+			return err
+		}
+		c.vr = p.Values()
+	}
+	return nil
+}
+
+func (c *levelCursor) peek() (parquet.Value, bool, error) {
+	if c.pos >= c.n {
+		if err := c.fill(); err != nil {
+			return parquet.Value{}, false, err
+		}
+		if c.pos >= c.n {
+			return parquet.Value{}, false, nil
+		}
+	}
+	return c.buf[c.pos], true, nil
+}
+
+func (c *levelCursor) next() (parquet.Value, bool, error) {
+	v, ok, err := c.peek()
+	if ok {
+		c.pos++
+	}
+	return v, ok, err
+}
+
+type spillCursor struct {
+	keys  levelCursor
+	vals  levelCursor
+	wants map[string]int
+}
+
+func (c *spillCursor) fillRows(b *cheapBatch, n int) error {
+	rows := 0
+	for {
+		kv, ok, err := c.keys.peek()
+		if err != nil {
+			return err
+		}
+		if !ok {
+			break
+		}
+		if kv.RepetitionLevel() == 0 {
+			if rows == n {
+				break
+			}
+			rows++
+		}
+		c.keys.next()
+		vv, vok, err := c.vals.next()
+		if err != nil {
+			return err
+		}
+		if !vok {
+			return errors.New("map value column shorter than key column")
+		}
+		if kv.IsNull() {
+			continue
+		}
+		if idx, want := c.wants[bstr(kv.ByteArray())]; want {
+			b.fields[idx][rows-1] = vv
+		}
+	}
+	if rows != n {
+		return fmt.Errorf("map column has %d rows, want %d", rows, n)
+	}
+	return nil
+}
+
 func readArchiveRowsRange[T any](path string, fromN, tillN int64, rowTime func(*T) int64) iter.Seq2[T, error] {
 	return func(yield func(T, error) bool) {
 		var zero T
@@ -724,12 +1017,7 @@ func readArchiveRowsRange[T any](path string, fromN, tillN int64, rowTime func(*
 			return
 		}
 		defer f.Close()
-		st, err := f.Stat()
-		if err != nil {
-			yield(zero, err)
-			return
-		}
-		pf, err := parquet.OpenFile(f, st.Size())
+		pf, err := openArchive(f)
 		if err != nil {
 			yield(zero, err)
 			return
@@ -783,7 +1071,12 @@ func readArchiveRows(path string, skip int64) iter.Seq2[logRow, error] {
 			return
 		}
 		defer f.Close()
-		r := parquet.NewGenericReader[logRow](f)
+		pf, err := openArchive(f)
+		if err != nil {
+			yield(logRow{}, err)
+			return
+		}
+		r := parquet.NewGenericReader[logRow](pf)
 		defer r.Close()
 		if skip > 0 {
 			if err := r.SeekToRow(skip); err != nil {

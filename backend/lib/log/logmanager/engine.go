@@ -82,19 +82,8 @@ func resolveQueryScope(timeStart, timeEnd time.Time) (from, till time.Time, err 
 	return from, till, nil
 }
 
-func (e *queryEngine) snapshot(ctx context.Context) (StreamMarker, []logdb.LogFile, error) {
-	s := e.spool
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	files, err := e.db.ListLogFilesNewestFirst(ctx, int64(e.deploymentID))
-	if err != nil {
-		return StreamMarker{}, nil, err
-	}
-	return s.committed, files, nil
-}
-
 func (e *queryEngine) runQuery(ctx context.Context, q queryParams) (*apigen.LogQueryResponse, error) {
-	if forceFullScan || !filtersColumnSafe(q.filters) {
+	if forceFullScan {
 		return e.runFullQuery(ctx, q)
 	}
 	return e.runTwoPassQuery(ctx, q)
@@ -178,7 +167,7 @@ type retainedRec struct {
 	rec      apigen.RawLogLine
 	level    string
 	msg      string
-	fields   map[string]string
+	fields   []shredField
 	shredded bool
 	pending  bool
 	fileIdx  int
@@ -290,16 +279,23 @@ func accumField(m map[string]*fieldAccum, name, value string, inSample bool) {
 		return
 	}
 	acc.withField++
-	// A shredded JSON array counts per element, so multi-valued fields like
-	// _tags list each item with its own share instead of one row per distinct
-	// combination.
-	if elems := jsonArrayElements(value); elems != nil {
+	if elems := jsonArrayElements(strb(value)); elems != nil {
 		for _, e := range elems {
 			acc.values[e]++
 		}
 		return
 	}
 	acc.values[value]++
+}
+
+func accumFields(m map[string]*fieldAccum, fields []shredField, inSample bool) {
+	for i := range fields {
+		k := bstr(fields[i].key)
+		if isMetaFieldName(k) {
+			continue
+		}
+		accumField(m, string(fields[i].key), fields[i].val.String(), inSample)
+	}
 }
 
 func fieldStatsList(m map[string]*fieldAccum, sampled int64) []*apigen.LogFieldStats {

@@ -25,3 +25,12 @@ CREATE TABLE IF NOT EXISTS log_stream_commit_marker (
     file           TEXT NOT NULL,
     PRIMARY KEY (deployment_id)
 ) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS log_file_keys (
+  file_id    INTEGER NOT NULL REFERENCES log_files(id) ON DELETE CASCADE,
+  key        TEXT    NOT NULL,
+  type       INTEGER NOT NULL,
+  placement  INTEGER NOT NULL,
+  row_count  INTEGER NOT NULL,
+  PRIMARY KEY (file_id, key, type)
+) WITHOUT ROWID;

@@ -7,26 +7,11 @@ import (
 	"unicode/utf8"
 )
 
-// lineView is an allocation-free view of one log line: the top-level keys of a
-// JSON object located as byte spans, with nothing materialised until asked
-// for. It answers the same questions parseLine does (level, msg, one field)
-// for the common shapes and hands anything it is not sure about back to
-// parseLine, so a filter gives the same answer whichever path evaluates it.
-//
-// The scanner accepts a strict subset of what encoding/json accepts. Anything
-// it rejects, and anything it accepts but cannot render exactly (a nested
-// object or array, an escaped key), is reported through fallback rather than
-// guessed at. The only deliberate divergence is duplicate keys, where lookup
-// returns the last occurrence like a map decode does; that is documented but
-// not something the fuzz test exercises.
-//
-// Spans alias the scanner's scratch and are valid until the next view call on
-// the same scanner.
 type lineView struct {
-	line     []byte   // trimmed line
-	spans    []kvSpan // top-level key/value spans; nil for a non-object line
-	isJSON   bool     // line is an object the scanner accepted
-	fallback bool     // scanner declined; parseLine is the authority for this line
+	line     []byte
+	spans    []kvSpan
+	isJSON   bool
+	fallback bool
 }
 
 type jsonKind uint8
@@ -44,11 +29,12 @@ const (
 type span struct{ start, end int32 }
 
 type kvSpan struct {
-	key  span // key content, without quotes
-	val  span // string content without quotes; the raw literal otherwise
+	key  span
+	val  span
 	kind jsonKind
-	esc  bool // value contains a backslash escape
-	high bool // value contains a byte >= 0x80
+	esc  bool
+	high bool
+	top  bool
 }
 
 const (
@@ -64,14 +50,14 @@ type internedLevel struct {
 	norm string
 }
 
-// lineScanner owns the scratch a lineView aliases plus a small intern table of
-// level values, so a scan loop that only asks for levels allocates nothing in
-// steady state. Not safe for concurrent use.
 type lineScanner struct {
 	spans   []kvSpan
+	keyBuf  []byte
 	levels  []internedLevel
-	scratch []byte // unescaped value bytes, valid until the next valueBytes call
-	lower   []byte // lowered haystack for containsFold
+	scratch []byte
+	lower   []byte
+	fmtBuf  []byte
+	fields  []shredField
 }
 
 func (s *lineScanner) view(raw []byte) lineView {
@@ -81,7 +67,8 @@ func (s *lineScanner) view(raw []byte) lineView {
 		return v
 	}
 	s.spans = s.spans[:0]
-	if !s.scanTop(line) {
+	s.keyBuf = s.keyBuf[:0]
+	if _, ok := s.scanObjectFlat(line, 1, 1, span{}); !ok {
 		v.fallback = true
 		return v
 	}
@@ -90,40 +77,54 @@ func (s *lineScanner) view(raw []byte) lineView {
 	return v
 }
 
-// lookup returns the last span whose key equals key.
-func (v *lineView) lookup(key string) (kvSpan, bool) {
+func (s *lineScanner) keyOf(sp kvSpan) []byte {
+	return s.keyBuf[sp.key.start:sp.key.end]
+}
+
+func (s *lineScanner) lookup(v *lineView, key string) (kvSpan, bool) {
 	for i := len(v.spans) - 1; i >= 0; i-- {
 		sp := v.spans[i]
-		if string(v.line[sp.key.start:sp.key.end]) == key {
+		if bstr(s.keyBuf[sp.key.start:sp.key.end]) == key {
 			return sp, true
 		}
 	}
 	return kvSpan{}, false
 }
 
-// valueBytes renders a scalar value the way jsonValueString would: string
-// content unescaped, other literals as their source text. ok is false for an
-// object or array value, which parseLine re-serialises and this view does not
-// reproduce. The returned slice aliases either the line or the scanner
-// scratch.
-func (s *lineScanner) valueBytes(v *lineView, sp kvSpan) ([]byte, bool) {
+func (s *lineScanner) valueBytes(v *lineView, sp kvSpan) []byte {
 	raw := v.line[sp.val.start:sp.val.end]
-	switch sp.kind {
-	case kindString:
-		if !sp.esc && !sp.high {
-			return raw, true
-		}
+	if sp.kind == kindString && (sp.esc || sp.high) {
 		s.scratch = unquoteAppend(s.scratch[:0], raw)
-		return s.scratch, true
-	case kindObject, kindArray:
-		return nil, false
+		return s.scratch
+	}
+	return raw
+}
+
+func (s *lineScanner) typedValue(v *lineView, sp kvSpan) (fieldValue, bool) {
+	switch sp.kind {
+	case kindNull:
+		return fieldValue{}, false
+	case kindString:
+		return stringValue(s.valueBytes(v, sp)), true
+	case kindNumber:
+		return classifyNumber(v.line[sp.val.start:sp.val.end]), true
+	case kindTrue:
+		return boolValue(true), true
+	case kindFalse:
+		return boolValue(false), true
 	default:
-		return raw, true
+		return stringValue(v.line[sp.val.start:sp.val.end]), true
 	}
 }
 
-// levelFrom resolves the level as parseLine would. ok is false when the line
-// needs the fallback.
+func (s *lineScanner) typedField(v *lineView, key string) (fieldValue, bool) {
+	sp, found := s.lookup(v, key)
+	if !found {
+		return fieldValue{}, false
+	}
+	return s.typedValue(v, sp)
+}
+
 func (s *lineScanner) levelFrom(v *lineView) (string, bool) {
 	if v.fallback {
 		return "", false
@@ -131,42 +132,13 @@ func (s *lineScanner) levelFrom(v *lineView) (string, bool) {
 	if !v.isJSON {
 		return "", true
 	}
-	sp, found := v.lookup("level")
-	if !found {
+	sp, found := s.lookup(v, "level")
+	if !found || sp.kind == kindNull {
 		return "", true
 	}
-	b, ok := s.valueBytes(v, sp)
-	if !ok {
-		return "", false
-	}
-	return s.internLevel(b), true
+	return s.internLevel(s.valueBytes(v, sp)), true
 }
 
-// msgFrom resolves the message as parseLine would: the msg key if present,
-// else message, else empty; the whole line when it is not a JSON object.
-func (s *lineScanner) msgFrom(v *lineView) (string, bool) {
-	if v.fallback {
-		return "", false
-	}
-	if !v.isJSON {
-		return string(v.line), true
-	}
-	sp, found := v.lookup("msg")
-	if !found {
-		sp, found = v.lookup("message")
-	}
-	if !found {
-		return "", true
-	}
-	b, ok := s.valueBytes(v, sp)
-	if !ok {
-		return "", false
-	}
-	return string(b), true
-}
-
-// msgBytes is msgFrom without the string allocation; the slice is valid until
-// the next scanner call.
 func (s *lineScanner) msgBytes(v *lineView) ([]byte, bool) {
 	if v.fallback {
 		return nil, false
@@ -174,14 +146,22 @@ func (s *lineScanner) msgBytes(v *lineView) ([]byte, bool) {
 	if !v.isJSON {
 		return v.line, true
 	}
-	sp, found := v.lookup("msg")
-	if !found {
-		sp, found = v.lookup("message")
+	sp, found := s.lookup(v, "msg")
+	if !found || sp.kind == kindNull {
+		sp, found = s.lookup(v, "message")
 	}
-	if !found {
+	if !found || sp.kind == kindNull {
 		return nil, true
 	}
-	return s.valueBytes(v, sp)
+	return s.valueBytes(v, sp), true
+}
+
+func (s *lineScanner) msgFrom(v *lineView) (string, bool) {
+	b, ok := s.msgBytes(v)
+	if !ok {
+		return "", false
+	}
+	return string(b), true
 }
 
 func (s *lineScanner) internLevel(raw []byte) string {
@@ -197,8 +177,6 @@ func (s *lineScanner) internLevel(raw []byte) string {
 	return norm
 }
 
-// levelOf is the write-path entry point: the level of one line with the
-// parseLine fallback folded in.
 func (s *lineScanner) levelOf(line []byte) string {
 	v := s.view(line)
 	if lvl, ok := s.levelFrom(&v); ok {
@@ -208,24 +186,73 @@ func (s *lineScanner) levelOf(line []byte) string {
 	return lvl
 }
 
-// shred is the commit-path entry point: level and msg for the parquet columns.
-func (s *lineScanner) shred(line []byte) (level, msg string) {
-	v := s.view(line)
-	lvl, ok := s.levelFrom(&v)
-	if ok {
-		var m string
-		if m, ok = s.msgFrom(&v); ok {
-			return lvl, m
+func (s *lineScanner) shadowed(v *lineView, i int) bool {
+	sp := v.spans[i]
+	klen := sp.key.end - sp.key.start
+	for j := len(v.spans) - 1; j > i; j-- {
+		o := v.spans[j]
+		if o.key.end-o.key.start != klen {
+			continue
+		}
+		if bytes.Equal(s.keyBuf[sp.key.start:sp.key.end], s.keyBuf[o.key.start:o.key.end]) {
+			return true
 		}
 	}
-	level, msg, _ = parseLine(line)
-	return level, msg
+	return false
 }
 
-// containsFold reports whether hay contains needle ignoring ASCII case, with
-// needle already lowercased and pure ASCII. ok is false when hay has a byte
-// outside ASCII, where strings.ToLower has rules this does not replicate.
-// scratch is reused for the lowered haystack.
+func (s *lineScanner) materialize(v *lineView) []shredField {
+	s.fields = s.fields[:0]
+	if cap(s.scratch) < len(v.line) {
+		s.scratch = make([]byte, 0, len(v.line))
+	}
+	s.scratch = s.scratch[:0]
+	for i := range v.spans {
+		sp := v.spans[i]
+		if sp.kind == kindNull || (sp.top && isLiftedKey(s.keyOf(sp))) {
+			continue
+		}
+		if s.shadowed(v, i) {
+			continue
+		}
+		var val fieldValue
+		switch sp.kind {
+		case kindString:
+			raw := v.line[sp.val.start:sp.val.end]
+			if sp.esc || sp.high {
+				at := len(s.scratch)
+				s.scratch = unquoteAppend(s.scratch, raw)
+				val = stringValue(s.scratch[at:len(s.scratch):len(s.scratch)])
+			} else {
+				val = stringValue(raw)
+			}
+		case kindNumber:
+			val = classifyNumber(v.line[sp.val.start:sp.val.end])
+		case kindTrue:
+			val = boolValue(true)
+		case kindFalse:
+			val = boolValue(false)
+		default:
+			val = stringValue(v.line[sp.val.start:sp.val.end])
+		}
+		s.fields = append(s.fields, shredField{key: s.keyOf(sp), val: val})
+	}
+	return s.fields
+}
+
+func (s *lineScanner) shred(line []byte) (level, msg string, fields []shredField) {
+	v := s.view(line)
+	if v.fallback {
+		return parseLine(line)
+	}
+	level, _ = s.levelFrom(&v)
+	msg, _ = s.msgFrom(&v)
+	if !v.isJSON {
+		return level, msg, nil
+	}
+	return level, msg, s.materialize(&v)
+}
+
 func containsFold[T ~string | ~[]byte](scratch *[]byte, hay T, needle []byte) (found, ok bool) {
 	buf := (*scratch)[:0]
 	for i := 0; i < len(hay); i++ {
@@ -252,60 +279,80 @@ func isASCII(s string) bool {
 	return true
 }
 
-// scanTop scans the top-level object of line into s.spans. It returns false
-// when the line is not JSON this scanner accepts or when a key needs
-// unescaping, both of which the caller treats as fallback.
-func (s *lineScanner) scanTop(b []byte) bool {
+func (s *lineScanner) scanObjectFlat(b []byte, i int, depth int, prefix span) (int, bool) {
 	n := len(b)
-	i := skipWS(b, 1)
+	i = skipWS(b, i)
 	if i < n && b[i] == '}' {
-		return true
+		return i + 1, true
 	}
 	for {
 		if i >= n || b[i] != '"' {
-			return false
+			return 0, false
 		}
 		kStart := i + 1
 		next, flags, ok := scanString(b, kStart)
-		if !ok || flags&strFlagEsc != 0 {
-			return false
+		if !ok {
+			return 0, false
 		}
-		key := span{int32(kStart), int32(next - 1)}
-		if flags&strFlagHigh != 0 && !utf8.Valid(b[key.start:key.end]) {
-			return false
+		keyStart := len(s.keyBuf)
+		if depth > 1 {
+			s.keyBuf = append(s.keyBuf, s.keyBuf[prefix.start:prefix.end]...)
+			s.keyBuf = append(s.keyBuf, '.')
 		}
+		rawKey := b[kStart : next-1]
+		if flags&(strFlagEsc|strFlagHigh) != 0 {
+			s.keyBuf = unquoteAppend(s.keyBuf, rawKey)
+		} else {
+			s.keyBuf = append(s.keyBuf, rawKey...)
+		}
+		key := span{int32(keyStart), int32(len(s.keyBuf))}
+		keep := int(key.end-key.start) <= maxKeyLen
 		i = skipWS(b, next)
 		if i >= n || b[i] != ':' {
-			return false
+			return 0, false
 		}
 		i = skipWS(b, i+1)
+		if i >= n {
+			return 0, false
+		}
 		vStart := i
-		kind, vflags, next, ok := scanValue(b, i, 0)
-		if !ok {
-			return false
+		if b[i] == '{' && keep && depth < maxFlattenDepth && !(depth == 1 && isLiftedKey(s.keyBuf[key.start:key.end])) {
+			next, ok = s.scanObjectFlat(b, i+1, depth+1, key)
+			if !ok {
+				return 0, false
+			}
+		} else {
+			kind, vflags, vnext, ok := scanValue(b, i, 0)
+			if !ok {
+				return 0, false
+			}
+			next = vnext
+			if keep {
+				val := span{int32(vStart), int32(next)}
+				if kind == kindString {
+					val = span{int32(vStart + 1), int32(next - 1)}
+				}
+				s.spans = append(s.spans, kvSpan{
+					key:  key,
+					val:  val,
+					kind: kind,
+					esc:  vflags&strFlagEsc != 0,
+					high: vflags&strFlagHigh != 0,
+					top:  depth == 1,
+				})
+			}
 		}
-		val := span{int32(vStart), int32(next)}
-		if kind == kindString {
-			val = span{int32(vStart + 1), int32(next - 1)}
-		}
-		s.spans = append(s.spans, kvSpan{
-			key:  key,
-			val:  val,
-			kind: kind,
-			esc:  vflags&strFlagEsc != 0,
-			high: vflags&strFlagHigh != 0,
-		})
 		i = skipWS(b, next)
 		if i >= n {
-			return false
+			return 0, false
 		}
 		switch b[i] {
 		case ',':
 			i = skipWS(b, i+1)
 		case '}':
-			return true
+			return i + 1, true
 		default:
-			return false
+			return 0, false
 		}
 	}
 }
@@ -328,8 +375,6 @@ func isHex(c byte) bool {
 	return isDigit(c) || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
 }
 
-// scanString scans string content starting after the opening quote and
-// returns the index after the closing quote.
 func scanString(b []byte, i int) (next int, flags int, ok bool) {
 	n := len(b)
 	for i < n {
@@ -420,8 +465,6 @@ func scanLiteral(b []byte, i int, lit string) (int, bool) {
 	return i + len(lit), true
 }
 
-// scanValue validates one value starting at i. The delimiter after it is the
-// caller's to check.
 func scanValue(b []byte, i int, depth int) (kind jsonKind, flags int, next int, ok bool) {
 	if i >= len(b) {
 		return 0, 0, 0, false
@@ -458,7 +501,6 @@ func scanValue(b []byte, i int, depth int) (kind jsonKind, flags int, next int, 
 	return 0, 0, 0, false
 }
 
-// scanObject validates a nested object starting after its opening brace.
 func scanObject(b []byte, i int, depth int) (int, bool) {
 	n := len(b)
 	i = skipWS(b, i)
@@ -497,7 +539,6 @@ func scanObject(b []byte, i int, depth int) (int, bool) {
 	}
 }
 
-// scanArray validates a nested array starting after its opening bracket.
 func scanArray(b []byte, i int, depth int) (int, bool) {
 	n := len(b)
 	i = skipWS(b, i)
@@ -524,9 +565,6 @@ func scanArray(b []byte, i int, depth int) (int, bool) {
 	}
 }
 
-// unquoteAppend decodes already-validated JSON string content with the same
-// rules as encoding/json: escapes resolved, surrogate pairs combined, lone
-// surrogates and invalid UTF-8 bytes replaced by U+FFFD.
 func unquoteAppend(dst, s []byte) []byte {
 	for r := 0; r < len(s); {
 		c := s[r]
@@ -585,7 +623,6 @@ func unquoteAppend(dst, s []byte) []byte {
 	return dst
 }
 
-// getu4 decodes four hex digits, returning -1 if any is not hex.
 func getu4(s []byte) rune {
 	var r rune
 	for _, c := range s[:4] {

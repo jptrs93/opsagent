@@ -56,17 +56,9 @@ func (e *queryEngine) runFullQuery(ctx context.Context, q queryParams) (*apigen.
 			accumField(fieldAccums, "run", strconv.Itoa(int(v.rec.Run)), true)
 			accumField(fieldAccums, "instance", strconv.Itoa(int(v.rec.InstanceOrdinal)), true)
 			accumField(fieldAccums, "stream", streamName(v.rec.Stream), true)
-			for k, val := range v.fields {
-				if !isMetaFieldName(k) {
-					accumField(fieldAccums, k, val, true)
-				}
-			}
+			accumFields(fieldAccums, v.fields, true)
 		} else if v.parsed && len(fieldAccums) < maxFieldNames {
-			for k, val := range v.fields {
-				if !isMetaFieldName(k) {
-					accumField(fieldAccums, k, val, false)
-				}
-			}
+			accumFields(fieldAccums, v.fields, false)
 		}
 		ret.offer(retainedRec{rec: v.rec, level: v.level, msg: v.msg, fields: v.fields, shredded: v.shredded})
 		return true
@@ -85,17 +77,13 @@ func (e *queryEngine) runFullQuery(ctx context.Context, q queryParams) (*apigen.
 			if !r.shredded {
 				level, msg = pl, pm
 			}
-			for k, val := range fields {
-				if !isMetaFieldName(k) {
-					accumField(fieldAccums, k, val, false)
-				}
-			}
+			accumFields(fieldAccums, fields, false)
 		}
 		out := &apigen.LogRecord{
 			Time:            r.rec.Time,
 			Level:           level,
 			Msg:             msg,
-			Fields:          fields,
+			Fields:          fieldsToDisplay(fields),
 			Version:         r.rec.Version,
 			Stream:          r.rec.Stream,
 			InstanceOrdinal: r.rec.InstanceOrdinal,
@@ -116,7 +104,7 @@ func (e *queryEngine) runFullQuery(ctx context.Context, q queryParams) (*apigen.
 
 func (e *queryEngine) scanRangeFull(ctx context.Context, fromN, tillN int64, trace *queryTrace, visit func(*visitRec) bool) ([]string, error) {
 	snapStart := clock()
-	committed, files, err := e.snapshot(ctx)
+	committed, files, _, err := e.snapshot(ctx, nil, fromN, tillN)
 	trace.snapshotDur = clock().Sub(snapStart)
 	if err != nil {
 		return nil, err
@@ -159,7 +147,7 @@ func (e *queryEngine) scanRangeFull(ctx context.Context, fromN, tillN int64, tra
 			continue
 		}
 		path := archiveFilePath(e.deploymentID, f)
-		fs := fileScan{name: archiveFileName(int(f.Level), f.MinTime, f.MaxTime, int32(f.Node), f.Seq), mode: "full"}
+		fs := fileScan{name: logFileName(f), mode: "full"}
 		fileStart := clock()
 		stop := false
 		for row, rerr := range readArchiveRowsRange(path, fromN, tillN, func(r *logRow) int64 { return r.Time }) {

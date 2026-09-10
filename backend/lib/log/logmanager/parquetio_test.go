@@ -12,18 +12,19 @@ import (
 )
 
 func TestArchiveWriterRoundTripsAllColumns(t *testing.T) {
-	path := filepath.Join(t.TempDir(), archiveFileName(archiveLevelBatch, 2, 9, testNodeID, 1234))
-	w, err := newArchiveWriter(path)
+	path := filepath.Join(t.TempDir(), archiveFileName(archiveLevelShredded, 2, 9, testNodeID, 1234))
+	w, err := newArchiveWriter(path, buildArchiveSchema(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []logRow{
-		{Time: 5, Version: 1, Run: 2, Node: 7, InstanceOrdinal: 0, Stream: 0, RawMessage: []byte("alpha\n")},
-		{Time: 2, Version: 1, Run: 2, Node: 7, InstanceOrdinal: 3, Stream: 1, RawMessage: []byte("beta\n")},
-		{Time: 9, Version: 4, Run: 5, Node: 8, InstanceOrdinal: 1, Stream: 0, RawMessage: []byte("gamma\n")},
+		{Time: 5, Version: 1, Run: 2, Node: 7, InstanceOrdinal: 0, Stream: 0, Msg: "alpha", RawMessage: []byte("alpha\n")},
+		{Time: 2, Version: 1, Run: 2, Node: 7, InstanceOrdinal: 3, Stream: 1, Msg: "beta", RawMessage: []byte("beta\n")},
+		{Time: 9, Version: 4, Run: 5, Node: 8, InstanceOrdinal: 1, Stream: 0, Msg: "gamma", RawMessage: []byte("gamma\n")},
 	}
+	sc := &lineScanner{}
 	for _, row := range want {
-		if err := w.append(row); err != nil {
+		if err := w.appendRow(row, sc); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -71,12 +72,13 @@ func TestScanArchiveColumnsErrorsOnFilesWithMissingColumns(t *testing.T) {
 
 func TestArchiveWriterTracksTimeBoundsOutOfOrder(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bounds"+archiveExt)
-	w, err := newArchiveWriter(path)
+	w, err := newArchiveWriter(path, buildArchiveSchema(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
+	sc := &lineScanner{}
 	for _, at := range []int64{50, 10, 90, 30} {
-		if err := w.append(logRow{Time: at, RawMessage: []byte("x\n")}); err != nil {
+		if err := w.appendRow(logRow{Time: at, RawMessage: []byte("x\n")}, sc); err != nil {
 			t.Fatal(err)
 		}
 	}

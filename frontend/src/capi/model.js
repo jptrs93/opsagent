@@ -489,6 +489,7 @@
  * @property {string} op
  * @property {string} value
  * @property {string[]} values
+ * @property {boolean} text
  */
 /**
  * @typedef {Object} LogQueryRequest
@@ -7526,6 +7527,9 @@ export function writeLogFilter(message, writer) {
             writer.uint32(tag(4, WIRE.LDELIM)).string(item);
         }
     }
+    if (message.text === true) {
+        writer.uint32(tag(5, WIRE.VARINT)).bool(message.text);
+    }
 }
 
 
@@ -7547,7 +7551,7 @@ export function encodeLogFilter(message) {
  */
 function decodeLogFilterMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {field: "", op: "", value: "", values: [] };
+    const message = {field: "", op: "", value: "", values: [], text: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -7565,6 +7569,10 @@ function decodeLogFilterMessage(reader, length) {
             }
             case 4: {
                 message.values.push(reader.string());
+                break;
+            }
+            case 5: {
+                message.text = reader.bool();
                 break;
             }
             default:

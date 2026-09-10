@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/goutil/contextu"
+	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -30,18 +31,32 @@ type scheduledInstanceStore interface {
 }
 
 type Manager struct {
-	db          *logdb.Queries
-	collectors  map[int32]*LogStreamCollector
-	mu          sync.Mutex
-	scanStopped chan struct{}
+	ctx          context.Context
+	db           *logdb.Queries
+	collectors   map[int32]*LogStreamCollector
+	mu           sync.Mutex
+	scanStopped  chan struct{}
+	maintStopped chan struct{}
+	nudge        chan struct{}
+	skipUntil    map[int64]time.Time
+	backfillProg backfillProgress
+	unlinkWG     sync.WaitGroup
+}
+
+func newManager(db *logdb.Queries) *Manager {
+	return &Manager{
+		ctx:          logu.AddTag(context.Background(), "LogManager"),
+		db:           db,
+		collectors:   map[int32]*LogStreamCollector{},
+		scanStopped:  make(chan struct{}),
+		maintStopped: make(chan struct{}),
+		nudge:        make(chan struct{}, 1),
+		skipUntil:    map[int64]time.Time{},
+	}
 }
 
 func StartManager(ctx context.Context, store scheduledInstanceStore, predicate storage.ScheduledInstancePredicate) *Manager {
-	m := &Manager{
-		db:          logdb.Open(logDBPath()),
-		collectors:  map[int32]*LogStreamCollector{},
-		scanStopped: make(chan struct{}),
-	}
+	m := newManager(logdb.Open(logDBPath()))
 	snapshot, updates, unsub := store.MustFetchScheduledSnapshotAndSubscribe(predicate)
 	producing := map[int32]int32{}
 	m.alignProducers(producing, snapshot)
@@ -53,6 +68,7 @@ func StartManager(ctx context.Context, store scheduledInstanceStore, predicate s
 			contextu.Sleep(ctx, deploymentScanInterval)
 		}
 	}()
+	go m.runMaintenance(ctx)
 	return m
 }
 
@@ -126,6 +142,7 @@ func (m *Manager) AlignCollecting(deploymentID int32, runningCountChange int) {
 	c := m.collectors[deploymentID]
 	if c == nil {
 		c = NewLogStreamCollector(deploymentID, m.db)
+		c.onCommit = m.nudgeMaintenance
 		m.collectors[deploymentID] = c
 	}
 	m.mu.Unlock()
