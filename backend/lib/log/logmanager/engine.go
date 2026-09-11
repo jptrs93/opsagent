@@ -141,14 +141,9 @@ type queryTrace struct {
 }
 
 func (t *queryTrace) summary(took time.Duration, scanned int64) string {
-	const maxEntries = 24
 	var b strings.Builder
 	fmt.Fprintf(&b, "log query took %v, scanned %d rows, %d files:", took.Round(time.Millisecond), scanned, len(t.files))
 	for i := range t.files {
-		if i == maxEntries {
-			fmt.Fprintf(&b, "\n+%d more files", len(t.files)-i)
-			break
-		}
 		f := &t.files[i]
 		fmt.Fprintf(&b, "\n%s: %d rows, %v, %s", f.name, f.rows, f.dur.Round(time.Millisecond), f.mode)
 	}

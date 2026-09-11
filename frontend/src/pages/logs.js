@@ -78,6 +78,9 @@ const ROW_BORDER = 1;
 const WRAP_MAX_LINES = 3;
 const rowHeight = (lines) => lines * LINE_H + CELL_PAD_Y + ROW_BORDER;
 const DETAIL_H = 320;
+// Multi-line messages in the detail pane and the context view show this many
+// lines before folding the rest behind a "+N more lines" toggle.
+const FOLD_LINES = 24;
 const HEADER_H = 25;
 const OVERSCAN = 12;
 
@@ -987,10 +990,30 @@ export function logsPage(selectedDeploymentId) {
         jsonCopied.val = false;
     };
 
+    // Long multi-line text folds after FOLD_LINES lines; the toggle re-renders
+    // the same span in place so surrounding layout is unaffected.
+    const foldedText = (text, cls) => {
+        const lines = text.split('\n');
+        if (lines.length <= FOLD_LINES) return span({class: cls}, text);
+        const open = van.state(false);
+        const hidden = lines.length - FOLD_LINES;
+        return span({class: cls},
+            () => open.val ? text : lines.slice(0, FOLD_LINES).join('\n'),
+            '\n',
+            button({
+                type: "button", "data-testid": "logs-fold-toggle",
+                class: "cursor-pointer text-[11px] text-green-400 hover:underline",
+                onclick: (e) => { e.stopPropagation(); open.val = !open.val; },
+            }, () => open.val ? 'show less' : `+${hidden} more lines`),
+        );
+    };
+
     const detailFieldRow = (rec, key, value) => div(
         {class: "group grid grid-cols-[9rem_minmax(0,1fr)_auto] items-baseline gap-2 rounded px-1 py-0.5 hover:bg-gray-800/40"},
         span({class: "truncate font-mono text-[11px] text-gray-500"}, key),
-        span({class: "whitespace-pre-wrap break-all font-mono text-[11px] text-gray-200"}, String(value)),
+        key === 'msg'
+            ? foldedText(String(value), "whitespace-pre-wrap break-all font-mono text-[11px] text-gray-200")
+            : span({class: "whitespace-pre-wrap break-all font-mono text-[11px] text-gray-200"}, String(value)),
         key === 'time' || key === 'msg' ? span() : div(
             {class: "hidden gap-0.5 group-hover:flex"},
             button({
@@ -1229,7 +1252,7 @@ export function logsPage(selectedDeploymentId) {
                 span({class: "text-gray-500"}, fmtClock(rec.ts)), '  ',
                 rec.level ? span({class: levelMeta(rec.level).text}, rec.level.padEnd(5)) : span({class: "text-gray-600"}, '·    '),
                 ' ',
-                span({class: "text-gray-200"}, rec.msg),
+                foldedText(rec.msg, "text-gray-200"),
             );
             if (isAnchor) anchorEl = el;
             return el;
