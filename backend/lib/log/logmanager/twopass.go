@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"runtime"
 	"slices"
 	"strconv"
 	"sync"
@@ -14,9 +15,13 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/logdb"
 	"github.com/parquet-go/parquet-go"
+	"golang.org/x/sync/errgroup"
 )
 
-var fetchParallelism = 4
+var (
+	fetchParallelism = 4
+	scanParallelism  = min(8, max(1, runtime.GOMAXPROCS(0)/2))
+)
 
 type thinAgg struct {
 	fromN, tillN int64
@@ -54,6 +59,26 @@ func (a *thinAgg) bin(val []byte) *levelBin {
 	}
 	a.bins = append(a.bins, levelBin{val: []byte(level), str: level, li: levelIndex(level), match: match})
 	return &a.bins[len(a.bins)-1]
+}
+
+func (a *thinAgg) fresh() *thinAgg {
+	return &thinAgg{fromN: a.fromN, tillN: a.tillN, bucketFrom: a.bucketFrom, bucketStep: a.bucketStep, bucketN: a.bucketN, filters: a.filters, counts: make([][]int64, len(a.counts))}
+}
+
+func (a *thinAgg) merge(o *thinAgg) {
+	a.scanned += o.scanned
+	a.matched += o.matched
+	for li, c := range o.counts {
+		if c == nil {
+			continue
+		}
+		if a.counts[li] == nil {
+			a.counts[li] = make([]int64, a.bucketN)
+		}
+		for bi := range c {
+			a.counts[li][bi] += c[bi]
+		}
+	}
 }
 
 func (a *thinAgg) addBucket(t int64, li int) {
@@ -535,13 +560,20 @@ func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apig
 	var warnings []string
 	needMsg := filtersNeedMsg(q.filters)
 	levelOnly := filtersLevelOnly(q.filters) && q.specVersion == 0
-	metaFiltered := filtersReferenceMeta(q.filters)
+	type scanJob struct {
+		fi   int
+		plan filePlan
+	}
+	type scanResult struct {
+		fs      fileScan
+		warning string
+		agg     *thinAgg
+		ret     *retainHeap
+	}
 	sc := &lineScanner{}
+	var jobs []scanJob
 	for fi := range files {
 		f := files[fi]
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
 		if f.MaxTime < fromN || f.MinTime >= tillN {
 			trace.filesPruned++
 			continue
@@ -551,33 +583,47 @@ func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apig
 			trace.filesPruned++
 			continue
 		}
-		capture := len(ret.recs) < ret.capacity
-		if !capture && len(ret.recs) > 0 {
-			root := &ret.recs[0].rec
-			if q.newestFirst {
-				capture = f.MaxTime >= root.Time
-			} else {
-				capture = f.MinTime <= root.Time
+		jobs = append(jobs, scanJob{fi: fi, plan: plan})
+	}
+	results := make([]scanResult, len(jobs))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(scanParallelism)
+	for ji := range jobs {
+		g.Go(func() error {
+			job := &jobs[ji]
+			f := files[job.fi]
+			res := &results[ji]
+			res.agg = agg.fresh()
+			res.ret = &retainHeap{capacity: captureK, newest: q.newestFirst}
+			res.fs = fileScan{name: logFileName(f), mode: "capture"}
+			fileStart := clock()
+			needs := columnNeeds{msg: needMsg, ints: true, fields: job.plan.needs, prune: job.plan.prune}
+			ev := &archiveEval{deploymentID: e.deploymentID, q: &q, plan: &job.plan, agg: res.agg, ret: res.ret, levelOnly: levelOnly, needMsg: needMsg, capture: true, fileIdx: job.fi, sc: &lineScanner{}}
+			scanErr := scanArchiveColumns(gctx, archiveFilePath(e.deploymentID, f), fromN, needs, ev.consume)
+			if gctx.Err() != nil {
+				return gctx.Err()
 			}
+			if scanErr != nil {
+				res.warning = fmt.Sprintf("skipped unreadable archive file %s: %v", res.fs.name, scanErr)
+			}
+			res.fs.rows = ev.rows
+			res.fs.dur = clock().Sub(fileStart)
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	for ri := range results {
+		res := &results[ri]
+		agg.merge(res.agg)
+		for _, r := range res.ret.recs {
+			ret.offer(r)
 		}
-		path := archiveFilePath(e.deploymentID, f)
-		fs := fileScan{name: logFileName(f), mode: "agg"}
-		if capture {
-			fs.mode = "capture"
+		if res.warning != "" {
+			warnings = append(warnings, res.warning)
 		}
-		fileStart := clock()
-		needs := columnNeeds{msg: needMsg, ints: capture || metaFiltered || q.specVersion > 0, fields: plan.needs, prune: plan.prune}
-		ev := &archiveEval{deploymentID: e.deploymentID, q: &q, plan: &plan, agg: agg, ret: ret, levelOnly: levelOnly, needMsg: needMsg, capture: capture, fileIdx: fi, sc: sc}
-		scanErr := scanArchiveColumns(ctx, path, fromN, needs, ev.consume)
-		fs.rows = ev.rows
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		if scanErr != nil {
-			warnings = append(warnings, fmt.Sprintf("skipped unreadable archive file %s: %v", fs.name, scanErr))
-		}
-		fs.dur = clock().Sub(fileStart)
-		trace.files = append(trace.files, fs)
+		trace.files = append(trace.files, res.fs)
 	}
 	e.resolvePending(ret, files, trace, &warnings)
 	retained := ret.sorted()

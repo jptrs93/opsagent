@@ -256,3 +256,42 @@ func TestRowGroupPruningKeepsResults(t *testing.T) {
 		t.Fatalf("matching row group pruned: scanned %d rows", rows)
 	}
 }
+
+func TestScanParallelismMatchesSequential(t *testing.T) {
+	m := maintenanceEnv(t, twoBatchFixture(t))
+	filters := [][]*apigen.LogFilter{
+		nil,
+		{{Field: "level", Op: "eq", Value: "INFO"}},
+		{{Field: "user", Op: "gte", Value: "68"}},
+		{{Field: "", Op: "contains", Value: "e"}},
+	}
+	old := scanParallelism
+	t.Cleanup(func() { scanParallelism = old })
+	for _, fs := range filters {
+		req := wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Filters: fs, HistogramBuckets: 6, Limit: 3})
+		var got []*apigen.LogQueryResponse
+		for _, n := range []int{1, 4} {
+			scanParallelism = n
+			resp, err := m.Query(context.Background(), req)
+			if err != nil {
+				t.Fatalf("parallelism %d: %v", n, err)
+			}
+			resp.Stats.TookMs = 0
+			got = append(got, resp)
+		}
+		if !reflect.DeepEqual(got[0], got[1]) {
+			t.Fatalf("filters %+v: sequential = %+v\nparallel = %+v", fs, got[0], got[1])
+		}
+		forceFullScan = true
+		full, err := m.Query(context.Background(), req)
+		forceFullScan = false
+		if err != nil {
+			t.Fatal(err)
+		}
+		full.Stats.TookMs = 0
+		full.Stats.ScannedRows, got[1].Stats.ScannedRows = 0, 0
+		if !reflect.DeepEqual(got[1], full) {
+			t.Fatalf("filters %+v: parallel = %+v\nfull = %+v", fs, got[1], full)
+		}
+	}
+}

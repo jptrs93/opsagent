@@ -196,11 +196,16 @@ the owning secondary over the cluster session.
   dense columns or spill maps holding the key's variants, or is resolved
   as absent: the file is skipped when an absent key cannot match, and the
   filter is dropped when it matches every row. Row groups are pruned on
-  the time index and,
-  for numeric filters against dense numeric columns, on the column index.
-  Matches are retained in a bounded heap and the retained rows are fetched
-  afterwards. `forceFullScan` reads every raw line instead and is the test
-  oracle for the column path.
+  the time index and, for numeric filters against dense numeric columns,
+  on the column index.
+- Files are scanned in parallel through an errgroup capped at
+  `scanParallelism` workers (half the cores, at most eight, so a query does
+  not starve the collectors or a roll-up). Each worker owns its histogram
+  counters, its bounded retain heap and its scanner scratch; the results
+  are merged in file order afterwards, so the response and the trace are
+  independent of scheduling. The retained rows are fetched after the merge.
+  `forceFullScan` reads every raw line instead and is the test oracle for
+  the column path.
 
 ## Not yet present
 
