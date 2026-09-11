@@ -31,27 +31,30 @@ type scheduledInstanceStore interface {
 }
 
 type Manager struct {
-	ctx          context.Context
-	db           *logdb.Queries
-	collectors   map[int32]*LogStreamCollector
-	mu           sync.Mutex
-	scanStopped  chan struct{}
-	maintStopped chan struct{}
-	nudge        chan struct{}
-	skipUntil    map[int64]time.Time
-	backfillProg backfillProgress
-	unlinkWG     sync.WaitGroup
+	ctx           context.Context
+	db            *logdb.Queries
+	collectors    map[int32]*LogStreamCollector
+	mu            sync.Mutex
+	scanStopped   chan struct{}
+	maintStopped  chan struct{}
+	nudge         chan struct{}
+	skipUntil     map[int64]time.Time
+	backfillProg  backfillProgress
+	unlinkWG      sync.WaitGroup
+	unlinkMu      sync.Mutex
+	pendingUnlink map[string]struct{}
 }
 
 func newManager(db *logdb.Queries) *Manager {
 	return &Manager{
-		ctx:          logu.AddTag(context.Background(), "LogManager"),
-		db:           db,
-		collectors:   map[int32]*LogStreamCollector{},
-		scanStopped:  make(chan struct{}),
-		maintStopped: make(chan struct{}),
-		nudge:        make(chan struct{}, 1),
-		skipUntil:    map[int64]time.Time{},
+		ctx:           logu.AddTag(context.Background(), "LogManager"),
+		db:            db,
+		collectors:    map[int32]*LogStreamCollector{},
+		scanStopped:   make(chan struct{}),
+		maintStopped:  make(chan struct{}),
+		nudge:         make(chan struct{}, 1),
+		skipUntil:     map[int64]time.Time{},
+		pendingUnlink: map[string]struct{}{},
 	}
 }
 

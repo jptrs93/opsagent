@@ -308,3 +308,32 @@ func TestCompletePendingSwapToleratesRewrittenFile(t *testing.T) {
 		t.Fatal("missing file with a catalog row should error")
 	}
 }
+
+func TestSweepKeepsFilesPendingUnlink(t *testing.T) {
+	m := maintenanceEnv(t, typedFixture(t))
+	disableRetention(t)
+	backfillPause = 0
+	rewriteGrace = time.Hour
+	l0 := writeLevelZeroFile(t, m.db, testDeploymentID, legacyRows(t, "2026-06-14"))
+	oldPath := archiveFilePath(testDeploymentID, l0)
+	past := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(oldPath, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if did, err := m.maintenanceStep(context.Background()); err != nil || !did {
+		t.Fatalf("backfill did not run: did=%v err=%v", did, err)
+	}
+	if !m.isPendingUnlink(oldPath) {
+		t.Fatal("swapped file not registered for grace unlink")
+	}
+	m.reconcile(context.Background())
+	if _, err := os.Stat(oldPath); err != nil {
+		t.Fatalf("sweep removed a file inside the rewrite grace: %v", err)
+	}
+	rewriteGrace = 0
+	m.setPendingUnlink([]string{oldPath}, false)
+	m.reconcile(context.Background())
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Fatalf("sweep left a rowless file past the grace: %v", err)
+	}
+}

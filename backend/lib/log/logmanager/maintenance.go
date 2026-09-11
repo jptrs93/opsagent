@@ -246,12 +246,19 @@ func (m *Manager) commitRewrite(ctx context.Context, deploymentID, day int32, le
 		}
 		finals = append(finals, final)
 	}
+	old := make([]string, 0, len(inputs))
+	for _, in := range inputs {
+		old = append(old, archiveFilePath(deploymentID, in))
+	}
+	m.setPendingUnlink(old, true)
 	if err := syncDir(dayDir); err != nil {
 		removeFinals()
+		m.setPendingUnlink(old, false)
 		return err
 	}
 	if err := verifyRewrite(inputs, outs); err != nil {
 		removeFinals()
+		m.setPendingUnlink(old, false)
 		return err
 	}
 	err := m.db.Tx(ctx, func(q *logdb.Queries) error {
@@ -272,14 +279,30 @@ func (m *Manager) commitRewrite(ctx context.Context, deploymentID, day int32, le
 	})
 	if err != nil {
 		removeFinals()
+		m.setPendingUnlink(old, false)
 		return err
-	}
-	old := make([]string, 0, len(inputs))
-	for _, in := range inputs {
-		old = append(old, archiveFilePath(deploymentID, in))
 	}
 	m.unlinkAfterGrace(old)
 	return nil
+}
+
+func (m *Manager) setPendingUnlink(paths []string, pending bool) {
+	m.unlinkMu.Lock()
+	defer m.unlinkMu.Unlock()
+	for _, p := range paths {
+		if pending {
+			m.pendingUnlink[p] = struct{}{}
+		} else {
+			delete(m.pendingUnlink, p)
+		}
+	}
+}
+
+func (m *Manager) isPendingUnlink(path string) bool {
+	m.unlinkMu.Lock()
+	defer m.unlinkMu.Unlock()
+	_, ok := m.pendingUnlink[path]
+	return ok
 }
 
 func (m *Manager) unlinkAfterGrace(paths []string) {
@@ -289,6 +312,7 @@ func (m *Manager) unlinkAfterGrace(paths []string) {
 		for _, p := range paths {
 			_ = os.Remove(p)
 		}
+		m.setPendingUnlink(paths, false)
 	})
 }
 
@@ -365,7 +389,7 @@ func (m *Manager) sweepRowlessFiles(ctx context.Context) error {
 					continue
 				}
 				seq, ok := parseArchiveSeq(name)
-				if !ok || known[seq] {
+				if !ok || known[seq] || m.isPendingUnlink(filepath.Join(dir, name)) {
 					continue
 				}
 				slog.InfoContext(m.ctx, "removing archive file without catalog row", "dep", dep, "file", name)

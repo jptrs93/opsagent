@@ -755,6 +755,11 @@ func fetchArchiveRows(path string, rowIdxs []int64) ([]logRow, error) {
 		}
 		chunks := rg.ColumnChunks()
 		for ci := range fetchColumnSetters {
+			if fc, ok := chunks[cols[ci]].(*parquet.FileColumnChunk); ok {
+				if _, err := fc.OffsetIndex(); err != nil && !errors.Is(err, parquet.ErrMissingOffsetIndex) {
+					return nil, err
+				}
+			}
 			pages := chunks[cols[ci]].Pages()
 			ferr := func() error {
 				for k := lo; k < ti; k++ {

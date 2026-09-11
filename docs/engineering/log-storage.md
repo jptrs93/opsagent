@@ -107,7 +107,9 @@ Level 1 and 2 files add one optional leaf `f_<key>__<t>` per dense variant
 (`t` is `i`, `f`, `b` or `s`) and four maps `spill_int`, `spill_float`,
 `spill_bool`, `spill_str` keyed by field name for every other variant.
 Level 0 files have only the fixed columns. Readers open files with the page
-index and bloom filters skipped and load a column index on demand.
+index and bloom filters skipped; scans load a column index on demand for
+pruning, and the row fetch loads each chunk's offset index so seeking to a
+row is a page lookup rather than a decompressing walk from the chunk start.
 
 ## Catalog
 
@@ -160,7 +162,8 @@ removes both.
   is removed once every node reports completion.
 - **Reconciliation.** Final-named archive files without a catalog row and
   catalog rows without a file are removed, each only once older than the
-  grace; `.tmp` files past the grace are removed. Then retention deletes
+  grace and never while a rewrite still holds the file for its deferred
+  unlink; `.tmp` files past the grace are removed. Then retention deletes
   archive days older than 30 days (rows first, then the directory) and WAL
   buckets and legacy `.logbin` files older than the cutoff.
 
