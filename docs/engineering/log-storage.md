@@ -34,9 +34,12 @@ remaining open items are in
 
 | Level | Meaning | Written by |
 | --- | --- | --- |
-| 0 | Batch output, fixed schema, no key columns | Commits before shredding shipped; none remain, all were rewritten to level 1 by a since-removed backfill |
 | 1 | Batch output, shredded | Every commit |
 | 2 | Node day roll-up, shredded over the merged batch | Roll-up |
+
+Every archive file is shredded; there is no unshredded level. The number
+starts at 1 because a pre-shredding level 0 existed once and was migrated
+away.
 
 ## Shredder
 
@@ -103,10 +106,10 @@ Every archive file has the fixed columns `time`, `version`, `run`, `node`,
 Rows are sorted by `(time, node, instance_ordinal, run, stream, seq)`.
 `raw_message` is the original line bytes and is always present.
 
-Level 1 and 2 files add one optional leaf `f_<key>__<t>` per dense variant
-(`t` is `i`, `f`, `b` or `s`) and four maps `spill_int`, `spill_float`,
+Every file adds one optional leaf `f_<key>__<t>` per dense variant (`t` is
+`i`, `f`, `b` or `s`) and four maps `spill_int`, `spill_float`,
 `spill_bool`, `spill_str` keyed by field name for every other variant.
-Level 0 files have only the fixed columns. Readers open files with the page
+Readers open files with the page
 index and bloom filters skipped; scans load a column index on demand for
 pruning, and the row fetch loads each chunk's offset index so seeking to a
 row is a page lookup rather than a decompressing walk from the chunk start.
@@ -173,7 +176,7 @@ the owning secondary over the cluster session.
   `run`, `instance` and `stream` address record metadata and shadow JSON
   keys of the same name; any other field is a parsed JSON key.
 - A literal is parsed as int, float, bool and text at once, and the same
-  rules apply to the WAL tail, level 0 files and columns. `text: true` on a
+  rules apply to the WAL tail and to columns. `text: true` on a
   filter forces text comparison; the query bar sets it for quoted values.
 
 | Op | int / float | str | bool |
@@ -192,8 +195,8 @@ the owning secondary over the cluster session.
   they do not suffice. Per archive file each field filter binds to the
   dense columns or spill maps holding the key's variants, or is resolved
   as absent: the file is skipped when an absent key cannot match, and the
-  filter is dropped when it matches every row. Level 0 files with field
-  filters are scanned raw. Row groups are pruned on the time index and,
+  filter is dropped when it matches every row. Row groups are pruned on
+  the time index and,
   for numeric filters against dense numeric columns, on the column index.
   Matches are retained in a bounded heap and the retained rows are fetched
   afterwards. `forceFullScan` reads every raw line instead and is the test

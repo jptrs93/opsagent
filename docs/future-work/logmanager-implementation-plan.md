@@ -18,7 +18,7 @@ All eight steps of the plan are implemented in `backend/lib/log/logmanager`.
 | 1 Shared typed shredder | `shred.go`, `lineview.go`: typed values, dotted keys, the number rule, caps; property test across both parse paths |
 | 2 Level 1 schema and writer | `schema.go`, `parquetio.go`: dynamic `parquet.Group`, dense `f_<key>__<t>` leaves, four spill maps, generic row writer and reader |
 | 3 Two-pass commit and catalog | `archivewrite.go`, `logcollector.go`: tally then write, `log_file_keys`, 64MB commits, maintenance nudge |
-| 4 Column-resolved filters | `twopass.go`, `semantics.go`: per-file binding from the catalog, dense and spill readers, absent-key short-circuit, level 0 scanned raw |
+| 4 Column-resolved filters | `twopass.go`, `semantics.go`: per-file binding from the catalog, dense and spill readers, absent-key short-circuit |
 | 5 Reconciliation and retention | `maintenance.go`: rowless file sweep, fileless row sweep, 30-day archive and WAL retention |
 | 6 Backfill | Ran once as a newest-first level 0 rewrite with the 4-step swap and grace unlink; completed on every node on 2026-09-11 and the code was removed |
 | 7 Typed ops and API | `gt`/`gte`/`lt`/`lte`, `LogFilter.text`, query-bar grammar, row-group pruning from the column index |
@@ -32,10 +32,10 @@ Deviations from the plan as written:
 - The catalog read is `ListLogFileKeysInRange` over the query's time range
   and field names rather than a per-file-id list; it runs in the same read
   transaction as the file list.
-- Level 0 files with field filters are scanned raw inside the two-pass
-  path rather than diverting the whole query to the full-scan path, so
-  mixed level 0 and level 1 ranges still use columns where they exist.
-  `forceFullScan` remains as the test oracle.
+- Level 0 no longer exists anywhere in the code. The migration rewrote
+  every level 0 file, and the raw-scan branch the planner used for them
+  was removed with the backfill, so every file is planned from the catalog
+  alone. `forceFullScan` remains as the test oracle.
 
 ## Settled decisions
 
@@ -91,10 +91,6 @@ gets its own version column when it happens.
   roughly 500KB of footer at the full budget. Larger row groups would
   shrink it at the cost of coarser time pruning. Keep 128k unless measured
   footers say otherwise.
-- **Level 0 read path.** No level 0 files remain, but the query planner
-  still scans a level 0 file raw when a field filter binds to it. Remove
-  that branch and the level 0 query test once a release has shipped without
-  producing any.
 - **Roll-up tiers.** A third tier merging level 2 files into larger units
   is the same routine with level 2 inputs and waits for S3 upload.
 - **Field sidebar from the catalog.** `log_file_keys.row_count` summed over

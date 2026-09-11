@@ -125,9 +125,9 @@ logs/<deployment_id>/<YYYYMMDD>/L<level>_<minUnixMs>-<maxUnixMs>_n<node>_<seq>.p
   it is the only part of the name that changes when a file is rewritten with
   the same rows, so the old and new file coexist during a swap.
 - **The level tag is a processing ladder, not a compaction tier.** Each
-  level implies everything below it: `L0` = batch output without key
-  columns (only files written before shredding shipped), `L1` = shredded
-  batch output, `L2` = node day roll-up, `L3` = cross-node merge. Every
+  level implies everything below it: `L1` = shredded batch output, `L2` =
+  node day roll-up, `L3` = cross-node merge (`L0`, unshredded batch output,
+  existed before shredding shipped and was migrated away). Every
   rewrite re-runs shredding from `raw_message`, so a file's level says
   exactly what its columns are. The maintenance loop rewrites any file below
   the target level for its stage; the implementation plan has the protocol.
@@ -209,8 +209,7 @@ Range operators (`gt`/`gte`/`lt`/`lte`) touch only the numeric variants.
 applies the same rules over the line scanner's typed spans through the
 shared shred function, so a line answers identically before and after
 compaction. A key absent from a file short-circuits without opening a
-column. Level 0 files have no key columns and route field filters through
-`raw_message`.
+column.
 
 ### Writing
 

@@ -300,7 +300,6 @@ type boundFilter struct {
 }
 
 type filePlan struct {
-	raw   bool
 	skip  bool
 	needs []fieldNeed
 	prune []rowGroupPrune
@@ -314,10 +313,6 @@ func planFile(f logdb.LogFile, filters []compiledFilter, fieldIdx []int, keys ma
 		for i := range filters {
 			p.plain = append(p.plain, &filters[i])
 		}
-		return p
-	}
-	if f.Level == archiveLevelBatch {
-		p.raw = true
 		return p
 	}
 	slotOf := map[fieldNeed]int{}
@@ -477,51 +472,6 @@ func (ev *archiveEval) consume(b *cheapBatch, n int, baseRow int64, sorted bool)
 	return false
 }
 
-func (e *queryEngine) scanFileRaw(ctx context.Context, path string, q *queryParams, agg *thinAgg, ret *retainHeap, capture bool, sc *lineScanner) (int64, error) {
-	var rows int64
-	n := 0
-	for row, rerr := range readArchiveRowsRange(path, agg.fromN, agg.tillN, func(r *logRow) int64 { return r.Time }) {
-		if rerr != nil {
-			return rows, rerr
-		}
-		n++
-		if n&1023 == 0 && ctx.Err() != nil {
-			return rows, ctx.Err()
-		}
-		rows++
-		agg.scanned++
-		if row.Time < agg.fromN || row.Time >= agg.tillN {
-			continue
-		}
-		if q.specVersion > 0 && row.Version != q.specVersion {
-			continue
-		}
-		v := visitRec{
-			rec:      rowToRawLogLine(row, e.deploymentID),
-			level:    row.Level,
-			msg:      row.Msg,
-			shredded: row.Level != "" || row.Msg != "" || len(row.RawMessage) == 0,
-			sc:       sc,
-		}
-		ok := true
-		for fi := range q.filters {
-			if !q.filters[fi].match(&v) {
-				ok = false
-				break
-			}
-		}
-		if !ok {
-			continue
-		}
-		agg.matched++
-		agg.addBucket(row.Time, levelIndex(v.levelValue()))
-		if capture {
-			ret.offer(retainedRec{rec: v.rec, level: v.level, msg: v.msg, fields: v.fields, shredded: v.shredded, fileIdx: -1})
-		}
-	}
-	return rows, nil
-}
-
 func (e *queryEngine) snapshot(ctx context.Context, keys []string, fromN, tillN int64) (StreamMarker, []logdb.LogFile, fileKeys, error) {
 	s := e.spool
 	s.mu.Lock()
@@ -616,16 +566,10 @@ func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apig
 			fs.mode = "capture"
 		}
 		fileStart := clock()
-		var scanErr error
-		if plan.raw {
-			fs.mode = "full"
-			fs.rows, scanErr = e.scanFileRaw(ctx, path, &q, agg, ret, capture, sc)
-		} else {
-			needs := columnNeeds{msg: needMsg, ints: capture || metaFiltered || q.specVersion > 0, fields: plan.needs, prune: plan.prune}
-			ev := &archiveEval{deploymentID: e.deploymentID, q: &q, plan: &plan, agg: agg, ret: ret, levelOnly: levelOnly, needMsg: needMsg, capture: capture, fileIdx: fi, sc: sc}
-			scanErr = scanArchiveColumns(ctx, path, fromN, needs, ev.consume)
-			fs.rows = ev.rows
-		}
+		needs := columnNeeds{msg: needMsg, ints: capture || metaFiltered || q.specVersion > 0, fields: plan.needs, prune: plan.prune}
+		ev := &archiveEval{deploymentID: e.deploymentID, q: &q, plan: &plan, agg: agg, ret: ret, levelOnly: levelOnly, needMsg: needMsg, capture: capture, fileIdx: fi, sc: sc}
+		scanErr := scanArchiveColumns(ctx, path, fromN, needs, ev.consume)
+		fs.rows = ev.rows
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}

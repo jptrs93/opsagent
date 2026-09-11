@@ -21,7 +21,6 @@ import (
 )
 
 const (
-	archiveLevelBatch    = 0
 	archiveLevelShredded = 1
 	archiveLevelRollup   = 2
 	rowGroupRows         = 128 * 1024

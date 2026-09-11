@@ -3,7 +3,6 @@ package logmanager
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -11,8 +10,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	logv2 "github.com/jptrs93/opsagent/backend/lib/log/v2"
 	"github.com/jptrs93/opsagent/backend/storage/logdb"
-	"github.com/parquet-go/parquet-go"
-	"github.com/parquet-go/parquet-go/compress/zstd"
 )
 
 var typedLines = []string{
@@ -211,96 +208,6 @@ func TestQueryRecordFieldsKeepNumberText(t *testing.T) {
 	}
 }
 
-func writeLevelZeroFile(t *testing.T, db *logdb.Queries, deploymentID int32, rows []logRow) logdb.LogFile {
-	t.Helper()
-	day := int32(rows[0].Time / int64(time.Second) / daySeconds)
-	dayDir := archiveDayDir(deploymentID, day)
-	if err := os.MkdirAll(dayDir, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	seq := newArchiveSeq()
-	minT, maxT := rows[0].Time, rows[0].Time
-	for _, r := range rows {
-		minT, maxT = min(minT, r.Time), max(maxT, r.Time)
-	}
-	path := filepath.Join(dayDir, archiveFileName(archiveLevelBatch, minT, maxT, rows[0].Node, seq))
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w := parquet.NewGenericWriter[logRow](f, parquet.Compression(&zstd.Codec{}))
-	if _, err := w.Write(rows); err != nil {
-		t.Fatal(err)
-	}
-	w.SetKeyValueMetadata(metadataSortedKey, metadataSortedVal)
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
-	info, err := f.Stat()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatal(err)
-	}
-	id, err := db.InsertLogFile(context.Background(), logdb.InsertLogFileParams{
-		DeploymentID: int64(deploymentID), Day: int64(day), Level: archiveLevelBatch, Node: int64(rows[0].Node), Seq: seq,
-		MinTime: minT, MaxTime: maxT, RowCount: int64(len(rows)), ByteSize: info.Size(), CreatedAt: clock().UnixMilli(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return logdb.LogFile{ID: id, DeploymentID: int64(deploymentID), Day: int64(day), Level: archiveLevelBatch, Node: int64(rows[0].Node), Seq: seq,
-		MinTime: minT, MaxTime: maxT, RowCount: int64(len(rows)), ByteSize: info.Size()}
-}
-
-func legacyRows(t *testing.T, day string) []logRow {
-	t.Helper()
-	base := mustTime(t, day+"T10:00:00Z")
-	var rows []logRow
-	for i, line := range typedLines {
-		level, msg, _ := parseLine([]byte(line))
-		rows = append(rows, logRow{
-			Time: base.Add(time.Duration(i) * time.Second).UnixNano(), Version: 1, Run: 1, Node: testNodeID,
-			Seq: int64(i + 1), Level: level, Msg: msg, RawMessage: []byte(line + "\n"),
-		})
-	}
-	return rows
-}
-
-func TestFieldFiltersAcrossLevelZeroAndShredded(t *testing.T) {
-	m := typedFixture(t)
-	writeLevelZeroFile(t, m.db, testDeploymentID, legacyRows(t, "2026-06-14"))
-	req := &apigen.LogQueryRequest{
-		DeploymentID: testDeploymentID,
-		TimeStart:    mustTime(t, "2026-06-14T00:00:00Z"),
-		TimeEnd:      mustTime(t, "2026-06-16T00:00:00Z"),
-		Filters:      []*apigen.LogFilter{{Field: "user", Op: "eq", Value: "68"}},
-	}
-	fast, err := m.Query(context.Background(), req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := make([]string, 0, len(fast.Records))
-	for _, r := range fast.Records {
-		got = append(got, r.Msg)
-	}
-	if !equalStrings(got, []string{"m5", "m2", "m1", "m2", "m1"}) {
-		t.Fatalf("msgs = %#v", got)
-	}
-	forceFullScan = true
-	full, err := m.Query(context.Background(), req)
-	forceFullScan = false
-	if err != nil {
-		t.Fatal(err)
-	}
-	fast.Stats.TookMs, full.Stats.TookMs = 0, 0
-	fast.Stats.ScannedRows, full.Stats.ScannedRows = 0, 0
-	if !reflect.DeepEqual(fast, full) {
-		t.Fatalf("two-pass = %+v\nfull = %+v", fast, full)
-	}
-}
-
 func TestRowGroupPruningKeepsResults(t *testing.T) {
 	old := denseLeafBudget
 	denseLeafBudget = 400
@@ -314,7 +221,7 @@ func TestRowGroupPruningKeepsResults(t *testing.T) {
 	}
 	filters := mustCompile(t, "user", "eq", "999")
 	plan := planFile(files[0], filters, []int{0}, fk, &lineScanner{})
-	if plan.skip || plan.raw || len(plan.bound) != 1 || len(plan.prune) != 0 {
+	if plan.skip || len(plan.bound) != 1 || len(plan.prune) != 0 {
 		t.Fatalf("plan with a string variant must not prune: %+v", plan)
 	}
 	filters = mustCompile(t, "dur", "gt", "100")
