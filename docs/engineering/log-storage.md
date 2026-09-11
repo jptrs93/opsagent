@@ -34,7 +34,7 @@ remaining open items are in
 
 | Level | Meaning | Written by |
 | --- | --- | --- |
-| 0 | Batch output, fixed schema, no key columns | Commits before shredding shipped; rewritten by the backfill |
+| 0 | Batch output, fixed schema, no key columns | Commits before shredding shipped; none remain, all were rewritten to level 1 by a since-removed backfill |
 | 1 | Batch output, shredded | Every commit |
 | 2 | Node day roll-up, shredded over the merged batch | Roll-up |
 
@@ -133,7 +133,7 @@ is the only durable fact about them.
 ## Maintenance
 
 `Manager` runs one maintenance goroutine per process. It wakes on a commit
-nudge or every minute and runs one job per wake, roll-up ahead of backfill;
+nudge or every minute and runs one roll-up job per wake;
 every hour it first reconciles the catalog with the disk. Jobs select from
 the catalog alone, so the loop has no state across restarts.
 
@@ -153,13 +153,6 @@ removes both.
   minutes ago and at least two level 1 files remain, they k-way-merge by
   record key into level 2 output, split so each file is about 256MB. A lone
   level 1 file is left alone.
-- **Backfill (level 0 to 1).** Level 0 files are rewritten one at a time,
-  newest first, with a two-second pause between files. The loop logs
-  `log backfill pending` with the file count and bytes at its first wake,
-  `backfilled log file` per file, `log backfill complete` once the last
-  level 0 row is gone, and a `log backfill blocked` warning when only
-  files that failed to rewrite remain. This is a one-time migration and
-  is removed once every node reports completion.
 - **Reconciliation.** Final-named archive files without a catalog row and
   catalog rows without a file are removed, each only once older than the
   grace and never while a rewrite still holds the file for its deferred

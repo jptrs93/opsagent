@@ -64,13 +64,6 @@ func (s walSource) rows() iter.Seq2[logRow, error] {
 	}
 }
 
-type fileSource struct {
-	path string
-}
-
-func (s fileSource) tally() iter.Seq2[logRow, error] { return readArchiveRows(s.path, 0) }
-func (s fileSource) rows() iter.Seq2[logRow, error]  { return readArchiveRows(s.path, 0) }
-
 type mergeSource struct {
 	paths []string
 }

@@ -43,14 +43,6 @@ SELECT DISTINCT deployment_id FROM log_files ORDER BY deployment_id;
 -- name: ListLogFileDaysBefore :many
 SELECT DISTINCT deployment_id, day FROM log_files WHERE day < ? ORDER BY deployment_id, day;
 
--- name: ListLevelZeroNewestFirst :many
-SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at
-FROM log_files WHERE level = 0 ORDER BY max_time DESC, id DESC LIMIT 64;
-
--- name: CountLevelZeroFiles :one
-SELECT COUNT(*) AS file_count, CAST(COALESCE(SUM(byte_size), 0) AS INTEGER) AS byte_total
-FROM log_files WHERE level = 0;
-
 -- name: ListLevelOneDays :many
 SELECT deployment_id, day, COUNT(*) AS file_count, SUM(byte_size) AS byte_total
 FROM log_files WHERE level = 1 GROUP BY deployment_id, day ORDER BY deployment_id, day;

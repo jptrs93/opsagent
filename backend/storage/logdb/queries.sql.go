@@ -11,23 +11,6 @@ import (
 	"strings"
 )
 
-const countLevelZeroFiles = `-- name: CountLevelZeroFiles :one
-SELECT COUNT(*) AS file_count, CAST(COALESCE(SUM(byte_size), 0) AS INTEGER) AS byte_total
-FROM log_files WHERE level = 0
-`
-
-type CountLevelZeroFilesRow struct {
-	FileCount int64
-	ByteTotal int64
-}
-
-func (q *Queries) CountLevelZeroFiles(ctx context.Context) (CountLevelZeroFilesRow, error) {
-	row := q.db.QueryRowContext(ctx, countLevelZeroFiles)
-	var i CountLevelZeroFilesRow
-	err := row.Scan(&i.FileCount, &i.ByteTotal)
-	return i, err
-}
-
 const deleteLogFile = `-- name: DeleteLogFile :exec
 DELETE FROM log_files WHERE id = ?
 `
@@ -211,46 +194,6 @@ func (q *Queries) ListLevelOneDays(ctx context.Context) ([]ListLevelOneDaysRow, 
 			&i.Day,
 			&i.FileCount,
 			&i.ByteTotal,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listLevelZeroNewestFirst = `-- name: ListLevelZeroNewestFirst :many
-SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at
-FROM log_files WHERE level = 0 ORDER BY max_time DESC, id DESC LIMIT 64
-`
-
-func (q *Queries) ListLevelZeroNewestFirst(ctx context.Context) ([]LogFile, error) {
-	rows, err := q.db.QueryContext(ctx, listLevelZeroNewestFirst)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []LogFile
-	for rows.Next() {
-		var i LogFile
-		if err := rows.Scan(
-			&i.ID,
-			&i.DeploymentID,
-			&i.Day,
-			&i.Level,
-			&i.Node,
-			&i.Seq,
-			&i.MinTime,
-			&i.MaxTime,
-			&i.RowCount,
-			&i.ByteSize,
-			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

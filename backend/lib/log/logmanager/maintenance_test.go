@@ -48,77 +48,6 @@ func queryMsgsAll(t *testing.T, m *Manager, filters ...*apigen.LogFilter) *apige
 	return resp
 }
 
-func TestBackfillRewritesLevelZero(t *testing.T) {
-	m := maintenanceEnv(t, typedFixture(t))
-	oldPause := backfillPause
-	backfillPause = 0
-	t.Cleanup(func() { backfillPause = oldPause })
-	l0 := writeLevelZeroFile(t, m.db, testDeploymentID, legacyRows(t, "2026-06-14"))
-	before := queryMsgsAll(t, m, &apigen.LogFilter{Field: "user", Op: "eq", Value: "68"})
-	if len(before.Records) != 5 {
-		t.Fatalf("records before = %d", len(before.Records))
-	}
-	if !step(t, m) {
-		t.Fatal("backfill did not run")
-	}
-	files := listFiles(t, m.db)
-	if len(files) != 2 {
-		t.Fatalf("files = %+v", files)
-	}
-	for _, f := range files {
-		if f.Level != archiveLevelShredded {
-			t.Fatalf("file still level %d: %+v", f.Level, f)
-		}
-		if _, err := os.Stat(archiveFilePath(testDeploymentID, f)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := os.Stat(archiveFilePath(testDeploymentID, l0)); !os.IsNotExist(err) {
-		t.Fatalf("level 0 file still present: %v", err)
-	}
-	rewritten := files[1]
-	if rewritten.RowCount != l0.RowCount || rewritten.MinTime != l0.MinTime || rewritten.MaxTime != l0.MaxTime || rewritten.Node != l0.Node || rewritten.Seq == l0.Seq {
-		t.Fatalf("rewritten = %+v, source = %+v", rewritten, l0)
-	}
-	if keys := fileKeyRows(t, m.db, rewritten.ID); keys["user/0"].RowCount != 2 {
-		t.Fatalf("rewritten keys = %+v", keys)
-	}
-	after := queryMsgsAll(t, m, &apigen.LogFilter{Field: "user", Op: "eq", Value: "68"})
-	if !reflect.DeepEqual(before, after) {
-		t.Fatalf("before = %+v\nafter = %+v", before, after)
-	}
-	if step(t, m) {
-		t.Fatal("second step should find nothing to do")
-	}
-	if p := m.backfillProg; !p.announced || !p.finished || p.done != 1 || p.blocked {
-		t.Fatalf("backfill progress = %+v", p)
-	}
-}
-
-func TestBackfillSkipsCorruptFileWithBackoff(t *testing.T) {
-	m := maintenanceEnv(t, typedFixture(t))
-	backfillPause = 0
-	l0 := writeLevelZeroFile(t, m.db, testDeploymentID, legacyRows(t, "2026-06-14"))
-	if err := os.WriteFile(archiveFilePath(testDeploymentID, l0), []byte("garbage"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := m.maintenanceStep(context.Background()); err == nil {
-		t.Fatal("corrupt file did not error")
-	}
-	if _, skipped := m.skipUntil[l0.ID]; !skipped {
-		t.Fatal("corrupt file not put on backoff")
-	}
-	if did, err := m.maintenanceStep(context.Background()); err != nil || did {
-		t.Fatalf("skipped file retried: did=%v err=%v", did, err)
-	}
-	if files := listFiles(t, m.db); len(files) != 2 || files[1].ID != l0.ID {
-		t.Fatalf("level 0 row should survive a failed rewrite: %+v", files)
-	}
-	if p := m.backfillProg; !p.announced || p.finished || p.done != 0 || !p.blocked {
-		t.Fatalf("backfill progress = %+v", p)
-	}
-}
-
 func twoBatchFixture(t *testing.T) *Manager {
 	t.Helper()
 	streamTiming(t, time.Millisecond, time.Millisecond, time.Millisecond)
@@ -310,30 +239,45 @@ func TestCompletePendingSwapToleratesRewrittenFile(t *testing.T) {
 }
 
 func TestSweepKeepsFilesPendingUnlink(t *testing.T) {
-	m := maintenanceEnv(t, typedFixture(t))
+	m := maintenanceEnv(t, twoBatchFixture(t))
 	disableRetention(t)
-	backfillPause = 0
 	rewriteGrace = time.Hour
-	l0 := writeLevelZeroFile(t, m.db, testDeploymentID, legacyRows(t, "2026-06-14"))
-	oldPath := archiveFilePath(testDeploymentID, l0)
+	inputs := listFiles(t, m.db)
+	if len(inputs) != 2 {
+		t.Fatalf("files = %+v", inputs)
+	}
+	oldTarget := rollupTargetBytes
+	rollupTargetBytes = inputs[0].ByteSize + inputs[1].ByteSize
+	t.Cleanup(func() { rollupTargetBytes = oldTarget })
 	past := time.Now().Add(-48 * time.Hour)
-	if err := os.Chtimes(oldPath, past, past); err != nil {
-		t.Fatal(err)
+	var oldPaths []string
+	for _, in := range inputs {
+		p := archiveFilePath(testDeploymentID, in)
+		if err := os.Chtimes(p, past, past); err != nil {
+			t.Fatal(err)
+		}
+		oldPaths = append(oldPaths, p)
 	}
 	if did, err := m.maintenanceStep(context.Background()); err != nil || !did {
-		t.Fatalf("backfill did not run: did=%v err=%v", did, err)
+		t.Fatalf("roll-up did not run: did=%v err=%v", did, err)
 	}
-	if !m.isPendingUnlink(oldPath) {
-		t.Fatal("swapped file not registered for grace unlink")
+	for _, p := range oldPaths {
+		if !m.isPendingUnlink(p) {
+			t.Fatalf("%s not registered for grace unlink", p)
+		}
 	}
 	m.reconcile(context.Background())
-	if _, err := os.Stat(oldPath); err != nil {
-		t.Fatalf("sweep removed a file inside the rewrite grace: %v", err)
+	for _, p := range oldPaths {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("sweep removed a file inside the rewrite grace: %v", err)
+		}
 	}
 	rewriteGrace = 0
-	m.setPendingUnlink([]string{oldPath}, false)
+	m.setPendingUnlink(oldPaths, false)
 	m.reconcile(context.Background())
-	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
-		t.Fatalf("sweep left a rowless file past the grace: %v", err)
+	for _, p := range oldPaths {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("sweep left a rowless file past the grace: %v", err)
+		}
 	}
 }

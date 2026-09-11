@@ -38,8 +38,6 @@ type Manager struct {
 	scanStopped   chan struct{}
 	maintStopped  chan struct{}
 	nudge         chan struct{}
-	skipUntil     map[int64]time.Time
-	backfillProg  backfillProgress
 	unlinkWG      sync.WaitGroup
 	unlinkMu      sync.Mutex
 	pendingUnlink map[string]struct{}
@@ -53,7 +51,6 @@ func newManager(db *logdb.Queries) *Manager {
 		scanStopped:   make(chan struct{}),
 		maintStopped:  make(chan struct{}),
 		nudge:         make(chan struct{}, 1),
-		skipUntil:     map[int64]time.Time{},
 		pendingUnlink: map[string]struct{}{},
 	}
 }

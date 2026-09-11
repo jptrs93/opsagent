@@ -20,9 +20,9 @@ All eight steps of the plan are implemented in `backend/lib/log/logmanager`.
 | 3 Two-pass commit and catalog | `archivewrite.go`, `logcollector.go`: tally then write, `log_file_keys`, 64MB commits, maintenance nudge |
 | 4 Column-resolved filters | `twopass.go`, `semantics.go`: per-file binding from the catalog, dense and spill readers, absent-key short-circuit, level 0 scanned raw |
 | 5 Reconciliation and retention | `maintenance.go`: rowless file sweep, fileless row sweep, 30-day archive and WAL retention |
-| 6 Backfill | `maintenance.go`: newest-first level 0 rewrite with the 4-step swap and grace unlink |
+| 6 Backfill | Ran once as a newest-first level 0 rewrite with the 4-step swap and grace unlink; completed on every node on 2026-09-11 and the code was removed |
 | 7 Typed ops and API | `gt`/`gte`/`lt`/`lte`, `LogFilter.text`, query-bar grammar, row-group pruning from the column index |
-| 8 Roll-up | `maintenance.go`: byte-triggered level 2 merge with the day-end sweep, ahead of backfill |
+| 8 Roll-up | `maintenance.go`: byte-triggered level 2 merge with the day-end sweep |
 
 Deviations from the plan as written:
 
@@ -91,12 +91,10 @@ gets its own version column when it happens.
   roughly 500KB of footer at the full budget. Larger row groups would
   shrink it at the cost of coarser time pruning. Keep 128k unless measured
   footers say otherwise.
-- **Backfill removal.** The level 0 backfill is a one-time migration. Once
-  every node has logged `log backfill complete`, delete `nextBackfill`,
-  `backfill`, `announceBackfill`, `reportBackfillIdle`, `backfillProgress`,
-  `fileSource`, `backfillEnabled`, the `ListLevelZeroNewestFirst` and
-  `CountLevelZeroFiles` queries, and the two backfill tests. The rewrite
-  protocol and `commitRewrite` stay for the roll-up.
+- **Level 0 read path.** No level 0 files remain, but the query planner
+  still scans a level 0 file raw when a field filter binds to it. Remove
+  that branch and the level 0 query test once a release has shipped without
+  producing any.
 - **Roll-up tiers.** A third tier merging level 2 files into larger units
   is the same routine with level 2 inputs and waits for S3 upload.
 - **Field sidebar from the catalog.** `log_file_keys.row_count` summed over

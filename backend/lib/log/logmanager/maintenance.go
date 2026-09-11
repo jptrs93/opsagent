@@ -18,12 +18,9 @@ var (
 	rewriteGrace      = time.Minute
 	reconcileInterval = time.Hour
 	maintenanceTick   = time.Minute
-	backfillPause     = 2 * time.Second
-	backfillBackoff   = time.Hour
 	retentionDays     = int32(30)
 	rollupTargetBytes = int64(256 << 20)
 	rollupDayEndDelay = 15 * time.Minute
-	backfillEnabled   = true
 )
 
 type rollupJob struct {
@@ -64,71 +61,11 @@ func (m *Manager) runMaintenance(ctx context.Context) {
 }
 
 func (m *Manager) maintenanceStep(ctx context.Context) (bool, error) {
-	if job, ok, err := m.nextRollup(ctx); err != nil {
-		return false, err
-	} else if ok {
-		return true, m.runRollup(ctx, job)
-	}
-	if !backfillEnabled {
-		return false, nil
-	}
-	if err := m.announceBackfill(ctx); err != nil {
+	job, ok, err := m.nextRollup(ctx)
+	if err != nil || !ok {
 		return false, err
 	}
-	f, ok, err := m.nextBackfill(ctx)
-	if err != nil {
-		return false, err
-	}
-	if !ok {
-		return false, m.reportBackfillIdle(ctx)
-	}
-	err = m.backfill(ctx, f)
-	contextu.Sleep(ctx, backfillPause)
-	return true, err
-}
-
-type backfillProgress struct {
-	announced bool
-	done      int
-	finished  bool
-	blocked   bool
-}
-
-func (m *Manager) announceBackfill(ctx context.Context) error {
-	if m.backfillProg.announced {
-		return nil
-	}
-	c, err := m.db.CountLevelZeroFiles(ctx)
-	if err != nil {
-		return err
-	}
-	m.backfillProg.announced = true
-	if c.FileCount == 0 {
-		m.backfillProg.finished = true
-		return nil
-	}
-	slog.InfoContext(m.ctx, "log backfill pending", "files", c.FileCount, "bytes", c.ByteTotal)
-	return nil
-}
-
-func (m *Manager) reportBackfillIdle(ctx context.Context) error {
-	if m.backfillProg.finished {
-		return nil
-	}
-	c, err := m.db.CountLevelZeroFiles(ctx)
-	if err != nil {
-		return err
-	}
-	if c.FileCount == 0 {
-		m.backfillProg.finished = true
-		slog.InfoContext(m.ctx, "log backfill complete", "files", m.backfillProg.done)
-		return nil
-	}
-	if !m.backfillProg.blocked {
-		m.backfillProg.blocked = true
-		slog.WarnContext(m.ctx, "log backfill blocked on files that failed to rewrite", "files", c.FileCount, "bytes", c.ByteTotal, "done", m.backfillProg.done)
-	}
-	return nil
+	return true, m.runRollup(ctx, job)
 }
 
 func dayEnd(day int32) time.Time {
@@ -185,45 +122,6 @@ func (m *Manager) runRollup(ctx context.Context, job rollupJob) error {
 		return err
 	}
 	slog.InfoContext(m.ctx, "rolled up log files", "dep", job.deploymentID, "day", dayDirName(job.day), "inputs", len(inputs), "outputs", len(outs), "bytes", totalBytes)
-	return nil
-}
-
-func (m *Manager) nextBackfill(ctx context.Context) (logdb.LogFile, bool, error) {
-	files, err := m.db.ListLevelZeroNewestFirst(ctx)
-	if err != nil {
-		return logdb.LogFile{}, false, err
-	}
-	now := clock()
-	for _, f := range files {
-		if until, skipped := m.skipUntil[f.ID]; skipped && now.Before(until) {
-			continue
-		}
-		return f, true, nil
-	}
-	return logdb.LogFile{}, false, nil
-}
-
-func (m *Manager) backfill(ctx context.Context, f logdb.LogFile) error {
-	dep, day := int32(f.DeploymentID), int32(f.Day)
-	dayDir := archiveDayDir(dep, day)
-	err := func() error {
-		if err := ensureFreeSpace(dayDir, 2*f.ByteSize); err != nil {
-			return err
-		}
-		outs, err := writeArchiveFiles(ctx, dayDir, dep, fileSource{path: archiveFilePath(dep, f)}, 0)
-		if err != nil {
-			return err
-		}
-		return m.commitRewrite(ctx, dep, day, archiveLevelShredded, []logdb.LogFile{f}, outs)
-	}()
-	if err != nil {
-		m.skipUntil[f.ID] = clock().Add(backfillBackoff)
-		return err
-	}
-	delete(m.skipUntil, f.ID)
-	m.backfillProg.done++
-	m.backfillProg.blocked = false
-	slog.InfoContext(m.ctx, "backfilled log file", "dep", dep, "file", logFileName(f))
 	return nil
 }
 
