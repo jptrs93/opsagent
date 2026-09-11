@@ -694,21 +694,71 @@ func (r *containerRunner) notifyArtifactMissing() {
 }
 
 func (r *containerRunner) monitorTask(task *ctrd.Task) *int32 {
-	exitCh, err := task.Wait(r.ctx)
-	if err != nil {
-		slog.WarnContext(r.ctx, "waiting on container task failed", "err", err)
-		return nil
-	}
-	select {
-	case es := <-exitCh:
-		if es.Err != nil {
-			slog.WarnContext(r.ctx, "reading container exit status failed", "err", es.Err)
+	return waitTaskExit(r.ctx, task)
+}
+
+type taskWaiter interface {
+	Wait(ctx context.Context) (<-chan ctrd.ExitStatus, error)
+	Status(ctx context.Context) (ctrd.TaskStatus, error)
+}
+
+var (
+	taskRecheckInterval = time.Second
+	taskRecheckWindow   = time.Minute
+)
+
+func waitTaskExit(ctx context.Context, task taskWaiter) *int32 {
+	for {
+		exitCh, err := task.Wait(ctx)
+		if err == nil {
+			select {
+			case es := <-exitCh:
+				if es.Err == nil {
+					code := int32(es.Code)
+					return &code
+				}
+				err = es.Err
+			case <-ctx.Done():
+				return nil
+			}
+		}
+		if ctx.Err() != nil {
 			return nil
 		}
-		code := int32(es.Code)
-		return &code
-	case <-r.ctx.Done():
-		return nil
+		slog.WarnContext(ctx, "container exit stream lost, re-checking task", "err", err)
+		st, ok := recheckTask(ctx, task)
+		if !ok {
+			return nil
+		}
+		if st.Stopped {
+			slog.InfoContext(ctx, "container exited while its exit stream was down")
+			code := int32(st.ExitCode)
+			return &code
+		}
+		slog.InfoContext(ctx, "container task still running, resuming exit wait")
+	}
+}
+
+func recheckTask(ctx context.Context, task taskWaiter) (ctrd.TaskStatus, bool) {
+	deadline := time.Now().Add(taskRecheckWindow)
+	for {
+		st, err := task.Status(ctx)
+		if err == nil {
+			return st, true
+		}
+		if errors.Is(err, ctrd.ErrNotFound) {
+			slog.WarnContext(ctx, "container task gone after exit stream loss", "err", err)
+			return ctrd.TaskStatus{}, false
+		}
+		if time.Now().After(deadline) {
+			slog.WarnContext(ctx, "container task status unavailable after exit stream loss, treating as exited", "err", err)
+			return ctrd.TaskStatus{}, false
+		}
+		select {
+		case <-time.After(taskRecheckInterval):
+		case <-ctx.Done():
+			return ctrd.TaskStatus{}, false
+		}
 	}
 }
 

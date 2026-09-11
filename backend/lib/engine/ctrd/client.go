@@ -383,6 +383,25 @@ func (t *Task) Wait(ctx context.Context) (<-chan ExitStatus, error) {
 	return out, nil
 }
 
+type TaskStatus struct {
+	Stopped  bool
+	ExitCode uint32
+}
+
+func (t *Task) Status(ctx context.Context) (TaskStatus, error) {
+	st, err := t.task.Status(t.client.withNS(ctx))
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return TaskStatus{}, ErrNotFound
+		}
+		return TaskStatus{}, err
+	}
+	if st.Status == containerd.Stopped {
+		return TaskStatus{Stopped: true, ExitCode: st.ExitStatus}, nil
+	}
+	return TaskStatus{}, nil
+}
+
 func (t *Task) Kill(ctx context.Context, sig syscall.Signal) error {
 	return t.task.Kill(t.client.withNS(ctx), sig)
 }

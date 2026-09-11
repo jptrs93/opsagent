@@ -475,3 +475,109 @@ func TestContainerNaming(t *testing.T) {
 		}
 	}
 }
+
+type fakeTaskWaiter struct {
+	waits    []fakeWait
+	statuses []fakeStatus
+	waitN    int
+	statusN  int
+}
+
+type fakeWait struct {
+	exit ctrd.ExitStatus
+	err  error
+}
+
+type fakeStatus struct {
+	st  ctrd.TaskStatus
+	err error
+}
+
+func (f *fakeTaskWaiter) Wait(context.Context) (<-chan ctrd.ExitStatus, error) {
+	w := f.waits[min(f.waitN, len(f.waits)-1)]
+	f.waitN++
+	if w.err != nil {
+		return nil, w.err
+	}
+	ch := make(chan ctrd.ExitStatus, 1)
+	ch <- w.exit
+	return ch, nil
+}
+
+func (f *fakeTaskWaiter) Status(context.Context) (ctrd.TaskStatus, error) {
+	s := f.statuses[min(f.statusN, len(f.statuses)-1)]
+	f.statusN++
+	return s.st, s.err
+}
+
+func TestWaitTaskExitResumesAfterStreamLoss(t *testing.T) {
+	taskRecheckInterval = time.Millisecond
+	taskRecheckWindow = 50 * time.Millisecond
+	t.Cleanup(func() { taskRecheckInterval = time.Second; taskRecheckWindow = time.Minute })
+	eof := errors.New("rpc error: code = Unavailable desc = error reading from server: EOF")
+	code := func(c int32) *int32 { return &c }
+	cases := []struct {
+		name  string
+		task  *fakeTaskWaiter
+		want  *int32
+		waits int
+	}{
+		{"clean exit", &fakeTaskWaiter{waits: []fakeWait{{exit: ctrd.ExitStatus{Code: 3}}}}, code(3), 1},
+		{"stream error then still running", &fakeTaskWaiter{
+			waits:    []fakeWait{{exit: ctrd.ExitStatus{Err: eof}}, {exit: ctrd.ExitStatus{Code: 0}}},
+			statuses: []fakeStatus{{st: ctrd.TaskStatus{}}},
+		}, code(0), 2},
+		{"wait call fails then still running", &fakeTaskWaiter{
+			waits:    []fakeWait{{err: eof}, {exit: ctrd.ExitStatus{Code: 5}}},
+			statuses: []fakeStatus{{st: ctrd.TaskStatus{}}},
+		}, code(5), 2},
+		{"exited while disconnected", &fakeTaskWaiter{
+			waits:    []fakeWait{{exit: ctrd.ExitStatus{Err: eof}}},
+			statuses: []fakeStatus{{st: ctrd.TaskStatus{Stopped: true, ExitCode: 7}}},
+		}, code(7), 1},
+		{"status unavailable then running", &fakeTaskWaiter{
+			waits:    []fakeWait{{exit: ctrd.ExitStatus{Err: eof}}, {exit: ctrd.ExitStatus{Code: 1}}},
+			statuses: []fakeStatus{{err: eof}, {err: eof}, {st: ctrd.TaskStatus{}}},
+		}, code(1), 2},
+		{"task gone", &fakeTaskWaiter{
+			waits:    []fakeWait{{exit: ctrd.ExitStatus{Err: eof}}},
+			statuses: []fakeStatus{{err: ctrd.ErrNotFound}},
+		}, nil, 1},
+		{"status never recovers", &fakeTaskWaiter{
+			waits:    []fakeWait{{exit: ctrd.ExitStatus{Err: eof}}},
+			statuses: []fakeStatus{{err: eof}},
+		}, nil, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := waitTaskExit(context.Background(), tc.task)
+			if (got == nil) != (tc.want == nil) || (got != nil && *got != *tc.want) {
+				t.Fatalf("exit code = %v, want %v", got, tc.want)
+			}
+			if tc.task.waitN != tc.waits {
+				t.Fatalf("wait calls = %d, want %d", tc.task.waitN, tc.waits)
+			}
+		})
+	}
+}
+
+func TestWaitTaskExitStopsOnContextCancel(t *testing.T) {
+	taskRecheckInterval = time.Hour
+	t.Cleanup(func() { taskRecheckInterval = time.Second })
+	ctx, cancel := context.WithCancel(context.Background())
+	task := &fakeTaskWaiter{
+		waits:    []fakeWait{{exit: ctrd.ExitStatus{Err: errors.New("EOF")}}},
+		statuses: []fakeStatus{{err: errors.New("unavailable")}},
+	}
+	done := make(chan *int32, 1)
+	go func() { done <- waitTaskExit(ctx, task) }()
+	cancel()
+	select {
+	case got := <-done:
+		if got != nil {
+			t.Fatalf("exit code = %v, want nil", *got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitTaskExit did not return after cancel")
+	}
+}
