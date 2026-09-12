@@ -1,0 +1,14 @@
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/authz	0.518s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/webuihandler	4.582s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/clusterhandler	1.256s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/enrollmenthandler	0.746s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/deployments	1.020s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/pki	1.429s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/secrets	1.924s
+ok  	github.com/jptrs93/opsagent/backend/lib/middleware/ratelimit	1.857s
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/registryauth	0.512s
+ok  	github.com/jptrs93/opsagent/backend/lib/repo/git	5.496s
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/runner	2.331s
+ok  	github.com/jptrs93/opsagent/backend/lib/network	2.815s
+ok  	github.com/jptrs93/opsagent/backend/app/secondary	2.574s
+ok  	github.com/jptrs93/opsagent/backend/util/certu	2.073s

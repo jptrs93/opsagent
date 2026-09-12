@@ -1,0 +1,32 @@
+=== RUN   TestAuditAgentCanBindDeniedSecret
+    security_audit_20260911_test.go:22: REPRODUCED: delegated secret reveal denied; same agent's workload with secret environment binding accepted. Workload was not run.
+--- PASS: TestAuditAgentCanBindDeniedSecret (0.01s)
+=== RUN   TestAuditSpaceOperatorCanMountProtectedParent
+    security_audit_20260911_test.go:30: REPRODUCED: built-in space_admin can submit a read-write /var/lib host mount. No mount executed.
+--- PASS: TestAuditSpaceOperatorCanMountProtectedParent (0.01s)
+=== RUN   TestAuditPasskeyUpdatesAppendDuplicateIDs
+    security_audit_20260911_test.go:46: REPRODUCED: saving one credential twice creates two rows in the user record, retaining the first stale counter. Callback tested; no authenticator used.
+--- PASS: TestAuditPasskeyUpdatesAppendDuplicateIDs (0.01s)
+PASS
+ok  	github.com/jptrs93/opsagent/backend/app/primary/webuihandler	0.353s
+=== RUN   TestAuditMountParentAndSymlinkValidation
+    security_audit_20260911_test.go:18: REPRODUCED: protected child denied but /var, /var/lib and a symlink to /etc accepted. No protected files read or mounted.
+--- PASS: TestAuditMountParentAndSymlinkValidation (0.00s)
+=== RUN   TestAuditUnownedCertificateNameAccepted
+    security_audit_20260911_test.go:23: REPRODUCED: a different space's DNS name passes workload certificate validation.
+--- PASS: TestAuditUnownedCertificateNameAccepted (0.00s)
+PASS
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/deployments	0.537s
+=== RUN   TestAuditWorkloadCertificateVerifiesForUnownedName
+    security_audit_20260911_test.go:16: REPRODUCED: certificate for deployment in space 2 verifies as payments.space-999.internal under the shared workload CA.
+--- PASS: TestAuditWorkloadCertificateVerifiesForUnownedName (0.01s)
+PASS
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/pki	0.991s
+=== RUN   TestAuditRegistryRealmCallsLoopback
+    security_audit_20260911_test.go:17: REPRODUCED: registry bearer realm triggers a GET to a loopback HTTP URL.
+--- PASS: TestAuditRegistryRealmCallsLoopback (0.00s)
+=== RUN   TestAuditRegistryPaginationForwardsBearerToAnotherOrigin
+    security_audit_20260911_test.go:31: REPRODUCED: non-GHCR registry pagination sends bearer token to another origin over HTTP. All traffic stayed on loopback.
+--- PASS: TestAuditRegistryPaginationForwardsBearerToAnotherOrigin (0.00s)
+PASS
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/versionprovider	0.760s

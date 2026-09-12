@@ -1,0 +1,657 @@
+{
+  "config": {
+    "protocol_version": "v1.0.0",
+    "scanner_name": "govulncheck",
+    "scanner_version": "v1.8.0",
+    "db": "https://vuln.go.dev",
+    "db_last_modified": "2026-09-10T14:48:42Z",
+    "go_version": "go1.27.0",
+    "scan_level": "symbol",
+    "scan_mode": "source"
+  },
+  "symbol_findings": [
+    {
+      "id": "GO-2026-4918",
+      "summary": "Infinite loop in HTTP/2 transport when given bad SETTINGS_MAX_FRAME_SIZE in net/http/internal/http2 in golang.org/x/net",
+      "details": "When processing HTTP/2 SETTINGS frames, transport will enter an infinite loop of writing CONTINUATION frames if it receives a SETTINGS_MAX_FRAME_SIZE with a value of 0.",
+      "references": [
+        {
+          "type": "FIX",
+          "url": "https://go.dev/cl/761581"
+        },
+        {
+          "type": "FIX",
+          "url": "https://go.dev/cl/761640"
+        },
+        {
+          "type": "REPORT",
+          "url": "https://go.dev/issue/78476"
+        },
+        {
+          "type": "WEB",
+          "url": "https://groups.google.com/g/golang-announce/c/qcCIEXso47M"
+        }
+      ],
+      "example_trace": {
+        "osv": "GO-2026-4918",
+        "fixed_version": "v0.53.0",
+        "trace": [
+          {
+            "module": "golang.org/x/net",
+            "version": "v0.52.0",
+            "package": "golang.org/x/net/http2",
+            "function": "RoundTrip",
+            "receiver": "*Transport",
+            "position": {
+              "filename": "http2/transport.go",
+              "offset": 20386,
+              "line": 560,
+              "column": 21
+            }
+          },
+          {
+            "module": "github.com/jptrs93/opsagent/backend",
+            "package": "github.com/jptrs93/opsagent/backend/app/netproxy",
+            "function": "RoundTrip",
+            "receiver": "*h2BackendTransport",
+            "position": {
+              "filename": "app/netproxy/https.go",
+              "offset": 9342,
+              "line": 330,
+              "column": 27
+            }
+          }
+        ]
+      },
+      "reported_symbol_paths": 1
+    },
+    {
+      "id": "GO-2026-5026",
+      "summary": "Invoking failure to reject ASCII-only Punycode-encoded labels in golang.org/x/net/idna",
+      "details": "The ToASCII and ToUnicode functions incorrectly accept Punycode-encoded labels that decode to an ASCII-only label. For example, ToUnicode(\"xn--example-.com\") incorrectly returns the name \"example.com\" rather than an error.\n\nThis behavior can lead to privilege escalation in programs using the idna package. For example, a program which performs privilege checks on the ASCII hostname may reject \"example.com\" but permit \"xn--example-.com\". If that program subsequently converts the ASCII hostname to Unicode, it will inadvertently permits access to the Unicode name \"example.com\".",
+      "references": [
+        {
+          "type": "FIX",
+          "url": "https://go.dev/cl/767220"
+        },
+        {
+          "type": "REPORT",
+          "url": "https://go.dev/issue/78760"
+        },
+        {
+          "type": "WEB",
+          "url": "https://groups.google.com/g/golang-announce/c/iI-mYSI0lu8"
+        },
+        {
+          "type": "WEB",
+          "url": "https://groups.google.com/g/golang-announce/c/94pEornpRlI"
+        }
+      ],
+      "example_trace": {
+        "osv": "GO-2026-5026",
+        "fixed_version": "v0.55.0",
+        "trace": [
+          {
+            "module": "golang.org/x/net",
+            "version": "v0.52.0",
+            "package": "golang.org/x/net/idna",
+            "function": "ToASCII",
+            "receiver": "*Profile",
+            "position": {
+              "filename": "idna/idna10.0.0.go",
+              "offset": 8245,
+              "line": 228,
+              "column": 19
+            }
+          },
+          {
+            "module": "golang.org/x/crypto",
+            "version": "v0.49.0",
+            "package": "golang.org/x/crypto/acme/autocert",
+            "function": "HostWhitelist",
+            "position": {
+              "filename": "acme/autocert/autocert.go",
+              "offset": 2546,
+              "line": 78,
+              "column": 35
+            }
+          },
+          {
+            "module": "github.com/jptrs93/opsagent/backend",
+            "package": "github.com/jptrs93/opsagent/backend/app/primary/webui",
+            "function": "webUITLSConfig",
+            "position": {
+              "filename": "app/primary/webui/server.go",
+              "offset": 4390,
+              "line": 128,
+              "column": 38
+            }
+          },
+          {
+            "module": "github.com/jptrs93/opsagent/backend",
+            "package": "github.com/jptrs93/opsagent/backend/app/primary/webui",
+            "function": "RunPrimaryHTTPSWebUI",
+            "position": {
+              "filename": "app/primary/webui/server.go",
+              "offset": 2027,
+              "line": 63,
+              "column": 34
+            }
+          }
+        ]
+      },
+      "reported_symbol_paths": 2
+    },
+    {
+      "id": "GO-2026-5064",
+      "summary": "containerd CRI checkpoint restore CDI annotation smuggling in github.com/containerd/containerd",
+      "details": "containerd CRI checkpoint restore CDI annotation smuggling in github.com/containerd/containerd",
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/containerd/containerd/security/advisories/GHSA-33vj-92qq-66hc"
+        }
+      ],
+      "example_trace": {
+        "osv": "GO-2026-5064",
+        "fixed_version": "v2.3.2",
+        "trace": [
+          {
+            "module": "github.com/containerd/containerd/v2",
+            "version": "v2.3.1",
+            "package": "github.com/containerd/containerd/v2/client",
+            "function": "init",
+            "position": {
+              "filename": "client/client.go",
+              "offset": 596,
+              "line": 17,
+              "column": 1
+            }
+          },
+          {
+            "module": "github.com/jptrs93/opsagent/backend",
+            "package": "github.com/jptrs93/opsagent/backend/lib/engine/ctrd",
+            "function": "init",
+            "position": {
+              "filename": "lib/engine/ctrd/client.go",
+              "offset": 87,
+              "line": 12,
+              "column": 2
+            }
+          }
+        ]
+      },
+      "reported_symbol_paths": 317
+    },
+    {
+      "id": "GO-2026-5338",
+      "summary": "containerd: CRI checkpoint import allows local image tag poisoning in github.com/containerd/containerd",
+      "details": "containerd: CRI checkpoint import allows local image tag poisoning in github.com/containerd/containerd",
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/containerd/containerd/security/advisories/GHSA-cvxm-645q-p574"
+        }
+      ],
+      "example_trace": {
+        "osv": "GO-2026-5338",
+        "fixed_version": "v2.3.2",
+        "trace": [
+          {
+            "module": "github.com/containerd/containerd/v2",
+            "version": "v2.3.1",
+            "package": "github.com/containerd/containerd/v2/pkg/oci",
+            "function": "WithLinuxNamespace",
+            "position": {
+              "filename": "pkg/oci/spec_opts.go",
+              "offset": 9534,
+              "line": 342,
+              "column": 6
+            }
+          },
+          {
+            "module": "github.com/jptrs93/opsagent/backend",
+            "package": "github.com/jptrs93/opsagent/backend/lib/engine/ctrd",
+            "function": "RunTask",
+            "receiver": "*Client",
+            "position": {
+              "filename": "lib/engine/ctrd/client.go",
+              "offset": 5721,
+              "line": 197,
+              "column": 53
+            }
+          }
+        ]
+      },
+      "reported_symbol_paths": 317
+    },
+    {
+      "id": "GO-2026-5475",
+      "summary": "containerd image-triggered runtime DoS via unbounded group parsing in github.com/containerd/containerd",
+      "details": "containerd image-triggered runtime DoS via unbounded group parsing in github.com/containerd/containerd",
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/containerd/containerd/security/advisories/GHSA-jpcc-p29g-p8mq"
+        }
+      ],
+      "example_trace": {
+        "osv": "GO-2026-5475",
+        "fixed_version": "v2.3.2",
+        "trace": [
+          {
+            "module": "github.com/containerd/containerd/v2",
+            "version": "v2.3.1",
+            "package": "github.com/containerd/containerd/v2/client",
+            "function": "Containers",
+            "receiver": "*Client",
+            "position": {
+              "filename": "client/client.go",
+              "offset": 10675,
+              "line": 326,
+              "column": 18
+            }
+          },
+          {
+            "module": "github.com/jptrs93/opsagent/backend",
+            "package": "github.com/jptrs93/opsagent/backend/lib/engine/ctrd",
+            "function": "ListContainerIDs",
+            "receiver": "*Client",
+            "position": {
+              "filename": "lib/engine/ctrd/client.go",
+              "offset": 8558,
+              "line": 286,
+              "column": 34
+            }
+          }
+        ]
+      },
+      "reported_symbol_paths": 317
+    },
+    {
+      "id": "GO-2026-5622",
+      "summary": "Arbitrary host CRI log file read via symlink following in CRI checkpoint restore in github.com/containerd/containerd",
+      "details": "Arbitrary host CRI log file read via symlink following in CRI checkpoint restore in github.com/containerd/containerd",
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/containerd/containerd/security/advisories/GHSA-rgh6-rfwx-v388"
+        }
+      ],
+      "example_trace": {
+        "osv": "GO-2026-5622",
+        "fixed_version": "v2.3.2",
+        "trace": [
+          {
+            "module": "github.com/containerd/containerd/v2",
+            "version": "v2.3.1",
+            "package": "github.com/containerd/containerd/v2/client",
+            "function": "Kill",
+            "receiver": "*task",
+            "position": {
+              "filename": "client/task.go",
+              "offset": 8892,
+              "line": 271,
+              "column": 16
+            }
+          },
+          {
+            "module": "github.com/jptrs93/opsagent/backend",
+            "package": "github.com/jptrs93/opsagent/backend/lib/engine/ctrd",
+            "function": "Kill",
+            "receiver": "*Task",
+            "position": {
+              "filename": "lib/engine/ctrd/client.go",
+              "offset": 11427,
+              "line": 387,
+              "column": 20
+            }
+          }
+        ]
+      },
+      "reported_symbol_paths": 317
+    },
+    {
+      "id": "GO-2026-5758",
+      "summary": "containerd CRI \u2014 image-config `LABEL` flows to restart-monitor `binary://` logger: host-root command execution from an image pull in github.com/containerd/containerd",
+      "details": "containerd CRI \u2014 image-config `LABEL` flows to restart-monitor `binary://` logger: host-root command execution from an image pull in github.com/containerd/containerd",
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/containerd/containerd/security/advisories/GHSA-xhf5-7wjv-pqxp"
+        }
+      ],
+      "example_trace": {
+        "osv": "GO-2026-5758",
+        "fixed_version": "v2.3.2",
+        "trace": [
+          {
+            "module": "github.com/containerd/containerd/v2",
+            "version": "v2.3.1",
+            "package": "github.com/containerd/containerd/v2/client",
+            "function": "Start",
+            "receiver": "*task",
+            "position": {
+              "filename": "client/task.go",
+              "offset": 8385,
+              "line": 249,
+              "column": 16
+            }
+          },
+          {
+            "module": "github.com/jptrs93/opsagent/backend",
+            "package": "github.com/jptrs93/opsagent/backend/lib/engine/ctrd",
+            "function": "RunTask",
+            "receiver": "*Client",
+            "position": {
+              "filename": "lib/engine/ctrd/client.go",
+              "offset": 7681,
+              "line": 261,
+              "column": 22
+            }
+          }
+        ]
+      },
+      "reported_symbol_paths": 317
+    },
+    {
+      "id": "GO-2026-5764",
+      "summary": "DoS due to Panic in AWS SDK for Go v2 SDK EventStream Decoder in github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream",
+      "details": "DoS due to Panic in AWS SDK for Go v2 SDK EventStream Decoder in github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream",
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/aws/aws-sdk-go-v2/security/advisories/GHSA-xmrv-pmrh-hhx2"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/aws/aws-sdk-go-v2/releases/tag/release-2026-03-23"
+        }
+      ],
+      "example_trace": {
+        "osv": "GO-2026-5764",
+        "fixed_version": "v1.97.3",
+        "trace": [
+          {
+            "module": "github.com/aws/aws-sdk-go-v2/service/s3",
+            "version": "v1.95.0",
+            "package": "github.com/aws/aws-sdk-go-v2/service/s3",
+            "function": "init",
+            "position": {
+              "filename": "api_client.go",
+              "offset": 53,
+              "line": 3,
+              "column": 1
+            }
+          },
+          {
+            "module": "github.com/jptrs93/opsagent/backend",
+            "package": "github.com/jptrs93/opsagent/backend/app/primary/domain/assets",
+            "function": "init",
+            "position": {
+              "filename": "app/primary/domain/assets/reconcile.go",
+              "offset": 295,
+              "line": 16,
+              "column": 2
+            }
+          }
+        ]
+      },
+      "reported_symbol_paths": 185
+    },
+    {
+      "id": "GO-2026-5970",
+      "summary": "Infinite loop on invalid input in golang.org/x/text",
+      "details": "A norm.Iter can enter an infinite loop when handling input containing invalid UTF-8 bytes.",
+      "references": [
+        {
+          "type": "REPORT",
+          "url": "https://go.dev/issue/80142"
+        },
+        {
+          "type": "FIX",
+          "url": "https://go.dev/cl/794100"
+        }
+      ],
+      "example_trace": {
+        "osv": "GO-2026-5970",
+        "fixed_version": "v0.39.0",
+        "trace": [
+          {
+            "module": "golang.org/x/text",
+            "version": "v0.35.0",
+            "package": "golang.org/x/text/unicode/norm",
+            "function": "Bytes",
+            "receiver": "Form",
+            "position": {
+              "filename": "unicode/norm/normalize.go",
+              "offset": 1295,
+              "line": 45,
+              "column": 15
+            }
+          },
+          {
+            "module": "golang.org/x/net",
+            "version": "v0.52.0",
+            "package": "golang.org/x/net/idna",
+            "function": "validateAndMap",
+            "position": {
+              "filename": "idna/idna10.0.0.go",
+              "offset": 16551,
+              "line": 530,
+              "column": 22
+            }
+          },
+          {
+            "module": "golang.org/x/net",
+            "version": "v0.52.0",
+            "package": "golang.org/x/net/idna",
+            "function": "process",
+            "receiver": "*Profile",
+            "position": {
+              "filename": "idna/idna10.0.0.go",
+              "offset": 11460,
+              "line": 340,
+              "column": 29
+            }
+          },
+          {
+            "module": "golang.org/x/net",
+            "version": "v0.52.0",
+            "package": "golang.org/x/net/idna",
+            "function": "ToASCII",
+            "receiver": "*Profile",
+            "position": {
+              "filename": "idna/idna10.0.0.go",
+              "offset": 8298,
+              "line": 229,
+              "column": 18
+            }
+          },
+          {
+            "module": "golang.org/x/crypto",
+            "version": "v0.49.0",
+            "package": "golang.org/x/crypto/acme/autocert",
+            "function": "HostWhitelist",
+            "position": {
+              "filename": "acme/autocert/autocert.go",
+              "offset": 2546,
+              "line": 78,
+              "column": 35
+            }
+          },
+          {
+            "module": "github.com/jptrs93/opsagent/backend",
+            "package": "github.com/jptrs93/opsagent/backend/app/primary/webui",
+            "function": "webUITLSConfig",
+            "position": {
+              "filename": "app/primary/webui/server.go",
+              "offset": 4390,
+              "line": 128,
+              "column": 38
+            }
+          },
+          {
+            "module": "github.com/jptrs93/opsagent/backend",
+            "package": "github.com/jptrs93/opsagent/backend/app/primary/webui",
+            "function": "RunPrimaryHTTPSWebUI",
+            "position": {
+              "filename": "app/primary/webui/server.go",
+              "offset": 2027,
+              "line": 63,
+              "column": 34
+            }
+          }
+        ]
+      },
+      "reported_symbol_paths": 4
+    },
+    {
+      "id": "GO-2026-6061",
+      "summary": "Vulnerabilities in the xDS RBAC authorization engine and the HTTP/2 transport server implementation in google.golang.org/grpc",
+      "details": "Vulnerabilities in the xDS RBAC authorization engine and the HTTP/2 transport server implementation in google.golang.org/grpc",
+      "references": [
+        {
+          "type": "ADVISORY",
+          "url": "https://github.com/grpc/grpc-go/security/advisories/GHSA-hrxh-6v49-42gf"
+        },
+        {
+          "type": "FIX",
+          "url": "https://github.com/grpc/grpc-go/commit/4ea465d4ab98013f72a142fe0fc89c19770b2935"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/grpc/grpc-go/pull/9236"
+        },
+        {
+          "type": "WEB",
+          "url": "https://github.com/grpc/grpc-go/releases/tag/v1.82.1"
+        }
+      ],
+      "example_trace": {
+        "osv": "GO-2026-6061",
+        "fixed_version": "v1.82.1",
+        "trace": [
+          {
+            "module": "google.golang.org/grpc",
+            "version": "v1.80.0",
+            "package": "google.golang.org/grpc/internal/transport",
+            "function": "Close",
+            "receiver": "*ClientStream",
+            "position": {
+              "filename": "internal/transport/client_stream.go",
+              "offset": 2421,
+              "line": 67,
+              "column": 24
+            }
+          },
+          {
+            "module": "google.golang.org/grpc",
+            "version": "v1.80.0",
+            "package": "google.golang.org/grpc",
+            "function": "finish",
+            "receiver": "*csAttempt",
+            "position": {
+              "filename": "stream.go",
+              "offset": 40531,
+              "line": 1232,
+              "column": 26
+            }
+          },
+          {
+            "module": "google.golang.org/grpc",
+            "version": "v1.80.0",
+            "package": "google.golang.org/grpc",
+            "function": "finish",
+            "receiver": "*clientStream",
+            "position": {
+              "filename": "stream.go",
+              "offset": 35610,
+              "line": 1081,
+              "column": 20
+            }
+          },
+          {
+            "module": "google.golang.org/grpc",
+            "version": "v1.80.0",
+            "package": "google.golang.org/grpc",
+            "function": "RecvMsg",
+            "receiver": "*clientStream",
+            "position": {
+              "filename": "stream.go",
+              "offset": 34238,
+              "line": 1033,
+              "column": 12
+            }
+          },
+          {
+            "module": "github.com/containerd/containerd/api",
+            "version": "v1.11.1",
+            "package": "github.com/containerd/containerd/api/services/containers/v1",
+            "function": "Recv",
+            "receiver": "*containersListStreamClient",
+            "position": {
+              "filename": "services/containers/v1/containers_grpc.pb.go",
+              "offset": 3248,
+              "line": 88,
+              "column": 34
+            }
+          },
+          {
+            "module": "github.com/containerd/containerd/v2",
+            "version": "v2.3.1",
+            "package": "github.com/containerd/containerd/v2/client",
+            "function": "stream",
+            "receiver": "*remoteContainers",
+            "position": {
+              "filename": "client/containerstore.go",
+              "offset": 2709,
+              "line": 91,
+              "column": 25
+            }
+          },
+          {
+            "module": "github.com/containerd/containerd/v2",
+            "version": "v2.3.1",
+            "package": "github.com/containerd/containerd/v2/client",
+            "function": "List",
+            "receiver": "*remoteContainers",
+            "position": {
+              "filename": "client/containerstore.go",
+              "offset": 1833,
+              "line": 60,
+              "column": 29
+            }
+          },
+          {
+            "module": "github.com/containerd/containerd/v2",
+            "version": "v2.3.1",
+            "package": "github.com/containerd/containerd/v2/client",
+            "function": "Containers",
+            "receiver": "*Client",
+            "position": {
+              "filename": "client/client.go",
+              "offset": 10785,
+              "line": 327,
+              "column": 37
+            }
+          },
+          {
+            "module": "github.com/jptrs93/opsagent/backend",
+            "package": "github.com/jptrs93/opsagent/backend/lib/engine/ctrd",
+            "function": "ListContainerIDs",
+            "receiver": "*Client",
+            "position": {
+              "filename": "lib/engine/ctrd/client.go",
+              "offset": 8558,
+              "line": 286,
+              "column": 34
+            }
+          }
+        ]
+      },
+      "reported_symbol_paths": 11
+    }
+  ],
+  "module_advisories": 36
+}

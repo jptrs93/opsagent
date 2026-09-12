@@ -1,0 +1,18 @@
+{
+  "desktop": {
+    "width": 1440,
+    "scrollWidth": 1440,
+    "findings": 13
+  },
+  "mobile": {
+    "width": 390,
+    "scrollWidth": 390
+  },
+  "printVisible": 13,
+  "filters": "passed",
+  "search": "passed",
+  "anchorReset": "passed",
+  "localLinks": "passed",
+  "pageErrors": [],
+  "remoteRequests": []
+}
