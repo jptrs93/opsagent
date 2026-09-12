@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    %sveltekit.head%
+    <noscript>
+      <style>
+        @media (max-width:900px) {
+          #sidebar { position:static; width:auto; transform:none; visibility:visible; padding-top:22px; }
+          .menu-btn { display:none; }
+        }
+      </style>
+    </noscript>
+  </head>
+  <body data-sveltekit-preload-data="hover">
+    <div style="display: contents">%sveltekit.body%</div>
+  </body>
+</html>

@@ -1,0 +1,30 @@
+{
+  "name": "opendeploy-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/copy-reference.mjs && vite",
+    "build": "node scripts/copy-reference.mjs && vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.57.0",
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.43.0",
+    "@sveltejs/vite-plugin-svelte": "^6.2.0",
+    "svelte": "^5.39.0",
+    "svelte-check": "^4.3.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.7"
+  },
+  "dependencies": {
+    "@codemirror/lang-javascript": "^6.2.4",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/legacy-modes": "^6.5.1",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.6",
+    "@lezer/highlight": "^1.2.3"
+  }
+}

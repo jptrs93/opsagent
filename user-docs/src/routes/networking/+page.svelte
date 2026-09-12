@@ -1,178 +1,17 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Networking — OpenDeploy Docs</title>
-<style>
-  :root{
-    --ink:#0f172a; --sub:#475569; --faint:#64748b; --line:#e2e8f0; --bg:#f8fafc; --card:#ffffff;
-    --accent:#2563eb; --accent-soft:#eff6ff; --accent-line:#bfdbfe;
-    --code-bg:#0f172a; --code-ink:#e2e8f0; --inline-bg:#f1f5f9; --inline-ink:#0f172a;
-    --ok:#059669; --ok-bg:#ecfdf5; --ok-line:#a7f3d0;
-    --warn:#b45309; --warn-bg:#fffbeb; --warn-line:#fde68a;
-    --stop:#b91c1c; --stop-bg:#fef2f2; --stop-line:#fecaca;
-    --note:#6d28d9; --note-bg:#f5f3ff; --note-line:#ddd6fe;
-    --side-bg:#0f172a; --side-ink:#e2e8f0; --side-sub:#94a3b8; --side-line:#1e293b;
-    --side-active:#1d4ed8; --side-active-soft:rgba(37,99,235,.16);
-    --sidebar-w:264px;
-  }
-  @media (prefers-color-scheme: dark){
-    :root{
-      --ink:#e2e8f0; --sub:#94a3b8; --faint:#94a3b8; --line:#1e293b; --bg:#0b1220; --card:#0f172a;
-      --accent:#60a5fa; --accent-soft:#12203a; --accent-line:#1e3a5f;
-      --code-bg:#020617; --code-ink:#cbd5e1; --inline-bg:#1e293b; --inline-ink:#e2e8f0;
-      --ok:#34d399; --ok-bg:#052e23; --ok-line:#065f46;
-      --warn:#fbbf24; --warn-bg:#2c1f05; --warn-line:#78350f;
-      --stop:#fca5a5; --stop-bg:#2b0f0f; --stop-line:#7f1d1d;
-      --note:#c4b5fd; --note-bg:#1b1433; --note-line:#4c1d95;
-      --side-bg:#0a0f1c; --side-line:#151d30;
-    }
-  }
-  *{box-sizing:border-box}
-  html{scroll-behavior:smooth}
-  body{margin:0;font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
-  code,pre,.mono{font-family:"SF Mono",SFMono-Regular,ui-monospace,"Cascadia Code",Menlo,Consolas,monospace}
-  a{color:var(--accent);text-decoration:none}
-  a:hover{text-decoration:underline}
+<script lang="ts">
+  import CodeBlock from '$lib/CodeBlock.svelte';
+  import {
+    hostMode,
+    addressReferences,
+    serviceEnvironment,
+    dnsNames,
+    ingressListener,
+  } from '$lib/networking-snippets';
+</script>
 
-  /* ---------- sidebar ---------- */
-  .sidebar{position:fixed;inset:0 auto 0 0;width:var(--sidebar-w);background:var(--side-bg);color:var(--side-ink);
-    border-right:1px solid var(--side-line);overflow-y:auto;padding:22px 0 40px;z-index:40}
-  .brand{padding:0 20px 18px;border-bottom:1px solid var(--side-line);margin-bottom:14px}
-  .brand .name{font-size:17px;font-weight:800;letter-spacing:-.3px}
-  .brand .name span{color:#7dd3fc}
-  .brand .kind{font-size:11.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--side-sub);margin-top:2px}
-  .nav-group{padding:8px 12px 4px}
-  .nav-group h5{margin:8px 8px 6px;font-size:10.5px;letter-spacing:1.1px;text-transform:uppercase;color:var(--side-sub)}
-  .nav-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-radius:7px;
-    font-size:13.5px;color:var(--side-ink);line-height:1.4}
-  a.nav-item:hover{background:rgba(148,163,184,.1);text-decoration:none}
-  .nav-item.active{background:var(--side-active-soft);color:#bfdbfe;font-weight:700}
-  .nav-item.soon{color:var(--side-sub);cursor:default}
-  .nav-item .soon-tag{font-size:9.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
-    border:1px solid var(--side-line);border-radius:999px;padding:1px 7px;color:var(--side-sub);white-space:nowrap}
-  .subnav{margin:2px 0 6px;padding-left:10px;border-left:1px solid var(--side-line);margin-left:20px}
-  .subnav a{display:block;padding:4px 10px 4px 18px;border-radius:6px;font-size:13px;color:var(--side-sub)}
-  .subnav a:hover{color:var(--side-ink);text-decoration:none}
-  .subnav a.current{color:#93c5fd;font-weight:600;background:rgba(37,99,235,.1)}
-
-  /* ---------- content ---------- */
-  .content{margin-left:var(--sidebar-w)}
-  .wrap{max-width:880px;margin:0 auto;padding:38px 40px 90px}
-
-  section.page{scroll-margin-top:28px}
-  section.page + section.page{margin-top:56px}
-  .page-title{margin:0 0 10px;font-size:34px;line-height:1.2;letter-spacing:-.6px}
-  .page-title + .lead{margin-bottom:34px}
-  h2{font-size:26px;margin:0 0 6px;padding-bottom:10px;border-bottom:2px solid var(--line);letter-spacing:-.4px}
-  h3{font-size:17px;margin:28px 0 6px;letter-spacing:-.1px}
-  h3 .pill{vertical-align:2px;margin-left:8px}
-  p{margin:11px 0}
-  ul,ol{margin:11px 0;padding-left:22px}
-  li{margin:6px 0}
-  .lead{font-size:16.5px;color:var(--sub)}
-  .sub{color:var(--sub)}
-
-  table{width:100%;border-collapse:collapse;font-size:14.5px;margin:14px 0;display:block;overflow-x:auto}
-  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
-  th{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);font-weight:700;white-space:nowrap}
-  tbody tr:last-child td{border-bottom:none}
-  td.mono,th.mono{font-family:ui-monospace,monospace;font-size:13.5px;white-space:nowrap}
-  td.nw{white-space:nowrap}
-  .f-pfx{color:var(--sub);font-weight:700}
-  .f-id{color:var(--accent);font-weight:700}
-  .f-ord{color:var(--ok);font-weight:700}
-  .f-disc{color:var(--warn);font-weight:700}
-
-  pre{background:var(--code-bg);color:var(--code-ink);border-radius:10px;padding:15px 17px;overflow-x:auto;font-size:13px;line-height:1.55;margin:12px 0}
-  pre .cm{color:#64748b}
-  pre .kw{color:#c4b5fd}
-  pre .st{color:#86efac}
-  pre .nm{color:#fca5a5}
-  code.inl{background:var(--inline-bg);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:13.5px;color:var(--inline-ink);white-space:nowrap}
-
-  .callout{border-radius:10px;padding:13px 17px;margin:16px 0;border:1px solid var(--accent-line);background:var(--accent-soft)}
-  .callout .k{font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--accent);margin-bottom:3px}
-  .callout p{margin:4px 0}
-  .callout pre{margin:10px 0 4px}
-  .callout.warn{background:var(--warn-bg);border-color:var(--warn-line)} .callout.warn .k{color:var(--warn)}
-  .callout.ok{background:var(--ok-bg);border-color:var(--ok-line)} .callout.ok .k{color:var(--ok)}
-  .callout.stop{background:var(--stop-bg);border-color:var(--stop-line)} .callout.stop .k{color:var(--stop)}
-  .callout.note{background:var(--note-bg);border-color:var(--note-line)} .callout.note .k{color:var(--note)}
-
-  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:18px 0}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
-  .card h4{margin:0 0 6px;font-size:15px}
-  .card p{margin:0;font-size:14px;color:var(--sub)}
-  .card .tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
-
-  figure{margin:20px 0;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 18px 12px;overflow-x:auto}
-  figure svg{display:block;max-width:100%;height:auto;min-width:520px}
-  figcaption{font-size:13px;color:var(--faint);margin-top:10px;text-align:center}
-  .svg-ink{fill:var(--ink)} .svg-sub{fill:var(--sub)}
-  .svg-stroke{stroke:var(--line)} .svg-card{fill:var(--card)}
-  figure text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-  figure text.m{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-
-  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;letter-spacing:.3px}
-  .p-ok{background:var(--ok-bg);color:var(--ok);border:1px solid var(--ok-line)}
-  .p-no{background:var(--stop-bg);color:var(--stop);border:1px solid var(--stop-line)}
-
-  /* ---------- mobile ---------- */
-  .menu-btn{display:none;position:fixed;top:14px;left:14px;z-index:50;background:var(--side-bg);color:var(--side-ink);
-    border:1px solid var(--side-line);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:700;cursor:pointer}
-  @media (max-width: 900px){
-    .sidebar{transform:translateX(-100%);transition:transform .18s ease}
-    .sidebar.open{transform:translateX(0)}
-    .content{margin-left:0}
-    .menu-btn{display:block}
-    .wrap{padding:60px 24px 80px}
-  }
-</style>
-</head>
-<body>
-
-<button class="menu-btn" onclick="document.querySelector('.sidebar').classList.toggle('open')">☰ Menu</button>
-
-<aside class="sidebar">
-  <div class="brand">
-    <div class="name">Open<span>Deploy</span></div>
-    <div class="kind">Documentation</div>
-  </div>
-
-  <div class="nav-group">
-    <h5>System Design</h5>
-    <span class="nav-item soon">Getting started <span class="soon-tag">soon</span></span>
-    <span class="nav-item soon">Deployments <span class="soon-tag">soon</span></span>
-    <a class="nav-item active" href="#top">Networking</a>
-    <nav class="subnav" id="page-nav">
-      <a href="#goals">Design overview</a>
-      <a href="#addressing">Addressing</a>
-      <a href="#dns">DNS</a>
-      <a href="#balancing">Load balancing</a>
-      <a href="#routing">Routing and transport</a>
-      <a href="#rollover">Rollover</a>
-      <a href="#policy">Network policy</a>
-      <a href="#egress">Egress</a>
-      <a href="#ingress">Ingress</a>
-    </nav>
-    <span class="nav-item soon">Secrets &amp; config <span class="soon-tag">soon</span></span>
-    <span class="nav-item soon">Assets <span class="soon-tag">soon</span></span>
-    <a class="nav-item" href="logging.html">Logging</a>
-    <span class="nav-item soon">Observability <span class="soon-tag">soon</span></span>
-  </div>
-
-  <div class="nav-group">
-    <h5>Reference</h5>
-    <span class="nav-item soon">HCL config reference <span class="soon-tag">soon</span></span>
-    <span class="nav-item soon">HTTP API <span class="soon-tag">soon</span></span>
-  </div>
-</aside>
-
-<div class="content" id="top">
-
-<div class="wrap">
+<svelte:head>
+  <title>Networking — OpenDeploy Docs</title>
+</svelte:head>
 
 <h1 class="page-title">Networking</h1>
 <p class="lead">This page explains how OpenDeploy networking works: the concepts and design choices.</p>
@@ -294,9 +133,8 @@
 <div class="callout">
   <div class="k">Host mode is the escape hatch</div>
   <p>Setting the mode to host attaches the container to the host's network stack instead. It gets no cluster address, no name, no ingress, and no policy. It exists for the rare workload that needs the host's network view. The rest of this page assumes the default.</p>
-<pre>network {
-  mode = <span class="st">"host"</span>
-}</pre>
+  <p>Creating or updating a deployment in host mode requires <code class="inl">use_host_network</code> in addition to normal deployment permissions. This includes version changes, start/stop, and removing host mode. Human cluster admins have this permission by default; space admins and agent sessions need an additional grant. A space move requires the permission in both spaces. Custom host-path mounts use the separate <code class="inl">use_host_mounts</code> permission.</p>
+<CodeBlock code={hostMode} language="hcl" title="Host network mode" />
 </div>
 </section>
 
@@ -370,16 +208,11 @@
 
 <p>Each one is a function of space, deployment, and ordinal, and that is how configuration writes them:</p>
 
-<pre><span class="nm">address</span>(<span class="st">"prod"</span>, <span class="st">"payments-api"</span>, 2)       <span class="cm"># inbound address of one instance</span>
-<span class="nm">service_address</span>(<span class="st">"prod"</span>, <span class="st">"payments-api"</span>)  <span class="cm"># the deployment as a whole; no ordinal</span></pre>
+<CodeBlock code={addressReferences} language="hcl" title="Address references" />
 
 <p>This is the encouraged way to hand one service the address of another. A deployment that talks to <code class="inl">payments-api</code> sets an environment variable in its config:</p>
 
-<pre>container {
-  env_vars = {
-    <span class="st">"PAYMENTS_API_HOST"</span> = <span class="nm">address</span>(<span class="st">"prod"</span>, <span class="st">"payments-api"</span>, 0)
-  }
-}</pre>
+<CodeBlock code={serviceEnvironment} language="hcl" title="Service address environment variable" />
 
 <p>The application reads the variable and dials it. The reference is recorded as a dependency, so <code class="inl">payments-api</code> cannot be deleted or changed in a way that would break it, and nothing is resolved at runtime. <a href="#dns">DNS</a> covers the cases where a runtime lookup is needed.</p>
 
@@ -452,11 +285,7 @@
 
 <p>DNS covers what an address reference cannot: discovering a deployment's instances at runtime, or reaching one from something that has no configuration to hold a reference. Every workload can resolve internal names, and containers are pointed at the cluster's resolver automatically. Two name forms exist:</p>
 
-<pre><span class="cm"># every established instance of a deployment: one AAAA record per instance</span>
-{name}.space-{spaceId}.internal
-
-<span class="cm"># one specific instance</span>
-{ordinal}.{name}.space-{spaceId}.internal</pre>
+<CodeBlock code={dnsNames} language="text" title="Internal DNS names" />
 
 <p>Names are lowercase DNS labels; underscores in deployment names become dashes. Answers are inbound addresses and nothing else.</p>
 
@@ -510,7 +339,7 @@
 
 <div class="callout">
   <div class="k">Two invariants</div>
-  <p><strong>Inbound addresses are never translated.</strong> A DNS answer, an address reference, and an <code class="inl">{ordinal}.{name}</code> lookup always mean exactly the instance they name.</p>
+  <p><strong>Inbound addresses are never translated.</strong> A DNS answer, an address reference, and an <code class="inl">&#123;ordinal&#125;.&#123;name&#125;</code> lookup always mean exactly the instance they name.</p>
   <p><strong>The service address never crosses a link.</strong> All translation happens on the sender's node at the point where the workload attaches to the host. The wire, the tunnels, and the receiving node's policy only ever see real instance addresses.</p>
 </div>
 
@@ -577,7 +406,7 @@
   <li>The old container is stopped and its network state removed.</li>
 </ol>
 
-<p>The cluster map does not change. Both placements already point their <code class="inl">/120</code> at this node and the <code class="inl">/100</code> never moves, so the render is byte-identical and nothing is published. This needs no special case; it falls out of deriving routes from assignments. Candidates bind ports inside their own namespace, so there is no host-port contention. Established TCP connections to the old container can still break at promotion; holding and releasing them through ingress is <a href="#status">planned</a>.</p>
+<p>The cluster map does not change. Both placements already point their <code class="inl">/120</code> at this node and the <code class="inl">/100</code> never moves, so the render is byte-identical and nothing is published. This needs no special case; it falls out of deriving routes from assignments. Candidates bind ports inside their own namespace, so there is no host-port contention. Established TCP connections to the old container can still break at promotion; holding and releasing them through ingress is planned.</p>
 
 <h3>Cross-node rollover</h3>
 
@@ -681,17 +510,7 @@
 
 <p><strong>Where a route is published is a selector over nodes and addresses.</strong> Each node reports the global unicast addresses on the interfaces it does not manage. A route's <code class="inl">listen</code> selectors are evaluated against that inventory: a node selector, defaulting to the node the deployment is scheduled on, crossed with an address selector, defaulting to every address. The result is a concrete set of address and port pairs per node, and the same evaluator runs at save time and at publish time so the answer given when the config is saved cannot differ from what nodes receive.</p>
 
-<pre>ingress {
-  https {
-    hostname       = <span class="st">"api.example.com"</span>
-    container_port = <span class="kw">5001</span>
-    cert           = <span class="nm">acme</span>()
-    listen {
-      node    = <span class="nm">node</span>(<span class="st">"edge-1"</span>)
-      address = <span class="st">"203.0.113.10"</span>
-    }
-  }
-}</pre>
+<CodeBlock code={ingressListener} language="hcl" title="Ingress listen selector" />
 
 <p>The Web UI's own listener is a reserved claim in the same evaluation rather than a blanket reservation of port 443 on the primary. A route can publish beside it on another address; a route that would land on it exactly is an error, and a wildcard that expands onto it is dropped from the publish set with a warning. Two deployments whose expanded claims share a node, address, port, and hostname collide, and the collision is rejected at save. The DNAT rules that admit traffic match on destination address, not just port, so a restricted listener genuinely publishes only where it says.</p>
 
@@ -699,42 +518,3 @@
 
 <p>Ingress backends come from the cluster-wide catalog and can live on any node. The proxy dials a backend on another node over the logical routes, so a route with <code class="inl">any_node()</code> publishes on every node that can reach its backend without a config change. Public DNS holds one record per ingress node, and DNS round robin is the availability model. Floating addresses and managed-DNS health checks are underlay concerns and stay out of scope. The Web UI is served as a route through the same proxy, and the proxy is drain-aware: it stops selecting draining instances, and during a single-instance promotion it holds new requests for the route flip and releases them to the new instance.</p>
 </section>
-
-</div>
-
-</div>
-
-<script>
-  // One continuous page: sidebar links jump to sections, and the link for the
-  // section currently in view is highlighted as you scroll.
-  (function(){
-    const sidebar = document.querySelector('.sidebar');
-    const pages = Array.from(document.querySelectorAll('section.page'));
-    const links = Array.from(document.querySelectorAll('#page-nav a[href^="#"]'));
-    const linkFor = new Map(links.map(a => [a.getAttribute('href').slice(1), a]));
-
-    links.forEach(a => a.addEventListener('click', () => sidebar.classList.remove('open')));
-
-    let current = null;
-    const mark = id => {
-      if (id === current) return;
-      current = id;
-      links.forEach(a => a.classList.toggle('current', a === linkFor.get(id)));
-    };
-
-    const update = () => {
-      const probe = window.scrollY + Math.min(window.innerHeight * 0.3, 200);
-      let id = pages[0].id;
-      for (const p of pages) if (p.offsetTop <= probe) id = p.id;
-      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) id = pages[pages.length - 1].id;
-      mark(id);
-    };
-    window.addEventListener('scroll', update, { passive: true });
-    window.addEventListener('resize', update);
-    window.addEventListener('load', update);
-    update();
-  })();
-</script>
-
-</body>
-</html>

@@ -1,0 +1,5 @@
+.svelte-kit/
+build/
+test-results/
+playwright-report/
+static/data-model/
