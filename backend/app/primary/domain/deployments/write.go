@@ -63,6 +63,12 @@ func (s *Service) Create(ctx apigen.Context, dep *apigen.Deployment) (*apigen.De
 }
 
 func (s *Service) Update(ctx apigen.Context, existing *apigen.DeploymentEvent, req *apigen.DeploymentUpdateRequestV2) (*apigen.DeploymentEvent, error) {
+	// The spec and space authorized by the caller must be the same version
+	// checked again inside Commit. Do not accept a request anticipating a
+	// concurrent write after the caller loaded the deployment.
+	if existing.Version != req.ExpectedVersion-1 {
+		return nil, InvalidConfigErrf("deployment version mismatch: deployment %d has version %d, expected %d", existing.DeploymentID, existing.Version, req.ExpectedVersion-1)
+	}
 	updated, err := cloneDeployment(existing)
 	if err != nil {
 		return nil, err

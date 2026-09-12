@@ -82,6 +82,12 @@ in the approving operator's spaces except:
   into its output.
 - **Secret values.** You may list secret metadata and create new secrets. By
   default you may not read, overwrite, rename, move, or delete one.
+- **Deployments with host access.** Creating or updating a deployment with
+  custom host mounts requires `use_host_mounts`; host networking requires
+  `use_host_network`. Neither is inherited by agents under the builtin roles.
+  Every update is covered, including version changes, start/stop, removing
+  host access, and space moves. An administrator can explicitly delegate these
+  permissions. Managed volumes and asset mounts do not require `use_host_mounts`.
 - **The cluster itself.** Node management, enrollment, cluster settings,
   access rules and grants, config export, and OpenDeploy's own internal
   deployments all live at the cluster level (space `0`) and default to
@@ -520,7 +526,8 @@ the live API's answer is the truth. A `403` will not change on retry: ask.
 
 | Endpoint | |
 |---|---|
-| `POST /v1/deployments/create` `/delete`, `POST /v2/deployments/update` | yes |
+| `POST /v1/deployments/create`, `POST /v2/deployments/update` | yes; host-access deployments require additional permissions (section 3) |
+| `POST /v1/deployments/delete` | yes, subject to deletion requirements |
 | `POST /v1/assets/upload` `/rename` `/move` `/delete` | yes |
 | `POST /v1/asset-directories/create` `/move` `/rename` `/delete` | yes |
 | `POST /v1/configs/create` `/set` `/rename` `/move` `/delete` | yes |

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jptrs93/goutil/logu"
@@ -54,6 +56,14 @@ type Manager struct {
 
 	policyRules []PolicyRule
 
+	// peerUnderlays are the remote nodes' underlay addresses from the last
+	// applied topology; build attachments may not reach them. Guarded by mu.
+	peerUnderlays []netip.Addr
+
+	// buildSeq distinguishes the outbound addresses of concurrent build
+	// attachments, which share the reserved build identity.
+	buildSeq atomic.Uint32
+
 	// netproxyDeploymentID identifies this machine's netproxy system
 	// deployment; the local DNS address derives from it.
 	netproxyDeploymentID int32
@@ -82,6 +92,7 @@ type Manager struct {
 	nftSkeletonReady bool
 	nftNatHash       uint64
 	nftDstChains     map[string]uint64
+	nftEgressHash    [2]uint64
 
 	// wgPrivateKey is the node-local transport key loaded at boot; nil until
 	// SetWGPrivateKey. Guarded by mu.
@@ -392,6 +403,62 @@ func (m *Manager) SetPolicyRules(rules []PolicyRule) error {
 		return err
 	}
 	return nil
+}
+
+// SetPeerUnderlays records the remote nodes' underlay addresses so the build
+// egress policy can deny them, rebuilding the ruleset when the set changes.
+func (m *Manager) SetPeerUnderlays(addrs []netip.Addr) error {
+	peers := slices.Clone(addrs)
+	slices.SortFunc(peers, func(a, b netip.Addr) int { return a.Compare(b) })
+	peers = slices.Compact(peers)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if slices.Equal(peers, m.peerUnderlays) {
+		return nil
+	}
+	previous := m.peerUnderlays
+	m.peerUnderlays = peers
+	if !m.nftSkeletonReady {
+		return nil
+	}
+	if err := m.reconcileNft(); err != nil {
+		m.peerUnderlays = previous
+		m.scheduleReconcileRetryLocked()
+		return err
+	}
+	return nil
+}
+
+// BuildContainerID names the netns of one build attachment. The deployment
+// segment is the reserved build identity, so stale build namespaces are
+// swept by CleanupContainerNets like any deployment's.
+func BuildContainerID(buildID string) string {
+	return fmt.Sprintf("opendeploy-%d-%s", BuildDeploymentID, buildID)
+}
+
+// BuildNetSpec derives the reserved system-space identity for one build
+// attachment. Every build shares the inbound address, which is never routed;
+// the outbound address differs per build.
+func (m *Manager) BuildNetSpec(buildID string) (ContainerNetSpec, error) {
+	prefix, ok := m.PrefixValue()
+	if !ok {
+		return ContainerNetSpec{}, fmt.Errorf("cluster prefix is not known")
+	}
+	inbound, err := prefix.InboundAddr(SystemSpaceID, BuildDeploymentID, 0)
+	if err != nil {
+		return ContainerNetSpec{}, err
+	}
+	seq := int32(m.buildSeq.Add(1)%uint32(MaxPlacementSlot)) + 1
+	outbound, err := prefix.OutboundAddr(SystemSpaceID, BuildDeploymentID, 0, seq, 1)
+	if err != nil {
+		return ContainerNetSpec{}, err
+	}
+	return ContainerNetSpec{
+		ContainerID:  BuildContainerID(buildID),
+		DeploymentID: BuildDeploymentID,
+		InboundAddr:  inbound,
+		OutboundAddr: outbound,
+	}, nil
 }
 
 func (m *Manager) IsNetproxyDeployment(id int32) bool {

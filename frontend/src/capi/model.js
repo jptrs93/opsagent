@@ -1513,6 +1513,20 @@
  * @property {LogQueryRequest} logQueryRequest
  * @property {MetricsQueryRequest} metricsQueryRequest
  * @property {MetricsLatestRequest} metricsLatestRequest
+ * @property {NixStoreResets} nixStoreResets
+ */
+/**
+ * @typedef {Object} NixStoreReset
+ * @property {string} repo
+ * @property {number} requestedAt
+ */
+/**
+ * @typedef {Object} NixStoreResets
+ * @property {NixStoreReset[]} items
+ */
+/**
+ * @typedef {Object} NixStoreResetRequest
+ * @property {string} repo
  */
 /**
  * @typedef {Object} ClusterHello
@@ -19365,6 +19379,11 @@ export function writeMsgToSecondary(message, writer) {
         writeMetricsLatestRequest(message.metricsLatestRequest, writer);
         writer.ldelim();
     }
+    if (message.nixStoreResets !== undefined && message.nixStoreResets !== null) {
+        writer.uint32(tag(14, WIRE.LDELIM)).fork();
+        writeNixStoreResets(message.nixStoreResets, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -19386,7 +19405,7 @@ export function encodeMsgToSecondary(message) {
  */
 function decodeMsgToSecondaryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", clusterNetwork: undefined, clusterNetMap: undefined, clusterProtocolVersion: 0, acmeState: undefined, logQueryRequest: undefined, metricsQueryRequest: undefined, metricsLatestRequest: undefined };
+    const message = {scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", clusterNetwork: undefined, clusterNetMap: undefined, clusterProtocolVersion: 0, acmeState: undefined, logQueryRequest: undefined, metricsQueryRequest: undefined, metricsLatestRequest: undefined, nixStoreResets: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -19434,6 +19453,10 @@ function decodeMsgToSecondaryMessage(reader, length) {
                 message.metricsLatestRequest = decodeMetricsLatestRequestMessage(reader, reader.uint32());
                 break;
             }
+            case 14: {
+                message.nixStoreResets = decodeNixStoreResetsMessage(reader, reader.uint32());
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -19449,6 +19472,185 @@ function decodeMsgToSecondaryMessage(reader, length) {
 export function decodeMsgToSecondary(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeMsgToSecondaryMessage(reader);
+}
+
+
+
+/**
+ * @param {NixStoreReset} message
+ * @param {Writer} writer
+ */
+export function writeNixStoreReset(message, writer) {
+    if (message.repo !== undefined && message.repo !== null && message.repo !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repo);
+    }
+    if (message.requestedAt !== undefined && message.requestedAt !== null && message.requestedAt !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.requestedAt);
+    }
+}
+
+
+/**
+ * @param {NixStoreReset} message
+ * @returns {Uint8Array}
+ */
+export function encodeNixStoreReset(message) {
+    const writer = Writer.create();
+    writeNixStoreReset(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NixStoreReset}
+ */
+function decodeNixStoreResetMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {repo: "", requestedAt: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.repo = reader.string();
+                break;
+            }
+            case 2: {
+                message.requestedAt = readInt64(reader, "int64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NixStoreReset}
+ */
+export function decodeNixStoreReset(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNixStoreResetMessage(reader);
+}
+
+
+
+/**
+ * @param {NixStoreResets} message
+ * @param {Writer} writer
+ */
+export function writeNixStoreResets(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeNixStoreReset(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {NixStoreResets} message
+ * @returns {Uint8Array}
+ */
+export function encodeNixStoreResets(message) {
+    const writer = Writer.create();
+    writeNixStoreResets(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NixStoreResets}
+ */
+function decodeNixStoreResetsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeNixStoreResetMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NixStoreResets}
+ */
+export function decodeNixStoreResets(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNixStoreResetsMessage(reader);
+}
+
+
+
+/**
+ * @param {NixStoreResetRequest} message
+ * @param {Writer} writer
+ */
+export function writeNixStoreResetRequest(message, writer) {
+    if (message.repo !== undefined && message.repo !== null && message.repo !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.repo);
+    }
+}
+
+
+/**
+ * @param {NixStoreResetRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeNixStoreResetRequest(message) {
+    const writer = Writer.create();
+    writeNixStoreResetRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NixStoreResetRequest}
+ */
+function decodeNixStoreResetRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {repo: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.repo = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NixStoreResetRequest}
+ */
+export function decodeNixStoreResetRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNixStoreResetRequestMessage(reader);
 }
 
 

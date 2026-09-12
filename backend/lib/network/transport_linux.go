@@ -64,7 +64,11 @@ func (m *Manager) ReconcileTopology(topology Topology) error {
 	m.mu.Lock()
 	m.wgDesired = wgAudit
 	m.mu.Unlock()
-	return nil
+	underlays := make([]netip.Addr, 0, len(topology.Peers))
+	for _, peer := range topology.Peers {
+		underlays = append(underlays, peer.Endpoint)
+	}
+	return m.SetPeerUnderlays(underlays)
 }
 
 // reconcileWGDevice ensures the managed WireGuard link exists and holds the

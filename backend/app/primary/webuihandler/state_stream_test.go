@@ -93,7 +93,9 @@ func TestObservedStatusStreamsWithoutACoreTransaction(t *testing.T) {
 func TestCreatingCoreArrivesWithItsObservation(t *testing.T) {
 	h, _ := newEnforcementTestHandler(t)
 	updates := startTestStateStream(t, h, 1)
-	nodes.UpsertEnrollmentRequest(h.Store, "192.0.2.2", "v1", apigen.NodeReported{Identifier: "worker", UnderlayAddress: "192.0.2.2"})
+	if _, _, err := nodes.UpsertEnrollmentRequest(h.Store, "192.0.2.2", "v1", apigen.NodeReported{Identifier: "worker", UnderlayAddress: "192.0.2.2"}); err != nil {
+		t.Fatal(err)
+	}
 	msg := recvState(t, updates)
 	if msg.Core == nil || len(msg.Core.NodeEvents) != 1 || len(msg.Core.NodeStatuses) != 1 {
 		t.Fatalf("creating core and observation were not one message: %+v", msg)

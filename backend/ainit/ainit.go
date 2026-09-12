@@ -49,6 +49,7 @@ func ensureStaticDirs(command Command, cfg *StaticConfiguration, dataDir string)
 	cfg.LogWALDir = dataDir + "-run-logs"
 	cfg.LogArchiveDir = dataDir + "-log-archive"
 	cfg.MetricsDir = dataDir + "-metrics"
+	cfg.NixStoresDir = dataDir + "-nix"
 	cfg.LargeAssetsDir = path.Join(dataDir, "large-assets")
 	cfg.GitCacheDir = path.Join(dataDir, "git-cache")
 	cfg.GitMetadataDir = path.Join(cfg.GitCacheDir, "metadata")
@@ -71,6 +72,7 @@ func ensureStaticDirs(command Command, cfg *StaticConfiguration, dataDir string)
 	fileu.MustEnsureDirWithPerm(cfg.LogArchiveDir, 0o750)
 	fileu.MustEnsureDirWithPerm(cfg.MetricsDir, 0o750)
 	fileu.MustEnsureDirWithPerm(cfg.VolumesDir, 0o755)
+	fileu.MustEnsureDirWithPerm(cfg.NixStoresDir, 0o755)
 	fileu.MustEnsureDirWithPerm(cfg.ReleasesDir, 0o755)
 	fileu.MustEnsureDirWithPerm(cfg.LargeAssetsDir, 0o750)
 	fileu.MustEnsureDirWithPerm(cfg.GitCacheDir, 0o750)
@@ -89,6 +91,7 @@ type StaticConfiguration struct {
 	LogWALDir         string
 	LogArchiveDir     string
 	MetricsDir        string
+	NixStoresDir      string
 	PrepareOutputDir  string
 	VolumesDir        string
 	ReleasesDir       string
@@ -112,4 +115,12 @@ type StaticConfiguration struct {
 	UnderlayAddress              string `env:"OPENDEPLOY_UNDERLAY_ADDRESS,"`               // optional; derived from cluster connectivity when empty
 
 	PasskeyExtraOrigins []string `env:"OPENDEPLOY_PASSKEY_EXTRA_ORIGINS,"`
+
+	NixBuildImage      string `env:"OPENDEPLOY_NIX_BUILD_IMAGE,"`
+	NixBuildCABundle   string `env:"OPENDEPLOY_NIX_BUILD_CA_BUNDLE,"`
+	NixBuildMemoryMB   int64  `env:"OPENDEPLOY_NIX_BUILD_MEMORY_MB,0"`
+	NixBuildCPUs       int    `env:"OPENDEPLOY_NIX_BUILD_CPUS,0"`
+	NixBuildPids       int64  `env:"OPENDEPLOY_NIX_BUILD_PIDS,0"`
+	NixStoreSizeCapMB  int64  `env:"OPENDEPLOY_NIX_STORE_SIZE_CAP_MB,0"`
+	NixStoreResetHours int    `env:"OPENDEPLOY_NIX_STORE_RESET_HOURS,0"`
 }

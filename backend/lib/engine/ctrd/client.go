@@ -1,15 +1,20 @@
 package ctrd
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/contrib/seccomp"
 	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
@@ -25,8 +30,9 @@ import (
 // Client is a lazily-connected handle to a containerd daemon, scoped to a
 // single namespace.
 type Client struct {
-	mu sync.Mutex
-	c  *containerd.Client
+	mu             sync.Mutex
+	c              *containerd.Client
+	strictLogReady bool
 }
 
 // Default is the process-wide client used by preparers and container runners.
@@ -44,7 +50,54 @@ func (c *Client) ensure() (*containerd.Client, error) {
 		return nil, fmt.Errorf("connecting to containerd at %s: %w", ainit.StaticConfig.CtrdAddress, err)
 	}
 	c.c = cl
+	c.strictLogReady = daemonSupportsStrictLogReady(cl)
 	return cl, nil
+}
+
+// daemonSupportsStrictLogReady reports whether the daemon, and the shim that
+// ships with it, accept the binary-v2 log scheme introduced in containerd 2.3.0.
+func daemonSupportsStrictLogReady(cl *containerd.Client) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	v, err := cl.Version(ctx)
+	if err != nil {
+		return false
+	}
+	return versionAtLeast(v.Version, 2, 3)
+}
+
+func versionAtLeast(version string, major, minor int) bool {
+	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
+	if i := strings.IndexAny(version, "-+"); i >= 0 {
+		version = version[:i]
+	}
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	gotMajor, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return false
+	}
+	gotMinor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return false
+	}
+	return gotMajor > major || (gotMajor == major && gotMinor >= minor)
+}
+
+// logScheme is binary-v2 where the runtime supports it: the shim then requires
+// the logger's ready byte, so a logger that fails at startup fails task
+// creation instead of leaving the workload writing to a pipe with no reader.
+// Older runtimes reject the scheme outright, so they keep the plain binary
+// scheme, where EOF counts as ready.
+func (c *Client) logScheme() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.strictLogReady {
+		return "binary-v2"
+	}
+	return "binary"
 }
 
 func (c *Client) withNS(ctx context.Context) context.Context {
@@ -166,6 +219,38 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 		return nil, fmt.Errorf("loading image %q from containerd: %w", spec.Image, err)
 	}
 
+	specOpts := buildSpecOpts(spec, img)
+
+	container, err := cl.NewContainer(ctx, spec.ID,
+		containerd.WithNewSnapshot(spec.ID+"-snapshot", img),
+		containerd.WithNewSpec(specOpts...),
+	)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return nil, fmt.Errorf("%w: creating container from image %q: %v", ErrImageUnavailable, spec.Image, err)
+		}
+		return nil, fmt.Errorf("creating container: %w", err)
+	}
+
+	ioCreator, err := newLogConsumer(spec, c.logScheme())
+	if err != nil {
+		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
+		return nil, err
+	}
+	task, err := container.NewTask(ctx, ioCreator)
+	if err != nil {
+		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
+		return nil, fmt.Errorf("creating task: %w", err)
+	}
+	if err := task.Start(ctx); err != nil {
+		_, _ = task.Delete(ctx)
+		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
+		return nil, fmt.Errorf("starting task: %w", err)
+	}
+	return &Task{client: c, container: container, task: task, cgroupsPath: cgroupsPathOf(ctx, container)}, nil
+}
+
+func buildSpecOpts(spec ContainerSpec, img containerd.Image) []oci.SpecOpts {
 	var mounts []specs.Mount
 	for _, m := range spec.Mounts {
 		bindOpt := "rbind"
@@ -191,7 +276,8 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 		oci.WithHostHostsFile,
 		oci.WithEnv(spec.Env),
 	}
-	if spec.NetnsPath != "" {
+	switch {
+	case spec.NetnsPath != "":
 		// Virtual network: join the pre-created netns; resolv.conf points at the
 		// machine's netproxy DNS server.
 		specOpts = append(specOpts, oci.WithLinuxNamespace(specs.LinuxNamespace{
@@ -208,7 +294,8 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 		} else {
 			specOpts = append(specOpts, oci.WithHostResolvconf)
 		}
-	} else {
+	case spec.NoNetwork:
+	default:
 		// Host networking: explicit networking.mode=host opt-out.
 		specOpts = append(specOpts, oci.WithHostNamespace(specs.NetworkNamespace), oci.WithHostResolvconf)
 	}
@@ -233,37 +320,125 @@ func (c *Client) RunTask(ctx context.Context, spec ContainerSpec) (*Task, error)
 		Soft: uint64(fileDescLimit),
 		Hard: uint64(fileDescLimit),
 	}))
+	if r := spec.Resources; r != nil {
+		if r.MemoryBytes > 0 {
+			specOpts = append(specOpts, oci.WithMemoryLimit(uint64(r.MemoryBytes)), oci.WithMemorySwap(r.MemoryBytes))
+		}
+		if r.CPUs > 0 {
+			const period = 100000
+			specOpts = append(specOpts, oci.WithCPUCFS(int64(r.CPUs)*period, period))
+		}
+		if r.Pids > 0 {
+			specOpts = append(specOpts, oci.WithPidsLimit(r.Pids))
+		}
+	}
+	if spec.DefaultSeccomp {
+		specOpts = append(specOpts, seccomp.WithDefaultProfile())
+	}
 	if len(mounts) > 0 {
 		specOpts = append(specOpts, oci.WithMounts(mounts))
 	}
+	return specOpts
+}
 
-	container, err := cl.NewContainer(ctx, spec.ID,
-		containerd.WithNewSnapshot(spec.ID+"-snapshot", img),
-		containerd.WithNewSpec(specOpts...),
-	)
+// RunBuild runs a one-shot container to completion: its stdout and stderr
+// stream to the given writers, cancellation kills it, and the container and
+// snapshot are deleted before returning. The exit status is returned even
+// when non-zero; an error means the container could not be run.
+func (c *Client) RunBuild(ctx context.Context, spec ContainerSpec, stdout, stderr io.Writer) (BuildResult, error) {
+	cl, err := c.ensure()
+	if err != nil {
+		return BuildResult{}, err
+	}
+	ctx = c.withNS(ctx)
+	c.remove(ctx, cl, spec.ID)
+
+	img, err := cl.GetImage(ctx, spec.Image)
 	if err != nil {
 		if errdefs.IsNotFound(err) {
-			return nil, fmt.Errorf("%w: creating container from image %q: %v", ErrImageUnavailable, spec.Image, err)
+			return BuildResult{}, fmt.Errorf("%w: image %q not found in containerd", ErrImageUnavailable, spec.Image)
 		}
-		return nil, fmt.Errorf("creating container: %w", err)
+		return BuildResult{}, fmt.Errorf("loading image %q from containerd: %w", spec.Image, err)
 	}
+	container, err := cl.NewContainer(ctx, spec.ID,
+		containerd.WithNewSnapshot(spec.ID+"-snapshot", img),
+		containerd.WithNewSpec(buildSpecOpts(spec, img)...),
+	)
+	if err != nil {
+		return BuildResult{}, fmt.Errorf("creating container: %w", err)
+	}
+	cleanupCtx := func() (context.Context, context.CancelFunc) {
+		bg, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		return c.withNS(bg), cancel
+	}
+	defer func() {
+		bg, cancel := cleanupCtx()
+		defer cancel()
+		_ = container.Delete(bg, containerd.WithSnapshotCleanup)
+	}()
 
-	ioCreator, err := newLogConsumer(spec)
-	if err != nil {
-		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
-		return nil, err
+	fifoDir := filepath.Join(ainit.StaticConfig.DataDir, "fifo")
+	if err := os.MkdirAll(fifoDir, 0o755); err != nil {
+		return BuildResult{}, fmt.Errorf("creating fifo dir: %w", err)
 	}
-	task, err := container.NewTask(ctx, ioCreator)
+	task, err := container.NewTask(ctx, cio.NewCreator(cio.WithStreams(nil, stdout, stderr), cio.WithFIFODir(fifoDir)))
 	if err != nil {
-		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
-		return nil, fmt.Errorf("creating task: %w", err)
+		return BuildResult{}, fmt.Errorf("creating task: %w", err)
+	}
+	defer func() {
+		bg, cancel := cleanupCtx()
+		defer cancel()
+		_, _ = task.Delete(bg, containerd.WithProcessKill)
+	}()
+	exitC, err := task.Wait(ctx)
+	if err != nil {
+		return BuildResult{}, fmt.Errorf("waiting on task: %w", err)
 	}
 	if err := task.Start(ctx); err != nil {
-		_, _ = task.Delete(ctx)
-		_ = container.Delete(ctx, containerd.WithSnapshotCleanup)
-		return nil, fmt.Errorf("starting task: %w", err)
+		return BuildResult{}, fmt.Errorf("starting task: %w", err)
 	}
-	return &Task{client: c, container: container, task: task, cgroupsPath: cgroupsPathOf(ctx, container)}, nil
+	var status containerd.ExitStatus
+	select {
+	case status = <-exitC:
+	case <-ctx.Done():
+		bg, cancel := cleanupCtx()
+		defer cancel()
+		_ = task.Kill(bg, syscall.SIGKILL, containerd.WithKillAll)
+		if killed, err := task.Wait(bg); err == nil {
+			select {
+			case <-killed:
+			case <-bg.Done():
+			}
+		}
+		return BuildResult{}, ctx.Err()
+	}
+	code, _, err := status.Result()
+	if err != nil {
+		return BuildResult{}, fmt.Errorf("reading task exit status: %w", err)
+	}
+	return BuildResult{Code: code, OOMKilled: oomKilled(cgroupsPathOf(ctx, container))}, nil
+}
+
+// oomKilled reads the container cgroup's memory.events before the task is
+// deleted, which removes the cgroup.
+func oomKilled(cgroupsPath string) bool {
+	if cgroupsPath == "" {
+		return false
+	}
+	f, err := os.Open(filepath.Join("/sys/fs/cgroup", cgroupsPath, "memory.events"))
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) == 2 && fields[0] == "oom_kill" {
+			n, _ := strconv.Atoi(fields[1])
+			return n > 0
+		}
+	}
+	return false
 }
 
 // cgroupsPathOf returns the cgroup containerd assigned in the OCI spec, by
@@ -306,7 +481,7 @@ func (c *Client) Remove(ctx context.Context, id string) error {
 	return nil
 }
 
-func newLogConsumer(spec ContainerSpec) (cio.Creator, error) {
+func newLogConsumer(spec ContainerSpec, scheme string) (cio.Creator, error) {
 	binary, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -322,12 +497,7 @@ func newLogConsumer(spec ContainerSpec) (cio.Creator, error) {
 	if err != nil {
 		return nil, err
 	}
-	// binary-v2 would make the shim require the logger's ready byte, so a logger
-	// that fails at startup fails task creation instead of leaving the workload
-	// writing to a pipe with no reader. The shim only accepts that scheme from
-	// containerd 2.3.0; containerdDep pins 2.0.5, which rejects task creation
-	// outright with "unknown STDIO scheme". Switch once the runtime pin moves.
-	uri, err := cio.LogURIGenerator("binary", binary, map[string]string{string(ainit.CommandRawLogConsumer): config})
+	uri, err := cio.LogURIGenerator(scheme, binary, map[string]string{string(ainit.CommandRawLogConsumer): config})
 	if err != nil {
 		return nil, err
 	}

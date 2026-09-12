@@ -15,6 +15,10 @@ enum AuthzVerb {
   AUTHZ_VERB_VIEW = 4;
   AUTHZ_VERB_VIEW_LOGS = 5;
   AUTHZ_VERB_REVEAL = 6;
+  // Additional deployment permissions, required on create and every update
+  // when the existing or proposed spec uses the corresponding host resource.
+  AUTHZ_VERB_USE_HOST_MOUNTS = 7;
+  AUTHZ_VERB_USE_HOST_NETWORK = 8;
 }
 
 enum AuthzEntity {

@@ -88,7 +88,7 @@ func removeContainer(ctx context.Context, container containerd.Container) error 
 // stopUnitProcesses kills whatever a stopped unit left behind. Both units use
 // KillMode=process, so `systemctl stop` only signals the main process:
 // containerd leaves its shims (and with them the containers) running, and
-// opendeploy leaves nix builds, the backup child, and log consumers.
+// opendeploy leaves the backup child and log consumers.
 func stopUnitProcesses(unit string) error {
 	for _, dir := range cgroupDirs(unitControlGroup(unit)) {
 		// systemd owns the unit's cgroup directory and removes it once empty.

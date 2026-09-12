@@ -41,6 +41,9 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 	if err := h.requireAccess(ctx, vCreate, eDeployment, int64(req.SpaceID), 0); err != nil {
 		return nil, err
 	}
+	if err := h.requireDeploymentHostAccess(ctx, nil, &req.Spec, int64(req.SpaceID), 0); err != nil {
+		return nil, err
+	}
 	return h.deploymentService().Create(ctx, &newDep.Value)
 }
 
@@ -55,13 +58,55 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 	if err := h.requireEntityAccess(ctx, vUpdate, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID), deployments.NotFoundErr); err != nil {
 		return nil, err
 	}
+	var proposed *apigen.DeploymentSpec
+	if req.SpecUpdate != nil {
+		proposed = &req.SpecUpdate.Spec
+	}
+	// Authorize the saved spec even when this update removes host access or
+	// only changes the workload version/running state.
+	if err := h.requireDeploymentHostAccess(ctx, &cfg.Value.Spec, proposed, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID)); err != nil {
+		return nil, err
+	}
 	if req.AssignedSpaceUpdate != nil {
 		if err := h.requireAccess(ctx, vCreate, eDeployment, int64(req.AssignedSpaceUpdate.SpaceID), 0); err != nil {
+			return nil, err
+		}
+		if err := h.requireDeploymentHostAccess(ctx, &cfg.Value.Spec, nil, int64(req.AssignedSpaceUpdate.SpaceID), int64(cfg.DeploymentID)); err != nil {
 			return nil, err
 		}
 	}
 
 	return h.deploymentService().Update(ctx, cfg, req)
+}
+
+// Host access is derived from the spec, and is additional to ordinary
+// deployment permissions. Managed volumes and assets do not use raw host paths.
+func (h *Handler) requireDeploymentHostAccess(ctx apigen.Context, saved, proposed *apigen.DeploymentSpec, spaceID, deploymentID int64) error {
+	for _, spec := range []*apigen.DeploymentSpec{saved, proposed} {
+		if spec == nil {
+			continue
+		}
+		if container := spec.Container(); container != nil && len(container.Runtime.Mounts) > 0 {
+			if !h.canAccess(ctx, apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_MOUNTS, eDeployment, spaceID, deploymentID) {
+				err := AccessDeniedErr
+				err.DisplayErr = fmt.Sprintf("Creating or updating a deployment with custom host mounts requires use_host_mounts permission in space %d", spaceID)
+				return err
+			}
+		}
+	}
+	// New specs default unspecified networking to virtual during validation.
+	// Saved specs follow the runner: any non-virtual mode joins the host netns,
+	// including legacy specs with no explicit mode. Gate those updates too.
+	hostNetwork := saved != nil && saved.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL ||
+		proposed != nil && proposed.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_HOST
+	if hostNetwork {
+		if !h.canAccess(ctx, apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK, eDeployment, spaceID, deploymentID) {
+			err := AccessDeniedErr
+			err.DisplayErr = fmt.Sprintf("Creating or updating a deployment with host networking requires use_host_network permission in space %d", spaceID)
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.DeploymentDeleteRequest) error {

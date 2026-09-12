@@ -105,6 +105,7 @@ import {
   encodeNetworkPolicyCreateRequest,
   encodeNetworkPolicyDeleteRequest,
   encodeNetworkPolicyUpdateRequest,
+  encodeNixStoreResetRequest,
   encodeNodeAllowedSpacesRequest,
   encodeNodeRenameRequest,
   encodePasswordLoginRequest,
@@ -270,6 +271,19 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeClusterSettings(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {NixStoreResetRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<void>}
+   */
+  async postV1NixStoreReset(payload, options = {}) {
+    const response = await this.#request("/v1/nix-store/reset", { method: 'POST', body: encodeNixStoreResetRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
   }
 
   /**

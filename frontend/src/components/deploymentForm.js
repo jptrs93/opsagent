@@ -697,7 +697,7 @@ export function networkingPane(form, opts = {}) {
                     form.networkingMode.val = value;
                 }),
                 p({class: "text-[11px] leading-snug text-gray-500"}, () => Number(form.networkingMode.val) === NETWORKING_MODE_HOST
-                    ? "Host mode keeps the container in the node network namespace. Port forwarding is unavailable because the process binds host ports directly."
+                    ? "Host mode shares the node network namespace and binds host ports directly. Creating or updating this deployment requires use_host_network, including version changes and start/stop."
                     : "Virtual mode gives the container an isolated network namespace on the OpenDeploy virtual network. Add port forwarding when the workload must be reachable from the node's host interfaces."),
             ),
             () => Number(form.networkingMode.val) === NETWORKING_MODE_VIRTUAL ? portForwardingSection(form) : '',
@@ -1545,6 +1545,7 @@ export function volumeMountsPane(form, opts = {}) {
                 onclick: addDeploymentMount,
             }, "Add deployment volume mount"),
             paneSectionDivider("Mount custom host directory"),
+            p({class: "text-[11px] leading-relaxed text-gray-500 -mt-2"}, "Creating or updating a deployment with these mounts requires use_host_mounts, including version changes and start/stop. Cluster administrators must ensure host paths cannot expose protected files through symlinks or other filesystem aliases."),
             () => div({class: "flex flex-col gap-3"}, ...hostRows().map(hostRowEl)),
             button({
                 type: "button",

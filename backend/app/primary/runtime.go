@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/agentsessions"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nixstores"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/pki"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/scheduledinstances"
@@ -61,6 +62,8 @@ type runtime struct {
 	acmeHolder            *acmestate.Holder
 	acmeIssuer            *acmeissue.Manager
 	issuedTLS             *pki.Issuer
+	nixDocker             *nixdocker.Preparer
+	nixStores             *nixstores.Service
 }
 
 func newRuntime() (*runtime, error) {
@@ -120,6 +123,11 @@ func newRuntime() (*runtime, error) {
 		}
 		return creds.Token
 	}))
+	nixDocker := nixdocker.New(gitManager)
+	nixStores, err := nixstores.New(store, nixDocker.Stores().RequestReset)
+	if err != nil {
+		return nil, fmt.Errorf("loading nix store resets: %w", err)
+	}
 	acmeHolder := acmestate.NewHolder()
 	acmeIssuer := acmeissue.New(secretsMgr, func() []apigen.DeploymentEvent {
 		return deployments.Active(store.Queries(), nil)
@@ -138,12 +146,14 @@ func newRuntime() (*runtime, error) {
 			GithubCredentials: githubCredentials,
 			Store:             scheduledinstances.Store{Service: store},
 			OpendeployRelease: opendeployrelease.New(ainit.StaticConfig.ReleasesDir, githubClient),
-			NixDocker:         nixdocker.New(gitManager),
+			NixDocker:         nixDocker,
 			RuntimeInputs:     runtimeInputs,
 		},
 		acmeHolder: acmeHolder,
 		acmeIssuer: acmeIssuer,
 		issuedTLS:  tlsIssuer,
+		nixDocker:  nixDocker,
+		nixStores:  nixStores,
 	}, nil
 }
 
@@ -158,6 +168,7 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 		GithubReleaseVersions: r.githubReleaseVersions,
 		GithubCredentials:     r.github,
 		Secrets:               r.secrets,
+		NixStores:             r.nixStores,
 	}
 }
 
@@ -188,6 +199,7 @@ func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string
 	})
 	go netproxy.RunNetStateWriter(ctx, r.store, predicate, nodeIdentifier, ainit.StaticConfig.NetproxyStatePath, netproxy.CertSecretResolverFunc(r.secrets.Resolve), r.acmeHolder, netMapSource, nil)
 	go netaudit.Run(ctx, network.Default, netaudit.DefaultInterval)
+	go r.nixDocker.RunMaintenance(ctx)
 	metricstore.Default = metricstore.Start(ctx, ainit.StaticConfig.MetricsDir, nodeID)
 	go metrics.Default.Run(ctx, metrics.DefaultInterval, metricstore.Default)
 	go func() {

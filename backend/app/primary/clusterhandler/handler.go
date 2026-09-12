@@ -109,6 +109,7 @@ type Handler struct {
 	networkPrefix     network.Prefix
 	networkMaps       networkMapProvider
 	acme              *acmestate.Holder
+	nixStores         nixStoreResetProvider
 	issuedTLS         *pki.Issuer
 
 	mu          sync.RWMutex
@@ -120,6 +121,10 @@ type assetProvider interface {
 	OpenAsset(ctx context.Context, assetID int32) (sizeBytes int64, body io.ReadCloser, err error)
 }
 
+type nixStoreResetProvider interface {
+	SnapshotAndSubscribe() (*apigen.NixStoreResets, <-chan *apigen.NixStoreResets, func())
+}
+
 type networkMapProvider interface {
 	SnapshotAndSubscribe(nodeID int32) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func())
 	// RecordApplied and ForgetNode drive the barrier that holds back retiring a
@@ -129,7 +134,7 @@ type networkMapProvider interface {
 	ForgetNode(nodeID int32)
 }
 
-func New(store *state.Service, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, networkMaps networkMapProvider, acme *acmestate.Holder, issuedTLS *pki.Issuer) *Handler {
+func New(store *state.Service, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, networkMaps networkMapProvider, acme *acmestate.Holder, nixStores nixStoreResetProvider, issuedTLS *pki.Issuer) *Handler {
 	return &Handler{
 		store:             store,
 		assets:            assets,
@@ -138,6 +143,7 @@ func New(store *state.Service, assets assetProvider, githubCredentials githubcre
 		networkPrefix:     networkPrefix,
 		networkMaps:       networkMaps,
 		acme:              acme,
+		nixStores:         nixStores,
 		issuedTLS:         issuedTLS,
 		sessions:          make(map[int32]*Session),
 		connectedAt:       make(map[int32]time.Time),
@@ -441,6 +447,7 @@ func (p *Handler) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*a
 
 		sess := newSession(sessCtx, cancel, nodeID, machine, predicate, p.store, p.networkMaps)
 		sess.acme = p.acme
+		sess.nixStores = p.nixStores
 		sess.networkPrefix = p.networkPrefix
 		p.registerSession(nodeID, machine, sess)
 		defer p.unregisterSession(nodeID, machine, sess)

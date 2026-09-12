@@ -200,7 +200,7 @@ message HttpsConfig {
 message NixDockerBuild {
   string repo = 1;
   string flake = 2;   // path to flake.nix relative to repo root
-  string target = 3;  // optional local flake target, e.g. .#radkitRpaClientImage; output must stream an OCI/Docker image tar
+  string target = 3;  // optional local flake target, e.g. .#radkitRpaClientImage; the output must be a nix2container.buildImage image description
 }
 
 message RemoteDockerImage {

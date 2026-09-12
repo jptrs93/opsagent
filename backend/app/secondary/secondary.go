@@ -137,6 +137,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	}
 	go netproxy.RunNetStateWriter(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID), cfg.NodeIdentifier, cfg.NetproxyStatePath, runtimeInputs, acmeHolder, netMapHolder, runtimeInputs.EnsureSecretIDs)
 	go netaudit.Run(ctx, network.Default, netaudit.DefaultInterval)
+	go nixDockerPreparer.RunMaintenance(ctx)
 	metricstore.Default = metricstore.Start(ctx, ainit.StaticConfig.MetricsDir, cfg.NodeID)
 	go metrics.Default.Run(ctx, metrics.DefaultInterval, metricstore.Default)
 	logManager = logmanager.StartManager(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID))

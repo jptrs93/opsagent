@@ -1,381 +1,338 @@
 # Containerized Nix builds
 
-Exploratory notes on replacing the host Nix toolchain in `nixdocker.Preparer`
-with a build container. No implementation is planned yet.
+Status: direction locked and implemented 2026-09-12. Delivery status,
+prototype results and deviations are in
+[containerized-nix-builds-implementation-plan.md](containerized-nix-builds-implementation-plan.md);
+the shipped code paths are described in `docs/engineering/engine.md`. The
+security finding this design closes is OD-01 in the 2026-09-11 security
+review.
 
-## Current build path
+## Direction
 
-- `backend/lib/engine/prepare/nixdocker/nixdocker.go` checks containerd for a
-  cached image ref, checks out the repo through `repo/git.Manager`, runs
-  `nix build` as a host subprocess, then executes the resulting stream script
-  and pipes it into `ctrd.Client.Import`.
-- Host prerequisites are a `nix` binary on `PATH`, a populated `/nix`, a
-  daemon unit, and `/etc/nix/nix.conf`. The service unit hardcodes
-  `/nix/var/nix/profiles/default/bin` in `PATH`.
-- Nix is installed out of band. The installer does not manage it.
-- Flake outputs use `dockerTools.streamLayeredImage`. The produced script has a
-  `/nix/store` shebang, so it can only execute where `/nix` exists at the
-  canonical path.
+- Nix builds run in a one-shot container started through the bundled
+  containerd. The host has no Nix install. The node prerequisite set is
+  containerd alone.
+- The build image is the official `nixos/nix` image pinned by digest. It runs
+  as container root with its built-in `nixbld` users, so `nix` forks every
+  derivation builder as an unprivileged uid without a daemon process.
+- Every repository has its own Nix store directory on the host, mounted at
+  `/nix` in the build container. Builds of one repository run one at a time.
+  Different repositories build concurrently with no shared state.
+- The flake output is a nix2container image JSON. The agent ingests it into
+  containerd with the nix2container Go library, generating only the layers
+  containerd does not already hold. No build output is ever executed on the
+  host.
+- Store poisoning is contained, not prevented. A poisoned store affects only
+  later builds of the same repository. Stores are reset on a schedule and on
+  operator request.
+- There is no compatibility path for `streamLayeredImage` flakes. Every
+  deployed repository and every flake under `testexamples/` migrates to
+  nix2container before the preparer change ships.
 
-## Security assessment
+## What changes
 
-- Scope note (2026-08-24): the only place in the repo that configures Nix is
-  `testing-vms/test-orchestrator/main.go`, which writes `/etc/nix/nix.conf` in
-  the node VMs. OpenDeploy does not manage Nix installation or configuration on
-  real nodes, so the exposure below described the *test harness* posture;
-  production runs whatever the operator's out-of-band install produced, and
-  upstream defaults to `sandbox = true` on Linux. The harness previously set
-  `sandbox = false`, meaning e2e validated a build path production likely does
-  not use — a sandbox-incompatible flake could pass CI and fail on a real node.
-  That flag is now `sandbox = true` so the harness is representative.
-- The harness also installs `nix-setup-systemd` and enables `nix-daemon`, so
-  test nodes are multi-user daemon installs: builds already run as `nixbld*`
-  with no store write access, and store poisoning is already prevented there.
-  The single-user concern below remains unasserted rather than observed.
-- With `sandbox = false` a build runs as `nixbld*` with no chroot, no mount
-  namespace, and no network namespace. It has host filesystem read subject to
-  unix permissions, unrestricted network access, and no cgroup limits.
-- Reachable over the network from an unsandboxed build: cloud instance
-  metadata, the machine-local virtual network and every deployment inbound
-  address `I` on the node, localhost control-plane listeners, and arbitrary
-  egress.
-- Secrets are protected by directory permissions rather than by Nix. `ainit`
-  creates `DataDir`, `GitCacheDir`, and `GitWorktreesDir` at `0750`; the
-  installer chmods `machine.key` and `primary.db` to `0600`. `nixbld*` is not
-  in the `opendeploy` group.
-- Nothing asserts that Nix is a multi-user install. On a single-user install
-  builds run as the `opendeploy` user, which can read `machine.key` and
-  `primary.db`.
-- A build with no cgroup limit can exhaust node memory and stop the control
-  plane and all running deployments.
+Today `nixdocker.Preparer` checks out the repository on the host, runs
+`nix build` as a host subprocess, executes the resulting stream script as the
+OpenDeploy service process, and pipes its stdout into `ctrd.Client.Import`.
+The stream script is whatever the flake author chose, so a repository
+contributor runs arbitrary code as the service user, which holds ambient
+`CAP_SYS_ADMIN`, the containerd socket, the machine key and the primary
+database.
 
-## Isolation comparison
+Under this design the preparer checks out the repository as before, starts a
+build container with the checkout and the repository's store mounted, waits
+for it to exit, reads the JSON it produced, and ingests the image. The build
+container has no host secrets, no containerd socket, no capabilities beyond
+the container default set, its own cgroup and its own network namespace.
 
-- `sandbox = true` gives each derivation a mount namespace chrooted to declared
-  store inputs, new PID/IPC/UTS namespaces, a user namespace, and a
-  loopback-only network namespace. For filesystem and process isolation this is
-  at least as strong as a container, because it whitelists the closure rather
-  than shipping a userland.
-- Fixed-output derivations run in the host network namespace by design. This
-  covers `fetchFromGitHub`, `fetchNpmDeps`, Go `vendorHash` fetches, and cargo
-  vendoring. No Nix setting narrows it. A fixed-output derivation has no host
-  filesystem visibility, so the exposure is network pivot and beaconing rather
-  than secret exfiltration.
-- Nix installs a seccomp filter for store purity, not for attack-surface
-  reduction. containerd applies a default profile that blocks additional
-  syscalls.
-- Nix cgroup support is experimental and off by default. containerd always
-  creates a cgroup.
-- What `sandbox = true` is and is not worth, stated by threat: it closes host
-  filesystem access essentially completely (the `machine.key` / `primary.db` /
-  other-repo-checkout axis, and it does so on single-user installs too), and it
-  closes network for *normal* derivations — which is where dependency-supplied
-  code runs (npm `postinstall`, cargo `build.rs`, `go generate`, gradle
-  plugins). Against a **compromised dependency**, the realistic threat given
-  flakes come from the deploying user's own repo, it is therefore highly
-  effective. Against a **deliberately hostile flake author** it is weak: the
-  author controls the derivation structure and can simply declare a
-  fixed-output derivation with any hash, since the build body runs before the
-  hash is checked, retaining host-network code execution. So it closes most of
-  the severity, not most of the surface — and the residual is exactly what the
-  container targets, where one netns covers normal and fixed-output alike.
+Unchanged: image ref derivation and the commit-level cache check, Git checkout
+and authentication on the host, source validation on the primary, prepare log
+streaming, and the deployment operator's use of the preparer.
 
-## Agreed scope
+## Build container
 
-- The preparer checks out the Git repository on the host to the target commit,
-  as it does today, and bind-mounts the checkout into the build container
-  read-only. Git authentication stays on the host. A read-only mount is required
-  because `EnsureCheckout` reuses one directory per repository across builds.
-- The build container receives no credentials. All flake dependencies must be
-  vendored or publicly fetchable. This is a product constraint on user flakes
-  and needs a distinct error rather than a raw Nix failure. It excludes private
-  flake inputs and authenticated binary caches. No credentials does not mean no
-  network: the container still needs egress for `cache.nixos.org` and for
-  fixed-output derivation fetches.
-- `/etc/nix/nix.conf` is generated and owned by OpenDeploy and mounted
-  read-only. With no credentials in scope, v1 needs no `netrc`, no
-  `access-tokens`, and no `SecretRef` plumbing; `substituters`,
-  `trustedPublicKeys`, `maxJobs`, and `cores` can be exposed later as plain
-  settings. Operator edits to the generated file do not survive.
-- The Nix store is one global volume. Per-repo volumes contain poisoning to a
-  single trust domain and allow concurrent builds across repositories, but
-  duplicate the 2-5 GB common closure per repository and force a cold
-  substituter fetch for each new one. Derive the store path from a store-key
-  function returning a constant so the choice can be revisited cheaply. If
-  isolation later matters, prefer per-repo stores plus a shared local binary
-  cache as a substituter over plain per-repo stores.
+### Image
 
-Open items in this scope:
+`nixos/nix`, built from `docker.nix` in the Nix repository, pinned by digest
+in the agent and pulled through `ctrd.Pull` on first use. It contains `nix`,
+bash, coreutils, git, curl, openssh, findutils and the CA bundle. It creates
+`nixbld1` through `nixbld32` with uids 30001 to 30032 in group 30000, sets
+`build-users-group = nixbld` and `sandbox = false`, and runs as root.
 
-- Whether `sandbox` is enabled inside the build container. Nested user
-  namespaces conflict with the containerd seccomp profile, so `sandbox = false`
-  with the container as the sole boundary is the pragmatic default. Under that
-  choice normal and fixed-output derivations share one netns, so a single egress
-  policy covers both. Nix's own sandbox cannot do this: it gives fixed-output
-  derivations the host network unconditionally.
-- Whether a partial clone can trigger a lazy object fetch during the build.
-  `EnsureCheckout` uses `--filter=blob:none` and leaves a promisor remote
-  configured. `checkout --force FETCH_HEAD` materializes the working tree, so
-  the needed blobs should be local, but a lazy fetch inside the container would
-  require both network and credentials. Verify on a real build.
-- Garbage collection becomes mandatory once OpenDeploy owns the store. `--no-link`
-  leaves no GC roots and the containerd image is the durable artifact, so the
-  store is a pure cache and anything may be deleted. Prefer a size-bounded
-  policy; an age-based one tends to clear the whole cache at once.
+Running as container root is required: `nix` needs `CAP_SETUID` and
+`CAP_SETGID` inside the container to fork builders as `nixbld` users. The
+container keeps only the runtime's default capability set and default seccomp
+profile. Nix's own sandbox stays off because nested user namespaces conflict
+with that seccomp profile; the container is the isolation boundary.
 
-## Store poisoning and privilege separation
+Upgrading the image is a digest bump in the agent, or the
+`OPENDEPLOY_NIX_BUILD_IMAGE` setting on a node. New stores seed from the new
+image. A store seeded from a different image digest is deleted and reseeded
+before its next build; the store is a cache, so this costs one cold build.
 
-Why a shared writable `/nix` is dangerous, and what actually protects it:
+### Invocation
 
-- Store paths are input-addressed: the hash in `/nix/store/<hash>-name` derives
-  from the derivation, not the output bytes. The NAR hash in `db.sqlite` is
-  checked only by `nix store verify`, never at use time. Whoever can write the
-  store can silently replace any path (or the database) and every later cache
-  hit on the node embeds the tampered artifact into other deployments' images.
-- Lowered privilege is not the mechanism; privilege separation between the
-  process running the untrusted build script and the process writing the store
-  is. A build that runs as one unprivileged uid which also owns `/nix` has full
-  poisoning ability — that uid executes the flake's build script.
-- Nix's multi-user design provides the split: only a root store-writer creates
-  output paths and registers them, and builders are forked as `nixbld*` users
-  with no store write. The daemon is not just a write gate — it executes the
-  builds. The `nix build` client evaluates the flake to derivations and hands
-  them over the socket; the daemon forks builders and registers outputs.
-- The daemon socket protocol is internal and unstable, so the Go agent cannot
-  speak it directly; a nix CLI must run inside the container world regardless,
-  both to evaluate and to execute the stream script (whose shebang needs `/nix`
-  at the canonical path).
-- Escalation blast radius is the same in every model below: builders run as
-  `nixbld*` in the same container as a privileged store-writer, so a
-  nixbld-to-root escalation inside that container yields store write.
+One container per build, created and started through `ctrd.Client` with a
+one-shot variant of `RunTask` that streams stdout and stderr to the prepare
+log and returns the exit status. Cancellation kills the task.
 
-## Build execution model (undecided)
+| Mount | Container path | Mode |
+|---|---|---|
+| Repository store `.../stores/<key>/nix` | `/nix` | read-write |
+| Repository checkout | `/build/src` | read-only |
+| Empty directory over the checkout's `.git` | `/build/src/.git` | read-only |
+| Generated `nix.conf` | `/etc/nix/nix.conf` | read-only |
+| Per-build scratch directory | `/build/tmp` | read-write |
+| CA bundle, when `OPENDEPLOY_NIX_BUILD_CA_BUNDLE` is set | `/etc/ssl/certs/opendeploy-build-ca.crt` | read-only |
 
-Three candidate shapes, all sharing one host `/nix` volume:
+The checkout mount is read-only because `repo/git.Manager` reuses one
+worktree per repository across builds. The scratch directory backs `TMPDIR`
+because builds write large temporary trees and a tmpfs would consume memory.
+It is deleted after the build.
 
-- **A. Standalone nix per build container** (the original sketch). One-shot
-  container runs `nix build` directly. As container-root with
-  `build-users-group` set, nix forks builders as `nixbld*` even without a
-  daemon, preserving the split; run as a single non-root uid it has no
-  poisoning protection at all. Even the correct form leaves the evaluator —
-  which consumes fully attacker-controlled flake code — running as the
-  privileged store-writer, and every concurrent build is an independent
-  privileged writer on the shared store.
-- **B. Long-lived daemon container.** One container per node runs `nix-daemon`
-  as container-root owning the `/nix` mount; the agent uses containerd exec to
-  run the client and the stream script as an unprivileged user inside the same
-  container. Single store writer, GC safe at any time, cancellation is killing
-  the exec (daemon aborts on client disconnect), and no per-build container
-  lifecycle — exec with captured stdio replaces the one-shot `cio.WithStreams`
-  path. Costs: all builds plus the daemon share one cgroup and one netns, so no
-  per-build resource limits or egress policy, and mounts are fixed at container
-  start, so the whole worktrees directory is readable by every build.
-- **C. Per-build container running the full multi-user split.** Each build
-  container starts its own daemon (or root nix with `build-users-group`) plus
-  an unprivileged client. Combines the poisoning guarantee and unprivileged
-  evaluator with per-build cgroups, per-build egress netns, and mounting only
-  that build's checkout — a build cannot read other repos' checkouts, which B
-  allows. Residual: N concurrent privileged writers on one store. The routine
-  locking is kernel file locks and sqlite over a shared bind mount — one
-  kernel, so this is the supported multi-writer topology. The sharp edge is GC:
-  temproots are keyed by pid and liveness-checked in the collector's own pid
-  namespace, so GC run from inside any build container can conclude another
-  container's in-flight roots are dead and delete paths under a live build.
-  Mitigation: never run GC from build containers; the agent runs it as a
-  maintenance pass when no builds are in flight, which matches the intended
-  OpenDeploy-owned size-bounded policy.
+Environment: `TMPDIR=/build/tmp`, `HOME=/build/tmp/home`, the image's `PATH`
+and `SSL_CERT_FILE`; with a configured CA bundle, `SSL_CERT_FILE`,
+`NIX_SSL_CERT_FILE` and `GIT_SSL_CAINFO` point at the mounted bundle. Nothing
+from the agent's environment is forwarded. The container receives no
+credentials. Flake inputs must be vendored or publicly fetchable; a fetch
+that needs authentication fails with a distinct error.
 
-Leaning: C dominates B on isolation at the cost of the centralized-GC rule and
-a per-build container start (hundreds of milliseconds against multi-minute
-builds); B's durable advantages are single-writer simplicity and less
-container plumbing. A in its naive form is the poisoning regression and in its
-correct form is C minus the unprivileged evaluator. No decision yet.
+Command: `nix build --no-update-lock-file --no-link --print-out-paths -L
+path:/build/src?dir=<flake dir>#<target>` with the flake directory as the
+working directory. The `path:` reference keeps `nix` from running Git
+against the checkout. The last stdout line is the JSON store path.
 
-## Image export and layer caching (undecided; preferred variant identified)
+Resources: a memory limit, a CPU quota and a pids limit on the container
+cgroup. Because builders are children of the container, the limits cover the
+derivation builds themselves. Defaults come from the node (half of its
+memory with a 512 MiB floor, every CPU, 4096 pids) and are overridden per
+node with `OPENDEPLOY_NIX_BUILD_MEMORY_MB`, `OPENDEPLOY_NIX_BUILD_CPUS` and
+`OPENDEPLOY_NIX_BUILD_PIDS`. A build killed at the memory limit is reported
+as such from the container cgroup's OOM counter.
 
-The current import path pays full cost on every cache-miss build: the
-`streamLayeredImage` script tars every layer every time (it cannot know what
-the destination has), and although containerd dedupes blob writes, a
-docker-archive over a pipe is a sequential full-content format, so the
-importer must read through every byte regardless. On a new commit where the
-multi-GB base closure is unchanged, generation + pipe + ingest still run in
-full (~30s observed); only the unpack step is incremental via snapshot
-chainIDs. Skipping unchanged layers requires a digest-negotiated transfer, not
-a pipe.
+### Generated `nix.conf`
 
-Variants considered:
+```
+experimental-features = nix-command flakes
+sandbox = false
+build-users-group = nixbld
+substituters = https://cache.nixos.org/
+trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
+max-jobs = auto
+```
 
-- **Preferred: agent-side ingest via the nix2container Go library.** User
-  flakes output `nix2container.buildImage` instead of a stream script: a small
-  JSON store path listing each layer's store paths with the layer digest and
-  size computed at build time; layer tarballs are never materialized. The
-  agent (Go) imports `github.com/nlewo/nix2container` directly, reads the
-  JSON, checks each digest against the ctrd content store, regenerates
-  deterministic tars only for missing layers, writes them to the content
-  store, composes manifest/config, tags, and unpacks. An app-code-only change
-  ingests one or two small layers. No registry endpoint, no push protocol, no
-  auth token, no skopeo, and no network surface reachable from the build
-  netns — the build's only output is the JSON path, and the agent reads the
-  shared store host-side after the build exits.
-- **nix2container + skopeo push to a registry endpoint on the agent.** The
-  push half of the OCI distribution API is small and would write into the
-  ctrd content store. Rejected as first choice: it adds a listener reachable
-  from the build netns (under in-container `sandbox = false` the untrusted
-  build script shares that netns with the pusher, so an unauthenticated
-  endpoint is a second poisoning channel; mitigation is a per-build ref-scoped
-  one-time token — an OpenDeploy-issued result capability, not a violation of
-  the no-fetch-credentials decision). Its one durable advantage is doubling as
-  the transport for later multi-node image distribution; agent-side ingest
-  does not preclude adding this later and shares the JSON+library foundation.
-- **Keep `streamLayeredImage`, cache (store-path set → layer digest) mappings
-  from its `conf.json` and skip known layers.** Rejected: requires
-  re-implementing the script's tar generation bit-for-bit against nixpkgs
-  internals; fragile.
+OpenDeploy owns this file. `substituters`, `trusted-public-keys`, `max-jobs`
+and `cores` become plain settings later.
 
-Details for the preferred variant:
+### Networking
 
-- The JSON references canonical `/nix/store/...` paths and tar entry names
-  must stay canonical, but the host store lives at
-  `/var/lib/opendeploy-nix/nix`. Since Nix leaves the host, `/nix` is free:
-  bind-mount or symlink the volume there and the agent reads paths as
-  written. Alternatively verify whether the library accepts a root offset.
-- Ingest regenerates tars from live store paths, so it must complete before
-  any GC maintenance pass; this slots into the agent-owned idle-time GC rule
-  from the execution model section with no extra machinery.
-- Digest-claim trust: the JSON is produced by the untrusted build, which can
-  claim any digest. Skipping ingest purely because a claimed digest exists in
-  ctrd lets a malicious flake incorporate another deployment's layer into its
-  own image and read it at runtime — a cross-deployment content-disclosure
-  channel on shared nodes. Mitigations: regenerate and hash even on a hit
-  (keeps the ingest saving, pays a local read), amortize with an agent-side
-  cache of verified store-path-set → digest mappings, or scope dedup to
-  layers previously ingested from the same repo. Cheap, but must not be
-  discovered later.
-- Contract change: flakes adopt nix2container (a public flake input,
-  consistent with the vendored/publicly-fetchable constraint). The preparer
-  detects the artifact type — executable script keeps the legacy full-stream
-  import, JSON gets the layer-cached ingest.
-- Interaction with the execution models: the container-to-host image
-  transport disappears entirely, removing the one-shot `cio.WithStreams`
-  stdout-capture work from A/C and eroding B's exec-simplicity advantage. The
-  variant is otherwise orthogonal to the A/B/C choice and to store poisoning
-  (digests are computed from actual content, so a tampered store yields
-  different digests). The commit-level image ref check stays the first-line
-  cache; layer caching targets the new-commit-small-diff case it misses.
+The build container joins its own network namespace created by the network
+manager under the reserved deployment id 16777215 in space 0, with DNS
+through netproxy as workload containers have. Its policy is egress only:
+outbound to public addresses for substituters and fixed-output fetches, no
+inbound, and no reachability of the cluster prefix beyond netproxy's DNS
+port, peer node underlay addresses, the host itself, link-local, loopback or
+cloud metadata addresses. At most two build attachments exist per node. One
+namespace covers normal and fixed-output derivations alike, which Nix's own
+sandbox cannot do.
 
-## Container design sketch
+## Stores
 
-- Build containers run through the bundled containerd, so the node prerequisite
-  set reduces from `{containerd, nix}` to `{containerd}`.
-- Pin a `nixos/nix` image by digest and pull it through `ctrd.Pull` on first
-  use.
-- Bind-mount a host directory such as `/var/lib/opendeploy-nix/nix` at `/nix`.
-  A plain bind mount preserves native filesystem performance and content
-  addressed cache reuse. No fuse and no overlay in the build path.
-- The image ships its own `/nix`, so an empty mount at that path removes Nix
-  itself. Seed once by running the image with the host directory mounted
-  elsewhere and `nix copy --no-check-sigs --to "local?root=/seed"`, which
-  registers store paths and the SQLite database. Image upgrades re-seed
-  additively; store paths are content addressed and do not collide.
-- The stream script must execute inside the container. Run build and stream as
-  one invocation and capture container stdout on the host for `ctrd.Import`.
-  `RunTask` wires stdout into the binary log consumer for long-lived runners,
-  so `ctrd` needs a one-shot run path using `cio.WithStreams`. The alternative
-  is writing the tar to a mounted directory and importing from the file, at the
-  cost of one image-sized write and read. This bullet applies only to the
-  legacy stream-script path; the preferred nix2container variant above has no
-  container-to-host image transport at all.
-- Container startup and pull costs apply only on a cache miss. The containerd
-  image ref check short-circuits before any container starts.
+### Layout
 
-## Trade-offs
+```
+/var/lib/opendeploy-nix/
+  etc/nix.conf                             generated once per node
+  template/<image-digest>/nix/             seeded once per build image
+  stores/<repo-key>/nix/                   one store per repository
+  stores/<repo-key>/tmp/<build-id>/        per-build scratch, deleted after the build
+  stores/<repo-key>/store.json             seed time and image digest
+  stores/<repo-key>/verified-layers.json   layer digests the agent computed
+```
 
-- Gained: Nix removed from the install and uninstall path, per-node Nix version
-  drift removed, egress policy over fixed-output derivations using the existing
-  netns and nftables machinery, cgroup limits, and a boundary independent of
-  directory permissions.
-- Lost: a shared writable `/nix` host directory lets one build poison the cache
-  for every deployment on the node. The multi-user daemon prevents this today.
-  Preserving the guarantee requires keeping the builder/store-writer privilege
-  split inside the container world — see "Build execution model (undecided)".
-- Nested user namespaces conflict with the containerd seccomp profile, so the
-  build container would likely run `sandbox = false` internally and rely on the
-  container as the boundary. Nesting both requires relaxing seccomp.
-- OpenDeploy inherits the `nix.conf` surface. Custom binary caches and
-  substituters become a config API concern.
-- Builds depend on the build image being pullable. Air-gapped nodes and
-  registry outages become a new failure mode.
-- Mock-mode E2E maps `cache.nixos.org` through `/etc/hosts` and a test CA.
-  `RunTask` already applies `oci.WithHostHostsFile`; the test CA bundle would
-  need mounting.
-- The store becomes a pure cache because the durable artifact is the containerd
-  image and `--no-link` leaves no GC roots. Age or size based collection is
-  safe and is not possible today.
+`<repo-key>` is the hex SHA-256 of the trimmed repository URL, the same key
+the Git manager uses for checkouts. A store holds `store/`, `var/nix/db/` and
+`var/nix/profiles/` as a complete Nix root.
 
-## Resolved: sandbox is enabled in the harness
+### Seeding
 
-`sandbox = false` was not load-bearing. Verified 2026-08-24 by flipping the
-harness to `sandbox = true` (`testing-vms/test-orchestrator/main.go`) and
-running the full e2e suite on freshly recreated VMs with an empty `/nix` store:
-**125 cases passed, 0 failed, `RUN_EXIT=0`**, including every Nix build path
-(`create-baseline-nix-docker-deployment` at 26s cold, asset-backed,
-virtual-network, https-echo, protostream, websocket-echo, and both rollovers).
+A new store is created from the template for the current image digest. Store
+paths under `store/` are hardlinked, which is free on one filesystem because
+store files are immutable. The database and profiles under `var/` are copied,
+never hardlinked, so each store has its own SQLite database. The template is
+produced once per image digest by running the image with the whole
+`/var/lib/opendeploy-nix` root mounted at `/mnt/opendeploy-nix` and copying
+its `/nix` into the template directory; the same single mount is what lets
+store creation hardlink across the tree. Both run in a maintenance container
+and finish with an atomic rename.
 
-No `sandbox-paths` entry was needed. The mock-mode test CA — installed to
-`/usr/local/share/ca-certificates` and baked into the system bundle, a host
-path outside the store — was the predicted blocker and did not materialise:
-Nix bind-mounts its configured CA file to the canonical
-`/etc/ssl/certs/ca-certificates.crt` inside the chroot for fixed-output
-derivations, and the other two consumers (substituter fetches of
-`cache.nixos.org`, flake-input fetches of `github.com`) run daemon- and
-evaluator-side, outside any sandbox.
+### Serialisation
 
-The one failure in the first run was unrelated pre-existing drift: commit
-9ac15a9 rewrote `ref_usage.go` so referenced-asset deletes return "Asset still
-in use: referenced by …" instead of the bare sentinel, without updating
-`e2e/cases/space-moves.js`. Fixed in that file as part of this change.
+One build at a time per repository, enforced by a per-repository lock in the
+preparer. A node-wide cap bounds concurrent builds across repositories. One
+writer per store removes multi-writer locking and garbage-collection
+liveness concerns entirely.
 
-The original open question is kept below for the reasoning trail.
+### Ownership and maintenance
 
-## Open questions
+Store files are created by container root and are root-owned and read-only.
+The agent reads them without privilege. Deletion, garbage collection and
+store resets run in a one-shot maintenance container with the store mounted,
+never as the agent process.
 
-- Why `sandbox = false` was set. Now answered empirically — see above; no
-  impure host-state dependency existed. The original reasoning: the likely
-  cause is that mock mode resolves
-  `github.com`, `api.github.com`, and `cache.nixos.org` through `/etc/hosts`,
-  while the Nix sandbox substitutes a minimal `/etc/hosts`. If so the fix is
-  `sandbox-paths = /etc/hosts=/etc/hosts` and production can run sandboxed. If
-  real builds depend on impure host state, the flag cannot be flipped and the
-  container becomes the only route to isolation. Two later findings narrow
-  this: for fixed-output derivations the sandbox bind-mounts the host's
-  `/etc/resolv.conf`, `/etc/services`, and `/etc/hosts` (only normal
-  derivations get the minimal localhost-only file), and the derivations that
-  need the mock-mode mappings are exactly the fetchers — so mock mode may pass
-  under `sandbox = true` with no config change; verify with a real run. An
-  audit of the radkit flakes (2026-08-23) found nothing sandbox-incompatible:
-  every network touch is a fixed-output derivation (`fetchPnpmDeps`, uv2nix
-  wheels, `vendorHash`) or offline (`gradle --offline` with no external
-  dependencies), and substituter fetches happen daemon-side outside the
-  sandbox anyway.
+### Size budget
 
-## Sequencing
+Measured on the e2e nodes after the full suite built all thirteen example
+applications with a shared store: 2.8 GB and about 1,900 paths. A fresh
+per-repository store measured 2.1 GB and 940 paths after its first
+`httpecho` build, which includes compiling the nix2container tool and the Go
+toolchain closure.
 
-- Security and install simplification are separate arguments. `sandbox = true`
-  closes most of the current exposure as a configuration change; the residual
-  is fixed-output derivation egress, cgroup limits, and seccomp coverage. Done
-  for the harness (see "Resolved" above). It is not a production change, since
-  OpenDeploy does not manage `nix.conf` on real nodes — the remaining gap is
-  that nothing asserts a node's Nix is sandboxed and multi-user, which is worth
-  a startup check or an install-docs statement whichever way the container
-  decision goes.
-- Independent of the container decision: assert or document the multi-user Nix
-  requirement.
-- Also independent of the container decision: the nix2container export change.
-  Landing it first removes the `cio.WithStreams` transport work from the
-  container migration and shrinks that estimate; it delivers the layer-caching
-  win on the current host-Nix path immediately.
-- Estimated container implementation effort is two days to a working path and
-  three to five days to production confidence. Risk concentrates in store
-  seeding, build image upgrades, and validation on real Linux nodes. Most of
-  `nixdocker.go` is unchanged: image ref derivation, cache check, checkout,
-  validation, import, log streaming, and cancellation.
+| Item | Size |
+|---|---|
+| nixpkgs source checkout, one per pinned revision | 470 MB each |
+| stdenv closure | 396 MB |
+| Go toolchain closure | 266 MB |
+| Python toolchain closure | 226 MB |
+
+A per-repository store lands between 1.2 GB and 1.8 GB depending on the
+toolchain. The nixpkgs source tree is the largest single item and is
+duplicated per store. A cross-store hardlink pass by content hash recovers
+most of that when repositories share a nixpkgs pin. Deferred.
+
+### Garbage collection and reset
+
+The containerd image is the durable artifact and `--no-link` leaves no
+garbage-collection roots, so a store is a pure cache and any of it may be
+deleted at any time between builds. Three mechanisms, all run under the
+repository lock:
+
+- A size cap per store (`OPENDEPLOY_NIX_STORE_SIZE_CAP_MB`, default 6 GiB),
+  enforced by `nix store gc` in the maintenance container after a build that
+  pushed the store over the cap.
+- A scheduled full reset per store (`OPENDEPLOY_NIX_STORE_RESET_HOURS`,
+  default seven days), which deletes the store and reseeds it. This bounds
+  the lifetime of any poisoned path.
+- An operator action, `POST /v1/nix-store/reset` behind cluster update
+  authority and the "Reset build store" button in the deployment inspector,
+  recorded on the primary and delivered to every node, which reseeds the
+  repository's store before its next build.
+
+## Poisoning stance
+
+The build container runs `nix` as the store owner, so any code that executes
+inside a build of a repository can write that repository's store. This is
+accepted with three bounds:
+
+- Containment: a store is private to one repository. The people who can put
+  code into a repository's build already control everything that repository
+  deploys, so poisoning gives them nothing outside what they own.
+- The builder split: derivation builders run as `nixbld` users, not as the
+  store owner. A compromised dependency executing in a build hook cannot
+  write the store and cannot persist after it is removed from the lockfile.
+  The flake evaluator and `nix` itself run as the store owner; evaluation is
+  pure by default and cannot read paths outside the flake.
+- Reset: the scheduled full reset and the operator reset return a store to
+  the seeded state.
+
+Layer digests in the image JSON do not detect poisoning. They are computed
+inside the build from the store as it is, so a poisoned path yields a
+consistent digest. They exist for a different purpose, described next.
+
+## Image output
+
+### Flake contract
+
+The selected flake output is a `nix2container.buildImage` derivation. Its
+store path is a JSON file describing the image: the OCI image config and a
+list of layers, each with its blob digest, size, diff id, media type and the
+store paths it contains. Layer tarballs are not written to the store. The
+`target` field of `NixDockerBuild` selects the output as today.
+
+```nix
+{
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  inputs.nix2container.url = "github:nlewo/nix2container";
+  inputs.nix2container.inputs.nixpkgs.follows = "nixpkgs";
+
+  outputs = { nixpkgs, nix2container, ... }:
+    let
+      system = "x86_64-linux";
+      pkgs = import nixpkgs { inherit system; };
+      n2c = nix2container.packages.${system}.nix2container;
+      app = pkgs.buildGoModule { pname = "httpecho"; version = "0.1.0"; src = ./.; vendorHash = null; };
+    in {
+      packages.${system}.default = n2c.buildImage {
+        name = "opendeploy-test/httpecho";
+        config.entrypoint = [ "${app}/bin/httpecho" ];
+        maxLayers = 16;
+      };
+    };
+}
+```
+
+Pinning `nix2container.inputs.nixpkgs.follows` keeps one nixpkgs source tree
+per store. The nix2container tool is built from source in each store on first
+use; a shared pin across repositories keeps that to one build per store.
+
+### Ingest
+
+The agent reads the JSON from the repository store after the container exits
+and imports the image with the nix2container Go library:
+
+1. For each layer, check whether a blob with the declared digest exists in
+   the containerd content store.
+2. Generate the tar for every layer that is missing, from the store paths
+   under the repository store, with entry names rewritten to canonical
+   `/nix/store/...` paths, and write it to the content store while hashing it.
+3. Compose the OCI config and manifest, write them, tag the image with the
+   derived local ref, and unpack it.
+
+Digest claims are not trusted. The JSON is produced by the build, so a hostile
+flake can name any digest, including a layer belonging to another
+deployment's image. A layer is skipped only when its digest matches an entry
+in the agent's own record of previously verified mappings from a sorted store
+path set to a digest; otherwise it is regenerated and hashed, and the import
+fails on a mismatch. The verified record is node-local and keyed by
+repository store.
+
+On a new commit whose base closure is unchanged, only the application layers
+are generated. This replaces the current full stream on every cache miss.
+
+### Cache ref
+
+The image ref stays `opendeploy.local/nix-docker-build/<schema>/<sourceHash>:<commit>`.
+The schema segment moves from `v1` to `v2` because the artifact contract
+changed; `v1` images age out through the existing lazy invalidation.
+
+## Node prerequisites and install
+
+Nix leaves the install: no `nix` binary, no `/nix`, no daemon unit, no
+`nix.conf`, and no `/nix` entry in the service unit's `PATH`. The build image
+is pulled on first Nix build; a node that cannot reach the registry cannot
+build until it can, which is a new failure mode and is reported as a distinct
+prepare error. Mirroring the image to a project-owned registry is the
+mitigation if pull limits or availability become a problem.
+
+The e2e harness installs no Nix packages on nodes and writes no
+`/etc/nix/nix.conf`. Mock mode mirrors `nixos/nix:2.35.2` with the other OCI
+images and sets `OPENDEPLOY_NIX_BUILD_IMAGE` to the mirrored reference,
+keeps mapping `github.com` and `cache.nixos.org` to the repository mirror
+through the node's `/etc/hosts`, which every container receives, and sets
+`OPENDEPLOY_NIX_BUILD_CA_BUNDLE` to the node's system bundle, which carries
+the harness CA.
+
+## Verification items
+
+Settled during the prototype phase before the preparer was rewritten; the
+results are recorded in the implementation plan:
+
+- Layer tars regenerated from a store root other than `/nix`, with entry
+  names rewritten to `/nix/store`, are byte-identical to the build's. The
+  library's writer fixes the root, so its deterministic writer is ported
+  with a root parameter.
+- `path:` flake references make lazy Git fetches moot; the checkout's `.git`
+  is masked regardless.
+- The `nixos/nix` image runs `nix build` with `build-users-group = nixbld`
+  under the containerd default seccomp profile without the sandbox.
+- nix2container publishes no binary cache; the tool is built once per store.

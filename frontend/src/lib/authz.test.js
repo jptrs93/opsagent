@@ -40,6 +40,8 @@ const spaceAdminTemplate = {
 
 test("positionValueName resolves each vocabulary", () => {
     assert.equal(positionValueName("permissions", 6, SPACES), "reveal");
+    assert.equal(positionValueName("permissions", 7, SPACES), "use_host_mounts");
+    assert.equal(positionValueName("permissions", 8, SPACES), "use_host_network");
     assert.equal(positionValueName("entityTypes", 2, SPACES), "deployment");
     assert.equal(positionValueName("spaces", 3, SPACES), "staging");
     assert.equal(positionValueName("spaces", 9, SPACES), "9");
@@ -49,6 +51,8 @@ test("positionValueName resolves each vocabulary", () => {
 test("formatSelector covers wildcard, lists, arguments, and exclusions", () => {
     assert.equal(formatSelector(wildcard(), "spaces", {spaceNames: SPACES}), "*");
     assert.equal(formatSelector(include(4, 2), "permissions", {}), "view,update");
+    assert.equal(formatSelector(include(7, 8), "permissions", {}), "use_host_mounts,use_host_network");
+    assert.equal(formatSelector({wildcard: true, exclude: [7, 8]}, "permissions", {}), "*-use_host_mounts-use_host_network");
     assert.equal(
         formatSelector({wildcard: true, argumentId: 0, include: [], exclude: [6]}, "permissions", {}),
         "*-reveal");

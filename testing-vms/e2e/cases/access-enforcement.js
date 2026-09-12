@@ -11,11 +11,14 @@ import {
   deleteDeployment,
   deleteExplorerSelection,
   deleteNetworkPolicy,
+  expectDeploymentNetworkingModeDenied,
   expectDeploymentOutput,
   expectNetworkPolicyCount,
   expectDeploymentRunning,
   expectExplorerPath,
   moveExplorerSelection,
+  NETWORKING_HOST,
+  NETWORKING_VIRTUAL,
   renameExplorerSelection,
   rotateSecret,
   selectExplorerRow,
@@ -304,6 +307,7 @@ export const accessEnforcementCases = [
         name: RESTRICTED_DEPLOYMENT,
         machine: 'worker-1',
         space: RESTRICTED_SPACE,
+        networkingMode: NETWORKING_VIRTUAL,
         env: {
           OPENDEPLOY_E2E_MESSAGE: {type: 'config', name: RESTRICTED_CONFIG},
           OPENDEPLOY_E2E_COLOR: {type: 'secret', name: RESTRICTED_SECRET},
@@ -345,10 +349,17 @@ export const accessEnforcementCases = [
   {
     id: 'access-restricted-deployment-managed',
     title: 'update, stop, and delete the restricted deployment',
-    description: 'The space admin manages its deployment through the full lifecycle: env update with redeploy, stop, and delete.',
+    description: 'The space admin manages its deployment through the full lifecycle: a move to host networking is denied, then env update with redeploy, stop, and delete.',
     requires: ['access-restricted-deployment-created'],
     async run(ctx) {
       const page = restrictedPage(ctx);
+
+      await expectDeploymentNetworkingModeDenied(page, {
+        name: RESTRICTED_DEPLOYMENT,
+        machine: 'worker-1',
+        networkingMode: NETWORKING_HOST,
+        expectError: 'requires use_host_network permission',
+      });
 
       await updateNixDockerDeployment(page, {
         name: RESTRICTED_DEPLOYMENT,

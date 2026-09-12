@@ -64,6 +64,7 @@ func TestStaticFilterRuleKeys(t *testing.T) {
 		"ip6 forward ct established,related accept",
 		"ip6 forward oifname @blocked_out counter drop",
 		"ip6 forward iifname @managed iifname . saddr != @src_ok counter drop",
+		"ip6 forward iifname @build jump build_egress",
 		"ip6 forward daddr vmap @dst_dispatch",
 	}
 	if got := ruleKeys("ip6", "forward", StaticFilterRules6()); !slices.Equal(got, want6) {
@@ -73,9 +74,150 @@ func TestStaticFilterRuleKeys(t *testing.T) {
 		"ip forward ct established,related accept",
 		"ip forward iifname @managed daddr 10.201.0.0/16 counter drop",
 		"ip forward iifname @managed iifname . saddr != @src_ok counter drop",
+		"ip forward iifname @build jump build_egress",
 	}
 	if got := ruleKeys("ip", "forward", StaticFilterRules4()); !slices.Equal(got, want4) {
 		t.Fatalf("v4 static rules = %q, want %q", got, want4)
+	}
+	wantIn6 := []string{
+		"ip6 input iifname @build 58 accept",
+		"ip6 input iifname @build counter drop",
+	}
+	if got := ruleKeys("ip6", "input", StaticInputRules6()); !slices.Equal(got, wantIn6) {
+		t.Fatalf("v6 input rules = %q, want %q", got, wantIn6)
+	}
+	wantIn4 := []string{"ip input iifname @build counter drop"}
+	if got := ruleKeys("ip", "input", StaticInputRules4()); !slices.Equal(got, wantIn4) {
+		t.Fatalf("v4 input rules = %q, want %q", got, wantIn4)
+	}
+}
+
+func testBuildAttachment(t *testing.T, m *Manager, veth string, buildID string) *ContainerNet {
+	t.Helper()
+	spec, err := m.BuildNetSpec(buildID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, contV4, err := V4Pair(BuildDeploymentID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &ContainerNet{
+		ContainerID:  spec.ContainerID,
+		DeploymentID: spec.DeploymentID,
+		HostVeth:     veth,
+		InboundAddr:  spec.InboundAddr,
+		OutboundAddr: spec.OutboundAddr,
+		V4:           contV4,
+	}
+}
+
+func TestBuildNetSpecUsesReservedIdentity(t *testing.T) {
+	p := mustPrefix(t, []byte{0xfd, 0xab, 0xcd, 0xef, 0x01, 0x23})
+	m := New(p, 3)
+	first, err := m.BuildNetSpec("abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := m.BuildNetSpec("def456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.DeploymentID != BuildDeploymentID || first.ContainerID != "opendeploy-16777215-abc123" {
+		t.Fatalf("spec identity = %d/%s", first.DeploymentID, first.ContainerID)
+	}
+	if err := validateContainerAddressIdentity(p, BuildDeploymentID, first.InboundAddr, first.OutboundAddr); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := p.ParseAddr(first.OutboundAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.SpaceID != SystemSpaceID || decoded.DeploymentID != BuildDeploymentID {
+		t.Fatalf("outbound identity = %+v", decoded)
+	}
+	if first.InboundAddr != second.InboundAddr || first.OutboundAddr == second.OutboundAddr {
+		t.Fatalf("builds must share the inbound address and differ in outbound: %v/%v %v/%v", first.InboundAddr, second.InboundAddr, first.OutboundAddr, second.OutboundAddr)
+	}
+	if !IsHostVethName(hostVethName(BuildDeploymentID, 1)) || len(hostVethName(BuildDeploymentID, 1)) > 15 {
+		t.Fatalf("build veth name %q is invalid", hostVethName(BuildDeploymentID, 1))
+	}
+	if _, err := New(Prefix{}, 0).BuildNetSpec("x"); err == nil {
+		t.Fatal("expected an error without a cluster prefix")
+	}
+}
+
+func TestRenderFilterStateBuildAttachment(t *testing.T) {
+	p := mustPrefix(t, []byte{0xfd, 0xab, 0xcd, 0xef, 0x01, 0x23})
+	m := New(p, 3)
+	build := testBuildAttachment(t, m, "od16777215s0", "b1")
+	workload := testAttachment(t, p, "od7s0", 5, 7, 12)
+	peers := []netip.Addr{netip.MustParseAddr("192.168.104.11"), netip.MustParseAddr("2001:db8::11"), netip.MustParseAddr("192.168.104.11")}
+	state := RenderFilterState(p, true, 3, []*ContainerNet{workload, build}, nil, peers)
+
+	if !slices.Equal(state.Build6, []string{"od16777215s0"}) || !slices.Equal(state.Build4, []string{"od16777215s0"}) {
+		t.Fatalf("build sets wrong: v6=%v v4=%v", state.Build6, state.Build4)
+	}
+	if !slices.Contains(state.BlockedOut, "od16777215s0") {
+		t.Fatalf("build veth must be in blocked_out: %v", state.BlockedOut)
+	}
+	if !slices.Contains(state.Managed6, "od16777215s0") || !slices.Contains(state.Managed4, "od16777215s0") {
+		t.Fatalf("build veth must be managed: v6=%v v4=%v", state.Managed6, state.Managed4)
+	}
+	if !slices.Contains(state.SrcOK6, VethAddr{Veth: "od16777215s0", Addr: build.OutboundAddr}) {
+		t.Fatalf("build outbound address missing from src_ok6: %v", state.SrcOK6)
+	}
+	for _, elem := range state.Dispatch {
+		if elem.Addr == build.InboundAddr || elem.Addr == build.OutboundAddr {
+			t.Fatalf("build addresses must not dispatch: %v", state.Dispatch)
+		}
+	}
+	for _, chain := range state.DstChains {
+		if chain.Name == dstChainName(BuildDeploymentID) {
+			t.Fatal("build identity must not render a destination chain")
+		}
+	}
+	dns, err := p.InboundAddr(SystemSpaceID, 3, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want6 := []string{
+		"ip6 build_egress daddr " + dns.String() + "/128 udp dport 53 accept",
+		"ip6 build_egress daddr " + dns.String() + "/128 tcp dport 53 accept",
+		"ip6 build_egress daddr fdab:cdef:123::/48 counter drop",
+		"ip6 build_egress daddr fe80::/10 counter drop",
+		"ip6 build_egress daddr 2001:db8::11/128 counter drop",
+	}
+	if got := ruleKeys("ip6", state.BuildEgress6.Name, state.BuildEgress6.Rules); !slices.Equal(got, want6) {
+		t.Fatalf("v6 egress rules = %q, want %q", got, want6)
+	}
+	want4 := []string{
+		"ip build_egress daddr 169.254.0.0/16 counter drop",
+		"ip build_egress daddr 127.0.0.0/8 counter drop",
+		"ip build_egress daddr 192.168.104.11/32 counter drop",
+	}
+	if got := ruleKeys("ip", state.BuildEgress4.Name, state.BuildEgress4.Rules); !slices.Equal(got, want4) {
+		t.Fatalf("v4 egress rules = %q, want %q", got, want4)
+	}
+	keys := state.ElementKeys()
+	if keys[BuildElementKey("ip6", "od16777215s0")] != 1 || keys[BuildElementKey("ip", "od16777215s0")] != 1 {
+		t.Fatalf("build element keys missing: %v", keys)
+	}
+	ruleKeySet := state.RuleKeys()
+	for _, want := range append(want6, want4...) {
+		if ruleKeySet[want] != 1 {
+			t.Fatalf("rule key %q missing from %v", want, ruleKeySet)
+		}
+	}
+}
+
+func TestRenderFilterStateEgressWithoutPrefix(t *testing.T) {
+	state := RenderFilterState(Prefix{}, false, 0, nil, nil, []netip.Addr{netip.MustParseAddr("10.0.0.9")})
+	if len(state.BuildEgress6.Rules) != 1 || state.BuildEgress6.Rules[0].Daddr != netip.MustParsePrefix("fe80::/10") {
+		t.Fatalf("v6 egress without prefix = %v", state.BuildEgress6.Rules)
+	}
+	if got := ruleKeys("ip", "build_egress", state.BuildEgress4.Rules); got[len(got)-1] != "ip build_egress daddr 10.0.0.9/32 counter drop" {
+		t.Fatalf("v4 egress = %q", got)
 	}
 }
 
@@ -83,7 +225,7 @@ func TestRenderFilterStateUndecodableIdentityFailsClosed(t *testing.T) {
 	p := mustPrefix(t, []byte{0xfd, 0xab, 0xcd, 0xef, 0x01, 0x23})
 	broken := testAttachment(t, p, "od7s0", 5, 7, 12)
 	broken.InboundAddr = netip.MustParseAddr("2001:db8::1")
-	state := RenderFilterState(p, true, 0, []*ContainerNet{broken}, nil)
+	state := RenderFilterState(p, true, 0, []*ContainerNet{broken}, nil, nil)
 
 	if !slices.Equal(state.Managed6, []string{"od7s0"}) {
 		t.Fatalf("managed6 = %v, want [od7s0]", state.Managed6)
@@ -101,7 +243,7 @@ func TestRenderFilterStateUndecodableIdentityFailsClosed(t *testing.T) {
 
 func TestRenderFilterStateEmptyWithoutAttachments(t *testing.T) {
 	p := mustPrefix(t, []byte{0xfd, 0xab, 0xcd, 0xef, 0x01, 0x23})
-	state := RenderFilterState(p, true, 0, nil, nil)
+	state := RenderFilterState(p, true, 0, nil, nil, nil)
 	if len(state.ElementKeys()) != 0 || len(state.DstChains) != 0 {
 		t.Fatalf("state for empty attachment set is not empty: %+v", state)
 	}
@@ -110,7 +252,7 @@ func TestRenderFilterStateEmptyWithoutAttachments(t *testing.T) {
 func TestRenderFilterStateDefaultBoundary(t *testing.T) {
 	p := mustPrefix(t, []byte{0xfd, 0xab, 0xcd, 0xef, 0x01, 0x23})
 	cn := testAttachment(t, p, "od7s0", 5, 7, 12)
-	state := RenderFilterState(p, true, 0, []*ContainerNet{cn}, nil)
+	state := RenderFilterState(p, true, 0, []*ContainerNet{cn}, nil, nil)
 
 	if !slices.Equal(state.Managed6, []string{"od7s0"}) || !slices.Equal(state.Managed4, []string{"od7s0"}) {
 		t.Fatalf("managed sets wrong: v6=%v v4=%v", state.Managed6, state.Managed4)
@@ -150,7 +292,7 @@ func TestRenderFilterStateDefaultBoundary(t *testing.T) {
 func TestRenderFilterStateNetproxyAndSystemSpace(t *testing.T) {
 	p := mustPrefix(t, []byte{0xfd, 0xab, 0xcd, 0xef, 0x01, 0x23})
 	cn := testAttachment(t, p, "od3s0", SystemSpaceID, 3, 9)
-	state := RenderFilterState(p, true, 3, []*ContainerNet{cn}, nil)
+	state := RenderFilterState(p, true, 3, []*ContainerNet{cn}, nil, nil)
 
 	dst := chainByName(t, state.DstChains, "wl_dst_3")
 	want := []string{
@@ -167,7 +309,7 @@ func TestRenderFilterStateNetproxyAndSystemSpace(t *testing.T) {
 func TestRenderFilterStateGlobalSpaceAcceptsAllClusterSources(t *testing.T) {
 	p := mustPrefix(t, []byte{0xfd, 0xab, 0xcd, 0xef, 0x01, 0x23})
 	cn := testAttachment(t, p, "od9s0", GlobalSpaceID, 9, 4)
-	state := RenderFilterState(p, true, 0, []*ContainerNet{cn}, nil)
+	state := RenderFilterState(p, true, 0, []*ContainerNet{cn}, nil, nil)
 
 	dst := chainByName(t, state.DstChains, "wl_dst_9")
 	want := []string{"ip6 wl_dst_9 saddr fdab:cdef:123::/48 accept"}
@@ -186,7 +328,7 @@ func TestRenderFilterStateRolloverSharesDispatchAndChain(t *testing.T) {
 	if current.OutboundAddr == candidate.OutboundAddr {
 		t.Fatal("rollover attachments must have distinct outbound addresses")
 	}
-	state := RenderFilterState(p, true, 0, []*ContainerNet{candidate, current}, nil)
+	state := RenderFilterState(p, true, 0, []*ContainerNet{candidate, current}, nil, nil)
 
 	if !slices.Equal(state.Managed6, []string{"od7s0", "od7s1"}) {
 		t.Fatalf("managed6 = %v", state.Managed6)
@@ -229,7 +371,7 @@ func TestRenderFilterStateOverrideRules(t *testing.T) {
 		{Source: PolicyPeer{SpaceID: 6}, Destination: PolicyPeer{SpaceID: 5}},
 		{Source: PolicyPeer{SpaceID: 6}, Destination: PolicyPeer{SpaceID: 9}},
 	}
-	state := RenderFilterState(p, true, 0, []*ContainerNet{cn, other}, rules)
+	state := RenderFilterState(p, true, 0, []*ContainerNet{cn, other}, rules, nil)
 
 	dst := chainByName(t, state.DstChains, "wl_dst_7")
 	want := []string{
@@ -259,7 +401,7 @@ func TestRenderFilterStateOverrideRules(t *testing.T) {
 func TestRenderFilterStateWithoutPrefixKeepsV4Boundary(t *testing.T) {
 	p := mustPrefix(t, []byte{0xfd, 0xab, 0xcd, 0xef, 0x01, 0x23})
 	cn := testAttachment(t, p, "od7s0", 5, 7, 12)
-	state := RenderFilterState(Prefix{}, false, 0, []*ContainerNet{cn}, nil)
+	state := RenderFilterState(Prefix{}, false, 0, []*ContainerNet{cn}, nil, nil)
 	if len(state.Managed6) != 0 || len(state.SrcOK6) != 0 || len(state.Dispatch) != 0 || len(state.DstChains) != 0 {
 		t.Fatalf("v6 state rendered without prefix: %+v", state)
 	}
@@ -272,7 +414,7 @@ func TestRenderFilterStateAttachmentWithoutV4HasNoSrcOK4(t *testing.T) {
 	p := mustPrefix(t, []byte{0xfd, 0xab, 0xcd, 0xef, 0x01, 0x23})
 	cn := testAttachment(t, p, "od7s0", 5, 7, 12)
 	cn.V4 = netip.Addr{}
-	state := RenderFilterState(p, true, 0, []*ContainerNet{cn}, nil)
+	state := RenderFilterState(p, true, 0, []*ContainerNet{cn}, nil, nil)
 	if !slices.Equal(state.Managed4, []string{"od7s0"}) {
 		t.Fatalf("managed4 = %v", state.Managed4)
 	}
@@ -284,7 +426,7 @@ func TestRenderFilterStateAttachmentWithoutV4HasNoSrcOK4(t *testing.T) {
 func TestFilterStateElementKeys(t *testing.T) {
 	p := mustPrefix(t, []byte{0xfd, 0xab, 0xcd, 0xef, 0x01, 0x23})
 	cn := testAttachment(t, p, "od7s0", 5, 7, 12)
-	state := RenderFilterState(p, true, 0, []*ContainerNet{cn}, nil)
+	state := RenderFilterState(p, true, 0, []*ContainerNet{cn}, nil, nil)
 	keys := state.ElementKeys()
 	for _, want := range []string{
 		"ip6 set managed od7s0",
@@ -312,7 +454,10 @@ func TestFilterStateRuleKeysIncludeStatics(t *testing.T) {
 	if keys["ip forward iifname @managed daddr 10.201.0.0/16 counter drop"] != 1 {
 		t.Fatalf("static v4 boundary rule missing: %v", keys)
 	}
-	if len(keys) != len(StaticFilterRules6())+len(StaticFilterRules4()) {
+	if keys["ip6 input iifname @build counter drop"] != 1 {
+		t.Fatalf("static input rule missing: %v", keys)
+	}
+	if len(keys) != len(StaticFilterRules6())+len(StaticFilterRules4())+len(StaticInputRules6())+len(StaticInputRules4()) {
 		t.Fatalf("empty state must render only static rules: %v", keys)
 	}
 }

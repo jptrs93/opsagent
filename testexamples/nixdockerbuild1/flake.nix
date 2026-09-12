@@ -2,15 +2,18 @@
   description = "OpenDeploy nixDockerBuild test image";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  inputs.nix2container.url = "github:nlewo/nix2container";
+  inputs.nix2container.inputs.nixpkgs.follows = "nixpkgs";
 
-  outputs = { nixpkgs, ... }:
+  outputs = { nixpkgs, nix2container, ... }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system (import nixpkgs { inherit system; }));
     in
     {
-      packages = forAllSystems (pkgs:
+      packages = forAllSystems (system: pkgs:
         let
+          n2c = nix2container.packages.${system}.nix2container;
           app = pkgs.buildGoModule {
             pname = "nixdockerbuild1";
             version = "0.1.0";
@@ -19,13 +22,13 @@
           };
         in
         {
-          default = pkgs.dockerTools.streamLayeredImage {
+          default = n2c.buildImage {
             name = "opendeploy-test/nixdockerbuild1";
-            tag = "latest";
             config = {
-              Cmd = [ "${app}/bin/nixdockerbuild1" ];
-              WorkingDir = "/";
+              entrypoint = [ "${app}/bin/nixdockerbuild1" ];
+              workingdir = "/";
             };
+            maxLayers = 16;
           };
           app = app;
         });

@@ -73,6 +73,7 @@ type ApiServerHandler interface {
 	GetV1Healthz(Context, *http.Request, http.ResponseWriter) error
 	PostV1ClusterSettingsGet(Context) (*ClusterSettings, error)
 	PostV1ClusterSettingsUpdate(Context, *ClusterSettings) (*ClusterSettings, error)
+	PostV1NixStoreReset(Context, *NixStoreResetRequest) error
 	PostV1AuthMaster(Context, *MasterPasswordRequest) (*LoginResponse, error)
 	PostV1AuthMasterPasswordSave(Context, *MasterPasswordSaveRequest) error
 	PostV1AuthMasterPasswordVerify(Context, *MasterPasswordVerifyRequest) error
@@ -214,6 +215,21 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/cluster-settings/update", buildHandlerFunc(config, verifyAuth, postV1ClusterSettingsUpdateAccessPolicy, postAuthHandlerPostV1ClusterSettingsUpdate, compressionModeAuto, false))
+	postV1NixStoreResetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1NixStoreReset := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNixStoreResetRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1NixStoreReset(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/nix-store/reset", buildHandlerFunc(config, verifyAuth, postV1NixStoreResetAccessPolicy, postAuthHandlerPostV1NixStoreReset, compressionModeAuto, false))
 	postV1AuthMasterAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
 	postAuthHandlerPostV1AuthMaster := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeMasterPasswordRequest)

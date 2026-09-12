@@ -20,6 +20,7 @@ const (
 	runLogsDir    = "/var/lib/opendeploy-run-logs"
 	logArchiveDir = "/var/lib/opendeploy-log-archive"
 	metricsDir    = "/var/lib/opendeploy-metrics"
+	nixStoresDir  = "/var/lib/opendeploy-nix"
 	// siblingDirGlob matches every runtime root ainit derives as dataDir+"-<x>",
 	// so a purge also catches siblings this binary does not list explicitly.
 	siblingDirGlob = "/var/lib/opendeploy-*"
@@ -73,15 +74,15 @@ type runtimeDep struct {
 
 var containerdDep = runtimeDep{
 	name:    "containerd",
-	version: "2.0.5",
+	version: "2.3.5",
 	url: func(arch string) string {
-		v := "2.0.5"
+		v := "2.3.5"
 		return "https://github.com/containerd/containerd/releases/download/v" + v +
 			"/containerd-" + v + "-linux-" + arch + ".tar.gz"
 	},
 	sha256: map[string]string{
-		"amd64": "88ab31f3e78e4d2fa12dcb933032122d11d441c83b79a89c6c8076f871e50df8",
-		"arm64": "36eaf77dc65df4b60d6e06204631a4105b4e942dd2704d618758a2aa0eecc264",
+		"amd64": "2f0a095a71e3262d0d91ff0e50e2e4ae73c3866c4d1ff6a15f341097fba3dd44",
+		"arm64": "06f46cbc073872c5ad1fbc922a53543e9a26b798d62ff106d44639dcb9947942",
 	},
 	// The tarball lays these out under bin/.
 	binaries:  []string{"containerd", "containerd-shim-runc-v2", "ctr"},
@@ -90,13 +91,13 @@ var containerdDep = runtimeDep{
 
 var runcDep = runtimeDep{
 	name:    "runc",
-	version: "1.2.6",
+	version: "1.5.1",
 	url: func(arch string) string {
-		return "https://github.com/opencontainers/runc/releases/download/v1.2.6/runc." + arch
+		return "https://github.com/opencontainers/runc/releases/download/v1.5.1/runc." + arch
 	},
 	sha256: map[string]string{
-		"amd64": "0774f49d1b1eebb5849e644db5e4dc6f2b06cee05f13b3d17d5d6ba62d6f2ebc",
-		"arm64": "12c612e2ebe6ca198de676ce75ed557e79fe6109032209bb8e25166c967fe170",
+		"amd64": "177df879d50c913eb205e898d5c1c05a18f574053c0ce5524c471208eaf06f6f",
+		"arm64": "ca70e7dbd6616ca782a59b5d3ac86909123fdaa9fa3f89dcf29051c70eee7ce9",
 	},
 	binaries:  []string{"runc"},
 	isTarball: false,

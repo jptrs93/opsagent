@@ -94,7 +94,7 @@ OPD_PREPARE_MOCK_ARTIFACTS=true go run ./testing-vms/test-orchestrator repo-mirr
 
 After preparation, `repo-mirror-up` fails closed if required release binaries, runtime archives, OCI archives, or Lima images are still missing from `testing-vms/.mock-artifacts`.
 
-By default, unknown GitHub paths return 404 except Nixpkgs paths needed by Nix flake evaluation. Set `OPD_REPO_MIRROR_PROXY_UNKNOWN=false` to fail closed for every unknown GitHub path, or `OPD_REPO_MIRROR_PROXY_UNKNOWN=true` to proxy all unknown GitHub paths.
+By default, unknown GitHub paths return 404 except the `NixOS/nixpkgs` and `nlewo/nix2container` paths needed by Nix flake evaluation. Set `OPD_REPO_MIRROR_PROXY_UNKNOWN=false` to fail closed for every unknown GitHub path, or `OPD_REPO_MIRROR_PROXY_UNKNOWN=true` to proxy all unknown GitHub paths.
 
 The repo mirror also handles `cache.nixos.org` for worker Nix builds. `OPD_NIX_CACHE_MODE=proxy-cache` is the default: cached paths are served locally and misses are fetched from real `https://cache.nixos.org`, stored under `/srv/nix-cache`, and logged as warnings. Set `OPD_NIX_CACHE_MODE=strict` to fail on misses, or `OPD_NIX_CACHE_MODE=off` to disable the Nix cache proxy.
 

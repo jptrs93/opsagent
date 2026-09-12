@@ -18,6 +18,22 @@ var ErrNotFound = errors.New("container task not found")
 // operator can prepare the same desired spec version again.
 var ErrImageUnavailable = errors.New("container image unavailable")
 
+// ErrImagePull marks a failed registry pull of an image the agent needs.
+var ErrImagePull = errors.New("image pull failed")
+
+// Resources are the cgroup limits applied to a one-shot build container.
+type Resources struct {
+	MemoryBytes int64
+	CPUs        int
+	Pids        int64
+}
+
+// BuildResult is the terminal state of a build container.
+type BuildResult struct {
+	Code      uint32
+	OOMKilled bool
+}
+
 // Mount is a single host bind mount into the container.
 type Mount struct {
 	Source   string
@@ -55,6 +71,13 @@ type ContainerSpec struct {
 	// NetnsPath is set (points at the machine's netproxy DNS). Empty = the
 	// host's resolv.conf.
 	ResolvConfPath string
+
+	// NoNetwork gives the container an empty private network namespace.
+	NoNetwork bool
+	// Resources are applied by RunBuild only.
+	Resources *Resources
+	// DefaultSeccomp applies containerd's default seccomp profile.
+	DefaultSeccomp bool
 }
 
 // ImageStream is an OCI/Docker image tar stream to import into containerd.

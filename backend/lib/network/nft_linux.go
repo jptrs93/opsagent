@@ -30,10 +30,11 @@ func NewNftConn() (*nftables.Conn, error) {
 
 type nftHandles struct {
 	tbl4, tbl6                             *nftables.Table
-	post4, pre4, out4, fwd4                *nftables.Chain
-	post6, pre6, out6, fwd6                *nftables.Chain
-	managed4, srcOK4                       *nftables.Set
+	post4, pre4, out4, fwd4, in4, egress4  *nftables.Chain
+	post6, pre6, out6, fwd6, in6, egress6  *nftables.Chain
+	managed4, srcOK4, build4               *nftables.Set
 	managed6, srcOK6, blockedOut, dispatch *nftables.Set
+	build6                                 *nftables.Set
 }
 
 func newNftHandles() *nftHandles {
@@ -77,7 +78,23 @@ func newNftHandles() *nftHandles {
 		Hooknum: nftables.ChainHookForward, Priority: nftables.ChainPriorityFilter,
 		Policy: &policy6,
 	}
+	inPolicy4 := nftables.ChainPolicyAccept
+	inPolicy6 := nftables.ChainPolicyAccept
+	h.in4 = &nftables.Chain{
+		Name: NftChainInput, Table: h.tbl4, Type: nftables.ChainTypeFilter,
+		Hooknum: nftables.ChainHookInput, Priority: nftables.ChainPriorityFilter,
+		Policy: &inPolicy4,
+	}
+	h.in6 = &nftables.Chain{
+		Name: NftChainInput, Table: h.tbl6, Type: nftables.ChainTypeFilter,
+		Hooknum: nftables.ChainHookInput, Priority: nftables.ChainPriorityFilter,
+		Policy: &inPolicy6,
+	}
+	h.egress4 = &nftables.Chain{Name: NftChainBuildEgress, Table: h.tbl4}
+	h.egress6 = &nftables.Chain{Name: NftChainBuildEgress, Table: h.tbl6}
 	h.managed4 = &nftables.Set{Table: h.tbl4, Name: NftSetManaged, KeyType: nftables.TypeIFName}
+	h.build4 = &nftables.Set{Table: h.tbl4, Name: NftSetBuild, KeyType: nftables.TypeIFName}
+	h.build6 = &nftables.Set{Table: h.tbl6, Name: NftSetBuild, KeyType: nftables.TypeIFName}
 	h.srcOK4 = &nftables.Set{
 		Table: h.tbl4, Name: NftSetSrcOK, Concatenation: true,
 		KeyType: nftables.MustConcatSetType(nftables.TypeIFName, nftables.TypeIPAddr),
@@ -96,7 +113,7 @@ func newNftHandles() *nftHandles {
 }
 
 func (h *nftHandles) sets() []*nftables.Set {
-	return []*nftables.Set{h.managed4, h.srcOK4, h.managed6, h.srcOK6, h.blockedOut, h.dispatch}
+	return []*nftables.Set{h.managed4, h.srcOK4, h.build4, h.managed6, h.srcOK6, h.blockedOut, h.dispatch, h.build6}
 }
 
 // natChains are the chains rebuilt together whenever the NAT signature
@@ -114,7 +131,7 @@ func buildSkeleton(c *nftables.Conn, h *nftHandles) error {
 	c.AddTable(h.tbl6)
 	c.DelTable(h.tbl6)
 	c.AddTable(h.tbl6)
-	for _, chain := range []*nftables.Chain{h.post4, h.pre4, h.out4, h.fwd4, h.post6, h.pre6, h.out6, h.fwd6} {
+	for _, chain := range []*nftables.Chain{h.post4, h.pre4, h.out4, h.egress4, h.fwd4, h.in4, h.post6, h.pre6, h.out6, h.egress6, h.fwd6, h.in6} {
 		c.AddChain(chain)
 	}
 	for _, set := range h.sets() {
@@ -128,6 +145,12 @@ func buildSkeleton(c *nftables.Conn, h *nftHandles) error {
 	}
 	for _, rule := range StaticFilterRules6() {
 		c.AddRule(&nftables.Rule{Table: h.tbl6, Chain: h.fwd6, Exprs: filterExprs(rule, true)})
+	}
+	for _, rule := range StaticInputRules4() {
+		c.AddRule(&nftables.Rule{Table: h.tbl4, Chain: h.in4, Exprs: filterExprs(rule, false)})
+	}
+	for _, rule := range StaticInputRules6() {
+		c.AddRule(&nftables.Rule{Table: h.tbl6, Chain: h.in6, Exprs: filterExprs(rule, true)})
 	}
 	return nil
 }
@@ -149,7 +172,7 @@ func (m *Manager) reconcileNft() error {
 		}
 	}
 
-	state := RenderFilterState(m.prefix, m.hasPrefix, m.netproxyDeploymentID, m.filterNetList(), m.policyRules)
+	state := RenderFilterState(m.prefix, m.hasPrefix, m.netproxyDeploymentID, m.filterNetList(), m.policyRules, m.peerUnderlays)
 
 	desiredChains := make(map[string]uint64, len(state.DstChains))
 	for _, chain := range state.DstChains {
@@ -181,6 +204,27 @@ func (m *Manager) reconcileNft() error {
 		}
 	}
 
+	egressHash := [2]uint64{filterChainHash("ip", state.BuildEgress4), filterChainHash("ip6", state.BuildEgress6)}
+	for i, family := range []struct {
+		tbl   *nftables.Table
+		chain *nftables.Chain
+		rules []FilterRule
+		is6   bool
+	}{
+		{h.tbl4, h.egress4, state.BuildEgress4.Rules, false},
+		{h.tbl6, h.egress6, state.BuildEgress6.Rules, true},
+	} {
+		if !fresh && egressHash[i] == m.nftEgressHash[i] {
+			continue
+		}
+		if !fresh {
+			c.FlushChain(family.chain)
+		}
+		for _, rule := range family.rules {
+			c.AddRule(&nftables.Rule{Table: family.tbl, Chain: family.chain, Exprs: filterExprs(rule, family.is6)})
+		}
+	}
+
 	if err := addFilterElements(c, h, state); err != nil {
 		return m.reconcileFailedLocked(err)
 	}
@@ -201,6 +245,7 @@ func (m *Manager) reconcileNft() error {
 	m.nftSkeletonReady = true
 	m.nftNatHash = natHash
 	m.nftDstChains = desiredChains
+	m.nftEgressHash = egressHash
 	return nil
 }
 
@@ -208,6 +253,7 @@ func (m *Manager) reconcileFailedLocked(err error) error {
 	m.nftSkeletonReady = false
 	m.nftNatHash = 0
 	m.nftDstChains = nil
+	m.nftEgressHash = [2]uint64{}
 	return err
 }
 
@@ -228,6 +274,12 @@ func addFilterElements(c *nftables.Conn, h *nftHandles, state FilterState) error
 		return err
 	}
 	if err := add(h.blockedOut, ifnameElements(state.BlockedOut)); err != nil {
+		return err
+	}
+	if err := add(h.build6, ifnameElements(state.Build6)); err != nil {
+		return err
+	}
+	if err := add(h.build4, ifnameElements(state.Build4)); err != nil {
 		return err
 	}
 	if err := add(h.dispatch, dispatchElements(state.Dispatch)); err != nil {
@@ -267,9 +319,13 @@ func dispatchElements(entries []DispatchElem) []nftables.SetElement {
 }
 
 func dstChainHash(chain FilterChain) uint64 {
+	return filterChainHash("ip6", chain)
+}
+
+func filterChainHash(family string, chain FilterChain) uint64 {
 	hash := fnv.New64a()
 	for _, rule := range chain.Rules {
-		fmt.Fprintln(hash, rule.Key("ip6", chain.Name))
+		fmt.Fprintln(hash, rule.Key(family, chain.Name))
 	}
 	return hash.Sum64()
 }

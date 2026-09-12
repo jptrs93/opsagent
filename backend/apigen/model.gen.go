@@ -143,13 +143,15 @@ const (
 type AuthzVerb int32
 
 const (
-	AuthzVerb_AUTHZ_VERB_UNKNOWN   AuthzVerb = 0
-	AuthzVerb_AUTHZ_VERB_CREATE    AuthzVerb = 1
-	AuthzVerb_AUTHZ_VERB_UPDATE    AuthzVerb = 2
-	AuthzVerb_AUTHZ_VERB_DELETE    AuthzVerb = 3
-	AuthzVerb_AUTHZ_VERB_VIEW      AuthzVerb = 4
-	AuthzVerb_AUTHZ_VERB_VIEW_LOGS AuthzVerb = 5
-	AuthzVerb_AUTHZ_VERB_REVEAL    AuthzVerb = 6
+	AuthzVerb_AUTHZ_VERB_UNKNOWN          AuthzVerb = 0
+	AuthzVerb_AUTHZ_VERB_CREATE           AuthzVerb = 1
+	AuthzVerb_AUTHZ_VERB_UPDATE           AuthzVerb = 2
+	AuthzVerb_AUTHZ_VERB_DELETE           AuthzVerb = 3
+	AuthzVerb_AUTHZ_VERB_VIEW             AuthzVerb = 4
+	AuthzVerb_AUTHZ_VERB_VIEW_LOGS        AuthzVerb = 5
+	AuthzVerb_AUTHZ_VERB_REVEAL           AuthzVerb = 6
+	AuthzVerb_AUTHZ_VERB_USE_HOST_MOUNTS  AuthzVerb = 7
+	AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK AuthzVerb = 8
 )
 
 type AuthzEntity int32
@@ -1736,6 +1738,20 @@ type MsgToSecondary struct {
 	LogQueryRequest            *LogQueryRequest           `json:"log_query_request"`
 	MetricsQueryRequest        *MetricsQueryRequest       `json:"metrics_query_request"`
 	MetricsLatestRequest       *MetricsLatestRequest      `json:"metrics_latest_request"`
+	NixStoreResets             *NixStoreResets            `json:"nix_store_resets"`
+}
+
+type NixStoreReset struct {
+	Repo        string `json:"repo,omitempty"`
+	RequestedAt int64  `json:"requested_at"`
+}
+
+type NixStoreResets struct {
+	Items []*NixStoreReset `json:"items,omitempty"`
+}
+
+type NixStoreResetRequest struct {
+	Repo string `json:"repo,omitempty"`
 }
 
 type ClusterHello struct {

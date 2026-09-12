@@ -10807,6 +10807,10 @@ func (m *MsgToSecondary) Encode() []byte {
 		b = AppendTag(b, 13, BytesType)
 		b = AppendBytes(b, m.MetricsLatestRequest.Encode())
 	}
+	if m.NixStoreResets != nil {
+		b = AppendTag(b, 14, BytesType)
+		b = AppendBytes(b, m.NixStoreResets.Encode())
+	}
 	return b
 }
 
@@ -10907,6 +10911,120 @@ func DecodeMsgToSecondary(b []byte) (*MsgToSecondary, error) {
 					m.MetricsLatestRequest = item
 				}
 			}
+		case 14:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NixStoreResets
+				item, err = DecodeNixStoreResets(msgBytes)
+				if err == nil {
+					m.NixStoreResets = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NixStoreReset) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Repo, 1)
+	b = AppendInt64Field(b, m.RequestedAt, 2)
+	return b
+}
+
+func DecodeNixStoreReset(b []byte) (*NixStoreReset, error) {
+	var m NixStoreReset
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Repo, err = ConsumeString(b, typ)
+		case 2:
+			b, m.RequestedAt, err = ConsumeVarInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NixStoreResets) Encode() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
+		if item == nil {
+			b = AppendBytes(b, nil)
+			continue
+		}
+		b = AppendBytes(b, item.Encode())
+	}
+	return b
+}
+
+func DecodeNixStoreResets(b []byte) (*NixStoreResets, error) {
+	var m NixStoreResets
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NixStoreReset
+				item, err = DecodeNixStoreReset(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NixStoreResetRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Repo, 1)
+	return b
+}
+
+func DecodeNixStoreResetRequest(b []byte) (*NixStoreResetRequest, error) {
+	var m NixStoreResetRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Repo, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

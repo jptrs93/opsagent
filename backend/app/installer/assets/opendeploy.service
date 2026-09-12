@@ -12,7 +12,7 @@ ExecStart=/var/lib/opendeploy/bin/opendeploy primary
 
 # Environment — override via /etc/opendeploy/env or systemctl edit
 EnvironmentFile=-/etc/opendeploy/env
-Environment=PATH=/nix/var/nix/profiles/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Only signal the main opendeploy process on stop/restart. Child processes
 # (osProcess runner deployments) are spawned with Setsid and must survive

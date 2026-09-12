@@ -233,6 +233,7 @@ export async function createNixDockerDeployment(page, {
   space,
   repo = 'github.com/jptrs93/opsagent',
   flake = 'testexamples/nixdockerbuild1/flake.nix',
+  target = '',
   env = {
     OPENDEPLOY_E2E_MESSAGE: 'hello-from-playwright',
     OPENDEPLOY_E2E_COLOR: 'blue',
@@ -286,6 +287,7 @@ export async function createNixDockerDeployment(page, {
       await repoInput.fill(repo);
       await flakeInput.fill(flake);
       await flakeInput.blur();
+      if (target) await byTestId(dialog, 'deployment-nix-target-input', textField(dialog, 'Flake target (optional)')).fill(target);
       await expectSourceStatus(dialog, 'Source not validated');
       await validateRequests.expectStableCount(0, 'expected no validate requests before Validate is clicked');
       await expect(dialog.getByTestId('version-select-button')).toBeDisabled();
@@ -393,6 +395,37 @@ export async function updateNixDockerDeployment(page, {
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await updateResponse).ok()).toBe(true);
+    await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  });
+}
+
+// expectDeploymentNetworkingModeDenied submits an update that switches the
+// networking mode and asserts the primary rejects it with expectError, which
+// is how a caller without use_host_network sees a move to host networking.
+export async function expectDeploymentNetworkingModeDenied(page, {name, machine = 'worker-1', networkingMode, expectError} = {}) {
+  await step(`open update dialog ${name}`, async () => {
+    await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+    await showStoppedDeployments(page);
+    const row = deploymentRow(page, {name, machine});
+    await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    await row.getByRole('button', {name: 'Update'}).click();
+  });
+  const dialog = editorPanel(page, 'update-deployment-dialog');
+  await expect(dialog).toBeVisible();
+  await selectEditorMode(dialog, 'ui');
+  await step(`set networking mode ${name}`, () => setDeploymentNetworkingMode(dialog, networkingMode));
+  await step(`expect rejected update ${name}`, async () => {
+    const submit = dialog.getByRole('button', {name: 'Update deployment'});
+    await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
+    const updateResponse = page.waitForResponse(response => {
+      const request = response.request();
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
+    }, {timeout: LONG_UI_TIMEOUT});
+    await submit.click();
+    expect((await updateResponse).ok()).toBe(false);
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(expectError)).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    await dialog.getByRole('button', {name: 'Cancel'}).click();
     await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
   });
 }
@@ -959,6 +992,30 @@ export async function createPostgresClientDeployment(page, {
     ['postgresclient row', {id: '3', name: 'charlie'}],
     ['postgresclient verified rows', {count: '3'}],
   ]);
+}
+
+// resetNixBuildStore asks every node to reseed the Nix build store of the
+// repository behind a deployment, through the deployment inspector.
+export async function resetNixBuildStore(page, {name, machine = 'worker-1'} = {}) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = deploymentRow(page, {name, machine});
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await row.locator('td').first().click();
+  const inspector = page.getByTestId('deployment-inspector');
+  await expect(inspector).toBeVisible();
+  await inspector.getByRole('button', {name: 'Reset build store', exact: true}).click();
+  const overlay = page.getByTestId('nix-store-reset-overlay');
+  await expect(overlay).toBeVisible();
+  const response = page.waitForResponse(res => {
+    const request = res.request();
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/nix-store/reset';
+  }, {timeout: LONG_UI_TIMEOUT});
+  await overlay.getByTestId('nix-store-reset-confirm').click();
+  expect((await response).ok()).toBe(true);
+  await expect(overlay.getByTestId('nix-store-reset-done')).toBeVisible();
+  await overlay.getByRole('button', {name: 'Close'}).click();
+  await expect(overlay).toBeHidden();
+  await inspector.getByLabel('Close inspector').click();
 }
 
 export async function stopDeployment(page, {name, machine = 'worker-1'} = {}) {

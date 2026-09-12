@@ -26,7 +26,7 @@ func TestNodeNameUniquenessEnforcedInGo(t *testing.T) {
 		t.Fatalf("missing node rename error = %v, want sql.ErrNoRows", err)
 	}
 
-	req, expectedVersion := UpsertEnrollmentRequest(store, "127.0.0.1", "v1", apigen.NodeReported{Identifier: "new-id", UnderlayAddress: "10.0.0.9", WgPublicKey: ""})
+	req, expectedVersion := mustUpsertEnrollmentRequest(t, store, "127.0.0.1", "v1", apigen.NodeReported{Identifier: "new-id", UnderlayAddress: "10.0.0.9", WgPublicKey: ""})
 	if _, err := AcceptEnrollmentRequest(store, req.ID, "primary", req.RequestingMachineID, expectedVersion); !errors.Is(err, ErrDuplicateNodeName) {
 		t.Fatalf("accept collision error = %v, want ErrDuplicateNodeName", err)
 	}

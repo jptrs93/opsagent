@@ -115,12 +115,12 @@ func parseRuleExprs(exprs []expr.Any) (parsedRule, bool) {
 }
 
 func isFilterChain(name string) bool {
-	return name == "forward" || strings.HasPrefix(name, "wl_dst_")
+	return name == network.NftChainForward || name == network.NftChainInput || name == network.NftChainBuildEgress || strings.HasPrefix(name, "wl_dst_")
 }
 
 func parseSetElement(family, setName string, elem nftables.SetElement) (string, bool) {
 	switch setName {
-	case network.NftSetManaged, network.NftSetBlockedOut:
+	case network.NftSetManaged, network.NftSetBlockedOut, network.NftSetBuild:
 		if len(elem.Key) != 16 {
 			return "", false
 		}
@@ -128,11 +128,14 @@ func parseSetElement(family, setName string, elem nftables.SetElement) (string, 
 		if veth == "" {
 			return "", false
 		}
-		if setName == network.NftSetBlockedOut {
+		switch setName {
+		case network.NftSetBlockedOut:
 			if family != "ip6" {
 				return "", false
 			}
 			return network.BlockedOutElementKey(veth), true
+		case network.NftSetBuild:
+			return network.BuildElementKey(family, veth), true
 		}
 		return network.ManagedElementKey(family, veth), true
 	case network.NftSetSrcOK:

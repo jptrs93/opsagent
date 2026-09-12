@@ -28,6 +28,12 @@ func defaultUserVisibilityRule() *apigen.AuthzGlobalRule {
 
 func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 	all := func() *apigen.AuthzSelector { return &apigen.AuthzSelector{Wildcard: true} }
+	withoutHostAccess := func() *apigen.AuthzSelector {
+		return &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{
+			int64(apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_MOUNTS),
+			int64(apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK),
+		}}
+	}
 	// delegableRules is what an agent session inherits from the grant. Secrets
 	// are split out of the general rule and handed back view+create: an agent
 	// can see that a secret exists, mint one, and wire it into a deployment,
@@ -36,11 +42,11 @@ func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 	// narrows a delegated token, so this is the whole of what agents may do.
 	// Agent sessions also lose view_logs: deployment logs can echo secret
 	// values at runtime, which would sidestep the create-only secret boundary
-	// below.
+	// below. Host access also requires an explicit grant for agent sessions.
 	agentPerms := func() *apigen.AuthzSelector {
-		return &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{
-			int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS),
-		}}
+		permissions := withoutHostAccess()
+		permissions.Exclude = append(permissions.Exclude, int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS))
+		return permissions
 	}
 	delegableRules := func(spaces func() *apigen.AuthzSelector) []*apigen.AuthzRule {
 		return []*apigen.AuthzRule{
@@ -75,12 +81,11 @@ func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 	spaceAdminSpaces := func() *apigen.AuthzSelector {
 		return &apigen.AuthzSelector{ArgumentID: spaceAdminSpacesArgID}
 	}
-	// Both builtins have the same shape: everything in the operator's own spaces
-	// for the human holding the grant, then the delegable subset for their
-	// agents. They differ only in which spaces "their own" means.
-	templateRules := func(operatorSpaces, delegableSpaces func() *apigen.AuthzSelector) []*apigen.AuthzRule {
+	// Human cluster admins have host access everywhere. Space admins and both
+	// roles' agent sessions require an additional grant for host access.
+	templateRules := func(operatorPermissions, operatorSpaces, delegableSpaces func() *apigen.AuthzSelector) []*apigen.AuthzRule {
 		rules := []*apigen.AuthzRule{{
-			Permissions: all(),
+			Permissions: operatorPermissions(),
 			Spaces:      operatorSpaces(),
 			EntityTypes: all(),
 			EntityRefs:  all(),
@@ -92,7 +97,7 @@ func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 			ID:       ClusterAdminTemplateID,
 			Name:     "cluster_admin",
 			Builtin:  true,
-			Template: &apigen.AuthzRuleTemplate{Rules: templateRules(all, clusterAdminSpaces)},
+			Template: &apigen.AuthzRuleTemplate{Rules: templateRules(all, all, clusterAdminSpaces)},
 		},
 		{
 			ID:      SpaceAdminTemplateID,
@@ -100,7 +105,7 @@ func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 			Builtin: true,
 			Template: &apigen.AuthzRuleTemplate{
 				Arguments: []*apigen.AuthzTemplateArgument{{ID: spaceAdminSpacesArgID, Name: "spaces"}},
-				Rules:     templateRules(spaceAdminSpaces, spaceAdminSpaces),
+				Rules:     templateRules(withoutHostAccess, spaceAdminSpaces, spaceAdminSpaces),
 			},
 		},
 	}

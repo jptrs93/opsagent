@@ -321,6 +321,11 @@ func TestValidateDeploymentSpecRejectsInvalidHostMounts(t *testing.T) {
 		{name: "unclean host", host: "/srv/../data", container: "/data"},
 		{name: "unclean container", host: "/srv/data", container: "/var/../data"},
 		{name: "opendeploy data", host: "/var/lib/opendeploy", container: "/data"},
+		{name: "var ancestor", host: "/var", container: "/data"},
+		{name: "var lib ancestor", host: "/var/lib", container: "/data"},
+		{name: "trimmed ancestor", host: " /var/lib ", container: "/data"},
+		{name: "ancestor with dot segments", host: "/srv/../var/lib", container: "/data"},
+		{name: "ancestor with repeated separators", host: "/var//lib", container: "/data"},
 		{name: "opendeploy tls", host: "/var/lib/opendeploy/tls", container: "/data"},
 		{name: "opendeploy volumes root", host: "/var/lib/opendeploy-volumes", container: "/data"},
 		{name: "opendeploy volume directory", host: "/var/lib/opendeploy-volumes/24", container: "/data"},
@@ -340,6 +345,21 @@ func TestValidateDeploymentSpecRejectsInvalidHostMounts(t *testing.T) {
 				t.Fatal("expected invalid host mount")
 			}
 		})
+	}
+}
+
+func TestContainerHostMountDenylistPathBoundaries(t *testing.T) {
+	for _, host := range []string{"/", "/var", "/var/lib", "/var/lib/opendeploy", "/var/lib/opendeploy/machine.key", "/var/lib/../lib", "/var//lib"} {
+		if !containerHostMountDenied(host) {
+			t.Errorf("protected path or ancestor %q was allowed", host)
+		}
+	}
+	for _, host := range []string{"/srv/data", "/home/ubuntu/app", "/var/lib/my-app", "/var/log/my-app", "/var/lib/opendeploy-backups", "/etc-backup", "/runner", "/var/libexec"} {
+		input := remoteDeploymentSpec("nginx", virtualNetworking())
+		input.Container1Spec.Runtime.Mounts = []*apigen.CustomHostMount{{HostPath: host, ContainerPath: "/data", Permission: apigen.FilePermission_READ_ONLY}}
+		if _, err := ValidateSpecWithAssets(&input, nil); err != nil {
+			t.Errorf("unrelated path %q was denied: %v", host, err)
+		}
 	}
 }
 

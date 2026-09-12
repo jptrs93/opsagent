@@ -12,6 +12,7 @@ import (
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixstore"
 	"github.com/jptrs93/opsagent/backend/lib/netmapstate"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -222,6 +223,8 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 		msgType = "cluster_net_map"
 	case msg.AcmeState != nil:
 		msgType = "acme_state"
+	case msg.NixStoreResets != nil:
+		msgType = "nix_store_resets"
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("received message from primary type=%s", msgType))
 
@@ -241,6 +244,12 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 		store.MustSetLocalKV(storage.LocalKVAcmeState, msg.AcmeState.Encode())
 		if acme != nil {
 			acme.Set(msg.AcmeState)
+		}
+	case msg.NixStoreResets != nil:
+		for _, item := range msg.NixStoreResets.Items {
+			if item != nil {
+				nixstore.Default().RequestReset(item.Repo, time.UnixMilli(item.RequestedAt))
+			}
 		}
 	case msg.ClusterNetMap != nil:
 		expectedPrefix, _ := network.Default.PrefixValue()

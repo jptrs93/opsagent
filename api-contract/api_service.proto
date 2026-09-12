@@ -52,6 +52,11 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1NixStoreReset(NixStoreResetRequest) returns (cp.Empty) {
+    option (cp.url) = "/v1/nix-store/reset";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   rpc PostV1AuthMaster(MasterPasswordRequest) returns (LoginResponse) {
     option (cp.policy) = { policy_type: NO_AUTH };
   }

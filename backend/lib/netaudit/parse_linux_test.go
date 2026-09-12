@@ -283,7 +283,7 @@ func TestParseFilterRuleExprsRejectsForeignShapes(t *testing.T) {
 }
 
 func TestIsFilterChain(t *testing.T) {
-	for _, name := range []string{"forward", "wl_dst_7"} {
+	for _, name := range []string{"forward", "input", "build_egress", "wl_dst_7"} {
 		if !isFilterChain(name) {
 			t.Fatalf("%s should be a filter chain", name)
 		}
@@ -333,6 +333,14 @@ func TestParseSetElement(t *testing.T) {
 	key, ok = parseSetElement("ip6", network.NftSetBlockedOut, nftables.SetElement{Key: ifnameBytes("od7s0")})
 	if !ok || key != "ip6 set blocked_out od7s0" {
 		t.Fatalf("blocked_out element = %q ok=%v", key, ok)
+	}
+	key, ok = parseSetElement("ip6", network.NftSetBuild, nftables.SetElement{Key: ifnameBytes("od16777215s0")})
+	if !ok || key != "ip6 set build od16777215s0" {
+		t.Fatalf("build v6 element = %q ok=%v", key, ok)
+	}
+	key, ok = parseSetElement("ip", network.NftSetBuild, nftables.SetElement{Key: ifnameBytes("od16777215s0")})
+	if !ok || key != "ip set build od16777215s0" {
+		t.Fatalf("build v4 element = %q ok=%v", key, ok)
 	}
 	key, ok = parseSetElement("ip6", network.NftMapDstDispatch, nftables.SetElement{
 		Key: addr6.AsSlice(),

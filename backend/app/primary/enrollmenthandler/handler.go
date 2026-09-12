@@ -21,9 +21,11 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
+	"github.com/jptrs93/opsagent/backend/lib/enrollment"
 	"github.com/jptrs93/opsagent/backend/lib/wgkey"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
 )
 
@@ -40,6 +42,7 @@ type enrollmentSession struct {
 	wgPublicKey         string
 	expectedVersion     int64
 	accepted            chan *apigen.EnrollmentAccepted
+	superseded          chan struct{}
 }
 
 // Handler owns secondary enrollment streams and the operator actions that accept
@@ -80,6 +83,7 @@ var EnrollmentNotFoundErr = apigen.NewApiErr("Enrollment request not found", "en
 var EnrollmentFingerprintNotConfiguredErr = apigen.NewApiErr("Enrollment TLS fingerprint is not configured", "enrollment_fingerprint_not_configured", http.StatusServiceUnavailable)
 var EnrollmentInvalidWGKeyErr = apigen.NewApiErr("Invalid WireGuard public key", "enrollment_invalid_wg_key", http.StatusBadRequest)
 var EnrollmentDuplicateNodeNameErr = apigen.NewApiErr("A node with this display name already exists", "duplicate_node_name", http.StatusConflict)
+var EnrollmentInvalidCSRErr = apigen.NewApiErr("Secondary certificate request is invalid", "enrollment_invalid_csr", http.StatusBadRequest)
 
 func (h *Handler) VerifyEnrollmentRequest(ctx context.Context, _ http.ResponseWriter, r *http.Request, _ apigen.AccessPolicy) (apigen.Context, error) {
 	ctx = logu.AddTag(ctx, "Enrollment")
@@ -111,6 +115,12 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			yield(nil, EnrollmentCSRRequiredErr)
 			return
 		}
+		peer := enrollmentRequestIP(ctx)
+		if err := certu.VerifySecondaryCertificateRequest(hello.SecondaryCertificateRequest, requestingMachineID); err != nil {
+			slog.WarnContext(ctx, fmt.Sprintf("rejected enrollment hello with an invalid CSR requestingMachineID=%s peer=%s err=%v", requestingMachineID, peer, err))
+			yield(nil, EnrollmentInvalidCSRErr)
+			return
+		}
 		opendeployVersion := strings.TrimSpace(hello.OpendeployVersion)
 		underlayAddress, err := nodes.NormalizeNodeUnderlay(h.store.Queries(), requestingMachineID, reported.UnderlayAddress)
 		if err != nil {
@@ -124,7 +134,16 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 		}
 
 		reported.Identifier, reported.UnderlayAddress, reported.WgPublicKey = requestingMachineID, underlayAddress, wgPublicKey
-		status, expectedVersion := nodes.UpsertEnrollmentRequest(h.store, enrollmentRequestIP(ctx), opendeployVersion, reported)
+		status, expectedVersion, err := nodes.UpsertEnrollmentRequest(h.store, peer, opendeployVersion, reported)
+		if errors.Is(err, nodes.ErrEnrollmentIdentifierEnrolled) {
+			slog.WarnContext(ctx, fmt.Sprintf("rejected enrollment hello for enrolled requestingMachineID=%s peer=%s", requestingMachineID, peer))
+			yield(nil, enrollment.IdentifierEnrolledErr)
+			return
+		}
+		if err != nil {
+			yield(nil, err)
+			return
+		}
 		sess := &enrollmentSession{
 			id:                  status.ID,
 			requestingMachineID: requestingMachineID,
@@ -134,6 +153,7 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			wgPublicKey:         wgPublicKey,
 			expectedVersion:     expectedVersion,
 			accepted:            make(chan *apigen.EnrollmentAccepted, 1),
+			superseded:          make(chan struct{}),
 		}
 		h.registerEnrollmentSession(sess)
 		expired := false
@@ -162,6 +182,7 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			if err != nil {
 				yield(nil, err)
 			}
+		case <-sess.superseded:
 		case <-ctx.Done():
 		}
 	}
@@ -277,6 +298,9 @@ func enrollmentBootstrapInstances(snapshot []apigen.ScheduledInstanceState) (*ap
 func (h *Handler) registerEnrollmentSession(sess *enrollmentSession) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if existing, ok := h.sessions[sess.id]; ok {
+		close(existing.superseded)
+	}
 	h.sessions[sess.id] = sess
 }
 
@@ -329,12 +353,6 @@ func enrollmentRequestIP(ctx apigen.Context) string {
 }
 
 func remoteIP(r *http.Request) string {
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-		if first, _, ok := strings.Cut(forwarded, ","); ok {
-			return strings.TrimSpace(first)
-		}
-		return forwarded
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

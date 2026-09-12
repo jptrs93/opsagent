@@ -29,7 +29,7 @@ func validateTemplateName(name string) error {
 }
 
 func validVerb(v int64) bool {
-	return v >= int64(apigen.AuthzVerb_AUTHZ_VERB_CREATE) && v <= int64(apigen.AuthzVerb_AUTHZ_VERB_REVEAL)
+	return v >= int64(apigen.AuthzVerb_AUTHZ_VERB_CREATE) && v <= int64(apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK)
 }
 
 func validEntityType(v int64) bool {

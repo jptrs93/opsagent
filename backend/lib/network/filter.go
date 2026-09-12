@@ -18,10 +18,27 @@ const (
 )
 
 const (
-	NftSetManaged     = "managed"
-	NftSetSrcOK       = "src_ok"
-	NftSetBlockedOut  = "blocked_out"
-	NftMapDstDispatch = "dst_dispatch"
+	NftSetManaged       = "managed"
+	NftSetSrcOK         = "src_ok"
+	NftSetBlockedOut    = "blocked_out"
+	NftSetBuild         = "build"
+	NftMapDstDispatch   = "dst_dispatch"
+	NftChainForward     = "forward"
+	NftChainInput       = "input"
+	NftChainBuildEgress = "build_egress"
+)
+
+// BuildDeploymentID is the reserved system-space identity under which Nix
+// build containers attach to the virtual network. It never belongs to a real
+// deployment, so its attachments get the egress-only build policy instead of
+// a workload destination chain.
+const BuildDeploymentID = MaxDeploymentID
+
+// Link-local, loopback, and metadata ranges a build attachment must never
+// reach even though they fall outside the cluster prefix.
+var (
+	buildDenied6 = []netip.Prefix{netip.MustParsePrefix("fe80::/10")}
+	buildDenied4 = []netip.Prefix{netip.MustParsePrefix("169.254.0.0/16"), netip.MustParsePrefix("127.0.0.0/8")}
 )
 
 type PolicyPeer struct {
@@ -85,13 +102,17 @@ type DispatchElem struct {
 }
 
 type FilterState struct {
-	Managed6   []string
-	SrcOK6     []VethAddr
-	BlockedOut []string
-	Dispatch   []DispatchElem
-	DstChains  []FilterChain
-	Managed4   []string
-	SrcOK4     []VethAddr
+	Managed6     []string
+	SrcOK6       []VethAddr
+	BlockedOut   []string
+	Build6       []string
+	Dispatch     []DispatchElem
+	DstChains    []FilterChain
+	BuildEgress6 FilterChain
+	Managed4     []string
+	SrcOK4       []VethAddr
+	Build4       []string
+	BuildEgress4 FilterChain
 }
 
 func dstChainName(deploymentID int32) string {
@@ -103,6 +124,7 @@ func StaticFilterRules6() []FilterRule {
 		{CtEstablished: true, Verdict: FilterVerdictAccept},
 		{OifSet: NftSetBlockedOut, Counter: true, Verdict: FilterVerdictDrop},
 		{IifSet: NftSetManaged, SrcPairSet: NftSetSrcOK, SrcPairInvert: true, Counter: true, Verdict: FilterVerdictDrop},
+		{IifSet: NftSetBuild, Verdict: FilterVerdictJump, JumpTarget: NftChainBuildEgress},
 		{DaddrVmap: NftMapDstDispatch},
 	}
 }
@@ -112,10 +134,71 @@ func StaticFilterRules4() []FilterRule {
 		{CtEstablished: true, Verdict: FilterVerdictAccept},
 		{IifSet: NftSetManaged, Daddr: V4CIDR, Counter: true, Verdict: FilterVerdictDrop},
 		{IifSet: NftSetManaged, SrcPairSet: NftSetSrcOK, SrcPairInvert: true, Counter: true, Verdict: FilterVerdictDrop},
+		{IifSet: NftSetBuild, Verdict: FilterVerdictJump, JumpTarget: NftChainBuildEgress},
 	}
 }
 
-func RenderFilterState(prefix Prefix, hasPrefix bool, netproxyDeploymentID int32, nets []*ContainerNet, rules []PolicyRule) FilterState {
+// StaticInputRules6 and StaticInputRules4 keep build attachments away from
+// every listener on the host itself. Neighbour discovery for the veth gateway
+// is the one thing a build needs from the host.
+func StaticInputRules6() []FilterRule {
+	return []FilterRule{
+		{IifSet: NftSetBuild, Protocol: unix.IPPROTO_ICMPV6, Verdict: FilterVerdictAccept},
+		{IifSet: NftSetBuild, Counter: true, Verdict: FilterVerdictDrop},
+	}
+}
+
+func StaticInputRules4() []FilterRule {
+	return []FilterRule{
+		{IifSet: NftSetBuild, Counter: true, Verdict: FilterVerdictDrop},
+	}
+}
+
+// buildEgressRules renders the egress-only policy a build attachment is
+// subject to before the destination dispatch: DNS to netproxy is accepted,
+// then the cluster prefix, link-local and loopback ranges, and every peer
+// node's underlay address are dropped. Anything else falls through to the
+// forward chain's accept policy.
+func buildEgressRules(prefix Prefix, hasPrefix bool, netproxyDeploymentID int32, peerUnderlays []netip.Addr, is6 bool) []FilterRule {
+	var rules []FilterRule
+	if is6 {
+		if hasPrefix && netproxyDeploymentID != 0 {
+			if dns, err := prefix.InboundAddr(SystemSpaceID, netproxyDeploymentID, 0); err == nil {
+				dnsPrefix := netip.PrefixFrom(dns, 128)
+				rules = append(rules,
+					FilterRule{Daddr: dnsPrefix, Protocol: unix.IPPROTO_UDP, Port: DNSPort, Verdict: FilterVerdictAccept},
+					FilterRule{Daddr: dnsPrefix, Protocol: unix.IPPROTO_TCP, Port: DNSPort, Verdict: FilterVerdictAccept},
+				)
+			}
+		}
+		if hasPrefix {
+			rules = append(rules, FilterRule{Daddr: prefix.CIDR(), Counter: true, Verdict: FilterVerdictDrop})
+		}
+		for _, denied := range buildDenied6 {
+			rules = append(rules, FilterRule{Daddr: denied, Counter: true, Verdict: FilterVerdictDrop})
+		}
+	} else {
+		for _, denied := range buildDenied4 {
+			rules = append(rules, FilterRule{Daddr: denied, Counter: true, Verdict: FilterVerdictDrop})
+		}
+	}
+	peers := slices.Clone(peerUnderlays)
+	slices.SortFunc(peers, func(a, b netip.Addr) int { return a.Compare(b) })
+	peers = slices.Compact(peers)
+	for _, peer := range peers {
+		if !peer.IsValid() || peer.Is6() != is6 {
+			continue
+		}
+		rules = append(rules, FilterRule{Daddr: netip.PrefixFrom(peer, peer.BitLen()), Counter: true, Verdict: FilterVerdictDrop})
+	}
+	return rules
+}
+
+func isBuildAttachment(cn *ContainerNet) bool {
+	return cn.DeploymentID == BuildDeploymentID
+}
+
+func RenderFilterState(prefix Prefix, hasPrefix bool, netproxyDeploymentID int32, nets []*ContainerNet, rules []PolicyRule, peerUnderlays []netip.Addr) FilterState {
 	attachments := make([]*ContainerNet, 0, len(nets))
 	for _, cn := range nets {
 		if cn != nil && cn.HostVeth != "" {
@@ -124,11 +207,17 @@ func RenderFilterState(prefix Prefix, hasPrefix bool, netproxyDeploymentID int32
 	}
 	slices.SortFunc(attachments, func(a, b *ContainerNet) int { return strings.Compare(a.HostVeth, b.HostVeth) })
 
-	var state FilterState
+	state := FilterState{
+		BuildEgress6: FilterChain{Name: NftChainBuildEgress, Rules: buildEgressRules(prefix, hasPrefix, netproxyDeploymentID, peerUnderlays, true)},
+		BuildEgress4: FilterChain{Name: NftChainBuildEgress, Rules: buildEgressRules(prefix, hasPrefix, netproxyDeploymentID, peerUnderlays, false)},
+	}
 	for _, cn := range attachments {
 		state.Managed4 = append(state.Managed4, cn.HostVeth)
 		if cn.V4.Is4() {
 			state.SrcOK4 = append(state.SrcOK4, VethAddr{Veth: cn.HostVeth, Addr: cn.V4})
+		}
+		if isBuildAttachment(cn) {
+			state.Build4 = append(state.Build4, cn.HostVeth)
 		}
 	}
 
@@ -149,6 +238,11 @@ func RenderFilterState(prefix Prefix, hasPrefix bool, netproxyDeploymentID int32
 			VethAddr{Veth: cn.HostVeth, Addr: cn.InboundAddr},
 			VethAddr{Veth: cn.HostVeth, Addr: cn.OutboundAddr},
 		)
+		if isBuildAttachment(cn) {
+			state.BlockedOut = append(state.BlockedOut, cn.HostVeth)
+			state.Build6 = append(state.Build6, cn.HostVeth)
+			continue
+		}
 		chain := dstChainName(cn.DeploymentID)
 		dispatch[cn.InboundAddr] = chain
 		dispatch[cn.OutboundAddr] = chain
@@ -318,6 +412,10 @@ func BlockedOutElementKey(veth string) string {
 	return "ip6 set " + NftSetBlockedOut + " " + veth
 }
 
+func BuildElementKey(family, veth string) string {
+	return family + " set " + NftSetBuild + " " + veth
+}
+
 func DispatchElementKey(addr netip.Addr, chain string) string {
 	return "ip6 map " + NftMapDstDispatch + " " + addr.String() + " : jump " + chain
 }
@@ -325,15 +423,27 @@ func DispatchElementKey(addr netip.Addr, chain string) string {
 func (s FilterState) RuleKeys() map[string]int {
 	keys := map[string]int{}
 	for _, rule := range StaticFilterRules6() {
-		keys[rule.Key("ip6", "forward")]++
+		keys[rule.Key("ip6", NftChainForward)]++
 	}
 	for _, rule := range StaticFilterRules4() {
-		keys[rule.Key("ip", "forward")]++
+		keys[rule.Key("ip", NftChainForward)]++
+	}
+	for _, rule := range StaticInputRules6() {
+		keys[rule.Key("ip6", NftChainInput)]++
+	}
+	for _, rule := range StaticInputRules4() {
+		keys[rule.Key("ip", NftChainInput)]++
 	}
 	for _, chain := range s.DstChains {
 		for _, rule := range chain.Rules {
 			keys[rule.Key("ip6", chain.Name)]++
 		}
+	}
+	for _, rule := range s.BuildEgress6.Rules {
+		keys[rule.Key("ip6", s.BuildEgress6.Name)]++
+	}
+	for _, rule := range s.BuildEgress4.Rules {
+		keys[rule.Key("ip", s.BuildEgress4.Name)]++
 	}
 	return keys
 }
@@ -348,6 +458,12 @@ func (s FilterState) ElementKeys() map[string]int {
 	}
 	for _, veth := range s.BlockedOut {
 		keys[BlockedOutElementKey(veth)]++
+	}
+	for _, veth := range s.Build6 {
+		keys[BuildElementKey("ip6", veth)]++
+	}
+	for _, veth := range s.Build4 {
+		keys[BuildElementKey("ip", veth)]++
 	}
 	for _, elem := range s.Dispatch {
 		keys[DispatchElementKey(elem.Addr, elem.Chain)]++

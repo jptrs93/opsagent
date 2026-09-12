@@ -190,6 +190,7 @@ func purgeTargetHint(dir string) string {
 		runLogsDir:     "run logs",
 		logArchiveDir:  "compacted log archive",
 		metricsDir:     "container metrics",
+		nixStoresDir:   "per-repository Nix build stores",
 		containerdRoot: "container images and snapshots",
 		configDir:      "env file",
 	}

@@ -39,6 +39,7 @@ type AuditState struct {
 	NetproxyDeploymentID int32
 	FilterNets           []*ContainerNet
 	PolicyRules          []PolicyRule
+	PeerUnderlays        []netip.Addr
 	// WG is nil until a topology with an active WireGuard device has been
 	// applied; a nil WG with a live device is itself a divergence the audit
 	// does not chase (the next reconcile owns it).
@@ -46,7 +47,7 @@ type AuditState struct {
 }
 
 func (s AuditState) FilterState() FilterState {
-	return RenderFilterState(s.Prefix, s.HasPrefix, s.NetproxyDeploymentID, s.FilterNets, s.PolicyRules)
+	return RenderFilterState(s.Prefix, s.HasPrefix, s.NetproxyDeploymentID, s.FilterNets, s.PolicyRules, s.PeerUnderlays)
 }
 
 // AuditSnapshot captures the manager's desired kernel state. The two mutexes
@@ -60,6 +61,7 @@ func (m *Manager) AuditSnapshot() AuditState {
 	s.NetproxyDeploymentID = m.netproxyDeploymentID
 	s.FilterNets = m.filterNetList()
 	s.PolicyRules = slices.Clone(m.policyRules)
+	s.PeerUnderlays = slices.Clone(m.peerUnderlays)
 	if m.wgDesired != nil {
 		wg := *m.wgDesired
 		wg.Peers = slices.Clone(m.wgDesired.Peers)

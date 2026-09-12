@@ -782,9 +782,7 @@ two types.
    rewrite).
 
 Tests: `node_name_uniqueness_test.go`, `node_allowed_spaces_test.go`,
-enrollment tests in `state`, `enrollmenthandler` tests, a new test that a
-re-enrollment of a member produces exactly one event and accept exactly one
-more, a test that an unchanged hello appends nothing, and the e2e enrollment
+enrollment tests in `state`, `enrollmenthandler` tests, a test that a hello for an enrolled member is rejected without an event, a test that an unchanged hello appends nothing, and the e2e enrollment
 path (`e2e/`, see the harness notes: VMs are wiped by default and a run takes
 about 25 minutes).
 

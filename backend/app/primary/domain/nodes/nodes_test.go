@@ -68,7 +68,7 @@ func TestEnsurePrimaryNodeUsesCertificateIdentifier(t *testing.T) {
 func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	const wgPublicKey = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
-	req, expectedVersion := UpsertEnrollmentRequest(store, "127.0.0.1", "v0.0.200", apigen.NodeReported{Identifier: "requesting-id", UnderlayAddress: "10.0.0.2", WgPublicKey: wgPublicKey})
+	req, expectedVersion := mustUpsertEnrollmentRequest(t, store, "127.0.0.1", "v0.0.200", apigen.NodeReported{Identifier: "requesting-id", UnderlayAddress: "10.0.0.2", WgPublicKey: wgPublicKey})
 	if req.Status != apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED || !req.IsConnected {
 		t.Fatalf("request = %+v, want connected enrollment-requested", req)
 	}
@@ -147,8 +147,8 @@ func TestSetNodeWGPublicKeyIsDiffGatedAndVersioned(t *testing.T) {
 func TestAcceptEnrollmentRequestRejectsReplacedSessionRevision(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	first, firstVersion := UpsertEnrollmentRequest(store, "127.0.0.1", "v1", apigen.NodeReported{Identifier: "requesting-id", UnderlayAddress: "10.0.0.2", WgPublicKey: ""})
-	second, secondVersion := UpsertEnrollmentRequest(store, "127.0.0.2", "v2", apigen.NodeReported{Identifier: "requesting-id", UnderlayAddress: "10.0.0.3", WgPublicKey: ""})
+	first, firstVersion := mustUpsertEnrollmentRequest(t, store, "127.0.0.1", "v1", apigen.NodeReported{Identifier: "requesting-id", UnderlayAddress: "10.0.0.2", WgPublicKey: ""})
+	second, secondVersion := mustUpsertEnrollmentRequest(t, store, "127.0.0.2", "v2", apigen.NodeReported{Identifier: "requesting-id", UnderlayAddress: "10.0.0.3", WgPublicKey: ""})
 	if second.ID != first.ID {
 		t.Fatalf("replacement request id = %d, want %d", second.ID, first.ID)
 	}

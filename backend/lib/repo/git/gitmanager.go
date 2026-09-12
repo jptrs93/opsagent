@@ -516,19 +516,21 @@ func (g *Manager) runGitStdout(ctx context.Context, args ...string) ([]byte, err
 }
 
 func (g *Manager) metadataDir(repoURL string) string {
-	return filepath.Join(g.cacheDir, "metadata", repoKey(repoURL)+".git")
+	return filepath.Join(g.cacheDir, "metadata", RepoKey(repoURL)+".git")
 }
 
 func (g *Manager) worktreeDir(repoURL string) string {
-	return filepath.Join(g.cacheDir, "worktrees", repoKey(repoURL))
+	return filepath.Join(g.cacheDir, "worktrees", RepoKey(repoURL))
 }
 
 func (g *Manager) repoLock(repoURL string) *sync.Mutex {
-	lock, _ := g.locks.LoadOrStore(repoKey(repoURL), &sync.Mutex{})
+	lock, _ := g.locks.LoadOrStore(RepoKey(repoURL), &sync.Mutex{})
 	return lock.(*sync.Mutex)
 }
 
-func repoKey(repoURL string) string {
+// RepoKey is the filesystem-safe identity of one repository URL, shared by
+// the checkout cache and the per-repository Nix stores.
+func RepoKey(repoURL string) string {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(repoURL)))
 	return hex.EncodeToString(sum[:])
 }

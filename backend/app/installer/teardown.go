@@ -18,7 +18,7 @@ func warn(format string, a ...any) { fmt.Printf("    warning: "+format+"\n", a..
 // knows by name plus any /var/lib/opendeploy-* sibling the runtime derived
 // that a newer or older agent might have created.
 func purgeTargets() []string {
-	known := []string{dataDir, assetCacheDir, releasesDir, volumesDir, buildLogsDir, runLogsDir, logArchiveDir, metricsDir, containerdRoot, configDir}
+	known := []string{dataDir, assetCacheDir, releasesDir, volumesDir, buildLogsDir, runLogsDir, logArchiveDir, metricsDir, nixStoresDir, containerdRoot, configDir}
 	siblings, _ := filepath.Glob(siblingDirGlob)
 	return mergePurgeTargets(known, siblings)
 }

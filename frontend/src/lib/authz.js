@@ -11,6 +11,8 @@ export const VERBS = [
     {id: 4, name: "view"},
     {id: 5, name: "view_logs"},
     {id: 6, name: "reveal"},
+    {id: 7, name: "use_host_mounts"},
+    {id: 8, name: "use_host_network"},
 ];
 
 export const ENTITY_TYPES = [

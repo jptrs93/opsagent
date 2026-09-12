@@ -49,7 +49,7 @@ sudo opendeploy uninstall --purge
 
 Both units use `KillMode=process`, so `systemctl stop` alone leaves the
 bundled containerd's shims (and every container) and opendeploy's helper
-children (nix builds, the backup child, log consumers) running. Uninstall
+children (the backup child, log consumers) running. Uninstall
 therefore always, with or without `--purge`:
 
 1. stops and disables `opendeploy.service`, then kills what its cgroup still

@@ -93,6 +93,9 @@ type config struct {
 	DeclarativePostgresImage       string
 	MinioImage                     string
 	RepoMirrorOCI                  string
+	NixBuildSourceImage            string
+	NixBuildImage                  string
+	NixBuildMemoryMB               string
 	ContainerdVersion              string
 	RuncVersion                    string
 
@@ -277,15 +280,20 @@ func loadConfig(resolveLatestRelease bool) (*config, error) {
 		c.DeclarativePostgresSourceImage = env("OPD_DECLARATIVE_POSTGRES_IMAGE", "ghcr.io/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v13")
 		c.DeclarativePostgresImage = c.DeclarativePostgresSourceImage
 		c.MinioImage = env("OPD_MINIO_IMAGE", "docker.io/bitnamilegacy/minio:latest")
+		c.NixBuildSourceImage = env("OPD_NIX_BUILD_IMAGE", "docker.io/nixos/nix:2.35.2")
+		c.NixBuildImage = c.NixBuildSourceImage
 	} else {
 		c.PostgresImage = env("OPD_POSTGRES_IMAGE", c.RepoRegistryHost+":"+c.RepoRegistryPort+"/library/postgres:18")
 		c.DeclarativePostgresSourceImage = env("OPD_DECLARATIVE_POSTGRES_IMAGE", "ghcr.io/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v13")
 		c.DeclarativePostgresImage = env("OPD_DECLARATIVE_POSTGRES_MIRROR_IMAGE", c.RepoRegistryHost+":"+c.RepoRegistryPort+"/jptrs93/declarative-postgres-backrest:18.4_2.58.0_v13")
 		c.MinioImage = env("OPD_MINIO_IMAGE", c.RepoRegistryHost+":"+c.RepoRegistryPort+"/bitnamilegacy/minio:latest")
+		c.NixBuildSourceImage = env("OPD_NIX_BUILD_IMAGE", "docker.io/nixos/nix:2.35.2")
+		c.NixBuildImage = env("OPD_NIX_BUILD_MIRROR_IMAGE", c.RepoRegistryHost+":"+c.RepoRegistryPort+"/nixos/nix:2.35.2")
 	}
-	c.RepoMirrorOCI = env("OPD_REPO_MIRROR_OCI_IMAGES", "docker.io/library/postgres:18="+c.PostgresImage+" "+c.DeclarativePostgresSourceImage+"="+c.DeclarativePostgresImage+" docker.io/bitnamilegacy/minio:latest="+c.MinioImage)
-	c.ContainerdVersion = env("CONTAINERD_VERSION", "2.0.5")
-	c.RuncVersion = env("RUNC_VERSION", "1.2.6")
+	c.NixBuildMemoryMB = env("OPD_NIX_BUILD_MEMORY_MB", "2048")
+	c.RepoMirrorOCI = env("OPD_REPO_MIRROR_OCI_IMAGES", "docker.io/library/postgres:18="+c.PostgresImage+" "+c.DeclarativePostgresSourceImage+"="+c.DeclarativePostgresImage+" docker.io/bitnamilegacy/minio:latest="+c.MinioImage+" "+c.NixBuildSourceImage+"="+c.NixBuildImage)
+	c.ContainerdVersion = env("CONTAINERD_VERSION", "2.3.5")
+	c.RuncVersion = env("RUNC_VERSION", "1.5.1")
 
 	switch runtime.GOARCH {
 	case "arm64":
@@ -1053,7 +1061,7 @@ func (c *config) vmExists(name string) bool {
 
 func (c *config) writeLimaYAML(name, role, cpus, memory, disk, yamlPath string) error {
 	packages := map[string]string{
-		"node":        "sudo ca-certificates curl git openssl python3 nix-bin nix-setup-systemd tcpdump conntrack nftables wireguard-tools",
+		"node":        "sudo ca-certificates curl git openssl python3 tcpdump conntrack nftables wireguard-tools",
 		"repo-mirror": "sudo ca-certificates curl git openssl tar gzip docker-registry skopeo",
 	}[role]
 	if packages == "" {
@@ -1096,8 +1104,8 @@ provision:
       # Retried: ports.ubuntu.com intermittently serves an index whose size
       # disagrees with the Release file mid mirror-sync, and apt exits
       # non-zero. Under set -e that aborts provisioning, the node comes up
-      # without nix, and the run only discovers it many minutes later as an
-      # empty "preparation failed" on the first deployment scheduled there.
+      # without its packages, and the run only discovers it many minutes
+      # later when the first step that needs one of them fails.
       for apt_attempt in 1 2 3; do
         if apt-get update; then break; fi
         echo "opendeploy-vm-harness apt-get update attempt $apt_attempt failed; retrying"
@@ -1109,16 +1117,11 @@ provision:
       apt-get install -y --no-install-recommends %s
       apt_install_end=$(date +%%s)
       echo "opendeploy-vm-harness package install (%s) took: $((apt_install_end - apt_install_start))s"
-      if [[ %q == "node" ]]; then
-        mkdir -p /etc/nix
-        printf 'experimental-features = nix-command flakes\nsandbox = true\nallowed-users = *\ntrusted-users = root opendeploy\n' > /etc/nix/nix.conf
-        systemctl enable --now nix-daemon.service || true
-      fi
       touch /var/lib/opendeploy-vm-harness/provisioned-%s
       provision_end=$(date +%%s)
       echo "opendeploy-vm-harness provisioning (%s) took: $((provision_end - provision_start))s"
     fi
-`, c.VMType, c.LimaArch, armURL, amdURL, cpus, memory, disk, c.NetworkName, role, role, packages, packages, role, role, role)
+`, c.VMType, c.LimaArch, armURL, amdURL, cpus, memory, disk, c.NetworkName, role, role, packages, packages, role, role)
 	if err := os.MkdirAll(filepath.Dir(yamlPath), 0o755); err != nil {
 		return err
 	}
@@ -1157,13 +1160,6 @@ func (c *config) startVM(name, role string) error {
 func (c *config) verifyProvisioned(name, role string) error {
 	if err := c.vmQuietRun(name, "test", "-f", "/var/lib/opendeploy-vm-harness/provisioned-"+role); err != nil {
 		return fmt.Errorf("%s: provisioning did not complete (no provisioned-%s marker); see /var/log/cloud-init-output.log in the VM: %w", name, role, err)
-	}
-	if role == "node" {
-		// The apt nix-bin package puts the binary in /usr/bin, not under the
-		// /nix profile dir that the unit's PATH also lists.
-		if err := c.vmQuietRun(name, "test", "-x", "/usr/bin/nix"); err != nil {
-			return fmt.Errorf("%s: nix is missing after provisioning; nix-docker deployments scheduled here would fail to build: %w", name, err)
-		}
 	}
 	return nil
 }
@@ -2019,6 +2015,21 @@ func (c *config) configureGithubToken(name string) error {
 	return c.vmEnvSudoScript(name, map[string]string{"OPENDEPLOY_GITHUB_TOKEN": c.OpenDeployGitHubToken}, script)
 }
 
+// configureNixBuild points the agent's Nix build container at the mirrored
+// build image and the node's CA bundle, which carries the harness CA that the
+// repository mirror presents for github.com and cache.nixos.org.
+func (c *config) configureNixBuild(name string) error {
+	if c.RemoteMode == "real" {
+		return nil
+	}
+	script := `printf "\nOPENDEPLOY_NIX_BUILD_IMAGE=%q\nOPENDEPLOY_NIX_BUILD_CA_BUNDLE=%q\nOPENDEPLOY_NIX_BUILD_MEMORY_MB=%q\n" "$OPENDEPLOY_NIX_BUILD_IMAGE" "$OPENDEPLOY_NIX_BUILD_CA_BUNDLE" "$OPENDEPLOY_NIX_BUILD_MEMORY_MB" >> /etc/opendeploy/env`
+	return c.vmEnvSudoScript(name, map[string]string{
+		"OPENDEPLOY_NIX_BUILD_IMAGE":     c.NixBuildImage,
+		"OPENDEPLOY_NIX_BUILD_CA_BUNDLE": "/etc/ssl/certs/ca-certificates.crt",
+		"OPENDEPLOY_NIX_BUILD_MEMORY_MB": c.NixBuildMemoryMB,
+	}, script)
+}
+
 func (c *config) primaryEnrollmentFingerprint() (string, error) {
 	script := `set -euo pipefail
 hex=$(openssl s_client -connect 127.0.0.1:9444 -servername primary </dev/null 2>/dev/null \
@@ -2073,7 +2084,7 @@ func (c *config) installPrimary() error {
 	if err := c.configureGithubToken(c.PrimaryName); err != nil {
 		return err
 	}
-	if err := c.addOpenDeployToNixUsers(c.PrimaryName); err != nil {
+	if err := c.configureNixBuild(c.PrimaryName); err != nil {
 		return err
 	}
 	if err := c.vmRun(c.PrimaryName, "sudo", "systemctl", "restart", "opendeploy.service"); err != nil {
@@ -2117,20 +2128,13 @@ func (c *config) installWorker(name string) error {
 	if err := c.configureGithubToken(name); err != nil {
 		return err
 	}
-	if err := c.addOpenDeployToNixUsers(name); err != nil {
+	if err := c.configureNixBuild(name); err != nil {
 		return err
 	}
 	if err := c.vmRun(name, "sudo", "systemctl", "restart", "opendeploy.service"); err != nil {
 		return err
 	}
 	return c.waitForService(name, "opendeploy.service")
-}
-
-func (c *config) addOpenDeployToNixUsers(name string) error {
-	if err := c.vmRun(name, "sudo", "groupadd", "-f", "nix-users"); err != nil {
-		return err
-	}
-	return c.vmRun(name, "sudo", "usermod", "-aG", "nix-users", "opendeploy")
 }
 
 func (c *config) installCluster() error {
@@ -2628,11 +2632,11 @@ func (c *config) backupRestore() error {
 	}); err != nil {
 		return err
 	}
-	if err := c.substep("post-restore primary setup", "GitHub token and Nix user permissions", func() error {
+	if err := c.substep("post-restore primary setup", "GitHub token and Nix build image", func() error {
 		if err := c.configureGithubToken(c.PrimaryName); err != nil {
 			return err
 		}
-		return c.addOpenDeployToNixUsers(c.PrimaryName)
+		return c.configureNixBuild(c.PrimaryName)
 	}); err != nil {
 		return err
 	}
@@ -2668,13 +2672,13 @@ func (c *config) vmOutput(name string, args ...string) (string, error) {
 }
 
 func (c *config) workerEnrollmentMachineID(name string) (string, error) {
-	out, err := c.vmOutput(name, "sudo", "cat", "/var/lib/opendeploy/enrollment-machine-id")
+	out, err := c.vmOutput(name, "bash", "-lc", "sudo openssl pkey -in /var/lib/opendeploy/tls/node.key -pubout -outform DER | sha256sum | cut -d' ' -f1")
 	if err != nil {
 		return "", err
 	}
 	id := strings.TrimSpace(out)
-	if id == "" {
-		return "", fmt.Errorf("secondary %s has no enrollment machine ID", name)
+	if len(id) != 64 {
+		return "", fmt.Errorf("secondary %s has no enrollment identity: %q", name, id)
 	}
 	return id, nil
 }

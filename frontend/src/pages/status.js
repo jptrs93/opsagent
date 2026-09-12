@@ -196,6 +196,53 @@ function deleteDeploymentOverlay(deploymentRow, close) {
     );
 }
 
+function resetNixStoreOverlay(deploymentRow, close) {
+    const saving = van.state(false);
+    const error = van.state('');
+    const done = van.state(false);
+    const repo = deploymentRow.repo || '';
+
+    const confirmReset = async () => {
+        if (saving.val) return;
+        error.val = '';
+        saving.val = true;
+        try {
+            await capi.postV1NixStoreReset({repo});
+            done.val = true;
+        } catch (e) {
+            error.val = e?.message || 'Requesting the store reset failed.';
+        } finally {
+            saving.val = false;
+        }
+    };
+
+    return div(
+        {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", "data-testid": "nix-store-reset-overlay"},
+        div(
+            {class: "card w-full max-w-md flex flex-col gap-4 shadow-2xl"},
+            h2({class: "text-base font-semibold"}, "Reset Nix build store"),
+            p({class: "text-sm text-gray-300"}, `Every node discards its Nix build store for ${repo} and reseeds it before the next build. The next build of each deployment from this repository fetches every dependency again.`),
+            () => error.val ? p({class: "text-sm text-red-400"}, error.val) : '',
+            () => done.val ? p({class: "text-sm text-green-400", "data-testid": "nix-store-reset-done"}, "Reset requested.") : '',
+            div({class: "flex items-center justify-end gap-2"},
+                button({
+                    type: "button",
+                    class: "text-xs px-3 py-1 rounded-md font-medium bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-60 cursor-pointer",
+                    disabled: () => saving.val,
+                    onclick: close,
+                }, () => done.val ? "Close" : "Cancel"),
+                () => done.val ? '' : button({
+                    type: "button",
+                    class: "text-xs px-3 py-1 rounded-md font-medium bg-red-600 text-white hover:bg-red-500 disabled:opacity-60 cursor-pointer",
+                    "data-testid": "nix-store-reset-confirm",
+                    disabled: () => saving.val,
+                    onclick: confirmReset,
+                }, () => saving.val ? "Requesting..." : "Reset store"),
+            ),
+        ),
+    );
+}
+
 function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCurrentConfig, close) {
     const saving = van.state(false);
     const error = van.state('');
@@ -613,6 +660,9 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         overlayNode.val = deploymentOverlay(deploymentRow, closeOverlay);
     };
 
+    const onResetNixStore = (deploymentRow) => {
+        overlayNode.val = resetNixStoreOverlay(deploymentRow, closeOverlay);
+    };
     const onDelete = (deploymentRow) => {
         if (!deploymentRow.canDelete && deploymentRow.existingStatus !== STATUS_STOPPED) return;
         overlayNode.val = deleteDeploymentOverlay(deploymentRow, closeOverlay);
@@ -1274,6 +1324,9 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                 inspectorActionButton("Fork", () => onFork(row)),
                 inspectorActionButton("View config", () => onViewConfig(row)),
                 inspectorActionButton("Prepare output", () => onShowPrepareOutput(row)),
+                ...(row.variant === 'nixDockerBuild' && row.repo ? [
+                    inspectorActionButton("Reset build store", () => onResetNixStore(row)),
+                ] : []),
                 ...(row.canDelete ? [
                     inspectorActionButton("Delete", () => onDelete(row), "bg-gray-700 text-gray-200 hover:bg-red-600 hover:text-white"),
                 ] : []),

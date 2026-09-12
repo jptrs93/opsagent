@@ -2,14 +2,16 @@
   description = "OpenDeploy combined library app example";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  inputs.nix2container.url = "github:nlewo/nix2container";
+  inputs.nix2container.inputs.nixpkgs.follows = "nixpkgs";
 
-  outputs = { nixpkgs, ... }:
+  outputs = { nixpkgs, nix2container, ... }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system (import nixpkgs { inherit system; }));
     in
     {
-      packages = forAllSystems (pkgs:
+      packages = forAllSystems (system: pkgs:
         let
           nodejs = pkgs.nodejs_24;
           pnpm = pkgs.pnpm_11;
@@ -70,22 +72,22 @@
           frontend = frontend;
           app = app;
           default = if pkgs.stdenv.isLinux then
-            pkgs.dockerTools.streamLayeredImage {
+            nix2container.packages.${system}.nix2container.buildImage {
               name = "opendeploy-test/library-app";
-              tag = "latest";
-              contents = [ pkgs.cacert ];
+              copyToRoot = [ pkgs.cacert ];
               config = {
-                Cmd = [ "${app}/bin/library-app" ];
-                WorkingDir = "/";
-                Env = [ "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt" ];
-                ExposedPorts = { "8080/tcp" = { }; };
+                entrypoint = [ "${app}/bin/library-app" ];
+                workingdir = "/";
+                env = [ "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt" ];
+                exposedports = { "8080/tcp" = { }; };
               };
+              maxLayers = 16;
             }
           else
             app;
         });
 
-      devShells = forAllSystems (pkgs: {
+      devShells = forAllSystems (system: pkgs: {
         default = pkgs.mkShell {
           packages = [ pkgs.go_1_25 pkgs.nodejs_24 pkgs.pnpm_11 ];
         };

@@ -160,6 +160,21 @@ func (c *ApiServerCapi) PostV1ClusterSettingsUpdate(ctx context.Context, req *Cl
 	return DecodeClusterSettings(body)
 }
 
+func (c *ApiServerCapi) PostV1NixStoreReset(ctx context.Context, req *NixStoreResetRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1NixStoreReset request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/nix-store/reset", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
 func (c *ApiServerCapi) PostV1AuthMaster(ctx context.Context, req *MasterPasswordRequest) (*LoginResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AuthMaster request is nil")

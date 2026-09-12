@@ -909,8 +909,14 @@ var deniedContainerHostMountRoots = []string{
 
 func containerHostMountDenied(host string) bool {
 	host = filepath.Clean(host)
+	if host == "/" {
+		return true
+	}
 	for _, root := range deniedContainerHostMountRoots {
-		if pathEqualOrUnder(host, root) {
+		// Mounting a parent exposes the protected tree just as mounting the
+		// tree itself does. This is a lexical guardrail; administrators own
+		// symlinks and other filesystem aliases on the target node.
+		if pathEqualOrUnder(host, root) || pathEqualOrUnder(root, host) {
 			return true
 		}
 	}

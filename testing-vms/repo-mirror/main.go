@@ -422,12 +422,19 @@ func proxyUnknown(w http.ResponseWriter, r *http.Request) {
 	proxy.ServeHTTP(w, r)
 }
 
+var flakeInputProxyRepos = []string{"NixOS/nixpkgs", "nlewo/nix2container"}
+
 func isNixpkgsProxyPath(host, path string) bool {
 	clean := strings.TrimPrefix(path, "/")
-	if host == "api.github.com" {
-		return strings.HasPrefix(clean, "repos/NixOS/nixpkgs")
+	for _, repo := range flakeInputProxyRepos {
+		if host == "api.github.com" && strings.HasPrefix(clean, "repos/"+repo) {
+			return true
+		}
+		if host != "api.github.com" && strings.HasPrefix(clean, repo) {
+			return true
+		}
 	}
-	return strings.HasPrefix(clean, "NixOS/nixpkgs")
+	return false
 }
 
 func handleAPI(w http.ResponseWriter, r *http.Request) {

@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/enrollment"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/wgkey"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -39,10 +39,6 @@ func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
 	if strings.TrimSpace(cfg.PrimaryEnrollmentAddr) == "" {
 		return fmt.Errorf("primary enrollment address is empty")
 	}
-	machineID, err := ensureRequestingMachineID(cfg.DataDir)
-	if err != nil {
-		return err
-	}
 	// The WireGuard keypair is minted before the first enrollment attempt so
 	// the public key rides the same mTLS-pinned channel as the CSR; the
 	// private key never leaves cfg.DataDir.
@@ -50,6 +46,15 @@ func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
 	if err != nil {
 		return err
 	}
+	clusterKeyPEM, err := loadOrGenerateClusterKey(cfg.ClusterKeyPath)
+	if err != nil {
+		return err
+	}
+	machineID, csrPEM, err := certu.SecondaryIdentity(clusterKeyPEM)
+	if err != nil {
+		return err
+	}
+	slog.InfoContext(ctx, fmt.Sprintf("secondary enrollment identity ready requestingMachineID=%s keyPath=%s", machineID, cfg.ClusterKeyPath))
 	client, err := enrollmentHTTPClient(cfg.PrimaryEnrollmentFingerprint)
 	if err != nil {
 		return err
@@ -63,12 +68,15 @@ func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
 			return err
 		}
 		connectedAt := time.Now()
-		err := runEnrollmentSession(ctx, capi, machineID, nodeKey.PublicBase64(), cfg)
+		err := runEnrollmentSession(ctx, capi, machineID, nodeKey.PublicBase64(), csrPEM, clusterKeyPEM, cfg)
 		if err == nil {
 			return nil
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
+		}
+		if enrollment.Rejected(err) {
+			return fmt.Errorf("primary rejected enrollment requestingMachineID=%s: %w", machineID, err)
 		}
 		if time.Since(connectedAt) > maxBackoff {
 			backoff = time.Second
@@ -89,13 +97,9 @@ func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
 	}
 }
 
-func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, machineID, wgPublicKey string, cfg EnrollmentConfig) error {
+func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, machineID, wgPublicKey string, csrPEM, keyPEM []byte, cfg EnrollmentConfig) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	csrPEM, keyPEM, err := certu.GenerateSecondaryCertificateRequest(machineID)
-	if err != nil {
-		return err
-	}
 
 	reqs := func(yield func(*apigen.EnrollmentSecondaryMsg, error) bool) {
 		inventory := currentHostAddresses(ctx)
@@ -217,21 +221,28 @@ func enrollmentHTTPClient(expectedFingerprint string) (*http.Client, error) {
 	}}}, nil
 }
 
-func ensureRequestingMachineID(dataDir string) (string, error) {
-	path := filepath.Join(dataDir, "enrollment-machine-id")
-	if b, err := os.ReadFile(path); err == nil {
-		id := strings.TrimSpace(string(b))
-		if id != "" {
-			return id, nil
-		}
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("reading enrollment machine id: %w", err)
+func loadOrGenerateClusterKey(path string) ([]byte, error) {
+	if path == "" {
+		return nil, fmt.Errorf("cluster key path is empty")
 	}
-	id := uuid.NewString()
-	if err := os.WriteFile(path, []byte(id+"\n"), 0o600); err != nil {
-		return "", fmt.Errorf("writing enrollment machine id: %w", err)
+	keyPEM, err := os.ReadFile(path)
+	if err == nil && len(strings.TrimSpace(string(keyPEM))) > 0 {
+		return keyPEM, nil
 	}
-	return id, nil
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	keyPEM, err = certu.GenerateSecondaryKey()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, keyPEM, 0o600); err != nil {
+		return nil, err
+	}
+	return keyPEM, nil
 }
 
 func enrollmentBaseURL(addr string) string {

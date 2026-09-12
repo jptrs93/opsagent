@@ -1,9 +1,9 @@
-// Package nixdocker builds Nix-produced OCI image streams and imports them into
-// OpenDeploy's containerd image store.
+// Package nixdocker builds nix2container images in a one-shot build container
+// and ingests them into OpenDeploy's containerd image store.
 package nixdocker
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,49 +12,62 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/jptrs93/goutil/cmdu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/ctrd"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nix2container"
+	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixstore"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/preparerlog"
+	"github.com/jptrs93/opsagent/backend/lib/network"
 	repogit "github.com/jptrs93/opsagent/backend/lib/repo/git"
 )
 
-// Preparer builds a Nix flake whose default output is an executable OCI image
-// stream, imports the stream into containerd, and returns the local image ref.
+// Preparer builds a Nix flake whose selected output is a nix2container image
+// JSON, inside a container with the repository's own store, and imports the
+// image into containerd without executing anything the build produced.
 type Preparer struct {
 	gitManager *repogit.Manager
-	sem        chan struct{}
+	stores     *nixstore.Manager
 	imageReady func(context.Context, string) error
 }
 
-const imageCacheSchemaVersion = "v1"
+const imageCacheSchemaVersion = "v2"
 
-// New creates a Nix Docker preparer. Builds are limited to one concurrent Nix
-// invocation per Preparer instance to avoid thrashing the Nix store.
 func New(gitManager *repogit.Manager) *Preparer {
 	return &Preparer{
 		gitManager: gitManager,
-		sem:        make(chan struct{}, 1),
+		stores:     nixstore.Default(),
 		imageReady: ctrd.Default.ImageReady,
 	}
 }
 
+// Stores exposes the store manager for operator resets.
+func (p *Preparer) Stores() *nixstore.Manager { return p.stores }
+
+// RunMaintenance removes build containers and attachments a previous agent
+// process left behind, then runs the store lifecycle loop until ctx ends.
+func (p *Preparer) RunMaintenance(ctx context.Context) {
+	for _, prefix := range []string{network.BuildContainerID(""), "opendeploy-nixstore-"} {
+		ids, err := ctrd.Default.ListContainerIDs(ctx, prefix)
+		if err != nil {
+			slog.WarnContext(ctx, "listing leftover build containers failed", "err", err)
+			break
+		}
+		for _, id := range ids {
+			slog.InfoContext(ctx, "removing leftover build container "+id)
+			_ = ctrd.Default.Remove(ctx, id)
+		}
+	}
+	p.stores.RunMaintenance(ctx)
+}
+
 func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentEvent, log *preparerlog.Log) (string, apigen.ImageStatus) {
 	version := dep.WorkloadVersion()
-	select {
-	case p.sem <- struct{}{}:
-		defer func() { <-p.sem }()
-	case <-ctx.Done():
-		return "", apigen.ImageStatus_IMAGE_FAILED
-	}
-
 	nix := dep.Value.Spec.Container().Source.NixDockerBuild
 	localImageRef := imageRef(nix, version)
 	log.Write("checking for reusable image %s", localImageRef)
@@ -67,8 +80,15 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentEvent, log
 	}
 	log.Write("reusable image not found; building %s", localImageRef)
 
-	logPath := dep.PrepareOutputPath()
-	slog.InfoContext(ctx, fmt.Sprintf("nix docker build starting, logging to %s", logPath))
+	key := nixstore.Key(nix.Repo)
+	log.Write("waiting for the build slot of repository %s", nix.Repo)
+	release, err := p.stores.Acquire(ctx, key)
+	if err != nil {
+		return "", apigen.ImageStatus_IMAGE_FAILED
+	}
+	defer release()
+
+	slog.InfoContext(ctx, fmt.Sprintf("nix docker build starting, logging to %s", dep.PrepareOutputPath()))
 	log.Write("checking out repository %s at version %s", nix.Repo, version)
 	checkoutStarted := time.Now()
 	repoDir, err := p.gitManager.EnsureCheckout(ctx, nix.Repo, version, log.Output())
@@ -83,180 +103,192 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentEvent, log
 		log.Error("validating flake path: %v", err)
 		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
-	nixDir := filepath.Dir(flakePath)
-	log.Write("running Nix build in %s", nixDir)
+	flakeDir, err := filepath.Rel(repoDir, filepath.Dir(flakePath))
+	if err != nil {
+		log.Error("resolving flake directory: %v", err)
+		return "", apigen.ImageStatus_IMAGE_FAILED
+	}
+
+	store, err := p.stores.Ensure(ctx, key, nix.Repo, log.Output(), log.Write)
+	if err != nil {
+		if errors.Is(err, ctrd.ErrImagePull) {
+			log.Error("build image unavailable: %v", err)
+		} else {
+			log.Error("preparing nix store: %v", err)
+		}
+		return "", apigen.ImageStatus_IMAGE_FAILED
+	}
+
+	dns, ok := network.Default.DNSAddr()
+	if !ok {
+		log.Error("setting up build network: netproxy DNS address is not known")
+		return "", apigen.ImageStatus_IMAGE_FAILED
+	}
+	build, err := p.stores.NewBuild(store, dns.String())
+	if err != nil {
+		log.Error("preparing build scratch directory: %v", err)
+		return "", apigen.ImageStatus_IMAGE_FAILED
+	}
+	defer build.Cleanup()
+
+	netSpec, err := network.Default.BuildNetSpec(build.ID)
+	if err != nil {
+		log.Error("setting up build network: %v", err)
+		return "", apigen.ImageStatus_IMAGE_FAILED
+	}
+	buildNet, err := network.Default.SetupContainerNet(netSpec)
+	if err != nil {
+		log.Error("setting up build network: %v", err)
+		return "", apigen.ImageStatus_IMAGE_FAILED
+	}
+	defer network.Default.TeardownContainerNet(buildNet)
+
+	spec := build.ContainerSpec(repoDir, flakeDir, nix.Target, buildNet)
+	cfg := p.stores.Config()
+	log.Write("running Nix build in container %s: image %s, memory limit %s, %d cpus, %d pids", spec.ID, cfg.Image, formatImageSize(cfg.Resources.MemoryBytes), cfg.Resources.CPUs, cfg.Resources.Pids)
+	log.Write("running command: %s", strings.Join(spec.Args, " "))
 	buildStarted := time.Now()
-	stdoutLines, err := runCmdCapture(ctx, nixDir, log, "nix", nixBuildArgs(nix.Target)...)
+	stdout := newLineCapture(log.Output(), 16)
+	stderr := newLineCapture(log.Output(), 40)
+	result, err := ctrd.Default.RunBuild(ctx, spec, stdout, stderr)
 	if err != nil {
-		log.Error("running Nix build: %v", err)
+		if isContextDone(ctx.Err()) {
+			log.Write("build cancelled")
+			return "", apigen.ImageStatus_IMAGE_FAILED
+		}
+		log.Error("running build container: %v", err)
 		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
-
-	artifactPath := lastNonEmptyLine(stdoutLines)
-	log.Write("build complete in %s, stream artifact: %s", time.Since(buildStarted).Round(time.Millisecond), artifactPath)
+	switch {
+	case result.OOMKilled:
+		log.Error("build exceeded its memory limit of %s (exit status %d)", formatImageSize(cfg.Resources.MemoryBytes), result.Code)
+		return "", apigen.ImageStatus_IMAGE_FAILED
+	case result.Code != 0 && needsCredentials(stderr.Lines()):
+		log.Error("Nix build failed with exit status %d: a flake input requires credentials, which builds do not receive", result.Code)
+		return "", apigen.ImageStatus_IMAGE_FAILED
+	case result.Code != 0:
+		log.Error("Nix build failed with exit status %d", result.Code)
+		return "", apigen.ImageStatus_IMAGE_FAILED
+	}
+	artifactPath := stdout.LastNonEmpty()
+	log.Write("build complete in %s, image description: %s", time.Since(buildStarted).Round(time.Millisecond), artifactPath)
 	if artifactPath == "" {
-		log.Error("Nix build returned an empty artifact path")
-		return "", apigen.ImageStatus_IMAGE_FAILED
-	}
-	streamPath, err := resolveImageStreamPath(artifactPath)
-	if err != nil {
-		log.Error("resolving image stream: %v", err)
+		log.Error("Nix build returned an empty output path")
 		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
 
-	log.Write("importing image stream %s as %s", streamPath, localImageRef)
-	imageStreamStarted := time.Now()
-	if err := p.importStream(ctx, streamPath, localImageRef, log); err != nil {
-		log.Error("importing image: %v", err)
+	n2cStore := nix2container.Store{Root: store.Root}
+	image, err := nix2container.Load(n2cStore, artifactPath)
+	if err != nil {
+		if errors.Is(err, nix2container.ErrNotImage) {
+			log.Error("output is not a nix2container image: %v", err)
+		} else {
+			log.Error("reading image description: %v", err)
+		}
 		return "", apigen.ImageStatus_IMAGE_FAILED
 	}
-	log.Write("image stream export/import complete in %s", time.Since(imageStreamStarted).Round(time.Millisecond))
+	log.Write("importing %d layers as %s", len(image.Layers), localImageRef)
+	importStarted := time.Now()
+	if err := p.ingest(ctx, n2cStore, image, key, localImageRef, log); err != nil {
+		if errors.Is(err, nix2container.ErrLayerMismatch) {
+			log.Error("image layer failed verification: %v", err)
+		} else {
+			log.Error("importing image: %v", err)
+		}
+		return "", apigen.ImageStatus_IMAGE_FAILED
+	}
+	log.Write("image import complete in %s", time.Since(importStarted).Round(time.Millisecond))
 	imageSize, err := ctrd.Default.ImageSize(ctx, localImageRef)
 	if err != nil {
 		log.Write("image import complete: %s (size unavailable: %v)", localImageRef, err)
 	} else {
 		log.Write("image import complete: %s (size: %s)", localImageRef, formatImageSize(imageSize))
 	}
-
+	p.stores.AfterBuild(ctx, store, log.Output(), log.Write)
 	return localImageRef, apigen.ImageStatus_IMAGE_READY
 }
 
-func nixBuildArgs(target string) []string {
-	args := []string{
-		"--extra-experimental-features", "nix-command flakes",
-		"build", "--no-update-lock-file", "--no-link", "--print-out-paths", "-L",
-	}
-	if target != "" {
-		args = append(args, target)
-	}
-	return args
-}
-
-func (p *Preparer) importStream(ctx context.Context, streamPath string, localImageRef string, log *preparerlog.Log) error {
-	cmd := exec.CommandContext(ctx, streamPath)
-	stdout, err := cmd.StdoutPipe()
+func (p *Preparer) ingest(ctx context.Context, store nix2container.Store, image *nix2container.Image, key string, ref string, log *preparerlog.Log) error {
+	record, err := nix2container.OpenRecord(p.stores.RecordPath(key))
 	if err != nil {
-		return fmt.Errorf("opening stream stdout: %w", err)
+		return fmt.Errorf("opening verified layer record: %w", err)
 	}
-	cmd.Stderr = log.Output()
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("starting image stream: %w", err)
-	}
-	_, importErr := ctrd.Default.Import(ctx, ctrd.ImageStream{Reader: stdout, Ref: localImageRef})
-	if importErr != nil {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		_ = cmd.Wait()
-		return importErr
-	}
-	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("image stream exited: %w", err)
-	}
-	return nil
-}
-
-func runCmdCapture(ctx context.Context, dir string, log *preparerlog.Log, name string, args ...string) ([]string, error) {
-	cmdStr := sanitizeCommandForLogs(name, args)
-	slog.InfoContext(ctx, fmt.Sprintf("exec %q in %s", cmdStr, dir))
-	log.Write("running command: %s", cmdStr)
-
-	cmd := exec.Command(name, args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-
-	stdout, stderr, _, closePipes, err := cmdu.InitStdPipes(cmd)
+	session, err := ctrd.Default.OpenContentSession(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, fmt.Sprintf("initializing std pipes for %q failed", cmdStr), "err", err)
-		return nil, fmt.Errorf("initializing std pipes: %w", err)
+		return err
 	}
-	defer closePipes()
-
-	if err := cmd.Start(); err != nil {
-		slog.ErrorContext(ctx, fmt.Sprintf("starting %q failed", cmdStr), "err", err)
-		log.Error("starting command: %v", err)
-		return nil, fmt.Errorf("start %s: %w", cmdStr, err)
+	defer session.Done()
+	result, err := nix2container.Ingest(session.Ctx, session.Store, store, image, record, log.Write)
+	if err != nil {
+		return err
 	}
-	slog.InfoContext(ctx, fmt.Sprintf("started %q pid=%d", cmdStr, cmd.Process.Pid))
-
-	stopCancellationWatch := watchCommandCancellation(ctx, cmd, cmdStr, log)
-	defer stopCancellationWatch()
-
-	var mu sync.Mutex
-	var stdoutLines []string
-	var wg sync.WaitGroup
-	streamPipe := func(prefix string, r io.Reader, capture bool) {
-		defer wg.Done()
-		scanner := bufio.NewScanner(r)
-		scanner.Buffer(make([]byte, 0, 256*1024), 256*1024)
-		for scanner.Scan() {
-			line := scanner.Text()
-			_, _ = fmt.Fprintln(log.Output(), line)
-			if capture {
-				mu.Lock()
-				stdoutLines = append(stdoutLines, line)
-				mu.Unlock()
-			}
-		}
-		if scanErr := scanner.Err(); scanErr != nil {
-			slog.ErrorContext(ctx, fmt.Sprintf("reading %s of %q failed", prefix, cmdStr), "err", scanErr)
-			log.Error("reading command %s: %v", prefix, scanErr)
-		}
-	}
-
-	wg.Add(2)
-	go streamPipe("stdout", stdout, true)
-	go streamPipe("stderr", stderr, false)
-	wg.Wait()
-
-	if err := cmd.Wait(); err != nil {
-		if isContextDone(ctx.Err()) {
-			return stdoutLines, ctx.Err()
-		}
-		exitErr := fmt.Sprintf("cmd failed: %s: %v", cmdStr, err)
-		slog.ErrorContext(ctx, exitErr)
-		log.Error("%s", exitErr)
-		return stdoutLines, fmt.Errorf("%s: %w", cmdStr, err)
-	}
-	slog.InfoContext(ctx, fmt.Sprintf("completed %q", cmdStr))
-	return stdoutLines, nil
+	return ctrd.Default.TagManifest(session.Ctx, ref, result.Manifest)
 }
 
-func watchCommandCancellation(ctx context.Context, cmd *exec.Cmd, cmdStr string, log *preparerlog.Log) func() {
-	done := make(chan struct{})
-	var once sync.Once
+// lineCapture forwards output to a writer while keeping the last lines for
+// the artifact path and error classification.
+type lineCapture struct {
+	mu      sync.Mutex
+	w       io.Writer
+	partial bytes.Buffer
+	lines   []string
+	keep    int
+}
 
-	go func() {
-		select {
-		case <-ctx.Done():
-			if cmd.Process == nil {
-				return
-			}
-			slog.WarnContext(ctx, fmt.Sprintf("interrupting %q due to cancellation", cmdStr))
-			log.Write("interrupting command due to cancellation")
-			if err := cmd.Process.Signal(os.Interrupt); err != nil {
-				slog.WarnContext(ctx, fmt.Sprintf("sending interrupt signal to %q failed", cmdStr), "err", err)
-			}
+func newLineCapture(w io.Writer, keep int) *lineCapture {
+	return &lineCapture{w: w, keep: keep}
+}
 
-			timer := time.NewTimer(3 * time.Second)
-			defer timer.Stop()
-			select {
-			case <-done:
-			case <-timer.C:
-				slog.WarnContext(ctx, fmt.Sprintf("force killing %q after interrupt grace period", cmdStr))
-				log.Write("force killing command after interrupt grace period")
-				if err := cmd.Process.Kill(); err != nil {
-					slog.WarnContext(ctx, fmt.Sprintf("killing %q failed", cmdStr), "err", err)
-				}
-			}
-		case <-done:
+func (c *lineCapture) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.partial.Write(p)
+	for {
+		raw := c.partial.Bytes()
+		idx := bytes.IndexByte(raw, '\n')
+		if idx < 0 {
+			break
 		}
-	}()
-
-	return func() {
-		once.Do(func() { close(done) })
+		c.push(string(raw[:idx]))
+		c.partial.Next(idx + 1)
 	}
+	return n, err
+}
+
+func (c *lineCapture) push(line string) {
+	c.lines = append(c.lines, line)
+	if len(c.lines) > c.keep {
+		c.lines = c.lines[len(c.lines)-c.keep:]
+	}
+}
+
+func (c *lineCapture) Lines() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	lines := append([]string(nil), c.lines...)
+	if c.partial.Len() > 0 {
+		lines = append(lines, c.partial.String())
+	}
+	return lines
+}
+
+func (c *lineCapture) LastNonEmpty() string {
+	return lastNonEmptyLine(c.Lines())
+}
+
+// needsCredentials recognises a fetch that was refused because the build
+// has no credentials.
+func needsCredentials(lines []string) bool {
+	markers := []string{"HTTP error 401", "HTTP error 403", "Authentication failed", "could not read Username", "Permission denied (publickey", "Repository not found"}
+	for _, line := range lines {
+		for _, marker := range markers {
+			if strings.Contains(line, marker) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isContextDone(err error) bool {
@@ -277,20 +309,6 @@ func checkedOutFlakePath(repoDir string, flake string) (string, error) {
 		return "", fmt.Errorf("flake path is not a regular file: %s", clean)
 	}
 	return path, nil
-}
-
-func resolveImageStreamPath(artifactPath string) (string, error) {
-	info, err := os.Stat(artifactPath)
-	if err != nil {
-		return "", fmt.Errorf("stat artifact path: %w", err)
-	}
-	if info.IsDir() {
-		return "", fmt.Errorf("artifact path is a directory, expected executable image stream: %s", artifactPath)
-	}
-	if info.Mode()&0o111 == 0 {
-		return "", fmt.Errorf("artifact path is not executable: %s", artifactPath)
-	}
-	return artifactPath, nil
 }
 
 func lastNonEmptyLine(lines []string) string {
@@ -371,30 +389,4 @@ func isASCIITagChar(r rune) bool {
 
 func isASCIITagStart(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
-}
-
-func sanitizeCommandForLogs(name string, args []string) string {
-	if len(args) == 0 {
-		return name
-	}
-	safeArgs := make([]string, 0, len(args))
-	for _, arg := range args {
-		safeArgs = append(safeArgs, redactGithubToken(arg))
-	}
-	return name + " " + strings.Join(safeArgs, " ")
-}
-
-func redactGithubToken(s string) string {
-	const prefix = "x-access-token:"
-	idx := strings.Index(s, prefix)
-	if idx == -1 {
-		return s
-	}
-	afterPrefix := idx + len(prefix)
-	atIdx := strings.Index(s[afterPrefix:], "@")
-	if atIdx == -1 {
-		return s
-	}
-	atIdx += afterPrefix
-	return s[:afterPrefix] + "***" + s[atIdx:]
 }

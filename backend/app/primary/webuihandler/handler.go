@@ -20,6 +20,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/assets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nixstores"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/app/primary/enrollmenthandler"
@@ -61,6 +62,7 @@ type Handler struct {
 	GitVersions           GitSourceProvider
 	GithubReleaseVersions *versionprovider.GithubReleaseVersionProvider
 	GithubCredentials     githubcredentials.Provider
+	NixStores             *nixstores.Service
 
 	// Secrets is the primary-only encrypted secrets store. Deployment preparation
 	// decrypts referenced secret IDs into the shared RuntimeInputs cache.
@@ -110,6 +112,7 @@ type Dependencies struct {
 	GithubReleaseVersions *versionprovider.GithubReleaseVersionProvider
 	GithubCredentials     githubcredentials.Provider
 	Secrets               *secrets.Manager
+	NixStores             *nixstores.Service
 }
 
 func (h *Handler) Get(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {
@@ -178,6 +181,7 @@ func New(staticFS fs.FS, nodeID int32, deps Dependencies) (*Handler, error) {
 		GithubReleaseVersions: deps.GithubReleaseVersions,
 		GithubCredentials:     deps.GithubCredentials,
 		Secrets:               deps.Secrets,
+		NixStores:             deps.NixStores,
 		NodeID:                nodeID,
 	}
 	h.secretsUpdates.Notify(h.secretsStatus())

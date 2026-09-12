@@ -28,6 +28,10 @@ var V4CIDR = netip.PrefixFrom(v4Base, 16)
 // can have on a machine (current + rollover candidate).
 const v4SlotsPerDeployment = 2
 
+// MaxBuildAttachments is how many build containers can be attached at once:
+// they share the reserved build identity and therefore its v4 slots.
+const MaxBuildAttachments = v4SlotsPerDeployment
+
 // V4Pair returns the host-side and container-side addresses of the /30 for
 // (deploymentID, slot). Deployment ids collide in this space only modulo 8192,
 // i.e. after 8192 deployments on one machine.

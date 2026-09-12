@@ -30,7 +30,7 @@ func kernelWithRules(rules ...network.HostPortRule) KernelState {
 		TableV6:    true,
 		Masquerade: true,
 		DNAT:       map[string]int{},
-		Filter:     network.FilterState{}.RuleKeys(),
+		Filter:     network.AuditState{}.FilterState().RuleKeys(),
 		Elements:   map[string]int{},
 		Routes:     map[netip.Addr]int{},
 	}
@@ -276,6 +276,7 @@ func TestCompareFallbackRouteOnlyExpectedWithWorkloads(t *testing.T) {
 	}
 	kernel.Routes[targetV6] = 2
 	kernel.Masquerade6 = withWorkload.Prefix.CIDR()
+	kernel.Filter = withWorkload.FilterState().RuleKeys()
 	if diff := Compare(withWorkload, kernel); !diff.MissingFallbackRoute {
 		t.Fatalf("expected missing fallback route, got %+v", diff)
 	}

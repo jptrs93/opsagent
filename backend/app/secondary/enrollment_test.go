@@ -1,6 +1,7 @@
 package secondary
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -54,6 +55,7 @@ func TestEnrollmentHTTPClientRequiresFingerprint(t *testing.T) {
 }
 
 func TestEnrollReturnsWhenContextCanceled(t *testing.T) {
+	dataDir := t.TempDir()
 	cert := enrollmentTestCertificate(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -62,7 +64,8 @@ func TestEnrollReturnsWhenContextCanceled(t *testing.T) {
 	err := Enroll(ctx, EnrollmentConfig{
 		PrimaryEnrollmentAddr:        "127.0.0.1:1",
 		PrimaryEnrollmentFingerprint: certu.CertificateSPKISHA256(cert),
-		DataDir:                      t.TempDir(),
+		DataDir:                      dataDir,
+		ClusterKeyPath:               filepath.Join(dataDir, "tls", "node.key"),
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Enroll error = %v, want context.Canceled", err)
@@ -217,4 +220,43 @@ func enrollmentTestCertificate(t *testing.T) *x509.Certificate {
 		t.Fatalf("ParseCertificate: %v", err)
 	}
 	return cert
+}
+
+func TestLoadOrGenerateClusterKeyIsStable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tls", "node.key")
+	first, err := loadOrGenerateClusterKey(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("cluster key mode = %v, want 0600", info.Mode().Perm())
+	}
+	second, err := loadOrGenerateClusterKey(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatal("cluster key changed between loads")
+	}
+	firstID, firstCSR, err := certu.SecondaryIdentity(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID, _, err := certu.SecondaryIdentity(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstID != secondID {
+		t.Fatalf("identifiers differ across loads: %s vs %s", firstID, secondID)
+	}
+	if err := certu.VerifySecondaryCertificateRequest(firstCSR, firstID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadOrGenerateClusterKey(""); err == nil {
+		t.Fatal("empty cluster key path was accepted")
+	}
 }

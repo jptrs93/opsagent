@@ -1,12 +1,15 @@
 package certu
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -342,6 +345,14 @@ func ServerCertificateNames(names []string) ([]string, []net.IP) {
 	return dnsNames, ipAddresses
 }
 
+func GenerateSecondaryKey() ([]byte, error) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("generating secondary key: %w", err)
+	}
+	return marshalPrivateKey(priv)
+}
+
 func GenerateSecondaryCertificateRequest(requestingMachineID string) (csrPEM, keyPEM []byte, err error) {
 	if requestingMachineID == "" {
 		return nil, nil, fmt.Errorf("requesting machine ID is empty")
@@ -354,14 +365,69 @@ func GenerateSecondaryCertificateRequest(requestingMachineID string) (csrPEM, ke
 	if err != nil {
 		return nil, nil, err
 	}
+	csrPEM, err = secondaryCertificateRequest(requestingMachineID, priv)
+	if err != nil {
+		return nil, nil, err
+	}
+	return csrPEM, keyPEM, nil
+}
+
+func SecondaryIdentity(keyPEM []byte) (identifier string, csrPEM []byte, err error) {
+	priv, err := parsePrivateKey(keyPEM, "secondary key")
+	if err != nil {
+		return "", nil, err
+	}
+	signer, ok := priv.(crypto.Signer)
+	if !ok {
+		return "", nil, fmt.Errorf("secondary key does not support signing")
+	}
+	identifier, err = publicKeySPKISHA256Hex(signer.Public())
+	if err != nil {
+		return "", nil, err
+	}
+	csrPEM, err = secondaryCertificateRequest(identifier, priv)
+	if err != nil {
+		return "", nil, err
+	}
+	return identifier, csrPEM, nil
+}
+
+func VerifySecondaryCertificateRequest(csrPEM []byte, identifier string) error {
+	csr, err := parseCertificateRequest(csrPEM)
+	if err != nil {
+		return err
+	}
+	if err := csr.CheckSignature(); err != nil {
+		return fmt.Errorf("validating secondary CSR signature: %w", err)
+	}
+	if csr.Subject.CommonName != identifier {
+		return fmt.Errorf("secondary CSR common name does not match identifier")
+	}
+	sum := sha256.Sum256(csr.RawSubjectPublicKeyInfo)
+	if hex.EncodeToString(sum[:]) != identifier {
+		return fmt.Errorf("secondary identifier is not the SHA-256 of the CSR public key")
+	}
+	return nil
+}
+
+func publicKeySPKISHA256Hex(pub any) (string, error) {
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return "", fmt.Errorf("marshalling secondary public key: %w", err)
+	}
+	sum := sha256.Sum256(der)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func secondaryCertificateRequest(commonName string, priv any) ([]byte, error) {
 	tmpl := &x509.CertificateRequest{
-		Subject: pkix.Name{CommonName: requestingMachineID},
+		Subject: pkix.Name{CommonName: commonName},
 	}
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, tmpl, priv)
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating secondary CSR: %w", err)
+		return nil, fmt.Errorf("creating secondary CSR: %w", err)
 	}
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER}), keyPEM, nil
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER}), nil
 }
 
 func SignSecondaryCertificateRequestFromPEM(caCertPEM, caKeyPEM, csrPEM []byte, identifier string) ([]byte, []byte, error) {

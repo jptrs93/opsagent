@@ -47,6 +47,7 @@ type Session struct {
 	networkPrefix network.Prefix
 	networkMaps   networkMapProvider
 	acme          *acmestate.Holder
+	nixStores     nixStoreResetProvider
 
 	// outbox carries frames destined for the secondary. It is never closed;
 	// senders fall through on sessCtx.Done so they never block past teardown.
@@ -114,6 +115,13 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 		var unsubscribeAcme func()
 		acmeState, acmeUpdates, unsubscribeAcme = s.acme.SnapshotAndSubscribe()
 		defer unsubscribeAcme()
+	}
+	var nixResets *apigen.NixStoreResets
+	var nixResetUpdates <-chan *apigen.NixStoreResets
+	if s.nixStores != nil {
+		var unsubscribeNixResets func()
+		nixResets, nixResetUpdates, unsubscribeNixResets = s.nixStores.SnapshotAndSubscribe()
+		defer unsubscribeNixResets()
 	}
 	items := make([]*apigen.ScheduledInstanceState, 0, len(snapshot))
 	for i := range snapshot {
@@ -183,6 +191,11 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 			return
 		}
 	}
+	if nixResets != nil && len(nixResets.Items) > 0 {
+		if !yield(&apigen.MsgToSecondary{NixStoreResets: nixResets}, nil) {
+			return
+		}
+	}
 	// Send the snapshot first so the secondary's stream call returns promptly.
 	if !yield(initial, nil) {
 		return
@@ -210,6 +223,14 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 				continue
 			}
 			if next != nil && !yield(&apigen.MsgToSecondary{AcmeState: next}, nil) {
+				return
+			}
+		case next, ok := <-nixResetUpdates:
+			if !ok {
+				nixResetUpdates = nil
+				continue
+			}
+			if next != nil && !yield(&apigen.MsgToSecondary{NixStoreResets: next}, nil) {
 				return
 			}
 		}

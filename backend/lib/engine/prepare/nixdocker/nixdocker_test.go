@@ -62,18 +62,32 @@ func TestCheckedOutFlakePathRejectsNonRegularAndWrongBasename(t *testing.T) {
 	}
 }
 
-func TestNixBuildArgs(t *testing.T) {
-	base := []string{
-		"--extra-experimental-features", "nix-command flakes",
-		"build", "--no-update-lock-file", "--no-link", "--print-out-paths", "-L",
+func TestLineCaptureKeepsTailAndForwards(t *testing.T) {
+	var forwarded strings.Builder
+	capture := newLineCapture(&forwarded, 2)
+	_, _ = capture.Write([]byte("one\ntwo\nthr"))
+	_, _ = capture.Write([]byte("ee\n\n"))
+	if forwarded.String() != "one\ntwo\nthree\n\n" {
+		t.Fatalf("forwarded = %q", forwarded.String())
 	}
-	if got := nixBuildArgs(""); !reflect.DeepEqual(got, base) {
-		t.Fatalf("default args = %q, want %q", got, base)
+	if got := capture.Lines(); !reflect.DeepEqual(got, []string{"three", ""}) {
+		t.Fatalf("lines = %q", got)
 	}
+	if capture.LastNonEmpty() != "three" {
+		t.Fatalf("last = %q", capture.LastNonEmpty())
+	}
+	_, _ = capture.Write([]byte("/nix/store/abc-image.json"))
+	if capture.LastNonEmpty() != "/nix/store/abc-image.json" {
+		t.Fatalf("unterminated last line = %q", capture.LastNonEmpty())
+	}
+}
 
-	want := append(append([]string(nil), base...), ".#radkitRpaClientImage")
-	if got := nixBuildArgs(".#radkitRpaClientImage"); !reflect.DeepEqual(got, want) {
-		t.Fatalf("target args = %q, want %q", got, want)
+func TestNeedsCredentials(t *testing.T) {
+	if !needsCredentials([]string{"warning: unable to download 'https://github.com/acme/private/archive/x.tar.gz': HTTP error 404", "error: ... HTTP error 401"}) {
+		t.Fatal("401 must classify as a credential fetch")
+	}
+	if needsCredentials([]string{"error: builder for '/nix/store/x.drv' failed with exit code 1"}) {
+		t.Fatal("build failures must not classify as credential fetches")
 	}
 }
 
@@ -84,8 +98,8 @@ func TestImageRefUsesBuildInputsAndCommit(t *testing.T) {
 		Target: ".#apiImage",
 	}
 	ref := imageRef(nix, testCommit)
-	if !strings.HasPrefix(ref, "opendeploy.local/nix-docker-build/v1/") {
-		t.Fatalf("image ref = %q, want v1 cache namespace", ref)
+	if !strings.HasPrefix(ref, "opendeploy.local/nix-docker-build/v2/") {
+		t.Fatalf("image ref = %q, want v2 cache namespace", ref)
 	}
 	if !strings.HasSuffix(ref, ":"+strings.ToLower(testCommit)) {
 		t.Fatalf("image ref = %q, want lowercase commit tag", ref)
