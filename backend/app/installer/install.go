@@ -203,7 +203,13 @@ func stageSelfAgent(tmp string) (string, error) {
 		return "", fmt.Errorf("resolving current executable symlink: %w", err)
 	}
 	dst := filepath.Join(tmp, "opendeploy-self")
-	if err := installBinary(self, dst, 0o755, noChown); err != nil {
+	// Stage for real even under --dry-run: tmp is scratch, and phase 2 compares
+	// the staged bytes against the installed binary to decide whether to restart.
+	data, err := os.ReadFile(self)
+	if err != nil {
+		return "", fmt.Errorf("reading current executable %s: %w", self, err)
+	}
+	if err := os.WriteFile(dst, data, 0o755); err != nil {
 		return "", fmt.Errorf("staging current executable %s: %w", self, err)
 	}
 	info("using current executable %s", self)

@@ -2194,7 +2194,7 @@ func (c *config) verifyUpgradeNoop() error {
 
 func (c *config) expectPinnedRuntime(name string) error {
 	for binary, want := range map[string]string{"containerd": "containerd-" + c.ContainerdVersion, "runc": "runc-" + c.RuncVersion} {
-		out, err := c.vmOutput(name, "readlink", "/var/lib/opendeploy/runtime/bin/"+binary)
+		out, err := c.vmOutput(name, "sudo", "readlink", "/var/lib/opendeploy/runtime/bin/"+binary)
 		if err != nil {
 			return err
 		}

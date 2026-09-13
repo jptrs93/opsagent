@@ -25,7 +25,7 @@ var fsys embed.FS
 
 func main() {
 	switch ainit.Args.Command {
-	case ainit.CommandInstall, ainit.CommandUninstall:
+	case ainit.CommandInstall, ainit.CommandUpgrade, ainit.CommandUninstall:
 		if err := installer.Run(os.Args); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
 			os.Exit(1)
