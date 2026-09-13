@@ -110,6 +110,13 @@ node with `OPENDEPLOY_NIX_BUILD_MEMORY_MB`, `OPENDEPLOY_NIX_BUILD_CPUS` and
 `OPENDEPLOY_NIX_BUILD_PIDS`. A build killed at the memory limit is reported
 as such from the container cgroup's OOM counter.
 
+The container process also carries an open-file limit (`RLIMIT_NOFILE`,
+default 4096, `OPENDEPLOY_NIX_BUILD_FILE_DESCRIPTORS`) in place of `ctrd`'s
+2048 default. Builders inherit it, and a build step that opens a few
+thousand files at once fails inside the build without naming the limit when
+it is too low: a bundler generating one module per message was the first
+case.
+
 ### Generated `nix.conf`
 
 ```

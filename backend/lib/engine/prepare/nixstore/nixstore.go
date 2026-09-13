@@ -31,10 +31,11 @@ const (
 	BuildImage        = "docker.io/nixos/nix@sha256:7a007c766426c1877758ddc5cb87a965ac131fc78c582ce0083d922d51ae945c"
 	BuildImageVersion = "2.35.2"
 
-	DefaultSizeCap       = 6 << 30
-	DefaultResetInterval = 7 * 24 * time.Hour
-	DefaultPids          = 4096
-	DefaultMemoryBytes   = 2 << 30
+	DefaultSizeCap         = 6 << 30
+	DefaultResetInterval   = 7 * 24 * time.Hour
+	DefaultPids            = 4096
+	DefaultFileDescriptors = 4096
+	DefaultMemoryBytes     = 2 << 30
 
 	MaintenanceTimeout = 30 * time.Minute
 
@@ -56,13 +57,14 @@ type Runner interface {
 type Logger func(format string, args ...any)
 
 type Config struct {
-	Root          string
-	Image         string
-	CABundle      string
-	SizeCap       int64
-	ResetInterval time.Duration
-	MaxConcurrent int
-	Resources     ctrd.Resources
+	Root            string
+	Image           string
+	CABundle        string
+	SizeCap         int64
+	ResetInterval   time.Duration
+	MaxConcurrent   int
+	FileDescriptors int64
+	Resources       ctrd.Resources
 }
 
 // ConfigFromEnv derives the node's configuration from ainit, with the
@@ -70,12 +72,13 @@ type Config struct {
 func ConfigFromEnv() Config {
 	sc := ainit.StaticConfig
 	cfg := Config{
-		Root:          sc.NixStoresDir,
-		Image:         sc.NixBuildImage,
-		CABundle:      sc.NixBuildCABundle,
-		SizeCap:       sc.NixStoreSizeCapMB << 20,
-		ResetInterval: time.Duration(sc.NixStoreResetHours) * time.Hour,
-		MaxConcurrent: network.MaxBuildAttachments,
+		Root:            sc.NixStoresDir,
+		Image:           sc.NixBuildImage,
+		CABundle:        sc.NixBuildCABundle,
+		SizeCap:         sc.NixStoreSizeCapMB << 20,
+		ResetInterval:   time.Duration(sc.NixStoreResetHours) * time.Hour,
+		MaxConcurrent:   network.MaxBuildAttachments,
+		FileDescriptors: sc.NixBuildFileDescriptors,
 		Resources: ctrd.Resources{
 			MemoryBytes: sc.NixBuildMemoryMB << 20,
 			CPUs:        sc.NixBuildCPUs,
@@ -106,6 +109,9 @@ func (cfg Config) withDefaults() Config {
 	}
 	if cfg.Resources.Pids <= 0 {
 		cfg.Resources.Pids = DefaultPids
+	}
+	if cfg.FileDescriptors <= 0 {
+		cfg.FileDescriptors = DefaultFileDescriptors
 	}
 	return cfg
 }

@@ -291,7 +291,7 @@ func TestEnsureReseedsOnImageChangeAndReset(t *testing.T) {
 }
 
 func TestNewBuildScratchAndContainerSpec(t *testing.T) {
-	m, _ := newTestManager(t, Config{CABundle: "/etc/ssl/certs/ca.crt", Resources: ctrd.Resources{MemoryBytes: 1 << 30, CPUs: 2, Pids: 100}})
+	m, _ := newTestManager(t, Config{CABundle: "/etc/ssl/certs/ca.crt", FileDescriptors: 3000, Resources: ctrd.Resources{MemoryBytes: 1 << 30, CPUs: 2, Pids: 100}})
 	key := Key("github.com/acme/app")
 	store, err := m.Ensure(context.Background(), key, "github.com/acme/app", io.Discard, nil)
 	if err != nil {
@@ -338,8 +338,8 @@ func TestNewBuildScratchAndContainerSpec(t *testing.T) {
 	if !slices.Equal(spec.Env, wantEnv) {
 		t.Fatalf("env = %q", spec.Env)
 	}
-	if spec.Resources == nil || *spec.Resources != (ctrd.Resources{MemoryBytes: 1 << 30, CPUs: 2, Pids: 100}) || !spec.DefaultSeccomp {
-		t.Fatalf("resources = %+v seccomp=%v", spec.Resources, spec.DefaultSeccomp)
+	if spec.Resources == nil || *spec.Resources != (ctrd.Resources{MemoryBytes: 1 << 30, CPUs: 2, Pids: 100}) || spec.FileDescLimit != 3000 || !spec.DefaultSeccomp {
+		t.Fatalf("resources = %+v fds=%d seccomp=%v", spec.Resources, spec.FileDescLimit, spec.DefaultSeccomp)
 	}
 	if err := os.WriteFile(filepath.Join(build.Scratch, "junk"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
@@ -402,7 +402,7 @@ func TestLifecyclePolicies(t *testing.T) {
 		t.Fatal("old store must reset")
 	}
 	cfg := (Config{}).withDefaults()
-	if cfg.Image != BuildImage || cfg.SizeCap != DefaultSizeCap || cfg.ResetInterval != DefaultResetInterval || cfg.MaxConcurrent != network.MaxBuildAttachments || cfg.Resources.Pids != DefaultPids || cfg.Resources.CPUs < 1 || cfg.Resources.MemoryBytes < 512<<20 {
+	if cfg.Image != BuildImage || cfg.SizeCap != DefaultSizeCap || cfg.ResetInterval != DefaultResetInterval || cfg.MaxConcurrent != network.MaxBuildAttachments || cfg.Resources.Pids != DefaultPids || cfg.FileDescriptors != DefaultFileDescriptors || cfg.Resources.CPUs < 1 || cfg.Resources.MemoryBytes < 512<<20 {
 		t.Fatalf("defaults = %+v", cfg)
 	}
 	if got := (Config{MaxConcurrent: 99}).withDefaults().MaxConcurrent; got != network.MaxBuildAttachments {

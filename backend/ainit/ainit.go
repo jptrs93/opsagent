@@ -116,11 +116,12 @@ type StaticConfiguration struct {
 
 	PasskeyExtraOrigins []string `env:"OPENDEPLOY_PASSKEY_EXTRA_ORIGINS,"`
 
-	NixBuildImage      string `env:"OPENDEPLOY_NIX_BUILD_IMAGE,"`
-	NixBuildCABundle   string `env:"OPENDEPLOY_NIX_BUILD_CA_BUNDLE,"`
-	NixBuildMemoryMB   int64  `env:"OPENDEPLOY_NIX_BUILD_MEMORY_MB,0"`
-	NixBuildCPUs       int    `env:"OPENDEPLOY_NIX_BUILD_CPUS,0"`
-	NixBuildPids       int64  `env:"OPENDEPLOY_NIX_BUILD_PIDS,0"`
-	NixStoreSizeCapMB  int64  `env:"OPENDEPLOY_NIX_STORE_SIZE_CAP_MB,0"`
-	NixStoreResetHours int    `env:"OPENDEPLOY_NIX_STORE_RESET_HOURS,0"`
+	NixBuildImage           string `env:"OPENDEPLOY_NIX_BUILD_IMAGE,"`
+	NixBuildCABundle        string `env:"OPENDEPLOY_NIX_BUILD_CA_BUNDLE,"`
+	NixBuildMemoryMB        int64  `env:"OPENDEPLOY_NIX_BUILD_MEMORY_MB,0"`
+	NixBuildCPUs            int    `env:"OPENDEPLOY_NIX_BUILD_CPUS,0"`
+	NixBuildPids            int64  `env:"OPENDEPLOY_NIX_BUILD_PIDS,0"`
+	NixBuildFileDescriptors int64  `env:"OPENDEPLOY_NIX_BUILD_FILE_DESCRIPTORS,0"`
+	NixStoreSizeCapMB       int64  `env:"OPENDEPLOY_NIX_STORE_SIZE_CAP_MB,0"`
+	NixStoreResetHours      int    `env:"OPENDEPLOY_NIX_STORE_RESET_HOURS,0"`
 }

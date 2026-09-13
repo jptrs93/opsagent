@@ -53,8 +53,9 @@ also compiles the nix2container tool and pulls the Go toolchain closure.
 
 - `ainit`: `NixStoresDir = <data dir>-nix` created 0755 at startup, plus the
   `OPENDEPLOY_NIX_BUILD_IMAGE`, `OPENDEPLOY_NIX_BUILD_CA_BUNDLE`,
-  `OPENDEPLOY_NIX_BUILD_MEMORY_MB`, `OPENDEPLOY_NIX_BUILD_CPUS` and
-  `OPENDEPLOY_NIX_BUILD_PIDS` settings.
+  `OPENDEPLOY_NIX_BUILD_MEMORY_MB`, `OPENDEPLOY_NIX_BUILD_CPUS`,
+  `OPENDEPLOY_NIX_BUILD_PIDS` and `OPENDEPLOY_NIX_BUILD_FILE_DESCRIPTORS`
+  settings.
 - `backend/lib/engine/prepare/nixstore`: repository keys shared with the Git
   manager (`repogit.RepoKey`), per-repository build slots, image pull and
   template seeding per digest, store creation from the template (`cp -al`
@@ -149,6 +150,7 @@ also compiles the nix2container tool and pulls the Go toolchain closure.
 | `OPENDEPLOY_NIX_BUILD_MEMORY_MB` | three quarters of `MemTotal`, at least 512 MiB |
 | `OPENDEPLOY_NIX_BUILD_CPUS` | every CPU |
 | `OPENDEPLOY_NIX_BUILD_PIDS` | 4096 |
+| `OPENDEPLOY_NIX_BUILD_FILE_DESCRIPTORS` | 4096 |
 | `OPENDEPLOY_NIX_STORE_SIZE_CAP_MB` | 6144 |
 | `OPENDEPLOY_NIX_STORE_RESET_HOURS` | 168 |
 

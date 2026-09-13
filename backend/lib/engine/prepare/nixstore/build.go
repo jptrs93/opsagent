@@ -71,7 +71,8 @@ func BuildArgs(flakeDir string, target string) []string {
 
 // ContainerSpec assembles the build container: store read-write at /nix, the
 // checkout read-only at /build/src with its .git masked, the node nix.conf,
-// the scratch directory, no host environment, and the node's resource limits.
+// the scratch directory, no host environment, the node's resource limits and
+// its open-file limit.
 func (b *Build) ContainerSpec(checkoutDir string, flakeDir string, target string, net *network.ContainerNet) ctrd.ContainerSpec {
 	m := b.manager
 	mounts := []ctrd.Mount{
@@ -91,6 +92,10 @@ func (b *Build) ContainerSpec(checkoutDir string, flakeDir string, target string
 		env = append(env, "SSL_CERT_FILE="+containerCAPath, "NIX_SSL_CERT_FILE="+containerCAPath, "GIT_SSL_CAINFO="+containerCAPath)
 	}
 	resources := m.cfg.Resources
+	// Builders are children of the container process and inherit its
+	// RLIMIT_NOFILE. ctrd's 2048 default is enough for a workload but not for
+	// a build step that opens a few thousand files at once, and a derivation
+	// that hits the limit fails inside the build without naming it.
 	spec := ctrd.ContainerSpec{
 		ID:             b.ContainerID(),
 		Image:          m.cfg.Image,
@@ -98,6 +103,7 @@ func (b *Build) ContainerSpec(checkoutDir string, flakeDir string, target string
 		Args:           BuildArgs(flakeDir, target),
 		Cwd:            path.Join(containerSrcDir, flakeDir),
 		Mounts:         mounts,
+		FileDescLimit:  m.cfg.FileDescriptors,
 		Resources:      &resources,
 		DefaultSeccomp: true,
 		NoNetwork:      true,
