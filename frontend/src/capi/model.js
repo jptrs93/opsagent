@@ -265,6 +265,7 @@
  * @property {RunningOnlyUpdate} runningOnlyUpdate
  * @property {SpecUpdate} specUpdate
  * @property {AssignedSpaceUpdate} assignedSpaceUpdate
+ * @property {RestartUpdate} restartUpdate
  */
 /**
  * @typedef {Object} VersionOnlyUpdate
@@ -281,6 +282,9 @@
 /**
  * @typedef {Object} AssignedSpaceUpdate
  * @property {number} spaceId
+ */
+/**
+ * @typedef {Object} RestartUpdate
  */
 /**
  * @typedef {Object} DeploymentCreateRequest
@@ -4844,6 +4848,11 @@ export function writeDeploymentUpdateRequestV2(message, writer) {
         writeAssignedSpaceUpdate(message.assignedSpaceUpdate, writer);
         writer.ldelim();
     }
+    if (message.restartUpdate !== undefined && message.restartUpdate !== null) {
+        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writeRestartUpdate(message.restartUpdate, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -4865,7 +4874,7 @@ export function encodeDeploymentUpdateRequestV2(message) {
  */
 function decodeDeploymentUpdateRequestV2Message(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, expectedVersion: 0, versionOnlyUpdate: undefined, runningOnlyUpdate: undefined, specUpdate: undefined, assignedSpaceUpdate: undefined };
+    const message = {deploymentId: 0, expectedVersion: 0, versionOnlyUpdate: undefined, runningOnlyUpdate: undefined, specUpdate: undefined, assignedSpaceUpdate: undefined, restartUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -4891,6 +4900,10 @@ function decodeDeploymentUpdateRequestV2Message(reader, length) {
             }
             case 6: {
                 message.assignedSpaceUpdate = decodeAssignedSpaceUpdateMessage(reader, reader.uint32());
+                break;
+            }
+            case 7: {
+                message.restartUpdate = decodeRestartUpdateMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -5134,6 +5147,55 @@ function decodeAssignedSpaceUpdateMessage(reader, length) {
 export function decodeAssignedSpaceUpdate(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeAssignedSpaceUpdateMessage(reader);
+}
+
+
+
+/**
+ * @param {RestartUpdate} message
+ * @param {Writer} writer
+ */
+export function writeRestartUpdate(message, writer) {
+}
+
+
+/**
+ * @param {RestartUpdate} message
+ * @returns {Uint8Array}
+ */
+export function encodeRestartUpdate(message) {
+    const writer = Writer.create();
+    writeRestartUpdate(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {RestartUpdate}
+ */
+function decodeRestartUpdateMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = { };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {RestartUpdate}
+ */
+export function decodeRestartUpdate(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeRestartUpdateMessage(reader);
 }
 
 

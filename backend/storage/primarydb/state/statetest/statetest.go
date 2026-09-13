@@ -99,6 +99,12 @@ func SetDeploymentWorkloadState(s *state.Service, ctx apigen.Context, deployment
 	})
 }
 
+func RestartDeployment(s *state.Service, ctx apigen.Context, deploymentID int32) *apigen.DeploymentEvent {
+	return updateDeployment(s, ctx, deploymentID, func(_ *apigen.Deployment, _ *apigen.DeploymentEvent) error {
+		return nil
+	})
+}
+
 func RenameDeployment(s *state.Service, ctx apigen.Context, deploymentID int32, name string) *apigen.DeploymentEvent {
 	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentEvent) error {
 		def.Name = name

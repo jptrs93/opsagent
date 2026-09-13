@@ -526,6 +526,65 @@ func updateSpec(t *testing.T, store *state.Service, cfg *apigen.DeploymentEvent,
 	return updated
 }
 
+func TestRestartEventReplacesThePlacement(t *testing.T) {
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, testRunningSpec("v1"))
+	serving := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	markRunning(t, store, serving.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
+	startScheduler(t, store, newFakeBarrier())
+
+	restarted := statetest.RestartDeployment(store, apigen.Context{}, cfg.DeploymentID)
+	if restarted.Version != cfg.Version+1 || restarted.SpecVersion != cfg.SpecVersion {
+		t.Fatalf("restart event version/spec = %d/%d, want %d/%d", restarted.Version, restarted.SpecVersion, cfg.Version+1, cfg.SpecVersion)
+	}
+	byID := statesByID(store, cfg.DeploymentID)
+	if len(byID) != 1 || byID[serving.ID] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
+		t.Fatalf("placements after restart = %v, want only the old one terminating", byID)
+	}
+
+	markRunning(t, store, serving.ID, cfg.SpecVersion, apigen.RunningStatus_STOPPED)
+	active := statetest.NonFinalInstances(store, cfg.DeploymentID)
+	if len(active) != 1 || active[0].ID == serving.ID {
+		t.Fatalf("placements after the old one stopped = %+v, want only the replacement", active)
+	}
+	replacement := active[0]
+	if replacement.DeploymentVersion != restarted.Version || replacement.DeploymentSpecVersion != cfg.SpecVersion || replacement.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+		t.Fatalf("replacement = %+v, want serving at deployment version %d and spec version %d", replacement, restarted.Version, cfg.SpecVersion)
+	}
+}
+
+func TestRestartEventRollsOverThePlacement(t *testing.T) {
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
+	serving := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	markRunning(t, store, serving.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
+	startScheduler(t, store, newFakeBarrier())
+
+	restarted := statetest.RestartDeployment(store, apigen.Context{}, cfg.DeploymentID)
+	var standby *apigen.ScheduledInstance
+	for _, inst := range statetest.NonFinalInstances(store, cfg.DeploymentID) {
+		if inst.ID != serving.ID {
+			standby = inst
+		}
+	}
+	if standby == nil || standby.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY || standby.DeploymentVersion != restarted.Version || standby.DeploymentSpecVersion != cfg.SpecVersion {
+		t.Fatalf("standby after restart = %+v, want RUN_STANDBY at deployment version %d and spec version %d", standby, restarted.Version, cfg.SpecVersion)
+	}
+	if statesByID(store, cfg.DeploymentID)[serving.ID] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+		t.Fatal("old placement stopped serving before the replacement was ready")
+	}
+
+	markRunning(t, store, standby.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
+	byID := statesByID(store, cfg.DeploymentID)
+	if byID[standby.ID] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING || byID[serving.ID] != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
+		t.Fatalf("states after readiness = %v, want replacement serving and old draining", byID)
+	}
+}
+
 // TestStoppedInstanceIsFinalized pins the meaning of target state: it says what a
 // placement should be doing, and a stopped one should be doing nothing. Leaving
 // it scheduled so the UI has something to render made the UI the reason a

@@ -9,7 +9,7 @@ func (req *DeploymentUpdateRequestV2) Validate() error {
 		return NewApiErr("Missing deployment identifier", "missing_key", http.StatusBadRequest)
 	}
 	kinds := 0
-	for _, set := range []bool{req.VersionOnlyUpdate != nil, req.RunningOnlyUpdate != nil, req.SpecUpdate != nil, req.AssignedSpaceUpdate != nil} {
+	for _, set := range []bool{req.VersionOnlyUpdate != nil, req.RunningOnlyUpdate != nil, req.SpecUpdate != nil, req.AssignedSpaceUpdate != nil, req.RestartUpdate != nil} {
 		if set {
 			kinds++
 		}

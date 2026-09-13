@@ -121,6 +121,46 @@ func TestPostV2DeploymentsUpdateRunningOnly(t *testing.T) {
 	}
 }
 
+func TestPostV2DeploymentsUpdateRestart(t *testing.T) {
+	h, cfg, _ := newV2DeploymentHandler(t)
+	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+		DeploymentID:    cfg.DeploymentID,
+		ExpectedVersion: cfg.Version + 1,
+		RestartUpdate:   &apigen.RestartUpdate{},
+	}); err == nil || !strings.Contains(err.Error(), "not running") {
+		t.Fatalf("restart stopped err = %v, want rejection", err)
+	}
+	running, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+		DeploymentID:      cfg.DeploymentID,
+		ExpectedVersion:   cfg.Version + 1,
+		VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.29"},
+	})
+	if err != nil {
+		t.Fatalf("version-only update: %v", err)
+	}
+	restarted, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+		DeploymentID:    cfg.DeploymentID,
+		ExpectedVersion: running.Version + 1,
+		RestartUpdate:   &apigen.RestartUpdate{},
+	})
+	if err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	if restarted.Version != running.Version+1 || restarted.SpecVersion != running.SpecVersion {
+		t.Fatalf("restart version/spec = %d/%d, want %d/%d", restarted.Version, restarted.SpecVersion, running.Version+1, running.SpecVersion)
+	}
+	if !restarted.WorkloadRunning() || restarted.WorkloadVersion() != "1.29" {
+		t.Fatalf("restart state = %q/%v, want 1.29 running", restarted.WorkloadVersion(), restarted.WorkloadRunning())
+	}
+	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+		DeploymentID:    cfg.DeploymentID,
+		ExpectedVersion: running.Version + 1,
+		RestartUpdate:   &apigen.RestartUpdate{},
+	}); err == nil || !strings.Contains(err.Error(), "version mismatch") {
+		t.Fatalf("stale restart err = %v, want version mismatch", err)
+	}
+}
+
 func TestPostV2DeploymentsUpdateSpec(t *testing.T) {
 	h, cfg, _ := newV2DeploymentHandler(t)
 	spec := remoteDeploymentSpec("caddy", hostNetworking())

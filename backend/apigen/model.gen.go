@@ -490,6 +490,7 @@ type DeploymentUpdateRequestV2 struct {
 	RunningOnlyUpdate   *RunningOnlyUpdate   `json:"running_only_update"`
 	SpecUpdate          *SpecUpdate          `json:"spec_update"`
 	AssignedSpaceUpdate *AssignedSpaceUpdate `json:"assigned_space_update"`
+	RestartUpdate       *RestartUpdate       `json:"restart_update"`
 }
 
 type VersionOnlyUpdate struct {
@@ -506,6 +507,9 @@ type SpecUpdate struct {
 
 type AssignedSpaceUpdate struct {
 	SpaceID int32 `json:"space_id"`
+}
+
+type RestartUpdate struct {
 }
 
 type DeploymentCreateRequest struct {

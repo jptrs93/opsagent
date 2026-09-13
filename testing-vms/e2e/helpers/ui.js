@@ -1018,6 +1018,38 @@ export async function resetNixBuildStore(page, {name, machine = 'worker-1'} = {}
   await inspector.getByLabel('Close inspector').click();
 }
 
+export async function restartDeployment(page, {name, machine = 'worker-1'} = {}) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = deploymentRow(page, {name, machine});
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await row.locator('td').first().click();
+  const inspector = page.getByTestId('deployment-inspector');
+  await expect(inspector).toBeVisible();
+  await inspector.getByRole('button', {name: 'Restart', exact: true}).click();
+  const overlay = page.getByTestId('deployment-restart-overlay');
+  await expect(overlay).toBeVisible();
+  const response = page.waitForResponse(res => {
+    const request = res.request();
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
+  }, {timeout: LONG_UI_TIMEOUT});
+  await overlay.getByTestId('deployment-restart-confirm').click();
+  expect((await response).ok()).toBe(true);
+  await expect(overlay).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  await inspector.getByLabel('Close inspector').click();
+}
+
+export async function expectDeploymentHistoryText(page, {name, machine = 'worker-1', text} = {}) {
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  const row = deploymentRow(page, {name, machine});
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await row.locator('td').first().click();
+  const inspector = page.getByTestId('deployment-inspector');
+  await expect(inspector).toBeVisible();
+  await inspector.getByRole('button', {name: 'History', exact: true}).click();
+  await expect(inspector).toContainText(text, {timeout: LONG_UI_TIMEOUT});
+  await inspector.getByLabel('Close inspector').click();
+}
+
 export async function stopDeployment(page, {name, machine = 'worker-1'} = {}) {
   await updateNixDockerDeployment(page, {name, machine, desiredRunning: false});
   await expectDeploymentStopped(page, {name, machine});

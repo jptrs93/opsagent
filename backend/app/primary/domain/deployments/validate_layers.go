@@ -61,7 +61,7 @@ func preLockValidateDeploymentUpdate(store *state.Service, secretStore *secrets.
 			return InvalidConfigErrf("spec: %v", err)
 		}
 	}
-	if updated.Value.NodeID == existing.Value.NodeID && updated.Value.SpaceID == existing.Value.SpaceID &&
+	if req.RestartUpdate == nil && updated.Value.NodeID == existing.Value.NodeID && updated.Value.SpaceID == existing.Value.SpaceID &&
 		updated.Value.Name == existing.Value.Name && pq.DeploymentSpecsEqual(&updated.Value.Spec, &existing.Value.Spec) {
 		return InvalidConfigErrf("nothing changed")
 	}

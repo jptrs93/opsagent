@@ -2050,6 +2050,10 @@ func (m *DeploymentUpdateRequestV2) Encode() []byte {
 		b = AppendTag(b, 6, BytesType)
 		b = AppendBytes(b, m.AssignedSpaceUpdate.Encode())
 	}
+	if m.RestartUpdate != nil {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.RestartUpdate.Encode())
+	}
 	return b
 }
 
@@ -2103,6 +2107,15 @@ func DecodeDeploymentUpdateRequestV2(b []byte) (*DeploymentUpdateRequestV2, erro
 				item, err = DecodeAssignedSpaceUpdate(msgBytes)
 				if err == nil {
 					m.AssignedSpaceUpdate = item
+				}
+			}
+		case 7:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *RestartUpdate
+				item, err = DecodeRestartUpdate(msgBytes)
+				if err == nil {
+					m.RestartUpdate = item
 				}
 			}
 		default:
@@ -2232,6 +2245,32 @@ func DecodeAssignedSpaceUpdate(b []byte) (*AssignedSpaceUpdate, error) {
 		switch num {
 		case 1:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *RestartUpdate) Encode() []byte {
+	var b []byte
+	return b
+}
+
+func DecodeRestartUpdate(b []byte) (*RestartUpdate, error) {
+	var m RestartUpdate
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

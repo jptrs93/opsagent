@@ -7,6 +7,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -86,6 +87,13 @@ func (s *Service) Update(ctx apigen.Context, existing *apigen.DeploymentEvent, r
 		updated.Value.Spec = req.SpecUpdate.Spec
 	case req.AssignedSpaceUpdate != nil:
 		updated.Value.SpaceID = req.AssignedSpaceUpdate.SpaceID
+	case req.RestartUpdate != nil:
+		if internaldeploy.IsSelfConfig(existing) {
+			return nil, InvalidConfigErrf("the opendeploy system deployment cannot be restarted")
+		}
+		if !existing.WorkloadRunning() {
+			return nil, InvalidConfigErrf("deployment is not running")
+		}
 	}
 	if err := preLockValidateDeploymentUpdate(s.Store, s.Secrets, s.GitVersions, ctx, existing, req, updated); err != nil {
 		return nil, err

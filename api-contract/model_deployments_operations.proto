@@ -12,8 +12,8 @@ option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 // deployment, guarded by the top-level version, which bumps on every
 // deployment event regardless of kind. cleanproto does not support oneof, so
 // the kinds are plain optional message fields: exactly one of
-// version_only_update, running_only_update, spec_update, and
-// assigned_space_update must be set.
+// version_only_update, running_only_update, spec_update,
+// assigned_space_update, and restart_update must be set.
 message DeploymentUpdateRequestV2 {
   int32 deployment_id = 1;
   int32 expected_version = 2; // expected next top-level version, = current version + 1
@@ -22,6 +22,7 @@ message DeploymentUpdateRequestV2 {
   RunningOnlyUpdate running_only_update = 4;
   SpecUpdate spec_update = 5;
   AssignedSpaceUpdate assigned_space_update = 6;
+  RestartUpdate restart_update = 7;
 }
 
 // VersionOnlyUpdate deploys target_version: the workload version is set and
@@ -48,6 +49,12 @@ message SpecUpdate {
 message AssignedSpaceUpdate {
   int32 space_id = 1;
 }
+
+// RestartUpdate replaces the running placement without changing anything:
+// the event carries the previous definition byte for byte, so only the
+// top-level version advances and the scheduler replaces the placement under
+// the deployment's upgrade strategy. Rejected for a stopped workload.
+message RestartUpdate {}
 
 message DeploymentCreateRequest {
   string name = 1;

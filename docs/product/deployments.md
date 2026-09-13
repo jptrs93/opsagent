@@ -176,6 +176,21 @@ references to the moved deployment. Space 0 (the internal opendeploy space)
 is excluded from moves in both directions: the destination must be between 1
 and the maximum space ID, and a deployment in space 0 cannot be moved out.
 
+A forced restart is the `restart_update` kind of `POST /v2/deployments/update`.
+It appends an event carrying the previous definition byte for byte, so only
+the top-level version advances and `specVersion`, `spaceVersion` and
+`nameVersion` stay put. The scheduler keys placements on the top-level
+version, so the running placement is superseded exactly as it would be by a
+spec change and replaced under the deployment's upgrade strategy: RECREATE
+stops it and starts a replacement, ROLLOVER warms a replacement and promotes
+it on readiness. The replacement prepares again, which for a Nix build is an
+image-cache hit and for a remote image is a fresh pull of the same reference.
+Nothing marks the event beyond its unchanged facets: an update whose facets
+did not move is a restart by definition, and the history view labels it
+`restarted` on that basis. The request is rejected while the workload is
+stopped and for the opendeploy self-deployment. The Web UI exposes it as the
+Restart action in a running deployment's inspector.
+
 The selected workload's `version` and `running` fields inside the persisted
 `DeploymentSpec` are the only authoritative desired state.
 
@@ -353,7 +368,7 @@ counter is reset.
 
 ## Deployment history
 
-The history sidebar shows a chronological log of all deployment config and status changes. Config entries show the version number and what changed (version deployed, running toggled, deleted). Status entries show preparer and runner state transitions (diff-rendered against the previous entry so unchanged sections aren't repeated). All entries are fetched via `POST /v1/deployments/history` with the integer deployment ID. History is stored in `deployment_event_log` (`UNIQUE (deployment_id, version)`, one full-snapshot event per change — spec updates, space moves, and the delete) and `scheduled_instance_status` (PK `scheduled_instance_id, updated_at`), the append-only status log covering every scheduled instance of the deployment; `idx_scheduled_instance_status_deployment` covers the `deployment_id`-leading lookup.
+The history sidebar shows a chronological log of all deployment config and status changes. Config entries show the version number and what changed (version deployed, running toggled, moved, restarted, deleted). Status entries show preparer and runner state transitions (diff-rendered against the previous entry so unchanged sections aren't repeated). All entries are fetched via `POST /v1/deployments/history` with the integer deployment ID. History is stored in `deployment_event_log` (`UNIQUE (deployment_id, version)`, one full-snapshot event per change — spec updates, space moves, and the delete) and `scheduled_instance_status` (PK `scheduled_instance_id, updated_at`), the append-only status log covering every scheduled instance of the deployment; `idx_scheduled_instance_status_deployment` covers the `deployment_id`-leading lookup.
 
 ## Empty state
 

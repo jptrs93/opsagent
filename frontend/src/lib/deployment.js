@@ -15,3 +15,11 @@ export function deploymentWorkload(config) {
     if (opendeploy) return {...opendeploy, running: true};
     return null;
 }
+
+export function deploymentRestartEvent(config, prevConfig) {
+    if (!config || !prevConfig) return false;
+    if (deploymentDeleted(config) || deploymentDeleted(prevConfig)) return false;
+    return Number(config.specVersion || 0) === Number(prevConfig.specVersion || 0)
+        && Number(config.spaceVersion || 0) === Number(prevConfig.spaceVersion || 0)
+        && Number(config.nameVersion || 0) === Number(prevConfig.nameVersion || 0);
+}

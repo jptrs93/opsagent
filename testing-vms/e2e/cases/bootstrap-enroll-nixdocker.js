@@ -5,6 +5,7 @@ import {caseDef as nixDockerBaselineCase} from './nix-docker-baseline.js';
 import {caseDef as nixDockerVirtualNetworkCase} from './nix-docker-virtual-network.js';
 import {nixBuildContainerCases} from './nix-build-container.js';
 import {hostRolloverCase, virtualPortForwardingCase, virtualRolloverCase} from './rollover-networking.js';
+import {forcedRestartCases} from './forced-restart.js';
 import {portForwardIpFilterCases} from './port-forward-ipfilter.js';
 import {expectTLSPassthroughRoutes, tlsPassthroughCases} from './tls-passthrough.js';
 import {expectHTTPSIngressRoutes, httpsIngressCases} from './https-ingress.js';
@@ -205,6 +206,7 @@ export const orderedCases = [
   hostRolloverCase,
   virtualRolloverCase,
   virtualPortForwardingCase,
+  ...forcedRestartCases,
   ...portForwardIpFilterCases,
   ...tlsPassthroughCases,
   ...httpsIngressCases,
