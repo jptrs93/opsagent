@@ -517,5 +517,7 @@ func ReconcileAtStartup(ctx context.Context) {
 	}
 	if len(res.Updated) > 0 {
 		slog.InfoContext(ctx, fmt.Sprintf("container runtime updated: %s", InstalledSummary()))
+		return
 	}
+	slog.InfoContext(ctx, fmt.Sprintf("container runtime current: %s", InstalledSummary()))
 }
