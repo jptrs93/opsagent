@@ -1,6 +1,8 @@
 package network
 
 import (
+	"fmt"
+	"net/netip"
 	"strconv"
 	"strings"
 )
@@ -35,6 +37,27 @@ func SpaceDNSName(id int32) string {
 
 func DeploymentDNSName(name string, spaceID int32) string {
 	return DNSLabel(name) + "." + SpaceDNSName(spaceID) + ".internal"
+}
+
+func ValidateIssuedName(name string, spaceID, deploymentID int32, prefix Prefix, hasPrefix bool) error {
+	lower := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
+	if addr, err := netip.ParseAddr(lower); err == nil {
+		if !hasPrefix || !prefix.CIDR().Contains(addr) {
+			return nil
+		}
+		logical, err := prefix.ParseAddr(addr)
+		if err != nil || logical.SpaceID != spaceID || logical.DeploymentID != deploymentID {
+			return fmt.Errorf("%q is a cluster address that does not belong to this deployment", name)
+		}
+		return nil
+	}
+	if lower != "internal" && !strings.HasSuffix(lower, ".internal") {
+		return nil
+	}
+	if !strings.HasSuffix(lower, "."+SpaceDNSName(spaceID)+".internal") {
+		return fmt.Errorf("%q is outside this deployment's space zone %s.internal", name, SpaceDNSName(spaceID))
+	}
+	return nil
 }
 
 // hostVethName is the host-side end of a container's veth pair: od<deployment>s<slot>.

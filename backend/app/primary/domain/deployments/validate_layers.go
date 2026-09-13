@@ -125,6 +125,9 @@ func inLockValidateDeploymentCreate(ctx context.Context, q *pq.Queries, reservat
 	if err := validateCrossDeploymentMountSources(live, &updated.Value.Spec, updated.Value.NodeID, updated.DeploymentID, updated.Value.SpaceID); err != nil {
 		return err
 	}
+	if err := validateIssuedTLSNames(&updated.Value.Spec, updated.DeploymentID, updated.Value.SpaceID); err != nil {
+		return err
+	}
 	return validateRefSpaces(ctx, q, &updated.Value.Spec, updated.Value.SpaceID)
 }
 
@@ -191,6 +194,9 @@ func inLockValidateDeploymentUpdate(ctx context.Context, q *pq.Queries, reservat
 		return err
 	}
 	if err := validateCrossDeploymentMountSources(live, &updated.Value.Spec, updated.Value.NodeID, updated.DeploymentID, updated.Value.SpaceID); err != nil {
+		return err
+	}
+	if err := validateIssuedTLSNames(&updated.Value.Spec, updated.DeploymentID, updated.Value.SpaceID); err != nil {
 		return err
 	}
 	return validateRefSpaces(ctx, q, &updated.Value.Spec, updated.Value.SpaceID)

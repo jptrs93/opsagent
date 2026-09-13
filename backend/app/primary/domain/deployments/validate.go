@@ -754,6 +754,19 @@ func validateIssuedTLSMount(mount *apigen.IssuedTLSMount) error {
 	return nil
 }
 
+func validateIssuedTLSNames(spec *apigen.DeploymentSpec, deploymentID, spaceID int32) error {
+	if spec == nil || spec.Container() == nil || spec.Container().Runtime.IssuedTlsMount == nil {
+		return nil
+	}
+	prefix, hasPrefix := network.Default.PrefixValue()
+	for i, name := range spec.Container().Runtime.IssuedTlsMount.ExtraNames {
+		if err := network.ValidateIssuedName(name, spaceID, deploymentID, prefix, hasPrefix); err != nil {
+			return InvalidConfigErrf("container1Spec.runtime.issuedTlsMount: extraNames[%d] %v", i, err)
+		}
+	}
+	return nil
+}
+
 func validateContainerCommand(cfg *apigen.ContainerRuntime) {
 	if cfg == nil || len(cfg.OverrideCommand) == 0 {
 		return

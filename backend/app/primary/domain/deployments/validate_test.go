@@ -693,3 +693,16 @@ func TestValidateDeploymentSpecRejectsIncompleteAddressRef(t *testing.T) {
 
 func ptrInt32(v int32) *int32    { return &v }
 func ptrString(v string) *string { return &v }
+
+func TestValidateIssuedTLSNamesLimitsInternalNamesToOwnSpace(t *testing.T) {
+	spec := remoteDeploymentSpec("nginx", virtualNetworking())
+	spec.Container1Spec.Runtime.IssuedTlsMount = &apigen.IssuedTLSMount{ContainerPath: "/tls", ExtraNames: []string{"example.com", "api.space-3.internal"}}
+	if err := validateIssuedTLSNames(&spec, 7, 3); err != nil {
+		t.Fatalf("own-space names: %v", err)
+	}
+	spec.Container1Spec.Runtime.IssuedTlsMount.ExtraNames = []string{"example.com", "api.space-1.internal"}
+	err := validateIssuedTLSNames(&spec, 7, 3)
+	if err == nil || !strings.Contains(err.Error(), "extraNames[1]") || !strings.Contains(err.Error(), "space-3.internal") {
+		t.Fatalf("err = %v, want rejection of api.space-1.internal", err)
+	}
+}

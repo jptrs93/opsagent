@@ -39,11 +39,15 @@ func (i *Issuer) Issue(cfg *apigen.DeploymentEvent) (*apigen.ClusterIssuedTLSRes
 	}
 	dnsName := network.DeploymentDNSName(cfg.Value.Name, cfg.Value.SpaceID)
 	names := []string{dnsName}
-	if cfg.Value.Spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
-		if prefix, ok := network.Default.PrefixValue(); ok {
-			if addr, addrErr := prefix.InboundAddr(cfg.Value.SpaceID, cfg.DeploymentID, 0); addrErr == nil {
-				names = append(names, addr.String())
-			}
+	prefix, hasPrefix := network.Default.PrefixValue()
+	if hasPrefix && cfg.Value.Spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		if addr, addrErr := prefix.InboundAddr(cfg.Value.SpaceID, cfg.DeploymentID, 0); addrErr == nil {
+			names = append(names, addr.String())
+		}
+	}
+	for _, name := range mount.ExtraNames {
+		if err := network.ValidateIssuedName(name, cfg.Value.SpaceID, cfg.DeploymentID, prefix, hasPrefix); err != nil {
+			return nil, fmt.Errorf("deployment %d issued TLS extra name: %w", cfg.DeploymentID, err)
 		}
 	}
 	names = append(names, mount.ExtraNames...)

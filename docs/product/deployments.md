@@ -76,6 +76,15 @@ self-deployment. Public create/update validation rejects it.
 |---|---|---|
 | `runtime` | `user`, `envVars`, `overrideCommand`, `overrideWorkingDir`, `defaultVolume`, `crossDeploymentMounts`, `mounts`, `assetMounts`, `devShmSizeKb`, `fileDescriptorLimit` | Runs the selected source as a container via containerd with OpenDeploy-supervised crash/backoff. Networking is controlled by `spec.networking`. `envVars` contains typed literal, pinned secret/config, asset, or address references. A deployment may reference secrets only from its own space or the global space; creates, updates, and space moves reject other pins with `secret_reference_outside_space`, and the editor's HCL references are fully qualified as `secret("space", "folder/name"[, version])`, `config(...)`, and `asset("space", "folder/key"[, version])`, where the space must be one of those two (the server enforces own-or-global locality for secret, config, and asset pins). `defaultVolume` controls the per-deployment data volume. `crossDeploymentMounts` references another same-node deployment by ID; `mounts` is the raw host-path escape hatch. Mount permissions are explicit `READ_WRITE`, `READ_ONLY`, or, where supported, `READ_EXECUTE`. Upgrade strategy and readiness are fields on `container1Spec`. Linux only. |
 
+`issuedTlsMount` (HCL `mount(issued_tls({ extra_names = [...] }), path)`)
+places a certificate issued by the cluster's workload CA at `path`. The
+certificate always names the deployment's own `<name>.space-<id>.internal`
+DNS name and, under virtual networking, its inbound address. `extra_names`
+can add external host names or addresses. A `.internal` name must lie in the
+deployment's own space zone and a cluster-prefix address must be the
+deployment's own; creates, updates, space moves, and issuance reject anything
+else, so a workload cannot obtain a certificate for another space's identity.
+
 `opendeploySpec` remains an internal-only workload for the `OPENDEPLOY`
 self-deployment. It carries only the desired release version; public
 create/update validation rejects it, and the self-deployment cannot be

@@ -17,3 +17,23 @@ func TestIsHostVethName(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateIssuedName(t *testing.T) {
+	prefix := mustPrefix(t, []byte{0xfd, 0x42, 0x00, 0x00, 0x00, 0x01})
+	own := mustAddr(prefix.InboundAddr(1, 7, 0)).String()
+	sibling := mustAddr(prefix.InboundAddr(1, 8, 0)).String()
+	foreign := mustAddr(prefix.InboundAddr(2, 7, 0)).String()
+	for _, name := range []string{"api.space-1.internal", "API.Space-1.Internal.", "deep.api.space-1.internal", "example.com", "internal.example.com", "api.internals", own, "2001:db8::1", "203.0.113.5"} {
+		if err := ValidateIssuedName(name, 1, 7, prefix, true); err != nil {
+			t.Errorf("ValidateIssuedName(%q) = %v, want nil", name, err)
+		}
+	}
+	for _, name := range []string{"api.space-2.internal", "api.space-12.internal", "space-1.internal", "internal", sibling, foreign} {
+		if err := ValidateIssuedName(name, 1, 7, prefix, true); err == nil {
+			t.Errorf("ValidateIssuedName(%q) = nil, want error", name)
+		}
+	}
+	if err := ValidateIssuedName(foreign, 1, 7, Prefix{}, false); err != nil {
+		t.Errorf("ValidateIssuedName(%q) without a prefix = %v, want nil", foreign, err)
+	}
+}
