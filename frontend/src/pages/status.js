@@ -12,6 +12,7 @@ import {runReportOverlay} from "../components/runReportOverlay.js";
 import {exportConfigOverlay} from "../components/exportConfigOverlay.js";
 import {deploymentOverlay} from "../components/deploymentJsonOverlay.js";
 import {recentlyDeletedOverlay} from "../components/recentlyDeletedOverlay.js";
+import {formatDeploymentLabel, restartDeploymentOverlay, restartDeploymentPayload} from "../components/restartDeploymentOverlay.js";
 import {capi} from "../capi/index.js";
 import {nodeDisplayName} from "../lib/machines.js";
 import {containerWorkload, deploymentDeleted, deploymentWorkload} from "../lib/deployment.js";
@@ -125,12 +126,6 @@ function saveHiddenStates(set) {
     try { localStorage.setItem(HIDDEN_STATES_KEY, JSON.stringify([...set])); } catch {}
 }
 
-const formatDeploymentLabel = (deploymentRow) => {
-    if (!deploymentRow) return 'unknown deployment';
-    const parts = [deploymentRow.spaceName, deploymentRow.node, deploymentRow.name].filter(Boolean);
-    return parts.length > 0 ? parts.join(' / ') : `#${deploymentRow.id}`;
-};
-
 // addressReferrers lists deployments whose env vars resolve the address of
 // deploymentId — the same references the server refuses deletion over. Env
 // address refs are fully visible client-side, so the dialog can warn before
@@ -191,59 +186,6 @@ function deleteDeploymentOverlay(deploymentRow, close) {
                     disabled: () => saving.val,
                     onclick: confirmDelete,
                 }, () => saving.val ? "Deleting..." : "Delete"),
-            ),
-        ),
-    );
-}
-
-function restartDeploymentOverlay(deploymentRow, rawConfig, close) {
-    const saving = van.state(false);
-    const error = van.state('');
-    const label = formatDeploymentLabel(deploymentRow);
-    const rollover = Number(containerWorkload(rawConfig)?.upgradeStrategy || 0) === 2;
-    const effect = rollover
-        ? 'A replacement starts alongside the current container and takes over once it signals readiness.'
-        : 'The current container stops and a replacement starts. The workload is unavailable in between.';
-
-    const confirmRestart = async () => {
-        if (saving.val) return;
-        error.val = '';
-        saving.val = true;
-        try {
-            await capi.postV2DeploymentsUpdate({
-                deploymentId: deploymentRow.id,
-                expectedVersion: (deploymentRow.version || 0) + 1,
-                restartUpdate: {},
-            });
-            close();
-        } catch (e) {
-            error.val = e?.message || 'Restarting deployment failed.';
-        } finally {
-            saving.val = false;
-        }
-    };
-
-    return div(
-        {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", "data-testid": "deployment-restart-overlay"},
-        div(
-            {class: "card w-full max-w-md flex flex-col gap-4 shadow-2xl"},
-            h2({class: "text-base font-semibold"}, "Restart deployment"),
-            p({class: "text-sm text-gray-300"}, `Restart ${label} at its current version and config? ${effect}`),
-            () => error.val ? p({class: "text-sm text-red-400"}, error.val) : '',
-            div({class: "flex items-center justify-end gap-2"},
-                button({
-                    type: "button",
-                    class: "text-xs px-3 py-1 rounded-md font-medium bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-60 cursor-pointer",
-                    disabled: () => saving.val,
-                    onclick: close,
-                }, "Cancel"),
-                button({
-                    type: "button",
-                    class: "text-xs px-3 py-1 rounded-md font-medium bg-brand text-white hover:bg-blue-600 disabled:opacity-60 cursor-pointer",
-                    disabled: () => saving.val,
-                    "data-testid": "deployment-restart-confirm",
-                    onclick: confirmRestart,
-                }, () => saving.val ? "Restarting..." : "Restart"),
             ),
         ),
     );
@@ -722,7 +664,12 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
     };
     const onRestart = (deploymentRow) => {
         if (!deploymentRow.desiredRunning || deploymentRow.isSystemGroup) return;
-        overlayNode.val = restartDeploymentOverlay(deploymentRow, findRawConfig(deploymentRow.id), closeOverlay);
+        overlayNode.val = restartDeploymentOverlay({
+            deploymentRow,
+            rawConfig: findRawConfig(deploymentRow.id),
+            restart: () => capi.postV2DeploymentsUpdate(restartDeploymentPayload(deploymentRow)),
+            close: closeOverlay,
+        });
     };
 
     const onRevertHistoryTargetVersion = (deploymentId, historyConfig) => {

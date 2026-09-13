@@ -1,5 +1,6 @@
 import van from "vanjs-core";
 import {spinnerButton} from "./spinnerbutton.js";
+import {restartDeploymentOverlay, restartDeploymentPayload} from "./restartDeploymentOverlay.js";
 import {formInvalidReason} from "./deploymentForm.js";
 import {deploymentUiHasOpenPane, deploymentUiWidget} from "./deploymentUiWidget.js";
 import {DeploymentCreationUpdate} from "./deploymentCreationUpdate.js";
@@ -143,12 +144,11 @@ export function deploymentEditorWidget(opts) {
     // reads clean.
     const initialDocumentKey = JSON.stringify(deploymentUpdate.toDocument());
     const codeDraftInvalid = van.state(false);
-    if (opts.dirty) {
-        van.derive(() => {
-            opts.dirty.val = codeDraftInvalid.val
-                || JSON.stringify(deploymentUpdate.toDocument()) !== initialDocumentKey;
-        });
-    }
+    const dirty = opts.dirty || van.state(false);
+    van.derive(() => {
+        dirty.val = codeDraftInvalid.val
+            || JSON.stringify(deploymentUpdate.toDocument()) !== initialDocumentKey;
+    });
 
     const documentInvalidReason = () => {
         const sourceReason = deploymentUpdate.sourceInvalidReason();
@@ -209,6 +209,41 @@ export function deploymentEditorWidget(opts) {
         {base: 'rounded-md px-3 font-medium', disabledClass: 'opacity-45 cursor-not-allowed'},
     );
     if (mode === 'create') submitButton.dataset.testid = 'create-deployment-submit';
+
+    // Restart sits beside Update for a running deployment and only while the
+    // editor is clean: with edits pending, an update is what the user wants,
+    // and it replaces the placement anyway.
+    const overlay = van.state(null);
+    const restartAvailable = mode === 'update' && canEditState && deploymentRow;
+    const restartDisabledReason = () => {
+        if (!deploymentRow?.desiredRunning) return 'The deployment is not running.';
+        if (dirty.val) return 'Save or discard changes to restart.';
+        if (requestDescription.val) return requestDescription.val;
+        return '';
+    };
+    const restartButton = restartAvailable
+        ? button({
+            type: 'button',
+            'data-testid': 'update-deployment-restart',
+            class: 'inline-flex h-[30px] items-center rounded-md border border-gray-700 bg-gray-900 px-3 text-xs font-medium text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-gray-900 cursor-pointer',
+            disabled: () => Boolean(restartDisabledReason()),
+            title: () => restartDisabledReason(),
+            onclick: () => {
+                if (restartDisabledReason()) return;
+                const payload = restartDeploymentPayload(deploymentRow);
+                overlay.val = restartDeploymentOverlay({
+                    deploymentRow,
+                    rawConfig: opts.deployment,
+                    restart: () => withRequest('Restarting deployment.', async () => {
+                        const result = await actions.updateDeployment(payload);
+                        notifySuccess('restart', payload, result);
+                        return result;
+                    }),
+                    close: () => { overlay.val = null; },
+                });
+            },
+        }, 'Restart')
+        : null;
 
     const uiWidget = deploymentUiWidget({
         mode,
@@ -337,8 +372,10 @@ export function deploymentEditorWidget(opts) {
             invalidReason,
             requestDescription,
             submitButton,
+            restartButton,
             onCancel: opts.onCancel,
         }),
+        () => overlay.val || '',
     );
 }
 
@@ -380,6 +417,7 @@ function editorFooter(args) {
                     'data-testid': args.mode === 'create' ? 'create-validation-reason' : 'update-validation-reason',
                 }, args.invalidReason())
                 : '',
+            args.restartButton || '',
             cancelButton(args.onCancel),
             args.submitButton,
         ),

@@ -1038,6 +1038,45 @@ export async function restartDeployment(page, {name, machine = 'worker-1'} = {})
   await inspector.getByLabel('Close inspector').click();
 }
 
+// restartDeploymentFromEditor opens the update editor for a running
+// deployment and restarts it from the footer. With edit set, it first makes
+// that env var change, checks the Restart button is disabled while the editor
+// is dirty, and discards the change before restarting.
+export async function restartDeploymentFromEditor(page, {name, machine = 'worker-1', edit = null} = {}) {
+  const openEditor = async () => {
+    await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+    const row = deploymentRow(page, {name, machine});
+    await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+    await row.getByRole('button', {name: 'Update'}).click();
+    const dialog = editorPanel(page, 'update-deployment-dialog');
+    await expect(dialog).toBeVisible();
+    return dialog;
+  };
+  if (edit) {
+    const dialog = await openEditor();
+    await expect(dialog.getByTestId('update-deployment-restart')).toBeEnabled({timeout: LONG_UI_TIMEOUT});
+    await selectEditorMode(dialog, 'ui');
+    await setDeploymentEnvVars(dialog, edit);
+    await expect(dialog.getByTestId('update-deployment-restart')).toBeDisabled({timeout: LONG_UI_TIMEOUT});
+    await dialog.getByRole('button', {name: 'Cancel', exact: true}).click();
+    await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  }
+  const dialog = await openEditor();
+  const restart = dialog.getByTestId('update-deployment-restart');
+  await expect(restart).toBeEnabled({timeout: LONG_UI_TIMEOUT});
+  await restart.click();
+  const overlay = page.getByTestId('deployment-restart-overlay');
+  await expect(overlay).toBeVisible();
+  const response = page.waitForResponse(res => {
+    const request = res.request();
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
+  }, {timeout: LONG_UI_TIMEOUT});
+  await overlay.getByTestId('deployment-restart-confirm').click();
+  expect((await response).ok()).toBe(true);
+  await expect(overlay).toBeHidden({timeout: LONG_UI_TIMEOUT});
+  await expect(dialog).toBeHidden({timeout: LONG_UI_TIMEOUT});
+}
+
 export async function expectDeploymentHistoryText(page, {name, machine = 'worker-1', text} = {}) {
   await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
   const row = deploymentRow(page, {name, machine});

@@ -189,7 +189,10 @@ Nothing marks the event beyond its unchanged facets: an update whose facets
 did not move is a restart by definition, and the history view labels it
 `restarted` on that basis. The request is rejected while the workload is
 stopped and for the opendeploy self-deployment. The Web UI exposes it as the
-Restart action in a running deployment's inspector.
+Restart action in a running deployment's inspector and as a Restart button in
+the update editor's footer, enabled only while the editor holds no changes:
+with edits pending, an update is the intended action and replaces the
+placement anyway.
 
 The selected workload's `version` and `running` fields inside the persisted
 `DeploymentSpec` are the only authoritative desired state.
