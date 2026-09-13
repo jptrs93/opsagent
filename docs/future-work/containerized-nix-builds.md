@@ -104,7 +104,7 @@ against the checkout. The last stdout line is the JSON store path.
 
 Resources: a memory limit, a CPU quota and a pids limit on the container
 cgroup. Because builders are children of the container, the limits cover the
-derivation builds themselves. Defaults come from the node (half of its
+derivation builds themselves. Defaults come from the node (three quarters of its
 memory with a 512 MiB floor, every CPU, 4096 pids) and are overridden per
 node with `OPENDEPLOY_NIX_BUILD_MEMORY_MB`, `OPENDEPLOY_NIX_BUILD_CPUS` and
 `OPENDEPLOY_NIX_BUILD_PIDS`. A build killed at the memory limit is reported

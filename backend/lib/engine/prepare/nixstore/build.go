@@ -142,7 +142,7 @@ func defaultMemoryLimit() int64 {
 	if total <= 0 {
 		return DefaultMemoryBytes
 	}
-	return max(total/2, 512<<20)
+	return max(total/4*3, 512<<20)
 }
 
 func totalMemory() int64 {

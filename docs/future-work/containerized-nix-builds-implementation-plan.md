@@ -146,7 +146,7 @@ also compiles the nix2container tool and pulls the Go toolchain closure.
 |---|---|
 | `OPENDEPLOY_NIX_BUILD_IMAGE` | pinned `docker.io/nixos/nix@sha256:7a007c76…` |
 | `OPENDEPLOY_NIX_BUILD_CA_BUNDLE` | unset (image bundle) |
-| `OPENDEPLOY_NIX_BUILD_MEMORY_MB` | half of `MemTotal`, at least 512 MiB |
+| `OPENDEPLOY_NIX_BUILD_MEMORY_MB` | three quarters of `MemTotal`, at least 512 MiB |
 | `OPENDEPLOY_NIX_BUILD_CPUS` | every CPU |
 | `OPENDEPLOY_NIX_BUILD_PIDS` | 4096 |
 | `OPENDEPLOY_NIX_STORE_SIZE_CAP_MB` | 6144 |
