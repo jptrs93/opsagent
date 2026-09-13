@@ -381,7 +381,7 @@ func updateAllNodeAllowedSpaces(ctx context.Context, q *pq.Queries, seq int64, f
 	}
 	return events, nil
 }
-func UpdateNodeObservedMeta(store *state.Service, identifier, remoteAddress, opendeployVersion string) {
+func UpdateNodeObservedMeta(store *state.Service, identifier, remoteAddress, opendeployVersion, runtimeVersions string) {
 	ctx := context.Background()
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
 		id, err := q.GetNodeIDByIdentifier(ctx, identifier)
@@ -400,6 +400,9 @@ func UpdateNodeObservedMeta(store *state.Service, identifier, remoteAddress, ope
 		}
 		if opendeployVersion != "" {
 			status.OpendeployVersion = opendeployVersion
+		}
+		if runtimeVersions != "" {
+			status.RuntimeVersions = runtimeVersions
 		}
 		if status == *previous {
 			return nil, nil

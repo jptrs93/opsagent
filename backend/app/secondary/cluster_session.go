@@ -15,6 +15,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixstore"
 	"github.com/jptrs93/opsagent/backend/lib/netmapstate"
 	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/lib/runtimebin"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/version"
@@ -136,6 +137,7 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 		return &apigen.MsgToPrimary{ClusterHello: &apigen.ClusterHello{
 			ClusterProtocolVersion: apigen.ClusterProtocolVersion,
 			OpendeployVersion:      version.Version,
+			RuntimeVersions:        runtimebin.InstalledSummary(),
 			Reported:               &apigen.NodeReported{Identifier: identifier, UnderlayAddress: underlayAddress, WgPublicKey: wgPublicKey, HostAddresses: inventory.addresses, HostAddressesUnknown: inventory.unknown},
 		}}
 	}

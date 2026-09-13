@@ -11,6 +11,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/lib/runtimebin"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
@@ -21,6 +22,7 @@ func Run(ctx context.Context) {
 	ctx = logu.AddTag(ctx, "Secondary")
 	cfg := ainit.StaticConfig
 	slog.InfoContext(ctx, fmt.Sprintf("opendeploy secondary booting version=%v dataDir=%v", version.Version, cfg.DataDir))
+	runtimebin.ReconcileAtStartup(ctx)
 	if cfg.PrimaryClusterAddr == "" || cfg.PrimaryEnrollmentAddr == "" {
 		panic("OPENDEPLOY_PRIMARY_CLUSTER_ADDR and OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR must be set when running secondary")
 	}

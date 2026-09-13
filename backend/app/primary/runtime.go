@@ -44,6 +44,7 @@ import (
 	repogit "github.com/jptrs93/opsagent/backend/lib/repo/git"
 	githubrepo "github.com/jptrs93/opsagent/backend/lib/repo/github"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
+	"github.com/jptrs93/opsagent/backend/lib/runtimebin"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/version"
@@ -175,7 +176,7 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string, networkMaps *netmappublisher.Publisher) {
 	deployments.EnsureSystem(r.store, nodeID, version.Version)
 	nodes.SetNodeStatusByIdentifier(r.store, nodeIdentifier, true, time.Now())
-	nodes.UpdateNodeObservedMeta(r.store, nodeIdentifier, "", version.Version)
+	nodes.UpdateNodeObservedMeta(r.store, nodeIdentifier, "", version.Version, runtimebin.InstalledSummary())
 	go r.runHostAddressInventory(ctx, nodeIdentifier)
 	netproxyCfg := deployments.EnsureNetproxy(r.store, nodeID, version.Version)
 	network.Default.SetNetproxyDeploymentID(netproxyCfg.DeploymentID)

@@ -1,102 +1,52 @@
 package installer
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/jptrs93/opsagent/backend/lib/runtimebin"
 )
 
-// stagedDep is a runtimeDep whose binaries have been downloaded + checksum-
-// verified into a temp staging dir during phase 1, ready to be installed in
-// phase 2. verDir is the final version dir; files maps each binary name to its
-// staged temp path.
-type stagedDep struct {
-	dep    runtimeDep
-	verDir string
-	files  map[string]string
-}
-
-// stageDep (phase 1) downloads dep@version, verifies its checksum, and extracts
-// its binaries into a per-dep staging dir under tmp. No host state is touched.
-// We always re-download — no idempotent skip — since the installer targets
-// first-time installs and simplicity wins over avoiding a re-fetch.
-func stageDep(dep runtimeDep, arch, tmp string) (stagedDep, error) {
-	sd := stagedDep{
-		dep:    dep,
-		verDir: filepath.Join(runtimeVersions, dep.name+"-"+dep.version),
-		files:  make(map[string]string, len(dep.binaries)),
+func stageDep(dep runtimebin.Component, arch, tmp string) (runtimebin.Staged, error) {
+	dir := filepath.Join(tmp, "runtime-"+dep.Name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return runtimebin.Staged{}, err
 	}
-	want, ok := dep.sha256[arch]
-	if !ok {
-		return sd, fmt.Errorf("no %s checksum for arch %s", dep.name, arch)
-	}
-
-	dl := filepath.Join(tmp, dep.name+"-download")
-	if err := download(dep.url(arch), dl); err != nil {
-		return sd, err
-	}
-	if err := verifySHA256(dl, want); err != nil {
-		return sd, err
-	}
-
-	if dep.isTarball {
-		// staging dir lives under tmp (not host state), so create it directly —
-		// it must exist even under --dry-run, where we still download + extract.
-		stageDir := filepath.Join(tmp, "stage-"+dep.name)
-		if err := os.MkdirAll(stageDir, 0o755); err != nil {
-			return sd, err
-		}
-		if err := extractTarGzMembers(dl, stageDir, dep.binaries); err != nil {
-			return sd, err
-		}
-		for _, b := range dep.binaries {
-			sd.files[b] = filepath.Join(stageDir, b)
-		}
-	} else {
-		sd.files[dep.binaries[0]] = dl
-	}
-	return sd, nil
+	return runtimebin.Fetch(context.Background(), dep, arch, dir, info)
 }
 
 // applyRuntime (phase 2) installs the staged runtime binaries into their version
-// dirs, points the active symlinks in runtimeBin at them, renders config.toml,
-// installs/enables the unit, and restarts containerd only when the active
-// version changed. No downloads. Empty deps (an unprivileged upgrade that
+// dirs, points the active symlinks in the runtime bin dir at them, renders
+// config.toml, installs/enables the unit, and restarts containerd only when the
+// active version changed. No downloads. Empty deps (an unprivileged upgrade that
 // skipped runtime staging) is a no-op.
-func applyRuntime(deps []stagedDep) error {
+func applyRuntime(deps []runtimebin.Staged) error {
 	if len(deps) == 0 {
 		return nil
 	}
 	step("Provisioning bundled container runtime")
 
-	for _, d := range []string{runtimeDir, runtimeBin, runtimeVersions} {
-		if err := ensureDir(d, 0o755, noChown); err != nil {
-			return err
-		}
-	}
-
 	changed := false
 	for _, sd := range deps {
-		if err := ensureDir(sd.verDir, 0o755, noChown); err != nil {
+		if dryRun {
+			for _, b := range sd.Component.Binaries {
+				target := filepath.Join(sd.Component.VersionDir(), b)
+				planned("install -m 755 %s -> %s", sd.Files[b], target)
+				link := filepath.Join(runtimebin.BinDir, b)
+				if readlink(link) != target {
+					changed = true
+					planned("symlink %s -> %s", link, target)
+				}
+			}
+			continue
+		}
+		ch, _, err := runtimebin.Install(sd)
+		if err != nil {
 			return err
 		}
-		for _, b := range sd.dep.binaries {
-			if err := installBinary(sd.files[b], filepath.Join(sd.verDir, b), 0o755, noChown); err != nil {
-				return err
-			}
-		}
-		// Symlinks must live in runtimeBin (which the unit puts on PATH):
-		// containerd execs the shim by PATH and the shim execs runc by PATH.
-		for _, b := range sd.dep.binaries {
-			target := filepath.Join(sd.verDir, b)
-			link := filepath.Join(runtimeBin, b)
-			if readlink(link) != target {
-				changed = true
-			}
-			if err := atomicSymlink(target, link); err != nil {
-				return err
-			}
-		}
+		changed = changed || ch
 	}
 
 	// State dirs: containerd root private (0700); volumes dir opendeploy-owned and

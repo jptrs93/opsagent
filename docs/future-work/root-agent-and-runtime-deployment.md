@@ -14,11 +14,28 @@ and the system deployment group behaviour in
 
 ## Status
 
-Proposed 2026-09-12. Nothing is implemented. The runtime bump to containerd
-2.3.5 and runc 1.5.1 in v0.0.597 still reaches existing nodes only through a
-root `opendeploy upgrade` on each node. The root change lands first,
-because it removes the sudoers and socket-group machinery the runtime
-deployment would otherwise depend on.
+Proposed 2026-09-12. Part 1 is not implemented.
+
+Part 2 is superseded for now by startup reconciliation, shipped 2026-09-13:
+the agent compares the containerd and runc symlinks under
+`/var/lib/opendeploy/runtime/bin` with the versions pinned in
+`lib/runtimebin` before anything else starts, and when a pin moved it
+downloads and verifies the component, flips the symlinks, restarts
+`opendeploy-containerd.service` through the existing sudoers rule, waits for
+the daemon to report the new version, and rolls the symlinks back if it does
+not. It never downgrades and never blocks boot: a failure is logged and the
+node continues on the installed runtime. A release that moves the pin
+therefore reaches every node on its next agent restart, including the agent
+upgrade from the Deployments page, and `opendeploy upgrade` runs the same
+code. Nodes report the installed versions in their status and the Cluster
+page shows them. The pin table, download, checksum and symlink code moved
+out of the installer into `lib/runtimebin` so the installer and the agent
+cannot drift.
+
+What this does not give: a per-node hold-back, an independent rollback of
+the runtime, or an operator-visible run log for the swap. Part 2 remains the
+design if those become necessary, and the manifest, preparer and runner
+sections still describe how it would be built.
 
 ## Current state
 
@@ -66,13 +83,14 @@ API listener and the cluster and enrollment mTLS listeners.
 
 ### Runtime upgrades
 
-The installer pins containerd and runc in `backend/app/installer/config.go`
-with per-architecture checksums, installs them under
-`/var/lib/opendeploy/runtime/versions/<name>-<version>/`, points symlinks in
-`/var/lib/opendeploy/runtime/bin/` at them, and restarts containerd only when
-a symlink changed. Only the root install path runs this. The in-app agent
-upgrade replaces the agent binary and never touches the runtime, so a runtime
-bump is a manual root login per node, once per release that moves the pin.
+containerd and runc are pinned in `backend/lib/runtimebin` with
+per-architecture checksums, installed under
+`/var/lib/opendeploy/runtime/versions/<name>-<version>/`, and selected by
+symlinks in `/var/lib/opendeploy/runtime/bin/`. The installer provisions them
+on a fresh install, and every agent start reconciles them against the pin
+(see Status). The agent can do this unprivileged because its ambient
+`CAP_DAC_OVERRIDE` lets it write the root-owned runtime directories and the
+sudoers drop-in allows `systemctl restart opendeploy-containerd.service`.
 Both units use `KillMode=process`, so containers survive a containerd
 restart, and the container runner re-issues its wait when the stream breaks.
 

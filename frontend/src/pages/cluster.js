@@ -66,6 +66,7 @@ export function clusterPage() {
                 headerCell("Host addresses"),
                 headerCell("Transport key"),
                 headerCell("Spaces"),
+                headerCell("Runtime"),
                 headerCell("Status"),
                 headerCell("Connected since", ""))),
             tbody(...sorted.map(machineRow))));
@@ -278,6 +279,8 @@ function machineRow(machine) {
         td({class: "py-1 pr-3 font-mono text-gray-300", title: machine.wgPublicKey || "No WireGuard key registered"},
             machine.wgPublicKey ? machine.wgPublicKey.slice(0, 8) + "…" : "-"),
         td({class: "py-1 pr-3"}, allowedSpacesCell(machine)),
+        td({class: "py-1 pr-3 font-mono text-gray-300 whitespace-nowrap", "data-testid": "node-runtime-versions", title: "containerd and runc versions reported by the node"},
+            machine.runtimeVersions || "-"),
         td({class: "py-1 pr-3"},
             machine.connected
                 ? span({class: "text-green-400"}, "connected")

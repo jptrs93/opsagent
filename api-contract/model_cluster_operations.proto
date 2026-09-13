@@ -56,6 +56,7 @@ message NixStoreResetRequest {
 // cluster session.
 message ClusterHello {
   string opendeploy_version = 6;
+  string runtime_versions = 7;
   NodeReported reported = 5;
   int32 cluster_protocol_version = 2;
   reserved 1, 3, 4;

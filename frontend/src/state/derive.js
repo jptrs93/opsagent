@@ -116,7 +116,7 @@ export function publishDerived(tree, changed) {
         enrollmentsS.val = deriveEnrollments(tree);
         machinesS.val = nodesS.val.map(node => {
             const status = tree.nodeStatuses.get(node.id) || {};
-            return {...node, isPrimary: node.roles.includes(0), connected: status.isConnected === true, connectedAt: status.lastConnectedAt};
+            return {...node, isPrimary: node.roles.includes(0), connected: status.isConnected === true, connectedAt: status.lastConnectedAt, runtimeVersions: status.runtimeVersions || ''};
         });
     }
     if (any('users')) usersMapS.val = new Map([...tree.users].map(([id, user]) => [id, {...user, createdAt: Number(user.createdAt || 0), lastLoginAt: Number(user.lastLoginAt || 0)}]));

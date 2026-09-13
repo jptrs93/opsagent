@@ -8858,6 +8858,7 @@ func (m *NodeStatus) Encode() []byte {
 	b = AppendInt64FromTime(b, m.LastConnectedAt, 4)
 	b = AppendStringField(b, m.RemoteAddress, 5)
 	b = AppendStringField(b, m.OpendeployVersion, 6)
+	b = AppendStringField(b, m.RuntimeVersions, 7)
 	return b
 }
 
@@ -8884,6 +8885,8 @@ func DecodeNodeStatus(b []byte) (*NodeStatus, error) {
 			b, m.RemoteAddress, err = ConsumeString(b, typ)
 		case 6:
 			b, m.OpendeployVersion, err = ConsumeString(b, typ)
+		case 7:
+			b, m.RuntimeVersions, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -11038,6 +11041,7 @@ func DecodeNixStoreResetRequest(b []byte) (*NixStoreResetRequest, error) {
 func (m *ClusterHello) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.OpendeployVersion, 6)
+	b = AppendStringField(b, m.RuntimeVersions, 7)
 	if m.Reported != nil {
 		b = AppendTag(b, 5, BytesType)
 		b = AppendBytes(b, m.Reported.Encode())
@@ -11060,6 +11064,8 @@ func DecodeClusterHello(b []byte) (*ClusterHello, error) {
 		switch num {
 		case 6:
 			b, m.OpendeployVersion, err = ConsumeString(b, typ)
+		case 7:
+			b, m.RuntimeVersions, err = ConsumeString(b, typ)
 		case 5:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {

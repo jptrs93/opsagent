@@ -2185,9 +2185,47 @@ func (c *config) verifyUpgradeNoop() error {
 		if err := c.substep("unchanged upgrade", name, func() error { return c.expectUpgradeWithoutRestart(name) }); err != nil {
 			return err
 		}
+		if err := c.substep("runtime pin", name, func() error { return c.expectPinnedRuntime(name) }); err != nil {
+			return err
+		}
 	}
 	return nil
 }
+
+func (c *config) expectPinnedRuntime(name string) error {
+	for binary, want := range map[string]string{"containerd": "containerd-" + c.ContainerdVersion, "runc": "runc-" + c.RuncVersion} {
+		out, err := c.vmOutput(name, "readlink", "/var/lib/opendeploy/runtime/bin/"+binary)
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(strings.TrimSpace(out), "/"+want+"/") {
+			return fmt.Errorf("%s in %s links to %q, want the %s pin", binary, name, strings.TrimSpace(out), want)
+		}
+	}
+	pid, err := c.unitMainPID(name, "opendeploy-containerd.service")
+	if err != nil {
+		return err
+	}
+	containerdMainPIDs[name] = pid
+	return nil
+}
+
+func (c *config) expectContainerdUnrestarted(name string) error {
+	want, ok := containerdMainPIDs[name]
+	if !ok {
+		return fmt.Errorf("no recorded containerd pid for %s", name)
+	}
+	got, err := c.unitMainPID(name, "opendeploy-containerd.service")
+	if err != nil {
+		return err
+	}
+	if got != want {
+		return fmt.Errorf("opendeploy-containerd.service in %s restarted (pid %s -> %s) although the runtime pin did not move", name, want, got)
+	}
+	return nil
+}
+
+var containerdMainPIDs = map[string]string{}
 
 func (c *config) expectUpgradeWithoutRestart(name string) error {
 	before, err := c.servicePID(name)
@@ -2235,6 +2273,14 @@ func (c *config) verifyUpgradeRestart() error {
 	if !strings.Contains(exeBefore, "/"+c.UpgradeVersion+"/") {
 		return fmt.Errorf("%s runs %s, expected the %s release before the CLI upgrade", name, exeBefore, c.UpgradeVersion)
 	}
+	if err := c.substep("runtime after agent upgrade", "startup reconcile left the pinned runtime and containerd alone", func() error {
+		if err := c.expectPinnedRuntime(name); err != nil {
+			return err
+		}
+		return c.expectContainerdUnrestarted(name)
+	}); err != nil {
+		return err
+	}
 	if err := c.substep("downgrade", "opendeploy upgrade from the "+c.SelfVersion+" executable restarts the service", func() error {
 		out, err := c.vmCombinedOutput(name, "sudo", "/usr/local/bin/opendeploy", "upgrade")
 		if err != nil {
@@ -2265,7 +2311,7 @@ func (c *config) verifyUpgradeRestart() error {
 	}); err != nil {
 		return err
 	}
-	return c.substep("containers", "workload containers survived the agent restarts", func() error {
+	return c.substep("containers", "workload containers and containerd survived the agent restarts", func() error {
 		containersAfter, err := c.opendeployContainerCount(name)
 		if err != nil {
 			return err
@@ -2273,18 +2319,22 @@ func (c *config) verifyUpgradeRestart() error {
 		if containersAfter != containersBefore {
 			return fmt.Errorf("container count in %s changed from %d to %d across the agent restarts", name, containersBefore, containersAfter)
 		}
-		return nil
+		return c.expectContainerdUnrestarted(name)
 	})
 }
 
 func (c *config) servicePID(name string) (string, error) {
-	out, err := c.vmOutput(name, "systemctl", "show", "-p", "MainPID", "--value", "opendeploy.service")
+	return c.unitMainPID(name, "opendeploy.service")
+}
+
+func (c *config) unitMainPID(name, unit string) (string, error) {
+	out, err := c.vmOutput(name, "systemctl", "show", "-p", "MainPID", "--value", unit)
 	if err != nil {
 		return "", err
 	}
 	pid := strings.TrimSpace(out)
 	if pid == "" || pid == "0" {
-		return "", fmt.Errorf("opendeploy.service has no main pid in %s", name)
+		return "", fmt.Errorf("%s has no main pid in %s", unit, name)
 	}
 	return pid, nil
 }

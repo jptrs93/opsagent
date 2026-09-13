@@ -1,23 +1,20 @@
 package installer
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
-	"crypto/sha256"
-	"encoding/hex"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jptrs93/opsagent/backend/lib/runtimebin"
 )
 
 // dryRun, when set via --dry-run, makes every mutating helper log the action it
@@ -36,18 +33,6 @@ func planned(format string, a ...any) {
 }
 
 func isRoot() bool { return os.Geteuid() == 0 }
-
-// hostArch maps the running binary's GOARCH to the release naming (amd64/arm64).
-// Because the installer runs on the target, its own GOARCH is the target arch —
-// no `uname -m` parsing needed.
-func hostArch() (string, error) {
-	switch runtime.GOARCH {
-	case "amd64", "arm64":
-		return runtime.GOARCH, nil
-	default:
-		return "", fmt.Errorf("unsupported architecture: %s", runtime.GOARCH)
-	}
-}
 
 func run(name string, args ...string) error {
 	if dryRun {
@@ -210,105 +195,16 @@ func removeFile(path string) error {
 	return err
 }
 
-// download fetches url to dest. Always performs the network read (even in
-// dry-run) so checksum verification is real; only the final placement honors
-// the destination. dest lives in a temp dir, so it's not a host mutation.
 func download(url, dest string) error {
 	info("downloading %s", url)
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "opendeploy-installer")
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: %s", url, resp.Status)
-	}
-	f, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
-	return err
-}
-
-func sha256OfFile(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return runtimebin.Download(context.Background(), url, dest)
 }
 
 func verifySHA256(path, want string) error {
-	got, err := sha256OfFile(path)
-	if err != nil {
+	if err := runtimebin.VerifySHA256(path, want); err != nil {
 		return err
-	}
-	if !strings.EqualFold(got, want) {
-		return fmt.Errorf("checksum mismatch for %s:\n  want %s\n  got  %s", filepath.Base(path), want, got)
 	}
 	info("checksum ok: %s", filepath.Base(path))
-	return nil
-}
-
-// extractTarGzMembers extracts only the named members (matched by base name)
-// from a .tar.gz into destDir, flattening any leading directory components.
-func extractTarGzMembers(tarPath, destDir string, members []string) error {
-	want := make(map[string]bool, len(members))
-	for _, m := range members {
-		want[m] = true
-	}
-	f, err := os.Open(tarPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-	tr := tar.NewReader(gz)
-	found := 0
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		base := filepath.Base(hdr.Name)
-		if hdr.Typeflag != tar.TypeReg || !want[base] {
-			continue
-		}
-		dst := filepath.Join(destDir, base)
-		out, openErr := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-		if openErr != nil {
-			return openErr
-		}
-		if _, err := io.Copy(out, tr); err != nil {
-			out.Close()
-			return err
-		}
-		out.Close()
-		found++
-	}
-	if found < len(members) {
-		return fmt.Errorf("expected %d members in %s, extracted %d", len(members), filepath.Base(tarPath), found)
-	}
 	return nil
 }
 

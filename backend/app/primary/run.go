@@ -27,6 +27,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/middleware/clientaddr"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/ratelimit"
 	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/lib/runtimebin"
 	"github.com/jptrs93/opsagent/backend/lib/wgkey"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
@@ -41,6 +42,7 @@ var ErrRestartRequired = errors.New("primary restart required")
 
 func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	parentCtx = logu.AddTag(parentCtx, "Primary")
+	runtimebin.ReconcileAtStartup(parentCtx)
 	lifecycleCtx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
 	g, ctx := errgroup.WithContext(lifecycleCtx)

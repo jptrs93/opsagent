@@ -60,6 +60,7 @@ message NodeStatus {
   int64 last_connected_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   string remote_address = 5;
   string opendeploy_version = 6;
+  string runtime_versions = 7;
 }
 
 message EnrollmentRequestStatus {

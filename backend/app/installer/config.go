@@ -34,9 +34,7 @@ const (
 
 	// Bundled, pinned container runtime: a dedicated containerd with its own
 	// root/state/socket so it never collides with a distro/Docker install.
-	runtimeDir       = "/var/lib/opendeploy/runtime"
-	runtimeBin       = "/var/lib/opendeploy/runtime/bin"
-	runtimeVersions  = "/var/lib/opendeploy/runtime/versions"
+	// The binaries and their pinned versions live in lib/runtimebin.
 	runtimeConfig    = "/var/lib/opendeploy/runtime/config.toml"
 	containerdRoot   = "/var/lib/opendeploy-containerd"
 	containerdSocket = "/run/opendeploy/containerd.sock"
@@ -55,52 +53,3 @@ const (
 	containerdService  = "opendeploy-containerd.service"
 	containerdUnitPath = "/etc/systemd/system/opendeploy-containerd.service"
 )
-
-// runtimeDep describes one pinned runtime binary set fetched from upstream and
-// verified against per-arch checksums.
-type runtimeDep struct {
-	name    string
-	version string
-	url     func(arch string) string
-	sha256  map[string]string
-	// binaries are the executables this dep contributes to runtimeBin. They are
-	// resolved relative to extractDir after download (tarball members for
-	// containerd, the single downloaded file for runc).
-	binaries []string
-	// isTarball is true when the artifact is a .tar.gz to be extracted; false
-	// when the download is the binary itself (runc ships a bare ELF).
-	isTarball bool
-}
-
-var containerdDep = runtimeDep{
-	name:    "containerd",
-	version: "2.3.5",
-	url: func(arch string) string {
-		v := "2.3.5"
-		return "https://github.com/containerd/containerd/releases/download/v" + v +
-			"/containerd-" + v + "-linux-" + arch + ".tar.gz"
-	},
-	sha256: map[string]string{
-		"amd64": "2f0a095a71e3262d0d91ff0e50e2e4ae73c3866c4d1ff6a15f341097fba3dd44",
-		"arm64": "06f46cbc073872c5ad1fbc922a53543e9a26b798d62ff106d44639dcb9947942",
-	},
-	// The tarball lays these out under bin/.
-	binaries:  []string{"containerd", "containerd-shim-runc-v2", "ctr"},
-	isTarball: true,
-}
-
-var runcDep = runtimeDep{
-	name:    "runc",
-	version: "1.5.1",
-	url: func(arch string) string {
-		return "https://github.com/opencontainers/runc/releases/download/v1.5.1/runc." + arch
-	},
-	sha256: map[string]string{
-		"amd64": "177df879d50c913eb205e898d5c1c05a18f574053c0ce5524c471208eaf06f6f",
-		"arm64": "ca70e7dbd6616ca782a59b5d3ac86909123fdaa9fa3f89dcf29051c70eee7ce9",
-	},
-	binaries:  []string{"runc"},
-	isTarball: false,
-}
-
-var runtimeDeps = []runtimeDep{containerdDep, runcDep}

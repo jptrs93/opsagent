@@ -46,7 +46,10 @@ Defaults:
   unchanged `upgrade` must leave the primary and second worker unrestarted;
   after the Playwright flows an `upgrade` from the `v0.0.0` executable must
   restart the second worker, which then reconciles back to `v1.0.0` with its
-  containers intact.
+  containers intact. The same steps check that the runtime symlinks match the
+  `CONTAINERD_VERSION` and `RUNC_VERSION` pins and that the agent upgrade and
+  restarts never restarted `opendeploy-containerd.service`, since the mock
+  releases share one pin.
 - Runs `FLOWS=bootstrap-enroll-nixdocker` from the Playwright Docker container.
 - Runs Playwright in Docker and writes results to `testing-vms/test-results` and `testing-vms/playwright-report`.
 - Runs the independent declarative PostgreSQL/pgBackRest module serially after the baseline cases. It provisions its own MinIO, PostgreSQL deployments, config asset, secret, and Go client; verifies backup/restore; and rotates the shared database password through the update-referencing-deployments flow.

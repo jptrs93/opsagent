@@ -98,6 +98,7 @@ One tag per component boundary; PascalCase. Current tags:
 | `NetmapApplier` | `app/primary/netmapapply.go` (primary's in-process map applier) |
 | `WebUI` | `app/primary/webui` |
 | `Secrets` | `app/primary/domain/secrets` |
+| `Runtime` | `lib/runtimebin` (`ReconcileAtStartup`, both roles) |
 | `Network` | `lib/network` |
 | `NetAudit` | `lib/netaudit` |
 | `AcmeIssue` | `app/primary/domain/acmeissue` |

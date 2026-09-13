@@ -13,6 +13,7 @@ import (
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/app/primarybootstrap"
+	"github.com/jptrs93/opsagent/backend/lib/runtimebin"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	buildversion "github.com/jptrs93/opsagent/backend/util/version"
 )
@@ -27,7 +28,7 @@ type bootstrapCredentials struct {
 // provisioned (an unprivileged upgrade).
 type staged struct {
 	agentBin string
-	runtime  []stagedDep
+	runtime  []runtimebin.Staged
 }
 
 type installOptions struct {
@@ -64,7 +65,7 @@ func doInstall(version string, opts installOptions) error {
 	if !isRoot() && !dryRun {
 		return fmt.Errorf("install must be run as root (try: sudo %s install %s)", os.Args[0], opts.role)
 	}
-	arch, err := hostArch()
+	arch, err := runtimebin.HostArch()
 	if err != nil {
 		return err
 	}
@@ -92,7 +93,7 @@ func doUpgrade(version string) error {
 	if role == "primary" && !pathExists(filepath.Join(dataDir, "primary.db")) && !dryRun {
 		return fmt.Errorf("refusing to upgrade primary because %s is missing", filepath.Join(dataDir, "primary.db"))
 	}
-	arch, err := hostArch()
+	arch, err := runtimebin.HostArch()
 	if err != nil {
 		return err
 	}
@@ -179,7 +180,7 @@ func stageAll(version, arch, tmp string, withRuntime bool, selfInstall bool) (*s
 	}
 
 	if withRuntime {
-		for _, dep := range runtimeDeps {
+		for _, dep := range runtimebin.Components() {
 			sd, err := stageDep(dep, arch, tmp)
 			if err != nil {
 				return nil, err

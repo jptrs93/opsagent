@@ -1488,6 +1488,7 @@ type NodeStatus struct {
 	LastConnectedAt   time.Time `json:"last_connected_at"`
 	RemoteAddress     string    `json:"remote_address,omitempty"`
 	OpendeployVersion string    `json:"opendeploy_version,omitempty"`
+	RuntimeVersions   string    `json:"runtime_versions,omitempty"`
 }
 
 type EnrollmentRequestStatus struct {
@@ -1756,6 +1757,7 @@ type NixStoreResetRequest struct {
 
 type ClusterHello struct {
 	OpendeployVersion      string        `json:"opendeploy_version,omitempty"`
+	RuntimeVersions        string        `json:"runtime_versions,omitempty"`
 	Reported               *NodeReported `json:"reported"`
 	ClusterProtocolVersion int32         `json:"cluster_protocol_version"`
 }

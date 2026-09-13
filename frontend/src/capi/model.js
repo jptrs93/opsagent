@@ -1263,6 +1263,7 @@
  * @property {Date} lastConnectedAt
  * @property {string} remoteAddress
  * @property {string} opendeployVersion
+ * @property {string} runtimeVersions
  */
 /**
  * @typedef {Object} EnrollmentRequestStatus
@@ -1531,6 +1532,7 @@
 /**
  * @typedef {Object} ClusterHello
  * @property {string} opendeployVersion
+ * @property {string} runtimeVersions
  * @property {NodeReported} reported
  * @property {number} clusterProtocolVersion
  */
@@ -16386,6 +16388,9 @@ export function writeNodeStatus(message, writer) {
     if (message.opendeployVersion !== undefined && message.opendeployVersion !== null && message.opendeployVersion !== "") {
         writer.uint32(tag(6, WIRE.LDELIM)).string(message.opendeployVersion);
     }
+    if (message.runtimeVersions !== undefined && message.runtimeVersions !== null && message.runtimeVersions !== "") {
+        writer.uint32(tag(7, WIRE.LDELIM)).string(message.runtimeVersions);
+    }
 }
 
 
@@ -16407,7 +16412,7 @@ export function encodeNodeStatus(message) {
  */
 function decodeNodeStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {nodeId: 0, updatedAt: new Date(0), isConnected: false, lastConnectedAt: new Date(0), remoteAddress: "", opendeployVersion: "" };
+    const message = {nodeId: 0, updatedAt: new Date(0), isConnected: false, lastConnectedAt: new Date(0), remoteAddress: "", opendeployVersion: "", runtimeVersions: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -16433,6 +16438,10 @@ function decodeNodeStatusMessage(reader, length) {
             }
             case 6: {
                 message.opendeployVersion = reader.string();
+                break;
+            }
+            case 7: {
+                message.runtimeVersions = reader.string();
                 break;
             }
             default:
@@ -19663,6 +19672,9 @@ export function writeClusterHello(message, writer) {
     if (message.opendeployVersion !== undefined && message.opendeployVersion !== null && message.opendeployVersion !== "") {
         writer.uint32(tag(6, WIRE.LDELIM)).string(message.opendeployVersion);
     }
+    if (message.runtimeVersions !== undefined && message.runtimeVersions !== null && message.runtimeVersions !== "") {
+        writer.uint32(tag(7, WIRE.LDELIM)).string(message.runtimeVersions);
+    }
     if (message.reported !== undefined && message.reported !== null) {
         writer.uint32(tag(5, WIRE.LDELIM)).fork();
         writeNodeReported(message.reported, writer);
@@ -19692,12 +19704,16 @@ export function encodeClusterHello(message) {
  */
 function decodeClusterHelloMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {opendeployVersion: "", reported: undefined, clusterProtocolVersion: 0 };
+    const message = {opendeployVersion: "", runtimeVersions: "", reported: undefined, clusterProtocolVersion: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 6: {
                 message.opendeployVersion = reader.string();
+                break;
+            }
+            case 7: {
+                message.runtimeVersions = reader.string();
                 break;
             }
             case 5: {

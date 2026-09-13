@@ -294,7 +294,7 @@ func (s *Session) handleClusterHello(hello *apigen.ClusterHello) {
 	reported.UnderlayAddress, reported.WgPublicKey = underlay, key
 	nodes.ReportNode(s.store, s.identifier, reported)
 	remoteAddress, _ := s.sessCtx.Value(remoteAddressCtxKey{}).(string)
-	nodes.UpdateNodeObservedMeta(s.store, s.identifier, remoteAddress, hello.OpendeployVersion)
+	nodes.UpdateNodeObservedMeta(s.store, s.identifier, remoteAddress, hello.OpendeployVersion, hello.RuntimeVersions)
 }
 
 func (s *Session) routeLogChunk(requestID string, chunk logChunk) {

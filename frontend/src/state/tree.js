@@ -151,7 +151,7 @@ export function applyObserved(tree, update) {
     const seq = Number(update.seq || 0);
     if (seq && seq <= tree.seq) return changed;
     if (observed(tree.instanceStatuses, tree.instanceStatusClocks, tree.scheduledInstances, update.instanceStatuses, 'scheduledInstanceId', status => emptyPayload(status.preparer) && emptyPayload(status.runner))) changed.add('instanceStatuses');
-    if (observed(tree.nodeStatuses, tree.nodeStatusClocks, tree.nodes, update.nodeStatuses, 'nodeId', status => !status.isConnected && emptyPayload(status.lastConnectedAt) && !status.remoteAddress && !status.opendeployVersion)) changed.add('nodeStatuses');
+    if (observed(tree.nodeStatuses, tree.nodeStatusClocks, tree.nodes, update.nodeStatuses, 'nodeId', status => !status.isConnected && emptyPayload(status.lastConnectedAt) && !status.remoteAddress && !status.opendeployVersion && !status.runtimeVersions)) changed.add('nodeStatuses');
     if (seq) tree.seq = seq;
     return changed;
 }

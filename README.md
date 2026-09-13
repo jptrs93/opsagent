@@ -45,12 +45,21 @@ sudo /var/lib/opendeploy/bin/opendeploy upgrade --version latest
 sudo /var/lib/opendeploy/bin/opendeploy upgrade --dry-run
 ```
 
-Root is needed for the runtime refresh and unit rewrite; run as the
-`opendeploy` user to replace only the binary and restart. The primary keeps
-each node's expected agent release in that node's `opendeploy` deployment, and
-an agent that restarts on a different build prepares the expected release and
-restarts into it, so pick the version there first when changing releases by
-hand.
+Root is needed for the unit rewrite; run as the `opendeploy` user to replace
+only the binary and restart. The primary keeps each node's expected agent
+release in that node's `opendeploy` deployment, and an agent that restarts on
+a different build prepares the expected release and restarts into it, so pick
+the version there first when changing releases by hand.
+
+The container runtime follows the agent release on its own. Each release pins
+containerd and runc, and every agent start compares the installed versions
+with that pin. When the pin moved, the agent downloads and verifies the new
+binaries, restarts `opendeploy-containerd.service`, confirms the daemon
+reports the new version, and rolls back if it does not. Running containers
+keep their shim across the restart. It never downgrades and never blocks
+boot; a failed refresh is logged and the node keeps its installed runtime.
+So a runtime bump reaches every node through the normal agent upgrade from
+the Deployments page. The Cluster page shows the versions each node reports.
 
 Options are passed through to the underlying installer. To pin a specific version:
 
