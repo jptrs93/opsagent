@@ -1,7 +1,9 @@
 package installer
 
 import (
+	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -143,5 +145,96 @@ func TestRenderOpenDeployUnitUsesRestartAlways(t *testing.T) {
 	unit := renderOpenDeployUnit(installOptions{role: "primary"})
 	if !strings.Contains(string(unit), "Restart=always") {
 		t.Fatalf("unit missing Restart=always:\n%s", unit)
+	}
+}
+
+func TestRoleFromUnitReadsInstalledRole(t *testing.T) {
+	for _, role := range []string{"primary", "secondary"} {
+		got, err := roleFromUnit(renderOpenDeployUnit(installOptions{role: role}))
+		if err != nil {
+			t.Fatalf("roleFromUnit(%s): %v", role, err)
+		}
+		if got != role {
+			t.Fatalf("roleFromUnit(%s) = %q", role, got)
+		}
+	}
+}
+
+func TestRoleFromUnitRejectsUnexpectedUnits(t *testing.T) {
+	_, err := roleFromUnit([]byte("[Service]\nExecStart=/usr/local/bin/opendeploy primary\n"))
+	if err == nil || !strings.Contains(err.Error(), "unexpected ExecStart") {
+		t.Fatalf("foreign ExecStart err = %v", err)
+	}
+	_, err = roleFromUnit([]byte("[Service]\nExecStart=/var/lib/opendeploy/bin/opendeploy dataplane\n"))
+	if err == nil || !strings.Contains(err.Error(), "unexpected ExecStart") {
+		t.Fatalf("non-role ExecStart err = %v", err)
+	}
+	_, err = roleFromUnit([]byte("[Service]\nUser=opendeploy\n"))
+	if err == nil || !strings.Contains(err.Error(), "no ExecStart") {
+		t.Fatalf("missing ExecStart err = %v", err)
+	}
+}
+
+func TestParseUpgradeRejectsRoleArgument(t *testing.T) {
+	_, err := parseUpgrade([]string{"secondary"})
+	if err == nil || !strings.Contains(err.Error(), "takes no role") {
+		t.Fatalf("parseUpgrade err = %v, want role rejection", err)
+	}
+}
+
+func TestParseUpgradeVersion(t *testing.T) {
+	version, err := parseUpgrade(nil)
+	if err != nil || version != "" {
+		t.Fatalf("parseUpgrade() = %q, %v", version, err)
+	}
+	version, err = parseUpgrade([]string{"--version", "v1.2.3"})
+	if err != nil || version != "v1.2.3" {
+		t.Fatalf("parseUpgrade(--version) = %q, %v", version, err)
+	}
+}
+
+func TestUpgradedEnvIsStableAcrossUpgrades(t *testing.T) {
+	opts := installOptions{role: "primary"}
+	first := upgradedEnv([]byte("OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH=hash\nOPENDEPLOY_PRIMARY_NAME=primary\nOPENDEPLOY_GITHUB_TOKEN='a b'\n\n"), opts)
+	if strings.Contains(string(first), "OPENDEPLOY_INITIAL_") {
+		t.Fatalf("initial values remain:\n%s", first)
+	}
+	second := upgradedEnv(first, opts)
+	if !bytes.Equal(first, second) {
+		t.Fatalf("second pass changed the env:\n%s\n---\n%s", first, second)
+	}
+}
+
+func TestInstallBinaryReplacesExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "bin", "opendeploy")
+	if err := os.WriteFile(src, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if fileBytesEqual(src, dst) {
+		t.Fatal("src and dst compared equal before install")
+	}
+	if err := installBinary(src, dst, 0o755, noChown); err != nil {
+		t.Fatalf("installBinary: %v", err)
+	}
+	if !fileBytesEqual(src, dst) {
+		t.Fatal("dst was not replaced")
+	}
+	if pathExists(dst + ".tmp") {
+		t.Fatal("temp file left behind")
+	}
+	st, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o755 {
+		t.Fatalf("dst mode = %o, want 755", st.Mode().Perm())
 	}
 }

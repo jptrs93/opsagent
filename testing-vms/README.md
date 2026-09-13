@@ -41,6 +41,12 @@ Defaults:
 - In the default local mock mode, bootstraps primary and worker from a locally
   built `v0.0.0` executable, then upgrades them to a locally built `v1.0.0`
   release served by the mirror.
+- In that mode it also exercises the `opendeploy upgrade` CLI: after the
+  cluster install a repeated `install secondary` must be refused and an
+  unchanged `upgrade` must leave the primary and second worker unrestarted;
+  after the Playwright flows an `upgrade` from the `v0.0.0` executable must
+  restart the second worker, which then reconciles back to `v1.0.0` with its
+  containers intact.
 - Runs `FLOWS=bootstrap-enroll-nixdocker` from the Playwright Docker container.
 - Runs Playwright in Docker and writes results to `testing-vms/test-results` and `testing-vms/playwright-report`.
 - Runs the independent declarative PostgreSQL/pgBackRest module serially after the baseline cases. It provisions its own MinIO, PostgreSQL deployments, config asset, secret, and Go client; verifies backup/restore; and rotates the shared database password through the update-referencing-deployments flow.

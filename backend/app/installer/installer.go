@@ -1,6 +1,6 @@
 // Package installer provisions, upgrades, and removes an opendeploy deployment on
-// a host. It is invoked as the `opendeploy install` / `opendeploy uninstall`
-// subcommands of the main binary.
+// a host. It is invoked as the `opendeploy install` / `opendeploy upgrade` /
+// `opendeploy uninstall` subcommands of the main binary.
 //
 // It keeps an explicit copy of every system path, pinned version, and checksum
 // (see config.go). Fresh primary install delegates persistent initialization to
@@ -29,7 +29,7 @@ func IsSubcommand(argv []string) bool {
 		return false
 	}
 	switch argv[1] {
-	case "install", "uninstall":
+	case "install", "upgrade", "uninstall":
 		return true
 	default:
 		return false
@@ -53,6 +53,13 @@ func Run(argv []string) error {
 			return err
 		}
 		return doInstall(version, opts)
+
+	case "upgrade":
+		version, err := parseUpgrade(argv[2:])
+		if err != nil {
+			return err
+		}
+		return doUpgrade(version)
 
 	case "uninstall":
 		fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
@@ -313,6 +320,17 @@ func parseInstallSecondary(args []string) (string, installOptions, error) {
 	return *version, opts, nil
 }
 
+func parseUpgrade(args []string) (string, error) {
+	fs := flag.NewFlagSet("upgrade", flag.ExitOnError)
+	version := fs.String("version", "", "release tag to upgrade to (omit to install this executable)")
+	fs.BoolVar(&dryRun, "dry-run", false, "print the actions that would be taken without performing them")
+	_ = fs.Parse(args)
+	if fs.NArg() > 0 {
+		return "", fmt.Errorf("upgrade takes no role: the installed role is read from %s", serviceUnitPath)
+	}
+	return *version, nil
+}
+
 func validateInstallStringFlag(name, value string) error {
 	if value == "" {
 		return fmt.Errorf("%s must not be empty", name)
@@ -321,17 +339,19 @@ func validateInstallStringFlag(name, value string) error {
 }
 
 func usage(prog string) {
-	fmt.Fprintf(os.Stderr, `%[1]s install / uninstall — provision, upgrade, and remove opendeploy
+	fmt.Fprintf(os.Stderr, `%[1]s install / upgrade / uninstall — provision, upgrade, and remove opendeploy
 
 Usage:
   %[1]s install primary [--version vX.Y.Z|latest] [--http-only true] [--password-login true] [--web-listen :8080] [--web-tls-self-managed true] [--web-tls-cert-pem-file cert.pem] [--passkey-extra-origins https://host:8443] [--cluster-listen :9443] [--enrollment-listen :9444] [--underlay-address 10.0.0.1] [--web-hosts host1,host2] [--acme-hosts host1,host2] [--primary-name primary] [--restore-backup true --restore-s3-access-key-id ... --restore-s3-secret-access-key ... --restore-s3-bucket ... --restore-s3-path ... --restore-s3-region ... --recovery-code ...] [--dry-run]
   %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 --enrollment-fingerprint sha256:<hex> [--underlay-address 10.0.0.2] [--version vX.Y.Z|latest] [--primary-name primary] [--dry-run]
+  %[1]s upgrade [--version vX.Y.Z|latest] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
 
 Commands:
-  install     Fresh install (needs root) or in-place upgrade (auto-detected).
+  install     Fresh install (needs root). Refuses to run where opendeploy is already installed.
+  upgrade     In-place upgrade of the installed primary or secondary; the role is read from the installed unit. Refreshes the binary, config, unit, and container runtime, and restarts the service only when one of them changed.
   uninstall   Stop services and containers, remove network state, units, and binary; --purge also wipes all data.
 
-Run install with --dry-run to print every action before committing.
+Run install or upgrade with --dry-run to print every action before committing.
 `, prog)
 }

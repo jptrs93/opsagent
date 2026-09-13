@@ -14,6 +14,7 @@ const (
 	CommandPrimary        Command = "primary"
 	CommandSecondary      Command = "secondary"
 	CommandInstall        Command = "install"
+	CommandUpgrade        Command = "upgrade"
 	CommandUninstall      Command = "uninstall"
 	CommandRawLogConsumer Command = "raw-binary-log-consumer"
 	CommandNetproxy       Command = "dataplane"
@@ -48,6 +49,9 @@ func initArgs() {
 	case CommandInstall:
 		Args.Command = CommandInstall
 		Args.Installer = true
+	case CommandUpgrade:
+		Args.Command = CommandUpgrade
+		Args.Installer = true
 	case CommandUninstall:
 		Args.Command = CommandUninstall
 		Args.Installer = true
@@ -78,13 +82,15 @@ Usage:
   %[1]s secondary
   %[1]s install primary [--version vX.Y.Z|latest] [--http-only true] [--password-login true] [--web-listen :8080] [--web-tls-self-managed true] [--web-tls-cert-pem-file cert.pem] [--web-hosts host1,host2] [--acme-hosts host1,host2] [--primary-name primary] [--dry-run]
   %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 --enrollment-fingerprint sha256:<hex> [--version vX.Y.Z|latest] [--primary-name primary] [--dry-run]
+  %[1]s upgrade [--version vX.Y.Z|latest] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
   %[1]s dataplane
 
 Commands:
   primary     Run the primary HTTP server and cluster listeners.
   secondary   Run a secondary that enrolls with and connects to the primary.
-  install     Fresh install or in-place upgrade.
+  install     Fresh install of a primary or secondary.
+  upgrade     In-place upgrade of the installed node.
   uninstall   Stop services and containers, remove network state, units, and binary; --purge also wipes all data.
   dataplane    Internal netproxy process.
 `, prog)

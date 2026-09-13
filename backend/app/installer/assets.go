@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
 	"os"
@@ -45,18 +46,29 @@ func renderOpenDeployUnit(opts installOptions) []byte {
 	return []byte(strings.ReplaceAll(string(unitOpenDeploy), "ExecStart=/var/lib/opendeploy/bin/opendeploy primary", "ExecStart=/var/lib/opendeploy/bin/opendeploy "+role))
 }
 
-func updateEnvFile(opts installOptions, own owner) error {
+func updateEnvFile(opts installOptions, own owner) (bool, error) {
 	content := envTemplate
-	if existing, err := os.ReadFile(envFile); err == nil {
+	existing, err := os.ReadFile(envFile)
+	exists := err == nil
+	if exists {
 		content = existing
 	} else if !os.IsNotExist(err) {
-		return err
+		return false, err
 	}
-	_, err := writeFile(envFile, applyEnvOverrides(stripInitialEnvValues(content), opts), 0o640, own, false)
-	if err == nil {
-		info("updated %s", envFile)
+	updated := upgradedEnv(content, opts)
+	if exists && bytes.Equal(content, updated) {
+		info("kept existing %s", envFile)
+		return false, nil
 	}
-	return err
+	if _, err := writeFile(envFile, updated, 0o640, own, false); err != nil {
+		return false, err
+	}
+	info("updated %s", envFile)
+	return true, nil
+}
+
+func upgradedEnv(content []byte, opts installOptions) []byte {
+	return applyEnvOverrides(stripInitialEnvValues(content), opts)
 }
 
 func applyEnvOverrides(content []byte, opts installOptions) []byte {

@@ -441,6 +441,7 @@ func (c *config) run() error {
 		{"hosts", "syncing VM /etc/hosts entries", c.syncHostsAll},
 		{"ca", "installing test CA into cluster VMs", c.installTestCAAll},
 		{"cluster", "installing primary and secondary services", c.installCluster},
+		{"cli upgrade", "verifying opendeploy upgrade is a no-op on freshly installed nodes", c.verifyUpgradeNoop},
 		{"IPv4 egress listener", "starting receiver on the second worker", c.startIPv4EgressListener},
 	}
 	for _, step := range steps {
@@ -454,6 +455,11 @@ func (c *config) run() error {
 	}
 	if err := c.kernelChecks(); err != nil {
 		return err
+	}
+	if c.usesSelfBootstrap() {
+		if err := c.step("cli upgrade restart", "opendeploy upgrade restarts a worker and the agent reconciles to the expected release", c.verifyUpgradeRestart); err != nil {
+			return err
+		}
 	}
 	if c.BackupRestore {
 		if err := c.step("backup restore", "restoring primary from replicated backup", c.backupRestore); err != nil {
@@ -2152,6 +2158,154 @@ func (c *config) installCluster() error {
 		}
 	}
 	return nil
+}
+
+func (c *config) verifyUpgradeNoop() error {
+	if !c.usesSelfBootstrap() {
+		logf("Skipping CLI upgrade checks: the installed release may predate opendeploy upgrade")
+		return nil
+	}
+	fp, err := c.primaryEnrollmentFingerprint()
+	if err != nil {
+		return err
+	}
+	if err := c.substep("reinstall refused", "install secondary on the installed "+c.Secondary2Name, func() error {
+		out, err := c.vmCombinedOutput(c.Secondary2Name, "sudo", "opendeploy", "install", "secondary", "--cluster-addr", c.PrimaryName+":9443", "--enrollment-addr", c.PrimaryName+":9444", "--enrollment-fingerprint", fp)
+		if err == nil {
+			return fmt.Errorf("install secondary succeeded on an installed node:\n%s", out)
+		}
+		if !strings.Contains(out, "already installed") {
+			return fmt.Errorf("install secondary failed without the already-installed error:\n%s", out)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, name := range []string{c.PrimaryName, c.Secondary2Name} {
+		if err := c.substep("unchanged upgrade", name, func() error { return c.expectUpgradeWithoutRestart(name) }); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *config) expectUpgradeWithoutRestart(name string) error {
+	before, err := c.servicePID(name)
+	if err != nil {
+		return err
+	}
+	out, err := c.vmCombinedOutput(name, "sudo", "/var/lib/opendeploy/bin/opendeploy", "upgrade", "--dry-run")
+	if err != nil {
+		return fmt.Errorf("upgrade --dry-run failed in %s: %w\n%s", name, err, out)
+	}
+	if !strings.Contains(out, "[dry-run]") || !strings.Contains(out, "not restarting opendeploy.service") {
+		return fmt.Errorf("upgrade --dry-run in %s did not plan an unchanged upgrade:\n%s", name, out)
+	}
+	out, err = c.vmCombinedOutput(name, "sudo", "/var/lib/opendeploy/bin/opendeploy", "upgrade")
+	if err != nil {
+		return fmt.Errorf("upgrade failed in %s: %w\n%s", name, err, out)
+	}
+	if !strings.Contains(out, "not restarting opendeploy.service") {
+		return fmt.Errorf("upgrade in %s did not report an unchanged install:\n%s", name, out)
+	}
+	after, err := c.servicePID(name)
+	if err != nil {
+		return err
+	}
+	if after != before {
+		return fmt.Errorf("unchanged upgrade restarted opendeploy.service in %s (pid %s -> %s)", name, before, after)
+	}
+	return c.waitForService(name, "opendeploy.service")
+}
+
+func (c *config) verifyUpgradeRestart() error {
+	name := c.Secondary2Name
+	containersBefore, err := c.opendeployContainerCount(name)
+	if err != nil {
+		return err
+	}
+	pidBefore, err := c.servicePID(name)
+	if err != nil {
+		return err
+	}
+	exeBefore, err := c.runningOpenDeployExe(name, pidBefore)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(exeBefore, "/"+c.UpgradeVersion+"/") {
+		return fmt.Errorf("%s runs %s, expected the %s release before the CLI upgrade", name, exeBefore, c.UpgradeVersion)
+	}
+	if err := c.substep("downgrade", "opendeploy upgrade from the "+c.SelfVersion+" executable restarts the service", func() error {
+		out, err := c.vmCombinedOutput(name, "sudo", "/usr/local/bin/opendeploy", "upgrade")
+		if err != nil {
+			return fmt.Errorf("upgrade failed in %s: %w\n%s", name, err, out)
+		}
+		if !strings.Contains(out, "Restarting opendeploy.service") {
+			return fmt.Errorf("upgrade in %s did not restart the service:\n%s", name, out)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := c.substep("reconcile", "agent returns to the "+c.UpgradeVersion+" release the primary expects", func() error {
+		deadline := time.Now().Add(5 * time.Minute)
+		var last string
+		for time.Now().Before(deadline) {
+			pid, pidErr := c.servicePID(name)
+			exe, exeErr := c.runningOpenDeployExe(name, pid)
+			state, _ := c.vmOutput(name, "systemctl", "is-active", "opendeploy.service")
+			last = fmt.Sprintf("pid=%s exe=%s state=%s", pid, exe, strings.TrimSpace(state))
+			if pidErr == nil && exeErr == nil && pid != pidBefore && strings.TrimSpace(state) == "active" && strings.Contains(exe, "/"+c.UpgradeVersion+"/") {
+				return nil
+			}
+			time.Sleep(2 * time.Second)
+		}
+		_ = c.vmRun(name, "systemctl", "status", "opendeploy.service", "--no-pager")
+		return fmt.Errorf("%s did not return to the %s release (%s)", name, c.UpgradeVersion, last)
+	}); err != nil {
+		return err
+	}
+	return c.substep("containers", "workload containers survived the agent restarts", func() error {
+		containersAfter, err := c.opendeployContainerCount(name)
+		if err != nil {
+			return err
+		}
+		if containersAfter != containersBefore {
+			return fmt.Errorf("container count in %s changed from %d to %d across the agent restarts", name, containersBefore, containersAfter)
+		}
+		return nil
+	})
+}
+
+func (c *config) servicePID(name string) (string, error) {
+	out, err := c.vmOutput(name, "systemctl", "show", "-p", "MainPID", "--value", "opendeploy.service")
+	if err != nil {
+		return "", err
+	}
+	pid := strings.TrimSpace(out)
+	if pid == "" || pid == "0" {
+		return "", fmt.Errorf("opendeploy.service has no main pid in %s", name)
+	}
+	return pid, nil
+}
+
+func (c *config) runningOpenDeployExe(name, pid string) (string, error) {
+	if pid == "" {
+		return "", fmt.Errorf("no pid to inspect in %s", name)
+	}
+	out, err := c.vmOutput(name, "sudo", "readlink", "-f", "/proc/"+pid+"/exe")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func (c *config) opendeployContainerCount(name string) (int, error) {
+	out, err := c.vmOutput(name, "sudo", "/var/lib/opendeploy/runtime/bin/ctr", "--address", "/run/opendeploy/containerd.sock", "--namespace", "opendeploy", "containers", "list", "-q")
+	if err != nil {
+		return 0, err
+	}
+	return len(strings.Fields(out)), nil
 }
 
 func (c *config) preparePlaywrightE2E() error {

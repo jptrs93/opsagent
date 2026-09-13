@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -56,67 +57,105 @@ func (o installOptions) hasSystemConfigOverrides() bool {
 	return o.httpOnly != nil || o.passwordLogin != nil || o.webListen != nil || o.webTLSSelfManaged != nil || o.webTLSCertPEM != nil || o.clusterListen != nil || o.enrollmentListen != nil || o.acmeHosts != nil
 }
 
-// doInstall auto-detects fresh-install vs upgrade by whether the systemd unit
-// already exists, then runs two phases:
-//
-//	Phase 1 — download + checksum every binary into a temp dir. No host changes.
-//	Phase 2 — apply: create user/dirs, install the staged binaries, write units,
-//	          enable + restart. Local filesystem + systemctl only, no network.
-//
-// A network or checksum failure in phase 1 aborts with the host untouched,
-// rather than leaving a half-provisioned machine.
 func doInstall(version string, opts installOptions) error {
-	upgrade := pathExists(serviceUnitPath)
-	if opts.restore != nil && upgrade {
-		return fmt.Errorf("backup restore is only supported for fresh primary installs")
+	if pathExists(serviceUnitPath) {
+		return fmt.Errorf("opendeploy is already installed (%s exists); run `%s upgrade` to upgrade it in place", serviceUnitPath, os.Args[0])
 	}
-	if upgrade && opts.role == "primary" && !pathExists(filepath.Join(dataDir, "primary.db")) && !dryRun {
-		return fmt.Errorf("refusing to upgrade primary because %s is missing", filepath.Join(dataDir, "primary.db"))
+	if !isRoot() && !dryRun {
+		return fmt.Errorf("install must be run as root (try: sudo %s install %s)", os.Args[0], opts.role)
 	}
-	if upgrade && opts.role == "primary" && opts.hasSystemConfigOverrides() {
-		return fmt.Errorf("initial primary config flags are only supported for fresh installs or backup restore; update an existing primary through its settings")
-	}
-	if upgrade && opts.role == "primary" && opts.primaryName != nil {
-		return fmt.Errorf("primary name is fixed at initial installation and cannot be changed during upgrade")
-	}
-
 	arch, err := hostArch()
 	if err != nil {
 		return err
 	}
-	if preflightErr := preflight(upgrade); preflightErr != nil {
-		return preflightErr
+	version, selfInstall, err := resolveVersion(version)
+	if err != nil {
+		return err
 	}
-	selfInstall := version == ""
-	if selfInstall {
-		version = buildversion.Version
-	} else if version == "latest" {
-		step("Resolving latest release")
-		version, err = resolveLatestTag()
-		if err != nil {
-			return err
-		}
-		info("latest is %s", version)
-	}
-
 	tmp, err := os.MkdirTemp("", "opendeploy-installer-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)
+	st, err := stageAll(version, arch, tmp, true, selfInstall)
+	if err != nil {
+		return err
+	}
+	return runFreshInstall(version, arch, st, opts)
+}
 
-	// Runtime binaries are provisioned root-only, so an unprivileged upgrade
-	// skips staging them.
+func doUpgrade(version string) error {
+	role, err := installedRole()
+	if err != nil {
+		return err
+	}
+	if role == "primary" && !pathExists(filepath.Join(dataDir, "primary.db")) && !dryRun {
+		return fmt.Errorf("refusing to upgrade primary because %s is missing", filepath.Join(dataDir, "primary.db"))
+	}
+	arch, err := hostArch()
+	if err != nil {
+		return err
+	}
+	if err := preflightUpgrade(); err != nil {
+		return err
+	}
+	version, selfInstall, err := resolveVersion(version)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.MkdirTemp("", "opendeploy-installer-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
 	withRuntime := isRoot() || dryRun
 	st, err := stageAll(version, arch, tmp, withRuntime, selfInstall)
 	if err != nil {
 		return err
 	}
+	return runUpgrade(version, arch, st, installOptions{role: role})
+}
 
-	if upgrade {
-		return runUpgrade(version, arch, st, opts)
+func resolveVersion(version string) (string, bool, error) {
+	if version == "" {
+		return buildversion.Version, true, nil
 	}
-	return runFreshInstall(version, arch, st, opts)
+	if version != "latest" {
+		return version, false, nil
+	}
+	step("Resolving latest release")
+	latest, err := resolveLatestTag()
+	if err != nil {
+		return "", false, err
+	}
+	info("latest is %s", latest)
+	return latest, false, nil
+}
+
+func installedRole() (string, error) {
+	content, err := os.ReadFile(serviceUnitPath)
+	if os.IsNotExist(err) {
+		return "", fmt.Errorf("opendeploy is not installed (%s is missing); run `%s install primary` or `%s install secondary` first", serviceUnitPath, os.Args[0], os.Args[0])
+	}
+	if err != nil {
+		return "", err
+	}
+	return roleFromUnit(content)
+}
+
+func roleFromUnit(content []byte) (string, error) {
+	for _, line := range strings.Split(string(content), "\n") {
+		command, ok := strings.CutPrefix(strings.TrimSpace(line), "ExecStart=")
+		if !ok {
+			continue
+		}
+		fields := strings.Fields(command)
+		if len(fields) == 2 && fields[0] == binPath && (fields[1] == "primary" || fields[1] == "secondary") {
+			return fields[1], nil
+		}
+		return "", fmt.Errorf("cannot determine the installed role from %s: unexpected ExecStart %q", serviceUnitPath, command)
+	}
+	return "", fmt.Errorf("cannot determine the installed role from %s: no ExecStart line", serviceUnitPath)
 }
 
 // stageAll (phase 1) downloads + verifies the agent binary and, when requested,
@@ -170,16 +209,7 @@ func stageSelfAgent(tmp string) (string, error) {
 	return dst, nil
 }
 
-// preflight enforces the permission rules: fresh install requires root;
-// upgrade requires write access to the bin dir (and, if run unprivileged, a
-// working passwordless systemctl restart via sudoers).
-func preflight(upgrade bool) error {
-	if !upgrade {
-		if !isRoot() && !dryRun {
-			return fmt.Errorf("first-time install must be run as root (try: sudo %s install)", os.Args[0])
-		}
-		return nil
-	}
+func preflightUpgrade() error {
 	if isRoot() || dryRun {
 		return nil
 	}
@@ -240,7 +270,8 @@ func releaseBinPath(version, arch string) string {
 }
 
 // runUpgrade (phase 2) installs the staged binary into its versioned dir, flips
-// the symlink, restarts the service, then applies the staged runtime (if any).
+// the symlink, refreshes the env file and unit, restarts the service when any
+// of them changed, then applies the staged runtime (if any).
 func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 	step("Phase 2/2 — upgrading opendeploy to %s (linux/%s)", version, arch)
 	own := resolveOpenDeployOwner()
@@ -261,35 +292,45 @@ func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 	}
 
 	dst := releaseBinPath(version, arch)
+	binaryChanged := !fileBytesEqual(binPath, st.agentBin)
 	if err := ensureReleaseArtifactDir(version, arch, own); err != nil {
 		return err
 	}
-	if err := installBinary(st.agentBin, dst, 0o755, own); err != nil {
+	if fileBytesEqual(dst, st.agentBin) {
+		info("%s already in place", dst)
+	} else if err := installBinary(st.agentBin, dst, 0o755, own); err != nil {
 		return err
 	}
 	if err := atomicSymlink(dst, binPath); err != nil {
 		return err
 	}
 	info("symlinked %s -> %s", binPath, dst)
+	envChanged := false
 	if opts.hasEnvOverrides() || (opts.role == "primary" && isRoot()) {
 		step("Updating config")
-		if err := updateEnvFile(opts, rootOpenDeploy); err != nil {
+		var err error
+		if envChanged, err = updateEnvFile(opts, rootOpenDeploy); err != nil {
 			return err
 		}
 	}
 	step("Updating systemd unit")
-	if err := updateServiceUnitForUpgrade(opts); err != nil {
+	unitChanged, err := updateServiceUnitForUpgrade(opts)
+	if err != nil {
 		return err
 	}
 
-	step("Restarting %s", serviceName)
-	if isRoot() || dryRun {
-		if err := systemctl("restart", serviceName); err != nil {
-			return err
-		}
+	if !binaryChanged && !envChanged && !unitChanged {
+		info("binary, config, and unit are unchanged; not restarting %s", serviceName)
 	} else {
-		if err := run("sudo", "-n", "systemctl", "restart", serviceName); err != nil {
-			return err
+		step("Restarting %s", serviceName)
+		if isRoot() || dryRun {
+			if err := systemctl("restart", serviceName); err != nil {
+				return err
+			}
+		} else {
+			if err := run("sudo", "-n", "systemctl", "restart", serviceName); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -365,7 +406,7 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 		return err
 	}
 	if !wrote && (opts.hasEnvOverrides() || opts.role == "primary") {
-		if err := updateEnvFile(opts, rootOpenDeploy); err != nil {
+		if _, err := updateEnvFile(opts, rootOpenDeploy); err != nil {
 			return err
 		}
 	}
@@ -595,22 +636,24 @@ func isWritableDir(dir string) bool {
 	return true
 }
 
-func updateServiceUnitForUpgrade(opts installOptions) error {
-	if isRoot() || dryRun {
-		if _, err := writeFile(serviceUnitPath, renderOpenDeployUnit(opts), 0o644, noChown, false); err != nil {
-			return err
-		}
-		return daemonReload()
-	}
+func updateServiceUnitForUpgrade(opts installOptions) (bool, error) {
+	rendered := renderOpenDeployUnit(opts)
 	content, err := os.ReadFile(serviceUnitPath)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if !strings.Contains(string(content), "ExecStart=/var/lib/opendeploy/bin/opendeploy "+opts.role) {
-		return fmt.Errorf("changing opendeploy.service role to %s requires root", opts.role)
+	if bytes.Equal(content, rendered) {
+		info("kept existing %s", serviceUnitPath)
+		return false, nil
 	}
-	info("kept existing %s", serviceUnitPath)
-	return nil
+	if !isRoot() && !dryRun {
+		info("kept existing %s (rewriting it requires root)", serviceUnitPath)
+		return false, nil
+	}
+	if _, err := writeFile(serviceUnitPath, rendered, 0o644, noChown, false); err != nil {
+		return false, err
+	}
+	return true, daemonReload()
 }
 
 func printInstallComplete(opts installOptions, bootstrap *bootstrapCredentials) {

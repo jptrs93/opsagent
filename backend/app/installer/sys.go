@@ -2,6 +2,7 @@ package installer
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
@@ -133,13 +134,29 @@ func installBinary(src, dst string, mode os.FileMode, own owner) error {
 	if err = os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	if err = os.WriteFile(dst, data, mode); err != nil {
+	tmp := dst + ".tmp"
+	if err = os.WriteFile(tmp, data, mode); err != nil {
 		return err
 	}
-	if err = os.Chmod(dst, mode); err != nil {
+	if err = os.Chmod(tmp, mode); err != nil {
 		return err
 	}
-	return own.apply(dst)
+	if err = own.apply(tmp); err != nil {
+		return err
+	}
+	return os.Rename(tmp, dst)
+}
+
+func fileBytesEqual(a, b string) bool {
+	da, err := os.ReadFile(a)
+	if err != nil {
+		return false
+	}
+	db, err := os.ReadFile(b)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(da, db)
 }
 
 // atomicSymlink points link at target, replacing any existing link atomically

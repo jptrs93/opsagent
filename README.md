@@ -7,18 +7,50 @@ is its own installer; the shell wrappers only detect the host architecture,
 download and checksum the release binary, then invoke `opendeploy install` /
 `opendeploy uninstall`. With no `--version`, the binary installs itself using
 its embedded version; an explicit `--version` requests a release download.
-Idempotent — re-run to upgrade.
+`install` is for fresh hosts only and refuses to run where `opendeploy.service`
+already exists.
 
 ```bash
-# Install or upgrade a primary.
+# Install a primary.
 curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_primary.sh | bash -s --
 
-# Install or upgrade a secondary.
+# Install a secondary.
 curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_secondary.sh | bash -s -- \
   --cluster-addr primary.example.com:9443 \
   --enrollment-addr primary.example.com:9444 \
   --enrollment-fingerprint sha256:<hex>
 ```
+
+## Upgrade
+
+Agent versions are normally rolled out from the Deployments page through each
+node's `opendeploy` system deployment. `opendeploy upgrade` is the in-place
+path for a node you are logged in to: it reads the role from the installed
+unit, re-stages the agent binary (the running executable with no `--version`,
+otherwise the requested release), rewrites `/etc/opendeploy/env` and the unit
+from the current templates, refreshes the bundled containerd and runc, and
+restarts `opendeploy.service` only when the binary, env file, or unit actually
+changed. The runtime is restarted separately, and only when its version moved.
+No connection flags are needed, and a secondary does not re-enroll.
+
+```bash
+# Refresh the runtime, unit, and env file for the installed release; no agent restart when nothing changed.
+sudo /var/lib/opendeploy/bin/opendeploy upgrade
+
+# Move to a specific release, or the latest one.
+sudo /var/lib/opendeploy/bin/opendeploy upgrade --version v0.0.600
+sudo /var/lib/opendeploy/bin/opendeploy upgrade --version latest
+
+# Print every action first.
+sudo /var/lib/opendeploy/bin/opendeploy upgrade --dry-run
+```
+
+Root is needed for the runtime refresh and unit rewrite; run as the
+`opendeploy` user to replace only the binary and restart. The primary keeps
+each node's expected agent release in that node's `opendeploy` deployment, and
+an agent that restarts on a different build prepares the expected release and
+restarts into it, so pick the version there first when changing releases by
+hand.
 
 Options are passed through to the underlying installer. To pin a specific version:
 
