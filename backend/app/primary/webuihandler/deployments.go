@@ -208,9 +208,11 @@ func githubReleaseVersionsErr(err error) apigen.ApiErr {
 }
 
 // logQueryTargetNode authorizes a log query and resolves the node hosting the
-// requested logs: the deployment's node, or target_node_id for the system log
-// (deployment_id = 0), which is gated on the node rather than any one
-// deployment.
+// requested logs: the deployment's node, or target_node_id for the node's
+// system log (deployment_id = 0). That log belongs to the opendeploy system
+// deployment on the node, so it is gated on view_logs for that deployment in
+// the system space, the same permission that reads any other deployment's
+// logs; nodes themselves carry no log permission.
 func (h *Handler) logQueryTargetNode(ctx apigen.Context, deploymentID, targetNodeID, specVersion int32) (int32, error) {
 	if specVersion < 0 {
 		return 0, deployments.InvalidConfigErrf("specVersion must not be negative")
@@ -219,7 +221,11 @@ func (h *Handler) logQueryTargetNode(ctx apigen.Context, deploymentID, targetNod
 		if targetNodeID <= 0 {
 			return 0, MissingKeyErr
 		}
-		if err := h.requireAccess(ctx, vViewLogs, eNode, 0, int64(targetNodeID)); err != nil {
+		self := h.systemDeploymentForNode(targetNodeID)
+		if self == nil {
+			return 0, deployments.NotFoundErr
+		}
+		if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(self.Value.SpaceID), int64(self.DeploymentID), deployments.NotFoundErr); err != nil {
 			return 0, err
 		}
 		return targetNodeID, nil
@@ -410,6 +416,21 @@ func waitForPrepareOutputFile(ctx context.Context, path string) (*os.File, error
 
 // findConfigByID resolves a live deployment, hiding deleted tombstones from
 // callers that treat existence as "queryable" (history, logs, versions).
+// systemDeploymentForNode finds the live opendeploy system deployment of a
+// node, or nil when the node has none yet.
+func (h *Handler) systemDeploymentForNode(nodeID int32) *apigen.DeploymentEvent {
+	events, err := h.Queries.ListLatestDeploymentEvents(context.Background())
+	if err != nil {
+		return nil
+	}
+	for _, cfg := range events {
+		if !cfg.Deleted() && internaldeploy.IsSelfConfig(cfg) && cfg.Value.NodeID == nodeID {
+			return cfg
+		}
+	}
+	return nil
+}
+
 func (h *Handler) findConfigByID(deploymentID int32) *apigen.DeploymentEvent {
 	cfg := h.deploymentByID(deploymentID)
 	if cfg == nil || cfg.Deleted() {

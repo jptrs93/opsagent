@@ -13,6 +13,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -218,6 +219,57 @@ func TestEnforcementDelegated(t *testing.T) {
 	}
 	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: statetest.ValueVersions(h.Store, minted)[0].ID}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("delegated reveal of its own secret: got %v, want AccessDeniedErr", err)
+	}
+}
+
+// The node's system log (deployment_id = 0) is the opendeploy system
+// deployment's log, gated on view_logs for that deployment in the system
+// space; a permission on the node entity does not open it.
+func TestEnforcementSystemLogIsTheSystemDeploymentsLog(t *testing.T) {
+	h, _ := newEnforcementTestHandler(t)
+	node := nodes.EnsurePrimaryNode(h.Store, "primary", "primary")
+	deployments.EnsureSystem(h.Store, node.ID, "v1.2.3")
+	self := findSystemDeployment(t, h.Store, node.ID)
+	if self.Value.SpaceID != 0 {
+		t.Fatalf("system deployment lives in space %d, want 0", self.Value.SpaceID)
+	}
+	grantRule := func(userID int64, entity apigen.AuthzEntity) {
+		t.Helper()
+		if _, err := h.Authz.CreateGrant(&apigen.AuthzGrantRecord{
+			UserID: userID,
+			Grant: &apigen.AuthzGrant{Rule: &apigen.AuthzRule{
+				Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW), int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS)}},
+				Spaces:      &apigen.AuthzSelector{Include: []int64{0}},
+				EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(entity)}},
+				EntityRefs:  &apigen.AuthzSelector{Wildcard: true},
+			}},
+		}); err != nil {
+			t.Fatalf("grant %v to user %d: %v", entity, userID, err)
+		}
+	}
+	users.Write(h.Store, &apigen.InternalUser{ID: 4, Name: "deploylogs"})
+	users.Write(h.Store, &apigen.InternalUser{ID: 5, Name: "nodelogs"})
+	grantRule(4, apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT)
+	grantRule(5, apigen.AuthzEntity_AUTHZ_ENTITY_NODE)
+
+	if got, err := h.logQueryTargetNode(enforceCtx(1, false), 0, node.ID, 0); err != nil || got != node.ID {
+		t.Fatalf("admin system log: got node %d, %v", got, err)
+	}
+	if got, err := h.logQueryTargetNode(enforceCtx(4, false), 0, node.ID, 0); err != nil || got != node.ID {
+		t.Fatalf("view_logs on system-space deployments: got node %d, %v; want allowed", got, err)
+	}
+	if _, err := h.logQueryTargetNode(enforceCtx(5, false), 0, node.ID, 0); !errors.Is(err, deployments.NotFoundErr) {
+		t.Fatalf("view_logs on nodes only: got %v, want NotFoundErr", err)
+	}
+	if _, err := h.logQueryTargetNode(enforceCtx(2, false), 0, node.ID, 0); !errors.Is(err, deployments.NotFoundErr) {
+		t.Fatalf("space_admin of the default space: got %v, want NotFoundErr", err)
+	}
+	if _, err := h.logQueryTargetNode(enforceCtx(1, false), 0, node.ID+1, 0); !errors.Is(err, deployments.NotFoundErr) {
+		t.Fatalf("node without a system deployment: got %v, want NotFoundErr", err)
+	}
+	// The deployment's own id resolves to the same node under the same check.
+	if got, err := h.logQueryTargetNode(enforceCtx(4, false), self.DeploymentID, 0, 0); err != nil || got != node.ID {
+		t.Fatalf("system deployment by id: got node %d, %v", got, err)
 	}
 }
 
