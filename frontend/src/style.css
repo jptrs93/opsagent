@@ -69,6 +69,16 @@
     disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent;
 }
 
+/* Trigger states of the rule explainer (components/ruleExplainer.js): the
+   pill or chip whose explanation is open, and the one whose card is pinned. */
+.explain-open {
+    border-color: rgb(96 165 250 / 0.6) !important;
+}
+
+.explain-pinned {
+    box-shadow: 0 0 0 1px rgb(96 165 250 / 0.45);
+}
+
 .btn-primary {
     @apply px-4 py-2 rounded-lg bg-brand text-white font-medium
     hover:bg-blue-600 transition-colors cursor-pointer;

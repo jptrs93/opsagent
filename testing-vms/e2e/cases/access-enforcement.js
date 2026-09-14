@@ -185,6 +185,8 @@ export const accessEnforcementCases = [
         await page.getByTestId('nav-users').click();
         await expect(userRow(page, RESTRICTED_USER)).toBeVisible({timeout: LONG_UI_TIMEOUT});
         await expect(userRow(page, ADMIN_USER)).toBeVisible();
+        // Roles and global rules are the page's second tab.
+        await page.getByTestId('users-tab-rules').click();
         await expect(templateRow(page, 'cluster_admin')).toBeVisible();
         await expect(templateRow(page, 'space_admin')).toBeVisible();
         await expect(page.getByText(/No global rules/)).toBeVisible();

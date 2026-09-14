@@ -45,7 +45,7 @@ const chip = (variants, {title, chipClass} = {}) => {
     const el = div({
         class: "min-w-0 overflow-hidden whitespace-nowrap px-1.5 py-0.5 text-xs " +
             (chipClass || "text-gray-300"),
-        title: title || "",
+        ...(title ? {title} : {}),
     }, () => span(...tierNodes(shown.val)));
     // Segments take exactly the width of the phrasing they show; fitRow only
     // lets them shrink when even the shortest phrasing overflows.
@@ -93,7 +93,7 @@ const listable = (values) => values.length <= MAX_LISTED;
 // Each selector kind gets its own component: the noun, pluralisation, and
 // tier ladder differ enough that sharing one generic builder obscures them.
 
-const spacesChip = (sel, {spaceNames, argNames} = {}) => {
+const spacesChip = (sel, {spaceNames, argNames, titles = true} = {}) => {
     const name = (v) => positionValueName("spaces", v, spaceNames);
     const title = formatSelector(sel, "spaces", {spaceNames, argNames});
     let tiers;
@@ -115,7 +115,7 @@ const spacesChip = (sel, {spaceNames, argNames} = {}) => {
     } else {
         tiers = ["no spaces"];
     }
-    return chip(tiers.filter(Boolean), {title});
+    return chip(tiers.filter(Boolean), {title: titles ? title : ""});
 };
 
 // Resource types render as their plural noun alone — "secrets", never
@@ -189,7 +189,7 @@ const refsTierList = (sel, argNames) => {
 //   7. anything else stays uncollapsed  → "instances { #4 ∪ #7 } of { nodes ∪ users }"
 // Ids against multiple or wildcard types (rule 7) are semantically murky — id
 // spaces are per-type — so the verbose form is deliberate.
-const entitiesChip = (refsSel, typesSel, {spaceNames, argNames} = {}) => {
+const entitiesChip = (refsSel, typesSel, {spaceNames, argNames, titles = true} = {}) => {
     const title = formatSelector(typesSel, "entityTypes", {spaceNames, argNames}) + " : " +
         formatSelector(refsSel, "entityRefs", {argNames});
     const nKind = selKind(refsSel), tKind = selKind(typesSel);
@@ -240,10 +240,10 @@ const entitiesChip = (refsSel, typesSel, {spaceNames, argNames} = {}) => {
             " of ",
             ...tierNodes(typeTiers[Math.min(i, typeTiers.length - 1)])));
     }
-    return chip(tiers.filter(Boolean), {title});
+    return chip(tiers.filter(Boolean), {title: titles ? title : ""});
 };
 
-const permissionsChip = (sel, {argNames} = {}) => {
+const permissionsChip = (sel, {argNames, titles = true} = {}) => {
     const name = (v) => positionValueName("permissions", v);
     const title = formatSelector(sel, "permissions", {argNames});
     let tiers;
@@ -265,13 +265,13 @@ const permissionsChip = (sel, {argNames} = {}) => {
     } else {
         tiers = ["no actions"];
     }
-    return chip(tiers.filter(Boolean), {title});
+    return chip(tiers.filter(Boolean), {title: titles ? title : ""});
 };
 
-const delegationChip = (delegationAllowed) => chip(
+const delegationChip = (delegationAllowed, titles = true) => chip(
     delegationAllowed ? ["user + agents"] : ["user only"],
     {
-        title: `delegation ${delegationAllowed ? "allowed" : "not allowed"}`,
+        title: titles ? `delegation ${delegationAllowed ? "allowed" : "not allowed"}` : "",
         chipClass: delegationAllowed ? "bg-teal-950/40 text-teal-300" : "text-gray-500",
     },
 );
@@ -279,12 +279,12 @@ const delegationChip = (delegationAllowed) => chip(
 // On a global deny rule the flag means something different: it narrows when
 // the rule fires (delegated agent sessions only) rather than what a grant
 // allows, so it gets its own chip with "applies to" phrasing.
-const delegatedOnlyChip = (delegatedOnly) => chip(
+const delegatedOnlyChip = (delegatedOnly, titles = true) => chip(
     delegatedOnly
         ? ["delegated agent sessions only", "delegated agents only", "agents only"]
         : ["everyone"],
     {
-        title: delegatedOnly ? "denies delegated agent sessions only" : "denies everyone",
+        title: !titles ? "" : delegatedOnly ? "denies delegated agent sessions only" : "denies everyone",
         chipClass: delegatedOnly ? "bg-teal-950/40 text-teal-300" : "text-gray-500",
     },
 );
@@ -306,7 +306,7 @@ const chipRow = (title, ...items) => {
     const pill = div({
         class: "flex w-fit max-w-full min-w-0 items-stretch overflow-hidden rounded-md " +
             "border border-gray-700 bg-gray-950/40",
-        title,
+        ...(title ? {title} : {}),
     }, ...items.map((it) => it.el || it));
     // The available width is read from a full-width wrapper, not from the pill:
     // the pill hugs its content, so observing it would feed every relayout back
@@ -333,40 +333,42 @@ const selectorChips = (rule, opts) => [
 // ruleDisplay renders one authz rule as a sentence of human-readable chips:
 // "allow <actions> on <instances> of <resources> in <spaces> by <user +
 // agents|user only>". The row never wraps; the phrasings step down together as
-// the row narrows. Hovering shows the raw grammar.
-export const ruleDisplay = (rule, {spaceNames, argNames} = {}) => {
+// the row narrows. Hovering shows the raw grammar in native tooltips unless
+// `titles` is false, for a caller that explains the rule some other way.
+export const ruleDisplay = (rule, {spaceNames, argNames, titles = true} = {}) => {
     if (!rule) return "";
-    const opts = {spaceNames, argNames};
-    return chipRow(formatRule(rule, opts),
+    const opts = {spaceNames, argNames, titles};
+    return chipRow(titles ? formatRule(rule, opts) : "",
         chipWord("allow", "text-green-400"),
         permissionsChip(rule.permissions, opts),
         chipWord("on"),
         ...selectorChips(rule, opts),
         chipWord("by"),
-        delegationChip(rule.delegationAllowed));
+        delegationChip(rule.delegationAllowed, titles));
 };
 
 // globalRuleDisplay renders a global rule in either mode: an allow-mode rule
 // reads exactly like a grant everyone holds (green "allow", delegation chip),
 // a deny-mode rule keeps the red "deny" with a trailing chip stating who the
 // deny applies to instead of delegability.
-export const globalRuleDisplay = (rule, {spaceNames, argNames} = {}) => {
+export const globalRuleDisplay = (rule, {spaceNames, argNames, titles = true} = {}) => {
     if (!rule) return "";
-    const opts = {spaceNames, argNames};
+    const opts = {spaceNames, argNames, titles};
+    const title = titles ? formatGlobalRule(rule, opts) : "";
     if (!rule.deny) {
-        return chipRow(formatGlobalRule(rule, opts),
+        return chipRow(title,
             chipWord("allow", "text-green-400"),
             permissionsChip(rule.permissions, opts),
             chipWord("on"),
             ...selectorChips(rule, opts),
             chipWord("by"),
-            delegationChip(rule.delegationAllowed));
+            delegationChip(rule.delegationAllowed, titles));
     }
-    return chipRow(formatGlobalRule(rule, opts),
+    return chipRow(title,
         chipWord("deny", "text-red-400"),
         permissionsChip(rule.permissions, opts),
         chipWord("on"),
         ...selectorChips(rule, opts),
         chipWord("by"),
-        delegatedOnlyChip(rule.delegatedOnly));
+        delegatedOnlyChip(rule.delegatedOnly, titles));
 };
