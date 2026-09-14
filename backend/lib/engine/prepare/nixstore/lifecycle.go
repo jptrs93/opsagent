@@ -95,7 +95,7 @@ func (m *Manager) pathCount(key string) int {
 }
 
 func (m *Manager) collect(ctx context.Context, key string, target int64, out io.Writer) error {
-	spec := m.maintenanceSpec("gc", "nix", "store", "gc", "--max-freed", fmt.Sprint(target))
+	spec := m.maintenanceSpec("gc", "nix", "store", "gc", "--max", fmt.Sprint(target))
 	spec.Mounts = []ctrd.Mount{
 		{Source: m.StoreRoot(key), Dest: containerNixDir},
 		{Source: m.NixConfPath(), Dest: containerNixConfPath, ReadOnly: true},

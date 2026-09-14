@@ -214,7 +214,7 @@ garbage-collection roots, so a store is a pure cache and any of it may be
 deleted at any time between builds. Three mechanisms, all run under the
 repository lock:
 
-- A size cap per store (`OPENDEPLOY_NIX_STORE_SIZE_CAP_MB`, default 6 GiB),
+- A size cap per store (`OPENDEPLOY_NIX_STORE_SIZE_CAP_MB`, default 15 GiB),
   enforced by `nix store gc` in the maintenance container after a build that
   pushed the store over the cap.
 - A scheduled full reset per store (`OPENDEPLOY_NIX_STORE_RESET_HOURS`,

@@ -31,7 +31,7 @@ const (
 	BuildImage        = "docker.io/nixos/nix@sha256:7a007c766426c1877758ddc5cb87a965ac131fc78c582ce0083d922d51ae945c"
 	BuildImageVersion = "2.35.2"
 
-	DefaultSizeCap         = 6 << 30
+	DefaultSizeCap         = 15 << 30
 	DefaultResetInterval   = 7 * 24 * time.Hour
 	DefaultPids            = 4096
 	DefaultFileDescriptors = 4096

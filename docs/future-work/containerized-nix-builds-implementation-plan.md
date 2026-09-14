@@ -92,8 +92,8 @@ also compiles the nix2container tool and pulls the Go toolchain closure.
 
 ### Phase 3: store lifecycle
 
-- Size cap (`OPENDEPLOY_NIX_STORE_SIZE_CAP_MB`, default 6 GiB) enforced with
-  `nix store gc --max-freed` in a maintenance container after a build that pushed
+- Size cap (`OPENDEPLOY_NIX_STORE_SIZE_CAP_MB`, default 15 GiB) enforced with
+  `nix store gc --max` in a maintenance container after a build that pushed
   the store over it.
 - Scheduled reset (`OPENDEPLOY_NIX_STORE_RESET_HOURS`, default 168) and
   operator resets applied by a ten-minute maintenance loop on every node,
@@ -151,7 +151,7 @@ also compiles the nix2container tool and pulls the Go toolchain closure.
 | `OPENDEPLOY_NIX_BUILD_CPUS` | every CPU |
 | `OPENDEPLOY_NIX_BUILD_PIDS` | 4096 |
 | `OPENDEPLOY_NIX_BUILD_FILE_DESCRIPTORS` | 4096 |
-| `OPENDEPLOY_NIX_STORE_SIZE_CAP_MB` | 6144 |
+| `OPENDEPLOY_NIX_STORE_SIZE_CAP_MB` | 15360 |
 | `OPENDEPLOY_NIX_STORE_RESET_HOURS` | 168 |
 
 ## e2e coverage

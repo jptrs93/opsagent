@@ -441,6 +441,10 @@ func TestAfterBuildCollectsOverCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	size, err := m.Size(key)
+	if err != nil {
+		t.Fatal(err)
+	}
 	sink := &logSink{}
 	m.AfterBuild(context.Background(), store, io.Discard, sink.log)
 	ops := runner.ops()
@@ -448,7 +452,7 @@ func TestAfterBuildCollectsOverCap(t *testing.T) {
 		t.Fatalf("ops = %v", ops)
 	}
 	gc := runner.specs[len(runner.specs)-1]
-	if gc.Args[0] != "nix" || gc.Args[2] != "gc" || gc.Mounts[0].Source != store.Root || gc.Mounts[0].Dest != "/nix" || !gc.NoNetwork {
+	if !slices.Equal(gc.Args, []string{"nix", "store", "gc", "--max", fmt.Sprint(gcTarget(size, 1))}) || gc.Mounts[0].Source != store.Root || gc.Mounts[0].Dest != "/nix" || !gc.NoNetwork {
 		t.Fatalf("gc spec = %+v", gc)
 	}
 	if !sink.contains("store exceeds 1 B") {
