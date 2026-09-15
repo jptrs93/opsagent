@@ -88,6 +88,11 @@ func (q *Queries) ListNonFinalScheduledInstancesForDeployment(ctx context.Contex
  WHERE e.deployment_id = ? AND e.state != ? ORDER BY e.scheduled_instance_id`, deploymentID, int64(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED))
 }
 
+func (q *Queries) ListLatestScheduledInstanceEventsForNode(ctx context.Context, nodeID int32) ([]*apigen.ScheduledInstanceEvent, error) {
+	return q.queryScheduledInstanceEvents(ctx, `SELECT `+scheduledInstanceEventColumnsE+` `+latestScheduledInstanceEventsFrom+`
+ WHERE e.node_id = ? ORDER BY e.scheduled_instance_id`, nodeID)
+}
+
 func (q *Queries) ListLatestScheduledInstancePerOrdinal(ctx context.Context) ([]*apigen.ScheduledInstanceEvent, error) {
 	return q.queryScheduledInstanceEvents(ctx, `SELECT `+scheduledInstanceEventColumnsE+` `+latestScheduledInstanceEventsFrom+`
  JOIN (SELECT deployment_id, instance_ordinal, MAX(scheduled_instance_id) AS scheduled_instance_id

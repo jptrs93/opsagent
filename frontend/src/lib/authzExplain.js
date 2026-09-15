@@ -58,7 +58,8 @@ export const PAIR_GLOSS = {
     "asset:delete": "delete assets and directories",
     "asset:view": "list and download assets",
     "node:create": "accept a node's enrolment into the cluster",
-    "node:update": "rename a node and choose which spaces may run on it",
+    "node:update": "rename a node, choose which spaces may run on it, and drain it",
+    "node:delete": "evict a node from the cluster",
     "node:view": "see nodes and pending enrolments",
     "cluster:update": "change cluster settings and the master password, unlock secrets, reset Nix stores",
     "cluster:view": "read cluster settings and the exported config",
@@ -175,7 +176,7 @@ export const APPLICABLE = {
     secret: ["create", "update", "delete", "view", "reveal"],
     config: ["create", "update", "delete", "view"],
     asset: ["create", "update", "delete", "view"],
-    node: ["create", "update", "view"],
+    node: ["create", "update", "delete", "view"],
     cluster: ["update", "view"],
     user: ["view"],
     access: ["create", "update", "delete", "view"],
@@ -194,7 +195,7 @@ export const APPLICABLE = {
 export const SYSTEM_APPLICABLE = {
     space: ["create"],
     deployment: ["update", "delete", "view", "view_logs", "use_host_mounts", "use_host_network"],
-    node: ["create", "update", "view"],
+    node: ["create", "update", "delete", "view"],
     cluster: ["update", "view"],
     user: ["view"],
     access: ["create", "update", "delete", "view"],
@@ -223,7 +224,6 @@ export const ENTITY_SHORT = {
 const NA_BY_TYPE = {
     user: "users come into existence at sign-in; the roster can only be viewed",
     cluster: "cluster settings can only be viewed or updated",
-    node: "nodes join by enrollment and are never deleted through the API",
 };
 
 // notApplicableReason(verb, type, system) says why a cell is greyed: the verb

@@ -22,6 +22,11 @@ func Run(ctx context.Context) {
 	ctx = logu.AddTag(ctx, "Secondary")
 	cfg := ainit.StaticConfig
 	slog.InfoContext(ctx, fmt.Sprintf("opendeploy secondary booting version=%v dataDir=%v", version.Version, cfg.DataDir))
+	if evictedMarkerExists(cfg.DataDir) {
+		slog.ErrorContext(ctx, "this node was evicted from the cluster and will not start; reinstall the secondary to enroll a new identity")
+		<-ctx.Done()
+		return
+	}
 	runtimebin.ReconcileAtStartup(ctx)
 	if cfg.PrimaryClusterAddr == "" || cfg.PrimaryEnrollmentAddr == "" {
 		panic("OPENDEPLOY_PRIMARY_CLUSTER_ADDR and OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR must be set when running secondary")

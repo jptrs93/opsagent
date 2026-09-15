@@ -20,6 +20,10 @@ var NodeSpaceNotAllowedErr = apigen.NewApiErr(
 	"This node does not allow deployments from that space",
 	"node_space_not_allowed", http.StatusConflict)
 
+var NodeDrainingErr = apigen.NewApiErr(
+	"This node is draining and does not accept running deployments",
+	"node_draining", http.StatusConflict)
+
 func validateDeployment(def *apigen.Deployment) error {
 	if def.Name == "" {
 		return InvalidConfigErrf("name is required")
@@ -90,6 +94,17 @@ func validateNodeAllowsSpace(live nodes.LiveState, nodeID, spaceID int32) error 
 	return nil
 }
 
+func validateNodeNotDraining(live nodes.LiveState, updated, existing *apigen.DeploymentEvent) error {
+	node := live.Nodes[updated.Value.NodeID]
+	if node == nil || node.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_DRAINING {
+		return nil
+	}
+	if existing != nil && existing.Value.NodeID == updated.Value.NodeID && !updated.WorkloadRunning() {
+		return nil
+	}
+	return NodeDrainingErr
+}
+
 func validateNoDuplicateIdentity(live nodes.LiveState, updated *apigen.DeploymentEvent) error {
 	for _, other := range live.Deployments {
 		if other.DeploymentID == updated.DeploymentID {
@@ -114,6 +129,9 @@ func inLockValidateDeploymentCreate(ctx context.Context, q *pq.Queries, reservat
 		return err
 	}
 	if err := validateNodeAllowsSpace(live, updated.Value.NodeID, updated.Value.SpaceID); err != nil {
+		return err
+	}
+	if err := validateNodeNotDraining(live, updated, nil); err != nil {
 		return err
 	}
 	if err := ValidateNodeNetworkingClaims(live, reservations, updated.Value.NodeID, updated.DeploymentID, &updated.Value.Spec); err != nil {
@@ -142,6 +160,9 @@ func inLockValidateDeploymentUpdate(ctx context.Context, q *pq.Queries, reservat
 	}
 	if existing.Version != expectedVersion {
 		return InvalidConfigErrf("deployment version mismatch: deployment %d has version %d, expected %d", existing.DeploymentID, existing.Version, expectedVersion)
+	}
+	if err := validateNodeNotDraining(live, updated, existing); err != nil {
+		return err
 	}
 	if existing.Value.SpaceID != updated.Value.SpaceID {
 		if internaldeploy.IsInternalConfig(existing) {

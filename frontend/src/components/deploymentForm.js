@@ -2516,10 +2516,12 @@ function nodeSelect(form, opts) {
         ...nodes.map(node => option({
             value: String(node.id),
             selected: Number(node.id) === current,
-            disabled: () => !nodeAllowsSpace(node, form.spaceId.val),
-        }, () => nodeAllowsSpace(node, form.spaceId.val)
-            ? `${node.name || 'Unnamed node'} (#${node.id})`
-            : `${node.name || 'Unnamed node'} (#${node.id}) — space not allowed`)),
+            disabled: () => !nodeAllowsSpace(node, form.spaceId.val) || (node.draining && Number(node.id) !== current),
+        }, () => !nodeAllowsSpace(node, form.spaceId.val)
+            ? `${node.name || 'Unnamed node'} (#${node.id}) — space not allowed`
+            : node.draining
+                ? `${node.name || 'Unnamed node'} (#${node.id}) — draining`
+                : `${node.name || 'Unnamed node'} (#${node.id})`)),
         ...extraCurrent,
     );
 }

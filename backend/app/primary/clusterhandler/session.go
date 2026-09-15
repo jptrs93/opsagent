@@ -92,6 +92,12 @@ func (s *Session) send(msg *apigen.MsgToSecondary) bool {
 	}
 }
 
+func (s *Session) evict() {
+	if !s.send(&apigen.MsgToSecondary{Evicted: true}) {
+		s.cancel()
+	}
+}
+
 func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*apigen.MsgToSecondary, error) bool) {
 	defer s.cancel()
 	defer s.closeAllLogStreams()
@@ -206,7 +212,7 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 		case <-s.sessCtx.Done():
 			return
 		case msg := <-s.outbox:
-			if !yield(msg, nil) {
+			if !yield(msg, nil) || msg.Evicted {
 				return
 			}
 		case next, ok := <-netMapUpdates:

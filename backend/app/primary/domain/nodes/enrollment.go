@@ -29,6 +29,9 @@ func UpsertEnrollmentRequest(store *state.Service, remoteAddress, opendeployVers
 		if !isNew && isMemberStatus(current.Event.Value.Status) {
 			return nil, ErrEnrollmentIdentifierEnrolled
 		}
+		if !isNew && current.Event.Value.Status == apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED {
+			return nil, ErrEnrollmentIdentifierEvicted
+		}
 		spec := nodeEventSpecOf(current)
 		spec.Status = apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED
 		if !reported.HostAddressesUnknown {

@@ -140,6 +140,11 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			yield(nil, enrollment.IdentifierEnrolledErr)
 			return
 		}
+		if errors.Is(err, nodes.ErrEnrollmentIdentifierEvicted) {
+			slog.WarnContext(ctx, fmt.Sprintf("rejected enrollment hello for evicted requestingMachineID=%s peer=%s", requestingMachineID, peer))
+			yield(nil, enrollment.IdentifierEvictedErr)
+			return
+		}
 		if err != nil {
 			yield(nil, err)
 			return

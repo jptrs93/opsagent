@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"net/http"
 	"strings"
@@ -124,6 +125,126 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	// a node has no pending update to take it away — only a full re-filter of
 	// each open stream removes (or reveals) the row.
 	return updated, nil
+}
+
+var NodeNotMemberErr = apigen.NewApiErr("Node is not a cluster member", "node_not_member", http.StatusConflict)
+var NodeIsPrimaryErr = apigen.NewApiErr("The primary node cannot be drained or evicted", "node_is_primary", http.StatusBadRequest)
+var NodeVersionChangedErr = apigen.NewApiErr("The node changed while you were looking at it; reload and try again", "node_version_changed", http.StatusConflict)
+var InvalidNodeRequestErr = apigen.NewApiErr("Node identifier is required", "invalid_node_request", http.StatusBadRequest)
+
+func (h *Handler) visibleMemberNode(ctx apigen.Context, identifier string) (*nodes.Node, error) {
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		return nil, InvalidNodeRequestErr
+	}
+	node := h.nodeByIdentifier(identifier)
+	if node == nil || !h.nodeVisible(ctx, int64(node.ID), node.AllowedSpaces) {
+		return nil, NodeNotFoundErr
+	}
+	return node, nil
+}
+
+func mapNodeLifecycleErr(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, sql.ErrNoRows):
+		return NodeNotFoundErr
+	case errors.Is(err, nodes.ErrNodeNotMember):
+		return NodeNotMemberErr
+	case errors.Is(err, nodes.ErrNodeIsPrimary):
+		return NodeIsPrimaryErr
+	case errors.Is(err, nodes.ErrNodeVersionChanged):
+		return NodeVersionChangedErr
+	}
+	var hasDeployments *nodes.ErrNodeHasDeployments
+	if errors.As(err, &hasDeployments) {
+		return apigen.NewApiErr(
+			fmt.Sprintf("%d deployments still target this node; move or stop them first, or evict anyway", hasDeployments.Count),
+			"node_has_deployments", http.StatusConflict)
+	}
+	return err
+}
+
+func (h *Handler) PostV1NodesDrain(ctx apigen.Context, req *apigen.NodeDrainRequest) (*apigen.NodeEvent, error) {
+	if req == nil {
+		return nil, InvalidNodeRequestErr
+	}
+	node, err := h.visibleMemberNode(ctx, req.Identifier)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.requireAccess(ctx, vUpdate, eNode, 0, int64(node.ID)); err != nil {
+		return nil, err
+	}
+	event, err := nodes.SetNodeDraining(ctx, h.Store, node.Identifier, req.Draining)
+	return event, mapNodeLifecycleErr(err)
+}
+
+func (h *Handler) PostV1NodesEvict(ctx apigen.Context, req *apigen.NodeEvictRequest) (*apigen.NodeEvent, error) {
+	if req == nil {
+		return nil, InvalidNodeRequestErr
+	}
+	node, err := h.visibleMemberNode(ctx, req.Identifier)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.requireAccess(ctx, vDelete, eNode, 0, int64(node.ID)); err != nil {
+		return nil, err
+	}
+	event, err := nodes.EvictNode(ctx, h.Store, node.Identifier, req.ExpectedVersion, req.Force)
+	if err != nil {
+		return nil, mapNodeLifecycleErr(err)
+	}
+	return event, nil
+}
+
+func (h *Handler) PostV1NodesExposure(ctx apigen.Context, req *apigen.NodeExposureRequest) (*apigen.NodeExposure, error) {
+	if req == nil || strings.TrimSpace(req.Identifier) == "" {
+		return nil, InvalidNodeRequestErr
+	}
+	row, err := h.Queries.GetNodeRowByIdentifier(ctx, strings.TrimSpace(req.Identifier))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, NodeNotFoundErr
+	}
+	if err != nil {
+		return nil, err
+	}
+	nodeID := row.Event.NodeID
+	if !h.nodeVisible(ctx, int64(nodeID), row.Event.Value.Operator.AllowedSpaces) {
+		return nil, NodeNotFoundErr
+	}
+	if err := h.requireAccess(ctx, vDelete, eNode, 0, int64(nodeID)); err != nil {
+		return nil, err
+	}
+	exposure, err := nodes.NodeExposure(ctx, h.Queries, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	out := &apigen.NodeExposure{NodeID: nodeID, GithubToken: exposure.GithubToken, AcmeHostnames: exposure.AcmeHostnames}
+	for _, cfg := range exposure.Deployments {
+		out.Deployments = append(out.Deployments, &apigen.NodeExposureItem{ID: cfg.DeploymentID, Name: cfg.Value.Name, SpaceID: cfg.Value.SpaceID, Version: cfg.Version})
+	}
+	for _, cfg := range exposure.IssuedTLSDeployments {
+		out.IssuedTlsDeployments = append(out.IssuedTlsDeployments, &apigen.NodeExposureItem{ID: cfg.DeploymentID, Name: cfg.Value.Name, SpaceID: cfg.Value.SpaceID, Version: cfg.Version})
+	}
+	for _, id := range exposure.SecretVersionIDs {
+		item := &apigen.NodeExposureItem{ID: id}
+		if h.Secrets != nil {
+			if meta, ok := h.Secrets.MetaByID(id); ok {
+				item.Name, item.SpaceID, item.Version = meta.Name, meta.SpaceID, meta.Version
+			}
+		}
+		out.Secrets = append(out.Secrets, item)
+	}
+	for _, id := range exposure.ConfigVersionIDs {
+		item := &apigen.NodeExposureItem{ID: id}
+		if ref, ok := values.GetConfigVersion(h.Queries, id); ok {
+			item.Name, item.SpaceID, item.Version = ref.Name, ref.SpaceID, ref.Version
+		}
+		out.Configs = append(out.Configs, item)
+	}
+	return out, nil
 }
 
 func (h *Handler) nodeByIdentifier(identifier string) *nodes.Node {

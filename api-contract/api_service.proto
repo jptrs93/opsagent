@@ -285,6 +285,18 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }
 
+  rpc PostV1NodesDrain(NodeDrainRequest) returns (NodeEvent) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1NodesEvict(NodeEvictRequest) returns (NodeEvent) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
+  rpc PostV1NodesExposure(NodeExposureRequest) returns (NodeExposure) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  }
+
   rpc GetV1NodesEnrollmentsInfo(cp.Empty) returns (NodeEnrollmentInfo) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
   }

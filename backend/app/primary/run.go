@@ -121,6 +121,7 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	}
 	clusterHandler := clusterhandler.New(primaryRuntime.store, primaryRuntime.assets, primaryRuntime.github, primaryRuntime.secrets, primaryRuntime.configService.NetworkPrefix(), networkMaps, primaryRuntime.acmeHolder, primaryRuntime.nixStores, primaryRuntime.issuedTLS)
 	enrollmentHandler := enrollmenthandler.New(primaryRuntime.store, primaryRuntime.secrets, primaryRuntime.configService, enrollmentFingerprint, networkMaps)
+	go clusterHandler.RunEvictionWatch(ctx)
 	webUIHandler.Cluster = clusterHandler
 	webUIHandler.IngressDiagnostics = networkMaps
 	webUIHandler.LogManager = logmanager.StartManager(ctx, primaryRuntime.store, func(state apigen.ScheduledInstanceState) bool {

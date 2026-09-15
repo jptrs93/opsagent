@@ -2,6 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {sectionBand} from "../components/sectionBand.js";
+import {evictNodeOverlay, pinnedUserDeployments} from "../components/evictNodeOverlay.js";
 import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, systemConfigS, spacesS, userConfigRefsS} from "../state/deployments.js";
 import {deploymentWorkload} from "../lib/deployment.js";
 import {allowedSpaceNames, editableSpaceIDs, isFixedSpace} from "../lib/nodeSpaces.js";
@@ -25,7 +26,7 @@ export function clusterPage() {
     const enrollmentInfo = van.state(null);
     const configError = van.state(null);
     const copied = van.state(false);
-    const open = {nodes: van.state(true), backup: van.state(true), enrollments: van.state(true), install: van.state(true)};
+    const open = {nodes: van.state(true), backup: van.state(true), enrollments: van.state(true), install: van.state(true), evicted: van.state(true)};
 
     const loadEnrollmentInfo = async () => {
         try {
@@ -68,8 +69,19 @@ export function clusterPage() {
                 headerCell("Spaces"),
                 headerCell("Runtime"),
                 headerCell("Status"),
-                headerCell("Connected since", ""))),
+                headerCell("Connected since"),
+                headerCell("Actions", ""))),
             tbody(...sorted.map(machineRow))));
+
+    const evictedSection = (evicted) => evicted.length === 0
+        ? p({class: "px-4 py-2 text-gray-400 text-sm"}, "No evicted nodes.")
+        : div({class: "pl-4 pr-2"}, table(
+            {class: "w-full text-sm"},
+            thead(tr({class: "text-left text-gray-500 border-b border-gray-800"},
+                headerCell("Node", "pr-3 w-[24rem]"),
+                headerCell("Identifier"),
+                headerCell("Evicted", ""))),
+            tbody(...evicted.map(evictedRow))));
 
     const backupSection = () => div(
         {class: "px-4 py-2.5 flex flex-col gap-3", "data-testid": "backup-replication-card"},
@@ -109,7 +121,8 @@ export function clusterPage() {
                     return p({class: "px-4 py-3 text-gray-400"}, "Loading...");
                 }
 
-                const sorted = [...machinesS.val].sort((a, b) => {
+                const evicted = machinesS.val.filter(machine => machine.evicted);
+                const sorted = machinesS.val.filter(machine => !machine.evicted).sort((a, b) => {
                     if (a.isPrimary && !b.isPrimary) return -1;
                     if (!a.isPrimary && b.isPrimary) return 1;
                     return a.name.localeCompare(b.name);
@@ -127,6 +140,8 @@ export function clusterPage() {
                     !open.enrollments.val ? "" : enrollmentsSection(pending),
                     sectionBand(open.install, "Install secondary command", null, copyButton),
                     !open.install.val ? "" : installSection(),
+                    sectionBand(open.evicted, "Evicted nodes", String(evicted.length)),
+                    !open.evicted.val ? "" : evictedSection(evicted),
                 );
             },
         ),
@@ -284,11 +299,72 @@ function machineRow(machine) {
         td({class: "py-1 pr-3"},
             machine.connected
                 ? span({class: "text-green-400"}, "connected")
-                : span({class: "text-red-400"}, "disconnected")
+                : span({class: "text-red-400"}, "disconnected"),
+            machine.draining ? span({class: "ml-2 text-amber-300", "data-testid": "node-draining-badge"}, "draining") : '',
         ),
-        td({class: "py-1 text-gray-400"},
+        td({class: "py-1 pr-3 text-gray-400"},
             machine.isPrimary ? '-' : formatTime(machine.connectedAt)
         ),
+        td({class: "py-1"}, machine.isPrimary ? '' : nodeActions(machine)),
+    );
+}
+
+function nodeActions(machine) {
+    const busy = van.state(false);
+    const error = van.state('');
+    const overlay = van.state(null);
+
+    const toggleDrain = async () => {
+        if (busy.val) return;
+        busy.val = true;
+        error.val = '';
+        try {
+            await capi.postV1NodesDrain({identifier: machine.identifier, draining: !machine.draining});
+        } catch (e) {
+            error.val = e?.message || 'Updating node failed.';
+        } finally {
+            busy.val = false;
+        }
+    };
+
+    const openEvict = () => {
+        overlay.val = evictNodeOverlay({
+            machine,
+            pinned: pinnedUserDeployments(deploymentsS.val, machine.id),
+            evict: force => capi.postV1NodesEvict({identifier: machine.identifier, expectedVersion: machine.version, force}),
+            close: () => { overlay.val = null; },
+        });
+    };
+
+    const actionClass = "text-xs px-2 py-0.5 rounded border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ";
+    return div({class: "flex items-center gap-2 whitespace-nowrap"},
+        button({
+            type: "button",
+            class: actionClass + "border-gray-600 text-gray-300 hover:bg-surface-hover",
+            disabled: () => busy.val,
+            "data-testid": `node-drain-${machine.identifier}`,
+            title: machine.draining ? "Allow new deployments on this node again" : "Stop placing new deployments on this node",
+            onclick: toggleDrain,
+        }, machine.draining ? "Undrain" : "Drain"),
+        button({
+            type: "button",
+            class: actionClass + "border-red-800 text-red-300 hover:bg-red-900/40",
+            disabled: () => busy.val,
+            "data-testid": `node-evict-${machine.identifier}`,
+            title: "Permanently remove this node from the cluster",
+            onclick: openEvict,
+        }, "Evict"),
+        () => error.val ? span({class: "text-xs text-red-400"}, error.val) : '',
+        () => overlay.val || '',
+    );
+}
+
+function evictedRow(machine) {
+    return tr(
+        {class: "border-b border-gray-800 last:border-0 align-middle", "data-testid": `evicted-row-${machine.identifier}`},
+        td({class: "py-1 pr-3 text-gray-300 font-mono w-[24rem]"}, machine.name || '-'),
+        td({class: "py-1 pr-3 font-mono text-gray-400"}, machine.identifier || '-'),
+        td({class: "py-1 text-gray-400"}, machine.eventTime ? formatTime(machine.eventTime) : '-'),
     );
 }
 
@@ -306,11 +382,21 @@ function backupStatusBadge(status) {
 
 function backupStatusLabel(status) {
     if (status?.error || status?.assetError) return "error";
-    if (status?.assetMigrationRunning) return status.assetTargetS3 ? "moving assets to S3" : "moving assets local";
+    if (status?.assetMigrationRunning) return assetMigrationLabel(status);
     if (!status || !status.configured) return "not configured";
     if (!status.running) return "not running";
     if (status.inSync) return "in sync";
     return "syncing";
+}
+
+function assetMigrationLabel(status) {
+    if (status.assetKeepLocal) return "syncing assets to S3 and local";
+    return status.assetTargetS3 ? "moving assets to S3" : "moving assets local";
+}
+
+function assetPendingDescription(status) {
+    if (status.assetKeepLocal) return "waiting to sync between S3 and local storage";
+    return status.assetTargetS3 ? "waiting to move to S3" : "waiting to move to local storage";
 }
 
 function backupStatusDetails(status) {
@@ -322,9 +408,9 @@ function backupStatusDetails(status) {
         detailCell("Local TXID", String(status.localTxid || 0), "backup-replication-local-txid"),
         detailCell("Remote TXID", String(status.remoteTxid || 0), "backup-replication-remote-txid"),
         detailCell("Last successful sync", formatTime(status.lastSuccessfulSyncAt), "backup-replication-last-sync"),
-        status.assetMigrationRunning
+        status.assetMigrationRunning || status.assetPending
             ? div({class: "md:col-span-3 text-amber-300 text-xs"},
-                `${status.assetPending || 0} large asset(s) waiting to move ${status.assetTargetS3 ? "to S3" : "to local storage"}.`)
+                `${status.assetPending || 0} large asset(s) ${assetPendingDescription(status)}.`)
             : "",
         status.assetError ? div({class: "md:col-span-3 text-red-300 text-xs break-words"}, status.assetError) : "",
         status.error ? div({class: "md:col-span-3 text-red-300 text-xs break-words", "data-testid": "backup-replication-error"}, status.error) : "",

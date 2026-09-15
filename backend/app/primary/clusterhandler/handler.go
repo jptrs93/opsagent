@@ -25,6 +25,7 @@ import (
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/engine/imageref"
+	"github.com/jptrs93/opsagent/backend/lib/enrollment"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -91,7 +92,7 @@ func (p *Handler) requireScheduledInstancePredicate(ctx context.Context) (storag
 	if err != nil {
 		return nil, err
 	}
-	nodeID, err := nodes.NodeIDByIdentifier(p.store.Queries(), machine)
+	nodeID, err := nodes.MemberNodeIDByIdentifier(p.store.Queries(), machine)
 	if err != nil {
 		return nil, clusterForbiddenErr
 	}
@@ -409,7 +410,7 @@ func (p *Handler) GetV1ClusterRenewCertificate(authCtx apigen.Context) (*apigen.
 	if err != nil {
 		return nil, err
 	}
-	if _, err := nodes.NodeIDByIdentifier(p.store.Queries(), machine); err != nil {
+	if _, err := nodes.MemberNodeIDByIdentifier(p.store.Queries(), machine); err != nil {
 		return nil, clusterForbiddenErr
 	}
 	peerCert := peerCertFromContext(authCtx)
@@ -435,8 +436,13 @@ func (p *Handler) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*a
 			yield(nil, fmt.Errorf("cluster connection missing machine identity"))
 			return
 		}
-		nodeID, err := nodes.NodeIDByIdentifier(p.store.Queries(), machine)
+		nodeID, err := nodes.MemberNodeIDByIdentifier(p.store.Queries(), machine)
 		if err != nil {
+			if nodes.IsEvictedIdentifier(p.store.Queries(), machine) {
+				slog.WarnContext(authCtx, fmt.Sprintf("rejected cluster connection from evicted node machine=%s", machine))
+				yield(nil, enrollment.NodeEvictedErr)
+				return
+			}
 			yield(nil, fmt.Errorf("cluster node %q is not registered", machine))
 			return
 		}
@@ -454,6 +460,39 @@ func (p *Handler) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*a
 
 		sess.run(reqs, yield)
 	}
+}
+
+func (p *Handler) RunEvictionWatch(ctx context.Context) {
+	updates, unsubscribe := p.store.SubscribeUpdates()
+	defer func() { unsubscribe() }()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case update, ok := <-updates:
+			if !ok {
+				unsubscribe()
+				updates, unsubscribe = p.store.SubscribeUpdates()
+				continue
+			}
+			for _, event := range update.NodeEvents {
+				if event != nil && event.Value.Status == apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED {
+					p.evictSession(event.NodeID)
+				}
+			}
+		}
+	}
+}
+
+func (p *Handler) evictSession(nodeID int32) {
+	p.mu.RLock()
+	sess, ok := p.sessions[nodeID]
+	p.mu.RUnlock()
+	if !ok {
+		return
+	}
+	slog.WarnContext(sess.sessCtx, fmt.Sprintf("ending cluster session of evicted node=%d", nodeID))
+	sess.evict()
 }
 
 func (p *Handler) registerSession(nodeID int32, identifier string, sess *Session) {

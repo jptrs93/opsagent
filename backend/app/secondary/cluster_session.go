@@ -2,6 +2,7 @@ package secondary
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixstore"
+	"github.com/jptrs93/opsagent/backend/lib/enrollment"
 	"github.com/jptrs93/opsagent/backend/lib/netmapstate"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/runtimebin"
@@ -58,6 +60,10 @@ func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Ser
 			err = runSession(ctx, capi, store, cfg.NodeID, underlayAddress, cfg.WGPublicKey, acme, netMaps, notifySynced, cfg.NodeIdentifier)
 		}
 		if ctx.Err() != nil {
+			return
+		}
+		if errors.Is(err, errEvicted) || enrollment.Evicted(err) {
+			handleEviction(ctx, cfg, store)
 			return
 		}
 		if time.Since(connectedAt) > maxBackoff {
@@ -190,6 +196,9 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 		if !connected {
 			connected = true
 			slog.InfoContext(sessCtx, fmt.Sprintf("slave connected to primary %s", capi.BaseURL))
+		}
+		if msg.Evicted {
+			return errEvicted
 		}
 		dispatchFromPrimary(sessCtx, out, store, tracker, sess, msg, nodeID, acme, netMaps, notifySynced)
 	}

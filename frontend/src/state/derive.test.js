@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createTree, applySnapshot} from './tree.js';
 import {deriveDeploymentRows} from './deploymentMerge.js';
-import {deriveEnrollments, configViewModel, authzGrantViewModel} from './derive.js';
+import {deriveEnrollments, configViewModel, authzGrantViewModel, nodeViewModel} from './derive.js';
 
 const deployment = version => ({deploymentId: 7, version, specVersion: version, eventType: 1, value: {spec: {container1Spec: {running: false}}}});
 const instance = (id, version = 1, state = 0, ordinal = 0) => ({scheduledInstanceId: id, version: 1, value: {deploymentId: 7, deploymentVersion: version, state, instanceOrdinal: ordinal}});
@@ -45,6 +45,22 @@ test('enrollments derive pending members without changing their membership statu
     assert.equal(result[1].version, 4, 'accept uses the node version reviewed by the operator');
     assert.equal(result[1].isConnected, true);
     assert.equal(tree.nodes.get(1).value.status, 4);
+});
+
+test('evicted nodes are neither members nor pending enrollments', () => {
+    const tree = createTree();
+    applySnapshot(tree, {seq: 1, nodeEvents: [
+        {nodeId: 1, version: 2, value: {status: 4, enrollmentRequestedAt: 0, reported: {identifier: 'member'}}},
+        {nodeId: 2, version: 3, eventTime: 500, value: {status: 8, enrollmentRequestedAt: 0, reported: {identifier: 'gone'}}},
+        {nodeId: 3, version: 1, value: {status: 6, enrollmentRequestedAt: 0, reported: {identifier: 'draining'}}},
+    ]});
+    assert.deepEqual(deriveEnrollments(tree).map(r => r.id), []);
+    const gone = nodeViewModel(tree.nodes.get(2));
+    assert.equal(gone.evicted, true);
+    assert.equal(gone.draining, false);
+    assert.equal(gone.eventTime, 500);
+    assert.equal(nodeViewModel(tree.nodes.get(3)).draining, true);
+    assert.equal(nodeViewModel(tree.nodes.get(1)).evicted, false);
 });
 
 test('rename and move history preserve original pinnable value event ids', () => {

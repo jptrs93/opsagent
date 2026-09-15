@@ -369,6 +369,9 @@ func updateAllNodeAllowedSpaces(ctx context.Context, q *pq.Queries, seq int64, f
 	}
 	var events []*apigen.NodeEvent
 	for _, current := range rows {
+		if current.Event.Value.Status == apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED {
+			continue
+		}
 		row, changed, err := appendNodeVersion(ctx, q, seq, current, 0, func(spec *nodeEventSpec) {
 			spec.AllowedSpacesJSON = allowedSpacesJSON(fn(parseAllowedSpaces(allowedSpacesJSON(current.Event.Value.Operator.AllowedSpaces))))
 		})

@@ -260,6 +260,17 @@ func (q *Queries) GetNodeIDByIdentifier(ctx context.Context, identifier string) 
 	return nodeID, err
 }
 
+func (q *Queries) GetNodeIDByIdentifierWithStatus(ctx context.Context, identifier string, statuses []int64) (int64, error) {
+	marks, args := statusPlaceholders(statuses)
+	var nodeID int64
+	err := q.db.QueryRowContext(ctx, `
+		SELECT n.node_id
+		`+nodeCurrentFrom+`
+		WHERE n.identifier = ? AND n.status IN (`+marks+`)
+		LIMIT 1`, append([]any{identifier}, args...)...).Scan(&nodeID)
+	return nodeID, err
+}
+
 func (q *Queries) GetNodeIDWithRole(ctx context.Context, role int64, statuses []int64) (int64, error) {
 	marks, args := statusPlaceholders(statuses)
 	var nodeID int64

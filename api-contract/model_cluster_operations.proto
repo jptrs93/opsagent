@@ -35,6 +35,7 @@ message MsgToSecondary {
   MetricsQueryRequest metrics_query_request = 12;    // One-shot metrics rollup; reply is metrics_query_response.
   MetricsLatestRequest metrics_latest_request = 13;  // Latest sample per running container; reply is metrics_latest_response.
   NixStoreResets nix_store_resets = 14;  // Outstanding operator store resets, sent at the session head and on change.
+  bool evicted = 15;
 }
 
 // NixStoreReset asks every node to reseed its Nix build store for one

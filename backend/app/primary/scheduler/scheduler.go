@@ -110,6 +110,13 @@ func (s *Scheduler) reconcile(ctx context.Context, q *pq.Queries, update *state.
 		}
 	}
 	slices.Sort(ids)
+	if len(ids) == 0 {
+		return nil
+	}
+	evicted, err := evictedNodeIDs(ctx, q)
+	if err != nil {
+		return err
+	}
 	now := s.now()
 	for _, id := range ids {
 		cfg, instances, err := readSchedulingState(ctx, q, id)
@@ -118,7 +125,7 @@ func (s *Scheduler) reconcile(ctx context.Context, q *pq.Queries, update *state.
 		}
 		limit := len(instances)*3 + 8
 		for pass := 0; ; pass++ {
-			tx := transaction{ctx: ctx, q: q, seq: update.Seq, update: update, now: now, scheduler: s}
+			tx := transaction{ctx: ctx, q: q, seq: update.Seq, update: update, now: now, scheduler: s, evicted: evicted}
 			if err := tx.step(cfg, instances); err != nil {
 				return err
 			}
@@ -144,7 +151,20 @@ type transaction struct {
 	update    *state.Update
 	now       time.Time
 	scheduler *Scheduler
+	evicted   map[int32]bool
 	changed   bool
+}
+
+func evictedNodeIDs(ctx context.Context, q *pq.Queries) (map[int32]bool, error) {
+	rows, err := q.ListNodeRows(ctx, []int64{int64(apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED)})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int32]bool, len(rows))
+	for _, row := range rows {
+		out[row.Event.NodeID] = true
+	}
+	return out, nil
 }
 
 func (tx *transaction) publish(event *apigen.ScheduledInstanceEvent) {
@@ -181,7 +201,7 @@ func (tx *transaction) step(cfg *apigen.DeploymentEvent, instances []schedulingI
 			return err
 		}
 	}
-	if running && cfg.Value.NodeID > 0 {
+	if running && cfg.Value.NodeID > 0 && !tx.evicted[cfg.Value.NodeID] {
 		var exact *schedulingInstance
 		serving, blocked := false, false
 		for i := range instances {

@@ -82,6 +82,7 @@ export const nodeViewModel = event => ({
     roles: event.value.operator?.roles || [], allowedSpaces: event.value.operator?.allowedSpaces || [],
     enrolledAt: new Date(event.value.operator?.enrolledTime || 0),
     status: event.value.status, enrollmentRequestedAt: event.value.enrollmentRequestedAt,
+    draining: event.value.status === 6, evicted: event.value.status === 8, eventTime: event.eventTime || 0,
     addresses: event.value.reported?.underlayAddress ? [event.value.reported.underlayAddress] : [],
     hostAddresses: event.value.reported?.hostAddresses || [], wgPublicKey: event.value.reported?.wgPublicKey || '',
 });
@@ -91,7 +92,7 @@ export const authzGrantViewModel = event => ({
 });
 
 export function deriveEnrollments(tree) {
-    return [...tree.nodes.values()].filter(event => event.value.enrollmentRequestedAt || !memberStatus(event.value.status)).map(event => {
+    return [...tree.nodes.values()].filter(event => event.value.status !== 8 && (event.value.enrollmentRequestedAt || !memberStatus(event.value.status))).map(event => {
         const observed = tree.nodeStatuses.get(event.nodeId) || {};
         return {
             id: event.nodeId, version: event.version,
@@ -111,11 +112,12 @@ export function publishDerived(tree, changed) {
     seqS.val = tree.seq;
     if (any('deployments', 'scheduledInstances', 'instanceStatuses')) deploymentsS.val = deriveDeploymentRows(tree);
     if (any('nodes', 'nodeStatuses')) {
-        nodesS.val = sortByName([...tree.nodes.values()].filter(e => memberStatus(e.value.status)).map(nodeViewModel));
+        const events = [...tree.nodes.values()];
+        nodesS.val = sortByName(events.filter(e => memberStatus(e.value.status)).map(nodeViewModel));
         nodeStatusesS.val = [...tree.nodeStatuses.values()];
         enrollmentsS.val = deriveEnrollments(tree);
-        machinesS.val = nodesS.val.map(node => {
-            const status = tree.nodeStatuses.get(node.id) || {};
+        machinesS.val = [...nodesS.val, ...sortByName(events.filter(e => e.value.status === 8).map(nodeViewModel))].map(node => {
+            const status = node.evicted ? {} : tree.nodeStatuses.get(node.id) || {};
             return {...node, isPrimary: node.roles.includes(0), connected: status.isConnected === true, connectedAt: status.lastConnectedAt, runtimeVersions: status.runtimeVersions || ''};
         });
     }
