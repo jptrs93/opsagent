@@ -110,8 +110,8 @@ func planBuckets(buckets int, fromN, tillN int64) bucketPlan {
 func buildHistogram(b bucketPlan, counts [][]int64) *apigen.LogHistogram {
 	h := &apigen.LogHistogram{BucketMs: b.ms, StartTime: time.Unix(0, b.fromN).UTC()}
 	for li, level := range levelOrder {
-		if level == "" && counts[li] == nil {
-			continue // no unleveled lines: omit the "" series entirely
+		if li >= levelOtherIndex && counts[li] == nil {
+			continue // no other-level or unleveled lines: omit that series entirely
 		}
 		c := counts[li]
 		if c == nil {

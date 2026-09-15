@@ -92,6 +92,11 @@ events. A visibility reset replaces the map with the snapshot's live grants.
 - `components/timeRangePicker.js` is the quick-preset plus custom-range dropdown shared with the Logs page; `components/lineChart.js` is a dependency-free SVG chart with unit-aware axes, a crosshair tooltip, and a legend that toggles series.
 - `window.__metricsResult` and `window.__metricsLatest` mirror the last responses for e2e assertions, like the Logs page's `__logsResult`.
 
+### Logs (`pages/logs.js`)
+- The search bar is, left to right: the spaces filter, the deployment select, `components/logScopePicker.js` (config version, instance, run), `components/logLevelPicker.js`, the query input, `components/timeRangePicker.js` and Search. Every control except the query input re-runs the search on change.
+- Levels are six fixed buckets from `lib/logLevels.js`: DEBUG, INFO, WARN, ERROR, OTHER (any other parsed level, e.g. TRACE or FATAL) and NONE (no parsed level). They match the histogram series the backend returns. The level picker is a multi-select over them; `logLevelFilters` turns the selection into wire filters (an `in` over the selected levels, or `neq` exclusions plus `exists` when OTHER is on, since filters only AND). The legend under the status line is read-only: swatch, label and total per bucket, dimmed when the picker has that level off; OTHER and NONE appear only when the result holds such lines.
+- `window.__logsResult` mirrors the last response for e2e assertions.
+
 ### Cluster (`pages/cluster.js`)
 - Shows primary + worker machines and connection state, derived client-side from the state stream's `NodeEvent` and `NodeStatus` arrays.
 - Allows editing a machine's display name without changing its certificate or deployment identity.

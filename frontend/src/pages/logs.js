@@ -12,6 +12,8 @@ import {loginS} from "../state/login.js";
 import {deploymentsS, machinesS} from "../state/deployments.js";
 import {nodeDisplayName} from "../lib/machines.js";
 import {deploymentDeleted} from "../lib/deployment.js";
+import {LOG_LEVELS as LEVELS, LOG_NAMED_LEVELS, logLevelFilters, logLevelMeta as levelMeta} from "../lib/logLevels.js";
+import {logLevelPicker} from "../components/logLevelPicker.js";
 import {logScopePicker} from "../components/logScopePicker.js";
 import {spacesFilter} from "../components/spacesFilter.js";
 import {fmtShortTime as fmtShort, resolveRange as resolveRangeOf, timeRangePicker} from "../components/timeRangePicker.js";
@@ -28,20 +30,7 @@ const HOUR = 3_600_000;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const pad2 = (n) => String(n).padStart(2, '0');
 
-// The last entry ('') collects records with no parsed level.
-const LEVELS = ['ERROR', 'WARN', 'INFO', 'DEBUG', ''];
 const NL = LEVELS.length;
-
-// Histogram fills validated for CVD separation and contrast on this surface
-// (dataviz six-check validator); row/legend text stays on text tokens.
-const LEVEL_META = {
-    ERROR: {fill: '#c42121', text: 'text-red-400', label: 'ERROR'},
-    WARN: {fill: '#c67b04', text: 'text-amber-400', label: 'WARN'},
-    INFO: {fill: '#3b82f6', text: 'text-blue-400', label: 'INFO'},
-    DEBUG: {fill: '#0e9488', text: 'text-teal-500', label: 'DEBUG'},
-    '': {fill: '#6b7280', text: 'text-gray-400', label: 'none'},
-};
-const levelMeta = (level) => LEVEL_META[level] || LEVEL_META[''];
 
 // Width hints for well-known fields; anything else gets a generic column.
 const COLUMN_DEFS = {
@@ -277,6 +266,10 @@ function tokensToRequest(tokens) {
     return {filters, specVersion};
 }
 
+// legendLevels lists the buckets the legend and histogram tooltip show: the
+// named four always, OTHER and NONE only once the result holds such lines.
+const legendLevels = (totals) => LEVELS.map((lvl, l) => [lvl, l]).filter(([lvl, l]) => LOG_NAMED_LEVELS.includes(lvl) || totals[l] > 0);
+
 export function logsPage(selectedDeploymentId) {
     // --- state -------------------------------------------------------------
     const hiddenSpaces = van.state(loadHiddenSpaces());
@@ -322,10 +315,7 @@ export function logsPage(selectedDeploymentId) {
         const scope = workloadScope.val;
         if (scope.instance != null) filters.push({field: 'instance', op: 'eq', value: String(scope.instance)});
         if (scope.run) filters.push({field: 'run', op: 'eq', value: String(scope.run)});
-        const enabled = LEVELS.filter(l => levelOn.val[l]);
-        if (enabled.length < NL) {
-            filters.push({field: 'level', op: 'in', values: enabled});
-        }
+        filters.push(...logLevelFilters(levelOn.val));
         // An explicit version:N token in the query text outranks the picker.
         return {...scopePayload(), specVersion: specVersion || Number(scope.version || 0), filters};
     };
@@ -378,10 +368,15 @@ export function logsPage(selectedDeploymentId) {
             endTs = startTs + bucketN * bucketMs;
         }
         const counts = new Array(bucketN * NL).fill(0);
+        const totals = new Array(NL).fill(0);
         for (const s of series) {
             const li = LEVELS.indexOf(s.level || '');
             if (li < 0) continue;
-            for (let b = 0; b < bucketN; b++) counts[b * NL + li] += Number(s.counts[b] || 0);
+            for (let b = 0; b < bucketN; b++) {
+                const n = Number(s.counts[b] || 0);
+                counts[b * NL + li] += n;
+                totals[li] += n;
+            }
         }
         return {
             records: (resp.records || []).map(wrapRecord).reverse(),  // oldest first; newest at the bottom
@@ -392,7 +387,7 @@ export function logsPage(selectedDeploymentId) {
             scanned: Number(stats.scannedRows || 0),
             truncated: Boolean(stats.truncated),
             tookMs: Number(stats.tookMs || 0),
-            startTs, endTs, bucketMs, bucketN, counts,
+            startTs, endTs, bucketMs, bucketN, counts, totals,
         };
     };
 
@@ -425,11 +420,7 @@ export function logsPage(selectedDeploymentId) {
         columns.val = cols;
     };
 
-    const levelTotals = (res) => {
-        const totals = new Array(NL).fill(0);
-        if (res) for (let b = 0; b < res.bucketN; b++) for (let l = 0; l < NL; l++) totals[l] += res.counts[b * NL + l];
-        return totals;
-    };
+    const levelTotals = (res) => res ? res.totals : new Array(NL).fill(0);
 
     // --- deployment scope ----------------------------------------------------
 
@@ -593,6 +584,10 @@ export function logsPage(selectedDeploymentId) {
                 disabledS: van.derive(() => !Number(deploymentId.val || 0)),
                 onChange: () => { if (Number(deploymentId.val || 0)) void runSearch(); },
             }),
+            logLevelPicker({
+                onS: levelOn,
+                onChange: () => { if (Number(deploymentId.val || 0)) void runSearch(); },
+            }),
             div(
                 {class: "relative min-w-0 flex-1"},
                 span({class: "pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-gray-500"}, searchIcon({class: "w-3.5 h-3.5"})),
@@ -651,8 +646,8 @@ export function logsPage(selectedDeploymentId) {
             if (total > maxTotal) maxTotal = total;
         }
         const bars = [];
-        // Stack bottom→top none, DEBUG, INFO, WARN, ERROR so errors ride on
-        // top, with a 2px gap between bars and a 1px surface gap between
+        // Stack bottom→top NONE, OTHER, DEBUG, INFO, WARN, ERROR so errors
+        // ride on top, with a 2px gap between bars and a 1px surface gap between
         // segments tall enough to afford one. Segments keep their exact share
         // of the bucket height — a non-empty bucket gets a 1px presence mark
         // in its dominant level rather than every level being inflated to 1px.
@@ -725,7 +720,7 @@ export function logsPage(selectedDeploymentId) {
         const t0 = res.startTs + b * res.bucketMs;
         histTooltip.replaceChildren(
             div({class: "mb-0.5 text-gray-400"}, `${fmtShort(t0)} – ${fmtClock(t0 + res.bucketMs).slice(0, 5)}`),
-            ...LEVELS.map((lvl, l) => div(
+            ...legendLevels(res.totals).map(([lvl, l]) => div(
                 {class: "flex items-center gap-1.5"},
                 span({class: "h-2 w-2 rounded-[2px]", style: `background:${levelMeta(lvl).fill}`}),
                 span({class: "w-10 text-gray-300"}, levelMeta(lvl).label),
@@ -751,19 +746,20 @@ export function logsPage(selectedDeploymentId) {
         void runSearch();
     };
 
-    const legendButton = (lvl, l) => button({
-        type: "button",
-        class: () => `flex cursor-pointer items-center gap-1 rounded px-1 py-px transition-opacity ${levelOn.val[lvl] ? '' : 'opacity-35'}`,
-        title: () => levelOn.val[lvl] ? `Hide ${levelMeta(lvl).label}` : `Show ${levelMeta(lvl).label}`,
-        onclick: () => {
-            levelOn.val = {...levelOn.val, [lvl]: !levelOn.val[lvl]};
-            void runSearch();
-        },
-    },
-        span({class: "h-2 w-2 rounded-[2px]", style: `background:${levelMeta(lvl).fill}`}),
-        span({class: "text-[10px] text-gray-400"}, levelMeta(lvl).label),
-        span({class: "text-[10px] tabular-nums text-gray-500"}, () => fmtNum(levelTotals(result.val)[l])),
-    );
+    // The legend reads the histogram: swatch, label and total per bucket, dimmed
+    // for a level the picker on the search bar has switched off.
+    const legend = () => {
+        const totals = levelTotals(result.val);
+        return div(
+            {"data-testid": "logs-level-legend", class: "flex items-center gap-2"},
+            ...legendLevels(totals).map(([lvl, l]) => span(
+                {class: () => `flex items-center gap-1 px-1 py-px transition-opacity ${levelOn.val[lvl] ? '' : 'opacity-35'}`},
+                span({class: "h-2 w-2 rounded-[2px]", style: `background:${levelMeta(lvl).fill}`}),
+                span({class: "text-[10px] text-gray-400"}, levelMeta(lvl).label),
+                span({class: "text-[10px] tabular-nums text-gray-500"}, fmtNum(totals[l])),
+            )),
+        );
+    };
 
     const statusLine = () => {
         if (errorMsg.val) return errorMsg.val;
@@ -786,7 +782,7 @@ export function logsPage(selectedDeploymentId) {
                 class: "cursor-pointer rounded border border-gray-700 px-1.5 py-px text-[10px] text-gray-400 hover:text-gray-200",
                 onclick: () => { range.val = {kind: 'preset', key: DEFAULT_PRESET}; void runSearch(); },
             }, "clear zoom"),
-            div({class: "flex items-center gap-2"}, ...LEVELS.map(legendButton)),
+            legend,
             button({
                 type: "button",
                 class: () => `cursor-pointer rounded border px-1.5 py-px text-[10px] ${wrap.val

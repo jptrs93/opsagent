@@ -186,6 +186,9 @@ the owning secondary over the cluster session.
 | `contains`, `not_contains` | textual rendering | text, per element for arrays | textual rendering |
 | `exists`, `not_exists` | any variant present | | |
 
+- The histogram carries one series per level bucket in `levelOrder`: ERROR,
+  WARN, INFO, DEBUG, OTHER (any other parsed level) and `""` (no parsed
+  level); the last two are omitted when empty.
 - Defaults and caps: window 12h, limit 5,000 (also the cap), histogram at
   most 300 buckets, field stats over the newest 5,000 matched records with
   at most 200 field names and the top 10 values each.

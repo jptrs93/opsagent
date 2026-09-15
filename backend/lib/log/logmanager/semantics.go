@@ -12,15 +12,26 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-var levelOrder = []string{"ERROR", "WARN", "INFO", "DEBUG", ""}
+// levelOrder is the histogram series order. The four named levels get their
+// own series; any other parsed level (TRACE, FATAL, ...) counts under OTHER
+// and a line with no parsed level under "".
+var levelOrder = []string{"ERROR", "WARN", "INFO", "DEBUG", "OTHER", ""}
+
+const (
+	levelOtherIndex = 4
+	levelNoneIndex  = 5
+)
 
 func levelIndex(level string) int {
-	for i, l := range levelOrder {
+	if level == "" {
+		return levelNoneIndex
+	}
+	for i, l := range levelOrder[:levelOtherIndex] {
 		if l == level {
 			return i
 		}
 	}
-	return len(levelOrder) - 1
+	return levelOtherIndex
 }
 
 type literal struct {

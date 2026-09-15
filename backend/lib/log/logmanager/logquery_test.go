@@ -785,10 +785,10 @@ func TestAggBinsMatchStringFilterSemantics(t *testing.T) {
 		}
 	}
 	a := &thinAgg{}
-	if b := a.bin([]byte("FATAL")); !b.match || b.li != levelIndex("") {
+	if b := a.bin([]byte("FATAL")); !b.match || b.li != levelOtherIndex {
 		t.Fatalf("no-filter FATAL bin = %+v", b)
 	}
-	if b := a.bin(nil); !b.match || b.li != levelIndex("") {
+	if b := a.bin(nil); !b.match || b.li != levelNoneIndex {
 		t.Fatalf("null-level bin = %+v", b)
 	}
 	if b := a.bin([]byte("ERROR")); b.li != levelIndex("ERROR") {

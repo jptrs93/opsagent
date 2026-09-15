@@ -63,7 +63,7 @@ message LogQueryStats {
 }
 
 message LogHistogramSeries {
-  string level = 1;           // DEBUG/INFO/WARN/ERROR, or "" for lines with no parsed level.
+  string level = 1;           // DEBUG/INFO/WARN/ERROR, OTHER for any other parsed level, or "" for lines with no parsed level.
   repeated int64 counts = 2;  // Matching records per bucket, oldest bucket first.
 }
 
