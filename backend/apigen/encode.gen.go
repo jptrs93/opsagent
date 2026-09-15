@@ -9171,6 +9171,248 @@ func DecodeNodeStatusList(b []byte) (*NodeStatusList, error) {
 	return &m, nil
 }
 
+func (m *NodeDrainRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Identifier, 1)
+	b = AppendBoolField(b, m.Draining, 2)
+	return b
+}
+
+func DecodeNodeDrainRequest(b []byte) (*NodeDrainRequest, error) {
+	var m NodeDrainRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Identifier, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Draining, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NodeEvictRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Identifier, 1)
+	b = AppendInt32Field(b, m.ExpectedVersion, 2)
+	b = AppendBoolField(b, m.Force, 3)
+	return b
+}
+
+func DecodeNodeEvictRequest(b []byte) (*NodeEvictRequest, error) {
+	var m NodeEvictRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Identifier, err = ConsumeString(b, typ)
+		case 2:
+			b, m.ExpectedVersion, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.Force, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NodeExposureRequest) Encode() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Identifier, 1)
+	return b
+}
+
+func DecodeNodeExposureRequest(b []byte) (*NodeExposureRequest, error) {
+	var m NodeExposureRequest
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Identifier, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NodeExposureItem) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	b = AppendInt32Field(b, m.SpaceID, 3)
+	b = AppendInt32Field(b, m.Version, 4)
+	return b
+}
+
+func DecodeNodeExposureItem(b []byte) (*NodeExposureItem, error) {
+	var m NodeExposureItem
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *NodeExposure) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, m.NodeID, 1)
+	for _, item := range m.Deployments {
+		b = AppendTag(b, 2, BytesType)
+		if item == nil {
+			b = AppendBytes(b, nil)
+			continue
+		}
+		b = AppendBytes(b, item.Encode())
+	}
+	for _, item := range m.Secrets {
+		b = AppendTag(b, 3, BytesType)
+		if item == nil {
+			b = AppendBytes(b, nil)
+			continue
+		}
+		b = AppendBytes(b, item.Encode())
+	}
+	for _, item := range m.Configs {
+		b = AppendTag(b, 4, BytesType)
+		if item == nil {
+			b = AppendBytes(b, nil)
+			continue
+		}
+		b = AppendBytes(b, item.Encode())
+	}
+	for _, item := range m.IssuedTlsDeployments {
+		b = AppendTag(b, 5, BytesType)
+		if item == nil {
+			b = AppendBytes(b, nil)
+			continue
+		}
+		b = AppendBytes(b, item.Encode())
+	}
+	b = AppendRepeated(b, m.AcmeHostnames, AppendFieldDecorator(AppendStringElem, 6))
+	b = AppendBoolField(b, m.GithubToken, 7)
+	return b
+}
+
+func DecodeNodeExposure(b []byte) (*NodeExposure, error) {
+	var m NodeExposure
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeExposureItem
+				item, err = DecodeNodeExposureItem(msgBytes)
+				if err == nil {
+					m.Deployments = append(m.Deployments, item)
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeExposureItem
+				item, err = DecodeNodeExposureItem(msgBytes)
+				if err == nil {
+					m.Secrets = append(m.Secrets, item)
+				}
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeExposureItem
+				item, err = DecodeNodeExposureItem(msgBytes)
+				if err == nil {
+					m.Configs = append(m.Configs, item)
+				}
+			}
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeExposureItem
+				item, err = DecodeNodeExposureItem(msgBytes)
+				if err == nil {
+					m.IssuedTlsDeployments = append(m.IssuedTlsDeployments, item)
+				}
+			}
+		case 6:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.AcmeHostnames = append(m.AcmeHostnames, item)
+			}
+		case 7:
+			b, m.GithubToken, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
 func (m *AcmeState) Encode() []byte {
 	var b []byte
 	b = AppendInt64Field(b, m.Seq, 1)
@@ -10853,6 +11095,7 @@ func (m *MsgToSecondary) Encode() []byte {
 		b = AppendTag(b, 14, BytesType)
 		b = AppendBytes(b, m.NixStoreResets.Encode())
 	}
+	b = AppendBoolField(b, m.Evicted, 15)
 	return b
 }
 
@@ -10962,6 +11205,8 @@ func DecodeMsgToSecondary(b []byte) (*MsgToSecondary, error) {
 					m.NixStoreResets = item
 				}
 			}
+		case 15:
+			b, m.Evicted, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -12711,7 +12956,8 @@ func (m LargeAssetsSettings) IsZero() bool {
 		m.S3Bucket.IsZero() &&
 		m.S3Path.IsZero() &&
 		m.S3Region.IsZero() &&
-		m.S3Endpoint.IsZero()
+		m.S3Endpoint.IsZero() &&
+		m.KeepLocalCopy.IsZero()
 }
 
 func (m *LargeAssetsSettings) Encode() []byte {
@@ -12743,6 +12989,10 @@ func (m *LargeAssetsSettings) Encode() []byte {
 	if !m.S3Endpoint.IsZero() {
 		b = AppendTag(b, 7, BytesType)
 		b = AppendBytes(b, m.S3Endpoint.Encode())
+	}
+	if !m.KeepLocalCopy.IsZero() {
+		b = AppendTag(b, 8, BytesType)
+		b = AppendBytes(b, m.KeepLocalCopy.Encode())
 	}
 	return b
 }
@@ -12822,6 +13072,15 @@ func DecodeLargeAssetsSettings(b []byte) (*LargeAssetsSettings, error) {
 					m.S3Endpoint = *item
 				}
 			}
+		case 8:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *BoolSetting
+				item, err = DecodeBoolSetting(msgBytes)
+				if err == nil {
+					m.KeepLocalCopy = *item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -12874,6 +13133,7 @@ func (m *BackupStatus) Encode() []byte {
 	b = AppendUint32Field(b, m.AssetPending, 9)
 	b = AppendBoolField(b, m.AssetTargetS3, 10)
 	b = AppendStringField(b, m.AssetError, 11)
+	b = AppendBoolField(b, m.AssetKeepLocal, 12)
 	return b
 }
 
@@ -12910,6 +13170,8 @@ func DecodeBackupStatus(b []byte) (*BackupStatus, error) {
 			b, m.AssetTargetS3, err = ConsumeBool(b, typ)
 		case 11:
 			b, m.AssetError, err = ConsumeString(b, typ)
+		case 12:
+			b, m.AssetKeepLocal, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

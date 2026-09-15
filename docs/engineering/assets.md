@@ -18,13 +18,13 @@ Assets are versioned user-managed file blobs intended for config files that can 
 - **Deleting a referenced asset is refused** (`reference_in_use`): `/v1/assets/delete` runs the same deployment reverse lookup under `LockReferences()`, matching the protection secrets and configs have always had.
 - There is no stored format hint. Editors infer syntax from the key's file extension.
 - Assets up to 10 MiB are stored inline in the primary DB.
-- Assets larger than 10 MiB use primary-local storage while Backup is disabled and S3 while Backup is enabled; the DB row keeps metadata and the active location.
+- Assets larger than 10 MiB use primary-local storage while Backup is disabled and S3 while Backup is enabled; with `large_assets.keep_local_copy` set they are kept in both while Backup is enabled. The store row's `local_status`/`remote_status` flags record which copies are durable.
 - The UI does not load large asset content for preview/edit. It shows a "too large to show" message while deployments and worker mounts still fetch the blob transparently.
 - `frontend/src/components/assetEditor.js` is the shared asset content surface. It supports inline and overlay presentation, create/edit/read modes, and loading an exact historical version. Editing historical content still appends after the latest known version; asset rows are never mutated.
 - UTF-8 inline assets use the shared CodeMirror editor. Inline assets containing invalid UTF-8 are displayed read-only in a plain textarea so a text edit cannot replace their original bytes.
-- Storage placement (inline, local file, S3) is invisible on the wire: the content endpoints stream from whichever side is durable, and `content_versions` carries only the `sha256` content hash and size.
+- Storage placement (inline, local file, S3) is invisible on the wire: the content endpoints stream from whichever side is durable, and `content_versions` carries only the `sha256` content hash and size. `OpenAsset` prefers the local copy; if a claimed local file cannot be opened it clears `local_status`, wakes the reconciler, and falls through to S3 when `remote_status` is set.
 - Asset rename rejects a destination key already used by a sibling asset or directory and preserves the complete version history. Existing deployments remain valid because they pin immutable version row ids; their stored display key is refreshed only when the deployment config is updated.
-- `asset_migrations` records each complete local-to-S3 or S3-to-local transition with its old and new `system_config_revisions` row IDs, durable status, timestamps, and latest error. The per-row `local_status`/`remote_status` flags are the progress markers; there is no migration-item table.
+- `asset_migrations` records each storage-target change with its old and new `system_config_revisions` row IDs, durable status, timestamps, and latest error. The per-row `local_status`/`remote_status` flags are the progress markers; there is no migration-item table.
 - Primary/secondary startup creates the fixed local large-asset and materialized-asset cache roots up front. Asset operations create files inside those roots but do not recreate missing roots.
 
 ## Shape-migration history
@@ -33,14 +33,17 @@ The pre-directories schema stored one `assets` row per version, grouped only by 
 
 ## Large-asset storage modes
 
-The 10 MiB boundary is inclusive. Asset versions of 10 MiB or less remain inline in SQLite in every mode. Asset versions larger than 10 MiB are stored outside SQLite according to the overall Backup setting:
+The 10 MiB boundary is inclusive. Asset versions of 10 MiB or less remain inline in SQLite in every mode. Asset versions larger than 10 MiB are stored outside SQLite according to the overall Backup setting and `large_assets.keep_local_copy` (`systemconfig.LargeAssetStorageTarget`):
 
-| Backup | Active storage for versions larger than 10 MiB |
-|--------|-------------------------------------------------|
-| Disabled | Local storage on the primary |
-| Enabled | S3 |
+| Backup | Keep local copy | Storage target for versions larger than 10 MiB |
+|--------|-----------------|-------------------------------------------------|
+| Disabled | any | Local storage on the primary |
+| Enabled | off (default) | S3 |
+| Enabled | on | Both: S3 and local storage on the primary |
 
-The separate large-asset S3 option does not independently enable S3 storage. It only selects which S3 configuration large assets use while Backup is enabled.
+`keep_local_copy` is inert while Backup is disabled. The separate large-asset S3 option does not independently enable S3 storage. It only selects which S3 configuration large assets use while Backup is enabled.
+
+In the both target every file-backed store row is a full replica on both sides, with no eviction: the primary's disk holds the whole large-asset set. Reads are served from the local file and fall back to S3 when the local copy is missing; a new upload lands the staged local file and the S3 object before the version row is written, so a successful upload is durable on both sides.
 
 ### S3 configuration
 
@@ -50,21 +53,23 @@ An installation can opt into a separate large-asset S3 configuration. The separa
 
 Changing any effective large-asset S3 configuration is rejected while an asset version is S3-backed or an upload is pending. Disable Backup and wait for the transition to local storage before changing credentials, bucket, path, region, endpoint, or shared/separate selection, then re-enable Backup to migrate the files to the new S3 configuration. Disabling Backup and changing S3 settings in one save is rejected because the old configuration must remain available as the migration source.
 
-While Backup is enabled, S3 is the sole active location for each large asset after its transition completes. If S3 is unavailable, a new upload larger than 10 MiB is rejected rather than accepted into local storage. Uploads of 10 MiB or less continue to use inline SQLite storage.
+While Backup is enabled, S3 holds every large asset after its transition completes, alone in the S3 target or alongside the local copy in the both target. If S3 is unavailable, a new upload larger than 10 MiB is rejected rather than accepted into local storage only. Uploads of 10 MiB or less continue to use inline SQLite storage.
 
-### Mode transitions
+### Reconciliation and target changes
 
-Changing Backup atomically appends the new application-config version and a pending `asset_migrations` row. The settings save returns after that durable intent is committed; an event-driven worker then runs the transition asynchronously:
+A settings save that changes the storage target atomically appends the new application-config version and a pending `asset_migrations` row. The settings save returns after that durable intent is committed and wakes the reconciler. The reconciler (`Store.Reconcile`) always converges every file-backed store row to the target implied by the current settings; it does not depend on a migration row being present. It runs at startup, on every target change, whenever a read had to fall back from a missing local file, and hourly. Each pass:
 
-- Enabling Backup copies locally stored file-backed store rows to S3: each row's destination becomes durable, `remote_status` is set, the local file is removed, and `local_status` is cleared.
-- Disabling Backup downloads S3-backed rows to local primary storage the same way in reverse: `local_status` is set only after the file is durable, then `remote_status` is cleared (the S3 object itself is retained).
-- A transfer briefly has both statuses set. The destination becomes durable before its status is set, and the source status clears only after that, so a crash at any point leaves a resumable state. This overlap provides crash safety; it is not a second active storage mode.
-- The worker uses the new config version for an S3 destination and the old config version for an S3 source.
-- Startup resumes a `pending` or `running` migration by inspecting the status flags. Transfer errors are stored on the migration row and retried indefinitely with exponential backoff.
-- All subsequent settings saves are rejected until the migration is finished. Internal config writes such as master-password rotation remain available.
-- When no store rows remain in the source mode, the worker marks the migration `finished`. Completed rows remain as migration history.
+- Verifies local claims against the filesystem: one readdir of the large-asset root is compared with every row. A row claiming `local_status` whose file is missing or has the wrong size loses the claim. A row without the claim whose file is present with the right size is adopted after its hash matches `sha256`, when the target uses local storage.
+- Converges each row. Target both: download when only S3 holds the content, upload when only the local file does. Target S3: upload when S3 lacks the content, then clear `local_status` and remove the file. Target local: download when the local file is missing, then clear `remote_status` (the S3 object itself is retained).
+- A row with neither copy has no source and is counted as unavailable, logged, and reported through `BackupStatus.asset_error`; it never counts as pending, so a lost file cannot block settings saves forever.
+- Transfers run outside the store mutex: the row is read under the lock, the bytes move to S3 or to a temp file in the root, and the flag flips under the lock after re-checking the row. Downloads verify size and `sha256` before the temp file is renamed into place.
+- Source clears precede deletes: `local_status` is cleared before the local file is removed, so a crash in between leaves an orphan file for the inactive-file cleanup rather than a claim with no file behind it.
+- S3 identity cannot change while any row is S3-backed, so the current settings always describe where every S3 copy lives; the reconciler reads only the current config.
+- Startup resumes a `pending` or `running` migration by inspecting the status flags. Transfer errors are stored on the migration row and retried indefinitely with exponential backoff, capped at one minute.
+- All subsequent settings saves are rejected until the migration is finished. Internal config writes such as master-password rotation remain available. Steady-state work without a migration row, such as re-downloading after a read fallback, never blocks saves.
+- When no row remains pending for the target, the worker marks the migration `finished`. Completed rows remain as migration history.
 
-Large-asset transition status is included in `BackupStatus`, including the target mode, pending count, running state, and transition error. Database replication is otherwise decoupled from asset migration: Litestream starts, stops, and reports sync state purely from the Backup setting, regardless of where large assets currently live. Ensuring large assets are actually in S3 is the cluster admin's responsibility — a database backup taken while file-backed assets are still local-only (Backup freshly enabled with the migration pending or failing) references content that exists only on the primary's disk, so restoring that backup onto a replacement machine yields unresolvable large assets. The `BackupStatus` asset fields exist to make that window visible.
+Large-asset status is included in `BackupStatus`: whether the target uses S3 (`asset_target_s3`), whether it also keeps local copies (`asset_keep_local`), the pending count, whether a migration is running, and the latest error. Database replication is otherwise decoupled from asset migration: Litestream starts, stops, and reports sync state purely from the Backup setting, regardless of where large assets currently live. Ensuring large assets are actually in S3 is the cluster admin's responsibility — a database backup taken while file-backed assets are still local-only (Backup freshly enabled with the migration pending or failing) references content that exists only on the primary's disk, so restoring that backup onto a replacement machine yields unresolvable large assets. The `BackupStatus` asset fields exist to make that window visible.
 
 ### Interrupted uploads
 
@@ -75,6 +80,8 @@ New large-asset uploads are synchronous but cross SQLite and filesystem or S3 du
 S3 objects are retained when their store row is deleted, its last referencing version is deleted, or its content transitions back to local active storage. OpenDeploy does not eagerly delete those objects because a retained database restore point can still reference them. The S3 bucket lifecycle policy controls when retained objects expire.
 
 A completed database restore point created in Backup mode refers to the retained S3 objects recorded by that database state. Restoring the database does not copy or restore primary-local large-asset files. Recovery from such a restore point therefore requires its referenced S3 objects to remain available; a lifecycle policy can make an older database restore point incomplete by expiring those objects.
+
+A restored database in the both target claims a local copy for every row while the replacement machine's large-asset root is empty. The startup verify pass clears those claims and the converge pass re-downloads each row from S3; a read that arrives before then falls back to S3 through the same path. No installer step is involved, and a root that was preserved keeps its files after the hash check.
 
 ### Content-store migration history
 

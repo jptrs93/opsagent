@@ -1303,6 +1303,38 @@
  * @property {NodeStatus[]} items
  */
 /**
+ * @typedef {Object} NodeDrainRequest
+ * @property {string} identifier
+ * @property {boolean} draining
+ */
+/**
+ * @typedef {Object} NodeEvictRequest
+ * @property {string} identifier
+ * @property {number} expectedVersion
+ * @property {boolean} force
+ */
+/**
+ * @typedef {Object} NodeExposureRequest
+ * @property {string} identifier
+ */
+/**
+ * @typedef {Object} NodeExposureItem
+ * @property {number} id
+ * @property {string} name
+ * @property {number} spaceId
+ * @property {number} version
+ */
+/**
+ * @typedef {Object} NodeExposure
+ * @property {number} nodeId
+ * @property {NodeExposureItem[]} deployments
+ * @property {NodeExposureItem[]} secrets
+ * @property {NodeExposureItem[]} configs
+ * @property {NodeExposureItem[]} issuedTlsDeployments
+ * @property {string[]} acmeHostnames
+ * @property {boolean} githubToken
+ */
+/**
  * @typedef {Object} AcmeState
  * @property {number} seq
  * @property {AcmeCertBinding[]} certBindings
@@ -1519,6 +1551,7 @@
  * @property {MetricsQueryRequest} metricsQueryRequest
  * @property {MetricsLatestRequest} metricsLatestRequest
  * @property {NixStoreResets} nixStoreResets
+ * @property {boolean} evicted
  */
 /**
  * @typedef {Object} NixStoreReset
@@ -1720,6 +1753,7 @@
  * @property {StringSetting} s3Path
  * @property {StringSetting} s3Region
  * @property {StringSetting} s3Endpoint
+ * @property {BoolSetting} keepLocalCopy
  */
 /**
  * @typedef {Object} ExportedConfigBlob
@@ -1738,6 +1772,7 @@
  * @property {number} assetPending
  * @property {boolean} assetTargetS3
  * @property {string} assetError
+ * @property {boolean} assetKeepLocal
  */
 /**
  * @typedef {Object} Snapshot
@@ -16942,6 +16977,388 @@ export function decodeNodeStatusList(buffer) {
 
 
 /**
+ * @param {NodeDrainRequest} message
+ * @param {Writer} writer
+ */
+export function writeNodeDrainRequest(message, writer) {
+    if (message.identifier !== undefined && message.identifier !== null && message.identifier !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.identifier);
+    }
+    if (message.draining === true) {
+        writer.uint32(tag(2, WIRE.VARINT)).bool(message.draining);
+    }
+}
+
+
+/**
+ * @param {NodeDrainRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeDrainRequest(message) {
+    const writer = Writer.create();
+    writeNodeDrainRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeDrainRequest}
+ */
+function decodeNodeDrainRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {identifier: "", draining: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.identifier = reader.string();
+                break;
+            }
+            case 2: {
+                message.draining = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeDrainRequest}
+ */
+export function decodeNodeDrainRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeDrainRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeEvictRequest} message
+ * @param {Writer} writer
+ */
+export function writeNodeEvictRequest(message, writer) {
+    if (message.identifier !== undefined && message.identifier !== null && message.identifier !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.identifier);
+    }
+    if (message.expectedVersion !== undefined && message.expectedVersion !== null && message.expectedVersion !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.expectedVersion);
+    }
+    if (message.force === true) {
+        writer.uint32(tag(3, WIRE.VARINT)).bool(message.force);
+    }
+}
+
+
+/**
+ * @param {NodeEvictRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeEvictRequest(message) {
+    const writer = Writer.create();
+    writeNodeEvictRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeEvictRequest}
+ */
+function decodeNodeEvictRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {identifier: "", expectedVersion: 0, force: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.identifier = reader.string();
+                break;
+            }
+            case 2: {
+                message.expectedVersion = reader.int32();
+                break;
+            }
+            case 3: {
+                message.force = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeEvictRequest}
+ */
+export function decodeNodeEvictRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeEvictRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeExposureRequest} message
+ * @param {Writer} writer
+ */
+export function writeNodeExposureRequest(message, writer) {
+    if (message.identifier !== undefined && message.identifier !== null && message.identifier !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.identifier);
+    }
+}
+
+
+/**
+ * @param {NodeExposureRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeExposureRequest(message) {
+    const writer = Writer.create();
+    writeNodeExposureRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeExposureRequest}
+ */
+function decodeNodeExposureRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {identifier: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.identifier = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeExposureRequest}
+ */
+export function decodeNodeExposureRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeExposureRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeExposureItem} message
+ * @param {Writer} writer
+ */
+export function writeNodeExposureItem(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.spaceId);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.version);
+    }
+}
+
+
+/**
+ * @param {NodeExposureItem} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeExposureItem(message) {
+    const writer = Writer.create();
+    writeNodeExposureItem(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeExposureItem}
+ */
+function decodeNodeExposureItemMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, name: "", spaceId: 0, version: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.name = reader.string();
+                break;
+            }
+            case 3: {
+                message.spaceId = reader.int32();
+                break;
+            }
+            case 4: {
+                message.version = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeExposureItem}
+ */
+export function decodeNodeExposureItem(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeExposureItemMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeExposure} message
+ * @param {Writer} writer
+ */
+export function writeNodeExposure(message, writer) {
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.nodeId);
+    }
+    if (message.deployments && message.deployments.length > 0) {
+        for (const item of message.deployments) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeNodeExposureItem(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.secrets && message.secrets.length > 0) {
+        for (const item of message.secrets) {
+            writer.uint32(tag(3, WIRE.LDELIM)).fork();
+            writeNodeExposureItem(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.configs && message.configs.length > 0) {
+        for (const item of message.configs) {
+            writer.uint32(tag(4, WIRE.LDELIM)).fork();
+            writeNodeExposureItem(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.issuedTlsDeployments && message.issuedTlsDeployments.length > 0) {
+        for (const item of message.issuedTlsDeployments) {
+            writer.uint32(tag(5, WIRE.LDELIM)).fork();
+            writeNodeExposureItem(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.acmeHostnames && message.acmeHostnames.length > 0) {
+        for (const item of message.acmeHostnames) {
+            writer.uint32(tag(6, WIRE.LDELIM)).string(item);
+        }
+    }
+    if (message.githubToken === true) {
+        writer.uint32(tag(7, WIRE.VARINT)).bool(message.githubToken);
+    }
+}
+
+
+/**
+ * @param {NodeExposure} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeExposure(message) {
+    const writer = Writer.create();
+    writeNodeExposure(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeExposure}
+ */
+function decodeNodeExposureMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {nodeId: 0, deployments: [], secrets: [], configs: [], issuedTlsDeployments: [], acmeHostnames: [], githubToken: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.nodeId = reader.int32();
+                break;
+            }
+            case 2: {
+                message.deployments.push(decodeNodeExposureItemMessage(reader, reader.uint32()));
+                break;
+            }
+            case 3: {
+                message.secrets.push(decodeNodeExposureItemMessage(reader, reader.uint32()));
+                break;
+            }
+            case 4: {
+                message.configs.push(decodeNodeExposureItemMessage(reader, reader.uint32()));
+                break;
+            }
+            case 5: {
+                message.issuedTlsDeployments.push(decodeNodeExposureItemMessage(reader, reader.uint32()));
+                break;
+            }
+            case 6: {
+                message.acmeHostnames.push(reader.string());
+                break;
+            }
+            case 7: {
+                message.githubToken = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeExposure}
+ */
+export function decodeNodeExposure(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeExposureMessage(reader);
+}
+
+
+
+/**
  * @param {AcmeState} message
  * @param {Writer} writer
  */
@@ -19455,6 +19872,9 @@ export function writeMsgToSecondary(message, writer) {
         writeNixStoreResets(message.nixStoreResets, writer);
         writer.ldelim();
     }
+    if (message.evicted === true) {
+        writer.uint32(tag(15, WIRE.VARINT)).bool(message.evicted);
+    }
 }
 
 
@@ -19476,7 +19896,7 @@ export function encodeMsgToSecondary(message) {
  */
 function decodeMsgToSecondaryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", clusterNetwork: undefined, clusterNetMap: undefined, clusterProtocolVersion: 0, acmeState: undefined, logQueryRequest: undefined, metricsQueryRequest: undefined, metricsLatestRequest: undefined, nixStoreResets: undefined };
+    const message = {scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, deploymentLogRequest: undefined, stopLogRequestId: "", clusterNetwork: undefined, clusterNetMap: undefined, clusterProtocolVersion: 0, acmeState: undefined, logQueryRequest: undefined, metricsQueryRequest: undefined, metricsLatestRequest: undefined, nixStoreResets: undefined, evicted: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -19526,6 +19946,10 @@ function decodeMsgToSecondaryMessage(reader, length) {
             }
             case 14: {
                 message.nixStoreResets = decodeNixStoreResetsMessage(reader, reader.uint32());
+                break;
+            }
+            case 15: {
+                message.evicted = reader.bool();
                 break;
             }
             default:
@@ -21972,6 +22396,11 @@ export function writeLargeAssetsSettings(message, writer) {
         writeStringSetting(message.s3Endpoint, writer);
         writer.ldelim();
     }
+    if (message.keepLocalCopy !== undefined && message.keepLocalCopy !== null) {
+        writer.uint32(tag(8, WIRE.LDELIM)).fork();
+        writeBoolSetting(message.keepLocalCopy, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -21993,7 +22422,7 @@ export function encodeLargeAssetsSettings(message) {
  */
 function decodeLargeAssetsSettingsMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {useSeparateS3: undefined, s3AccessKeyId: undefined, s3SecretAccessKey: undefined, s3Bucket: undefined, s3Path: undefined, s3Region: undefined, s3Endpoint: undefined };
+    const message = {useSeparateS3: undefined, s3AccessKeyId: undefined, s3SecretAccessKey: undefined, s3Bucket: undefined, s3Path: undefined, s3Region: undefined, s3Endpoint: undefined, keepLocalCopy: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -22023,6 +22452,10 @@ function decodeLargeAssetsSettingsMessage(reader, length) {
             }
             case 7: {
                 message.s3Endpoint = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 8: {
+                message.keepLocalCopy = decodeBoolSettingMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -22138,6 +22571,9 @@ export function writeBackupStatus(message, writer) {
     if (message.assetError !== undefined && message.assetError !== null && message.assetError !== "") {
         writer.uint32(tag(11, WIRE.LDELIM)).string(message.assetError);
     }
+    if (message.assetKeepLocal === true) {
+        writer.uint32(tag(12, WIRE.VARINT)).bool(message.assetKeepLocal);
+    }
 }
 
 
@@ -22159,7 +22595,7 @@ export function encodeBackupStatus(message) {
  */
 function decodeBackupStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {configured: false, running: false, inSync: false, localTxid: 0, remoteTxid: 0, lastSuccessfulSyncAt: new Date(0), error: "", assetMigrationRunning: false, assetPending: 0, assetTargetS3: false, assetError: "" };
+    const message = {configured: false, running: false, inSync: false, localTxid: 0, remoteTxid: 0, lastSuccessfulSyncAt: new Date(0), error: "", assetMigrationRunning: false, assetPending: 0, assetTargetS3: false, assetError: "", assetKeepLocal: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -22205,6 +22641,10 @@ function decodeBackupStatusMessage(reader, length) {
             }
             case 11: {
                 message.assetError = reader.string();
+                break;
+            }
+            case 12: {
+                message.assetKeepLocal = reader.bool();
                 break;
             }
             default:

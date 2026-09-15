@@ -51,7 +51,7 @@ export function dashboard() {
     // its rows, so inside the binding every edit would rebuild the page.
     const settingsHost = div(
         {class: () => activePage.val === 'settings' ? 'h-full' : 'hidden'},
-        settingsPage({isActive: () => activePage.val === 'settings'}),
+        settingsPage(),
     );
 
     return div(

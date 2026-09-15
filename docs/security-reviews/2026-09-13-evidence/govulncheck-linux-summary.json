@@ -1,0 +1,142 @@
+{
+ "symbol_findings": [
+  {
+   "id": "GO-2026-5764",
+   "summary": "DoS due to Panic in AWS SDK for Go v2 SDK EventStream Decoder in github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "github.com/aws/aws-sdk-go-v2/service/s3",
+      "version": "v1.95.0",
+      "package": "github.com/aws/aws-sdk-go-v2/service/s3",
+      "function": "DeleteObjects",
+      "receiver": "*Client",
+      "position": {
+       "filename": "api_op_DeleteObjects.go",
+       "offset": 6757,
+       "line": 126,
+       "column": 18
+      }
+     }
+    ],
+    "fixed_version": "v1.97.3"
+   }
+  },
+  {
+   "id": "GO-2026-5970",
+   "summary": "Infinite loop on invalid input in golang.org/x/text",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "golang.org/x/text",
+      "version": "v0.38.0",
+      "package": "golang.org/x/text/unicode/norm",
+      "function": "IsNormalString",
+      "receiver": "Form",
+      "position": {
+       "filename": "unicode/norm/normalize.go",
+       "offset": 2778,
+       "line": 112,
+       "column": 15
+      }
+     }
+    ],
+    "fixed_version": "v0.39.0"
+   }
+  },
+  {
+   "id": "GO-2026-6061",
+   "summary": "Vulnerabilities in the xDS RBAC authorization engine and the HTTP/2 transport server implementation in google.golang.org/grpc",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "google.golang.org/grpc",
+      "version": "v1.80.0",
+      "package": "google.golang.org/grpc/internal/transport",
+      "function": "GracefulClose",
+      "receiver": "*http2Client",
+      "position": {
+       "filename": "internal/transport/http2_client.go",
+       "offset": 37518,
+       "line": 1079,
+       "column": 23
+      }
+     }
+    ],
+    "fixed_version": "v1.82.1"
+   }
+  }
+ ],
+ "module_findings": [
+  {
+   "id": "GO-2026-5970",
+   "module": "golang.org/x/text",
+   "version": "v0.38.0",
+   "fixed_version": "v0.39.0",
+   "summary": "Infinite loop on invalid input in golang.org/x/text"
+  },
+  {
+   "id": "GO-2026-6061",
+   "module": "google.golang.org/grpc",
+   "version": "v1.80.0",
+   "fixed_version": "v1.82.1",
+   "summary": "Vulnerabilities in the xDS RBAC authorization engine and the HTTP/2 transport server implementation in google.golang.org/grpc"
+  },
+  {
+   "id": "GO-2026-5932",
+   "module": "golang.org/x/crypto",
+   "version": "v0.53.0",
+   "fixed_version": null,
+   "summary": "The golang.org/x/crypto/openpgp package is unmaintained, unsafe by design, and has known security issues"
+  },
+  {
+   "id": "GO-2026-6303",
+   "module": "golang.org/x/crypto",
+   "version": "v0.53.0",
+   "fixed_version": "v0.55.0",
+   "summary": "Source-address critical option not enforced for non-public-key auth callbacks in golang.org/x/crypto/ssh"
+  },
+  {
+   "id": "GO-2026-6354",
+   "module": "golang.org/x/crypto",
+   "version": "v0.53.0",
+   "fixed_version": "v0.56.0",
+   "summary": "Prevent DoS on deadlocked undecided channel in golang.org/x/crypto/ssh"
+  },
+  {
+   "id": "GO-2026-6355",
+   "module": "golang.org/x/crypto",
+   "version": "v0.53.0",
+   "fixed_version": "v0.56.0",
+   "summary": "Prevent DoS on deadlocked established channel in golang.org/x/crypto/ssh"
+  },
+  {
+   "id": "GO-2026-5764",
+   "module": "github.com/aws/aws-sdk-go-v2/service/s3",
+   "version": "v1.95.0",
+   "fixed_version": "v1.97.3",
+   "summary": "DoS due to Panic in AWS SDK for Go v2 SDK EventStream Decoder in github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
+  },
+  {
+   "id": "GO-2026-5942",
+   "module": "golang.org/x/net",
+   "version": "v0.55.0",
+   "fixed_version": "v0.56.0",
+   "summary": "Parsing an invalid SVCB or HTTPS RR can panic in golang.org/x/net/dns/dnsmessage"
+  },
+  {
+   "id": "GO-2026-5841",
+   "module": "github.com/klauspost/compress",
+   "version": "v1.18.5",
+   "fixed_version": "v1.18.7",
+   "summary": "OOB read in github.com/klauspost/compress/s2"
+  },
+  {
+   "id": "GO-2026-5158",
+   "module": "go.opentelemetry.io/otel",
+   "version": "v1.43.0",
+   "fixed_version": "v1.44.0",
+   "summary": "Opentelemetry-go's baggage parsing no longer caps raw header length in go.opentelemetry.io/otel"
+  }
+ ]
+}

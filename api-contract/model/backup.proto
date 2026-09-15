@@ -18,4 +18,5 @@ message BackupStatus {
   uint32 asset_pending = 9;
   bool asset_target_s3 = 10;
   string asset_error = 11;
+  bool asset_keep_local = 12;
 }

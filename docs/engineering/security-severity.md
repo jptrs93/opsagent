@@ -149,7 +149,11 @@ through a broadly exploitable path.
 
 **Informational** records a hardening opportunity or trust-model observation
 without an established exploit that adds unauthorized impact. It is outside the
-matrix and is not a synonym for an uninvestigated vulnerability.
+matrix and is not a synonym for an uninvestigated vulnerability. Behaviour that
+matches an accepted position in [auth.md](auth.md#accepted-positions) is
+Informational and cites the position's identifier (AP-n); a reviewer who thinks
+the position is wrong argues against the position rather than rating the
+behaviour as a finding.
 
 The Severe/Exceptional cell deliberately remains High: a demonstrated host or
 control-plane boundary failure deserves substantial attention even where access

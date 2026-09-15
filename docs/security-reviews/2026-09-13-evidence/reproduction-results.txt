@@ -1,0 +1,44 @@
+# 11 September audit reproductions rerun unchanged against 2ea3af1 (PASS = behaviour still present)
+=== RUN   TestAuditAgentCanBindDeniedSecret
+    security_audit_20260911_test.go:20: access_denied
+--- FAIL: TestAuditAgentCanBindDeniedSecret (0.01s)
+=== RUN   TestAuditSpaceOperatorCanMountProtectedParent
+    security_audit_20260911_test.go:29: access_denied
+--- FAIL: TestAuditSpaceOperatorCanMountProtectedParent (0.01s)
+=== RUN   TestAuditPasskeyUpdatesAppendDuplicateIDs
+    security_audit_20260911_test.go:46: REPRODUCED: saving one credential twice creates two rows in the user record, retaining the first stale counter. Callback tested; no authenticator used.
+--- PASS: TestAuditPasskeyUpdatesAppendDuplicateIDs (0.01s)
+FAIL
+FAIL	github.com/jptrs93/opsagent/backend/app/primary/webuihandler	0.637s
+=== RUN   TestAuditMountParentAndSymlinkValidation
+    security_audit_20260911_test.go:12: /var: container1Spec.runtime.mounts: host path "/var" is not allowed
+--- FAIL: TestAuditMountParentAndSymlinkValidation (0.00s)
+=== RUN   TestAuditUnownedCertificateNameAccepted
+    security_audit_20260911_test.go:23: REPRODUCED: a different space's DNS name passes workload certificate validation.
+--- PASS: TestAuditUnownedCertificateNameAccepted (0.00s)
+FAIL
+FAIL	github.com/jptrs93/opsagent/backend/app/primary/domain/deployments	1.040s
+=== RUN   TestAuditWorkloadCertificateVerifiesForUnownedName
+    security_audit_20260911_test.go:16: REPRODUCED: certificate for deployment in space 2 verifies as payments.space-999.internal under the shared workload CA.
+--- PASS: TestAuditWorkloadCertificateVerifiesForUnownedName (0.01s)
+PASS
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/pki	0.335s
+=== RUN   TestAuditRegistryRealmCallsLoopback
+    security_audit_20260911_test.go:17: REPRODUCED: registry bearer realm triggers a GET to a loopback HTTP URL.
+--- PASS: TestAuditRegistryRealmCallsLoopback (0.00s)
+=== RUN   TestAuditRegistryPaginationForwardsBearerToAnotherOrigin
+    security_audit_20260911_test.go:31: REPRODUCED: non-GHCR registry pagination sends bearer token to another origin over HTTP. All traffic stayed on loopback.
+--- PASS: TestAuditRegistryPaginationForwardsBearerToAnotherOrigin (0.00s)
+PASS
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/versionprovider	0.818s
+FAIL
+
+# Corrected reproductions (virtual networking, so the host-network gate does not mask the result)
+=== RUN   TestReviewAgentCanBindDeniedSecretWithVirtualNetworking
+    security_rereview_20260913_test.go:23: REPRODUCED: delegated secret reveal denied; same agent's virtual-network workload with the secret bound into env accepted. Workload was not run.
+--- PASS: TestReviewAgentCanBindDeniedSecretWithVirtualNetworking (0.01s)
+=== RUN   TestReviewSpaceAdminHostMountDeniedWithVirtualNetworking
+    security_rereview_20260913_test.go:32: FIXED: built-in space_admin can no longer submit a custom host mount even for an unprotected path; the gate is the use_host_mounts verb, not the denylist.
+--- PASS: TestReviewSpaceAdminHostMountDeniedWithVirtualNetworking (0.01s)
+PASS
+ok  	github.com/jptrs93/opsagent/backend/app/primary/webuihandler	0.335s

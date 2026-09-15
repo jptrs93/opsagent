@@ -102,6 +102,7 @@ message LargeAssetsSettings {
   StringSetting s3_path = 5 [(cp.go_value) = true];
   StringSetting s3_region = 6 [(cp.go_value) = true];
   StringSetting s3_endpoint = 7 [(cp.go_value) = true];
+  BoolSetting keep_local_copy = 8 [(cp.go_value) = true];
 }
 
 message ExportedConfigBlob {

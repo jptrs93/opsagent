@@ -13,8 +13,9 @@ import {grantSubject} from "../lib/authzExplain.js";
 import {globalRuleOverlay, grantOverlay, ruleTemplateOverlay} from "../components/accessEditors.js";
 import {formatDate, formatDateTime} from "../lib/date.js";
 import {globalRuleDisplay, ruleDisplay} from "../components/ruleDisplay.js";
+import {explorerBand} from "../components/sectionBand.js";
 import {closeExplainer, explainable, explainerWidth, mountExplainerLayer, renderExplainer} from "../components/ruleExplainer.js";
-import {caretRightIcon, closeIcon, editIcon, infoIcon, lockIcon, plusIcon, searchIcon, trashIcon} from "../lib/icons.js";
+import {closeIcon, editIcon, infoIcon, lockIcon, plusIcon, searchIcon, trashIcon} from "../lib/icons.js";
 
 const {div, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col, h2} = van.tags;
 
@@ -418,25 +419,6 @@ export function usersPage() {
                 tbody(...rules.map(globalRuleRow))));
     };
 
-    // The section bands take the space band's style from the Deployments,
-    // Assets and Secrets pages: a recessed row with a caret, a semibold mono
-    // title and a small count, the whole band toggling the section.
-    const sectionBand = (openState, title, count) => div(
-        {
-            class: "flex flex-none cursor-default items-center gap-1.5 border-b border-gray-800/80 bg-gray-950/30 px-2 py-1 font-mono text-[13px] hover:bg-gray-700/35",
-            onclick: () => { openState.val = !openState.val; },
-        },
-        button({
-            type: "button",
-            "aria-expanded": () => String(openState.val),
-            "aria-label": () => openState.val ? `Collapse ${title}` : `Expand ${title}`,
-            class: "flex h-4 w-4 flex-none items-center justify-center rounded-sm text-gray-500 hover:text-gray-100 hover:bg-white/10 cursor-pointer",
-            onclick: (e) => { e.stopPropagation(); openState.val = !openState.val; },
-        }, caretRightIcon({class: () => `w-[11px] h-[11px] transition-transform ${openState.val ? "rotate-90" : ""}`})),
-        h2({class: "font-semibold text-gray-100"}, title),
-        span({class: "text-[10.5px] text-gray-500"}, count),
-    );
-
     const rulesPanel = div(
         {class: "flex h-full min-h-0 flex-col", "data-testid": "rules-tab-panel"},
         toolbar(
@@ -446,9 +428,9 @@ export function usersPage() {
             toolbarButton("New global rule", () => { overlayS.val = {type: "globalRule"}; }, {"data-testid": "new-global-rule-button"})),
         div({class: "app-scroll flex flex-1 min-h-0 flex-col overflow-y-auto"},
             readingHint("rule or role name"),
-            sectionBand(open.templates, "Roles", () => String((authzTemplatesS.val || []).length)),
+            explorerBand(open.templates, "Roles", () => String((authzTemplatesS.val || []).length)),
             templatesSection,
-            sectionBand(open.global, "Global rules", () => String((authzGlobalRulesS.val || []).length)),
+            explorerBand(open.global, "Global rules", () => String((authzGlobalRulesS.val || []).length)),
             globalRulesSection),
     );
 

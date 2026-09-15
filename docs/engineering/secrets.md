@@ -93,9 +93,12 @@ back metadata. The plaintext is produced inside the process, sealed, and never
 returned. That inversion is what makes `secret : create` a safe permission to
 delegate on its own — a caller who cannot reveal, edit, or delete a secret can
 still mint one and reference it from deployment env, which is how an agent wires
-a fresh credential into a deployment end to end without the value ever reaching
-anywhere it can observe. The builtin authz templates grant agents exactly that
-and nothing more; see [auth.md](auth.md#authz-layer-backendlibauthz).
+a fresh credential into a deployment end to end without the value being returned
+to it by any API. The workload it binds the secret into can read its own
+environment, so deployment create or update in a space is itself a path to every
+secret bindable from that space; see accepted position AP-1 in
+[auth.md](auth.md#accepted-positions). The builtin authz templates grant agents
+exactly that and nothing more; see [auth.md](auth.md#authz-layer-backendlibauthz).
 
 The request nests its specification (`SecretGenerateRequest.password`) rather
 than hanging fields off the request, so further generators — SSH keypairs, API
@@ -225,6 +228,7 @@ without either the on-box machine KEK or the recovery code.
 | A secondary node's `secondary.db` alone | Safe — rows are sealed under that node's machine key, which is not in the DB, and decrypt on no other machine. Only the values that node's own deployments reference are ever present |
 | A secondary node's disk (DB **and** machine key) | Exposes the values that node's deployments reference — the same values already readable from its running containers' environments. The primary's SMK and every unreferenced secret stay out of reach |
 | UI stream / logs | Safe — only names, metadata, and numeric refs appear; plaintext is returned only by an explicit, authenticated `Reveal` request |
+| Deployment create or update in a space, without reveal | Reads every secret bindable from that space (its own and the global space) through a workload's environment. Documented authority, not a leak: accepted position AP-1 in [auth.md](auth.md#accepted-positions) |
 | Root on the primary | Game over (true of any host-side secrets manager; Phase 3 narrows the *stolen-disk / offline* case) |
 
 ## Lifecycle

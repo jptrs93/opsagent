@@ -64,6 +64,7 @@ const settingConfigRefs = (settings) => [
     ["Large asset S3 path", settings?.largeAssets?.s3Path?.configRef?.versionId],
     ["Large asset S3 region", settings?.largeAssets?.s3Region?.configRef?.versionId],
     ["Large asset S3 endpoint", settings?.largeAssets?.s3Endpoint?.configRef?.versionId],
+    ["Keep local copies of large assets", settings?.largeAssets?.keepLocalCopy?.configRef?.versionId],
 ].map(([label, id]) => ({label, id: Number(id || 0)})).filter((ref) => ref.id);
 
 const settingSecretRefs = (settings) => [

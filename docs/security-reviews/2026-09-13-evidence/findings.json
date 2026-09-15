@@ -1,0 +1,1112 @@
+{
+  "commit": "2ea3af1e8f141b0fff85012d1ed766af6c35b16f",
+  "baseline": "8e28a9f1b79e850ea773811448089616cc48fb24",
+  "date": "2026-09-13",
+  "findings": [
+    {
+      "id": "OD-02",
+      "origin": "audit",
+      "severity": "Low",
+      "prior": "Critical",
+      "area": "Host filesystem / authorization",
+      "status": "Source verified; residual",
+      "title": "Host mount validation stays lexical: symlinked sources are not resolved on the node",
+      "cwe": "CWE-59",
+      "impact": "The Critical path is closed: parents of protected roots and / are rejected, and custom host mounts now require use_host_mounts, which only cluster_admin holds. What remains is that a permitted host path is never resolved on the node before it is bind-mounted, so a symlink under an allowed directory still reaches a protected tree.",
+      "trigger": "A caller with use_host_mounts (cluster_admin by default) and a pre-existing symlink on the target node from an allowed path into a protected one. Both prerequisites are ones the design already treats as host-administrator trust.",
+      "evidence": "containerHostMountDenied cleans the path and checks both directions against the denylist, and its comment states the check is lexical and that administrators own symlinks. The runner passes HostPath to containerd unchanged; there is no EvalSymlinks, openat2 or RESOLVE_BENEATH on the mount source anywhere in the runner.",
+      "validation": "The audit's validator reproduction now fails on /var (\"host path \\\"/var\\\" is not allowed\"). A corrected handler test shows space_admin is denied a custom mount even for an unprotected path. The symlink case was traced in source only.",
+      "fix": "Resolve the source with EvalSymlinks on the node at mount time and re-apply the denylist to the resolved path, or open it with openat2 and RESOLVE_BENEATH relative to the allowed root. Fail the run rather than silently mount.",
+      "close": "A symlink from an allowed host path into /var/lib/opendeploy must fail the run with a clear error; ordinary host mounts must keep working.",
+      "sources": [
+        [
+          "backend/app/primary/domain/deployments/validate.go",
+          910,
+          923
+        ],
+        [
+          "backend/app/primary/domain/authz/builtin.go",
+          30,
+          36
+        ]
+      ],
+      "refs": []
+    },
+    {
+      "id": "OD-06",
+      "origin": "audit",
+      "severity": "Medium",
+      "prior": "High",
+      "area": "Credentials",
+      "status": "Source verified",
+      "title": "Eligible workers receive the entire configured GitHub token",
+      "cwe": "CWE-269",
+      "impact": "Any node scheduled to run one Nix build or one ghcr.io image obtains the full personal access token, unscoped to repository or node. A compromised worker holds the organisation's token. The hostile-flake path to the token is closed: the build container gets an explicitly constructed environment and never sees it.",
+      "trigger": "Root on a worker, or a workload that escapes to the agent's uid. Eligibility needs only one scheduled instance that uses GitHub.",
+      "evidence": "GetV1ClusterGithubCredentials returns the raw token after a coarse usesGithub check on the node's scheduled instances. The worker caches it in memory. The git manager injects it as a github.com-scoped extraHeader so it never reaches .git/config or argv, and the build container's env is TMPDIR, HOME and the CA bundle only.",
+      "validation": "Handler unchanged since the audit. The containerized build (b6ce56b) and its egress rules were read in full; the e2e hostile-build probe asserts the machine key and containerd socket are absent in the build.",
+      "fix": "Mint a short-lived, repository-scoped installation token per checkout (GitHub App) or keep the token on the primary and have the primary perform fetches, shipping only the checkout to workers.",
+      "close": "A worker must be able to fetch only the repositories of its scheduled deployments, and a captured credential must expire within hours.",
+      "sources": [
+        [
+          "backend/app/primary/clusterhandler/handler.go",
+          153,
+          165
+        ],
+        [
+          "backend/lib/engine/prepare/nixstore/build.go",
+          88,
+          92
+        ]
+      ],
+      "refs": []
+    },
+    {
+      "id": "OD-07",
+      "origin": "audit",
+      "severity": "High",
+      "area": "Cluster PKI",
+      "status": "Source verified",
+      "title": "A stolen worker key can renew its access without an effective revocation boundary",
+      "cwe": "CWE-613 / CWE-299",
+      "impact": "There is still no way to evict a node. Cluster authentication checks only that the client certificate chains to the CA, and renewal re-certifies whatever public key the caller presents. A stolen worker key therefore keeps cluster access indefinitely; the only remedy is re-bootstrapping the cluster CA, which invalidates every node and workload certificate at once.",
+      "trigger": "Possession of a worker's cluster key and certificate (file mode 0600 on the node).",
+      "evidence": "The public API has list, rename, allowed-spaces and enrollment endpoints for nodes and nothing that removes or disables one; NODE_MEMBER_EVICTED is defined but never assigned. VerifyClusterPeer lifts only the CN, and GetNodeIDByIdentifier has no status predicate. GetV1ClusterRenewCertificate checks registration, not membership, and signs peerCert.PublicKey.",
+      "validation": "Diffs of clusterhandler, domain/nodes and pki against the audited commit show only enrollment hardening; no revocation path was added.",
+      "fix": "Add an evict transition and check member status on every cluster request and at renewal. Rotate the key at renewal rather than re-signing the presented key. Publish a serial denylist to the cluster listener and shorten worker leaf validity.",
+      "close": "Evicting a node must cause its next cluster request and its next renewal to fail without touching the CA.",
+      "sources": [
+        [
+          "backend/app/primary/clusterhandler/handler.go",
+          404,
+          421
+        ],
+        [
+          "backend/storage/primarydb/pq/nodes.go",
+          257,
+          261
+        ],
+        [
+          "backend/util/certu/sign.go",
+          55,
+          58
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "OD-09",
+      "origin": "audit",
+      "severity": "Medium",
+      "area": "Authentication / availability",
+      "status": "Source verified",
+      "title": "Public password verification has no global memory or concurrency budget",
+      "cwe": "CWE-770",
+      "impact": "Each master-password or password-login attempt costs a 64 MiB Argon2id hash. Per-address rate limits exist and key on the socket address, but nothing bounds aggregate concurrency, and the limiter keys on the exact address, so an IPv6 /64 supplies unlimited independent buckets. The master endpoint is reachable even when password login is disabled.",
+      "trigger": "Unauthenticated access to the web listener from many source addresses.",
+      "evidence": "The middleware chain applies PerIP and PerIPAndPrefix limits; ratelimit.Global exists but is unused, and no semaphore wraps VerifyPassword. perIPWithMatcher allocates a limiter per distinct address string with a 60-second TTL. PostV1AuthMaster is NO_AUTH and calls verifyMasterPassword before any other check.",
+      "validation": "Rate limits and clientaddr were already present at the audited commit; nothing changed. Load impact was not measured.",
+      "fix": "Wrap password verification in a global semaphore sized for the node, key rate limits on a /64 for IPv6 and a /24 for IPv4, and return 503 rather than queueing when the budget is exhausted.",
+      "close": "A flood from many addresses must not raise the primary's resident memory beyond the semaphore's bound.",
+      "sources": [
+        [
+          "backend/app/primary/run.go",
+          140,
+          150
+        ],
+        [
+          "backend/lib/middleware/ratelimit/ratelimit.go",
+          43,
+          69
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "OD-10",
+      "origin": "audit",
+      "severity": "Medium",
+      "area": "Listeners / availability",
+      "status": "Source verified",
+      "title": "Public listeners lack header and TLS-handshake deadlines",
+      "cwe": "CWE-400",
+      "impact": "The Web UI HTTPS, cluster mTLS and enrollment listeners set no ReadHeaderTimeout, ReadTimeout or WriteTimeout. In Go 1.27 that means no TLS handshake deadline at all, so an unauthenticated peer can hold half-open connections on :443, :9443 and :9444 indefinitely and exhaust goroutines on the primary.",
+      "trigger": "Network reachability of the primary's public ports.",
+      "evidence": "All three http.Server literals carry Handler, TLSConfig and BaseContext only; the cluster server adds HTTP/2 ping timeouts, which act after the handshake. The stdlib derives the handshake deadline from the minimum positive server timeout, so three zeros yield none. Netproxy's HTTPS listener has a 10-second header timeout, but its ClientHello deadline is cleared before hand-off onto an unbuffered channel, leaving an unbounded queueing window.",
+      "validation": "Diffs of webui/server.go, clusterserver/server.go and netproxy against the audited commit are empty.",
+      "fix": "Set ReadHeaderTimeout (10s), IdleTimeout (75s) and a bounded MaxHeaderBytes on every listener; keep the netproxy pre-handshake deadline until Accept, and cap the number of parked handoffs.",
+      "close": "A client that connects and sends nothing must be closed within the header timeout on every public port.",
+      "sources": [
+        [
+          "backend/app/primary/clusterserver/server.go",
+          42,
+          51
+        ],
+        [
+          "backend/app/primary/clusterserver/server.go",
+          84,
+          89
+        ],
+        [
+          "backend/app/primary/webui/server.go",
+          71,
+          76
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "OD-11",
+      "origin": "audit",
+      "severity": "Medium",
+      "area": "Registry client / SSRF",
+      "status": "Reproduced against HEAD",
+      "title": "Registry-supplied URLs can reach internal services and forward bearer tokens",
+      "cwe": "CWE-918",
+      "impact": "A hostile registry's bearer challenge points the primary at any URL, including plain-HTTP loopback and private addresses, and its Link header re-targets an authenticated pagination request to another origin. The OpenDeploy GitHub token is not at risk: the transport injects it only at ghcr.io/token and strips Authorization elsewhere.",
+      "trigger": "Permission to create a deployment somewhere, which agent sessions hold, and a registry hostname the caller controls.",
+      "evidence": "registryBearerToken parses the realm and issues a GET with no scheme or host restriction. registryGet sets the registry's bearer token on whatever URL nextRegistryPageURL returns, and non-GHCR registries use the default client. The image reference parser accepts any host with a dot or port.",
+      "validation": "Both audit reproductions still pass on loopback. The three files are unchanged since the audit; the PAT scoping in registryauth predates it.",
+      "fix": "Require https for realms, resolve and reject loopback, link-local, RFC1918, ULA and cluster-prefix destinations before dialling, restrict pagination to the registry's own origin, and use the same hardened transport for every registry.",
+      "close": "A realm or Link pointing at 127.0.0.1 or a private range must be refused without a connection attempt.",
+      "sources": [
+        [
+          "backend/lib/engine/versionprovider/containerimage.go",
+          196,
+          216
+        ],
+        [
+          "backend/lib/engine/versionprovider/containerimage.go",
+          155,
+          164
+        ],
+        [
+          "backend/lib/engine/registryauth/client.go",
+          51,
+          60
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "OD-12",
+      "origin": "audit",
+      "severity": "Medium",
+      "area": "Authentication",
+      "status": "Reproduced against HEAD",
+      "title": "Passkey login updates append duplicate credentials and retain stale state",
+      "cwe": "CWE-287",
+      "impact": "Every successful passkey login appends another copy of the credential to the user record. The verifier picks the first match, so the registration-time sign count and backup flags are compared forever and clone detection never fires; the record grows without bound.",
+      "trigger": "Normal use. No attacker action is needed for the growth; a cloned authenticator is needed to exploit the disabled detection.",
+      "evidence": "The shared save callback appends to d.Credentials rather than replacing the entry with the same ID. It is reached from both FinishRegistration and FinishLogin. CloneWarning is never read anywhere in the backend.",
+      "validation": "The audit reproduction still passes: two saves yield two rows with the stale counter first. passkey.go is unchanged since the audit.",
+      "fix": "Replace the credential whose ID matches in place, persist the updated counter and flags, and surface CloneWarning as a login refusal or an alert.",
+      "close": "Saving the same credential twice must leave one row carrying the latest counter.",
+      "sources": [
+        [
+          "backend/app/primary/webuihandler/passkey.go",
+          67,
+          72
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "OD-13",
+      "origin": "audit",
+      "severity": "Low",
+      "prior": "Medium",
+      "area": "Frontend supply chain",
+      "status": "Lockfile scanner verified",
+      "title": "Frontend build dependencies have outstanding advisories",
+      "cwe": "CWE-1104",
+      "impact": "Fourteen advisories (8 high, 6 moderate) remain, all reached through vite, postcss, nanoid and yaml. None ships in the bundle served to browsers; the exposure is a developer running the dev server. pnpm audit --prod reports the same set because the tailwind vite plugin sits in dependencies.",
+      "trigger": "A developer running pnpm run dev against hostile input, or a build with attacker-controlled CSS source. Neither applies to the deployed Web UI.",
+      "evidence": "The lockfile is unchanged since the audit. The runtime dependency set is codemirror, lezer, bip39 and vanjs, none of which carries an advisory.",
+      "validation": "pnpm audit and pnpm audit --prod were run read-only on 13 September; inventories preserved in the evidence directory.",
+      "fix": "Bump vite to the current 7.x, which pulls fixed postcss and nanoid, and move vite, tailwindcss and @tailwindcss/vite to devDependencies so the production audit is meaningful.",
+      "close": "pnpm audit --prod must report zero advisories.",
+      "sources": [
+        [
+          "frontend/package.json",
+          14,
+          32
+        ]
+      ],
+      "refs": []
+    },
+    {
+      "id": "RR-01",
+      "origin": "review",
+      "severity": "High",
+      "area": "Workload isolation",
+      "status": "Source verified",
+      "title": "Workload containers have no CPU, memory or pids limits, and /dev/shm is unbounded",
+      "cwe": "CWE-770",
+      "impact": "A single deployment can consume all memory, CPU and process slots on its node and take the OpenDeploy agent, containerd and every co-tenant down with it. Build containers received limits in b6ce56b; workloads did not.",
+      "trigger": "Any deployment permission. No hostile intent is required; a memory leak suffices.",
+      "evidence": "The workload ContainerSpec sets ID, image, user, env, args, cwd, dev-shm size, file-descriptor limit, mounts, log fields and netns, and never populates Resources, so the OCI memory, CPU and pids options are skipped. devShmSizeKb is validated only for non-negativity. No deployment spec field for resource limits exists.",
+      "validation": "container.go is byte-identical to the audited commit. The resource wiring added for builds was read and confirmed to apply only when Resources is non-nil.",
+      "fix": "Give workloads node-default memory, CPU and pids budgets with a per-deployment override in the spec, bound dev_shm_size_kb by the memory budget, and reflect OOM kills in the run report.",
+      "close": "A workload that allocates without bound must be OOM-killed inside its cgroup while the agent and other workloads keep running.",
+      "sources": [
+        [
+          "backend/lib/engine/runner/container.go",
+          540,
+          559
+        ],
+        [
+          "backend/lib/engine/ctrd/client.go",
+          323,
+          333
+        ],
+        [
+          "backend/app/primary/domain/deployments/validate.go",
+          798,
+          806
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-02",
+      "origin": "review",
+      "severity": "Medium",
+      "area": "Workload isolation",
+      "status": "Source verified",
+      "title": "Workloads run without a seccomp profile, as root, without a user namespace, and with CAP_NET_RAW",
+      "cwe": "CWE-250",
+      "impact": "The kernel attack surface exposed to a workload is larger than the Docker default: the full syscall table, root in the container, containerd's default capability set including CAP_NET_RAW, and no user-namespace boundary. This lowers the bar for every runtime escape, including the class OD-03 tracked.",
+      "trigger": "Any deployment permission and a hostile or compromised image.",
+      "evidence": "DefaultSeccomp is set only on build and maintenance specs, so seccomp.WithDefaultProfile is never applied to workloads. No WithUserNamespace, uid mapping, AppArmor or capability option appears in the workload path; the spec can set a user but nothing requires one.",
+      "validation": "Traced buildSpecOpts and the workload spec construction; no test executes an escape.",
+      "fix": "Apply the default seccomp profile to workloads, drop CAP_NET_RAW and other unneeded capabilities, default to a non-root user when the image does not set one, and evaluate user namespaces once containerd's idmapped mount support is confirmed on target kernels.",
+      "close": "A workload must be unable to open a raw socket or call a syscall outside the default profile.",
+      "sources": [
+        [
+          "backend/lib/engine/ctrd/client.go",
+          335,
+          337
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-03",
+      "origin": "review",
+      "severity": "Medium",
+      "area": "Volumes / authorization",
+      "status": "Source verified",
+      "title": "Cross-deployment mounts give read-write access to default-space volumes with no authorization check",
+      "cwe": "CWE-285",
+      "impact": "A deployment in any space can mount, read-write, the default volume of any same-node deployment in the default space, and an agent session can do it too. The validator checks locality only and its error messages return the source deployment's name and space to callers who may not be entitled to see it.",
+      "trigger": "Create or update permission in any space on a node that also hosts default-space deployments.",
+      "evidence": "validateCrossDeploymentMountSources allows a source in the caller's space or the default space, on the same node, with a default volume. No verb is checked on the source deployment, and use_host_mounts inspects only Runtime.Mounts. The runner honours READ_WRITE.",
+      "validation": "Unchanged since the audit. The exempted space is DefaultSpaceID (1), the global space; the system space is 0.",
+      "fix": "Require view (or a dedicated mount verb) on the source deployment in its own space, default cross-space mounts to read-only, and drop the name from the refusal message for sources the caller cannot see.",
+      "close": "A caller without access to the source deployment must be refused with a message that does not name it.",
+      "sources": [
+        [
+          "backend/app/primary/domain/deployments/validate.go",
+          926,
+          953
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-04",
+      "origin": "review",
+      "severity": "Medium",
+      "prior": "High",
+      "area": "Host networking / policy",
+      "status": "Source verified",
+      "title": "Host-network deployments bypass network policy and keep CAP_NET_RAW",
+      "cwe": "CWE-284",
+      "impact": "Selecting host networking now requires use_host_network, held by cluster_admin only, which is why the severity drops. The isolation gap itself is unchanged: a host-mode container shares the host netns, so it reaches every loopback listener, every other space's and node's workload addresses, and can sniff with CAP_NET_RAW. No nftables rule can match it.",
+      "trigger": "use_host_network, or an operator-authored wildcard template that inherited it (RR-21).",
+      "evidence": "The gate is enforced on create, v2 update including the saved spec, and space moves, and agent rules exclude the verb. The new input chain matches only the build interface set and its policy is accept; host-mode containers have no veth to match on. buildSpecOpts sets no capability option, so containerd's default set applies.",
+      "validation": "Gate tests pass. Policy behaviour was traced in source; no Linux enforcement test was run.",
+      "fix": "Document host mode as host-administrator trust, drop CAP_NET_RAW from host-mode workloads, and consider an input-chain rule set keyed on the workload's uid or cgroup for the listeners it must not reach.",
+      "close": "A host-mode workload must be unable to reach the enrollment and cluster listeners on loopback.",
+      "sources": [
+        [
+          "backend/app/primary/webuihandler/deployments.go",
+          100,
+          102
+        ],
+        [
+          "backend/lib/network/filter.go",
+          144,
+          155
+        ]
+      ],
+      "refs": []
+    },
+    {
+      "id": "RR-05",
+      "origin": "review",
+      "severity": "High",
+      "area": "Host ports / ingress plan",
+      "status": "Source verified",
+      "title": "Port forwards can claim reserved and co-tenant host ports",
+      "cwe": "CWE-284 / CWE-362",
+      "impact": "Any deployer in any space can bind 443, 80, 22 or the cluster ports on the target node, or a port another tenant already forwards. The lower deployment id wins silently, UDP is never checked, and the DNAT rule matches any local address including loopback, so the forward also captures traffic to 127.0.0.1.",
+      "trigger": "Create or update permission in any space.",
+      "evidence": "validatePortForwarding checks range and duplicates within one spec. matchReservation is called only inside the ingress-route loop, and the TCP port map records the first owner without a diagnostic and is consulted only for ingress claims. HostPortRule for a forward carries no Dest, so addDNATRules falls back to fib daddr type local.",
+      "validation": "ingressplan and the runner's port-forward code are unchanged since the audit; no VM test was run.",
+      "fix": "Run port forwards through the same reservation and claim machinery as ingress routes, include UDP, reject collisions at write time, and restrict the DNAT destination to the node's published addresses.",
+      "close": "A forward on a reserved port or a port another deployment already forwards must be rejected at write time.",
+      "sources": [
+        [
+          "backend/app/primary/domain/deployments/validate.go",
+          183,
+          209
+        ],
+        [
+          "backend/lib/ingressplan/ingressplan.go",
+          158,
+          171
+        ],
+        [
+          "backend/lib/engine/runner/container.go",
+          1366,
+          1377
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-06",
+      "origin": "review",
+      "severity": "Medium",
+      "area": "Ingress proxy",
+      "status": "Source verified",
+      "title": "Ingress path-prefix routing forwards un-normalised paths across tenant prefixes",
+      "cwe": "CWE-22 / CWE-436",
+      "impact": "Prefix matching runs on the decoded request path without cleaning, and forwarding sends either the raw bytes or a decoded-and-stripped path. /api/../secret routes on the /api prefix and reaches that prefix's backend, which will normalise it to /secret. Because each prefix is a cross-deployment claim, the routing decision and the served resource can disagree across a tenant boundary.",
+      "trigger": "An HTTPS ingress hostname shared by two prefixes owned by different deployments, and an upstream that normalises paths.",
+      "evidence": "routePrefixMatch is HasPrefix plus a segment-boundary check on r.URL.Path. The handler is the server itself, so no ServeMux cleaning applies. With strip enabled the trim operates on the decoded path and RawPath is discarded; without it the raw path is forwarded byte for byte. Route definitions are cleaned at admission; requests are not.",
+      "validation": "netproxy is unchanged since the audit. No fuzzing of encoded or dot-segment paths was run.",
+      "fix": "Reject requests whose decoded path contains dot segments or whose cleaned form differs, match and forward the same representation, and derive X-Forwarded-Prefix from the matched prefix.",
+      "close": "A request for /api/../secret must be refused or routed by its cleaned path, never forwarded to the /api backend.",
+      "sources": [
+        [
+          "backend/app/netproxy/https.go",
+          72,
+          80
+        ],
+        [
+          "backend/app/netproxy/https.go",
+          230,
+          247
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-07",
+      "origin": "review",
+      "severity": "Medium",
+      "area": "Cluster networking",
+      "status": "Source verified; kernel effect inferred",
+      "title": "Duplicate WireGuard keys and underlay addresses are not rejected",
+      "cwe": "CWE-345",
+      "impact": "Nothing compares a node's reported WireGuard public key or underlay address with other nodes'. An enrolled node can report another node's key, both are published as distinct peers, and the kernel keys peers by public key, so the later configuration overwrites the earlier one and the victim's routes collapse onto the impostor.",
+      "trigger": "A node that can complete enrollment, or any member node via its own report. Requires the victim's public key, which the netmap distributes to every node.",
+      "evidence": "NormalizeNodeUnderlay checks address family only. ReportNode overwrites the node's addresses and key with whatever the mTLS-authenticated node sends. The publisher checks only that the key is non-empty.",
+      "validation": "Source traced end to end; the peer-collapse step rests on WireGuard's documented per-key peer identity and was not executed in the VM harness.",
+      "fix": "Enforce uniqueness of WireGuard public keys and underlay addresses at enrollment and on report, and bind the reported key to the node's enrollment identity.",
+      "close": "A report carrying another node's public key must be rejected and logged.",
+      "sources": [
+        [
+          "backend/app/primary/domain/nodes/nodes.go",
+          176,
+          191
+        ],
+        [
+          "backend/app/primary/netmappublisher/publisher.go",
+          290,
+          294
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-08",
+      "origin": "review",
+      "severity": "Medium",
+      "area": "Agent sessions",
+      "status": "Source verified",
+      "title": "Agent-session approval never checks the approval code and request-start is unauthenticated",
+      "cwe": "CWE-306 / CWE-451",
+      "impact": "Anyone who can reach the web listener can open the single pending agent-session slot for any user by sequential id, and the request it plants looks identical to a legitimate one except for a code the API never verifies. Approving it hands the attacker a token with the approver's scopes. The slot can also be kept occupied to block the real agent.",
+      "trigger": "Network reachability and a guessable user id (ids are dense from 1). For token theft, an operator approving without comparing the code.",
+      "evidence": "AgentSessionApproveRequest carries only the id and the handler never reads ApprovalCode; the frontend renders the code read-only. request-start is NO_AUTH, keyed by user_id, and returns 409 while a pending request exists. The rate limit is 3 per 10 minutes per address.",
+      "validation": "agent_sessions.go and the proto are unchanged since the audit; the design doc describes the code as an out-of-band human check.",
+      "fix": "Require the approval code in the approve request and compare it server-side, bind request-start to a short-lived challenge issued to the operator, and allow more than one pending request per user so a planted request cannot block the real one.",
+      "close": "Approving with a wrong or missing code must fail; a request planted by a third party must not be approvable by accident.",
+      "sources": [
+        [
+          "backend/app/primary/webuihandler/agent_sessions.go",
+          160,
+          178
+        ],
+        [
+          "api-contract/model_sessions_operations.proto",
+          54,
+          56
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-09",
+      "origin": "review",
+      "severity": "Medium",
+      "area": "Cluster PKI / availability",
+      "status": "Source verified",
+      "title": "The primary's cluster leaf certificate expires after one year and nothing reissues it",
+      "cwe": "CWE-298",
+      "impact": "Worker leaves renew from 90 days out, but the primary's own leaf is minted once at bootstrap with a 365-day validity and never renewed. Workers verify the full chain, so on day 366 every cluster connection fails and, because renewal rides that connection, nothing self-heals. A cluster-wide outage on a known date.",
+      "trigger": "Time. The first affected installs reach the date one year after bootstrap.",
+      "evidence": "GenerateNodeCertificateWithServerName sets NotAfter to now plus 365 days. BootstrapPrimary returns early whenever material exists, and run.go only loads it. The Web UI local TLS material has a self-renew path; the cluster leaf does not.",
+      "validation": "Traced in source. No test advances the clock.",
+      "fix": "Reissue the primary leaf under the existing CA before expiry using the same window logic as workers, and hot-swap the listener's certificate via GetCertificate.",
+      "close": "A primary whose leaf is within the renewal window must present a fresh certificate without restart.",
+      "sources": [
+        [
+          "backend/util/certu/sign.go",
+          126,
+          130
+        ],
+        [
+          "backend/app/primary/domain/pki/material.go",
+          138,
+          142
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-10",
+      "origin": "review",
+      "severity": "Medium",
+      "prior": "Low",
+      "area": "Authentication",
+      "status": "Source verified",
+      "title": "No re-authentication for passkey enrolment or master-password rotation, and the session token lives in localStorage",
+      "cwe": "CWE-306 / CWE-922",
+      "impact": "Any live human session token can add a new passkey and overwrite the master password without a fresh assertion or the old password, converting a stolen or XSS-read token into permanent account access and cluster-wide credential control. The token is stored in localStorage and echoed back by the current-session endpoint.",
+      "trigger": "A session token obtained through XSS, a shared machine or a logged response. Bearer headers mean there is no CSRF exposure.",
+      "evidence": "Passkey register endpoints require only requireHuman. PostV1AuthMasterPasswordSave requires human plus cluster update and never calls verifyMasterPassword; the separate verify endpoint is not bound to the save. login.js persists the token under authSession.",
+      "validation": "auth.go, passkey.go and login.js are unchanged since the audit.",
+      "fix": "Require a fresh passkey assertion or the current master password within the same request for enrolment and rotation, and stop echoing the token from the current-session endpoint.",
+      "close": "Rotation without the current password, and enrolment without a recent assertion, must both fail.",
+      "sources": [
+        [
+          "backend/app/primary/webuihandler/auth.go",
+          121,
+          139
+        ],
+        [
+          "backend/app/primary/webuihandler/access_enforce.go",
+          20,
+          28
+        ]
+      ],
+      "refs": []
+    },
+    {
+      "id": "RR-11",
+      "origin": "review",
+      "severity": "High",
+      "prior": "Medium",
+      "area": "Ingress / ACME",
+      "status": "Source verified",
+      "title": "ACME certificates and private keys are shared by hostname across spaces",
+      "cwe": "CWE-284 / CWE-522",
+      "impact": "ACME issuance sweeps every deployment's HTTPS routes and stores certificates under a global hostname key. A node then receives the private key for any hostname its scheduled routes name. A deployment in space X that declares a route for space Y's hostname, on another node or under another path prefix, obtains Y's ACME private key and can serve Y's traffic.",
+      "trigger": "Create or update permission in any space, and a hostname another space already uses. Claims collide only on the same node, address, port, hostname and prefix.",
+      "evidence": "acmeHostnames iterates all configs with no space filter. addIngressCertRefs grants the secret by hostname match on the node's routes. The claim key includes node and prefix but no space, so different nodes or prefixes never conflict, and write-time validation inherits that.",
+      "validation": "acmeissue and ingressplan are unchanged since the audit; the key-delivery path was traced across the two functions and not exercised end to end.",
+      "fix": "Record the owning space for each hostname on first claim and reject routes from other spaces, key ACME secrets by space and hostname, and deliver a key only to routes of the owning space.",
+      "close": "A second space claiming an existing hostname must be rejected at write time and must never receive the key.",
+      "sources": [
+        [
+          "backend/app/primary/domain/acmeissue/acmeissue.go",
+          100,
+          118
+        ],
+        [
+          "backend/app/primary/clusterhandler/handler.go",
+          226,
+          244
+        ],
+        [
+          "backend/lib/ingressplan/ingressplan.go",
+          272,
+          277
+        ]
+      ],
+      "refs": []
+    },
+    {
+      "id": "RR-12",
+      "origin": "review",
+      "severity": "Medium",
+      "area": "Source resolver / SSRF",
+      "status": "Source verified",
+      "title": "The repository resolver accepts local paths, git@ SSH and any HTTP host",
+      "cwe": "CWE-918 / CWE-200",
+      "impact": "Anyone who can create a deployment gets outbound HTTP and SSH from the primary and a filesystem-existence oracle: an existing local path is passed to git and fails with \"not a git repository\", a missing one fails with a parse error, and a local git repository is cloned and built. The clone runs on the host as the agent user, on the primary during validation and on workers at prepare.",
+      "trigger": "Create permission in any space, which agent sessions hold.",
+      "evidence": "resolveCloneURL returns any existing path and any git@ prefix verbatim, and accepts http and https for any host; only option injection and non-http schemes are rejected. Deployment validation adds no host allowlist, and the repo-validate endpoint returns git's error text.",
+      "validation": "Only a rename changed in this file since the audit.",
+      "fix": "Accept only https URLs to an operator-configured host allowlist, reject local paths and git@ outright, and run validation fetches from a dedicated netns with the same egress policy as builds.",
+      "close": "A repo of /etc/passwd or of an internal http host must be rejected before any process is started.",
+      "sources": [
+        [
+          "backend/lib/repo/git/gitmanager.go",
+          67,
+          90
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-13",
+      "origin": "review",
+      "severity": "Medium",
+      "area": "Spaces / authorization",
+      "status": "Source verified",
+      "title": "Space ids are reused after delete and nothing is cleaned up",
+      "cwe": "CWE-694 / CWE-459",
+      "impact": "The spaces table is a rowid alias without AUTOINCREMENT, so deleting the highest-numbered space and creating a new one reuses its id. Deletion removes only the row and node allow-lists; secrets, configs, assets, tombstoned deployments and every grant and rule template naming the id survive. Whoever holds a grant on the recycled id can reveal the previous tenant's secrets.",
+      "trigger": "An operator deletes a space that still holds secrets or grants and later creates another.",
+      "evidence": "schema_spaces.sql declares id INTEGER PRIMARY KEY with no AUTOINCREMENT. DeleteSpace issues a bare delete. The only precondition is no active deployments, and authorization reads the object's own space_id.",
+      "validation": "Schema and DeleteSpace are byte-identical to the audited commit.",
+      "fix": "Add AUTOINCREMENT or a monotonic counter, refuse deletion while secrets, configs, assets or grants reference the space, and tombstone grants and templates on delete.",
+      "close": "Creating a space after deleting the last one must yield a new id, and the deleted space's grants must not apply to it.",
+      "sources": [
+        [
+          "backend/storage/primarydb/pq/sql/schema_spaces.sql",
+          1,
+          4
+        ],
+        [
+          "backend/app/primary/domain/nodes/spaces.go",
+          125,
+          130
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-14",
+      "origin": "review",
+      "severity": "Medium",
+      "area": "Backup / restore",
+      "status": "Source verified",
+      "title": "Backup restore accepts a tampered database",
+      "cwe": "CWE-345",
+      "impact": "Restore validates that the secrets store unlocks with the recovery code, that cluster TLS material decrypts and that the Web TLS bundle parses. Encrypted rows are authenticated individually, but users, grants, rule templates, the system config blob holding the master-password hash, and every deployment spec are plaintext. Anyone with bucket write access can add an admin or a hostile deployment to a genuine backup and it restores cleanly with the real CA.",
+      "trigger": "Write access to the backup bucket and an operator performing a disaster-recovery restore.",
+      "evidence": "Restore is stock litestream followed by unlockRestoredSecrets and primarybootstrap.Validate; no checksum, signature or manifest is checked. AEAD covers only secret ciphertext and keyslots.",
+      "validation": "No verification code exists in backup/ or installer/restore.go; the tamper path is inferred from that absence and the schema, not executed.",
+      "fix": "Sign or HMAC the backup manifest with a key derived from the recovery code, verify it before unlock, and print the restored admin list and deployment count for operator confirmation.",
+      "close": "A backup with one plaintext row altered must fail restore.",
+      "sources": [
+        [
+          "backend/app/installer/restore.go",
+          99,
+          116
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-15",
+      "origin": "review",
+      "severity": "Medium",
+      "area": "Cross-space authorship",
+      "status": "Source verified",
+      "title": "Secret and config rotation writes deployments across spaces, and delete refusals leak cross-space names",
+      "cwe": "CWE-863 / CWE-200",
+      "impact": "Rotating a shared secret enumerates every deployment in the cluster and writes a new event for each referencing one, authored as the caller and bypassing the deployment update path and its host-access gate. The caller needs only update on the secret. Separately, the delete refusal for a referenced secret, config or asset lists referencing deployments as space / node / name cluster-wide, with no visibility filter.",
+      "trigger": "Update on a secret that deployments in other spaces reference (any space may reference default-space secrets), or delete on any referenced value.",
+      "evidence": "references.go lists latest deployment events without a space filter and inserts events directly. RefDetails renders every referencing deployment's space, node and name into the client-visible message, and panics on a query error inside the write transaction.",
+      "validation": "Both files are unchanged since the audit. Count mismatches surface only as a fixed 409, so the version oracle is one bit per attempt.",
+      "fix": "Restrict rotation to deployments the caller can update and report the rest as skipped, route the writes through the deployment service, and filter refusal details to deployments the caller can see.",
+      "close": "A caller without update in space Y must not author events there, and must not see Y's deployment names in a refusal.",
+      "sources": [
+        [
+          "backend/app/primary/domain/values/references.go",
+          87,
+          91
+        ],
+        [
+          "backend/app/primary/domain/deployments/refs.go",
+          117,
+          147
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-16",
+      "origin": "review",
+      "severity": "Low",
+      "area": "Filesystem hygiene",
+      "status": "Source verified",
+      "title": "Asset cache, volume and store roots are world-readable and the mode is re-applied",
+      "cwe": "CWE-732",
+      "impact": "The asset cache, volumes root, per-deployment volume directories, releases and the new Nix store root are 0755 and asset files 0644, so any local user on the node reads asset plaintext, asset-backed env values and volume data. The mode is re-applied at every agent start, install and prepare, so tightening it by hand is silently undone.",
+      "trigger": "An unprivileged local shell on a node.",
+      "evidence": "ainit ensures the roots at 0755 on every start via MkdirAll plus an unconditional Chmod; the runner creates volume directories at 0755 and only chowns the leaf.",
+      "validation": "Unchanged apart from the added store root.",
+      "fix": "Create roots at 0750 owned by the opendeploy group, add the workload uid to that group or chown per directory, and stop re-applying modes to existing directories.",
+      "close": "A user outside the opendeploy group must be unable to list the asset cache or a volume directory.",
+      "sources": [
+        [
+          "backend/ainit/ainit.go",
+          68,
+          76
+        ],
+        [
+          "backend/lib/engine/runner/container.go",
+          1124,
+          1129
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-17",
+      "origin": "review",
+      "severity": "Low",
+      "area": "Installer",
+      "status": "Source verified",
+      "title": "Restore credentials and the recovery code are passed on argv",
+      "cwe": "CWE-214",
+      "impact": "The install command takes the S3 secret access key and the secrets-store recovery code as flags, so both are visible in the process list and land in shell history for the duration of a restore. The litestream child already receives its configuration over stdin; the CLI hop is the gap.",
+      "trigger": "A local user during the install window, or later access to shell history.",
+      "evidence": "installer.go declares --restore-s3-secret-access-key and --recovery-code, and restore validation requires both with no env or file alternative.",
+      "validation": "Unchanged since the audit.",
+      "fix": "Read both from environment variables or a file descriptor, and print a warning if they arrive on argv.",
+      "close": "A restore must be possible without either secret appearing in argv.",
+      "sources": [
+        [
+          "backend/app/installer/installer.go",
+          108,
+          114
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-18",
+      "origin": "review",
+      "severity": "Low",
+      "area": "Audit trail",
+      "status": "Source verified",
+      "title": "Secret reveals are not audited and the generated audit hook is unused",
+      "cwe": "CWE-778",
+      "impact": "Reveal authorises, decrypts and returns with no log line and no row. Writes are event-sourced with an author, but reads leave no trace, so a compromised session can drain a space's secrets undetected. The mux exposes an Audit callback that nothing wires up.",
+      "trigger": "Any principal with reveal.",
+      "evidence": "PostV1SecretsReveal and RevealByID contain no logging; MuxConfig.Audit is defined and never set in run.go. Cluster settings changes and user creation likewise lack an actor record.",
+      "validation": "Unchanged since the audit.",
+      "fix": "Append a reveal event with actor, secret id and source address to a retained audit table and wire the mux Audit hook for privileged verbs.",
+      "close": "Every reveal must be attributable to a session after the fact.",
+      "sources": [
+        [
+          "backend/app/primary/webuihandler/secrets.go",
+          292,
+          308
+        ],
+        [
+          "backend/apigen/mux.gen.go",
+          20,
+          24
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-19",
+      "origin": "review",
+      "severity": "Medium",
+      "area": "Log storage / availability",
+      "status": "Source verified",
+      "title": "There is no per-node log volume cap",
+      "cwe": "CWE-770",
+      "impact": "Retention is by age only (30 days) and ingestion has no rate limit or backpressure; drops happen only after a write already failed. A deployment logging more than the disk can hold in 30 days fills the volume, at which point compaction stops because the free-space check lives inside it. The log archive shares /var/lib with the primary database and containerd on a default install.",
+      "trigger": "One chatty or looping workload.",
+      "evidence": "retentionDays is the only pruning parameter; rollupTargetBytes is an output size target. ensureFreeSpace is called from compaction only.",
+      "validation": "lib/log is unchanged since the audit.",
+      "fix": "Add a per-node byte budget that evicts oldest files first, a per-deployment ingestion rate cap with drop accounting, and run the free-space check on the write path.",
+      "close": "A workload writing at line rate must not consume more than its budget, and the agent must keep running when the log volume is full.",
+      "sources": [
+        [
+          "backend/lib/log/logmanager/maintenance.go",
+          17,
+          24
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-20",
+      "origin": "new",
+      "severity": "Medium",
+      "area": "DNS / workload PKI",
+      "status": "Source verified",
+      "title": "Deployment names that collide under DNSLabel merge DNS endpoints and yield same-name certificates",
+      "cwe": "CWE-706",
+      "impact": "Names are unique on the raw string per node and space, but the DNS identity is the lossy DNSLabel: Api, api_x and api-x, or the same name on two nodes, collapse onto one label. Colliding services are merged rather than rejected, so a second deployment receives a share of the victim's traffic and, because its own DNS name is byte-identical, a legitimate issued-TLS certificate for the victim's exact name with no extra names at all.",
+      "trigger": "Create permission in the victim's space.",
+      "evidence": "Name validation requires non-emptiness only and uniqueness includes the node. DNSLabel lower-cases, maps underscores and drops other characters. The netproxy catalog appends endpoints to an existing service of the same label, and the DNS server answers with all of them.",
+      "validation": "Traced in source; not exercised.",
+      "fix": "Enforce uniqueness of DNSLabel(name) per space across nodes at write time, and reject names that change under DNSLabel.",
+      "close": "Creating api_x in a space that already has api-x must fail.",
+      "sources": [
+        [
+          "backend/lib/network/names.go",
+          8,
+          30
+        ],
+        [
+          "backend/app/netproxy/netstate.go",
+          188,
+          196
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-21",
+      "origin": "new",
+      "severity": "Medium",
+      "area": "Authorization / upgrade",
+      "status": "Source verified; conditional",
+      "title": "Operator-authored wildcard rule templates silently gained the host verbs",
+      "cwe": "CWE-276",
+      "impact": "A wildcard permission selector matches any verb after exclusions, and the startup upgrade that excludes use_host_mounts and use_host_network rewrites only the two built-in templates. Any template an operator created before the change with a wildcard selector now grants both host verbs to its holders without anyone having decided that.",
+      "trigger": "An existing cluster with at least one custom wildcard template. Whether any such template exists must be checked on each live cluster.",
+      "evidence": "selectorMatches returns true for Wildcard after the exclude list; the upgrade path touches template ids 1 and 2 only.",
+      "validation": "Inference from the evaluator and the upgrade code; no live cluster was inspected.",
+      "fix": "Add the two verbs to the exclude list of every persisted wildcard selector during the upgrade, and require new dangerous verbs to be opted into explicitly rather than matched by wildcard.",
+      "close": "After upgrade, no template other than cluster_admin may match use_host_network.",
+      "sources": [
+        [
+          "backend/app/primary/domain/authz/evaluate.go",
+          14,
+          29
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-22",
+      "origin": "new",
+      "severity": "Medium",
+      "area": "Build network",
+      "status": "Source verified",
+      "title": "Build containers can reach the node's private network",
+      "cwe": "CWE-284",
+      "impact": "The documented build policy is public egress only. The IPv4 deny list is loopback and link-local, plus the cluster prefix and peer underlays; RFC1918 and other LAN ranges fall through to the forward chain's accept. A hostile flake's build, which any deployment author can trigger, reaches databases, storage and management interfaces on the node's private network.",
+      "trigger": "Create or update permission on a Nix deployment and a private network reachable from the node.",
+      "evidence": "buildDenied4 lists 169.254.0.0/16 and 127.0.0.0/8 only; buildEgressRules adds the cluster prefix and underlays and then accepts. Build attachments are masqueraded out the default interface.",
+      "validation": "Traced in source; the design document's stated policy is stricter than the rules.",
+      "fix": "Deny 10/8, 172.16/12, 192.168/16, non-cluster ULA and the node's own subnets by default, with an operator allow-list for legitimate private build inputs.",
+      "close": "A build must be unable to connect to an RFC1918 address that is not explicitly allowed.",
+      "sources": [
+        [
+          "backend/lib/network/filter.go",
+          39,
+          42
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-23",
+      "origin": "new",
+      "severity": "Low",
+      "area": "Enrollment / availability",
+      "status": "Source verified",
+      "title": "Unauthenticated enrollment creates permanent node rows with no rate limit",
+      "cwe": "CWE-770",
+      "impact": "A first hello inserts a node row and ending the request only flips its status; nothing deletes it. The enrollment listener has no client authentication and no rate limit, so anyone reaching :9444 can mint keys and grow the node table and event log without bound. The CSR requirement adds one keygen per row.",
+      "trigger": "Network reachability of the enrollment port.",
+      "evidence": "UpsertEnrollmentRequest inserts on first sight; EndEnrollmentRequest sets ENROLLMENT_CANCELLED or EXPIRED and keeps the row.",
+      "validation": "Traced in source.",
+      "fix": "Rate-limit hellos per address, cap the number of pending enrollments, and garbage-collect cancelled and expired rows after a grace period.",
+      "close": "A hello flood must be throttled and must not leave permanent rows.",
+      "sources": [
+        [
+          "backend/app/primary/domain/nodes/enrollment.go",
+          170,
+          195
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-24",
+      "origin": "new",
+      "severity": "Medium",
+      "area": "PKI lifecycle",
+      "status": "Source verified",
+      "title": "No revocation exists for cluster or workload certificates: 100-year CAs and 10-year leaves",
+      "cwe": "CWE-299",
+      "impact": "Both CAs are valid for a century and workload leaves for a decade, with no CRL, OCSP or serial denylist anywhere. This is the structural reason OD-04 and OD-07 have no containment: once a leaf under either CA is issued or stolen, the only remedy is re-bootstrapping the CA, which invalidates every node and workload certificate at once.",
+      "trigger": "Any leaf compromise or mis-issuance.",
+      "evidence": "caValidity is 100 years for both CAs, issuedtls.Validity is 10 years, and KeyUsageCRLSign is set on the CA templates but never used.",
+      "validation": "Traced in source.",
+      "fix": "Shorten workload leaves to days with automatic reissue on rollover, introduce a serial denylist distributed with the netmap, and plan CA rotation with an overlap window.",
+      "close": "Revoking one workload leaf must not require touching the CA.",
+      "sources": [
+        [
+          "backend/util/certu/sign.go",
+          55,
+          58
+        ],
+        [
+          "backend/lib/issuedtls/issuedtls.go",
+          10,
+          10
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-25",
+      "origin": "new",
+      "severity": "Low",
+      "area": "Secret rotation",
+      "status": "Source verified",
+      "title": "Secret rotation misses ingress TLS certificate references",
+      "cwe": "CWE-672",
+      "impact": "Rotation scans only container env vars, while delete-blocking and the runtime input set also cover ingress HTTPS cert sources. Rotating a secret used as an ingress certificate leaves the route pinned to the old version silently, so a revoked key stays live.",
+      "trigger": "Normal rotation of a certificate secret.",
+      "evidence": "deploymentUsesReferences and replaceDeploymentReferences iterate Runtime.EnvVars only; runtimeinputs.SecretRefs includes CertSource.Secret.",
+      "validation": "Traced in source.",
+      "fix": "Use runtimeinputs.SecretRefs for both the match and the rewrite.",
+      "close": "Rotating an ingress certificate secret must update the route's secret version.",
+      "sources": [
+        [
+          "backend/app/primary/domain/values/references.go",
+          147,
+          157
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    },
+    {
+      "id": "RR-26",
+      "origin": "new",
+      "severity": "Low",
+      "area": "Build ingest",
+      "status": "Source verified; inference",
+      "title": "The nix2container tar rewrite relies on containerd's unpack for path safety",
+      "cwe": "CWE-22",
+      "impact": "The layer tar builder applies a flake-controlled regex rewrite to entry destinations and splits on slashes without rejecting dot segments. The bytes become a layer blob that containerd 2.3.5 unpacks, so traversal safety rests on containerd's extraction protections rather than on this code.",
+      "trigger": "A hostile flake with a rewrite rule, and a containerd unpack regression.",
+      "evidence": "tarPath and addFileToGraph honour PathOptions.Rewrite on the destination name with no sanitisation.",
+      "validation": "Inference from reading tar.go; no malicious layer was built.",
+      "fix": "Reject rewritten destinations containing dot segments or absolute paths before writing the tar, and add a test that a hostile rewrite cannot produce an escaping entry.",
+      "close": "A rewrite producing ../ must fail the build.",
+      "sources": [
+        [
+          "backend/lib/engine/prepare/nix2container/tar.go",
+          69,
+          90
+        ]
+      ],
+      "refs": [],
+      "prior": ""
+    }
+  ],
+  "closed": [
+    {
+      "id": "OD-04",
+      "prior": "High",
+      "title": "Workload certificates can carry another space's names",
+      "how": "Closed after the review by 23ae086 on 13 September. Extra names are now checked against the deployment's space at create, update and space move, and again in the issuer: a .internal name must lie in the deployment's own space-<id>.internal zone and a cluster-prefix address must be the deployment's own; external names are untouched. The audit's issuer reproduction no longer passes. Its deployments reproduction still passes because it calls the syntax-only mount validator, which has no space context; the corrected check through the create handler passes (od-04-closure-results.txt). Unit tests cover the helper, the validator, the issuer and the handler.",
+      "commit": "23ae0864b0e350f8ae91a50c25dd149464c6444e",
+      "sources": [
+        [
+          "backend/lib/network/names.go",
+          42
+        ],
+        [
+          "backend/app/primary/domain/deployments/validate.go",
+          757
+        ],
+        [
+          "backend/app/primary/domain/deployments/validate_layers.go",
+          128
+        ],
+        [
+          "backend/app/primary/domain/pki/issuer.go",
+          49
+        ]
+      ]
+    },
+    {
+      "id": "OD-01",
+      "prior": "Critical",
+      "title": "Nix image exporters execute with control-plane privileges",
+      "how": "b6ce56b moved Nix builds into a containerd container: default seccomp and capabilities, egress-only network, per-repository store, memory/CPU/pids limits, no agent environment. The host exec of the flake output is gone; layers are digest-verified on ingest.",
+      "sources": [
+        [
+          "backend/lib/engine/prepare/nixstore/build.go",
+          69
+        ],
+        [
+          "backend/lib/engine/prepare/nix2container/ingest.go",
+          153
+        ]
+      ]
+    },
+    {
+      "id": "OD-02 (part)",
+      "prior": "Critical",
+      "title": "Host-mount denylist bypassed with parent paths; space_admin could mount host paths",
+      "how": "The denylist now rejects parents of protected roots and /. Custom host mounts require use_host_mounts, held by cluster_admin only and excluded from agents. The audit's two mount reproductions no longer pass. The lexical symlink case remains open as OD-02 at Low.",
+      "sources": [
+        [
+          "backend/app/primary/domain/deployments/validate.go",
+          910
+        ],
+        [
+          "backend/app/primary/domain/authz/builtin.go",
+          108
+        ],
+        [
+          "backend/app/primary/webuihandler/deployments.go",
+          44
+        ]
+      ]
+    },
+    {
+      "id": "OD-03",
+      "prior": "High",
+      "title": "The bundled container runtime has published escape and DoS vulnerabilities",
+      "how": "Pinned containerd 2.3.5 and runc 1.5.1, the newest stable releases on the review date; the agent reconciles installed binaries against the pin at every start and never downgrades. The September containerd advisories are fixed in 2.3.5 or confined to the CRI plugin, which is not used.",
+      "sources": [
+        [
+          "backend/lib/runtimebin/runtimebin.go",
+          46
+        ],
+        [
+          "backend/lib/runtimebin/runtimebin.go",
+          60
+        ]
+      ]
+    },
+    {
+      "id": "OD-08",
+      "prior": "High",
+      "title": "Netproxy uses an HTTP/2 transport with a known infinite-loop vulnerability",
+      "how": "golang.org/x/net moved from v0.52.0 to v0.55.0; GO-2026-4918 was fixed in v0.53.0 and no longer appears in govulncheck for either target.",
+      "sources": [
+        [
+          "backend/go.mod",
+          28
+        ]
+      ]
+    },
+    {
+      "id": "12 Sep",
+      "prior": "High",
+      "title": "Unauthenticated enrollment hello rewrites a member node's identity",
+      "how": "Hellos for member identifiers are rejected inside the commit transaction, and the identifier is now the SHA-256 of the CSR's public key, verified on every hello, so only the key holder can act on an identifier. X-Forwarded-For is no longer trusted.",
+      "sources": [
+        [
+          "backend/app/primary/domain/nodes/enrollment.go",
+          30
+        ],
+        [
+          "backend/util/certu/sign.go",
+          395
+        ]
+      ]
+    },
+    {
+      "id": "12 Sep",
+      "prior": "High",
+      "title": "Host networking has no admin gate",
+      "how": "use_host_network is enforced on create, v2 update (including the saved spec) and space moves; only cluster_admin holds it. The policy-bypass half stays open as RR-04 at Medium.",
+      "sources": [
+        [
+          "backend/app/primary/webuihandler/deployments.go",
+          100
+        ],
+        [
+          "backend/app/primary/domain/authz/builtin.go",
+          30
+        ]
+      ]
+    },
+    {
+      "id": "12 Sep",
+      "prior": "Low",
+      "title": "The Nix build and exporter inherit the full service environment",
+      "how": "The build container's environment is constructed explicitly (TMPDIR, HOME and the CA bundle variables); no host environment, token or credential is forwarded, and the checkout is read-only with .git masked.",
+      "sources": [
+        [
+          "backend/lib/engine/prepare/nixstore/build.go",
+          88
+        ]
+      ]
+    }
+  ],
+  "accepted": [
+    {
+      "id": "OD-05",
+      "prior": "High",
+      "title": "Agent secret restrictions can be bypassed through controlled workloads",
+      "position": "AP-1 / AP-2",
+      "why": "The behaviour is present and reproduced (corrected test): a delegated session denied reveal still binds a secret into a workload it controls. The project records this as documented authority: secret : reveal bounds the direct path only, and deployment create or update in a space is a second, intended path to every secret bindable from that space. The builtin agent defaults withhold reveal and view_logs as a guard rail against accidental disclosure, not as an isolation boundary. Operators who need a value kept from an agent must scope its deployment permissions away from the secret's space. Under security-severity.md this is Informational. The positions were written into docs/engineering/auth.md on 13 September, after the reviewed commit, so the pinned source links below show the code paths only.",
+      "sources": [
+        [
+          "backend/app/primary/domain/deployments/validate_refs.go",
+          34
+        ],
+        [
+          "backend/app/primary/domain/authz/builtin.go",
+          37
+        ]
+      ]
+    }
+  ]
+}

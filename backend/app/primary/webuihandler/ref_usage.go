@@ -78,6 +78,7 @@ func (h *Handler) settingsConfigRefDetails(ids map[int32]struct{}) []string {
 			{"large-assets S3 path", settings.LargeAssets.S3Path.ConfigRef},
 			{"large-assets S3 region", settings.LargeAssets.S3Region.ConfigRef},
 			{"large-assets S3 endpoint", settings.LargeAssets.S3Endpoint.ConfigRef},
+			{"large-assets keep local copy", settings.LargeAssets.KeepLocalCopy.ConfigRef},
 		}
 		for _, ref := range refs {
 			if _, ok := ids[ref.ref.VersionID]; ok && !seen[ref.field] {

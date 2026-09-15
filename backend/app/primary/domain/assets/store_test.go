@@ -209,7 +209,7 @@ func TestMigrationRemainsActiveUntilReconcileFinishesIt(t *testing.T) {
 	settings = &newSettings
 
 	status := store.ReconcileStatus()
-	if !status.Running || !status.TargetS3 || status.Pending != 0 {
+	if !status.Running || status.Target != systemconfig.AssetStorageS3 || status.Pending != 0 {
 		t.Fatalf("status before reconcile = %+v", status)
 	}
 	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
@@ -410,5 +410,326 @@ func TestS3ConfigurationChangeRequiresAssetsToBeLocal(t *testing.T) {
 	InsertAssetStoreRow(store.DB.Queries(), "staging-row", "", 4, nil, 0, 0)
 	if err := store.ValidateSettingsUpdate(*settings, next); !errors.Is(err, ErrAssetS3ConfigChangeRequiresLocal) {
 		t.Fatalf("ValidateSettingsUpdate with staging row error = %v, want ErrAssetS3ConfigChangeRequiresLocal", err)
+	}
+}
+
+type fakeS3 struct {
+	mu      sync.Mutex
+	objects map[string][]byte
+	server  *httptest.Server
+}
+
+func newFakeS3(t *testing.T) *fakeS3 {
+	t.Helper()
+	f := &fakeS3{objects: map[string][]byte{}}
+	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		switch r.Method {
+		case http.MethodPut:
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			f.objects[r.URL.Path] = body
+			w.Header().Set("ETag", `"test"`)
+		case http.MethodGet:
+			body, ok := f.objects[r.URL.Path]
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Length", fmt.Sprint(len(body)))
+			_, _ = w.Write(body)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	t.Cleanup(f.server.Close)
+	return f
+}
+
+func (f *fakeS3) has(path string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, ok := f.objects[path]
+	return ok
+}
+
+func (f *fakeS3) remove(path string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.objects, path)
+}
+
+func dualStorageSettings(s3 *fakeS3) *apigen.ClusterSettings {
+	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
+	settings.Backup.S3AccessKeyID.Value = "shared-key"
+	settings.Backup.S3SecretAccessKey = apigen.SecretRef{VersionID: 1}
+	settings.Backup.S3Bucket.Value = "bucket"
+	settings.Backup.S3Region.Value = "us-east-1"
+	settings.Backup.S3Endpoint.Value = s3.server.URL
+	settings.LargeAssets.S3Path.Value = "asset-prefix"
+	return settings
+}
+
+func readAssetContent(t *testing.T, store *Store, versionID int32) []byte {
+	t.Helper()
+	_, body, err := store.OpenAsset(context.Background(), versionID)
+	if err != nil {
+		t.Fatalf("OpenAsset: %v", err)
+	}
+	defer body.Close()
+	got, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read asset: %v", err)
+	}
+	return got
+}
+
+func expectStatuses(t *testing.T, store *Store, blob []byte, local, remote int64) pq.AssetStore {
+	t.Helper()
+	row := storeRowFor(t, store, blob)
+	if row.LocalStatus != local || row.RemoteStatus != remote {
+		t.Fatalf("store row statuses = local %d remote %d, want local %d remote %d", row.LocalStatus, row.RemoteStatus, local, remote)
+	}
+	return row
+}
+
+func switchTarget(t *testing.T, store *Store, settings **apigen.ClusterSettings, mutate func(*apigen.ClusterSettings)) {
+	t.Helper()
+	oldSettings := **settings
+	newSettings := **settings
+	mutate(&newSettings)
+	createMigration(t, store, &oldSettings, &newSettings)
+	*settings = &newSettings
+	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
+		t.Fatalf("Reconcile to %s: pending=%d err=%v", systemconfig.LargeAssetStorageTarget(testLoader{}, newSettings), pending, err)
+	}
+	if _, ok := systemconfig.UnfinishedAssetMigration(store.DB.Queries()); ok {
+		t.Fatal("migration remained unfinished after reconciliation")
+	}
+}
+
+func TestLargeAssetStoredInBothWhenKeepLocalCopy(t *testing.T) {
+	s3 := newFakeS3(t)
+	settings := dualStorageSettings(s3)
+	settings.Backup.Enabled.Value = true
+	settings.LargeAssets.KeepLocalCopy.Value = true
+	store := newTestStore(t, &settings)
+	blob := largeTestBlob()
+
+	asset, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, 0, int64(len(blob)), bytes.NewReader(blob))
+	if err != nil {
+		t.Fatalf("CreateAssetFromReader: %v", err)
+	}
+	row := expectStatuses(t, store, blob, 1, 1)
+	t.Cleanup(func() { _ = os.Remove(localPath(row.ID)) })
+	if _, err := os.Stat(localPath(row.ID)); err != nil {
+		t.Fatalf("local copy: %v", err)
+	}
+	objectPath := "/bucket/asset-prefix/" + row.ID
+	if !s3.has(objectPath) {
+		t.Fatalf("object %q was not uploaded", objectPath)
+	}
+	if store.ReconcileStatus().Target != systemconfig.AssetStorageBoth {
+		t.Fatalf("target = %s, want both", store.ReconcileStatus().Target)
+	}
+
+	s3.remove(objectPath)
+	if got := readAssetContent(t, store, statetest.LatestValue(store.DB, asset).ID); !bytes.Equal(got, blob) {
+		t.Fatal("content read with the S3 object gone did not match the upload")
+	}
+}
+
+func TestOpenAssetFallsBackToS3WhenLocalCopyIsMissing(t *testing.T) {
+	s3 := newFakeS3(t)
+	settings := dualStorageSettings(s3)
+	settings.Backup.Enabled.Value = true
+	settings.LargeAssets.KeepLocalCopy.Value = true
+	store := newTestStore(t, &settings)
+	blob := largeTestBlob()
+
+	asset, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, 0, int64(len(blob)), bytes.NewReader(blob))
+	if err != nil {
+		t.Fatalf("CreateAssetFromReader: %v", err)
+	}
+	row := expectStatuses(t, store, blob, 1, 1)
+	t.Cleanup(func() { _ = os.Remove(localPath(row.ID)) })
+	if err := os.Remove(localPath(row.ID)); err != nil {
+		t.Fatal(err)
+	}
+
+	versionID := statetest.LatestValue(store.DB, asset).ID
+	if got := readAssetContent(t, store, versionID); !bytes.Equal(got, blob) {
+		t.Fatal("fallback read did not match the upload")
+	}
+	expectStatuses(t, store, blob, 0, 1)
+	select {
+	case <-store.wakeChan():
+	default:
+		t.Fatal("fallback read did not wake the reconciler")
+	}
+	if status := store.ReconcileStatus(); status.Pending != 1 || status.Running {
+		t.Fatalf("status after fallback = %+v, want one pending row and no migration", status)
+	}
+
+	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
+		t.Fatalf("Reconcile: pending=%d err=%v", pending, err)
+	}
+	expectStatuses(t, store, blob, 1, 1)
+	restored, err := os.ReadFile(localPath(row.ID))
+	if err != nil {
+		t.Fatalf("restored local copy: %v", err)
+	}
+	if !bytes.Equal(restored, blob) {
+		t.Fatal("restored local copy did not match the upload")
+	}
+	if store.LastError() != "" {
+		t.Fatalf("LastError = %q, want empty", store.LastError())
+	}
+}
+
+func TestReconcileConvergesAcrossStorageTargets(t *testing.T) {
+	s3 := newFakeS3(t)
+	settings := dualStorageSettings(s3)
+	store := newTestStore(t, &settings)
+	blob := largeTestBlob()
+
+	asset, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, 0, int64(len(blob)), bytes.NewReader(blob))
+	if err != nil {
+		t.Fatalf("local upload: %v", err)
+	}
+	row := expectStatuses(t, store, blob, 1, 0)
+	t.Cleanup(func() { _ = os.Remove(localPath(row.ID)) })
+	objectPath := "/bucket/asset-prefix/" + row.ID
+	versionID := statetest.LatestValue(store.DB, asset).ID
+
+	switchTarget(t, store, &settings, func(s *apigen.ClusterSettings) {
+		s.Backup.Enabled.Value = true
+		s.LargeAssets.KeepLocalCopy.Value = true
+	})
+	expectStatuses(t, store, blob, 1, 1)
+	if _, err := os.Stat(localPath(row.ID)); err != nil {
+		t.Fatalf("local copy after local→both: %v", err)
+	}
+	if !s3.has(objectPath) {
+		t.Fatal("object missing after local→both")
+	}
+
+	switchTarget(t, store, &settings, func(s *apigen.ClusterSettings) {
+		s.LargeAssets.KeepLocalCopy.Value = false
+	})
+	expectStatuses(t, store, blob, 0, 1)
+	if _, err := os.Stat(localPath(row.ID)); !os.IsNotExist(err) {
+		t.Fatalf("local copy remains after both→s3: %v", err)
+	}
+
+	switchTarget(t, store, &settings, func(s *apigen.ClusterSettings) {
+		s.LargeAssets.KeepLocalCopy.Value = true
+	})
+	expectStatuses(t, store, blob, 1, 1)
+	downloaded, err := os.ReadFile(localPath(row.ID))
+	if err != nil {
+		t.Fatalf("local copy after s3→both: %v", err)
+	}
+	if !bytes.Equal(downloaded, blob) {
+		t.Fatal("downloaded local copy did not match the upload")
+	}
+
+	switchTarget(t, store, &settings, func(s *apigen.ClusterSettings) {
+		s.Backup.Enabled.Value = false
+	})
+	expectStatuses(t, store, blob, 1, 0)
+	if !s3.has(objectPath) {
+		t.Fatal("S3 object was not retained after both→local")
+	}
+	if got := readAssetContent(t, store, versionID); !bytes.Equal(got, blob) {
+		t.Fatal("content after both→local did not match the upload")
+	}
+}
+
+func TestReconcileVerifiesLocalClaimsAgainstTheFilesystem(t *testing.T) {
+	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
+	store := newTestStore(t, &settings)
+	content := largeTestBlob()
+	size := int64(len(content))
+
+	missing := newStoreID()
+	InsertAssetStoreRow(store.DB.Queries(), missing, hashBlob([]byte("missing")), size, nil, 1, 0)
+	truncated := newStoreID()
+	InsertAssetStoreRow(store.DB.Queries(), truncated, hashBlob([]byte("truncated")), size, nil, 1, 0)
+	if err := os.WriteFile(localPath(truncated), content[:10], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unclaimed := newStoreID()
+	InsertAssetStoreRow(store.DB.Queries(), unclaimed, hashBlob(content), size, nil, 0, 0)
+	if err := os.WriteFile(localPath(unclaimed), content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(localPath(unclaimed)) })
+	corrupt := newStoreID()
+	InsertAssetStoreRow(store.DB.Queries(), corrupt, hashBlob([]byte("corrupt")), size, nil, 0, 0)
+	if err := os.WriteFile(localPath(corrupt), content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	pending, err := store.Reconcile(context.Background())
+	if err != nil || pending != 0 {
+		t.Fatalf("Reconcile: pending=%d err=%v", pending, err)
+	}
+	for id, wantLocal := range map[string]int64{missing: 0, truncated: 0, unclaimed: 1, corrupt: 0} {
+		row, ok := GetAssetStoreRowByID(store.DB.Queries(), id)
+		if !ok {
+			t.Fatalf("row %s missing", id)
+		}
+		if row.LocalStatus != wantLocal {
+			t.Fatalf("row %s local_status = %d, want %d", id, row.LocalStatus, wantLocal)
+		}
+	}
+	if _, err := os.Stat(localPath(truncated)); !os.IsNotExist(err) {
+		t.Fatalf("truncated file survived cleanup: %v", err)
+	}
+	if _, err := os.Stat(localPath(corrupt)); !os.IsNotExist(err) {
+		t.Fatalf("corrupt file survived cleanup: %v", err)
+	}
+	if _, err := os.Stat(localPath(unclaimed)); err != nil {
+		t.Fatalf("adopted file: %v", err)
+	}
+	if !strings.Contains(store.LastError(), "3 large asset content row(s) have no durable copy") {
+		t.Fatalf("LastError = %q, want the unavailable count", store.LastError())
+	}
+	if status := store.ReconcileStatus(); status.Pending != 0 || status.Error == "" {
+		t.Fatalf("status = %+v, want no pending rows and the unavailable error", status)
+	}
+}
+
+func TestDropLocalCopyClearsTheClaimBeforeRemovingTheFile(t *testing.T) {
+	s3 := newFakeS3(t)
+	settings := dualStorageSettings(s3)
+	settings.Backup.Enabled.Value = true
+	store := newTestStore(t, &settings)
+	content := largeTestBlob()
+	id := newStoreID()
+	InsertAssetStoreRow(store.DB.Queries(), id, hashBlob(content), int64(len(content)), nil, 1, 1)
+	if err := os.WriteFile(localPath(id), content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(localPath(id)) })
+	if status := store.ReconcileStatus(); status.Pending != 1 {
+		t.Fatalf("pending before drop = %d, want 1", status.Pending)
+	}
+
+	store.dropLocalCopy(context.Background(), id)
+	row, _ := GetAssetStoreRowByID(store.DB.Queries(), id)
+	if row.LocalStatus != 0 || row.RemoteStatus != 1 {
+		t.Fatalf("statuses after drop = local %d remote %d", row.LocalStatus, row.RemoteStatus)
+	}
+	if _, err := os.Stat(localPath(id)); !os.IsNotExist(err) {
+		t.Fatalf("file remains after drop: %v", err)
+	}
+	if status := store.ReconcileStatus(); status.Pending != 0 {
+		t.Fatalf("pending after drop = %d, want 0", status.Pending)
 	}
 }

@@ -1,9 +1,11 @@
 package systemconfig
 
 import (
+	"context"
 	"errors"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 	"path/filepath"
 	"strings"
@@ -269,5 +271,46 @@ func TestWebUIDefaultsPreserveExistingHTTPSInstall(t *testing.T) {
 	}
 	if cfg.Settings.HttpWeb.Listen.Value != ":8080" {
 		t.Fatalf("WebHTTPListen default = %q, want :8080", cfg.Settings.HttpWeb.Listen.Value)
+	}
+}
+
+func TestKeepLocalCopyTogglesCreateAssetMigrationsOnlyWhileBackupEnabled(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "primary.db")
+	store := state.Open(dbPath)
+	service, err := InitializeService(store, *Default(DefaultInitial()))
+	if err != nil {
+		t.Fatalf("InitializeService: %v", err)
+	}
+	if service.Snapshot().Settings.LargeAssets.KeepLocalCopy.Value {
+		t.Fatal("LargeAssets.KeepLocalCopy default = true, want false")
+	}
+
+	settings := DefaultSettings(DefaultInitial())
+	settings.LargeAssets.KeepLocalCopy = apigen.BoolSetting{Value: true}
+	if err := service.UpdateSettings(*settings, nil); err != nil {
+		t.Fatalf("UpdateSettings keep local while backup disabled: %v", err)
+	}
+	if _, ok := UnfinishedAssetMigration(store.Queries()); ok {
+		t.Fatal("keep local toggle while backup is disabled created an asset migration")
+	}
+
+	settings.Backup.Enabled = apigen.BoolSetting{Value: true}
+	if err := service.UpdateSettings(*settings, nil); err != nil {
+		t.Fatalf("UpdateSettings enable backup: %v", err)
+	}
+	migration, ok := UnfinishedAssetMigration(store.Queries())
+	if !ok {
+		t.Fatal("enabling backup did not create an asset migration")
+	}
+	if _, err := store.Queries().FinishAssetMigration(context.Background(), pq.FinishAssetMigrationParams{FinishedAt: 1, ID: migration.ID}); err != nil {
+		t.Fatalf("finish migration: %v", err)
+	}
+
+	settings.LargeAssets.KeepLocalCopy = apigen.BoolSetting{Value: false}
+	if err := service.UpdateSettings(*settings, nil); err != nil {
+		t.Fatalf("UpdateSettings clear keep local while backup enabled: %v", err)
+	}
+	if _, ok := UnfinishedAssetMigration(store.Queries()); !ok {
+		t.Fatal("keep local toggle while backup is enabled did not create an asset migration")
 	}
 }

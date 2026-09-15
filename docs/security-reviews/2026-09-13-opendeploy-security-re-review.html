@@ -1,0 +1,881 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><meta name="referrer" content="no-referrer"><title>OpenDeploy — Security Re-review · 13 September 2026</title><style>:root{--ink:#122b33;--muted:#536b71;--line:#d5e0e2;--paper:#f3f6f5;--accent:#086858;--critical:#a3203b;--high:#914617;--medium:#756000}
+*{box-sizing:border-box}p,li,code{overflow-wrap:anywhere}.finding-body>div,.checks>div,.intro-grid>div{min-width:0}html{scroll-behavior:smooth;scroll-padding-top:86px}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.65 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:#076256;text-underline-offset:3px}a:hover{color:#003d35}a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #0e8fba;outline-offset:4px}button,input,select{font:inherit}button{cursor:pointer}.shell{max-width:1180px;margin:auto;padding:0 32px}.topbar{background:#102b32;color:#fff}.topbar .shell{display:flex;justify-content:space-between;align-items:center;gap:20px;padding-top:17px;padding-bottom:17px}.brand{font-size:14px;letter-spacing:.16em;font-weight:750}.topbar span{font-size:12px;color:#bdd1d2}.hero{padding-top:64px;padding-bottom:42px}.eyebrow{text-transform:uppercase;letter-spacing:.17em;font-size:12px;color:var(--accent);font-weight:750}h1{font-size:clamp(38px,6vw,67px);line-height:1.05;letter-spacing:-.045em;margin:16px 0 24px;max-width:880px}h2{font-size:28px;line-height:1.2;letter-spacing:-.025em;margin:0 0 20px}h3{font-size:24px;line-height:1.3;margin:17px 0 15px;letter-spacing:-.02em}h4{font-size:12px;text-transform:uppercase;letter-spacing:.1em;margin:0 0 7px;color:var(--muted)}p{margin:0 0 16px}.lede{font-size:20px;max-width:830px;color:#34525a}.meta{font-size:13px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap}.meta code{font-size:12px}.scorecard{margin-top:28px;display:grid;grid-template-columns:repeat(3,1fr) 1.5fr;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#fff}.stat{padding:22px 25px;display:flex;flex-direction:column;border-right:1px solid var(--line)}.stat strong{font-size:43px;line-height:1.1}.stat span{font-size:13px;margin-top:8px}.stat.critical strong{color:var(--critical)}.stat.high strong{color:var(--high)}.stat.medium strong{color:var(--medium)}.stat-note{padding:23px;font-size:13px;color:var(--muted)}.stat-note strong{display:block;color:var(--ink);font-size:16px;margin-bottom:6px}.nav{position:sticky;top:0;z-index:10;background:rgba(243,246,245,.97);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.nav .shell{display:flex;gap:24px;align-items:center;min-height:62px;flex-wrap:wrap;padding-top:10px;padding-bottom:10px}.nav a{text-decoration:none;font-size:13px;font-weight:650}.nav button{margin-left:auto;border:1px solid var(--line);border-radius:7px;padding:7px 12px;background:#fff;color:var(--ink);font-size:12px}main>section{padding:42px 0;border-bottom:1px solid var(--line)}.intro-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:28px}.callout{padding:25px 28px;background:#e6efeb;border:1px solid #c7dcd1;border-radius:12px}.callout strong{display:block;font-size:20px;margin-bottom:10px}.scope{border-left:3px solid var(--accent);padding-left:20px;font-size:14px}.scope p:last-child{margin-bottom:0}.small{font-size:13px;color:var(--muted)}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:10px;background:#fff}table{width:100%;border-collapse:collapse;font-size:13px;min-width:700px}th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.075em;background:#eaf0ef;padding:13px 16px;color:#435c61}td{padding:14px 16px;border-top:1px solid var(--line);vertical-align:top}td small{display:block;color:var(--muted);margin-top:4px}td code{overflow-wrap:anywhere;white-space:normal;font-size:11px}.badge{display:inline-block;font-size:11px;line-height:1.4;padding:5px 9px;border-radius:5px;font-weight:750;white-space:nowrap}.badge.critical{background:#fbe5ea;color:#981a35}.badge.high{background:#ffebdd;color:#81400f}.badge.medium{background:#f5edc9;color:#655000}.filters{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:20px 0}.filters label{font-size:12px;color:var(--muted)}.filters input,.filters select{padding:10px 12px;border:1px solid #b6c9ca;border-radius:8px;background:#fff;color:var(--ink);font-size:14px}.filters input{min-width:280px}.filters select{min-width:150px}.filters #result-count{font-size:12px;color:var(--muted);margin-left:auto}.finding{background:#fff;border:1px solid var(--line);border-radius:14px;padding:29px 30px;margin-bottom:23px;scroll-margin-top:83px}.finding-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--muted)}.verification{margin-left:auto;font-size:11px;background:#edf3f2;padding:5px 8px;border-radius:5px}.impact{font-size:17px;line-height:1.6;max-width:960px}.finding-body{display:grid;grid-template-columns:1fr 1fr;gap:8px 28px;margin-top:24px}.finding-body p{font-size:14px}.finding-body>div:nth-last-child(2){background:#eff6f3;border-radius:8px;padding:16px;margin:0 -6px 8px}.finding-body>div:last-child{grid-column:1/-1}details{border-top:1px solid var(--line);padding-top:13px}summary{cursor:pointer;font-size:13px;font-weight:650;list-style-position:outside;margin-left:16px}summary span{color:var(--muted);font-size:11px;font-weight:400;margin-left:10px}.excerpt{padding-top:15px}.excerpt>a{font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}pre{font:11px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;background:#102b32;color:#e3efeb;padding:17px 19px;border-radius:8px;overflow:auto;margin:8px 0 12px}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}p.references{font-size:12px;margin:15px 0 0}.roadmap{display:grid;grid-template-columns:repeat(3,1fr);gap:17px}.roadmap>div{background:#fff;border:1px solid var(--line);border-radius:11px;padding:23px}.roadmap h3{font-size:18px;margin:9px 0 15px}.roadmap p{font-size:14px}.roadmap .phase{font-size:11px;font-weight:750;letter-spacing:.1em;color:var(--accent)}ul{padding-left:22px}li{margin-bottom:10px}.checks{display:grid;grid-template-columns:1fr 1fr;gap:22px}.checks>div{background:#fff;border:1px solid var(--line);border-radius:10px;padding:24px}.checks p,.checks li{font-size:14px}.checks h3{font-size:19px;margin-top:0}.evidence-links{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:13px}footer{padding:35px 0 55px;font-size:12px;color:var(--muted)}.skip{position:absolute;left:-9999px}.skip:focus{left:12px;top:12px;background:white;z-index:100;padding:12px}.hidden,[hidden]{display:none!important}.no-results{background:#fff;padding:24px;border:1px dashed var(--line)}.dependency-note{font-size:14px;margin:18px 0}.dependencies details{margin-top:25px}#coverage strong{color:var(--ink)}.flow{display:flex;align-items:center;gap:8px;font-size:12px;margin:20px 0 4px;flex-wrap:wrap}.flow span{padding:8px 10px;border:1px solid #c7dcd1;border-radius:6px;background:#fff}.flow b{font-weight:400;color:var(--muted)}
+@media(max-width:760px){.shell{padding-left:18px;padding-right:18px}.hero{padding-top:37px}.topbar span{display:none}.scorecard{grid-template-columns:repeat(3,1fr)}.stat{padding:18px}.stat-note{grid-column:1/-1;border-top:1px solid var(--line)}.stat strong{font-size:35px}.intro-grid,.finding-body,.checks,.roadmap{grid-template-columns:1fr}.nav .shell{gap:14px}.nav a{font-size:12px}.nav button{margin-left:0}.finding{padding:22px 19px}.verification{margin-left:0}.filters input{min-width:0;width:100%}.filters label:first-child{flex:1;min-width:180px}.filters #result-count{margin-left:0}.finding-body>div:last-child{grid-column:auto}.lede{font-size:18px}.flow{display:none}}
+@media print{body{background:white;font-size:10pt}.shell{max-width:none;padding:0}.topbar,.nav,.filters,.skip,#empty{display:none!important}.hero{padding:0 0 15px}h1{font-size:31pt}h2{font-size:20pt}h3{font-size:16pt}.lede{font-size:13pt}main>section{padding:20px 0}.finding{break-inside:auto;padding:18px;margin-bottom:15px;border-color:#bbb;display:block!important}.finding h3,.finding-meta,h4,summary{break-after:avoid}.finding-body p,.impact{font-size:10pt}.finding-body{gap:3px 20px}.scorecard,.roadmap,.checks,.intro-grid{break-inside:avoid}.table-wrap{overflow:visible}table{min-width:0;font-size:9pt}thead{display:table-header-group}tr{break-inside:avoid}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f2f4f3;color:#152c32;font-size:8pt;border:1px solid #ddd}details{display:block}.excerpt{break-inside:avoid}.references{overflow-wrap:anywhere}a{color:#07554b}.dependencies{break-before:page}footer{padding-bottom:0}}
+.badge.low{background:#e4ecf7;color:#2b4a7a}.badge.fixed{background:#e0f2ea;color:#0f5a3f}.badge.partial{background:#f5edc9;color:#655000}.badge.open{background:#fbe5ea;color:#981a35}.stat.low strong{color:#2b4a7a}.stat.closed strong{color:#0f5a3f}.stat.accepted strong{color:#5b4a8a}.origin{font-size:11px;color:var(--muted)}.finding-meta .prior{font-size:11px;background:#f1f4f3;padding:5px 8px;border-radius:5px}
+.scorecard{grid-template-columns:repeat(6,1fr) 1.7fr}@media(max-width:760px){.scorecard{grid-template-columns:repeat(3,1fr)}}
+</style></head>
+<body><a class="skip" href="#findings">Skip to findings</a><div class="topbar"><div class="shell"><div class="brand">OPENDEPLOY / SECURITY REVIEW</div><span>Re-review of the 11 September audit · 13 September 2026</span></div></div>
+<header class="hero shell"><div class="eyebrow">Security re-review / September 2026</div><h1>The host boundary is largely closed. The tenant boundary is not.</h1><p class="lede">Since the 11 September audit, Nix builds moved into a locked-down container, host mounts and host networking became cluster-admin-only, and the runtime and HTTP/2 dependencies were updated. What remains sits mostly between tenants and at the edges: hostnames are not bound to spaces, workloads have no resource or syscall limits, host ports and request paths are not arbitrated, and the primary's public listeners have no deadlines.</p><div class="meta"><span>Reviewed 13 September 2026 · Australia/Sydney</span><span>Commit <code>2ea3af1e8f14</code></span><span>Baseline <code>8e28a9f1b79e</code></span><span>Source review, rerun reproductions, dependency scans</span></div><div class="scorecard"><div class="stat critical"><strong>0</strong><span>Critical</span></div><div class="stat high"><strong>4</strong><span>High</span></div><div class="stat medium"><strong>22</strong><span>Medium</span></div><div class="stat low"><strong>8</strong><span>Low</span></div><div class="stat closed"><strong>8</strong><span>Closed since 11 Sep</span></div><div class="stat accepted"><strong>1</strong><span>Accepted by design</span></div><div class="stat-note"><strong>34 open findings</strong>8 carried from the 11 September audit, 19 from the 12 September assessment that followed it, 7 new. Every item was re-verified against commit 2ea3af1.</div></div></header>
+<nav class="nav" aria-label="Report sections"><div class="shell"><a href="#assessment">Assessment</a><a href="#closed">Closed</a><a href="#findings">Open findings</a><a href="#remediation">Remediation</a><a href="#dependencies">Dependencies</a><a href="#coverage">Validation</a><button id="print" type="button">Print / save PDF</button></div></nav>
+<main class="shell"><section id="assessment"><div class="intro-grid"><div class="callout"><strong>Bind identity to the space, then bound the workload.</strong><p>The two Critical paths from September 11 are closed or gated to cluster administrators. The remaining High items share one shape: something a space-scoped operator can name, claim or bind is honoured cluster-wide without checking that the space owns it. Fix those as a set, then give workloads the resource and syscall limits that build containers already have.</p><div class="flow" aria-label="Observed escalation path"><span>Space-scoped write</span><b aria-hidden="true">→</b><span>Cluster-wide name, port or key</span><b aria-hidden="true">→</b><span>Another tenant's traffic or credentials</span></div></div><div class="scope"><p><strong>Scope.</strong> Every finding of the 11 September audit (OD-01 to OD-13) and every additional item raised in the 12 September assessment, re-verified against the Go backend, frontend, API contract and installer at commit 2ea3af1e8f14. Diffs against the audited baseline were used to establish what changed.</p><p><strong>Method.</strong> Source review with file and line evidence; the audit's eight overlay reproductions rerun unchanged against HEAD; the full backend and frontend test suites; govulncheck for host and Linux targets; pnpm audit. Linux mounts, escapes and load tests were not executed.</p><p><strong>Identifiers.</strong> OD-nn are the audit's original identifiers and keep their numbers. RR-nn identify items first raised in the 12 September assessment or in this re-review. Where a finding narrowed, the previous severity is shown beside the new one.</p></div></div>
+<p class="small" style="margin-top:22px">Critical = plausible host/control-plane compromise from lesser deployment authority. High = major confidentiality, integrity or shared-service impact under stated prerequisites. Medium = bounded, conditional or availability/hardening exposure. Low = hygiene or defence in depth. No CVSS scores were assigned.</p>
+<h2 style="margin-top:30px">Open finding index</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>Severity</th><th>Finding</th><th>Origin</th><th>Evidence level</th></tr></thead><tbody><tr><td><a href="#OD-07">OD-07</a></td><td><span class="badge high">High</span></td><td><a href="#OD-07">A stolen worker key can renew its access without an effective revocation boundary</a></td><td>11 Sep audit</td><td>Source verified</td></tr><tr><td><a href="#RR-01">RR-01</a></td><td><span class="badge high">High</span></td><td><a href="#RR-01">Workload containers have no CPU, memory or pids limits, and /dev/shm is unbounded</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-05">RR-05</a></td><td><span class="badge high">High</span></td><td><a href="#RR-05">Port forwards can claim reserved and co-tenant host ports</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-11">RR-11</a></td><td><span class="badge high">High</span></td><td><a href="#RR-11">ACME certificates and private keys are shared by hostname across spaces</a></td><td>12 Sep assessment<small>was Medium</small></td><td>Source verified</td></tr><tr><td><a href="#OD-06">OD-06</a></td><td><span class="badge medium">Medium</span></td><td><a href="#OD-06">Eligible workers receive the entire configured GitHub token</a></td><td>11 Sep audit<small>was High</small></td><td>Source verified</td></tr><tr><td><a href="#OD-09">OD-09</a></td><td><span class="badge medium">Medium</span></td><td><a href="#OD-09">Public password verification has no global memory or concurrency budget</a></td><td>11 Sep audit</td><td>Source verified</td></tr><tr><td><a href="#OD-10">OD-10</a></td><td><span class="badge medium">Medium</span></td><td><a href="#OD-10">Public listeners lack header and TLS-handshake deadlines</a></td><td>11 Sep audit</td><td>Source verified</td></tr><tr><td><a href="#OD-11">OD-11</a></td><td><span class="badge medium">Medium</span></td><td><a href="#OD-11">Registry-supplied URLs can reach internal services and forward bearer tokens</a></td><td>11 Sep audit</td><td>Reproduced against HEAD</td></tr><tr><td><a href="#OD-12">OD-12</a></td><td><span class="badge medium">Medium</span></td><td><a href="#OD-12">Passkey login updates append duplicate credentials and retain stale state</a></td><td>11 Sep audit</td><td>Reproduced against HEAD</td></tr><tr><td><a href="#RR-02">RR-02</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-02">Workloads run without a seccomp profile, as root, without a user namespace, and with CAP_NET_RAW</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-03">RR-03</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-03">Cross-deployment mounts give read-write access to default-space volumes with no authorization check</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-04">RR-04</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-04">Host-network deployments bypass network policy and keep CAP_NET_RAW</a></td><td>12 Sep assessment<small>was High</small></td><td>Source verified</td></tr><tr><td><a href="#RR-06">RR-06</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-06">Ingress path-prefix routing forwards un-normalised paths across tenant prefixes</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-07">RR-07</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-07">Duplicate WireGuard keys and underlay addresses are not rejected</a></td><td>12 Sep assessment</td><td>Source verified; kernel effect inferred</td></tr><tr><td><a href="#RR-08">RR-08</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-08">Agent-session approval never checks the approval code and request-start is unauthenticated</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-09">RR-09</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-09">The primary&#x27;s cluster leaf certificate expires after one year and nothing reissues it</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-10">RR-10</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-10">No re-authentication for passkey enrolment or master-password rotation, and the session token lives in localStorage</a></td><td>12 Sep assessment<small>was Low</small></td><td>Source verified</td></tr><tr><td><a href="#RR-12">RR-12</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-12">The repository resolver accepts local paths, git@ SSH and any HTTP host</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-13">RR-13</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-13">Space ids are reused after delete and nothing is cleaned up</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-14">RR-14</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-14">Backup restore accepts a tampered database</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-15">RR-15</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-15">Secret and config rotation writes deployments across spaces, and delete refusals leak cross-space names</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-19">RR-19</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-19">There is no per-node log volume cap</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-20">RR-20</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-20">Deployment names that collide under DNSLabel merge DNS endpoints and yield same-name certificates</a></td><td>New in this re-review</td><td>Source verified</td></tr><tr><td><a href="#RR-21">RR-21</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-21">Operator-authored wildcard rule templates silently gained the host verbs</a></td><td>New in this re-review</td><td>Source verified; conditional</td></tr><tr><td><a href="#RR-22">RR-22</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-22">Build containers can reach the node&#x27;s private network</a></td><td>New in this re-review</td><td>Source verified</td></tr><tr><td><a href="#RR-24">RR-24</a></td><td><span class="badge medium">Medium</span></td><td><a href="#RR-24">No revocation exists for cluster or workload certificates: 100-year CAs and 10-year leaves</a></td><td>New in this re-review</td><td>Source verified</td></tr><tr><td><a href="#OD-02">OD-02</a></td><td><span class="badge low">Low</span></td><td><a href="#OD-02">Host mount validation stays lexical: symlinked sources are not resolved on the node</a></td><td>11 Sep audit<small>was Critical</small></td><td>Source verified; residual</td></tr><tr><td><a href="#OD-13">OD-13</a></td><td><span class="badge low">Low</span></td><td><a href="#OD-13">Frontend build dependencies have outstanding advisories</a></td><td>11 Sep audit<small>was Medium</small></td><td>Lockfile scanner verified</td></tr><tr><td><a href="#RR-16">RR-16</a></td><td><span class="badge low">Low</span></td><td><a href="#RR-16">Asset cache, volume and store roots are world-readable and the mode is re-applied</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-17">RR-17</a></td><td><span class="badge low">Low</span></td><td><a href="#RR-17">Restore credentials and the recovery code are passed on argv</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-18">RR-18</a></td><td><span class="badge low">Low</span></td><td><a href="#RR-18">Secret reveals are not audited and the generated audit hook is unused</a></td><td>12 Sep assessment</td><td>Source verified</td></tr><tr><td><a href="#RR-23">RR-23</a></td><td><span class="badge low">Low</span></td><td><a href="#RR-23">Unauthenticated enrollment creates permanent node rows with no rate limit</a></td><td>New in this re-review</td><td>Source verified</td></tr><tr><td><a href="#RR-25">RR-25</a></td><td><span class="badge low">Low</span></td><td><a href="#RR-25">Secret rotation misses ingress TLS certificate references</a></td><td>New in this re-review</td><td>Source verified</td></tr><tr><td><a href="#RR-26">RR-26</a></td><td><span class="badge low">Low</span></td><td><a href="#RR-26">The nix2container tar rewrite relies on containerd&#x27;s unpack for path safety</a></td><td>New in this re-review</td><td>Source verified; inference</td></tr></tbody></table></div></section>
+<section id="closed"><div class="eyebrow">Closed since 11 September</div><h2>What the intervening commits fixed.</h2><p class="small">Each closure was confirmed by reading the current code and, where the audit had a reproduction, by that reproduction no longer passing. Fixed code does not retire credentials or state exposed before the fix.</p><div class="table-wrap"><table><thead><tr><th>ID</th><th>Finding</th><th>Was</th><th>How it closed</th><th>Evidence</th></tr></thead><tbody><tr><td>OD-04</td><td>Workload certificates can carry another space&#x27;s names</td><td><span class="badge high">High</span></td><td>Closed after the review by 23ae086 on 13 September. Extra names are now checked against the deployment&#x27;s space at create, update and space move, and again in the issuer: a .internal name must lie in the deployment&#x27;s own space-&lt;id&gt;.internal zone and a cluster-prefix address must be the deployment&#x27;s own; external names are untouched. The audit&#x27;s issuer reproduction no longer passes. Its deployments reproduction still passes because it calls the syntax-only mount validator, which has no space context; the corrected check through the create handler passes (od-04-closure-results.txt). Unit tests cover the helper, the validator, the issuer and the handler.</td><td><a href="https://github.com/jptrs93/opsagent/blob/23ae0864b0e350f8ae91a50c25dd149464c6444e/backend/lib/network/names.go#L42" target="_blank" rel="noopener noreferrer">backend/lib/network/names.go:42</a> <a href="https://github.com/jptrs93/opsagent/blob/23ae0864b0e350f8ae91a50c25dd149464c6444e/backend/app/primary/domain/deployments/validate.go#L757" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/deployments/validate.go:757</a> <a href="https://github.com/jptrs93/opsagent/blob/23ae0864b0e350f8ae91a50c25dd149464c6444e/backend/app/primary/domain/deployments/validate_layers.go#L128" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/deployments/validate_layers.go:128</a> <a href="https://github.com/jptrs93/opsagent/blob/23ae0864b0e350f8ae91a50c25dd149464c6444e/backend/app/primary/domain/pki/issuer.go#L49" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/pki/issuer.go:49</a></td></tr><tr><td>OD-01</td><td>Nix image exporters execute with control-plane privileges</td><td><span class="badge critical">Critical</span></td><td>b6ce56b moved Nix builds into a containerd container: default seccomp and capabilities, egress-only network, per-repository store, memory/CPU/pids limits, no agent environment. The host exec of the flake output is gone; layers are digest-verified on ingest.</td><td><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/engine/prepare/nixstore/build.go#L69" target="_blank" rel="noopener noreferrer">backend/lib/engine/prepare/nixstore/build.go:69</a> <a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/engine/prepare/nix2container/ingest.go#L153" target="_blank" rel="noopener noreferrer">backend/lib/engine/prepare/nix2container/ingest.go:153</a></td></tr><tr><td>OD-02 (part)</td><td>Host-mount denylist bypassed with parent paths; space_admin could mount host paths</td><td><span class="badge critical">Critical</span></td><td>The denylist now rejects parents of protected roots and /. Custom host mounts require use_host_mounts, held by cluster_admin only and excluded from agents. The audit&#x27;s two mount reproductions no longer pass. The lexical symlink case remains open as OD-02 at Low.</td><td><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/deployments/validate.go#L910" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/deployments/validate.go:910</a> <a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/authz/builtin.go#L108" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/authz/builtin.go:108</a> <a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/webuihandler/deployments.go#L44" target="_blank" rel="noopener noreferrer">backend/app/primary/webuihandler/deployments.go:44</a></td></tr><tr><td>OD-03</td><td>The bundled container runtime has published escape and DoS vulnerabilities</td><td><span class="badge high">High</span></td><td>Pinned containerd 2.3.5 and runc 1.5.1, the newest stable releases on the review date; the agent reconciles installed binaries against the pin at every start and never downgrades. The September containerd advisories are fixed in 2.3.5 or confined to the CRI plugin, which is not used.</td><td><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/runtimebin/runtimebin.go#L46" target="_blank" rel="noopener noreferrer">backend/lib/runtimebin/runtimebin.go:46</a> <a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/runtimebin/runtimebin.go#L60" target="_blank" rel="noopener noreferrer">backend/lib/runtimebin/runtimebin.go:60</a></td></tr><tr><td>OD-08</td><td>Netproxy uses an HTTP/2 transport with a known infinite-loop vulnerability</td><td><span class="badge high">High</span></td><td>golang.org/x/net moved from v0.52.0 to v0.55.0; GO-2026-4918 was fixed in v0.53.0 and no longer appears in govulncheck for either target.</td><td><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/go.mod#L28" target="_blank" rel="noopener noreferrer">backend/go.mod:28</a></td></tr><tr><td>12 Sep</td><td>Unauthenticated enrollment hello rewrites a member node&#x27;s identity</td><td><span class="badge high">High</span></td><td>Hellos for member identifiers are rejected inside the commit transaction, and the identifier is now the SHA-256 of the CSR&#x27;s public key, verified on every hello, so only the key holder can act on an identifier. X-Forwarded-For is no longer trusted.</td><td><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/nodes/enrollment.go#L30" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/nodes/enrollment.go:30</a> <a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/util/certu/sign.go#L395" target="_blank" rel="noopener noreferrer">backend/util/certu/sign.go:395</a></td></tr><tr><td>12 Sep</td><td>Host networking has no admin gate</td><td><span class="badge high">High</span></td><td>use_host_network is enforced on create, v2 update (including the saved spec) and space moves; only cluster_admin holds it. The policy-bypass half stays open as RR-04 at Medium.</td><td><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/webuihandler/deployments.go#L100" target="_blank" rel="noopener noreferrer">backend/app/primary/webuihandler/deployments.go:100</a> <a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/authz/builtin.go#L30" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/authz/builtin.go:30</a></td></tr><tr><td>12 Sep</td><td>The Nix build and exporter inherit the full service environment</td><td><span class="badge low">Low</span></td><td>The build container&#x27;s environment is constructed explicitly (TMPDIR, HOME and the CA bundle variables); no host environment, token or credential is forwarded, and the checkout is read-only with .git masked.</td><td><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/engine/prepare/nixstore/build.go#L88" target="_blank" rel="noopener noreferrer">backend/lib/engine/prepare/nixstore/build.go:88</a></td></tr></tbody></table></div>
+<h2 style="margin-top:30px">Accepted by design</h2><p class="small">Behaviour that is present and reproducible but recorded as documented authority in <code>docs/engineering/auth.md</code> under <em>Accepted positions</em>. Per <code>security-severity.md</code> such items are Informational; a future review that disagrees should argue against the position rather than reopen the finding.</p><div class="table-wrap"><table><thead><tr><th>ID</th><th>Finding</th><th>Was</th><th>Position</th><th>Why it is accepted</th><th>Evidence</th></tr></thead><tbody><tr><td>OD-05</td><td>Agent secret restrictions can be bypassed through controlled workloads</td><td><span class="badge high">High</span></td><td><code>AP-1 / AP-2</code></td><td>The behaviour is present and reproduced (corrected test): a delegated session denied reveal still binds a secret into a workload it controls. The project records this as documented authority: secret : reveal bounds the direct path only, and deployment create or update in a space is a second, intended path to every secret bindable from that space. The builtin agent defaults withhold reveal and view_logs as a guard rail against accidental disclosure, not as an isolation boundary. Operators who need a value kept from an agent must scope its deployment permissions away from the secret&#x27;s space. Under security-severity.md this is Informational. The positions were written into docs/engineering/auth.md on 13 September, after the reviewed commit, so the pinned source links below show the code paths only.</td><td><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/deployments/validate_refs.go#L34" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/deployments/validate_refs.go:34</a> <a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/authz/builtin.go#L37" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/authz/builtin.go:37</a></td></tr></tbody></table></div></section>
+<section id="findings"><div class="eyebrow">Evidence-led review</div><h2>Open findings</h2><p class="small">Source links point to commit 2ea3af1e8f14; excerpts are embedded so the report reads offline. Reproduced behaviour is distinguished from a full exploit. Recommendations have not been applied.</p><div class="filters"><label>Search findings<br><input id="search" type="search" placeholder="Search a component, risk or finding ID…"></label><label>Severity<br><select id="severity"><option value="">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label><span id="result-count" role="status" aria-live="polite">34 of 34 findings</span></div><article class="finding" id="OD-07" data-severity="high" data-origin="audit">
+    <div class="finding-meta"><span class="badge high">High</span><span>OD-07 · Cluster PKI</span><span class="origin">11 Sep audit</span><span class="verification">Source verified</span></div>
+    <h3>A stolen worker key can renew its access without an effective revocation boundary</h3><p class="impact">There is still no way to evict a node. Cluster authentication checks only that the client certificate chains to the CA, and renewal re-certifies whatever public key the caller presents. A stolen worker key therefore keeps cluster access indefinitely; the only remedy is re-bootstrapping the cluster CA, which invalidates every node and workload certificate at once.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Possession of a worker&#x27;s cluster key and certificate (file mode 0600 on the node).</p></div><div><h4>Why it happens</h4><p>The public API has list, rename, allowed-spaces and enrollment endpoints for nodes and nothing that removes or disables one; NODE_MEMBER_EVICTED is defined but never assigned. VerifyClusterPeer lifts only the CN, and GetNodeIDByIdentifier has no status predicate. GetV1ClusterRenewCertificate checks registration, not membership, and signs peerCert.PublicKey.</p></div><div><h4>Validation and limits</h4><p>Diffs of clusterhandler, domain/nodes and pki against the audited commit show only enrollment hardening; no revocation path was added.</p></div><div><h4>Recommended fix</h4><p>Add an evict transition and check member status on every cluster request and at renewal. Rotate the key at renewal rather than re-signing the presented key. Publish a serial denylist to the cluster listener and shorten worker leaf validity.</p></div><div><h4>Closure criteria</h4><p>Evicting a node must cause its next cluster request and its next renewal to fail without touching the CA.</p></div></div>
+    <details><summary>Source evidence <span>CWE-613 / CWE-299</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/clusterhandler/handler.go#L404" target="_blank" rel="noopener noreferrer">backend/app/primary/clusterhandler/handler.go:404</a><pre><code> 404  func (p *Handler) GetV1ClusterRenewCertificate(authCtx apigen.Context) (*apigen.ClusterRenewCertificateResponse, error) {
+ 405  	if p.secrets == nil {
+ 406  		return nil, fmt.Errorf(&quot;secrets manager is not configured&quot;)
+ 407  	}
+ 408  	machine, err := requireMachine(authCtx)
+ 409  	if err != nil {
+ 410  		return nil, err
+ 411  	}
+ 412  	if _, err := nodes.NodeIDByIdentifier(p.store.Queries(), machine); err != nil {
+ 413  		return nil, clusterForbiddenErr
+ 414  	}
+ 415  	peerCert := peerCertFromContext(authCtx)
+ 416  	if peerCert == nil {
+ 417  		return nil, fmt.Errorf(&quot;cluster request missing peer certificate&quot;)
+ 418  	}
+ 419  	caCert, secondaryCert, notAfter, err := pki.RenewSecondaryCertificate(p.secrets, machine, peerCert.PublicKey)
+ 420  	if err != nil {
+ 421  		return nil, err</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/storage/primarydb/pq/nodes.go#L257" target="_blank" rel="noopener noreferrer">backend/storage/primarydb/pq/nodes.go:257</a><pre><code> 257  func (q *Queries) GetNodeIDByIdentifier(ctx context.Context, identifier string) (int64, error) {
+ 258  	var nodeID int64
+ 259  	err := q.db.QueryRowContext(ctx, `SELECT node_id FROM node_event_log WHERE identifier = ? LIMIT 1`, identifier).Scan(&amp;nodeID)
+ 260  	return nodeID, err
+ 261  }</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/util/certu/sign.go#L55" target="_blank" rel="noopener noreferrer">backend/util/certu/sign.go:55</a><pre><code>  55  const (
+  56  	caValidity            = 100 * 365 * 24 * time.Hour
+  57  	secondaryCertValidity = 365 * 24 * time.Hour
+  58  )</code></pre></div></details>
+    </article><article class="finding" id="RR-01" data-severity="high" data-origin="review">
+    <div class="finding-meta"><span class="badge high">High</span><span>RR-01 · Workload isolation</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>Workload containers have no CPU, memory or pids limits, and /dev/shm is unbounded</h3><p class="impact">A single deployment can consume all memory, CPU and process slots on its node and take the OpenDeploy agent, containerd and every co-tenant down with it. Build containers received limits in b6ce56b; workloads did not.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Any deployment permission. No hostile intent is required; a memory leak suffices.</p></div><div><h4>Why it happens</h4><p>The workload ContainerSpec sets ID, image, user, env, args, cwd, dev-shm size, file-descriptor limit, mounts, log fields and netns, and never populates Resources, so the OCI memory, CPU and pids options are skipped. devShmSizeKb is validated only for non-negativity. No deployment spec field for resource limits exists.</p></div><div><h4>Validation and limits</h4><p>container.go is byte-identical to the audited commit. The resource wiring added for builds was read and confirmed to apply only when Resources is non-nil.</p></div><div><h4>Recommended fix</h4><p>Give workloads node-default memory, CPU and pids budgets with a per-deployment override in the spec, bound dev_shm_size_kb by the memory budget, and reflect OOM kills in the run report.</p></div><div><h4>Closure criteria</h4><p>A workload that allocates without bound must be OOM-killed inside its cgroup while the agent and other workloads keep running.</p></div></div>
+    <details><summary>Source evidence <span>CWE-770</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/engine/runner/container.go#L540" target="_blank" rel="noopener noreferrer">backend/lib/engine/runner/container.go:540</a><pre><code> 540  
+ 541  		spec := ctrd.ContainerSpec{
+ 542  			ID:             r.containerID,
+ 543  			Image:          r.status.RunningArtifact,
+ 544  			User:           r.user,
+ 545  			Env:            env,
+ 546  			Args:           r.command,
+ 547  			Cwd:            r.cwd,
+ 548  			DevShmSizeKB:   r.devShmSizeKB,
+ 549  			FileDescLimit:  r.fileDescLimit,
+ 550  			Mounts:         mounts,
+ 551  			LogDir:         logDir,
+ 552  			LogVersion:     r.status.DeploymentSpecVersion,
+ 553  			LogRun:         runNumber,
+ 554  			ResolvConfPath: resolvConfPath,
+ 555  
+ 556  			LogDeployment: r.deploymentID,
+ 557  			LogNode:       r.nodeID,
+ 558  			LogOrdinal:    containerInstanceOrdinal,
+ 559  		}</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/engine/ctrd/client.go#L323" target="_blank" rel="noopener noreferrer">backend/lib/engine/ctrd/client.go:323</a><pre><code> 323  	if r := spec.Resources; r != nil {
+ 324  		if r.MemoryBytes &gt; 0 {
+ 325  			specOpts = append(specOpts, oci.WithMemoryLimit(uint64(r.MemoryBytes)), oci.WithMemorySwap(r.MemoryBytes))
+ 326  		}
+ 327  		if r.CPUs &gt; 0 {
+ 328  			const period = 100000
+ 329  			specOpts = append(specOpts, oci.WithCPUCFS(int64(r.CPUs)*period, period))
+ 330  		}
+ 331  		if r.Pids &gt; 0 {
+ 332  			specOpts = append(specOpts, oci.WithPidsLimit(r.Pids))
+ 333  		}</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/deployments/validate.go#L798" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/deployments/validate.go:798</a><pre><code> 798  func validateContainerDevShmSizeKb(cfg *apigen.ContainerRuntime) error {
+ 799  	if cfg == nil || cfg.DevShmSizeKb == 0 {
+ 800  		return nil
+ 801  	}
+ 802  	if cfg.DevShmSizeKb &lt; 0 {
+ 803  		return InvalidConfigErrf(&quot;container1Spec.runtime.devShmSizeKb must be non-negative&quot;)
+ 804  	}
+ 805  	return nil
+ 806  }</code></pre></div></details>
+    </article><article class="finding" id="RR-05" data-severity="high" data-origin="review">
+    <div class="finding-meta"><span class="badge high">High</span><span>RR-05 · Host ports / ingress plan</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>Port forwards can claim reserved and co-tenant host ports</h3><p class="impact">Any deployer in any space can bind 443, 80, 22 or the cluster ports on the target node, or a port another tenant already forwards. The lower deployment id wins silently, UDP is never checked, and the DNAT rule matches any local address including loopback, so the forward also captures traffic to 127.0.0.1.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Create or update permission in any space.</p></div><div><h4>Why it happens</h4><p>validatePortForwarding checks range and duplicates within one spec. matchReservation is called only inside the ingress-route loop, and the TCP port map records the first owner without a diagnostic and is consulted only for ingress claims. HostPortRule for a forward carries no Dest, so addDNATRules falls back to fib daddr type local.</p></div><div><h4>Validation and limits</h4><p>ingressplan and the runner&#x27;s port-forward code are unchanged since the audit; no VM test was run.</p></div><div><h4>Recommended fix</h4><p>Run port forwards through the same reservation and claim machinery as ingress routes, include UDP, reject collisions at write time, and restrict the DNAT destination to the node&#x27;s published addresses.</p></div><div><h4>Closure criteria</h4><p>A forward on a reserved port or a port another deployment already forwards must be rejected at write time.</p></div></div>
+    <details><summary>Source evidence <span>CWE-284 / CWE-362</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/deployments/validate.go#L183" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/deployments/validate.go:183</a><pre><code> 183  func validatePortForwarding(portForwarding []*apigen.PortForward) error {
+ 184  	seen := map[portForwardKey]bool{}
+ 185  	for _, pf := range portForwarding {
+ 186  		if pf == nil {
+ 187  			continue
+ 188  		}
+ 189  		switch pf.Protocol {
+ 190  		case apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_UDP:
+ 191  		default:
+ 192  			return InvalidConfigErrf(&quot;networking.portForwarding.protocol: unsupported value %d&quot;, pf.Protocol)
+ 193  		}
+ 194  		if pf.HostPort &lt; 1 || pf.HostPort &gt; 65535 {
+ 195  			return InvalidConfigErrf(&quot;networking.portForwarding.hostPort must be between 1 and 65535&quot;)
+ 196  		}
+ 197  		if pf.ContainerPort &lt; 1 || pf.ContainerPort &gt; 65535 {
+ 198  			return InvalidConfigErrf(&quot;networking.portForwarding.containerPort must be between 1 and 65535&quot;)
+ 199  		}
+ 200  		if err := validatePortForwardIpFilter(pf.IpFilter); err != nil {
+ 201  			return err
+ 202  		}
+ 203  		key := portForwardKey{protocol: pf.Protocol, hostPort: pf.HostPort}
+ 204  		if seen[key] {
+ 205  			return InvalidConfigErrf(&quot;networking.portForwarding: duplicate %s host port %d&quot;, portForwardProtocolName(pf.Protocol), pf.HostPort)
+ 206  		}
+ 207  		seen[key] = true
+ 208  	}
+ 209  	return nil</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/ingressplan/ingressplan.go#L158" target="_blank" rel="noopener noreferrer">backend/lib/ingressplan/ingressplan.go:158</a><pre><code> 158  	for i := range deployments {
+ 159  		dep := &amp;deployments[i]
+ 160  		if dep.HostMode {
+ 161  			continue
+ 162  		}
+ 163  		for _, port := range dep.TCPPorts {
+ 164  			if tcpPorts[dep.NodeID] == nil {
+ 165  				tcpPorts[dep.NodeID] = make(map[int32]int32)
+ 166  			}
+ 167  			if _, ok := tcpPorts[dep.NodeID][port]; !ok {
+ 168  				tcpPorts[dep.NodeID][port] = dep.ID
+ 169  			}
+ 170  		}
+ 171  	}</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/engine/runner/container.go#L1366" target="_blank" rel="noopener noreferrer">backend/lib/engine/runner/container.go:1366</a><pre><code>1366  		rule := network.HostPortRule{
+1367  			Protocol:   proto,
+1368  			HostPort:   uint16(pf.HostPort),
+1369  			TargetPort: uint16(pf.ContainerPort),
+1370  			TargetV6:   cn.InboundAddr,
+1371  			TargetV4:   cn.V4,
+1372  		}
+1373  		if pf.IpFilter != nil &amp;&amp; len(pf.IpFilter.Allow) &gt; 0 {
+1374  			rule.Filtered = true
+1375  			rule.AllowV4, rule.AllowV6 = network.SplitFilterPrefixes(pf.IpFilter.Allow)
+1376  		}
+1377  		rules = append(rules, rule)</code></pre></div></details>
+    </article><article class="finding" id="RR-11" data-severity="high" data-origin="review">
+    <div class="finding-meta"><span class="badge high">High</span><span>RR-11 · Ingress / ACME</span><span class="origin">12 Sep assessment</span><span class="prior">Previously Medium</span><span class="verification">Source verified</span></div>
+    <h3>ACME certificates and private keys are shared by hostname across spaces</h3><p class="impact">ACME issuance sweeps every deployment&#x27;s HTTPS routes and stores certificates under a global hostname key. A node then receives the private key for any hostname its scheduled routes name. A deployment in space X that declares a route for space Y&#x27;s hostname, on another node or under another path prefix, obtains Y&#x27;s ACME private key and can serve Y&#x27;s traffic.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Create or update permission in any space, and a hostname another space already uses. Claims collide only on the same node, address, port, hostname and prefix.</p></div><div><h4>Why it happens</h4><p>acmeHostnames iterates all configs with no space filter. addIngressCertRefs grants the secret by hostname match on the node&#x27;s routes. The claim key includes node and prefix but no space, so different nodes or prefixes never conflict, and write-time validation inherits that.</p></div><div><h4>Validation and limits</h4><p>acmeissue and ingressplan are unchanged since the audit; the key-delivery path was traced across the two functions and not exercised end to end.</p></div><div><h4>Recommended fix</h4><p>Record the owning space for each hostname on first claim and reject routes from other spaces, key ACME secrets by space and hostname, and deliver a key only to routes of the owning space.</p></div><div><h4>Closure criteria</h4><p>A second space claiming an existing hostname must be rejected at write time and must never receive the key.</p></div></div>
+    <details><summary>Source evidence <span>CWE-284 / CWE-522</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/acmeissue/acmeissue.go#L100" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/acmeissue/acmeissue.go:100</a><pre><code> 100  func acmeHostnames(configs []apigen.DeploymentEvent) []string {
+ 101  	seen := map[string]bool{}
+ 102  	for _, cfg := range configs {
+ 103  		if cfg.Value.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+ 104  			continue
+ 105  		}
+ 106  		for _, route := range cfg.Value.Spec.Networking.Ingress {
+ 107  			if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || route.HttpsConfig == nil {
+ 108  				continue
+ 109  			}
+ 110  			source := route.HttpsConfig.CertSource
+ 111  			if source != nil &amp;&amp; source.Secret != nil {
+ 112  				continue
+ 113  			}
+ 114  			hostname := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(route.Hostname)), &quot;.&quot;)
+ 115  			if hostname != &quot;&quot; {
+ 116  				seen[hostname] = true
+ 117  			}
+ 118  		}</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/clusterhandler/handler.go#L226" target="_blank" rel="noopener noreferrer">backend/app/primary/clusterhandler/handler.go:226</a><pre><code> 226  func addIngressCertRefs(refs clusterAllowedRefs, snapshot []apigen.ScheduledInstanceState, bindings map[string]int32) {
+ 227  	for _, state := range snapshot {
+ 228  		for _, route := range state.Config.Value.Spec.Networking.Ingress {
+ 229  			if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || route.HttpsConfig == nil {
+ 230  				continue
+ 231  			}
+ 232  			source := route.HttpsConfig.CertSource
+ 233  			if source != nil &amp;&amp; source.Secret != nil {
+ 234  				if source.Secret.SecretVersionID &gt; 0 {
+ 235  					refs.secretIDs[source.Secret.SecretVersionID] = struct{}{}
+ 236  				}
+ 237  				continue
+ 238  			}
+ 239  			hostname := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(route.Hostname)), &quot;.&quot;)
+ 240  			if id, ok := bindings[hostname]; ok {
+ 241  				refs.secretIDs[id] = struct{}{}
+ 242  			}
+ 243  		}
+ 244  	}</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/ingressplan/ingressplan.go#L272" target="_blank" rel="noopener noreferrer">backend/lib/ingressplan/ingressplan.go:272</a><pre><code> 272  func resolveClaim(result *Result, candidate int32, owners map[claimKey]*claim, hostKinds, hostCerts map[hostKindKey]*claim, c *claim) bool {
+ 273  	key := claimKey{c.nodeID, c.address, c.port, c.route.Hostname, &quot;&quot;}
+ 274  	if c.route.Kind == apigen.IngressKind_INGRESS_KIND_HTTPS {
+ 275  		key.prefix = c.route.PathPrefix
+ 276  	}
+ 277  	hostKey := hostKindKey{c.nodeID, c.address, c.port, c.route.Hostname}</code></pre></div></details>
+    </article><article class="finding" id="OD-06" data-severity="medium" data-origin="audit">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>OD-06 · Credentials</span><span class="origin">11 Sep audit</span><span class="prior">Previously High</span><span class="verification">Source verified</span></div>
+    <h3>Eligible workers receive the entire configured GitHub token</h3><p class="impact">Any node scheduled to run one Nix build or one ghcr.io image obtains the full personal access token, unscoped to repository or node. A compromised worker holds the organisation&#x27;s token. The hostile-flake path to the token is closed: the build container gets an explicitly constructed environment and never sees it.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Root on a worker, or a workload that escapes to the agent&#x27;s uid. Eligibility needs only one scheduled instance that uses GitHub.</p></div><div><h4>Why it happens</h4><p>GetV1ClusterGithubCredentials returns the raw token after a coarse usesGithub check on the node&#x27;s scheduled instances. The worker caches it in memory. The git manager injects it as a github.com-scoped extraHeader so it never reaches .git/config or argv, and the build container&#x27;s env is TMPDIR, HOME and the CA bundle only.</p></div><div><h4>Validation and limits</h4><p>Handler unchanged since the audit. The containerized build (b6ce56b) and its egress rules were read in full; the e2e hostile-build probe asserts the machine key and containerd socket are absent in the build.</p></div><div><h4>Recommended fix</h4><p>Mint a short-lived, repository-scoped installation token per checkout (GitHub App) or keep the token on the primary and have the primary perform fetches, shipping only the checkout to workers.</p></div><div><h4>Closure criteria</h4><p>A worker must be able to fetch only the repositories of its scheduled deployments, and a captured credential must expire within hours.</p></div></div>
+    <details><summary>Source evidence <span>CWE-269</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/clusterhandler/handler.go#L153" target="_blank" rel="noopener noreferrer">backend/app/primary/clusterhandler/handler.go:153</a><pre><code> 153  func (p *Handler) GetV1ClusterGithubCredentials(authCtx apigen.Context) (*apigen.GithubCredentials, error) {
+ 154  	predicate, err := p.requireScheduledInstancePredicate(authCtx)
+ 155  	if err != nil {
+ 156  		return nil, err
+ 157  	}
+ 158  	if !p.allowedRefs(predicate).usesGithub {
+ 159  		return nil, clusterForbiddenErr
+ 160  	}
+ 161  	creds, err := p.githubCredentials.LoadCredentials(authCtx)
+ 162  	if err != nil {
+ 163  		return nil, err
+ 164  	}
+ 165  	return &amp;apigen.GithubCredentials{Token: creds.Token, ChangedAt: creds.ChangedAt}, nil</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/engine/prepare/nixstore/build.go#L88" target="_blank" rel="noopener noreferrer">backend/lib/engine/prepare/nixstore/build.go:88</a><pre><code>  88  	env := []string{&quot;TMPDIR=&quot; + containerScratchDir, &quot;HOME=&quot; + containerScratchDir + &quot;/home&quot;}
+  89  	if m.cfg.CABundle != &quot;&quot; {
+  90  		mounts = append(mounts, ctrd.Mount{Source: m.cfg.CABundle, Dest: containerCAPath, ReadOnly: true})
+  91  		env = append(env, &quot;SSL_CERT_FILE=&quot;+containerCAPath, &quot;NIX_SSL_CERT_FILE=&quot;+containerCAPath, &quot;GIT_SSL_CAINFO=&quot;+containerCAPath)
+  92  	}</code></pre></div></details>
+    </article><article class="finding" id="OD-09" data-severity="medium" data-origin="audit">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>OD-09 · Authentication / availability</span><span class="origin">11 Sep audit</span><span class="verification">Source verified</span></div>
+    <h3>Public password verification has no global memory or concurrency budget</h3><p class="impact">Each master-password or password-login attempt costs a 64 MiB Argon2id hash. Per-address rate limits exist and key on the socket address, but nothing bounds aggregate concurrency, and the limiter keys on the exact address, so an IPv6 /64 supplies unlimited independent buckets. The master endpoint is reachable even when password login is disabled.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Unauthenticated access to the web listener from many source addresses.</p></div><div><h4>Why it happens</h4><p>The middleware chain applies PerIP and PerIPAndPrefix limits; ratelimit.Global exists but is unused, and no semaphore wraps VerifyPassword. perIPWithMatcher allocates a limiter per distinct address string with a 60-second TTL. PostV1AuthMaster is NO_AUTH and calls verifyMasterPassword before any other check.</p></div><div><h4>Validation and limits</h4><p>Rate limits and clientaddr were already present at the audited commit; nothing changed. Load impact was not measured.</p></div><div><h4>Recommended fix</h4><p>Wrap password verification in a global semaphore sized for the node, key rate limits on a /64 for IPv6 and a /24 for IPv4, and return 503 rather than queueing when the budget is exhausted.</p></div><div><h4>Closure criteria</h4><p>A flood from many addresses must not raise the primary&#x27;s resident memory beyond the semaphore&#x27;s bound.</p></div></div>
+    <details><summary>Source evidence <span>CWE-770</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/run.go#L140" target="_blank" rel="noopener noreferrer">backend/app/primary/run.go:140</a><pre><code> 140  	middlewares := []apigen.MiddlewareFunc{
+ 141  		clientaddr.Middleware(),
+ 142  		ratelimit.PerIP(rate.Limit(40), 100, time.Minute),
+ 143  		ratelimit.PerIPAndPrefix(&quot;/v1/auth&quot;, rate.Limit(1), 10, time.Minute),
+ 144  		ratelimit.PerIPAndPrefix(&quot;/v1/auth/master&quot;, rate.Limit(0.2), 10, time.Minute),
+ 145  		ratelimit.PerIPAndPrefix(&quot;/v1/auth/password/login&quot;, rate.Limit(0.2), 10, time.Minute),
+ 146  		// The agent-session family is reachable without a credential.
+ 147  		ratelimit.PerIPAndPrefix(&quot;/v1/agent-sessions&quot;, rate.Limit(2), 30, time.Minute),
+ 148  		ratelimit.PerIPAndPrefix(&quot;/v1/agent-sessions/instructions&quot;, rate.Limit(0.2), 5, time.Minute),
+ 149  		ratelimit.PerIPAndPrefix(&quot;/v1/agent-sessions/request-start&quot;, rate.Limit(0.05), 3, 10*time.Minute),
+ 150  		ratelimit.PerIPAndPrefix(&quot;/v1/secrets/generate&quot;, rate.Limit(0.1), 10, time.Minute),</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/middleware/ratelimit/ratelimit.go#L43" target="_blank" rel="noopener noreferrer">backend/lib/middleware/ratelimit/ratelimit.go:43</a><pre><code>  43  func perIPWithMatcher(r rate.Limit, burst int, ttl time.Duration, match func(*http.Request) bool, internalErr string) apigen.MiddlewareFunc {
+  44  	var mu sync.Mutex
+  45  	clients := map[string]*clientLimiter{}
+  46  
+  47  	return func(next apigen.HandlerFunc) apigen.HandlerFunc {
+  48  		return func(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+  49  			if !match(req) {
+  50  				next(ctx, w, req)
+  51  				return
+  52  			}
+  53  			now := time.Now()
+  54  			ip := clientaddr.ClientIP(req)
+  55  
+  56  			mu.Lock()
+  57  			for key, client := range clients {
+  58  				if now.Sub(client.lastSeen) &gt; ttl {
+  59  					delete(clients, key)
+  60  				}
+  61  			}
+  62  			client, ok := clients[ip]
+  63  			if !ok {
+  64  				client = &amp;clientLimiter{limiter: rate.NewLimiter(r, burst)}
+  65  				clients[ip] = client
+  66  			}
+  67  			client.lastSeen = now
+  68  			allow := client.limiter.Allow()
+  69  			mu.Unlock()</code></pre></div></details>
+    </article><article class="finding" id="OD-10" data-severity="medium" data-origin="audit">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>OD-10 · Listeners / availability</span><span class="origin">11 Sep audit</span><span class="verification">Source verified</span></div>
+    <h3>Public listeners lack header and TLS-handshake deadlines</h3><p class="impact">The Web UI HTTPS, cluster mTLS and enrollment listeners set no ReadHeaderTimeout, ReadTimeout or WriteTimeout. In Go 1.27 that means no TLS handshake deadline at all, so an unauthenticated peer can hold half-open connections on :443, :9443 and :9444 indefinitely and exhaust goroutines on the primary.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Network reachability of the primary&#x27;s public ports.</p></div><div><h4>Why it happens</h4><p>All three http.Server literals carry Handler, TLSConfig and BaseContext only; the cluster server adds HTTP/2 ping timeouts, which act after the handshake. The stdlib derives the handshake deadline from the minimum positive server timeout, so three zeros yield none. Netproxy&#x27;s HTTPS listener has a 10-second header timeout, but its ClientHello deadline is cleared before hand-off onto an unbuffered channel, leaving an unbounded queueing window.</p></div><div><h4>Validation and limits</h4><p>Diffs of webui/server.go, clusterserver/server.go and netproxy against the audited commit are empty.</p></div><div><h4>Recommended fix</h4><p>Set ReadHeaderTimeout (10s), IdleTimeout (75s) and a bounded MaxHeaderBytes on every listener; keep the netproxy pre-handshake deadline until Accept, and cap the number of parked handoffs.</p></div><div><h4>Closure criteria</h4><p>A client that connects and sends nothing must be closed within the header timeout on every public port.</p></div></div>
+    <details><summary>Source evidence <span>CWE-400</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/clusterserver/server.go#L42" target="_blank" rel="noopener noreferrer">backend/app/primary/clusterserver/server.go:42</a><pre><code>  42  	srv := &amp;http.Server{
+  43  		Addr:        listen,
+  44  		Handler:     clusterMux,
+  45  		TLSConfig:   tlsCfg,
+  46  		Protocols:   protocols,
+  47  		BaseContext: primaryServerBaseContext(ctx),
+  48  		HTTP2: &amp;http.HTTP2Config{
+  49  			SendPingTimeout: 5 * time.Second,  // PING a silent secondary after 5s idle
+  50  			PingTimeout:     10 * time.Second, // tear down if no ACK within 10s (~15s total to detect a dead secondary)
+  51  		},</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/clusterserver/server.go#L84" target="_blank" rel="noopener noreferrer">backend/app/primary/clusterserver/server.go:84</a><pre><code>  84  	srv := &amp;http.Server{
+  85  		Addr:        listen,
+  86  		Handler:     mux,
+  87  		TLSConfig:   certu.MustLoadServerTLSConfigFromPEM(material.PrimaryCert, material.PrimaryKey),
+  88  		BaseContext: primaryServerBaseContext(ctx),
+  89  	}</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/webui/server.go#L71" target="_blank" rel="noopener noreferrer">backend/app/primary/webui/server.go:71</a><pre><code>  71  	srv := &amp;http.Server{
+  72  		Addr:        listen,
+  73  		Handler:     webHandler,
+  74  		TLSConfig:   tlsConfig,
+  75  		BaseContext: primaryServerBaseContext(ctx),
+  76  	}</code></pre></div></details>
+    </article><article class="finding" id="OD-11" data-severity="medium" data-origin="audit">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>OD-11 · Registry client / SSRF</span><span class="origin">11 Sep audit</span><span class="verification">Reproduced against HEAD</span></div>
+    <h3>Registry-supplied URLs can reach internal services and forward bearer tokens</h3><p class="impact">A hostile registry&#x27;s bearer challenge points the primary at any URL, including plain-HTTP loopback and private addresses, and its Link header re-targets an authenticated pagination request to another origin. The OpenDeploy GitHub token is not at risk: the transport injects it only at ghcr.io/token and strips Authorization elsewhere.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Permission to create a deployment somewhere, which agent sessions hold, and a registry hostname the caller controls.</p></div><div><h4>Why it happens</h4><p>registryBearerToken parses the realm and issues a GET with no scheme or host restriction. registryGet sets the registry&#x27;s bearer token on whatever URL nextRegistryPageURL returns, and non-GHCR registries use the default client. The image reference parser accepts any host with a dot or port.</p></div><div><h4>Validation and limits</h4><p>Both audit reproductions still pass on loopback. The three files are unchanged since the audit; the PAT scoping in registryauth predates it.</p></div><div><h4>Recommended fix</h4><p>Require https for realms, resolve and reject loopback, link-local, RFC1918, ULA and cluster-prefix destinations before dialling, restrict pagination to the registry&#x27;s own origin, and use the same hardened transport for every registry.</p></div><div><h4>Closure criteria</h4><p>A realm or Link pointing at 127.0.0.1 or a private range must be refused without a connection attempt.</p></div></div>
+    <details><summary>Source evidence <span>CWE-918</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/engine/versionprovider/containerimage.go#L196" target="_blank" rel="noopener noreferrer">backend/lib/engine/versionprovider/containerimage.go:196</a><pre><code> 196  func registryBearerToken(ctx context.Context, client *http.Client, challenge string) (string, error) {
+ 197  	params, ok := parseBearerChallenge(challenge)
+ 198  	if !ok {
+ 199  		return &quot;&quot;, fmt.Errorf(&quot;registry requires unsupported authentication&quot;)
+ 200  	}
+ 201  	realm := params[&quot;realm&quot;]
+ 202  	if realm == &quot;&quot; {
+ 203  		return &quot;&quot;, fmt.Errorf(&quot;registry auth challenge missing realm&quot;)
+ 204  	}
+ 205  	u, err := url.Parse(realm)
+ 206  	if err != nil {
+ 207  		return &quot;&quot;, err
+ 208  	}
+ 209  	q := u.Query()
+ 210  	for _, key := range []string{&quot;service&quot;, &quot;scope&quot;} {
+ 211  		if value := params[key]; value != &quot;&quot; {
+ 212  			q.Set(key, value)
+ 213  		}
+ 214  	}
+ 215  	u.RawQuery = q.Encode()
+ 216  	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/engine/versionprovider/containerimage.go#L155" target="_blank" rel="noopener noreferrer">backend/lib/engine/versionprovider/containerimage.go:155</a><pre><code> 155  func registryGet(ctx context.Context, client *http.Client, rawURL string, token string) (*http.Response, error) {
+ 156  	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+ 157  	if err != nil {
+ 158  		return nil, err
+ 159  	}
+ 160  	if token != &quot;&quot; {
+ 161  		req.Header.Set(&quot;Authorization&quot;, &quot;Bearer &quot;+token)
+ 162  	}
+ 163  	return client.Do(req)
+ 164  }</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/engine/registryauth/client.go#L51" target="_blank" rel="noopener noreferrer">backend/lib/engine/registryauth/client.go:51</a><pre><code>  51  	trusted := req.URL.Scheme == &quot;https&quot; &amp;&amp; strings.EqualFold(req.URL.Host, &quot;ghcr.io&quot;) &amp;&amp; req.URL.User == nil
+  52  	// Apply the PAT only at the known token endpoint, never at a challenge&#x27;s
+  53  	// arbitrary realm. Both discovery and containerd use this GET token exchange.
+  54  	// Inject at transport time so redirects cannot copy the PAT from the request.
+  55  	if trusted &amp;&amp; req.URL.Path == &quot;/token&quot; &amp;&amp; req.Method == http.MethodGet &amp;&amp; t.token != &quot;&quot; {
+  56  		req.SetBasicAuth(&quot;token&quot;, t.token)
+  57  	} else if !trusted || strings.HasPrefix(strings.ToLower(req.Header.Get(&quot;Authorization&quot;)), &quot;basic &quot;) {
+  58  		// Signed blob URLs may live elsewhere. Allow their download but never
+  59  		// forward registry bearer tokens to those hosts, including subdomains.
+  60  		req.Header.Del(&quot;Authorization&quot;)</code></pre></div></details>
+    </article><article class="finding" id="OD-12" data-severity="medium" data-origin="audit">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>OD-12 · Authentication</span><span class="origin">11 Sep audit</span><span class="verification">Reproduced against HEAD</span></div>
+    <h3>Passkey login updates append duplicate credentials and retain stale state</h3><p class="impact">Every successful passkey login appends another copy of the credential to the user record. The verifier picks the first match, so the registration-time sign count and backup flags are compared forever and clone detection never fires; the record grows without bound.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Normal use. No attacker action is needed for the growth; a cloned authenticator is needed to exploit the disabled detection.</p></div><div><h4>Why it happens</h4><p>The shared save callback appends to d.Credentials rather than replacing the entry with the same ID. It is reached from both FinishRegistration and FinishLogin. CloneWarning is never read anywhere in the backend.</p></div><div><h4>Validation and limits</h4><p>The audit reproduction still passes: two saves yield two rows with the stale counter first. passkey.go is unchanged since the audit.</p></div><div><h4>Recommended fix</h4><p>Replace the credential whose ID matches in place, persist the updated counter and flags, and surface CloneWarning as a login refusal or an alert.</p></div><div><h4>Closure criteria</h4><p>Saving the same credential twice must leave one row carrying the latest counter.</p></div></div>
+    <details><summary>Source evidence <span>CWE-287</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/webuihandler/passkey.go#L67" target="_blank" rel="noopener noreferrer">backend/app/primary/webuihandler/passkey.go:67</a><pre><code>  67  		users.UpdateMatching(h.Store, userIDMatcher(userID), func(d *apigen.InternalUser) {
+  68  			d.Credentials = append(d.Credentials, &amp;apigen.WebAuthnCredential{
+  69  				ID:   credential.ID,
+  70  				Data: b,
+  71  			})
+  72  		})</code></pre></div></details>
+    </article><article class="finding" id="RR-02" data-severity="medium" data-origin="review">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-02 · Workload isolation</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>Workloads run without a seccomp profile, as root, without a user namespace, and with CAP_NET_RAW</h3><p class="impact">The kernel attack surface exposed to a workload is larger than the Docker default: the full syscall table, root in the container, containerd&#x27;s default capability set including CAP_NET_RAW, and no user-namespace boundary. This lowers the bar for every runtime escape, including the class OD-03 tracked.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Any deployment permission and a hostile or compromised image.</p></div><div><h4>Why it happens</h4><p>DefaultSeccomp is set only on build and maintenance specs, so seccomp.WithDefaultProfile is never applied to workloads. No WithUserNamespace, uid mapping, AppArmor or capability option appears in the workload path; the spec can set a user but nothing requires one.</p></div><div><h4>Validation and limits</h4><p>Traced buildSpecOpts and the workload spec construction; no test executes an escape.</p></div><div><h4>Recommended fix</h4><p>Apply the default seccomp profile to workloads, drop CAP_NET_RAW and other unneeded capabilities, default to a non-root user when the image does not set one, and evaluate user namespaces once containerd&#x27;s idmapped mount support is confirmed on target kernels.</p></div><div><h4>Closure criteria</h4><p>A workload must be unable to open a raw socket or call a syscall outside the default profile.</p></div></div>
+    <details><summary>Source evidence <span>CWE-250</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/engine/ctrd/client.go#L335" target="_blank" rel="noopener noreferrer">backend/lib/engine/ctrd/client.go:335</a><pre><code> 335  	if spec.DefaultSeccomp {
+ 336  		specOpts = append(specOpts, seccomp.WithDefaultProfile())
+ 337  	}</code></pre></div></details>
+    </article><article class="finding" id="RR-03" data-severity="medium" data-origin="review">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-03 · Volumes / authorization</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>Cross-deployment mounts give read-write access to default-space volumes with no authorization check</h3><p class="impact">A deployment in any space can mount, read-write, the default volume of any same-node deployment in the default space, and an agent session can do it too. The validator checks locality only and its error messages return the source deployment&#x27;s name and space to callers who may not be entitled to see it.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Create or update permission in any space on a node that also hosts default-space deployments.</p></div><div><h4>Why it happens</h4><p>validateCrossDeploymentMountSources allows a source in the caller&#x27;s space or the default space, on the same node, with a default volume. No verb is checked on the source deployment, and use_host_mounts inspects only Runtime.Mounts. The runner honours READ_WRITE.</p></div><div><h4>Validation and limits</h4><p>Unchanged since the audit. The exempted space is DefaultSpaceID (1), the global space; the system space is 0.</p></div><div><h4>Recommended fix</h4><p>Require view (or a dedicated mount verb) on the source deployment in its own space, default cross-space mounts to read-only, and drop the name from the refusal message for sources the caller cannot see.</p></div><div><h4>Closure criteria</h4><p>A caller without access to the source deployment must be refused with a message that does not name it.</p></div></div>
+    <details><summary>Source evidence <span>CWE-285</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/deployments/validate.go#L926" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/deployments/validate.go:926</a><pre><code> 926  func validateCrossDeploymentMountSources(live nodes.LiveState, spec *apigen.DeploymentSpec, nodeID, currentID, spaceID int32) error {
+ 927  	if spec == nil || spec.Container() == nil {
+ 928  		return nil
+ 929  	}
+ 930  	for _, mount := range spec.Container().Runtime.CrossDeploymentMounts {
+ 931  		if mount == nil {
+ 932  			continue
+ 933  		}
+ 934  		if mount.DeploymentID == currentID &amp;&amp; currentID != 0 {
+ 935  			return InvalidConfigErrf(&quot;container1Spec.runtime.crossDeploymentMounts: a deployment cannot mount its own default volume&quot;)
+ 936  		}
+ 937  		source := live.Deployments[mount.DeploymentID]
+ 938  		if source == nil {
+ 939  			return InvalidConfigErrf(&quot;container1Spec.runtime.crossDeploymentMounts: source deployment %d does not exist&quot;, mount.DeploymentID)
+ 940  		}
+ 941  		if source.Value.NodeID != nodeID {
+ 942  			return InvalidConfigErrf(&quot;container1Spec.runtime.crossDeploymentMounts: source deployment %d is on a different node&quot;, mount.DeploymentID)
+ 943  		}
+ 944  		if source.Value.SpaceID != spaceID &amp;&amp; source.Value.SpaceID != nodes.DefaultSpaceID {
+ 945  			return InvalidConfigErrf(&quot;container1Spec.runtime.crossDeploymentMounts: source deployment %q lives in space %d and cannot be mounted from a deployment in space %d&quot;, source.Value.Name, source.Value.SpaceID, spaceID)
+ 946  		}
+ 947  		container := source.Value.Spec.Container()
+ 948  		if container == nil || container.Runtime.DefaultVolume.Disabled {
+ 949  			return InvalidConfigErrf(&quot;container1Spec.runtime.crossDeploymentMounts: source deployment %d has no default volume&quot;, mount.DeploymentID)
+ 950  		}
+ 951  	}
+ 952  	return nil
+ 953  }</code></pre></div></details>
+    </article><article class="finding" id="RR-04" data-severity="medium" data-origin="review">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-04 · Host networking / policy</span><span class="origin">12 Sep assessment</span><span class="prior">Previously High</span><span class="verification">Source verified</span></div>
+    <h3>Host-network deployments bypass network policy and keep CAP_NET_RAW</h3><p class="impact">Selecting host networking now requires use_host_network, held by cluster_admin only, which is why the severity drops. The isolation gap itself is unchanged: a host-mode container shares the host netns, so it reaches every loopback listener, every other space&#x27;s and node&#x27;s workload addresses, and can sniff with CAP_NET_RAW. No nftables rule can match it.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>use_host_network, or an operator-authored wildcard template that inherited it (RR-21).</p></div><div><h4>Why it happens</h4><p>The gate is enforced on create, v2 update including the saved spec, and space moves, and agent rules exclude the verb. The new input chain matches only the build interface set and its policy is accept; host-mode containers have no veth to match on. buildSpecOpts sets no capability option, so containerd&#x27;s default set applies.</p></div><div><h4>Validation and limits</h4><p>Gate tests pass. Policy behaviour was traced in source; no Linux enforcement test was run.</p></div><div><h4>Recommended fix</h4><p>Document host mode as host-administrator trust, drop CAP_NET_RAW from host-mode workloads, and consider an input-chain rule set keyed on the workload&#x27;s uid or cgroup for the listeners it must not reach.</p></div><div><h4>Closure criteria</h4><p>A host-mode workload must be unable to reach the enrollment and cluster listeners on loopback.</p></div></div>
+    <details><summary>Source evidence <span>CWE-284</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/webuihandler/deployments.go#L100" target="_blank" rel="noopener noreferrer">backend/app/primary/webuihandler/deployments.go:100</a><pre><code> 100  	hostNetwork := saved != nil &amp;&amp; saved.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL ||
+ 101  		proposed != nil &amp;&amp; proposed.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_HOST
+ 102  	if hostNetwork {</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/network/filter.go#L144" target="_blank" rel="noopener noreferrer">backend/lib/network/filter.go:144</a><pre><code> 144  func StaticInputRules6() []FilterRule {
+ 145  	return []FilterRule{
+ 146  		{IifSet: NftSetBuild, Protocol: unix.IPPROTO_ICMPV6, Verdict: FilterVerdictAccept},
+ 147  		{IifSet: NftSetBuild, Counter: true, Verdict: FilterVerdictDrop},
+ 148  	}
+ 149  }
+ 150  
+ 151  func StaticInputRules4() []FilterRule {
+ 152  	return []FilterRule{
+ 153  		{IifSet: NftSetBuild, Counter: true, Verdict: FilterVerdictDrop},
+ 154  	}
+ 155  }</code></pre></div></details>
+    </article><article class="finding" id="RR-06" data-severity="medium" data-origin="review">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-06 · Ingress proxy</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>Ingress path-prefix routing forwards un-normalised paths across tenant prefixes</h3><p class="impact">Prefix matching runs on the decoded request path without cleaning, and forwarding sends either the raw bytes or a decoded-and-stripped path. /api/../secret routes on the /api prefix and reaches that prefix&#x27;s backend, which will normalise it to /secret. Because each prefix is a cross-deployment claim, the routing decision and the served resource can disagree across a tenant boundary.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>An HTTPS ingress hostname shared by two prefixes owned by different deployments, and an upstream that normalises paths.</p></div><div><h4>Why it happens</h4><p>routePrefixMatch is HasPrefix plus a segment-boundary check on r.URL.Path. The handler is the server itself, so no ServeMux cleaning applies. With strip enabled the trim operates on the decoded path and RawPath is discarded; without it the raw path is forwarded byte for byte. Route definitions are cleaned at admission; requests are not.</p></div><div><h4>Validation and limits</h4><p>netproxy is unchanged since the audit. No fuzzing of encoded or dot-segment paths was run.</p></div><div><h4>Recommended fix</h4><p>Reject requests whose decoded path contains dot segments or whose cleaned form differs, match and forward the same representation, and derive X-Forwarded-Prefix from the matched prefix.</p></div><div><h4>Closure criteria</h4><p>A request for /api/../secret must be refused or routed by its cleaned path, never forwarded to the /api backend.</p></div></div>
+    <details><summary>Source evidence <span>CWE-22 / CWE-436</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/netproxy/https.go#L72" target="_blank" rel="noopener noreferrer">backend/app/netproxy/https.go:72</a><pre><code>  72  
+  73  func routePrefixMatch(path, prefix string) bool {
+  74  	if prefix == &quot;/&quot; {
+  75  		return true
+  76  	}
+  77  	if !strings.HasPrefix(path, prefix) {
+  78  		return false
+  79  	}
+  80  	return len(path) == len(prefix) || path[len(prefix)] == &#x27;/&#x27;</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/netproxy/https.go#L230" target="_blank" rel="noopener noreferrer">backend/app/netproxy/https.go:230</a><pre><code> 230  		Rewrite: func(pr *httputil.ProxyRequest) {
+ 231  			backend, ok := pool.pick()
+ 232  			if !ok {
+ 233  				return
+ 234  			}
+ 235  			pr.SetURL(&amp;url.URL{Scheme: &quot;http&quot;, Host: net.JoinHostPort(backend.address, strconv.Itoa(int(backend.port)))})
+ 236  			pr.SetXForwarded()
+ 237  			pr.Out.Host = pr.In.Host
+ 238  			if strip {
+ 239  				pr.Out.Header.Set(&quot;X-Forwarded-Prefix&quot;, prefix)
+ 240  				stripped := strings.TrimPrefix(pr.In.URL.Path, prefix)
+ 241  				if stripped == &quot;&quot; || stripped[0] != &#x27;/&#x27; {
+ 242  					stripped = &quot;/&quot; + stripped
+ 243  				}
+ 244  				pr.Out.URL.Path = stripped
+ 245  				pr.Out.URL.RawPath = &quot;&quot;
+ 246  			}
+ 247  		},</code></pre></div></details>
+    </article><article class="finding" id="RR-07" data-severity="medium" data-origin="review">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-07 · Cluster networking</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified; kernel effect inferred</span></div>
+    <h3>Duplicate WireGuard keys and underlay addresses are not rejected</h3><p class="impact">Nothing compares a node&#x27;s reported WireGuard public key or underlay address with other nodes&#x27;. An enrolled node can report another node&#x27;s key, both are published as distinct peers, and the kernel keys peers by public key, so the later configuration overwrites the earlier one and the victim&#x27;s routes collapse onto the impostor.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>A node that can complete enrollment, or any member node via its own report. Requires the victim&#x27;s public key, which the netmap distributes to every node.</p></div><div><h4>Why it happens</h4><p>NormalizeNodeUnderlay checks address family only. ReportNode overwrites the node&#x27;s addresses and key with whatever the mTLS-authenticated node sends. The publisher checks only that the key is non-empty.</p></div><div><h4>Validation and limits</h4><p>Source traced end to end; the peer-collapse step rests on WireGuard&#x27;s documented per-key peer identity and was not executed in the VM harness.</p></div><div><h4>Recommended fix</h4><p>Enforce uniqueness of WireGuard public keys and underlay addresses at enrollment and on report, and bind the reported key to the node&#x27;s enrollment identity.</p></div><div><h4>Closure criteria</h4><p>A report carrying another node&#x27;s public key must be rejected and logged.</p></div></div>
+    <details><summary>Source evidence <span>CWE-345</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/nodes/nodes.go#L176" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/nodes/nodes.go:176</a><pre><code> 176  func ReportNode(store *state.Service, identifier string, reported apigen.NodeReported) *Node {
+ 177  	if reported.Identifier != &quot;&quot; &amp;&amp; reported.Identifier != identifier {
+ 178  		panic(&quot;node report identifier mismatch&quot;)
+ 179  	}
+ 180  	id, err := NodeIDByIdentifier(store.Queries(), identifier)
+ 181  	if err != nil {
+ 182  		panic(fmt.Sprintf(&quot;report node %q: %v&quot;, identifier, err))
+ 183  	}
+ 184  	return mustAppendNodeVersion(store, id, &quot;report node&quot;, func(spec *nodeEventSpec) {
+ 185  		spec.AddressesJSON = nodeAddressesJSON([]string{reported.UnderlayAddress})
+ 186  		spec.WGPublicKey = reported.WgPublicKey
+ 187  		if !reported.HostAddressesUnknown {
+ 188  			spec.HostAddressesJSON = nodeAddressesJSON(canonicalHostAddresses(reported.HostAddresses))
+ 189  		}
+ 190  	})
+ 191  }</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/netmappublisher/publisher.go#L290" target="_blank" rel="noopener noreferrer">backend/app/primary/netmappublisher/publisher.go:290</a><pre><code> 290  		if node.WGPublicKey == &quot;&quot; {
+ 291  			return nil, nil, fmt.Errorf(&quot;node %d has no WireGuard public key&quot;, node.ID)
+ 292  		}
+ 293  		knownNodes[node.ID] = struct{}{}
+ 294  		netNodes = append(netNodes, &amp;apigen.ClusterNetMapNode{NodeID: node.ID, UnderlayAddress: underlay, WgPublicKey: node.WGPublicKey, WgListenPort: int32(network.DefaultWGListenPort), IngressPublish: plan.publish[node.ID]})</code></pre></div></details>
+    </article><article class="finding" id="RR-08" data-severity="medium" data-origin="review">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-08 · Agent sessions</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>Agent-session approval never checks the approval code and request-start is unauthenticated</h3><p class="impact">Anyone who can reach the web listener can open the single pending agent-session slot for any user by sequential id, and the request it plants looks identical to a legitimate one except for a code the API never verifies. Approving it hands the attacker a token with the approver&#x27;s scopes. The slot can also be kept occupied to block the real agent.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Network reachability and a guessable user id (ids are dense from 1). For token theft, an operator approving without comparing the code.</p></div><div><h4>Why it happens</h4><p>AgentSessionApproveRequest carries only the id and the handler never reads ApprovalCode; the frontend renders the code read-only. request-start is NO_AUTH, keyed by user_id, and returns 409 while a pending request exists. The rate limit is 3 per 10 minutes per address.</p></div><div><h4>Validation and limits</h4><p>agent_sessions.go and the proto are unchanged since the audit; the design doc describes the code as an out-of-band human check.</p></div><div><h4>Recommended fix</h4><p>Require the approval code in the approve request and compare it server-side, bind request-start to a short-lived challenge issued to the operator, and allow more than one pending request per user so a planted request cannot block the real one.</p></div><div><h4>Closure criteria</h4><p>Approving with a wrong or missing code must fail; a request planted by a third party must not be approvable by accident.</p></div></div>
+    <details><summary>Source evidence <span>CWE-306 / CWE-451</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/webuihandler/agent_sessions.go#L160" target="_blank" rel="noopener noreferrer">backend/app/primary/webuihandler/agent_sessions.go:160</a><pre><code> 160  func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apigen.AgentSessionRequestStartRequest) (*apigen.AgentSessionRequest, error) {
+ 161  	user, err := users.Matching(h.Store.Queries(), func(u *apigen.InternalUser) bool { return u.ID == req.UserID })
+ 162  	if errors.Is(err, users.ErrNotFound) {
+ 163  		return nil, AgentSessionUserNotFoundErr
+ 164  	}
+ 165  	if err != nil {
+ 166  		return nil, fmt.Errorf(&quot;resolving user for agent session request: %w&quot;, err)
+ 167  	}
+ 168  	now := time.Now()
+ 169  	pending, err := h.agentSessions().ListPendingAgentSessionsForUser(user.ID)
+ 170  	if err != nil {
+ 171  		return nil, fmt.Errorf(&quot;listing pending agent sessions: %w&quot;, err)
+ 172  	}
+ 173  	for _, rec := range pending {
+ 174  		if now.Sub(rec.CreatedAt) &lt; agentSessionPendingTTL {
+ 175  			return nil, AgentSessionRequestPendingErr
+ 176  		}
+ 177  		if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, time.Time{}, now); err != nil {
+ 178  			return nil, fmt.Errorf(&quot;closing stale agent session request: %w&quot;, err)</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/api-contract/model_sessions_operations.proto#L54" target="_blank" rel="noopener noreferrer">api-contract/model_sessions_operations.proto:54</a><pre><code>  54  message AgentSessionApproveRequest {
+  55    string id = 1;
+  56  }</code></pre></div></details>
+    </article><article class="finding" id="RR-09" data-severity="medium" data-origin="review">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-09 · Cluster PKI / availability</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>The primary&#x27;s cluster leaf certificate expires after one year and nothing reissues it</h3><p class="impact">Worker leaves renew from 90 days out, but the primary&#x27;s own leaf is minted once at bootstrap with a 365-day validity and never renewed. Workers verify the full chain, so on day 366 every cluster connection fails and, because renewal rides that connection, nothing self-heals. A cluster-wide outage on a known date.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Time. The first affected installs reach the date one year after bootstrap.</p></div><div><h4>Why it happens</h4><p>GenerateNodeCertificateWithServerName sets NotAfter to now plus 365 days. BootstrapPrimary returns early whenever material exists, and run.go only loads it. The Web UI local TLS material has a self-renew path; the cluster leaf does not.</p></div><div><h4>Validation and limits</h4><p>Traced in source. No test advances the clock.</p></div><div><h4>Recommended fix</h4><p>Reissue the primary leaf under the existing CA before expiry using the same window logic as workers, and hot-swap the listener&#x27;s certificate via GetCertificate.</p></div><div><h4>Closure criteria</h4><p>A primary whose leaf is within the renewal window must present a fresh certificate without restart.</p></div></div>
+    <details><summary>Source evidence <span>CWE-298</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/util/certu/sign.go#L126" target="_blank" rel="noopener noreferrer">backend/util/certu/sign.go:126</a><pre><code> 126  		DNSNames:    []string{serverName},
+ 127  		NotBefore:   time.Now().Add(-time.Minute),
+ 128  		NotAfter:    time.Now().Add(365 * 24 * time.Hour),
+ 129  		KeyUsage:    x509.KeyUsageDigitalSignature,
+ 130  		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/pki/material.go#L138" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/pki/material.go:138</a><pre><code> 138  func BootstrapPrimary(store *secrets.Manager, primaryIdentifier, primaryServerName string) (*Material, error) {
+ 139  	mat, err := LoadPrimary(store)
+ 140  	if err == nil {
+ 141  		return mat, nil
+ 142  	}</code></pre></div></details>
+    </article><article class="finding" id="RR-10" data-severity="medium" data-origin="review">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-10 · Authentication</span><span class="origin">12 Sep assessment</span><span class="prior">Previously Low</span><span class="verification">Source verified</span></div>
+    <h3>No re-authentication for passkey enrolment or master-password rotation, and the session token lives in localStorage</h3><p class="impact">Any live human session token can add a new passkey and overwrite the master password without a fresh assertion or the old password, converting a stolen or XSS-read token into permanent account access and cluster-wide credential control. The token is stored in localStorage and echoed back by the current-session endpoint.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>A session token obtained through XSS, a shared machine or a logged response. Bearer headers mean there is no CSRF exposure.</p></div><div><h4>Why it happens</h4><p>Passkey register endpoints require only requireHuman. PostV1AuthMasterPasswordSave requires human plus cluster update and never calls verifyMasterPassword; the separate verify endpoint is not bound to the save. login.js persists the token under authSession.</p></div><div><h4>Validation and limits</h4><p>auth.go, passkey.go and login.js are unchanged since the audit.</p></div><div><h4>Recommended fix</h4><p>Require a fresh passkey assertion or the current master password within the same request for enrolment and rotation, and stop echoing the token from the current-session endpoint.</p></div><div><h4>Closure criteria</h4><p>Rotation without the current password, and enrolment without a recent assertion, must both fail.</p></div></div>
+    <details><summary>Source evidence <span>CWE-306 / CWE-922</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/webuihandler/auth.go#L121" target="_blank" rel="noopener noreferrer">backend/app/primary/webuihandler/auth.go:121</a><pre><code> 121  func (h *Handler) PostV1AuthMasterPasswordSave(ctx apigen.Context, req *apigen.MasterPasswordSaveRequest) error {
+ 122  	if err := requireHuman(ctx); err != nil {
+ 123  		return err
+ 124  	}
+ 125  	if err := h.requireAccess(ctx, vUpdate, eCluster, 0, 0); err != nil {
+ 126  		return err
+ 127  	}
+ 128  	if req.Password == &quot;&quot; {
+ 129  		return MasterPasswordRequiredErr
+ 130  	}
+ 131  	password := req.Password
+ 132  	hash, err := authu.HashPassword(password)
+ 133  	if err != nil {
+ 134  		return fmt.Errorf(&quot;hashing master password: %w&quot;, err)
+ 135  	}
+ 136  	if err := h.SystemConfig.SetMasterPasswordHash(hash); err != nil {
+ 137  		return err
+ 138  	}
+ 139  	return nil</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/webuihandler/access_enforce.go#L20" target="_blank" rel="noopener noreferrer">backend/app/primary/webuihandler/access_enforce.go:20</a><pre><code>  20  func requireHuman(ctx apigen.Context) error {
+  21  	if ctx.User == nil {
+  22  		return InvalidAuthTokenErr
+  23  	}
+  24  	if ctx.User.Delegated {
+  25  		return DelegationNotPermittedErr
+  26  	}
+  27  	return nil
+  28  }</code></pre></div></details>
+    </article><article class="finding" id="RR-12" data-severity="medium" data-origin="review">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-12 · Source resolver / SSRF</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>The repository resolver accepts local paths, git@ SSH and any HTTP host</h3><p class="impact">Anyone who can create a deployment gets outbound HTTP and SSH from the primary and a filesystem-existence oracle: an existing local path is passed to git and fails with &quot;not a git repository&quot;, a missing one fails with a parse error, and a local git repository is cloned and built. The clone runs on the host as the agent user, on the primary during validation and on workers at prepare.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Create permission in any space, which agent sessions hold.</p></div><div><h4>Why it happens</h4><p>resolveCloneURL returns any existing path and any git@ prefix verbatim, and accepts http and https for any host; only option injection and non-http schemes are rejected. Deployment validation adds no host allowlist, and the repo-validate endpoint returns git&#x27;s error text.</p></div><div><h4>Validation and limits</h4><p>Only a rename changed in this file since the audit.</p></div><div><h4>Recommended fix</h4><p>Accept only https URLs to an operator-configured host allowlist, reject local paths and git@ outright, and run validation fetches from a dedicated netns with the same egress policy as builds.</p></div><div><h4>Closure criteria</h4><p>A repo of /etc/passwd or of an internal http host must be rejected before any process is started.</p></div></div>
+    <details><summary>Source evidence <span>CWE-918 / CWE-200</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/repo/git/gitmanager.go#L67" target="_blank" rel="noopener noreferrer">backend/lib/repo/git/gitmanager.go:67</a><pre><code>  67  func resolveCloneURL(repoURL string) (string, error) {
+  68  	repoURL = strings.TrimSpace(repoURL)
+  69  	if repoURL == &quot;&quot; {
+  70  		return &quot;&quot;, fmt.Errorf(&quot;repo is required&quot;)
+  71  	}
+  72  	if strings.ContainsAny(repoURL, &quot;\x00\n\r&quot;) {
+  73  		return &quot;&quot;, fmt.Errorf(&quot;repo URL contains invalid characters&quot;)
+  74  	}
+  75  	if strings.HasPrefix(repoURL, &quot;-&quot;) {
+  76  		return &quot;&quot;, fmt.Errorf(&quot;repo URL must not begin with %q&quot;, &quot;-&quot;)
+  77  	}
+  78  	if _, err := os.Stat(repoURL); err == nil {
+  79  		return repoURL, nil
+  80  	}
+  81  	if strings.HasPrefix(repoURL, &quot;git@&quot;) {
+  82  		return repoURL, nil
+  83  	}
+  84  	if strings.Contains(repoURL, &quot;://&quot;) {
+  85  		u, err := url.Parse(repoURL)
+  86  		if err != nil {
+  87  			return &quot;&quot;, fmt.Errorf(&quot;cannot parse git repo from %q&quot;, redactCredentialURLs(repoURL))
+  88  		}
+  89  		if u.Scheme != &quot;http&quot; &amp;&amp; u.Scheme != &quot;https&quot; {
+  90  			return &quot;&quot;, fmt.Errorf(&quot;unsupported git URL scheme %q&quot;, u.Scheme)</code></pre></div></details>
+    </article><article class="finding" id="RR-13" data-severity="medium" data-origin="review">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-13 · Spaces / authorization</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>Space ids are reused after delete and nothing is cleaned up</h3><p class="impact">The spaces table is a rowid alias without AUTOINCREMENT, so deleting the highest-numbered space and creating a new one reuses its id. Deletion removes only the row and node allow-lists; secrets, configs, assets, tombstoned deployments and every grant and rule template naming the id survive. Whoever holds a grant on the recycled id can reveal the previous tenant&#x27;s secrets.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>An operator deletes a space that still holds secrets or grants and later creates another.</p></div><div><h4>Why it happens</h4><p>schema_spaces.sql declares id INTEGER PRIMARY KEY with no AUTOINCREMENT. DeleteSpace issues a bare delete. The only precondition is no active deployments, and authorization reads the object&#x27;s own space_id.</p></div><div><h4>Validation and limits</h4><p>Schema and DeleteSpace are byte-identical to the audited commit.</p></div><div><h4>Recommended fix</h4><p>Add AUTOINCREMENT or a monotonic counter, refuse deletion while secrets, configs, assets or grants reference the space, and tombstone grants and templates on delete.</p></div><div><h4>Closure criteria</h4><p>Creating a space after deleting the last one must yield a new id, and the deleted space&#x27;s grants must not apply to it.</p></div></div>
+    <details><summary>Source evidence <span>CWE-694 / CWE-459</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/storage/primarydb/pq/sql/schema_spaces.sql#L1" target="_blank" rel="noopener noreferrer">backend/storage/primarydb/pq/sql/schema_spaces.sql:1</a><pre><code>   1  CREATE TABLE IF NOT EXISTS spaces (
+   2      id   INTEGER PRIMARY KEY CHECK (id BETWEEN 0 AND 65535),
+   3      name TEXT    NOT NULL DEFAULT &#x27;&#x27;
+   4  );</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/nodes/spaces.go#L125" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/nodes/spaces.go:125</a><pre><code> 125  func DeleteSpace(store *state.Service, id int32) error {
+ 126  	ctx := context.Background()
+ 127  	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+ 128  		if err := q.DeleteSpace(ctx, int64(id)); err != nil {
+ 129  			return nil, err
+ 130  		}</code></pre></div></details>
+    </article><article class="finding" id="RR-14" data-severity="medium" data-origin="review">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-14 · Backup / restore</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>Backup restore accepts a tampered database</h3><p class="impact">Restore validates that the secrets store unlocks with the recovery code, that cluster TLS material decrypts and that the Web TLS bundle parses. Encrypted rows are authenticated individually, but users, grants, rule templates, the system config blob holding the master-password hash, and every deployment spec are plaintext. Anyone with bucket write access can add an admin or a hostile deployment to a genuine backup and it restores cleanly with the real CA.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Write access to the backup bucket and an operator performing a disaster-recovery restore.</p></div><div><h4>Why it happens</h4><p>Restore is stock litestream followed by unlockRestoredSecrets and primarybootstrap.Validate; no checksum, signature or manifest is checked. AEAD covers only secret ciphertext and keyslots.</p></div><div><h4>Validation and limits</h4><p>No verification code exists in backup/ or installer/restore.go; the tamper path is inferred from that absence and the schema, not executed.</p></div><div><h4>Recommended fix</h4><p>Sign or HMAC the backup manifest with a key derived from the recovery code, verify it before unlock, and print the restored admin list and deployment count for operator confirmation.</p></div><div><h4>Closure criteria</h4><p>A backup with one plaintext row altered must fail restore.</p></div></div>
+    <details><summary>Source evidence <span>CWE-345</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/installer/restore.go#L99" target="_blank" rel="noopener noreferrer">backend/app/installer/restore.go:99</a><pre><code>  99  	if err := backup.Restore(context.Background(), restoreCfg, dbPath, tmpPath); err != nil {
+ 100  		return err
+ 101  	}
+ 102  	if err := os.Rename(tmpPath, dbPath); err != nil {
+ 103  		return fmt.Errorf(&quot;install restored primary database: %w&quot;, err)
+ 104  	}
+ 105  	if err := chmodChown(dbPath, 0o600, own); err != nil {
+ 106  		return err
+ 107  	}
+ 108  
+ 109  	if err := unlockRestoredSecrets(dbPath, opts.RecoveryCode, own); err != nil {
+ 110  		return fmt.Errorf(&quot;%w; delete %s, %s, %s, and %s before trying install recovery again&quot;, err, dbPath, dbPath+&quot;-wal&quot;, dbPath+&quot;-shm&quot;, filepath.Join(dataDir, &quot;machine.key&quot;))
+ 111  	}
+ 112  	if err := (primarybootstrap.Service{DataDir: dataDir}).Validate(context.Background()); err != nil {
+ 113  		return fmt.Errorf(&quot;validating restored primary bootstrap state: %w&quot;, err)
+ 114  	}
+ 115  	if err := applyRestoredSystemConfigOverrides(dbPath, install, own); err != nil {
+ 116  		return err</code></pre></div></details>
+    </article><article class="finding" id="RR-15" data-severity="medium" data-origin="review">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-15 · Cross-space authorship</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>Secret and config rotation writes deployments across spaces, and delete refusals leak cross-space names</h3><p class="impact">Rotating a shared secret enumerates every deployment in the cluster and writes a new event for each referencing one, authored as the caller and bypassing the deployment update path and its host-access gate. The caller needs only update on the secret. Separately, the delete refusal for a referenced secret, config or asset lists referencing deployments as space / node / name cluster-wide, with no visibility filter.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Update on a secret that deployments in other spaces reference (any space may reference default-space secrets), or delete on any referenced value.</p></div><div><h4>Why it happens</h4><p>references.go lists latest deployment events without a space filter and inserts events directly. RefDetails renders every referencing deployment&#x27;s space, node and name into the client-visible message, and panics on a query error inside the write transaction.</p></div><div><h4>Validation and limits</h4><p>Both files are unchanged since the audit. Count mismatches surface only as a fixed 409, so the version oracle is one bit per attempt.</p></div><div><h4>Recommended fix</h4><p>Restrict rotation to deployments the caller can update and report the rest as skipped, route the writes through the deployment service, and filter refusal details to deployments the caller can see.</p></div><div><h4>Closure criteria</h4><p>A caller without update in space Y must not author events there, and must not see Y&#x27;s deployment names in a refusal.</p></div></div>
+    <details><summary>Source evidence <span>CWE-863 / CWE-200</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/values/references.go#L87" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/values/references.go:87</a><pre><code>  87  	actual := make(map[int32]deploymentReferenceUpdate)
+  88  	rows, err := q.ListLatestDeploymentEvents(ctx)
+  89  	if err != nil {
+  90  		return nil, nil, err
+  91  	}</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/deployments/refs.go#L117" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/deployments/refs.go:117</a><pre><code> 117  func RefDetails(ctx context.Context, q *pq.Queries, live nodes.LiveState, ids map[int32]struct{}, refs func(*apigen.DeploymentEvent) []int32) []string {
+ 118  	cfgs := Referencing(live, ids, refs)
+ 119  	if len(cfgs) == 0 {
+ 120  		return nil
+ 121  	}
+ 122  	spaces := map[int32]string{}
+ 123  	rows, err := q.ListSpaces(ctx)
+ 124  	if err != nil {
+ 125  		panic(err)
+ 126  	}
+ 127  	for _, space := range rows {
+ 128  		spaces[int32(space.ID)] = space.Name
+ 129  	}
+ 130  	nodes := map[int32]string{}
+ 131  	for _, node := range live.Nodes {
+ 132  		nodes[node.ID] = node.Name
+ 133  	}
+ 134  	details := make([]string, 0, len(cfgs))
+ 135  	for _, cfg := range cfgs {
+ 136  		space := spaces[cfg.Value.SpaceID]
+ 137  		if space == &quot;&quot; {
+ 138  			space = fmt.Sprintf(&quot;space %d&quot;, cfg.Value.SpaceID)
+ 139  		}
+ 140  		node := nodes[cfg.Value.NodeID]
+ 141  		if node == &quot;&quot; {
+ 142  			node = fmt.Sprintf(&quot;node %d&quot;, cfg.Value.NodeID)
+ 143  		}
+ 144  		details = append(details, &quot;deployment &quot;+space+&quot; / &quot;+node+&quot; / &quot;+cfg.Value.Name)
+ 145  	}
+ 146  	sort.Strings(details)
+ 147  	return details</code></pre></div></details>
+    </article><article class="finding" id="RR-19" data-severity="medium" data-origin="review">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-19 · Log storage / availability</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>There is no per-node log volume cap</h3><p class="impact">Retention is by age only (30 days) and ingestion has no rate limit or backpressure; drops happen only after a write already failed. A deployment logging more than the disk can hold in 30 days fills the volume, at which point compaction stops because the free-space check lives inside it. The log archive shares /var/lib with the primary database and containerd on a default install.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>One chatty or looping workload.</p></div><div><h4>Why it happens</h4><p>retentionDays is the only pruning parameter; rollupTargetBytes is an output size target. ensureFreeSpace is called from compaction only.</p></div><div><h4>Validation and limits</h4><p>lib/log is unchanged since the audit.</p></div><div><h4>Recommended fix</h4><p>Add a per-node byte budget that evicts oldest files first, a per-deployment ingestion rate cap with drop accounting, and run the free-space check on the write path.</p></div><div><h4>Closure criteria</h4><p>A workload writing at line rate must not consume more than its budget, and the agent must keep running when the log volume is full.</p></div></div>
+    <details><summary>Source evidence <span>CWE-770</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/log/logmanager/maintenance.go#L17" target="_blank" rel="noopener noreferrer">backend/lib/log/logmanager/maintenance.go:17</a><pre><code>  17  var (
+  18  	rewriteGrace      = time.Minute
+  19  	reconcileInterval = time.Hour
+  20  	maintenanceTick   = time.Minute
+  21  	retentionDays     = int32(30)
+  22  	rollupTargetBytes = int64(256 &lt;&lt; 20)
+  23  	rollupDayEndDelay = 15 * time.Minute
+  24  )</code></pre></div></details>
+    </article><article class="finding" id="RR-20" data-severity="medium" data-origin="new">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-20 · DNS / workload PKI</span><span class="origin">New in this re-review</span><span class="verification">Source verified</span></div>
+    <h3>Deployment names that collide under DNSLabel merge DNS endpoints and yield same-name certificates</h3><p class="impact">Names are unique on the raw string per node and space, but the DNS identity is the lossy DNSLabel: Api, api_x and api-x, or the same name on two nodes, collapse onto one label. Colliding services are merged rather than rejected, so a second deployment receives a share of the victim&#x27;s traffic and, because its own DNS name is byte-identical, a legitimate issued-TLS certificate for the victim&#x27;s exact name with no extra names at all.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Create permission in the victim&#x27;s space.</p></div><div><h4>Why it happens</h4><p>Name validation requires non-emptiness only and uniqueness includes the node. DNSLabel lower-cases, maps underscores and drops other characters. The netproxy catalog appends endpoints to an existing service of the same label, and the DNS server answers with all of them.</p></div><div><h4>Validation and limits</h4><p>Traced in source; not exercised.</p></div><div><h4>Recommended fix</h4><p>Enforce uniqueness of DNSLabel(name) per space across nodes at write time, and reject names that change under DNSLabel.</p></div><div><h4>Closure criteria</h4><p>Creating api_x in a space that already has api-x must fail.</p></div></div>
+    <details><summary>Source evidence <span>CWE-706</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/network/names.go#L8" target="_blank" rel="noopener noreferrer">backend/lib/network/names.go:8</a><pre><code>   8  func DNSLabel(s string) string {
+   9  	s = strings.ToLower(strings.TrimSpace(s))
+  10  	s = strings.ReplaceAll(s, &quot;_&quot;, &quot;-&quot;)
+  11  	var b strings.Builder
+  12  	lastDash := false
+  13  	for _, r := range s {
+  14  		valid := (r &gt;= &#x27;a&#x27; &amp;&amp; r &lt;= &#x27;z&#x27;) || (r &gt;= &#x27;0&#x27; &amp;&amp; r &lt;= &#x27;9&#x27;)
+  15  		if valid {
+  16  			b.WriteRune(r)
+  17  			lastDash = false
+  18  			continue
+  19  		}
+  20  		if r == &#x27;-&#x27; &amp;&amp; !lastDash &amp;&amp; b.Len() &gt; 0 {
+  21  			b.WriteByte(&#x27;-&#x27;)
+  22  			lastDash = true
+  23  		}
+  24  	}
+  25  	out := strings.Trim(b.String(), &quot;-&quot;)
+  26  	if out == &quot;&quot; {
+  27  		return &quot;deployment&quot;
+  28  	}
+  29  	return out
+  30  }</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/netproxy/netstate.go#L188" target="_blank" rel="noopener noreferrer">backend/app/netproxy/netstate.go:188</a><pre><code> 188  	addService := func(name, env string, endpoints []*apigen.Endpoint) {
+ 189  		svc := serviceByName[env+&quot;|&quot;+name]
+ 190  		if svc == nil {
+ 191  			svc = &amp;apigen.DnsService{Name: name, Environment: env}
+ 192  			serviceByName[env+&quot;|&quot;+name] = svc
+ 193  			services = append(services, svc)
+ 194  		}
+ 195  		svc.Endpoints = appendNewEndpoints(svc.Endpoints, endpoints)
+ 196  	}</code></pre></div></details>
+    </article><article class="finding" id="RR-21" data-severity="medium" data-origin="new">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-21 · Authorization / upgrade</span><span class="origin">New in this re-review</span><span class="verification">Source verified; conditional</span></div>
+    <h3>Operator-authored wildcard rule templates silently gained the host verbs</h3><p class="impact">A wildcard permission selector matches any verb after exclusions, and the startup upgrade that excludes use_host_mounts and use_host_network rewrites only the two built-in templates. Any template an operator created before the change with a wildcard selector now grants both host verbs to its holders without anyone having decided that.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>An existing cluster with at least one custom wildcard template. Whether any such template exists must be checked on each live cluster.</p></div><div><h4>Why it happens</h4><p>selectorMatches returns true for Wildcard after the exclude list; the upgrade path touches template ids 1 and 2 only.</p></div><div><h4>Validation and limits</h4><p>Inference from the evaluator and the upgrade code; no live cluster was inspected.</p></div><div><h4>Recommended fix</h4><p>Add the two verbs to the exclude list of every persisted wildcard selector during the upgrade, and require new dangerous verbs to be opted into explicitly rather than matched by wildcard.</p></div><div><h4>Closure criteria</h4><p>After upgrade, no template other than cluster_admin may match use_host_network.</p></div></div>
+    <details><summary>Source evidence <span>CWE-276</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/authz/evaluate.go#L14" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/authz/evaluate.go:14</a><pre><code>  14  func selectorMatches(sel *apigen.AuthzSelector, bindings []*apigen.AuthzArgumentBinding, v int64) bool {
+  15  	if sel == nil {
+  16  		return false
+  17  	}
+  18  	for _, e := range sel.Exclude {
+  19  		if e == v {
+  20  			return false
+  21  		}
+  22  	}
+  23  	if sel.Wildcard {
+  24  		return true
+  25  	}
+  26  	for _, in := range sel.Include {
+  27  		if in == v {
+  28  			return true
+  29  		}</code></pre></div></details>
+    </article><article class="finding" id="RR-22" data-severity="medium" data-origin="new">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-22 · Build network</span><span class="origin">New in this re-review</span><span class="verification">Source verified</span></div>
+    <h3>Build containers can reach the node&#x27;s private network</h3><p class="impact">The documented build policy is public egress only. The IPv4 deny list is loopback and link-local, plus the cluster prefix and peer underlays; RFC1918 and other LAN ranges fall through to the forward chain&#x27;s accept. A hostile flake&#x27;s build, which any deployment author can trigger, reaches databases, storage and management interfaces on the node&#x27;s private network.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Create or update permission on a Nix deployment and a private network reachable from the node.</p></div><div><h4>Why it happens</h4><p>buildDenied4 lists 169.254.0.0/16 and 127.0.0.0/8 only; buildEgressRules adds the cluster prefix and underlays and then accepts. Build attachments are masqueraded out the default interface.</p></div><div><h4>Validation and limits</h4><p>Traced in source; the design document&#x27;s stated policy is stricter than the rules.</p></div><div><h4>Recommended fix</h4><p>Deny 10/8, 172.16/12, 192.168/16, non-cluster ULA and the node&#x27;s own subnets by default, with an operator allow-list for legitimate private build inputs.</p></div><div><h4>Closure criteria</h4><p>A build must be unable to connect to an RFC1918 address that is not explicitly allowed.</p></div></div>
+    <details><summary>Source evidence <span>CWE-284</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/network/filter.go#L39" target="_blank" rel="noopener noreferrer">backend/lib/network/filter.go:39</a><pre><code>  39  var (
+  40  	buildDenied6 = []netip.Prefix{netip.MustParsePrefix(&quot;fe80::/10&quot;)}
+  41  	buildDenied4 = []netip.Prefix{netip.MustParsePrefix(&quot;169.254.0.0/16&quot;), netip.MustParsePrefix(&quot;127.0.0.0/8&quot;)}
+  42  )</code></pre></div></details>
+    </article><article class="finding" id="RR-24" data-severity="medium" data-origin="new">
+    <div class="finding-meta"><span class="badge medium">Medium</span><span>RR-24 · PKI lifecycle</span><span class="origin">New in this re-review</span><span class="verification">Source verified</span></div>
+    <h3>No revocation exists for cluster or workload certificates: 100-year CAs and 10-year leaves</h3><p class="impact">Both CAs are valid for a century and workload leaves for a decade, with no CRL, OCSP or serial denylist anywhere. This is the structural reason OD-04 and OD-07 have no containment: once a leaf under either CA is issued or stolen, the only remedy is re-bootstrapping the CA, which invalidates every node and workload certificate at once.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Any leaf compromise or mis-issuance.</p></div><div><h4>Why it happens</h4><p>caValidity is 100 years for both CAs, issuedtls.Validity is 10 years, and KeyUsageCRLSign is set on the CA templates but never used.</p></div><div><h4>Validation and limits</h4><p>Traced in source.</p></div><div><h4>Recommended fix</h4><p>Shorten workload leaves to days with automatic reissue on rollover, introduce a serial denylist distributed with the netmap, and plan CA rotation with an overlap window.</p></div><div><h4>Closure criteria</h4><p>Revoking one workload leaf must not require touching the CA.</p></div></div>
+    <details><summary>Source evidence <span>CWE-299</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/util/certu/sign.go#L55" target="_blank" rel="noopener noreferrer">backend/util/certu/sign.go:55</a><pre><code>  55  const (
+  56  	caValidity            = 100 * 365 * 24 * time.Hour
+  57  	secondaryCertValidity = 365 * 24 * time.Hour
+  58  )</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/issuedtls/issuedtls.go#L10" target="_blank" rel="noopener noreferrer">backend/lib/issuedtls/issuedtls.go:10</a><pre><code>  10  const Validity = 10 * 365 * 24 * time.Hour</code></pre></div></details>
+    </article><article class="finding" id="OD-02" data-severity="low" data-origin="audit">
+    <div class="finding-meta"><span class="badge low">Low</span><span>OD-02 · Host filesystem / authorization</span><span class="origin">11 Sep audit</span><span class="prior">Previously Critical</span><span class="verification">Source verified; residual</span></div>
+    <h3>Host mount validation stays lexical: symlinked sources are not resolved on the node</h3><p class="impact">The Critical path is closed: parents of protected roots and / are rejected, and custom host mounts now require use_host_mounts, which only cluster_admin holds. What remains is that a permitted host path is never resolved on the node before it is bind-mounted, so a symlink under an allowed directory still reaches a protected tree.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>A caller with use_host_mounts (cluster_admin by default) and a pre-existing symlink on the target node from an allowed path into a protected one. Both prerequisites are ones the design already treats as host-administrator trust.</p></div><div><h4>Why it happens</h4><p>containerHostMountDenied cleans the path and checks both directions against the denylist, and its comment states the check is lexical and that administrators own symlinks. The runner passes HostPath to containerd unchanged; there is no EvalSymlinks, openat2 or RESOLVE_BENEATH on the mount source anywhere in the runner.</p></div><div><h4>Validation and limits</h4><p>The audit&#x27;s validator reproduction now fails on /var (&quot;host path \&quot;/var\&quot; is not allowed&quot;). A corrected handler test shows space_admin is denied a custom mount even for an unprotected path. The symlink case was traced in source only.</p></div><div><h4>Recommended fix</h4><p>Resolve the source with EvalSymlinks on the node at mount time and re-apply the denylist to the resolved path, or open it with openat2 and RESOLVE_BENEATH relative to the allowed root. Fail the run rather than silently mount.</p></div><div><h4>Closure criteria</h4><p>A symlink from an allowed host path into /var/lib/opendeploy must fail the run with a clear error; ordinary host mounts must keep working.</p></div></div>
+    <details><summary>Source evidence <span>CWE-59</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/deployments/validate.go#L910" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/deployments/validate.go:910</a><pre><code> 910  func containerHostMountDenied(host string) bool {
+ 911  	host = filepath.Clean(host)
+ 912  	if host == &quot;/&quot; {
+ 913  		return true
+ 914  	}
+ 915  	for _, root := range deniedContainerHostMountRoots {
+ 916  		// Mounting a parent exposes the protected tree just as mounting the
+ 917  		// tree itself does. This is a lexical guardrail; administrators own
+ 918  		// symlinks and other filesystem aliases on the target node.
+ 919  		if pathEqualOrUnder(host, root) || pathEqualOrUnder(root, host) {
+ 920  			return true
+ 921  		}
+ 922  	}
+ 923  	return false</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/authz/builtin.go#L30" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/authz/builtin.go:30</a><pre><code>  30  	all := func() *apigen.AuthzSelector { return &amp;apigen.AuthzSelector{Wildcard: true} }
+  31  	withoutHostAccess := func() *apigen.AuthzSelector {
+  32  		return &amp;apigen.AuthzSelector{Wildcard: true, Exclude: []int64{
+  33  			int64(apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_MOUNTS),
+  34  			int64(apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK),
+  35  		}}
+  36  	}</code></pre></div></details>
+    </article><article class="finding" id="OD-13" data-severity="low" data-origin="audit">
+    <div class="finding-meta"><span class="badge low">Low</span><span>OD-13 · Frontend supply chain</span><span class="origin">11 Sep audit</span><span class="prior">Previously Medium</span><span class="verification">Lockfile scanner verified</span></div>
+    <h3>Frontend build dependencies have outstanding advisories</h3><p class="impact">Fourteen advisories (8 high, 6 moderate) remain, all reached through vite, postcss, nanoid and yaml. None ships in the bundle served to browsers; the exposure is a developer running the dev server. pnpm audit --prod reports the same set because the tailwind vite plugin sits in dependencies.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>A developer running pnpm run dev against hostile input, or a build with attacker-controlled CSS source. Neither applies to the deployed Web UI.</p></div><div><h4>Why it happens</h4><p>The lockfile is unchanged since the audit. The runtime dependency set is codemirror, lezer, bip39 and vanjs, none of which carries an advisory.</p></div><div><h4>Validation and limits</h4><p>pnpm audit and pnpm audit --prod were run read-only on 13 September; inventories preserved in the evidence directory.</p></div><div><h4>Recommended fix</h4><p>Bump vite to the current 7.x, which pulls fixed postcss and nanoid, and move vite, tailwindcss and @tailwindcss/vite to devDependencies so the production audit is meaningful.</p></div><div><h4>Closure criteria</h4><p>pnpm audit --prod must report zero advisories.</p></div></div>
+    <details><summary>Source evidence <span>CWE-1104</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/frontend/package.json#L14" target="_blank" rel="noopener noreferrer">frontend/package.json:14</a><pre><code>  14    &quot;devDependencies&quot;: {
+  15      &quot;@lezer/generator&quot;: &quot;^1.8.0&quot;,
+  16      &quot;vite&quot;: &quot;7.1.7&quot;
+  17    },
+  18    &quot;dependencies&quot;: {
+  19      &quot;@codemirror/autocomplete&quot;: &quot;^6.20.3&quot;,
+  20      &quot;@codemirror/commands&quot;: &quot;^6.10.4&quot;,
+  21      &quot;@codemirror/lang-yaml&quot;: &quot;^6.1.3&quot;,
+  22      &quot;@codemirror/language&quot;: &quot;^6.12.4&quot;,
+  23      &quot;@codemirror/lint&quot;: &quot;^6.9.7&quot;,
+  24      &quot;@codemirror/state&quot;: &quot;^6.7.1&quot;,
+  25      &quot;@codemirror/view&quot;: &quot;^6.43.6&quot;,
+  26      &quot;@lezer/highlight&quot;: &quot;^1.2.3&quot;,
+  27      &quot;@lezer/lr&quot;: &quot;^1.4.10&quot;,
+  28      &quot;@scure/bip39&quot;: &quot;^1.6.0&quot;,
+  29      &quot;@tailwindcss/vite&quot;: &quot;^4.1.17&quot;,
+  30      &quot;codemirror&quot;: &quot;^6.0.2&quot;,
+  31      &quot;tailwindcss&quot;: &quot;^4.1.17&quot;,
+  32      &quot;vanjs-core&quot;: &quot;^1.6.0&quot;,</code></pre></div></details>
+    </article><article class="finding" id="RR-16" data-severity="low" data-origin="review">
+    <div class="finding-meta"><span class="badge low">Low</span><span>RR-16 · Filesystem hygiene</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>Asset cache, volume and store roots are world-readable and the mode is re-applied</h3><p class="impact">The asset cache, volumes root, per-deployment volume directories, releases and the new Nix store root are 0755 and asset files 0644, so any local user on the node reads asset plaintext, asset-backed env values and volume data. The mode is re-applied at every agent start, install and prepare, so tightening it by hand is silently undone.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>An unprivileged local shell on a node.</p></div><div><h4>Why it happens</h4><p>ainit ensures the roots at 0755 on every start via MkdirAll plus an unconditional Chmod; the runner creates volume directories at 0755 and only chowns the leaf.</p></div><div><h4>Validation and limits</h4><p>Unchanged apart from the added store root.</p></div><div><h4>Recommended fix</h4><p>Create roots at 0750 owned by the opendeploy group, add the workload uid to that group or chown per directory, and stop re-applying modes to existing directories.</p></div><div><h4>Closure criteria</h4><p>A user outside the opendeploy group must be unable to list the asset cache or a volume directory.</p></div></div>
+    <details><summary>Source evidence <span>CWE-732</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/ainit/ainit.go#L68" target="_blank" rel="noopener noreferrer">backend/ainit/ainit.go:68</a><pre><code>  68  	fileu.MustEnsureDirWithPerm(cfg.DataDir, 0o750)
+  69  	fileu.MustEnsureDirWithPerm(cfg.AssetCacheDir, 0o755)
+  70  	fileu.MustEnsureDirWithPerm(cfg.PrepareOutputDir, 0o750)
+  71  	fileu.MustEnsureDirWithPerm(cfg.LogWALDir, 0o750)
+  72  	fileu.MustEnsureDirWithPerm(cfg.LogArchiveDir, 0o750)
+  73  	fileu.MustEnsureDirWithPerm(cfg.MetricsDir, 0o750)
+  74  	fileu.MustEnsureDirWithPerm(cfg.VolumesDir, 0o755)
+  75  	fileu.MustEnsureDirWithPerm(cfg.NixStoresDir, 0o755)
+  76  	fileu.MustEnsureDirWithPerm(cfg.ReleasesDir, 0o755)</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/engine/runner/container.go#L1124" target="_blank" rel="noopener noreferrer">backend/lib/engine/runner/container.go:1124</a><pre><code>1124  	if err := os.MkdirAll(r.dataVolumeHost, 0o755); err != nil {
+1125  		slog.WarnContext(r.ctx, fmt.Sprintf(&quot;creating data volume dir %s failed&quot;, r.dataVolumeHost), &quot;err&quot;, err)
+1126  		return
+1127  	}
+1128  	if err := chownToUser(r.dataVolumeHost, r.dataVolumeUser); err != nil {
+1129  		slog.WarnContext(r.ctx, fmt.Sprintf(&quot;chowning data volume dir %s to user %s failed (non-root container users may be unable to write)&quot;, r.dataVolumeHost, r.dataVolumeUser), &quot;err&quot;, err)</code></pre></div></details>
+    </article><article class="finding" id="RR-17" data-severity="low" data-origin="review">
+    <div class="finding-meta"><span class="badge low">Low</span><span>RR-17 · Installer</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>Restore credentials and the recovery code are passed on argv</h3><p class="impact">The install command takes the S3 secret access key and the secrets-store recovery code as flags, so both are visible in the process list and land in shell history for the duration of a restore. The litestream child already receives its configuration over stdin; the CLI hop is the gap.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>A local user during the install window, or later access to shell history.</p></div><div><h4>Why it happens</h4><p>installer.go declares --restore-s3-secret-access-key and --recovery-code, and restore validation requires both with no env or file alternative.</p></div><div><h4>Validation and limits</h4><p>Unchanged since the audit.</p></div><div><h4>Recommended fix</h4><p>Read both from environment variables or a file descriptor, and print a warning if they arrive on argv.</p></div><div><h4>Closure criteria</h4><p>A restore must be possible without either secret appearing in argv.</p></div></div>
+    <details><summary>Source evidence <span>CWE-214</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/installer/installer.go#L108" target="_blank" rel="noopener noreferrer">backend/app/installer/installer.go:108</a><pre><code> 108  	restoreS3AccessKeyIDRaw := fs.String(&quot;restore-s3-access-key-id&quot;, &quot;&quot;, &quot;S3 access key id for backup restore&quot;)
+ 109  	restoreS3SecretAccessKeyRaw := fs.String(&quot;restore-s3-secret-access-key&quot;, &quot;&quot;, &quot;S3 secret access key for backup restore&quot;)
+ 110  	restoreS3BucketRaw := fs.String(&quot;restore-s3-bucket&quot;, &quot;&quot;, &quot;S3 bucket for backup restore&quot;)
+ 111  	restoreS3PathRaw := fs.String(&quot;restore-s3-path&quot;, &quot;&quot;, &quot;S3 path/prefix for backup restore&quot;)
+ 112  	restoreS3RegionRaw := fs.String(&quot;restore-s3-region&quot;, &quot;&quot;, &quot;S3 region for backup restore&quot;)
+ 113  	restoreS3EndpointRaw := fs.String(&quot;restore-s3-endpoint&quot;, &quot;&quot;, &quot;optional S3 endpoint for backup restore&quot;)
+ 114  	recoveryCodeRaw := fs.String(&quot;recovery-code&quot;, &quot;&quot;, &quot;secrets recovery code used to unlock the restored database&quot;)</code></pre></div></details>
+    </article><article class="finding" id="RR-18" data-severity="low" data-origin="review">
+    <div class="finding-meta"><span class="badge low">Low</span><span>RR-18 · Audit trail</span><span class="origin">12 Sep assessment</span><span class="verification">Source verified</span></div>
+    <h3>Secret reveals are not audited and the generated audit hook is unused</h3><p class="impact">Reveal authorises, decrypts and returns with no log line and no row. Writes are event-sourced with an author, but reads leave no trace, so a compromised session can drain a space&#x27;s secrets undetected. The mux exposes an Audit callback that nothing wires up.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Any principal with reveal.</p></div><div><h4>Why it happens</h4><p>PostV1SecretsReveal and RevealByID contain no logging; MuxConfig.Audit is defined and never set in run.go. Cluster settings changes and user creation likewise lack an actor record.</p></div><div><h4>Validation and limits</h4><p>Unchanged since the audit.</p></div><div><h4>Recommended fix</h4><p>Append a reveal event with actor, secret id and source address to a retained audit table and wire the mux Audit hook for privileged verbs.</p></div><div><h4>Closure criteria</h4><p>Every reveal must be attributable to a session after the fact.</p></div></div>
+    <details><summary>Source evidence <span>CWE-778</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/webuihandler/secrets.go#L292" target="_blank" rel="noopener noreferrer">backend/app/primary/webuihandler/secrets.go:292</a><pre><code> 292  func (h *Handler) PostV1SecretsReveal(ctx apigen.Context, req *apigen.SecretRevealRequest) (*apigen.SecretRevealResponse, error) {
+ 293  	if req.ID == 0 {
+ 294  		return nil, SecretIDRequiredErr
+ 295  	}
+ 296  	sec := h.secretForVersionID(req.ID)
+ 297  	if sec == nil {
+ 298  		return nil, SecretNotFoundErr
+ 299  	}
+ 300  	if err := h.requireEntityAccess(ctx, vReveal, eSecret, int64(sec.SpaceID()), int64(sec.SecretID), SecretNotFoundErr); err != nil {
+ 301  		return nil, err
+ 302  	}
+ 303  	value, err := h.Secrets.RevealByID(req.ID)
+ 304  	if err != nil {
+ 305  		return nil, mapSecretErr(err)
+ 306  	}
+ 307  	return &amp;apigen.SecretRevealResponse{Value: value}, nil
+ 308  }</code></pre></div><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/apigen/mux.gen.go#L20" target="_blank" rel="noopener noreferrer">backend/apigen/mux.gen.go:20</a><pre><code>  20  type AuditFunc func(Context, string, error, any, any)
+  21  
+  22  type MuxConfig struct {
+  23  	VerifyAuth          VerifyAuthFunc
+  24  	Audit               AuditFunc</code></pre></div></details>
+    </article><article class="finding" id="RR-23" data-severity="low" data-origin="new">
+    <div class="finding-meta"><span class="badge low">Low</span><span>RR-23 · Enrollment / availability</span><span class="origin">New in this re-review</span><span class="verification">Source verified</span></div>
+    <h3>Unauthenticated enrollment creates permanent node rows with no rate limit</h3><p class="impact">A first hello inserts a node row and ending the request only flips its status; nothing deletes it. The enrollment listener has no client authentication and no rate limit, so anyone reaching :9444 can mint keys and grow the node table and event log without bound. The CSR requirement adds one keygen per row.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Network reachability of the enrollment port.</p></div><div><h4>Why it happens</h4><p>UpsertEnrollmentRequest inserts on first sight; EndEnrollmentRequest sets ENROLLMENT_CANCELLED or EXPIRED and keeps the row.</p></div><div><h4>Validation and limits</h4><p>Traced in source.</p></div><div><h4>Recommended fix</h4><p>Rate-limit hellos per address, cap the number of pending enrollments, and garbage-collect cancelled and expired rows after a grace period.</p></div><div><h4>Closure criteria</h4><p>A hello flood must be throttled and must not leave permanent rows.</p></div></div>
+    <details><summary>Source evidence <span>CWE-770</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/nodes/enrollment.go#L170" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/nodes/enrollment.go:170</a><pre><code> 170  func EndEnrollmentRequest(store *state.Service, id int32, requestedAt int64, expired bool) error {
+ 171  	ctx := context.Background()
+ 172  	current, err := store.Queries().GetNodeRowByID(ctx, int64(id))
+ 173  	if err != nil {
+ 174  		return err
+ 175  	}
+ 176  	if current.Event.Value.EnrollmentRequestedAt == 0 ||
+ 177  		current.Event.Value.EnrollmentRequestedAt != requestedAt {
+ 178  		return nil
+ 179  	}
+ 180  	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+ 181  		row, _, err := appendNodeVersion(ctx, q, seq, current, 0, func(spec *nodeEventSpec) {
+ 182  			spec.EnrollmentRequestedAt = 0
+ 183  			if spec.EnrolledTime == 0 {
+ 184  				spec.Status = apigen.NodeLifecycleStatus_NODE_ENROLLMENT_CANCELLED
+ 185  				if expired {
+ 186  					spec.Status = apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUEST_EXPIRED
+ 187  				}
+ 188  			}
+ 189  		})
+ 190  		if err != nil {
+ 191  			return nil, err
+ 192  		}
+ 193  		return &amp;state.Update{NodeEvents: []*apigen.NodeEvent{&amp;row.Event}}, nil
+ 194  	})
+ 195  }</code></pre></div></details>
+    </article><article class="finding" id="RR-25" data-severity="low" data-origin="new">
+    <div class="finding-meta"><span class="badge low">Low</span><span>RR-25 · Secret rotation</span><span class="origin">New in this re-review</span><span class="verification">Source verified</span></div>
+    <h3>Secret rotation misses ingress TLS certificate references</h3><p class="impact">Rotation scans only container env vars, while delete-blocking and the runtime input set also cover ingress HTTPS cert sources. Rotating a secret used as an ingress certificate leaves the route pinned to the old version silently, so a revoked key stays live.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>Normal rotation of a certificate secret.</p></div><div><h4>Why it happens</h4><p>deploymentUsesReferences and replaceDeploymentReferences iterate Runtime.EnvVars only; runtimeinputs.SecretRefs includes CertSource.Secret.</p></div><div><h4>Validation and limits</h4><p>Traced in source.</p></div><div><h4>Recommended fix</h4><p>Use runtimeinputs.SecretRefs for both the match and the rewrite.</p></div><div><h4>Closure criteria</h4><p>Rotating an ingress certificate secret must update the route&#x27;s secret version.</p></div></div>
+    <details><summary>Source evidence <span>CWE-672</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/app/primary/domain/values/references.go#L147" target="_blank" rel="noopener noreferrer">backend/app/primary/domain/values/references.go:147</a><pre><code> 147  func deploymentUsesReferences(spec *apigen.DeploymentSpec, referenceType ReferenceType, ids map[int32]struct{}) bool {
+ 148  	container := spec.Container()
+ 149  	if container == nil {
+ 150  		return false
+ 151  	}
+ 152  	for _, value := range container.Runtime.EnvVars {
+ 153  		if _, ok := ids[referencedValueID(value, referenceType)]; ok {
+ 154  			return true
+ 155  		}
+ 156  	}
+ 157  	return false</code></pre></div></details>
+    </article><article class="finding" id="RR-26" data-severity="low" data-origin="new">
+    <div class="finding-meta"><span class="badge low">Low</span><span>RR-26 · Build ingest</span><span class="origin">New in this re-review</span><span class="verification">Source verified; inference</span></div>
+    <h3>The nix2container tar rewrite relies on containerd&#x27;s unpack for path safety</h3><p class="impact">The layer tar builder applies a flake-controlled regex rewrite to entry destinations and splits on slashes without rejecting dot segments. The bytes become a layer blob that containerd 2.3.5 unpacks, so traversal safety rests on containerd&#x27;s extraction protections rather than on this code.</p>
+    <div class="finding-body"><div><h4>Prerequisites</h4><p>A hostile flake with a rewrite rule, and a containerd unpack regression.</p></div><div><h4>Why it happens</h4><p>tarPath and addFileToGraph honour PathOptions.Rewrite on the destination name with no sanitisation.</p></div><div><h4>Validation and limits</h4><p>Inference from reading tar.go; no malicious layer was built.</p></div><div><h4>Recommended fix</h4><p>Reject rewritten destinations containing dot segments or absolute paths before writing the tar, and add a test that a hostile rewrite cannot produce an escaping entry.</p></div><div><h4>Closure criteria</h4><p>A rewrite producing ../ must fail the build.</p></div></div>
+    <details><summary>Source evidence <span>CWE-22</span></summary><div class="excerpt"><a href="https://github.com/jptrs93/opsagent/blob/2ea3af1e8f141b0fff85012d1ed766af6c35b16f/backend/lib/engine/prepare/nix2container/tar.go#L69" target="_blank" rel="noopener noreferrer">backend/lib/engine/prepare/nix2container/tar.go:69</a><pre><code>  69  			_ = w.CloseWithError(err)
+  70  		}
+  71  	}()
+  72  	return r
+  73  }
+  74  
+  75  func tarPath(canonical string, options *PathOptions) string {
+  76  	if options != nil &amp;&amp; options.Rewrite.Regex != &quot;&quot; {
+  77  		re := regexp.MustCompile(options.Rewrite.Regex)
+  78  		return string(re.ReplaceAll([]byte(canonical), []byte(options.Rewrite.Repl)))
+  79  	}
+  80  	return canonical
+  81  }
+  82  
+  83  func splitPath(p string) []string {
+  84  	cleaned := filepath.Clean(p)
+  85  	parts := strings.Split(cleaned, &quot;/&quot;)
+  86  	if len(parts) == 2 &amp;&amp; parts[0] == &quot;&quot; &amp;&amp; parts[1] == &quot;&quot; {
+  87  		return []string{&quot;&quot;}
+  88  	}
+  89  	return parts
+  90  }</code></pre></div></details>
+    </article><p id="empty" class="no-results" hidden>No findings match these filters.</p></section>
+<section id="remediation"><div class="eyebrow">Recommended order</div><h2>Close the tenant boundary, then bound the workload.</h2><div class="roadmap"><div><span class="phase">01 / BIND NAMES, KEYS AND SECRETS TO SPACES</span><h3>Make ownership a write-time check</h3><p>Reject ACME hostnames, ingress hostnames and DNS labels that another space already owns, and deliver ACME keys only to the owning space. Require view on cross-deployment mount sources. Run port forwards through the reservation and claim machinery and restrict the DNAT destination. Scope rotation writes and refusal messages to what the caller can see.</p><p class="small">RR-03, RR-05, RR-11, RR-15, RR-20 · owners: PKI, deployments, ingress plan, network</p></div><div><span class="phase">02 / BOUND THE WORKLOAD AND THE BUILD</span><h3>Give workloads what builds already have</h3><p>Apply the default seccomp profile, drop CAP_NET_RAW, and give workloads a memory, CPU and pids budget with node defaults, a spec override and a bound on /dev/shm. Add a per-node log byte budget. Deny private ranges from build egress and treat host-network mode as host-administrator trust.</p><p class="small">RR-01, RR-02, RR-04, RR-19, RR-22 · owners: runtime, network, log storage</p></div><div><span class="phase">03 / IDENTITY LIFECYCLE AND EDGES</span><h3>Revocation, deadlines, re-authentication</h3><p>Add node eviction with a membership check on the mTLS path and at renewal, reissue the primary leaf, introduce a serial denylist and short workload leaves, enforce WireGuard key uniqueness, put header and handshake deadlines on the three public listeners, cap concurrent password hashing, replace passkeys in place, verify the agent approval code, require fresh authentication for enrolment and rotation, and fix wildcard templates on upgrade.</p><p class="small">OD-07, OD-09, OD-10, OD-12, RR-07, RR-08, RR-09, RR-10, RR-21, RR-24 · owners: PKI, API, authentication</p></div></div><p class="dependency-note">The remaining items are bounded or hygiene work that can ride with the nearest owner: OD-02, OD-06, OD-11, OD-13, RR-06, RR-12, RR-13, RR-14, RR-16, RR-17, RR-18, RR-23, RR-25 and RR-26. Dependency bumps are cheap and independent of all of the above: golang.org/x/text v0.39.0, aws-sdk-go-v2/service/s3 v1.97.3, google.golang.org/grpc v1.82.1, and vite with the tailwind plugin moved to devDependencies.</p></section>
+<section id="dependencies" class="dependencies"><div class="eyebrow">Dependency triage</div><h2>Three reachable advisories remain; the runtime is current.</h2><p>govulncheck v1.8.0 scanned the host and Linux/amd64 targets with Go 1.27.0 on 13 September 2026. Both targets report <strong>3 advisories with symbol-level traces</strong> and 10 at module level. The audit's traces for golang.org/x/net (GO-2026-4918, the basis of OD-08) and the containerd client library are gone: x/net moved from v0.52.0 to v0.55.0 and containerd/v2 from v2.3.1 to v2.3.5.</p><p class="dependency-note">Runtime inventory: <strong>bundled containerd 2.3.5</strong> and <strong>bundled runc 1.5.1</strong>, pinned in <code>backend/lib/runtimebin</code> and reconciled at every agent start. Both are the newest stable releases as of this review; the September containerd advisories are fixed in 2.3.5 or confined to the CRI plugin, which OpenDeploy does not use.</p>
+<div class="table-wrap"><table><thead><tr><th>Go advisory</th><th>Module / reported fixed version</th><th>Trace</th><th>OpenDeploy applicability</th></tr></thead><tbody><tr><td><a href="https://pkg.go.dev/vuln/GO-2026-5970">GO-2026-5970</a><small>Infinite loop on invalid input in golang.org/x/text</small></td><td><code>golang.org/x/text</code><small>v0.38.0 → v0.39.0</small></td><td>symbol</td><td>golang.org/x/text iterator loop on invalid input. Reachable symbol; input path is hostnames and labels handled by the IDNA and normalisation code. Bump to v0.39.0.</td></tr><tr><td><a href="https://pkg.go.dev/vuln/GO-2026-5932">GO-2026-5932</a><small>The golang.org/x/crypto/openpgp package is unmaintained, unsafe by design, and has known security issues</small></td><td><code>golang.org/x/crypto</code><small>v0.53.0 → no fix listed</small></td><td>module only</td><td>Module-level match only; no vulnerable symbol reached from OpenDeploy code.</td></tr><tr><td><a href="https://pkg.go.dev/vuln/GO-2026-6303">GO-2026-6303</a><small>Source-address critical option not enforced for non-public-key auth callbacks in golang.org/x/crypto/ssh</small></td><td><code>golang.org/x/crypto</code><small>v0.53.0 → v0.55.0</small></td><td>module only</td><td>Module-level match only; no vulnerable symbol reached from OpenDeploy code.</td></tr><tr><td><a href="https://pkg.go.dev/vuln/GO-2026-6354">GO-2026-6354</a><small>Prevent DoS on deadlocked undecided channel in golang.org/x/crypto/ssh</small></td><td><code>golang.org/x/crypto</code><small>v0.53.0 → v0.56.0</small></td><td>module only</td><td>Module-level match only; no vulnerable symbol reached from OpenDeploy code.</td></tr><tr><td><a href="https://pkg.go.dev/vuln/GO-2026-6355">GO-2026-6355</a><small>Prevent DoS on deadlocked established channel in golang.org/x/crypto/ssh</small></td><td><code>golang.org/x/crypto</code><small>v0.53.0 → v0.56.0</small></td><td>module only</td><td>Module-level match only; no vulnerable symbol reached from OpenDeploy code.</td></tr><tr><td><a href="https://pkg.go.dev/vuln/GO-2026-5841">GO-2026-5841</a><small>OOB read in github.com/klauspost/compress/s2</small></td><td><code>github.com/klauspost/compress</code><small>v1.18.5 → v1.18.7</small></td><td>module only</td><td>Module-level match only; no vulnerable symbol reached from OpenDeploy code.</td></tr><tr><td><a href="https://pkg.go.dev/vuln/GO-2026-5764">GO-2026-5764</a><small>DoS due to Panic in AWS SDK for Go v2 SDK EventStream Decoder in github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream</small></td><td><code>github.com/aws/aws-sdk-go-v2/service/s3</code><small>v1.95.0 → v1.97.3</small></td><td>symbol</td><td>AWS SDK EventStream decoder panic. Reachable through the S3 backup client; the attacker would need to control the S3 endpoint&#x27;s responses. Bump service/s3 to v1.97.3.</td></tr><tr><td><a href="https://pkg.go.dev/vuln/GO-2026-5158">GO-2026-5158</a><small>Opentelemetry-go&#x27;s baggage parsing no longer caps raw header length in go.opentelemetry.io/otel</small></td><td><code>go.opentelemetry.io/otel</code><small>v1.43.0 → v1.44.0</small></td><td>module only</td><td>Module-level match only; no vulnerable symbol reached from OpenDeploy code.</td></tr><tr><td><a href="https://pkg.go.dev/vuln/GO-2026-6061">GO-2026-6061</a><small>Vulnerabilities in the xDS RBAC authorization engine and the HTTP/2 transport server implementation in google.golang.org/grpc</small></td><td><code>google.golang.org/grpc</code><small>v1.80.0 → v1.82.1</small></td><td>symbol</td><td>gRPC xDS RBAC and HTTP/2 server transport. OpenDeploy uses gRPC only as a client to the local containerd socket; no gRPC server or xDS. Bump to v1.82.1 on the next dependency pass.</td></tr><tr><td><a href="https://pkg.go.dev/vuln/GO-2026-5942">GO-2026-5942</a><small>Parsing an invalid SVCB or HTTPS RR can panic in golang.org/x/net/dns/dnsmessage</small></td><td><code>golang.org/x/net</code><small>v0.55.0 → v0.56.0</small></td><td>module only</td><td>Module-level match only; no vulnerable symbol reached from OpenDeploy code.</td></tr></tbody></table></div>
+<details><summary>Frontend advisory inventory — 14 alerts <span>8 high · 6 moderate · build tree</span></summary><p class="dependency-note">Unchanged from 11 September. Every path runs through vite, postcss, nanoid or yaml, reached via vite and the tailwind vite plugin. Nothing in the built bundle served to browsers is affected. <code>pnpm audit --prod</code> reports the same set because <code>@tailwindcss/vite</code> and <code>tailwindcss</code> sit in <code>dependencies</code> rather than <code>devDependencies</code>.</p><div class="table-wrap"><table><thead><tr><th>Package / installed</th><th>Advisory</th><th>Upstream severity</th><th>Reported patched range</th></tr></thead><tbody><tr><td>vite <small>7.1.7</small></td><td><a href="https://github.com/advisories/GHSA-93m4-6634-74q7">GHSA-93m4-6634-74q7</a><small>vite allows server.fs.deny bypass via backslash on Windows</small></td><td>moderate</td><td><code>&gt;=7.1.11</code></td></tr><tr><td>yaml <small>2.8.1</small></td><td><a href="https://github.com/advisories/GHSA-48c2-rrv3-qjmp">GHSA-48c2-rrv3-qjmp</a><small>yaml is vulnerable to Stack Overflow via deeply nested YAML collections</small></td><td>moderate</td><td><code>&gt;=2.8.3</code></td></tr><tr><td>vite <small>7.1.7</small></td><td><a href="https://github.com/advisories/GHSA-4w7w-66w2-5vf9">GHSA-4w7w-66w2-5vf9</a><small>Vite Vulnerable to Path Traversal in Optimized Deps `.map` Handling</small></td><td>moderate</td><td><code>&gt;=7.3.2</code></td></tr><tr><td>vite <small>7.1.7</small></td><td><a href="https://github.com/advisories/GHSA-v2wj-q39q-566r">GHSA-v2wj-q39q-566r</a><small>Vite: `server.fs.deny` bypassed with queries</small></td><td>high</td><td><code>&gt;=7.3.2</code></td></tr><tr><td>vite <small>7.1.7</small></td><td><a href="https://github.com/advisories/GHSA-p9ff-h696-f583">GHSA-p9ff-h696-f583</a><small>Vite Vulnerable to Arbitrary File Read via Vite Dev Server WebSocket</small></td><td>high</td><td><code>&gt;=7.3.2</code></td></tr><tr><td>postcss <small>8.5.8</small></td><td><a href="https://github.com/advisories/GHSA-qx2v-qp2m-jg93">GHSA-qx2v-qp2m-jg93</a><small>PostCSS has XSS via Unescaped &lt;/style&gt; in its CSS Stringify Output</small></td><td>moderate</td><td><code>&gt;=8.5.10</code></td></tr><tr><td>vite <small>7.1.7</small></td><td><a href="https://github.com/advisories/GHSA-v6wh-96g9-6wx3">GHSA-v6wh-96g9-6wx3</a><small>launch-editor: NTLMv2 hash disclosure via UNC path handling on Windows</small></td><td>moderate</td><td><code>&gt;=7.3.5</code></td></tr><tr><td>vite <small>7.1.7</small></td><td><a href="https://github.com/advisories/GHSA-fx2h-pf6j-xcff">GHSA-fx2h-pf6j-xcff</a><small>vite: `server.fs.deny` bypass on Windows alternate paths</small></td><td>high</td><td><code>&gt;=7.3.5</code></td></tr><tr><td>postcss <small>8.5.8</small></td><td><a href="https://github.com/advisories/GHSA-6g55-p6wh-862q">GHSA-6g55-p6wh-862q</a><small>PostCSS: Arbitrary file read and information disclosure via attacker-controlled sourceMappingURL in CSS comments</small></td><td>high</td><td><code>&gt;=8.5.12</code></td></tr><tr><td>postcss <small>8.5.8</small></td><td><a href="https://github.com/advisories/GHSA-fxqj-rqcc-2cmp">GHSA-fxqj-rqcc-2cmp</a><small>PostCSS: incomplete fix of GHSA-6g55-p6wh-862q — attacker-controlled sourceMappingURL reads arbitrary .map files when `from` is unset</small></td><td>moderate</td><td><code>&gt;=8.5.23</code></td></tr><tr><td>nanoid <small>3.3.11</small></td><td><a href="https://github.com/advisories/GHSA-28wg-ghj8-5hjv">GHSA-28wg-ghj8-5hjv</a><small>nanoid: non-secure generators can loop indefinitely with negative size</small></td><td>high</td><td><code>&gt;=3.3.16</code></td></tr><tr><td>nanoid <small>3.3.11</small></td><td><a href="https://github.com/advisories/GHSA-2v37-7h3g-55p8">GHSA-2v37-7h3g-55p8</a><small>nanoid: custom generators can loop indefinitely when size is zero</small></td><td>high</td><td><code>&gt;=3.3.18</code></td></tr><tr><td>postcss <small>8.5.8</small></td><td><a href="https://github.com/advisories/GHSA-r28c-9q8g-f849">GHSA-r28c-9q8g-f849</a><small>PostCSS: Path Traversal in Previous Source Map Auto-Loading (sourceMappingURL) leads to Arbitrary .map File Disclosure</small></td><td>high</td><td><code>&gt;=8.5.18</code></td></tr><tr><td>nanoid <small>3.3.11</small></td><td><a href="https://github.com/advisories/GHSA-xwg4-73v4-xw9w">GHSA-xwg4-73v4-xw9w</a><small>nanoid: Integer Overflow or Wraparound</small></td><td>high</td><td><code>&gt;=3.3.12</code></td></tr></tbody></table></div></details></section>
+<section id="coverage"><div class="eyebrow">Scope and verification</div><h2>What was rerun, and what still needs a Linux host.</h2><h3>Audit reproductions rerun against HEAD</h3><p class="small">The 11 September overlay tests were run unchanged, followed by two corrected checks. A passing audit test means the audited behaviour is still present.</p><div class="table-wrap"><table><thead><tr><th>Test</th><th>Behaviour</th><th>Result</th></tr></thead><tbody><tr><td><code>TestAuditAgentCanBindDeniedSecret</code></td><td>OD-05 agent binds a denied secret (fixture uses host networking; now denied by the use_host_network gate before the secret path runs, see corrected test below). Accepted by design, see AP-1</td><td><span class="badge fixed">No longer reproduces</span></td></tr><tr><td><code>TestAuditSpaceOperatorCanMountProtectedParent</code></td><td>OD-02 space_admin mounts /var/lib (denied by the use_host_mounts and use_host_network gates)</td><td><span class="badge fixed">No longer reproduces</span></td></tr><tr><td><code>TestAuditPasskeyUpdatesAppendDuplicateIDs</code></td><td>OD-12 duplicate passkey rows</td><td><span class="badge open">Still reproduces</span></td></tr><tr><td><code>TestAuditMountParentAndSymlinkValidation</code></td><td>OD-02 parent path and symlink accepted</td><td><span class="badge fixed">No longer reproduces</span></td></tr><tr><td><code>TestAuditUnownedCertificateNameAccepted</code></td><td>OD-04 unowned name passes the syntax-only mount validator (closed after the review by 23ae086: the space check runs in the create/update layer and the issuer, see od-04-closure-results.txt)</td><td><span class="badge open">Still reproduces</span></td></tr><tr><td><code>TestAuditWorkloadCertificateVerifiesForUnownedName</code></td><td>OD-04 certificate verifies for another space&#x27;s name (closed after the review by 23ae086: the issuer now rejects the name and this test fails, see od-04-closure-results.txt)</td><td><span class="badge open">Still reproduces</span></td></tr><tr><td><code>TestAuditRegistryRealmCallsLoopback</code></td><td>OD-11 registry realm reaches loopback</td><td><span class="badge open">Still reproduces</span></td></tr><tr><td><code>TestAuditRegistryPaginationForwardsBearerToAnotherOrigin</code></td><td>OD-11 bearer forwarded to another origin</td><td><span class="badge open">Still reproduces</span></td></tr><tr><td><code>TestReviewAgentCanBindDeniedSecretWithVirtualNetworking</code></td><td>OD-05 corrected: agent binds a denied secret with virtual networking. Behaviour confirmed and accepted by design, see AP-1</td><td><span class="badge open">Still reproduces</span></td></tr><tr><td><code>TestReviewSpaceAdminHostMountDeniedWithVirtualNetworking</code></td><td>OD-02 corrected: space_admin host mount denied even for an unprotected path</td><td><span class="badge fixed">Denied as expected</span></td></tr></tbody></table></div><div class="checks" style="margin-top:22px"><div><h3>Checks completed</h3><ul><li><strong>54 backend packages passed</strong> with <code>go test -count=1 ./...</code>; 29 packages have no tests.</li><li><strong>141 frontend tests passed</strong>, no failures or skips.</li><li><strong>govulncheck</strong> host and Linux/amd64 scans completed and were triaged above.</li><li><strong>pnpm audit</strong> full and production scans completed; inventories preserved.</li><li><strong>Runtime advisories</strong> for containerd and runc checked against upstream releases on the review date.</li></ul><p class="small">Reproductions use synthetic values, temporary databases and loopback HTTP. Nothing started a workload, mounted a host path or contacted a production system.</p></div><div><h3>Controls verified in the reviewed paths</h3><ul><li>Nix builds run in a containerd container with the default seccomp profile, default capabilities, an egress-only network, a per-repository store, memory, CPU and pids limits, and an explicitly constructed environment. Layer digests are verified before import and store paths are confined to the store root.</li><li>Host mounts and host networking require <code>use_host_mounts</code> and <code>use_host_network</code>, held by cluster_admin only; the gate covers create, v2 update including the saved spec, space moves and agent sessions. Host mount validation rejects protected roots, their parents and <code>/</code>.</li><li>Enrollment hellos must carry a CSR whose public key hashes to the identifier, and hellos for member identifiers are rejected. <code>X-Forwarded-For</code> is no longer trusted anywhere.</li><li>The GitHub token is injected as a github.com-scoped header at fetch time, never written to .git/config or argv, and is applied to registries only at the ghcr.io token endpoint; the audit's PAT-forwarding concern in OD-11 does not hold.</li><li>Rate limits key on the socket address; bearer tokens travel in a header, not a cookie, so there is no CSRF surface.</li></ul></div></div>
+<div class="checks" style="margin-top:22px"><div><h3>Limits and follow-up work</h3><ul><li>Tests ran on macOS. Mount confinement, nftables behaviour, WireGuard peer collapse and container escapes need the Linux VM harness; RR-07 in particular rests on WireGuard's documented per-key peer identity rather than an executed test.</li><li>The audit's earlier "follow-up" list is now findings: host-network policy (RR-04), resource budgets (RR-01), passkey re-authentication (RR-10), backup authenticity (RR-14) and log volume (RR-19).</li><li>No production host, traffic or database was inspected. Whether any operator-authored wildcard rule template exists on a live cluster (RR-21) must be checked there.</li><li>Ingress path handling was reviewed by reading the router; no fuzzing of encoded or dot-segment paths was run.</li></ul></div><div><h3>How to read the identifiers</h3><p>OD-nn keep the 11 September audit's numbers so the two reports can be read side by side; where an OD item narrowed, its previous severity is shown in the finding header. RR-01 to RR-19 are the items raised in the 12 September assessment, in area order: workload isolation, networking, authentication and PKI, then data and supply chain. RR-20 to RR-26 were found during this re-review.</p><p class="small">Three items from the 12 September list are closed and appear only in the closed table. Three changed severity and carry both values: RR-04 narrowed once host networking was gated, and RR-10 and RR-11 were raised on closer reading.</p></div></div>
+<h3 style="margin-top:28px">Reproduction and evidence</h3><p>Rerun the audit's bounded checks from the repository root; a PASS means the behaviour is still present:</p><pre><code>python3 docs/security-reviews/2026-09-13-evidence/reproduce.py</code></pre><p class="small">The script imports the 11 September tests unchanged, adds the two corrected checks, injects them with <code>-overlay</code> and leaves application source unchanged. Rebuild this page with <code>python3 docs/security-reviews/2026-09-13-evidence/build_report.py</code>.</p><div class="evidence-links"><a href="2026-09-13-evidence/findings_data.py">Finding data</a><a href="2026-09-13-evidence/reproduction-results.txt">Audit reproductions against HEAD</a><a href="2026-09-13-evidence/od-04-closure-results.txt">OD-04 closure check</a><a href="2026-09-13-evidence/go-tests.txt">Go test results</a><a href="2026-09-13-evidence/frontend-tests.txt">Frontend test results</a><a href="2026-09-13-evidence/govulncheck-host-summary.json">Go/host scan summary</a><a href="2026-09-13-evidence/govulncheck-linux-summary.json">Go/Linux scan summary</a><a href="2026-09-13-evidence/pnpm-audit.json">Raw frontend audit</a><a href="2026-09-13-evidence/govulncheck-host.json.gz">Raw Go/host scan (gzip)</a><a href="2026-09-13-evidence/govulncheck-linux.json.gz">Raw Go/Linux scan (gzip)</a><a href="2026-09-13-evidence/manifest.json">Evidence manifest</a></div></section>
+</main><footer class="shell">Prepared by Claude Code from the local OpenDeploy repository. Review date: 13 September 2026. Findings describe commit 2ea3af1e8f14 and stated assumptions; no remediation was performed as part of this review. This HTML uses no external scripts, fonts or analytics.</footer><script>const search=document.querySelector('#search'), severity=document.querySelector('#severity'), cards=[...document.querySelectorAll('.finding')];
+function filter(){const q=search.value.trim().toLowerCase(),s=severity.value;let n=0;for(const c of cards){const show=(!s||c.dataset.severity===s)&&(!q||c.textContent.toLowerCase().includes(q));c.hidden=!show;if(show)n++}document.querySelector('#result-count').textContent=`${n} of ${cards.length} findings`;document.querySelector('#empty').hidden=n!==0;}
+search.addEventListener('input',filter);severity.addEventListener('change',filter);
+function revealHash(){const el=document.getElementById(location.hash.slice(1));if(el?.classList.contains('finding')&&el.hidden){search.value='';severity.value='';filter();el.scrollIntoView();}}
+window.addEventListener('hashchange',revealHash);revealHash();
+document.querySelector('#print').addEventListener('click',()=>window.print());
+let detailStates=[];window.addEventListener('beforeprint',()=>{detailStates=[...document.querySelectorAll('details')].map(d=>[d,d.open]);for(const [d]of detailStates)d.open=true;document.body.classList.add('printing');});
+window.addEventListener('afterprint',()=>{for(const[d,o]of detailStates)d.open=o;document.body.classList.remove('printing');});
+</script></body></html>

@@ -1328,9 +1328,10 @@ async function setSettingBool(page, label, enabled) {
   else await expect(checkbox).not.toBeChecked({timeout: LONG_UI_TIMEOUT});
 }
 
+// Settings rows are table rows whose first cell is the exact label; the
+// controls (textbox, checkbox, secret picker) live in the same row.
 function settingRow(page, label) {
-  return page.getByText(label, {exact: true})
-    .locator('xpath=ancestor::div[contains(@class, "sm:flex-row")][1]');
+  return page.getByRole('row').filter({has: page.getByText(label, {exact: true})});
 }
 
 function versionedReferenceValue(name) {

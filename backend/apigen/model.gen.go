@@ -1528,6 +1528,38 @@ type NodeStatusList struct {
 	Items []*NodeStatus `json:"items,omitempty"`
 }
 
+type NodeDrainRequest struct {
+	Identifier string `json:"identifier,omitempty"`
+	Draining   bool   `json:"draining"`
+}
+
+type NodeEvictRequest struct {
+	Identifier      string `json:"identifier,omitempty"`
+	ExpectedVersion int32  `json:"expected_version"`
+	Force           bool   `json:"force"`
+}
+
+type NodeExposureRequest struct {
+	Identifier string `json:"identifier,omitempty"`
+}
+
+type NodeExposureItem struct {
+	ID      int32  `json:"id"`
+	Name    string `json:"name,omitempty"`
+	SpaceID int32  `json:"space_id"`
+	Version int32  `json:"version"`
+}
+
+type NodeExposure struct {
+	NodeID               int32               `json:"node_id"`
+	Deployments          []*NodeExposureItem `json:"deployments,omitempty"`
+	Secrets              []*NodeExposureItem `json:"secrets,omitempty"`
+	Configs              []*NodeExposureItem `json:"configs,omitempty"`
+	IssuedTlsDeployments []*NodeExposureItem `json:"issued_tls_deployments,omitempty"`
+	AcmeHostnames        []string            `json:"acme_hostnames,omitempty"`
+	GithubToken          bool                `json:"github_token"`
+}
+
 type AcmeState struct {
 	Seq          int64                `json:"seq"`
 	CertBindings []*AcmeCertBinding   `json:"cert_bindings,omitempty"`
@@ -1744,6 +1776,7 @@ type MsgToSecondary struct {
 	MetricsQueryRequest        *MetricsQueryRequest       `json:"metrics_query_request"`
 	MetricsLatestRequest       *MetricsLatestRequest      `json:"metrics_latest_request"`
 	NixStoreResets             *NixStoreResets            `json:"nix_store_resets"`
+	Evicted                    bool                       `json:"evicted"`
 }
 
 type NixStoreReset struct {
@@ -1945,6 +1978,7 @@ type LargeAssetsSettings struct {
 	S3Path            StringSetting `json:"s3_path"`
 	S3Region          StringSetting `json:"s3_region"`
 	S3Endpoint        StringSetting `json:"s3_endpoint"`
+	KeepLocalCopy     BoolSetting   `json:"keep_local_copy"`
 }
 
 type ExportedConfigBlob struct {
@@ -1963,6 +1997,7 @@ type BackupStatus struct {
 	AssetPending          uint32    `json:"asset_pending"`
 	AssetTargetS3         bool      `json:"asset_target_s3"`
 	AssetError            string    `json:"asset_error,omitempty"`
+	AssetKeepLocal        bool      `json:"asset_keep_local"`
 }
 
 type Snapshot struct {

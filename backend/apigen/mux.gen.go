@@ -123,6 +123,9 @@ type ApiServerHandler interface {
 	PostV1NodesList(Context) (*NodeEventList, error)
 	PostV1NodesRename(Context, *NodeRenameRequest) (*NodeEvent, error)
 	PostV1NodesAllowedSpaces(Context, *NodeAllowedSpacesRequest) (*NodeEvent, error)
+	PostV1NodesDrain(Context, *NodeDrainRequest) (*NodeEvent, error)
+	PostV1NodesEvict(Context, *NodeEvictRequest) (*NodeEvent, error)
+	PostV1NodesExposure(Context, *NodeExposureRequest) (*NodeExposure, error)
 	GetV1NodesEnrollmentsInfo(Context) (*NodeEnrollmentInfo, error)
 	PostV1NodesEnrollmentsList(Context) (*EnrollmentRequestList, error)
 	PostV1NodesEnrollmentsAccept(Context, *EnrollmentAcceptRequest) (*EnrollmentRequestStatus, error)
@@ -751,6 +754,39 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/nodes/allowed-spaces", buildHandlerFunc(config, verifyAuth, postV1NodesAllowedSpacesAccessPolicy, postAuthHandlerPostV1NodesAllowedSpaces, compressionModeAuto, false))
+	postV1NodesDrainAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1NodesDrain := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeDrainRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1NodesDrain(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/nodes/drain", buildHandlerFunc(config, verifyAuth, postV1NodesDrainAccessPolicy, postAuthHandlerPostV1NodesDrain, compressionModeAuto, false))
+	postV1NodesEvictAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1NodesEvict := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeEvictRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1NodesEvict(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/nodes/evict", buildHandlerFunc(config, verifyAuth, postV1NodesEvictAccessPolicy, postAuthHandlerPostV1NodesEvict, compressionModeAuto, false))
+	postV1NodesExposureAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	postAuthHandlerPostV1NodesExposure := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeExposureRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1NodesExposure(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/nodes/exposure", buildHandlerFunc(config, verifyAuth, postV1NodesExposureAccessPolicy, postAuthHandlerPostV1NodesExposure, compressionModeAuto, false))
 	getV1NodesEnrollmentsInfoAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
 	postAuthHandlerGetV1NodesEnrollmentsInfo := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		res, err := h.GetV1NodesEnrollmentsInfo(authCtx)

@@ -105,14 +105,12 @@
 }
 
 .app-scroll,
-.settings-scroll,
 .deployment-table-scroll {
     scrollbar-gutter: stable;
 }
 
 .app-scroll,
 .app-scroll-x,
-.settings-scroll,
 .deployment-table-scroll,
 textarea {
     scrollbar-color: #4b5563 #111827;
@@ -121,7 +119,6 @@ textarea {
 
 .app-scroll::-webkit-scrollbar,
 .app-scroll-x::-webkit-scrollbar,
-.settings-scroll::-webkit-scrollbar,
 .deployment-table-scroll::-webkit-scrollbar,
 textarea::-webkit-scrollbar {
     width: 8px;
@@ -130,7 +127,6 @@ textarea::-webkit-scrollbar {
 
 .app-scroll::-webkit-scrollbar-track,
 .app-scroll-x::-webkit-scrollbar-track,
-.settings-scroll::-webkit-scrollbar-track,
 .deployment-table-scroll::-webkit-scrollbar-track,
 textarea::-webkit-scrollbar-track {
     background: #111827;
@@ -138,7 +134,6 @@ textarea::-webkit-scrollbar-track {
 
 .app-scroll::-webkit-scrollbar-thumb,
 .app-scroll-x::-webkit-scrollbar-thumb,
-.settings-scroll::-webkit-scrollbar-thumb,
 .deployment-table-scroll::-webkit-scrollbar-thumb,
 textarea::-webkit-scrollbar-thumb {
     background: #4b5563;
@@ -148,7 +143,6 @@ textarea::-webkit-scrollbar-thumb {
 
 .app-scroll::-webkit-scrollbar-thumb:hover,
 .app-scroll-x::-webkit-scrollbar-thumb:hover,
-.settings-scroll::-webkit-scrollbar-thumb:hover,
 .deployment-table-scroll::-webkit-scrollbar-thumb:hover,
 textarea::-webkit-scrollbar-thumb:hover {
     background: #6b7280;

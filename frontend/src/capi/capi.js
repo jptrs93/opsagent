@@ -44,6 +44,7 @@ import {
   decodeNodeEnrollmentInfo,
   decodeNodeEvent,
   decodeNodeEventList,
+  decodeNodeExposure,
   decodePersonalSessionList,
   decodePrepareOutputChunk,
   decodeRecentlyDeletedDeployments,
@@ -107,6 +108,9 @@ import {
   encodeNetworkPolicyUpdateRequest,
   encodeNixStoreResetRequest,
   encodeNodeAllowedSpacesRequest,
+  encodeNodeDrainRequest,
+  encodeNodeEvictRequest,
+  encodeNodeExposureRequest,
   encodeNodeRenameRequest,
   encodePasswordLoginRequest,
   encodePersonalSessionRevokeRequest,
@@ -915,6 +919,45 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeNodeEvent(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {NodeDrainRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<NodeEvent>}
+   */
+  async postV1NodesDrain(payload, options = {}) {
+    const response = await this.#request("/v1/nodes/drain", { method: 'POST', body: encodeNodeDrainRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeNodeEvent(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {NodeEvictRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<NodeEvent>}
+   */
+  async postV1NodesEvict(payload, options = {}) {
+    const response = await this.#request("/v1/nodes/evict", { method: 'POST', body: encodeNodeEvictRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeNodeEvent(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {NodeExposureRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<NodeExposure>}
+   */
+  async postV1NodesExposure(payload, options = {}) {
+    const response = await this.#request("/v1/nodes/exposure", { method: 'POST', body: encodeNodeExposureRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeNodeExposure(await response.arrayBuffer());
   }
 
   /**

@@ -1,0 +1,20 @@
+# OD-04 closure check against 23ae0864b0e350f8ae91a50c25dd149464c6444e
+# Audit reproductions rerun unchanged (PASS = behaviour still present at the layer the test exercises)
+=== RUN   TestAuditUnownedCertificateNameAccepted
+    security_audit_20260911_test.go:23: REPRODUCED: a different space's DNS name passes workload certificate validation.
+--- PASS: TestAuditUnownedCertificateNameAccepted (0.00s)
+PASS
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/deployments	0.682s
+=== RUN   TestAuditWorkloadCertificateVerifiesForUnownedName
+    security_audit_20260911_test.go:12: deployment 42 issued TLS extra name: "payments.space-999.internal" is outside this deployment's space zone space-2.internal
+--- FAIL: TestAuditWorkloadCertificateVerifiesForUnownedName (0.01s)
+FAIL
+FAIL	github.com/jptrs93/opsagent/backend/app/primary/domain/pki	0.468s
+FAIL
+
+# Corrected check through the deployment create handler (PASS = the fix holds)
+=== RUN   TestClosureOD04OtherSpaceNameRejectedAtCreate
+    security_closure_od04_test.go:17: FIXED: a cluster admin creating in the default space cannot claim another space's .internal name; the create path rejects it as invalid config.
+--- PASS: TestClosureOD04OtherSpaceNameRejectedAtCreate (0.01s)
+PASS
+ok  	github.com/jptrs93/opsagent/backend/app/primary/webuihandler	0.332s

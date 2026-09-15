@@ -1055,6 +1055,63 @@ func (c *ApiServerCapi) PostV1NodesAllowedSpaces(ctx context.Context, req *NodeA
 	return DecodeNodeEvent(body)
 }
 
+func (c *ApiServerCapi) PostV1NodesDrain(ctx context.Context, req *NodeDrainRequest) (*NodeEvent, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1NodesDrain request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/nodes/drain", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeNodeEvent(body)
+}
+
+func (c *ApiServerCapi) PostV1NodesEvict(ctx context.Context, req *NodeEvictRequest) (*NodeEvent, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1NodesEvict request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/nodes/evict", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeNodeEvent(body)
+}
+
+func (c *ApiServerCapi) PostV1NodesExposure(ctx context.Context, req *NodeExposureRequest) (*NodeExposure, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1NodesExposure request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/nodes/exposure", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeNodeExposure(body)
+}
+
 func (c *ApiServerCapi) GetV1NodesEnrollmentsInfo(ctx context.Context) (*NodeEnrollmentInfo, error) {
 	resp, err := c.do(ctx, "GET", "/v1/nodes/enrollments/info", nil, "application/protobuf", "application/protobuf")
 	if err != nil {

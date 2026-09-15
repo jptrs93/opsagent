@@ -36,6 +36,12 @@ type Store struct {
 	MigrationWake <-chan struct{}
 
 	mu sync.Mutex
+
+	wakeOnce sync.Once
+	wake     chan struct{}
+
+	statusMu  sync.Mutex
+	lastError string
 }
 
 type secretStore interface {
@@ -44,6 +50,22 @@ type secretStore interface {
 
 func (s *Store) AssetOperationLocker() sync.Locker {
 	return &s.mu
+}
+
+func (s *Store) wakeChan() chan struct{} {
+	s.wakeOnce.Do(func() { s.wake = make(chan struct{}, 1) })
+	return s.wake
+}
+
+func (s *Store) RequestReconcile() {
+	select {
+	case s.wakeChan() <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Store) storageTarget(cfg *apigen.ClusterSettings) systemconfig.AssetStorageTarget {
+	return systemconfig.LargeAssetStorageTarget(s.Loader, *cfg)
 }
 
 func (s *Store) ValidateSettingsUpdate(current, next apigen.ClusterSettings) error {
@@ -169,6 +191,7 @@ func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Rea
 	defer s.mu.Unlock()
 
 	cfg := s.Config()
+	target := s.storageTarget(cfg)
 	storeID := newStoreID()
 	InsertAssetStoreRow(s.DB.Queries(), storeID, "", sizeBytes, nil, 0, 0)
 	discardStaging := func() {
@@ -199,7 +222,7 @@ func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Rea
 
 	if _, ok := GetAssetStoreRowBySha(s.DB.Queries(), sha); ok {
 		discardStaging()
-	} else if s.Loader.MustLoadBoolSetting(cfg.Backup.Enabled) {
+	} else if target.UsesS3() {
 		client, bucket, err := s.s3Client(cfg)
 		if err != nil {
 			discardStaging()
@@ -219,9 +242,17 @@ func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Rea
 			discardStaging()
 			return nil, fmt.Errorf("write large asset to s3: %w", err)
 		}
-		CompleteAssetStoreRow(s.DB.Queries(), storeID, sha, 0, 1)
-		if err := os.Remove(localPath(storeID)); err != nil && !os.IsNotExist(err) {
-			slog.WarnContext(ctx, fmt.Sprintf("removing staged large asset %s failed", storeID), "err", err)
+		if target.UsesLocal() {
+			if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
+				discardStaging()
+				return nil, fmt.Errorf("sync large asset directory: %w", err)
+			}
+			CompleteAssetStoreRow(s.DB.Queries(), storeID, sha, 1, 1)
+		} else {
+			CompleteAssetStoreRow(s.DB.Queries(), storeID, sha, 0, 1)
+			if err := os.Remove(localPath(storeID)); err != nil && !os.IsNotExist(err) {
+				slog.WarnContext(ctx, fmt.Sprintf("removing staged large asset %s failed", storeID), "err", err)
+			}
 		}
 	} else {
 		if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
@@ -270,16 +301,22 @@ func (s *Store) OpenAsset(ctx context.Context, assetVersionID int32) (sizeBytes 
 	if !ok {
 		return 0, nil, fmt.Errorf("asset version %d not found", assetVersionID)
 	}
-	switch {
-	case r.Store.InlineSize > 0 || r.Version.SizeBytes == 0:
+	if r.Store.InlineSize > 0 || r.Version.SizeBytes == 0 {
 		return r.Version.SizeBytes, io.NopCloser(bytes.NewReader(r.Store.InlineBlob)), nil
-	case r.Store.LocalStatus == 1:
+	}
+	if r.Store.LocalStatus == 1 {
 		body, err := os.Open(localPath(r.Store.ID))
-		if err != nil {
+		if err == nil {
+			return r.Version.SizeBytes, body, nil
+		}
+		slog.WarnContext(ctx, fmt.Sprintf("local large asset %s is unreadable", r.Store.ID), "err", err)
+		SetAssetStoreLocalStatus(s.DB.Queries(), r.Store.ID, 0)
+		s.RequestReconcile()
+		if r.Store.RemoteStatus != 1 {
 			return 0, nil, fmt.Errorf("read local large asset: %w", err)
 		}
-		return r.Version.SizeBytes, body, nil
-	case r.Store.RemoteStatus == 1:
+	}
+	if r.Store.RemoteStatus == 1 {
 		body, err := s.openS3Asset(ctx, r.Store.ID)
 		if err != nil {
 			return 0, nil, err

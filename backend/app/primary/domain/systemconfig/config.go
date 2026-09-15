@@ -100,6 +100,7 @@ func DefaultSettings(initial Initial) *apigen.ClusterSettings {
 			S3Path:            apigen.StringSetting{Value: "opendeploy/assets"},
 			S3Region:          apigen.StringSetting{Value: "us-east-1"},
 			S3Endpoint:        apigen.StringSetting{Value: ""},
+			KeepLocalCopy:     apigen.BoolSetting{Value: false},
 		},
 		Auth: apigen.AuthSettings{
 			PasswordLoginEnabled: apigen.BoolSetting{Value: initial.PasswordLoginEnabled},
@@ -224,17 +225,17 @@ func (s *Service) UpdateSettings(settings apigen.ClusterSettings, inlockValidate
 			return err
 		}
 	}
-	oldBackupEnabled, err := s.LoadBoolSetting(cfg.Settings.Backup.Enabled)
+	oldTarget, err := s.largeAssetStorageTarget(cfg.Settings)
 	if err != nil {
-		return fmt.Errorf("load current Backup.Enabled: %w", err)
+		return fmt.Errorf("load current large asset storage settings: %w", err)
 	}
-	newBackupEnabled, err := s.LoadBoolSetting(settings.Backup.Enabled)
+	newTarget, err := s.largeAssetStorageTarget(settings)
 	if err != nil {
-		return fmt.Errorf("load new Backup.Enabled: %w", err)
+		return fmt.Errorf("load new large asset storage settings: %w", err)
 	}
 	cfg.Settings = settings
 	cfg = normalizeConfig(cfg)
-	versionID, migration, err := AppendRevisionWithAssetMigration(s.Storage, cfg.Encode(), oldBackupEnabled != newBackupEnabled, inlockValidate)
+	versionID, migration, err := AppendRevisionWithAssetMigration(s.Storage, cfg.Encode(), oldTarget != newTarget, inlockValidate)
 	if err != nil {
 		return err
 	}
