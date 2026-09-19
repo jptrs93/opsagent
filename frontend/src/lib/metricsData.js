@@ -43,8 +43,8 @@ export const CHARTS = [
 ];
 export const QUERY_FIELDS = [...new Set(CHARTS.flatMap(c => c.lines.map(l => l.field)))];
 
-export const runLabel = (s) => `v${s.specVersion} i${s.ordinal} r${s.run}`;
-export const runKey = (s) => `${s.scheduledInstanceId}|${s.specVersion}|${s.run}`;
+export const runLabel = (s) => `v${s.deploymentVersion} i${s.ordinal} r${s.run}`;
+export const runKey = (s) => `${s.scheduledInstanceId}|${s.deploymentVersion}|${s.run}`;
 
 export function buildChartData(resp, split) {
     const buckets = Number(resp.buckets || 0);

@@ -61,7 +61,8 @@ func updateDeployment(s *state.Service, ctx apigen.Context, deploymentID int32, 
 }
 
 func MustCreateDeploymentForNode(s *state.Service, ctx apigen.Context, spaceID int32, name string, nodeID int32, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
-	return erru.Must(createDeployment(s, ctx, &apigen.Deployment{NodeID: nodeID, SpaceID: spaceID, Name: name, Spec: *spec}, func(q *pq.Queries) error {
+	stored, running := LiftLegacyRunning(spec)
+	return erru.Must(createDeployment(s, ctx, &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(running, nodeID), SpaceID: spaceID, Name: name, Spec: *stored}, func(q *pq.Queries) error {
 		events, err := q.ListLatestDeploymentEvents(ctx)
 		if err != nil {
 			return err
@@ -75,17 +76,34 @@ func MustCreateDeploymentForNode(s *state.Service, ctx apigen.Context, spaceID i
 	}))
 }
 
+// UpdateDeploymentSpec writes a spec whose desired running state rides in the
+// legacy ContainerSpec.running slot (see SpecWithState), lifting it into
+// scheduling the way the shape migration does for stored rows.
 func UpdateDeploymentSpec(s *state.Service, ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
 	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentEvent) error {
-		def.Spec = *spec
+		stored, running := LiftLegacyRunning(spec)
+		def.Spec = *stored
+		def.Scheduling.Running = running
 		return nil
 	})
+}
+
+// LiftLegacyRunning returns a copy of spec with the legacy running slot
+// cleared, and the running state that slot (or an opendeploy workload) implied.
+func LiftLegacyRunning(spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, bool) {
+	stored := erru.Must(apigen.DecodeDeploymentSpec(spec.Encode()))
+	running := stored.OpendeploySpec != nil
+	if container := stored.Container(); container != nil {
+		running = container.Running
+		container.Running = false
+	}
+	return stored, running
 }
 
 func UpdateDeploymentSpecKeepingWorkload(s *state.Service, ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
 	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, existing *apigen.DeploymentEvent) error {
 		stored := erru.Must(apigen.DecodeDeploymentSpec(spec.Encode()))
-		if err := stored.SetWorkloadState(existing.WorkloadVersion(), existing.WorkloadRunning()); err != nil {
+		if err := stored.SetWorkloadVersion(existing.WorkloadVersion()); err != nil {
 			return err
 		}
 		def.Spec = *stored
@@ -96,10 +114,11 @@ func UpdateDeploymentSpecKeepingWorkload(s *state.Service, ctx apigen.Context, d
 func SetDeploymentWorkloadState(s *state.Service, ctx apigen.Context, deploymentID int32, version string, running bool) *apigen.DeploymentEvent {
 	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, existing *apigen.DeploymentEvent) error {
 		spec := erru.Must(apigen.DecodeDeploymentSpec(existing.Value.Spec.Encode()))
-		if err := spec.SetWorkloadState(version, running); err != nil {
+		if err := spec.SetWorkloadVersion(version); err != nil {
 			return err
 		}
 		def.Spec = *spec
+		def.Scheduling.Running = running
 		return nil
 	})
 }
@@ -204,11 +223,15 @@ func NonEmptySpec() *apigen.DeploymentSpec {
 	}
 }
 
+// SpecWithState carries the desired running flag in the legacy
+// ContainerSpec.running slot; MustCreateDeploymentForNode lifts it into
+// scheduling, matching what the shape migration does for stored rows.
 func SpecWithState(version string, running bool) *apigen.DeploymentSpec {
 	spec := NonEmptySpec()
-	if err := spec.SetWorkloadState(version, running); err != nil {
+	if err := spec.SetWorkloadVersion(version); err != nil {
 		panic(err)
 	}
+	spec.Container1Spec.Running = running
 	return spec
 }
 

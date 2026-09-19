@@ -34,10 +34,10 @@ var ConfigRefOutsideSpaceErr = apigen.NewApiErr("Deployment references a config 
 var AssetRefOutsideSpaceErr = apigen.NewApiErr("Deployment references an asset outside its own or the global space", "asset_reference_outside_space", http.StatusBadRequest)
 
 func canDeleteStaleDisconnectedSystemDeployment(cluster NodeConnectivity, primaryNodeID int32, cfg *apigen.DeploymentEvent) bool {
-	if cfg.Value.NodeID <= 0 || cfg.Value.NodeID == primaryNodeID || cluster == nil {
+	if cfg.Value.PlacementNodeID() <= 0 || cfg.Value.PlacementNodeID() == primaryNodeID || cluster == nil {
 		return false
 	}
-	_, connected := cluster.ConnectedNodes()[cfg.Value.NodeID]
+	_, connected := cluster.ConnectedNodes()[cfg.Value.PlacementNodeID()]
 	return !connected
 }
 
@@ -63,13 +63,13 @@ func instancePermitsDelete(cluster NodeConnectivity, primaryNodeID int32, cfg *a
 	if status.Runner.Status != apigen.RunningStatus_RUNNING && status.Runner.Status != apigen.RunningStatus_DEPLOYMENT_STATUS_UNKNOWN {
 		return false
 	}
-	if cfg.Value.NodeID <= 0 || cfg.Value.NodeID == primaryNodeID {
+	if cfg.Value.PlacementNodeID() <= 0 || cfg.Value.PlacementNodeID() == primaryNodeID {
 		return false
 	}
 	if cluster == nil {
 		return true
 	}
-	_, connected := cluster.ConnectedNodes()[cfg.Value.NodeID]
+	_, connected := cluster.ConnectedNodes()[cfg.Value.PlacementNodeID()]
 	return !connected
 }
 
@@ -128,6 +128,7 @@ func ValidateSpecWithResolvers(spec *apigen.DeploymentSpec, assets AssetResolver
 		return nil, InvalidConfigErrf("only container1Spec is currently supported")
 	}
 	container := out.Container1Spec
+	container.Running = false
 	if err := validateContainerSource(&container.Source); err != nil {
 		return nil, err
 	}
@@ -606,13 +607,14 @@ func validateContainerSource(source *apigen.ContainerBundleSource) error {
 	return nil
 }
 
-func validateNixWorkloadVersion(spec *apigen.DeploymentSpec) error {
+func validateNixWorkloadVersion(def *apigen.Deployment) error {
+	spec := &def.Spec
 	if nixSource(spec) == nil {
 		return nil
 	}
 	version := spec.WorkloadVersion()
 	if version == "" {
-		if spec.WorkloadRunning() {
+		if def.Running() {
 			return InvalidConfigErrf("container1Spec.version is required for a running Nix deployment")
 		}
 		return nil
@@ -950,7 +952,7 @@ func validateCrossDeploymentMountSources(live nodes.LiveState, spec *apigen.Depl
 		if source == nil {
 			return InvalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: source deployment %d does not exist", mount.DeploymentID)
 		}
-		if source.Value.NodeID != nodeID {
+		if source.Value.PlacementNodeID() != nodeID {
 			return InvalidConfigErrf("container1Spec.runtime.crossDeploymentMounts: source deployment %d is on a different node", mount.DeploymentID)
 		}
 		if source.Value.SpaceID != spaceID && source.Value.SpaceID != nodes.DefaultSpaceID {

@@ -30,7 +30,7 @@ func ingressPlanInputs(live nodes.LiveState, reservations []ingressplan.Reservat
 		if cfg.DeploymentID == deploymentID || internaldeploy.IsInternalConfig(cfg) {
 			continue
 		}
-		in.Deployments = append(in.Deployments, ingressplan.DeploymentFromSpec(cfg.DeploymentID, cfg.Value.NodeID, cfg.Value.Name, &cfg.Value.Spec))
+		in.Deployments = append(in.Deployments, ingressplan.DeploymentFromSpec(cfg.DeploymentID, cfg.Value.PlacementNodeID(), cfg.Value.Name, &cfg.Value.Spec))
 	}
 	if candidate != nil {
 		name := ""

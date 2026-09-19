@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CHARTS, QUERY_FIELDS, buildChartData} from './metricsData.js';
 
-const series = (run, field, values) => ({scheduledInstanceId: run, ordinal: 0, specVersion: 1, run: 1, nodeId: 2, field, kind: 0, values});
+const series = (run, field, values) => ({scheduledInstanceId: run, ordinal: 0, deploymentVersion: 1, run: 1, nodeId: 2, field, kind: 0, values});
 
 const resp = {
     timeStart: new Date(1_700_000_000_000),

@@ -137,9 +137,9 @@ func RefDetails(ctx context.Context, q *pq.Queries, live nodes.LiveState, ids ma
 		if space == "" {
 			space = fmt.Sprintf("space %d", cfg.Value.SpaceID)
 		}
-		node := nodes[cfg.Value.NodeID]
+		node := nodes[cfg.Value.PlacementNodeID()]
 		if node == "" {
-			node = fmt.Sprintf("node %d", cfg.Value.NodeID)
+			node = fmt.Sprintf("node %d", cfg.Value.PlacementNodeID())
 		}
 		details = append(details, "deployment "+space+" / "+node+" / "+cfg.Value.Name)
 	}

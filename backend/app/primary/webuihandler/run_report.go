@@ -78,6 +78,7 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 	report := &apigen.DeploymentRunReport{
 		DeploymentID:          inst.DeploymentID,
 		DeploymentSpecVersion: inst.DeploymentSpecVersion,
+		DeploymentVersion:     inst.DeploymentVersion,
 		NodeID:                inst.NodeID,
 		InstanceOrdinal:       inst.InstanceOrdinal,
 		Run:                   req.Run,
@@ -99,9 +100,9 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 	}
 
 	lq := &apigen.LogQueryRequest{
-		DeploymentID: inst.DeploymentID,
-		SpecVersion:  inst.DeploymentSpecVersion,
-		TimeEnd:      stoppedAt.Add(time.Minute),
+		DeploymentID:      inst.DeploymentID,
+		DeploymentVersion: inst.DeploymentVersion,
+		TimeEnd:           stoppedAt.Add(time.Minute),
 		Filters: []*apigen.LogFilter{
 			{Field: "run", Op: "eq", Value: strconv.Itoa(int(req.Run))},
 			{Field: "instance", Op: "eq", Value: strconv.Itoa(int(inst.InstanceOrdinal))},

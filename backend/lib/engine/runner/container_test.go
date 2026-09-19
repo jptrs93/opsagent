@@ -164,7 +164,7 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, opendeployTestInstanceID, &apigen.DeploymentEvent{
+	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, opendeployTestInstanceID, 1, &apigen.DeploymentEvent{
 		DeploymentID: 7,
 		SpecVersion:  3,
 		Value:        apigen.Deployment{SpaceID: 5, Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}, DevShmSizeKb: 65536, FileDescriptorLimit: 4096}}}},
@@ -303,7 +303,7 @@ func newTestCandidate(t *testing.T, store storage.OperatorStore) *containerRunne
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	dep := rolloverTestDeployment()
-	r := buildContainerRunner(ctx, cancel, store, nil, opendeployTestInstanceID, dep, 3)
+	r := buildContainerRunner(ctx, cancel, store, nil, opendeployTestInstanceID, 1, dep, 3)
 	r.initFreshRun(dep, apigen.PreparerStatus{DeploymentSpecVersion: 3, Artifact: "example/app:v3"}, true)
 	return r
 }

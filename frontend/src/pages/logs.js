@@ -11,7 +11,7 @@ import {
 import {loginS} from "../state/login.js";
 import {deploymentsS, machinesS} from "../state/deployments.js";
 import {nodeDisplayName} from "../lib/machines.js";
-import {deploymentDeleted} from "../lib/deployment.js";
+import {deploymentDeleted, placementNodeId} from "../lib/deployment.js";
 import {LOG_LEVELS as LEVELS, LOG_NAMED_LEVELS, logLevelFilters, logLevelMeta as levelMeta} from "../lib/logLevels.js";
 import {logLevelPicker} from "../components/logLevelPicker.js";
 import {logScopePicker} from "../components/logScopePicker.js";
@@ -108,7 +108,7 @@ function fmtNum(n) {
 
 function deploymentLabel(item, machines) {
     const cfg = item?.config || {};
-    const node = nodeDisplayName(cfg.value?.nodeId, machines);
+    const node = nodeDisplayName(placementNodeId(cfg), machines);
     return [node, cfg.value?.name].filter(Boolean).join(' / ') || `#${cfg.deploymentId}`;
 }
 
@@ -243,7 +243,7 @@ const tokenText = (t) => `${t.neg ? '-' : ''}${t.type === 'pair' ? `${t.key}${t.
 // a parsed field.
 function tokensToRequest(tokens) {
     const filters = [];
-    let specVersion = 0;
+    let deploymentVersion = 0;
     for (const t of tokens) {
         if (t.type === 'text') {
             filters.push({op: t.neg ? 'not_contains' : 'contains', value: t.value});
@@ -254,7 +254,7 @@ function tokensToRequest(tokens) {
             continue;
         }
         if (t.key === 'version' && !t.neg && /^\d+$/.test(t.value)) {
-            specVersion = Number(t.value);
+            deploymentVersion = Number(t.value);
             continue;
         }
         if (t.value === '*') {
@@ -263,7 +263,7 @@ function tokensToRequest(tokens) {
         }
         filters.push({field: t.key, op: t.neg ? 'neq' : 'eq', value: t.value, text: t.quoted});
     }
-    return {filters, specVersion};
+    return {filters, deploymentVersion};
 }
 
 // legendLevels lists the buckets the legend and histogram tooltip show: the
@@ -304,20 +304,20 @@ export function logsPage(selectedDeploymentId) {
         const selected = selectedDeployment(liveDeployments(), Number(deploymentId.val || 0));
         return {
             deploymentId: isSystemDeployment(selected) ? 0 : Number(deploymentId.val || 0),
-            targetNodeId: Number(selected?.config?.value?.nodeId || 0),
+            targetNodeId: placementNodeId(selected?.config),
         };
     };
 
     const resolveRange = () => resolveRangeOf(range.val);
 
     const currentRequest = () => {
-        const {filters, specVersion} = tokensToRequest(parseQuery(queryText.val));
+        const {filters, deploymentVersion} = tokensToRequest(parseQuery(queryText.val));
         const scope = workloadScope.val;
         if (scope.instance != null) filters.push({field: 'instance', op: 'eq', value: String(scope.instance)});
         if (scope.run) filters.push({field: 'run', op: 'eq', value: String(scope.run)});
         filters.push(...logLevelFilters(levelOn.val));
         // An explicit version:N token in the query text outranks the picker.
-        return {...scopePayload(), specVersion: specVersion || Number(scope.version || 0), filters};
+        return {...scopePayload(), deploymentVersion: deploymentVersion || Number(scope.version || 0), filters};
     };
 
     const runSearch = async () => {
@@ -473,11 +473,11 @@ export function logsPage(selectedDeploymentId) {
         if (versionsForDeployment === id && workloadVersionsS.val) return;
         versionsForDeployment = id;
         workloadVersionsS.val = null;
-        const current = Number(selectedDeployment(liveDeployments(), id)?.config?.specVersion || 0);
+        const current = Number(selectedDeployment(liveDeployments(), id)?.config?.version || 0);
         try {
             const resp = await capi.postV1DeploymentsHistory({deploymentId: id});
             if (versionsForDeployment !== id) return;
-            const versions = new Set((resp.entries || []).map(e => Number(e.config?.specVersion || 0)));
+            const versions = new Set((resp.entries || []).map(e => Number(e.config?.version || 0)));
             if (current) versions.add(current);
             workloadVersionsS.val = [...versions].filter(v => v > 0).sort((a, b) => b - a);
         } catch {
@@ -495,7 +495,7 @@ export function logsPage(selectedDeploymentId) {
         if (instance != null) filters.push({field: 'instance', op: 'eq', value: String(instance)});
         const resp = await capi.postV1DeploymentsLogQuery({
             ...scopePayload(),
-            specVersion: Number(version || 0),
+            deploymentVersion: Number(version || 0),
             filters,
             timeStart: new Date(startTs),
             timeEnd: new Date(endTs),

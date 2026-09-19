@@ -64,11 +64,12 @@ func EnsureSystem(store *state.Service, nodeID int32, opendeployVersion string) 
 			}
 			slog.WarnContext(ctx, "repairing system deployment spec", "dep", cfg.DeploymentID, "node", nodeID)
 			spec := internaldeploy.SelfSpec()
-			if err := spec.SetWorkloadState(cfg.WorkloadVersion(), cfg.WorkloadRunning()); err != nil {
+			if err := spec.SetWorkloadVersion(cfg.WorkloadVersion()); err != nil {
 				return nil, err
 			}
 			def := cfg.Value
 			def.Spec = *spec
+			def.Scheduling.Running = true
 			event, err := q.WriteDeploymentUpdate(ctx, int64(cfg.DeploymentID), seq, &def)
 			if err != nil {
 				return nil, err
@@ -76,14 +77,14 @@ func EnsureSystem(store *state.Service, nodeID int32, opendeployVersion string) 
 			return &state.Update{DeploymentEvents: []*apigen.DeploymentEvent{event}}, nil
 		}
 		spec := internaldeploy.SelfSpec()
-		if err := spec.SetWorkloadState(opendeployVersion, true); err != nil {
+		if err := spec.SetWorkloadVersion(opendeployVersion); err != nil {
 			return nil, err
 		}
 		id, err := q.NextDeploymentID(ctx)
 		if err != nil {
 			return nil, err
 		}
-		event, err := q.WriteDeploymentCreate(ctx, id, seq, &apigen.Deployment{NodeID: nodeID, SpaceID: internaldeploy.SpaceID, Name: internaldeploy.SelfName, Spec: *spec})
+		event, err := q.WriteDeploymentCreate(ctx, id, seq, &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, nodeID), SpaceID: internaldeploy.SpaceID, Name: internaldeploy.SelfName, Spec: *spec})
 		if err != nil {
 			return nil, err
 		}
@@ -114,7 +115,7 @@ func EnsureNetproxy(store *state.Service, nodeID int32, initialVersion string) *
 				continue
 			}
 			event = cfg
-			if err := spec.SetWorkloadState(cfg.WorkloadVersion(), cfg.WorkloadRunning()); err != nil {
+			if err := spec.SetWorkloadVersion(cfg.WorkloadVersion()); err != nil {
 				return nil, err
 			}
 			if pq.DeploymentSpecsEqual(&cfg.Value.Spec, spec) {
@@ -129,14 +130,14 @@ func EnsureNetproxy(store *state.Service, nodeID int32, initialVersion string) *
 			}
 			return &state.Update{DeploymentEvents: []*apigen.DeploymentEvent{event}}, nil
 		}
-		if err := spec.SetWorkloadState(desiredVersion, true); err != nil {
+		if err := spec.SetWorkloadVersion(desiredVersion); err != nil {
 			return nil, err
 		}
 		id, err := q.NextDeploymentID(ctx)
 		if err != nil {
 			return nil, err
 		}
-		event, err = q.WriteDeploymentCreate(ctx, id, seq, &apigen.Deployment{NodeID: nodeID, SpaceID: internaldeploy.SpaceID, Name: internaldeploy.NetproxyName, Spec: *spec})
+		event, err = q.WriteDeploymentCreate(ctx, id, seq, &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, nodeID), SpaceID: internaldeploy.SpaceID, Name: internaldeploy.NetproxyName, Spec: *spec})
 		if err != nil {
 			return nil, err
 		}

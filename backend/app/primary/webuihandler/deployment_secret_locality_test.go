@@ -65,8 +65,8 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	create := func(name string, spaceID, secretVersionID int32) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
-			NodeID: node.ID,
-			Spec:   secretEnvSpec("nginx", secretVersionID),
+			Scheduling: apigen.DedicatedScheduling(false, node.ID),
+			Spec:       secretEnvSpec("nginx", secretVersionID),
 		})
 	}
 
@@ -85,8 +85,8 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 
 	clean, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: staging.ID, Name: "clean",
-		NodeID: node.ID,
-		Spec:   remoteDeploymentSpec("nginx", hostNetworking()),
+		Scheduling: apigen.DedicatedScheduling(false, node.ID),
+		Spec:       remoteDeploymentSpec("nginx", hostNetworking()),
 	})
 	if err != nil {
 		t.Fatalf("creating clean deployment: %v", err)
@@ -138,15 +138,15 @@ func TestIngressCertSecretRefScopedToSpace(t *testing.T) {
 
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: nodes.DefaultSpaceID, Name: "web-global",
-		NodeID: node.ID,
-		Spec:   httpsSpec(),
+		Scheduling: apigen.DedicatedScheduling(false, node.ID),
+		Spec:       httpsSpec(),
 	}); !isSecretRefOutsideSpaceErr(err) {
 		t.Fatalf("global deployment with prod cert secret err = %v, want %v", err, deployments.SecretRefOutsideSpaceErr)
 	}
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: prod.ID, Name: "web-prod",
-		NodeID: node.ID,
-		Spec:   httpsSpec(),
+		Scheduling: apigen.DedicatedScheduling(false, node.ID),
+		Spec:       httpsSpec(),
 	}); err != nil {
 		t.Fatalf("own-space cert secret ref rejected: %v", err)
 	}
@@ -168,8 +168,8 @@ func TestSecretMoveToGlobalAllowedWithOutsideRefs(t *testing.T) {
 	}
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: prod.ID, Name: "db",
-		NodeID: node.ID,
-		Spec:   secretEnvSpec("postgres", secret.ID),
+		Scheduling: apigen.DedicatedScheduling(false, node.ID),
+		Spec:       secretEnvSpec("postgres", secret.ID),
 	}); err != nil {
 		t.Fatalf("creating referencing deployment: %v", err)
 	}

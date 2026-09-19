@@ -31,7 +31,7 @@ const testNixCommit2 = "89abcdef0123456789abcdef0123456789abcdef"
 func findSystemDeployment(t *testing.T, store *state.Service, nodeID int32) *apigen.DeploymentEvent {
 	t.Helper()
 	for _, cfg := range erru.Must(store.Queries().ListActiveDeployments(context.Background())) {
-		if internaldeploy.IsSelfConfig(cfg) && cfg.Value.NodeID == nodeID {
+		if internaldeploy.IsSelfConfig(cfg) && cfg.Value.PlacementNodeID() == nodeID {
 			return cfg
 		}
 	}
@@ -49,7 +49,7 @@ func seedInstanceRunnerStatus(store *state.Service, deploymentID, version, nodeI
 }
 
 func seedDeploymentRunnerStatus(store *state.Service, cfg *apigen.DeploymentEvent, status apigen.RunningStatus) {
-	seedInstanceRunnerStatus(store, cfg.DeploymentID, cfg.SpecVersion, cfg.Value.NodeID, status)
+	seedInstanceRunnerStatus(store, cfg.DeploymentID, cfg.SpecVersion, cfg.Value.PlacementNodeID(), status)
 }
 
 func createTestDeployment(store *state.Service, nodeIdentifier string, spaceID int32, name string, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
@@ -283,8 +283,8 @@ func TestDeploymentVersionsGithubReleaseFailuresAreDisplayable(t *testing.T) {
 func nixCreateRequest(nodeID int32, name string, running bool) *apigen.DeploymentCreateRequest {
 	return &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: name,
-		NodeID: nodeID,
-		Spec:   nixDeploymentSpecWithState("github.com/acme/app", "flake.nix", testNixCommit, running),
+		Scheduling: apigen.DedicatedScheduling(running, nodeID),
+		Spec:       nixDeploymentSpecWithState("github.com/acme/app", "flake.nix", testNixCommit, running),
 	}
 }
 
@@ -358,8 +358,8 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 		spec.Container1Spec.Runtime.EnvVars = env
 		cfg, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: 1, Name: name,
-			NodeID: nodeID,
-			Spec:   spec,
+			Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, nodeID),
+			Spec:       spec,
 		})
 		if err != nil {
 			t.Fatalf("PostV1DeploymentsCreate %s: %v", name, err)
@@ -380,7 +380,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	wrongSpace := int32(2)
 	_, err = h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: "wrong-space",
-		NodeID: primary.ID,
+		Scheduling: apigen.DedicatedScheduling(false, primary.ID),
 		Spec: func() apigen.DeploymentSpec {
 			spec := remoteDeploymentSpec("nginx", hostNetworking())
 			spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
@@ -397,7 +397,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 	remoteID := remote.DeploymentID
 	crossNode, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: "cross-node",
-		NodeID: primary.ID,
+		Scheduling: apigen.DedicatedScheduling(false, primary.ID),
 		Spec: func() apigen.DeploymentSpec {
 			spec := remoteDeploymentSpec("nginx", hostNetworking())
 			spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
@@ -449,7 +449,7 @@ func TestDeploymentCreatePersistsInitialStoppedWorkloadState(t *testing.T) {
 
 	cfg, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: "web",
-		NodeID: primary.ID,
+		Scheduling: apigen.DedicatedScheduling(false, primary.ID),
 		Spec: func() apigen.DeploymentSpec {
 			spec := remoteDeploymentSpec("nginx", hostNetworking())
 			spec.Container1Spec.Version = "1.25"
@@ -491,23 +491,23 @@ func TestDeploymentCreateRejectsIngressClaimsAlreadyUsedOnNode(t *testing.T) {
 	}
 	_, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: "database",
-		NodeID: primary.ID,
-		Spec:   remoteDeploymentSpec("postgres", ingress("db.example.com")),
+		Scheduling: apigen.DedicatedScheduling(false, primary.ID),
+		Spec:       remoteDeploymentSpec("postgres", ingress("db.example.com")),
 	})
 	if err != nil {
 		t.Fatalf("creating first ingress deployment: %v", err)
 	}
 	_, err = h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: "database-copy",
-		NodeID: primary.ID,
-		Spec:   remoteDeploymentSpec("postgres", ingress("DB.EXAMPLE.COM")),
+		Scheduling: apigen.DedicatedScheduling(false, primary.ID),
+		Spec:       remoteDeploymentSpec("postgres", ingress("DB.EXAMPLE.COM")),
 	})
 	if err == nil || !strings.Contains(err.Error(), "already claimed") {
 		t.Fatalf("err = %v, want duplicate ingress claim rejection", err)
 	}
 	_, err = h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: "direct",
-		NodeID: primary.ID,
+		Scheduling: apigen.DedicatedScheduling(false, primary.ID),
 		Spec: remoteDeploymentSpec("nginx", apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 			PortForwarding: []*apigen.PortForward{{
@@ -543,19 +543,19 @@ func TestDeploymentCreateAllowsPrimaryIngressAndRejectsOverlap(t *testing.T) {
 	// The primary no longer reserves :443 by fiat; the Web UI listener is a
 	// reserved claim evaluated like any other (see ingress_listen_validation_test).
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		SpaceID: 1, Name: "primary-database", NodeID: primary.ID, Spec: spec(),
+		SpaceID: 1, Name: "primary-database", Scheduling: apigen.DedicatedScheduling(false, primary.ID), Spec: spec(),
 	}); err != nil {
 		t.Fatalf("primary :443 ingress was rejected: %v", err)
 	}
 	_, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		SpaceID: 1, Name: "primary-database-2", NodeID: primary.ID,
+		SpaceID: 1, Name: "primary-database-2", Scheduling: apigen.DedicatedScheduling(false, primary.ID),
 		Spec: spec(&apigen.IngressListen{Address: &apigen.AddressSelector{Prefixes: []string{"203.0.113.10"}}}),
 	})
 	if err == nil || !strings.Contains(err.Error(), "already claimed by another deployment") {
 		t.Fatalf("err = %v, want overlapping listen rejection", err)
 	}
 	_, err = h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
-		SpaceID: 1, Name: "primary-database-3", NodeID: primary.ID,
+		SpaceID: 1, Name: "primary-database-3", Scheduling: apigen.DedicatedScheduling(false, primary.ID),
 		Spec: spec(&apigen.IngressListen{Address: &apigen.AddressSelector{Prefixes: []string{"not an address"}}}),
 	})
 	if err == nil || !strings.Contains(err.Error(), "not an IP address or CIDR prefix") {
@@ -570,8 +570,8 @@ func TestDeploymentCreateRejectsInternalIdentity(t *testing.T) {
 
 	_, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: internaldeploy.SpaceID, Name: "opendeploy-net",
-		NodeID: primary.ID,
-		Spec:   remoteDeploymentSpec("nginx", hostNetworking()),
+		Scheduling: apigen.DedicatedScheduling(false, primary.ID),
+		Spec:       remoteDeploymentSpec("nginx", hostNetworking()),
 	})
 	if err == nil || !strings.Contains(err.Error(), "internal-only") {
 		t.Fatalf("err = %v, want internal identity rejection", err)
@@ -587,8 +587,8 @@ func TestDeploymentIdentityIsScopedByNodeID(t *testing.T) {
 	create := func(nodeID, spaceID int32) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: "web",
-			NodeID: nodeID,
-			Spec:   spec,
+			Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, nodeID),
+			Spec:       spec,
 		})
 	}
 
@@ -698,7 +698,7 @@ func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
 	initial.Container1Spec.Version = "1.25"
 	created := createTestDeployment(store, "primary", 1, "web", &initial)
 	seedDeploymentRunnerStatus(store, created, apigen.RunningStatus_RUNNING)
-	h := &Handler{SystemConfig: &systemconfig.Service{}, Store: store, Queries: store.Queries(), NodeID: created.Value.NodeID}
+	h := &Handler{SystemConfig: &systemconfig.Service{}, Store: store, Queries: store.Queries(), NodeID: created.Value.PlacementNodeID()}
 
 	_, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:      created.DeploymentID,
@@ -804,14 +804,14 @@ func TestDeploymentDeleteRejectedWhileOlderRolloverInstanceRuns(t *testing.T) {
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	initial.Container1Spec.Version = "1.25"
 	created := createTestDeployment(store, "primary", 1, "web", &initial)
-	seedInstanceRunnerStatus(store, created.DeploymentID, created.SpecVersion, created.Value.NodeID, apigen.RunningStatus_RUNNING)
+	seedInstanceRunnerStatus(store, created.DeploymentID, created.SpecVersion, created.Value.PlacementNodeID(), apigen.RunningStatus_RUNNING)
 
 	next := remoteDeploymentSpec("nginx", hostNetworking())
 	next.Container1Spec.Version = "1.27"
 	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, created.DeploymentID, &next)
-	seedInstanceRunnerStatus(store, updated.DeploymentID, updated.SpecVersion, updated.Value.NodeID, apigen.RunningStatus_STOPPED)
+	seedInstanceRunnerStatus(store, updated.DeploymentID, updated.SpecVersion, updated.Value.PlacementNodeID(), apigen.RunningStatus_STOPPED)
 
-	h := &Handler{SystemConfig: &systemconfig.Service{}, Store: store, Queries: store.Queries(), NodeID: created.Value.NodeID}
+	h := &Handler{SystemConfig: &systemconfig.Service{}, Store: store, Queries: store.Queries(), NodeID: created.Value.PlacementNodeID()}
 	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{
 		DeploymentID: created.DeploymentID,
 		Version:      updated.Version + 1,
@@ -874,8 +874,8 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 		spec.Container1Spec.Version = version
 		cfg, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: 1, Name: "web",
-			NodeID: primary.ID,
-			Spec:   spec,
+			Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, primary.ID),
+			Spec:       spec,
 		})
 		if err != nil {
 			t.Fatalf("PostV1DeploymentsCreate: %v", err)

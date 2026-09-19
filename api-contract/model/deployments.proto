@@ -8,10 +8,27 @@ option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 message Deployment {
   reserved 1, 3, 4, 5, 6, 7, 9, 12, 13;
+  // Legacy placement, mirrored from scheduling.dedicated_nodes.nodes[0] on
+  // the worker push only, for workers that predate scheduling. Nothing reads
+  // it; the tag is reserved once every cluster has rolled forward.
   int32 node_id = 2;
   DeploymentSpec spec = 8 [(cp.go_value) = true];
   int32 space_id = 10;
   string name = 11;
+  Scheduling scheduling = 14 [(cp.go_value) = true];
+}
+
+// Scheduling is where and whether a deployment runs. running applies to every
+// scheduling variant; exactly one variant is set (cleanproto has no oneof).
+message Scheduling {
+  bool running = 1;
+  DedicatedNodesScheduling dedicated_nodes = 2;
+}
+
+// DedicatedNodesScheduling runs one instance on each hand-picked node. At most
+// one node is accepted until multi-node deployments land.
+message DedicatedNodesScheduling {
+  repeated int32 nodes = 1;
 }
 
 enum EventType {
@@ -34,6 +51,7 @@ message DeploymentEvent {
   int32 spec_version = 7;
   int32 space_version = 12;
   int32 name_version = 14;
+  int32 scheduling_version = 21;
   Deployment value = 18 [(cp.go_value) = true];
 }
 
@@ -61,6 +79,9 @@ message ContainerSpec {
   ContainerBundleSource source = 1 [(cp.go_value) = true];
   ContainerRuntime runtime = 2  [(cp.go_value) = true];
   string version = 3;
+  // Legacy desired state, superseded by Scheduling.running. Read only when
+  // decoding rows and worker caches written before scheduling existed; the
+  // tag is reserved once every cluster has rolled forward.
   bool running = 4;
   ContainerUpgradeStrategy upgrade_strategy = 5; // default/unspecified = RECREATE
   ContainerReadinessSignal readiness_signal = 6; // used by ROLLOVER

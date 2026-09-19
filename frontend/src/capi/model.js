@@ -5,6 +5,16 @@
  * @property {DeploymentSpec} spec
  * @property {number} spaceId
  * @property {string} name
+ * @property {Scheduling} scheduling
+ */
+/**
+ * @typedef {Object} Scheduling
+ * @property {boolean} running
+ * @property {DedicatedNodesScheduling} dedicatedNodes
+ */
+/**
+ * @typedef {Object} DedicatedNodesScheduling
+ * @property {number[]} nodes
  */
 /**
  * @typedef {Object} DeploymentEvent
@@ -19,6 +29,7 @@
  * @property {number} specVersion
  * @property {number} spaceVersion
  * @property {number} nameVersion
+ * @property {number} schedulingVersion
  * @property {Deployment} value
  */
 /**
@@ -291,7 +302,7 @@
  * @property {string} name
  * @property {number} spaceId
  * @property {DeploymentSpec} spec
- * @property {number} nodeId
+ * @property {Scheduling} scheduling
  */
 /**
  * @typedef {Object} DeploymentHistoryRequest
@@ -446,6 +457,7 @@
  * @property {string[]} logLines
  * @property {string[]} warnings
  * @property {number} status
+ * @property {number} deploymentVersion
  */
 /**
  * @typedef {Object} RawLogLine
@@ -499,7 +511,7 @@
  * @typedef {Object} LogQueryRequest
  * @property {number} deploymentId
  * @property {number} targetNodeId
- * @property {number} specVersion
+ * @property {number} deploymentVersion
  * @property {Date} timeStart
  * @property {Date} timeEnd
  * @property {LogFilter[]} filters
@@ -558,7 +570,7 @@
  * @property {number} deploymentId
  * @property {number} scheduledInstanceId
  * @property {number} ordinal
- * @property {number} specVersion
+ * @property {number} deploymentVersion
  * @property {number} run
  * @property {number} nodeId
  * @property {boolean} terminal
@@ -622,7 +634,7 @@
  * @property {number} deploymentId
  * @property {number} targetNodeId
  * @property {number} scheduledInstanceId
- * @property {number} specVersion
+ * @property {number} deploymentVersion
  * @property {number} run
  * @property {Date} timeStart
  * @property {Date} timeEnd
@@ -634,7 +646,7 @@
  * @typedef {Object} MetricsSeries
  * @property {number} scheduledInstanceId
  * @property {number} ordinal
- * @property {number} specVersion
+ * @property {number} deploymentVersion
  * @property {number} run
  * @property {number} nodeId
  * @property {string} field
@@ -1872,6 +1884,11 @@ export function writeDeployment(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(11, WIRE.LDELIM)).string(message.name);
     }
+    if (message.scheduling !== undefined && message.scheduling !== null) {
+        writer.uint32(tag(14, WIRE.LDELIM)).fork();
+        writeScheduling(message.scheduling, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -1893,7 +1910,7 @@ export function encodeDeployment(message) {
  */
 function decodeDeploymentMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {nodeId: 0, spec: undefined, spaceId: 0, name: "" };
+    const message = {nodeId: 0, spec: undefined, spaceId: 0, name: "", scheduling: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1913,6 +1930,10 @@ function decodeDeploymentMessage(reader, length) {
                 message.name = reader.string();
                 break;
             }
+            case 14: {
+                message.scheduling = decodeSchedulingMessage(reader, reader.uint32());
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -1928,6 +1949,136 @@ function decodeDeploymentMessage(reader, length) {
 export function decodeDeployment(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeDeploymentMessage(reader);
+}
+
+
+
+/**
+ * @param {Scheduling} message
+ * @param {Writer} writer
+ */
+export function writeScheduling(message, writer) {
+    if (message.running === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.running);
+    }
+    if (message.dedicatedNodes !== undefined && message.dedicatedNodes !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeDedicatedNodesScheduling(message.dedicatedNodes, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {Scheduling} message
+ * @returns {Uint8Array}
+ */
+export function encodeScheduling(message) {
+    const writer = Writer.create();
+    writeScheduling(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {Scheduling}
+ */
+function decodeSchedulingMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {running: false, dedicatedNodes: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.running = reader.bool();
+                break;
+            }
+            case 2: {
+                message.dedicatedNodes = decodeDedicatedNodesSchedulingMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {Scheduling}
+ */
+export function decodeScheduling(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSchedulingMessage(reader);
+}
+
+
+
+/**
+ * @param {DedicatedNodesScheduling} message
+ * @param {Writer} writer
+ */
+export function writeDedicatedNodesScheduling(message, writer) {
+    if (message.nodes) {
+        const packedWriter = Writer.create();
+        for (const item of message.nodes) {
+            packedWriter.int32(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(1, WIRE.LDELIM)).bytes(packedWriter.finish());
+        }
+    }
+}
+
+
+/**
+ * @param {DedicatedNodesScheduling} message
+ * @returns {Uint8Array}
+ */
+export function encodeDedicatedNodesScheduling(message) {
+    const writer = Writer.create();
+    writeDedicatedNodesScheduling(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DedicatedNodesScheduling}
+ */
+function decodeDedicatedNodesSchedulingMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {nodes: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.nodes.push(reader.int32());
+                }
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DedicatedNodesScheduling}
+ */
+export function decodeDedicatedNodesScheduling(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDedicatedNodesSchedulingMessage(reader);
 }
 
 
@@ -1970,6 +2121,9 @@ export function writeDeploymentEvent(message, writer) {
     if (message.nameVersion !== undefined && message.nameVersion !== null && message.nameVersion !== 0) {
         writer.uint32(tag(14, WIRE.VARINT)).int32(message.nameVersion);
     }
+    if (message.schedulingVersion !== undefined && message.schedulingVersion !== null && message.schedulingVersion !== 0) {
+        writer.uint32(tag(21, WIRE.VARINT)).int32(message.schedulingVersion);
+    }
     if (message.value !== undefined && message.value !== null) {
         writer.uint32(tag(18, WIRE.LDELIM)).fork();
         writeDeployment(message.value, writer);
@@ -1996,7 +2150,7 @@ export function encodeDeploymentEvent(message) {
  */
 function decodeDeploymentEventMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: new Date(0), eventTime: new Date(0), specVersion: 0, spaceVersion: 0, nameVersion: 0, value: undefined };
+    const message = {deploymentId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: new Date(0), eventTime: new Date(0), specVersion: 0, spaceVersion: 0, nameVersion: 0, schedulingVersion: 0, value: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2042,6 +2196,10 @@ function decodeDeploymentEventMessage(reader, length) {
             }
             case 14: {
                 message.nameVersion = reader.int32();
+                break;
+            }
+            case 21: {
+                message.schedulingVersion = reader.int32();
                 break;
             }
             case 18: {
@@ -5251,8 +5409,10 @@ export function writeDeploymentCreateRequest(message, writer) {
         writeDeploymentSpec(message.spec, writer);
         writer.ldelim();
     }
-    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.nodeId);
+    if (message.scheduling !== undefined && message.scheduling !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeScheduling(message.scheduling, writer);
+        writer.ldelim();
     }
 }
 
@@ -5275,7 +5435,7 @@ export function encodeDeploymentCreateRequest(message) {
  */
 function decodeDeploymentCreateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", spaceId: 0, spec: undefined, nodeId: 0 };
+    const message = {name: "", spaceId: 0, spec: undefined, scheduling: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5291,8 +5451,8 @@ function decodeDeploymentCreateRequestMessage(reader, length) {
                 message.spec = decodeDeploymentSpecMessage(reader, reader.uint32());
                 break;
             }
-            case 4: {
-                message.nodeId = reader.int32();
+            case 5: {
+                message.scheduling = decodeSchedulingMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -7082,6 +7242,9 @@ export function writeDeploymentRunReport(message, writer) {
     if (message.status !== undefined && message.status !== null && message.status !== 0) {
         writer.uint32(tag(12, WIRE.VARINT)).int32(message.status);
     }
+    if (message.deploymentVersion !== undefined && message.deploymentVersion !== null && message.deploymentVersion !== 0) {
+        writer.uint32(tag(13, WIRE.VARINT)).int32(message.deploymentVersion);
+    }
 }
 
 
@@ -7103,7 +7266,7 @@ export function encodeDeploymentRunReport(message) {
  */
 function decodeDeploymentRunReportMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, deploymentSpecVersion: 0, nodeId: 0, instanceOrdinal: 0, run: 0, running: false, startedAt: new Date(0), stoppedAt: new Date(0), exitCode: undefined, logLines: [], warnings: [], status: 0 };
+    const message = {deploymentId: 0, deploymentSpecVersion: 0, nodeId: 0, instanceOrdinal: 0, run: 0, running: false, startedAt: new Date(0), stoppedAt: new Date(0), exitCode: undefined, logLines: [], warnings: [], status: 0, deploymentVersion: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -7153,6 +7316,10 @@ function decodeDeploymentRunReportMessage(reader, length) {
             }
             case 12: {
                 message.status = reader.int32();
+                break;
+            }
+            case 13: {
+                message.deploymentVersion = reader.int32();
                 break;
             }
             default:
@@ -7718,8 +7885,8 @@ export function writeLogQueryRequest(message, writer) {
     if (message.targetNodeId !== undefined && message.targetNodeId !== null && message.targetNodeId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.targetNodeId);
     }
-    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.specVersion);
+    if (message.deploymentVersion !== undefined && message.deploymentVersion !== null && message.deploymentVersion !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentVersion);
     }
     if (message.timeStart instanceof Date && message.timeStart.getTime() !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.timeStart.getTime()));
@@ -7770,7 +7937,7 @@ export function encodeLogQueryRequest(message) {
  */
 function decodeLogQueryRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, targetNodeId: 0, specVersion: 0, timeStart: new Date(0), timeEnd: new Date(0), filters: [], limit: 0, histogramBuckets: 0, includeRaw: false, order: "", requestId: "" };
+    const message = {deploymentId: 0, targetNodeId: 0, deploymentVersion: 0, timeStart: new Date(0), timeEnd: new Date(0), filters: [], limit: 0, histogramBuckets: 0, includeRaw: false, order: "", requestId: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -7783,7 +7950,7 @@ function decodeLogQueryRequestMessage(reader, length) {
                 break;
             }
             case 3: {
-                message.specVersion = reader.int32();
+                message.deploymentVersion = reader.int32();
                 break;
             }
             case 4: {
@@ -8354,8 +8521,8 @@ export function writeMetricsSample(message, writer) {
     if (message.ordinal !== undefined && message.ordinal !== null && message.ordinal !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.ordinal);
     }
-    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.specVersion);
+    if (message.deploymentVersion !== undefined && message.deploymentVersion !== null && message.deploymentVersion !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.deploymentVersion);
     }
     if (message.run !== undefined && message.run !== null && message.run !== 0) {
         writer.uint32(tag(6, WIRE.VARINT)).int32(message.run);
@@ -8549,7 +8716,7 @@ export function encodeMetricsSample(message) {
  */
 function decodeMetricsSampleMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {time: 0, deploymentId: 0, scheduledInstanceId: 0, ordinal: 0, specVersion: 0, run: 0, nodeId: 0, terminal: false, cpuUsageUsec: undefined, cpuUserUsec: undefined, cpuSystemUsec: undefined, cpuThrottledUsec: undefined, cpuNrThrottled: undefined, memCurrent: undefined, memPeak: undefined, memAnon: undefined, memFile: undefined, memKernel: undefined, memShmem: undefined, memOom: undefined, memOomKill: undefined, ioReadBytes: undefined, ioWriteBytes: undefined, ioReadOps: undefined, ioWriteOps: undefined, pids: undefined, psiCpuSomeAvg10: undefined, psiCpuSomeAvg60: undefined, psiCpuSomeAvg300: undefined, psiCpuSomeTotalUsec: undefined, psiCpuFullAvg10: undefined, psiCpuFullAvg60: undefined, psiCpuFullAvg300: undefined, psiCpuFullTotalUsec: undefined, psiMemSomeAvg10: undefined, psiMemSomeAvg60: undefined, psiMemSomeAvg300: undefined, psiMemSomeTotalUsec: undefined, psiMemFullAvg10: undefined, psiMemFullAvg60: undefined, psiMemFullAvg300: undefined, psiMemFullTotalUsec: undefined, psiIoSomeAvg10: undefined, psiIoSomeAvg60: undefined, psiIoSomeAvg300: undefined, psiIoSomeTotalUsec: undefined, psiIoFullAvg10: undefined, psiIoFullAvg60: undefined, psiIoFullAvg300: undefined, psiIoFullTotalUsec: undefined, netRxBytes: undefined, netRxPackets: undefined, netRxDropped: undefined, netTxBytes: undefined, netTxPackets: undefined, netTxDropped: undefined, tcpEstablished: undefined, tcpListen: undefined, tcpTimeWait: undefined, tcpCloseWait: undefined, tcpOther: undefined, openFds: undefined };
+    const message = {time: 0, deploymentId: 0, scheduledInstanceId: 0, ordinal: 0, deploymentVersion: 0, run: 0, nodeId: 0, terminal: false, cpuUsageUsec: undefined, cpuUserUsec: undefined, cpuSystemUsec: undefined, cpuThrottledUsec: undefined, cpuNrThrottled: undefined, memCurrent: undefined, memPeak: undefined, memAnon: undefined, memFile: undefined, memKernel: undefined, memShmem: undefined, memOom: undefined, memOomKill: undefined, ioReadBytes: undefined, ioWriteBytes: undefined, ioReadOps: undefined, ioWriteOps: undefined, pids: undefined, psiCpuSomeAvg10: undefined, psiCpuSomeAvg60: undefined, psiCpuSomeAvg300: undefined, psiCpuSomeTotalUsec: undefined, psiCpuFullAvg10: undefined, psiCpuFullAvg60: undefined, psiCpuFullAvg300: undefined, psiCpuFullTotalUsec: undefined, psiMemSomeAvg10: undefined, psiMemSomeAvg60: undefined, psiMemSomeAvg300: undefined, psiMemSomeTotalUsec: undefined, psiMemFullAvg10: undefined, psiMemFullAvg60: undefined, psiMemFullAvg300: undefined, psiMemFullTotalUsec: undefined, psiIoSomeAvg10: undefined, psiIoSomeAvg60: undefined, psiIoSomeAvg300: undefined, psiIoSomeTotalUsec: undefined, psiIoFullAvg10: undefined, psiIoFullAvg60: undefined, psiIoFullAvg300: undefined, psiIoFullTotalUsec: undefined, netRxBytes: undefined, netRxPackets: undefined, netRxDropped: undefined, netTxBytes: undefined, netTxPackets: undefined, netTxDropped: undefined, tcpEstablished: undefined, tcpListen: undefined, tcpTimeWait: undefined, tcpCloseWait: undefined, tcpOther: undefined, openFds: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -8570,7 +8737,7 @@ function decodeMetricsSampleMessage(reader, length) {
                 break;
             }
             case 5: {
-                message.specVersion = reader.int32();
+                message.deploymentVersion = reader.int32();
                 break;
             }
             case 6: {
@@ -8834,8 +9001,8 @@ export function writeMetricsQueryRequest(message, writer) {
     if (message.scheduledInstanceId !== undefined && message.scheduledInstanceId !== null && message.scheduledInstanceId !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int32(message.scheduledInstanceId);
     }
-    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.specVersion);
+    if (message.deploymentVersion !== undefined && message.deploymentVersion !== null && message.deploymentVersion !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.deploymentVersion);
     }
     if (message.run !== undefined && message.run !== null && message.run !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int32(message.run);
@@ -8878,7 +9045,7 @@ export function encodeMetricsQueryRequest(message) {
  */
 function decodeMetricsQueryRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, targetNodeId: 0, scheduledInstanceId: 0, specVersion: 0, run: 0, timeStart: new Date(0), timeEnd: new Date(0), stepMs: 0, fields: [], requestId: "" };
+    const message = {deploymentId: 0, targetNodeId: 0, scheduledInstanceId: 0, deploymentVersion: 0, run: 0, timeStart: new Date(0), timeEnd: new Date(0), stepMs: 0, fields: [], requestId: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -8895,7 +9062,7 @@ function decodeMetricsQueryRequestMessage(reader, length) {
                 break;
             }
             case 4: {
-                message.specVersion = reader.int32();
+                message.deploymentVersion = reader.int32();
                 break;
             }
             case 5: {
@@ -8952,8 +9119,8 @@ export function writeMetricsSeries(message, writer) {
     if (message.ordinal !== undefined && message.ordinal !== null && message.ordinal !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.ordinal);
     }
-    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.specVersion);
+    if (message.deploymentVersion !== undefined && message.deploymentVersion !== null && message.deploymentVersion !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentVersion);
     }
     if (message.run !== undefined && message.run !== null && message.run !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.run);
@@ -8997,7 +9164,7 @@ export function encodeMetricsSeries(message) {
  */
 function decodeMetricsSeriesMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {scheduledInstanceId: 0, ordinal: 0, specVersion: 0, run: 0, nodeId: 0, field: "", kind: 0, values: [] };
+    const message = {scheduledInstanceId: 0, ordinal: 0, deploymentVersion: 0, run: 0, nodeId: 0, field: "", kind: 0, values: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9010,7 +9177,7 @@ function decodeMetricsSeriesMessage(reader, length) {
                 break;
             }
             case 3: {
-                message.specVersion = reader.int32();
+                message.deploymentVersion = reader.int32();
                 break;
             }
             case 4: {

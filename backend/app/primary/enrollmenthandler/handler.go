@@ -273,13 +273,13 @@ func (h *Handler) ensureEnrollmentBootstrapInstances(nodeID int32) (*apigen.Sche
 	predicate := storage.ScheduledInstancePredicate(func(state apigen.ScheduledInstanceState) bool {
 		return state.Instance.NodeID == nodeID
 	})
-	for _, cfg := range deployments.Active(h.store.Queries(), func(c apigen.DeploymentEvent) bool { return c.Value.NodeID == nodeID }) {
+	for _, cfg := range deployments.Active(h.store.Queries(), func(c apigen.DeploymentEvent) bool { return c.Value.PlacementNodeID() == nodeID }) {
 		if !internaldeploy.IsSelfConfig(&cfg) && !internaldeploy.IsNetproxyConfig(&cfg) {
 			continue
 		}
 		// A node being enrolled has no placements yet, so its system deployments
 		// start out serving rather than warming up behind something.
-		scheduler.EnsureRunInstance(h.store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0,
+		scheduler.EnsureRunInstance(h.store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0,
 			apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	}
 	return enrollmentBootstrapInstances(h.store.FetchScheduledSnapshot(predicate))

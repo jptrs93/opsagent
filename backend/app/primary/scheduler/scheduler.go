@@ -201,7 +201,7 @@ func (tx *transaction) step(cfg *apigen.DeploymentEvent, instances []schedulingI
 			return err
 		}
 	}
-	if running && cfg.Value.NodeID > 0 && !tx.evicted[cfg.Value.NodeID] {
+	if running && cfg.Value.PlacementNodeID() > 0 && !tx.evicted[cfg.Value.PlacementNodeID()] {
 		var exact *schedulingInstance
 		serving, blocked := false, false
 		for i := range instances {

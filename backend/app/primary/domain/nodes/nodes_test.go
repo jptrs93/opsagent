@@ -178,7 +178,7 @@ func TestRenameNodePreservesIdentifier(t *testing.T) {
 		t.Fatalf("renamed node = %+v", node)
 	}
 	configs := erru.Must(store.Queries().ListActiveDeployments(context.Background()))
-	if len(configs) == 0 || configs[0].Value.NodeID != primaryNode.ID {
+	if len(configs) == 0 || configs[0].Value.PlacementNodeID() != primaryNode.ID {
 		t.Fatalf("deployment targets after rename = %+v", configs)
 	}
 }

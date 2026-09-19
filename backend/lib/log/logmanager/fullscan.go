@@ -25,7 +25,7 @@ func (e *queryEngine) runFullQuery(ctx context.Context, q queryParams) (*apigen.
 		if v.rec.Time < fromN || v.rec.Time >= tillN {
 			return true
 		}
-		if q.specVersion > 0 && v.rec.Version != q.specVersion {
+		if q.deploymentVersion > 0 && v.rec.Version != q.deploymentVersion {
 			return true
 		}
 		for fi := range q.filters {

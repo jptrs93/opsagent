@@ -11,13 +11,12 @@ const catalogs = {
 function document(networking) {
     return {
         identity: {name: "echo", spaceId: 1},
-        nodeId: 2,
+        scheduling: {running: true, dedicatedNodes: {nodes: [2]}},
         spec: {
             container1Spec: {
                 source: {remoteImage: {image: "docker.io/library/nginx"}},
                 runtime: {defaultVolume: {disabled: true}},
                 version: "1.27",
-                running: true,
                 upgradeStrategy: 1,
             },
             networking,
@@ -145,7 +144,7 @@ test("renders identity, source version, and scheduling in their blocks and round
     const nixText = deploymentDocumentToHcl(nix, catalogs);
     assert.match(nixText, /^deployment \{\n {2}name = "echo"\n {2}space = space\("global"\)\n\n {2}container \{/);
     assert.match(nixText, /nix_docker_build \{\n {8}repo = "github\.com\/acme\/app"\n {8}flake = "app\/flake\.nix"\n {8}version = "fb22005268a6fbf0f66008e52887c9b423646b57"\n {6}\}/);
-    assert.match(nixText, /network \{\n {4}mode = "host"\n {2}\}\n\n {2}scheduling \{\n {4}node = node\("worker-2"\)\n {4}desired_running = true\n {2}\}\n\}\n$/);
+    assert.match(nixText, /network \{\n {4}mode = "host"\n {2}\}\n\n {2}scheduling \{\n {4}running = true\n {4}dedicated_nodes \{\n {6}nodes = \[node\("worker-2"\)\]\n {4}\}\n {2}\}\n\}\n$/);
     assert.doesNotMatch(nixText, /\n {2}node = |\n {2}desired_running = |\n {4}version = /);
     const nixParsed = parseDeploymentHcl(nixText, catalogs);
     assert.deepEqual(nixParsed.diagnostics, []);
@@ -162,7 +161,7 @@ test("renders identity, source version, and scheduling in their blocks and round
 
 test("points the previous root node, desired_running, and container version at their new blocks", () => {
     const text = deploymentDocumentToHcl(document({mode: 2}), catalogs)
-        .replace(/\n {2}scheduling \{[^}]*\}\n/, "\n  node = node(\"worker-2\")\n  desired_running = true\n")
+        .replace(/\n {2}scheduling \{[\s\S]*?\n {2}\}\n/, "\n  node = node(\"worker-2\")\n  desired_running = true\n")
         .replace(/\n {2}\}\n\n {2}network/, "\n    version = \"1.27\"\n  }\n\n  network");
     const {document: parsed, diagnostics} = parseDeploymentHcl(text, catalogs);
     assert.equal(parsed, null);
@@ -255,7 +254,7 @@ test("container images carry their version as the reference tag or digest", () =
         const doc = document({mode: 2});
         doc.spec.container1Spec.source = {remoteImage: {image}};
         doc.spec.container1Spec.version = version;
-        doc.spec.container1Spec.running = running;
+        doc.scheduling.running = running;
         return {doc, text: deploymentDocumentToHcl(doc, catalogs)};
     };
     // A stored reference that still carries a tag renders the version once.
@@ -284,7 +283,7 @@ test("container images carry their version as the reference tag or digest", () =
     const stoppedParsed = parseDeploymentHcl(stopped.text, catalogs);
     assert.deepEqual(stoppedParsed.diagnostics, []);
     assert.equal(stoppedParsed.document.spec.container1Spec.version, "");
-    const running = parseDeploymentHcl(stopped.text.replace("desired_running = false", "desired_running = true"), catalogs);
+    const running = parseDeploymentHcl(stopped.text.replace("running = false", "running = true"), catalogs);
     assert.equal(running.document, null);
     assert.ok(running.diagnostics.some(item => /must include a tag or digest/.test(item.message)), running.diagnostics.map(item => item.message).join("\n"));
 
@@ -299,7 +298,7 @@ test("container images carry their version as the reference tag or digest", () =
 
 
 test("deployment event ids survive address and volume reference round trips", () => {
-    const refs = {...catalogs, deployments: [{config: {deploymentId: 42, version: 1, value: {name: "database", spaceId: 1, nodeId: 2, spec: {networking: {mode: 1}}}}}]};
+    const refs = {...catalogs, deployments: [{config: {deploymentId: 42, version: 1, value: {name: "database", spaceId: 1, scheduling: {running: true, dedicatedNodes: {nodes: [2]}}, spec: {networking: {mode: 1}}}}}]};
     const source = document({mode: 1});
     source.spec.container1Spec.runtime.envVars = {DATABASE: {addressDeploymentId: 42, addressSpaceId: 1}};
     source.spec.container1Spec.runtime.crossDeploymentMounts = [{deploymentId: 42, containerPath: "/database", permission: 2}];

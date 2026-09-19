@@ -3,7 +3,7 @@ import {capi} from "../capi/index.js";
 import {loginS} from "../state/login.js";
 import {deploymentsS, machinesS} from "../state/deployments.js";
 import {nodeDisplayName} from "../lib/machines.js";
-import {deploymentDeleted} from "../lib/deployment.js";
+import {deploymentDeleted, placementNodeId} from "../lib/deployment.js";
 import {spacesFilter, spaceDot} from "../components/spacesFilter.js";
 import {resolveRange, timeRangePicker} from "../components/timeRangePicker.js";
 import {formatValue, lineChart} from "../components/lineChart.js";
@@ -79,7 +79,7 @@ function saveHiddenSpaces(set) {
 
 function deploymentLabel(item, machines) {
     const cfg = item?.config || {};
-    const node = nodeDisplayName(cfg.value?.nodeId, machines);
+    const node = nodeDisplayName(placementNodeId(cfg), machines);
     return [node, cfg.value?.name].filter(Boolean).join(' / ') || `#${cfg.deploymentId}`;
 }
 

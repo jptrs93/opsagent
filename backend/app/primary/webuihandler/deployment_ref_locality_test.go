@@ -69,8 +69,8 @@ func TestDeploymentRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	create := func(name string, spaceID, configVersionID int32) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
-			NodeID: node.ID,
-			Spec:   configEnvSpec("nginx", configVersionID),
+			Scheduling: apigen.DedicatedScheduling(false, node.ID),
+			Spec:       configEnvSpec("nginx", configVersionID),
 		})
 	}
 
@@ -104,8 +104,8 @@ func TestDeploymentAssetRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	create := func(name string, spaceID, assetVersionID int32) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
-			NodeID: node.ID,
-			Spec:   assetMountSpec("nginx", assetVersionID),
+			Scheduling: apigen.DedicatedScheduling(false, node.ID),
+			Spec:       assetMountSpec("nginx", assetVersionID),
 		})
 	}
 
@@ -138,8 +138,8 @@ func TestDeploymentAddressRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	create := func(name string, spaceID int32, target *apigen.DeploymentEvent) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
-			NodeID: node.ID,
-			Spec:   addressEnvSpec("nginx", target.DeploymentID, target.Value.SpaceID),
+			Scheduling: apigen.DedicatedScheduling(false, node.ID),
+			Spec:       addressEnvSpec("nginx", target.DeploymentID, target.Value.SpaceID),
 		})
 	}
 
@@ -172,8 +172,8 @@ func TestDeploymentCrossMountSourcesScopedToOwnOrGlobalSpace(t *testing.T) {
 	create := func(name string, spaceID, sourceID int32) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
-			NodeID: node.ID,
-			Spec:   crossMountSpec("nginx", sourceID),
+			Scheduling: apigen.DedicatedScheduling(false, node.ID),
+			Spec:       crossMountSpec("nginx", sourceID),
 		})
 	}
 
@@ -204,8 +204,8 @@ func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 	}
 	referrer, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: prod.ID, Name: "web",
-		NodeID: node.ID,
-		Spec:   configEnvSpec("nginx", statetest.ValueVersions(h.Store, prodConfig)[0].ID),
+		Scheduling: apigen.DedicatedScheduling(false, node.ID),
+		Spec:       configEnvSpec("nginx", statetest.ValueVersions(h.Store, prodConfig)[0].ID),
 	})
 	if err != nil {
 		t.Fatalf("creating referencing deployment: %v", err)

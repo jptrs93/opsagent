@@ -57,10 +57,11 @@ message AssignedSpaceUpdate {
 message RestartUpdate {}
 
 message DeploymentCreateRequest {
+  reserved 4;
   string name = 1;
   int32 space_id = 2;
   DeploymentSpec spec = 3 [(cp.go_value) = true];
-  int32 node_id = 4; // required canonical target node
+  Scheduling scheduling = 5 [(cp.go_value) = true];
 }
 
 message DeploymentHistoryRequest {
@@ -227,4 +228,5 @@ message DeploymentRunReport {
   repeated string log_lines = 10;
   repeated string warnings = 11;
   RunningStatus status = 12;
+  int32 deployment_version = 13;
 }

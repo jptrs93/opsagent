@@ -44,7 +44,7 @@ func preparerReady(status *apigen.ScheduledInstanceStatus, seqNo int32) bool {
 
 func configName(cfg *apigen.DeploymentEvent) string {
 	if cfg.Value.Name != "" {
-		return fmt.Sprintf("%d:%d:%s", cfg.Value.SpaceID, cfg.Value.NodeID, cfg.Value.Name)
+		return fmt.Sprintf("%d:%d:%s", cfg.Value.SpaceID, cfg.Value.PlacementNodeID(), cfg.Value.Name)
 	}
 	return fmt.Sprintf("id=%d", cfg.DeploymentID)
 }
@@ -113,6 +113,7 @@ func (op DeploymentOperator) Run(
 	currentState := *initial
 
 	instanceID := initial.Instance.ID
+	nodeID := initial.Instance.NodeID
 	config := initial.Config
 	status := initial.Status
 	target := initial.Instance.State
@@ -128,12 +129,12 @@ func (op DeploymentOperator) Run(
 		currentPreparer = op.reAttachPreparer(instanceID, &config, status.Preparer)
 		slog.InfoContext(ctx, fmt.Sprintf("Run: reattaching running runner runner=[%s] specVersion=%d",
 			fmtRunnerStatus(status.Runner), config.SpecVersion))
-		currentRunner = runner.ReAttachRunning(op.Store, op.RuntimeInputs, instanceID, &config, status.Runner)
+		currentRunner = runner.ReAttachRunning(op.Store, op.RuntimeInputs, instanceID, nodeID, &config, status.Runner)
 	} else {
 		slog.InfoContext(ctx, fmt.Sprintf("Run: initializing stopped/terminating instance targetState=%v preparer=[%s] runner=[%s] specVersion=%d",
 			target, fmtPreparerStatus(status.Preparer), fmtRunnerStatus(status.Runner), config.SpecVersion))
 		currentPreparer = prepare.Finished(config.SpecVersion)
-		currentRunner = runner.ReAttachStopped(op.Store, op.RuntimeInputs, instanceID, &config, status.Runner)
+		currentRunner = runner.ReAttachStopped(op.Store, op.RuntimeInputs, instanceID, nodeID, &config, status.Runner)
 	}
 	// A reattached placement that is already serving keeps its address across an
 	// agent restart; one that is standing by or draining must not take it.
@@ -189,12 +190,12 @@ func (op DeploymentOperator) Run(
 			slog.InfoContext(ctx, fmt.Sprintf("Run: preparer ready, creating runner artifact=%q specVersion=%d",
 				status.Preparer.Artifact, config.SpecVersion))
 			if config.EffectiveUpgradeStrategy() == apigen.ContainerUpgradeStrategy_ROLLOVER {
-				candidate = runner.CreateRolloverCandidate(op.Store, op.RuntimeInputs, instanceID, &config, &status)
+				candidate = runner.CreateRolloverCandidate(op.Store, op.RuntimeInputs, instanceID, nodeID, &config, &status)
 				candidateReady = waitForRolloverCandidate(candidate, config.SpecVersion)
 				return true
 			}
 			currentRunner.Stop()
-			currentRunner = runner.Create(op.Store, op.RuntimeInputs, instanceID, &config, &status)
+			currentRunner = runner.Create(op.Store, op.RuntimeInputs, instanceID, nodeID, &config, &status)
 			artifactRepairPending = false
 			artifactRepairStarted = false
 		default:

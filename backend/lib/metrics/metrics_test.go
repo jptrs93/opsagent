@@ -85,7 +85,7 @@ func TestRegisterAndClose(t *testing.T) {
 	ctx := context.Background()
 	consumer := &recordingConsumer{}
 	s := &Sampler{ctx: ctx, consumer: consumer}
-	key := TargetKey{DeploymentID: 1, ScheduledInstanceID: 2, SpecVersion: 3, Run: 4}
+	key := TargetKey{DeploymentID: 1, ScheduledInstanceID: 2, DeploymentVersion: 3, Run: 4}
 	reg := s.Register(ctx, TargetSpec{Key: key, CgroupsPath: "/opendeploy/1-p2-v3-r4"})
 	if _, ok := s.targets[key]; !ok {
 		t.Fatal("target not registered")

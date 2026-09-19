@@ -52,8 +52,8 @@ func TestEnsureNetproxyDeploymentCreatesInternalConfig(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("netproxy config not returned")
 	}
-	if cfg.Value.NodeID != node.ID || cfg.Value.SpaceID != internaldeploy.SpaceID || cfg.Value.Name != internaldeploy.NetproxyName {
-		t.Fatalf("unexpected config identity: node=%d space=%d name=%q", cfg.Value.NodeID, cfg.Value.SpaceID, cfg.Value.Name)
+	if cfg.Value.PlacementNodeID() != node.ID || cfg.Value.SpaceID != internaldeploy.SpaceID || cfg.Value.Name != internaldeploy.NetproxyName {
+		t.Fatalf("unexpected config identity: node=%d space=%d name=%q", cfg.Value.PlacementNodeID(), cfg.Value.SpaceID, cfg.Value.Name)
 	}
 	if !internaldeploy.IsNetproxyConfig(cfg) || !internaldeploy.IsInternalConfig(cfg) {
 		t.Fatalf("netproxy config not recognized as internal: space=%d name=%q", cfg.Value.SpaceID, cfg.Value.Name)

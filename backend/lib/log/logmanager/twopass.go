@@ -220,7 +220,7 @@ func (e *queryEngine) scanWalTwoPass(ctx context.Context, committed StreamMarker
 	cancel()
 	minuteN := int64(time.Minute)
 	var plan *walPlan
-	if filtersLevelOnly(q.filters) && q.specVersion == 0 && (agg.bucketN == 0 || agg.bucketStep >= minuteN) {
+	if filtersLevelOnly(q.filters) && q.deploymentVersion == 0 && (agg.bucketN == 0 || agg.bucketStep >= minuteN) {
 		if snap, ok := e.spool.aggSnapshot(); ok {
 			plan = planWal(snap, committed, agg.fromN, agg.tillN, captureK, q.newestFirst, agg)
 		}
@@ -250,7 +250,7 @@ func (e *queryEngine) scanWalTwoPass(ctx context.Context, committed StreamMarker
 			if v.rec.Time < agg.fromN || v.rec.Time >= agg.tillN {
 				return nil
 			}
-			if q.specVersion > 0 && v.rec.Version != q.specVersion {
+			if q.deploymentVersion > 0 && v.rec.Version != q.deploymentVersion {
 				return nil
 			}
 		}
@@ -440,7 +440,7 @@ func (ev *archiveEval) consume(b *cheapBatch, n int, baseRow int64, sorted bool)
 			if ev.needMsg {
 				v.msgRaw, v.hasMsgRaw = b.msgs[i].ByteArray(), true
 			}
-			if ev.q.specVersion > 0 && v.rec.Version != ev.q.specVersion {
+			if ev.q.deploymentVersion > 0 && v.rec.Version != ev.q.deploymentVersion {
 				continue
 			}
 			ok := true
@@ -559,7 +559,7 @@ func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apig
 	}
 	var warnings []string
 	needMsg := filtersNeedMsg(q.filters)
-	levelOnly := filtersLevelOnly(q.filters) && q.specVersion == 0
+	levelOnly := filtersLevelOnly(q.filters) && q.deploymentVersion == 0
 	type scanJob struct {
 		fi   int
 		plan filePlan

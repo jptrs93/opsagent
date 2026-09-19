@@ -113,7 +113,7 @@ func TestReAttachRunningAttachesOnlyMatchingOpendeployBuild(t *testing.T) {
 	matchingStore := &fakeOperatorStore{}
 	matching := opendeployTestDeployment()
 	matching.Value.Spec.OpendeploySpec.Version = version.Version
-	matchingRunner := ReAttachRunning(matchingStore, nil, opendeployTestInstanceID, matching, apigen.RunnerStatus{})
+	matchingRunner := ReAttachRunning(matchingStore, nil, opendeployTestInstanceID, 1, matching, apigen.RunnerStatus{})
 	matchingRunner.Stop()
 	statuses := matchingStore.runnerStatuses()
 	if len(statuses) != 1 || statuses[0].Status != apigen.RunningStatus_RUNNING {
@@ -124,7 +124,7 @@ func TestReAttachRunningAttachesOnlyMatchingOpendeployBuild(t *testing.T) {
 	mismatched := opendeployTestDeployment()
 	mismatched.Value.Spec.OpendeploySpec.Version = version.Version + "-next"
 	stale := apigen.RunnerStatus{DeploymentSpecVersion: mismatched.SpecVersion, Status: apigen.RunningStatus_STARTING}
-	mismatchedRunner := ReAttachRunning(mismatchedStore, nil, opendeployTestInstanceID, mismatched, stale)
+	mismatchedRunner := ReAttachRunning(mismatchedStore, nil, opendeployTestInstanceID, 1, mismatched, stale)
 	mismatchedRunner.Stop()
 	if statuses := mismatchedStore.runnerStatuses(); len(statuses) != 0 {
 		t.Fatalf("mismatched build published statuses: %+v", statuses)

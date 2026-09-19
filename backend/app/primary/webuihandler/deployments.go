@@ -37,7 +37,7 @@ func (h *Handler) deploymentService() *deployments.Service {
 const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHub. Please try again."
 
 func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentEvent, error) {
-	newDep := &apigen.DeploymentEvent{Value: apigen.Deployment{NodeID: req.NodeID, SpaceID: req.SpaceID, Name: req.Name, Spec: req.Spec}}
+	newDep := &apigen.DeploymentEvent{Value: apigen.Deployment{Scheduling: req.Scheduling, SpaceID: req.SpaceID, Name: req.Name, Spec: req.Spec}}
 	if err := h.requireAccess(ctx, vCreate, eDeployment, int64(req.SpaceID), 0); err != nil {
 		return nil, err
 	}
@@ -213,9 +213,9 @@ func githubReleaseVersionsErr(err error) apigen.ApiErr {
 // deployment on the node, so it is gated on view_logs for that deployment in
 // the system space, the same permission that reads any other deployment's
 // logs; nodes themselves carry no log permission.
-func (h *Handler) logQueryTargetNode(ctx apigen.Context, deploymentID, targetNodeID, specVersion int32) (int32, error) {
-	if specVersion < 0 {
-		return 0, deployments.InvalidConfigErrf("specVersion must not be negative")
+func (h *Handler) logQueryTargetNode(ctx apigen.Context, deploymentID, targetNodeID, deploymentVersion int32) (int32, error) {
+	if deploymentVersion < 0 {
+		return 0, deployments.InvalidConfigErrf("deploymentVersion must not be negative")
 	}
 	if deploymentID == 0 {
 		if targetNodeID <= 0 {
@@ -237,11 +237,11 @@ func (h *Handler) logQueryTargetNode(ctx apigen.Context, deploymentID, targetNod
 	if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID), deployments.NotFoundErr); err != nil {
 		return 0, err
 	}
-	return cfg.Value.NodeID, nil
+	return cfg.Value.PlacementNodeID(), nil
 }
 
 func (h *Handler) PostV1DeploymentsLogQuery(ctx apigen.Context, req *apigen.LogQueryRequest) (*apigen.LogQueryResponse, error) {
-	nodeID, err := h.logQueryTargetNode(ctx, req.DeploymentID, req.TargetNodeID, req.SpecVersion)
+	nodeID, err := h.logQueryTargetNode(ctx, req.DeploymentID, req.TargetNodeID, req.DeploymentVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -282,12 +282,12 @@ func (h *Handler) PostV1DeploymentsPrepareOutput(ctx apigen.Context, req *apigen
 			yield(nil, err)
 			return
 		}
-		if cfg.Value.NodeID > 0 && cfg.Value.NodeID != h.NodeID && h.Cluster != nil {
-			reader, err := h.Cluster.RequestLogs(cfg.Value.NodeID, &apigen.MsgToSecondary{
+		if cfg.Value.PlacementNodeID() > 0 && cfg.Value.PlacementNodeID() != h.NodeID && h.Cluster != nil {
+			reader, err := h.Cluster.RequestLogs(cfg.Value.PlacementNodeID(), &apigen.MsgToSecondary{
 				DeploymentLogRequest: &apigen.DeploymentLogRequest{PreparerOutput: req},
 			})
 			if err != nil {
-				yield(nil, apigen.NewApiErr(fmt.Sprintf("Secondary node %d is not connected", cfg.Value.NodeID), "secondary_not_connected", 502))
+				yield(nil, apigen.NewApiErr(fmt.Sprintf("Secondary node %d is not connected", cfg.Value.PlacementNodeID()), "secondary_not_connected", 502))
 				return
 			}
 			defer reader.Close()
@@ -424,7 +424,7 @@ func (h *Handler) systemDeploymentForNode(nodeID int32) *apigen.DeploymentEvent 
 		return nil
 	}
 	for _, cfg := range events {
-		if !cfg.Deleted() && internaldeploy.IsSelfConfig(cfg) && cfg.Value.NodeID == nodeID {
+		if !cfg.Deleted() && internaldeploy.IsSelfConfig(cfg) && cfg.Value.PlacementNodeID() == nodeID {
 			return cfg
 		}
 	}

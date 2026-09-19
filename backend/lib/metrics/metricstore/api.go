@@ -75,10 +75,10 @@ func (s *Store) QueryResponse(ctx context.Context, req *apigen.MetricsQueryReque
 			DeploymentID:        req.DeploymentID,
 			ScheduledInstanceID: req.ScheduledInstanceID,
 		},
-		Step:        time.Duration(req.StepMs) * time.Millisecond,
-		Fields:      fields,
-		SpecVersion: req.SpecVersion,
-		Run:         req.Run,
+		Step:              time.Duration(req.StepMs) * time.Millisecond,
+		Fields:            fields,
+		DeploymentVersion: req.DeploymentVersion,
+		Run:               req.Run,
 	})
 	if err != nil {
 		return nil, err
@@ -94,7 +94,7 @@ func (s *Store) QueryResponse(ctx context.Context, req *apigen.MetricsQueryReque
 		out.Series = append(out.Series, &apigen.MetricsSeries{
 			ScheduledInstanceID: ser.Key.ScheduledInstanceID,
 			Ordinal:             ser.Key.Ordinal,
-			SpecVersion:         ser.Key.SpecVersion,
+			DeploymentVersion:   ser.Key.DeploymentVersion,
 			Run:                 ser.Key.Run,
 			NodeID:              ser.NodeID,
 			Field:               ser.Field.Name,

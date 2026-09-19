@@ -21,7 +21,7 @@ import {
     ViewPlugin,
 } from "@codemirror/view";
 import {deploymentHcl} from "../hcl/index.js";
-import {deploymentDeleted} from "../lib/deployment.js";
+import {deploymentDeleted, placementNodeId} from "../lib/deployment.js";
 import {
     deploymentDocumentToHcl,
     deploymentHclCompletionOptions,
@@ -174,7 +174,7 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
             && Number(itemSpaceID) !== Number(spaceID)
             && Number(itemSpaceID) !== GLOBAL_SPACE_ID) continue;
         if (type === "deployment" && nodeID !== null
-            && Number(deployment(item)?.value?.nodeId) !== Number(nodeID)) continue;
+            && placementNodeId(deployment(item)) !== Number(nodeID)) continue;
         const name = catalogName(item, type);
         if (!name) continue;
         const quoted = JSON.stringify(String(name));

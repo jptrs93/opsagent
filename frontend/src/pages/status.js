@@ -15,7 +15,7 @@ import {recentlyDeletedOverlay} from "../components/recentlyDeletedOverlay.js";
 import {formatDeploymentLabel, restartDeploymentOverlay, restartDeploymentPayload} from "../components/restartDeploymentOverlay.js";
 import {capi} from "../capi/index.js";
 import {nodeDisplayName} from "../lib/machines.js";
-import {containerWorkload, deploymentDeleted, deploymentWorkload} from "../lib/deployment.js";
+import {containerWorkload, deploymentDeleted, deploymentWorkload, placementNodeId, desiredRunning} from "../lib/deployment.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 import {preparerPhase} from "../lib/preparerStatus.js";
@@ -354,7 +354,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
 
         const runnerType = spec.opendeploySpec ? 'opendeploy' : 'container';
         const spaceId = identity.spaceId || 0;
-        const nodeId = Number(d.config.value?.nodeId || 0);
+        const nodeId = placementNodeId(d.config);
         const node = nodeDisplayName(nodeId, machines);
         const nodeMissing = Boolean(nodeId) && !machinesByNodeId.has(nodeId);
         const existingStatus = runner.status || 0;
@@ -404,7 +404,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             existingStatus: uiExistingStatus,
             canDelete: systemDeployment
                 ? nodeMissing
-                : uiExistingStatus === STATUS_STOPPED || (!d.instance && !workload.running) || (nodeMissing && uiExistingStatus === 0),
+                : uiExistingStatus === STATUS_STOPPED || (!d.instance && !desiredRunning(d.config)) || (nodeMissing && uiExistingStatus === 0),
             nodeMissing,
             existingVersion: runner.runningVersion || '',
             numberOfRestarts: runner.numberOfRestarts || 0,
@@ -414,7 +414,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             createdAt: d.config.createdTime,
             hasNetworking: Boolean(spec.networking),
             deployedVersion: workload.version || '',
-            desiredRunning: Boolean(workload.running),
+            desiredRunning: desiredRunning(d.config),
             preparer: prep,
             prepareVersion: deploymentWorkload(d.pinnedConfig)?.version || workload.version || '',
             currentVersion: d.config.specVersion || 0,

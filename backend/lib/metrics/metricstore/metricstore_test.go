@@ -22,7 +22,7 @@ func mkSample(dep, run int32, t time.Time, cpu int64) *apigen.MetricsSample {
 		Time:                t.UnixMilli(),
 		DeploymentID:        dep,
 		ScheduledInstanceID: dep * 10,
-		SpecVersion:         1,
+		DeploymentVersion:   1,
 		Run:                 run,
 		NodeID:              7,
 		CpuUsageUsec:        &cpu,
@@ -254,7 +254,7 @@ func TestToSampleEncodesPresence(t *testing.T) {
 	fds := uint64(9)
 	pids := uint64(3)
 	s := metrics.Sample{
-		Key:  metrics.TargetKey{DeploymentID: 1, ScheduledInstanceID: 2, Ordinal: 0, SpecVersion: 3, Run: 4},
+		Key:  metrics.TargetKey{DeploymentID: 1, ScheduledInstanceID: 2, Ordinal: 0, DeploymentVersion: 3, Run: 4},
 		Time: day1.Add(time.Second),
 		Cgroup: metrics.CgroupMetrics{
 			CPU:         &metrics.CPUStats{UsageUsec: 10, ThrottledUsec: 1},

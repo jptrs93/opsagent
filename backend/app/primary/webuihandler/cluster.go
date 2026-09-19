@@ -100,7 +100,7 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	// Narrowing must not contradict what is already placed on the node. This is
 	// the same shape as refusing to delete a space with live deployments.
 	for _, cfg := range deployments.Active(h.Queries, nil) {
-		if cfg.Value.NodeID != node.ID {
+		if cfg.Value.PlacementNodeID() != node.ID {
 			continue
 		}
 		if _, ok := requested[cfg.Value.SpaceID]; !ok {

@@ -54,7 +54,7 @@ type RolloverCandidate interface {
 // The artifact to execute is taken from status.Preparer.Artifact — the
 // operator only calls Create once the preparer has reached READY for
 // dep.Version.
-func Create(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, status *apigen.ScheduledInstanceStatus) Runner {
+func Create(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID int32, dep *apigen.DeploymentEvent, status *apigen.ScheduledInstanceStatus) Runner {
 	var preparer apigen.PreparerStatus
 	if status != nil {
 		preparer = status.Preparer
@@ -64,17 +64,17 @@ func Create(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, in
 	if isOpendeploy(dep) {
 		return newOpendeployRunnerWithRestart(store, instanceID, dep, preparer)
 	}
-	return newContainerRunner(store, inputs, instanceID, dep, preparer)
+	return newContainerRunner(store, inputs, instanceID, nodeID, dep, preparer)
 }
 
-func CreateRolloverCandidate(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, status *apigen.ScheduledInstanceStatus) RolloverCandidate {
+func CreateRolloverCandidate(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID int32, dep *apigen.DeploymentEvent, status *apigen.ScheduledInstanceStatus) RolloverCandidate {
 	var preparer apigen.PreparerStatus
 	if status != nil {
 		preparer = status.Preparer
 	}
 	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf("runner.CreateRolloverCandidate artifact=%q specVersion=%d",
 		preparer.Artifact, preparer.DeploymentSpecVersion))
-	return newRolloverContainerRunner(store, inputs, instanceID, dep, preparer)
+	return newRolloverContainerRunner(store, inputs, instanceID, nodeID, dep, preparer)
 }
 
 // ReAttachRunning resumes supervision for a deployment whose desired state is
@@ -84,7 +84,7 @@ func CreateRolloverCandidate(store storage.OperatorStore, inputs *runtimeinputs.
 // The opendeploy self deployment reattaches only when the current process is
 // the desired build; otherwise Stopped is returned so the operator waits for
 // prepare and then Create (install+restart).
-func ReAttachRunning(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, prev apigen.RunnerStatus) Runner {
+func ReAttachRunning(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID int32, dep *apigen.DeploymentEvent, prev apigen.RunnerStatus) Runner {
 	if isOpendeploy(dep) {
 		if dep.WorkloadVersion() != version.Version {
 			slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf(
@@ -101,13 +101,13 @@ func ReAttachRunning(store storage.OperatorStore, inputs *runtimeinputs.RuntimeI
 	}
 	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf(
 		"runner.ReAttachRunning: reattaching prev=[%s]", fmtRunnerStatus(prev)))
-	return reAttachContainerRunner(store, inputs, instanceID, dep, prev, containerStartupReattachRunning)
+	return reAttachContainerRunner(store, inputs, instanceID, nodeID, dep, prev, containerStartupReattachRunning)
 }
 
 // ReAttachStopped reconciles runtime leftovers for a deployment whose desired
 // state is stopped. Container runners may adopt an existing task only to stop
 // and delete it; they never start a fresh task from this path.
-func ReAttachStopped(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, prev apigen.RunnerStatus) Runner {
+func ReAttachStopped(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID int32, dep *apigen.DeploymentEvent, prev apigen.RunnerStatus) Runner {
 	if prev.IsZero() {
 		slog.InfoContext(deploymentLogContext(instanceID, dep), "runner.ReAttachStopped: no previous runner, returning stopped")
 		return Stopped()
@@ -117,7 +117,7 @@ func ReAttachStopped(store storage.OperatorStore, inputs *runtimeinputs.RuntimeI
 	if isOpendeploy(dep) {
 		return Stopped()
 	}
-	return reAttachContainerRunner(store, inputs, instanceID, dep, prev, containerStartupReattachStopped)
+	return reAttachContainerRunner(store, inputs, instanceID, nodeID, dep, prev, containerStartupReattachStopped)
 }
 
 // Stopped returns a no-op Runner sentinel used when no process is running.

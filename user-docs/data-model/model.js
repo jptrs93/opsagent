@@ -127,7 +127,12 @@
       f('value', obj('Deployment', [
       f('name', 'string', { versioned: true }),
       f('spaceId', 'int32', { ref: 'Space.id', versioned: true }),
-      f('nodeId', 'int32', { ref: 'NodeEvent.nodeId' }),
+      f('scheduling', obj('Scheduling', [
+        f('running', 'bool', { note: 'applies to every scheduling variant' }),
+        f('dedicatedNodes', obj('DedicatedNodesScheduling', [
+          f('nodes', 'int32', { mod: 'repeated', ref: 'NodeEvent.nodeId', note: 'one instance per node; exactly one node today' }),
+        ]), { note: 'exactly one variant set; auto scheduling is a future sibling' }),
+      ], { versioned: true })),
       f('spec', obj('DeploymentSpec', [
         f('networking', obj('NetworkingConfig', [
           f('mode', en('NetworkingMode', [
@@ -190,7 +195,6 @@
             ])),
           ])),
           f('version', 'string'),
-          f('running', 'bool'),
           f('upgradeStrategy', en('ContainerUpgradeStrategy', [
             v('RECREATE', 'stop old, start new'),
             v('ROLLOVER', 'candidate warms beside the old run'),
@@ -440,7 +444,7 @@
   g.addEdge({
     from: 'deployment', to: 'node',
     kind: 'ref', fromSide: 'top', toSide: 'bottom',
-    label: 'nodeId → id (placement)',
+    label: 'scheduling.dedicatedNodes.nodes → nodeId',
   });
   g.addEdge({
     from: 'netpolicy', to: 'deployment',

@@ -12,7 +12,10 @@ and supervises running containers with automatic crash recovery.
 
 Each deployment currently has exactly one workload. Public deployments use
 `spec.container1Spec`, which contains one artifact `source`, its `runtime`
-configuration, and workload-local `version` and `running` desired state.
+configuration, and the workload-local desired `version`. Where and whether
+the deployment runs is `scheduling`: `running` applies to every scheduling
+variant, and `dedicatedNodes.nodes` hand-picks the nodes it runs on (exactly
+one today). An auto-scheduled variant will sit beside `dedicatedNodes` later.
 
 A deployment is created by posting a `DeploymentCreateRequest` to
 `POST /v1/deployments/create`:
@@ -21,7 +24,7 @@ A deployment is created by posting a `DeploymentCreateRequest` to
 {
   "name": "coflip_server",
   "spaceId": 1,
-  "nodeId": 1,
+  "scheduling": {"running": true, "dedicatedNodes": {"nodes": [1]}},
   "spec": {
     "networking": {"mode": 1},
     "container1Spec": {
@@ -41,22 +44,22 @@ A deployment is created by posting a `DeploymentCreateRequest` to
         "devShmSizeKb": 65536,
         "mounts": [{"hostPath": "/home/ubuntu/coflip-server/data", "containerPath": "/data", "permission": 1}]
       },
-      "version": "0123456789abcdef0123456789abcdef01234567",
-      "running": true
+      "version": "0123456789abcdef0123456789abcdef01234567"
     }
   }
 }
 ```
 
 The spec of an existing deployment is updated by posting a `spec_update` in
-`POST /v2/deployments/update`. Its name and `nodeId` placement are fixed at
+`POST /v2/deployments/update`. Its name and node placement are fixed at
 creation; its space can be changed through the same endpoint's
-`assigned_space_update` kind (see Config versioning).
+`assigned_space_update` kind, and its running state through
+`running_only_update` (see Config versioning).
 
-`nodeId` is the required canonical placement and references `ClusterNode.id`.
-Every stored deployment has a positive canonical `nodeId`. Deployment history
-entries carry the deployment's current identity and node placement as display
-metadata.
+`scheduling.dedicatedNodes.nodes` is the required canonical placement and
+references `NodeEvent.nodeId`; validation accepts exactly one positive node id
+until multi-node deployments land. Deployment history entries carry the
+deployment's current identity and node placement as display metadata.
 
 ### Source variants
 
@@ -145,11 +148,19 @@ A deployment is versioned at two levels. `Deployment.version` is the
 top-level version: a per-deployment monotonically increasing integer that
 bumps on every change of any kind. Sub-parts with their own operations are
 tracked beneath it: `Deployment.specVersion` bumps only when the spec bytes
-change, and `Deployment.spaceVersion` only when the space assignment changes.
+change, `Deployment.spaceVersion` only when the space assignment changes,
+and `Deployment.schedulingVersion` only when the placement or desired
+running state changes, so a stop or start never re-keys the spec. Log
+records, metrics samples and the log and metrics queries use the top-level
+version: a placement runs exactly one top-level version and each bump
+creates a new placement, so the version together with node, instance and
+run names one container lifetime even though run numbers restart at 1 for
+every placement. `specVersion` remains the "code changed" facet for history
+and the run report.
 Storage is a single append-only event log, `deployment_event_log`: every
 mutation appends one row carrying a full `Deployment` snapshot (`value`)
 plus queryable version columns (`version`, `spec_version`,
-`space_assignment_version`, `name_version`), unique on
+`space_assignment_version`, `name_version`, `scheduling_version`), unique on
 `(deployment_id, version)` — which is also the CAS backstop every guarded
 operation transitively rests on. The current desired state is the deployment's
 highest-version event; the UI reconstructs the sequence of changes from the
@@ -187,8 +198,8 @@ and the maximum space ID, and a deployment in space 0 cannot be moved out.
 
 A forced restart is the `restart_update` kind of `POST /v2/deployments/update`.
 It appends an event carrying the previous definition byte for byte, so only
-the top-level version advances and `specVersion`, `spaceVersion` and
-`nameVersion` stay put. The scheduler keys placements on the top-level
+the top-level version advances and `specVersion`, `spaceVersion`,
+`nameVersion` and `schedulingVersion` stay put. The scheduler keys placements on the top-level
 version, so the running placement is superseded exactly as it would be by a
 spec change and replaced under the deployment's upgrade strategy: RECREATE
 stops it and starts a replacement, ROLLOVER warms a replacement and promotes
@@ -203,8 +214,8 @@ the update editor's footer, enabled only while the editor holds no changes:
 with edits pending, an update is the intended action and replaces the
 placement anyway.
 
-The selected workload's `version` and `running` fields inside the persisted
-`DeploymentSpec` are the only authoritative desired state.
+The selected workload's `version` inside the persisted `DeploymentSpec` and
+`scheduling.running` beside it are the only authoritative desired state.
 
 ## Deployment state
 
@@ -212,10 +223,11 @@ Each deployment's runtime state is structured into sections owned by different c
 
 ### Workload desired state
 
-Set by user actions (deploy or stop). The selected `ContainerSpec` contains
-the target `version` and `running` boolean; `OpendeploySpec` carries only the
-target `version` and is always running. Audit fields (`updated_at`, `author`)
-and the config revision remain on the parent `Deployment`.
+Set by user actions (deploy or stop). The selected `ContainerSpec` or
+`OpendeploySpec` contains the target `version`; `scheduling.running` is the
+desired running state, and the opendeploy self-deployment is always running.
+Audit fields (`event_time`, `author`) and the version counters live on the
+`DeploymentEvent` envelope.
 
 Nix desired versions, when set, are full immutable commit hashes. Branch selection and the 25 most recent commits are discovery aids and are not persisted as source authority. Creating a running Nix deployment, starting one, changing its target commit, or changing its Nix source while it remains running performs synchronous remote commit and flake verification before persistence. Stopped Nix deployments still require structurally valid source fields but may omit the desired version and do not require remote accessibility until they transition to running; a stopped deployment may also retarget its version for its next start.
 
@@ -257,7 +269,7 @@ Driven by the runner. Tracks the running container task with `running_pid`,
 
 ## Deployment identification
 
-Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployments/create`. Human-readable metadata lives directly on `Deployment` (`name`, `spaceId`), and application identity is `{nodeId, spaceId, name}`. Active-identity uniqueness is a Go-level check under the store mutex on create and space move (the identity lives inside the event snapshots, so it cannot be a SQL constraint). All API requests, storage keys, and log file paths use the integer `id`.
+Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployments/create`. Human-readable metadata lives directly on `Deployment` (`name`, `spaceId`), and application identity is `{scheduling.dedicatedNodes.nodes[0], spaceId, name}`. Active-identity uniqueness is a Go-level check under the store mutex on create and space move (the identity lives inside the event snapshots, so it cannot be a SQL constraint). All API requests, storage keys, and log file paths use the integer `id`.
 
 Deleting a deployment releases its human-readable identity tuple but retains its ID, configuration history, status history, logs, volumes, and other ID-owned records. Creating a deployment later with the same space, node, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
 
@@ -326,7 +338,8 @@ once; a tab closes on save or Cancel, and asks before discarding unsaved
 edits. The editor has a UI form and an HCL Code surface over the same
 document; Code is the default and the last choice is remembered per browser.
 In HCL, `name` and `space` sit directly in the `deployment` block; the
-node and `desired_running` form a `scheduling` block, and the version sits in
+`scheduling` block mirrors the API (`running = true` and
+`dedicated_nodes { nodes = [node("name")] }`), and the version sits in
 the source block: a Nix commit beside its repository, or the tag or digest of
 the container image reference itself.
 
@@ -356,10 +369,12 @@ stopped requires only well-formed fields.
    saved running.
 2. The user picks a version (and optionally edits the deployment spec) and submits.
 3. The frontend calls `POST /v2/deployments/update` — a `version_only_update`
-   carrying the target version, or a `spec_update` with the new typed `spec`
-   (which carries the workload version and running state inside it) if the
-   spec was edited.
-4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the spec with the selected workload's version and `running=true`, and bumps `Deployment.Version`. Verification failure writes nothing.
+   carrying the target version (which also marks the deployment running), or
+   a `spec_update` with the new typed `spec` (which carries the workload
+   version inside it) if the spec was edited. A spec update never changes
+   the running state; when the toggle moved as well, a `running_only_update`
+   follows as a second request.
+4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the spec with the selected workload's version and `scheduling.running=true`, and bumps `Deployment.Version`. Verification failure writes nothing.
 5. The operator's reconciliation loop picks up the change and starts a
    preparer.
 6. The preparer resolves runtime inputs, then clones/fetches, pulls, or

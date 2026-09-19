@@ -1,12 +1,13 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
+import {placementNodeId} from "../lib/deployment.js";
 
 const {button, div, h2, input, label, li, p, span, ul} = van.tags;
 
 const SYSTEM_SPACE_ID = 0;
 
 export function pinnedUserDeployments(deployments, nodeId) {
-    return (deployments || []).filter(row => Number(row.config?.value?.nodeId) === Number(nodeId)
+    return (deployments || []).filter(row => placementNodeId(row.config) === Number(nodeId)
         && Number(row.config?.value?.spaceId) !== SYSTEM_SPACE_ID);
 }
 

@@ -18,7 +18,7 @@ import (
 const metricsLatestTimeout = 5 * time.Second
 
 func (h *Handler) metricsNodes(cfg *apigen.DeploymentEvent) []int32 {
-	nodes := []int32{cfg.Value.NodeID}
+	nodes := []int32{cfg.Value.PlacementNodeID()}
 	for _, st := range h.Store.FetchScheduledSnapshot(nil) {
 		if st.Instance.DeploymentID == cfg.DeploymentID && st.Instance.NodeID > 0 && !slices.Contains(nodes, st.Instance.NodeID) {
 			nodes = append(nodes, st.Instance.NodeID)
@@ -31,7 +31,7 @@ func (h *Handler) PostV1MetricsQuery(ctx apigen.Context, req *apigen.MetricsQuer
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
 	}
-	if req.SpecVersion < 0 || req.Run < 0 || req.ScheduledInstanceID < 0 || req.StepMs < 0 {
+	if req.DeploymentVersion < 0 || req.Run < 0 || req.ScheduledInstanceID < 0 || req.StepMs < 0 {
 		return nil, deployments.InvalidConfigErrf("scope values must not be negative")
 	}
 	cfg := h.findConfigByID(req.DeploymentID)

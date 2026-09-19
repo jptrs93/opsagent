@@ -4,7 +4,7 @@ import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {sectionBand} from "../components/sectionBand.js";
 import {evictNodeOverlay, pinnedUserDeployments} from "../components/evictNodeOverlay.js";
 import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, systemConfigS, spacesS, userConfigRefsS} from "../state/deployments.js";
-import {deploymentWorkload} from "../lib/deployment.js";
+import {deploymentWorkload, placementNodeId} from "../lib/deployment.js";
 import {allowedSpaceNames, editableSpaceIDs, isFixedSpace} from "../lib/nodeSpaces.js";
 
 const { button, code, div, input, label, p, span, table, tbody, td, th, thead, tr } = van.tags;
@@ -436,7 +436,7 @@ function primaryOpenDeployVersion() {
     const primaryID = Number(machinesS.val.find(machine => machine.isPrimary)?.id || 0);
     if (!primaryID) return "";
     const deployment = deploymentsS.val.find(item =>
-        Number(item.config?.value?.nodeId || 0) === primaryID &&
+        placementNodeId(item.config) === primaryID &&
         Number(item.config?.value?.spaceId || 0) === 0 &&
         item.config?.value?.name === "opendeploy",
     );

@@ -226,25 +226,36 @@ const (
 )
 
 type Deployment struct {
-	NodeID  int32          `json:"node_id"`
-	Spec    DeploymentSpec `json:"spec"`
-	SpaceID int32          `json:"space_id"`
-	Name    string         `json:"name,omitempty"`
+	NodeID     int32          `json:"node_id"`
+	Spec       DeploymentSpec `json:"spec"`
+	SpaceID    int32          `json:"space_id"`
+	Name       string         `json:"name,omitempty"`
+	Scheduling Scheduling     `json:"scheduling"`
+}
+
+type Scheduling struct {
+	Running        bool                      `json:"running"`
+	DedicatedNodes *DedicatedNodesScheduling `json:"dedicated_nodes"`
+}
+
+type DedicatedNodesScheduling struct {
+	Nodes []int32 `json:"nodes,omitempty"`
 }
 
 type DeploymentEvent struct {
-	DeploymentID int32      `json:"deployment_id"`
-	Version      int32      `json:"version"`
-	Seq          int64      `json:"seq"`
-	EventID      int64      `json:"event_id"`
-	Author       int32      `json:"author"`
-	EventType    EventType  `json:"event_type"`
-	CreatedTime  time.Time  `json:"created_time"`
-	EventTime    time.Time  `json:"event_time"`
-	SpecVersion  int32      `json:"spec_version"`
-	SpaceVersion int32      `json:"space_version"`
-	NameVersion  int32      `json:"name_version"`
-	Value        Deployment `json:"value"`
+	DeploymentID      int32      `json:"deployment_id"`
+	Version           int32      `json:"version"`
+	Seq               int64      `json:"seq"`
+	EventID           int64      `json:"event_id"`
+	Author            int32      `json:"author"`
+	EventType         EventType  `json:"event_type"`
+	CreatedTime       time.Time  `json:"created_time"`
+	EventTime         time.Time  `json:"event_time"`
+	SpecVersion       int32      `json:"spec_version"`
+	SpaceVersion      int32      `json:"space_version"`
+	NameVersion       int32      `json:"name_version"`
+	SchedulingVersion int32      `json:"scheduling_version"`
+	Value             Deployment `json:"value"`
 }
 
 type DeploymentSpec struct {
@@ -513,10 +524,10 @@ type RestartUpdate struct {
 }
 
 type DeploymentCreateRequest struct {
-	Name    string         `json:"name,omitempty"`
-	SpaceID int32          `json:"space_id"`
-	Spec    DeploymentSpec `json:"spec"`
-	NodeID  int32          `json:"node_id"`
+	Name       string         `json:"name,omitempty"`
+	SpaceID    int32          `json:"space_id"`
+	Spec       DeploymentSpec `json:"spec"`
+	Scheduling Scheduling     `json:"scheduling"`
 }
 
 type DeploymentHistoryRequest struct {
@@ -671,6 +682,7 @@ type DeploymentRunReport struct {
 	LogLines              []string      `json:"log_lines,omitempty"`
 	Warnings              []string      `json:"warnings,omitempty"`
 	Status                RunningStatus `json:"status"`
+	DeploymentVersion     int32         `json:"deployment_version"`
 }
 
 type RawLogLine struct {
@@ -722,17 +734,17 @@ type LogFilter struct {
 }
 
 type LogQueryRequest struct {
-	DeploymentID     int32        `json:"deployment_id"`
-	TargetNodeID     int32        `json:"target_node_id"`
-	SpecVersion      int32        `json:"spec_version"`
-	TimeStart        time.Time    `json:"time_start"`
-	TimeEnd          time.Time    `json:"time_end"`
-	Filters          []*LogFilter `json:"filters,omitempty"`
-	Limit            int32        `json:"limit"`
-	HistogramBuckets int32        `json:"histogram_buckets"`
-	IncludeRaw       bool         `json:"include_raw"`
-	Order            string       `json:"order,omitempty"`
-	RequestID        string       `json:"request_id,omitempty"`
+	DeploymentID      int32        `json:"deployment_id"`
+	TargetNodeID      int32        `json:"target_node_id"`
+	DeploymentVersion int32        `json:"deployment_version"`
+	TimeStart         time.Time    `json:"time_start"`
+	TimeEnd           time.Time    `json:"time_end"`
+	Filters           []*LogFilter `json:"filters,omitempty"`
+	Limit             int32        `json:"limit"`
+	HistogramBuckets  int32        `json:"histogram_buckets"`
+	IncludeRaw        bool         `json:"include_raw"`
+	Order             string       `json:"order,omitempty"`
+	RequestID         string       `json:"request_id,omitempty"`
 }
 
 type LogQueryStats struct {
@@ -783,7 +795,7 @@ type MetricsSample struct {
 	DeploymentID        int32    `json:"deployment_id"`
 	ScheduledInstanceID int32    `json:"scheduled_instance_id"`
 	Ordinal             int32    `json:"ordinal"`
-	SpecVersion         int32    `json:"spec_version"`
+	DeploymentVersion   int32    `json:"deployment_version"`
 	Run                 int32    `json:"run"`
 	NodeID              int32    `json:"node_id"`
 	Terminal            bool     `json:"terminal"`
@@ -847,7 +859,7 @@ type MetricsQueryRequest struct {
 	DeploymentID        int32     `json:"deployment_id"`
 	TargetNodeID        int32     `json:"target_node_id"`
 	ScheduledInstanceID int32     `json:"scheduled_instance_id"`
-	SpecVersion         int32     `json:"spec_version"`
+	DeploymentVersion   int32     `json:"deployment_version"`
 	Run                 int32     `json:"run"`
 	TimeStart           time.Time `json:"time_start"`
 	TimeEnd             time.Time `json:"time_end"`
@@ -859,7 +871,7 @@ type MetricsQueryRequest struct {
 type MetricsSeries struct {
 	ScheduledInstanceID int32     `json:"scheduled_instance_id"`
 	Ordinal             int32     `json:"ordinal"`
-	SpecVersion         int32     `json:"spec_version"`
+	DeploymentVersion   int32     `json:"deployment_version"`
 	Run                 int32     `json:"run"`
 	NodeID              int32     `json:"node_id"`
 	Field               string    `json:"field,omitempty"`

@@ -57,7 +57,7 @@ func referencingConfig(version int32) apigen.DeploymentEvent {
 	return apigen.DeploymentEvent{
 		DeploymentID: 7,
 		SpecVersion:  version,
-		Value:        apigen.Deployment{NodeID: 23, SpaceID: 1, Name: "api", Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4}}, EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: ptrInt32(1)}}}}}},
+		Value:        apigen.Deployment{Scheduling: apigen.DedicatedScheduling(false, 23), SpaceID: 1, Name: "api", Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4}}, EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: ptrInt32(1)}}}}}},
 	}
 }
 

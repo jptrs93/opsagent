@@ -104,8 +104,10 @@ const fullConfig = `deployment {
   }
 
   scheduling {
-    node = node("worker-1")
-    desired_running = true
+    running = true
+    dedicated_nodes {
+      nodes = [node("worker-1")]
+    }
   }
 }
 `;

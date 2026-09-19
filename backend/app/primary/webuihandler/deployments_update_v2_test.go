@@ -23,8 +23,8 @@ func newV2DeploymentHandler(t *testing.T) (*Handler, *apigen.DeploymentEvent, *s
 	h := &Handler{SystemConfig: &systemconfig.Service{}, Store: store, Queries: store.Queries()}
 	cfg, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: "web",
-		NodeID: node.ID,
-		Spec:   remoteDeploymentSpec("nginx", hostNetworking()),
+		Scheduling: apigen.DedicatedScheduling(false, node.ID),
+		Spec:       remoteDeploymentSpec("nginx", hostNetworking()),
 	})
 	if err != nil {
 		t.Fatalf("create deployment: %v", err)
@@ -163,9 +163,9 @@ func TestPostV2DeploymentsUpdateRestart(t *testing.T) {
 
 func TestPostV2DeploymentsUpdateSpec(t *testing.T) {
 	h, cfg, _ := newV2DeploymentHandler(t)
-	spec := remoteDeploymentSpec("caddy", hostNetworking())
+	spec := remoteDeploymentSpec("nginx", hostNetworking())
 	spec.Container1Spec.Version = "2.8"
-	spec.Container1Spec.Running = true
+	spec.Container1Spec.Runtime.User = "1000"
 	updated, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:    cfg.DeploymentID,
 		ExpectedVersion: cfg.Version + 1,
@@ -174,9 +174,12 @@ func TestPostV2DeploymentsUpdateSpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spec update: %v", err)
 	}
-	if updated.Value.Spec.Container1Spec.Source.RemoteImage.Image != "caddy" ||
-		updated.WorkloadVersion() != "2.8" || !updated.WorkloadRunning() {
-		t.Fatalf("updated spec = %+v, want caddy at 2.8 running", updated.Value.Spec.Container1Spec)
+	if updated.Value.Spec.Container1Spec.Runtime.User != "1000" ||
+		updated.WorkloadVersion() != "2.8" || updated.WorkloadRunning() != cfg.WorkloadRunning() {
+		t.Fatalf("updated spec = %+v, want user 1000 at 2.8 with running state unchanged", updated.Value.Spec.Container1Spec)
+	}
+	if updated.SpecVersion != cfg.SpecVersion+1 || updated.SchedulingVersion != cfg.SchedulingVersion {
+		t.Fatalf("versions = spec %d scheduling %d, want spec %d scheduling %d", updated.SpecVersion, updated.SchedulingVersion, cfg.SpecVersion+1, cfg.SchedulingVersion)
 	}
 	if updated.SpecVersion != cfg.SpecVersion+1 || updated.Version != cfg.Version+1 {
 		t.Fatalf("versions = %d/%d, want spec and top-level bumps", updated.SpecVersion, updated.Version)
@@ -229,7 +232,7 @@ func TestPostV2DeploymentsUpdateAssignedSpace(t *testing.T) {
 	}
 
 	zeroSpec := remoteDeploymentSpec("nginx", hostNetworking())
-	zeroDep := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 0, "zerodep", cfg.Value.NodeID, &zeroSpec)
+	zeroDep := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 0, "zerodep", cfg.Value.PlacementNodeID(), &zeroSpec)
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:        zeroDep.DeploymentID,
 		ExpectedVersion:     zeroDep.Version + 1,
@@ -246,7 +249,7 @@ func TestPostV2DeploymentsUpdateAssignedSpaceRejectsDuplicateIdentity(t *testing
 		t.Fatalf("CreateSpace: %v", err)
 	}
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
-	twin := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, extraSpace.ID, cfg.Value.Name, cfg.Value.NodeID, &spec)
+	twin := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, extraSpace.ID, cfg.Value.Name, cfg.Value.PlacementNodeID(), &spec)
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:        twin.DeploymentID,
 		ExpectedVersion:     twin.Version + 1,
@@ -379,12 +382,11 @@ func TestPostV2DeploymentsUpdateNixVerification(t *testing.T) {
 		h := &Handler{SystemConfig: &systemconfig.Service{}, Store: store, Queries: store.Queries(), GitVersions: provider}
 		cfg, err := h.PostV1DeploymentsCreate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentCreateRequest{
 			SpaceID: 1, Name: "web",
-			NodeID: node.ID,
+			Scheduling: apigen.DedicatedScheduling(false, node.ID),
 			Spec: apigen.DeploymentSpec{
 				Container1Spec: &apigen.ContainerSpec{
 					Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "nginx"}},
 					Version: "latest",
-					Running: true,
 				},
 				Networking: hostNetworking(),
 			},

@@ -14,7 +14,7 @@ type row struct {
 	DeploymentID        int32    `parquet:"deployment_id"`
 	ScheduledInstanceID int32    `parquet:"scheduled_instance_id"`
 	Ordinal             int32    `parquet:"ordinal"`
-	SpecVersion         int32    `parquet:"spec_version"`
+	DeploymentVersion   int32    `parquet:"spec_version"` // column name kept for files written before the value became the top-level deployment version
 	Run                 int32    `parquet:"run"`
 	NodeID              int32    `parquet:"node_id"`
 	Terminal            bool     `parquet:"terminal"`
@@ -123,7 +123,7 @@ func Key(s *apigen.MetricsSample) metrics.TargetKey {
 		DeploymentID:        s.DeploymentID,
 		ScheduledInstanceID: s.ScheduledInstanceID,
 		Ordinal:             s.Ordinal,
-		SpecVersion:         s.SpecVersion,
+		DeploymentVersion:   s.DeploymentVersion,
 		Run:                 s.Run,
 	}
 }
@@ -138,7 +138,7 @@ func CompareKey(a, b metrics.TargetKey) int {
 	if c := cmp.Compare(a.Ordinal, b.Ordinal); c != 0 {
 		return c
 	}
-	if c := cmp.Compare(a.SpecVersion, b.SpecVersion); c != 0 {
+	if c := cmp.Compare(a.DeploymentVersion, b.DeploymentVersion); c != 0 {
 		return c
 	}
 	return cmp.Compare(a.Run, b.Run)
@@ -157,7 +157,7 @@ func toSample(s *metrics.Sample, nodeID int32) *apigen.MetricsSample {
 		DeploymentID:        s.Key.DeploymentID,
 		ScheduledInstanceID: s.Key.ScheduledInstanceID,
 		Ordinal:             s.Key.Ordinal,
-		SpecVersion:         s.Key.SpecVersion,
+		DeploymentVersion:   s.Key.DeploymentVersion,
 		Run:                 s.Key.Run,
 		NodeID:              nodeID,
 		Terminal:            s.Terminal,

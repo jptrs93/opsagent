@@ -22,7 +22,7 @@ type TargetKey struct {
 	DeploymentID        int32
 	ScheduledInstanceID int32
 	Ordinal             int32
-	SpecVersion         int32
+	DeploymentVersion   int32
 	Run                 int32
 }
 

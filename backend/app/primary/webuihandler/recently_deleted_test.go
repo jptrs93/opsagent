@@ -106,8 +106,8 @@ func TestRecentlyDeletedRetainsForkableSpec(t *testing.T) {
 	if got := cfg.Value.Spec.Container1Spec.Source.NixDockerBuild.Repo; got != "github.com/acme/app" {
 		t.Fatalf("repo = %q, want github.com/acme/app", got)
 	}
-	if cfg.Value.Name != "web" || cfg.Value.NodeID != nodeID {
-		t.Fatalf("identity = %q/%d, want web/%d", cfg.Value.Name, cfg.Value.NodeID, nodeID)
+	if cfg.Value.Name != "web" || cfg.Value.PlacementNodeID() != nodeID {
+		t.Fatalf("identity = %q/%d, want web/%d", cfg.Value.Name, cfg.Value.PlacementNodeID(), nodeID)
 	}
 	if !cfg.Deleted() {
 		t.Fatal("tombstone is not marked deleted")

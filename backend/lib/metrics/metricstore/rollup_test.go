@@ -14,7 +14,7 @@ func rollupSample(t time.Time, key int32, cpu int64, mem int64) *apigen.MetricsS
 		Time:                t.UnixMilli(),
 		DeploymentID:        7,
 		ScheduledInstanceID: key,
-		SpecVersion:         1,
+		DeploymentVersion:   1,
 		Run:                 1,
 		NodeID:              3,
 		CpuUsageUsec:        &cpu,

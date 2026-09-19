@@ -18,20 +18,21 @@ const (
 
 func (q *Queries) InsertDeploymentEvent(ctx context.Context, event *apigen.DeploymentEvent) error {
 	row := q.db.QueryRowContext(ctx, `WITH previous AS (
- SELECT spec_version, space_assignment_version, name_version
+ SELECT spec_version, space_assignment_version, name_version, scheduling_version
  FROM deployment_event_log WHERE deployment_id = ? ORDER BY version DESC LIMIT 1
  ) INSERT INTO deployment_event_log (
  global_seq, event_time, created_time, author, deployment_id, version,
- spec_version, space_assignment_version, name_version,
- spec_changed, space_assignment_changed, name_changed, value, event_type
- ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
+ spec_version, space_assignment_version, name_version, scheduling_version,
+ spec_changed, space_assignment_changed, name_changed, scheduling_changed, value, event_type
+ ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
  ? > COALESCE((SELECT spec_version FROM previous), 0),
  ? > COALESCE((SELECT space_assignment_version FROM previous), 0),
- ? > COALESCE((SELECT name_version FROM previous), 0), ?, ?)
+ ? > COALESCE((SELECT name_version FROM previous), 0),
+ ? > COALESCE((SELECT scheduling_version FROM previous), 0), ?, ?)
  RETURNING `+deploymentEventColumns,
 		event.DeploymentID, event.Seq, event.EventTime.UnixMilli(), event.CreatedTime.UnixMilli(), event.Author,
-		event.DeploymentID, event.Version, event.SpecVersion, event.SpaceVersion, event.NameVersion,
-		event.SpecVersion, event.SpaceVersion, event.NameVersion, event.Value.Encode(), event.EventType)
+		event.DeploymentID, event.Version, event.SpecVersion, event.SpaceVersion, event.NameVersion, event.SchedulingVersion,
+		event.SpecVersion, event.SpaceVersion, event.NameVersion, event.SchedulingVersion, event.Value.Encode(), event.EventType)
 	written, err := scanDeploymentEvent(row)
 	if err != nil {
 		return err
@@ -43,17 +44,18 @@ func (q *Queries) InsertDeploymentEvent(ctx context.Context, event *apigen.Deplo
 func (q *Queries) WriteDeploymentCreate(ctx apigen.Context, deploymentID, seq int64, d *apigen.Deployment) (*apigen.DeploymentEvent, error) {
 	now := time.Now()
 	event := &apigen.DeploymentEvent{
-		Seq:          seq,
-		EventTime:    now,
-		CreatedTime:  now,
-		Author:       ctx.AttributionUserID(),
-		DeploymentID: int32(deploymentID),
-		Version:      1,
-		SpecVersion:  1,
-		SpaceVersion: 1,
-		NameVersion:  1,
-		Value:        *d,
-		EventType:    apigen.EventType_EVENT_TYPE_CREATE,
+		Seq:               seq,
+		EventTime:         now,
+		CreatedTime:       now,
+		Author:            ctx.AttributionUserID(),
+		DeploymentID:      int32(deploymentID),
+		Version:           1,
+		SpecVersion:       1,
+		SpaceVersion:      1,
+		NameVersion:       1,
+		SchedulingVersion: 1,
+		Value:             *d,
+		EventType:         apigen.EventType_EVENT_TYPE_CREATE,
 	}
 	if err := q.InsertDeploymentEvent(ctx, event); err != nil {
 		return nil, err
@@ -84,17 +86,18 @@ func (q *Queries) WriteDeploymentDelete(ctx apigen.Context, deploymentID, seq in
 		return nil, err
 	}
 	event := &apigen.DeploymentEvent{
-		Seq:          seq,
-		EventTime:    time.UnixMilli(time.Now().UnixMilli()),
-		CreatedTime:  prev.CreatedTime,
-		Author:       ctx.AttributionUserID(),
-		DeploymentID: prev.DeploymentID,
-		Version:      prev.Version + 1,
-		SpecVersion:  prev.SpecVersion,
-		SpaceVersion: prev.SpaceVersion,
-		NameVersion:  prev.NameVersion,
-		Value:        prev.Value,
-		EventType:    apigen.EventType_EVENT_TYPE_DELETE,
+		Seq:               seq,
+		EventTime:         time.UnixMilli(time.Now().UnixMilli()),
+		CreatedTime:       prev.CreatedTime,
+		Author:            ctx.AttributionUserID(),
+		DeploymentID:      prev.DeploymentID,
+		Version:           prev.Version + 1,
+		SpecVersion:       prev.SpecVersion,
+		SpaceVersion:      prev.SpaceVersion,
+		NameVersion:       prev.NameVersion,
+		SchedulingVersion: prev.SchedulingVersion,
+		Value:             prev.Value,
+		EventType:         apigen.EventType_EVENT_TYPE_DELETE,
 	}
 	if err := q.InsertDeploymentEvent(ctx, event); err != nil {
 		return nil, err
@@ -107,19 +110,23 @@ func (q *Queries) WriteDeploymentDelete(ctx apigen.Context, deploymentID, seq in
 func BuildDeploymentUpdateEvent(prev *apigen.DeploymentEvent, updated *apigen.Deployment, author int32) *apigen.DeploymentEvent {
 	prevDef := &prev.Value
 	event := &apigen.DeploymentEvent{
-		EventTime:    time.UnixMilli(time.Now().UnixMilli()),
-		CreatedTime:  prev.CreatedTime,
-		Author:       author,
-		DeploymentID: prev.DeploymentID,
-		Version:      prev.Version + 1,
-		SpecVersion:  prev.SpecVersion,
-		SpaceVersion: prev.SpaceVersion,
-		NameVersion:  prev.NameVersion,
-		Value:        *updated,
-		EventType:    apigen.EventType_EVENT_TYPE_UPDATE,
+		EventTime:         time.UnixMilli(time.Now().UnixMilli()),
+		CreatedTime:       prev.CreatedTime,
+		Author:            author,
+		DeploymentID:      prev.DeploymentID,
+		Version:           prev.Version + 1,
+		SpecVersion:       prev.SpecVersion,
+		SpaceVersion:      prev.SpaceVersion,
+		NameVersion:       prev.NameVersion,
+		SchedulingVersion: prev.SchedulingVersion,
+		Value:             *updated,
+		EventType:         apigen.EventType_EVENT_TYPE_UPDATE,
 	}
 	if !DeploymentSpecsEqual(&updated.Spec, &prevDef.Spec) {
 		event.SpecVersion++
+	}
+	if !DeploymentSchedulingEqual(&updated.Scheduling, &prevDef.Scheduling) {
+		event.SchedulingVersion++
 	}
 	if updated.SpaceID != prevDef.SpaceID {
 		event.SpaceVersion++
@@ -133,5 +140,11 @@ func BuildDeploymentUpdateEvent(prev *apigen.DeploymentEvent, updated *apigen.De
 func DeploymentSpecsEqual(a, b *apigen.DeploymentSpec) bool {
 	da := erru.Must(apigen.DecodeDeploymentSpec(a.Encode()))
 	db := erru.Must(apigen.DecodeDeploymentSpec(b.Encode()))
+	return reflect.DeepEqual(da, db)
+}
+
+func DeploymentSchedulingEqual(a, b *apigen.Scheduling) bool {
+	da := erru.Must(apigen.DecodeScheduling(a.Encode()))
+	db := erru.Must(apigen.DecodeScheduling(b.Encode()))
 	return reflect.DeepEqual(da, db)
 }

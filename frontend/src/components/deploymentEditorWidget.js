@@ -187,9 +187,16 @@ export function deploymentEditorWidget(opts) {
             if (mode === 'create') {
                 result = await actions.createDeployment(payload);
                 if (!result?.deploymentId) throw new Error('Create response did not include a deployment ID');
-            } else if (payload) {
-                if (moved) payload.expectedVersion = Number(moved.version || 0) + 1;
-                result = await actions.updateDeployment(payload);
+            } else {
+                if (payload) {
+                    if (result) payload.expectedVersion = Number(result.version || 0) + 1;
+                    result = await actions.updateDeployment(payload);
+                }
+                const runningPayload = deploymentUpdate.toRunningPayload(payload);
+                if (runningPayload) {
+                    if (result) runningPayload.expectedVersion = Number(result.version || 0) + 1;
+                    result = await actions.updateDeployment(runningPayload);
+                }
             }
             notifySuccess(mode, payload, result);
         } catch (e) {

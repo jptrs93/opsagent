@@ -32,10 +32,10 @@ type Series struct {
 
 type RollupRequest struct {
 	Query
-	Step        time.Duration
-	Fields      []Field
-	SpecVersion int32
-	Run         int32
+	Step              time.Duration
+	Fields            []Field
+	DeploymentVersion int32
+	Run               int32
 }
 
 type RollupResult struct {
@@ -98,7 +98,7 @@ func Rollup(ctx context.Context, dir string, nodeID int32, req RollupRequest) (R
 	accs := map[metrics.TargetKey]*rollupAcc{}
 	scanned := 0
 	err := Scan(ctx, dir, nodeID, q, func(s *apigen.MetricsSample) bool {
-		if req.SpecVersion != 0 && s.SpecVersion != req.SpecVersion {
+		if req.DeploymentVersion != 0 && s.DeploymentVersion != req.DeploymentVersion {
 			return true
 		}
 		if req.Run != 0 && s.Run != req.Run {

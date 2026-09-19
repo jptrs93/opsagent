@@ -38,14 +38,14 @@ func TestDrainingNodeRefusesNewDeployments(t *testing.T) {
 	if _, err := h.PostV1NodesDrain(ctx, &apigen.NodeDrainRequest{Identifier: node.Identifier, Draining: true}); err != nil {
 		t.Fatalf("drain: %v", err)
 	}
-	_, err := h.PostV1DeploymentsCreate(ctx, &apigen.DeploymentCreateRequest{SpaceID: nodes.DefaultSpaceID, Name: "web", NodeID: node.ID, Spec: spec})
+	_, err := h.PostV1DeploymentsCreate(ctx, &apigen.DeploymentCreateRequest{SpaceID: nodes.DefaultSpaceID, Name: "web", Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, node.ID), Spec: spec})
 	if err == nil || !strings.Contains(err.Error(), "node_draining") {
 		t.Fatalf("create on draining node: got %v, want node_draining", err)
 	}
 	if _, err := h.PostV1NodesDrain(ctx, &apigen.NodeDrainRequest{Identifier: node.Identifier, Draining: false}); err != nil {
 		t.Fatalf("undrain: %v", err)
 	}
-	if _, err := h.PostV1DeploymentsCreate(ctx, &apigen.DeploymentCreateRequest{SpaceID: nodes.DefaultSpaceID, Name: "web", NodeID: node.ID, Spec: spec}); err != nil {
+	if _, err := h.PostV1DeploymentsCreate(ctx, &apigen.DeploymentCreateRequest{SpaceID: nodes.DefaultSpaceID, Name: "web", Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, node.ID), Spec: spec}); err != nil {
 		t.Fatalf("create after undrain: %v", err)
 	}
 }
@@ -54,7 +54,7 @@ func TestEvictEndpointRefusesPinnedDeploymentsThenForces(t *testing.T) {
 	h, _ := newNodeSpacesHandler(t)
 	node := acceptSecondaryNode(t, h.Store, "secondary-id")
 	ctx := apigen.Context{Ctx: context.Background()}
-	cfg, err := h.PostV1DeploymentsCreate(ctx, &apigen.DeploymentCreateRequest{SpaceID: nodes.DefaultSpaceID, Name: "web", NodeID: node.ID, Spec: remoteDeploymentSpec("nginx", hostNetworking())})
+	cfg, err := h.PostV1DeploymentsCreate(ctx, &apigen.DeploymentCreateRequest{SpaceID: nodes.DefaultSpaceID, Name: "web", Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: remoteDeploymentSpec("nginx", hostNetworking())})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}

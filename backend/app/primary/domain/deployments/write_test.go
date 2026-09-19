@@ -20,7 +20,7 @@ func TestUpdateCannotUseStaleAuthorizedDeployment(t *testing.T) {
 	svc := &Service{Store: store}
 	ctx := apigen.Context{Ctx: context.Background()}
 	initial, err := svc.Create(ctx, &apigen.Deployment{
-		Name: "web", SpaceID: nodes.DefaultSpaceID, NodeID: node.ID,
+		Name: "web", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec: remoteDeploymentSpec("nginx", virtualNetworking()),
 	})
 	if err != nil {
@@ -61,7 +61,7 @@ func TestRestartUpdateWritesTheUnchangedDefinition(t *testing.T) {
 	svc := &Service{Store: store}
 	ctx := apigen.Context{Ctx: context.Background()}
 	initial, err := svc.Create(ctx, &apigen.Deployment{
-		Name: "web", SpaceID: nodes.DefaultSpaceID, NodeID: node.ID,
+		Name: "web", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec: remoteDeploymentSpec("nginx", virtualNetworking()),
 	})
 	if err != nil {
@@ -95,7 +95,7 @@ func TestRestartUpdateWritesTheUnchangedDefinition(t *testing.T) {
 			running.SpecVersion, restarted.SpecVersion, running.SpaceVersion, restarted.SpaceVersion, running.NameVersion, restarted.NameVersion)
 	}
 	if !pq.DeploymentSpecsEqual(&restarted.Value.Spec, &running.Value.Spec) ||
-		restarted.Value.Name != running.Value.Name || restarted.Value.SpaceID != running.Value.SpaceID || restarted.Value.NodeID != running.Value.NodeID {
+		restarted.Value.Name != running.Value.Name || restarted.Value.SpaceID != running.Value.SpaceID || restarted.Value.PlacementNodeID() != running.Value.PlacementNodeID() {
 		t.Fatal("restart changed the definition")
 	}
 	if restarted.EventType != apigen.EventType_EVENT_TYPE_UPDATE {

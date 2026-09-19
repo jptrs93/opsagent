@@ -16,7 +16,7 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 		t.Fatalf("created config space version = %d, want 1", cfg.SpaceVersion)
 	}
 
-	inst := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0,
+	inst := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	if inst.SpaceID != defaultSpaceID {
 		t.Fatalf("placement pin = space %d, want space %d", inst.SpaceID, defaultSpaceID)
@@ -47,7 +47,7 @@ func TestDeploymentSpaceVersionsAndPlacementPins(t *testing.T) {
 		t.Fatalf("pinned view after move = space %d, want space %d", st.Config.Value.SpaceID, defaultSpaceID)
 	}
 
-	replacement := createScheduledInstanceForTest(store, cfg.DeploymentID, moved.Version, cfg.Value.NodeID, 0,
+	replacement := createScheduledInstanceForTest(store, cfg.DeploymentID, moved.Version, cfg.Value.PlacementNodeID(), 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
 	if replacement.SpaceID != 2 {
 		t.Fatalf("replacement pin = space %d, want space 2", replacement.SpaceID)

@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {formatClockTime, formatHistoryTime} from "../lib/date.js";
 import {resolveUserDisplayName} from "../lib/users.js";
-import {deploymentDeleted, deploymentRestartEvent, deploymentWorkload} from "../lib/deployment.js";
+import {deploymentDeleted, deploymentRestartEvent, deploymentWorkload, desiredRunning} from "../lib/deployment.js";
 import {rollupLabel, rollupOf, inputsLabel, imageLabel, InputsStatus, ImageStatus} from "../lib/preparerStatus.js";
 
 const {button, col, colgroup, div, input, label, p, span, table, tbody, td, th, thead, tr} = van.tags;
@@ -27,8 +27,8 @@ function describeConfigEntry(config, prevConfig) {
         if (desired.version !== prevDesired.version && desired.version) {
             parts.push(`version=${desired.version.substring(0, 7)}`);
         }
-        if (desired.running !== prevDesired.running) {
-            parts.push(desired.running ? 'running=true' : 'running=false');
+        if (desiredRunning(config) !== desiredRunning(prevConfig)) {
+            parts.push(desiredRunning(config) ? 'running=true' : 'running=false');
         }
         if (config.value?.spaceId !== prevConfig.value?.spaceId) {
             parts.push(`moved to space ${config.value?.spaceId}`);

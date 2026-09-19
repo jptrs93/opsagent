@@ -56,7 +56,7 @@ func TestFinalizedInstanceIsRetainedForDisplay(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := seedDeployment(t, store, "app")
 
-	inst := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	inst := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	writeRunnerStatus(t, store, inst.ID, apigen.RunningStatus_STOPPED)
 	setScheduledInstanceState(store, inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 
@@ -83,7 +83,7 @@ func TestRetainedFinalInstanceSurvivesRestart(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := Open(dbPath)
 	cfg := seedDeployment(t, store, "app")
-	inst := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	inst := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	writeRunnerStatus(t, store, inst.ID, apigen.RunningStatus_STOPPED)
 	setScheduledInstanceState(store, inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 	if err := store.Close(); err != nil {
@@ -113,9 +113,9 @@ func TestNewInstanceEvictsTheRetainedRun(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := seedDeployment(t, store, "app")
 
-	older := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	older := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	setScheduledInstanceState(store, older.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
-	newer := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	newer := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	shown := onlyInstance(t, snapshotInstances(store, nil))
 	if shown.Instance.ID != newer.ID {
@@ -139,8 +139,8 @@ func TestRetainedRunIsPerOrdinal(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := seedDeployment(t, store, "app")
 
-	first := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	second := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 1, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	first := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	second := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 1, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	setScheduledInstanceState(store, first.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 	setScheduledInstanceState(store, second.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 

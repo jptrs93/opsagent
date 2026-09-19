@@ -92,8 +92,8 @@ func TestValidateDeploymentSpecCanonicalizesSafeFlakePath(t *testing.T) {
 func nixCreateRequest(nodeID int32, name string, running bool) *apigen.DeploymentCreateRequest {
 	return &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: name,
-		NodeID: nodeID,
-		Spec:   nixDeploymentSpecWithState("github.com/acme/app", "flake.nix", testNixCommit, running),
+		Scheduling: apigen.DedicatedScheduling(running, nodeID),
+		Spec:       nixDeploymentSpecWithState("github.com/acme/app", "flake.nix", testNixCommit, running),
 	}
 }
 

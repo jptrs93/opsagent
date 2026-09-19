@@ -56,7 +56,7 @@ type ContainerSpec struct {
 	FileDescLimit int64    // optional RLIMIT_NOFILE override; 0 uses DefaultFileDescriptorLimit
 	Mounts        []Mount  // host bind mounts
 	LogDir        string   // stdout/stderr deployment log directory
-	LogVersion    int32    // deployment spec version for stdout/stderr records
+	LogVersion    int32    // top-level deployment version for stdout/stderr records
 	LogRun        int32    // deployment run number for stdout/stderr records
 	// Stamped into every wal record so the log data is self describing and
 	// needs no directory or catalog context to attribute a line.

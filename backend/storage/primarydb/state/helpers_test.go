@@ -29,9 +29,10 @@ func nonEmptySpec() *apigen.DeploymentSpec {
 
 func testSpecWithState(version string, running bool) *apigen.DeploymentSpec {
 	spec := nonEmptySpec()
-	if err := spec.SetWorkloadState(version, running); err != nil {
+	if err := spec.SetWorkloadVersion(version); err != nil {
 		panic(err)
 	}
+	spec.Container1Spec.Running = running
 	return spec
 }
 
@@ -75,7 +76,8 @@ func updateDeploymentForTest(s *Service, ctx apigen.Context, deploymentID int32,
 }
 
 func mustCreateDeploymentForNode(s *Service, ctx apigen.Context, spaceID int32, name string, nodeID int32, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
-	return erru.Must(createDeploymentForTest(s, ctx, &apigen.Deployment{NodeID: nodeID, SpaceID: spaceID, Name: name, Spec: *spec}, func(q *pq.Queries) error {
+	stored, running := liftLegacyRunning(spec)
+	return erru.Must(createDeploymentForTest(s, ctx, &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(running, nodeID), SpaceID: spaceID, Name: name, Spec: *stored}, func(q *pq.Queries) error {
 		events, err := q.ListLatestDeploymentEvents(ctx)
 		if err != nil {
 			return err
@@ -119,10 +121,11 @@ func deleteDeployment(s *Service, ctx apigen.Context, deploymentID int32) *apige
 func mustSetDeploymentWorkloadState(s *Service, ctx apigen.Context, deploymentID int32, version string, running bool) {
 	updateDeploymentForTest(s, ctx, deploymentID, func(def *apigen.Deployment, existing *apigen.DeploymentEvent) error {
 		spec := erru.Must(apigen.DecodeDeploymentSpec(existing.Value.Spec.Encode()))
-		if err := spec.SetWorkloadState(version, running); err != nil {
+		if err := spec.SetWorkloadVersion(version); err != nil {
 			return err
 		}
 		def.Spec = *spec
+		def.Scheduling.Running = running
 		return nil
 	})
 }
@@ -130,7 +133,7 @@ func mustSetDeploymentWorkloadState(s *Service, ctx apigen.Context, deploymentID
 func mustUpdateDeploymentSpec(s *Service, ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) {
 	updateDeploymentForTest(s, ctx, deploymentID, func(def *apigen.Deployment, existing *apigen.DeploymentEvent) error {
 		storedSpec := erru.Must(apigen.DecodeDeploymentSpec(spec.Encode()))
-		if err := storedSpec.SetWorkloadState(existing.WorkloadVersion(), existing.WorkloadRunning()); err != nil {
+		if err := storedSpec.SetWorkloadVersion(existing.WorkloadVersion()); err != nil {
 			return err
 		}
 		def.Spec = *storedSpec
@@ -402,4 +405,14 @@ func deleteAssetDirectoryForTest(s *Service, id int32) {
 		d.Deleted = true
 		return &Update{AssetDirectories: []*apigen.AssetDirectory{&d}}, nil
 	}))
+}
+
+func liftLegacyRunning(spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, bool) {
+	stored := erru.Must(apigen.DecodeDeploymentSpec(spec.Encode()))
+	running := stored.OpendeploySpec != nil
+	if container := stored.Container(); container != nil {
+		running = container.Running
+		container.Running = false
+	}
+	return stored, running
 }

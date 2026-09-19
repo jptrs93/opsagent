@@ -4,7 +4,7 @@ import {machinesS, spacesS} from "../state/deployments.js";
 import {nodeDisplayName} from "../lib/machines.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 import {formatHistoryTime} from "../lib/date.js";
-import {deploymentWorkload} from "../lib/deployment.js";
+import {deploymentWorkload, placementNodeId} from "../lib/deployment.js";
 
 const {div, h2, p, button, table, thead, tbody, tr, th, td} = van.tags;
 
@@ -63,7 +63,7 @@ export function recentlyDeletedOverlay(onFork, onClose) {
             },
         ),
         td({class: "px-3 py-2 text-gray-400"}, spaceName(config.value?.spaceId)),
-        td({class: "px-3 py-2 text-gray-400"}, nodeDisplayName(config.value?.nodeId, machinesS.val) || '—'),
+        td({class: "px-3 py-2 text-gray-400"}, nodeDisplayName(placementNodeId(config), machinesS.val) || '—'),
         td({class: "px-3 py-2 text-gray-400 whitespace-nowrap"}, formatHistoryTime(config.eventTime) || '—'),
         td({class: "px-3 py-2 text-gray-400"}, resolveUserDisplayName(config.author) || '—'),
         td({class: "px-3 py-2 text-right"},

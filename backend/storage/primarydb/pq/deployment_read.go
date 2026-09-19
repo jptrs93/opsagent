@@ -8,7 +8,7 @@ import (
 )
 
 const deploymentEventColumns = `id, global_seq, event_time, created_time, author, deployment_id,
- version, spec_version, space_assignment_version, name_version, value, event_type`
+ version, spec_version, space_assignment_version, name_version, scheduling_version, value, event_type`
 
 // scanDeploymentEvent is shared by reads and INSERT RETURNING.
 func scanDeploymentEvent(row interface{ Scan(...any) error }) (*apigen.DeploymentEvent, error) {
@@ -17,7 +17,7 @@ func scanDeploymentEvent(row interface{ Scan(...any) error }) (*apigen.Deploymen
 	var value []byte
 	if err := row.Scan(&event.EventID, &event.Seq, &eventTime, &createdTime, &event.Author,
 		&event.DeploymentID, &event.Version, &event.SpecVersion, &event.SpaceVersion,
-		&event.NameVersion, &value, &event.EventType); err != nil {
+		&event.NameVersion, &event.SchedulingVersion, &value, &event.EventType); err != nil {
 		return nil, err
 	}
 	def, err := apigen.DecodeDeployment(value)
@@ -26,6 +26,9 @@ func scanDeploymentEvent(row interface{ Scan(...any) error }) (*apigen.Deploymen
 	}
 	event.EventTime, event.CreatedTime = time.UnixMilli(eventTime), time.UnixMilli(createdTime)
 	event.Value = *def
+	// Workers that predate scheduling read their placement from node_id, and
+	// every Deployment they receive is assembled here. Remove with the tag.
+	event.Value.NodeID = event.Value.PlacementNodeID()
 	return &event, nil
 }
 

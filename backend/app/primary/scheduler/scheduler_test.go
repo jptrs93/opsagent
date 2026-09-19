@@ -101,7 +101,7 @@ func TestStartupReconcileDoesNotLetOlderRunningKillReplacement(t *testing.T) {
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, testRunningSpec("v1"))
-	older := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	older := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	markRunning(t, store, older.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
 
 	next := *testRunningSpec("v2")
@@ -132,7 +132,7 @@ func TestRolloverReplacementWarmsUpAsStandby(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
-	older := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	older := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	next := *rolloverSpec("v2")
 	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, &next)
@@ -186,7 +186,7 @@ func TestFailedRolloutDoesNotAccumulateStandbys(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
-	serving := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	serving := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	markRunning(t, store, serving.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
 
 	barrier := newFakeBarrier()
@@ -248,9 +248,9 @@ func TestDrainedInstanceWaitsForTheBarrier(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
-	older := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	older := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, rolloverSpec("v2"))
-	newer := statetest.CreateScheduledInstance(store, cfg.DeploymentID, updated.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
+	newer := statetest.CreateScheduledInstance(store, cfg.DeploymentID, updated.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
 
 	barrier := newFakeBarrier()
 	barrier.held = true
@@ -282,11 +282,11 @@ func TestStandbyPromotedWhenServingDies(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
-	older := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	older := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	next := *rolloverSpec("v2")
 	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, &next)
-	standby := statetest.CreateScheduledInstance(store, updated.DeploymentID, updated.Version, updated.Value.NodeID, 0,
+	standby := statetest.CreateScheduledInstance(store, updated.DeploymentID, updated.Version, updated.Value.PlacementNodeID(), 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
 
 	barrier := newFakeBarrier()
@@ -310,7 +310,7 @@ func TestSpaceMoveRidesTheRolloverPath(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
-	serving := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0,
+	serving := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	newSpace := int32(5)
@@ -362,9 +362,9 @@ func TestTerminateDeploymentStopsEveryRunnableState(t *testing.T) {
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 
-	serving := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	standby := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
-	draining := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING)
+	serving := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	standby := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
+	draining := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING)
 
 	statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, stoppedSpec("v1"))
 	startScheduler(t, store, newFakeBarrier())
@@ -447,7 +447,7 @@ func TestRestartHandlesEveryInstanceState(t *testing.T) {
 			if !initial.WantsRunning() {
 				initial = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
 			}
-			inst := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, initial)
+			inst := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, initial)
 			if initial != tc.state {
 				statetest.SetScheduledInstanceState(store, inst.ID, tc.state)
 			}
@@ -476,9 +476,9 @@ func TestRestartAdoptsDrainingInstances(t *testing.T) {
 	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, &next)
 	// Mid-rollover, as found on disk: the superseded placement draining, its
 	// replacement already serving, both containers up.
-	drainingInst := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0,
+	drainingInst := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING)
-	servingInst := statetest.CreateScheduledInstance(store, updated.DeploymentID, updated.Version, updated.Value.NodeID, 0,
+	servingInst := statetest.CreateScheduledInstance(store, updated.DeploymentID, updated.Version, updated.Value.PlacementNodeID(), 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	markRunning(t, store, drainingInst.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
 	markRunning(t, store, servingInst.ID, updated.SpecVersion, apigen.RunningStatus_RUNNING)
@@ -531,7 +531,7 @@ func TestRestartEventReplacesThePlacement(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, testRunningSpec("v1"))
-	serving := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	serving := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	markRunning(t, store, serving.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
 	startScheduler(t, store, newFakeBarrier())
 
@@ -560,7 +560,7 @@ func TestRestartEventRollsOverThePlacement(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
-	serving := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	serving := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	markRunning(t, store, serving.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
 	startScheduler(t, store, newFakeBarrier())
 
@@ -596,7 +596,7 @@ func TestStoppedInstanceIsFinalized(t *testing.T) {
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, testRunningSpec("v1"))
-	inst := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	inst := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	markRunning(t, store, inst.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
 
 	startScheduler(t, store, newFakeBarrier())
@@ -623,7 +623,7 @@ func TestRestartingAfterStopLeavesOnlyTheReplacement(t *testing.T) {
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, testRunningSpec("v1"))
-	older := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	older := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	markRunning(t, store, older.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
 
 	startScheduler(t, store, newFakeBarrier())
@@ -654,12 +654,12 @@ func TestStartupFinalizesStoppedInstances(t *testing.T) {
 
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, testRunningSpec("v1"))
 
-	stranded := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	stranded := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	statetest.SetScheduledInstanceState(store, stranded.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
 	markRunning(t, store, stranded.ID, cfg.SpecVersion, apigen.RunningStatus_STOPPED)
 
 	// A placement still shutting down is not stopped and must survive the sweep.
-	shuttingDown := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.NodeID, 1, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	shuttingDown := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 1, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	statetest.SetScheduledInstanceState(store, shuttingDown.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE)
 	markRunning(t, store, shuttingDown.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
 

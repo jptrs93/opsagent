@@ -63,10 +63,13 @@ func TestLegacyFlatBlobRowsDecodeAsDef(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("deployment 7 not loaded")
 	}
-	if cfg.Value.NodeID != 3 || cfg.Value.SpaceID != 1 || cfg.Value.Name != "api" || cfg.Value.Spec.WorkloadVersion() != "v2" {
+	if cfg.Value.PlacementNodeID() != 3 || cfg.Value.SpaceID != 1 || cfg.Value.Name != "api" || cfg.Value.Spec.WorkloadVersion() != "v2" {
 		t.Fatalf("def not decoded from legacy blob: %+v", cfg.Value)
 	}
-	if cfg.Version != 2 || cfg.SpecVersion != 2 || cfg.SpaceVersion != 1 || cfg.NameVersion != 1 || cfg.Author != 5 {
+	if !cfg.WorkloadRunning() || cfg.Value.Spec.Container1Spec.Running || cfg.Value.PlacementNodeID() != 3 {
+		t.Fatalf("scheduling not lifted from legacy blob (node_id mirror kept for old workers): %+v", cfg.Value)
+	}
+	if cfg.Version != 2 || cfg.SpecVersion != 2 || cfg.SpaceVersion != 1 || cfg.NameVersion != 1 || cfg.SchedulingVersion != 1 || cfg.Author != 5 {
 		t.Fatalf("envelope not read from columns: %+v", cfg)
 	}
 	if cfg.CreatedTime.UnixMilli() != 1000 || cfg.EventTime.UnixMilli() != 2000 {

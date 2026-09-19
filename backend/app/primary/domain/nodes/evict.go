@@ -102,7 +102,7 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 		}
 		pinned := 0
 		for _, cfg := range active {
-			if cfg.Value.NodeID != nodeID {
+			if cfg.Value.PlacementNodeID() != nodeID {
 				continue
 			}
 			if !internaldeploy.IsInternalConfig(cfg) {
@@ -113,7 +113,7 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 			return nil, &ErrNodeHasDeployments{Count: pinned}
 		}
 		for _, cfg := range active {
-			if cfg.Value.NodeID != nodeID || !internaldeploy.IsInternalConfig(cfg) {
+			if cfg.Value.PlacementNodeID() != nodeID || !internaldeploy.IsInternalConfig(cfg) {
 				continue
 			}
 			event, err := q.WriteDeploymentDelete(ctx, int64(cfg.DeploymentID), seq)
@@ -197,7 +197,7 @@ func NodeExposure(ctx context.Context, q *pq.Queries, nodeID int32) (Exposure, e
 		return out, err
 	}
 	for _, cfg := range active {
-		if cfg.Value.NodeID == nodeID && !internaldeploy.IsInternalConfig(cfg) {
+		if cfg.Value.PlacementNodeID() == nodeID && !internaldeploy.IsInternalConfig(cfg) {
 			out.Deployments = append(out.Deployments, cfg)
 		}
 	}

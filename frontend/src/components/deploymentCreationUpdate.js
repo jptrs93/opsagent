@@ -1,4 +1,5 @@
 import van from "vanjs-core";
+import {dedicatedScheduling, desiredRunning} from "../lib/deployment.js";
 import {
     deploymentToForm,
     emptyDeploymentForm,
@@ -102,7 +103,7 @@ export class DeploymentCreationUpdate {
         const workload = deployment?.value?.spec?.container1Spec || deployment?.value?.spec?.opendeploySpec;
         const initialRunning = editorMode === 'create'
             ? (deploymentRow ? Boolean(deploymentRow.desiredRunning) : true)
-            : (deployment?.value?.spec?.opendeploySpec ? true : (workload ? Boolean(workload.running) : Boolean(deploymentRow?.desiredRunning)));
+            : (deployment ? desiredRunning(deployment) : Boolean(deploymentRow?.desiredRunning));
         this.desiredRunning = van.state(initialRunning);
         this.documentRevision = van.state(0);
         this.initialSpecKey = JSON.stringify(formToSpec(this.form));
@@ -571,11 +572,10 @@ export class DeploymentCreationUpdate {
 
     toDocument() {
         const version = this.createDesiredVersion();
-        const running = Boolean(this.desiredRunning.val);
         return {
             identity: formToDeploymentIdentity(this.form),
-            nodeId: Number(this.form.nodeId.val || 0),
-            spec: formToSpec(this.form, {version, running}),
+            scheduling: dedicatedScheduling(this.desiredRunning.val, this.form.nodeId.val),
+            spec: formToSpec(this.form, {version}),
         };
     }
 
@@ -583,19 +583,20 @@ export class DeploymentCreationUpdate {
         const identity = document?.identity || {};
         const spec = document?.spec || {};
         const workload = spec.container1Spec || spec.opendeploySpec || {};
+        const scheduling = document?.scheduling || {};
         replaceDeploymentFormFromConfig(this.form, {
             deploymentId: Number(this.form.deploymentId.val || 0),
             value: {
                 name: identity.name || '',
                 spaceId: Number(identity.spaceId || 0),
-                nodeId: Number(document?.nodeId || 0),
+                scheduling,
                 spec,
             },
         });
         // Reset the layers now, before the selection below, so the derive
         // pass that follows sees the tuple already handled.
         this.syncSourceTuple();
-        this.desiredRunning.val = spec.opendeploySpec ? true : Boolean(workload.running);
+        this.desiredRunning.val = spec.opendeploySpec ? true : Boolean(scheduling.running);
         const version = (workload.version || '').trim();
         if (this.isImage()) {
             this.containerImage.selectedTag.val = version;
@@ -609,13 +610,12 @@ export class DeploymentCreationUpdate {
 
     toCreatePayload() {
         const version = this.createDesiredVersion();
-        const running = Boolean(this.desiredRunning.val);
         const identity = formToDeploymentIdentity(this.form);
         return {
             name: identity.name,
             spaceId: identity.spaceId,
-            nodeId: Number(this.form.nodeId.val || 0),
-            spec: formToSpec(this.form, {version, running}),
+            scheduling: dedicatedScheduling(this.desiredRunning.val, this.form.nodeId.val),
+            spec: formToSpec(this.form, {version}),
         };
     }
 
@@ -633,8 +633,10 @@ export class DeploymentCreationUpdate {
         };
     }
 
-    // toUpdatePayload returns a DeploymentUpdateRequestV2 carrying the single
-    // kind of change the form implies, or null when there is nothing to send.
+    // toUpdatePayload returns a DeploymentUpdateRequestV2 carrying the spec or
+    // version change the form implies, or null when neither changed. Running
+    // state travels separately through toRunningPayload, except that the
+    // version-only update also marks the workload running.
     toUpdatePayload() {
         if (!this.existingState) throw new Error('Cannot produce update payload without existing deployment state');
         const payload = {
@@ -643,36 +645,35 @@ export class DeploymentCreationUpdate {
         };
         const nextSpec = formToSpec(this.form);
         if (JSON.stringify(nextSpec) !== this.initialSpecKey) {
-            payload.specUpdate = {
-                spec: formToSpec(this.form, {
-                    version: this.createDesiredVersion(),
-                    running: Boolean(this.desiredRunning.val),
-                }),
-            };
+            payload.specUpdate = {spec: formToSpec(this.form, {version: this.createDesiredVersion()})};
             return payload;
         }
         const targetVersion = this.selectedTargetVersion();
         const versionChanged = Boolean(targetVersion) && targetVersion !== (this.existingState.deployedVersion || '');
+        if (!versionChanged) return null;
         if (!this.desiredRunning.val) {
             // A stopped deployment may still retarget its version for the
-            // next start. The version-only update always marks the workload
-            // running, so a stopped retarget goes as a spec update carrying
-            // running=false; a plain stop keeps the running-only path, which
-            // preserves the version.
-            if (versionChanged) {
-                payload.specUpdate = {spec: formToSpec(this.form, {version: targetVersion, running: false})};
-                return payload;
-            }
-            if (this.existingState.desiredRunning) {
-                payload.runningOnlyUpdate = {desiredRunning: false};
-                return payload;
-            }
-            return null;
-        }
-        if (targetVersion && (versionChanged || !this.existingState.desiredRunning)) {
-            payload.versionOnlyUpdate = {targetVersion};
+            // next start; the spec update carries the version without
+            // touching the running state.
+            payload.specUpdate = {spec: formToSpec(this.form, {version: targetVersion})};
             return payload;
         }
-        return null;
+        payload.versionOnlyUpdate = {targetVersion};
+        return payload;
+    }
+
+    // toRunningPayload returns the running-only update that brings the stored
+    // running state in line with the toggle, or null when nothing changes or
+    // the preceding version-only update already started the deployment.
+    toRunningPayload(precedingPayload) {
+        if (!this.existingState) throw new Error('Cannot produce running payload without existing deployment state');
+        const running = Boolean(this.desiredRunning.val);
+        if (running === Boolean(this.existingState.desiredRunning)) return null;
+        if (running && precedingPayload?.versionOnlyUpdate) return null;
+        return {
+            deploymentId: this.existingState.id,
+            expectedVersion: Number(this.existingState.version || 0) + 1,
+            runningOnlyUpdate: {desiredRunning: running},
+        };
     }
 }

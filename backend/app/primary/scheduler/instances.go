@@ -54,7 +54,7 @@ func newInstance(ctx context.Context, q *pq.Queries, seq int64, cfg *apigen.Depl
 	if err != nil {
 		return nil, err
 	}
-	inst := &apigen.ScheduledInstance{ID: id, DeploymentID: cfg.DeploymentID, DeploymentVersion: cfg.Version, DeploymentSpecVersion: cfg.SpecVersion, NodeID: cfg.Value.NodeID, InstanceOrdinal: ordinal, SpaceID: cfg.Value.SpaceID}
+	inst := &apigen.ScheduledInstance{ID: id, DeploymentID: cfg.DeploymentID, DeploymentVersion: cfg.Version, DeploymentSpecVersion: cfg.SpecVersion, NodeID: cfg.Value.PlacementNodeID(), InstanceOrdinal: ordinal, SpaceID: cfg.Value.SpaceID}
 	return q.AppendScheduledInstanceEvent(ctx, seq, inst, target, at)
 }
 

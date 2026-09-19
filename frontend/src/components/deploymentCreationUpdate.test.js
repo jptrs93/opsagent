@@ -75,10 +75,9 @@ const nixDeployment = ({version = SHA_A, running = true} = {}) => ({
     value: {
         name: "web",
         spaceId: 1,
-        nodeId: 11,
+        scheduling: {running, dedicatedNodes: {nodes: [11]}},
         spec: {container1Spec: {
             version,
-            running,
             source: {nixDockerBuild: {repo: REPO, flake: FLAKE, target: ""}},
         }},
     },
@@ -295,7 +294,7 @@ test("update: a stopped deployment may retarget its version as a spec update", a
     await settle();
     const payload = model.toUpdatePayload();
     assert.equal(payload.specUpdate.spec.container1Spec.version, SHA_B);
-    assert.equal(payload.specUpdate.spec.container1Spec.running, false);
+    assert.equal(model.toRunningPayload(payload), null, "the deployment stays stopped");
 });
 
 test("update: a stopped deployment with a partial sha cannot save", async () => {
@@ -357,7 +356,7 @@ test("image: validate lists tags; the reference's own tag pins the version", asy
 
 test("image: an unchanged saved image is trusted even when the deployment is stopped", async () => {
     const fake = fakeValidate();
-    const deployment = {deploymentId: 9, version: 1, value: {name: "db", spaceId: 1, nodeId: 11, spec: {container1Spec: {version: "17", running: false, source: {remoteImage: {image: "docker.io/library/postgres"}}}}}};
+    const deployment = {deploymentId: 9, version: 1, value: {name: "db", spaceId: 1, scheduling: {running: false, dedicatedNodes: {nodes: [11]}}, spec: {container1Spec: {version: "17", source: {remoteImage: {image: "docker.io/library/postgres"}}}}}};
     const row = {id: 9, version: 1, spaceId: 1, name: "db", variant: SOURCE_DOCKER_IMAGE, deployedVersion: "17", desiredRunning: false, runnerType: "container"};
     const model = new DeploymentCreationUpdate({mode: "update", deploymentRow: row, deployment, validateSource: fake.validateSource});
     await settle();
@@ -365,7 +364,8 @@ test("image: an unchanged saved image is trusted even when the deployment is sto
     assert.equal(model.overallStatus(), "trusted");
     model.setDesiredRunning(true);
     assert.equal(model.runningInvalidReason(), "");
-    assert.deepEqual(model.toUpdatePayload().versionOnlyUpdate, {targetVersion: "17"});
+    assert.equal(model.toUpdatePayload(), null, "the version is unchanged");
+    assert.deepEqual(model.toRunningPayload(null).runningOnlyUpdate, {desiredRunning: true});
 });
 
 

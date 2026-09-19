@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {caretRightIcon, chevronDownIcon, editIcon, eyeOpenIcon, refreshIcon, xIcon} from "../lib/icons.js";
 import {groupEnvRows, isBooleanRow, isTruthyEnvValue} from "../lib/envVarGrouping.js";
 import {nodeAllowsSpace} from "../lib/nodeSpaces.js";
-import {deploymentDeleted} from "../lib/deployment.js";
+import {deploymentDeleted, placementNodeId} from "../lib/deployment.js";
 import {assetEditorOverlay} from "./assetEditor.js";
 import {referencePicker} from "./referencePicker.js";
 import {imageRepositoryFromReference} from "./deploymentSource.js";
@@ -110,7 +110,7 @@ export function deploymentToForm(cfg) {
         deploymentId: cfg.deploymentId || 0,
         name: cfg?.value?.name || '',
         spaceId: cfg?.value?.spaceId ?? DEFAULT_SPACE_ID,
-        nodeId: cfg?.value?.nodeId || 0,
+        nodeId: placementNodeId(cfg),
         sourceType: source.remoteImage ? SOURCE_DOCKER_IMAGE : SOURCE_NIX_DOCKER,
         nixRepo: nixDocker.repo || '',
         nixFlake: nixDocker.flake || '',
@@ -315,7 +315,6 @@ export function formToSpec(form, workloadState = {}) {
         source,
         runtime,
         version: workloadState.version || '',
-        running: Boolean(workloadState.running),
         upgradeStrategy: Number(form.containerUpgradeStrategy.val || CONTAINER_UPGRADE_RECREATE),
     };
     const spec = {container1Spec: container};
@@ -1651,7 +1650,7 @@ export function envVarsPane(form, opts = {}) {
                 `${row.id}:${row.type || 'value'}:${toggles && isBooleanRow(row) ? 1 : 0}:${row.addressDeploymentId || 0}:${row.addressSpaceId || 0}:${row.asset || ''}:${row.assetVersionId || 0}:${row.version || 0}`)])]),
             secretRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
             configRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
-            `${form.nodeId.val}:${deployments().map(item => `${item.config?.deploymentId || 0}:${item.config?.value?.nodeId || 0}:${item.config?.value?.spaceId ?? 0}:${item.config?.value?.name || ''}:${item.config?.value?.spec?.networking?.mode || 0}:${deploymentDeleted(item.config) ? 1 : 0}`).join('|')}`,
+            `${form.nodeId.val}:${deployments().map(item => `${item.config?.deploymentId || 0}:${placementNodeId(item.config)}:${item.config?.value?.spaceId ?? 0}:${item.config?.value?.name || ''}:${item.config?.value?.spec?.networking?.mode || 0}:${deploymentDeleted(item.config) ? 1 : 0}`).join('|')}`,
             assets().map(asset => `${asset.id}:${asset.key}:${asset.version}`).join('|'),
             `${form.spaceId.val}:${spaces().map(space => `${space.id}:${space.name || ''}`).join('|')}`,
         ].join('::');
@@ -2225,7 +2224,7 @@ function deploymentVolumeOptions(deployments, form, spaces, selectedID = 0) {
         return config?.deploymentId
             && config.deploymentId !== currentID
             && !deploymentDeleted(config)
-            && Number(config.value?.nodeId || 0) === nodeId
+            && placementNodeId(config) === nodeId
             && (Number(config.value?.spaceId ?? 0) === spaceId || Number(config.value?.spaceId ?? 0) === DEFAULT_SPACE_ID)
             && container
             && !container.runtime?.defaultVolume?.disabled;
@@ -2549,6 +2548,6 @@ function deploymentNameTaken(form, deployments) {
         return !deploymentDeleted(config)
             && value?.name === name
             && Number(value?.spaceId) === spaceId
-            && Number(value?.nodeId) === nodeId;
+            && placementNodeId(config) === nodeId;
     });
 }

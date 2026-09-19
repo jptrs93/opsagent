@@ -72,7 +72,7 @@ register a target and hold the returned `Registration`, whose `Close`
 deregisters:
 
 ```
-TargetKey  {DeploymentID, ScheduledInstanceID, Ordinal, SpecVersion, Run}
+TargetKey  {DeploymentID, ScheduledInstanceID, Ordinal, DeploymentVersion, Run}
 TargetSpec {Key, PID, CgroupsPath, HostNetwork}
 ```
 
@@ -206,6 +206,7 @@ The parquet row is a flat mirror of the message:
 time                  TIMESTAMP(ms)   deployment_id          INT32
 scheduled_instance_id INT32           ordinal                INT32
 spec_version          INT32           run                    INT32
+(spec_version holds the top-level deployment version; the column name predates that)
 node_id               INT32           terminal               BOOLEAN
 
 cpu_usage_usec cpu_user_usec cpu_system_usec cpu_throttled_usec cpu_nr_throttled
@@ -224,6 +225,8 @@ About 55 columns. A wide row is chosen over narrow `(key, time, metric,
 value)` rows because the metric set is fixed; there is no shredding,
 threshold, or spill machinery. Rows within a file are sorted by the full
 key `(deployment_id, scheduled_instance_id, ordinal, spec_version, run)`
+(the `spec_version` column carries the placement's top-level deployment
+version since v0.0.611; older files hold the spec version)
 then `time`, key-major rather than the log store's time-major: a run's
 counters are then monotonic within a column run and delta-encode to a few
 bytes per row, row-group statistics on `deployment_id` prune per-deployment

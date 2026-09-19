@@ -14,7 +14,7 @@ type DeploymentSpecVersion struct {
 }
 
 func DeploymentKeyMatches(def apigen.Deployment, nodeID, spaceID int32, name string) bool {
-	return def.NodeID == nodeID &&
+	return def.PlacementNodeID() == nodeID &&
 		def.SpaceID == spaceID &&
 		def.Name == name
 }

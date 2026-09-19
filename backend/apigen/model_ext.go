@@ -70,7 +70,25 @@ func (d *DeploymentEvent) WorkloadVersion() string {
 }
 
 func (d *DeploymentEvent) WorkloadRunning() bool {
-	return d.Value.Spec.WorkloadRunning()
+	return d.Value.Scheduling.Running
+}
+
+// PlacementNodeID is the single dedicated node a deployment runs on, or zero
+// while it has none. Multi-node placements will need callers to iterate the
+// node list instead.
+func (d *Deployment) PlacementNodeID() int32 {
+	if d.Scheduling.DedicatedNodes == nil || len(d.Scheduling.DedicatedNodes.Nodes) == 0 {
+		return 0
+	}
+	return d.Scheduling.DedicatedNodes.Nodes[0]
+}
+
+func (d *Deployment) Running() bool {
+	return d.Scheduling.Running
+}
+
+func DedicatedScheduling(running bool, nodes ...int32) Scheduling {
+	return Scheduling{Running: running, DedicatedNodes: &DedicatedNodesScheduling{Nodes: nodes}}
 }
 
 func (d *DeploymentEvent) EffectiveUpgradeStrategy() ContainerUpgradeStrategy {
@@ -82,7 +100,11 @@ func (d *DeploymentEvent) EffectiveUpgradeStrategy() ContainerUpgradeStrategy {
 }
 
 func (d *DeploymentEvent) SetWorkloadState(version string, running bool) error {
-	return d.Value.Spec.SetWorkloadState(version, running)
+	if err := d.Value.Spec.SetWorkloadVersion(version); err != nil {
+		return err
+	}
+	d.Value.Scheduling.Running = running
+	return nil
 }
 
 func (d *DeploymentEvent) Deleted() bool {
@@ -99,17 +121,9 @@ func (s *DeploymentSpec) WorkloadVersion() string {
 	return ""
 }
 
-func (s *DeploymentSpec) WorkloadRunning() bool {
-	if container := s.Container(); container != nil {
-		return container.Running
-	}
-	return s.OpendeploySpec != nil
-}
-
-func (s *DeploymentSpec) SetWorkloadState(version string, running bool) error {
+func (s *DeploymentSpec) SetWorkloadVersion(version string) error {
 	if container := s.Container(); container != nil {
 		container.Version = version
-		container.Running = running
 		return nil
 	}
 	if s.OpendeploySpec != nil {

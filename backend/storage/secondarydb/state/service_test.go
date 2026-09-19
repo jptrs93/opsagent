@@ -19,7 +19,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 		DeploymentID: 7,
 		SpecVersion:  3,
 		EventTime:    time.UnixMilli(1000),
-		Value:        apigen.Deployment{NodeID: 23, SpaceID: 1, Name: "api", Spec: *testSpecWithState("v3", true)},
+		Value:        apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, 23), SpaceID: 1, Name: "api", Spec: *testSpecWithState("v3", true)},
 	}
 	const instanceID int32 = 11
 	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
@@ -56,7 +56,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 		t.Fatalf("expected 1 scheduled instance, got %d", len(got))
 	}
 	rc := got[0].Config
-	if rc.Value.NodeID != 23 || rc.SpecVersion != 3 || rc.Value.SpaceID != 1 || rc.Value.Name != "api" {
+	if rc.Value.PlacementNodeID() != 23 || rc.SpecVersion != 3 || rc.Value.SpaceID != 1 || rc.Value.Name != "api" {
 		t.Fatalf("config not round-tripped: %+v", rc)
 	}
 	rs := got[0].Status
@@ -84,7 +84,7 @@ func TestSecondaryOlderAssignmentDoesNotStompPinnedConfig(t *testing.T) {
 	v1 := apigen.DeploymentEvent{
 		DeploymentID: 12,
 		SpecVersion:  1,
-		Value:        apigen.Deployment{NodeID: 3, SpaceID: 1, Name: "tls-ingress-one", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}}},
+		Value:        apigen.Deployment{Scheduling: apigen.DedicatedScheduling(false, 3), SpaceID: 1, Name: "tls-ingress-one", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}}},
 	}
 	v2 := v1
 	v2.SpecVersion = 2
@@ -159,7 +159,7 @@ func TestSecondaryFinalizeAbsentDropsInstanceDurably(t *testing.T) {
 				ID: id, DeploymentID: deploymentID, DeploymentSpecVersion: 1, NodeID: 5,
 				State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 			},
-			Config: apigen.DeploymentEvent{DeploymentID: deploymentID, SpecVersion: 1, Value: apigen.Deployment{NodeID: 5, Spec: *nonEmptySpec()}},
+			Config: apigen.DeploymentEvent{DeploymentID: deploymentID, SpecVersion: 1, Value: apigen.Deployment{Scheduling: apigen.DedicatedScheduling(false, 5), Spec: *nonEmptySpec()}},
 		})
 	}
 	write(41, 8)
@@ -216,8 +216,9 @@ func nonEmptySpec() *apigen.DeploymentSpec {
 
 func testSpecWithState(version string, running bool) *apigen.DeploymentSpec {
 	spec := nonEmptySpec()
-	if err := spec.SetWorkloadState(version, running); err != nil {
+	if err := spec.SetWorkloadVersion(version); err != nil {
 		panic(err)
 	}
+	spec.Container1Spec.Running = running
 	return spec
 }

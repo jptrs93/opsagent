@@ -103,6 +103,10 @@ files older than the rewrite grace are deleted at collector start.
 
 Every archive file has the fixed columns `time`, `version`, `run`, `node`,
 `instance_ordinal`, `stream`, `seq`, `level`, `msg` and `raw_message`.
+`version` is the top-level deployment version of the placement that wrote
+the record (records written before v0.0.611 carry the spec version); with
+`node`, `instance_ordinal` and `run` it identifies one container lifetime,
+since every top-level bump creates a new placement.
 Rows are sorted by `(time, node, instance_ordinal, run, stream, seq)`.
 `raw_message` is the original line bytes and is always present.
 

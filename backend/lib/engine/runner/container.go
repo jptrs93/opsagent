@@ -63,21 +63,22 @@ type containerRunner struct {
 	containerID         string
 
 	// derived from the deployment spec version; not part of RunnerStatus.
-	user           string
-	envVars        map[string]*apigen.EnvVarValue // resolved to "KEY=VALUE" entries at start
-	command        []string                       // argv override; empty = image default
-	cwd            string                         // process cwd; empty = image default
-	mounts         []ctrd.Mount
-	issuedTLSMount *apigen.IssuedTLSMount
-	devShmSizeKB   int64
-	fileDescLimit  int64
-	configVersion  int32
-	latestVersion  int32
-	dataVolumeHost string // host dir to create+chown for the default data volume ("" = disabled)
-	dataVolumeUser string // user the data volume should be owned by
-	readiness      *readinessConfig
-	startupMode    containerStartupMode
-	networking     apigen.NetworkingConfig
+	user              string
+	envVars           map[string]*apigen.EnvVarValue // resolved to "KEY=VALUE" entries at start
+	command           []string                       // argv override; empty = image default
+	cwd               string                         // process cwd; empty = image default
+	mounts            []ctrd.Mount
+	issuedTLSMount    *apigen.IssuedTLSMount
+	devShmSizeKB      int64
+	fileDescLimit     int64
+	configVersion     int32
+	deploymentVersion int32
+	latestVersion     int32
+	dataVolumeHost    string // host dir to create+chown for the default data volume ("" = disabled)
+	dataVolumeUser    string // user the data volume should be owned by
+	readiness         *readinessConfig
+	startupMode       containerStartupMode
+	networking        apigen.NetworkingConfig
 
 	status apigen.RunnerStatus
 
@@ -147,19 +148,19 @@ func parseContainerRun(id, family string) (int32, bool) {
 	return int32(n), true
 }
 
-func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID int32, dep *apigen.DeploymentEvent, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	configVersion := preparerStatus.DeploymentSpecVersion
-	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, configVersion)
+	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, nodeID, dep, configVersion)
 	r.initFreshRun(dep, preparerStatus, false)
 	go r.run()
 	return r
 }
 
-func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID int32, dep *apigen.DeploymentEvent, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	configVersion := preparerStatus.DeploymentSpecVersion
-	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, configVersion)
+	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, nodeID, dep, configVersion)
 	r.initFreshRun(dep, preparerStatus, true)
 	go r.run()
 	return r
@@ -190,9 +191,9 @@ func (r *containerRunner) initFreshRun(dep *apigen.DeploymentEvent, preparerStat
 	r.writeStatus()
 }
 
-func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
+func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID int32, dep *apigen.DeploymentEvent, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
-	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, dep, prev.DeploymentSpecVersion)
+	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, nodeID, dep, prev.DeploymentSpecVersion)
 	r.status = prev
 	r.startupMode = mode
 	go r.run()
@@ -206,7 +207,7 @@ func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Durati
 	return containerReadinessDefaultTimeout
 }
 
-func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID int32, dep *apigen.DeploymentEvent, configVersion int32) *containerRunner {
+func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID int32, dep *apigen.DeploymentEvent, configVersion int32) *containerRunner {
 	cfg := dep.Value.Spec.Container().Runtime
 	family := containerFamily(dep.DeploymentID, configVersion, instanceID)
 	// Layering the container family onto the cancellation context keeps it on
@@ -223,9 +224,10 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		deploymentID:        dep.DeploymentID,
 		spaceID:             dep.Value.SpaceID,
 		deploymentName:      containerDeploymentName(dep),
-		nodeID:              dep.Value.NodeID,
+		nodeID:              nodeID,
 		containerFamily:     family,
 		configVersion:       configVersion,
+		deploymentVersion:   dep.Version,
 		user:                cfg.User,
 		envVars:             cfg.EnvVars,
 		command:             cfg.OverrideCommand,
@@ -246,7 +248,7 @@ func containerDeploymentName(dep *apigen.DeploymentEvent) string {
 		return "<nil>"
 	}
 	if dep.Value.Name != "" {
-		return fmt.Sprintf("%d:%d:%s", dep.Value.SpaceID, dep.Value.NodeID, dep.Value.Name)
+		return fmt.Sprintf("%d:%d:%s", dep.Value.SpaceID, dep.Value.PlacementNodeID(), dep.Value.Name)
 	}
 	return fmt.Sprintf("id=%d", dep.DeploymentID)
 }
@@ -549,7 +551,7 @@ func (r *containerRunner) run() {
 			FileDescLimit:  r.fileDescLimit,
 			Mounts:         mounts,
 			LogDir:         logDir,
-			LogVersion:     r.status.DeploymentSpecVersion,
+			LogVersion:     r.deploymentVersion,
 			LogRun:         runNumber,
 			ResolvConfPath: resolvConfPath,
 
@@ -880,7 +882,7 @@ func (r *containerRunner) registerSampling(task *ctrd.Task, runNumber int32) {
 			DeploymentID:        r.deploymentID,
 			ScheduledInstanceID: r.scheduledInstanceID,
 			Ordinal:             containerInstanceOrdinal,
-			SpecVersion:         r.status.DeploymentSpecVersion,
+			DeploymentVersion:   r.deploymentVersion,
 			Run:                 runNumber,
 		},
 		PID:         task.Pid(),

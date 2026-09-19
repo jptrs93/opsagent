@@ -388,7 +388,7 @@ func assertRoutes(t *testing.T, stage string, got *apigen.ClusterNetMap, want ma
 func virtualDeployment(id, nodeID, spaceID int32) apigen.DeploymentEvent {
 	return apigen.DeploymentEvent{
 		DeploymentID: id,
-		Value:        apigen.Deployment{NodeID: nodeID, SpaceID: spaceID, Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}, Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}}, Running: true}}},
+		Value:        apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, nodeID), SpaceID: spaceID, Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}, Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}}, Running: true}}},
 	}
 }
 
@@ -419,7 +419,7 @@ func TestRenderIngressPublishPerNode(t *testing.T) {
 		{ID: 2, Addresses: []string{"192.0.2.20"}, WGPublicKey: testWGKeyB, HostAddresses: []string{"192.0.2.20"}},
 	}
 	virtual := func(id, nodeID int32, listen ...*apigen.IngressListen) *apigen.DeploymentEvent {
-		return &apigen.DeploymentEvent{DeploymentID: id, Value: apigen.Deployment{NodeID: nodeID, SpaceID: 1, Name: "d", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
+		return &apigen.DeploymentEvent{DeploymentID: id, Value: apigen.Deployment{Scheduling: apigen.DedicatedScheduling(false, nodeID), SpaceID: 1, Name: "d", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
 			Mode:    apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 			Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_HTTPS, Hostname: "app.example.test", HttpsConfig: &apigen.HttpsConfig{ContainerPort: 8080, PathPrefix: "/"}, Listen: listen}},
 		}}}}

@@ -1,6 +1,6 @@
 import {FULL_GIT_COMMIT_RE, validateLocalFlakePath} from "./deploymentSource.js";
 
-import {deploymentDeleted} from "../lib/deployment.js";
+import {deploymentDeleted, placementNodeId} from "../lib/deployment.js";
 import {imageReference, imageRepositoryFromReference, imageVersionFromReference} from "./deploymentSource.js";
 const NETWORK_VIRTUAL = 1;
 const NETWORK_HOST = 2;
@@ -30,6 +30,10 @@ export const deploymentHclCompletionOptions = [
     {label: "resources", type: "keyword", info: "Container resource overrides"},
     {label: "upgrade", type: "keyword", info: "Container upgrade policy"},
     {label: "network", type: "keyword", info: "Deployment networking"},
+    {label: "scheduling", type: "keyword", info: "Where and whether the deployment runs"},
+    {label: "dedicated_nodes", type: "keyword", info: "Hand-picked placement: one instance per listed node"},
+    {label: "nodes", type: "keyword", info: "Nodes the deployment runs on, e.g. [node(\"name\")]"},
+    {label: "running", type: "keyword", info: "Desired running state for every scheduling variant"},
     {label: "ingress", type: "keyword", info: "Published routes and ports (virtual mode)"},
     {label: "https", type: "keyword", info: "Terminate HTTPS and route by hostname and path prefix"},
     {label: "tls_passthrough", type: "keyword", info: "Route TLS by SNI without termination"},
@@ -637,10 +641,16 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     }
     add(0);
     add(1, "scheduling {");
+    add(2, `running = ${doc.scheduling?.running ? "true" : "false"}`);
+    add(2, "dedicated_nodes {");
     // No placement yet reads as a placeholder the person is meant to replace,
     // not as an unresolved id.
-    add(2, `node = node(${quote(doc.nodeId ? nameForID(refs, "node", doc.nodeId) : "select-a-node")})`);
-    add(2, `desired_running = ${container.running ? "true" : "false"}`);
+    const nodeIds = (doc.scheduling?.dedicatedNodes?.nodes || []).map(Number).filter(Boolean);
+    const nodeRefs = nodeIds.length
+        ? nodeIds.map(id => `node(${quote(nameForID(refs, "node", id))})`)
+        : ['node("select-a-node")'];
+    add(3, `nodes = [${nodeRefs.join(", ")}]`);
+    add(2, "}");
     add(1, "}");
     add(0, "}");
     return `${lines.join("\n")}\n`;
@@ -730,12 +740,12 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
     let matches = scopedItems(collection, type, type === "deployment" ? spaceId : undefined)
         .filter(item => itemName(item, type) === name);
     if (type === "deployment" && options.nodeId !== undefined && options.nodeId !== null) {
-        matches = matches.filter(item => Number(deploymentOf(item)?.value?.nodeId) === Number(options.nodeId));
+        matches = matches.filter(item => placementNodeId(deploymentOf(item)) === Number(options.nodeId));
     }
     if (type === "deployment" && options.preferNodeId !== undefined && options.preferNodeId !== null) {
         // Same name may exist on several nodes; the local node shadows the
         // others, but a name unique to another node still resolves.
-        const ownNode = matches.filter(item => Number(deploymentOf(item)?.value?.nodeId) === Number(options.preferNodeId));
+        const ownNode = matches.filter(item => placementNodeId(deploymentOf(item)) === Number(options.preferNodeId));
         if (ownNode.length > 0) matches = ownNode;
     }
     matches = uniqueByID(matches, type);
@@ -1020,7 +1030,7 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
 }
 
 const INGRESS_BLOCK_HINT = "Ingress routes are declared as blocks: ingress { https { ... } tls_passthrough { ... } port_forward { ... } }.";
-const SCHEDULING_BLOCK_HINT = 'Placement and desired state live in the scheduling block: scheduling { node = node("name") desired_running = true }.';
+const SCHEDULING_BLOCK_HINT = 'Placement and desired state live in the scheduling block: scheduling { running = true dedicated_nodes { nodes = [node("name")] } }.';
 const SOURCE_VERSION_HINT = 'version is declared inside the source block: nix_docker_build { version = "…" }, or the tag of container_image { image = "repository:tag" }.';
 const IMAGE_VERSION_HINT = 'A container image is versioned by its reference: image = "repository:tag" or "repository@sha256:…"; there is no separate version attribute.';
 
@@ -1232,11 +1242,9 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
     const deployment = roots[0];
     if (!deployment) return null;
     // Identity (name, space) sits directly in the deployment block; placement
-    // and desired state live in the scheduling block. The document still
-    // exposes them as nodeId, identity, and container running, matching the
-    // API shape.
-    // Attributes from the previous shape are accepted by validateMembers so
-    // the hint is their only diagnostic.
+    // and desired state live in the scheduling block, mirroring the API's
+    // Scheduling message. Attributes from the previous shapes are accepted by
+    // validateMembers so the hint is their only diagnostic.
     for (const moved of ["node", "desired_running"]) {
         const attr = firstAttribute(deployment, moved);
         if (attr) diagnostics.push(diagnostic(text, attr.nameToken, SCHEDULING_BLOCK_HINT));
@@ -1250,15 +1258,22 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
     const spaceId = space ? Number(space.id) : null;
 
     const scheduling = exactlyOneBlock(text, diagnostics, deployment, "scheduling");
-    let nodeAttr = null;
+    let nodesAttr = null;
     let nodeId = null;
     let running = null;
     if (scheduling) {
-        validateMembers(text, diagnostics, scheduling, new Set(["node", "desired_running"]), new Set());
-        nodeAttr = requireAttribute(text, diagnostics, scheduling, "node");
-        const node = typedReference(text, diagnostics, nodeAttr, "node", "node", catalogs);
-        nodeId = node ? Number(node.id) : null;
-        running = booleanValue(text, diagnostics, requireAttribute(text, diagnostics, scheduling, "desired_running"), "desired_running");
+        for (const moved of ["node", "desired_running"]) {
+            const attr = firstAttribute(scheduling, moved);
+            if (attr) diagnostics.push(diagnostic(text, attr.nameToken, SCHEDULING_BLOCK_HINT));
+        }
+        validateMembers(text, diagnostics, scheduling, new Set(["running", "node", "desired_running"]), new Set(["dedicated_nodes"]));
+        running = booleanValue(text, diagnostics, requireAttribute(text, diagnostics, scheduling, "running"), "running");
+        const dedicated = exactlyOneBlock(text, diagnostics, scheduling, "dedicated_nodes");
+        if (dedicated) {
+            validateMembers(text, diagnostics, dedicated, new Set(["nodes"]), new Set());
+            nodesAttr = requireAttribute(text, diagnostics, dedicated, "nodes");
+            nodeId = parseDedicatedNodes(text, diagnostics, nodesAttr, catalogs);
+        }
     }
 
     const containers = members(deployment, "block", "container");
@@ -1395,8 +1410,8 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
 
     if (running && version !== null && !version) {
         diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, sourceSpec.remoteImage
-            ? 'Container image must include a tag or digest (image = "repository:tag") while desired_running is true.'
-            : "Version cannot be empty while desired_running is true."));
+            ? 'Container image must include a tag or digest (image = "repository:tag") while running is true.'
+            : "Version cannot be empty while running is true."));
     }
     if (sourceSpec.nixDockerBuild && version && !FULL_GIT_COMMIT_RE.test(version)) {
         diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, "Version must be a full 40-character commit sha."));
@@ -1407,17 +1422,40 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
     }
     const immutableNodeId = unwrap(constraints?.immutableNodeId);
     if (immutableNodeId !== undefined && immutableNodeId !== null && nodeId !== null && Number(nodeId) !== Number(immutableNodeId)) {
-        diagnostics.push(diagnostic(text, nodeAttr?.value || nodeAttr, "Deployment node placement is immutable."));
+        diagnostics.push(diagnostic(text, nodesAttr?.value || nodesAttr, "Deployment node placement is immutable."));
     }
 
     if (diagnostics.some(item => item.severity === "error")) return null;
     container.version = version;
-    container.running = running;
     return {
         identity: {name, spaceId},
-        nodeId,
+        scheduling: {running, dedicatedNodes: {nodes: nodeId ? [nodeId] : []}},
         spec: {container1Spec: container, networking},
     };
+}
+
+// parseDedicatedNodes resolves nodes = [node("name")] to the single node id the
+// current scheduler supports.
+function parseDedicatedNodes(text, diagnostics, attr, catalogs) {
+    if (!attr) return null;
+    const list = attr.value;
+    if (list.kind !== "list") {
+        diagnostics.push(diagnostic(text, list, 'nodes must be a list of node references: nodes = [node("name")].'));
+        return null;
+    }
+    if (list.items.length !== 1) {
+        diagnostics.push(diagnostic(text, list, list.items.length === 0
+            ? "nodes must name the node the deployment runs on."
+            : "Only one node is currently supported."));
+        return null;
+    }
+    const expression = list.items[0];
+    if (expression.kind !== "call" || expression.name !== "node" || expression.args.length !== 1 || expression.args[0].kind !== "string" || !expression.args[0].value) {
+        diagnostics.push(diagnostic(text, expression, 'nodes entries must use node("name").'));
+        return null;
+    }
+    const node = resolveNamed(text, diagnostics, expression, "node", expression.args[0].value, catalogs);
+    return node ? Number(node.id) : null;
 }
 
 export function parseDeploymentHcl(text, catalogs = {}, constraints = {}) {

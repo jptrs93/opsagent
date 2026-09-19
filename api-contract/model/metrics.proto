@@ -9,7 +9,7 @@ message MetricsSample {
   int32 deployment_id = 2;
   int32 scheduled_instance_id = 3;
   int32 ordinal = 4;
-  int32 spec_version = 5;
+  int32 deployment_version = 5;
   int32 run = 6;
   int32 node_id = 7;
   bool terminal = 8;

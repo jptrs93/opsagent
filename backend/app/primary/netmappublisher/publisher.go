@@ -430,7 +430,7 @@ func renderIngressPlan(inputs nodes.NetworkMapInputs, reservations []ingressplan
 		if cfg == nil || internaldeploy.IsInternalConfig(cfg) {
 			continue
 		}
-		in.Deployments = append(in.Deployments, ingressplan.DeploymentFromSpec(cfg.DeploymentID, cfg.Value.NodeID, cfg.Value.Name, &cfg.Value.Spec))
+		in.Deployments = append(in.Deployments, ingressplan.DeploymentFromSpec(cfg.DeploymentID, cfg.Value.PlacementNodeID(), cfg.Value.Name, &cfg.Value.Spec))
 	}
 	result := ingressplan.Evaluate(in)
 	plan := ingressPlan{publish: make(map[int32][]*apigen.IngressPublish, len(result.Publish)), diagnostics: &apigen.IngressDiagnosticList{Items: []*apigen.IngressDiagnostic{}}}

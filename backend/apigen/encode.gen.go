@@ -6,7 +6,8 @@ func (m Deployment) IsZero() bool {
 	return m.NodeID == 0 &&
 		m.Spec.IsZero() &&
 		m.SpaceID == 0 &&
-		m.Name == ""
+		m.Name == "" &&
+		m.Scheduling.IsZero()
 }
 
 func (m *Deployment) Encode() []byte {
@@ -18,6 +19,10 @@ func (m *Deployment) Encode() []byte {
 	}
 	b = AppendInt32Field(b, m.SpaceID, 10)
 	b = AppendStringField(b, m.Name, 11)
+	if !m.Scheduling.IsZero() {
+		b = AppendTag(b, 14, BytesType)
+		b = AppendBytes(b, m.Scheduling.Encode())
+	}
 	return b
 }
 
@@ -48,6 +53,92 @@ func DecodeDeployment(b []byte) (*Deployment, error) {
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		case 11:
 			b, m.Name, err = ConsumeString(b, typ)
+		case 14:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Scheduling
+				item, err = DecodeScheduling(msgBytes)
+				if err == nil {
+					m.Scheduling = *item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m Scheduling) IsZero() bool {
+	return m.Running == false &&
+		m.DedicatedNodes == nil
+}
+
+func (m *Scheduling) Encode() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Running, 1)
+	if m.DedicatedNodes != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.DedicatedNodes.Encode())
+	}
+	return b
+}
+
+func DecodeScheduling(b []byte) (*Scheduling, error) {
+	var m Scheduling
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Running, err = ConsumeBool(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DedicatedNodesScheduling
+				item, err = DecodeDedicatedNodesScheduling(msgBytes)
+				if err == nil {
+					m.DedicatedNodes = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *DedicatedNodesScheduling) Encode() []byte {
+	var b []byte
+	b = AppendRepeatedCompact(b, m.Nodes, 1, AppendCompactDecorator(AppendInt32Compact))
+	return b
+}
+
+func DecodeDedicatedNodesScheduling(b []byte) (*DedicatedNodesScheduling, error) {
+	var m DedicatedNodesScheduling
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Nodes, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -70,6 +161,7 @@ func (m DeploymentEvent) IsZero() bool {
 		m.SpecVersion == 0 &&
 		m.SpaceVersion == 0 &&
 		m.NameVersion == 0 &&
+		m.SchedulingVersion == 0 &&
 		m.Value.IsZero()
 }
 
@@ -86,6 +178,7 @@ func (m *DeploymentEvent) Encode() []byte {
 	b = AppendInt32Field(b, m.SpecVersion, 7)
 	b = AppendInt32Field(b, m.SpaceVersion, 12)
 	b = AppendInt32Field(b, m.NameVersion, 14)
+	b = AppendInt32Field(b, m.SchedulingVersion, 21)
 	if !m.Value.IsZero() {
 		b = AppendTag(b, 18, BytesType)
 		b = AppendBytes(b, m.Value.Encode())
@@ -131,6 +224,8 @@ func DecodeDeploymentEvent(b []byte) (*DeploymentEvent, error) {
 			b, m.SpaceVersion, err = ConsumeVarInt32(b, typ)
 		case 14:
 			b, m.NameVersion, err = ConsumeVarInt32(b, typ)
+		case 21:
+			b, m.SchedulingVersion, err = ConsumeVarInt32(b, typ)
 		case 18:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -2289,7 +2384,10 @@ func (m *DeploymentCreateRequest) Encode() []byte {
 		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, m.Spec.Encode())
 	}
-	b = AppendInt32Field(b, m.NodeID, 4)
+	if !m.Scheduling.IsZero() {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.Scheduling.Encode())
+	}
 	return b
 }
 
@@ -2318,8 +2416,15 @@ func DecodeDeploymentCreateRequest(b []byte) (*DeploymentCreateRequest, error) {
 					m.Spec = *item
 				}
 			}
-		case 4:
-			b, m.NodeID, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Scheduling
+				item, err = DecodeScheduling(msgBytes)
+				if err == nil {
+					m.Scheduling = *item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3526,6 +3631,7 @@ func (m *DeploymentRunReport) Encode() []byte {
 	b = AppendRepeated(b, m.LogLines, AppendFieldDecorator(AppendStringElem, 10))
 	b = AppendRepeated(b, m.Warnings, AppendFieldDecorator(AppendStringElem, 11))
 	b = AppendInt32Field(b, int32(m.Status), 12)
+	b = AppendInt32Field(b, m.DeploymentVersion, 13)
 	return b
 }
 
@@ -3576,6 +3682,8 @@ func DecodeDeploymentRunReport(b []byte) (*DeploymentRunReport, error) {
 			if err == nil {
 				m.Status = RunningStatus(raw)
 			}
+		case 13:
+			b, m.DeploymentVersion, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -3854,7 +3962,7 @@ func (m *LogQueryRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 1)
 	b = AppendInt32Field(b, m.TargetNodeID, 2)
-	b = AppendInt32Field(b, m.SpecVersion, 3)
+	b = AppendInt32Field(b, m.DeploymentVersion, 3)
 	b = AppendInt64FromTime(b, m.TimeStart, 4)
 	b = AppendInt64FromTime(b, m.TimeEnd, 5)
 	for _, item := range m.Filters {
@@ -3890,7 +3998,7 @@ func DecodeLogQueryRequest(b []byte) (*LogQueryRequest, error) {
 		case 2:
 			b, m.TargetNodeID, err = ConsumeVarInt32(b, typ)
 		case 3:
-			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
+			b, m.DeploymentVersion, err = ConsumeVarInt32(b, typ)
 		case 4:
 			b, m.TimeStart, err = ConsumeTimeFromInt64(b, typ)
 		case 5:
@@ -4244,7 +4352,7 @@ func (m *MetricsSample) Encode() []byte {
 	b = AppendInt32Field(b, m.DeploymentID, 2)
 	b = AppendInt32Field(b, m.ScheduledInstanceID, 3)
 	b = AppendInt32Field(b, m.Ordinal, 4)
-	b = AppendInt32Field(b, m.SpecVersion, 5)
+	b = AppendInt32Field(b, m.DeploymentVersion, 5)
 	b = AppendInt32Field(b, m.Run, 6)
 	b = AppendInt32Field(b, m.NodeID, 7)
 	b = AppendBoolField(b, m.Terminal, 8)
@@ -4325,7 +4433,7 @@ func DecodeMetricsSample(b []byte) (*MetricsSample, error) {
 		case 4:
 			b, m.Ordinal, err = ConsumeVarInt32(b, typ)
 		case 5:
-			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
+			b, m.DeploymentVersion, err = ConsumeVarInt32(b, typ)
 		case 6:
 			b, m.Run, err = ConsumeVarInt32(b, typ)
 		case 7:
@@ -4455,7 +4563,7 @@ func (m *MetricsQueryRequest) Encode() []byte {
 	b = AppendInt32Field(b, m.DeploymentID, 1)
 	b = AppendInt32Field(b, m.TargetNodeID, 2)
 	b = AppendInt32Field(b, m.ScheduledInstanceID, 3)
-	b = AppendInt32Field(b, m.SpecVersion, 4)
+	b = AppendInt32Field(b, m.DeploymentVersion, 4)
 	b = AppendInt32Field(b, m.Run, 5)
 	b = AppendInt64FromTime(b, m.TimeStart, 6)
 	b = AppendInt64FromTime(b, m.TimeEnd, 7)
@@ -4483,7 +4591,7 @@ func DecodeMetricsQueryRequest(b []byte) (*MetricsQueryRequest, error) {
 		case 3:
 			b, m.ScheduledInstanceID, err = ConsumeVarInt32(b, typ)
 		case 4:
-			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
+			b, m.DeploymentVersion, err = ConsumeVarInt32(b, typ)
 		case 5:
 			b, m.Run, err = ConsumeVarInt32(b, typ)
 		case 6:
@@ -4514,7 +4622,7 @@ func (m *MetricsSeries) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ScheduledInstanceID, 1)
 	b = AppendInt32Field(b, m.Ordinal, 2)
-	b = AppendInt32Field(b, m.SpecVersion, 3)
+	b = AppendInt32Field(b, m.DeploymentVersion, 3)
 	b = AppendInt32Field(b, m.Run, 4)
 	b = AppendInt32Field(b, m.NodeID, 5)
 	b = AppendStringField(b, m.Field, 6)
@@ -4539,7 +4647,7 @@ func DecodeMetricsSeries(b []byte) (*MetricsSeries, error) {
 		case 2:
 			b, m.Ordinal, err = ConsumeVarInt32(b, typ)
 		case 3:
-			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
+			b, m.DeploymentVersion, err = ConsumeVarInt32(b, typ)
 		case 4:
 			b, m.Run, err = ConsumeVarInt32(b, typ)
 		case 5:
