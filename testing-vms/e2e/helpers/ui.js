@@ -1482,7 +1482,7 @@ export async function uploadAsset(page, {key, content, fileName = key} = {}) {
     name: fileName,
     mimeType: 'application/octet-stream',
     buffer: Buffer.from(content),
-  });
+  }, {timeout: ASSET_UPLOAD_TIMEOUT});
   const overlay = page.locator('.fixed.inset-0.z-50').filter({hasText: 'Upload asset'}).last();
   await expect(overlay).toBeVisible();
   const uploadResponse = page.waitForResponse(response => {

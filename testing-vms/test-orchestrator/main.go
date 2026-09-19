@@ -2530,6 +2530,13 @@ func waitForLocalTunnelListener(port string) error {
 }
 
 func (c *config) startSSHTunnel(vm, localPort, remoteHost, remotePort string) (*exec.Cmd, error) {
+	// ssh runs with ExitOnForwardFailure and dies silently when the local port
+	// is taken, leaving the run to probe a port nothing answers on; a stale
+	// tunnel from a killed run points at a deleted VM and fails the same way.
+	if conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", localPort), time.Second); err == nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("local port %s is already in use; kill the stale tunnel or service holding it before running", localPort)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
