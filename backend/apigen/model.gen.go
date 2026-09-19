@@ -226,7 +226,6 @@ const (
 )
 
 type Deployment struct {
-	NodeID     int32          `json:"node_id"`
 	Spec       DeploymentSpec `json:"spec"`
 	SpaceID    int32          `json:"space_id"`
 	Name       string         `json:"name,omitempty"`
@@ -278,7 +277,6 @@ type ContainerSpec struct {
 	Source          ContainerBundleSource     `json:"source"`
 	Runtime         ContainerRuntime          `json:"runtime"`
 	Version         string                    `json:"version,omitempty"`
-	Running         bool                      `json:"running"`
 	UpgradeStrategy ContainerUpgradeStrategy  `json:"upgrade_strategy"`
 	ReadinessSignal *ContainerReadinessSignal `json:"readiness_signal"`
 }

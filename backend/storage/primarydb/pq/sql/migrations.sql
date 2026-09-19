@@ -27,20 +27,16 @@
 -- observation move (v0.0.587: node_event_log host_addresses and
 -- enrollment_requested_at columns, the one-time copy of the last legacy
 -- node_statuses row into node_status_log, and the global_seq columns on the
--- two observed status logs) after the v0.0.587 rollout.
+-- two observed status logs) after the v0.0.587 rollout, and the deployment
+-- scheduling facet (v0.0.611: scheduling_version and scheduling_changed
+-- columns on deployment_event_log plus the Go shape migration in
+-- pq/migrate_scheduling.go that lifted node_id and ContainerSpec.running
+-- into Deployment.scheduling) after the v0.0.611 rollout. A database from
+-- before v0.0.611 fails at startup on the missing columns rather than
+-- opening with every deployment read as stopped.
 -- Upgrading a database from before then requires stepping through a release
 -- that still carried them. Databases migrated through v0.0.541 keep a dead
 -- NULL-only nodes.enrollment_id column: its UNIQUE constraint blocks
 -- ALTER TABLE DROP COLUMN, and no query references it.
 
 DROP TABLE IF EXISTS node_statuses;
-
--- v0.0.611 deployment scheduling facet: placement and desired running state
--- moved from Deployment.node_id and ContainerSpec.running into
--- Deployment.scheduling with its own version counter. Rows written before
--- the facet existed count as scheduling version 1 (their running history
--- stays folded into spec_version). The value blobs are lifted by the Go
--- shape migration in pq/migrate_scheduling.go.
-ALTER TABLE deployment_event_log ADD COLUMN scheduling_version INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE deployment_event_log ADD COLUMN scheduling_changed INTEGER NOT NULL DEFAULT 0;
-UPDATE deployment_event_log SET scheduling_version = 1, scheduling_changed = (version = 1) WHERE scheduling_version = 0;

@@ -34,7 +34,6 @@ func Open(dbPath string) *Queries {
 	db := sqlitedb.MustOpenWriter(dbPath)
 	sqlitedb.ApplySchema(db, schemaFiles, "sql/schema*.sql")
 	sqlitedb.ApplyMigrations(db, migrations)
-	migrateDeploymentScheduling(db)
 	return &Queries{db: &conn{DBTX: db, root: db}}
 }
 

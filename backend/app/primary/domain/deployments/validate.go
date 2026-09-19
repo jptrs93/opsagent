@@ -128,7 +128,6 @@ func ValidateSpecWithResolvers(spec *apigen.DeploymentSpec, assets AssetResolver
 		return nil, InvalidConfigErrf("only container1Spec is currently supported")
 	}
 	container := out.Container1Spec
-	container.Running = false
 	if err := validateContainerSource(&container.Source); err != nil {
 		return nil, err
 	}

@@ -93,20 +93,19 @@ func nixCreateRequest(nodeID int32, name string, running bool) *apigen.Deploymen
 	return &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: name,
 		Scheduling: apigen.DedicatedScheduling(running, nodeID),
-		Spec:       nixDeploymentSpecWithState("github.com/acme/app", "flake.nix", testNixCommit, running),
+		Spec:       nixDeploymentSpecWithVersion("github.com/acme/app", "flake.nix", testNixCommit),
 	}
 }
 
 func nixDeploymentSpec(repo, flake string) apigen.DeploymentSpec {
-	return nixDeploymentSpecWithState(repo, flake, testNixCommit, true)
+	return nixDeploymentSpecWithVersion(repo, flake, testNixCommit)
 }
 
-func nixDeploymentSpecWithState(repo, flake, version string, running bool) apigen.DeploymentSpec {
+func nixDeploymentSpecWithVersion(repo, flake, version string) apigen.DeploymentSpec {
 	return apigen.DeploymentSpec{
 		Container1Spec: &apigen.ContainerSpec{
 			Source:  apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: repo, Flake: flake}},
 			Version: version,
-			Running: running,
 		},
 		Networking: hostNetworking(),
 	}

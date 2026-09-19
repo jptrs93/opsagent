@@ -64,7 +64,7 @@ func TestConcurrentCreatesRejectDuplicateIngressClaim(t *testing.T) {
 			defer wg.Done()
 			_, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 				SpaceID: 1, Name: fmt.Sprintf("claimant-%d", i),
-				Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, 1),
+				Scheduling: apigen.DedicatedScheduling(false, 1),
 				Spec:       spec,
 			})
 			errs[i] = err

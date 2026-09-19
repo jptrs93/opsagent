@@ -33,7 +33,6 @@ func testRunningSpec(version string) *apigen.DeploymentSpec {
 	return &apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 		Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}},
 		Version: version,
-		Running: true,
 	}}
 }
 
@@ -366,7 +365,7 @@ func TestTerminateDeploymentStopsEveryRunnableState(t *testing.T) {
 	standby := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY)
 	draining := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING)
 
-	statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, stoppedSpec("v1"))
+	statetest.SetDeploymentWorkloadState(store, apigen.Context{}, cfg.DeploymentID, "v1", false)
 	startScheduler(t, store, newFakeBarrier())
 
 	byID := statesByID(store, cfg.DeploymentID)
@@ -513,19 +512,6 @@ func TestRestartAdoptsDrainingInstances(t *testing.T) {
 	}
 }
 
-func stoppedSpec(version string) *apigen.DeploymentSpec {
-	spec := testRunningSpec(version)
-	spec.Container1Spec.Running = false
-	return spec
-}
-
-func updateSpec(t *testing.T, store *state.Service, cfg *apigen.DeploymentEvent, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
-	t.Helper()
-	next := *spec
-	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, &next)
-	return updated
-}
-
 func TestRestartEventReplacesThePlacement(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
@@ -600,7 +586,7 @@ func TestStoppedInstanceIsFinalized(t *testing.T) {
 	markRunning(t, store, inst.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
 
 	startScheduler(t, store, newFakeBarrier())
-	stopped := updateSpec(t, store, cfg, stoppedSpec("v1"))
+	stopped := statetest.SetDeploymentWorkloadState(store, apigen.Context{}, cfg.DeploymentID, "v1", false)
 
 	if got := statesByID(store, cfg.DeploymentID)[inst.ID]; got != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
 		t.Fatalf("state after stop = %v, want TERMINATE while the container is still up", got)
@@ -627,10 +613,10 @@ func TestRestartingAfterStopLeavesOnlyTheReplacement(t *testing.T) {
 	markRunning(t, store, older.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
 
 	startScheduler(t, store, newFakeBarrier())
-	stopped := updateSpec(t, store, cfg, stoppedSpec("v1"))
+	stopped := statetest.SetDeploymentWorkloadState(store, apigen.Context{}, cfg.DeploymentID, "v1", false)
 	markRunning(t, store, older.ID, stopped.SpecVersion, apigen.RunningStatus_STOPPED)
 
-	restarted := updateSpec(t, store, stopped, testRunningSpec("v2"))
+	restarted := statetest.SetDeploymentWorkloadState(store, apigen.Context{}, stopped.DeploymentID, "v2", true)
 
 	active := statetest.NonFinalInstances(store, cfg.DeploymentID)
 	if len(active) != 1 {

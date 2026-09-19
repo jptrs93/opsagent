@@ -14,7 +14,6 @@ import (
 func encodeLegacyDeploymentBlob(id, version, specVersion, spaceVersion int32, createdAt, updatedAt int64, author, nodeID int32, spec *apigen.DeploymentSpec, spaceID int32, name string, deleted bool) []byte {
 	var b []byte
 	b = apigen.AppendInt32Field(b, id, 1)
-	b = apigen.AppendInt32Field(b, nodeID, 2)
 	b = apigen.AppendInt64Field(b, createdAt, 4)
 	b = apigen.AppendInt64Field(b, updatedAt, 5)
 	b = apigen.AppendInt32Field(b, author, 6)
@@ -37,8 +36,8 @@ func TestLegacyFlatBlobRowsDecodeAsDef(t *testing.T) {
 	}
 
 	db := sqlitedb.MustOpen(dbPath)
-	spec1 := testSpecWithState("v1", true)
-	spec2 := testSpecWithState("v2", true)
+	spec1 := testSpecWithVersion("v1")
+	spec2 := testSpecWithVersion("v2")
 	insert := func(seq, createdTime, eventTime int64, id, version, specVersion int32, blob []byte, eventType int64) {
 		if _, err := db.Exec(`INSERT INTO deployment_event_log (
 			global_seq, event_time, created_time, author, deployment_id, version,
@@ -63,13 +62,10 @@ func TestLegacyFlatBlobRowsDecodeAsDef(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("deployment 7 not loaded")
 	}
-	if cfg.Value.PlacementNodeID() != 3 || cfg.Value.SpaceID != 1 || cfg.Value.Name != "api" || cfg.Value.Spec.WorkloadVersion() != "v2" {
+	if cfg.Value.SpaceID != 1 || cfg.Value.Name != "api" || cfg.Value.Spec.WorkloadVersion() != "v2" {
 		t.Fatalf("def not decoded from legacy blob: %+v", cfg.Value)
 	}
-	if !cfg.WorkloadRunning() || cfg.Value.Spec.Container1Spec.Running || cfg.Value.PlacementNodeID() != 3 {
-		t.Fatalf("scheduling not lifted from legacy blob (node_id mirror kept for old workers): %+v", cfg.Value)
-	}
-	if cfg.Version != 2 || cfg.SpecVersion != 2 || cfg.SpaceVersion != 1 || cfg.NameVersion != 1 || cfg.SchedulingVersion != 1 || cfg.Author != 5 {
+	if cfg.Version != 2 || cfg.SpecVersion != 2 || cfg.SpaceVersion != 1 || cfg.NameVersion != 1 || cfg.Author != 5 {
 		t.Fatalf("envelope not read from columns: %+v", cfg)
 	}
 	if cfg.CreatedTime.UnixMilli() != 1000 || cfg.EventTime.UnixMilli() != 2000 {
@@ -90,7 +86,7 @@ func TestLegacyFlatBlobRowsDecodeAsDef(t *testing.T) {
 		t.Fatalf("deleted snapshot = %+v, want deployment 8", got)
 	}
 
-	updated := updateDeploymentSpec(store, apigen.Context{}, 7, testSpecWithState("v3", true))
+	updated := updateDeploymentSpec(store, apigen.Context{}, 7, testSpecWithVersion("v3"))
 	if updated.Version != 3 || updated.SpecVersion != 3 || updated.SpaceVersion != 1 || updated.NameVersion != 1 {
 		t.Fatalf("update on legacy rows derived versions wrong: %+v", updated)
 	}

@@ -54,7 +54,7 @@ func seedDeploymentRunnerStatus(store *state.Service, cfg *apigen.DeploymentEven
 
 func createTestDeployment(store *state.Service, nodeIdentifier string, spaceID int32, name string, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
 	node := nodes.EnsurePrimaryNode(store, nodeIdentifier, nodeIdentifier)
-	return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, spaceID, name, node.ID, spec)
+	return statetest.MustCreateStoppedDeploymentForNode(store, apigen.Context{}, spaceID, name, node.ID, spec)
 }
 
 func hostNetworking() apigen.NetworkingConfig {
@@ -284,20 +284,19 @@ func nixCreateRequest(nodeID int32, name string, running bool) *apigen.Deploymen
 	return &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: name,
 		Scheduling: apigen.DedicatedScheduling(running, nodeID),
-		Spec:       nixDeploymentSpecWithState("github.com/acme/app", "flake.nix", testNixCommit, running),
+		Spec:       nixDeploymentSpecWithVersion("github.com/acme/app", "flake.nix", testNixCommit),
 	}
 }
 
 func nixDeploymentSpec(repo, flake string) apigen.DeploymentSpec {
-	return nixDeploymentSpecWithState(repo, flake, testNixCommit, true)
+	return nixDeploymentSpecWithVersion(repo, flake, testNixCommit)
 }
 
-func nixDeploymentSpecWithState(repo, flake, version string, running bool) apigen.DeploymentSpec {
+func nixDeploymentSpecWithVersion(repo, flake, version string) apigen.DeploymentSpec {
 	return apigen.DeploymentSpec{
 		Container1Spec: &apigen.ContainerSpec{
 			Source:  apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: repo, Flake: flake}},
 			Version: version,
-			Running: running,
 		},
 		Networking: hostNetworking(),
 	}
@@ -358,7 +357,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 		spec.Container1Spec.Runtime.EnvVars = env
 		cfg, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: 1, Name: name,
-			Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, nodeID),
+			Scheduling: apigen.DedicatedScheduling(false, nodeID),
 			Spec:       spec,
 		})
 		if err != nil {
@@ -587,7 +586,7 @@ func TestDeploymentIdentityIsScopedByNodeID(t *testing.T) {
 	create := func(nodeID, spaceID int32) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: "web",
-			Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, nodeID),
+			Scheduling: apigen.DedicatedScheduling(false, nodeID),
 			Spec:       spec,
 		})
 	}
@@ -723,8 +722,7 @@ func TestDeploymentDeleteAllowsNeverScheduledStoppedDeployment(t *testing.T) {
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	initial.Container1Spec.Version = "1.25"
-	initial.Container1Spec.Running = false
-	created := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "web", node.ID, &initial)
+	created := statetest.MustCreateStoppedDeploymentForNode(store, apigen.Context{}, 1, "web", node.ID, &initial)
 	h := &Handler{SystemConfig: &systemconfig.Service{}, Store: store, Queries: store.Queries(), NodeID: node.ID}
 
 	if err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: created.DeploymentID, Version: created.Version + 1}); err != nil {
@@ -741,7 +739,6 @@ func TestDeploymentDeleteAllowsRunningDisconnectedNodeDeployment(t *testing.T) {
 	secondary := nodes.EnsurePrimaryNode(store, "secondary", "secondary-a")
 	initial := remoteDeploymentSpec("nginx", hostNetworking())
 	initial.Container1Spec.Version = "1.25"
-	initial.Container1Spec.Running = true
 	created := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "web", secondary.ID, &initial)
 	seedDeploymentRunnerStatus(store, created, apigen.RunningStatus_RUNNING)
 	h := &Handler{SystemConfig: &systemconfig.Service{}, Store: store, Queries: store.Queries(), NodeID: primary.ID}
@@ -874,7 +871,7 @@ func TestDeploymentCreateWithDeletedIdentityCreatesIndependentDeployment(t *test
 		spec.Container1Spec.Version = version
 		cfg, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: 1, Name: "web",
-			Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, primary.ID),
+			Scheduling: apigen.DedicatedScheduling(false, primary.ID),
 			Spec:       spec,
 		})
 		if err != nil {

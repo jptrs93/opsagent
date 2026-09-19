@@ -19,7 +19,7 @@ const netproxyFileDescriptorLimit = 65_536
 func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
-	created := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, internaldeploy.SpaceID, internaldeploy.SelfName, node.ID, statetest.SpecWithState("", false))
+	created := statetest.MustCreateStoppedDeploymentForNode(store, apigen.Context{}, internaldeploy.SpaceID, internaldeploy.SelfName, node.ID, statetest.SpecWithVersion(""))
 	statetest.SetDeploymentWorkloadState(store, apigen.Context{}, created.DeploymentID, "v0.0.194", true)
 
 	EnsureSystem(store, node.ID, "v0.0.195")
@@ -80,7 +80,7 @@ func TestInternalDeploymentsAreScopedByNodeID(t *testing.T) {
 
 	a := EnsureNetproxy(store, nodeA.ID, "v0.0.200")
 	b := EnsureNetproxy(store, nodeB.ID, "v0.0.200")
-	if a.DeploymentID == b.DeploymentID || a.Value.NodeID != nodeA.ID || b.Value.NodeID != nodeB.ID {
+	if a.DeploymentID == b.DeploymentID || a.Value.PlacementNodeID() != nodeA.ID || b.Value.PlacementNodeID() != nodeB.ID {
 		t.Fatalf("netproxy deployments not scoped by node: a=%+v b=%+v", a, b)
 	}
 	if a.Value.SpaceID != b.Value.SpaceID || a.Value.Name != b.Value.Name {

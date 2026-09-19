@@ -40,10 +40,10 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	create := func(nodeID int32, name string, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
 		return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, nodeID, spec)
 	}
-	containerSpec := statetest.SpecWithState("v1", true)
+	containerSpec := statetest.SpecWithVersion("v1")
 	primary := create(primaryNode.ID, "app", containerSpec)
 	secondary := create(secondaryNode.ID, "app", containerSpec)
-	system := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, internaldeploy.SpaceID, internaldeploy.SelfName, primaryNode.ID, testSystemSpecWithState("v1", true))
+	system := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, internaldeploy.SpaceID, internaldeploy.SelfName, primaryNode.ID, testSystemSpecWithVersion("v1"))
 
 	seedStatus := func(cfg *apigen.DeploymentEvent, artifact string) *apigen.ScheduledInstance {
 		inst := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
@@ -103,7 +103,7 @@ func TestEnsureRunScheduledInstanceIsConcurrentAndIdempotent(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary-id")
-	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "api", node.ID, statetest.SpecWithState("v1", true))
+	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "api", node.ID, statetest.SpecWithVersion("v1"))
 
 	const callers = 16
 	ids := make(chan int32, callers)
@@ -133,12 +133,11 @@ func TestEnsureRunScheduledInstanceIsConcurrentAndIdempotent(t *testing.T) {
 	}
 }
 
-func testSystemSpecWithState(version string, running bool) *apigen.DeploymentSpec {
+func testSystemSpecWithVersion(version string) *apigen.DeploymentSpec {
 	spec := internaldeploy.SelfSpec()
 	if err := spec.SetWorkloadVersion(version); err != nil {
 		panic(err)
 	}
-	_ = running
 	return spec
 }
 
@@ -146,7 +145,7 @@ func TestInvalidationPublishesTombstonesAndRetainsAllHistory(t *testing.T) {
 	s := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer s.Close()
 	node := nodes.EnsurePrimaryNode(s, "primary", "primary")
-	dep := statetest.MustCreateDeploymentForNode(s, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, statetest.SpecWithState("v1", true))
+	dep := statetest.MustCreateDeploymentForNode(s, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, statetest.SpecWithVersion("v1"))
 	inst := statetest.CreateScheduledInstance(s, dep.DeploymentID, dep.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	nodes.SetNodeStatusByIdentifier(s, node.Identifier, true, time.Now())
 	scheduledinstances.WriteStatus(s, inst.ID, func(st *apigen.ScheduledInstanceStatus) bool {
@@ -209,7 +208,7 @@ func TestMergedCommitFinalCacheAndRollback(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	node := nodes.EnsurePrimaryNode(s, "primary", "primary")
-	dep := statetest.MustCreateDeploymentForNode(s, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, statetest.SpecWithState("v1", true))
+	dep := statetest.MustCreateDeploymentForNode(s, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, statetest.SpecWithVersion("v1"))
 	inst := statetest.CreateScheduledInstance(s, dep.DeploymentID, dep.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	scheduledinstances.WriteStatus(s, inst.ID, func(st *apigen.ScheduledInstanceStatus) bool {
 		st.BumpUpdatedAt()

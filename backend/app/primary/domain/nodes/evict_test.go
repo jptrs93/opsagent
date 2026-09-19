@@ -43,7 +43,7 @@ func TestEvictNodeRefusesPinnedDeploymentsWithoutForce(t *testing.T) {
 	defer store.Close()
 	EnsurePrimaryNode(store, "primary", "primary-id")
 	node := acceptSecondary(t, store, "secondary-id")
-	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "web", node.ID, statetest.SpecWithState("v1", true))
+	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "web", node.ID, statetest.SpecWithVersion("v1"))
 	statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	_, err := EvictNode(apigen.Context{Ctx: context.Background()}, store, node.Identifier, node.Version, false)
@@ -65,7 +65,7 @@ func TestEvictNodeForceFinalizesPlacementsAndDeletesSystemDeployments(t *testing
 	EnsurePrimaryNode(store, "primary", "primary-id")
 	node := acceptSecondary(t, store, "secondary-id")
 	ctx := apigen.Context{Ctx: context.Background()}
-	web := statetest.MustCreateDeploymentForNode(store, ctx, DefaultSpaceID, "web", node.ID, statetest.SpecWithState("v1", true))
+	web := statetest.MustCreateDeploymentForNode(store, ctx, DefaultSpaceID, "web", node.ID, statetest.SpecWithVersion("v1"))
 	webInst := statetest.CreateScheduledInstance(store, web.DeploymentID, web.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	netproxy := statetest.MustCreateDeploymentForNode(store, ctx, internaldeploy.SpaceID, internaldeploy.NetproxyName, node.ID, internaldeploy.NetproxySpec())
 	statetest.CreateScheduledInstance(store, netproxy.DeploymentID, netproxy.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)

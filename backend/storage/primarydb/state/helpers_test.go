@@ -27,12 +27,11 @@ func nonEmptySpec() *apigen.DeploymentSpec {
 	}
 }
 
-func testSpecWithState(version string, running bool) *apigen.DeploymentSpec {
+func testSpecWithVersion(version string) *apigen.DeploymentSpec {
 	spec := nonEmptySpec()
 	if err := spec.SetWorkloadVersion(version); err != nil {
 		panic(err)
 	}
-	spec.Container1Spec.Running = running
 	return spec
 }
 
@@ -76,7 +75,11 @@ func updateDeploymentForTest(s *Service, ctx apigen.Context, deploymentID int32,
 }
 
 func mustCreateDeploymentForNode(s *Service, ctx apigen.Context, spaceID int32, name string, nodeID int32, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
-	stored, running := liftLegacyRunning(spec)
+	return mustCreateDeploymentForNodeRunning(s, ctx, spaceID, name, nodeID, true, spec)
+}
+
+func mustCreateDeploymentForNodeRunning(s *Service, ctx apigen.Context, spaceID int32, name string, nodeID int32, running bool, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
+	stored := erru.Must(apigen.DecodeDeploymentSpec(spec.Encode()))
 	return erru.Must(createDeploymentForTest(s, ctx, &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(running, nodeID), SpaceID: spaceID, Name: name, Spec: *stored}, func(q *pq.Queries) error {
 		events, err := q.ListLatestDeploymentEvents(ctx)
 		if err != nil {
@@ -235,7 +238,7 @@ func writeInstanceStatusForTest(s *Service, instanceID int32, f func(*apigen.Sch
 // directory.
 
 func envRefSpec(configIDs map[string]int32, secretIDs map[string]int32) *apigen.DeploymentSpec {
-	spec := testSpecWithState("v1", true)
+	spec := testSpecWithVersion("v1")
 	spec.Container1Spec.Runtime.EnvVars = make(map[string]*apigen.EnvVarValue, len(configIDs)+len(secretIDs))
 	for key, id := range configIDs {
 		id := id
@@ -405,14 +408,4 @@ func deleteAssetDirectoryForTest(s *Service, id int32) {
 		d.Deleted = true
 		return &Update{AssetDirectories: []*apigen.AssetDirectory{&d}}, nil
 	}))
-}
-
-func liftLegacyRunning(spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, bool) {
-	stored := erru.Must(apigen.DecodeDeploymentSpec(spec.Encode()))
-	running := stored.OpendeploySpec != nil
-	if container := stored.Container(); container != nil {
-		running = container.Running
-		container.Running = false
-	}
-	return stored, running
 }

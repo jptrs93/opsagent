@@ -3,8 +3,7 @@
 package apigen
 
 func (m Deployment) IsZero() bool {
-	return m.NodeID == 0 &&
-		m.Spec.IsZero() &&
+	return m.Spec.IsZero() &&
 		m.SpaceID == 0 &&
 		m.Name == "" &&
 		m.Scheduling.IsZero()
@@ -12,7 +11,6 @@ func (m Deployment) IsZero() bool {
 
 func (m *Deployment) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.NodeID, 2)
 	if !m.Spec.IsZero() {
 		b = AppendTag(b, 8, BytesType)
 		b = AppendBytes(b, m.Spec.Encode())
@@ -38,8 +36,6 @@ func DecodeDeployment(b []byte) (*Deployment, error) {
 			return nil, err
 		}
 		switch num {
-		case 2:
-			b, m.NodeID, err = ConsumeVarInt32(b, typ)
 		case 8:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -458,7 +454,6 @@ func (m *ContainerSpec) Encode() []byte {
 		b = AppendBytes(b, m.Runtime.Encode())
 	}
 	b = AppendStringField(b, m.Version, 3)
-	b = AppendBoolField(b, m.Running, 4)
 	b = AppendInt32Field(b, int32(m.UpgradeStrategy), 5)
 	if m.ReadinessSignal != nil {
 		b = AppendTag(b, 6, BytesType)
@@ -499,8 +494,6 @@ func DecodeContainerSpec(b []byte) (*ContainerSpec, error) {
 			}
 		case 3:
 			b, m.Version, err = ConsumeString(b, typ)
-		case 4:
-			b, m.Running, err = ConsumeBool(b, typ)
 		case 5:
 			var raw int32
 			b, raw, err = ConsumeVarInt32(b, typ)

@@ -29,7 +29,6 @@ func runningDeploymentSpec() *apigen.DeploymentSpec {
 	return &apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 		Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}},
 		Version: "v1",
-		Running: true,
 	}}
 }
 
@@ -158,8 +157,8 @@ func TestDisplaySnapshotAppliesPredicate(t *testing.T) {
 	visible := seedDeployment(t, store, "visible")
 	hidden := seedDeployment(t, store, "hidden")
 
-	shownInst := createScheduledInstanceForTest(store, visible.DeploymentID, visible.Version, visible.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	hiddenInst := createScheduledInstanceForTest(store, hidden.DeploymentID, hidden.Version, hidden.Value.NodeID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	shownInst := createScheduledInstanceForTest(store, visible.DeploymentID, visible.Version, visible.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	hiddenInst := createScheduledInstanceForTest(store, hidden.DeploymentID, hidden.Version, hidden.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	setScheduledInstanceState(store, shownInst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 	setScheduledInstanceState(store, hiddenInst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 

@@ -41,7 +41,7 @@ func TestGHCRWorkerCredentialAuthorization(t *testing.T) {
 			if tc.image != "" {
 				spec := &apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
 					Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: tc.image}},
-					Version: "latest", Running: true,
+					Version: "latest",
 				}}
 				dep := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, tc.name, node.ID, spec)
 				statetest.CreateScheduledInstance(store, dep.DeploymentID, dep.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)

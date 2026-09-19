@@ -206,7 +206,7 @@ func TestSnapshotEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testing
 	}
 	testNode(s, "another")
 	check("new node and initial observed state")
-	cfg := mustCreateDeploymentForNode(s, apigen.Context{}, 1, "api", node.ID, testSpecWithState("v1", false))
+	cfg := mustCreateDeploymentForNodeRunning(s, apigen.Context{}, 1, "api", node.ID, false, testSpecWithVersion("v1"))
 	check("create deployment")
 	inst := createScheduledInstanceForTest(s, cfg.DeploymentID, cfg.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	check("pin original version")
@@ -222,7 +222,7 @@ func TestSnapshotEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testing
 	if len(replay.DeploymentEvents) != 0 {
 		t.Fatal("unreferenced versions not pruned")
 	}
-	cfg = mustCreateDeploymentForNode(s, apigen.Context{}, 1, "api", node.ID, testSpecWithState("v1", false))
+	cfg = mustCreateDeploymentForNodeRunning(s, apigen.Context{}, 1, "api", node.ID, false, testSpecWithVersion("v1"))
 	check("create another deployment")
 	inst = createScheduledInstanceForTest(s, cfg.DeploymentID, cfg.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	check("new run")

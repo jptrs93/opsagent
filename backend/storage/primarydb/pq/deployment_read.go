@@ -26,9 +26,6 @@ func scanDeploymentEvent(row interface{ Scan(...any) error }) (*apigen.Deploymen
 	}
 	event.EventTime, event.CreatedTime = time.UnixMilli(eventTime), time.UnixMilli(createdTime)
 	event.Value = *def
-	// Workers that predate scheduling read their placement from node_id, and
-	// every Deployment they receive is assembled here. Remove with the tag.
-	event.Value.NodeID = event.Value.PlacementNodeID()
 	return &event, nil
 }
 

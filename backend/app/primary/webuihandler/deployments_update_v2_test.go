@@ -232,7 +232,7 @@ func TestPostV2DeploymentsUpdateAssignedSpace(t *testing.T) {
 	}
 
 	zeroSpec := remoteDeploymentSpec("nginx", hostNetworking())
-	zeroDep := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 0, "zerodep", cfg.Value.PlacementNodeID(), &zeroSpec)
+	zeroDep := statetest.MustCreateStoppedDeploymentForNode(store, apigen.Context{}, 0, "zerodep", cfg.Value.PlacementNodeID(), &zeroSpec)
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:        zeroDep.DeploymentID,
 		ExpectedVersion:     zeroDep.Version + 1,
@@ -249,7 +249,7 @@ func TestPostV2DeploymentsUpdateAssignedSpaceRejectsDuplicateIdentity(t *testing
 		t.Fatalf("CreateSpace: %v", err)
 	}
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
-	twin := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, extraSpace.ID, cfg.Value.Name, cfg.Value.PlacementNodeID(), &spec)
+	twin := statetest.MustCreateStoppedDeploymentForNode(store, apigen.Context{}, extraSpace.ID, cfg.Value.Name, cfg.Value.PlacementNodeID(), &spec)
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:        twin.DeploymentID,
 		ExpectedVersion:     twin.Version + 1,
@@ -397,7 +397,7 @@ func TestPostV2DeploymentsUpdateNixVerification(t *testing.T) {
 		if _, err := h.PostV2DeploymentsUpdate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpdateRequestV2{
 			DeploymentID:    cfg.DeploymentID,
 			ExpectedVersion: cfg.Version + 1,
-			SpecUpdate:      &apigen.SpecUpdate{Spec: nixDeploymentSpecWithState("github.com/acme/app", "flake.nix", "latest", false)},
+			SpecUpdate:      &apigen.SpecUpdate{Spec: nixDeploymentSpecWithVersion("github.com/acme/app", "flake.nix", "latest")},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -413,7 +413,7 @@ func TestPostV2DeploymentsUpdateNixVerification(t *testing.T) {
 	t.Run("stopped spec source change clears incompatible version", func(t *testing.T) {
 		h, cfg, provider := newNixDeploymentHandler(t, false)
 		provider.validateCalls = nil
-		spec := nixDeploymentSpecWithState("github.com/acme/other", "flake.nix", testNixCommit, false)
+		spec := nixDeploymentSpecWithVersion("github.com/acme/other", "flake.nix", testNixCommit)
 		if _, err := h.PostV2DeploymentsUpdate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentUpdateRequestV2{
 			DeploymentID:    cfg.DeploymentID,
 			ExpectedVersion: cfg.Version + 1,

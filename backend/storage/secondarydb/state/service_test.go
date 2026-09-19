@@ -19,7 +19,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 		DeploymentID: 7,
 		SpecVersion:  3,
 		EventTime:    time.UnixMilli(1000),
-		Value:        apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, 23), SpaceID: 1, Name: "api", Spec: *testSpecWithState("v3", true)},
+		Value:        apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, 23), SpaceID: 1, Name: "api", Spec: *testSpecWithVersion("v3")},
 	}
 	const instanceID int32 = 11
 	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
@@ -214,11 +214,10 @@ func nonEmptySpec() *apigen.DeploymentSpec {
 	}
 }
 
-func testSpecWithState(version string, running bool) *apigen.DeploymentSpec {
+func testSpecWithVersion(version string) *apigen.DeploymentSpec {
 	spec := nonEmptySpec()
 	if err := spec.SetWorkloadVersion(version); err != nil {
 		panic(err)
 	}
-	spec.Container1Spec.Running = running
 	return spec
 }

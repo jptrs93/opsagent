@@ -152,9 +152,9 @@ func TestDeploymentHostAccessChecksEveryUpdateKind(t *testing.T) {
 				h, staging := newEnforcementTestHandler(t)
 				node := nodes.EnsurePrimaryNode(h.Store, "primary", "primary")
 				spec := hostAccessSpec(feature.mounts, feature.network)
-				spec.Container1Spec.Running = kind == "stop"
+				running := kind == "stop"
 				created, err := h.PostV1DeploymentsCreate(enforceCtx(1, false), &apigen.DeploymentCreateRequest{
-					Name: "web", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, node.ID), Spec: spec,
+					Name: "web", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(running, node.ID), Spec: spec,
 				})
 				if err != nil {
 					t.Fatal(err)
@@ -285,7 +285,7 @@ func TestDeploymentHostAccessDefaultsAndManagedVolumes(t *testing.T) {
 	spec := hostAccessSpec(false, false)
 	spec.Networking = apigen.NetworkingConfig{}
 	source, err := h.PostV1DeploymentsCreate(enforceCtx(2, false), &apigen.DeploymentCreateRequest{
-		Name: "source", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, node.ID), Spec: spec,
+		Name: "source", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: spec,
 	})
 	if err != nil {
 		t.Fatalf("create with default networking: %v", err)
@@ -297,7 +297,7 @@ func TestDeploymentHostAccessDefaultsAndManagedVolumes(t *testing.T) {
 		DeploymentID: source.DeploymentID, ContainerPath: "/data", Permission: apigen.FilePermission_READ_WRITE,
 	}}
 	consumer, err := h.PostV1DeploymentsCreate(enforceCtx(2, true), &apigen.DeploymentCreateRequest{
-		Name: "consumer", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, node.ID), Spec: spec,
+		Name: "consumer", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: spec,
 	})
 	if err != nil {
 		t.Fatalf("managed volumes without host permissions: %v", err)

@@ -168,7 +168,7 @@ func TestRenameNodePreservesIdentifier(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	primaryNode := EnsurePrimaryNode(store, "primary", "primary-id")
-	statetest.MustCreateDeploymentForNode(store, apigen.Context{}, internaldeploy.SpaceID, internaldeploy.SelfName, primaryNode.ID, statetest.SpecWithState("v1", true))
+	statetest.MustCreateDeploymentForNode(store, apigen.Context{}, internaldeploy.SpaceID, internaldeploy.SelfName, primaryNode.ID, statetest.SpecWithVersion("v1"))
 
 	node, err := RenameNode(store, "primary-id", "control plane")
 	if err != nil {

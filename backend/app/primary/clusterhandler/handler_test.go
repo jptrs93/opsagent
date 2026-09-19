@@ -53,7 +53,6 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 		Container1Spec: &apigen.ContainerSpec{
 			Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "docker.io/library/nginx"}},
 			Version: "1",
-			Running: true,
 		},
 	}
 	m1 := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "web", m1Node.ID, spec)

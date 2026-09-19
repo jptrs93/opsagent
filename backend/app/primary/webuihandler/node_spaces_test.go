@@ -39,7 +39,7 @@ func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: space.ID, Name: "web",
-		Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, node.ID),
+		Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec:       spec,
 	}); err != nil {
 		t.Fatalf("create before narrowing: %v", err)
@@ -56,7 +56,7 @@ func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 
 	_, err = h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: fenced.ID, Name: "web2",
-		Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, node.ID),
+		Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec:       spec,
 	})
 	if err == nil || !strings.Contains(err.Error(), "node_space_not_allowed") {
@@ -73,7 +73,7 @@ func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
 	cfg, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: nodes.DefaultSpaceID, Name: "web",
-		Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, node.ID),
+		Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec:       spec,
 	})
 	if err != nil {
@@ -100,7 +100,7 @@ func TestNarrowingIsRejectedWhileDeploymentsUseTheSpace(t *testing.T) {
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: nodes.DefaultSpaceID, Name: "web",
-		Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, node.ID),
+		Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec:       spec,
 	}); err != nil {
 		t.Fatalf("create: %v", err)

@@ -173,7 +173,7 @@ func testNixDeployment() *apigen.DeploymentEvent {
 	return &apigen.DeploymentEvent{
 		DeploymentID: 987654,
 		SpecVersion:  3,
-		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/platform", Flake: "services/api/flake.nix", Target: ".#apiImage"}}, Version: testCommit, Running: true}}},
+		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/platform", Flake: "services/api/flake.nix", Target: ".#apiImage"}}, Version: testCommit}}},
 	}
 }
 

@@ -18,7 +18,7 @@ func TestDeploymentCreateRejectsIssuedTLSNamesOutsideSpace(t *testing.T) {
 	create := func(name string, extraNames ...string) error {
 		spec := remoteDeploymentSpec("busybox", virtualNetworking())
 		spec.Container1Spec.Runtime.IssuedTlsMount = &apigen.IssuedTLSMount{ContainerPath: "/opendeploy-tls", ExtraNames: extraNames}
-		_, err := h.PostV1DeploymentsCreate(admin, &apigen.DeploymentCreateRequest{SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(spec.Container1Spec.Running, node.ID), Name: name, Spec: spec})
+		_, err := h.PostV1DeploymentsCreate(admin, &apigen.DeploymentCreateRequest{SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(false, node.ID), Name: name, Spec: spec})
 		return err
 	}
 	otherSpace := "api." + network.SpaceDNSName(staging.ID) + ".internal"
