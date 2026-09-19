@@ -3,7 +3,9 @@
 origin: "audit" keeps the 11 September identifier (OD-nn); "review" items were
 raised in the 12 September assessment; "new" items were found during this
 re-review. RR-nn identifiers are assigned here for the latter two.
-Source ranges refer to commit 2ea3af1.
+Source ranges refer to commit 2ea3af1. OD-07 closed on 15 September in
+v0.0.609 (60d73bc) and moved to CLOSED on 16 September; its closure sources
+refer to that commit.
 """
 
 def f(**kw):
@@ -35,17 +37,6 @@ f(id="OD-06", origin="audit", severity="Medium", prior="High", area="Credentials
   fix="Mint a short-lived, repository-scoped installation token per checkout (GitHub App) or keep the token on the primary and have the primary perform fetches, shipping only the checkout to workers.",
   close="A worker must be able to fetch only the repositories of its scheduled deployments, and a captured credential must expire within hours.",
   sources=[["backend/app/primary/clusterhandler/handler.go", 153, 165], ["backend/lib/engine/prepare/nixstore/build.go", 88, 92]]),
-
-f(id="OD-07", origin="audit", severity="High", area="Cluster PKI", status="Source verified",
-  title="A stolen worker key can renew its access without an effective revocation boundary",
-  cwe="CWE-613 / CWE-299",
-  impact="There is still no way to evict a node. Cluster authentication checks only that the client certificate chains to the CA, and renewal re-certifies whatever public key the caller presents. A stolen worker key therefore keeps cluster access indefinitely; the only remedy is re-bootstrapping the cluster CA, which invalidates every node and workload certificate at once.",
-  trigger="Possession of a worker's cluster key and certificate (file mode 0600 on the node).",
-  evidence="The public API has list, rename, allowed-spaces and enrollment endpoints for nodes and nothing that removes or disables one; NODE_MEMBER_EVICTED is defined but never assigned. VerifyClusterPeer lifts only the CN, and GetNodeIDByIdentifier has no status predicate. GetV1ClusterRenewCertificate checks registration, not membership, and signs peerCert.PublicKey.",
-  validation="Diffs of clusterhandler, domain/nodes and pki against the audited commit show only enrollment hardening; no revocation path was added.",
-  fix="Add an evict transition and check member status on every cluster request and at renewal. Rotate the key at renewal rather than re-signing the presented key. Publish a serial denylist to the cluster listener and shorten worker leaf validity.",
-  close="Evicting a node must cause its next cluster request and its next renewal to fail without touching the CA.",
-  sources=[["backend/app/primary/clusterhandler/handler.go", 404, 421], ["backend/storage/primarydb/pq/nodes.go", 257, 261], ["backend/util/certu/sign.go", 55, 58]]),
 
 f(id="OD-09", origin="audit", severity="Medium", area="Authentication / availability", status="Source verified",
   title="Public password verification has no global memory or concurrency budget",
@@ -360,7 +351,7 @@ f(id="RR-23", origin="new", severity="Low", area="Enrollment / availability", st
 f(id="RR-24", origin="new", severity="Medium", area="PKI lifecycle", status="Source verified",
   title="No revocation exists for cluster or workload certificates: 100-year CAs and 10-year leaves",
   cwe="CWE-299",
-  impact="Both CAs are valid for a century and workload leaves for a decade, with no CRL, OCSP or serial denylist anywhere. This is the structural reason OD-04 and OD-07 have no containment: once a leaf under either CA is issued or stolen, the only remedy is re-bootstrapping the CA, which invalidates every node and workload certificate at once.",
+  impact="Both CAs are valid for a century and workload leaves for a decade, with no CRL, OCSP or serial denylist anywhere. OD-04 and OD-07 are now closed at the application layer, which is where containment lives: once a leaf under either CA is issued or stolen it stays cryptographically valid, and the only certificate-level remedy is re-bootstrapping the CA, which invalidates every node and workload certificate at once.",
   trigger="Any leaf compromise or mis-issuance.",
   evidence="caValidity is 100 years for both CAs, issuedtls.Validity is 10 years, and KeyUsageCRLSign is set on the CA templates but never used.",
   validation="Traced in source.",
@@ -393,6 +384,10 @@ f(id="RR-26", origin="new", severity="Low", area="Build ingest", status="Source 
 
 
 CLOSED = [
+  dict(id="OD-07", prior="High", title="A stolen worker key can renew its access without an effective revocation boundary",
+       how="Closed after the review by 60d73bc (v0.0.609) on 15 September. Nodes can now be evicted: the node moves to EVICTED in one commit, its placements are finalized, its system deployments are deleted and the scheduler never places on it again. Every cluster endpoint, including certificate renewal, resolves the client certificate's CN against member statuses only, so an evicted node's still-valid certificate is refused with 403, a reconnect is refused with node_evicted (410) and a live session receives a final evicted frame. The identifier is refused at enrollment forever; a reinstall is the only way back. Renewal still re-signs the presented key and there is no PKI-level serial denylist: on 15 September the project recorded the member-status check at the handler layer as the accepted revocation boundary for cluster certificates. The certificate-lifetime half of the problem remains open as RR-24. Unit tests cover the refusal without force, forced finalization, permanent re-enrollment refusal, the 403 on cluster endpoints and the session frame.",
+       commit="60d73bcb152cf52a4650b394d9ff505dc71f63cc",
+       sources=[["backend/app/primary/domain/nodes/evict.go", 81], ["backend/app/primary/clusterhandler/handler.go", 413], ["backend/app/primary/clusterhandler/handler.go", 439], ["backend/app/primary/domain/nodes/enrollment.go", 33], ["backend/app/secondary/eviction.go", 32]]),
   dict(id="OD-04", prior="High", title="Workload certificates can carry another space's names",
        how="Closed after the review by 23ae086 on 13 September. Extra names are now checked against the deployment's space at create, update and space move, and again in the issuer: a .internal name must lie in the deployment's own space-<id>.internal zone and a cluster-prefix address must be the deployment's own; external names are untouched. The audit's issuer reproduction no longer passes. Its deployments reproduction still passes because it calls the syntax-only mount validator, which has no space context; the corrected check through the create handler passes (od-04-closure-results.txt). Unit tests cover the helper, the validator, the issuer and the handler.",
        commit="23ae0864b0e350f8ae91a50c25dd149464c6444e",

@@ -17,6 +17,9 @@ manifest = {
     "timezone": "Australia/Sydney",
     "commit": findings["commit"],
     "baseline_commit": findings["baseline"],
+    "recheck_date": findings.get("recheck_date"),
+    "recheck_commit": findings.get("recheck_commit"),
+    "release": findings.get("release"),
     "platform": platform.platform(),
     "go": go,
     "commands": {

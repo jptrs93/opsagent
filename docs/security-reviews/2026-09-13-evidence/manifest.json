@@ -3,6 +3,9 @@
   "timezone": "Australia/Sydney",
   "commit": "2ea3af1e8f141b0fff85012d1ed766af6c35b16f",
   "baseline_commit": "8e28a9f1b79e850ea773811448089616cc48fb24",
+  "recheck_date": "2026-09-16",
+  "recheck_commit": "60d73bcb152cf52a4650b394d9ff505dc71f63cc",
+  "release": "v0.0.609",
   "platform": "macOS-15.6.1-arm64-arm-64bit",
   "go": "go1.26.2",
   "commands": {
@@ -16,15 +19,15 @@
     "validation": "node docs/security-reviews/2026-09-13-evidence/validate_report.cjs"
   },
   "results": {
-    "open_findings": 34,
-    "closed_since_audit": 8,
+    "open_findings": 33,
+    "closed_since_audit": 9,
     "accepted_by_design": 1,
     "go_packages_passed": 54,
     "go_packages_failed": 0,
-    "frontend_tests_passed": 141,
+    "frontend_tests_passed": 159,
     "frontend_tests_failed": 0,
-    "audit_reproductions_still_passing": 5,
-    "audit_reproductions_no_longer_passing": 3,
+    "audit_reproductions_still_passing": 4,
+    "audit_reproductions_no_longer_passing": 4,
     "review_reproductions_passing": 2,
     "frontend_advisories": 14,
     "go_symbol_advisories_host": 3,
@@ -35,12 +38,12 @@
   "files": {
     "_script.js": "a34705c2634bbce8c80463f65ff1d1c8e37bc284e828c1105d9c8d572cfa7fec",
     "_style.css": "337fb291186b10e6c76ddba5c7c0e5ad24f9b69064cd3ed76b2447deebb000bc",
-    "build_report.py": "b19c32855cf07abeb5fe79707448d773aaef34d9ce074a95639f13e01da3f041",
+    "build_report.py": "35151ba042f447702f63098a35b192d4638d8de5018fc708412fa14987a6c5a9",
     "closure_od04.py": "85d8467968d411cfd059b53c03bd10cda31b1827ed3656ee76c8885596d8fe7d",
-    "findings.json": "2e2e2a34a229fedc5f547a7abf98c9b81d71763f889365ce085f50e22ec42f85",
-    "findings_data.py": "4b3469831b03fee70019213415976c7d0ac3678e9fb40d4e39c65419d0fbd458",
-    "frontend-tests.txt": "9fa3de5896d43c3dddf53471be0791a2f2d037328c3b933333fc8af47f6c9bc2",
-    "go-tests.txt": "4493f2409fe18ebfa4464688d4ad0e372f621b426a950e7f0f25a0a8df1cfe2d",
+    "findings.json": "d5ca3189fa9d4055504ff09d5ddb1e5f1518eb687354bd749c2d3adc40fc0352",
+    "findings_data.py": "989942002c761a94d41cd768e5b013602b5b4b11d29047fbe3f1c98e4bcab9d5",
+    "frontend-tests.txt": "e6c9c625d84b01b00f9fc77012a71e0920bfabca8ce7e7932b1368304be3cc6e",
+    "go-tests.txt": "0494558b58ffef52106f34e4633375be151da5d2b84edfe8d6f1feda289e7c31",
     "govulncheck-host-summary.json": "6d2a00e1e13ed52f9b276bd3516daf8d17fa0f93b426a8c5c89059c8208497d4",
     "govulncheck-host.json.gz": "b7b08e1bf73dd8cc6cf8255c6efb7db8bf4f091e0506bdb7364a452956818b0b",
     "govulncheck-linux-summary.json": "cc0a72561a96f5f048199f8544c03220962f7c5badcfe222ee47837b588a8d7b",
@@ -51,8 +54,8 @@
     "report-desktop.png": "df54afb629f82a9711f34db7765b6e587a4299c3c6b1a99f1ba4728ae5b2b720",
     "report-mobile.png": "866a087a0c4a9d1c874409d2a3993d237b597d3c8f31d0ff111a17d6b50d80f5",
     "reproduce.py": "055f31fd33eb0d39dfbf2426226a077b50ae44493c10749329ece9cf9721ab40",
-    "reproduction-results.txt": "eaaf906e160be57207b069601ec38bf60b901a6a0cd788bf6ea65558585a9afa",
-    "validate_report.cjs": "d810020b1299c5d8d12bbd441af8e869fd18fde5d7d2d6d8ed44745eddc843c3",
-    "write_manifest.py": "95bed04b31189f82af95009c0023b4111252d8bf85a2c7c1c2ec59e4910170a4"
+    "reproduction-results.txt": "760851a8d2d0a42ea3ff79c5f029eac2ff88c0f434b13628f26dc3e81b0c2aa5",
+    "validate_report.cjs": "8730fbd8df2e703b3f5096c6833c1adf708234badd26c754a211638f1c81859d",
+    "write_manifest.py": "f0ed673797c1dcfba3a3fd35a4cc598842d27310d6e16bf16695b188ebf2f7f1"
   }
 }

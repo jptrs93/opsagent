@@ -2,6 +2,9 @@
   "commit": "2ea3af1e8f141b0fff85012d1ed766af6c35b16f",
   "baseline": "8e28a9f1b79e850ea773811448089616cc48fb24",
   "date": "2026-09-13",
+  "recheck_commit": "60d73bcb152cf52a4650b394d9ff505dc71f63cc",
+  "recheck_date": "2026-09-16",
+  "release": "v0.0.609",
   "findings": [
     {
       "id": "OD-02",
@@ -60,40 +63,6 @@
         ]
       ],
       "refs": []
-    },
-    {
-      "id": "OD-07",
-      "origin": "audit",
-      "severity": "High",
-      "area": "Cluster PKI",
-      "status": "Source verified",
-      "title": "A stolen worker key can renew its access without an effective revocation boundary",
-      "cwe": "CWE-613 / CWE-299",
-      "impact": "There is still no way to evict a node. Cluster authentication checks only that the client certificate chains to the CA, and renewal re-certifies whatever public key the caller presents. A stolen worker key therefore keeps cluster access indefinitely; the only remedy is re-bootstrapping the cluster CA, which invalidates every node and workload certificate at once.",
-      "trigger": "Possession of a worker's cluster key and certificate (file mode 0600 on the node).",
-      "evidence": "The public API has list, rename, allowed-spaces and enrollment endpoints for nodes and nothing that removes or disables one; NODE_MEMBER_EVICTED is defined but never assigned. VerifyClusterPeer lifts only the CN, and GetNodeIDByIdentifier has no status predicate. GetV1ClusterRenewCertificate checks registration, not membership, and signs peerCert.PublicKey.",
-      "validation": "Diffs of clusterhandler, domain/nodes and pki against the audited commit show only enrollment hardening; no revocation path was added.",
-      "fix": "Add an evict transition and check member status on every cluster request and at renewal. Rotate the key at renewal rather than re-signing the presented key. Publish a serial denylist to the cluster listener and shorten worker leaf validity.",
-      "close": "Evicting a node must cause its next cluster request and its next renewal to fail without touching the CA.",
-      "sources": [
-        [
-          "backend/app/primary/clusterhandler/handler.go",
-          404,
-          421
-        ],
-        [
-          "backend/storage/primarydb/pq/nodes.go",
-          257,
-          261
-        ],
-        [
-          "backend/util/certu/sign.go",
-          55,
-          58
-        ]
-      ],
-      "refs": [],
-      "prior": ""
     },
     {
       "id": "OD-09",
@@ -885,7 +854,7 @@
       "status": "Source verified",
       "title": "No revocation exists for cluster or workload certificates: 100-year CAs and 10-year leaves",
       "cwe": "CWE-299",
-      "impact": "Both CAs are valid for a century and workload leaves for a decade, with no CRL, OCSP or serial denylist anywhere. This is the structural reason OD-04 and OD-07 have no containment: once a leaf under either CA is issued or stolen, the only remedy is re-bootstrapping the CA, which invalidates every node and workload certificate at once.",
+      "impact": "Both CAs are valid for a century and workload leaves for a decade, with no CRL, OCSP or serial denylist anywhere. OD-04 and OD-07 are now closed at the application layer, which is where containment lives: once a leaf under either CA is issued or stolen it stays cryptographically valid, and the only certificate-level remedy is re-bootstrapping the CA, which invalidates every node and workload certificate at once.",
       "trigger": "Any leaf compromise or mis-issuance.",
       "evidence": "caValidity is 100 years for both CAs, issuedtls.Validity is 10 years, and KeyUsageCRLSign is set on the CA templates but never used.",
       "validation": "Traced in source.",
@@ -956,6 +925,35 @@
     }
   ],
   "closed": [
+    {
+      "id": "OD-07",
+      "prior": "High",
+      "title": "A stolen worker key can renew its access without an effective revocation boundary",
+      "how": "Closed after the review by 60d73bc (v0.0.609) on 15 September. Nodes can now be evicted: the node moves to EVICTED in one commit, its placements are finalized, its system deployments are deleted and the scheduler never places on it again. Every cluster endpoint, including certificate renewal, resolves the client certificate's CN against member statuses only, so an evicted node's still-valid certificate is refused with 403, a reconnect is refused with node_evicted (410) and a live session receives a final evicted frame. The identifier is refused at enrollment forever; a reinstall is the only way back. Renewal still re-signs the presented key and there is no PKI-level serial denylist: on 15 September the project recorded the member-status check at the handler layer as the accepted revocation boundary for cluster certificates. The certificate-lifetime half of the problem remains open as RR-24. Unit tests cover the refusal without force, forced finalization, permanent re-enrollment refusal, the 403 on cluster endpoints and the session frame.",
+      "commit": "60d73bcb152cf52a4650b394d9ff505dc71f63cc",
+      "sources": [
+        [
+          "backend/app/primary/domain/nodes/evict.go",
+          81
+        ],
+        [
+          "backend/app/primary/clusterhandler/handler.go",
+          413
+        ],
+        [
+          "backend/app/primary/clusterhandler/handler.go",
+          439
+        ],
+        [
+          "backend/app/primary/domain/nodes/enrollment.go",
+          33
+        ],
+        [
+          "backend/app/secondary/eviction.go",
+          32
+        ]
+      ]
+    },
     {
       "id": "OD-04",
       "prior": "High",
