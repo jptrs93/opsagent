@@ -21,7 +21,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	gitrepo "github.com/jptrs93/opsagent/backend/lib/repo/git"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var InvalidConfigErr = apigen.NewApiErr("", "invalid_config", http.StatusBadRequest)
@@ -102,8 +101,8 @@ func (r queryResolver) ResolveConfig(id int32) (string, bool) {
 	return ref.Value, true
 }
 
-func ValidateSpec(store *state.Service, secretStore *secrets.Manager, spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, error) {
-	resolver := queryResolver{store.Queries()}
+func ValidateSpec(q *pq.Queries, secretStore *secrets.Manager, spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, error) {
+	resolver := queryResolver{q}
 	return ValidateSpecWithResolvers(spec, resolver, secretStore, resolver)
 }
 

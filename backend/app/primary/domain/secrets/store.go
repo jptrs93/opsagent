@@ -297,9 +297,14 @@ func MoveDirectory(store *state.Service, secretID, newDirectoryID int32) error {
 	})
 }
 
-func moveSpace(store *state.Service, secretID, newSpaceID, newDirectoryID, author int32, inlockValidate pq.Validator) error {
+func moveSpace(store *state.Service, secretID, newSpaceID, newDirectoryID, author int32, inlockValidate func(*pq.Queries) error) error {
 	ctx := context.Background()
-	return store.Commit(ctx, inlockValidate, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+		if inlockValidate != nil {
+			if err := inlockValidate(q); err != nil {
+				return nil, err
+			}
+		}
 		prev, err := latestSecretEvent(ctx, q, secretID)
 		if err != nil {
 			return nil, err
@@ -336,9 +341,14 @@ func moveSpace(store *state.Service, secretID, newSpaceID, newDirectoryID, autho
 	})
 }
 
-func deleteSecret(store *state.Service, secretID int32, inlockValidate pq.Validator) error {
+func deleteSecret(store *state.Service, secretID int32, inlockValidate func(*pq.Queries) error) error {
 	ctx := context.Background()
-	return store.Commit(ctx, inlockValidate, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+		if inlockValidate != nil {
+			if err := inlockValidate(q); err != nil {
+				return nil, err
+			}
+		}
 		prev, err := latestSecretEvent(ctx, q, secretID)
 		if err != nil {
 			return nil, err

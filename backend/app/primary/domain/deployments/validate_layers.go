@@ -13,7 +13,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var NodeSpaceNotAllowedErr = apigen.NewApiErr(
@@ -37,11 +36,11 @@ func validateDeployment(def *apigen.Deployment) error {
 	return validateNixWorkloadVersion(&def.Spec)
 }
 
-func preLockValidateDeploymentCreate(store *state.Service, secretStore *secrets.Manager, gitVersions NixSourceVerifier, ctx apigen.Context, updated *apigen.DeploymentEvent) error {
+func preLockValidateDeploymentCreate(q *pq.Queries, secretStore *secrets.Manager, gitVersions NixSourceVerifier, ctx apigen.Context, updated *apigen.DeploymentEvent) error {
 	if err := validateDeployment(&updated.Value); err != nil {
 		return err
 	}
-	spec, err := ValidateSpec(store, secretStore, &updated.Value.Spec)
+	spec, err := ValidateSpec(q, secretStore, &updated.Value.Spec)
 	if err != nil {
 		return err
 	}
@@ -52,9 +51,9 @@ func preLockValidateDeploymentCreate(store *state.Service, secretStore *secrets.
 	return nil
 }
 
-func preLockValidateDeploymentUpdate(store *state.Service, secretStore *secrets.Manager, gitVersions NixSourceVerifier, ctx apigen.Context, existing *apigen.DeploymentEvent, req *apigen.DeploymentUpdateRequestV2, updated *apigen.DeploymentEvent) error {
+func preLockValidateDeploymentUpdate(q *pq.Queries, secretStore *secrets.Manager, gitVersions NixSourceVerifier, ctx apigen.Context, existing *apigen.DeploymentEvent, req *apigen.DeploymentUpdateRequestV2, updated *apigen.DeploymentEvent) error {
 	if req.SpecUpdate != nil {
-		spec, err := ValidateSpec(store, secretStore, &updated.Value.Spec)
+		spec, err := ValidateSpec(q, secretStore, &updated.Value.Spec)
 		if err != nil {
 			return err
 		}

@@ -35,9 +35,14 @@ func testSpecWithState(version string, running bool) *apigen.DeploymentSpec {
 	return spec
 }
 
-func createDeploymentForTest(s *Service, ctx apigen.Context, def *apigen.Deployment, inlockValidate pq.Validator) (*apigen.DeploymentEvent, error) {
+func createDeploymentForTest(s *Service, ctx apigen.Context, def *apigen.Deployment, inlockValidate func(*pq.Queries) error) (*apigen.DeploymentEvent, error) {
 	var event *apigen.DeploymentEvent
-	err := s.Commit(ctx, inlockValidate, func(q *pq.Queries, seq int64) (*Update, error) {
+	err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+		if inlockValidate != nil {
+			if err := inlockValidate(q); err != nil {
+				return nil, err
+			}
+		}
 		id, err := q.NextDeploymentID(ctx)
 		if err != nil {
 			return nil, err

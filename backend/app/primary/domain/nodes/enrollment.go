@@ -172,15 +172,15 @@ func AcceptEnrollmentRequest(store *state.Service, id int32, nodeName, requestin
 }
 func EndEnrollmentRequest(store *state.Service, id int32, requestedAt int64, expired bool) error {
 	ctx := context.Background()
-	current, err := store.Queries().GetNodeRowByID(ctx, int64(id))
-	if err != nil {
-		return err
-	}
-	if current.Event.Value.EnrollmentRequestedAt == 0 ||
-		current.Event.Value.EnrollmentRequestedAt != requestedAt {
-		return nil
-	}
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+		current, err := q.GetNodeRowByID(ctx, int64(id))
+		if err != nil {
+			return nil, err
+		}
+		if current.Event.Value.EnrollmentRequestedAt == 0 ||
+			current.Event.Value.EnrollmentRequestedAt != requestedAt {
+			return nil, nil
+		}
 		row, _, err := appendNodeVersion(ctx, q, seq, current, 0, func(spec *nodeEventSpec) {
 			spec.EnrollmentRequestedAt = 0
 			if spec.EnrolledTime == 0 {

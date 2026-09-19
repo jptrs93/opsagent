@@ -46,22 +46,22 @@ func AppendRevision(store *state.Service, blob []byte) (int64, error) {
 	return id, err
 }
 
-func AppendRevisionWithAssetMigration(store *state.Service, blob []byte, createMigration bool, inlockValidate pq.Validator) (int64, *pq.AssetMigration, error) {
+func AppendRevisionWithAssetMigration(store *state.Service, blob []byte, createMigration bool, inlockValidate func(*pq.Queries) error) (int64, *pq.AssetMigration, error) {
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
 	var newConfigID int64
 	var migration *pq.AssetMigration
-	if err := store.Commit(ctx, func(q *pq.Queries) error {
+	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
 		if _, err := q.GetUnfinishedAssetMigration(ctx); err == nil {
-			return ErrAssetMigrationInProgress
+			return nil, ErrAssetMigrationInProgress
 		} else if !errors.Is(err, sql.ErrNoRows) {
-			return err
+			return nil, err
 		}
 		if inlockValidate != nil {
-			return inlockValidate(q)
+			if err := inlockValidate(q); err != nil {
+				return nil, err
+			}
 		}
-		return nil
-	}, func(q *pq.Queries, seq int64) (*state.Update, error) {
 		var oldConfigID int64
 		if createMigration {
 			oldConfig, err := q.GetLatestConfig(ctx)

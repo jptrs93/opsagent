@@ -153,17 +153,15 @@ func appendNodeVersion(ctx context.Context, q *pq.Queries, seq int64, current pq
 }
 func mustAppendNodeVersion(store *state.Service, id int32, what string, mutate func(*nodeEventSpec)) *Node {
 	ctx := context.Background()
-	current := erru.Must(store.Queries().GetNodeRowByID(ctx, int64(id)))
-	spec := nodeEventSpecOf(current)
-	mutate(&spec)
-	if spec == nodeEventSpecOf(current) {
-		return nodeRowToNode(current)
-	}
 	var row pq.CurrentNode
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
-		var err error
-		row, _, err = appendNodeVersion(ctx, q, seq, current, 0, func(next *nodeEventSpec) { *next = spec })
+		current, err := q.GetNodeRowByID(ctx, int64(id))
 		if err != nil {
+			return nil, err
+		}
+		var applied bool
+		row, applied, err = appendNodeVersion(ctx, q, seq, current, 0, mutate)
+		if err != nil || !applied {
 			return nil, err
 		}
 		return &state.Update{NodeEvents: []*apigen.NodeEvent{&row.Event}}, nil
@@ -311,24 +309,22 @@ func PrimaryNodeID(q *pq.Queries) (int32, error) {
 
 func RenameNode(store *state.Service, identifier, name string) (*apigen.NodeEvent, error) {
 	ctx := context.Background()
-	current, err := store.Queries().GetNodeRowByIdentifier(ctx, identifier)
-	if err != nil {
-		return nil, err
-	}
-	taken, err := store.Queries().CountNodesWithName(ctx, name, int64(current.Event.NodeID))
-	if err != nil {
-		return nil, err
-	}
-	if taken > 0 {
-		return nil, ErrDuplicateNodeName
-	}
-	if current.Event.Value.Operator.Name == name {
-		return &current.Event, nil
-	}
 	var row pq.CurrentNode
-	err = store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
-		row, _, err = appendNodeVersion(ctx, q, seq, current, 0, func(spec *nodeEventSpec) { spec.Name = name })
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+		current, err := q.GetNodeRowByIdentifier(ctx, identifier)
 		if err != nil {
+			return nil, err
+		}
+		taken, err := q.CountNodesWithName(ctx, name, int64(current.Event.NodeID))
+		if err != nil {
+			return nil, err
+		}
+		if taken > 0 {
+			return nil, ErrDuplicateNodeName
+		}
+		var applied bool
+		row, applied, err = appendNodeVersion(ctx, q, seq, current, 0, func(spec *nodeEventSpec) { spec.Name = name })
+		if err != nil || !applied {
 			return nil, err
 		}
 		return &state.Update{NodeEvents: []*apigen.NodeEvent{&row.Event}}, nil
@@ -340,18 +336,16 @@ func RenameNode(store *state.Service, identifier, name string) (*apigen.NodeEven
 }
 func SetNodeAllowedSpaces(store *state.Service, identifier string, spaces []int32) (*apigen.NodeEvent, error) {
 	ctx := context.Background()
-	current, err := store.Queries().GetNodeRowByIdentifier(ctx, identifier)
-	if err != nil {
-		return nil, err
-	}
 	allowed := allowedSpacesJSON(spaces)
-	if allowedSpacesJSON(current.Event.Value.Operator.AllowedSpaces) == allowed {
-		return &current.Event, nil
-	}
 	var row pq.CurrentNode
-	err = store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
-		row, _, err = appendNodeVersion(ctx, q, seq, current, 0, func(spec *nodeEventSpec) { spec.AllowedSpacesJSON = allowed })
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+		current, err := q.GetNodeRowByIdentifier(ctx, identifier)
 		if err != nil {
+			return nil, err
+		}
+		var applied bool
+		row, applied, err = appendNodeVersion(ctx, q, seq, current, 0, func(spec *nodeEventSpec) { spec.AllowedSpacesJSON = allowed })
+		if err != nil || !applied {
 			return nil, err
 		}
 		return &state.Update{NodeEvents: []*apigen.NodeEvent{&row.Event}}, nil

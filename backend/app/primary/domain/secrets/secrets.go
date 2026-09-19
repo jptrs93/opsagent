@@ -469,7 +469,7 @@ func (m *Manager) Rename(secretID int32, newName string) error {
 // identity id, not the space, so no re-encryption happens — but cached version
 // records denormalize the space, and authz decisions read it, so the cache is
 // fixed up here. Safe to call while locked (no decryption needed).
-func (m *Manager) MoveSpace(secretID, newSpaceID, directoryID, author int32, inlockValidate pq.Validator) error {
+func (m *Manager) MoveSpace(secretID, newSpaceID, directoryID, author int32, inlockValidate func(*pq.Queries) error) error {
 	if newSpaceID <= 0 {
 		newSpaceID = defaultUserSpaceID
 	}
@@ -511,7 +511,7 @@ func (m *Manager) RevealInternal(name string) ([]byte, error) {
 
 // Delete removes a user secret with all its versions. Safe to call while
 // locked (no decryption needed).
-func (m *Manager) Delete(secretID int32, inlockValidate pq.Validator) error {
+func (m *Manager) Delete(secretID int32, inlockValidate func(*pq.Queries) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := deleteSecret(m.store, secretID, inlockValidate); err != nil {

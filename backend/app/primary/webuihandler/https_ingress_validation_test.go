@@ -65,7 +65,7 @@ func TestHTTPSIngressUpdateOnSecondaryWithPassthrough(t *testing.T) {
 			},
 		}},
 	})
-	validated, err := deployments.ValidateSpec(h.Store, h.Secrets, &updated)
+	validated, err := deployments.ValidateSpec(h.Store.Queries(), h.Secrets, &updated)
 	if err != nil {
 		t.Fatalf("deployments.ValidateSpec rejected HTTPS ingress: %v", err)
 	}

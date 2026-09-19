@@ -242,9 +242,14 @@ func MoveConfigDirectory(store *state.Service, configID, newDirectoryID int32) e
 	})
 }
 
-func MoveConfigSpace(store *state.Service, configID, newSpaceID, newDirectoryID, author int32, inlockValidate pq.Validator) error {
+func MoveConfigSpace(store *state.Service, configID, newSpaceID, newDirectoryID, author int32, inlockValidate func(*pq.Queries) error) error {
 	ctx := context.Background()
-	return store.Commit(ctx, inlockValidate, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+		if inlockValidate != nil {
+			if err := inlockValidate(q); err != nil {
+				return nil, err
+			}
+		}
 		prev, err := latestConfigEvent(ctx, q, configID)
 		if err != nil {
 			return nil, err
@@ -276,10 +281,15 @@ func MoveConfigSpace(store *state.Service, configID, newSpaceID, newDirectoryID,
 	})
 }
 
-func DeleteConfig(store *state.Service, configID int32, inlockValidate pq.Validator) (*apigen.ConfigEvent, error) {
+func DeleteConfig(store *state.Service, configID int32, inlockValidate func(*pq.Queries) error) (*apigen.ConfigEvent, error) {
 	ctx := context.Background()
 	var deleted *apigen.ConfigEvent
-	err := store.Commit(ctx, inlockValidate, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+		if inlockValidate != nil {
+			if err := inlockValidate(q); err != nil {
+				return nil, err
+			}
+		}
 		prev, err := latestConfigEvent(ctx, q, configID)
 		if err != nil {
 			return nil, err

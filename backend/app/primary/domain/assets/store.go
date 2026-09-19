@@ -326,7 +326,7 @@ func (s *Store) OpenAsset(ctx context.Context, assetVersionID int32) (sizeBytes 
 	return 0, nil, fmt.Errorf("asset version %d content is unavailable", assetVersionID)
 }
 
-func (s *Store) DeleteAssetLocked(ctx context.Context, assetID int32, inlockValidate pq.Validator) error {
+func (s *Store) DeleteAssetLocked(ctx context.Context, assetID int32, inlockValidate func(*pq.Queries) error) error {
 	return DeleteAsset(s.DB, assetID, inlockValidate)
 }
 

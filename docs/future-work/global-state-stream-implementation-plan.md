@@ -161,13 +161,34 @@ internal subscribers, through typed adapters.
 Since removed (September 2026): the primary's `instancecache` embedding and
 `deploymentCache`, the `*Locked` writer variants and `GlobalLock`, the
 store-owned scheduler hook, and every domain method on `state.Service`. Every
-writer is one `Commit(ctx, inlockValidate, mutate)` call: `Commit` takes `Mu`,
-opens the write transaction, runs the optional `pq.Validator` and the mutate
-callback on the transaction-bound `Queries`, then runs every registered
-`UpdateTrigger` (the scheduler registers one) on the resulting update before
-saving the sequence and publishing. Work that used to happen under the lock,
-such as reference-locality checks and secret sealing, happens inside those
-callbacks. `state.Service` now exposes only `Commit`, `RegisterUpdateTrigger`,
+writer is one `Commit(ctx, prelockValidate, mutate)` call: `Commit` runs the
+optional `prelockValidate` on the root `Queries` before taking any lock, then
+takes `Mu`, opens the write transaction, runs the mutate callback on the
+transaction-bound `Queries`, then runs every registered `UpdateTrigger` (the
+scheduler registers one) on the resulting update before saving the sequence and
+publishing. Work that used to happen under the lock, such as reference-locality
+checks and secret sealing, happens inside mutate.
+
+The write pattern every `Commit` caller follows:
+
+1. `prelockValidate` is advisory. It exists for fast failure and for checks
+   that are expensive or external (git version verification, secrets
+   availability). Each statement sees its own snapshot and another writer can
+   commit between statements, so it returns only an error and never produces
+   inputs for the write.
+2. `mutate` re-reads everything the write depends on through the
+   transaction-bound `Queries`, checks first (expected versions, existence,
+   name collisions, references), then writes. A read taken before `Commit`
+   must not feed the write: a stale row rebuilt outside the lock is written as
+   a valid new version and silently loses a concurrent change.
+3. A check a caller injects into a domain write (the handler reference and
+   space checks on secret, config and asset moves and deletes) is a
+   `func(*pq.Queries) error` parameter on that domain function, invoked inside
+   mutate.
+4. Preparation with side effects (asset blob staging, encryption) and
+   post-commit work (cache fix-ups, notifications) stay outside `Commit`.
+   Agent sessions and asset store rows are written outside `Commit` by design
+   and are not part of the sequence. `state.Service` now exposes only `Commit`, `RegisterUpdateTrigger`,
 `Queries`, `SubscribeUpdates`, the `Subscribe`/`Project` helpers,
 `BuildSnapshot`, and the scheduled-instance projection the `OperatorStore`
 interface requires. Domain logic lives in `app/primary/domain/<name>` packages
@@ -1179,22 +1200,23 @@ global `status_seq` would serve two purposes and neither applies:
 ```go
 type Update = apigen.CoreUpdate
 
-// Commit holds Mu. mutate checks expected versions before mutation,
-// performs every write, and returns read-converter projections of those rows
-// (nil when nothing was written). It sets seq on authored rows and events;
-// Commit stamps Update.Seq, runs the registered triggers, and publishes.
-func (s *Service) Commit(ctx context.Context, inlockValidate pq.Validator,
+// Commit runs prelockValidate on the root Queries, then holds Mu. mutate
+// checks expected versions before mutation, performs every write, and returns
+// read-converter projections of those rows (nil when nothing was written). It
+// sets seq on authored rows and events; Commit stamps Update.Seq, runs the
+// registered triggers, and publishes.
+func (s *Service) Commit(ctx context.Context, prelockValidate func(*pq.Queries) error,
     mutate func(q *pq.Queries, seq int64) (*Update, error)) error
 ```
 
-Deployment create, update and delete each expose one method with an optional
-`inlockValidate func() error`. `commit` acquires `Mu`; the callback runs before
-any mutation while the SQLite writer reservation is held. Callers check expected
-entity versions and validate current database state there. Validation reads use
-`Queries()` and freshly assembled deployment, node and pinned-instance state,
-not the runtime caches. The callback must not take `Mu`, write, or commit.
-Compound writers that still acquire `Mu` around a broader operation enter the
-same transaction/publication implementation through `commitAndReconcileLocked`.
+Deployment create and update pass their `preLockValidate*` layer (spec
+validation, secret resolution, git version verification) as `prelockValidate`
+and call their `inLockValidate*` layer as the first statement of mutate, while
+the SQLite writer reservation is held. Delete has only the in-lock layer.
+Expected entity versions and current database state are checked in the in-lock
+layer, which reads freshly assembled deployment, node and pinned-instance state
+through the transaction-bound `Queries`, not the runtime caches. Neither
+callback may take `Mu` or call `Commit`; only mutate writes.
 
 The store begins an IMMEDIATE SQLite write transaction, reads `global_seq + 1`
 as a candidate, runs `mutate`, then runs one scheduler reconciliation phase on
@@ -1364,7 +1386,7 @@ Fix before or with Part B; they are independent of it.
 
 ### Phase B3: commit API
 
-1. Add the single `commit(ctx, inlockValidate, mutate)` API. Its callback receives
+1. Add the single `Commit(ctx, prelockValidate, mutate)` API. Its mutate callback receives
    `*pq.Queries` and the candidate seq, checks expected versions, writes the
    rows, and returns `Update{Core, Observed}` with the supplied sequence set
    on any core update and every core event.

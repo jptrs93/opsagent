@@ -43,13 +43,13 @@ func (s *Service) reservations() []ingressplan.Reservation {
 
 func (s *Service) Create(ctx apigen.Context, dep *apigen.Deployment) (*apigen.DeploymentEvent, error) {
 	newDep := &apigen.DeploymentEvent{Value: *dep}
-	if err := preLockValidateDeploymentCreate(s.Store, s.Secrets, s.GitVersions, ctx, newDep); err != nil {
-		return nil, err
-	}
 	var event *apigen.DeploymentEvent
 	err := s.Store.Commit(ctx, func(q *pq.Queries) error {
-		return inLockValidateDeploymentCreate(ctx, q, s.reservations(), newDep)
+		return preLockValidateDeploymentCreate(q, s.Secrets, s.GitVersions, ctx, newDep)
 	}, func(q *pq.Queries, seq int64) (*state.Update, error) {
+		if err := inLockValidateDeploymentCreate(ctx, q, s.reservations(), newDep); err != nil {
+			return nil, err
+		}
 		id, err := q.NextDeploymentID(ctx)
 		if err != nil {
 			return nil, err
@@ -95,13 +95,13 @@ func (s *Service) Update(ctx apigen.Context, existing *apigen.DeploymentEvent, r
 			return nil, InvalidConfigErrf("deployment is not running")
 		}
 	}
-	if err := preLockValidateDeploymentUpdate(s.Store, s.Secrets, s.GitVersions, ctx, existing, req, updated); err != nil {
-		return nil, err
-	}
 	var event *apigen.DeploymentEvent
 	err = s.Store.Commit(ctx, func(q *pq.Queries) error {
-		return inLockValidateDeploymentUpdate(ctx, q, s.reservations(), updated, req.ExpectedVersion-1)
+		return preLockValidateDeploymentUpdate(q, s.Secrets, s.GitVersions, ctx, existing, req, updated)
 	}, func(q *pq.Queries, seq int64) (*state.Update, error) {
+		if err := inLockValidateDeploymentUpdate(ctx, q, s.reservations(), updated, req.ExpectedVersion-1); err != nil {
+			return nil, err
+		}
 		event, err = q.WriteDeploymentUpdate(ctx, int64(req.DeploymentID), seq, &updated.Value)
 		if err != nil {
 			return nil, err
@@ -112,9 +112,10 @@ func (s *Service) Update(ctx apigen.Context, existing *apigen.DeploymentEvent, r
 }
 
 func (s *Service) Delete(ctx apigen.Context, deploymentID, expectedVersion int32) error {
-	return s.Store.Commit(ctx, func(q *pq.Queries) error {
-		return inLockValidateDeploymentDelete(ctx, q, s.Cluster, s.PrimaryNodeID, deploymentID, expectedVersion)
-	}, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return s.Store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+		if err := inLockValidateDeploymentDelete(ctx, q, s.Cluster, s.PrimaryNodeID, deploymentID, expectedVersion); err != nil {
+			return nil, err
+		}
 		event, err := q.WriteDeploymentDelete(ctx, int64(deploymentID), seq)
 		if err != nil {
 			return nil, err

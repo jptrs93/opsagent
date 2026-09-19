@@ -17,7 +17,12 @@ func (s *Service) RegisterUpdateTrigger(trigger UpdateTrigger) {
 	s.updateTriggers = append(s.updateTriggers, trigger)
 }
 
-func (s *Service) Commit(ctx context.Context, inlockValidate pq.Validator, mutate func(*pq.Queries, int64) (*Update, error)) error {
+func (s *Service) Commit(ctx context.Context, preLockValidate func(*pq.Queries) error, mutate func(*pq.Queries, int64) (*Update, error)) error {
+	if preLockValidate != nil {
+		if err := preLockValidate(s.q); err != nil {
+			return err
+		}
+	}
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	var update *Update
@@ -27,11 +32,6 @@ func (s *Service) Commit(ctx context.Context, inlockValidate pq.Validator, mutat
 			return err
 		}
 		seq := previous + 1
-		if inlockValidate != nil {
-			if err := inlockValidate(q); err != nil {
-				return err
-			}
-		}
 		update, err = mutate(q, seq)
 		if err != nil {
 			return err

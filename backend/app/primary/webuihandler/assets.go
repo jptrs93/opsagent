@@ -238,7 +238,7 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 		if err := assets.MoveAssetSpace(h.Store, req.AssetID, req.SpaceID, req.AssetDirectoryID, ctx.AttributionUserID(), validate); err != nil {
 			return nil, mapAssetStoreErr(err)
 		}
-	} else if _, err := assets.MoveAssetDirectory(h.Store, req.AssetID, req.AssetDirectoryID); err != nil {
+	} else if err := assets.MoveAssetDirectory(h.Store, req.AssetID, req.AssetDirectoryID); err != nil {
 		return nil, mapAssetStoreErr(err)
 	}
 	asset, ok := assets.GetAsset(h.Store.Queries(), req.AssetID)

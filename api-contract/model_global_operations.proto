@@ -3,27 +3,22 @@ syntax = "proto3";
 package opsagent.v1;
 
 import "api-contract/model/assets.proto";
-import "api-contract/model_assets_operations.proto";
 import "api-contract/model/auth.proto";
+import "api-contract/model/authz.proto";
 import "api-contract/model_authz_operations.proto";
 import "api-contract/model/backup.proto";
 import "api-contract/model/configs.proto";
-import "api-contract/model_configs_operations.proto";
 import "api-contract/model/deployments.proto";
-import "api-contract/model_directories_operations.proto";
-import "api-contract/model_enrollment_operations.proto";
 import "api-contract/model/network_policies.proto";
-import "api-contract/model_network_policies_operations.proto";
+import "api-contract/model/networking.proto";
 import "api-contract/model/nodes.proto";
-import "api-contract/model_nodes_operations.proto";
-import "api-contract/model/system_config.proto";
+import "api-contract/model/scheduled_instances.proto";
 import "api-contract/model/secrets.proto";
 import "api-contract/model_secrets_operations.proto";
 import "api-contract/model/sessions.proto";
 import "api-contract/model_sessions_operations.proto";
 import "api-contract/model/spaces.proto";
-import "api-contract/model_spaces_operations.proto";
-import "api-contract/options.proto";
+import "api-contract/model/system_config.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 

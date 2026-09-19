@@ -211,7 +211,7 @@ func (s *Service) publishConfig(cfg apigen.SystemConfig, version int64, updatedA
 	})
 }
 
-func (s *Service) UpdateSettings(settings apigen.ClusterSettings, inlockValidate pq.Validator) error {
+func (s *Service) UpdateSettings(settings apigen.ClusterSettings, inlockValidate func(*pq.Queries) error) error {
 	if s.AssetOperationMu != nil {
 		s.AssetOperationMu.Lock()
 		defer s.AssetOperationMu.Unlock()
