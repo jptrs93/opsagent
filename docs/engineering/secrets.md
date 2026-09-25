@@ -7,13 +7,16 @@ directory — whose state lives in the append-only `secret_event_log`, one row
 per event. Every facet — identity and the sealed payload alike — is
 denormalised onto every row (non-value events carry the previous payload
 forward), so the highest-version row is the complete current state; a
-`value_changed` row is an immutable numbered **value version** and its row id
-is the pinnable version id. Setting a secret appends the next value version
+`value_changed` row is an immutable numbered **value version**, unique per
+`(secret_id, value_version)` by a partial unique index. Setting a secret appends the next value version
 (`v1`, `v2`, ...) as a new event row; the identity id survives renames,
 moves, and rotations and is what the write API targets. Deployment
-environment variables and settings pin exact versions by `secretVersionId` /
-`SecretRef.version_id`; plain user configs use the same identity + versions
-model (`config_event_log`) with `configVersionId` / `ConfigRef.version_id`.
+environment variables and settings pin exact versions by the pair
+`ValueRef{id, version}` (stable secret id plus value version) in
+`EnvVarValue.secret` / `SecretRef.ref`; plain user configs use the same identity +
+versions model (`config_event_log`) with `EnvVarValue.config` / `ConfigRef.ref`.
+The event log row id stays a storage join key inside `pq` and is never a
+reference.
 
 Secrets and configs share **one file system per space**: a name must be unique
 among sibling secrets, configs, and `value_directories` under the same parent
@@ -81,7 +84,7 @@ A signed-in operator can also decrypt a single value on demand via the explicit
 `PostV1SecretsReveal` endpoint (surfaced as the per-row "Reveal" button in the
 UI). This is the **only** API path that returns a plaintext value — `List`
 returns metadata only, and `Set` is write-only. Reveal requests use the immutable
-secret row ID for exact-version reads. A value is decrypted into a response
+secret event row ID of the value version for exact-version reads. A value is decrypted into a response
 solely on this explicit request; it is still never logged, replicated, or
 persisted outside the encrypted store.
 
@@ -143,8 +146,8 @@ Key files:
   local cache.
 - `backend/app/secondary/localinputs/localinputs.go` — a secondary's encrypted
   at-rest copy of the runtime inputs it needs.
-- `backend/lib/engine/prepare/runtimeinputs/secrets.go` — finds typed `secretVersionId`
-  / `configVersionId` refs, fetches each needed batch, validates it, and owns the
+- `backend/lib/engine/prepare/runtimeinputs/secrets.go` — finds typed `secret`
+  / `config` `ValueRef` pairs, fetches each needed batch, validates it, and owns the
   prepared in-memory caches.
 - `backend/lib/engine/secretdist/secretdist.go` — primary-side encrypted-secret
   fetch adapter.
@@ -249,29 +252,29 @@ without either the on-box machine KEK or the recovery code.
 
 ## Prepare-time distribution and spawn-time expansion
 
-Typed `secretVersionId` and `configVersionId` env refs are discovered during deployment
+Typed `secret` and `config` env refs are discovered during deployment
 preparation (`backend/lib/engine/prepare/runtimeinputs/secrets.go`). The
-runtime-input service requests all referenced secret IDs as one batch through
-`SecretProvider.FetchSecrets` and all referenced config IDs as one batch through
+runtime-input service requests all referenced secret pairs as one batch through
+`SecretProvider.FetchSecrets` and all referenced config pairs as one batch through
 `ConfigProvider.FetchConfigs`; this is the same prepare-time readiness boundary
 used for asset materialization.
 
 On the primary, the provider decrypts from `secrets.Manager`. On a secondary,
 the provider calls the primary over the mTLS cluster endpoint
-`GET /v1/cluster/secrets` with a `ClusterSecretsRequest{ids}` payload, then
+`GET /v1/cluster/secrets` with a `ClusterSecretsRequest{refs}` payload, then
 returns the plaintext batch. In both cases the single `RuntimeInputs` instance
 validates the complete response before storing any values in its process-memory
 cache, and a secondary additionally writes them through to encrypted local
 storage.
 
-Because rows are immutable, `EnsureSecretsReady` and `EnsureConfigsReady` request
-only the ids not already held: an id always denotes the same value, and rotation
-mints a new id that arrives as a new deployment spec version. A node that
+Because value versions are immutable, `EnsureSecretsReady` and `EnsureConfigsReady`
+request only the pairs not already held: a pair always denotes the same value,
+and rotation mints a new version that arrives as a new deployment spec version. A node that
 already holds everything a config references therefore makes no request at all.
 
 The operator injects that same `RuntimeInputs` instance into every container
 runner. At process spawn time (`backend/lib/engine/runner/secrets.go`),
-`EnvVarValue` entries with `secretVersionId` or `configVersionId` are expanded from its
+`EnvVarValue` entries with `secret` or `config` are expanded from its
 prepared in-memory caches. Plain config values are not encrypted at rest in
 the primary's own `config_event_log` (a secondary's local copies are, because it
 seals every runtime input the same way). Unknown references, locked secrets,
@@ -308,9 +311,9 @@ data dir).
 
 ## Secondary secret distribution
 
-Deployments running on a secondary can reference secrets by `secretVersionId`. The
+Deployments running on a secondary can reference secrets by `secret` pair. The
 secondary does not receive the encrypted secrets table or SMK; it fetches only
-the plaintext IDs needed by the deployments assigned to it, over the cluster mTLS
+the plaintext values needed by the deployments assigned to it, over the cluster mTLS
 listener.
 
 ## Local runtime input persistence
@@ -325,7 +328,7 @@ it running and can cold-start it with the primary unreachable.
 recovery code because losing its machine key must not lose the secrets. On a
 secondary none of that applies — the primary is authoritative, so a lost or
 unreadable key just means refetching. The design is therefore one machine KEK
-sealing each row directly, with `kind + ref_id` as associated data. Rows that
+sealing each row directly, with `kind + ref_id + ref_version` as associated data. Rows that
 will not open are dropped and refetched rather than treated as an error, and a
 missing key file is established rather than reported. The secondary's key is
 independent of the primary's: nothing in `secondary.db` decrypts anywhere else,

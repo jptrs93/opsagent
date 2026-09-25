@@ -56,28 +56,28 @@ func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runti
 		}
 	}
 
-	secrets := map[int32]struct{}{}
-	configs := map[int32]struct{}{}
-	assets := map[int32]struct{}{}
+	secrets := map[apigen.ValueRef]struct{}{}
+	configs := map[apigen.ValueRef]struct{}{}
+	assets := map[apigen.ValueRef]struct{}{}
 	issued := map[int32]struct{}{}
 	for i := range states {
 		cfg := &states[i].Config
-		for _, id := range runtimeinputs.SecretRefs(cfg) {
-			secrets[id] = struct{}{}
+		for _, ref := range runtimeinputs.SecretRefs(cfg) {
+			secrets[ref] = struct{}{}
 		}
-		for _, id := range runtimeinputs.ConfigRefs(cfg) {
-			configs[id] = struct{}{}
+		for _, ref := range runtimeinputs.ConfigRefs(cfg) {
+			configs[ref] = struct{}{}
 		}
 		for _, ref := range runtimeinputs.RequiredAssetRefs(cfg) {
-			assets[ref.AssetVersionID] = struct{}{}
+			assets[ref.Ref] = struct{}{}
 		}
 		if runtimeinputs.IssuedTLSMountOf(cfg) != nil {
 			issued[cfg.DeploymentID] = struct{}{}
 		}
 	}
 	if acme != nil {
-		for _, id := range acmestate.Bindings(acme.Get()) {
-			secrets[id] = struct{}{}
+		for _, ref := range acmestate.Bindings(acme.Get()) {
+			secrets[ref] = struct{}{}
 		}
 	}
 

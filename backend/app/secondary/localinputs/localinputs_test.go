@@ -6,16 +6,17 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
 
 // memDB is an in-memory stand-in for the local_runtime_inputs table.
 type memDB struct {
-	rows map[[2]int64]state.LocalRuntimeInput
+	rows map[[3]int64]state.LocalRuntimeInput
 }
 
-func newMemDB() *memDB { return &memDB{rows: map[[2]int64]state.LocalRuntimeInput{}} }
+func newMemDB() *memDB { return &memDB{rows: map[[3]int64]state.LocalRuntimeInput{}} }
 
 func (m *memDB) ListLocalRuntimeInputs() []state.LocalRuntimeInput {
 	out := make([]state.LocalRuntimeInput, 0, len(m.rows))
@@ -26,11 +27,11 @@ func (m *memDB) ListLocalRuntimeInputs() []state.LocalRuntimeInput {
 }
 
 func (m *memDB) UpsertLocalRuntimeInput(row state.LocalRuntimeInput) {
-	m.rows[[2]int64{row.Kind, row.RefID}] = row
+	m.rows[[3]int64{row.Kind, row.RefID, row.RefVersion}] = row
 }
 
-func (m *memDB) DeleteLocalRuntimeInput(kind, refID int64) {
-	delete(m.rows, [2]int64{kind, refID})
+func (m *memDB) DeleteLocalRuntimeInput(kind, refID, refVersion int64) {
+	delete(m.rows, [3]int64{kind, refID, refVersion})
 }
 
 func openStore(t *testing.T, db DB, dir string) *Store {
@@ -47,7 +48,7 @@ func TestStoreAndLoadRoundTrip(t *testing.T) {
 	db := newMemDB()
 	store := openStore(t, db, dir)
 
-	if err := store.StoreRuntimeInputs(map[int32]string{7: "s3cret"}, map[int32]string{9: "conf"}); err != nil {
+	if err := store.StoreRuntimeInputs(map[apigen.ValueRef]string{vr(7): "s3cret"}, map[apigen.ValueRef]string{vr(9): "conf"}); err != nil {
 		t.Fatalf("StoreRuntimeInputs: %v", err)
 	}
 
@@ -58,11 +59,11 @@ func TestStoreAndLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRuntimeInputs: %v", err)
 	}
-	if secrets[7] != "s3cret" {
-		t.Fatalf("secret 7 = %q, want s3cret", secrets[7])
+	if secrets[vr(7)] != "s3cret" {
+		t.Fatalf("secret 7 = %q, want s3cret", secrets[vr(7)])
 	}
-	if configs[9] != "conf" {
-		t.Fatalf("config 9 = %q, want conf", configs[9])
+	if configs[vr(9)] != "conf" {
+		t.Fatalf("config 9 = %q, want conf", configs[vr(9)])
 	}
 }
 
@@ -72,7 +73,7 @@ func TestStoredValueIsNotPlaintextOnDisk(t *testing.T) {
 	db := newMemDB()
 	store := openStore(t, db, t.TempDir())
 
-	if err := store.StoreRuntimeInputs(map[int32]string{7: "s3cret"}, nil); err != nil {
+	if err := store.StoreRuntimeInputs(map[apigen.ValueRef]string{vr(7): "s3cret"}, nil); err != nil {
 		t.Fatalf("StoreRuntimeInputs: %v", err)
 	}
 	for _, row := range db.ListLocalRuntimeInputs() {
@@ -82,20 +83,23 @@ func TestStoredValueIsNotPlaintextOnDisk(t *testing.T) {
 	}
 }
 
-// The id and kind are bound as associated data, so a row lifted into another
-// slot must not decrypt there.
-func TestCiphertextIsBoundToItsKindAndID(t *testing.T) {
+// The kind, id, and version are bound as associated data, so a row lifted into
+// another slot must not decrypt there.
+func TestCiphertextIsBoundToItsKindIDAndVersion(t *testing.T) {
 	db := newMemDB()
 	store := openStore(t, db, t.TempDir())
 
-	if err := store.StoreRuntimeInputs(map[int32]string{7: "s3cret"}, nil); err != nil {
+	if err := store.StoreRuntimeInputs(map[apigen.ValueRef]string{vr(7): "s3cret"}, nil); err != nil {
 		t.Fatalf("StoreRuntimeInputs: %v", err)
 	}
-	row := db.rows[[2]int64{state.LocalRuntimeInputKindSecret, 7}]
+	row := db.rows[[3]int64{state.LocalRuntimeInputKindSecret, 7, 1}]
 
 	moved := row
 	moved.RefID = 8
 	db.UpsertLocalRuntimeInput(moved)
+	bumped := row
+	bumped.RefVersion = 2
+	db.UpsertLocalRuntimeInput(bumped)
 	reinterpreted := row
 	reinterpreted.Kind = state.LocalRuntimeInputKindConfig
 	db.UpsertLocalRuntimeInput(reinterpreted)
@@ -104,14 +108,17 @@ func TestCiphertextIsBoundToItsKindAndID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRuntimeInputs: %v", err)
 	}
-	if _, ok := secrets[8]; ok {
+	if _, ok := secrets[vr(8)]; ok {
 		t.Fatal("a ciphertext moved to another id decrypted")
 	}
-	if _, ok := configs[7]; ok {
+	if _, ok := secrets[apigen.ValueRef{ID: 7, Version: 2}]; ok {
+		t.Fatal("a ciphertext moved to another version decrypted")
+	}
+	if _, ok := configs[vr(7)]; ok {
 		t.Fatal("a secret ciphertext decrypted as a config")
 	}
-	if secrets[7] != "s3cret" {
-		t.Fatalf("untouched row did not survive: %q", secrets[7])
+	if secrets[vr(7)] != "s3cret" {
+		t.Fatalf("untouched row did not survive: %q", secrets[vr(7)])
 	}
 }
 
@@ -122,7 +129,7 @@ func TestLoadDropsRowsSealedUnderASupersededKey(t *testing.T) {
 	dir := t.TempDir()
 	db := newMemDB()
 	store := openStore(t, db, dir)
-	if err := store.StoreRuntimeInputs(map[int32]string{7: "s3cret"}, nil); err != nil {
+	if err := store.StoreRuntimeInputs(map[apigen.ValueRef]string{vr(7): "s3cret"}, nil); err != nil {
 		t.Fatalf("StoreRuntimeInputs: %v", err)
 	}
 
@@ -146,11 +153,11 @@ func TestLoadDropsRowsSealedUnderASupersededKey(t *testing.T) {
 func TestRetainRemovesUnreferencedRows(t *testing.T) {
 	db := newMemDB()
 	store := openStore(t, db, t.TempDir())
-	if err := store.StoreRuntimeInputs(map[int32]string{1: "a", 2: "b"}, map[int32]string{3: "c"}); err != nil {
+	if err := store.StoreRuntimeInputs(map[apigen.ValueRef]string{vr(1): "a", vr(2): "b"}, map[apigen.ValueRef]string{vr(3): "c"}); err != nil {
 		t.Fatalf("StoreRuntimeInputs: %v", err)
 	}
 
-	removed, err := store.RetainRuntimeInputs(map[int32]struct{}{1: {}}, map[int32]struct{}{})
+	removed, err := store.RetainRuntimeInputs(map[apigen.ValueRef]struct{}{vr(1): {}}, map[apigen.ValueRef]struct{}{})
 	if err != nil {
 		t.Fatalf("RetainRuntimeInputs: %v", err)
 	}
@@ -161,10 +168,12 @@ func TestRetainRemovesUnreferencedRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRuntimeInputs: %v", err)
 	}
-	if len(secrets) != 1 || secrets[1] != "a" {
+	if len(secrets) != 1 || secrets[vr(1)] != "a" {
 		t.Fatalf("secrets = %v, want only id 1", secrets)
 	}
 	if len(configs) != 0 {
 		t.Fatalf("configs = %v, want none", configs)
 	}
 }
+
+func vr(id int32) apigen.ValueRef { return apigen.ValueRef{ID: id, Version: 1} }

@@ -18,17 +18,17 @@ func NewSystemConfigProvider(baseURL string, client *http.Client) *SystemConfigP
 	}
 }
 
-func (p *SystemConfigProvider) FetchConfigs(ctx context.Context, ids []int32) (map[int32]string, error) {
-	resp, err := p.capi.GetV1ClusterConfigs(ctx, &apigen.ClusterConfigsRequest{Ids: ids})
+func (p *SystemConfigProvider) FetchConfigs(ctx context.Context, refs []apigen.ValueRef) (map[apigen.ValueRef]string, error) {
+	resp, err := p.capi.GetV1ClusterConfigs(ctx, &apigen.ClusterConfigsRequest{Refs: refPointers(refs)})
 	if err != nil {
 		return nil, fmt.Errorf("fetching configs from primary: %w", err)
 	}
-	values := make(map[int32]string, len(resp.Items))
+	values := make(map[apigen.ValueRef]string, len(resp.Items))
 	for _, item := range resp.Items {
 		if item == nil {
 			continue
 		}
-		values[item.ID] = item.Value
+		values[item.Ref] = item.Value
 	}
 	return values, nil
 }

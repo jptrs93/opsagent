@@ -37,8 +37,6 @@
  * @property {ContainerSpec} container1Spec
  * @property {ContainerSpec} container2Spec
  * @property {ContainerSpec} container3Spec
- * @property {MicroVMSpec} microVmSpec
- * @property {VMSpec} vmSpec
  * @property {OpendeploySpec} opendeploySpec
  */
 /**
@@ -54,12 +52,6 @@
  * @property {string} version
  * @property {number} upgradeStrategy
  * @property {ContainerReadinessSignal} readinessSignal
- */
-/**
- * @typedef {Object} MicroVMSpec
- */
-/**
- * @typedef {Object} VMSpec
  */
 /**
  * @typedef {Object} OpendeploySpec
@@ -149,14 +141,19 @@
  * @property {string} image
  */
 /**
+ * @typedef {Object} ValueRef
+ * @property {number} id
+ * @property {number} version
+ */
+/**
  * @typedef {Object} EnvVarValue
- * @property {number} secretVersionId
- * @property {number} configVersionId
  * @property {string} value
  * @property {string} asset
- * @property {number} assetVersionId
  * @property {number} addressDeploymentId
  * @property {number} addressSpaceId
+ * @property {ValueRef} secret
+ * @property {ValueRef} config
+ * @property {ValueRef} assetRef
  */
 /**
  * @typedef {Object} DefaultVolumeMount
@@ -171,9 +168,9 @@
  */
 /**
  * @typedef {Object} AssetMount
- * @property {number} assetVersionId
  * @property {string} containerPath
  * @property {number} permission
+ * @property {ValueRef} asset
  */
 /**
  * @typedef {Object} CustomHostMount
@@ -198,7 +195,7 @@
  */
 /**
  * @typedef {Object} SecretCertSource
- * @property {number} secretVersionId
+ * @property {ValueRef} secret
  */
 /**
  * @typedef {Object} DeploymentSpecVersionRef
@@ -691,7 +688,6 @@
  * @property {number} createdTime
  * @property {number} eventTime
  * @property {number} valueVersion
- * @property {number} spaceVersion
  * @property {Secret} value
  */
 /**
@@ -780,7 +776,6 @@
  * @property {number} createdTime
  * @property {number} eventTime
  * @property {number} valueVersion
- * @property {number} spaceVersion
  * @property {Config} value
  */
 /**
@@ -848,7 +843,6 @@
  * @property {number} createdTime
  * @property {number} eventTime
  * @property {number} valueVersion
- * @property {number} spaceVersion
  * @property {Asset} value
  */
 /**
@@ -1353,7 +1347,7 @@
 /**
  * @typedef {Object} AcmeCertBinding
  * @property {string} hostname
- * @property {number} secretVersionId
+ * @property {ValueRef} secret
  */
 /**
  * @typedef {Object} ClusterNetworkInfo
@@ -1598,11 +1592,11 @@
  */
 /**
  * @typedef {Object} ClusterSecretsRequest
- * @property {number[]} ids
+ * @property {ValueRef[]} refs
  */
 /**
  * @typedef {Object} ClusterSecretValue
- * @property {number} id
+ * @property {ValueRef} ref
  * @property {Uint8Array} value
  */
 /**
@@ -1611,11 +1605,11 @@
  */
 /**
  * @typedef {Object} ClusterConfigsRequest
- * @property {number[]} ids
+ * @property {ValueRef[]} refs
  */
 /**
  * @typedef {Object} ClusterConfigValue
- * @property {number} id
+ * @property {ValueRef} ref
  * @property {string} value
  */
 /**
@@ -1679,11 +1673,11 @@
  */
 /**
  * @typedef {Object} SecretRef
- * @property {number} versionId
+ * @property {ValueRef} ref
  */
 /**
  * @typedef {Object} ConfigRef
- * @property {number} versionId
+ * @property {ValueRef} ref
  */
 /**
  * @typedef {Object} StringSetting
@@ -2241,16 +2235,6 @@ export function writeDeploymentSpec(message, writer) {
         writeContainerSpec(message.container3Spec, writer);
         writer.ldelim();
     }
-    if (message.microVmSpec !== undefined && message.microVmSpec !== null) {
-        writer.uint32(tag(5, WIRE.LDELIM)).fork();
-        writeMicroVMSpec(message.microVmSpec, writer);
-        writer.ldelim();
-    }
-    if (message.vmSpec !== undefined && message.vmSpec !== null) {
-        writer.uint32(tag(6, WIRE.LDELIM)).fork();
-        writeVMSpec(message.vmSpec, writer);
-        writer.ldelim();
-    }
     if (message.opendeploySpec !== undefined && message.opendeploySpec !== null) {
         writer.uint32(tag(7, WIRE.LDELIM)).fork();
         writeOpendeploySpec(message.opendeploySpec, writer);
@@ -2277,7 +2261,7 @@ export function encodeDeploymentSpec(message) {
  */
 function decodeDeploymentSpecMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {networking: undefined, container1Spec: undefined, container2Spec: undefined, container3Spec: undefined, microVmSpec: undefined, vmSpec: undefined, opendeploySpec: undefined };
+    const message = {networking: undefined, container1Spec: undefined, container2Spec: undefined, container3Spec: undefined, opendeploySpec: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2295,14 +2279,6 @@ function decodeDeploymentSpecMessage(reader, length) {
             }
             case 4: {
                 message.container3Spec = decodeContainerSpecMessage(reader, reader.uint32());
-                break;
-            }
-            case 5: {
-                message.microVmSpec = decodeMicroVMSpecMessage(reader, reader.uint32());
-                break;
-            }
-            case 6: {
-                message.vmSpec = decodeVMSpecMessage(reader, reader.uint32());
                 break;
             }
             case 7: {
@@ -2492,104 +2468,6 @@ function decodeContainerSpecMessage(reader, length) {
 export function decodeContainerSpec(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeContainerSpecMessage(reader);
-}
-
-
-
-/**
- * @param {MicroVMSpec} message
- * @param {Writer} writer
- */
-export function writeMicroVMSpec(message, writer) {
-}
-
-
-/**
- * @param {MicroVMSpec} message
- * @returns {Uint8Array}
- */
-export function encodeMicroVMSpec(message) {
-    const writer = Writer.create();
-    writeMicroVMSpec(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {MicroVMSpec}
- */
-function decodeMicroVMSpecMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = { };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {MicroVMSpec}
- */
-export function decodeMicroVMSpec(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeMicroVMSpecMessage(reader);
-}
-
-
-
-/**
- * @param {VMSpec} message
- * @param {Writer} writer
- */
-export function writeVMSpec(message, writer) {
-}
-
-
-/**
- * @param {VMSpec} message
- * @returns {Uint8Array}
- */
-export function encodeVMSpec(message) {
-    const writer = Writer.create();
-    writeVMSpec(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {VMSpec}
- */
-function decodeVMSpecMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = { };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {VMSpec}
- */
-export function decodeVMSpec(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeVMSpecMessage(reader);
 }
 
 
@@ -3667,30 +3545,99 @@ export function decodeRemoteDockerImage(buffer) {
 
 
 /**
+ * @param {ValueRef} message
+ * @param {Writer} writer
+ */
+export function writeValueRef(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    }
+}
+
+
+/**
+ * @param {ValueRef} message
+ * @returns {Uint8Array}
+ */
+export function encodeValueRef(message) {
+    const writer = Writer.create();
+    writeValueRef(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ValueRef}
+ */
+function decodeValueRefMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, version: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.int32();
+                break;
+            }
+            case 2: {
+                message.version = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ValueRef}
+ */
+export function decodeValueRef(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeValueRefMessage(reader);
+}
+
+
+
+/**
  * @param {EnvVarValue} message
  * @param {Writer} writer
  */
 export function writeEnvVarValue(message, writer) {
-    if (message.secretVersionId !== undefined && message.secretVersionId !== null) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretVersionId);
-    }
-    if (message.configVersionId !== undefined && message.configVersionId !== null) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.configVersionId);
-    }
     if (message.value !== undefined && message.value !== null) {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
     }
     if (message.asset !== undefined && message.asset !== null && message.asset !== "") {
         writer.uint32(tag(4, WIRE.LDELIM)).string(message.asset);
     }
-    if (message.assetVersionId !== undefined && message.assetVersionId !== null && message.assetVersionId !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.assetVersionId);
-    }
     if (message.addressDeploymentId !== undefined && message.addressDeploymentId !== null) {
         writer.uint32(tag(6, WIRE.VARINT)).int32(message.addressDeploymentId);
     }
     if (message.addressSpaceId !== undefined && message.addressSpaceId !== null) {
         writer.uint32(tag(7, WIRE.VARINT)).int32(message.addressSpaceId);
+    }
+    if (message.secret !== undefined && message.secret !== null) {
+        writer.uint32(tag(8, WIRE.LDELIM)).fork();
+        writeValueRef(message.secret, writer);
+        writer.ldelim();
+    }
+    if (message.config !== undefined && message.config !== null) {
+        writer.uint32(tag(9, WIRE.LDELIM)).fork();
+        writeValueRef(message.config, writer);
+        writer.ldelim();
+    }
+    if (message.assetRef !== undefined && message.assetRef !== null) {
+        writer.uint32(tag(10, WIRE.LDELIM)).fork();
+        writeValueRef(message.assetRef, writer);
+        writer.ldelim();
     }
 }
 
@@ -3713,18 +3660,10 @@ export function encodeEnvVarValue(message) {
  */
 function decodeEnvVarValueMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {secretVersionId: undefined, configVersionId: undefined, value: undefined, asset: "", assetVersionId: 0, addressDeploymentId: undefined, addressSpaceId: undefined };
+    const message = {value: undefined, asset: "", addressDeploymentId: undefined, addressSpaceId: undefined, secret: undefined, config: undefined, assetRef: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.secretVersionId = reader.int32();
-                break;
-            }
-            case 2: {
-                message.configVersionId = reader.int32();
-                break;
-            }
             case 3: {
                 message.value = reader.string();
                 break;
@@ -3733,16 +3672,24 @@ function decodeEnvVarValueMessage(reader, length) {
                 message.asset = reader.string();
                 break;
             }
-            case 5: {
-                message.assetVersionId = reader.int32();
-                break;
-            }
             case 6: {
                 message.addressDeploymentId = reader.int32();
                 break;
             }
             case 7: {
                 message.addressSpaceId = reader.int32();
+                break;
+            }
+            case 8: {
+                message.secret = decodeValueRefMessage(reader, reader.uint32());
+                break;
+            }
+            case 9: {
+                message.config = decodeValueRefMessage(reader, reader.uint32());
+                break;
+            }
+            case 10: {
+                message.assetRef = decodeValueRefMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -3902,14 +3849,16 @@ export function decodeCrossDeploymentMount(buffer) {
  * @param {Writer} writer
  */
 export function writeAssetMount(message, writer) {
-    if (message.assetVersionId !== undefined && message.assetVersionId !== null && message.assetVersionId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.assetVersionId);
-    }
     if (message.containerPath !== undefined && message.containerPath !== null && message.containerPath !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.containerPath);
     }
     if (message.permission !== undefined && message.permission !== null && message.permission !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int32(message.permission);
+    }
+    if (message.asset !== undefined && message.asset !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeValueRef(message.asset, writer);
+        writer.ldelim();
     }
 }
 
@@ -3932,20 +3881,20 @@ export function encodeAssetMount(message) {
  */
 function decodeAssetMountMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {assetVersionId: 0, containerPath: "", permission: 0 };
+    const message = {containerPath: "", permission: 0, asset: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.assetVersionId = reader.int32();
-                break;
-            }
             case 2: {
                 message.containerPath = reader.string();
                 break;
             }
             case 3: {
                 message.permission = reader.int32();
+                break;
+            }
+            case 4: {
+                message.asset = decodeValueRefMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -4237,8 +4186,10 @@ export function decodeAcmeCertSource(buffer) {
  * @param {Writer} writer
  */
 export function writeSecretCertSource(message, writer) {
-    if (message.secretVersionId !== undefined && message.secretVersionId !== null && message.secretVersionId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretVersionId);
+    if (message.secret !== undefined && message.secret !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeValueRef(message.secret, writer);
+        writer.ldelim();
     }
 }
 
@@ -4261,12 +4212,12 @@ export function encodeSecretCertSource(message) {
  */
 function decodeSecretCertSourceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {secretVersionId: 0 };
+    const message = {secret: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.secretVersionId = reader.int32();
+            case 2: {
+                message.secret = decodeValueRefMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -9599,9 +9550,6 @@ export function writeSecretEvent(message, writer) {
     if (message.valueVersion !== undefined && message.valueVersion !== null && message.valueVersion !== 0) {
         writer.uint32(tag(9, WIRE.VARINT)).int32(message.valueVersion);
     }
-    if (message.spaceVersion !== undefined && message.spaceVersion !== null && message.spaceVersion !== 0) {
-        writer.uint32(tag(10, WIRE.VARINT)).int32(message.spaceVersion);
-    }
     if (message.value !== undefined && message.value !== null) {
         writer.uint32(tag(11, WIRE.LDELIM)).fork();
         writeSecret(message.value, writer);
@@ -9628,7 +9576,7 @@ export function encodeSecretEvent(message) {
  */
 function decodeSecretEventMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {secretId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: 0, eventTime: 0, valueVersion: 0, spaceVersion: 0, value: undefined };
+    const message = {secretId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: 0, eventTime: 0, valueVersion: 0, value: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9666,10 +9614,6 @@ function decodeSecretEventMessage(reader, length) {
             }
             case 9: {
                 message.valueVersion = reader.int32();
-                break;
-            }
-            case 10: {
-                message.spaceVersion = reader.int32();
                 break;
             }
             case 11: {
@@ -10684,9 +10628,6 @@ export function writeConfigEvent(message, writer) {
     if (message.valueVersion !== undefined && message.valueVersion !== null && message.valueVersion !== 0) {
         writer.uint32(tag(9, WIRE.VARINT)).int32(message.valueVersion);
     }
-    if (message.spaceVersion !== undefined && message.spaceVersion !== null && message.spaceVersion !== 0) {
-        writer.uint32(tag(10, WIRE.VARINT)).int32(message.spaceVersion);
-    }
     if (message.value !== undefined && message.value !== null) {
         writer.uint32(tag(11, WIRE.LDELIM)).fork();
         writeConfig(message.value, writer);
@@ -10713,7 +10654,7 @@ export function encodeConfigEvent(message) {
  */
 function decodeConfigEventMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {configId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: 0, eventTime: 0, valueVersion: 0, spaceVersion: 0, value: undefined };
+    const message = {configId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: 0, eventTime: 0, valueVersion: 0, value: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10751,10 +10692,6 @@ function decodeConfigEventMessage(reader, length) {
             }
             case 9: {
                 message.valueVersion = reader.int32();
-                break;
-            }
-            case 10: {
-                message.spaceVersion = reader.int32();
                 break;
             }
             case 11: {
@@ -11452,9 +11389,6 @@ export function writeAssetEvent(message, writer) {
     if (message.valueVersion !== undefined && message.valueVersion !== null && message.valueVersion !== 0) {
         writer.uint32(tag(9, WIRE.VARINT)).int32(message.valueVersion);
     }
-    if (message.spaceVersion !== undefined && message.spaceVersion !== null && message.spaceVersion !== 0) {
-        writer.uint32(tag(10, WIRE.VARINT)).int32(message.spaceVersion);
-    }
     if (message.value !== undefined && message.value !== null) {
         writer.uint32(tag(11, WIRE.LDELIM)).fork();
         writeAsset(message.value, writer);
@@ -11481,7 +11415,7 @@ export function encodeAssetEvent(message) {
  */
 function decodeAssetEventMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {assetId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: 0, eventTime: 0, valueVersion: 0, spaceVersion: 0, value: undefined };
+    const message = {assetId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: 0, eventTime: 0, valueVersion: 0, value: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11519,10 +11453,6 @@ function decodeAssetEventMessage(reader, length) {
             }
             case 9: {
                 message.valueVersion = reader.int32();
-                break;
-            }
-            case 10: {
-                message.spaceVersion = reader.int32();
                 break;
             }
             case 11: {
@@ -17595,8 +17525,10 @@ export function writeAcmeCertBinding(message, writer) {
     if (message.hostname !== undefined && message.hostname !== null && message.hostname !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.hostname);
     }
-    if (message.secretVersionId !== undefined && message.secretVersionId !== null && message.secretVersionId !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.secretVersionId);
+    if (message.secret !== undefined && message.secret !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeValueRef(message.secret, writer);
+        writer.ldelim();
     }
 }
 
@@ -17619,7 +17551,7 @@ export function encodeAcmeCertBinding(message) {
  */
 function decodeAcmeCertBindingMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {hostname: "", secretVersionId: 0 };
+    const message = {hostname: "", secret: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -17627,8 +17559,8 @@ function decodeAcmeCertBindingMessage(reader, length) {
                 message.hostname = reader.string();
                 break;
             }
-            case 2: {
-                message.secretVersionId = reader.int32();
+            case 3: {
+                message.secret = decodeValueRefMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -20516,13 +20448,11 @@ export function decodeMsgToPrimary(buffer) {
  * @param {Writer} writer
  */
 export function writeClusterSecretsRequest(message, writer) {
-    if (message.ids) {
-        const packedWriter = Writer.create();
-        for (const item of message.ids) {
-            packedWriter.int32(item);
-        }
-        if (packedWriter.len > 0) {
-            writer.uint32(tag(1, WIRE.LDELIM)).bytes(packedWriter.finish());
+    if (message.refs && message.refs.length > 0) {
+        for (const item of message.refs) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeValueRef(item, writer);
+            writer.ldelim();
         }
     }
 }
@@ -20546,15 +20476,12 @@ export function encodeClusterSecretsRequest(message) {
  */
 function decodeClusterSecretsRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {ids: [] };
+    const message = {refs: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                const end2 = reader.uint32() + reader.pos;
-                while (reader.pos < end2) {
-                    message.ids.push(reader.int32());
-                }
+            case 2: {
+                message.refs.push(decodeValueRefMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -20581,8 +20508,10 @@ export function decodeClusterSecretsRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeClusterSecretValue(message, writer) {
-    if (message.id !== undefined && message.id !== null && message.id !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    if (message.ref !== undefined && message.ref !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeValueRef(message.ref, writer);
+        writer.ldelim();
     }
     if (message.value && message.value.length > 0) {
         writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.value);
@@ -20608,12 +20537,12 @@ export function encodeClusterSecretValue(message) {
  */
 function decodeClusterSecretValueMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, value: new Uint8Array(0) };
+    const message = {ref: undefined, value: new Uint8Array(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.id = reader.int32();
+            case 3: {
+                message.ref = decodeValueRefMessage(reader, reader.uint32());
                 break;
             }
             case 2: {
@@ -20704,13 +20633,11 @@ export function decodeClusterSecretsResponse(buffer) {
  * @param {Writer} writer
  */
 export function writeClusterConfigsRequest(message, writer) {
-    if (message.ids) {
-        const packedWriter = Writer.create();
-        for (const item of message.ids) {
-            packedWriter.int32(item);
-        }
-        if (packedWriter.len > 0) {
-            writer.uint32(tag(1, WIRE.LDELIM)).bytes(packedWriter.finish());
+    if (message.refs && message.refs.length > 0) {
+        for (const item of message.refs) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeValueRef(item, writer);
+            writer.ldelim();
         }
     }
 }
@@ -20734,15 +20661,12 @@ export function encodeClusterConfigsRequest(message) {
  */
 function decodeClusterConfigsRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {ids: [] };
+    const message = {refs: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                const end2 = reader.uint32() + reader.pos;
-                while (reader.pos < end2) {
-                    message.ids.push(reader.int32());
-                }
+            case 2: {
+                message.refs.push(decodeValueRefMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -20769,8 +20693,10 @@ export function decodeClusterConfigsRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeClusterConfigValue(message, writer) {
-    if (message.id !== undefined && message.id !== null && message.id !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    if (message.ref !== undefined && message.ref !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeValueRef(message.ref, writer);
+        writer.ldelim();
     }
     if (message.value !== undefined && message.value !== null && message.value !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.value);
@@ -20796,12 +20722,12 @@ export function encodeClusterConfigValue(message) {
  */
 function decodeClusterConfigValueMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, value: "" };
+    const message = {ref: undefined, value: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.id = reader.int32();
+            case 3: {
+                message.ref = decodeValueRefMessage(reader, reader.uint32());
                 break;
             }
             case 2: {
@@ -21549,8 +21475,10 @@ export function decodeEnrollmentAccepted(buffer) {
  * @param {Writer} writer
  */
 export function writeSecretRef(message, writer) {
-    if (message.versionId !== undefined && message.versionId !== null && message.versionId !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.versionId);
+    if (message.ref !== undefined && message.ref !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeValueRef(message.ref, writer);
+        writer.ldelim();
     }
 }
 
@@ -21573,12 +21501,12 @@ export function encodeSecretRef(message) {
  */
 function decodeSecretRefMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {versionId: 0 };
+    const message = {ref: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 3: {
-                message.versionId = reader.int32();
+            case 4: {
+                message.ref = decodeValueRefMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -21605,8 +21533,10 @@ export function decodeSecretRef(buffer) {
  * @param {Writer} writer
  */
 export function writeConfigRef(message, writer) {
-    if (message.versionId !== undefined && message.versionId !== null && message.versionId !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.versionId);
+    if (message.ref !== undefined && message.ref !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeValueRef(message.ref, writer);
+        writer.ldelim();
     }
 }
 
@@ -21629,12 +21559,12 @@ export function encodeConfigRef(message) {
  */
 function decodeConfigRefMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {versionId: 0 };
+    const message = {ref: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 3: {
-                message.versionId = reader.int32();
+            case 4: {
+                message.ref = decodeValueRefMessage(reader, reader.uint32());
                 break;
             }
             default:

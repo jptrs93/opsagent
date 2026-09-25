@@ -3,17 +3,20 @@ syntax = "proto3";
 package opsagent.v1;
 
 import "api-contract/options.proto";
+import "api-contract/model/deployments.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 message SecretRef {
-  reserved 1, 2;
-  int32 version_id = 3;    // immutable secret version row id
+  reserved 1, 2, 3;
+  reserved "version_id";
+  ValueRef ref = 4 [(cp.go_value) = true];
 }
 
 message ConfigRef {
-  reserved 1, 2;
-  int32 version_id = 3;    // immutable config version row id
+  reserved 1, 2, 3;
+  reserved "version_id";
+  ValueRef ref = 4 [(cp.go_value) = true];
 }
 
 message StringSetting {

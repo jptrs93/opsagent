@@ -16,7 +16,24 @@ import (
 // Bumped to 10 when the streaming log search was replaced by the one-shot
 // structured log query round trip (per-field stats ride in its response).
 // Bumped to 11 when the metrics query and latest-sample round trips were added.
-const ClusterProtocolVersion int32 = 11
+// Bumped to 12 when secret, config, and asset references moved from event log
+// row ids to ValueRef (entity id, value version) pairs.
+const ClusterProtocolVersion int32 = 12
+
+// Valid reports whether r names a value: both the entity id and the value
+// version are set.
+func (r ValueRef) Valid() bool {
+	return r.ID > 0 && r.Version > 0
+}
+
+func (r ValueRef) String() string {
+	return fmt.Sprintf("%d@%d", r.ID, r.Version)
+}
+
+// Less orders refs by entity id, then value version.
+func (r ValueRef) Less(o ValueRef) bool {
+	return r.ID < o.ID || (r.ID == o.ID && r.Version < o.Version)
+}
 
 // WantsRunning reports whether a node should be running this placement. The
 // three RUN_* states are deliberately indistinguishable here: they differ only

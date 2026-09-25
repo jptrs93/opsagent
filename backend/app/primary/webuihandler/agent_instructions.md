@@ -138,10 +138,10 @@ The snapshot includes live instances and the last finalized run for an ordinal
 without a live placement.
 
 Value histories are complete, oldest first, for every live secret, config,
-and asset. Group by stable identity. The pinnable version ids are the
-`event_id` of events whose `value_version` differs from the previous event's.
-A rename or space move increments `version` but preserves `value_version`:
-its `event_id` is not a new value pin. The latest event provides current
+and asset. Group by stable identity. The pinnable values are the distinct
+`value_version`s; a reference is `{"id": <stable id>, "version": <value_version>}`.
+A rename or space move increments `version` but preserves `value_version`, so
+it is not a new value pin. The latest event provides current
 `value.fs` and `value.space_id`. Secret `value` contains metadata only.
 Create, set, generate, rename, move, and upload return the exact event appended;
 read history from the snapshot when you need earlier versions.
@@ -237,21 +237,22 @@ Inside `runtime.env_vars`, each entry is one of:
 
 ```json
 {"value": "literal"}
-{"secret_version_id": 12}
-{"config_version_id": 7}
-{"asset": "nginx.conf", "asset_version_id": 41}
+{"secret": {"id": 30, "version": 1}}
+{"config": {"id": 5, "version": 3}}
+{"asset": "nginx.conf", "asset_ref": {"id": 8, "version": 2}}
 {"address_deployment_id": 9, "address_space_id": 2}
 ```
 
 Files are mounted with `runtime.asset_mounts`:
 
 ```json
-{"asset_version_id": 41, "container_path": "/etc/nginx/nginx.conf", "permission": 2}
+{"asset": {"id": 8, "version": 2}, "container_path": "/etc/nginx/nginx.conf", "permission": 2}
 ```
 
-Every one of these pins an immutable **version row id**, never the stable
-identity. Uploading a new asset version or setting a new config value therefore
-changes nothing until you update the spec to pin the new id.
+Every one of these pins an immutable value: `id` is the stable identity
+(`secret_id`, `config_id`, `asset_id`) and `version` is its `value_version`.
+Uploading a new asset version or setting a new config value therefore changes
+nothing until you update the spec to pin the new version.
 
 ### Logs, run reports, and metrics
 
@@ -320,7 +321,7 @@ of CPUs in use.
 An asset has a stable `asset_id`. Its current event carries `value.fs.key`,
 `value.fs.directory_id`, `value.space_id`, `value.sha256`, and `value.size_bytes`.
 Read `asset_events` history using the value-version rule in section 4. Specs
-pin the `event_id` of a content-changing event.
+pin `{"id": asset_id, "version": value_version}`.
 
 Assets live in a per-space folder tree (`asset_directories` in the snapshot,
 root = directory `0`), and keys are unique per folder, not globally.
@@ -344,13 +345,13 @@ Only create when the operator asked for a brand-new asset:
 POST /v1/assets/upload?key=nginx.conf&space_id=2&directory_id=0
 ```
 
-The upload response is an `AssetEvent`; its `event_id` is the new content
-version id. Uploading does not change what deployments serve; update the spec
-to pin that id (section 5).
+The upload response is an `AssetEvent`; its `value_version` is the new content
+version. Uploading does not change what deployments serve; update the spec
+to pin that version (section 5).
 
 Reading and organising:
 
-- `GET /v1/assets/content?content_version_id=41` — the bytes of one version.
+- `GET /v1/assets/content?content_version_id=41` — the bytes of one version, addressed by the `event_id` of its content-changing event.
 - `POST /v1/assets/rename` `{"asset_id": 12, "new_key": "nginx.conf"}`
 - `POST /v1/assets/move` `{"asset_id": 12, "asset_directory_id": 3, "space_id": 0}`
   (`space_id: 0` keeps the space; `asset_directory_id: 0` is the space root)
@@ -363,7 +364,7 @@ Reading and organising:
 
 A config has a stable `config_id`, with `value.fs.name`,
 `value.fs.directory_id`, `value.space_id`, and plaintext `value.value`.
-Create and set return a `ConfigEvent` whose `event_id` env refs can pin.
+Create and set return a `ConfigEvent` whose `config_id` and `value_version` env refs pin.
 Read older values from `config_events` using section 4's history rule. Configs and secrets
 share one folder tree per space (`value_directories`, root = directory `0`).
 Names are unique per folder.
@@ -418,15 +419,15 @@ The response is a `SecretEvent`, containing only metadata:
 
 ```json
 {"secret_id": 30, "version": 1, "seq": 42, "event_id": 12,
- "event_type": 1, "value_version": 1, "space_version": 1,
+ "event_type": 1, "value_version": 1,
  "value": {"fs": {"name": "postgres-password", "directory_id": 0}, "space_id": 2}}
 ```
 
 `secret_id` is the stable identity. This creation event changed the value
-facet, so put its `event_id` into the spec as the immutable version pin:
+facet, so pin `secret_id` with its `value_version`:
 
 ```json
-"env_vars": {"POSTGRES_PASSWORD": {"secret_version_id": 12}}
+"env_vars": {"POSTGRES_PASSWORD": {"secret": {"id": 30, "version": 1}}}
 ```
 
 and send it through `/v2/deployments/update` as in section 5. The workload
@@ -493,8 +494,9 @@ the event's `network_policy_id` as request `id` and its
   `/v1/deployments/prepare-output` ignore `Accept: application/json`. Use the
   non-streaming endpoints above instead.
 - **Enums are numbers** in JSON, not names.
-- **Ids are per-kind.** Stable identity ids and version row ids are different
-  number spaces; so are a deployment's `version` and its `space_version`.
+- **Ids are per-kind.** Stable identity ids and event row ids (`event_id`) are
+  different number spaces, and value references never use `event_id`; so are a deployment's `version`
+  and its `space_version`.
 
 ## 11. Endpoint reference
 

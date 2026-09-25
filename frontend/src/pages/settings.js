@@ -20,30 +20,36 @@ const shellQuote = (value) => {
     return `'${s.replace(/'/g, `'"'"'`)}'`;
 };
 
-const refID = (ref) => Number(ref?.versionId || 0);
+const refKey = (id, version) => (Number(id || 0) && Number(version || 0) ? `${Number(id)}:${Number(version)}` : "");
+const settingRefKey = (setting) => refKey(setting?.ref?.id, setting?.ref?.version);
+const catalogRefKey = (ref) => refKey(ref?.stableId, ref?.version);
+const refFromKey = (key) => {
+    const [id, version] = String(key || "").split(":").map(Number);
+    return {id: id || 0, version: version || 0};
+};
 const deepClone = (value) => JSON.parse(JSON.stringify(value));
 const stringSetting = (value = "") => ({value, configRef: undefined});
 const boolSetting = (value = false) => ({value, configRef: undefined});
-const secretSetting = (id = 0) => (id ? {versionId: id} : {});
-const latestRefs = (refs, selectedID = 0) => {
+const secretSetting = (key = "") => (key ? {ref: refFromKey(key)} : {});
+const latestRefs = (refs, selectedKey = "") => {
     const latest = new Map();
-    const byID = new Map();
+    const byKey = new Map();
     for (const ref of refs || []) {
         const name = ref?.name || "";
-        if (!name || !ref?.id) continue;
-        byID.set(Number(ref.id), ref);
+        if (!name || !catalogRefKey(ref)) continue;
+        byKey.set(catalogRefKey(ref), ref);
         const current = latest.get(name);
         if (!current || Number(ref.version || 0) > Number(current.version || 0)) latest.set(name, ref);
     }
     const options = Array.from(latest.values());
-    const selected = byID.get(Number(selectedID || 0));
+    const selected = byKey.get(selectedKey || "");
     if (selected && !options.some(ref => Number(ref.id) === Number(selected.id))) options.push(selected);
     return options.sort((a, b) => (a.name || "").localeCompare(b.name || "") || Number(a.version || 0) - Number(b.version || 0));
 };
 const refLabel = (ref) => `${ref.name} v${ref.version || 0}`;
-const findRef = (refs, id) => (refs || []).find(ref => Number(ref.id || 0) === Number(id || 0));
-const configRefPayload = (item) => ({versionId: Number(item.configRefID || 0)});
-const secretRefPayload = (item) => ({versionId: Number(item.secretId || 0)});
+const findRef = (refs, key) => (key ? (refs || []).find(ref => catalogRefKey(ref) === key) : undefined);
+const configRefPayload = (item) => ({ref: refFromKey(item.configRefKey)});
+const secretRefPayload = (item) => ({ref: refFromKey(item.secretKey)});
 const emptySettings = () => ({
     httpWeb: {
         enabled: boolSetting(false),
@@ -88,16 +94,12 @@ const emptySettings = () => ({
     },
 });
 
-const resolvedConfigValue = (id) => {
-    id = Number(id || 0);
-    if (!id) return "";
-    return findRef(userConfigRefsS.val, id)?.value || "";
-};
+const resolvedConfigValue = (key) => findRef(userConfigRefsS.val, key)?.value || "";
 
 const effectiveStringSettingValue = (setting, fallback = "") => {
     if (!setting) return fallback;
-    const id = refID(setting.configRef);
-    if (id) return resolvedConfigValue(id) || fallback;
+    const key = settingRefKey(setting.configRef);
+    if (key) return resolvedConfigValue(key) || fallback;
     return setting.value ?? fallback;
 };
 
@@ -110,9 +112,9 @@ const parsedBoolValue = (value) => {
 
 const effectiveBoolSettingValue = (setting, fallback = false) => {
     if (!setting) return fallback;
-    const id = refID(setting.configRef);
-    if (id) {
-        return parsedBoolValue(resolvedConfigValue(id)) ?? fallback;
+    const key = settingRefKey(setting.configRef);
+    if (key) {
+        return parsedBoolValue(resolvedConfigValue(key)) ?? fallback;
     }
     return Boolean(setting.value);
 };
@@ -120,7 +122,7 @@ const effectiveBoolSettingValue = (setting, fallback = false) => {
 const effectiveDraftBoolValue = (item, fallback = false) => {
     if (!item) return fallback;
     if (item.mode === "config") {
-        return parsedBoolValue(resolvedConfigValue(item.configRefID)) ?? fallback;
+        return parsedBoolValue(resolvedConfigValue(item.configRefKey)) ?? fallback;
     }
     return parsedBoolValue(item.value) ?? fallback;
 };
@@ -133,7 +135,7 @@ const settingsSections = [
             {label: "Web UI HTTPS enabled", key: "WEB_HTTPS_ENABLED", type: "bool", setting: (cfg) => cfg.httpsWeb?.enabled, apply: (doc, item) => { doc.httpsWeb.enabled = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value === "true"}; }},
             {label: "Web UI HTTPS listen", key: "WEB_HTTPS_LISTEN", type: "text", setting: (cfg) => cfg.httpsWeb?.listen, apply: (doc, item) => { doc.httpsWeb.listen = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
             {label: "Web UI use self managed TLS cert", key: "WEB_TLS_SELF_MANAGED", type: "bool", setting: (cfg) => cfg.httpsWeb?.tlsSelfManaged, apply: (doc, item) => { doc.httpsWeb.tlsSelfManaged = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value === "true"}; }},
-            {label: "Web UI TLS cert PEM", key: "WEB_TLS_CERT_PEM", type: "secret", secret: (cfg) => cfg.httpsWeb?.tlsCertPem, apply: (doc, item) => { doc.httpsWeb.tlsCertPem = item.secretId ? secretRefPayload(item) : {}; }, defaultSecretName: "opendeploy.config.web_tls_cert_pem", visible: (draft) => effectiveDraftBoolValue(draft?.WEB_TLS_SELF_MANAGED)},
+            {label: "Web UI TLS cert PEM", key: "WEB_TLS_CERT_PEM", type: "secret", secret: (cfg) => cfg.httpsWeb?.tlsCertPem, apply: (doc, item) => { doc.httpsWeb.tlsCertPem = item.secretKey ? secretRefPayload(item) : {}; }, defaultSecretName: "opendeploy.config.web_tls_cert_pem", visible: (draft) => effectiveDraftBoolValue(draft?.WEB_TLS_SELF_MANAGED)},
             {label: "Web UI hostnames (also ACME hosts)", key: "ACME_HOSTS", type: "text", setting: (cfg) => cfg.httpsWeb?.acmeHosts, apply: (doc, item) => { doc.httpsWeb.acmeHosts = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
             {label: "Web UI ACME email", key: "ACME_EMAIL", type: "text", setting: (cfg) => cfg.httpsWeb?.acmeEmail, apply: (doc, item) => { doc.httpsWeb.acmeEmail = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
             {label: "Web UI HTTP enabled", key: "WEB_HTTP_ENABLED", type: "bool", setting: (cfg) => cfg.httpWeb?.enabled, apply: (doc, item) => { doc.httpWeb.enabled = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value === "true"}; }},
@@ -159,7 +161,7 @@ const settingsSections = [
         key: "repo",
         title: "Repository credentials",
         settings: [
-            {label: "GitHub token", key: "GITHUB_TOKEN", type: "secret", secret: (cfg) => cfg.repo?.githubToken, apply: (doc, item) => { (doc.repo ||= {}).githubToken = item.secretId ? secretRefPayload(item) : {}; }, defaultSecretName: "opendeploy.config.github_token"},
+            {label: "GitHub token", key: "GITHUB_TOKEN", type: "secret", secret: (cfg) => cfg.repo?.githubToken, apply: (doc, item) => { (doc.repo ||= {}).githubToken = item.secretKey ? secretRefPayload(item) : {}; }, defaultSecretName: "opendeploy.config.github_token"},
         ],
     },
     {
@@ -169,7 +171,7 @@ const settingsSections = [
         settings: [
             {label: "Backup enabled", key: "BACKUP_ENABLED", type: "bool", setting: (cfg) => cfg.backup?.enabled, apply: (doc, item) => { doc.backup.enabled = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value === "true"}; }},
             {label: "Backup S3 access key ID", key: "BACKUP_S3_ACCESS_KEY_ID", type: "text", setting: (cfg) => cfg.backup?.s3AccessKeyId, apply: (doc, item) => { doc.backup.s3AccessKeyId = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
-            {label: "Backup S3 secret access key", key: "BACKUP_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.backup?.s3SecretAccessKey, apply: (doc, item) => { doc.backup.s3SecretAccessKey = item.secretId ? secretRefPayload(item) : {}; }, defaultSecretName: "opendeploy.config.backup_s3_secret_access_key"},
+            {label: "Backup S3 secret access key", key: "BACKUP_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.backup?.s3SecretAccessKey, apply: (doc, item) => { doc.backup.s3SecretAccessKey = item.secretKey ? secretRefPayload(item) : {}; }, defaultSecretName: "opendeploy.config.backup_s3_secret_access_key"},
             {label: "Backup S3 bucket", key: "BACKUP_S3_BUCKET", type: "text", setting: (cfg) => cfg.backup?.s3Bucket, apply: (doc, item) => { doc.backup.s3Bucket = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
             {label: "Backup S3 path", key: "BACKUP_S3_PATH", type: "text", setting: (cfg) => cfg.backup?.s3Path, apply: (doc, item) => { doc.backup.s3Path = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
             {label: "Backup S3 region", key: "BACKUP_S3_REGION", type: "text", setting: (cfg) => cfg.backup?.s3Region, apply: (doc, item) => { doc.backup.s3Region = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
@@ -178,7 +180,7 @@ const settingsSections = [
             {label: "Large asset S3 path", key: "LARGE_ASSET_S3_PATH", type: "text", setting: (cfg) => cfg.largeAssets?.s3Path, apply: (doc, item) => { doc.largeAssets.s3Path = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }},
             {label: "Use separate large assets S3", key: "LARGE_ASSETS_USE_SEPARATE_S3", type: "bool", setting: (cfg) => cfg.largeAssets?.useSeparateS3, apply: (doc, item) => { doc.largeAssets.useSeparateS3 = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value === "true"}; }},
             {label: "Large asset S3 access key ID", key: "LARGE_ASSET_S3_ACCESS_KEY_ID", type: "text", setting: (cfg) => cfg.largeAssets?.s3AccessKeyId, apply: (doc, item) => { doc.largeAssets.s3AccessKeyId = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }, visible: (draft) => effectiveDraftBoolValue(draft?.LARGE_ASSETS_USE_SEPARATE_S3)},
-            {label: "Large asset S3 secret access key", key: "LARGE_ASSET_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.largeAssets?.s3SecretAccessKey, apply: (doc, item) => { doc.largeAssets.s3SecretAccessKey = item.secretId ? secretRefPayload(item) : {}; }, defaultSecretName: "opendeploy.config.large_asset_s3_secret_access_key", visible: (draft) => effectiveDraftBoolValue(draft?.LARGE_ASSETS_USE_SEPARATE_S3)},
+            {label: "Large asset S3 secret access key", key: "LARGE_ASSET_S3_SECRET_ACCESS_KEY", type: "secret", secret: (cfg) => cfg.largeAssets?.s3SecretAccessKey, apply: (doc, item) => { doc.largeAssets.s3SecretAccessKey = item.secretKey ? secretRefPayload(item) : {}; }, defaultSecretName: "opendeploy.config.large_asset_s3_secret_access_key", visible: (draft) => effectiveDraftBoolValue(draft?.LARGE_ASSETS_USE_SEPARATE_S3)},
             {label: "Large asset S3 bucket", key: "LARGE_ASSET_S3_BUCKET", type: "text", setting: (cfg) => cfg.largeAssets?.s3Bucket, apply: (doc, item) => { doc.largeAssets.s3Bucket = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }, visible: (draft) => effectiveDraftBoolValue(draft?.LARGE_ASSETS_USE_SEPARATE_S3)},
             {label: "Large asset S3 region", key: "LARGE_ASSET_S3_REGION", type: "text", setting: (cfg) => cfg.largeAssets?.s3Region, apply: (doc, item) => { doc.largeAssets.s3Region = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }, visible: (draft) => effectiveDraftBoolValue(draft?.LARGE_ASSETS_USE_SEPARATE_S3)},
             {label: "Large asset S3 endpoint", key: "LARGE_ASSET_S3_ENDPOINT", type: "text", setting: (cfg) => cfg.largeAssets?.s3Endpoint, apply: (doc, item) => { doc.largeAssets.s3Endpoint = item.mode === "config" ? {configRef: configRefPayload(item)} : {value: item.value}; }, visible: (draft) => effectiveDraftBoolValue(draft?.LARGE_ASSETS_USE_SEPARATE_S3)},
@@ -194,12 +196,12 @@ const draftValue = (setting, cfg) => {
         const secret = setting.secret(cfg);
         return {
             value: "",
-            secretId: refID(secret),
-            originalSecretId: refID(secret),
+            secretKey: settingRefKey(secret),
+            originalSecretKey: settingRefKey(secret),
         };
     }
     const current = setting.setting(cfg) || {};
-    const refId = refID(current.configRef);
+    const refId = settingRefKey(current.configRef);
     const original = setting.type === "bool"
         ? boolValue(current.value)
         : (current.value || "");
@@ -208,17 +210,17 @@ const draftValue = (setting, cfg) => {
         original,
         mode: refId ? "config" : "value",
         originalMode: refId ? "config" : "value",
-        configRefID: refId,
-        originalConfigRefID: refId,
+        configRefKey: refId,
+        originalConfigRefKey: refId,
     };
 };
 
 const configDraft = (cfg) => Object.fromEntries(settings.map((setting) => [setting.key, draftValue(setting, cfg)]));
 
 const isDirty = (setting, item) => {
-    if (setting.type === "secret") return Number(item.secretId || 0) !== Number(item.originalSecretId || 0);
+    if (setting.type === "secret") return (item.secretKey || "") !== (item.originalSecretKey || "");
     if (item.mode !== item.originalMode) return true;
-    if (item.mode === "config") return Number(item.configRefID || 0) !== Number(item.originalConfigRefID || 0);
+    if (item.mode === "config") return (item.configRefKey || "") !== (item.originalConfigRefKey || "");
     return item.value !== item.original;
 };
 
@@ -228,12 +230,12 @@ const dirtySettingsFor = (draft) => settings
 
 const describeOriginal = (setting, item) => {
     if (setting.type === "secret") {
-        const ref = findRef(secretRefsS.val, item.originalSecretId);
-        return item.originalSecretId ? `secret ${ref ? refLabel(ref) : `#${item.originalSecretId}`}` : "no secret";
+        const ref = findRef(secretRefsS.val, item.originalSecretKey);
+        return item.originalSecretKey ? `secret ${ref ? refLabel(ref) : `#${item.originalSecretKey}`}` : "no secret";
     }
     if (item.originalMode === "config") {
-        const ref = findRef(userConfigRefsS.val, item.originalConfigRefID);
-        return item.originalConfigRefID ? `config ${ref ? refLabel(ref) : `#${item.originalConfigRefID}`}` : "no config";
+        const ref = findRef(userConfigRefsS.val, item.originalConfigRefKey);
+        return item.originalConfigRefKey ? `config ${ref ? refLabel(ref) : `#${item.originalConfigRefKey}`}` : "no config";
     }
     return item.original === "" ? "empty" : JSON.stringify(item.original);
 };
@@ -241,8 +243,8 @@ const describeOriginal = (setting, item) => {
 const rowHint = (setting, item) => {
     if (!item) return "";
     if (isDirty(setting, item)) return `was ${describeOriginal(setting, item)}`;
-    if (setting.type !== "secret" && item.mode === "config" && item.configRefID) {
-        const resolved = resolvedConfigValue(item.configRefID);
+    if (setting.type !== "secret" && item.mode === "config" && item.configRefKey) {
+        const resolved = resolvedConfigValue(item.configRefKey);
         return `→ ${resolved === "" ? "empty" : JSON.stringify(resolved)}`;
     }
     return "";
@@ -299,7 +301,7 @@ export function settingsPage() {
     const newMasterPasswordCopied = van.state(false);
     const createSecretTarget = van.state(null);
     const editSecretTarget = van.state(null);
-    const openingSecretID = van.state(0);
+    const openingSecretKey = van.state("");
 
     const setDraft = (next) => {
         draft.val = next;
@@ -367,7 +369,7 @@ export function settingsPage() {
                 name,
                 value: new TextEncoder().encode(value),
             });
-            patchDraft(target.settingKey, {secretId: Number(saved?.eventId || 0)});
+            patchDraft(target.settingKey, {secretKey: refKey(saved?.secretId, saved?.valueVersion)});
         } catch (e) {
             error.val = e.message;
             throw e;
@@ -375,17 +377,17 @@ export function settingsPage() {
     };
 
     const openEditSecret = async (setting) => {
-        const id = Number(draft.val?.[setting.key]?.secretId || 0);
-        if (!id || openingSecretID.val) return;
-        openingSecretID.val = id;
+        const key = draft.val?.[setting.key]?.secretKey || "";
+        if (!key || openingSecretKey.val) return;
+        openingSecretKey.val = key;
         try {
             error.val = null;
-            const res = await capi.postV1SecretsReveal({id});
-            const meta = findRef(secretRefsS.val, id);
+            const meta = findRef(secretRefsS.val, key);
             if (!meta) throw new Error("Selected secret metadata is unavailable");
+            const res = await capi.postV1SecretsReveal({id: Number(meta.id)});
             editSecretTarget.val = {
                 settingKey: setting.key,
-                id,
+                id: Number(meta.id),
                 stableId: Number(meta.stableId || 0),
                 name: meta.name,
                 version: Number(meta.version || 0),
@@ -395,7 +397,7 @@ export function settingsPage() {
         } catch (e) {
             error.val = e.message;
         } finally {
-            openingSecretID.val = 0;
+            openingSecretKey.val = "";
         }
     };
 
@@ -412,7 +414,7 @@ export function settingsPage() {
                 secretId: target.stableId,
                 value: new TextEncoder().encode(value),
             });
-            patchDraft(target.settingKey, {secretId: Number(saved?.eventId || 0)});
+            patchDraft(target.settingKey, {secretKey: refKey(saved?.secretId, saved?.valueVersion)});
         } catch (e) {
             error.val = e.message;
             throw e;
@@ -710,10 +712,10 @@ export function settingsPage() {
                 secretKeyIcon({class: "h-3 w-3 text-purple-300"}), "Secret"));
 
     const configPicker = (setting, item, patch) => referencePicker({
-        refs: () => latestRefs(userConfigRefsS.val || [], item()?.configRefID || 0),
-        selectedKey: () => item()?.configRefID || "",
+        refs: () => latestRefs(userConfigRefsS.val || [], item()?.configRefKey || ""),
+        selectedKey: () => item()?.configRefKey || "",
         selectedLabel: "",
-        getKey: (ref) => ref.id,
+        getKey: catalogRefKey,
         getLabel: refLabel,
         placeholder: "Search configs",
         noMatchesLabel: "No matching configs",
@@ -721,7 +723,7 @@ export function settingsPage() {
         inputClass: controlClass,
         containerClass: "relative w-full min-w-0",
         disabled: () => saving.val,
-        onSelect: (ref) => patch({configRefID: ref.id}),
+        onSelect: (ref) => patch({configRefKey: catalogRefKey(ref)}),
     });
 
     const textControl = (setting, item, patch) => input({
@@ -756,10 +758,10 @@ export function settingsPage() {
 
     const secretControl = (setting, item, patch) => div({class: "flex min-w-0 items-center gap-0.5"},
         div({class: "mr-1 w-[26rem] max-w-full min-w-0"}, referencePicker({
-            refs: () => latestRefs(secretRefsS.val || [], item()?.secretId || 0),
-            selectedKey: () => item()?.secretId || "",
+            refs: () => latestRefs(secretRefsS.val || [], item()?.secretKey || ""),
+            selectedKey: () => item()?.secretKey || "",
             selectedLabel: "",
-            getKey: (ref) => ref.id,
+            getKey: catalogRefKey,
             getLabel: refLabel,
             placeholder: "Search secrets",
             noMatchesLabel: "No matching secrets",
@@ -767,12 +769,12 @@ export function settingsPage() {
             inputClass: controlClass,
             containerClass: "relative w-full min-w-0",
             disabled: () => saving.val,
-            onSelect: (ref) => patch({secretId: ref.id}),
+            onSelect: (ref) => patch({secretKey: catalogRefKey(ref)}),
         })),
         iconButton(eyeOpenIcon({class: "h-3.5 w-3.5"}), "Open secret editor", () => { void openEditSecret(setting); },
-            {disabled: () => saving.val || !item()?.secretId || openingSecretID.val === Number(item()?.secretId || 0)}),
-        iconButton(closeIcon({class: "h-3.5 w-3.5"}), "Clear secret", () => patch({secretId: 0}),
-            {disabled: () => saving.val || !item()?.secretId}),
+            {disabled: () => saving.val || !item()?.secretKey || openingSecretKey.val === item()?.secretKey}),
+        iconButton(closeIcon({class: "h-3.5 w-3.5"}), "Clear secret", () => patch({secretKey: ""}),
+            {disabled: () => saving.val || !item()?.secretKey}),
         iconButton(plusIcon({class: "h-3.5 w-3.5"}), "Create secret", () => openCreateSecret(setting),
             {disabled: () => saving.val}));
 

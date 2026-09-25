@@ -38,8 +38,8 @@ A deployment is created by posting a `DeploymentCreateRequest` to
         "user": "1000",
         "envVars": {
           "LOG_LEVEL": {"value": "info"},
-          "DATABASE_URL": {"configVersionId": 42},
-          "DB_PASSWORD": {"secretVersionId": 99}
+          "DATABASE_URL": {"config": {"id": 12, "version": 3}},
+          "DB_PASSWORD": {"secret": {"id": 7, "version": 2}}
         },
         "devShmSizeKb": 65536,
         "mounts": [{"hostPath": "/home/ubuntu/coflip-server/data", "containerPath": "/data", "permission": 1}]

@@ -27,12 +27,12 @@ type scheduledInstanceStore interface {
 }
 
 type CertSecretResolver interface {
-	ResolveSecret(id int32) (string, bool)
+	ResolveSecret(ref apigen.ValueRef) (string, bool)
 }
 
-type CertSecretResolverFunc func(id int32) (string, bool)
+type CertSecretResolverFunc func(ref apigen.ValueRef) (string, bool)
 
-func (f CertSecretResolverFunc) ResolveSecret(id int32) (string, bool) { return f(id) }
+func (f CertSecretResolverFunc) ResolveSecret(ref apigen.ValueRef) (string, bool) { return f(ref) }
 
 type ClusterNetMapSource interface {
 	SnapshotAndSubscribe() (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func())
@@ -50,7 +50,7 @@ func (f ClusterNetMapSourceFunc) SnapshotAndSubscribe() (*apigen.ClusterNetMap, 
 // content changed. Host-port forwarding to netproxy is not derived here: the
 // primary evaluates each route's listen selectors and distributes the publish
 // set in the cluster network map.
-func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predicate storage.ScheduledInstancePredicate, nodeIdentifier, path string, certs CertSecretResolver, acme *acmestate.Holder, netMaps ClusterNetMapSource, ensureSecrets func(context.Context, []int32) error) {
+func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predicate storage.ScheduledInstancePredicate, nodeIdentifier, path string, certs CertSecretResolver, acme *acmestate.Holder, netMaps ClusterNetMapSource, ensureSecrets func(context.Context, []apigen.ValueRef) error) {
 	ctx = logu.AddTag(ctx, "NetStateWriter")
 	bundlePath := filepath.Join(filepath.Dir(path), CertBundleFileName)
 	netSeq := initialArtifactSequence(ctx, path, func(b []byte) (int64, error) {
@@ -434,15 +434,15 @@ func ingressBackends(endpoints []*apigen.Endpoint, containerPort int32) []*apige
 
 func HTTPSCertID(cfg *apigen.HttpsConfig, hostname string) string {
 	if cfg != nil && cfg.CertSource != nil && cfg.CertSource.Secret != nil {
-		return "secret:" + strconv.Itoa(int(cfg.CertSource.Secret.SecretVersionID))
+		return "secret:" + cfg.CertSource.Secret.Secret.String()
 	}
 	return "acme:" + hostname
 }
 
 const CertBundleFileName = "certbundle.pb"
 
-func RenderCertBundle(ctx context.Context, seq int64, items []apigen.ScheduledInstanceState, certs CertSecretResolver, acmeBindings map[string]int32, ensureSecrets func(context.Context, []int32) error) *apigen.CertBundle {
-	wanted := map[string]int32{}
+func RenderCertBundle(ctx context.Context, seq int64, items []apigen.ScheduledInstanceState, certs CertSecretResolver, acmeBindings map[string]apigen.ValueRef, ensureSecrets func(context.Context, []apigen.ValueRef) error) *apigen.CertBundle {
+	wanted := map[string]apigen.ValueRef{}
 	for _, item := range items {
 		if item.Config.Value.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
@@ -458,22 +458,22 @@ func RenderCertBundle(ctx context.Context, seq int64, items []apigen.ScheduledIn
 			}
 			source := route.HttpsConfig.CertSource
 			if source != nil && source.Secret != nil {
-				if source.Secret.SecretVersionID > 0 {
-					wanted[id] = source.Secret.SecretVersionID
+				if source.Secret.Secret.Valid() {
+					wanted[id] = source.Secret.Secret
 				}
 				continue
 			}
-			if secretVersionID, ok := acmeBindings[hostname]; ok {
-				wanted[id] = secretVersionID
+			if ref, ok := acmeBindings[hostname]; ok {
+				wanted[id] = ref
 			}
 		}
 	}
 	if len(wanted) > 0 && ensureSecrets != nil {
-		ids := make([]int32, 0, len(wanted))
-		for _, id := range wanted {
-			ids = append(ids, id)
+		refs := make([]apigen.ValueRef, 0, len(wanted))
+		for _, ref := range wanted {
+			refs = append(refs, ref)
 		}
-		if err := ensureSecrets(ctx, ids); err != nil {
+		if err := ensureSecrets(ctx, refs); err != nil {
 			slog.WarnContext(ctx, "fetching netproxy cert secrets failed", "err", err)
 		}
 	}

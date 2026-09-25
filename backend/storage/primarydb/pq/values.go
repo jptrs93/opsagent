@@ -2,6 +2,7 @@ package pq
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
@@ -23,9 +24,7 @@ type SecretEvent struct {
 	SecretID         int64
 	Version          int64
 	ValueVersion     int64
-	SpaceVersion     int64
 	ValueChanged     int64
-	SpaceChanged     int64
 	Name             string
 	ValueDirectoryID int64
 	SpaceID          int64
@@ -53,11 +52,11 @@ type ConfigRow struct {
 	CreatedAt        int64
 }
 
-const secretEventColumns = `e.id,e.global_seq,e.event_time,e.created_time,e.author,e.secret_id,e.version,e.value_version,e.space_version,e.name,e.value_directory_id,e.space_id,e.event_type`
+const secretEventColumns = `e.id,e.global_seq,e.event_time,e.created_time,e.author,e.secret_id,e.version,e.value_version,e.name,e.value_directory_id,e.space_id,e.event_type`
 
 func scanSecretEvent(scan func(...any) error) (*apigen.SecretEvent, error) {
 	e := &apigen.SecretEvent{Value: apigen.Secret{Fs: &apigen.SecretFs{}}}
-	if err := scan(&e.EventID, &e.Seq, &e.EventTime, &e.CreatedTime, &e.Author, &e.SecretID, &e.Version, &e.ValueVersion, &e.SpaceVersion, &e.Value.Fs.Name, &e.Value.Fs.DirectoryID, &e.Value.SpaceID, &e.EventType); err != nil {
+	if err := scan(&e.EventID, &e.Seq, &e.EventTime, &e.CreatedTime, &e.Author, &e.SecretID, &e.Version, &e.ValueVersion, &e.Value.Fs.Name, &e.Value.Fs.DirectoryID, &e.Value.SpaceID, &e.EventType); err != nil {
 		return nil, err
 	}
 	return e, nil
@@ -91,19 +90,19 @@ func (q *Queries) GetLatestSecretEvent(ctx context.Context, secretID int64) (*ap
 
 func (q *Queries) InsertConfigEvent(ctx context.Context, e *apigen.ConfigEvent) error {
 	row := q.db.QueryRowContext(ctx, `WITH previous AS (
-  SELECT value_version, space_version FROM config_event_log
+  SELECT value_version FROM config_event_log
   WHERE config_id = ? ORDER BY version DESC LIMIT 1
 )
  INSERT INTO config_event_log (
   id, global_seq, event_time, created_time, author,
-  config_id,version,value_version, space_version,
-  name,value_directory_id,space_id,value,event_type, value_changed, space_changed
-) VALUES (NULLIF(?, 0),?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
- ? > COALESCE((SELECT value_version FROM previous),0), ? > COALESCE((SELECT space_version FROM previous),0))
+  config_id,version,value_version,
+  name,value_directory_id,space_id,value,event_type, value_changed
+) VALUES (NULLIF(?, 0),?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+ ? > COALESCE((SELECT value_version FROM previous),0))
 RETURNING id, global_seq, event_time, created_time, author,
-  config_id,version,value_version, space_version,
+  config_id,version,value_version,
   name,value_directory_id,space_id,value,event_type`,
-		e.ConfigID, e.EventID, e.Seq, e.EventTime, e.CreatedTime, e.Author, e.ConfigID, e.Version, e.ValueVersion, e.SpaceVersion, e.Value.Fs.Name, e.Value.Fs.DirectoryID, e.Value.SpaceID, e.Value.Value, e.EventType, e.ValueVersion, e.SpaceVersion)
+		e.ConfigID, e.EventID, e.Seq, e.EventTime, e.CreatedTime, e.Author, e.ConfigID, e.Version, e.ValueVersion, e.Value.Fs.Name, e.Value.Fs.DirectoryID, e.Value.SpaceID, e.Value.Value, e.EventType, e.ValueVersion)
 	written, err := scanConfigEvent(row)
 	if err != nil {
 		return err
@@ -116,13 +115,13 @@ func (q *Queries) InsertSecretEvent(ctx context.Context, e SecretEvent) (*apigen
 	row := q.db.QueryRowContext(ctx, `
 		INSERT INTO secret_event_log (
 			global_seq, event_time, created_time, author, secret_id, version,
-			value_version, space_version, value_changed, space_changed,
+			value_version, value_changed,
 			name, value_directory_id, space_id,
 			smk_version, ciphertext, nonce, event_type
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		RETURNING id,global_seq,event_time,created_time,author,secret_id,version,value_version,space_version,name,value_directory_id,space_id,event_type`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		RETURNING id,global_seq,event_time,created_time,author,secret_id,version,value_version,name,value_directory_id,space_id,event_type`,
 		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.SecretID, e.Version,
-		e.ValueVersion, e.SpaceVersion, e.ValueChanged, e.SpaceChanged,
+		e.ValueVersion, e.ValueChanged,
 		e.Name, e.ValueDirectoryID, e.SpaceID,
 		e.SmkVersion, e.Ciphertext, e.Nonce, e.EventType)
 	return scanSecretEvent(row.Scan)
@@ -136,18 +135,18 @@ func (q *Queries) InsertSecretCarryEvent(ctx context.Context, e SecretEvent) (*a
 	row := q.db.QueryRowContext(ctx, `
 		INSERT INTO secret_event_log (
 			global_seq, event_time, created_time, author, secret_id, version,
-			value_version, space_version, value_changed, space_changed,
+			value_version, value_changed,
 			name, value_directory_id, space_id,
 			smk_version, ciphertext, nonce, event_type
 		)
-		SELECT ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?,
+		SELECT ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?,
 		       p.smk_version, p.ciphertext, p.nonce, ?
 		FROM secret_event_log p
 		WHERE p.secret_id = ?
 		ORDER BY p.version DESC LIMIT 1
-		RETURNING id,global_seq,event_time,created_time,author,secret_id,version,value_version,space_version,name,value_directory_id,space_id,event_type`,
+		RETURNING id,global_seq,event_time,created_time,author,secret_id,version,value_version,name,value_directory_id,space_id,event_type`,
 		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.SecretID, e.Version,
-		e.ValueVersion, e.SpaceVersion, e.SpaceChanged,
+		e.ValueVersion,
 		e.Name, e.ValueDirectoryID, e.SpaceID, e.EventType,
 		e.SecretID)
 	return scanSecretEvent(row.Scan)
@@ -267,17 +266,26 @@ type ConfigVersionJoinedRow struct {
 	SpaceID   int64
 }
 
-func (q *Queries) GetConfigVersionByID(ctx context.Context, id int64) (ConfigVersionJoinedRow, error) {
-	var r ConfigVersionJoinedRow
-	err := q.db.QueryRowContext(ctx, `
+const configVersionJoinedSelect = `
 SELECT v.id, v.config_id, v.value_version, v.value, v.event_time, v.author, c.name, c.space_id
 FROM config_event_log v
 JOIN config_event_log c
   ON c.config_id = v.config_id
  AND c.version = (SELECT MAX(version) FROM config_event_log WHERE config_id = v.config_id)
-WHERE v.id = ? AND v.value_changed != 0`, id).
-		Scan(&r.ID, &r.ConfigID, &r.Version, &r.Value, &r.CreatedAt, &r.Author, &r.Name, &r.SpaceID)
+`
+
+func scanConfigVersionJoined(row *sql.Row) (ConfigVersionJoinedRow, error) {
+	var r ConfigVersionJoinedRow
+	err := row.Scan(&r.ID, &r.ConfigID, &r.Version, &r.Value, &r.CreatedAt, &r.Author, &r.Name, &r.SpaceID)
 	return r, err
+}
+
+func (q *Queries) GetConfigVersionByID(ctx context.Context, id int64) (ConfigVersionJoinedRow, error) {
+	return scanConfigVersionJoined(q.db.QueryRowContext(ctx, configVersionJoinedSelect+`WHERE v.id = ? AND v.value_changed != 0`, id))
+}
+
+func (q *Queries) GetConfigVersionByRef(ctx context.Context, ref apigen.ValueRef) (ConfigVersionJoinedRow, error) {
+	return scanConfigVersionJoined(q.db.QueryRowContext(ctx, configVersionJoinedSelect+`WHERE v.config_id = ? AND v.value_version = ? AND v.value_changed != 0`, ref.ID, ref.Version))
 }
 
 // SecretVersionRecordRow is one sealed value version overlaid with the
@@ -341,4 +349,9 @@ func (q *Queries) ListSecretEventsAtSeq(ctx context.Context, seq int64) ([]*apig
 // GetSecretValueEventByID resolves a pinnable content event without loading sealed bytes.
 func (q *Queries) GetSecretValueEventByID(ctx context.Context, eventID int64) (*apigen.SecretEvent, error) {
 	return scanSecretEvent(q.db.QueryRowContext(ctx, `SELECT `+secretEventColumns+` FROM secret_event_log e WHERE e.id=? AND e.value_changed != 0`, eventID).Scan)
+}
+
+// GetSecretValueEventByRef resolves a pinned value event without loading sealed bytes.
+func (q *Queries) GetSecretValueEventByRef(ctx context.Context, ref apigen.ValueRef) (*apigen.SecretEvent, error) {
+	return scanSecretEvent(q.db.QueryRowContext(ctx, `SELECT `+secretEventColumns+` FROM secret_event_log e WHERE e.secret_id=? AND e.value_version=? AND e.value_changed != 0`, ref.ID, ref.Version).Scan)
 }

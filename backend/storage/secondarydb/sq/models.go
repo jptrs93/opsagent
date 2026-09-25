@@ -16,6 +16,7 @@ type LocalKv struct {
 type LocalRuntimeInput struct {
 	Kind       int64
 	RefID      int64
+	RefVersion int64
 	Ciphertext []byte
 	Nonce      []byte
 	FetchedAt  int64

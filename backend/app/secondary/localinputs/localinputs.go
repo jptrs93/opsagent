@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/goutil/logu"
+	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
@@ -47,7 +48,7 @@ import (
 type DB interface {
 	ListLocalRuntimeInputs() []state.LocalRuntimeInput
 	UpsertLocalRuntimeInput(state.LocalRuntimeInput)
-	DeleteLocalRuntimeInput(kind, refID int64)
+	DeleteLocalRuntimeInput(kind, refID, refVersion int64)
 }
 
 // Store implements runtimeinputs.Persistence.
@@ -86,26 +87,28 @@ func Open(ctx context.Context, db DB, provider machinekey.Provider) (*Store, err
 // A row that will not open is dropped rather than failing the load: it means the
 // machine key changed, and the value is refetchable. Failing here instead would
 // wedge secondary startup on recoverable local damage.
-func (s *Store) LoadRuntimeInputs() (secrets, configs map[int32]string, err error) {
-	secrets = map[int32]string{}
-	configs = map[int32]string{}
+func (s *Store) LoadRuntimeInputs() (secrets, configs map[apigen.ValueRef]string, err error) {
+	secrets = map[apigen.ValueRef]string{}
+	configs = map[apigen.ValueRef]string{}
 	dropped := 0
 	for _, row := range s.db.ListLocalRuntimeInputs() {
-		plaintext, openErr := machinekey.Open(s.key, row.Ciphertext, row.Nonce, aad(row.Kind, row.RefID))
+		if row.Kind == state.LocalRuntimeInputKindIssuedTLS {
+			continue
+		}
+		plaintext, openErr := machinekey.Open(s.key, row.Ciphertext, row.Nonce, aad(row.Kind, row.RefID, row.RefVersion))
 		if openErr != nil {
-			s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID)
+			s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID, row.RefVersion)
 			dropped++
 			continue
 		}
+		ref := rowRef(row)
 		switch row.Kind {
 		case state.LocalRuntimeInputKindSecret:
-			secrets[int32(row.RefID)] = string(plaintext)
+			secrets[ref] = string(plaintext)
 		case state.LocalRuntimeInputKindConfig:
-			configs[int32(row.RefID)] = string(plaintext)
-		case state.LocalRuntimeInputKindIssuedTLS:
-			continue
+			configs[ref] = string(plaintext)
 		default:
-			s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID)
+			s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID, row.RefVersion)
 			dropped++
 		}
 	}
@@ -115,23 +118,24 @@ func (s *Store) LoadRuntimeInputs() (secrets, configs map[int32]string, err erro
 	return secrets, configs, nil
 }
 
-func (s *Store) StoreRuntimeInputs(secrets, configs map[int32]string) error {
+func (s *Store) StoreRuntimeInputs(secrets, configs map[apigen.ValueRef]string) error {
 	if err := s.storeKind(state.LocalRuntimeInputKindSecret, secrets); err != nil {
 		return err
 	}
 	return s.storeKind(state.LocalRuntimeInputKindConfig, configs)
 }
 
-func (s *Store) storeKind(kind int64, values map[int32]string) error {
+func (s *Store) storeKind(kind int64, values map[apigen.ValueRef]string) error {
 	now := time.Now().UnixMilli()
-	for id, value := range values {
-		ciphertext, nonce, err := machinekey.Seal(s.key, []byte(value), aad(kind, int64(id)))
+	for ref, value := range values {
+		ciphertext, nonce, err := machinekey.Seal(s.key, []byte(value), aad(kind, int64(ref.ID), int64(ref.Version)))
 		if err != nil {
-			return fmt.Errorf("sealing runtime input kind %d id %d: %w", kind, id, err)
+			return fmt.Errorf("sealing runtime input kind %d ref %s: %w", kind, ref, err)
 		}
 		s.db.UpsertLocalRuntimeInput(state.LocalRuntimeInput{
 			Kind:       kind,
-			RefID:      int64(id),
+			RefID:      int64(ref.ID),
+			RefVersion: int64(ref.Version),
 			Ciphertext: ciphertext,
 			Nonce:      nonce,
 			FetchedAt:  now,
@@ -140,24 +144,24 @@ func (s *Store) storeKind(kind int64, values map[int32]string) error {
 	return nil
 }
 
-// RetainRuntimeInputs deletes every stored value whose id is absent from the
+// RetainRuntimeInputs deletes every stored value whose ref is absent from the
 // given keep sets, and reports how many rows it removed.
-func (s *Store) RetainRuntimeInputs(secrets, configs map[int32]struct{}) (int, error) {
+func (s *Store) RetainRuntimeInputs(secrets, configs map[apigen.ValueRef]struct{}) (int, error) {
 	removed := 0
 	for _, row := range s.db.ListLocalRuntimeInputs() {
 		keep := false
 		switch row.Kind {
 		case state.LocalRuntimeInputKindSecret:
-			_, keep = secrets[int32(row.RefID)]
+			_, keep = secrets[rowRef(row)]
 		case state.LocalRuntimeInputKindConfig:
-			_, keep = configs[int32(row.RefID)]
+			_, keep = configs[rowRef(row)]
 		case state.LocalRuntimeInputKindIssuedTLS:
 			continue
 		}
 		if keep {
 			continue
 		}
-		s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID)
+		s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID, row.RefVersion)
 		removed++
 	}
 	return removed, nil
@@ -170,15 +174,15 @@ func (s *Store) LoadIssuedTLS() (map[int32]*runtimeinputs.IssuedTLSValue, error)
 		if row.Kind != state.LocalRuntimeInputKindIssuedTLS {
 			continue
 		}
-		plaintext, openErr := machinekey.Open(s.key, row.Ciphertext, row.Nonce, aad(row.Kind, row.RefID))
+		plaintext, openErr := machinekey.Open(s.key, row.Ciphertext, row.Nonce, aad(row.Kind, row.RefID, row.RefVersion))
 		if openErr != nil {
-			s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID)
+			s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID, row.RefVersion)
 			dropped++
 			continue
 		}
 		var value runtimeinputs.IssuedTLSValue
 		if err := json.Unmarshal(plaintext, &value); err != nil {
-			s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID)
+			s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID, row.RefVersion)
 			dropped++
 			continue
 		}
@@ -197,7 +201,7 @@ func (s *Store) StoreIssuedTLS(values map[int32]*runtimeinputs.IssuedTLSValue) e
 		if err != nil {
 			return fmt.Errorf("encoding issued TLS for deployment %d: %w", id, err)
 		}
-		ciphertext, nonce, err := machinekey.Seal(s.key, plaintext, aad(state.LocalRuntimeInputKindIssuedTLS, int64(id)))
+		ciphertext, nonce, err := machinekey.Seal(s.key, plaintext, aad(state.LocalRuntimeInputKindIssuedTLS, int64(id), 0))
 		if err != nil {
 			return fmt.Errorf("sealing issued TLS for deployment %d: %w", id, err)
 		}
@@ -221,14 +225,18 @@ func (s *Store) RetainIssuedTLS(keep map[int32]struct{}) (int, error) {
 		if _, ok := keep[int32(row.RefID)]; ok {
 			continue
 		}
-		s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID)
+		s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID, row.RefVersion)
 		removed++
 	}
 	return removed, nil
 }
 
-// aad binds a row's kind and id into its tag, so a ciphertext cannot be moved to
-// another id or reinterpreted as the other kind.
-func aad(kind, refID int64) []byte {
-	return []byte("opendeploy-local-runtime-input:" + strconv.FormatInt(kind, 10) + ":" + strconv.FormatInt(refID, 10))
+func rowRef(row state.LocalRuntimeInput) apigen.ValueRef {
+	return apigen.ValueRef{ID: int32(row.RefID), Version: int32(row.RefVersion)}
+}
+
+// aad binds a row's kind, id, and version into its tag, so a ciphertext cannot
+// be moved to another value or reinterpreted as another kind.
+func aad(kind, refID, refVersion int64) []byte {
+	return []byte("opendeploy-local-runtime-input:" + strconv.FormatInt(kind, 10) + ":" + strconv.FormatInt(refID, 10) + ":" + strconv.FormatInt(refVersion, 10))
 }

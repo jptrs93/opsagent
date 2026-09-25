@@ -135,8 +135,8 @@ export function deploymentToForm(cfg) {
         containerReadinessTimeoutSeconds: container.readinessSignal?.timeoutSeconds || DEFAULT_READINESS_TIMEOUT_SECONDS,
         envVars: envVarsToFormRows(runtime.envVars),
         assetMounts: (runtime.assetMounts || []).map(m => {
-            const row = {id: nextAssetMountID++, assetVersionId: m.assetVersionId || 0, path: m.containerPath || '', executable: m.permission === FILE_PERMISSION_READ_EXECUTE};
-            return {...row, originalAssetVersionId: row.assetVersionId, originalPath: row.path, originalExecutable: row.executable};
+            const row = {id: nextAssetMountID++, assetId: Number(m.asset?.id || 0), version: Number(m.asset?.version || 0), path: m.containerPath || '', executable: m.permission === FILE_PERMISSION_READ_EXECUTE};
+            return {...row, originalAssetId: row.assetId, originalVersion: row.version, originalPath: row.path, originalExecutable: row.executable};
         }),
         volumeMounts: [
             ...(runtime.crossDeploymentMounts || []).map(m => crossDeploymentMountToFormRow(m)),
@@ -586,7 +586,7 @@ export function commandPane(form) {
 
 function assetMountsSection(form, opts = {}) {
     const rows = () => form.assetMounts.val || [];
-    const validRows = () => rows().filter(m => m && m.assetVersionId && m.path);
+    const validRows = () => rows().filter(m => m && m.assetId && m.version && m.path);
     return div(
         {class: "flex items-center justify-between gap-3"},
         span({class: "text-xs text-gray-400"}, () => {
@@ -598,7 +598,7 @@ function assetMountsSection(form, opts = {}) {
             class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
             onclick: () => {
                 if (rows().length === 0) {
-                    form.assetMounts.val = [...rows(), {id: nextAssetMountID++, assetVersionId: 0, path: ''}];
+                    form.assetMounts.val = [...rows(), {id: nextAssetMountID++, assetId: 0, version: 0, path: ''}];
                 }
                 form.assetMountsPaneOpen.val = !form.assetMountsPaneOpen.val;
                 if (form.assetMountsPaneOpen.val) closeRuntimePanes(form, 'assets');
@@ -1134,14 +1134,18 @@ function defaultVolumeCard(form) {
     );
 }
 
+function assetRefKey(assetId, version) {
+    const id = Number(assetId || 0);
+    const v = Number(version || 0);
+    return id && v ? `${id}:${v}` : '';
+}
+
 function assetOptionValue(option) {
-    const id = Number(option?.assetVersionId || 0);
-    return id ? String(id) : '';
+    return assetRefKey(option?.assetId, option?.version);
 }
 
 function rowAssetOptionValue(row) {
-    const id = Number(row?.assetVersionId || 0);
-    return id ? String(id) : '';
+    return assetRefKey(row?.assetId, row?.version);
 }
 
 function assetOptionLabel(option) {
@@ -1151,7 +1155,7 @@ function assetOptionLabel(option) {
 }
 
 function assetOptionsForRow(assets, row, spaceId, spaces) {
-    return versionedAssetOptions(assets, row?.assetVersionId, spaceId, spaces);
+    return versionedAssetOptions(assets, {id: Number(row?.assetId || 0), version: Number(row?.version || 0)}, spaceId, spaces);
 }
 
 function assetPreviewButton(assetValue, onPreview, positionClass = 'right-1') {
@@ -1181,14 +1185,12 @@ function latestAssetVersionForKey(assets, key) {
     return 0;
 }
 
-// Options carry both ids: assetVersionId is what the spec pins, assetVersionId
-// of the latest published version for normal options; assetId is the stable
-// identity the editor and preview need.
+// An option's assetId and version form the ValueRef the spec pins; normal
+// options carry the latest published version.
 function assetOptionFromMeta(meta, spaces) {
     const latest = meta.contentVersions?.[0];
     return {
         assetId: Number(meta.id || 0),
-        assetVersionId: Number(latest?.id || 0),
         key: meta.key || '',
         version: Number(latest?.version || 0),
         spaceId: Number(meta.spaceId || 0),
@@ -1196,22 +1198,20 @@ function assetOptionFromMeta(meta, spaces) {
     };
 }
 
-function versionedAssetOptions(assets, selectedID, spaceId, spaces) {
+function versionedAssetOptions(assets, selected, spaceId, spaces) {
     const options = localValueRefs(assets, spaceId)
-        .filter(meta => meta && meta.contentVersions?.[0]?.id)
+        .filter(meta => meta && meta.contentVersions?.[0]?.version)
         .map(meta => assetOptionFromMeta(meta, spaces));
-    const sel = Number(selectedID || 0);
-    if (sel && !options.some(option => option.assetVersionId === sel)) {
+    const selID = Number(selected?.id || 0);
+    const selVersion = Number(selected?.version || 0);
+    if (selID && selVersion && !options.some(option => option.assetId === selID && option.version === selVersion)) {
         // A pinned version that is no asset's latest (or one outside the local
-        // scope). The owning asset's meta lists every published version, so
-        // the label keeps the key and the real version number.
-        const owner = (assets || []).find(meta => (meta?.contentVersions || []).some(ref => Number(ref?.id || 0) === sel));
-        const ref = (owner?.contentVersions || []).find(ref => Number(ref?.id || 0) === sel);
+        // scope). The owning asset's meta keeps the label's key.
+        const owner = (assets || []).find(meta => Number(meta?.id || 0) === selID);
         options.push({
-            assetId: Number(owner?.id || 0),
-            assetVersionId: sel,
-            key: owner?.key || `version #${sel}`,
-            version: Number(ref?.version || 0),
+            assetId: selID,
+            key: owner?.key || `asset #${selID}`,
+            version: selVersion,
             spaceId: Number(owner?.spaceId || 0),
             spaceName: owner ? spaceNameForID(spaces, Number(owner.spaceId || 0)) : '',
             selectedOnly: true,
@@ -1227,7 +1227,7 @@ export function assetMountsPane(form, opts = {}) {
     const spaces = () => stateValue(opts.spaces) || [];
     const enableAssetEditor = Boolean(opts.enableAssetEditor);
     const addMount = () => {
-        const row = {id: nextAssetMountID++, assetVersionId: 0, path: '', executable: false};
+        const row = {id: nextAssetMountID++, assetId: 0, version: 0, path: '', executable: false};
         form.assetMounts.val = [...(form.assetMounts.val || []), row];
         return row;
     };
@@ -1242,7 +1242,8 @@ export function assetMountsPane(form, opts = {}) {
     };
     const discardMountChanges = (row) => {
         updateMount(row, {
-            assetVersionId: row.originalAssetVersionId || 0,
+            assetId: row.originalAssetId || 0,
+            version: row.originalVersion || 0,
             path: row.originalPath || '',
             executable: Boolean(row.originalExecutable),
         });
@@ -1252,7 +1253,7 @@ export function assetMountsPane(form, opts = {}) {
     };
     const onAssetSelect = (row, value) => {
         const match = assetOptionsForRow(assets(), row, form.spaceId.val, spaces()).find(a => assetOptionValue(a) === value);
-        updateMount(row, {assetVersionId: match?.assetVersionId || 0});
+        updateMount(row, {assetId: match?.assetId || 0, version: match?.version || 0});
     };
 
     const rows = () => form.assetMounts.val || [];
@@ -1392,7 +1393,7 @@ export function assetMountEditorOverlay(form, target, opts = {}) {
     const onSaved = async (saved) => {
         if (opts.onSaved) await opts.onSaved(saved);
         form.assetMounts.val = (form.assetMounts.val || []).map(m => m.id === target.mountID
-            ? {...m, assetVersionId: saved.eventId}
+            ? {...m, assetId: Number(saved.assetId || 0), version: Number(saved.valueVersion || 0)}
             : m);
         close();
     };
@@ -1418,8 +1419,9 @@ export function assetMountEditorOverlay(form, target, opts = {}) {
 }
 
 function savedAssetMountEdited(row) {
-    if (row.originalAssetVersionId === undefined) return false;
-    return (row.assetVersionId || 0) !== (row.originalAssetVersionId || 0)
+    if (row.originalAssetId === undefined) return false;
+    return (row.assetId || 0) !== (row.originalAssetId || 0)
+        || (row.version || 0) !== (row.originalVersion || 0)
         || (row.path || '') !== (row.originalPath || '')
         || Boolean(row.executable) !== Boolean(row.originalExecutable);
 }
@@ -1647,9 +1649,9 @@ export function envVarsPane(form, opts = {}) {
         const groups = groupByPrefix.val ? groupEnvRows(rows) : [{prefix: null, rows}];
         const signature = [
             JSON.stringify([toggles, [...collapsed].sort(), groups.map(group => [group.prefix, group.rows.map(row =>
-                `${row.id}:${row.type || 'value'}:${toggles && isBooleanRow(row) ? 1 : 0}:${row.addressDeploymentId || 0}:${row.addressSpaceId || 0}:${row.asset || ''}:${row.assetVersionId || 0}:${row.version || 0}`)])]),
-            secretRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
-            configRefs().map(ref => `${ref.id}:${ref.name}`).join('|'),
+                `${row.id}:${row.type || 'value'}:${toggles && isBooleanRow(row) ? 1 : 0}:${row.addressDeploymentId || 0}:${row.addressSpaceId || 0}:${row.secretId || 0}:${row.configId || 0}:${row.asset || ''}:${row.assetId || 0}:${row.version || 0}`)])]),
+            secretRefs().map(ref => `${ref.id}:${ref.stableId}:${ref.version}:${ref.name}`).join('|'),
+            configRefs().map(ref => `${ref.id}:${ref.stableId}:${ref.version}:${ref.name}`).join('|'),
             `${form.nodeId.val}:${deployments().map(item => `${item.config?.deploymentId || 0}:${placementNodeId(item.config)}:${item.config?.value?.spaceId ?? 0}:${item.config?.value?.name || ''}:${item.config?.value?.spec?.networking?.mode || 0}:${deploymentDeleted(item.config) ? 1 : 0}`).join('|')}`,
             assets().map(asset => `${asset.id}:${asset.key}:${asset.version}`).join('|'),
             `${form.spaceId.val}:${spaces().map(space => `${space.id}:${space.name || ''}`).join('|')}`,
@@ -1811,7 +1813,7 @@ function envValueInput(form, row, catalogs, toggles) {
 }
 
 function updateEnvAssetRow(form, row, option) {
-    updateEnvRow(form, row.id, {asset: option?.key || '', assetVersionId: option?.assetVersionId || 0, version: option?.version || 0});
+    updateEnvRow(form, row.id, {asset: option?.key || '', assetId: option?.assetId || 0, version: option?.version || 0});
 }
 
 // localValueRefs applies reference locality: a deployment may pin secrets,
@@ -1830,8 +1832,7 @@ function spaceNameForID(spaces, spaceId) {
 
 function envReferenceAutocomplete(form, row, catalogs) {
     const isSecret = row.type === 'secret';
-    const selectedID = isSecret ? Number(row.secretId || 0) : Number(row.configId || 0);
-    const selectedKey = van.state(selectedID || '');
+    const selectedKey = van.state(valueRefKey(isSecret ? row.secretId : row.configId, row.version));
     const allRefs = () => stateValue(isSecret ? catalogs.secretRefs : catalogs.configRefs);
     const options = () => versionedRefOptions(localValueRefs(allRefs(), form.spaceId.val), selectedKey.val, allRefs());
     return referencePicker({
@@ -1841,12 +1842,13 @@ function envReferenceAutocomplete(form, row, catalogs) {
         placeholder: isSecret ? "Search secrets" : "Search configs",
         noMatchesLabel: `No matching ${isSecret ? 'secrets' : 'configs'}`,
         emptyLabel: `No ${isSecret ? 'secrets' : 'configs'} available`,
+        getKey: catalogRefKey,
         getLabel: ref => `${spaceNameForID(stateValue(catalogs.spaces), ref.spaceId)} / ${ref.name} v${ref.version || 0}`,
         onSelect: ref => {
-            selectedKey.val = ref.id;
+            selectedKey.val = catalogRefKey(ref);
             updateEnvRow(form, row.id, isSecret
-                ? {secretId: ref.id}
-                : {configId: ref.id});
+                ? {secretId: Number(ref.stableId), version: Number(ref.version || 0)}
+                : {configId: Number(ref.stableId), version: Number(ref.version || 0)});
         },
     });
 }
@@ -1894,15 +1896,23 @@ function addressOptionLabel(item, spaces) {
     return `${spaceNameForID(spaces, config.value?.spaceId ?? 0)} / ${config.value?.name || 'deployment'} (#${config.deploymentId || 0})`;
 }
 
-function versionedRefOptions(refs, selectedID, allRefs = refs) {
+function valueRefKey(id, version) {
+    return Number(id || 0) && Number(version || 0) ? `${Number(id)}:${Number(version)}` : '';
+}
+
+function catalogRefKey(ref) {
+    return valueRefKey(ref?.stableId, ref?.version);
+}
+
+function versionedRefOptions(refs, selectedKey, allRefs = refs) {
     // Names are only unique per space, so latest-version collapsing must key
     // on both — a global item and a same-named own-space item are distinct
     // options. The selected fallback searches allRefs so a legacy pin outside
     // the local scope still labels correctly.
     const latestByName = new Map();
-    const byID = new Map();
+    const byKey = new Map();
     for (const ref of allRefs || []) {
-        if (ref?.id) byID.set(Number(ref.id), ref);
+        if (catalogRefKey(ref)) byKey.set(catalogRefKey(ref), ref);
     }
     for (const ref of refs || []) {
         if (!ref || !ref.id) continue;
@@ -1913,7 +1923,7 @@ function versionedRefOptions(refs, selectedID, allRefs = refs) {
         }
     }
     const options = Array.from(latestByName.values());
-    const selected = byID.get(Number(selectedID || 0));
+    const selected = byKey.get(selectedKey || '');
     if (selected && !options.some(ref => Number(ref.id) === Number(selected.id))) {
         options.push(selected);
     }
@@ -1923,7 +1933,7 @@ function versionedRefOptions(refs, selectedID, allRefs = refs) {
 }
 
 function newEnvRow(values = {}) {
-    return {id: nextEnvID++, key: '', type: 'value', value: '', secretId: 0, configId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetVersionId: 0, version: 0, ...values};
+    return {id: nextEnvID++, key: '', type: 'value', value: '', secretId: 0, configId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetId: 0, version: 0, ...values};
 }
 
 function updateEnvRow(form, id, patch) {
@@ -1931,11 +1941,11 @@ function updateEnvRow(form, id, patch) {
 }
 
 function envTypePatch(row, type) {
-    if (type === 'secret') return {type, value: '', configId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetVersionId: 0, version: 0, refSearch: ''};
-    if (type === 'config') return {type, value: '', secretId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetVersionId: 0, version: 0, refSearch: ''};
-    if (type === 'address') return {type, value: '', secretId: 0, configId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetVersionId: 0, version: 0, refSearch: ''};
-    if (type === 'asset') return {type, value: '', secretId: 0, configId: 0, addressDeploymentId: 0, addressSpaceId: 0, refSearch: ''};
-    return {type: 'value', secretId: 0, configId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetVersionId: 0, version: 0, refSearch: '', value: row.value || ''};
+    if (type === 'secret') return {type, value: '', secretId: 0, configId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetId: 0, version: 0, refSearch: ''};
+    if (type === 'config') return {type, value: '', secretId: 0, configId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetId: 0, version: 0, refSearch: ''};
+    if (type === 'address') return {type, value: '', secretId: 0, configId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetId: 0, version: 0, refSearch: ''};
+    if (type === 'asset') return {type, value: '', secretId: 0, configId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetId: 0, version: 0, refSearch: ''};
+    return {type: 'value', secretId: 0, configId: 0, addressDeploymentId: 0, addressSpaceId: 0, asset: '', assetId: 0, version: 0, refSearch: '', value: row.value || ''};
 }
 
 function envVarCount(arr) {
@@ -1947,10 +1957,10 @@ function formEnvVars(form) {
         .map(v => {
             const key = (v.key || '').trim();
             if (!key) return null;
-            if (v.type === 'secret') return Number(v.secretId || 0) ? [key, {secretVersionId: Number(v.secretId)}] : null;
-            if (v.type === 'config') return Number(v.configId || 0) ? [key, {configVersionId: Number(v.configId)}] : null;
+            if (v.type === 'secret') return valueRefKey(v.secretId, v.version) ? [key, {secret: {id: Number(v.secretId), version: Number(v.version)}}] : null;
+            if (v.type === 'config') return valueRefKey(v.configId, v.version) ? [key, {config: {id: Number(v.configId), version: Number(v.version)}}] : null;
             if (v.type === 'address') return Number(v.addressDeploymentId || 0) ? [key, {addressDeploymentId: Number(v.addressDeploymentId), addressSpaceId: Number(v.addressSpaceId || 0)}] : null;
-            if (v.type === 'asset') return Number(v.assetVersionId || 0) ? [key, {asset: (v.asset || '').trim(), assetVersionId: Number(v.assetVersionId || 0)}] : null;
+            if (v.type === 'asset') return valueRefKey(v.assetId, v.version) ? [key, {asset: (v.asset || '').trim(), assetRef: {id: Number(v.assetId), version: Number(v.version)}}] : null;
             return [key, {value: v.value || ''}];
         })
         .filter(Boolean));
@@ -2025,12 +2035,13 @@ function invalidCommandReason(form) {
 
 function formAssetMounts(form) {
     return (form.assetMounts.val || [])
+        .filter(m => valueRefKey(m.assetId, m.version))
         .map(m => ({
-            assetVersionId: Number(m.assetVersionId || 0),
+            asset: {id: Number(m.assetId), version: Number(m.version)},
             containerPath: (m.path || '').trim(),
             permission: m.executable ? FILE_PERMISSION_READ_EXECUTE : FILE_PERMISSION_READ_ONLY,
         }))
-        .filter(m => m.assetVersionId && m.containerPath);
+        .filter(m => m.containerPath);
 }
 
 function formVolumeMounts(form) {
@@ -2080,9 +2091,8 @@ function hasInvalidAssetMounts(form) {
 
 function invalidAssetMountsReason(form) {
     for (const m of form.assetMounts.val || []) {
-        const assetVersionId = Number(m.assetVersionId || 0);
         const path = (m.path || '').trim();
-        if (!assetVersionId) continue;
+        if (!valueRefKey(m.assetId, m.version)) continue;
         if (!validAbsolutePath(path)) return 'Asset mount path must be an absolute file path without trailing slash or dot segments.';
     }
     return '';
@@ -2137,11 +2147,11 @@ function invalidEnvVarsReason(form) {
         if (seen.has(key)) return `Environment variable "${key}" is duplicated.`;
         seen.add(key);
         if (row.type === 'secret') {
-            if (!Number(row.secretId || 0)) return `Select a secret for environment variable "${key}".`;
+            if (!valueRefKey(row.secretId, row.version)) return `Select a secret for environment variable "${key}".`;
             continue;
         }
         if (row.type === 'config') {
-            if (!Number(row.configId || 0)) return `Select a config for environment variable "${key}".`;
+            if (!valueRefKey(row.configId, row.version)) return `Select a config for environment variable "${key}".`;
             continue;
         }
         if (row.type === 'asset') {
@@ -2163,15 +2173,11 @@ function envVarsToFormRows(envVars) {
         .map(([key, value], index) => ({key, value, index}))
         .sort((a, b) => a.key.localeCompare(b.key) || a.index - b.index)
         .map(({key, value}) => {
-        const secretId = Number(value?.secretVersionId || 0);
-        const configId = Number(value?.configVersionId || 0);
-        const assetVersionId = Number(value?.assetVersionId || 0);
         const addressDeploymentId = Number(value?.addressDeploymentId || 0);
         const addressSpaceId = Number(value?.addressSpaceId || 0);
-        const version = Number(value?.version || 0);
-        if (secretId) return newEnvRow({key, type: 'secret', secretId});
-        if (configId) return newEnvRow({key, type: 'config', configId});
-        if (assetVersionId) return newEnvRow({key, type: 'asset', asset: value?.asset || '', assetVersionId, version});
+        if (value?.secret) return newEnvRow({key, type: 'secret', secretId: Number(value.secret.id || 0), version: Number(value.secret.version || 0)});
+        if (value?.config) return newEnvRow({key, type: 'config', configId: Number(value.config.id || 0), version: Number(value.config.version || 0)});
+        if (value?.assetRef) return newEnvRow({key, type: 'asset', asset: value?.asset || '', assetId: Number(value.assetRef.id || 0), version: Number(value.assetRef.version || 0)});
         if (addressDeploymentId) return newEnvRow({key, type: 'address', addressDeploymentId, addressSpaceId});
         return newEnvRow({key, type: 'value', value: value?.value || ''});
     });

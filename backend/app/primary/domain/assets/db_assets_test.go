@@ -79,9 +79,12 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	if joined, ok := GetAssetVersionJoined(store.Queries(), v2.ID); !ok || string(joined.Store.InlineBlob) != "events {}\nhttp {}\n" {
 		t.Fatalf("latest blob = %q ok=%v", joined.Store.InlineBlob, ok)
 	}
-	ref, ok := GetAssetVersionRef(store.Queries(), v2.ID)
-	if !ok || ref.Key != "nginx.conf" || ref.AssetID != a1.AssetID || ref.SpaceID != nodes.DefaultSpaceID || ref.VersionID != v2.ID {
-		t.Fatalf("version ref by id = %+v ok=%v", ref, ok)
+	ref, ok := GetAssetVersionRef(store.Queries(), v2.Ref)
+	if !ok || ref.Key != "nginx.conf" || ref.Ref != (apigen.ValueRef{ID: a1.AssetID, Version: 2}) || ref.SpaceID != nodes.DefaultSpaceID {
+		t.Fatalf("version ref by pair = %+v ok=%v", ref, ok)
+	}
+	if joined, ok := GetAssetValueJoined(store.Queries(), v1.Ref); !ok || joined.Version.ID != int64(v1.ID) || string(joined.Store.InlineBlob) != "events {}\n" {
+		t.Fatalf("old value by pair = %+v ok=%v", joined, ok)
 	}
 
 	// The old version is immutable: still listed and its content still resolves.
@@ -108,10 +111,6 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 		!statetest.ValueVersions(store, asset)[0].CreatedAt.Equal(v2.CreatedAt) ||
 		statetest.ValueVersions(store, asset)[1].ID != v1.ID || statetest.ValueVersions(store, asset)[1].Version != 1 {
 		t.Fatalf("asset content versions = %+v", statetest.ValueVersions(store, asset))
-	}
-	allRows := AssetVersionIDs(store.Queries(), a1.AssetID)
-	if len(allRows) != 2 || allRows[0] != v1.ID || allRows[1] != v2.ID {
-		t.Fatalf("all asset versions = %+v", allRows)
 	}
 
 	DeleteAsset(store, a1.AssetID, nil)
@@ -188,8 +187,8 @@ func TestRenameAssetPreservesVersions(t *testing.T) {
 			!got.CreatedAt.Equal(want[i].CreatedAt) {
 			t.Fatalf("renamed version %d = %+v, want original metadata %+v", i, got, want[i])
 		}
-		ref, ok := GetAssetVersionRef(store.Queries(), got.ID)
-		if !ok || ref.Key != "new-name" || ref.AssetID != renamed.AssetID || ref.SpaceID != nodes.DefaultSpaceID {
+		ref, ok := GetAssetVersionRef(store.Queries(), got.Ref)
+		if !ok || ref.Key != "new-name" || ref.Ref.ID != renamed.AssetID || ref.SpaceID != nodes.DefaultSpaceID {
 			t.Fatalf("version ref %d = %+v ok=%v, want the new key", i, ref, ok)
 		}
 	}
@@ -268,7 +267,7 @@ func TestSoftDeleteHidesRowAndFreesName(t *testing.T) {
 	if replacement.AssetID == v.AssetID {
 		t.Fatal("recreated asset reused the deleted identity")
 	}
-	if versions := AssetVersionIDs(store.Queries(), v.AssetID); len(versions) != 1 {
-		t.Fatalf("deleted asset version rows = %d, want 1 retained", len(versions))
+	if _, ok := GetAssetValueJoined(store.Queries(), apigen.ValueRef{ID: v.AssetID, Version: 1}); !ok {
+		t.Fatal("deleted asset value row was not retained")
 	}
 }

@@ -38,7 +38,7 @@ func (h *Handler) localCAAvailable() bool {
 	settings := h.SystemConfig.Snapshot().Settings
 	if !h.SystemConfig.MustLoadBoolSetting(settings.HttpsWeb.Enabled) ||
 		!h.SystemConfig.MustLoadBoolSetting(settings.HttpsWeb.TlsSelfManaged) ||
-		settings.HttpsWeb.TlsCertPem.VersionID != 0 {
+		settings.HttpsWeb.TlsCertPem.Ref.Valid() {
 		return false
 	}
 	_, err := pki.LoadWebUILocalCA(h.Secrets)

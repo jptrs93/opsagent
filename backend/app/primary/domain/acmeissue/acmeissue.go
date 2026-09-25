@@ -133,7 +133,7 @@ func (m *Manager) reconcile(ctx context.Context, configs []apigen.DeploymentEven
 	}
 	bindings := acmestate.Bindings(m.Holder.Get())
 	if bindings == nil {
-		bindings = map[string]int32{}
+		bindings = map[string]apigen.ValueRef{}
 	}
 	for hostname := range bindings {
 		if !claimed[hostname] {
@@ -141,8 +141,8 @@ func (m *Manager) reconcile(ctx context.Context, configs []apigen.DeploymentEven
 		}
 	}
 	for _, hostname := range hostnames {
-		if id, ok := m.currentCert(hostname); ok {
-			bindings[hostname] = id
+		if ref, ok := m.currentCert(hostname); ok {
+			bindings[hostname] = ref
 			continue
 		}
 		if err := m.issue(ctx, hostname); err != nil {
@@ -153,41 +153,41 @@ func (m *Manager) reconcile(ctx context.Context, configs []apigen.DeploymentEven
 			continue
 		}
 		if meta, ok := m.Secrets.LatestMetaByName(CertSecretName(hostname)); ok {
-			bindings[hostname] = meta.ID
-			slog.InfoContext(ctx, fmt.Sprintf("ACME certificate issued for %s secret_version_id=%d", hostname, meta.ID))
+			bindings[hostname] = meta.Ref()
+			slog.InfoContext(ctx, fmt.Sprintf("ACME certificate issued for %s secret=%s", hostname, meta.Ref()))
 		}
 	}
 	clear(m.challenges)
 	m.publish(bindings)
 }
 
-func (m *Manager) currentCert(hostname string) (int32, bool) {
+func (m *Manager) currentCert(hostname string) (apigen.ValueRef, bool) {
 	meta, ok := m.Secrets.LatestMetaByName(CertSecretName(hostname))
 	if !ok {
-		return 0, false
+		return apigen.ValueRef{}, false
 	}
-	value, err := m.Secrets.RevealByID(meta.ID)
+	value, err := m.Secrets.RevealByRef(meta.Ref())
 	if err != nil {
-		return 0, false
+		return apigen.ValueRef{}, false
 	}
 	pair, err := tls.X509KeyPair(value, value)
 	if err != nil {
-		return 0, false
+		return apigen.ValueRef{}, false
 	}
 	leaf, err := x509.ParseCertificate(pair.Certificate[0])
 	if err != nil {
-		return 0, false
+		return apigen.ValueRef{}, false
 	}
 	if err := leaf.VerifyHostname(hostname); err != nil {
-		return 0, false
+		return apigen.ValueRef{}, false
 	}
 	if time.Until(leaf.NotAfter) < renewBefore {
-		return 0, false
+		return apigen.ValueRef{}, false
 	}
-	return meta.ID, true
+	return meta.Ref(), true
 }
 
-func (m *Manager) publish(bindings map[string]int32) {
+func (m *Manager) publish(bindings map[string]apigen.ValueRef) {
 	state := &apigen.AcmeState{Seq: time.Now().UnixNano()}
 	hostnames := make([]string, 0, len(bindings))
 	for hostname := range bindings {
@@ -195,7 +195,7 @@ func (m *Manager) publish(bindings map[string]int32) {
 	}
 	sort.Strings(hostnames)
 	for _, hostname := range hostnames {
-		state.CertBindings = append(state.CertBindings, &apigen.AcmeCertBinding{Hostname: hostname, SecretVersionID: bindings[hostname]})
+		state.CertBindings = append(state.CertBindings, &apigen.AcmeCertBinding{Hostname: hostname, Secret: bindings[hostname]})
 	}
 	tokens := make([]string, 0, len(m.challenges))
 	for token := range m.challenges {

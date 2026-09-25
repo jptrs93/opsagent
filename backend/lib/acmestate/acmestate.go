@@ -63,16 +63,16 @@ func (h *Holder) SnapshotAndSubscribe() (*apigen.AcmeState, <-chan *apigen.AcmeS
 	}
 }
 
-func Bindings(state *apigen.AcmeState) map[string]int32 {
+func Bindings(state *apigen.AcmeState) map[string]apigen.ValueRef {
 	if state == nil {
 		return nil
 	}
-	out := make(map[string]int32, len(state.CertBindings))
+	out := make(map[string]apigen.ValueRef, len(state.CertBindings))
 	for _, binding := range state.CertBindings {
-		if binding == nil || binding.Hostname == "" || binding.SecretVersionID <= 0 {
+		if binding == nil || binding.Hostname == "" || !binding.Secret.Valid() {
 			continue
 		}
-		out[binding.Hostname] = binding.SecretVersionID
+		out[binding.Hostname] = binding.Secret
 	}
 	return out
 }

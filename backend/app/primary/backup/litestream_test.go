@@ -18,12 +18,12 @@ type testConfigLoader struct{}
 func (testConfigLoader) MustLoadStringSetting(v apigen.StringSetting) string { return v.Value }
 func (testConfigLoader) MustLoadBoolSetting(v apigen.BoolSetting) bool       { return v.Value }
 
-func (s testSecretStore) MetaByID(id int32) (secrets.Meta, bool) {
-	updated, ok := s.updated[id]
-	return secrets.Meta{ID: id, CreatedAt: updated}, ok
+func (s testSecretStore) MetaByRef(ref apigen.ValueRef) (secrets.Meta, bool) {
+	updated, ok := s.updated[ref.ID]
+	return secrets.Meta{SecretID: ref.ID, Version: ref.Version, CreatedAt: updated}, ok
 }
 
-func (s testSecretStore) RevealByID(id int32) ([]byte, error) {
+func (s testSecretStore) RevealByRef(ref apigen.ValueRef) ([]byte, error) {
 	return []byte("secret"), nil
 }
 
@@ -38,14 +38,14 @@ func TestBackupConfigFilterOnlyAllowsBackupChanges(t *testing.T) {
 	initial.HttpWeb.Listen = apigen.StringSetting{Value: ":8080"}
 	initial.Backup.Enabled = apigen.BoolSetting{Value: true}
 	initial.Backup.S3AccessKeyID = apigen.StringSetting{Value: "access-key"}
-	initial.Backup.S3SecretAccessKey = apigen.SecretRef{VersionID: 10}
+	initial.Backup.S3SecretAccessKey = apigen.SecretRef{Ref: apigen.ValueRef{ID: 10, Version: 1}}
 	initial.Backup.S3Bucket = apigen.StringSetting{Value: "bucket"}
 	initial.Backup.S3Path = apigen.StringSetting{Value: "path"}
 	initial.Backup.S3Region = apigen.StringSetting{Value: "region"}
 	initial.Backup.S3Endpoint = apigen.StringSetting{Value: "endpoint"}
 	initial.LargeAssets.UseSeparateS3 = apigen.BoolSetting{Value: false}
 	initial.LargeAssets.S3AccessKeyID = apigen.StringSetting{Value: "unrelated"}
-	initial.LargeAssets.S3SecretAccessKey = apigen.SecretRef{VersionID: 11}
+	initial.LargeAssets.S3SecretAccessKey = apigen.SecretRef{Ref: apigen.ValueRef{ID: 11, Version: 1}}
 	filter.SetInitial(configWithSettings(initial))
 
 	unrelatedValue := *initial

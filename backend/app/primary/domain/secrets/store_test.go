@@ -41,11 +41,11 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	create := func(name string, secretVersionID int32) *apigen.DeploymentEvent {
-		return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, node.ID, statetest.EnvRefSpec(nil, map[string]int32{"TOKEN": secretVersionID}))
+	create := func(name string, secret apigen.ValueRef) *apigen.DeploymentEvent {
+		return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, node.ID, statetest.EnvRefSpec(nil, map[string]apigen.ValueRef{"TOKEN": secret}))
 	}
-	firstDeployment := create("first", first.ID)
-	secondDeployment := create("second", second.ID)
+	firstDeployment := create("first", first.ref())
+	secondDeployment := create("second", second.ref())
 
 	third, updatedIDs, err := appendVersionWithDeploymentUpdates(store, first.SecretID, 0, testSealFunc(3), true, []storage.DeploymentSpecVersion{
 		{ID: firstDeployment.DeploymentID, SpecVersion: firstDeployment.SpecVersion},
@@ -57,11 +57,11 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 	if third.Version != 3 || len(updatedIDs) != 2 {
 		t.Fatalf("secret = %+v, updated deployments = %v", third, updatedIDs)
 	}
-	if got := statetest.DeploymentEnvRefID(t, erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(firstDeployment.DeploymentID))), "TOKEN", true); got != third.ID {
-		t.Fatalf("first deployment secret ref = %d, want %d", got, third.ID)
+	if got := statetest.DeploymentEnvRef(t, erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(firstDeployment.DeploymentID))), "TOKEN", true); got != third.ref() {
+		t.Fatalf("first deployment secret ref = %v, want %v", got, third.ref())
 	}
-	if got := statetest.DeploymentEnvRefID(t, erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(secondDeployment.DeploymentID))), "TOKEN", true); got != third.ID {
-		t.Fatalf("second deployment secret ref = %d, want %d", got, third.ID)
+	if got := statetest.DeploymentEnvRef(t, erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(secondDeployment.DeploymentID))), "TOKEN", true); got != third.ref() {
+		t.Fatalf("second deployment secret ref = %v, want %v", got, third.ref())
 	}
 
 	_, _, err = appendVersionWithDeploymentUpdates(store, first.SecretID, 0, testSealFunc(4), true, []storage.DeploymentSpecVersion{{
@@ -84,7 +84,7 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	create := func(name string) *apigen.DeploymentEvent {
-		return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, node.ID, statetest.EnvRefSpec(nil, map[string]int32{"POSTGRES_PASSWORD": first.ID}))
+		return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, node.ID, statetest.EnvRefSpec(nil, map[string]apigen.ValueRef{"POSTGRES_PASSWORD": first.ref()}))
 	}
 	original := create("original")
 	live := create("live")
@@ -99,15 +99,15 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	if len(updatedIDs) != 1 || updatedIDs[0] != live.DeploymentID {
 		t.Fatalf("updated deployments = %v, want only %d", updatedIDs, live.DeploymentID)
 	}
-	if got := statetest.DeploymentEnvRefID(t, erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(live.DeploymentID))), "POSTGRES_PASSWORD", true); got != second.ID {
-		t.Fatalf("live deployment secret ref = %d, want %d", got, second.ID)
+	if got := statetest.DeploymentEnvRef(t, erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(live.DeploymentID))), "POSTGRES_PASSWORD", true); got != second.ref() {
+		t.Fatalf("live deployment secret ref = %v, want %v", got, second.ref())
 	}
 	tombstone := erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(original.DeploymentID)))
 	if tombstone == nil || !tombstone.Deleted() {
 		t.Fatal("deleted deployment still live")
 	}
-	if got := statetest.DeploymentEnvRefID(t, tombstone, "POSTGRES_PASSWORD", true); got != first.ID {
-		t.Fatalf("tombstone secret ref = %d, want it left at %d", got, first.ID)
+	if got := statetest.DeploymentEnvRef(t, tombstone, "POSTGRES_PASSWORD", true); got != first.ref() {
+		t.Fatalf("tombstone secret ref = %v, want it left at %v", got, first.ref())
 	}
 	if tombstone.SpecVersion != original.SpecVersion || tombstone.Version != original.Version+1 {
 		t.Fatalf("tombstone = v%d specV%d, want v%d specV%d", tombstone.Version, tombstone.SpecVersion, original.Version+1, original.SpecVersion)
@@ -121,8 +121,8 @@ func TestRotationChecksSpecVersionsBeforeSealingAndPreservesRenames(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	first := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "first", node.ID, statetest.EnvRefSpec(nil, map[string]int32{"TOKEN": secret.ID}))
-	second := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "second", node.ID, statetest.EnvRefSpec(nil, map[string]int32{"TOKEN": secret.ID}))
+	first := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "first", node.ID, statetest.EnvRefSpec(nil, map[string]apigen.ValueRef{"TOKEN": secret.ref()}))
+	second := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "second", node.ID, statetest.EnvRefSpec(nil, map[string]apigen.ValueRef{"TOKEN": secret.ref()}))
 	renamed := statetest.RenameDeployment(store, apigen.Context{}, second.DeploymentID, "renamed")
 	if renamed.Version == renamed.SpecVersion || renamed.Seq == int64(renamed.SpecVersion) {
 		t.Fatal("test requires distinct entity, facet and global counters")
@@ -157,7 +157,7 @@ func TestRotationChecksSpecVersionsBeforeSealingAndPreservesRenames(t *testing.T
 		t.Fatalf("valid rotation: err=%v, sealed=%v, ids=%v", err, sealed, ids)
 	}
 	current := erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(second.DeploymentID)))
-	if current.Value.Name != "renamed" || current.Version != renamed.Version+1 || current.SpecVersion != second.SpecVersion+1 || statetest.DeploymentEnvRefID(t, current, "TOKEN", true) != rotated.ID {
+	if current.Value.Name != "renamed" || current.Version != renamed.Version+1 || current.SpecVersion != second.SpecVersion+1 || statetest.DeploymentEnvRef(t, current, "TOKEN", true) != rotated.ref() {
 		t.Fatalf("rotation lost the latest deployment state: %+v", current)
 	}
 	statetest.AssertUpdateMatchesRows(t, store, <-sub)
@@ -172,7 +172,7 @@ func TestTransactionUpdateIncludesRotationAndAllDeploymentEvents(t *testing.T) {
 	}
 	var expected []storage.DeploymentSpecVersion
 	for _, name := range []string{"one", "two"} {
-		d := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, node.ID, statetest.EnvRefSpec(nil, map[string]int32{"PASSWORD": secret.ID}))
+		d := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, node.ID, statetest.EnvRefSpec(nil, map[string]apigen.ValueRef{"PASSWORD": secret.ref()}))
 		expected = append(expected, storage.DeploymentSpecVersion{ID: d.DeploymentID, SpecVersion: d.SpecVersion})
 	}
 	before := store.BuildSnapshot(context.Background())
@@ -186,9 +186,9 @@ func TestTransactionUpdateIncludesRotationAndAllDeploymentEvents(t *testing.T) {
 	if update.Seq != before.Seq+1 || len(update.SecretEvents) != 1 || len(update.DeploymentEvents) != 2 {
 		t.Fatalf("incomplete transaction: %+v", update)
 	}
-	pin := int32(update.SecretEvents[0].EventID)
+	pin := apigen.ValueRef{ID: update.SecretEvents[0].SecretID, Version: update.SecretEvents[0].ValueVersion}
 	for _, d := range update.DeploymentEvents {
-		if d.Seq != update.Seq || statetest.DeploymentEnvRefID(t, d, "PASSWORD", true) != pin {
+		if d.Seq != update.Seq || statetest.DeploymentEnvRef(t, d, "PASSWORD", true) != pin {
 			t.Fatalf("deployment was not frozen with rotation: %+v", d)
 		}
 	}

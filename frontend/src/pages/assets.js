@@ -44,10 +44,8 @@ const loadView = () => {
     }
 };
 
-// Deployment specs pin asset *version* row ids; an asset's meta lists every
-// published version id, so membership is the usage test.
-const assetRefMatches = (versionIDs, ref) =>
-    versionIDs.has(Number(ref?.assetVersionId || 0));
+const assetRefMatches = (assetID, ref) =>
+    Number(ref?.id || 0) === assetID;
 
 async function uploadAssetFile(file, params, token, onProgress) {
     const query = new URLSearchParams(params);
@@ -174,13 +172,13 @@ export function assetsPage() {
     const colsDirty = () => !sameSet(shownCols.val, new Set(ASSET_DEFAULT_COLUMNS));
 
     const usageForItem = (item) => {
-        const versionIDs = new Set((item.meta.contentVersions || []).map((ref) => Number(ref?.id || 0)).filter(Boolean));
+        const assetID = Number(item.meta.id);
         const deployments = deploymentUsages(deploymentsS.val, spacesS.val, machinesS.val, (deployment) => {
             const cfg = deployment?.config;
             if (!cfg || deploymentDeleted(cfg)) return false;
             const runtime = containerWorkload(cfg)?.runtime || {};
-            return Object.values(runtime.envVars || {}).some((ref) => assetRefMatches(versionIDs, ref))
-                || (runtime.assetMounts || []).some((ref) => assetRefMatches(versionIDs, ref));
+            return Object.values(runtime.envVars || {}).some((value) => assetRefMatches(assetID, value?.assetRef))
+                || (runtime.assetMounts || []).some((mount) => assetRefMatches(assetID, mount?.asset));
         });
         return {deployments, settings: []};
     };

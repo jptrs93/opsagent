@@ -237,16 +237,16 @@ func writeInstanceStatusForTest(s *Service, instanceID int32, f func(*apigen.Sch
 // getAssetInRootByKey resolves an asset by key in a space's implicit root
 // directory.
 
-func envRefSpec(configIDs map[string]int32, secretIDs map[string]int32) *apigen.DeploymentSpec {
+func envRefSpec(configs map[string]apigen.ValueRef, secrets map[string]apigen.ValueRef) *apigen.DeploymentSpec {
 	spec := testSpecWithVersion("v1")
-	spec.Container1Spec.Runtime.EnvVars = make(map[string]*apigen.EnvVarValue, len(configIDs)+len(secretIDs))
-	for key, id := range configIDs {
-		id := id
-		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{ConfigVersionID: &id}
+	spec.Container1Spec.Runtime.EnvVars = make(map[string]*apigen.EnvVarValue, len(configs)+len(secrets))
+	for key, ref := range configs {
+		ref := ref
+		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{Config: &ref}
 	}
-	for key, id := range secretIDs {
-		id := id
-		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{SecretVersionID: &id}
+	for key, ref := range secrets {
+		ref := ref
+		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{Secret: &ref}
 	}
 	return spec
 }
@@ -351,7 +351,7 @@ func setAssetByKeyForTest(s *Service, key string, blob []byte) *apigen.AssetEven
 			event.Value.SizeBytes, event.Value.Sha256 = int64(len(blob)), sha
 		} else if errors.Is(err, sql.ErrNoRows) {
 			id := erru.Must(q.NextAssetID(ctx))
-			event = apigen.AssetEvent{Seq: seq, EventTime: now, CreatedTime: now, AssetID: int32(id), Version: 1, ValueVersion: 1, SpaceVersion: 1, Value: apigen.Asset{Fs: &apigen.AssetFs{Key: key}, SpaceID: defaultSpaceID, SizeBytes: int64(len(blob)), Sha256: sha}, EventType: apigen.EventType_EVENT_TYPE_CREATE}
+			event = apigen.AssetEvent{Seq: seq, EventTime: now, CreatedTime: now, AssetID: int32(id), Version: 1, ValueVersion: 1, Value: apigen.Asset{Fs: &apigen.AssetFs{Key: key}, SpaceID: defaultSpaceID, SizeBytes: int64(len(blob)), Sha256: sha}, EventType: apigen.EventType_EVENT_TYPE_CREATE}
 		} else {
 			return nil, err
 		}

@@ -119,7 +119,7 @@ type Handler struct {
 }
 
 type assetProvider interface {
-	OpenAsset(ctx context.Context, assetID int32) (sizeBytes int64, body io.ReadCloser, err error)
+	OpenAsset(ctx context.Context, ref apigen.ValueRef) (sizeBytes int64, body io.ReadCloser, err error)
 }
 
 type nixStoreResetProvider interface {
@@ -167,18 +167,23 @@ func (p *Handler) GetV1ClusterGithubCredentials(authCtx apigen.Context) (*apigen
 }
 
 func (p *Handler) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w http.ResponseWriter) error {
-	assetVersionID, err := int32QueryParam(r, "asset_version_id")
+	assetID, err := int32QueryParam(r, "asset_id")
 	if err != nil {
 		return err
 	}
+	version, err := int32QueryParam(r, "version")
+	if err != nil {
+		return err
+	}
+	ref := apigen.ValueRef{ID: assetID, Version: version}
 	predicate, err := p.requireScheduledInstancePredicate(authCtx)
 	if err != nil {
 		return err
 	}
-	if !p.allowedRefs(predicate).assetAllowed(assetVersionID) {
+	if !p.allowedRefs(predicate).assetAllowed(ref) {
 		return clusterForbiddenErr
 	}
-	sizeBytes, body, err := p.assets.OpenAsset(authCtx, assetVersionID)
+	sizeBytes, body, err := p.assets.OpenAsset(authCtx, ref)
 	if err != nil {
 		return err
 	}
@@ -187,7 +192,7 @@ func (p *Handler) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w h
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", strconv.FormatInt(sizeBytes, 10))
 	if _, err := io.Copy(w, body); err != nil {
-		slog.ErrorContext(authCtx, fmt.Sprintf("stream cluster asset %d failed", assetVersionID), "err", err)
+		slog.ErrorContext(authCtx, fmt.Sprintf("stream cluster asset %s failed", ref), "err", err)
 	}
 	return nil
 }
@@ -207,16 +212,16 @@ func int32QueryParam(r *http.Request, name string) (int32, error) {
 type clusterAllowedRefs struct {
 	scheduledInstanceIDs map[int32]struct{}
 	deploymentIDs        map[int32]struct{}
-	secretIDs            map[int32]struct{}
-	configIDs            map[int32]struct{}
-	assetIDs             map[int32]struct{}
+	secrets              map[apigen.ValueRef]struct{}
+	configs              map[apigen.ValueRef]struct{}
+	assets               map[apigen.ValueRef]struct{}
 	usesGithub           bool
 }
 
 func (p *Handler) allowedRefs(predicate storage.ScheduledInstancePredicate) clusterAllowedRefs {
 	snapshot := p.store.FetchScheduledSnapshot(predicate)
 	refs := buildAllowedRefs(snapshot)
-	var bindings map[string]int32
+	var bindings map[string]apigen.ValueRef
 	if p.acme != nil {
 		bindings = acmestate.Bindings(p.acme.Get())
 	}
@@ -224,7 +229,7 @@ func (p *Handler) allowedRefs(predicate storage.ScheduledInstancePredicate) clus
 	return refs
 }
 
-func addIngressCertRefs(refs clusterAllowedRefs, snapshot []apigen.ScheduledInstanceState, bindings map[string]int32) {
+func addIngressCertRefs(refs clusterAllowedRefs, snapshot []apigen.ScheduledInstanceState, bindings map[string]apigen.ValueRef) {
 	for _, state := range snapshot {
 		for _, route := range state.Config.Value.Spec.Networking.Ingress {
 			if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || route.HttpsConfig == nil {
@@ -232,14 +237,14 @@ func addIngressCertRefs(refs clusterAllowedRefs, snapshot []apigen.ScheduledInst
 			}
 			source := route.HttpsConfig.CertSource
 			if source != nil && source.Secret != nil {
-				if source.Secret.SecretVersionID > 0 {
-					refs.secretIDs[source.Secret.SecretVersionID] = struct{}{}
+				if source.Secret.Secret.Valid() {
+					refs.secrets[source.Secret.Secret] = struct{}{}
 				}
 				continue
 			}
 			hostname := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(route.Hostname)), ".")
-			if id, ok := bindings[hostname]; ok {
-				refs.secretIDs[id] = struct{}{}
+			if ref, ok := bindings[hostname]; ok {
+				refs.secrets[ref] = struct{}{}
 			}
 		}
 	}
@@ -249,9 +254,9 @@ func buildAllowedRefs(snapshot []apigen.ScheduledInstanceState) clusterAllowedRe
 	refs := clusterAllowedRefs{
 		scheduledInstanceIDs: make(map[int32]struct{}),
 		deploymentIDs:        make(map[int32]struct{}),
-		secretIDs:            make(map[int32]struct{}),
-		configIDs:            make(map[int32]struct{}),
-		assetIDs:             make(map[int32]struct{}),
+		secrets:              make(map[apigen.ValueRef]struct{}),
+		configs:              make(map[apigen.ValueRef]struct{}),
+		assets:               make(map[apigen.ValueRef]struct{}),
 	}
 	for _, state := range snapshot {
 		cfg := state.Config
@@ -277,21 +282,21 @@ func buildAllowedRefs(snapshot []apigen.ScheduledInstanceState) clusterAllowedRe
 			if value == nil {
 				continue
 			}
-			if value.SecretVersionID != nil && *value.SecretVersionID > 0 {
-				refs.secretIDs[*value.SecretVersionID] = struct{}{}
+			if value.Secret != nil && value.Secret.Valid() {
+				refs.secrets[*value.Secret] = struct{}{}
 			}
-			if value.ConfigVersionID != nil && *value.ConfigVersionID > 0 {
-				refs.configIDs[*value.ConfigVersionID] = struct{}{}
+			if value.Config != nil && value.Config.Valid() {
+				refs.configs[*value.Config] = struct{}{}
 			}
-			if value.AssetVersionID > 0 {
-				refs.assetIDs[value.AssetVersionID] = struct{}{}
+			if value.AssetRef != nil && value.AssetRef.Valid() {
+				refs.assets[*value.AssetRef] = struct{}{}
 			}
 		}
 		for _, mount := range container.Runtime.AssetMounts {
-			if mount == nil || mount.AssetVersionID <= 0 {
+			if mount == nil || !mount.Asset.Valid() {
 				continue
 			}
-			refs.assetIDs[mount.AssetVersionID] = struct{}{}
+			refs.assets[mount.Asset] = struct{}{}
 		}
 	}
 	return refs
@@ -307,74 +312,82 @@ func (r clusterAllowedRefs) deploymentAllowed(id int32) bool {
 	return ok
 }
 
-func (r clusterAllowedRefs) allSecretsAllowed(ids []int32) bool {
-	return allInt32RefsAllowed(ids, r.secretIDs)
+func (r clusterAllowedRefs) allSecretsAllowed(refs []*apigen.ValueRef) bool {
+	return allValueRefsAllowed(refs, r.secrets)
 }
 
-func (r clusterAllowedRefs) allConfigsAllowed(ids []int32) bool {
-	return allInt32RefsAllowed(ids, r.configIDs)
+func (r clusterAllowedRefs) allConfigsAllowed(refs []*apigen.ValueRef) bool {
+	return allValueRefsAllowed(refs, r.configs)
 }
 
-func (r clusterAllowedRefs) assetAllowed(assetID int32) bool {
-	_, ok := r.assetIDs[assetID]
+func (r clusterAllowedRefs) assetAllowed(ref apigen.ValueRef) bool {
+	_, ok := r.assets[ref]
 	return ok
 }
 
-func allInt32RefsAllowed(ids []int32, allowed map[int32]struct{}) bool {
-	for _, id := range ids {
-		if id <= 0 {
+func allValueRefsAllowed(refs []*apigen.ValueRef, allowed map[apigen.ValueRef]struct{}) bool {
+	for _, ref := range refs {
+		if ref == nil || !ref.Valid() {
 			return false
 		}
-		if _, ok := allowed[id]; !ok {
+		if _, ok := allowed[*ref]; !ok {
 			return false
 		}
 	}
 	return true
 }
 
+func derefValueRefs(refs []*apigen.ValueRef) []apigen.ValueRef {
+	out := make([]apigen.ValueRef, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, *ref)
+	}
+	return out
+}
+
 func (p *Handler) GetV1ClusterSecrets(authCtx apigen.Context, req *apigen.ClusterSecretsRequest) (*apigen.ClusterSecretsResponse, error) {
 	if p.secrets == nil {
 		return nil, fmt.Errorf("secrets manager is not configured")
 	}
-	if req == nil || len(req.Ids) == 0 {
-		return nil, fmt.Errorf("at least one secret id is required")
+	if req == nil || len(req.Refs) == 0 {
+		return nil, fmt.Errorf("at least one secret ref is required")
 	}
 	predicate, err := p.requireScheduledInstancePredicate(authCtx)
 	if err != nil {
 		return nil, err
 	}
-	if !p.allowedRefs(predicate).allSecretsAllowed(req.Ids) {
+	if !p.allowedRefs(predicate).allSecretsAllowed(req.Refs) {
 		return nil, clusterForbiddenErr
 	}
-	values, err := p.secrets.ResolveMany(req.Ids)
+	values, err := p.secrets.ResolveMany(derefValueRefs(req.Refs))
 	if err != nil {
 		return nil, err
 	}
 	items := make([]*apigen.ClusterSecretValue, 0, len(values))
-	for id, value := range values {
-		items = append(items, &apigen.ClusterSecretValue{ID: id, Value: []byte(value)})
+	for ref, value := range values {
+		items = append(items, &apigen.ClusterSecretValue{Ref: ref, Value: []byte(value)})
 	}
 	return &apigen.ClusterSecretsResponse{Items: items}, nil
 }
 
 func (p *Handler) GetV1ClusterConfigs(authCtx apigen.Context, req *apigen.ClusterConfigsRequest) (*apigen.ClusterConfigsResponse, error) {
-	if req == nil || len(req.Ids) == 0 {
-		return nil, fmt.Errorf("at least one config id is required")
+	if req == nil || len(req.Refs) == 0 {
+		return nil, fmt.Errorf("at least one config ref is required")
 	}
 	predicate, err := p.requireScheduledInstancePredicate(authCtx)
 	if err != nil {
 		return nil, err
 	}
-	if !p.allowedRefs(predicate).allConfigsAllowed(req.Ids) {
+	if !p.allowedRefs(predicate).allConfigsAllowed(req.Refs) {
 		return nil, clusterForbiddenErr
 	}
-	values, err := values.ResolveConfigs(p.store.Queries(), req.Ids)
+	values, err := values.ResolveConfigs(p.store.Queries(), derefValueRefs(req.Refs))
 	if err != nil {
 		return nil, err
 	}
 	items := make([]*apigen.ClusterConfigValue, 0, len(values))
-	for id, value := range values {
-		items = append(items, &apigen.ClusterConfigValue{ID: id, Value: value})
+	for ref, value := range values {
+		items = append(items, &apigen.ClusterConfigValue{Ref: ref, Value: value})
 	}
 	return &apigen.ClusterConfigsResponse{Items: items}, nil
 }

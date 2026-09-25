@@ -40,3 +40,12 @@
 -- ALTER TABLE DROP COLUMN, and no query references it.
 
 DROP TABLE IF EXISTS node_statuses;
+
+-- v0.0.613: drop the never-read space facet version from the value entity
+-- event logs. Only deployments keep a space_version.
+ALTER TABLE secret_event_log DROP COLUMN space_version;
+ALTER TABLE secret_event_log DROP COLUMN space_changed;
+ALTER TABLE config_event_log DROP COLUMN space_version;
+ALTER TABLE config_event_log DROP COLUMN space_changed;
+ALTER TABLE asset_event_log DROP COLUMN space_version;
+ALTER TABLE asset_event_log DROP COLUMN space_changed;

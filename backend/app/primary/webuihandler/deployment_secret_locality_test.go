@@ -34,11 +34,10 @@ func newSecretLocalityHandler(t *testing.T) (*Handler, *nodes.Node) {
 	return &Handler{SystemConfig: configService, Store: store, Queries: store.Queries(), Secrets: secretsManager}, node
 }
 
-func secretEnvSpec(image string, secretVersionID int32) apigen.DeploymentSpec {
+func secretEnvSpec(image string, ref apigen.ValueRef) apigen.DeploymentSpec {
 	spec := remoteDeploymentSpec(image, hostNetworking())
-	id := secretVersionID
 	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"TOKEN": {SecretVersionID: &id},
+		"TOKEN": {Secret: &ref},
 	}
 	return spec
 }
@@ -62,24 +61,24 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		t.Fatalf("creating prod secret: %v", err)
 	}
 
-	create := func(name string, spaceID, secretVersionID int32) (*apigen.DeploymentEvent, error) {
+	create := func(name string, spaceID int32, ref apigen.ValueRef) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			Scheduling: apigen.DedicatedScheduling(false, node.ID),
-			Spec:       secretEnvSpec("nginx", secretVersionID),
+			Spec:       secretEnvSpec("nginx", ref),
 		})
 	}
 
-	if _, err := create("own-space", prod.ID, prodSecret.ID); err != nil {
+	if _, err := create("own-space", prod.ID, prodSecret.Ref()); err != nil {
 		t.Fatalf("own-space secret ref rejected: %v", err)
 	}
-	if _, err := create("global-ref", prod.ID, globalSecret.ID); err != nil {
+	if _, err := create("global-ref", prod.ID, globalSecret.Ref()); err != nil {
 		t.Fatalf("global secret ref rejected: %v", err)
 	}
-	if _, err := create("global-deploy", nodes.DefaultSpaceID, prodSecret.ID); !isSecretRefOutsideSpaceErr(err) {
+	if _, err := create("global-deploy", nodes.DefaultSpaceID, prodSecret.Ref()); !isSecretRefOutsideSpaceErr(err) {
 		t.Fatalf("global deployment with prod secret err = %v, want %v", err, deployments.SecretRefOutsideSpaceErr)
 	}
-	if _, err := create("staging-deploy", staging.ID, prodSecret.ID); !isSecretRefOutsideSpaceErr(err) {
+	if _, err := create("staging-deploy", staging.ID, prodSecret.Ref()); !isSecretRefOutsideSpaceErr(err) {
 		t.Fatalf("staging deployment with prod secret err = %v, want %v", err, deployments.SecretRefOutsideSpaceErr)
 	}
 
@@ -94,14 +93,14 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:    clean.DeploymentID,
 		ExpectedVersion: clean.Version + 1,
-		SpecUpdate:      &apigen.SpecUpdate{Spec: secretEnvSpec("nginx", prodSecret.ID)},
+		SpecUpdate:      &apigen.SpecUpdate{Spec: secretEnvSpec("nginx", prodSecret.Ref())},
 	}); !isSecretRefOutsideSpaceErr(err) {
 		t.Fatalf("update adding prod secret err = %v, want %v", err, deployments.SecretRefOutsideSpaceErr)
 	}
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:    clean.DeploymentID,
 		ExpectedVersion: clean.Version + 1,
-		SpecUpdate:      &apigen.SpecUpdate{Spec: secretEnvSpec("nginx", globalSecret.ID)},
+		SpecUpdate:      &apigen.SpecUpdate{Spec: secretEnvSpec("nginx", globalSecret.Ref())},
 	}); err != nil {
 		t.Fatalf("update adding global secret ref: %v", err)
 	}
@@ -130,7 +129,7 @@ func TestIngressCertSecretRefScopedToSpace(t *testing.T) {
 				Hostname: "web.ingress.opendeploy.test",
 				HttpsConfig: &apigen.HttpsConfig{
 					ContainerPort: 8080,
-					CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{SecretVersionID: certSecret.ID}},
+					CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{Secret: certSecret.Ref()}},
 				},
 			}},
 		})
@@ -169,7 +168,7 @@ func TestSecretMoveToGlobalAllowedWithOutsideRefs(t *testing.T) {
 	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: prod.ID, Name: "db",
 		Scheduling: apigen.DedicatedScheduling(false, node.ID),
-		Spec:       secretEnvSpec("postgres", secret.ID),
+		Spec:       secretEnvSpec("postgres", secret.Ref()),
 	}); err != nil {
 		t.Fatalf("creating referencing deployment: %v", err)
 	}

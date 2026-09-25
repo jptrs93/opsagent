@@ -262,8 +262,6 @@ type DeploymentSpec struct {
 	Container1Spec *ContainerSpec   `json:"container1_spec"`
 	Container2Spec *ContainerSpec   `json:"container2_spec"`
 	Container3Spec *ContainerSpec   `json:"container3_spec"`
-	MicroVmSpec    *MicroVMSpec     `json:"micro_vm_spec"`
-	VmSpec         *VMSpec          `json:"vm_spec"`
 	OpendeploySpec *OpendeploySpec  `json:"opendeploy_spec"`
 }
 
@@ -279,12 +277,6 @@ type ContainerSpec struct {
 	Version         string                    `json:"version,omitempty"`
 	UpgradeStrategy ContainerUpgradeStrategy  `json:"upgrade_strategy"`
 	ReadinessSignal *ContainerReadinessSignal `json:"readiness_signal"`
-}
-
-type MicroVMSpec struct {
-}
-
-type VMSpec struct {
 }
 
 type OpendeploySpec struct {
@@ -374,14 +366,19 @@ type RemoteDockerImage struct {
 	Image string `json:"image,omitempty"`
 }
 
+type ValueRef struct {
+	ID      int32 `json:"id"`
+	Version int32 `json:"version"`
+}
+
 type EnvVarValue struct {
-	SecretVersionID     *int32  `json:"secret_version_id,omitempty"`
-	ConfigVersionID     *int32  `json:"config_version_id,omitempty"`
-	Value               *string `json:"value,omitempty"`
-	Asset               string  `json:"asset,omitempty"`
-	AssetVersionID      int32   `json:"asset_version_id"`
-	AddressDeploymentID *int32  `json:"address_deployment_id,omitempty"`
-	AddressSpaceID      *int32  `json:"address_space_id,omitempty"`
+	Value               *string   `json:"value,omitempty"`
+	Asset               string    `json:"asset,omitempty"`
+	AddressDeploymentID *int32    `json:"address_deployment_id,omitempty"`
+	AddressSpaceID      *int32    `json:"address_space_id,omitempty"`
+	Secret              *ValueRef `json:"secret"`
+	Config              *ValueRef `json:"config"`
+	AssetRef            *ValueRef `json:"asset_ref"`
 }
 
 type DefaultVolumeMount struct {
@@ -396,9 +393,9 @@ type CrossDeploymentMount struct {
 }
 
 type AssetMount struct {
-	AssetVersionID int32          `json:"asset_version_id"`
-	ContainerPath  string         `json:"container_path,omitempty"`
-	Permission     FilePermission `json:"permission"`
+	ContainerPath string         `json:"container_path,omitempty"`
+	Permission    FilePermission `json:"permission"`
+	Asset         ValueRef       `json:"asset"`
 }
 
 type CustomHostMount struct {
@@ -423,7 +420,7 @@ type AcmeCertSource struct {
 }
 
 type SecretCertSource struct {
-	SecretVersionID int32 `json:"secret_version_id"`
+	Secret ValueRef `json:"secret"`
 }
 
 type DeploymentSpecVersionRef struct {
@@ -916,7 +913,6 @@ type SecretEvent struct {
 	CreatedTime  int64     `json:"created_time"`
 	EventTime    int64     `json:"event_time"`
 	ValueVersion int32     `json:"value_version"`
-	SpaceVersion int32     `json:"space_version"`
 	Value        Secret    `json:"value"`
 }
 
@@ -1005,7 +1001,6 @@ type ConfigEvent struct {
 	CreatedTime  int64     `json:"created_time"`
 	EventTime    int64     `json:"event_time"`
 	ValueVersion int32     `json:"value_version"`
-	SpaceVersion int32     `json:"space_version"`
 	Value        Config    `json:"value"`
 }
 
@@ -1073,7 +1068,6 @@ type AssetEvent struct {
 	CreatedTime  int64     `json:"created_time"`
 	EventTime    int64     `json:"event_time"`
 	ValueVersion int32     `json:"value_version"`
-	SpaceVersion int32     `json:"space_version"`
 	Value        Asset     `json:"value"`
 }
 
@@ -1577,8 +1571,8 @@ type AcmeState struct {
 }
 
 type AcmeCertBinding struct {
-	Hostname        string `json:"hostname,omitempty"`
-	SecretVersionID int32  `json:"secret_version_id"`
+	Hostname string   `json:"hostname,omitempty"`
+	Secret   ValueRef `json:"secret"`
 }
 
 type ClusterNetworkInfo struct {
@@ -1823,12 +1817,12 @@ type MsgToPrimary struct {
 }
 
 type ClusterSecretsRequest struct {
-	Ids []int32 `json:"ids,omitempty"`
+	Refs []*ValueRef `json:"refs,omitempty"`
 }
 
 type ClusterSecretValue struct {
-	ID    int32  `json:"id"`
-	Value []byte `json:"value"`
+	Ref   ValueRef `json:"ref"`
+	Value []byte   `json:"value"`
 }
 
 type ClusterSecretsResponse struct {
@@ -1836,12 +1830,12 @@ type ClusterSecretsResponse struct {
 }
 
 type ClusterConfigsRequest struct {
-	Ids []int32 `json:"ids,omitempty"`
+	Refs []*ValueRef `json:"refs,omitempty"`
 }
 
 type ClusterConfigValue struct {
-	ID    int32  `json:"id"`
-	Value string `json:"value,omitempty"`
+	Ref   ValueRef `json:"ref"`
+	Value string   `json:"value,omitempty"`
 }
 
 type ClusterConfigsResponse struct {
@@ -1904,11 +1898,11 @@ type EnrollmentAccepted struct {
 }
 
 type SecretRef struct {
-	VersionID int32 `json:"version_id"`
+	Ref ValueRef `json:"ref"`
 }
 
 type ConfigRef struct {
-	VersionID int32 `json:"version_id"`
+	Ref ValueRef `json:"ref"`
 }
 
 type StringSetting struct {

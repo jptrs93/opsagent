@@ -5,7 +5,7 @@ import {deploymentDocumentToHcl, parseDeploymentHcl} from "./deploymentHcl.js";
 const catalogs = {
     nodes: [{id: 1, name: "primary"}, {id: 2, name: "worker-2"}],
     spaces: [{id: 1, name: "global"}],
-    secretRefs: [{id: 7, name: "web-cert", version: 3, spaceId: 1}],
+    secretRefs: [{id: 7, stableId: 2, name: "web-cert", version: 3, spaceId: 1}],
 };
 
 function document(networking) {
@@ -57,7 +57,7 @@ test("renders and parses every ingress block kind with listen selectors", () => 
                 hostname: "app.example.test",
                 httpsConfig: {
                     containerPort: 5000, pathPrefix: "/api", stripPrefix: true, backendProtocol: 1,
-                    maxRequestBodyBytes: 20000000, certSource: {secret: {secretVersionId: 7}},
+                    maxRequestBodyBytes: 20000000, certSource: {secret: {secret: {id: 2, version: 3}}},
                 },
                 listen: [{address: {family: 1}}, {node: {any: true}, address: {prefixes: ["2001:db8::10", "203.0.113.0/24"]}}],
             },
@@ -181,13 +181,13 @@ const folderCatalogs = {
     ],
     assetDirectories: [{id: 20, key: "geo", parentId: 0, spaceId: 1}],
     secretRefs: [
-        {id: 30, name: "user1.secret", version: 1, spaceId: 1, directoryId: 11},
-        {id: 31, name: "user1.secret", version: 2, spaceId: 1, directoryId: 11},
-        {id: 32, name: "user1.secret", version: 1, spaceId: 1, directoryId: 0},
-        {id: 33, name: "web-cert", version: 1, spaceId: 4, directoryId: 12},
-        {id: 34, name: "other", version: 1, spaceId: 5, directoryId: 0},
+        {id: 30, stableId: 101, name: "user1.secret", version: 1, spaceId: 1, directoryId: 11},
+        {id: 31, stableId: 101, name: "user1.secret", version: 2, spaceId: 1, directoryId: 11},
+        {id: 32, stableId: 102, name: "user1.secret", version: 1, spaceId: 1, directoryId: 0},
+        {id: 33, stableId: 103, name: "web-cert", version: 1, spaceId: 4, directoryId: 12},
+        {id: 34, stableId: 104, name: "other", version: 1, spaceId: 5, directoryId: 0},
     ],
-    configRefs: [{id: 40, name: "access_key_id", version: 3, spaceId: 1, directoryId: 10}],
+    configRefs: [{id: 40, stableId: 105, name: "access_key_id", version: 3, spaceId: 1, directoryId: 10}],
     assets: [{id: 50, key: "db", spaceId: 1, directoryId: 20, contentVersions: [{id: 51, version: 1}, {id: 52, version: 2}]}],
 };
 
@@ -201,13 +201,13 @@ function prodDocument(runtime, ingress = []) {
 test("references carry the space, the folder path, and a positional version", () => {
     const doc = prodDocument({
         envVars: {
-            KEY: {configVersionId: 40},
-            SECRET: {secretVersionId: 31},
-            ROOT_SECRET: {secretVersionId: 32},
-            DB: {asset: "db", assetVersionId: 51},
+            KEY: {config: {id: 105, version: 3}},
+            SECRET: {secret: {id: 101, version: 2}},
+            ROOT_SECRET: {secret: {id: 102, version: 1}},
+            DB: {asset: "db", assetRef: {id: 50, version: 1}},
         },
-        assetMounts: [{assetVersionId: 52, containerPath: "/geo", permission: 2}],
-    }, [{kind: 2, hostname: "web.example.test", httpsConfig: {containerPort: 80, certSource: {secret: {secretVersionId: 33}}}}]);
+        assetMounts: [{asset: {id: 50, version: 2}, containerPath: "/geo", permission: 2}],
+    }, [{kind: 2, hostname: "web.example.test", httpsConfig: {containerPort: 80, certSource: {secret: {secret: {id: 103, version: 1}}}}}]);
     const text = deploymentDocumentToHcl(doc, folderCatalogs, {pinVersions: true});
     assert.match(text, /"KEY" = config\("global", "ovh\/access_key_id", 3\)/);
     assert.match(text, /"SECRET" = secret\("global", "ovh\/cloud\/user1\.secret", 2\)/);
@@ -226,7 +226,7 @@ test("references carry the space, the folder path, and a positional version", ()
     assert.match(unpinned, /"DB" = asset\("global", "geo\/db", 1\)/);
     const latest = parseDeploymentHcl(unpinned, folderCatalogs);
     assert.deepEqual(latest.diagnostics, []);
-    assert.equal(latest.document.spec.container1Spec.runtime.envVars.SECRET.secretVersionId, 31);
+    assert.deepEqual(latest.document.spec.container1Spec.runtime.envVars.SECRET, {secret: {id: 101, version: 2}});
 });
 
 test("rejects the old options form, foreign spaces, unknown paths, and bad versions", () => {

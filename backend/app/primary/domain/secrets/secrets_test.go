@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"github.com/jptrs93/opsagent/backend/apigen"
 	"os"
 	"path/filepath"
 	"testing"
@@ -53,7 +54,7 @@ func TestCreateResolveRoundTrip(t *testing.T) {
 	if meta.SecretID == 0 || meta.ID == 0 || meta.Version != 1 || meta.Author != 7 {
 		t.Fatalf("meta = %+v", meta)
 	}
-	got, ok := mgr.Resolve(meta.ID)
+	got, ok := mgr.Resolve(meta.Ref())
 	if !ok || got != "hunter2" {
 		t.Fatalf("Resolve = %q, %v; want hunter2, true", got, ok)
 	}
@@ -81,7 +82,7 @@ func TestReopenWithMachineKeyUnlocks(t *testing.T) {
 	if unlocked, _ := mgr2.Status(); !unlocked {
 		t.Fatal("expected reopened store to be unlocked")
 	}
-	if got, ok := mgr2.Resolve(meta.ID); !ok || got != "v" {
+	if got, ok := mgr2.Resolve(meta.Ref()); !ok || got != "v" {
 		t.Fatalf("Resolve after reopen = %q, %v", got, ok)
 	}
 }
@@ -154,18 +155,18 @@ func TestRenameIsMetadataOnly(t *testing.T) {
 	if got := string(recordByID(t, store, first.ID).Ciphertext); got != beforeCiphertext {
 		t.Fatal("rename re-encrypted a version; the id-bound AAD makes that unnecessary")
 	}
-	if got, ok := mgr.Resolve(first.ID); !ok || got != "one" {
+	if got, ok := mgr.Resolve(first.Ref()); !ok || got != "one" {
 		t.Fatalf("Resolve first after rename = %q, %v; want one, true", got, ok)
 	}
-	if got, ok := mgr.Resolve(second.ID); !ok || got != "two" {
+	if got, ok := mgr.Resolve(second.Ref()); !ok || got != "two" {
 		t.Fatalf("Resolve second after rename = %q, %v; want two, true", got, ok)
 	}
 	mgr2 := mustOpen(t, dir, store)
-	if got, ok := mgr2.Resolve(first.ID); !ok || got != "one" {
+	if got, ok := mgr2.Resolve(first.Ref()); !ok || got != "one" {
 		t.Fatalf("Resolve first after reopen = %q, %v; want one, true", got, ok)
 	}
-	if m, ok := mgr2.MetaByID(second.ID); !ok || m.Name != "prod.db.password" {
-		t.Fatalf("MetaByID after reopen = %+v, %v", m, ok)
+	if m, ok := mgr2.MetaByRef(second.Ref()); !ok || m.Name != "prod.db.password" || m.ID != second.ID {
+		t.Fatalf("MetaByRef after reopen = %+v, %v", m, ok)
 	}
 }
 
@@ -182,7 +183,7 @@ func TestSystemSecretsAreSeparateFromUserSecrets(t *testing.T) {
 	if _, ok := getSystemSecret(store.Queries(), "opendeploy.cluster.ca.key"); !ok {
 		t.Fatal("system secret was not written to system records")
 	}
-	if _, ok := mgr.Resolve(1); ok {
+	if _, ok := mgr.Resolve(apigen.ValueRef{ID: 1, Version: 1}); ok {
 		t.Fatal("Resolve exposed system secret")
 	}
 	got, err := mgr.RevealInternal("opendeploy.cluster.ca.key")
@@ -234,7 +235,7 @@ func TestRecoveryUnlockOnFreshMachine(t *testing.T) {
 	if unlocked, _ := mgr2.Status(); unlocked {
 		t.Fatal("fresh machine without machine.key should be locked")
 	}
-	if _, ok := mgr2.Resolve(meta.ID); ok {
+	if _, ok := mgr2.Resolve(meta.Ref()); ok {
 		t.Fatal("locked store must not resolve secrets")
 	}
 	if _, err := mgr2.Create("x", []byte("y"), 0, 0, 0); err == nil {
@@ -249,7 +250,7 @@ func TestRecoveryUnlockOnFreshMachine(t *testing.T) {
 	if err := mgr2.Unlock(code); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
-	if got, ok := mgr2.Resolve(meta.ID); !ok || got != "v" {
+	if got, ok := mgr2.Resolve(meta.Ref()); !ok || got != "v" {
 		t.Fatalf("Resolve after recovery = %q, %v", got, ok)
 	}
 	if _, err := os.Stat(filepath.Join(freshDir, machinekey.FileName)); err != nil {

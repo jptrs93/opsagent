@@ -38,6 +38,7 @@ import (
 	"golang.org/x/crypto/argon2"
 
 	"github.com/jptrs93/goutil/logu"
+	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -150,7 +151,8 @@ type Manager struct {
 	mu          sync.RWMutex
 	smk         []byte // nil => locked
 	version     int32
-	cache       map[int32]Record // version row id -> immutable version row (ciphertext)
+	cache       map[int32]Record          // version row id -> immutable version row (ciphertext)
+	refs        map[apigen.ValueRef]int32 // (secret id, value version) -> version row id
 	systemCache map[string]SystemRecord
 }
 
@@ -174,7 +176,7 @@ func Initialize(dataDir string, store *state.Service) (*Manager, error) {
 func Open(dataDir string, store *state.Service) (*Manager, error) {
 	m := newManager(dataDir, store)
 	for _, r := range ListVersionRecords(m.q) {
-		m.cache[r.ID] = r
+		m.cacheLocked(r)
 	}
 
 	slots := listKeyslots(m.q)
@@ -204,8 +206,23 @@ func newManager(dataDir string, store *state.Service) *Manager {
 		q:           store.Queries(),
 		machineKey:  &machinekey.File{Path: filepath.Join(dataDir, machinekey.FileName)},
 		cache:       make(map[int32]Record),
+		refs:        make(map[apigen.ValueRef]int32),
 		systemCache: make(map[string]SystemRecord),
 	}
+}
+
+func (m *Manager) cacheLocked(rec Record) {
+	m.cache[rec.ID] = rec
+	m.refs[rec.ref()] = rec.ID
+}
+
+func (m *Manager) recordByRefLocked(ref apigen.ValueRef) (Record, bool) {
+	id, ok := m.refs[ref]
+	if !ok {
+		return Record{}, false
+	}
+	rec, ok := m.cache[id]
+	return rec, ok
 }
 
 // openRecordLocked decrypts one cached version row. Caller must hold m.mu
@@ -214,22 +231,21 @@ func (m *Manager) openRecordLocked(rec Record) ([]byte, error) {
 	return aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, userSecretAAD(rec.SecretID, rec.Version))
 }
 
-// Resolve returns the plaintext value for a secret version row id. It
-// implements the runner's secret resolver. Returns ("", false) when locked or
-// unknown.
-func (m *Manager) Resolve(id int32) (string, bool) {
+// Resolve returns the plaintext value for a secret value ref. It implements
+// the runner's secret resolver. Returns ("", false) when locked or unknown.
+func (m *Manager) Resolve(ref apigen.ValueRef) (string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.smk == nil {
 		return "", false
 	}
-	rec, ok := m.cache[id]
+	rec, ok := m.recordByRefLocked(ref)
 	if !ok {
 		return "", false
 	}
 	pt, err := m.openRecordLocked(rec)
 	if err != nil {
-		slog.ErrorContext(m.ctx, fmt.Sprintf("decrypting secret id=%d name=%s failed", id, rec.Name), "err", err)
+		slog.ErrorContext(m.ctx, fmt.Sprintf("decrypting secret %s name=%s failed", ref, rec.Name), "err", err)
 		return "", false
 	}
 	return string(pt), true
@@ -255,32 +271,52 @@ func (m *Manager) RevealByID(id int32) ([]byte, error) {
 	return pt, nil
 }
 
-// ResolveMany decrypts the requested user secrets as one batch. It is used by
-// deployment preparation so secondaries can fetch all referenced secrets in a
-// single cluster request and keep plaintext only in memory for runner startup.
-func (m *Manager) ResolveMany(ids []int32) (map[int32]string, error) {
+// RevealByRef returns the decrypted value of a single secret value on
+// explicit request. ErrLocked when the store is locked, ErrNotFound when no
+// such value exists.
+func (m *Manager) RevealByRef(ref apigen.ValueRef) ([]byte, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.smk == nil {
 		return nil, ErrLocked
 	}
-	out := make(map[int32]string, len(ids))
-	for _, id := range ids {
-		if id == 0 {
-			return nil, fmt.Errorf("secret id is required")
+	rec, ok := m.recordByRefLocked(ref)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	pt, err := m.openRecordLocked(rec)
+	if err != nil {
+		return nil, fmt.Errorf("decrypting secret %s: %w", ref, err)
+	}
+	return pt, nil
+}
+
+// ResolveMany decrypts the requested user secrets as one batch. It is used by
+// deployment preparation so secondaries can fetch all referenced secrets in a
+// single cluster request and keep plaintext only in memory for runner startup.
+func (m *Manager) ResolveMany(refs []apigen.ValueRef) (map[apigen.ValueRef]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.smk == nil {
+		return nil, ErrLocked
+	}
+	out := make(map[apigen.ValueRef]string, len(refs))
+	for _, ref := range refs {
+		if !ref.Valid() {
+			return nil, fmt.Errorf("secret id and version are required")
 		}
-		if _, ok := out[id]; ok {
+		if _, ok := out[ref]; ok {
 			continue
 		}
-		rec, ok := m.cache[id]
+		rec, ok := m.recordByRefLocked(ref)
 		if !ok {
-			return nil, fmt.Errorf("%w: id %d", ErrNotFound, id)
+			return nil, fmt.Errorf("%w: %s", ErrNotFound, ref)
 		}
 		pt, err := m.openRecordLocked(rec)
 		if err != nil {
-			return nil, fmt.Errorf("decrypting secret id %d: %w", id, err)
+			return nil, fmt.Errorf("decrypting secret %s: %w", ref, err)
 		}
-		out[id] = string(pt)
+		out[ref] = string(pt)
 	}
 	return out, nil
 }
@@ -291,6 +327,18 @@ func (m *Manager) MetaByID(id int32) (Meta, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	rec, ok := m.cache[id]
+	if !ok {
+		return Meta{}, false
+	}
+	return rec.meta(), true
+}
+
+// MetaByRef describes a secret value (never the value itself). Works while
+// locked: metadata needs no decryption.
+func (m *Manager) MetaByRef(ref apigen.ValueRef) (Meta, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rec, ok := m.recordByRefLocked(ref)
 	if !ok {
 		return Meta{}, false
 	}
@@ -346,7 +394,7 @@ func (m *Manager) createLocked(name string, value []byte, author, spaceID, direc
 	if err != nil {
 		return Meta{}, err
 	}
-	m.cache[rec.ID] = rec
+	m.cacheLocked(rec)
 	return rec.meta(), nil
 }
 
@@ -374,7 +422,7 @@ func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, author 
 		return Meta{}, ErrLocked
 	}
 	rec, _, err := appendVersionWithDeploymentUpdates(m.store, secretID, author, m.sealFuncLocked(value), updateDeployments, deployments, func(committed Record) {
-		m.cache[committed.ID] = committed
+		m.cacheLocked(committed)
 		if onCommit != nil {
 			onCommit(committed.meta())
 		}
@@ -520,6 +568,7 @@ func (m *Manager) Delete(secretID int32, inlockValidate func(*pq.Queries) error)
 	for id, rec := range m.cache {
 		if rec.SecretID == secretID {
 			delete(m.cache, id)
+			delete(m.refs, rec.ref())
 		}
 	}
 	return nil
@@ -708,6 +757,15 @@ func findSlot(slots []Keyslot, name string) (Keyslot, bool) {
 
 func nowMs() int64 { return time.Now().UnixMilli() }
 
+func (r Record) ref() apigen.ValueRef {
+	return apigen.ValueRef{ID: r.SecretID, Version: r.Version}
+}
+
+// Ref is the value reference that pins this secret value.
+func (m Meta) Ref() apigen.ValueRef {
+	return apigen.ValueRef{ID: m.SecretID, Version: m.Version}
+}
+
 func (r Record) meta() Meta {
 	return Meta{
 		ID:        r.ID,
@@ -720,6 +778,6 @@ func (r Record) meta() Meta {
 	}
 }
 
-func (m *Manager) FetchSecrets(_ context.Context, ids []int32) (map[int32]string, error) {
-	return m.ResolveMany(ids)
+func (m *Manager) FetchSecrets(_ context.Context, refs []apigen.ValueRef) (map[apigen.ValueRef]string, error) {
+	return m.ResolveMany(refs)
 }

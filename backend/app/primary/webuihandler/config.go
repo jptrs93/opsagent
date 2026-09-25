@@ -36,10 +36,10 @@ func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.Cl
 		if ref == nil {
 			return "", false, nil
 		}
-		if ref.VersionID == 0 {
+		if !ref.Ref.Valid() {
 			return "", false, nil
 		}
-		cfg, ok := values.GetConfigVersion(h.Store.Queries(), ref.VersionID)
+		cfg, ok := values.GetConfigVersion(h.Store.Queries(), ref.Ref)
 		if !ok {
 			return "", false, nil
 		}
@@ -177,7 +177,7 @@ func resolveStringInPlace(stored, resolved *apigen.StringSetting, field string, 
 	if stored == nil || resolved == nil {
 		return fmt.Errorf("%s is required", field)
 	}
-	if stored.ConfigRef.VersionID == 0 {
+	if !stored.ConfigRef.Ref.Valid() {
 		return nil
 	}
 	value, ok, err := resolveRef(&stored.ConfigRef)
@@ -195,7 +195,7 @@ func resolveBoolInPlace(stored, resolved *apigen.BoolSetting, field string, reso
 	if stored == nil || resolved == nil {
 		return fmt.Errorf("%s is required", field)
 	}
-	if stored.ConfigRef.VersionID == 0 {
+	if !stored.ConfigRef.Ref.Valid() {
 		return nil
 	}
 	value, ok, err := resolveRef(&stored.ConfigRef)
@@ -256,15 +256,15 @@ func validateListenValue(field, value string) error {
 
 func (h *Handler) validateWebTLSCert(settings *apigen.ClusterSettings) error {
 	tlsSelfManaged := settings.HttpsWeb.TlsSelfManaged.Value
-	id := settings.HttpsWeb.TlsCertPem.VersionID
+	ref := settings.HttpsWeb.TlsCertPem.Ref
 	if !tlsSelfManaged {
 		return nil
 	}
-	if id == 0 {
+	if !ref.Valid() {
 		_, _, err := pki.EnsureWebUILocalTLS(h.Secrets, certu.WebUITLSNames(settings.HttpsWeb.AcmeHosts.Value, settings.HttpsWeb.Listen.Value))
 		return err
 	}
-	bundle, err := h.Secrets.RevealByID(id)
+	bundle, err := h.Secrets.RevealByRef(ref)
 	if err != nil {
 		return err
 	}
@@ -284,10 +284,10 @@ func settingsSecretRefs(settings *apigen.ClusterSettings) []*apigen.SecretRef {
 }
 
 func (h *Handler) validateSecretRef(ref *apigen.SecretRef) error {
-	if ref == nil || ref.VersionID == 0 {
+	if ref == nil || !ref.Ref.Valid() {
 		return nil
 	}
-	if _, ok := h.Secrets.MetaByID(ref.VersionID); !ok {
+	if _, ok := h.Secrets.MetaByRef(ref.Ref); !ok {
 		return SecretNotFoundErr
 	}
 	return nil

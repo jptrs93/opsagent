@@ -932,10 +932,10 @@ func countEnvVars(env map[string]*apigen.EnvVarValue) envVarCounts {
 		if value.Value != nil {
 			counts.plain++
 		}
-		if value.ConfigVersionID != nil {
+		if value.Config != nil {
 			counts.config++
 		}
-		if value.SecretVersionID != nil {
+		if value.Secret != nil {
 			counts.secret++
 		}
 		if value.Asset != "" {
@@ -1497,7 +1497,7 @@ func containerMounts(dep *apigen.DeploymentEvent) ([]ctrd.Mount, string) {
 		if m == nil {
 			continue
 		}
-		hostPath := runtimeinputs.AssetCachePathWithMode(m.AssetVersionID, m.Permission == apigen.FilePermission_READ_EXECUTE)
+		hostPath := runtimeinputs.AssetCachePathWithMode(m.Asset, m.Permission == apigen.FilePermission_READ_EXECUTE)
 		mounts = append(mounts, ctrd.Mount{Source: hostPath, Dest: m.ContainerPath, ReadOnly: true})
 	}
 	if cfg.IssuedTlsMount != nil {
@@ -1515,15 +1515,15 @@ func containerMounts(dep *apigen.DeploymentEvent) ([]ctrd.Mount, string) {
 	sort.Strings(envKeys)
 	for _, key := range envKeys {
 		value := cfg.EnvVars[key]
-		if value == nil || value.AssetVersionID <= 0 {
+		if value == nil || value.AssetRef == nil {
 			continue
 		}
-		dest := implicitAssetContainerPath(value.AssetVersionID)
+		dest := implicitAssetContainerPath(*value.AssetRef)
 		if implicitMounted[dest] {
 			continue
 		}
 		implicitMounted[dest] = true
-		mounts = append(mounts, ctrd.Mount{Source: runtimeinputs.AssetCachePath(value.AssetVersionID), Dest: dest, ReadOnly: true})
+		mounts = append(mounts, ctrd.Mount{Source: runtimeinputs.AssetCachePath(*value.AssetRef), Dest: dest, ReadOnly: true})
 	}
 	return mounts, dataHost
 }

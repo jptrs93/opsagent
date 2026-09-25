@@ -37,34 +37,34 @@ func resolveEnvValue(inputs *runtimeinputs.RuntimeInputs, key string, v *apigen.
 	if v.Value != nil {
 		set++
 	}
-	if v.SecretVersionID != nil {
+	if v.Secret != nil {
 		set++
 	}
-	if v.ConfigVersionID != nil {
+	if v.Config != nil {
 		set++
 	}
-	if v.AssetVersionID > 0 {
+	if v.AssetRef != nil {
 		set++
 	}
 	if v.AddressDeploymentID != nil || v.AddressSpaceID != nil {
 		set++
 	}
 	if set != 1 {
-		return "", fmt.Errorf("exactly one of value, secretId, configId, asset, or address is required")
+		return "", fmt.Errorf("exactly one of value, secret, config, assetRef, or address is required")
 	}
 	if v.Value != nil {
 		return *v.Value, nil
 	}
-	if v.SecretVersionID != nil {
-		return resolveSecretRef(inputs, *v.SecretVersionID)
+	if v.Secret != nil {
+		return resolveSecretRef(inputs, *v.Secret)
 	}
-	if v.AssetVersionID > 0 {
-		return implicitAssetContainerPath(v.AssetVersionID), nil
+	if v.AssetRef != nil {
+		return implicitAssetContainerPath(*v.AssetRef), nil
 	}
 	if v.AddressDeploymentID != nil || v.AddressSpaceID != nil {
 		return resolveAddressRef(v)
 	}
-	return resolveConfigRef(inputs, *v.ConfigVersionID)
+	return resolveConfigRef(inputs, *v.Config)
 }
 
 func resolveAddressRef(v *apigen.EnvVarValue) (string, error) {
@@ -86,22 +86,22 @@ func resolveAddressRef(v *apigen.EnvVarValue) (string, error) {
 	return addr.String(), nil
 }
 
-func implicitAssetContainerPath(assetVersionID int32) string {
-	return implicitAssetContainerDir + "/" + strconv.Itoa(int(assetVersionID))
+func implicitAssetContainerPath(ref apigen.ValueRef) string {
+	return implicitAssetContainerDir + "/" + strconv.Itoa(int(ref.ID)) + "_" + strconv.Itoa(int(ref.Version))
 }
 
-func resolveSecretRef(inputs *runtimeinputs.RuntimeInputs, id int32) (string, error) {
-	val, ok := inputs.ResolveSecret(id)
+func resolveSecretRef(inputs *runtimeinputs.RuntimeInputs, ref apigen.ValueRef) (string, error) {
+	val, ok := inputs.ResolveSecret(ref)
 	if !ok {
-		return "", fmt.Errorf("unknown secret id %d", id)
+		return "", fmt.Errorf("unknown secret %s", ref)
 	}
 	return val, nil
 }
 
-func resolveConfigRef(inputs *runtimeinputs.RuntimeInputs, id int32) (string, error) {
-	val, ok := inputs.ResolveConfig(id)
+func resolveConfigRef(inputs *runtimeinputs.RuntimeInputs, ref apigen.ValueRef) (string, error) {
+	val, ok := inputs.ResolveConfig(ref)
 	if !ok {
-		return "", fmt.Errorf("unknown config id %d", id)
+		return "", fmt.Errorf("unknown config %s", ref)
 	}
 	return val, nil
 }

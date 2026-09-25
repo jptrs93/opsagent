@@ -74,31 +74,31 @@ func instancePermitsDelete(cluster NodeConnectivity, primaryNodeID int32, cfg *a
 }
 
 type AssetResolver interface {
-	// GetAssetVersionRef resolves the immutable version row ids deployment
-	// specs pin.
-	GetAssetVersionRef(assetVersionID int32) (assets.AssetVersionRef, bool)
+	// GetAssetVersionRef resolves the immutable asset values deployment specs
+	// pin.
+	GetAssetVersionRef(ref apigen.ValueRef) (assets.AssetVersionRef, bool)
 }
 
 type SecretResolver interface {
-	MetaByID(id int32) (secrets.Meta, bool)
+	MetaByRef(ref apigen.ValueRef) (secrets.Meta, bool)
 }
 
 type ConfigResolver interface {
-	ResolveConfig(id int32) (string, bool)
+	ResolveConfig(ref apigen.ValueRef) (string, bool)
 }
 
 type queryResolver struct{ q *pq.Queries }
 
-func (r queryResolver) GetAssetVersionRef(assetVersionID int32) (assets.AssetVersionRef, bool) {
-	return assets.GetAssetVersionRef(r.q, assetVersionID)
+func (r queryResolver) GetAssetVersionRef(ref apigen.ValueRef) (assets.AssetVersionRef, bool) {
+	return assets.GetAssetVersionRef(r.q, ref)
 }
 
-func (r queryResolver) ResolveConfig(id int32) (string, bool) {
-	ref, ok := values.GetConfigVersion(r.q, id)
+func (r queryResolver) ResolveConfig(ref apigen.ValueRef) (string, bool) {
+	version, ok := values.GetConfigVersion(r.q, ref)
 	if !ok {
 		return "", false
 	}
-	return ref.Value, true
+	return version.Value, true
 }
 
 func ValidateSpec(q *pq.Queries, secretStore *secrets.Manager, spec *apigen.DeploymentSpec) (*apigen.DeploymentSpec, error) {
@@ -124,7 +124,7 @@ func ValidateSpecWithResolvers(spec *apigen.DeploymentSpec, assets AssetResolver
 	if out.Container1Spec == nil {
 		return nil, InvalidConfigErrf("container1Spec is required")
 	}
-	if out.Container2Spec != nil || out.Container3Spec != nil || out.MicroVmSpec != nil || out.VmSpec != nil {
+	if out.Container2Spec != nil || out.Container3Spec != nil {
 		return nil, InvalidConfigErrf("only container1Spec is currently supported")
 	}
 	container := out.Container1Spec
@@ -365,7 +365,7 @@ func ValidateIngressListen(entries []*apigen.IngressListen) error {
 }
 
 type certSecretRevealer interface {
-	RevealByID(id int32) ([]byte, error)
+	RevealByRef(ref apigen.ValueRef) ([]byte, error)
 }
 
 func validateHTTPSConfig(cfg *apigen.HttpsConfig, hostname string, secretStore SecretResolver) error {
@@ -402,18 +402,18 @@ func validateHTTPSConfig(cfg *apigen.HttpsConfig, hostname string, secretStore S
 		}
 	}
 	if hasSecret {
-		id := source.Secret.SecretVersionID
-		if id <= 0 {
-			return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret.secretVersionId must be positive")
+		ref := source.Secret.Secret
+		if !ref.Valid() {
+			return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret.secret: id and version must be positive")
 		}
 		if secretStore == nil {
 			return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: secrets cannot be resolved here")
 		}
-		if _, ok := secretStore.MetaByID(id); !ok {
-			return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: unknown secret id %d", id)
+		if _, ok := secretStore.MetaByRef(ref); !ok {
+			return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: unknown secret %s", ref)
 		}
 		if revealer, ok := secretStore.(certSecretRevealer); ok {
-			if err := validateCertSecret(revealer, id, hostname); err != nil {
+			if err := validateCertSecret(revealer, ref, hostname); err != nil {
 				return err
 			}
 		}
@@ -421,24 +421,24 @@ func validateHTTPSConfig(cfg *apigen.HttpsConfig, hostname string, secretStore S
 	return nil
 }
 
-func validateCertSecret(revealer certSecretRevealer, id int32, hostname string) error {
-	value, err := revealer.RevealByID(id)
+func validateCertSecret(revealer certSecretRevealer, ref apigen.ValueRef, hostname string) error {
+	value, err := revealer.RevealByRef(ref)
 	if err != nil {
-		return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: reading secret id %d failed", id)
+		return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: reading secret %s failed", ref)
 	}
 	pair, err := tls.X509KeyPair(value, value)
 	if err != nil {
-		return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: secret id %d must hold a combined PEM certificate and private key: %v", id, err)
+		return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: secret %s must hold a combined PEM certificate and private key: %v", ref, err)
 	}
 	leaf, err := x509.ParseCertificate(pair.Certificate[0])
 	if err != nil {
-		return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: parsing certificate in secret id %d failed: %v", id, err)
+		return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: parsing certificate in secret %s failed: %v", ref, err)
 	}
 	if err := leaf.VerifyHostname(hostname); err != nil {
-		return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: certificate in secret id %d does not cover %s", id, hostname)
+		return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: certificate in secret %s does not cover %s", ref, hostname)
 	}
 	if time.Now().After(leaf.NotAfter) {
-		return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: certificate in secret id %d expired on %s", id, leaf.NotAfter.Format(time.RFC3339))
+		return InvalidConfigErrf("networking.ingress.httpsConfig.certSource.secret: certificate in secret %s expired on %s", ref, leaf.NotAfter.Format(time.RFC3339))
 	}
 	return nil
 }
@@ -519,20 +519,20 @@ func validateRuntimeEnvRefs(spec *apigen.DeploymentSpec, secretStore SecretResol
 		return nil
 	}
 	for _, value := range spec.Container().Runtime.EnvVars {
-		if value.SecretVersionID != nil {
+		if value.Secret != nil {
 			if secretStore == nil {
 				return InvalidConfigErrf("container1Spec.runtime.envVars: secrets cannot be resolved here")
 			}
-			if _, ok := secretStore.MetaByID(*value.SecretVersionID); !ok {
-				return InvalidConfigErrf("container1Spec.runtime.envVars: unknown secret id %d", *value.SecretVersionID)
+			if _, ok := secretStore.MetaByRef(*value.Secret); !ok {
+				return InvalidConfigErrf("container1Spec.runtime.envVars: unknown secret %s", *value.Secret)
 			}
 		}
-		if value.ConfigVersionID != nil {
+		if value.Config != nil {
 			if configs == nil {
 				return InvalidConfigErrf("container1Spec.runtime.envVars: configs cannot be resolved here")
 			}
-			if _, ok := configs.ResolveConfig(*value.ConfigVersionID); !ok {
-				return InvalidConfigErrf("container1Spec.runtime.envVars: unknown config id %d", *value.ConfigVersionID)
+			if _, ok := configs.ResolveConfig(*value.Config); !ok {
+				return InvalidConfigErrf("container1Spec.runtime.envVars: unknown config %s", *value.Config)
 			}
 		}
 	}
@@ -983,8 +983,8 @@ func resolveAssetMounts(in []*apigen.AssetMount, assets AssetResolver) ([]*apige
 			return nil, InvalidConfigErrf("container1Spec.runtime.assetMounts: asset and path are both required")
 		}
 		path := strings.TrimSpace(m.ContainerPath)
-		if m.AssetVersionID <= 0 || path == "" {
-			return nil, InvalidConfigErrf("container1Spec.runtime.assetMounts: assetVersionId and path are both required")
+		if !m.Asset.Valid() || path == "" {
+			return nil, InvalidConfigErrf("container1Spec.runtime.assetMounts: asset and path are both required")
 		}
 		if !filepath.IsAbs(path) {
 			return nil, InvalidConfigErrf("container1Spec.runtime.assetMounts: path must be absolute")
@@ -993,32 +993,31 @@ func resolveAssetMounts(in []*apigen.AssetMount, assets AssetResolver) ([]*apige
 		if cleanPath != path || cleanPath == "/" || strings.HasSuffix(path, "/") {
 			return nil, InvalidConfigErrf("container1Spec.runtime.assetMounts: path must be an absolute file path")
 		}
-		asset, ok := assets.GetAssetVersionRef(m.AssetVersionID)
+		asset, ok := assets.GetAssetVersionRef(m.Asset)
 		if !ok {
-			return nil, InvalidConfigErrf("container1Spec.runtime.assetMounts: asset version id %d not found", m.AssetVersionID)
+			return nil, InvalidConfigErrf("container1Spec.runtime.assetMounts: asset %s not found", m.Asset)
 		}
 		if m.Permission != apigen.FilePermission_READ_ONLY && m.Permission != apigen.FilePermission_READ_EXECUTE {
 			return nil, InvalidConfigErrf("container1Spec.runtime.assetMounts: permission must be READ_ONLY or READ_EXECUTE")
 		}
-		out = append(out, &apigen.AssetMount{AssetVersionID: asset.VersionID, ContainerPath: cleanPath, Permission: m.Permission})
+		out = append(out, &apigen.AssetMount{Asset: asset.Ref, ContainerPath: cleanPath, Permission: m.Permission})
 	}
 	return out, nil
 }
 
 func resolveEnvAssetRefs(scope string, env map[string]*apigen.EnvVarValue, assets AssetResolver) error {
 	for key, value := range env {
-		if value.AssetVersionID <= 0 {
+		if value.AssetRef == nil {
 			continue
 		}
 		if assets == nil {
 			return InvalidConfigErrf("%s.%s: assets cannot be resolved here", scope, key)
 		}
-		asset, ok := assets.GetAssetVersionRef(value.AssetVersionID)
+		asset, ok := assets.GetAssetVersionRef(*value.AssetRef)
 		if !ok {
-			return InvalidConfigErrf("%s.%s: asset version id %d not found", scope, key, value.AssetVersionID)
+			return InvalidConfigErrf("%s.%s: asset %s not found", scope, key, *value.AssetRef)
 		}
 		value.Asset = asset.Key
-		value.AssetVersionID = asset.VersionID
 	}
 	return nil
 }
@@ -1044,20 +1043,23 @@ func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue) error {
 		if value.Value != nil {
 			set++
 		}
-		if value.SecretVersionID != nil {
+		if value.Secret != nil {
 			set++
-			if *value.SecretVersionID <= 0 {
-				return InvalidConfigErrf("%s.%s: secretId must be positive", scope, key)
+			if !value.Secret.Valid() {
+				return InvalidConfigErrf("%s.%s: secret id and version must be positive", scope, key)
 			}
 		}
-		if value.ConfigVersionID != nil {
+		if value.Config != nil {
 			set++
-			if *value.ConfigVersionID <= 0 {
-				return InvalidConfigErrf("%s.%s: configId must be positive", scope, key)
+			if !value.Config.Valid() {
+				return InvalidConfigErrf("%s.%s: config id and version must be positive", scope, key)
 			}
 		}
-		if value.AssetVersionID > 0 {
+		if value.AssetRef != nil {
 			set++
+			if !value.AssetRef.Valid() {
+				return InvalidConfigErrf("%s.%s: asset id and version must be positive", scope, key)
+			}
 		}
 		hasAddress := value.AddressDeploymentID != nil || value.AddressSpaceID != nil
 		if hasAddress {
@@ -1076,7 +1078,7 @@ func validateEnvVars(scope string, in map[string]*apigen.EnvVarValue) error {
 			}
 		}
 		if set != 1 {
-			return InvalidConfigErrf("%s.%s: exactly one of value, secretId, configId, assetId, or address is required", scope, key)
+			return InvalidConfigErrf("%s.%s: exactly one of value, secret, config, assetRef, or address is required", scope, key)
 		}
 		out[key] = value
 	}

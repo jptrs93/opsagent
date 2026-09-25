@@ -12,7 +12,6 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
-	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 )
 
 var SecretNameRequiredErr = apigen.NewApiErr("Secret name is required", "secret_name_required", http.StatusBadRequest)
@@ -70,14 +69,15 @@ func (h *Handler) PostV1SecretsList(ctx apigen.Context) (*apigen.SecretEventList
 // secretForVersionID resolves the identity that owns a version row. Reveal
 // addresses version rows, but access is granted on the identity.
 func (h *Handler) secretForVersionID(versionID int32) *apigen.SecretEvent {
-	for _, sec := range secrets.List(h.Store.Queries()) {
-		for _, id := range secrets.VersionIDs(h.Store.Queries(), sec.SecretID) {
-			if id == versionID {
-				return sec
-			}
-		}
+	meta, ok := h.Secrets.MetaByID(versionID)
+	if !ok {
+		return nil
 	}
-	return nil
+	sec, ok := secrets.Get(h.Store.Queries(), meta.SecretID)
+	if !ok {
+		return nil
+	}
+	return sec
 }
 
 func (h *Handler) PostV1SecretsCreate(ctx apigen.Context, req *apigen.SecretCreateRequest) (*apigen.SecretEvent, error) {
@@ -257,7 +257,7 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 			if destSpace == nodes.DefaultSpaceID {
 				return nil
 			}
-			ids := deployments.Int32Set(secrets.VersionIDs(h.Store.Queries(), req.SecretID))
+			ids := deployments.Int32Set([]int32{req.SecretID})
 			if h.settingsUseSecretID(ids) {
 				return deployments.MoveReferencesOutsideSpaceErr
 			}
@@ -265,7 +265,7 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 			if err != nil {
 				return err
 			}
-			if deployments.ReferencesOutsideSpace(live, ids, runtimeinputs.SecretRefs, destSpace) {
+			if deployments.ReferencesOutsideSpace(live, ids, deployments.SecretRefIDs, destSpace) {
 				return deployments.MoveReferencesOutsideSpaceErr
 			}
 			return nil
@@ -322,12 +322,12 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 		return SecretReservedNameErr
 	}
 	validate := func(q *pq.Queries) error {
-		ids := deployments.Int32Set(secrets.VersionIDs(h.Store.Queries(), req.SecretID))
+		ids := deployments.Int32Set([]int32{req.SecretID})
 		live, err := nodes.ReadLiveState(ctx, q)
 		if err != nil {
 			return err
 		}
-		details := append(h.settingsSecretRefDetails(ids), deployments.RefDetails(ctx, q, live, ids, runtimeinputs.SecretRefs)...)
+		details := append(h.settingsSecretRefDetails(ids), deployments.RefDetails(ctx, q, live, ids, deployments.SecretRefIDs)...)
 		if len(details) > 0 {
 			return deployments.ReferenceInUseDetailErr("Secret", details)
 		}

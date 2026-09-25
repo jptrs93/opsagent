@@ -460,9 +460,10 @@ function secondaryInstallCommand(config, enrollmentInfo, version) {
 
 function resolveStringSetting(setting) {
     if (!setting) return "";
-    const refID = Number(setting.configRef?.versionId || 0);
-    if (!refID) return (setting.value || "").trim();
-    const item = (userConfigRefsS.val || []).find(ref => Number(ref.id || 0) === refID);
+    const refID = Number(setting.configRef?.ref?.id || 0);
+    const refVersion = Number(setting.configRef?.ref?.version || 0);
+    if (!refID || !refVersion) return (setting.value || "").trim();
+    const item = (userConfigRefsS.val || []).find(ref => Number(ref.stableId || 0) === refID && Number(ref.version || 0) === refVersion);
     return (item?.value || "").trim();
 }
 

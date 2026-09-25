@@ -75,34 +75,6 @@ func (q *Queries) ListSecretKeyslots(ctx context.Context) ([]SecretKeyslot, erro
 	return items, nil
 }
 
-const listSecretVersionIDsBySecretID = `SELECT id FROM secret_event_log
-WHERE secret_id = ? AND value_changed != 0
-ORDER BY value_version
-`
-
-func (q *Queries) ListSecretVersionIDsBySecretID(ctx context.Context, secretID int64) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, listSecretVersionIDsBySecretID, secretID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const upsertSecretKeyslot = `INSERT INTO secret_keyslots (slot, smk_version, wrapped_smk, nonce, kdf_salt, created_at)
 VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT(slot) DO UPDATE SET

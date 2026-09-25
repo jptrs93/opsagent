@@ -52,15 +52,12 @@ export const valueVersions = history => history.filter((event, i) => i === 0 || 
     .map(event => ({id: event.eventId, version: event.valueVersion, createdAt: new Date(event.eventTime), author: event.author,
         value: event.value.value, sha256: event.value.sha256, sizeBytes: event.value.sizeBytes, globalSeq: event.seq})).reverse();
 
-const spaceVersions = history => history.filter((event, i) => i === 0 || event.spaceVersion !== history[i - 1].spaceVersion)
-    .map(event => ({id: event.eventId, spaceId: event.value.spaceId, createdAt: new Date(event.eventTime), author: event.author, globalSeq: event.seq})).reverse();
-
 const valueViewModel = (history, idField) => {
     const event = history.at(-1);
     if (!event) return undefined;
     return {
         id: event[idField], version: event.version, seq: event.seq, fs: event.value.fs,
-        spaceId: event.value.spaceId, spaceVersions: spaceVersions(history),
+        spaceId: event.value.spaceId,
         name: event.value.fs?.name || '', key: event.value.fs?.key || '',
         valueDirectoryId: Number(event.value.fs?.directoryId || 0), directoryId: Number(event.value.fs?.directoryId || 0),
         deleted: event.eventType === 3,

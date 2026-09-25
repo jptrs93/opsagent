@@ -101,15 +101,6 @@ func IDByName(q *pq.Queries, spaceID int32, name string) (int32, bool) {
 	return int32(row.ID), true
 }
 
-func VersionIDs(q *pq.Queries, secretID int32) []int32 {
-	rows := erru.Must(q.ListSecretVersionIDsBySecretID(context.Background(), int64(secretID)))
-	ids := make([]int32, 0, len(rows))
-	for _, id := range rows {
-		ids = append(ids, int32(id))
-	}
-	return ids
-}
-
 func GetEvent(q *pq.Queries, secretID int32, eventID int64) (*apigen.SecretEvent, bool) {
 	row, err := q.GetSecretEventByID(context.Background(), eventID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -127,7 +118,7 @@ func GetEvent(q *pq.Queries, secretID int32, eventID int64) (*apigen.SecretEvent
 func nextSecretEvent(prev *apigen.SecretEvent, author int32, eventType int64) pq.SecretEvent {
 	return pq.SecretEvent{
 		EventTime: time.Now().UnixMilli(), CreatedTime: prev.CreatedTime, Author: int64(author),
-		SecretID: int64(prev.SecretID), Version: int64(prev.Version) + 1, ValueVersion: int64(prev.ValueVersion), SpaceVersion: int64(prev.SpaceVersion),
+		SecretID: int64(prev.SecretID), Version: int64(prev.Version) + 1, ValueVersion: int64(prev.ValueVersion),
 		Name: prev.Value.Fs.Name, ValueDirectoryID: int64(prev.Value.Fs.DirectoryID), SpaceID: int64(prev.Value.SpaceID), EventType: eventType,
 	}
 }
@@ -179,7 +170,7 @@ func CreateWithVersion(store *state.Service, name string, spaceID, directoryID, 
 		}
 		written, err := q.InsertSecretEvent(ctx, pq.SecretEvent{
 			GlobalSeq: seq, EventTime: now, CreatedTime: now, Author: int64(author), SecretID: id,
-			Version: 1, ValueVersion: 1, SpaceVersion: 1, ValueChanged: 1, SpaceChanged: 1,
+			Version: 1, ValueVersion: 1, ValueChanged: 1,
 			Name: name, ValueDirectoryID: dirID, SpaceID: space,
 			SmkVersion: int64(sealed.SMKVersion), Ciphertext: sealed.Ciphertext, Nonce: sealed.Nonce, EventType: pq.EventCreate,
 		})
@@ -225,7 +216,7 @@ func appendVersionWithDeploymentUpdates(store *state.Service, secretID, author i
 			ID: int32(written.EventID), SecretID: secretID, Name: prev.Value.Fs.Name, Version: int32(version), SpaceID: prev.Value.SpaceID,
 			SMKVersion: sealed.SMKVersion, Ciphertext: sealed.Ciphertext, Nonce: sealed.Nonce, CreatedAt: event.EventTime, Author: author,
 		}
-		return int32(written.EventID), apigen.CoreUpdate{Seq: globalSeq, SecretEvents: []*apigen.SecretEvent{written}}, nil
+		return int32(version), apigen.CoreUpdate{Seq: globalSeq, SecretEvents: []*apigen.SecretEvent{written}}, nil
 	}
 	updatedDeployments, err := values.SetVersionedValueWithDeploymentUpdates(store, values.SecretReference, secretID, updateDeployments, expected, author, insert, func(_ []int32) {
 		if afterCommit != nil {
@@ -332,11 +323,7 @@ func moveSpace(store *state.Service, secretID, newSpaceID, newDirectoryID, autho
 		}
 		event := nextSecretEvent(prev, author, pq.EventUpdate)
 		event.ValueDirectoryID = dirID
-		if spaceID != int64(prev.Value.SpaceID) {
-			event.SpaceID = spaceID
-			event.SpaceVersion = int64(prev.SpaceVersion) + 1
-			event.SpaceChanged = 1
-		}
+		event.SpaceID = spaceID
 		return appendSecretEvent(ctx, q, seq, event)
 	})
 }

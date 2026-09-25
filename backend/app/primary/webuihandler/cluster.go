@@ -228,19 +228,19 @@ func (h *Handler) PostV1NodesExposure(ctx apigen.Context, req *apigen.NodeExposu
 	for _, cfg := range exposure.IssuedTLSDeployments {
 		out.IssuedTlsDeployments = append(out.IssuedTlsDeployments, &apigen.NodeExposureItem{ID: cfg.DeploymentID, Name: cfg.Value.Name, SpaceID: cfg.Value.SpaceID, Version: cfg.Version})
 	}
-	for _, id := range exposure.SecretVersionIDs {
-		item := &apigen.NodeExposureItem{ID: id}
+	for _, ref := range exposure.Secrets {
+		item := &apigen.NodeExposureItem{ID: ref.ID, Version: ref.Version}
 		if h.Secrets != nil {
-			if meta, ok := h.Secrets.MetaByID(id); ok {
-				item.Name, item.SpaceID, item.Version = meta.Name, meta.SpaceID, meta.Version
+			if meta, ok := h.Secrets.MetaByRef(ref); ok {
+				item.Name, item.SpaceID = meta.Name, meta.SpaceID
 			}
 		}
 		out.Secrets = append(out.Secrets, item)
 	}
-	for _, id := range exposure.ConfigVersionIDs {
-		item := &apigen.NodeExposureItem{ID: id}
-		if ref, ok := values.GetConfigVersion(h.Queries, id); ok {
-			item.Name, item.SpaceID, item.Version = ref.Name, ref.SpaceID, ref.Version
+	for _, ref := range exposure.Configs {
+		item := &apigen.NodeExposureItem{ID: ref.ID, Version: ref.Version}
+		if version, ok := values.GetConfigVersion(h.Queries, ref); ok {
+			item.Name, item.SpaceID = version.Name, version.SpaceID
 		}
 		out.Configs = append(out.Configs, item)
 	}

@@ -92,13 +92,11 @@ func TestContainerRunnerShouldPublishStopped(t *testing.T) {
 
 func TestCountEnvVars(t *testing.T) {
 	plain := "value"
-	secretID := int32(1)
-	configID := int32(2)
 	got := countEnvVars(map[string]*apigen.EnvVarValue{
 		"PLAIN":  {Value: &plain},
-		"SECRET": {SecretVersionID: &secretID},
-		"CONFIG": {ConfigVersionID: &configID},
-		"ASSET":  {Asset: "bundle", AssetVersionID: 3},
+		"SECRET": {Secret: &apigen.ValueRef{ID: 1, Version: 1}},
+		"CONFIG": {Config: &apigen.ValueRef{ID: 2, Version: 1}},
+		"ASSET":  {Asset: "bundle", AssetRef: &apigen.ValueRef{ID: 3, Version: 1}},
 		"NIL":    nil,
 	})
 
@@ -143,7 +141,7 @@ func TestDefaultVolumeDest(t *testing.T) {
 func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 	dep := &apigen.DeploymentEvent{
 		DeploymentID: 7,
-		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}, AssetMounts: []*apigen.AssetMount{{AssetVersionID: 8, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY}, {AssetVersionID: 9, ContainerPath: "/docker-entrypoint-initdb.d/init.sh", Permission: apigen.FilePermission_READ_EXECUTE}}}}}},
+		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}, AssetMounts: []*apigen.AssetMount{{Asset: apigen.ValueRef{ID: 8, Version: 1}, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY}, {Asset: apigen.ValueRef{ID: 9, Version: 2}, ContainerPath: "/docker-entrypoint-initdb.d/init.sh", Permission: apigen.FilePermission_READ_EXECUTE}}}}}},
 	}
 
 	mounts, dataHost := containerMounts(dep)
@@ -153,10 +151,10 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 	if len(mounts) != 2 {
 		t.Fatalf("mounts len = %d, want 2", len(mounts))
 	}
-	if mounts[0].Source != runtimeinputs.AssetCachePathWithMode(8, false) || !mounts[0].ReadOnly {
+	if mounts[0].Source != runtimeinputs.AssetCachePathWithMode(apigen.ValueRef{ID: 8, Version: 1}, false) || !mounts[0].ReadOnly {
 		t.Fatalf("readonly asset mount = %+v", mounts[0])
 	}
-	if mounts[1].Source != runtimeinputs.AssetCachePathWithMode(9, true) || !mounts[1].ReadOnly {
+	if mounts[1].Source != runtimeinputs.AssetCachePathWithMode(apigen.ValueRef{ID: 9, Version: 2}, true) || !mounts[1].ReadOnly {
 		t.Fatalf("executable asset mount = %+v", mounts[1])
 	}
 }

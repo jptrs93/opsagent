@@ -279,13 +279,13 @@ function unwrap(value) {
 
 // The generic name+version resolvers want one catalog entry per referenceable
 // asset version, but asset metas arrive one per asset with a version_refs
-// index. Expand them so `id` is always the pinnable version row id.
+// index. Expand them so `stableId` and `version` form the pinnable ValueRef.
 function expandAssetVersions(metas) {
     const out = [];
     for (const meta of metas) {
         for (const ref of meta.contentVersions || []) {
             if (!Number(ref?.id || 0)) continue;
-            out.push({id: Number(ref.id), key: meta.key, spaceId: meta.spaceId, directoryId: Number(meta.directoryId || 0), version: Number(ref.version || 0)});
+            out.push({id: Number(ref.id), stableId: Number(meta.id), key: meta.key, spaceId: meta.spaceId, directoryId: Number(meta.directoryId || 0), version: Number(ref.version || 0)});
         }
     }
     return out;
@@ -392,13 +392,20 @@ function nameForID(catalogs, type, id, spaceId) {
     return itemName(item, type) || placeholder(type, id);
 }
 
-// versionedReferenceForID renders secret("space", "folder/name"[, version])
+function valueRef(item) {
+    return {id: Number(item.stableId), version: Number(item.version || 0)};
+}
+
+// versionedReferenceForRef renders secret("space", "folder/name"[, version])
 // and the config and asset forms. The version is omitted only when it is the
 // latest and the caller allows unpinned references.
-function versionedReferenceForID(catalogs, type, id, pinVersions) {
+function versionedReferenceForRef(catalogs, type, ref, pinVersions) {
     const collection = versionedCollection(catalogs, type);
-    const item = findByID(collection, type, id);
-    const path = item ? itemPath(catalogs, type, item) : placeholder(type, id);
+    const id = Number(ref?.id || 0);
+    const refVersion = Number(ref?.version || 0);
+    const item = id && refVersion ? scopedItems(collection, type).find(candidate =>
+        Number(candidate?.stableId) === id && Number(candidate?.version || 0) === refVersion) : undefined;
+    const path = item ? itemPath(catalogs, type, item) : placeholder(type, id ? `${id}_v${refVersion}` : "");
     const referenceSpaceId = itemSpace(item, type);
     const space = item ? nameForID(catalogs, "space", referenceSpaceId) : placeholder("space", "");
     const version = Number(item?.version || 0);
@@ -418,17 +425,17 @@ function deploymentReferenceForID(catalogs, functionName, id) {
 }
 
 function envValueToHcl(value, catalogs, pinVersions) {
-    if (value?.secretVersionId !== undefined && value.secretVersionId !== null) {
-        return versionedReferenceForID(catalogs, "secret", value.secretVersionId, pinVersions);
+    if (value?.secret) {
+        return versionedReferenceForRef(catalogs, "secret", value.secret, pinVersions);
     }
-    if (value?.configVersionId !== undefined && value.configVersionId !== null) {
-        return versionedReferenceForID(catalogs, "config", value.configVersionId, pinVersions);
+    if (value?.config) {
+        return versionedReferenceForRef(catalogs, "config", value.config, pinVersions);
     }
     if (value?.addressDeploymentId !== undefined && value.addressDeploymentId !== null) {
         return deploymentReferenceForID(catalogs, "address", value.addressDeploymentId);
     }
-    if (value?.assetVersionId || value?.asset) {
-        return versionedReferenceForID(catalogs, "asset", value.assetVersionId, pinVersions);
+    if (value?.assetRef || value?.asset) {
+        return versionedReferenceForRef(catalogs, "asset", value.assetRef, pinVersions);
     }
     return quote(value?.value ?? "");
 }
@@ -531,7 +538,7 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
         mounts.push(`mount(${mountSource}, ${quote(mount?.containerPath)}${mountOption("read_only", mount?.permission === PERMISSION_READ_ONLY)})`);
     }
     for (const mount of runtime.assetMounts || []) {
-        const mountSource = versionedReferenceForID(refs, "asset", mount?.assetVersionId, pinVersions);
+        const mountSource = versionedReferenceForRef(refs, "asset", mount?.asset, pinVersions);
         mounts.push(`mount(${mountSource}, ${quote(mount?.containerPath)}${mountOption("executable", mount?.permission === PERMISSION_READ_EXECUTE)})`);
     }
     if (runtime.issuedTlsMount) {
@@ -600,7 +607,7 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
             if (config.maxRequestBodyBytes) lines.push(`max_request_body_bytes = ${Number(config.maxRequestBodyBytes)}`);
             if (config.flushIntervalMs) lines.push(`flush_interval_ms = ${Number(config.flushIntervalMs)}`);
             if (config.certSource?.secret) {
-                lines.push(`cert = ${versionedReferenceForID(refs, "secret", config.certSource.secret.secretVersionId, pinVersions)}`);
+                lines.push(`cert = ${versionedReferenceForRef(refs, "secret", config.certSource.secret.secret, pinVersions)}`);
             } else if (config.certSource?.acme) {
                 lines.push("cert = acme()");
             }
@@ -905,7 +912,7 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime
             const options = optionsExpression ? validateObject(text, diagnostics, optionsExpression, new Set(["executable"])) : new Map();
             if (asset) {
                 assetMounts.push({
-                    assetVersionId: Number(asset.id),
+                    asset: valueRef(asset),
                     containerPath: pathExpression.value,
                     permission: optionBoolean(text, diagnostics, options, "executable")
                         ? PERMISSION_READ_EXECUTE
@@ -1018,9 +1025,9 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
             item = versionedReference(text, diagnostics, value, type, catalogs, spaceId);
         }
         if (!item) continue;
-        if (value.name === "secret") setEnv(entry.name, {secretVersionId: Number(item.id)});
-        if (value.name === "config") setEnv(entry.name, {configVersionId: Number(item.id)});
-        if (value.name === "asset") setEnv(entry.name, {asset: item.key, assetVersionId: Number(item.id)});
+        if (value.name === "secret") setEnv(entry.name, {secret: valueRef(item)});
+        if (value.name === "config") setEnv(entry.name, {config: valueRef(item)});
+        if (value.name === "asset") setEnv(entry.name, {asset: item.key, assetRef: valueRef(item)});
         if (value.name === "address") {
             const config = deploymentOf(item);
             setEnv(entry.name, {addressDeploymentId: Number(config.deploymentId), addressSpaceId: Number(config.value?.spaceId)});
@@ -1186,7 +1193,7 @@ function parseIngressBlock(text, diagnostics, block, networking, catalogs, space
                     httpsConfig.certSource = {acme: {}};
                 } else if (value.kind === "call" && value.name === "secret") {
                     const item = versionedReference(text, diagnostics, value, "secret", catalogs, spaceId);
-                    if (item) httpsConfig.certSource = {secret: {secretVersionId: Number(item.id)}};
+                    if (item) httpsConfig.certSource = {secret: {secret: valueRef(item)}};
                 } else {
                     diagnostics.push(diagnostic(text, value, 'HTTPS cert must be acme() or secret("space", "folder/name"[, version]).'));
                 }

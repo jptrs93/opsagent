@@ -183,8 +183,8 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 type Exposure struct {
 	NodeID               int32
 	Deployments          []*apigen.DeploymentEvent
-	SecretVersionIDs     []int32
-	ConfigVersionIDs     []int32
+	Secrets              []apigen.ValueRef
+	Configs              []apigen.ValueRef
 	IssuedTLSDeployments []*apigen.DeploymentEvent
 	AcmeHostnames        []string
 	GithubToken          bool
@@ -205,8 +205,8 @@ func NodeExposure(ctx context.Context, q *pq.Queries, nodeID int32) (Exposure, e
 	if err != nil {
 		return out, err
 	}
-	secrets := map[int32]struct{}{}
-	configs := map[int32]struct{}{}
+	secrets := map[apigen.ValueRef]struct{}{}
+	configs := map[apigen.ValueRef]struct{}{}
 	issued := map[int32]*apigen.DeploymentEvent{}
 	hostnames := map[string]struct{}{}
 	seen := map[[2]int32]struct{}{}
@@ -231,8 +231,8 @@ func NodeExposure(ctx context.Context, q *pq.Queries, nodeID int32) (Exposure, e
 			}
 		}
 	}
-	out.SecretVersionIDs = sortedKeys(secrets)
-	out.ConfigVersionIDs = sortedKeys(configs)
+	out.Secrets = sortedRefs(secrets)
+	out.Configs = sortedRefs(configs)
 	for _, cfg := range issued {
 		out.IssuedTLSDeployments = append(out.IssuedTLSDeployments, cfg)
 	}
@@ -244,15 +244,15 @@ func NodeExposure(ctx context.Context, q *pq.Queries, nodeID int32) (Exposure, e
 	return out, nil
 }
 
-func collectSpecExposure(cfg *apigen.DeploymentEvent, secrets, configs map[int32]struct{}, hostnames map[string]struct{}, github *bool) {
+func collectSpecExposure(cfg *apigen.DeploymentEvent, secrets, configs map[apigen.ValueRef]struct{}, hostnames map[string]struct{}, github *bool) {
 	for _, route := range cfg.Value.Spec.Networking.Ingress {
 		if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || route.HttpsConfig == nil {
 			continue
 		}
 		source := route.HttpsConfig.CertSource
 		if source != nil && source.Secret != nil {
-			if source.Secret.SecretVersionID > 0 {
-				secrets[source.Secret.SecretVersionID] = struct{}{}
+			if source.Secret.Secret.Valid() {
+				secrets[source.Secret.Secret] = struct{}{}
 			}
 			continue
 		}
@@ -277,20 +277,28 @@ func collectSpecExposure(cfg *apigen.DeploymentEvent, secrets, configs map[int32
 		if value == nil {
 			continue
 		}
-		if value.SecretVersionID != nil && *value.SecretVersionID > 0 {
-			secrets[*value.SecretVersionID] = struct{}{}
+		if value.Secret != nil && value.Secret.Valid() {
+			secrets[*value.Secret] = struct{}{}
 		}
-		if value.ConfigVersionID != nil && *value.ConfigVersionID > 0 {
-			configs[*value.ConfigVersionID] = struct{}{}
+		if value.Config != nil && value.Config.Valid() {
+			configs[*value.Config] = struct{}{}
 		}
 	}
 }
 
-func sortedKeys(set map[int32]struct{}) []int32 {
-	out := make([]int32, 0, len(set))
-	for id := range set {
-		out = append(out, id)
+func sortedRefs(set map[apigen.ValueRef]struct{}) []apigen.ValueRef {
+	out := make([]apigen.ValueRef, 0, len(set))
+	for ref := range set {
+		out = append(out, ref)
 	}
-	slices.Sort(out)
+	slices.SortFunc(out, func(a, b apigen.ValueRef) int {
+		if a.Less(b) {
+			return -1
+		}
+		if b.Less(a) {
+			return 1
+		}
+		return 0
+	})
 	return out
 }

@@ -17,7 +17,7 @@ message ConfigEvent {
   int64 created_time = 7;
   int64 event_time = 8;
   int32 value_version = 9;
-  int32 space_version = 10;
+  reserved 10;
   Config value = 11 [(cp.go_value) = true];
 }
 

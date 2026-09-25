@@ -439,7 +439,7 @@ ingress: [
       backendProtocol: "H2C",   // default HTTP/1.1
       maxRequestBodyBytes: 0,   // 0 = unlimited
       flushIntervalMs: 0,       // 0 = auto; < 0 = flush every write
-      certSource: {acme: {}},   // or {secret: {secretVersionId}}; unset = acme
+      certSource: {acme: {}},   // or {secret: {secret: {id, version}}}; unset = acme
     },
     listen: [
       {node: {nodeId: 2}, address: {prefixes: ["203.0.113.10"]}},

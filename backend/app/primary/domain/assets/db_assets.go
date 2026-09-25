@@ -67,24 +67,21 @@ func GetAssetInDirectory(q *pq.Queries, spaceID, directoryID int32, key string) 
 }
 
 type AssetVersionRef struct {
-	VersionID int32
-	AssetID   int32
-	Key       string
-	SpaceID   int32
+	Ref     apigen.ValueRef
+	Key     string
+	SpaceID int32
 }
 
-func GetAssetVersionRef(q *pq.Queries, assetVersionID int32) (AssetVersionRef, bool) {
-	r, ok := GetAssetVersionJoined(q, assetVersionID)
+func GetAssetVersionRef(q *pq.Queries, ref apigen.ValueRef) (AssetVersionRef, bool) {
+	r, ok := GetAssetValueJoined(q, ref)
 	if !ok {
 		return AssetVersionRef{}, false
 	}
-	return AssetVersionRef{
-		VersionID: int32(r.Version.ID),
-		AssetID:   int32(r.Asset.ID),
-		Key:       r.Asset.Key,
-		SpaceID:   int32(r.Asset.SpaceID),
-	}, true
+	return AssetVersionRef{Ref: ref, Key: r.Asset.Key, SpaceID: int32(r.Asset.SpaceID)}, true
 }
+
+// GetAssetVersionJoined resolves a content version row id, as listed in an
+// asset's version history.
 func GetAssetVersionJoined(q *pq.Queries, assetVersionID int32) (pq.AssetVersionJoined, bool) {
 	r, err := q.GetAssetVersionJoinedByID(context.Background(), int64(assetVersionID))
 	if err == sql.ErrNoRows {
@@ -95,13 +92,17 @@ func GetAssetVersionJoined(q *pq.Queries, assetVersionID int32) (pq.AssetVersion
 	}
 	return r, true
 }
-func AssetVersionIDs(q *pq.Queries, assetID int32) []int32 {
-	rows := erru.Must(q.ListAssetVersionIDsByAssetID(context.Background(), int64(assetID)))
-	ids := make([]int32, 0, len(rows))
-	for _, id := range rows {
-		ids = append(ids, int32(id))
+
+// GetAssetValueJoined resolves a pinned asset value reference.
+func GetAssetValueJoined(q *pq.Queries, ref apigen.ValueRef) (pq.AssetVersionJoined, bool) {
+	r, err := q.GetAssetVersionJoinedByRef(context.Background(), ref)
+	if err == sql.ErrNoRows {
+		return pq.AssetVersionJoined{}, false
 	}
-	return ids
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetVersionJoinedByRef: %v", err))
+	}
+	return r, true
 }
 func assetSiblingKeyTaken(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, key string, excludeAssetID, excludeDirectoryID int64) bool {
 	assets := erru.Must(q.CountAssetSiblingsWithKey(ctx, pq.CountAssetSiblingsWithKeyParams{
@@ -212,7 +213,6 @@ func CreateAssetWithVersion(store *state.Service, key string, spaceID, directory
 			AssetID:      int32(assetID),
 			Version:      1,
 			ValueVersion: 1,
-			SpaceVersion: 1,
 			Value:        apigen.Asset{Fs: &apigen.AssetFs{Key: key, DirectoryID: int32(dirID)}, SpaceID: int32(space), SizeBytes: sizeBytes, Sha256: sha256},
 			EventType:    apigen.EventType_EVENT_TYPE_CREATE,
 		}, nil
@@ -344,10 +344,7 @@ func MoveAssetSpace(store *state.Service, assetID, newSpaceID, newDirectoryID, a
 		}
 		event := nextAssetEvent(prev, author, apigen.EventType_EVENT_TYPE_UPDATE)
 		event.Value.Fs.DirectoryID = int32(dirID)
-		if spaceID != int64(prev.Value.SpaceID) {
-			event.Value.SpaceID = int32(spaceID)
-			event.SpaceVersion = prev.SpaceVersion + 1
-		}
+		event.Value.SpaceID = int32(spaceID)
 		return &event, nil
 	})
 }

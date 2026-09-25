@@ -45,7 +45,7 @@ worker address derivation and virtual networking for every cached workload.
 - Web UI auth is enforced by `webuihandler.Handler.VerifyAuth`; cluster peer identity comes from mTLS, while enrollment uses its dedicated request verifier.
 - Static SPA assets are served from embedded `backend/web/dist`; unknown paths fall back to `index.html`.
 - The frontend is built via `//go:generate` in `backend/main.go` before embedding.
-- Write handlers go through `state.Service.Commit(ctx, inlockValidate, mutate)`: every check-then-write sequence (deployments, secrets, configs, assets, cluster settings) runs its in-lock validator and its row writes on the transaction-bound `pq.Queries` inside one commit, and returns the `CoreUpdate` the store publishes. Domain logic lives in `app/primary/domain/<name>` packages (`deployments`, `scheduledinstances`, `nodes`, `networkpolicies`, `assets`, `secrets`, `values`, `authz`, `users`, `agentsessions`, `systemconfig`); handlers call those functions or `pq.Queries` directly. Deployment endpoints validate in two layers: `preLockDeploymentValidate` (pure shape rules, before the commit) and a per-operation in-lock validator against `nodes.LiveState` (`inLockValidateDeploymentCreate` / `Update` / `SpaceMove` / `Delete`; the v2 update handler picks `SpaceMove` when the update carries a space change). Authz and network I/O (nix source verification) run before the commit; the version CAS closes the gap. Lock order: the asset operation lock (where asset file operations are involved) precedes `Mu`; subsystem locks (secrets manager, config service) nest strictly inside `Mu`.
+- Write handlers go through `state.Service.Commit(ctx, preLockValidate, mutate)` (see [Commit](#commit)): every check-then-write sequence (deployments, secrets, configs, assets, cluster settings) re-reads its dependencies and performs its row writes on the transaction-bound `pq.Queries` inside `mutate`, and returns the `CoreUpdate` the store publishes. Domain logic lives in `app/primary/domain/<name>` packages (`deployments`, `scheduledinstances`, `nodes`, `networkpolicies`, `assets`, `secrets`, `values`, `authz`, `users`, `agentsessions`, `systemconfig`); handlers call those functions or `pq.Queries` directly. Deployment endpoints validate in two layers: pure shape rules before the commit, and a per-operation validator inside `mutate` (`inLockValidateDeploymentCreate` / `Update` / `Delete` in `domain/deployments/validate_layers.go`). Authz and network I/O (nix source verification) run before the commit; the version CAS closes the gap. Lock order: the asset operation lock (where asset file operations are involved) precedes `Mu`; subsystem locks (secrets manager, config service) nest strictly inside `Mu`.
 
 ## Client flow (JavaScript)
 
@@ -128,27 +128,42 @@ See [auth.md](auth.md) for the access-control model these routes manage.
 | POST | `/v1/global/exported-config` | — | `ExportedConfigBlob` | ANY_OF default |
 
 `/v1/global/state-stream` sends `StateStreamMsg`: a `snapshot` on connect,
-then `core`, `observed`, and sidecar messages, plus five-second heartbeats.
-`/v1/global/snapshot` returns the same filtered bootstrap. Core collections
-are arrays of event envelopes with entity id, version, seq, event_id, author,
-event type, timestamps, facet counters where relevant, and `value`.
+then one `core` message per visible commit, sidecar messages, and five-second
+heartbeats. `/v1/global/snapshot` returns the same filtered bootstrap. Core
+collections are arrays of event envelopes with entity id, version, seq,
+event_id, author, event type, timestamps, facet counters where relevant, and
+`value`. Observed statuses travel inside `CoreUpdate` (`instance_statuses`,
+`node_statuses`); there is no separate observed message.
 
-Every authored and observed primary writer calls `commitLocked(ctx, mutate)`
-under the store mutex. The callback receives transaction queries and a candidate
-`global_seq + 1`, and returns `Update{Core, Observed}`. It checks expected entity
-or facet counters before mutation, owns all database writes (including private
-payloads), and sets the candidate sequence on authored rows, `CoreUpdate.Seq`,
-and every core event's `Seq`. Events use normal read-converter projections of
-the written rows. Version checks never compare the last-change global sequence.
+#### Commit
 
-The store reserves the SQLite writer before reading, runs the mutation and one
-scheduler reconciliation phase in the same transaction, and persists the
-sequence only if the final core update is non-nil. Observations keep their HLCs;
-history-only writes may return an empty update. After commit, the store installs
-the final caches and publishes core first, then observed, without repairing the
-returned sequence fields. Failed writes change no caches, consume no ids or
-sequence, and publish nothing. Callbacks are not retried. `*AtSeq` queries remain
-a test oracle only.
+Every primary writer, authored or observed, calls
+`state.Service.Commit(ctx, preLockValidate, mutate)`. `preLockValidate` is an
+advisory fast-fail check on the root `pq.Queries` before the lock; it returns
+only an error and nothing depends on it for correctness. The store then takes
+the write mutex, opens a transaction that reserves the SQLite writer before
+reading, reads `global_seq`, and calls `mutate(q, seq)` with the transaction
+queries and the candidate `global_seq + 1`. `mutate` re-reads and checks
+everything the write depends on (entity and facet counters, never the global
+sequence of the last change), owns every database write including private
+payloads, stamps the candidate sequence on the rows it writes, and returns a
+`*CoreUpdate` (`state.Update`) built from read-converter projections of those
+rows. Caller-injected checks are `func(*pq.Queries) error` parameters on the
+domain functions invoked inside `mutate`. Registered `UpdateTrigger`s (the
+scheduler registers one) run inside the same transaction and extend the update.
+If the final update has any content the store persists the sequence, commits,
+and publishes that one `CoreUpdate` to every subscriber; an empty update
+commits without consuming a sequence and publishes nothing. A failed callback
+rolls back, consumes no ids or sequence, and publishes nothing. Callbacks are
+not retried. The store holds no in-memory state and `pq` has no caches;
+`*AtSeq` queries remain a test oracle only.
+
+Subscriptions are `state.Subscribe(store, read, project)`: `read` runs under
+the write mutex and returns the subscriber's snapshot; `project(update)
+(T, bool)` runs after each commit under the same mutex and returns what to
+send. A subscriber whose channel is full is closed and dropped, and the
+consumer resubscribes from a fresh snapshot. The scheduled-instance feed
+delivers one `[]ScheduledInstanceState` batch per commit.
 
 The scheduler reads current desired, target and observed rows through the same
 transaction and appends immediate target changes there. Startup recovery is
@@ -157,21 +172,33 @@ Drain waits derive from persisted event sequences and times, with a fresh
 conservative timeout for drains found at startup. Rendering and network delivery
 remain outside the transaction. Sidecars retain independent locks and streams.
 
+#### Snapshots and observed state
+
 Snapshots contain latest live deployments plus pinned historical versions,
 non-final instances plus the latest final per ordinal without a live instance,
 and latest observed statuses. Value arrays contain full histories for live
-secrets, configs, and assets. Pins remain log row ids: take `event_id` only
-when `value_version` changes. Create/set/rename/move/upload return their
+secrets, configs, and assets. Pins are `ValueRef{id, version}` pairs of the
+stable entity id and `value_version`; the `event_id` of the event that changed
+`value_version` identifies the same value for reveal and content download. Create/set/rename/move/upload return their
 appended event; lists return latest live events. Updates include deletes:
 `event_type = 3`, or `deleted` on spaces and directories. Snapshot retention
 is exactly the result of replaying updates through the reducers, including
 retention of deleted deployment versions while instances still pin them.
 
-Both observed collections use a nanosecond `updated_at` HLC. They append to
-`scheduled_instance_status` and `node_status_log` and carry no global sequence.
-All observation history is retained. An empty payload with a fresh clock
-clears the visible status; clients retain its clock to reject delayed older
-packets. Snapshots include the latest tombstones for the same reason.
+Both observed collections use a nanosecond `updated_at` HLC and append to
+`scheduled_instance_status` and `node_status_log`. An observed write goes
+through `Commit` like any other. A report whose clock is not older than the
+latest stored row is published: its row is stamped with the commit sequence
+and the commit consumes that sequence. A report older than the latest stored
+row is kept for history with `global_seq = 0`, returns an empty update, and is
+never published. Clients merge observed values by their own clock, not by
+sequence, so the sequence on an observed row only records which commit
+published it. All observation history is retained. An empty payload with a
+fresh clock clears the visible status; clients retain its clock to reject
+delayed older packets. Snapshots include the latest tombstones for the same
+reason.
+
+#### Sidecars, grants, and visibility
 
 Backup, ingress diagnostics, secrets status, and agent sessions publish through
 their owning components, without the core lock or sequence. Each sidecar
@@ -186,14 +213,16 @@ delete events retain these fields. Snapshots hold the latest live grant events,
 and updates carry each written event, including deletes. The store publishes
 `apigen.CoreUpdate` directly, with no internal routing wrapper.
 
-Only `CoreUpdate` passes the sequence gate. Visibility filters each transaction
-by current parent permissions. Grant events identify affected users through
-`value.user_id` and reset those users; template or
-global-rule changes reset all. Node allow-list and entity-space changes also
-reset affected views, with a 200 ms debounce. The system config is redacted,
-including `master_password_hash`. Overflow closes the browser subscription and
-forces reconnect; internal typed adapters resubscribe and reconcile from a
-fresh snapshot, including missed deletes and finalized placements.
+The handler drops any `CoreUpdate` at or below the sequence it last sent, then
+filters each update by the connection's current permissions. A grant event for
+the connected user, any template, global-rule or space change, a node
+allow-list change, an entity space move, or a network policy whose visibility
+flips schedules a full snapshot reset after a 200 ms debounce; updates arriving
+during the debounce are skipped because the snapshot supersedes them. The system
+config is redacted, including `master_password_hash`. Overflow closes the
+browser subscription and forces reconnect; internal typed adapters resubscribe
+and reconcile from a fresh snapshot, including missed deletes and finalized
+placements.
 
 ### Deployments
 | Method | Path | Request | Response | Policy |
@@ -290,7 +319,7 @@ Workers use `EnrollmentV1` only when local cluster CA/cert/key material is missi
 | POST | `/v1/secrets/rotate-recovery-code` | — | `SecretRecoveryCodeResponse` | ANY_OF default |
 | POST | `/v1/secrets/unlock` | `SecretUnlockRequest` | `SecretsStatusResponse` | ANY_OF default |
 
-User-managed configs and encrypted secrets are immutable versioned rows. Setting an existing secret/config appends version `vN` with a new numeric version row ID; settings refs and deployment env refs pin exact rows with `ConfigRef.version_id`, `SecretRef.version_id`, `EnvVarValue.configVersionId`, and `EnvVarValue.secretVersionId`. Rename appends an event with the new display name and unchanged value facet. Delete soft-deletes the whole group and is rejected while any settings or deployment config still references one of its row IDs.
+User-managed configs and encrypted secrets are immutable versioned rows. Setting an existing secret/config appends value version `vN`; settings refs and deployment env refs pin exact values with `ValueRef{id, version}` pairs (stable entity id plus value version) in `ConfigRef.ref`, `SecretRef.ref`, `EnvVarValue.config`, and `EnvVarValue.secret`. Rename appends an event with the new display name and unchanged value facet. Delete soft-deletes the whole group and is rejected while any settings or deployment config still references the entity.
 
 `SecretSetRequest` and `ConfigSetRequest` can atomically roll deployment env refs to the new immutable row. With `update_referencing_deployments`, the request supplies every referencing deployment's current config ID/version. The backend derives the references from current stored specs, rejects stale, duplicate, missing, or extra entries, then commits the new value row and all deployment config/history versions in one transaction.
 
@@ -346,14 +375,14 @@ The per-space asset folder tree; see [Assets](assets.md).
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | GET | `/v1/cluster/github-credentials` | — | `GithubCredentials` | NO_AUTH |
-| GET | `/v1/cluster/asset?asset_version_id=<id>` | query params | raw asset bytes with `X-Opsagent-Asset-*` headers | NO_AUTH |
+| GET | `/v1/cluster/asset?asset_id=<id>&version=<n>` | query params | raw asset bytes with `X-Opsagent-Asset-*` headers | NO_AUTH |
 | GET | `/v1/cluster/secrets` | `ClusterSecretsRequest` | `ClusterSecretsResponse` | NO_AUTH |
 | GET | `/v1/cluster/configs` | `ClusterConfigsRequest` | `ClusterConfigsResponse` | NO_AUTH |
 | GET | `/v1/cluster/issued-tls` | `ClusterIssuedTLSRequest` | `ClusterIssuedTLSResponse` | NO_AUTH |
 | GET | `/v1/cluster/renew-certificate` | — | `ClusterRenewCertificateResponse` | NO_AUTH |
 | POST | `/v1/cluster/connect` | stream `MsgToPrimary` | stream `MsgToSecondary` | NO_AUTH |
 
-Cluster secrets/configs requests carry immutable row IDs. The primary authorizes those IDs against the deployment refs allowed for the requesting worker, decrypts/fetches only those rows, and the worker keeps the plaintext values in memory.
+Cluster secrets/configs requests carry `ValueRef{id, version}` pairs. The primary authorizes those pairs against the deployment refs allowed for the requesting worker, decrypts/fetches only those values, and the worker keeps the plaintext values in memory and in its encrypted `local_runtime_inputs` cache.
 
 `/v1/cluster/connect` is the long-lived bidirectional worker session. HTTP/2
 request and response bodies contain unsigned-varint-length-prefixed protobuf

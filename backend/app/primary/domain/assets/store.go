@@ -45,7 +45,7 @@ type Store struct {
 }
 
 type secretStore interface {
-	RevealByID(id int32) ([]byte, error)
+	RevealByRef(ref apigen.ValueRef) ([]byte, error)
 }
 
 func (s *Store) AssetOperationLocker() sync.Locker {
@@ -83,7 +83,7 @@ func (s *Store) ValidateSettingsUpdate(current, next apigen.ClusterSettings) err
 type s3Identity struct {
 	separate    bool
 	accessKeyID string
-	secretID    int32
+	secret      apigen.ValueRef
 	bucket      string
 	path        string
 	region      string
@@ -107,7 +107,7 @@ func (s *Store) effectiveS3Identity(settings apigen.ClusterSettings) s3Identity 
 	return s3Identity{
 		separate:    separate,
 		accessKeyID: s.Loader.MustLoadStringSetting(accessKeyID),
-		secretID:    secret.VersionID,
+		secret:      secret.Ref,
 		bucket:      s.Loader.MustLoadStringSetting(bucket),
 		path:        s.Loader.MustLoadStringSetting(settings.LargeAssets.S3Path),
 		region:      s.Loader.MustLoadStringSetting(region),
@@ -291,15 +291,15 @@ func (s *Store) reclaimStoreContent(sha string) error {
 	return nil
 }
 
-// OpenAsset resolves a pinned content version row id to its byte stream.
-// sizeBytes is returned alongside so raw HTTP routes can set Content-Length.
-func (s *Store) OpenAsset(ctx context.Context, assetVersionID int32) (sizeBytes int64, body io.ReadCloser, err error) {
+// OpenAsset resolves a pinned asset value to its byte stream. sizeBytes is
+// returned alongside so raw HTTP routes can set Content-Length.
+func (s *Store) OpenAsset(ctx context.Context, ref apigen.ValueRef) (sizeBytes int64, body io.ReadCloser, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	r, ok := GetAssetVersionJoined(s.DB.Queries(), assetVersionID)
+	r, ok := GetAssetValueJoined(s.DB.Queries(), ref)
 	if !ok {
-		return 0, nil, fmt.Errorf("asset version %d not found", assetVersionID)
+		return 0, nil, fmt.Errorf("asset %s not found", ref)
 	}
 	if r.Store.InlineSize > 0 || r.Version.SizeBytes == 0 {
 		return r.Version.SizeBytes, io.NopCloser(bytes.NewReader(r.Store.InlineBlob)), nil
@@ -323,7 +323,7 @@ func (s *Store) OpenAsset(ctx context.Context, assetVersionID int32) (sizeBytes 
 		}
 		return r.Version.SizeBytes, body, nil
 	}
-	return 0, nil, fmt.Errorf("asset version %d content is unavailable", assetVersionID)
+	return 0, nil, fmt.Errorf("asset %s content is unavailable", ref)
 }
 
 func (s *Store) DeleteAssetLocked(ctx context.Context, assetID int32, inlockValidate func(*pq.Queries) error) error {
@@ -395,10 +395,10 @@ func (s *Store) s3Client(cfg *apigen.ClusterSettings) (*s3.Client, string, error
 }
 
 func revealSecretRef(secrets secretStore, ref apigen.SecretRef) (string, error) {
-	if ref.VersionID == 0 {
+	if !ref.Ref.Valid() {
 		return "", nil
 	}
-	value, err := secrets.RevealByID(ref.VersionID)
+	value, err := secrets.RevealByRef(ref.Ref)
 	if err != nil {
 		return "", err
 	}

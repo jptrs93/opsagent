@@ -16,8 +16,8 @@ func (h *Handler) settingsUseConfigID(ids map[int32]struct{}) bool {
 }
 
 // settingsSecretRefDetails renders "cluster settings (<field>)" lines for
-// every settings field pinning one of ids, deduped across the live settings
-// and any unfinished asset-migration snapshots.
+// every settings field pinning a value of one of the secret ids, deduped
+// across the live settings and any unfinished asset-migration snapshots.
 func (h *Handler) settingsSecretRefDetails(ids map[int32]struct{}) []string {
 	if h.SystemConfig == nil {
 		return nil
@@ -26,16 +26,19 @@ func (h *Handler) settingsSecretRefDetails(ids map[int32]struct{}) []string {
 	seen := map[string]bool{}
 	for _, settings := range h.settingsForReferenceChecks() {
 		refs := []struct {
-			field     string
-			versionID int32
+			field string
+			ref   apigen.ValueRef
 		}{
-			{"HTTPS web TLS certificate", settings.HttpsWeb.TlsCertPem.VersionID},
-			{"GitHub token", settings.Repo.GithubToken.VersionID},
-			{"backup S3 secret access key", settings.Backup.S3SecretAccessKey.VersionID},
-			{"large-assets S3 secret access key", settings.LargeAssets.S3SecretAccessKey.VersionID},
+			{"HTTPS web TLS certificate", settings.HttpsWeb.TlsCertPem.Ref},
+			{"GitHub token", settings.Repo.GithubToken.Ref},
+			{"backup S3 secret access key", settings.Backup.S3SecretAccessKey.Ref},
+			{"large-assets S3 secret access key", settings.LargeAssets.S3SecretAccessKey.Ref},
 		}
 		for _, ref := range refs {
-			if _, ok := ids[ref.versionID]; ok && !seen[ref.field] {
+			if !ref.ref.Valid() {
+				continue
+			}
+			if _, ok := ids[ref.ref.ID]; ok && !seen[ref.field] {
 				seen[ref.field] = true
 				out = append(out, "cluster settings ("+ref.field+")")
 			}
@@ -81,7 +84,10 @@ func (h *Handler) settingsConfigRefDetails(ids map[int32]struct{}) []string {
 			{"large-assets keep local copy", settings.LargeAssets.KeepLocalCopy.ConfigRef},
 		}
 		for _, ref := range refs {
-			if _, ok := ids[ref.ref.VersionID]; ok && !seen[ref.field] {
+			if !ref.ref.Ref.Valid() {
+				continue
+			}
+			if _, ok := ids[ref.ref.Ref.ID]; ok && !seen[ref.field] {
 				seen[ref.field] = true
 				out = append(out, "cluster settings ("+ref.field+")")
 			}

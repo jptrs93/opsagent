@@ -246,8 +246,6 @@ func (m DeploymentSpec) IsZero() bool {
 		m.Container1Spec == nil &&
 		m.Container2Spec == nil &&
 		m.Container3Spec == nil &&
-		m.MicroVmSpec == nil &&
-		m.VmSpec == nil &&
 		m.OpendeploySpec == nil
 }
 
@@ -268,14 +266,6 @@ func (m *DeploymentSpec) Encode() []byte {
 	if m.Container3Spec != nil {
 		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, m.Container3Spec.Encode())
-	}
-	if m.MicroVmSpec != nil {
-		b = AppendTag(b, 5, BytesType)
-		b = AppendBytes(b, m.MicroVmSpec.Encode())
-	}
-	if m.VmSpec != nil {
-		b = AppendTag(b, 6, BytesType)
-		b = AppendBytes(b, m.VmSpec.Encode())
 	}
 	if m.OpendeploySpec != nil {
 		b = AppendTag(b, 7, BytesType)
@@ -330,24 +320,6 @@ func DecodeDeploymentSpec(b []byte) (*DeploymentSpec, error) {
 				item, err = DecodeContainerSpec(msgBytes)
 				if err == nil {
 					m.Container3Spec = item
-				}
-			}
-		case 5:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *MicroVMSpec
-				item, err = DecodeMicroVMSpec(msgBytes)
-				if err == nil {
-					m.MicroVmSpec = item
-				}
-			}
-		case 6:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *VMSpec
-				item, err = DecodeVMSpec(msgBytes)
-				if err == nil {
-					m.VmSpec = item
 				}
 			}
 		case 7:
@@ -509,58 +481,6 @@ func DecodeContainerSpec(b []byte) (*ContainerSpec, error) {
 					m.ReadinessSignal = item
 				}
 			}
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *MicroVMSpec) Encode() []byte {
-	var b []byte
-	return b
-}
-
-func DecodeMicroVMSpec(b []byte) (*MicroVMSpec, error) {
-	var m MicroVMSpec
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *VMSpec) Encode() []byte {
-	var b []byte
-	return b
-}
-
-func DecodeVMSpec(b []byte) (*VMSpec, error) {
-	var m VMSpec
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1286,20 +1206,20 @@ func DecodeRemoteDockerImage(b []byte) (*RemoteDockerImage, error) {
 	return &m, nil
 }
 
-func (m *EnvVarValue) Encode() []byte {
+func (m ValueRef) IsZero() bool {
+	return m.ID == 0 &&
+		m.Version == 0
+}
+
+func (m *ValueRef) Encode() []byte {
 	var b []byte
-	b = AppendInt32FieldOpt(b, m.SecretVersionID, 1)
-	b = AppendInt32FieldOpt(b, m.ConfigVersionID, 2)
-	b = AppendStringFieldOpt(b, m.Value, 3)
-	b = AppendStringField(b, m.Asset, 4)
-	b = AppendInt32Field(b, m.AssetVersionID, 5)
-	b = AppendInt32FieldOpt(b, m.AddressDeploymentID, 6)
-	b = AppendInt32FieldOpt(b, m.AddressSpaceID, 7)
+	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt32Field(b, m.Version, 2)
 	return b
 }
 
-func DecodeEnvVarValue(b []byte) (*EnvVarValue, error) {
-	var m EnvVarValue
+func DecodeValueRef(b []byte) (*ValueRef, error) {
+	var m ValueRef
 	var num Number
 	var typ Type
 	var err error
@@ -1310,19 +1230,87 @@ func DecodeEnvVarValue(b []byte) (*EnvVarValue, error) {
 		}
 		switch num {
 		case 1:
-			b, m.SecretVersionID, err = ConsumeVarInt32Opt(b, typ)
+			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.ConfigVersionID, err = ConsumeVarInt32Opt(b, typ)
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *EnvVarValue) Encode() []byte {
+	var b []byte
+	b = AppendStringFieldOpt(b, m.Value, 3)
+	b = AppendStringField(b, m.Asset, 4)
+	b = AppendInt32FieldOpt(b, m.AddressDeploymentID, 6)
+	b = AppendInt32FieldOpt(b, m.AddressSpaceID, 7)
+	if m.Secret != nil {
+		b = AppendTag(b, 8, BytesType)
+		b = AppendBytes(b, m.Secret.Encode())
+	}
+	if m.Config != nil {
+		b = AppendTag(b, 9, BytesType)
+		b = AppendBytes(b, m.Config.Encode())
+	}
+	if m.AssetRef != nil {
+		b = AppendTag(b, 10, BytesType)
+		b = AppendBytes(b, m.AssetRef.Encode())
+	}
+	return b
+}
+
+func DecodeEnvVarValue(b []byte) (*EnvVarValue, error) {
+	var m EnvVarValue
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
 		case 3:
 			b, m.Value, err = ConsumeStringOpt(b, typ)
 		case 4:
 			b, m.Asset, err = ConsumeString(b, typ)
-		case 5:
-			b, m.AssetVersionID, err = ConsumeVarInt32(b, typ)
 		case 6:
 			b, m.AddressDeploymentID, err = ConsumeVarInt32Opt(b, typ)
 		case 7:
 			b, m.AddressSpaceID, err = ConsumeVarInt32Opt(b, typ)
+		case 8:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueRef
+				item, err = DecodeValueRef(msgBytes)
+				if err == nil {
+					m.Secret = item
+				}
+			}
+		case 9:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueRef
+				item, err = DecodeValueRef(msgBytes)
+				if err == nil {
+					m.Config = item
+				}
+			}
+		case 10:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueRef
+				item, err = DecodeValueRef(msgBytes)
+				if err == nil {
+					m.AssetRef = item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1411,9 +1399,12 @@ func DecodeCrossDeploymentMount(b []byte) (*CrossDeploymentMount, error) {
 
 func (m *AssetMount) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.AssetVersionID, 1)
 	b = AppendStringField(b, m.ContainerPath, 2)
 	b = AppendInt32Field(b, int32(m.Permission), 3)
+	if !m.Asset.IsZero() {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.Asset.Encode())
+	}
 	return b
 }
 
@@ -1422,14 +1413,13 @@ func DecodeAssetMount(b []byte) (*AssetMount, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, m.AssetVersionID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.ContainerPath, err = ConsumeString(b, typ)
 		case 3:
@@ -1437,6 +1427,15 @@ func DecodeAssetMount(b []byte) (*AssetMount, error) {
 			b, raw, err = ConsumeVarInt32(b, typ)
 			if err == nil {
 				m.Permission = FilePermission(raw)
+			}
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueRef
+				item, err = DecodeValueRef(msgBytes)
+				if err == nil {
+					m.Asset = *item
+				}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -1614,7 +1613,10 @@ func DecodeAcmeCertSource(b []byte) (*AcmeCertSource, error) {
 
 func (m *SecretCertSource) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.SecretVersionID, 1)
+	if !m.Secret.IsZero() {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Secret.Encode())
+	}
 	return b
 }
 
@@ -1623,14 +1625,22 @@ func DecodeSecretCertSource(b []byte) (*SecretCertSource, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, m.SecretVersionID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueRef
+				item, err = DecodeValueRef(msgBytes)
+				if err == nil {
+					m.Secret = *item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4907,7 +4917,6 @@ func (m *SecretEvent) Encode() []byte {
 	b = AppendInt64Field(b, m.CreatedTime, 7)
 	b = AppendInt64Field(b, m.EventTime, 8)
 	b = AppendInt32Field(b, m.ValueVersion, 9)
-	b = AppendInt32Field(b, m.SpaceVersion, 10)
 	if !m.Value.IsZero() {
 		b = AppendTag(b, 11, BytesType)
 		b = AppendBytes(b, m.Value.Encode())
@@ -4949,8 +4958,6 @@ func DecodeSecretEvent(b []byte) (*SecretEvent, error) {
 			b, m.EventTime, err = ConsumeVarInt64(b, typ)
 		case 9:
 			b, m.ValueVersion, err = ConsumeVarInt32(b, typ)
-		case 10:
-			b, m.SpaceVersion, err = ConsumeVarInt32(b, typ)
 		case 11:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -5518,7 +5525,6 @@ func (m *ConfigEvent) Encode() []byte {
 	b = AppendInt64Field(b, m.CreatedTime, 7)
 	b = AppendInt64Field(b, m.EventTime, 8)
 	b = AppendInt32Field(b, m.ValueVersion, 9)
-	b = AppendInt32Field(b, m.SpaceVersion, 10)
 	if !m.Value.IsZero() {
 		b = AppendTag(b, 11, BytesType)
 		b = AppendBytes(b, m.Value.Encode())
@@ -5560,8 +5566,6 @@ func DecodeConfigEvent(b []byte) (*ConfigEvent, error) {
 			b, m.EventTime, err = ConsumeVarInt64(b, typ)
 		case 9:
 			b, m.ValueVersion, err = ConsumeVarInt32(b, typ)
-		case 10:
-			b, m.SpaceVersion, err = ConsumeVarInt32(b, typ)
 		case 11:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -5954,7 +5958,6 @@ func (m *AssetEvent) Encode() []byte {
 	b = AppendInt64Field(b, m.CreatedTime, 7)
 	b = AppendInt64Field(b, m.EventTime, 8)
 	b = AppendInt32Field(b, m.ValueVersion, 9)
-	b = AppendInt32Field(b, m.SpaceVersion, 10)
 	if !m.Value.IsZero() {
 		b = AppendTag(b, 11, BytesType)
 		b = AppendBytes(b, m.Value.Encode())
@@ -5996,8 +5999,6 @@ func DecodeAssetEvent(b []byte) (*AssetEvent, error) {
 			b, m.EventTime, err = ConsumeVarInt64(b, typ)
 		case 9:
 			b, m.ValueVersion, err = ConsumeVarInt32(b, typ)
-		case 10:
-			b, m.SpaceVersion, err = ConsumeVarInt32(b, typ)
 		case 11:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -9581,7 +9582,10 @@ func DecodeAcmeState(b []byte) (*AcmeState, error) {
 func (m *AcmeCertBinding) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Hostname, 1)
-	b = AppendInt32Field(b, m.SecretVersionID, 2)
+	if !m.Secret.IsZero() {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Secret.Encode())
+	}
 	return b
 }
 
@@ -9590,6 +9594,7 @@ func DecodeAcmeCertBinding(b []byte) (*AcmeCertBinding, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -9598,8 +9603,15 @@ func DecodeAcmeCertBinding(b []byte) (*AcmeCertBinding, error) {
 		switch num {
 		case 1:
 			b, m.Hostname, err = ConsumeString(b, typ)
-		case 2:
-			b, m.SecretVersionID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueRef
+				item, err = DecodeValueRef(msgBytes)
+				if err == nil {
+					m.Secret = *item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -11591,7 +11603,14 @@ func DecodeMsgToPrimary(b []byte) (*MsgToPrimary, error) {
 
 func (m *ClusterSecretsRequest) Encode() []byte {
 	var b []byte
-	b = AppendRepeatedCompact(b, m.Ids, 1, AppendCompactDecorator(AppendInt32Compact))
+	for _, item := range m.Refs {
+		b = AppendTag(b, 2, BytesType)
+		if item == nil {
+			b = AppendBytes(b, nil)
+			continue
+		}
+		b = AppendBytes(b, item.Encode())
+	}
 	return b
 }
 
@@ -11600,14 +11619,22 @@ func DecodeClusterSecretsRequest(b []byte) (*ClusterSecretsRequest, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, m.Ids, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueRef
+				item, err = DecodeValueRef(msgBytes)
+				if err == nil {
+					m.Refs = append(m.Refs, item)
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -11620,7 +11647,10 @@ func DecodeClusterSecretsRequest(b []byte) (*ClusterSecretsRequest, error) {
 
 func (m *ClusterSecretValue) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
+	if !m.Ref.IsZero() {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Ref.Encode())
+	}
 	b = AppendBytesField(b, m.Value, 2)
 	return b
 }
@@ -11630,14 +11660,22 @@ func DecodeClusterSecretValue(b []byte) (*ClusterSecretValue, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueRef
+				item, err = DecodeValueRef(msgBytes)
+				if err == nil {
+					m.Ref = *item
+				}
+			}
 		case 2:
 			b, m.Value, err = ConsumeBytesCopy(b, typ)
 		default:
@@ -11696,7 +11734,14 @@ func DecodeClusterSecretsResponse(b []byte) (*ClusterSecretsResponse, error) {
 
 func (m *ClusterConfigsRequest) Encode() []byte {
 	var b []byte
-	b = AppendRepeatedCompact(b, m.Ids, 1, AppendCompactDecorator(AppendInt32Compact))
+	for _, item := range m.Refs {
+		b = AppendTag(b, 2, BytesType)
+		if item == nil {
+			b = AppendBytes(b, nil)
+			continue
+		}
+		b = AppendBytes(b, item.Encode())
+	}
 	return b
 }
 
@@ -11705,14 +11750,22 @@ func DecodeClusterConfigsRequest(b []byte) (*ClusterConfigsRequest, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, m.Ids, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueRef
+				item, err = DecodeValueRef(msgBytes)
+				if err == nil {
+					m.Refs = append(m.Refs, item)
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -11725,7 +11778,10 @@ func DecodeClusterConfigsRequest(b []byte) (*ClusterConfigsRequest, error) {
 
 func (m *ClusterConfigValue) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
+	if !m.Ref.IsZero() {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Ref.Encode())
+	}
 	b = AppendStringField(b, m.Value, 2)
 	return b
 }
@@ -11735,14 +11791,22 @@ func DecodeClusterConfigValue(b []byte) (*ClusterConfigValue, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueRef
+				item, err = DecodeValueRef(msgBytes)
+				if err == nil {
+					m.Ref = *item
+				}
+			}
 		case 2:
 			b, m.Value, err = ConsumeString(b, typ)
 		default:
@@ -12217,12 +12281,15 @@ func DecodeEnrollmentAccepted(b []byte) (*EnrollmentAccepted, error) {
 }
 
 func (m SecretRef) IsZero() bool {
-	return m.VersionID == 0
+	return m.Ref.IsZero()
 }
 
 func (m *SecretRef) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.VersionID, 3)
+	if !m.Ref.IsZero() {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.Ref.Encode())
+	}
 	return b
 }
 
@@ -12231,14 +12298,22 @@ func DecodeSecretRef(b []byte) (*SecretRef, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
 			return nil, err
 		}
 		switch num {
-		case 3:
-			b, m.VersionID, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueRef
+				item, err = DecodeValueRef(msgBytes)
+				if err == nil {
+					m.Ref = *item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -12250,12 +12325,15 @@ func DecodeSecretRef(b []byte) (*SecretRef, error) {
 }
 
 func (m ConfigRef) IsZero() bool {
-	return m.VersionID == 0
+	return m.Ref.IsZero()
 }
 
 func (m *ConfigRef) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.VersionID, 3)
+	if !m.Ref.IsZero() {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.Ref.Encode())
+	}
 	return b
 }
 
@@ -12264,14 +12342,22 @@ func DecodeConfigRef(b []byte) (*ConfigRef, error) {
 	var num Number
 	var typ Type
 	var err error
+	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
 			return nil, err
 		}
 		switch num {
-		case 3:
-			b, m.VersionID, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ValueRef
+				item, err = DecodeValueRef(msgBytes)
+				if err == nil {
+					m.Ref = *item
+				}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

@@ -26,7 +26,7 @@ func retentionTestStore(t *testing.T) (*state.Service, *runtimeinputs.RuntimeInp
 	if err != nil {
 		t.Fatalf("NewPersistent: %v", err)
 	}
-	if err := persistence.StoreRuntimeInputs(map[int32]string{1: "kept", 2: "dropped"}, map[int32]string{3: "dropped"}); err != nil {
+	if err := persistence.StoreRuntimeInputs(map[apigen.ValueRef]string{vr(1): "kept", vr(2): "dropped"}, map[apigen.ValueRef]string{vr(3): "dropped"}); err != nil {
 		t.Fatalf("StoreRuntimeInputs: %v", err)
 	}
 	// Reload so the in-memory maps match what is on disk.
@@ -57,7 +57,7 @@ func referencingConfig(version int32) apigen.DeploymentEvent {
 	return apigen.DeploymentEvent{
 		DeploymentID: 7,
 		SpecVersion:  version,
-		Value:        apigen.Deployment{Scheduling: apigen.DedicatedScheduling(false, 23), SpaceID: 1, Name: "api", Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4}}, EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: ptrInt32(1)}}}}}},
+		Value:        apigen.Deployment{Scheduling: apigen.DedicatedScheduling(false, 23), SpaceID: 1, Name: "api", Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{AssetMounts: []*apigen.AssetMount{{Asset: vr(4)}}, EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {Secret: &apigen.ValueRef{ID: 1, Version: 1}}}}}}},
 	}
 }
 
@@ -83,24 +83,24 @@ func writeInstance(t *testing.T, store *state.Service, instanceID int32, cfg api
 
 func TestSweepDropsOnlyUnreferencedInputsAndAssets(t *testing.T) {
 	store, inputs := retentionTestStore(t)
-	assetDir := withRetentionAssetDir(t, "4", "9")
+	assetDir := withRetentionAssetDir(t, "4@1", "9@1")
 	writeInstance(t, store, 11, referencingConfig(3), apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, 3, 3)
 
 	sweepRuntimeInputs(context.Background(), store, inputs, nil, nil)
 
-	if _, ok := inputs.ResolveSecret(1); !ok {
+	if _, ok := inputs.ResolveSecret(vr(1)); !ok {
 		t.Fatal("referenced secret 1 was dropped")
 	}
-	if _, ok := inputs.ResolveSecret(2); ok {
+	if _, ok := inputs.ResolveSecret(vr(2)); ok {
 		t.Fatal("unreferenced secret 2 survived")
 	}
-	if _, ok := inputs.ResolveConfig(3); ok {
+	if _, ok := inputs.ResolveConfig(vr(3)); ok {
 		t.Fatal("unreferenced config 3 survived")
 	}
-	if _, err := os.Stat(filepath.Join(assetDir, "4")); err != nil {
+	if _, err := os.Stat(filepath.Join(assetDir, "4@1")); err != nil {
 		t.Fatalf("referenced asset 4 was removed: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(assetDir, "9")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(assetDir, "9@1")); !os.IsNotExist(err) {
 		t.Fatal("unreferenced asset 9 survived")
 	}
 }
@@ -112,7 +112,7 @@ func TestSweepDropsOnlyUnreferencedInputsAndAssets(t *testing.T) {
 // them, not just the one that is mid-rollout.
 func TestSweepSkipsEntirelyWhileAnyInstanceIsMidRollout(t *testing.T) {
 	store, inputs := retentionTestStore(t)
-	assetDir := withRetentionAssetDir(t, "4", "9")
+	assetDir := withRetentionAssetDir(t, "4@1", "9@1")
 	writeInstance(t, store, 11, referencingConfig(3), apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, 3, 3)
 	// A second instance mid-rollout: prepared at v4, still running v3.
 	other := referencingConfig(4)
@@ -122,10 +122,10 @@ func TestSweepSkipsEntirelyWhileAnyInstanceIsMidRollout(t *testing.T) {
 
 	sweepRuntimeInputs(context.Background(), store, inputs, nil, nil)
 
-	if _, ok := inputs.ResolveSecret(2); !ok {
+	if _, ok := inputs.ResolveSecret(vr(2)); !ok {
 		t.Fatal("swept while an instance was mid-rollout")
 	}
-	if _, err := os.Stat(filepath.Join(assetDir, "9")); err != nil {
+	if _, err := os.Stat(filepath.Join(assetDir, "9@1")); err != nil {
 		t.Fatalf("swept cached assets while an instance was mid-rollout: %v", err)
 	}
 }
@@ -141,12 +141,12 @@ func TestSweepTreatsTerminatingInstancesAsSettled(t *testing.T) {
 
 	sweepRuntimeInputs(context.Background(), store, inputs, nil, nil)
 
-	if _, ok := inputs.ResolveSecret(2); ok {
+	if _, ok := inputs.ResolveSecret(vr(2)); ok {
 		t.Fatal("stopped instance blocked the sweep")
 	}
-	if _, ok := inputs.ResolveSecret(1); !ok {
+	if _, ok := inputs.ResolveSecret(vr(1)); !ok {
 		t.Fatal("a stopped instance stopped contributing its own refs")
 	}
 }
 
-func ptrInt32(v int32) *int32 { return &v }
+func vr(id int32) apigen.ValueRef { return apigen.ValueRef{ID: id, Version: 1} }

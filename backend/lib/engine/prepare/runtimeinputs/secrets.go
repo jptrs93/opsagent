@@ -11,11 +11,11 @@ import (
 )
 
 type SecretProvider interface {
-	FetchSecrets(ctx context.Context, ids []int32) (map[int32]string, error)
+	FetchSecrets(ctx context.Context, refs []apigen.ValueRef) (map[apigen.ValueRef]string, error)
 }
 
 type ConfigProvider interface {
-	FetchConfigs(ctx context.Context, ids []int32) (map[int32]string, error)
+	FetchConfigs(ctx context.Context, refs []apigen.ValueRef) (map[apigen.ValueRef]string, error)
 }
 
 // Persistence durably stores fetched values so a node can resolve them again
@@ -23,9 +23,9 @@ type ConfigProvider interface {
 // Persistence the values live in process memory only, which is what the primary
 // wants — it already holds the authoritative copy.
 type Persistence interface {
-	LoadRuntimeInputs() (secrets, configs map[int32]string, err error)
-	StoreRuntimeInputs(secrets, configs map[int32]string) error
-	RetainRuntimeInputs(secrets, configs map[int32]struct{}) (int, error)
+	LoadRuntimeInputs() (secrets, configs map[apigen.ValueRef]string, err error)
+	StoreRuntimeInputs(secrets, configs map[apigen.ValueRef]string) error
+	RetainRuntimeInputs(secrets, configs map[apigen.ValueRef]struct{}) (int, error)
 }
 
 type RuntimeInputs struct {
@@ -36,8 +36,8 @@ type RuntimeInputs struct {
 	persistence Persistence
 
 	mu              sync.RWMutex
-	secretValues    map[int32]string
-	configValues    map[int32]string
+	secretValues    map[apigen.ValueRef]string
+	configValues    map[apigen.ValueRef]string
 	issuedTLSValues map[int32]*IssuedTLSValue
 }
 
@@ -46,8 +46,8 @@ func New(assets AssetProvider, secrets SecretProvider, configs ConfigProvider) *
 		assets:          assets,
 		secrets:         secrets,
 		configs:         configs,
-		secretValues:    make(map[int32]string),
-		configValues:    make(map[int32]string),
+		secretValues:    make(map[apigen.ValueRef]string),
+		configValues:    make(map[apigen.ValueRef]string),
 		issuedTLSValues: make(map[int32]*IssuedTLSValue),
 	}
 }
@@ -68,11 +68,11 @@ func NewPersistent(assets AssetProvider, secrets SecretProvider, configs ConfigP
 		return r, fmt.Errorf("loading persisted runtime inputs: %w", err)
 	}
 	r.mu.Lock()
-	for id, value := range secretValues {
-		r.secretValues[id] = value
+	for ref, value := range secretValues {
+		r.secretValues[ref] = value
 	}
-	for id, value := range configValues {
-		r.configValues[id] = value
+	for ref, value := range configValues {
+		r.configValues[ref] = value
 	}
 	r.mu.Unlock()
 	if tp, ok := p.(IssuedTLSPersistence); ok {
@@ -89,18 +89,18 @@ func NewPersistent(assets AssetProvider, secrets SecretProvider, configs ConfigP
 	return r, nil
 }
 
-// Retain drops every value, in memory and in persistence, whose id is absent
+// Retain drops every value, in memory and in persistence, whose ref is absent
 // from the keep sets. It returns the number of persisted rows removed.
-func (r *RuntimeInputs) Retain(secrets, configs map[int32]struct{}) (int, error) {
+func (r *RuntimeInputs) Retain(secrets, configs map[apigen.ValueRef]struct{}) (int, error) {
 	r.mu.Lock()
-	for id := range r.secretValues {
-		if _, ok := secrets[id]; !ok {
-			delete(r.secretValues, id)
+	for ref := range r.secretValues {
+		if _, ok := secrets[ref]; !ok {
+			delete(r.secretValues, ref)
 		}
 	}
-	for id := range r.configValues {
-		if _, ok := configs[id]; !ok {
-			delete(r.configValues, id)
+	for ref := range r.configValues {
+		if _, ok := configs[ref]; !ok {
+			delete(r.configValues, ref)
 		}
 	}
 	r.mu.Unlock()
@@ -110,13 +110,13 @@ func (r *RuntimeInputs) Retain(secrets, configs map[int32]struct{}) (int, error)
 	return r.persistence.RetainRuntimeInputs(secrets, configs)
 }
 
-func (r *RuntimeInputs) missingIDs(ids []int32, have map[int32]string) []int32 {
+func (r *RuntimeInputs) missingRefs(refs []apigen.ValueRef, have map[apigen.ValueRef]string) []apigen.ValueRef {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]int32, 0, len(ids))
-	for _, id := range ids {
-		if _, ok := have[id]; !ok {
-			out = append(out, id)
+	out := make([]apigen.ValueRef, 0, len(refs))
+	for _, ref := range refs {
+		if _, ok := have[ref]; !ok {
+			out = append(out, ref)
 		}
 	}
 	return out
@@ -127,7 +127,7 @@ func (r *RuntimeInputs) missingIDs(ids []int32, have map[int32]string) []int32 {
 // The values are already in memory and the deployment can run on them, so a
 // local write failure must not fail preparation — it only costs a refetch on the
 // next restart, which is exactly the behaviour of a node with no persistence.
-func (r *RuntimeInputs) persist(ctx context.Context, secrets, configs map[int32]string) {
+func (r *RuntimeInputs) persist(ctx context.Context, secrets, configs map[apigen.ValueRef]string) {
 	if r.persistence == nil {
 		return
 	}
@@ -137,24 +137,24 @@ func (r *RuntimeInputs) persist(ctx context.Context, secrets, configs map[int32]
 }
 
 // EnsureSecretsReady makes every secret referenced by cfg resolvable on this
-// node, fetching only the ids not already held.
+// node, fetching only the refs not already held.
 //
-// Skipping ids already held is safe because secret rows are immutable: an id
-// always denotes the same value, and rotation mints a new id that arrives here
-// as a new deployment spec version. Combined with Persistence this is what
+// Skipping refs already held is safe because secret values are immutable: a
+// (secret id, value version) pair always denotes the same value, and rotation
+// mints a new value version that arrives here as a new deployment spec version. Combined with Persistence this is what
 // lets a restarted secondary start its workloads without reaching the primary at
 // all.
 func (r *RuntimeInputs) EnsureSecretsReady(ctx context.Context, cfg *apigen.DeploymentEvent) error {
-	return r.EnsureSecretIDs(ctx, SecretRefs(cfg))
+	return r.EnsureSecretRefs(ctx, SecretRefs(cfg))
 }
 
-// EnsureSecretIDs makes the given secret version ids resolvable on this node,
-// fetching only the ids not already held.
-func (r *RuntimeInputs) EnsureSecretIDs(ctx context.Context, ids []int32) error {
-	if len(ids) == 0 {
+// EnsureSecretRefs makes the given secret values resolvable on this node,
+// fetching only the refs not already held.
+func (r *RuntimeInputs) EnsureSecretRefs(ctx context.Context, refs []apigen.ValueRef) error {
+	if len(refs) == 0 {
 		return nil
 	}
-	missing := r.missingIDs(ids, r.secretValues)
+	missing := r.missingRefs(refs, r.secretValues)
 	if len(missing) == 0 {
 		return nil
 	}
@@ -162,16 +162,16 @@ func (r *RuntimeInputs) EnsureSecretIDs(ctx context.Context, ids []int32) error 
 	if err != nil {
 		return fmt.Errorf("fetching secrets: %w", err)
 	}
-	for _, id := range missing {
-		if _, ok := values[id]; !ok {
-			return fmt.Errorf("secret provider did not return id %d", id)
+	for _, ref := range missing {
+		if _, ok := values[ref]; !ok {
+			return fmt.Errorf("secret provider did not return secret %s", ref)
 		}
 	}
-	fetched := make(map[int32]string, len(missing))
+	fetched := make(map[apigen.ValueRef]string, len(missing))
 	r.mu.Lock()
-	for _, id := range missing {
-		r.secretValues[id] = values[id]
-		fetched[id] = values[id]
+	for _, ref := range missing {
+		r.secretValues[ref] = values[ref]
+		fetched[ref] = values[ref]
 	}
 	r.mu.Unlock()
 	r.persist(ctx, fetched, nil)
@@ -194,11 +194,11 @@ func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.DeploymentE
 // EnsureConfigsReady is EnsureSecretsReady for plain config values, which share
 // the same immutable-versioned row model.
 func (r *RuntimeInputs) EnsureConfigsReady(ctx context.Context, cfg *apigen.DeploymentEvent) error {
-	ids := ConfigRefs(cfg)
-	if len(ids) == 0 {
+	refs := ConfigRefs(cfg)
+	if len(refs) == 0 {
 		return nil
 	}
-	missing := r.missingIDs(ids, r.configValues)
+	missing := r.missingRefs(refs, r.configValues)
 	if len(missing) == 0 {
 		return nil
 	}
@@ -206,66 +206,61 @@ func (r *RuntimeInputs) EnsureConfigsReady(ctx context.Context, cfg *apigen.Depl
 	if err != nil {
 		return fmt.Errorf("fetching configs: %w", err)
 	}
-	for _, id := range missing {
-		if _, ok := values[id]; !ok {
-			return fmt.Errorf("config provider did not return id %d", id)
+	for _, ref := range missing {
+		if _, ok := values[ref]; !ok {
+			return fmt.Errorf("config provider did not return config %s", ref)
 		}
 	}
-	fetched := make(map[int32]string, len(missing))
+	fetched := make(map[apigen.ValueRef]string, len(missing))
 	r.mu.Lock()
-	for _, id := range missing {
-		r.configValues[id] = values[id]
-		fetched[id] = values[id]
+	for _, ref := range missing {
+		r.configValues[ref] = values[ref]
+		fetched[ref] = values[ref]
 	}
 	r.mu.Unlock()
 	r.persist(ctx, nil, fetched)
 	return nil
 }
 
-func (r *RuntimeInputs) ResolveSecret(id int32) (string, bool) {
+func (r *RuntimeInputs) ResolveSecret(ref apigen.ValueRef) (string, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	value, ok := r.secretValues[id]
+	value, ok := r.secretValues[ref]
 	return value, ok
 }
 
-func (r *RuntimeInputs) ResolveConfig(id int32) (string, bool) {
+func (r *RuntimeInputs) ResolveConfig(ref apigen.ValueRef) (string, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	value, ok := r.configValues[id]
+	value, ok := r.configValues[ref]
 	return value, ok
 }
 
-func SecretRefs(cfg *apigen.DeploymentEvent) []int32 {
+func SecretRefs(cfg *apigen.DeploymentEvent) []apigen.ValueRef {
 	if cfg == nil {
 		return nil
 	}
-	seen := map[int32]bool{}
+	seen := map[apigen.ValueRef]bool{}
 	if container := cfg.Value.Spec.Container(); container != nil {
 		for _, item := range container.Runtime.EnvVars {
-			if item == nil || item.SecretVersionID == nil || *item.SecretVersionID == 0 {
+			if item == nil || item.Secret == nil || !item.Secret.Valid() {
 				continue
 			}
-			seen[*item.SecretVersionID] = true
+			seen[*item.Secret] = true
 		}
 	}
 	for _, route := range cfg.Value.Spec.Networking.Ingress {
 		if route == nil || route.HttpsConfig == nil || route.HttpsConfig.CertSource == nil {
 			continue
 		}
-		if secret := route.HttpsConfig.CertSource.Secret; secret != nil && secret.SecretVersionID > 0 {
-			seen[secret.SecretVersionID] = true
+		if secret := route.HttpsConfig.CertSource.Secret; secret != nil && secret.Secret.Valid() {
+			seen[secret.Secret] = true
 		}
 	}
-	ids := make([]int32, 0, len(seen))
-	for id := range seen {
-		ids = append(ids, id)
-	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	return ids
+	return sortedRefs(seen)
 }
 
-func ConfigRefs(cfg *apigen.DeploymentEvent) []int32 {
+func ConfigRefs(cfg *apigen.DeploymentEvent) []apigen.ValueRef {
 	if cfg == nil {
 		return nil
 	}
@@ -273,17 +268,21 @@ func ConfigRefs(cfg *apigen.DeploymentEvent) []int32 {
 	if container == nil {
 		return nil
 	}
-	seen := map[int32]bool{}
+	seen := map[apigen.ValueRef]bool{}
 	for _, item := range container.Runtime.EnvVars {
-		if item == nil || item.ConfigVersionID == nil || *item.ConfigVersionID == 0 {
+		if item == nil || item.Config == nil || !item.Config.Valid() {
 			continue
 		}
-		seen[*item.ConfigVersionID] = true
+		seen[*item.Config] = true
 	}
-	ids := make([]int32, 0, len(seen))
-	for id := range seen {
-		ids = append(ids, id)
+	return sortedRefs(seen)
+}
+
+func sortedRefs(seen map[apigen.ValueRef]bool) []apigen.ValueRef {
+	refs := make([]apigen.ValueRef, 0, len(seen))
+	for ref := range seen {
+		refs = append(refs, ref)
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	return ids
+	sort.Slice(refs, func(i, j int) bool { return refs[i].Less(refs[j]) })
+	return refs
 }

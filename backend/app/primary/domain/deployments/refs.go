@@ -38,17 +38,33 @@ func ReferenceInUseDetailErr(subject string, details []string) error {
 // space, or by cluster settings (which pin the value to the global space).
 var MoveReferencesOutsideSpaceErr = apigen.NewApiErr("Value is referenced from outside the destination space", "move_references_outside_space", 400)
 
-// The deployment-side scans below extract pinned version ids with the same
-// collectors the engine uses to fetch runtime inputs (plus AddressRefIDs,
+// The deployment-side scans below extract the referenced entity ids with the
+// same collectors the engine uses to fetch runtime inputs (plus AddressRefIDs,
 // which has no engine collector because addresses are not fetched). Delete and
 // move protection therefore cannot lag behind what a runner would actually
 // resolve — the env-only scan this replaced missed ingress cert secrets.
+
+func SecretRefIDs(cfg *apigen.DeploymentEvent) []int32 {
+	return valueRefIDs(runtimeinputs.SecretRefs(cfg))
+}
+
+func ConfigRefIDs(cfg *apigen.DeploymentEvent) []int32 {
+	return valueRefIDs(runtimeinputs.ConfigRefs(cfg))
+}
 
 func AssetRefIDs(cfg *apigen.DeploymentEvent) []int32 {
 	refs := runtimeinputs.RequiredAssetRefs(cfg)
 	ids := make([]int32, 0, len(refs))
 	for _, ref := range refs {
-		ids = append(ids, ref.AssetVersionID)
+		ids = append(ids, ref.Ref.ID)
+	}
+	return ids
+}
+
+func valueRefIDs(refs []apigen.ValueRef) []int32 {
+	ids := make([]int32, 0, len(refs))
+	for _, ref := range refs {
+		ids = append(ids, ref.ID)
 	}
 	return ids
 }
@@ -81,8 +97,8 @@ func CrossDeploymentMountSourceIDs(cfg *apigen.DeploymentEvent) []int32 {
 	return ids
 }
 
-// Referencing returns the non-deleted deployments pinning any of
-// ids, with refs extracting one kind's version ids from a config.
+// Referencing returns the non-deleted deployments referencing any of ids,
+// with refs extracting one kind's referenced ids from a config.
 func Referencing(live nodes.LiveState, ids map[int32]struct{}, refs func(*apigen.DeploymentEvent) []int32) []*apigen.DeploymentEvent {
 	var out []*apigen.DeploymentEvent
 	for _, cfg := range live.Deployments {

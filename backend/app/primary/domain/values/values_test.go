@@ -47,16 +47,16 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 
 	database := setConfigByName(store, "database", "one", 1)
 	database = setConfigByName(store, "database", "two", 1)
-	firstID := statetest.ValueVersions(store, database)[1].ID
-	secondID := statetest.ValueVersions(store, database)[0].ID
+	firstRef := statetest.ValueVersions(store, database)[1].Ref
+	secondRef := statetest.ValueVersions(store, database)[0].Ref
 	unrelated := setConfigByName(store, "other", "keep", 1)
-	unrelatedID := latestConfigRef(t, unrelated).ID
+	unrelatedRef := latestConfigRef(t, unrelated).Ref
 	create := func(name string, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
 		return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, node.ID, spec)
 	}
-	firstDeployment := create("first", statetest.EnvRefSpec(map[string]int32{"DATABASE": firstID, "OTHER": unrelatedID}, nil))
-	secondDeployment := create("second", statetest.EnvRefSpec(map[string]int32{"DATABASE": secondID}, nil))
-	unchangedDeployment := create("unchanged", statetest.EnvRefSpec(map[string]int32{"OTHER": unrelatedID}, nil))
+	firstDeployment := create("first", statetest.EnvRefSpec(map[string]apigen.ValueRef{"DATABASE": firstRef, "OTHER": unrelatedRef}, nil))
+	secondDeployment := create("second", statetest.EnvRefSpec(map[string]apigen.ValueRef{"DATABASE": secondRef}, nil))
+	unchangedDeployment := create("unchanged", statetest.EnvRefSpec(map[string]apigen.ValueRef{"OTHER": unrelatedRef}, nil))
 
 	saved, updatedIDs, err := AppendConfigVersion(store, database.ConfigID, "three", 9, true, []storage.DeploymentSpecVersion{
 		{ID: firstDeployment.DeploymentID, SpecVersion: firstDeployment.SpecVersion},
@@ -72,14 +72,14 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	firstCurrent := erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(firstDeployment.DeploymentID)))
 	secondCurrent := erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(secondDeployment.DeploymentID)))
 	unchangedCurrent := erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(unchangedDeployment.DeploymentID)))
-	if got := statetest.DeploymentEnvRefID(t, firstCurrent, "DATABASE", false); got != savedRef.ID {
-		t.Fatalf("first deployment config ref = %d, want %d", got, savedRef.ID)
+	if got := statetest.DeploymentEnvRef(t, firstCurrent, "DATABASE", false); got != savedRef.Ref {
+		t.Fatalf("first deployment config ref = %v, want %v", got, savedRef.Ref)
 	}
-	if got := statetest.DeploymentEnvRefID(t, secondCurrent, "DATABASE", false); got != savedRef.ID {
-		t.Fatalf("second deployment config ref = %d, want %d", got, savedRef.ID)
+	if got := statetest.DeploymentEnvRef(t, secondCurrent, "DATABASE", false); got != savedRef.Ref {
+		t.Fatalf("second deployment config ref = %v, want %v", got, savedRef.Ref)
 	}
-	if got := statetest.DeploymentEnvRefID(t, firstCurrent, "OTHER", false); got != unrelatedID {
-		t.Fatalf("unrelated config ref = %d, want %d", got, unrelatedID)
+	if got := statetest.DeploymentEnvRef(t, firstCurrent, "OTHER", false); got != unrelatedRef {
+		t.Fatalf("unrelated config ref = %v, want %v", got, unrelatedRef)
 	}
 	if firstCurrent.SpecVersion != firstDeployment.SpecVersion+1 || secondCurrent.SpecVersion != secondDeployment.SpecVersion+1 {
 		t.Fatalf("updated deployment versions = %d, %d", firstCurrent.SpecVersion, secondCurrent.SpecVersion)
@@ -157,7 +157,7 @@ func TestConfigSoftDeleteHidesRowAndFreesName(t *testing.T) {
 	if recreated.ConfigID == cfg.ConfigID {
 		t.Fatal("recreated config reused the deleted identity")
 	}
-	if ref, ok := GetConfigVersion(store.Queries(), statetest.ValueVersions(store, cfg)[0].ID); !ok || ref.Value != "on" {
+	if ref, ok := GetConfigVersion(store.Queries(), statetest.ValueVersions(store, cfg)[0].Ref); !ok || ref.Value != "on" {
 		t.Fatalf("pinned version of deleted config = %+v ok=%v", ref, ok)
 	}
 	if _, err := DeleteConfig(store, cfg.ConfigID, nil); !errors.Is(err, ErrNotFound) {

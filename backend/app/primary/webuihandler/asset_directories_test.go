@@ -183,7 +183,7 @@ func TestMoveAssetBetweenDirectories(t *testing.T) {
 		t.Fatalf("moved asset directory = %d, want %d", moved.Value.Fs.DirectoryID, dir.ID)
 	}
 	// The version index survives the move untouched: deployment specs pin
-	// version row ids.
+	// (asset id, value version) pairs.
 	if len(statetest.ValueVersions(h.Store, moved)) != 1 || statetest.ValueVersions(h.Store, moved)[0].ID != statetest.ValueVersions(h.Store, asset)[0].ID {
 		t.Fatalf("content versions changed across the move: %+v, want version id %d", statetest.ValueVersions(h.Store, moved), statetest.ValueVersions(h.Store, asset)[0].ID)
 	}
@@ -222,14 +222,14 @@ func TestCrossSpaceAssetMove(t *testing.T) {
 		t.Fatalf("moved asset = space %d dir %d, want space 2 dir 0", moved.SpaceID(), moved.Value.Fs.DirectoryID)
 	}
 	// The version index survives the move untouched: deployment specs pin
-	// version row ids.
+	// (asset id, value version) pairs.
 	if len(statetest.ValueVersions(h.Store, moved)) != 1 || statetest.ValueVersions(h.Store, moved)[0].ID != statetest.ValueVersions(h.Store, asset)[0].ID {
 		t.Fatalf("content versions changed across the move: %+v, want version id %d", statetest.ValueVersions(h.Store, moved), statetest.ValueVersions(h.Store, asset)[0].ID)
 	}
 
 	spec := remoteDeploymentSpec("registry/web", virtualNetworking())
 	spec.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount{{
-		AssetVersionID: statetest.ValueVersions(h.Store, asset)[0].ID, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY,
+		Asset: statetest.ValueVersions(h.Store, asset)[0].Ref, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY,
 	}}
 	createTestDeployment(h.Store, "node1", 2, "web", &spec)
 	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{

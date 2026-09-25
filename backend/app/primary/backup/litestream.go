@@ -23,8 +23,8 @@ var (
 )
 
 type secretStore interface {
-	MetaByID(id int32) (secrets.Meta, bool)
-	RevealByID(id int32) ([]byte, error)
+	MetaByRef(ref apigen.ValueRef) (secrets.Meta, bool)
+	RevealByRef(ref apigen.ValueRef) ([]byte, error)
 }
 
 type statusPublisher interface {
@@ -108,7 +108,7 @@ type backupConfigFilter struct {
 type backupConfigSignal struct {
 	Enabled         bool
 	AccessKeyID     string
-	SecretID        int32
+	Secret          apigen.ValueRef
 	SecretUpdatedAt time.Time
 	Bucket          string
 	Path            string
@@ -148,9 +148,9 @@ func backupConfigSignalFromDynamic(loader systemconfig.Loader, cfg *apigen.Clust
 	}
 	signal.AccessKeyID = loader.MustLoadStringSetting(cfg.Backup.S3AccessKeyID)
 	secretRef := cfg.Backup.S3SecretAccessKey
-	signal.SecretID = secretRef.VersionID
-	if secretSource != nil && signal.SecretID != 0 {
-		if meta, ok := secretSource.MetaByID(signal.SecretID); ok {
+	signal.Secret = secretRef.Ref
+	if secretSource != nil && signal.Secret.Valid() {
+		if meta, ok := secretSource.MetaByRef(signal.Secret); ok {
 			signal.SecretUpdatedAt = meta.CreatedAt
 		}
 	}
@@ -375,10 +375,10 @@ func validateConfig(cfg S3Config) error {
 }
 
 func revealSecretRef(secretSource secretStore, ref apigen.SecretRef) (string, error) {
-	if secretSource == nil || ref.VersionID == 0 {
+	if secretSource == nil || !ref.Ref.Valid() {
 		return "", nil
 	}
-	value, err := secretSource.RevealByID(ref.VersionID)
+	value, err := secretSource.RevealByRef(ref.Ref)
 	if err != nil {
 		return "", err
 	}

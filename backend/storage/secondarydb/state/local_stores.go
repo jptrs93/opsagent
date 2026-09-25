@@ -82,21 +82,23 @@ func (s *Service) UpsertLocalRuntimeInput(row LocalRuntimeInput) {
 	if err := s.q.UpsertLocalRuntimeInput(context.Background(), sq.UpsertLocalRuntimeInputParams{
 		Kind:       row.Kind,
 		RefID:      row.RefID,
+		RefVersion: row.RefVersion,
 		Ciphertext: row.Ciphertext,
 		Nonce:      row.Nonce,
 		FetchedAt:  row.FetchedAt,
 	}); err != nil {
-		panic(fmt.Sprintf("UpsertLocalRuntimeInput kind=%d ref=%d: %v", row.Kind, row.RefID, err))
+		panic(fmt.Sprintf("UpsertLocalRuntimeInput kind=%d ref=%d@%d: %v", row.Kind, row.RefID, row.RefVersion, err))
 	}
 }
 
-func (s *Service) DeleteLocalRuntimeInput(kind, refID int64) {
+func (s *Service) DeleteLocalRuntimeInput(kind, refID, refVersion int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.q.DeleteLocalRuntimeInput(context.Background(), sq.DeleteLocalRuntimeInputParams{
-		Kind:  kind,
-		RefID: refID,
+		Kind:       kind,
+		RefID:      refID,
+		RefVersion: refVersion,
 	}); err != nil {
-		panic(fmt.Sprintf("DeleteLocalRuntimeInput kind=%d ref=%d: %v", kind, refID, err))
+		panic(fmt.Sprintf("DeleteLocalRuntimeInput kind=%d ref=%d@%d: %v", kind, refID, refVersion, err))
 	}
 }

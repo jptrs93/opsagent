@@ -187,9 +187,9 @@ func TestNodeExposureListsDeliveredData(t *testing.T) {
 	EnsurePrimaryNode(store, "primary", "primary-id")
 	node := acceptSecondary(t, store, "secondary-id")
 	ctx := apigen.Context{Ctx: context.Background()}
-	cfg := statetest.MustCreateDeploymentForNode(store, ctx, DefaultSpaceID, "web", node.ID, statetest.EnvRefSpec(map[string]int32{"CONF": 9}, map[string]int32{"SECRET": 7}))
+	cfg := statetest.MustCreateDeploymentForNode(store, ctx, DefaultSpaceID, "web", node.ID, statetest.EnvRefSpec(map[string]apigen.ValueRef{"CONF": {ID: 9, Version: 2}}, map[string]apigen.ValueRef{"SECRET": {ID: 7, Version: 3}}))
 	statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	other := statetest.MustCreateDeploymentForNode(store, ctx, DefaultSpaceID, "elsewhere", node.ID+1, statetest.EnvRefSpec(map[string]int32{"CONF": 10}, nil))
+	other := statetest.MustCreateDeploymentForNode(store, ctx, DefaultSpaceID, "elsewhere", node.ID+1, statetest.EnvRefSpec(map[string]apigen.ValueRef{"CONF": {ID: 10, Version: 1}}, nil))
 	statetest.CreateScheduledInstance(store, other.DeploymentID, other.Version, node.ID+1, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	if _, err := EvictNode(ctx, store, node.Identifier, node.Version, true); err != nil {
 		t.Fatalf("EvictNode: %v", err)
@@ -201,10 +201,10 @@ func TestNodeExposureListsDeliveredData(t *testing.T) {
 	if len(exposure.Deployments) != 1 || exposure.Deployments[0].DeploymentID != cfg.DeploymentID {
 		t.Fatalf("exposed deployments = %+v, want only %d", exposure.Deployments, cfg.DeploymentID)
 	}
-	if len(exposure.SecretVersionIDs) != 1 || exposure.SecretVersionIDs[0] != 7 {
-		t.Fatalf("exposed secrets = %v, want [7]", exposure.SecretVersionIDs)
+	if len(exposure.Secrets) != 1 || exposure.Secrets[0] != (apigen.ValueRef{ID: 7, Version: 3}) {
+		t.Fatalf("exposed secrets = %v, want [7@3]", exposure.Secrets)
 	}
-	if len(exposure.ConfigVersionIDs) != 1 || exposure.ConfigVersionIDs[0] != 9 {
-		t.Fatalf("exposed configs = %v, want [9]", exposure.ConfigVersionIDs)
+	if len(exposure.Configs) != 1 || exposure.Configs[0] != (apigen.ValueRef{ID: 9, Version: 2}) {
+		t.Fatalf("exposed configs = %v, want [9@2]", exposure.Configs)
 	}
 }

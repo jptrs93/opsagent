@@ -43,35 +43,35 @@ const loadView = () => {
 // Settings references, labelled for the usage overlay. These mirror the typed
 // secret/config refs the primary configuration can pin.
 const settingConfigRefs = (settings) => [
-    ["Web UI HTTP enabled", settings?.httpWeb?.enabled?.configRef?.versionId],
-    ["Web UI HTTP listen", settings?.httpWeb?.listen?.configRef?.versionId],
-    ["Web UI HTTPS enabled", settings?.httpsWeb?.enabled?.configRef?.versionId],
-    ["Web UI HTTPS listen", settings?.httpsWeb?.listen?.configRef?.versionId],
-    ["Web UI use self managed TLS cert", settings?.httpsWeb?.tlsSelfManaged?.configRef?.versionId],
-    ["Web UI ACME hosts", settings?.httpsWeb?.acmeHosts?.configRef?.versionId],
-    ["Web UI ACME email", settings?.httpsWeb?.acmeEmail?.configRef?.versionId],
-    ["Cluster listen", settings?.cluster?.listen?.configRef?.versionId],
-    ["Cluster enrollment listen", settings?.cluster?.enrollmentListen?.configRef?.versionId],
-    ["Backup enabled", settings?.backup?.enabled?.configRef?.versionId],
-    ["Backup S3 access key ID", settings?.backup?.s3AccessKeyId?.configRef?.versionId],
-    ["Backup S3 bucket", settings?.backup?.s3Bucket?.configRef?.versionId],
-    ["Backup S3 path", settings?.backup?.s3Path?.configRef?.versionId],
-    ["Backup S3 region", settings?.backup?.s3Region?.configRef?.versionId],
-    ["Backup S3 endpoint", settings?.backup?.s3Endpoint?.configRef?.versionId],
-    ["Use separate large assets S3", settings?.largeAssets?.useSeparateS3?.configRef?.versionId],
-    ["Large asset S3 access key ID", settings?.largeAssets?.s3AccessKeyId?.configRef?.versionId],
-    ["Large asset S3 bucket", settings?.largeAssets?.s3Bucket?.configRef?.versionId],
-    ["Large asset S3 path", settings?.largeAssets?.s3Path?.configRef?.versionId],
-    ["Large asset S3 region", settings?.largeAssets?.s3Region?.configRef?.versionId],
-    ["Large asset S3 endpoint", settings?.largeAssets?.s3Endpoint?.configRef?.versionId],
-    ["Keep local copies of large assets", settings?.largeAssets?.keepLocalCopy?.configRef?.versionId],
+    ["Web UI HTTP enabled", settings?.httpWeb?.enabled?.configRef?.ref?.id],
+    ["Web UI HTTP listen", settings?.httpWeb?.listen?.configRef?.ref?.id],
+    ["Web UI HTTPS enabled", settings?.httpsWeb?.enabled?.configRef?.ref?.id],
+    ["Web UI HTTPS listen", settings?.httpsWeb?.listen?.configRef?.ref?.id],
+    ["Web UI use self managed TLS cert", settings?.httpsWeb?.tlsSelfManaged?.configRef?.ref?.id],
+    ["Web UI ACME hosts", settings?.httpsWeb?.acmeHosts?.configRef?.ref?.id],
+    ["Web UI ACME email", settings?.httpsWeb?.acmeEmail?.configRef?.ref?.id],
+    ["Cluster listen", settings?.cluster?.listen?.configRef?.ref?.id],
+    ["Cluster enrollment listen", settings?.cluster?.enrollmentListen?.configRef?.ref?.id],
+    ["Backup enabled", settings?.backup?.enabled?.configRef?.ref?.id],
+    ["Backup S3 access key ID", settings?.backup?.s3AccessKeyId?.configRef?.ref?.id],
+    ["Backup S3 bucket", settings?.backup?.s3Bucket?.configRef?.ref?.id],
+    ["Backup S3 path", settings?.backup?.s3Path?.configRef?.ref?.id],
+    ["Backup S3 region", settings?.backup?.s3Region?.configRef?.ref?.id],
+    ["Backup S3 endpoint", settings?.backup?.s3Endpoint?.configRef?.ref?.id],
+    ["Use separate large assets S3", settings?.largeAssets?.useSeparateS3?.configRef?.ref?.id],
+    ["Large asset S3 access key ID", settings?.largeAssets?.s3AccessKeyId?.configRef?.ref?.id],
+    ["Large asset S3 bucket", settings?.largeAssets?.s3Bucket?.configRef?.ref?.id],
+    ["Large asset S3 path", settings?.largeAssets?.s3Path?.configRef?.ref?.id],
+    ["Large asset S3 region", settings?.largeAssets?.s3Region?.configRef?.ref?.id],
+    ["Large asset S3 endpoint", settings?.largeAssets?.s3Endpoint?.configRef?.ref?.id],
+    ["Keep local copies of large assets", settings?.largeAssets?.keepLocalCopy?.configRef?.ref?.id],
 ].map(([label, id]) => ({label, id: Number(id || 0)})).filter((ref) => ref.id);
 
 const settingSecretRefs = (settings) => [
-    ["Web UI TLS cert PEM", settings?.httpsWeb?.tlsCertPem?.versionId],
-    ["GitHub token", settings?.repo?.githubToken?.versionId],
-    ["Backup S3 secret access key", settings?.backup?.s3SecretAccessKey?.versionId],
-    ["Large asset S3 secret access key", settings?.largeAssets?.s3SecretAccessKey?.versionId],
+    ["Web UI TLS cert PEM", settings?.httpsWeb?.tlsCertPem?.ref?.id],
+    ["GitHub token", settings?.repo?.githubToken?.ref?.id],
+    ["Backup S3 secret access key", settings?.backup?.s3SecretAccessKey?.ref?.id],
+    ["Large asset S3 secret access key", settings?.largeAssets?.s3SecretAccessKey?.ref?.id],
 ].map(([label, id]) => ({label, id: Number(id || 0)})).filter((ref) => ref.id);
 
 export function secretsPage() {
@@ -159,25 +159,24 @@ export function secretsPage() {
     const colsDirty = () => !sameSet(shownCols.val, new Set(DEFAULT_COLUMNS));
 
     const usageForItem = (item) => {
-        const refIds = new Set(metaVersions(item.meta).map((ref) => Number(ref.id)));
+        const entityID = Number(item.meta.id);
         const settings = (item.kind === "secret"
             ? settingSecretRefs(systemConfigS.val?.config?.settings)
             : settingConfigRefs(systemConfigS.val?.config?.settings)
-        ).filter((ref) => refIds.has(ref.id));
-        const referenceKey = item.kind === "secret" ? "secretVersionId" : "configVersionId";
+        ).filter((ref) => ref.id === entityID);
+        const referenceKey = item.kind === "secret" ? "secret" : "config";
         const deployments = deploymentUsages(deploymentsS.val, spacesS.val, machinesS.val, (deployment) => {
             const cfg = deployment?.config;
             if (!cfg || deploymentDeleted(cfg)) return false;
             const envVars = containerWorkload(cfg)?.runtime?.envVars || {};
-            return Object.values(envVars).some((value) => refIds.has(Number(value?.[referenceKey] || 0)));
+            return Object.values(envVars).some((value) => Number(value?.[referenceKey]?.id || 0) === entityID);
         });
         return {deployments, settings};
     };
 
     const referencingDeploymentVersions = (item) => {
-        const refIds = new Set(metaVersions(item.meta).map((ref) => Number(ref.id)));
         return (deploymentsS.val || []).map((deployment) => deployment?.config).filter((cfg) =>
-            cfg && !deploymentDeleted(cfg) && deploymentUsesEnvReferences(cfg, item.kind, refIds),
+            cfg && !deploymentDeleted(cfg) && deploymentUsesEnvReferences(cfg, item.kind, item.meta.id),
         ).map((cfg) => ({id: cfg.deploymentId, specVersion: cfg.specVersion}));
     };
 

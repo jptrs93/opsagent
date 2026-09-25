@@ -13,6 +13,7 @@ type SnapshotSource interface {
 }
 
 type ValueVersion struct {
+	Ref                          apigen.ValueRef
 	ID, Version, SpaceID, Author int32
 	GlobalSeq                    int64
 	CreatedAt                    time.Time
@@ -21,20 +22,20 @@ type ValueVersion struct {
 }
 
 type event struct {
-	id, version, valueVersion, spaceVersion, author, spaceID int32
-	eventID, seq, eventTime                                  int64
-	value, sha                                               string
-	size                                                     int64
+	id, version, valueVersion, author, spaceID int32
+	eventID, seq, eventTime                    int64
+	value, sha                                 string
+	size                                       int64
 }
 
 func project(value any) event {
 	switch e := value.(type) {
 	case *apigen.SecretEvent:
-		return event{id: e.SecretID, version: e.Version, valueVersion: e.ValueVersion, spaceVersion: e.SpaceVersion, author: e.Author, spaceID: e.Value.SpaceID, eventID: e.EventID, seq: e.Seq, eventTime: e.EventTime}
+		return event{id: e.SecretID, version: e.Version, valueVersion: e.ValueVersion, author: e.Author, spaceID: e.Value.SpaceID, eventID: e.EventID, seq: e.Seq, eventTime: e.EventTime}
 	case *apigen.ConfigEvent:
-		return event{id: e.ConfigID, version: e.Version, valueVersion: e.ValueVersion, spaceVersion: e.SpaceVersion, author: e.Author, spaceID: e.Value.SpaceID, eventID: e.EventID, seq: e.Seq, eventTime: e.EventTime, value: e.Value.Value}
+		return event{id: e.ConfigID, version: e.Version, valueVersion: e.ValueVersion, author: e.Author, spaceID: e.Value.SpaceID, eventID: e.EventID, seq: e.Seq, eventTime: e.EventTime, value: e.Value.Value}
 	case *apigen.AssetEvent:
-		return event{id: e.AssetID, version: e.Version, valueVersion: e.ValueVersion, spaceVersion: e.SpaceVersion, author: e.Author, spaceID: e.Value.SpaceID, eventID: e.EventID, seq: e.Seq, eventTime: e.EventTime, sha: e.Value.Sha256, size: e.Value.SizeBytes}
+		return event{id: e.AssetID, version: e.Version, valueVersion: e.ValueVersion, author: e.Author, spaceID: e.Value.SpaceID, eventID: e.EventID, seq: e.Seq, eventTime: e.EventTime, sha: e.Value.Sha256, size: e.Value.SizeBytes}
 	default:
 		panic("not a value event")
 	}
@@ -74,30 +75,19 @@ func history(source SnapshotSource, value any) []event {
 	return events
 }
 
-func versions(source SnapshotSource, value any, space bool) []*ValueVersion {
+func ValueVersions(source SnapshotSource, value any) []*ValueVersion {
 	seen := map[int32]bool{}
 	var out []*ValueVersion
 	for _, e := range history(source, value) {
 		key := e.valueVersion
-		if space {
-			key = e.spaceVersion
-		}
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		out = append(out, &ValueVersion{ID: int32(e.eventID), Version: key, SpaceID: e.spaceID, Author: e.author, GlobalSeq: e.seq, CreatedAt: time.UnixMilli(e.eventTime), Value: e.value, Sha256: e.sha, SizeBytes: e.size})
+		out = append(out, &ValueVersion{Ref: apigen.ValueRef{ID: e.id, Version: key}, ID: int32(e.eventID), Version: key, SpaceID: e.spaceID, Author: e.author, GlobalSeq: e.seq, CreatedAt: time.UnixMilli(e.eventTime), Value: e.value, Sha256: e.sha, SizeBytes: e.size})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Version > out[j].Version })
 	return out
-}
-
-func ValueVersions(source SnapshotSource, value any) []*ValueVersion {
-	return versions(source, value, false)
-}
-
-func SpaceVersions(source SnapshotSource, value any) []*ValueVersion {
-	return versions(source, value, true)
 }
 
 func LatestValue(source SnapshotSource, value any) *ValueVersion {

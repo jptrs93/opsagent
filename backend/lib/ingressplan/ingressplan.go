@@ -27,7 +27,7 @@ type Route struct {
 	Hostname   string
 	HostPort   int32  // passthrough host port; HTTPS always claims 443 and 80
 	PathPrefix string // HTTPS only, normalised
-	CertSource string // HTTPS only, e.g. "acme" or "secret:12"
+	CertSource string // HTTPS only, e.g. "acme" or "secret:12@3"
 	Listen     []*apigen.IngressListen
 }
 
@@ -516,7 +516,7 @@ func CertSourceClaim(source *apigen.CertSource) string {
 		return "acme"
 	}
 	if source.Secret != nil {
-		return fmt.Sprintf("secret:%d", source.Secret.SecretVersionID)
+		return "secret:" + source.Secret.Secret.String()
 	}
 	return "acme"
 }

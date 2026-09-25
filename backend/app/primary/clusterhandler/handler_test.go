@@ -15,13 +15,13 @@ import (
 )
 
 func TestBuildAllowedRefs(t *testing.T) {
-	secretID := int32(7)
-	configID := int32(9)
+	secret := apigen.ValueRef{ID: 7, Version: 2}
+	config := apigen.ValueRef{ID: 9, Version: 1}
 	refs := buildAllowedRefs([]apigen.ScheduledInstanceState{{
 		Instance: apigen.ScheduledInstance{ID: 99},
 		Config: apigen.DeploymentEvent{
 			DeploymentID: 42,
-			Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/app", Flake: "flake.nix"}}, Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"SECRET": {SecretVersionID: &secretID}, "CONFIG": {ConfigVersionID: &configID}, "ASSET": {Asset: "app.env", AssetVersionID: 3}}, AssetMounts: []*apigen.AssetMount{{AssetVersionID: 4, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_ONLY}}}}}},
+			Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/app", Flake: "flake.nix"}}, Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"SECRET": {Secret: &secret}, "CONFIG": {Config: &config}, "ASSET": {Asset: "app.env", AssetRef: &apigen.ValueRef{ID: 3, Version: 1}}}, AssetMounts: []*apigen.AssetMount{{Asset: apigen.ValueRef{ID: 4, Version: 5}, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_ONLY}}}}}},
 		},
 	}})
 
@@ -31,13 +31,13 @@ func TestBuildAllowedRefs(t *testing.T) {
 	if !refs.deploymentAllowed(42) {
 		t.Fatal("deployment id should be allowed")
 	}
-	if !refs.allSecretsAllowed([]int32{7}) || refs.allSecretsAllowed([]int32{8}) {
+	if !refs.allSecretsAllowed([]*apigen.ValueRef{&secret}) || refs.allSecretsAllowed([]*apigen.ValueRef{{ID: 7, Version: 1}}) || refs.allSecretsAllowed([]*apigen.ValueRef{{ID: 8, Version: 2}}) {
 		t.Fatal("secret refs not scoped correctly")
 	}
-	if !refs.allConfigsAllowed([]int32{9}) || refs.allConfigsAllowed([]int32{10}) {
+	if !refs.allConfigsAllowed([]*apigen.ValueRef{&config}) || refs.allConfigsAllowed([]*apigen.ValueRef{{ID: 10, Version: 1}}) {
 		t.Fatal("config refs not scoped correctly")
 	}
-	if !refs.assetAllowed(3) || !refs.assetAllowed(4) || refs.assetAllowed(5) {
+	if !refs.assetAllowed(apigen.ValueRef{ID: 3, Version: 1}) || !refs.assetAllowed(apigen.ValueRef{ID: 4, Version: 5}) || refs.assetAllowed(apigen.ValueRef{ID: 4, Version: 4}) {
 		t.Fatal("asset refs not scoped correctly")
 	}
 	if !refs.usesGithub {

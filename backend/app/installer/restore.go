@@ -242,7 +242,7 @@ func applyRestoredSystemConfigOverrides(dbPath string, opts installOptions, own 
 				return fmt.Errorf("creating restored Web TLS certificate secret: %w", err)
 			}
 			settings.HttpsWeb.TlsSelfManaged = apigen.BoolSetting{Value: true}
-			settings.HttpsWeb.TlsCertPem = apigen.SecretRef{VersionID: meta.ID}
+			settings.HttpsWeb.TlsCertPem = apigen.SecretRef{Ref: meta.Ref()}
 		case primaryConfigClusterListen:
 			settings.Cluster.Listen = apigen.StringSetting{Value: override.value}
 		case primaryConfigEnrollmentListen:
@@ -251,7 +251,7 @@ func applyRestoredSystemConfigOverrides(dbPath string, opts installOptions, own 
 			settings.HttpsWeb.AcmeHosts = apigen.StringSetting{Value: override.value}
 		}
 	}
-	if service.MustLoadBoolSetting(settings.HttpsWeb.Enabled) && service.MustLoadBoolSetting(settings.HttpsWeb.TlsSelfManaged) && settings.HttpsWeb.TlsCertPem.VersionID == 0 {
+	if service.MustLoadBoolSetting(settings.HttpsWeb.Enabled) && service.MustLoadBoolSetting(settings.HttpsWeb.TlsSelfManaged) && !settings.HttpsWeb.TlsCertPem.Ref.Valid() {
 		if secretsMgr == nil {
 			secretsMgr, err = secrets.Open(dataDir, store)
 			if err != nil {

@@ -55,19 +55,19 @@ func scanAssetRow(scan func(dest ...any) error) (AssetRow, error) {
 
 func (q *Queries) InsertAssetEvent(ctx context.Context, e *apigen.AssetEvent) error {
 	row := q.db.QueryRowContext(ctx, `WITH previous AS (
-  SELECT value_version, space_version FROM asset_event_log
+  SELECT value_version FROM asset_event_log
   WHERE asset_id = ? ORDER BY version DESC LIMIT 1
 )
  INSERT INTO asset_event_log (
   id, global_seq, event_time, created_time, author,
-  asset_id,version,value_version, space_version,
-  key,asset_directory_id,space_id,size_bytes,sha256,event_type, value_changed, space_changed
-) VALUES (NULLIF(?, 0),?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
- ? > COALESCE((SELECT value_version FROM previous),0), ? > COALESCE((SELECT space_version FROM previous),0))
+  asset_id,version,value_version,
+  key,asset_directory_id,space_id,size_bytes,sha256,event_type, value_changed
+) VALUES (NULLIF(?, 0),?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+ ? > COALESCE((SELECT value_version FROM previous),0))
 RETURNING id, global_seq, event_time, created_time, author,
-  asset_id,version,value_version, space_version,
+  asset_id,version,value_version,
   key,asset_directory_id,space_id,size_bytes,sha256,event_type`,
-		e.AssetID, e.EventID, e.Seq, e.EventTime, e.CreatedTime, e.Author, e.AssetID, e.Version, e.ValueVersion, e.SpaceVersion, e.Value.Fs.Key, e.Value.Fs.DirectoryID, e.Value.SpaceID, e.Value.SizeBytes, e.Value.Sha256, e.EventType, e.ValueVersion, e.SpaceVersion)
+		e.AssetID, e.EventID, e.Seq, e.EventTime, e.CreatedTime, e.Author, e.AssetID, e.Version, e.ValueVersion, e.Value.Fs.Key, e.Value.Fs.DirectoryID, e.Value.SpaceID, e.Value.SizeBytes, e.Value.Sha256, e.EventType, e.ValueVersion)
 	written, err := scanAssetEvent(row)
 	if err != nil {
 		return err
@@ -161,44 +161,28 @@ const assetCurrentIdentityJoin = `JOIN asset_event_log a
   ON a.asset_id = v.asset_id
  AND a.version = (SELECT MAX(version) FROM asset_event_log WHERE asset_id = v.asset_id)`
 
-// GetAssetVersionJoinedByID resolves a pinned content version row id (inline
-// blob included) joined with its store row and owning asset.
+// GetAssetVersionJoinedByID resolves a content version row id (inline blob
+// included) joined with its store row and owning asset.
 func (q *Queries) GetAssetVersionJoinedByID(ctx context.Context, assetVersionID int64) (AssetVersionJoined, error) {
+	return q.getAssetVersionJoined(ctx, `v.id = ?`, assetVersionID)
+}
+
+// GetAssetVersionJoinedByRef resolves a pinned asset value (inline blob
+// included) joined with its store row and owning asset.
+func (q *Queries) GetAssetVersionJoinedByRef(ctx context.Context, ref apigen.ValueRef) (AssetVersionJoined, error) {
+	return q.getAssetVersionJoined(ctx, `v.asset_id = ? AND v.value_version = ?`, ref.ID, ref.Version)
+}
+
+func (q *Queries) getAssetVersionJoined(ctx context.Context, where string, args ...any) (AssetVersionJoined, error) {
 	var r AssetVersionJoined
 	err := scanAssetVersionJoined(q.db.QueryRowContext(ctx, `
 SELECT `+assetVersionJoinedColumns+`, s.inline_blob, a.key, a.space_id
 `+assetVersionRowsFrom+`
 `+assetCurrentIdentityJoin+`
-WHERE v.id = ? AND v.value_changed != 0`, assetVersionID).Scan, &r, &r.Store.InlineBlob, &r.Asset.Key, &r.Asset.SpaceID)
+WHERE `+where+` AND v.value_changed != 0`, args...).Scan, &r, &r.Store.InlineBlob, &r.Asset.Key, &r.Asset.SpaceID)
 	if err != nil {
 		return r, err
 	}
 	r.Asset.ID = r.Version.AssetID
 	return r, nil
-}
-
-const listAssetVersionIDsByAssetID = `SELECT id FROM asset_event_log WHERE asset_id = ? AND value_changed != 0 ORDER BY value_version
-`
-
-func (q *Queries) ListAssetVersionIDsByAssetID(ctx context.Context, assetID int64) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, listAssetVersionIDsByAssetID, assetID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }

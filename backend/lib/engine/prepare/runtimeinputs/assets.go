@@ -15,13 +15,13 @@ import (
 )
 
 type AssetProvider interface {
-	OpenAsset(ctx context.Context, assetVersionID int32) (io.ReadCloser, error)
+	OpenAsset(ctx context.Context, ref apigen.ValueRef) (io.ReadCloser, error)
 }
 
 type requiredAssetRef struct {
-	Label          string
-	AssetVersionID int32
-	Executable     bool
+	Label      string
+	Ref        apigen.ValueRef
+	Executable bool
 }
 
 func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.DeploymentEvent) error {
@@ -30,10 +30,10 @@ func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deplo
 		return nil
 	}
 	for _, ref := range refs {
-		if ref.AssetVersionID == 0 {
-			return fmt.Errorf("%s has unresolved asset version id", ref.Label)
+		if !ref.Ref.Valid() {
+			return fmt.Errorf("%s has an unresolved asset reference", ref.Label)
 		}
-		path := AssetCachePathWithMode(ref.AssetVersionID, ref.Executable)
+		path := AssetCachePathWithMode(ref.Ref, ref.Executable)
 		mode := AssetCacheMode(ref.Executable)
 		if info, err := os.Stat(path); err == nil {
 			if info.Mode().Perm() != mode {
@@ -45,9 +45,9 @@ func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deplo
 		} else if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("checking asset cache %s: %w", path, err)
 		}
-		body, err := r.assets.OpenAsset(ctx, ref.AssetVersionID)
+		body, err := r.assets.OpenAsset(ctx, ref.Ref)
 		if err != nil {
-			return fmt.Errorf("fetching asset version %d: %w", ref.AssetVersionID, err)
+			return fmt.Errorf("fetching asset %s: %w", ref.Ref, err)
 		}
 		tmp := path + ".tmp"
 		out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
@@ -64,7 +64,7 @@ func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deplo
 		if err := body.Close(); err != nil {
 			_ = out.Close()
 			_ = os.Remove(tmp)
-			return fmt.Errorf("reading asset version %d: %w", ref.AssetVersionID, err)
+			return fmt.Errorf("reading asset %s: %w", ref.Ref, err)
 		}
 		if err := out.Close(); err != nil {
 			_ = os.Remove(tmp)
@@ -97,23 +97,23 @@ func RequiredAssetRefs(cfg *apigen.DeploymentEvent) []requiredAssetRef {
 			continue
 		}
 		refs = append(refs, requiredAssetRef{
-			Label:          fmt.Sprintf("asset mount %d", m.AssetVersionID),
-			AssetVersionID: m.AssetVersionID,
-			Executable:     m.Permission == apigen.FilePermission_READ_EXECUTE,
+			Label:      fmt.Sprintf("asset mount %s", m.Asset),
+			Ref:        m.Asset,
+			Executable: m.Permission == apigen.FilePermission_READ_EXECUTE,
 		})
 	}
 	for key, value := range runtime.EnvVars {
-		if value == nil || value.AssetVersionID <= 0 {
+		if value == nil || value.AssetRef == nil || !value.AssetRef.Valid() {
 			continue
 		}
 		refs = append(refs, requiredAssetRef{
-			Label:          fmt.Sprintf("asset env var %q", key),
-			AssetVersionID: value.AssetVersionID,
+			Label: fmt.Sprintf("asset env var %q", key),
+			Ref:   *value.AssetRef,
 		})
 	}
 	sort.Slice(refs, func(i, j int) bool {
-		return refs[i].AssetVersionID < refs[j].AssetVersionID ||
-			(refs[i].AssetVersionID == refs[j].AssetVersionID && refs[i].Label < refs[j].Label)
+		return refs[i].Ref.Less(refs[j].Ref) ||
+			(refs[i].Ref == refs[j].Ref && refs[i].Label < refs[j].Label)
 	})
 	return refs
 }
@@ -122,12 +122,20 @@ func AssetCacheDir() string {
 	return ainit.StaticConfig.AssetCacheDir
 }
 
-func AssetCachePath(assetVersionID int32) string {
-	return AssetCachePathWithMode(assetVersionID, false)
+func AssetCachePath(ref apigen.ValueRef) string {
+	return AssetCachePathWithMode(ref, false)
 }
 
-func AssetCachePathWithMode(assetVersionID int32, executable bool) string {
-	name := strconv.Itoa(int(assetVersionID))
+// AssetCacheName is the cache file name for one asset value:
+// "<asset id>@<value version>". Earlier layouts wrote "<row id>" and, before
+// 2026-07, "<old asset id>_<version>"; the "@" keeps a leftover file from
+// ever matching a current ref, since a cache hit is trusted by name alone.
+func AssetCacheName(ref apigen.ValueRef) string {
+	return strconv.Itoa(int(ref.ID)) + "@" + strconv.Itoa(int(ref.Version))
+}
+
+func AssetCachePathWithMode(ref apigen.ValueRef, executable bool) string {
+	name := AssetCacheName(ref)
 	if executable {
 		name += "_x"
 	}
@@ -141,13 +149,13 @@ func AssetCacheMode(executable bool) os.FileMode {
 	return 0o644
 }
 
-// RetainAssets removes cached asset files whose version id is absent from keep, and
+// RetainAssets removes cached asset files whose ref is absent from keep, and
 // reports how many it deleted.
 //
 // Only names the cache itself writes are considered, so a partial download
 // (which is staged as "<name>.tmp") is never collected: its name does not parse
-// as an asset version id at all.
-func RetainAssets(keep map[int32]struct{}) (int, error) {
+// as an asset ref at all. Files named by an earlier layout are never kept.
+func RetainAssets(keep map[apigen.ValueRef]struct{}) (int, error) {
 	entries, err := os.ReadDir(AssetCacheDir())
 	if err != nil {
 		return 0, fmt.Errorf("listing asset cache: %w", err)
@@ -157,11 +165,11 @@ func RetainAssets(keep map[int32]struct{}) (int, error) {
 		if entry.IsDir() {
 			continue
 		}
-		id, ok := parseAssetCacheName(entry.Name())
+		ref, ok := parseAssetCacheName(entry.Name())
 		if !ok {
 			continue
 		}
-		if _, keeping := keep[id]; keeping {
+		if _, keeping := keep[ref]; keeping && ref.Valid() {
 			continue
 		}
 		if err := os.Remove(filepath.Join(AssetCacheDir(), entry.Name())); err != nil && !os.IsNotExist(err) {
@@ -172,12 +180,35 @@ func RetainAssets(keep map[int32]struct{}) (int, error) {
 	return removed, nil
 }
 
-// parseAssetCacheName reverses AssetCachePathWithMode's naming.
-func parseAssetCacheName(name string) (int32, bool) {
+// parseAssetCacheName reverses AssetCachePathWithMode's naming. Names from an
+// earlier layout ("<row id>" or "<id>_<version>") parse to a zero ref, which
+// no keep set holds.
+func parseAssetCacheName(name string) (apigen.ValueRef, bool) {
 	name = strings.TrimSuffix(name, "_x")
-	id, err := strconv.Atoi(name)
-	if err != nil || id <= 0 {
+	if idText, versionText, ok := strings.Cut(name, "@"); ok {
+		id, idOK := positiveInt(idText)
+		version, versionOK := positiveInt(versionText)
+		if !idOK || !versionOK {
+			return apigen.ValueRef{}, false
+		}
+		return apigen.ValueRef{ID: id, Version: version}, true
+	}
+	idText, versionText, paired := strings.Cut(name, "_")
+	if _, ok := positiveInt(idText); !ok {
+		return apigen.ValueRef{}, false
+	}
+	if paired {
+		if _, ok := positiveInt(versionText); !ok {
+			return apigen.ValueRef{}, false
+		}
+	}
+	return apigen.ValueRef{}, true
+}
+
+func positiveInt(text string) (int32, bool) {
+	n, err := strconv.ParseInt(text, 10, 32)
+	if err != nil || n <= 0 {
 		return 0, false
 	}
-	return int32(id), true
+	return int32(n), true
 }

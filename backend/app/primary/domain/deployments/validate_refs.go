@@ -16,17 +16,15 @@ import (
 // since the request's pre-lock validation. Secret values are never loaded.
 func validateRefSpaces(ctx context.Context, q *pq.Queries, spec *apigen.DeploymentSpec, spaceID int32) error {
 	cfg := &apigen.DeploymentEvent{Value: apigen.Deployment{Spec: *spec}}
-	for _, id := range runtimeinputs.SecretRefs(cfg) {
-		version, err := q.GetSecretValueEventByID(ctx, int64(id))
-		if errors.Is(err, sql.ErrNoRows) {
-			return InvalidConfigErrf("unknown secret id %d", id)
-		}
-		if err != nil {
+	for _, ref := range runtimeinputs.SecretRefs(cfg) {
+		if _, err := q.GetSecretValueEventByRef(ctx, ref); errors.Is(err, sql.ErrNoRows) {
+			return InvalidConfigErrf("unknown secret %s", ref)
+		} else if err != nil {
 			return err
 		}
-		secret, err := q.GetSecretRowByID(ctx, int64(version.SecretID))
+		secret, err := q.GetSecretRowByID(ctx, int64(ref.ID))
 		if errors.Is(err, sql.ErrNoRows) {
-			return InvalidConfigErrf("unknown secret id %d", id)
+			return InvalidConfigErrf("unknown secret %s", ref)
 		}
 		if err != nil {
 			return err
@@ -37,24 +35,24 @@ func validateRefSpaces(ctx context.Context, q *pq.Queries, spec *apigen.Deployme
 			return e
 		}
 	}
-	for _, id := range runtimeinputs.ConfigRefs(cfg) {
-		ref, err := q.GetConfigVersionByID(ctx, int64(id))
+	for _, ref := range runtimeinputs.ConfigRefs(cfg) {
+		version, err := q.GetConfigVersionByRef(ctx, ref)
 		if errors.Is(err, sql.ErrNoRows) {
-			return InvalidConfigErrf("unknown config id %d", id)
+			return InvalidConfigErrf("unknown config %s", ref)
 		}
 		if err != nil {
 			return err
 		}
-		if ref.SpaceID != int64(spaceID) && ref.SpaceID != int64(nodes.DefaultSpaceID) {
+		if version.SpaceID != int64(spaceID) && version.SpaceID != int64(nodes.DefaultSpaceID) {
 			e := ConfigRefOutsideSpaceErr
-			e.DisplayErr = fmt.Sprintf("Config %q lives in space %d and cannot be referenced from a deployment in space %d", ref.Name, ref.SpaceID, spaceID)
+			e.DisplayErr = fmt.Sprintf("Config %q lives in space %d and cannot be referenced from a deployment in space %d", version.Name, version.SpaceID, spaceID)
 			return e
 		}
 	}
 	for _, ref := range runtimeinputs.RequiredAssetRefs(cfg) {
-		version, err := q.GetAssetVersionJoinedByID(ctx, int64(ref.AssetVersionID))
+		version, err := q.GetAssetVersionJoinedByRef(ctx, ref.Ref)
 		if errors.Is(err, sql.ErrNoRows) {
-			return InvalidConfigErrf("asset version id %d not found", ref.AssetVersionID)
+			return InvalidConfigErrf("asset %s not found", ref.Ref)
 		}
 		if err != nil {
 			return err

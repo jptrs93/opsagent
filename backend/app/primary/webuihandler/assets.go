@@ -97,7 +97,7 @@ func (h *Handler) GetV1AssetsContent(ctx apigen.Context, request *http.Request, 
 	if err := h.requireAssetAccess(ctx, vView, int32(joined.Asset.ID)); err != nil {
 		return err
 	}
-	sizeBytes, body, err := h.Assets.OpenAsset(ctx, int32(parsed))
+	sizeBytes, body, err := h.Assets.OpenAsset(ctx, apigen.ValueRef{ID: int32(joined.Version.AssetID), Version: int32(joined.Version.Version)})
 	if err != nil {
 		return mapAssetStoreErr(err)
 	}
@@ -230,7 +230,7 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 			if err != nil {
 				return err
 			}
-			if deployments.ReferencesOutsideSpace(live, h.assetVersionIDSet(req.AssetID), deployments.AssetRefIDs, destSpace) {
+			if deployments.ReferencesOutsideSpace(live, deployments.Int32Set([]int32{req.AssetID}), deployments.AssetRefIDs, destSpace) {
 				return deployments.MoveReferencesOutsideSpaceErr
 			}
 			return nil
@@ -247,10 +247,6 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 	}
 
 	return asset, nil
-}
-
-func (h *Handler) assetVersionIDSet(assetID int32) map[int32]struct{} {
-	return deployments.Int32Set(assets.AssetVersionIDs(h.Store.Queries(), assetID))
 }
 
 func (h *Handler) PostV1AssetsDelete(ctx apigen.Context, req *apigen.AssetDeleteRequest) error {
@@ -271,7 +267,7 @@ func (h *Handler) PostV1AssetsDelete(ctx apigen.Context, req *apigen.AssetDelete
 		if err != nil {
 			return err
 		}
-		if details := deployments.RefDetails(ctx, q, live, h.assetVersionIDSet(req.AssetID), deployments.AssetRefIDs); len(details) > 0 {
+		if details := deployments.RefDetails(ctx, q, live, deployments.Int32Set([]int32{req.AssetID}), deployments.AssetRefIDs); len(details) > 0 {
 			return deployments.ReferenceInUseDetailErr("Asset", details)
 		}
 		return nil

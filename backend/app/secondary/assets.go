@@ -27,9 +27,10 @@ func NewPrimaryAssetProvider(baseURL string, client *http.Client) *PrimaryAssetP
 	}
 }
 
-func (p *PrimaryAssetProvider) OpenAsset(ctx context.Context, assetVersionID int32) (io.ReadCloser, error) {
+func (p *PrimaryAssetProvider) OpenAsset(ctx context.Context, ref apigen.ValueRef) (io.ReadCloser, error) {
 	params := url.Values{}
-	params.Set("asset_version_id", strconv.Itoa(int(assetVersionID)))
+	params.Set("asset_id", strconv.Itoa(int(ref.ID)))
+	params.Set("version", strconv.Itoa(int(ref.Version)))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/v1/cluster/asset?"+params.Encode(), nil)
 	if err != nil {
 		return nil, err

@@ -4,9 +4,9 @@ Assets are versioned user-managed file blobs intended for config files that can 
 
 ## Current implementation
 
-- Storage tables: `asset_event_log` is one append-only log per asset, one row per event — identity facets (`key`, `asset_directory_id`, `space_id`) are denormalised onto every row, so the highest-version row is the complete current state with `event_type` as the deletion truth (deletion is a terminal delete event; historical rows and content survive but every current-state read excludes the asset, freeing the key). `value_version` bumps only on content writes and `space_version` only on cross-space moves, with `value_changed`/`space_changed` flagging the events that bumped them; the content payload (`size_bytes`, `sha256`) is carried forward onto every row, and a `value_changed` row is an immutable content version whose row id is the pinnable version id. `asset_store` holds the content itself, keyed by a uuidv7 `id` with a unique `sha256`, an `inline_blob` for small content, and `local_status`/`remote_status` flags saying which storage side holds a durable copy; `asset_directories` holds the per-space folder tree (`parent_id`, `0` = the implicit root). Event rows carry `author`, the acting user id, `0` for migrated or system rows.
+- Storage tables: `asset_event_log` is one append-only log per asset, one row per event — identity facets (`key`, `asset_directory_id`, `space_id`) are denormalised onto every row, so the highest-version row is the complete current state with `event_type` as the deletion truth (deletion is a terminal delete event; historical rows and content survive but every current-state read excludes the asset, freeing the key). `value_version` bumps only on content writes, with `value_changed` flagging the events that bumped it; the content payload (`size_bytes`, `sha256`) is carried forward onto every row, and a `value_changed` row is an immutable content version whose row id is the pinnable version id. `asset_store` holds the content itself, keyed by a uuidv7 `id` with a unique `sha256`, an `inline_blob` for small content, and `local_status`/`remote_status` flags saying which storage side holds a durable copy; `asset_directories` holds the per-space folder tree (`parent_id`, `0` = the implicit root). Event rows carry `author`, the acting user id, `0` for migrated or system rows.
 - **Content is content-addressed.** A version row links its bytes through `sha256 = asset_store.sha256`, so identical content — across versions, assets, and spaces — shares one store row and one copy in storage. Deleting an asset is soft, so its version rows keep their content referenced and reclaimable by nothing; a store row (and its local file) is reclaimed only when a failed write leaves it with no referencing version. S3 objects are never eagerly deleted (see retention). The store row's uuid names the physical copies: `LargeAssetsDir/<id>` locally, `<s3-path>/<id>` in S3.
-- **Two id spaces.** `asset_id` is the stable asset id: it survives renames, moves, and new versions, and is what the write API targets. The content-event row id is the version row id: it is what deployment configs pin (`assetVersionId`) and what workers fetch and cache by. Every shape migration preserved the pinned version-row ids verbatim (pre-split rows into `asset_versions.id`, then those into `asset_event_log.id`) and kept the asset-id sequence above them, so the two spaces do not overlap on migrated installs and an accidental cross-join resolves to nothing.
+- **Two id spaces.** `asset_id` is the stable asset id: it survives renames, moves, and new versions, and is what the write API targets. References never use the content-event row id: deployment configs pin `ValueRef{id, version}` pairs of `asset_id` and `value_version` (`assetRef` on env vars, `asset` on mounts), and workers fetch and cache by that pair. A partial unique index on `(asset_id, value_version) WHERE value_changed != 0` keeps the pair unique. The row id stays the join key inside `pq` and the UI content download. Every shape migration preserved the pinned version-row ids verbatim (pre-split rows into `asset_versions.id`, then those into `asset_event_log.id`) and kept the asset-id sequence above them, so the two spaces do not overlap on migrated installs and an accidental cross-join resolves to nothing.
 - Each space is an independent file system. Sibling keys must be unique per `(space_id, asset_directory_id)` across **both** assets and directories; that spans two tables, so it is enforced by the storage layer's mutex-guarded create/rename ops, not by a SQL constraint. Keys must be valid file names (no `/`, `\`, NUL, `.`, `..`, ≤255 chars).
 - Content version rows are immutable. Appending targets the stable asset id and writes the next integer version. Renaming appends an event that changes only the key — content version rows, ids, and content are untouched, and pinned deployment references keep working.
 - **Uploads land content before identity.** A large upload inserts a staging `asset_store` row (empty sha, both statuses 0), streams to `LargeAssetsDir/<id>` while hashing, and only after the content is durable (local fsync or S3 put) marks the row complete and appends the `asset_event_log` row — which is pure SQLite, so an identity can never point at content that failed to land. If the computed sha already exists, the staged copy is discarded and the version links the existing row. Inline uploads hash in memory and insert store row plus identity directly. A crash leaves at worst an unreferenced store row: nothing references it, and the reconciler's sweep reclaims unreferenced rows — immediately at startup, after a 24h grace period at runtime (the grace leaves room for future upload-then-confirm flows).
@@ -23,7 +23,7 @@ Assets are versioned user-managed file blobs intended for config files that can 
 - `frontend/src/components/assetEditor.js` is the shared asset content surface. It supports inline and overlay presentation, create/edit/read modes, and loading an exact historical version. Editing historical content still appends after the latest known version; asset rows are never mutated.
 - UTF-8 inline assets use the shared CodeMirror editor. Inline assets containing invalid UTF-8 are displayed read-only in a plain textarea so a text edit cannot replace their original bytes.
 - Storage placement (inline, local file, S3) is invisible on the wire: the content endpoints stream from whichever side is durable, and `content_versions` carries only the `sha256` content hash and size. `OpenAsset` prefers the local copy; if a claimed local file cannot be opened it clears `local_status`, wakes the reconciler, and falls through to S3 when `remote_status` is set.
-- Asset rename rejects a destination key already used by a sibling asset or directory and preserves the complete version history. Existing deployments remain valid because they pin immutable version row ids; their stored display key is refreshed only when the deployment config is updated.
+- Asset rename rejects a destination key already used by a sibling asset or directory and preserves the complete version history. Existing deployments remain valid because they pin immutable `(asset_id, version)` pairs; their stored display key is refreshed only when the deployment config is updated.
 - `asset_migrations` records each storage-target change with its old and new `system_config_revisions` row IDs, durable status, timestamps, and latest error. The per-row `local_status`/`remote_status` flags are the progress markers; there is no migration-item table.
 - Primary/secondary startup creates the fixed local large-asset and materialized-asset cache roots up front. Asset operations create files inside those roots but do not recreate missing roots.
 
@@ -95,27 +95,27 @@ Asset mounts are defined under `container1Spec.runtime`, separate from raw host 
 container1Spec:
   runtime:
     assetMounts:
-      - assetVersionId: 12
+      - asset: {id: 4, version: 2}
         containerPath: /etc/nginx/nginx.conf
         permission: READ_ONLY
-      - assetVersionId: 33
+      - asset: {id: 9, version: 1}
         containerPath: /etc/nginx/conf.d/site.conf
         permission: READ_ONLY
-      - assetVersionId: 47
+      - asset: {id: 15, version: 3}
         containerPath: /docker-entrypoint-initdb.d/init.sh
         permission: READ_EXECUTE
 ```
 
 Current semantics:
 
-- Resolve the selected asset version row when the deployment config is created or updated, then store its immutable version row id, container path, and permission in config history. Asset content is not embedded in deployment configs.
+- Resolve the selected asset version row when the deployment config is created or updated, then store its `(asset_id, version)` pair, container path, and permission in config history. Asset content is not embedded in deployment configs.
 - During preparation, the runtime-input service (`prepare/runtimeinputs`) runs `EnsureAssetsReady` before the deployment reaches READY.
 - On the primary, the asset provider streams inline blobs from the primary DB and large blobs from their active local or S3 location without changing the mount contract.
-- On a secondary, the asset provider streams the blob on demand from the primary over the mTLS cluster endpoint `/v1/cluster/asset?asset_version_id=<id>`.
-- Materialize/cache assets on each target machine at `/var/lib/opendeploy-assets/<asset-version-id>` or `/var/lib/opendeploy-assets/<asset-version-id>_x` for executable mounts.
+- On a secondary, the asset provider streams the blob on demand from the primary over the mTLS cluster endpoint `/v1/cluster/asset?asset_id=<id>&version=<n>`.
+- Materialize/cache assets on each target machine at `/var/lib/opendeploy-assets/<asset_id>@<version>` or `/var/lib/opendeploy-assets/<asset_id>@<version>_x` for executable mounts. A cache hit is trusted by file name alone, with no hash check, so the `@` separator is one no earlier layout used: files named by a bare version row id (2026-07 to v0.0.612) or `<old asset id>_<version>` (before 2026-07) never match a current ref and are removed by the retention sweep.
 - The cache survives restarts and is reclaimed by the secondary's retention sweep, which deletes any cached file no instance assigned to that node still references. See "Local runtime input persistence" in [secrets.md](secrets.md) for the sweep's timing rules.
 - Mount materialized files read-only into the container. Explicit asset mounts may use `READ_EXECUTE` to enable execute bits; implicit env asset mounts are always read-only/non-executable.
 - Reject paths that are empty, relative, directories, or dangerous container destinations.
-- Fail deployment preparation if a pinned asset version id no longer exists.
+- Fail deployment preparation if a pinned asset version no longer exists.
 - Keep `container1Spec.runtime.mounts` for raw host bind mounts; use `assetMounts` only for OpenDeploy-managed config files.
 - In the UI, use the compact Assets section under environment variables to select key/path/mode or create a new asset in the side pane.

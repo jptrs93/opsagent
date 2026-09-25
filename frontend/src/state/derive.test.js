@@ -65,16 +65,15 @@ test('evicted nodes are neither members nor pending enrollments', () => {
 
 test('rename and move history preserve original pinnable value event ids', () => {
     const history = [
-        {configId: 1, version: 1, eventId: 10, valueVersion: 1, spaceVersion: 1, value: {fs: {name: 'old'}, spaceId: 1, value: 'a'}},
-        {configId: 1, version: 2, eventId: 11, valueVersion: 2, spaceVersion: 1, value: {fs: {name: 'old'}, spaceId: 1, value: 'b'}},
-        {configId: 1, version: 3, eventId: 12, valueVersion: 2, spaceVersion: 2, value: {fs: {name: 'new'}, spaceId: 2, value: 'b'}},
+        {configId: 1, version: 1, eventId: 10, valueVersion: 1, value: {fs: {name: 'old'}, spaceId: 1, value: 'a'}},
+        {configId: 1, version: 2, eventId: 11, valueVersion: 2, value: {fs: {name: 'old'}, spaceId: 1, value: 'b'}},
+        {configId: 1, version: 3, eventId: 12, valueVersion: 2, value: {fs: {name: 'new'}, spaceId: 2, value: 'b'}},
     ];
     const model = configViewModel(history);
     assert.equal(model.name, 'new');
     assert.equal(model.spaceId, 2);
     assert.deepEqual(model.valueVersions.map(v => v.id), [11, 10]);
     assert.deepEqual(model.valueVersions.map(v => v.value), ['b', 'a']);
-    assert.deepEqual(model.spaceVersions.map(v => v.spaceId), [2, 1]);
 });
 
 

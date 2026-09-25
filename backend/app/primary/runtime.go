@@ -105,8 +105,8 @@ func newRuntime() (*runtime, error) {
 	}
 
 	secretProvider := secretsMgr
-	configProvider := configdist.NewPrimaryProvider(func(ids []int32) (map[int32]string, error) {
-		return values.ResolveConfigs(store.Queries(), ids)
+	configProvider := configdist.NewPrimaryProvider(func(refs []apigen.ValueRef) (map[apigen.ValueRef]string, error) {
+		return values.ResolveConfigs(store.Queries(), refs)
 	})
 	runtimeInputs := runtimeinputs.New(localAssetProvider{assetStore}, secretProvider, configProvider)
 	tlsIssuer := &pki.Issuer{Secrets: secretsMgr}
@@ -247,7 +247,7 @@ type localAssetProvider struct {
 	store *assets.Store
 }
 
-func (p localAssetProvider) OpenAsset(ctx context.Context, assetVersionID int32) (io.ReadCloser, error) {
-	_, body, err := p.store.OpenAsset(ctx, assetVersionID)
+func (p localAssetProvider) OpenAsset(ctx context.Context, ref apigen.ValueRef) (io.ReadCloser, error) {
+	_, body, err := p.store.OpenAsset(ctx, ref)
 	return body, err
 }

@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 )
 
 var UserConfigNameRequiredErr = apigen.NewApiErr("Config name is required", "user_config_name_required", http.StatusBadRequest)
@@ -135,7 +134,7 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 			if destSpace == nodes.DefaultSpaceID {
 				return nil
 			}
-			ids := deployments.Int32Set(values.ConfigVersionIDs(h.Store.Queries(), req.ConfigID))
+			ids := deployments.Int32Set([]int32{req.ConfigID})
 			if h.settingsUseConfigID(ids) {
 				return deployments.MoveReferencesOutsideSpaceErr
 			}
@@ -143,7 +142,7 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 			if err != nil {
 				return err
 			}
-			if deployments.ReferencesOutsideSpace(live, ids, runtimeinputs.ConfigRefs, destSpace) {
+			if deployments.ReferencesOutsideSpace(live, ids, deployments.ConfigRefIDs, destSpace) {
 				return deployments.MoveReferencesOutsideSpaceErr
 			}
 			return nil
@@ -177,7 +176,7 @@ func (h *Handler) PostV1ConfigsDelete(ctx apigen.Context, req *apigen.ConfigDele
 		return err
 	}
 	validate := func(q *pq.Queries) error {
-		ids := deployments.Int32Set(values.ConfigVersionIDs(h.Store.Queries(), req.ConfigID))
+		ids := deployments.Int32Set([]int32{req.ConfigID})
 		if len(ids) == 0 {
 			return UserConfigNotFoundErr
 		}
@@ -185,7 +184,7 @@ func (h *Handler) PostV1ConfigsDelete(ctx apigen.Context, req *apigen.ConfigDele
 		if err != nil {
 			return err
 		}
-		details := append(h.settingsConfigRefDetails(ids), deployments.RefDetails(ctx, q, live, ids, runtimeinputs.ConfigRefs)...)
+		details := append(h.settingsConfigRefDetails(ids), deployments.RefDetails(ctx, q, live, ids, deployments.ConfigRefIDs)...)
 		if len(details) > 0 {
 			return deployments.ReferenceInUseDetailErr("Config", details)
 		}

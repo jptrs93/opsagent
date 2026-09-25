@@ -63,7 +63,7 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 			return nil, fmt.Errorf("storing initial Web TLS certificate: %w", err)
 		}
 		cfg.Settings.HttpsWeb.TlsSelfManaged = apigen.BoolSetting{Value: true}
-		cfg.Settings.HttpsWeb.TlsCertPem = apigen.SecretRef{VersionID: meta.ID}
+		cfg.Settings.HttpsWeb.TlsCertPem = apigen.SecretRef{Ref: meta.Ref()}
 	}
 	primaryIdentifier := uuid.NewString()
 	nodes.EnsurePrimaryNode(store, "primary", primaryIdentifier)
@@ -71,7 +71,7 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initializing cluster TLS material: %w", err)
 	}
-	if cfg.Settings.HttpsWeb.Enabled.Value && cfg.Settings.HttpsWeb.TlsSelfManaged.Value && cfg.Settings.HttpsWeb.TlsCertPem.VersionID == 0 {
+	if cfg.Settings.HttpsWeb.Enabled.Value && cfg.Settings.HttpsWeb.TlsSelfManaged.Value && !cfg.Settings.HttpsWeb.TlsCertPem.Ref.Valid() {
 		_, caCertPEM, err := pki.EnsureWebUILocalTLS(secretsMgr, certu.WebUITLSNames(cfg.Settings.HttpsWeb.AcmeHosts.Value, cfg.Settings.HttpsWeb.Listen.Value))
 		if err != nil {
 			return nil, fmt.Errorf("initializing self-managed Web TLS material: %w", err)
@@ -121,8 +121,8 @@ func (s Service) Validate(_ context.Context) error {
 	settings := configService.Snapshot().Settings
 	if configService.MustLoadBoolSetting(settings.HttpsWeb.Enabled) && configService.MustLoadBoolSetting(settings.HttpsWeb.TlsSelfManaged) {
 		var bundle []byte
-		if settings.HttpsWeb.TlsCertPem.VersionID != 0 {
-			bundle, err = secretsMgr.RevealByID(settings.HttpsWeb.TlsCertPem.VersionID)
+		if settings.HttpsWeb.TlsCertPem.Ref.Valid() {
+			bundle, err = secretsMgr.RevealByRef(settings.HttpsWeb.TlsCertPem.Ref)
 		} else {
 			bundle, _, err = pki.EnsureWebUILocalTLS(secretsMgr, certu.WebUITLSNames(configService.MustLoadStringSetting(settings.HttpsWeb.AcmeHosts), configService.MustLoadStringSetting(settings.HttpsWeb.Listen)))
 		}

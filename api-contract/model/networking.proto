@@ -14,7 +14,9 @@ message AcmeState {
 
 message AcmeCertBinding {
   string hostname = 1;
-  int32 secret_version_id = 2;
+  reserved 2;
+  reserved "secret_version_id";
+  ValueRef secret = 3 [(cp.go_value) = true];
 }
 
 // ClusterNetworkInfo carries the cluster-wide virtual network parameters.

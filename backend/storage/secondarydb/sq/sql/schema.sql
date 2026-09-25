@@ -30,17 +30,21 @@ CREATE TABLE IF NOT EXISTS local_kv (
 -- hierarchy and no recovery slot: the primary is authoritative, so a lost
 -- machine key just means refetching.
 --
--- Rows never go stale. Secret and config rows are immutable and versioned, so
--- ref_id always denotes the same value; rotation mints a new id and reaches this
--- node as a new deployment config version. A row can only become unreferenced,
--- which is what the retention sweep collects.
+-- Rows never go stale. Secret and config values are immutable and versioned,
+-- so (ref_id, ref_version) always denotes the same value; rotation mints a new
+-- value version and reaches this node as a new deployment config version. A row
+-- can only become unreferenced, which is what the retention sweep collects.
+--
+-- The table is a refetchable cache: sq.Open drops a table from before the
+-- ref_version column rather than migrating its rows.
 CREATE TABLE IF NOT EXISTS local_runtime_inputs (
-    kind       INTEGER NOT NULL,  -- 1=secret, 2=config
-    ref_id     INTEGER NOT NULL,  -- immutable secrets.id / configs.id
-    ciphertext BLOB    NOT NULL,  -- AEAD(value, machine KEK), AAD = kind + ref_id
-    nonce      BLOB    NOT NULL,
-    fetched_at INTEGER NOT NULL,  -- epoch ms
-    PRIMARY KEY (kind, ref_id)
+    kind        INTEGER NOT NULL,  -- 1=secret, 2=config, 3=issued TLS
+    ref_id      INTEGER NOT NULL,  -- secret_id / config_id, or deployment id for issued TLS
+    ref_version INTEGER NOT NULL,  -- value_version; 0 for issued TLS
+    ciphertext  BLOB    NOT NULL,  -- AEAD(value, machine KEK), AAD = kind + ref_id + ref_version
+    nonce       BLOB    NOT NULL,
+    fetched_at  INTEGER NOT NULL,  -- epoch ms
+    PRIMARY KEY (kind, ref_id, ref_version)
 );
 
 -- Durable copy of each non-final ScheduledInstanceState blob pushed by the

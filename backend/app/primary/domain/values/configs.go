@@ -39,15 +39,6 @@ func GetConfig(q *pq.Queries, configID int32) (*apigen.ConfigEvent, bool) {
 	return row, true
 }
 
-func ConfigVersionIDs(q *pq.Queries, configID int32) []int32 {
-	rows := erru.Must(q.ListConfigVersionIDsByConfigID(context.Background(), int64(configID)))
-	ids := make([]int32, 0, len(rows))
-	for _, id := range rows {
-		ids = append(ids, int32(id))
-	}
-	return ids
-}
-
 type ConfigVersion struct {
 	ID        int32
 	ConfigID  int32
@@ -59,13 +50,13 @@ type ConfigVersion struct {
 	Author    int32
 }
 
-func GetConfigVersion(q *pq.Queries, id int32) (ConfigVersion, bool) {
-	r, err := q.GetConfigVersionByID(context.Background(), int64(id))
+func GetConfigVersion(q *pq.Queries, ref apigen.ValueRef) (ConfigVersion, bool) {
+	r, err := q.GetConfigVersionByRef(context.Background(), ref)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ConfigVersion{}, false
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetConfigVersionByID: %v", err))
+		panic(fmt.Sprintf("GetConfigVersionByRef: %v", err))
 	}
 	return ConfigVersion{
 		ID: int32(r.ID), ConfigID: int32(r.ConfigID), Name: r.Name, SpaceID: int32(r.SpaceID),
@@ -73,20 +64,20 @@ func GetConfigVersion(q *pq.Queries, id int32) (ConfigVersion, bool) {
 	}, true
 }
 
-func ResolveConfigs(q *pq.Queries, ids []int32) (map[int32]string, error) {
-	out := make(map[int32]string, len(ids))
-	for _, id := range ids {
-		if id == 0 {
-			return nil, errors.New("config id is required")
+func ResolveConfigs(q *pq.Queries, refs []apigen.ValueRef) (map[apigen.ValueRef]string, error) {
+	out := make(map[apigen.ValueRef]string, len(refs))
+	for _, ref := range refs {
+		if !ref.Valid() {
+			return nil, errors.New("config id and version are required")
 		}
-		if _, ok := out[id]; ok {
+		if _, ok := out[ref]; ok {
 			continue
 		}
-		ref, ok := GetConfigVersion(q, id)
+		version, ok := GetConfigVersion(q, ref)
 		if !ok {
-			return nil, fmt.Errorf("config not found: id %d", id)
+			return nil, fmt.Errorf("config not found: %s", ref)
 		}
-		out[id] = ref.Value
+		out[ref] = version.Value
 	}
 	return out, nil
 }
@@ -140,7 +131,7 @@ func CreateConfig(store *state.Service, name string, spaceID, directoryID, autho
 		}
 		event := apigen.ConfigEvent{
 			Seq: seq, EventTime: now, CreatedTime: now, Author: author, ConfigID: int32(id),
-			Version: 1, ValueVersion: 1, SpaceVersion: 1,
+			Version: 1, ValueVersion: 1,
 			Value:     apigen.Config{Fs: &apigen.ConfigFs{Name: name, DirectoryID: int32(dirID)}, SpaceID: int32(space), Value: value},
 			EventType: apigen.EventType_EVENT_TYPE_CREATE,
 		}
@@ -171,7 +162,7 @@ func AppendConfigVersion(store *state.Service, configID int32, value string, aut
 			return 0, apigen.CoreUpdate{}, fmt.Errorf("insert config value event: %w", err)
 		}
 		written = &event
-		return int32(event.EventID), apigen.CoreUpdate{Seq: globalSeq, ConfigEvents: []*apigen.ConfigEvent{&event}}, nil
+		return event.ValueVersion, apigen.CoreUpdate{Seq: globalSeq, ConfigEvents: []*apigen.ConfigEvent{&event}}, nil
 	}
 	updatedDeployments, err := SetVersionedValueWithDeploymentUpdates(store, ConfigReference, configID, updateDeployments, expected, author, insert, nil)
 	if err != nil {
@@ -273,10 +264,7 @@ func MoveConfigSpace(store *state.Service, configID, newSpaceID, newDirectoryID,
 		}
 		event := nextConfigEvent(prev, author, apigen.EventType_EVENT_TYPE_UPDATE)
 		event.Value.Fs.DirectoryID = int32(dirID)
-		if spaceID != int64(prev.Value.SpaceID) {
-			event.Value.SpaceID = int32(spaceID)
-			event.SpaceVersion = prev.SpaceVersion + 1
-		}
+		event.Value.SpaceID = int32(spaceID)
 		return appendConfigEvent(ctx, q, seq, event)
 	})
 }

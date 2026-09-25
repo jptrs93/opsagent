@@ -21,10 +21,10 @@ export function deploymentUsages(deployments, spaces, machines, usesDeployment) 
         || a.id - b.id);
 }
 
-export function deploymentUsesEnvReferences(config, type, referenceIDs) {
-    const referenceKey = type === "secret" ? "secretVersionId" : "configVersionId";
+export function deploymentUsesEnvReferences(config, type, entityID) {
+    const referenceKey = type === "secret" ? "secret" : "config";
     const envVars = config?.value?.spec?.container1Spec?.runtime?.envVars;
     return Boolean(envVars && Object.values(envVars).some(
-        value => referenceIDs.has(Number(value?.[referenceKey] || 0)),
+        value => Number(value?.[referenceKey]?.id || 0) === Number(entityID),
     ));
 }

@@ -58,7 +58,7 @@ type failingSecretProvider struct {
 	called bool
 }
 
-func (p *failingSecretProvider) FetchSecrets(context.Context, []int32) (map[int32]string, error) {
+func (p *failingSecretProvider) FetchSecrets(context.Context, []apigen.ValueRef) (map[apigen.ValueRef]string, error) {
 	p.called = true
 	return nil, errors.New("secret unavailable")
 }
@@ -72,16 +72,16 @@ type unavailableThenReadySecretProvider struct {
 	value    string
 }
 
-func (p *unavailableThenReadySecretProvider) FetchSecrets(_ context.Context, ids []int32) (map[int32]string, error) {
+func (p *unavailableThenReadySecretProvider) FetchSecrets(_ context.Context, refs []apigen.ValueRef) (map[apigen.ValueRef]string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.attempts++
 	if p.attempts <= p.failures {
 		return nil, errors.New("primary unavailable")
 	}
-	values := make(map[int32]string, len(ids))
-	for _, id := range ids {
-		values[id] = p.value
+	values := make(map[apigen.ValueRef]string, len(refs))
+	for _, ref := range refs {
+		values[ref] = p.value
 	}
 	return values, nil
 }
@@ -106,11 +106,11 @@ func fixedRuntimeInputsBackoff(t *testing.T, interval time.Duration) {
 	t.Cleanup(func() { newRuntimeInputsBackoff = old })
 }
 
-func secretRefDeployment(secretID *int32) *apigen.DeploymentEvent {
+func secretRefDeployment(secret *apigen.ValueRef) *apigen.DeploymentEvent {
 	return &apigen.DeploymentEvent{
 		DeploymentID: 12,
 		SpecVersion:  4,
-		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}}, Version: "v1", Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: secretID}}}}}},
+		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}}, Version: "v1", Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {Secret: secret}}}}}},
 	}
 }
 
@@ -121,7 +121,7 @@ func secretRefDeployment(secretID *int32) *apigen.DeploymentEvent {
 // someone edits the config.
 func TestReAttachPreparerDefersToRetryWhenRuntimeInputsUnavailable(t *testing.T) {
 	fixedRuntimeInputsBackoff(t, time.Millisecond)
-	secretID := int32(7)
+	secretID := apigen.ValueRef{ID: 7, Version: 1}
 	dep := secretRefDeployment(&secretID)
 	store := &recordingOperatorStore{}
 	secrets := &unavailableThenReadySecretProvider{failures: 3, value: "s3cret"}
@@ -188,7 +188,7 @@ func TestReAttachPreparerDefersToRetryWhenRuntimeInputsUnavailable(t *testing.T)
 func TestRetryRuntimeInputsCancelInterruptsBackoff(t *testing.T) {
 	fixedRuntimeInputsBackoff(t, time.Hour)
 
-	secretID := int32(7)
+	secretID := apigen.ValueRef{ID: 7, Version: 1}
 	op := DeploymentOperator{
 		Store:         &recordingOperatorStore{},
 		RuntimeInputs: runtimeinputs.New(nil, &failingSecretProvider{}, nil),
@@ -264,11 +264,11 @@ func TestStartPreparerStopsBeforeArtifactWhenRuntimeInputsFail(t *testing.T) {
 	ainit.StaticConfig.PrepareOutputDir = t.TempDir()
 	defer func() { ainit.StaticConfig.PrepareOutputDir = oldOutputDir }()
 
-	secretID := int32(7)
+	secret := apigen.ValueRef{ID: 7, Version: 1}
 	dep := &apigen.DeploymentEvent{
 		DeploymentID: 11,
 		SpecVersion:  3,
-		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}}, Version: "v1", Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {SecretVersionID: &secretID}}}}}},
+		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "registry.example/app"}}, Version: "v1", Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {Secret: &secret}}}}}},
 	}
 	store := &recordingOperatorStore{}
 	secrets := &failingSecretProvider{}

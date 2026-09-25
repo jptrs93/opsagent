@@ -245,15 +245,15 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 
 	spec := remoteDeploymentSpec("registry/web", virtualNetworking())
 	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"TOKEN": {SecretVersionID: ptrInt32(statetest.ValueVersions(h.Store, secret)[0].ID)},
-		"LEVEL": {ConfigVersionID: ptrInt32(statetest.ValueVersions(h.Store, config)[0].ID)},
+		"TOKEN": {Secret: &statetest.ValueVersions(h.Store, secret)[0].Ref},
+		"LEVEL": {Config: &statetest.ValueVersions(h.Store, config)[0].Ref},
 	}
 	spec.Networking.Ingress = []*apigen.Ingress{{
 		Kind:     apigen.IngressKind_INGRESS_KIND_HTTPS,
 		Hostname: "web.test",
 		HttpsConfig: &apigen.HttpsConfig{
 			ContainerPort: 8080,
-			CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{SecretVersionID: statetest.ValueVersions(h.Store, certSecret)[0].ID}},
+			CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{Secret: statetest.ValueVersions(h.Store, certSecret)[0].Ref}},
 		},
 	}}
 	createTestDeployment(h.Store, "node1", 1, "web", &spec)
@@ -298,7 +298,7 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 	}
 	straySpec := remoteDeploymentSpec("registry/secondary", virtualNetworking())
 	straySpec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"STRAY": {SecretVersionID: ptrInt32(statetest.ValueVersions(h.Store, stray)[0].ID)},
+		"STRAY": {Secret: &statetest.ValueVersions(h.Store, stray)[0].Ref},
 	}
 	createTestDeployment(h.Store, "node1", 1, "secondary", &straySpec)
 	moved, err := h.PostV1SecretsMove(testCtx(user), &apigen.SecretMoveRequest{
@@ -319,7 +319,7 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 		t.Fatalf("PostV1SecretsCreate: %v", err)
 	}
 	settings := h.SystemConfig.Snapshot().Settings
-	settings.Repo.GithubToken.VersionID = statetest.ValueVersions(h.Store, pinned)[0].ID
+	settings.Repo.GithubToken.Ref = statetest.ValueVersions(h.Store, pinned)[0].Ref
 	if err := h.SystemConfig.UpdateSettingsInternal(settings); err != nil {
 		t.Fatalf("UpdateSettingsInternal: %v", err)
 	}

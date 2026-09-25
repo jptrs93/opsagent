@@ -7,9 +7,7 @@ CREATE TABLE IF NOT EXISTS config_event_log (
     config_id          INTEGER NOT NULL,
     version            INTEGER NOT NULL,  -- top-level: bumps on every event
     value_version      INTEGER NOT NULL,  -- bumps only on value writes
-    space_version      INTEGER NOT NULL,  -- bumps only on space moves
     value_changed      INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped value_version
-    space_changed      INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped space_version
     name               TEXT    NOT NULL,
     value_directory_id INTEGER NOT NULL,
     space_id           INTEGER NOT NULL,
@@ -17,6 +15,10 @@ CREATE TABLE IF NOT EXISTS config_event_log (
     event_type         INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
     UNIQUE (config_id, version)
 );
+
+-- A value reference (config_id, value_version) names exactly one value-changing row.
+CREATE UNIQUE INDEX IF NOT EXISTS config_value_versions
+    ON config_event_log (config_id, value_version) WHERE value_changed != 0;
 
 -- Configs and secrets share ONE file system per space
 CREATE TABLE IF NOT EXISTS value_directories (

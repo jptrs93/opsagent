@@ -4,6 +4,7 @@ package opsagent.v1;
 
 import "api-contract/model_logs_operations.proto";
 import "api-contract/model_metrics_operations.proto";
+import "api-contract/model/deployments.proto";
 import "api-contract/model/networking.proto";
 import "api-contract/model/nodes.proto";
 import "api-contract/model/scheduled_instances.proto";
@@ -77,11 +78,15 @@ message MsgToPrimary {
 }
 
 message ClusterSecretsRequest {
-  repeated int32 ids = 1;
+  reserved 1;
+  reserved "ids";
+  repeated ValueRef refs = 2;
 }
 
 message ClusterSecretValue {
-  int32 id = 1;
+  reserved 1;
+  reserved "id";
+  ValueRef ref = 3 [(cp.go_value) = true];
   bytes value = 2;
 }
 
@@ -90,11 +95,15 @@ message ClusterSecretsResponse {
 }
 
 message ClusterConfigsRequest {
-  repeated int32 ids = 1;
+  reserved 1;
+  reserved "ids";
+  repeated ValueRef refs = 2;
 }
 
 message ClusterConfigValue {
-  int32 id = 1;
+  reserved 1;
+  reserved "id";
+  ValueRef ref = 3 [(cp.go_value) = true];
   string value = 2;
 }
 

@@ -161,14 +161,14 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 	}
 
 	settings := DefaultSettings(DefaultInitial())
-	settings.Repo.GithubToken = apigen.SecretRef{VersionID: secretMeta.ID}
+	settings.Repo.GithubToken = apigen.SecretRef{Ref: secretMeta.Ref()}
 	if err := service.UpdateSettings(*settings, nil); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
 
 	cfg := service.Snapshot()
-	if cfg.Settings.Repo.GithubToken.VersionID != secretMeta.ID {
-		t.Fatalf("GithubTokenSecretRef ID = %d, want %d", cfg.Settings.Repo.GithubToken.VersionID, secretMeta.ID)
+	if cfg.Settings.Repo.GithubToken.Ref != secretMeta.Ref() {
+		t.Fatalf("GithubTokenSecretRef = %v, want %v", cfg.Settings.Repo.GithubToken.Ref, secretMeta.Ref())
 	}
 }
 
@@ -239,7 +239,7 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 	userCfg := statetest.ValueVersions(store, userCfgMeta)[0]
 
 	settings := DefaultSettings(DefaultInitial())
-	settings.Cluster.Listen = apigen.StringSetting{ConfigRef: apigen.ConfigRef{VersionID: userCfg.ID}}
+	settings.Cluster.Listen = apigen.StringSetting{ConfigRef: apigen.ConfigRef{Ref: userCfg.Ref}}
 	if err := service.UpdateSettings(*settings, nil); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
@@ -248,8 +248,8 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 	if cfg.Settings.Cluster.Listen.Value != "" {
 		t.Fatalf("ClusterListen value = %q, want empty stored value", cfg.Settings.Cluster.Listen.Value)
 	}
-	if cfg.Settings.Cluster.Listen.ConfigRef.VersionID != userCfg.ID {
-		t.Fatalf("Cluster.Listen.ConfigRef.VersionID = %d, want %d", cfg.Settings.Cluster.Listen.ConfigRef.VersionID, userCfg.ID)
+	if cfg.Settings.Cluster.Listen.ConfigRef.Ref != userCfg.Ref {
+		t.Fatalf("Cluster.Listen.ConfigRef.Ref = %v, want %v", cfg.Settings.Cluster.Listen.ConfigRef.Ref, userCfg.Ref)
 	}
 }
 

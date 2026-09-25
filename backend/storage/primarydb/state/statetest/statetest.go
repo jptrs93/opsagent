@@ -222,36 +222,36 @@ func SpecWithVersion(version string) *apigen.DeploymentSpec {
 	return spec
 }
 
-func EnvRefSpec(configIDs map[string]int32, secretIDs map[string]int32) *apigen.DeploymentSpec {
+func EnvRefSpec(configs map[string]apigen.ValueRef, secrets map[string]apigen.ValueRef) *apigen.DeploymentSpec {
 	spec := SpecWithVersion("v1")
-	spec.Container1Spec.Runtime.EnvVars = make(map[string]*apigen.EnvVarValue, len(configIDs)+len(secretIDs))
-	for key, id := range configIDs {
-		id := id
-		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{ConfigVersionID: &id}
+	spec.Container1Spec.Runtime.EnvVars = make(map[string]*apigen.EnvVarValue, len(configs)+len(secrets))
+	for key, ref := range configs {
+		ref := ref
+		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{Config: &ref}
 	}
-	for key, id := range secretIDs {
-		id := id
-		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{SecretVersionID: &id}
+	for key, ref := range secrets {
+		ref := ref
+		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{Secret: &ref}
 	}
 	return spec
 }
 
-func DeploymentEnvRefID(t testing.TB, cfg *apigen.DeploymentEvent, key string, secret bool) int32 {
+func DeploymentEnvRef(t testing.TB, cfg *apigen.DeploymentEvent, key string, secret bool) apigen.ValueRef {
 	t.Helper()
 	value := cfg.Value.Spec.Container1Spec.Runtime.EnvVars[key]
 	if value == nil {
 		t.Fatalf("deployment %d env %s is missing", cfg.DeploymentID, key)
 	}
 	if secret {
-		if value.SecretVersionID == nil {
+		if value.Secret == nil {
 			t.Fatalf("deployment %d env %s has no secret ref", cfg.DeploymentID, key)
 		}
-		return *value.SecretVersionID
+		return *value.Secret
 	}
-	if value.ConfigVersionID == nil {
+	if value.Config == nil {
 		t.Fatalf("deployment %d env %s has no config ref", cfg.DeploymentID, key)
 	}
-	return *value.ConfigVersionID
+	return *value.Config
 }
 
 func rereadUpdateAtSeq(ctx context.Context, q *pq.Queries, seq int64) state.Update {

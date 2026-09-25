@@ -30,10 +30,10 @@ func (testLoader) MustLoadBoolSetting(v apigen.BoolSetting) bool       { return 
 
 type testSecrets map[int32]string
 
-func (s testSecrets) RevealByID(id int32) ([]byte, error) {
-	value, ok := s[id]
+func (s testSecrets) RevealByRef(ref apigen.ValueRef) ([]byte, error) {
+	value, ok := s[ref.ID]
 	if !ok {
-		return nil, fmt.Errorf("secret %d not found", id)
+		return nil, fmt.Errorf("secret %s not found", ref)
 	}
 	return []byte(value), nil
 }
@@ -104,7 +104,7 @@ func TestLargeAssetStoredLocallyWhenBackupDisabled(t *testing.T) {
 		t.Fatalf("local asset file: %v", err)
 	}
 
-	sizeBytes, body, err := store.OpenAsset(context.Background(), statetest.LatestValue(store.DB, asset).ID)
+	sizeBytes, body, err := store.OpenAsset(context.Background(), statetest.LatestValue(store.DB, asset).Ref)
 	if err != nil {
 		t.Fatalf("OpenAsset: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 
 	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
 	settings.Backup.S3AccessKeyID.Value = "shared-key"
-	settings.Backup.S3SecretAccessKey = apigen.SecretRef{VersionID: 1}
+	settings.Backup.S3SecretAccessKey = apigen.SecretRef{Ref: apigen.ValueRef{ID: 1, Version: 1}}
 	settings.Backup.S3Bucket.Value = "bucket"
 	settings.Backup.S3Region.Value = "us-east-1"
 	settings.Backup.S3Endpoint.Value = server.URL
@@ -337,12 +337,12 @@ func TestLargeAssetSeparateS3OverridesSharedCredentials(t *testing.T) {
 	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
 	settings.Backup.Enabled.Value = true
 	settings.Backup.S3AccessKeyID.Value = "shared-key"
-	settings.Backup.S3SecretAccessKey = apigen.SecretRef{VersionID: 1}
+	settings.Backup.S3SecretAccessKey = apigen.SecretRef{Ref: apigen.ValueRef{ID: 1, Version: 1}}
 	settings.Backup.S3Bucket.Value = "shared-bucket"
 	settings.Backup.S3Region.Value = "us-east-1"
 	settings.LargeAssets.UseSeparateS3.Value = true
 	settings.LargeAssets.S3AccessKeyID.Value = "separate-key"
-	settings.LargeAssets.S3SecretAccessKey = apigen.SecretRef{VersionID: 2}
+	settings.LargeAssets.S3SecretAccessKey = apigen.SecretRef{Ref: apigen.ValueRef{ID: 2, Version: 1}}
 	settings.LargeAssets.S3Bucket.Value = "separate-bucket"
 	settings.LargeAssets.S3Region.Value = "us-east-1"
 	settings.LargeAssets.S3Endpoint.Value = server.URL
@@ -466,7 +466,7 @@ func (f *fakeS3) remove(path string) {
 func dualStorageSettings(s3 *fakeS3) *apigen.ClusterSettings {
 	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
 	settings.Backup.S3AccessKeyID.Value = "shared-key"
-	settings.Backup.S3SecretAccessKey = apigen.SecretRef{VersionID: 1}
+	settings.Backup.S3SecretAccessKey = apigen.SecretRef{Ref: apigen.ValueRef{ID: 1, Version: 1}}
 	settings.Backup.S3Bucket.Value = "bucket"
 	settings.Backup.S3Region.Value = "us-east-1"
 	settings.Backup.S3Endpoint.Value = s3.server.URL
@@ -474,9 +474,9 @@ func dualStorageSettings(s3 *fakeS3) *apigen.ClusterSettings {
 	return settings
 }
 
-func readAssetContent(t *testing.T, store *Store, versionID int32) []byte {
+func readAssetContent(t *testing.T, store *Store, ref apigen.ValueRef) []byte {
 	t.Helper()
-	_, body, err := store.OpenAsset(context.Background(), versionID)
+	_, body, err := store.OpenAsset(context.Background(), ref)
 	if err != nil {
 		t.Fatalf("OpenAsset: %v", err)
 	}
@@ -538,7 +538,7 @@ func TestLargeAssetStoredInBothWhenKeepLocalCopy(t *testing.T) {
 	}
 
 	s3.remove(objectPath)
-	if got := readAssetContent(t, store, statetest.LatestValue(store.DB, asset).ID); !bytes.Equal(got, blob) {
+	if got := readAssetContent(t, store, statetest.LatestValue(store.DB, asset).Ref); !bytes.Equal(got, blob) {
 		t.Fatal("content read with the S3 object gone did not match the upload")
 	}
 }
@@ -561,8 +561,8 @@ func TestOpenAssetFallsBackToS3WhenLocalCopyIsMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	versionID := statetest.LatestValue(store.DB, asset).ID
-	if got := readAssetContent(t, store, versionID); !bytes.Equal(got, blob) {
+	versionRef := statetest.LatestValue(store.DB, asset).Ref
+	if got := readAssetContent(t, store, versionRef); !bytes.Equal(got, blob) {
 		t.Fatal("fallback read did not match the upload")
 	}
 	expectStatuses(t, store, blob, 0, 1)
@@ -604,7 +604,7 @@ func TestReconcileConvergesAcrossStorageTargets(t *testing.T) {
 	row := expectStatuses(t, store, blob, 1, 0)
 	t.Cleanup(func() { _ = os.Remove(localPath(row.ID)) })
 	objectPath := "/bucket/asset-prefix/" + row.ID
-	versionID := statetest.LatestValue(store.DB, asset).ID
+	versionRef := statetest.LatestValue(store.DB, asset).Ref
 
 	switchTarget(t, store, &settings, func(s *apigen.ClusterSettings) {
 		s.Backup.Enabled.Value = true
@@ -645,7 +645,7 @@ func TestReconcileConvergesAcrossStorageTargets(t *testing.T) {
 	if !s3.has(objectPath) {
 		t.Fatal("S3 object was not retained after both→local")
 	}
-	if got := readAssetContent(t, store, versionID); !bytes.Equal(got, blob) {
+	if got := readAssetContent(t, store, versionRef); !bytes.Equal(got, blob) {
 		t.Fatal("content after both→local did not match the upload")
 	}
 }

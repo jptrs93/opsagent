@@ -237,7 +237,7 @@ func TestSnapshotEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testing
 		}
 	}
 	now := time.Now().UnixMilli()
-	configEvent := apigen.ConfigEvent{EventTime: now, CreatedTime: now, Author: 1, ConfigID: 1, Version: 1, ValueVersion: 1, SpaceVersion: 1,
+	configEvent := apigen.ConfigEvent{EventTime: now, CreatedTime: now, Author: 1, ConfigID: 1, Version: 1, ValueVersion: 1,
 		Value: apigen.Config{Fs: &apigen.ConfigFs{Name: "config"}, SpaceID: 1, Value: "one"}, EventType: apigen.EventType_EVENT_TYPE_CREATE}
 	writeConfig := func(eventType apigen.EventType, name string) {
 		commit(func(q *pq.Queries, seq int64) (*Update, error) {
@@ -264,7 +264,7 @@ func TestSnapshotEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testing
 	check("delete asset removes history")
 	commit(func(q *pq.Queries, seq int64) (*Update, error) {
 		written, err := q.InsertSecretEvent(context.Background(), pq.SecretEvent{GlobalSeq: seq, EventTime: now, CreatedTime: now, Author: 1, SecretID: 1,
-			Version: 1, ValueVersion: 1, SpaceVersion: 1, ValueChanged: 1, SpaceChanged: 1, Name: "secret", SpaceID: 1,
+			Version: 1, ValueVersion: 1, ValueChanged: 1, Name: "secret", SpaceID: 1,
 			SmkVersion: 1, Ciphertext: []byte{1}, Nonce: []byte{1}, EventType: pq.EventCreate})
 		if err != nil {
 			return nil, err
@@ -274,7 +274,7 @@ func TestSnapshotEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testing
 	check("create secret")
 	commit(func(q *pq.Queries, seq int64) (*Update, error) {
 		written, err := q.InsertSecretCarryEvent(context.Background(), pq.SecretEvent{GlobalSeq: seq, EventTime: now, CreatedTime: now, SecretID: 1,
-			Version: 2, ValueVersion: 1, SpaceVersion: 1, Name: "secret", SpaceID: 1, EventType: pq.EventDelete})
+			Version: 2, ValueVersion: 1, Name: "secret", SpaceID: 1, EventType: pq.EventDelete})
 		if err != nil {
 			return nil, err
 		}

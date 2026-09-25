@@ -111,7 +111,7 @@ func TestSecretMoveRacingDeploymentCreateKeepsLocality(t *testing.T) {
 			created, createErr = h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 				SpaceID: prod.ID, Name: fmt.Sprintf("pinner-%d", round),
 				Scheduling: apigen.DedicatedScheduling(false, node.ID),
-				Spec:       secretEnvSpec("nginx", sec.ID),
+				Spec:       secretEnvSpec("nginx", sec.Ref()),
 			})
 		}()
 		go func() {

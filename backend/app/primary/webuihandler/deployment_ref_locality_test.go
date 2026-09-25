@@ -17,19 +17,18 @@ func isRefOutsideSpaceErr(err error, want apigen.ApiErr) bool {
 	return errors.As(err, &apiErr) && apiErr.InternalErr == want.InternalErr
 }
 
-func configEnvSpec(image string, configVersionID int32) apigen.DeploymentSpec {
+func configEnvSpec(image string, ref apigen.ValueRef) apigen.DeploymentSpec {
 	spec := remoteDeploymentSpec(image, hostNetworking())
-	id := configVersionID
 	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"ENDPOINT": {ConfigVersionID: &id},
+		"ENDPOINT": {Config: &ref},
 	}
 	return spec
 }
 
-func assetMountSpec(image string, assetVersionID int32) apigen.DeploymentSpec {
+func assetMountSpec(image string, ref apigen.ValueRef) apigen.DeploymentSpec {
 	spec := remoteDeploymentSpec(image, hostNetworking())
 	spec.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount{{
-		AssetVersionID: assetVersionID, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY,
+		Asset: ref, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY,
 	}}
 	return spec
 }
@@ -66,21 +65,21 @@ func TestDeploymentRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		t.Fatalf("creating prod config: %v", err)
 	}
 
-	create := func(name string, spaceID, configVersionID int32) (*apigen.DeploymentEvent, error) {
+	create := func(name string, spaceID int32, ref apigen.ValueRef) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			Scheduling: apigen.DedicatedScheduling(false, node.ID),
-			Spec:       configEnvSpec("nginx", configVersionID),
+			Spec:       configEnvSpec("nginx", ref),
 		})
 	}
 
-	if _, err := create("own-space", prod.ID, statetest.ValueVersions(h.Store, prodConfig)[0].ID); err != nil {
+	if _, err := create("own-space", prod.ID, statetest.ValueVersions(h.Store, prodConfig)[0].Ref); err != nil {
 		t.Fatalf("own-space config ref rejected: %v", err)
 	}
-	if _, err := create("global-ref", prod.ID, statetest.ValueVersions(h.Store, globalConfig)[0].ID); err != nil {
+	if _, err := create("global-ref", prod.ID, statetest.ValueVersions(h.Store, globalConfig)[0].Ref); err != nil {
 		t.Fatalf("global config ref rejected: %v", err)
 	}
-	if _, err := create("global-deploy", nodes.DefaultSpaceID, statetest.ValueVersions(h.Store, prodConfig)[0].ID); !isRefOutsideSpaceErr(err, deployments.ConfigRefOutsideSpaceErr) {
+	if _, err := create("global-deploy", nodes.DefaultSpaceID, statetest.ValueVersions(h.Store, prodConfig)[0].Ref); !isRefOutsideSpaceErr(err, deployments.ConfigRefOutsideSpaceErr) {
 		t.Fatalf("global deployment with prod config err = %v, want %v", err, deployments.ConfigRefOutsideSpaceErr)
 	}
 }
@@ -101,21 +100,21 @@ func TestDeploymentAssetRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		t.Fatalf("creating prod asset: %v", err)
 	}
 
-	create := func(name string, spaceID, assetVersionID int32) (*apigen.DeploymentEvent, error) {
+	create := func(name string, spaceID int32, ref apigen.ValueRef) (*apigen.DeploymentEvent, error) {
 		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			Scheduling: apigen.DedicatedScheduling(false, node.ID),
-			Spec:       assetMountSpec("nginx", assetVersionID),
+			Spec:       assetMountSpec("nginx", ref),
 		})
 	}
 
-	if _, err := create("own-space", prod.ID, prodAsset.AssetID); err != nil {
+	if _, err := create("own-space", prod.ID, assetEventRef(prodAsset)); err != nil {
 		t.Fatalf("own-space asset ref rejected: %v", err)
 	}
-	if _, err := create("global-ref", prod.ID, globalAsset.AssetID); err != nil {
+	if _, err := create("global-ref", prod.ID, assetEventRef(globalAsset)); err != nil {
 		t.Fatalf("global asset ref rejected: %v", err)
 	}
-	if _, err := create("global-deploy", nodes.DefaultSpaceID, prodAsset.AssetID); !isRefOutsideSpaceErr(err, deployments.AssetRefOutsideSpaceErr) {
+	if _, err := create("global-deploy", nodes.DefaultSpaceID, assetEventRef(prodAsset)); !isRefOutsideSpaceErr(err, deployments.AssetRefOutsideSpaceErr) {
 		t.Fatalf("global deployment with prod asset err = %v, want %v", err, deployments.AssetRefOutsideSpaceErr)
 	}
 }
@@ -205,7 +204,7 @@ func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 	referrer, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: prod.ID, Name: "web",
 		Scheduling: apigen.DedicatedScheduling(false, node.ID),
-		Spec:       configEnvSpec("nginx", statetest.ValueVersions(h.Store, prodConfig)[0].ID),
+		Spec:       configEnvSpec("nginx", statetest.ValueVersions(h.Store, prodConfig)[0].Ref),
 	})
 	if err != nil {
 		t.Fatalf("creating referencing deployment: %v", err)
@@ -233,4 +232,8 @@ func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("mounted source move to global: %v", err)
 	}
+}
+
+func assetEventRef(e *apigen.AssetEvent) apigen.ValueRef {
+	return apigen.ValueRef{ID: e.AssetID, Version: e.ValueVersion}
 }

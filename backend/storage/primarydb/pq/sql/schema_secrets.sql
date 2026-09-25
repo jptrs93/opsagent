@@ -7,9 +7,7 @@ CREATE TABLE IF NOT EXISTS secret_event_log (
     secret_id          INTEGER NOT NULL,
     version            INTEGER NOT NULL,  -- top-level: bumps on every event
     value_version      INTEGER NOT NULL,  -- AAD-bound; bumps only on value writes
-    space_version      INTEGER NOT NULL,  -- bumps only on space moves
     value_changed      INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped value_version
-    space_changed      INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped space_version
     name               TEXT    NOT NULL,
     value_directory_id INTEGER NOT NULL,
     space_id           INTEGER NOT NULL,
@@ -19,6 +17,10 @@ CREATE TABLE IF NOT EXISTS secret_event_log (
     event_type         INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
     UNIQUE (secret_id, version)
 );
+
+-- A value reference (secret_id, value_version) names exactly one value-changing row.
+CREATE UNIQUE INDEX IF NOT EXISTS secret_value_versions
+    ON secret_event_log (secret_id, value_version) WHERE value_changed != 0;
 
 CREATE TABLE IF NOT EXISTS secret_keyslots (
    slot        TEXT PRIMARY KEY,         -- 'machine' | 'recovery'

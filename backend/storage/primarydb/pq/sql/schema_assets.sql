@@ -7,9 +7,7 @@ CREATE TABLE IF NOT EXISTS asset_event_log (
     asset_id           INTEGER NOT NULL,
     version            INTEGER NOT NULL,  -- top-level: bumps on every event
     value_version      INTEGER NOT NULL,  -- bumps only on content writes
-    space_version      INTEGER NOT NULL,  -- bumps only on space moves
     value_changed      INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped value_version
-    space_changed      INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped space_version
     key                TEXT    NOT NULL,
     asset_directory_id INTEGER NOT NULL,
     space_id           INTEGER NOT NULL,
@@ -18,6 +16,10 @@ CREATE TABLE IF NOT EXISTS asset_event_log (
     event_type         INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
     UNIQUE (asset_id, version)
 );
+
+-- A value reference (asset_id, value_version) names exactly one value-changing row.
+CREATE UNIQUE INDEX IF NOT EXISTS asset_value_versions
+    ON asset_event_log (asset_id, value_version) WHERE value_changed != 0;
 
 -- Content-writing rows only: one per (asset_id, value_version).
 CREATE INDEX IF NOT EXISTS idx_asset_event_log_sha256

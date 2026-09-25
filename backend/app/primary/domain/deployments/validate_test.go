@@ -125,40 +125,39 @@ func TestValidateDeploymentSpecRejectsNonLocalNixTarget(t *testing.T) {
 
 type fakeAssetResolver map[string]assets.AssetVersionRef
 
-func (r fakeAssetResolver) GetAssetVersionRef(assetVersionID int32) (assets.AssetVersionRef, bool) {
+func (r fakeAssetResolver) GetAssetVersionRef(ref apigen.ValueRef) (assets.AssetVersionRef, bool) {
 	for _, asset := range r {
-		if asset.VersionID == assetVersionID {
+		if asset.Ref == ref {
 			return asset, true
 		}
 	}
 	return assets.AssetVersionRef{}, false
 }
 
-type fakeSecretResolver map[int32]string
+type fakeSecretResolver map[apigen.ValueRef]string
 
-func (r fakeSecretResolver) MetaByID(id int32) (secrets.Meta, bool) {
-	_, ok := r[id]
-	return secrets.Meta{ID: id}, ok
+func (r fakeSecretResolver) MetaByRef(ref apigen.ValueRef) (secrets.Meta, bool) {
+	_, ok := r[ref]
+	return secrets.Meta{SecretID: ref.ID, Version: ref.Version}, ok
 }
 
-type fakeConfigResolver map[int32]string
+type fakeConfigResolver map[apigen.ValueRef]string
 
-func (r fakeConfigResolver) ResolveConfig(id int32) (string, bool) {
-	v, ok := r[id]
+func (r fakeConfigResolver) ResolveConfig(ref apigen.ValueRef) (string, bool) {
+	v, ok := r[ref]
 	return v, ok
 }
 
 func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 	assets := fakeAssetResolver{
 		"nginx.conf": {
-			VersionID: 42,
-			AssetID:   1,
-			Key:       "nginx.conf",
+			Ref: apigen.ValueRef{ID: 1, Version: 42},
+			Key: "nginx.conf",
 		},
 	}
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
 	input.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount{{
-		AssetVersionID: 42, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_EXECUTE,
+		Asset: apigen.ValueRef{ID: 1, Version: 42}, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_EXECUTE,
 	}}
 	spec, err := ValidateSpecWithAssets(&input, assets)
 	if err != nil {
@@ -168,7 +167,7 @@ func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 	if len(mounts) != 1 {
 		t.Fatalf("asset mounts len = %d", len(mounts))
 	}
-	if mounts[0].AssetVersionID != 42 || mounts[0].ContainerPath != "/etc/nginx/nginx.conf" || mounts[0].Permission != apigen.FilePermission_READ_EXECUTE {
+	if mounts[0].Asset != (apigen.ValueRef{ID: 1, Version: 42}) || mounts[0].ContainerPath != "/etc/nginx/nginx.conf" || mounts[0].Permission != apigen.FilePermission_READ_EXECUTE {
 		t.Fatalf("asset mount not resolved: %+v", mounts[0])
 	}
 }
@@ -176,28 +175,27 @@ func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 func TestValidateDeploymentSpecResolvesEnvAssetRefs(t *testing.T) {
 	assets := fakeAssetResolver{
 		"app.conf": {
-			VersionID: 51,
-			AssetID:   2,
-			Key:       "app.conf",
+			Ref: apigen.ValueRef{ID: 2, Version: 51},
+			Key: "app.conf",
 		},
 	}
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"APP_CONFIG": {AssetVersionID: 51}}
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"APP_CONFIG": {AssetRef: &apigen.ValueRef{ID: 2, Version: 51}}}
 	spec, err := ValidateSpecWithAssets(&input, assets)
 	if err != nil {
 		t.Fatalf("ValidateSpecWithAssets failed: %v", err)
 	}
 	value := spec.Container1Spec.Runtime.EnvVars["APP_CONFIG"]
-	if value.Asset != "app.conf" || value.AssetVersionID != 51 {
+	if value.Asset != "app.conf" || *value.AssetRef != (apigen.ValueRef{ID: 2, Version: 51}) {
 		t.Fatalf("env asset ref not resolved: %+v", value)
 	}
 }
 
 func TestValidateDeploymentSpecRejectsUnknownEnvAssetRef(t *testing.T) {
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"APP_CONFIG": {AssetVersionID: 999}}
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"APP_CONFIG": {AssetRef: &apigen.ValueRef{ID: 2, Version: 999}}}
 	_, err := ValidateSpecWithAssets(&input, fakeAssetResolver{})
-	if err == nil || !strings.Contains(err.Error(), `asset version id 999 not found`) {
+	if err == nil || !strings.Contains(err.Error(), `asset 2@999 not found`) {
 		t.Fatalf("err = %v, want unknown asset", err)
 	}
 }
@@ -244,8 +242,8 @@ func TestValidateDeploymentSpecValidatesMounts(t *testing.T) {
 
 	t.Run("asset mount permission", func(t *testing.T) {
 		input := remoteDeploymentSpec("nginx", hostNetworking())
-		input.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount{{AssetVersionID: 1, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_WRITE}}
-		assets := fakeAssetResolver{"app.conf": {VersionID: 1, AssetID: 3, Key: "app.conf"}}
+		input.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount{{Asset: apigen.ValueRef{ID: 3, Version: 1}, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_WRITE}}
+		assets := fakeAssetResolver{"app.conf": {Ref: apigen.ValueRef{ID: 3, Version: 1}, Key: "app.conf"}}
 		if _, err := ValidateSpecWithAssets(&input, assets); err == nil || !strings.Contains(err.Error(), "READ_ONLY or READ_EXECUTE") {
 			t.Fatalf("err = %v, want asset mount permission rejection", err)
 		}
@@ -375,9 +373,9 @@ func TestValidateDeploymentSpecRejectsOpendeploySpec(t *testing.T) {
 func TestValidateDeploymentSpecAcceptsKnownEnvRefs(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
 	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"PGUSER": {SecretVersionID: ptrInt32(6)}, "PGDATABASE": {ConfigVersionID: ptrInt32(18)},
+		"PGUSER": {Secret: &apigen.ValueRef{ID: 6, Version: 2}}, "PGDATABASE": {Config: &apigen.ValueRef{ID: 18, Version: 1}},
 	}
-	_, err := ValidateSpecWithResolvers(&input, nil, fakeSecretResolver{6: "postgres"}, fakeConfigResolver{18: "postgres"})
+	_, err := ValidateSpecWithResolvers(&input, nil, fakeSecretResolver{{ID: 6, Version: 2}: "postgres"}, fakeConfigResolver{{ID: 18, Version: 1}: "postgres"})
 	if err != nil {
 		t.Fatalf("ValidateSpecWithResolvers failed: %v", err)
 	}
@@ -653,18 +651,18 @@ func TestValidateDeploymentSpecRejectsNetproxyImage(t *testing.T) {
 
 func TestValidateDeploymentSpecRejectsUnknownSecretRef(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"PGPASSWORD": {SecretVersionID: ptrInt32(99)}}
-	_, err := ValidateSpecWithResolvers(&input, nil, fakeSecretResolver{}, fakeConfigResolver{})
-	if err == nil || !strings.Contains(err.Error(), "unknown secret id 99") {
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"PGPASSWORD": {Secret: &apigen.ValueRef{ID: 6, Version: 99}}}
+	_, err := ValidateSpecWithResolvers(&input, nil, fakeSecretResolver{{ID: 6, Version: 2}: "postgres"}, fakeConfigResolver{})
+	if err == nil || !strings.Contains(err.Error(), "unknown secret 6@99") {
 		t.Fatalf("err = %v, want unknown secret", err)
 	}
 }
 
 func TestValidateDeploymentSpecRejectsUnknownConfigRef(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"PGDATABASE": {ConfigVersionID: ptrInt32(99)}}
+	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"PGDATABASE": {Config: &apigen.ValueRef{ID: 99, Version: 1}}}
 	_, err := ValidateSpecWithResolvers(&input, nil, fakeSecretResolver{}, fakeConfigResolver{})
-	if err == nil || !strings.Contains(err.Error(), "unknown config id 99") {
+	if err == nil || !strings.Contains(err.Error(), "unknown config 99@1") {
 		t.Fatalf("err = %v, want unknown config", err)
 	}
 }

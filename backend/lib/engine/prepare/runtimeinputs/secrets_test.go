@@ -9,45 +9,45 @@ import (
 )
 
 type fakeSecretProvider struct {
-	ids    []int32
-	values map[int32]string
+	refs   []apigen.ValueRef
+	values map[apigen.ValueRef]string
 }
 
 type fakeConfigProvider struct {
-	ids    []int32
-	values map[int32]string
+	refs   []apigen.ValueRef
+	values map[apigen.ValueRef]string
 }
 
-func (f *fakeSecretProvider) FetchSecrets(ctx context.Context, ids []int32) (map[int32]string, error) {
-	f.ids = append([]int32(nil), ids...)
+func (f *fakeSecretProvider) FetchSecrets(ctx context.Context, refs []apigen.ValueRef) (map[apigen.ValueRef]string, error) {
+	f.refs = append([]apigen.ValueRef(nil), refs...)
 	if f.values != nil {
 		return f.values, nil
 	}
-	values := make(map[int32]string, len(ids))
-	for _, id := range ids {
-		values[id] = "value"
+	values := make(map[apigen.ValueRef]string, len(refs))
+	for _, ref := range refs {
+		values[ref] = "value"
 	}
 	return values, nil
 }
 
-func (f *fakeConfigProvider) FetchConfigs(ctx context.Context, ids []int32) (map[int32]string, error) {
-	f.ids = append([]int32(nil), ids...)
+func (f *fakeConfigProvider) FetchConfigs(ctx context.Context, refs []apigen.ValueRef) (map[apigen.ValueRef]string, error) {
+	f.refs = append([]apigen.ValueRef(nil), refs...)
 	if f.values != nil {
 		return f.values, nil
 	}
-	values := make(map[int32]string, len(ids))
-	for _, id := range ids {
-		values[id] = "value"
+	values := make(map[apigen.ValueRef]string, len(refs))
+	for _, ref := range refs {
+		values[ref] = "value"
 	}
 	return values, nil
 }
 
 func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 	dep := &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"DB": {SecretVersionID: ptrInt32(6)}, "MIX": {ConfigVersionID: ptrInt32(3)}, "TOKEN": {SecretVersionID: ptrInt32(2)}, "DUP": {SecretVersionID: ptrInt32(6)}}}}}},
+		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"DB": {Secret: ref(6, 1)}, "MIX": {Config: ref(3, 1)}, "TOKEN": {Secret: ref(2, 1)}, "DUP": {Secret: ref(6, 1)}}}}}},
 	}
 
-	want := []int32{2, 6}
+	want := []apigen.ValueRef{vr(2), vr(6)}
 	if got := SecretRefs(dep); !reflect.DeepEqual(got, want) {
 		t.Fatalf("SecretRefs() = %#v; want %#v", got, want)
 	}
@@ -55,10 +55,10 @@ func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 
 func TestConfigRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 	dep := &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"URL": {ConfigVersionID: ptrInt32(18)}, "DUP": {ConfigVersionID: ptrInt32(18)}, "OTHER": {ConfigVersionID: ptrInt32(2)}, "SECRET": {SecretVersionID: ptrInt32(9)}}}}}},
+		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"URL": {Config: ref(18, 1)}, "DUP": {Config: ref(18, 1)}, "OTHER": {Config: ref(2, 1)}, "SECRET": {Secret: ref(9, 1)}}}}}},
 	}
 
-	want := []int32{2, 18}
+	want := []apigen.ValueRef{vr(2), vr(18)}
 	if got := ConfigRefs(dep); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ConfigRefs() = %#v; want %#v", got, want)
 	}
@@ -66,24 +66,24 @@ func TestConfigRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 
 func TestRequiredAssetRefsIncludesExplicitAndEnvAssets(t *testing.T) {
 	dep := &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{AssetMounts: []*apigen.AssetMount{{AssetVersionID: 8, Permission: apigen.FilePermission_READ_EXECUTE}}, EnvVars: map[string]*apigen.EnvVarValue{"APP_CONFIG": {Asset: "implicit.conf", AssetVersionID: 12}, "PLAIN": {Value: ptrString("value")}}}}}},
+		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{AssetMounts: []*apigen.AssetMount{{Asset: vr(8), Permission: apigen.FilePermission_READ_EXECUTE}}, EnvVars: map[string]*apigen.EnvVarValue{"APP_CONFIG": {Asset: "implicit.conf", AssetRef: ref(12, 1)}, "PLAIN": {Value: ptrString("value")}}}}}},
 	}
 
 	refs := RequiredAssetRefs(dep)
 	if len(refs) != 2 {
 		t.Fatalf("refs len = %d; want 2", len(refs))
 	}
-	if refs[0].AssetVersionID != 8 || refs[0].Label != "asset mount 8" || !refs[0].Executable {
+	if refs[0].Ref != vr(8) || refs[0].Label != "asset mount 8@1" || !refs[0].Executable {
 		t.Fatalf("refs[0] = %+v", refs[0])
 	}
-	if refs[1].AssetVersionID != 12 || refs[1].Label != `asset env var "APP_CONFIG"` || refs[1].Executable {
+	if refs[1].Ref != vr(12) || refs[1].Label != `asset env var "APP_CONFIG"` || refs[1].Executable {
 		t.Fatalf("refs[1] = %+v", refs[1])
 	}
 }
 
 func TestAssetCachePathWithModeUsesSeparateExecutablePath(t *testing.T) {
-	readonly := AssetCachePathWithMode(8, false)
-	executable := AssetCachePathWithMode(8, true)
+	readonly := AssetCachePathWithMode(vr(8), false)
+	executable := AssetCachePathWithMode(vr(8), true)
 	if readonly == executable {
 		t.Fatalf("readonly and executable cache paths match: %q", readonly)
 	}
@@ -100,17 +100,17 @@ func TestEnsureSecretsReadyFetchesBatch(t *testing.T) {
 	inputs := New(nil, fake, nil)
 
 	dep := &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"A": {SecretVersionID: ptrInt32(1)}, "B": {SecretVersionID: ptrInt32(2)}}}}}},
+		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"A": {Secret: ref(1, 1)}, "B": {Secret: ref(2, 1)}}}}}},
 	}
 
 	if err := inputs.EnsureSecretsReady(context.Background(), dep); err != nil {
 		t.Fatalf("EnsureSecretsReady: %v", err)
 	}
-	want := []int32{1, 2}
-	if !reflect.DeepEqual(fake.ids, want) {
-		t.Fatalf("fetched ids = %#v; want %#v", fake.ids, want)
+	want := []apigen.ValueRef{vr(1), vr(2)}
+	if !reflect.DeepEqual(fake.refs, want) {
+		t.Fatalf("fetched refs = %#v; want %#v", fake.refs, want)
 	}
-	if value, ok := inputs.ResolveSecret(2); !ok || value != "value" {
+	if value, ok := inputs.ResolveSecret(vr(2)); !ok || value != "value" {
 		t.Fatalf("ResolveSecret(2) = %q, %t; want value, true", value, ok)
 	}
 }
@@ -120,32 +120,32 @@ func TestEnsureConfigsReadyFetchesBatch(t *testing.T) {
 	inputs := New(nil, nil, fake)
 
 	dep := &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"A": {ConfigVersionID: ptrInt32(1)}, "B": {ConfigVersionID: ptrInt32(2)}}}}}},
+		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"A": {Config: ref(1, 1)}, "B": {Config: ref(2, 1)}}}}}},
 	}
 
 	if err := inputs.EnsureConfigsReady(context.Background(), dep); err != nil {
 		t.Fatalf("EnsureConfigsReady: %v", err)
 	}
-	want := []int32{1, 2}
-	if !reflect.DeepEqual(fake.ids, want) {
-		t.Fatalf("fetched ids = %#v; want %#v", fake.ids, want)
+	want := []apigen.ValueRef{vr(1), vr(2)}
+	if !reflect.DeepEqual(fake.refs, want) {
+		t.Fatalf("fetched refs = %#v; want %#v", fake.refs, want)
 	}
-	if value, ok := inputs.ResolveConfig(2); !ok || value != "value" {
+	if value, ok := inputs.ResolveConfig(vr(2)); !ok || value != "value" {
 		t.Fatalf("ResolveConfig(2) = %q, %t; want value, true", value, ok)
 	}
 }
 
 func TestEnsureSecretsReadyDoesNotCacheIncompleteBatch(t *testing.T) {
-	fake := &fakeSecretProvider{values: map[int32]string{1: "one"}}
+	fake := &fakeSecretProvider{values: map[apigen.ValueRef]string{vr(1): "one"}}
 	inputs := New(nil, fake, nil)
 	dep := &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"A": {SecretVersionID: ptrInt32(1)}, "B": {SecretVersionID: ptrInt32(2)}}}}}},
+		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"A": {Secret: ref(1, 1)}, "B": {Secret: ref(2, 1)}}}}}},
 	}
 
 	if err := inputs.EnsureSecretsReady(context.Background(), dep); err == nil {
 		t.Fatal("expected incomplete secret batch to fail")
 	}
-	if _, ok := inputs.ResolveSecret(1); ok {
+	if _, ok := inputs.ResolveSecret(vr(1)); ok {
 		t.Fatal("incomplete secret batch was cached")
 	}
 }
@@ -153,61 +153,62 @@ func TestEnsureSecretsReadyDoesNotCacheIncompleteBatch(t *testing.T) {
 // fakePersistence records what was written so tests can assert the durable side
 // independently of the in-memory maps.
 type fakePersistence struct {
-	secrets map[int32]string
-	configs map[int32]string
+	secrets map[apigen.ValueRef]string
+	configs map[apigen.ValueRef]string
 	loadErr error
 }
 
 func newFakePersistence() *fakePersistence {
-	return &fakePersistence{secrets: map[int32]string{}, configs: map[int32]string{}}
+	return &fakePersistence{secrets: map[apigen.ValueRef]string{}, configs: map[apigen.ValueRef]string{}}
 }
 
-func (f *fakePersistence) LoadRuntimeInputs() (map[int32]string, map[int32]string, error) {
+func (f *fakePersistence) LoadRuntimeInputs() (map[apigen.ValueRef]string, map[apigen.ValueRef]string, error) {
 	if f.loadErr != nil {
 		return nil, nil, f.loadErr
 	}
-	secrets := map[int32]string{}
-	configs := map[int32]string{}
-	for id, v := range f.secrets {
-		secrets[id] = v
+	secrets := map[apigen.ValueRef]string{}
+	configs := map[apigen.ValueRef]string{}
+	for ref, v := range f.secrets {
+		secrets[ref] = v
 	}
-	for id, v := range f.configs {
-		configs[id] = v
+	for ref, v := range f.configs {
+		configs[ref] = v
 	}
 	return secrets, configs, nil
 }
 
-func (f *fakePersistence) StoreRuntimeInputs(secrets, configs map[int32]string) error {
-	for id, v := range secrets {
-		f.secrets[id] = v
+func (f *fakePersistence) StoreRuntimeInputs(secrets, configs map[apigen.ValueRef]string) error {
+	for ref, v := range secrets {
+		f.secrets[ref] = v
 	}
-	for id, v := range configs {
-		f.configs[id] = v
+	for ref, v := range configs {
+		f.configs[ref] = v
 	}
 	return nil
 }
 
-func (f *fakePersistence) RetainRuntimeInputs(secrets, configs map[int32]struct{}) (int, error) {
+func (f *fakePersistence) RetainRuntimeInputs(secrets, configs map[apigen.ValueRef]struct{}) (int, error) {
 	removed := 0
-	for id := range f.secrets {
-		if _, ok := secrets[id]; !ok {
-			delete(f.secrets, id)
+	for ref := range f.secrets {
+		if _, ok := secrets[ref]; !ok {
+			delete(f.secrets, ref)
 			removed++
 		}
 	}
-	for id := range f.configs {
-		if _, ok := configs[id]; !ok {
-			delete(f.configs, id)
+	for ref := range f.configs {
+		if _, ok := configs[ref]; !ok {
+			delete(f.configs, ref)
 			removed++
 		}
 	}
 	return removed, nil
 }
 
-func secretRefDeployment(ids ...int32) *apigen.DeploymentEvent {
+func secretRefDeployment(refs ...apigen.ValueRef) *apigen.DeploymentEvent {
 	env := map[string]*apigen.EnvVarValue{}
-	for i, id := range ids {
-		env[string(rune('A'+i))] = &apigen.EnvVarValue{SecretVersionID: ptrInt32(id)}
+	for i, ref := range refs {
+		ref := ref
+		env[string(rune('A'+i))] = &apigen.EnvVarValue{Secret: &ref}
 	}
 	return &apigen.DeploymentEvent{
 		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: env}}}},
@@ -224,7 +225,7 @@ func TestPersistedInputsMakeRestartNotContactTheProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPersistent: %v", err)
 	}
-	dep := secretRefDeployment(1, 2)
+	dep := secretRefDeployment(vr(1), vr(2))
 	if err := inputs.EnsureSecretsReady(context.Background(), dep); err != nil {
 		t.Fatalf("EnsureSecretsReady: %v", err)
 	}
@@ -241,7 +242,7 @@ func TestPersistedInputsMakeRestartNotContactTheProvider(t *testing.T) {
 	if err := restarted.EnsureSecretsReady(context.Background(), dep); err != nil {
 		t.Fatalf("EnsureSecretsReady after restart: %v", err)
 	}
-	if value, ok := restarted.ResolveSecret(2); !ok || value != "value" {
+	if value, ok := restarted.ResolveSecret(vr(2)); !ok || value != "value" {
 		t.Fatalf("ResolveSecret(2) after restart = %q, %t", value, ok)
 	}
 }
@@ -249,29 +250,31 @@ func TestPersistedInputsMakeRestartNotContactTheProvider(t *testing.T) {
 // failingSecretProvider fails the test if it is called at all.
 type failingSecretProvider struct{ t *testing.T }
 
-func (f *failingSecretProvider) FetchSecrets(context.Context, []int32) (map[int32]string, error) {
+func (f *failingSecretProvider) FetchSecrets(context.Context, []apigen.ValueRef) (map[apigen.ValueRef]string, error) {
 	f.t.Error("provider was contacted although every id was already held locally")
 	return nil, context.Canceled
 }
 
-// Only the ids not already held are requested, so a partially-cached config
-// costs one narrow fetch rather than a full refetch.
-func TestEnsureSecretsReadyFetchesOnlyMissingIDs(t *testing.T) {
+// Only the refs not already held are requested, so a partially-cached config
+// costs one narrow fetch rather than a full refetch. Another value version of a
+// held secret is a different ref and is fetched.
+func TestEnsureSecretsReadyFetchesOnlyMissingRefs(t *testing.T) {
 	persistence := newFakePersistence()
-	persistence.secrets[1] = "cached"
+	persistence.secrets[vr(1)] = "cached"
 	fake := &fakeSecretProvider{}
 	inputs, err := NewPersistent(nil, fake, nil, persistence)
 	if err != nil {
 		t.Fatalf("NewPersistent: %v", err)
 	}
 
-	if err := inputs.EnsureSecretsReady(context.Background(), secretRefDeployment(1, 2)); err != nil {
+	next := apigen.ValueRef{ID: 1, Version: 2}
+	if err := inputs.EnsureSecretsReady(context.Background(), secretRefDeployment(vr(1), next, vr(2))); err != nil {
 		t.Fatalf("EnsureSecretsReady: %v", err)
 	}
-	if !reflect.DeepEqual(fake.ids, []int32{2}) {
-		t.Fatalf("fetched ids = %#v, want [2]", fake.ids)
+	if want := []apigen.ValueRef{next, vr(2)}; !reflect.DeepEqual(fake.refs, want) {
+		t.Fatalf("fetched refs = %#v, want %#v", fake.refs, want)
 	}
-	if value, ok := inputs.ResolveSecret(1); !ok || value != "cached" {
+	if value, ok := inputs.ResolveSecret(vr(1)); !ok || value != "cached" {
 		t.Fatalf("ResolveSecret(1) = %q, %t; want cached, true", value, ok)
 	}
 }
@@ -290,11 +293,11 @@ func TestNewPersistentStaysUsableWhenLoadFails(t *testing.T) {
 	if inputs == nil {
 		t.Fatal("NewPersistent returned no RuntimeInputs to fall back on")
 	}
-	if err := inputs.EnsureSecretsReady(context.Background(), secretRefDeployment(1)); err != nil {
+	if err := inputs.EnsureSecretsReady(context.Background(), secretRefDeployment(vr(1))); err != nil {
 		t.Fatalf("EnsureSecretsReady: %v", err)
 	}
-	if !reflect.DeepEqual(fake.ids, []int32{1}) {
-		t.Fatalf("fetched ids = %#v, want [1]", fake.ids)
+	if !reflect.DeepEqual(fake.refs, []apigen.ValueRef{vr(1)}) {
+		t.Fatalf("fetched refs = %#v, want [1@1]", fake.refs)
 	}
 }
 
@@ -304,23 +307,27 @@ func TestRetainDropsUnreferencedValuesFromMemoryAndPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPersistent: %v", err)
 	}
-	if err := inputs.EnsureSecretsReady(context.Background(), secretRefDeployment(1, 2)); err != nil {
+	if err := inputs.EnsureSecretsReady(context.Background(), secretRefDeployment(vr(1), vr(2))); err != nil {
 		t.Fatalf("EnsureSecretsReady: %v", err)
 	}
 
-	if _, err := inputs.Retain(map[int32]struct{}{1: {}}, map[int32]struct{}{}); err != nil {
+	if _, err := inputs.Retain(map[apigen.ValueRef]struct{}{vr(1): {}}, map[apigen.ValueRef]struct{}{}); err != nil {
 		t.Fatalf("Retain: %v", err)
 	}
-	if _, ok := inputs.ResolveSecret(2); ok {
+	if _, ok := inputs.ResolveSecret(vr(2)); ok {
 		t.Fatal("unreferenced secret still resolvable in memory")
 	}
-	if _, ok := persistence.secrets[2]; ok {
+	if _, ok := persistence.secrets[vr(2)]; ok {
 		t.Fatal("unreferenced secret still persisted")
 	}
-	if _, ok := inputs.ResolveSecret(1); !ok {
+	if _, ok := inputs.ResolveSecret(vr(1)); !ok {
 		t.Fatal("referenced secret was dropped")
 	}
 }
 
-func ptrInt32(v int32) *int32    { return &v }
+func ptrInt32(v int32) *int32     { return &v }
+func vr(id int32) apigen.ValueRef { return apigen.ValueRef{ID: id, Version: 1} }
+func ref(id, version int32) *apigen.ValueRef {
+	return &apigen.ValueRef{ID: id, Version: version}
+}
 func ptrString(v string) *string { return &v }
