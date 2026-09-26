@@ -123,24 +123,23 @@ func assetSiblingKeyTaken(ctx context.Context, q *pq.Queries, spaceID, directory
 	return dirs > 0
 }
 
-func assetStoreRefBySha(ctx context.Context, q *pq.Queries, sha256 string) (pq.AssetStoreRef, error) {
-	if sha256 == "" {
-		return pq.AssetStoreRef{}, ErrAssetContentMissing
+// requireStoredContent checks that storageKey names a completed content row
+// holding sha256, so an identity never points at content that is not there.
+func requireStoredContent(ctx context.Context, q *pq.Queries, sha256, storageKey string) error {
+	if sha256 == "" || storageKey == "" {
+		return ErrAssetContentMissing
 	}
-	row, err := q.GetAssetStoreRowBySha(ctx, sha256)
+	row, err := q.GetAssetStoreRowByID(ctx, storageKey)
 	if errors.Is(err, sql.ErrNoRows) {
-		return pq.AssetStoreRef{}, ErrAssetContentMissing
+		return ErrAssetContentMissing
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetAssetStoreRowBySha: %v", err))
+		panic(fmt.Sprintf("GetAssetStoreRowByID: %v", err))
 	}
-	return pq.AssetStoreRef{
-		ID:           row.ID,
-		LocalStatus:  row.LocalStatus,
-		RemoteStatus: row.RemoteStatus,
-		InlineSize:   int64(len(row.InlineBlob)),
-		InlineBlob:   row.InlineBlob,
-	}, nil
+	if row.Sha256 != sha256 {
+		return ErrAssetContentMissing
+	}
+	return nil
 }
 
 func nextAssetEvent(prev apigen.AssetEvent, author int32, eventType apigen.EventType) apigen.AssetEvent {
@@ -183,7 +182,7 @@ func latestAssetEvent(ctx context.Context, q *pq.Queries, assetID int32) (apigen
 	return e, e.EventType != apigen.EventType_EVENT_TYPE_DELETE
 }
 
-func CreateAssetWithVersion(store *state.Service, key string, spaceID, directoryID, author int32, sha256 string, sizeBytes int64) (*apigen.AssetEvent, error) {
+func CreateAssetWithVersion(store *state.Service, key string, spaceID, directoryID, author int32, sha256, storageKey string, sizeBytes int64) (*apigen.AssetEvent, error) {
 	if !ValidAssetKey(key) {
 		return nil, ErrAssetKeyInvalid
 	}
@@ -192,7 +191,7 @@ func CreateAssetWithVersion(store *state.Service, key string, spaceID, directory
 	space := int64(nodes.NormalizedUserSpaceID(spaceID))
 	var assetID int64
 	err := commitAssetEvent(store, ctx, nil, func(q *pq.Queries) (*apigen.AssetEvent, error) {
-		if _, err := assetStoreRefBySha(ctx, q, sha256); err != nil {
+		if err := requireStoredContent(ctx, q, sha256, storageKey); err != nil {
 			return nil, err
 		}
 		dirID, err := resolveAssetDirectory(ctx, q, space, directoryID)
@@ -213,7 +212,7 @@ func CreateAssetWithVersion(store *state.Service, key string, spaceID, directory
 			AssetID:      int32(assetID),
 			Version:      1,
 			ValueVersion: 1,
-			Value:        apigen.Asset{Fs: &apigen.AssetFs{Key: key, DirectoryID: int32(dirID)}, SpaceID: int32(space), SizeBytes: sizeBytes, Sha256: sha256},
+			Value:        apigen.Asset{Fs: &apigen.AssetFs{Key: key, DirectoryID: int32(dirID)}, SpaceID: int32(space), SizeBytes: sizeBytes, Sha256: sha256, StorageKey: storageKey},
 			EventType:    apigen.EventType_EVENT_TYPE_CREATE,
 		}, nil
 	})
@@ -227,10 +226,10 @@ func CreateAssetWithVersion(store *state.Service, key string, spaceID, directory
 	return asset, nil
 }
 
-func AppendAssetVersion(store *state.Service, assetID, author int32, sha256 string, sizeBytes int64) (*apigen.AssetEvent, error) {
+func AppendAssetVersion(store *state.Service, assetID, author int32, sha256, storageKey string, sizeBytes int64) (*apigen.AssetEvent, error) {
 	ctx := context.Background()
 	err := commitAssetEvent(store, ctx, nil, func(q *pq.Queries) (*apigen.AssetEvent, error) {
-		if _, err := assetStoreRefBySha(ctx, q, sha256); err != nil {
+		if err := requireStoredContent(ctx, q, sha256, storageKey); err != nil {
 			return nil, err
 		}
 		prev, ok := latestAssetEvent(ctx, q, assetID)
@@ -241,6 +240,7 @@ func AppendAssetVersion(store *state.Service, assetID, author int32, sha256 stri
 		event.ValueVersion = prev.ValueVersion + 1
 		event.Value.SizeBytes = sizeBytes
 		event.Value.Sha256 = sha256
+		event.Value.StorageKey = storageKey
 		return &event, nil
 	})
 	if err != nil {

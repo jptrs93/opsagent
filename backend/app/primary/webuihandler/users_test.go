@@ -28,8 +28,6 @@ func TestUserWritersPublishSequencedPersistedState(t *testing.T) {
 	}
 	users.Write(s, &apigen.InternalUser{ID: 1, Name: "user"})
 	check()
-	users.TouchLastLogin(s, 1)
-	check()
 	users.UpdateMatching(s, func(u *apigen.InternalUser) bool { return u.ID == 1 }, func(u *apigen.InternalUser) { u.Name = "renamed" })
 	check()
 	if user, err := users.ByID(s.Queries(), 1); err != nil || user.Name != "renamed" {

@@ -123,7 +123,9 @@ No authentication required (discoverable login).
 
 ### Credential storage
 
-Credentials are persisted inside each user's `data_blob` column in the SQLite `users` table (protobuf-encoded `InternalUser` containing the full credential list). Lookup on login fetches all users and resolves the credential by its raw id.
+Credentials are persisted inside each user's `data_blob` column in the SQLite `users` table (protobuf-encoded `InternalUser` containing the full credential list). Lookup on login fetches all users and resolves the credential by its raw id. The library returns the credential after every successful login with its updated sign counter, clone warning, and backup flags, and the handler stores it by credential id, replacing the existing entry (`users.SetCredential`). Before v0.0.614 each login appended a copy instead; `users.MigrateDuplicateCredentials` collapses those at startup onto the newest entry per id.
+
+The `User` proto carries no last-login time. The newest `personal_sessions.created_at` for the user is that fact, so it is read from sessions when a surface needs it.
 
 ## Password login
 

@@ -1,9 +1,11 @@
 package users
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/jptrs93/goutil/erru"
@@ -34,16 +36,65 @@ func Write(store *state.Service, user *apigen.InternalUser) {
 	}
 }
 
-func TouchLastLogin(store *state.Service, userID int32) {
-	ctx := context.Background()
-	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
-		if err := q.TouchUserLastLogin(ctx, pq.TouchUserLastLoginParams{ID: int64(userID), LastLoginAt: time.Now().UnixMilli()}); err != nil {
-			return nil, err
+// SetCredential stores a passkey by credential id. The library hands back the
+// same credential after every login with a fresh sign counter and flags, so
+// an existing entry is replaced in place rather than appended.
+func SetCredential(u *apigen.InternalUser, id, data []byte) {
+	for _, c := range u.Credentials {
+		if bytes.Equal(c.ID, id) {
+			c.Data = data
+			return
 		}
-		return update(ctx, q, int64(userID))
-	}); err != nil {
-		panic(err)
 	}
+	u.Credentials = append(u.Credentials, &apigen.WebAuthnCredential{ID: id, Data: data})
+}
+
+// DedupeCredentials collapses entries that share a credential id onto the
+// last one, which carries the newest sign counter. It reports whether
+// anything changed.
+func DedupeCredentials(u *apigen.InternalUser) bool {
+	last := make(map[string]*apigen.WebAuthnCredential, len(u.Credentials))
+	for _, c := range u.Credentials {
+		last[string(c.ID)] = c
+	}
+	if len(last) == len(u.Credentials) {
+		return false
+	}
+	kept := make([]*apigen.WebAuthnCredential, 0, len(last))
+	seen := make(map[string]bool, len(last))
+	for _, c := range u.Credentials {
+		if seen[string(c.ID)] {
+			continue
+		}
+		seen[string(c.ID)] = true
+		kept = append(kept, last[string(c.ID)])
+	}
+	u.Credentials = kept
+	return true
+}
+
+// MigrateDuplicateCredentials is the one-time v0.0.614 clean-up of the
+// credential entries that every passkey login appended before SetCredential
+// replaced by id. Idempotent. Remove after every active cluster has rolled
+// forward, per the migrations.sql history-note convention.
+func MigrateDuplicateCredentials(store *state.Service) error {
+	ctx := context.Background()
+	rows, err := store.Queries().ListInternalUsers(ctx)
+	if err != nil {
+		return err
+	}
+	for _, u := range rows {
+		probe := &apigen.InternalUser{Credentials: u.Credentials}
+		if !DedupeCredentials(probe) {
+			continue
+		}
+		id := u.ID
+		UpdateMatching(store, func(user *apigen.InternalUser) bool { return user.ID == id }, func(user *apigen.InternalUser) {
+			DedupeCredentials(user)
+		})
+		slog.InfoContext(ctx, "collapsed duplicate passkey credential entries", "user", id, "before", len(u.Credentials), "after", len(probe.Credentials))
+	}
+	return nil
 }
 
 func ListPublic(q *pq.Queries) []*apigen.User {

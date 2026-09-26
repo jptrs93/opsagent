@@ -7,25 +7,23 @@ import (
 )
 
 type AssetVersion struct {
-	ID        int64
-	AssetID   int64
-	Version   int64
-	CreatedAt int64
-	Author    int64
-	SizeBytes int64
-	Sha256    string
-	GlobalSeq int64
+	ID         int64
+	AssetID    int64
+	Version    int64
+	CreatedAt  int64
+	Author     int64
+	SizeBytes  int64
+	Sha256     string
+	StorageKey string
+	GlobalSeq  int64
 }
 
-// AssetStoreRef carries the content-store fields a version row resolves to
-// through its sha256 link. InlineBlob is loaded only by the queries that say
-// so.
+// AssetStoreRef carries the placement of the content a version row names
+// through its storage key.
 type AssetStoreRef struct {
 	ID           string
 	LocalStatus  int64
 	RemoteStatus int64
-	InlineSize   int64
-	InlineBlob   []byte
 }
 
 // AssetRow is a live asset identity with its current facets — the latest
@@ -61,13 +59,13 @@ func (q *Queries) InsertAssetEvent(ctx context.Context, e *apigen.AssetEvent) er
  INSERT INTO asset_event_log (
   id, global_seq, event_time, created_time, author,
   asset_id,version,value_version,
-  key,asset_directory_id,space_id,size_bytes,sha256,event_type, value_changed
-) VALUES (NULLIF(?, 0),?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+  key,asset_directory_id,space_id,size_bytes,sha256,storage_key,event_type, value_changed
+) VALUES (NULLIF(?, 0),?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
  ? > COALESCE((SELECT value_version FROM previous),0))
 RETURNING id, global_seq, event_time, created_time, author,
   asset_id,version,value_version,
-  key,asset_directory_id,space_id,size_bytes,sha256,event_type`,
-		e.AssetID, e.EventID, e.Seq, e.EventTime, e.CreatedTime, e.Author, e.AssetID, e.Version, e.ValueVersion, e.Value.Fs.Key, e.Value.Fs.DirectoryID, e.Value.SpaceID, e.Value.SizeBytes, e.Value.Sha256, e.EventType, e.ValueVersion)
+  key,asset_directory_id,space_id,size_bytes,sha256,storage_key,event_type`,
+		e.AssetID, e.EventID, e.Seq, e.EventTime, e.CreatedTime, e.Author, e.AssetID, e.Version, e.ValueVersion, e.Value.Fs.Key, e.Value.Fs.DirectoryID, e.Value.SpaceID, e.Value.SizeBytes, e.Value.Sha256, e.Value.StorageKey, e.EventType, e.ValueVersion)
 	written, err := scanAssetEvent(row)
 	if err != nil {
 		return err
@@ -142,17 +140,17 @@ type AssetVersionJoined struct {
 	Store   AssetStoreRef
 }
 
-const assetVersionJoinedColumns = `v.id, v.asset_id, v.value_version, v.event_time, v.author, v.size_bytes, v.sha256, v.global_seq,
-       s.id, s.local_status, s.remote_status, CAST(LENGTH(s.inline_blob) AS INTEGER)`
+const assetVersionJoinedColumns = `v.id, v.asset_id, v.value_version, v.event_time, v.author, v.size_bytes, v.sha256, v.storage_key, v.global_seq,
+       s.id, s.local_status, s.remote_status`
 
 const assetVersionRowsFrom = `FROM asset_event_log v
-JOIN asset_store s ON s.sha256 = v.sha256`
+JOIN asset_store s ON s.id = v.storage_key`
 
 func scanAssetVersionJoined(scan func(dest ...any) error, r *AssetVersionJoined, extra ...any) error {
 	dest := []any{
 		&r.Version.ID, &r.Version.AssetID, &r.Version.Version, &r.Version.CreatedAt, &r.Version.Author,
-		&r.Version.SizeBytes, &r.Version.Sha256, &r.Version.GlobalSeq,
-		&r.Store.ID, &r.Store.LocalStatus, &r.Store.RemoteStatus, &r.Store.InlineSize,
+		&r.Version.SizeBytes, &r.Version.Sha256, &r.Version.StorageKey, &r.Version.GlobalSeq,
+		&r.Store.ID, &r.Store.LocalStatus, &r.Store.RemoteStatus,
 	}
 	return scan(append(dest, extra...)...)
 }
@@ -161,14 +159,14 @@ const assetCurrentIdentityJoin = `JOIN asset_event_log a
   ON a.asset_id = v.asset_id
  AND a.version = (SELECT MAX(version) FROM asset_event_log WHERE asset_id = v.asset_id)`
 
-// GetAssetVersionJoinedByID resolves a content version row id (inline blob
-// included) joined with its store row and owning asset.
+// GetAssetVersionJoinedByID resolves a content version row id joined with its
+// store row and owning asset.
 func (q *Queries) GetAssetVersionJoinedByID(ctx context.Context, assetVersionID int64) (AssetVersionJoined, error) {
 	return q.getAssetVersionJoined(ctx, `v.id = ?`, assetVersionID)
 }
 
-// GetAssetVersionJoinedByRef resolves a pinned asset value (inline blob
-// included) joined with its store row and owning asset.
+// GetAssetVersionJoinedByRef resolves a pinned asset value joined with its
+// store row and owning asset.
 func (q *Queries) GetAssetVersionJoinedByRef(ctx context.Context, ref apigen.ValueRef) (AssetVersionJoined, error) {
 	return q.getAssetVersionJoined(ctx, `v.asset_id = ? AND v.value_version = ?`, ref.ID, ref.Version)
 }
@@ -176,10 +174,10 @@ func (q *Queries) GetAssetVersionJoinedByRef(ctx context.Context, ref apigen.Val
 func (q *Queries) getAssetVersionJoined(ctx context.Context, where string, args ...any) (AssetVersionJoined, error) {
 	var r AssetVersionJoined
 	err := scanAssetVersionJoined(q.db.QueryRowContext(ctx, `
-SELECT `+assetVersionJoinedColumns+`, s.inline_blob, a.key, a.space_id
+SELECT `+assetVersionJoinedColumns+`, a.key, a.space_id
 `+assetVersionRowsFrom+`
 `+assetCurrentIdentityJoin+`
-WHERE `+where+` AND v.value_changed != 0`, args...).Scan, &r, &r.Store.InlineBlob, &r.Asset.Key, &r.Asset.SpaceID)
+WHERE `+where+` AND v.value_changed != 0`, args...).Scan, &r, &r.Asset.Key, &r.Asset.SpaceID)
 	if err != nil {
 		return r, err
 	}

@@ -9,7 +9,9 @@ denormalised onto every row (non-value events carry the previous payload
 forward), so the highest-version row is the complete current state; a
 `value_changed` row is an immutable numbered **value version**, unique per
 `(secret_id, value_version)` by a partial unique index. Setting a secret appends the next value version
-(`v1`, `v2`, ...) as a new event row; the identity id survives renames,
+(`v1`, `v2`, ...) as a new event row and issues it an opaque **seal id**
+(`seal_id`, surfaced as `Secret.seal_id`), which names the sealed value and is
+carried forward by renames and moves; the identity id survives renames,
 moves, and rotations and is what the write API targets. Deployment
 environment variables and settings pin exact versions by the pair
 `ValueRef{id, version}` (stable secret id plus value version) in
@@ -135,7 +137,7 @@ Key files:
 - `backend/app/primary/domain/secrets/store.go` — the primary's secret rows
   (`secret_keyslots`, `secret_event_log`, and `system_secrets` tables) written
   through `state.Service.Commit`. Sealing happens through a `secrets.SealFunc`
-  callback inside the write transaction, because the id-and-version AAD needs
+  callback inside the write transaction, because the id-and-seal-id AAD needs
   the identity id before the ciphertext can exist.
 - `backend/app/primary/domain/secrets/generate.go` — the server-side value generators
   used by `PostV1SecretsGenerate`.
@@ -196,13 +198,16 @@ machine KEK (provider-supplied) ────────────────
 ```
 
 - A single 32-byte **Secrets Master Key (SMK)** encrypts every value with
-  XChaCha20-Poly1305. For user secrets the owning identity id and version
-  number are bound as **associated data**
-  (`opendeploy-secret:user:s<secret_id>:v<version>`), so a ciphertext cannot be
-  moved to another secret or another version of the same secret — and renames
+  XChaCha20-Poly1305. For user secrets the owning identity id and the value's
+  seal id are bound as **associated data**
+  (`opendeploy-secret:user:s<secret_id>:<seal_id>`), so a ciphertext cannot be
+  moved to another secret or another value of the same secret — and renames
   and directory moves never re-encrypt, because neither appears in the AAD.
-  System secrets stay name-bound (`opendeploy-secret:system:<name>`); they are
-  name-keyed, unversioned, and outside the file system.
+  The seal id is opaque (`k` plus 20 random bytes in base32) and is issued
+  once per value write, so a future re-seal under a rotated SMK keeps the
+  binding without reading as a new value. System secrets stay name-bound
+  (`opendeploy-secret:system:<name>`); they are name-keyed, unversioned, and
+  outside the file system.
 
   History note: rows written before the identity split were sealed under a
   legacy name-bound AAD (`opendeploy-secret:user:<name>`); a re-seal sweep at
@@ -210,6 +215,12 @@ machine KEK (provider-supplied) ────────────────
   read fallback were removed in 2026-08 once every active cluster had rolled
   forward, so restoring a database (or backup) that still carries name-bound
   rows requires stepping through a release that still carried the sweep.
+  Rows written between then and v0.0.614 were bound to
+  `s<secret_id>:v<value_version>`; the v0.0.614 migration backfills their
+  `seal_id` with the literal `v<value_version>`, which reproduces that
+  associated data byte for byte, so they open under the current AAD function
+  with no re-seal. Legacy `v`-prefixed and current `k`-prefixed ids never
+  collide.
 - The SMK is never stored in the clear. It is stored wrapped, once per
   **keyslot** (`secret_keyslots` table):
   - **machine slot** — `AEAD(SMK, machineKEK)`, for unattended boot.

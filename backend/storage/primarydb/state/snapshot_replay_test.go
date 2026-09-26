@@ -265,7 +265,7 @@ func TestSnapshotEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testing
 	commit(func(q *pq.Queries, seq int64) (*Update, error) {
 		written, err := q.InsertSecretEvent(context.Background(), pq.SecretEvent{GlobalSeq: seq, EventTime: now, CreatedTime: now, Author: 1, SecretID: 1,
 			Version: 1, ValueVersion: 1, ValueChanged: 1, Name: "secret", SpaceID: 1,
-			SmkVersion: 1, Ciphertext: []byte{1}, Nonce: []byte{1}, EventType: pq.EventCreate})
+			SmkVersion: 1, Ciphertext: []byte{1}, Nonce: []byte{1}, SealID: "kseed", EventType: pq.EventCreate})
 		if err != nil {
 			return nil, err
 		}

@@ -1,11 +1,8 @@
 package systemconfig
 
 import (
-	"context"
-	"errors"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 	"path/filepath"
 	"strings"
@@ -195,33 +192,20 @@ func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 		t.Fatal("BackupEnabled after update = false, want true")
 	}
 	select {
-	case <-service.AssetMigrationWake():
+	case <-service.AssetTargetWake():
 	default:
-		t.Fatal("BackupEnabled update did not wake the asset migration secondary")
+		t.Fatal("BackupEnabled update did not wake the asset reconciler")
 	}
-	migration, ok := UnfinishedAssetMigration(store.Queries())
-	if !ok {
-		t.Fatal("BackupEnabled update did not create an asset migration")
+	if err := service.UpdateSettings(service.Snapshot().Settings, nil); err != nil {
+		t.Fatalf("UpdateSettings with the same target: %v", err)
 	}
-	if migration.OldConfigVersionID == migration.NewConfigVersionID {
-		t.Fatal("asset migration old and new config IDs are equal")
+	select {
+	case <-service.AssetTargetWake():
+		t.Fatal("a save that keeps the storage target woke the asset reconciler")
+	default:
 	}
-	latestBeforeBlockedSave, err := LatestRevision(store.Queries())
-	if err != nil {
-		t.Fatalf("FetchLatestOpenDeployConfig before blocked save: %v", err)
-	}
-	if err := service.UpdateSettings(service.Snapshot().Settings, nil); !errors.Is(err, ErrAssetMigrationInProgress) {
-		t.Fatalf("UpdateSettings during migration error = %v, want ErrAssetMigrationInProgress", err)
-	}
-	latestAfterBlockedSave, err := LatestRevision(store.Queries())
-	if err != nil {
-		t.Fatalf("FetchLatestOpenDeployConfig after blocked save: %v", err)
-	}
-	if latestAfterBlockedSave.ID != latestBeforeBlockedSave.ID {
-		t.Fatalf("blocked settings save created config %d, previous latest was %d", latestAfterBlockedSave.ID, latestBeforeBlockedSave.ID)
-	}
-	if err := service.SetMasterPasswordHash("allowed-during-migration"); err != nil {
-		t.Fatalf("SetMasterPasswordHash during migration: %v", err)
+	if err := service.SetMasterPasswordHash("rotated"); err != nil {
+		t.Fatalf("SetMasterPasswordHash: %v", err)
 	}
 }
 
@@ -274,7 +258,7 @@ func TestWebUIDefaultsPreserveExistingHTTPSInstall(t *testing.T) {
 	}
 }
 
-func TestKeepLocalCopyTogglesCreateAssetMigrationsOnlyWhileBackupEnabled(t *testing.T) {
+func TestKeepLocalCopyTogglesWakeTheReconcilerOnlyWhileBackupEnabled(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := state.Open(dbPath)
 	service, err := InitializeService(store, *Default(DefaultInitial()))
@@ -284,33 +268,37 @@ func TestKeepLocalCopyTogglesCreateAssetMigrationsOnlyWhileBackupEnabled(t *test
 	if service.Snapshot().Settings.LargeAssets.KeepLocalCopy.Value {
 		t.Fatal("LargeAssets.KeepLocalCopy default = true, want false")
 	}
+	woke := func() bool {
+		select {
+		case <-service.AssetTargetWake():
+			return true
+		default:
+			return false
+		}
+	}
 
 	settings := DefaultSettings(DefaultInitial())
 	settings.LargeAssets.KeepLocalCopy = apigen.BoolSetting{Value: true}
 	if err := service.UpdateSettings(*settings, nil); err != nil {
 		t.Fatalf("UpdateSettings keep local while backup disabled: %v", err)
 	}
-	if _, ok := UnfinishedAssetMigration(store.Queries()); ok {
-		t.Fatal("keep local toggle while backup is disabled created an asset migration")
+	if woke() {
+		t.Fatal("keep local toggle while backup is disabled woke the reconciler")
 	}
 
 	settings.Backup.Enabled = apigen.BoolSetting{Value: true}
 	if err := service.UpdateSettings(*settings, nil); err != nil {
 		t.Fatalf("UpdateSettings enable backup: %v", err)
 	}
-	migration, ok := UnfinishedAssetMigration(store.Queries())
-	if !ok {
-		t.Fatal("enabling backup did not create an asset migration")
-	}
-	if _, err := store.Queries().FinishAssetMigration(context.Background(), pq.FinishAssetMigrationParams{FinishedAt: 1, ID: migration.ID}); err != nil {
-		t.Fatalf("finish migration: %v", err)
+	if !woke() {
+		t.Fatal("enabling backup did not wake the reconciler")
 	}
 
 	settings.LargeAssets.KeepLocalCopy = apigen.BoolSetting{Value: false}
 	if err := service.UpdateSettings(*settings, nil); err != nil {
 		t.Fatalf("UpdateSettings clear keep local while backup enabled: %v", err)
 	}
-	if _, ok := UnfinishedAssetMigration(store.Queries()); !ok {
-		t.Fatal("keep local toggle while backup is enabled did not create an asset migration")
+	if !woke() {
+		t.Fatal("keep local toggle while backup is enabled did not wake the reconciler")
 	}
 }

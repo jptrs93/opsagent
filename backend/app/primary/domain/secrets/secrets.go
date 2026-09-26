@@ -3,9 +3,10 @@
 // Design: envelope encryption with a small key hierarchy.
 //
 //   - A single 32-byte Secrets Master Key (SMK) encrypts every secret value
-//     (XChaCha20-Poly1305, with the owning secret's stable id and version
-//     number bound as associated data so a ciphertext cannot be moved to a
-//     different secret or version — and renames/moves never re-encrypt).
+//     (XChaCha20-Poly1305, with the owning secret's stable id and the value's
+//     seal id bound as associated data so a ciphertext cannot be moved to a
+//     different secret or a different value of the same secret — and
+//     renames/moves never re-encrypt).
 //   - The SMK is never stored in the clear. It is stored wrapped, once per
 //     "keyslot": the MACHINE slot (the SMK sealed under a random key kept in
 //     {dataDir}/machine.key, 0600, for unattended boot) and the optional
@@ -96,6 +97,7 @@ type Record struct {
 	SMKVersion int32
 	Ciphertext []byte
 	Nonce      []byte
+	SealID     string
 	CreatedAt  int64 // epoch ms
 	Author     int32
 }
@@ -117,6 +119,7 @@ type Meta struct {
 	SecretID  int32
 	Name      string
 	Version   int32
+	SealID    string
 	SpaceID   int32
 	CreatedAt time.Time
 	Author    int32
@@ -128,10 +131,10 @@ type SealedValue struct {
 	Nonce      []byte
 }
 
-// SealFunc seals a plaintext for the given identity id and version number.
-// The store calls it inside the write transaction, once both are known —
-// the AAD binds them, so the ciphertext cannot exist earlier.
-type SealFunc func(secretID, version int32) (SealedValue, error)
+// SealFunc seals a plaintext for the given identity id and seal id. The store
+// calls it inside the write transaction, once both are known — the AAD binds
+// them, so the ciphertext cannot exist earlier.
+type SealFunc func(secretID int32, sealID string) (SealedValue, error)
 
 const defaultUserSpaceID int32 = 1
 
@@ -228,7 +231,7 @@ func (m *Manager) recordByRefLocked(ref apigen.ValueRef) (Record, bool) {
 // openRecordLocked decrypts one cached version row. Caller must hold m.mu
 // (read) with m.smk set.
 func (m *Manager) openRecordLocked(rec Record) ([]byte, error) {
-	return aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, userSecretAAD(rec.SecretID, rec.Version))
+	return aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, userSecretAAD(rec.SecretID, rec.SealID))
 }
 
 // Resolve returns the plaintext value for a secret value ref. It implements
@@ -437,8 +440,8 @@ func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, author 
 // Caller must hold m.mu with m.smk set; the store invokes the callback inside
 // its write transaction while that lock is still held.
 func (m *Manager) sealFuncLocked(value []byte) SealFunc {
-	return func(secretID, version int32) (SealedValue, error) {
-		ct, nonce, err := aeadSeal(m.smk, value, userSecretAAD(secretID, version))
+	return func(secretID int32, sealID string) (SealedValue, error) {
+		ct, nonce, err := aeadSeal(m.smk, value, userSecretAAD(secretID, sealID))
 		if err != nil {
 			return SealedValue{}, err
 		}
@@ -700,11 +703,22 @@ func aeadOpen(key, ciphertext, nonce, aad []byte) ([]byte, error) {
 func slotAAD(slot string) []byte { return []byte("opendeploy-keyslot:" + slot) }
 
 // userSecretAAD binds a user secret's ciphertext to its stable identity id and
-// version number. Both are immutable and known before the row is inserted, so
-// renames and directory moves never re-encrypt, while a ciphertext still
-// cannot be moved to another secret or another version of the same secret.
-func userSecretAAD(secretID, version int32) []byte {
-	return []byte(fmt.Sprintf("opendeploy-secret:user:s%d:v%d", secretID, version))
+// the seal id of the value. Both are immutable and known before the row is
+// inserted, so renames and directory moves never re-encrypt, while a
+// ciphertext still cannot be moved to another secret or another value of the
+// same secret. Rows sealed before seal ids existed carry the literal
+// "v<value_version>" as their seal id, which reproduces their original
+// associated data.
+func userSecretAAD(secretID int32, sealID string) []byte {
+	return []byte(fmt.Sprintf("opendeploy-secret:user:s%d:%s", secretID, sealID))
+}
+
+func newSealID() string {
+	var b [20]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(fmt.Sprintf("seal id: %v", err))
+	}
+	return "k" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:]))
 }
 
 func systemSecretAAD(name string) []byte {
@@ -772,6 +786,7 @@ func (r Record) meta() Meta {
 		SecretID:  r.SecretID,
 		Name:      r.Name,
 		Version:   r.Version,
+		SealID:    r.SealID,
 		SpaceID:   r.SpaceID,
 		CreatedAt: time.UnixMilli(r.CreatedAt),
 		Author:    r.Author,

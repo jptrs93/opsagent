@@ -4,6 +4,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
@@ -111,10 +112,10 @@ func TestAADBindingPreventsSwap(t *testing.T) {
 		t.Fatalf("Create b: %v", err)
 	}
 	recA := recordByID(t, store, metaA.ID)
-	if _, err := aeadOpen(mgr.smk, recA.Ciphertext, recA.Nonce, userSecretAAD(metaB.SecretID, recA.Version)); err == nil {
+	if _, err := aeadOpen(mgr.smk, recA.Ciphertext, recA.Nonce, userSecretAAD(metaB.SecretID, recA.SealID)); err == nil {
 		t.Fatal("ciphertext of one secret opened under another secret's identity")
 	}
-	if pt, err := aeadOpen(mgr.smk, recA.Ciphertext, recA.Nonce, userSecretAAD(metaA.SecretID, recA.Version)); err != nil || string(pt) != "value-a" {
+	if pt, err := aeadOpen(mgr.smk, recA.Ciphertext, recA.Nonce, userSecretAAD(metaA.SecretID, recA.SealID)); err != nil || string(pt) != "value-a" {
 		t.Fatalf("own identity = %q, %v", pt, err)
 	}
 }
@@ -131,7 +132,7 @@ func TestAADBindingPreventsVersionSwap(t *testing.T) {
 		t.Fatalf("Set v2: %v", err)
 	}
 	recV1 := recordByID(t, store, v1.ID)
-	if _, err := aeadOpen(mgr.smk, recV1.Ciphertext, recV1.Nonce, userSecretAAD(v1.SecretID, v2.Version)); err == nil {
+	if _, err := aeadOpen(mgr.smk, recV1.Ciphertext, recV1.Nonce, userSecretAAD(v1.SecretID, v2.SealID)); err == nil {
 		t.Fatal("old version ciphertext opened as the new version")
 	}
 }
@@ -292,4 +293,48 @@ func toLower(s string) string {
 		}
 	}
 	return string(b)
+}
+
+func TestSealIDIsIssuedPerValueWriteAndCarriedByRenames(t *testing.T) {
+	store := openTestStore(t)
+	mgr := mustOpen(t, t.TempDir(), store)
+	v1, err := mgr.Create("api.key", []byte("one"), 0, 0, 0)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	v2, err := mgr.SetWithDeploymentUpdates(v1.SecretID, []byte("two"), 0, false, nil, nil)
+	if err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	for _, m := range []Meta{v1, v2} {
+		if !strings.HasPrefix(m.SealID, "k") || len(m.SealID) != 33 {
+			t.Fatalf("seal id %q is not an opaque k-prefixed id", m.SealID)
+		}
+	}
+	if v1.SealID == v2.SealID {
+		t.Fatal("two value writes share a seal id")
+	}
+	if err := mgr.Rename(v1.SecretID, "api.token"); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+	renamed, ok := Get(store.Queries(), v1.SecretID)
+	if !ok || renamed.Value.SealID != v2.SealID || renamed.Value.Fs.Name != "api.token" {
+		t.Fatalf("renamed event = %+v, want seal id %q carried forward", renamed, v2.SealID)
+	}
+}
+
+func TestLegacySealIDReproducesVersionBoundAAD(t *testing.T) {
+	if got := string(userSecretAAD(7, "v3")); got != "opendeploy-secret:user:s7:v3" {
+		t.Fatalf("legacy AAD = %q", got)
+	}
+	store := openTestStore(t)
+	mgr := mustOpen(t, t.TempDir(), store)
+	ct, nonce, err := aeadSeal(mgr.smk, []byte("pre-seal-id"), []byte("opendeploy-secret:user:s7:v3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pt, err := mgr.openRecordLocked(Record{SecretID: 7, Version: 3, SealID: "v3", Ciphertext: ct, Nonce: nonce})
+	if err != nil || string(pt) != "pre-seal-id" {
+		t.Fatalf("legacy row did not open under the backfilled seal id: %q, %v", pt, err)
+	}
 }

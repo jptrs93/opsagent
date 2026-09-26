@@ -154,6 +154,10 @@ func AppendConfigVersion(store *state.Service, configID int32, value string, aut
 		if err != nil {
 			return 0, apigen.CoreUpdate{}, err
 		}
+		if prev.Value.Value == value {
+			written = prev
+			return prev.ValueVersion, apigen.CoreUpdate{}, nil
+		}
 		event := nextConfigEvent(prev, author, apigen.EventType_EVENT_TYPE_UPDATE)
 		event.ValueVersion = prev.ValueVersion + 1
 		event.Value.Value = value

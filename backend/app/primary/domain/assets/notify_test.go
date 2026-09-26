@@ -2,16 +2,17 @@ package assets
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 )
 
 func TestCreateAssetNotifiesSubscribers(t *testing.T) {
-	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	s := &Store{DB: store}
+	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
+	s := &Store{DB: openTestStore(t), Config: func() *apigen.ClusterSettings { return settings }, Loader: testLoader{}}
+	store := s.DB
 
 	sub, unsub := store.SubscribeUpdates()
 	defer unsub()

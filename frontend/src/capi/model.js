@@ -694,6 +694,7 @@
  * @typedef {Object} Secret
  * @property {SecretFs} fs
  * @property {number} spaceId
+ * @property {string} sealId
  */
 /**
  * @typedef {Object} SecretFs
@@ -851,6 +852,7 @@
  * @property {number} spaceId
  * @property {string} sha256
  * @property {number} sizeBytes
+ * @property {string} storageKey
  */
 /**
  * @typedef {Object} AssetFs
@@ -960,7 +962,6 @@
  * @property {number} id
  * @property {string} name
  * @property {number} createdAt
- * @property {number} lastLoginAt
  */
 /**
  * @typedef {Object} WebAuthnCredential
@@ -1772,7 +1773,6 @@
  * @property {number} remoteTxid
  * @property {Date} lastSuccessfulSyncAt
  * @property {string} error
- * @property {boolean} assetMigrationRunning
  * @property {number} assetPending
  * @property {boolean} assetTargetS3
  * @property {string} assetError
@@ -9652,6 +9652,9 @@ export function writeSecret(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.spaceId);
     }
+    if (message.sealId !== undefined && message.sealId !== null && message.sealId !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.sealId);
+    }
 }
 
 
@@ -9673,7 +9676,7 @@ export function encodeSecret(message) {
  */
 function decodeSecretMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {fs: undefined, spaceId: 0 };
+    const message = {fs: undefined, spaceId: 0, sealId: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9683,6 +9686,10 @@ function decodeSecretMessage(reader, length) {
             }
             case 2: {
                 message.spaceId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.sealId = reader.string();
                 break;
             }
             default:
@@ -11497,6 +11504,9 @@ export function writeAsset(message, writer) {
     if (message.sizeBytes !== undefined && message.sizeBytes !== null && message.sizeBytes !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int64(message.sizeBytes);
     }
+    if (message.storageKey !== undefined && message.storageKey !== null && message.storageKey !== "") {
+        writer.uint32(tag(5, WIRE.LDELIM)).string(message.storageKey);
+    }
 }
 
 
@@ -11518,7 +11528,7 @@ export function encodeAsset(message) {
  */
 function decodeAssetMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {fs: undefined, spaceId: 0, sha256: "", sizeBytes: 0 };
+    const message = {fs: undefined, spaceId: 0, sha256: "", sizeBytes: 0, storageKey: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11536,6 +11546,10 @@ function decodeAssetMessage(reader, length) {
             }
             case 4: {
                 message.sizeBytes = readInt64(reader, "int64");
+                break;
+            }
+            case 5: {
+                message.storageKey = reader.string();
                 break;
             }
             default:
@@ -12868,9 +12882,6 @@ export function writeUser(message, writer) {
     if (message.createdAt !== undefined && message.createdAt !== null && message.createdAt !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int64(message.createdAt);
     }
-    if (message.lastLoginAt !== undefined && message.lastLoginAt !== null && message.lastLoginAt !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(message.lastLoginAt);
-    }
 }
 
 
@@ -12892,7 +12903,7 @@ export function encodeUser(message) {
  */
 function decodeUserMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", createdAt: 0, lastLoginAt: 0 };
+    const message = {id: 0, name: "", createdAt: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -12906,10 +12917,6 @@ function decodeUserMessage(reader, length) {
             }
             case 3: {
                 message.createdAt = readInt64(reader, "int64");
-                break;
-            }
-            case 4: {
-                message.lastLoginAt = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -22640,9 +22647,6 @@ export function writeBackupStatus(message, writer) {
     if (message.error !== undefined && message.error !== null && message.error !== "") {
         writer.uint32(tag(7, WIRE.LDELIM)).string(message.error);
     }
-    if (message.assetMigrationRunning === true) {
-        writer.uint32(tag(8, WIRE.VARINT)).bool(message.assetMigrationRunning);
-    }
     if (message.assetPending !== undefined && message.assetPending !== null && message.assetPending !== 0) {
         writer.uint32(tag(9, WIRE.VARINT)).uint32(message.assetPending);
     }
@@ -22676,7 +22680,7 @@ export function encodeBackupStatus(message) {
  */
 function decodeBackupStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {configured: false, running: false, inSync: false, localTxid: 0, remoteTxid: 0, lastSuccessfulSyncAt: new Date(0), error: "", assetMigrationRunning: false, assetPending: 0, assetTargetS3: false, assetError: "", assetKeepLocal: false };
+    const message = {configured: false, running: false, inSync: false, localTxid: 0, remoteTxid: 0, lastSuccessfulSyncAt: new Date(0), error: "", assetPending: 0, assetTargetS3: false, assetError: "", assetKeepLocal: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -22706,10 +22710,6 @@ function decodeBackupStatusMessage(reader, length) {
             }
             case 7: {
                 message.error = reader.string();
-                break;
-            }
-            case 8: {
-                message.assetMigrationRunning = reader.bool();
                 break;
             }
             case 9: {

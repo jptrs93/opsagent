@@ -370,7 +370,9 @@ share one folder tree per space (`value_directories`, root = directory `0`).
 Names are unique per folder.
 
 - `POST /v1/configs/create` `{"name": "log-level", "value": "debug", "space_id": 2, "value_directory_id": 0}`
-- `POST /v1/configs/set` — appends the next version of an existing config:
+- `POST /v1/configs/set` — appends the next version of an existing config.
+  Setting the current value again is a no-op: the current event is returned
+  and no version is created.
 
 ```json
 {"config_id": 7, "value": "info",

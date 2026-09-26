@@ -164,3 +164,62 @@ func TestConfigSoftDeleteHidesRowAndFreesName(t *testing.T) {
 		t.Fatalf("deleting a deleted config err = %v, want ErrNotFound", err)
 	}
 }
+
+func TestSetConfigSameValueIsNoOp(t *testing.T) {
+	store := openTestStore(t)
+	created := setConfigByName(store, "database", "one", 1)
+	seqBefore := erru.Must(store.Queries().GetGlobalSeq(context.Background()))
+
+	same, updatedIDs, err := AppendConfigVersion(store, created.ConfigID, "one", 2, false, nil)
+	if err != nil {
+		t.Fatalf("no-op set: %v", err)
+	}
+	if same.EventID != created.EventID || same.Version != created.Version || same.ValueVersion != created.ValueVersion || len(updatedIDs) != 0 {
+		t.Fatalf("no-op set returned %+v (updated %v), want the current event %+v", same, updatedIDs, created)
+	}
+	if seqAfter := erru.Must(store.Queries().GetGlobalSeq(context.Background())); seqAfter != seqBefore {
+		t.Fatalf("no-op set advanced the global seq from %d to %d", seqBefore, seqAfter)
+	}
+	if got := len(statetest.ValueVersions(store, created)); got != 1 {
+		t.Fatalf("config history length = %d, want 1", got)
+	}
+}
+
+func TestSetConfigSameValueStillRepointsStaleDeployments(t *testing.T) {
+	store := openTestStore(t)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	database := setConfigByName(store, "database", "one", 1)
+	database = setConfigByName(store, "database", "two", 1)
+	oldRef := statetest.ValueVersions(store, database)[1].Ref
+	currentRef := statetest.ValueVersions(store, database)[0].Ref
+	create := func(name string, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
+		return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, node.ID, spec)
+	}
+	stale := create("stale", statetest.EnvRefSpec(map[string]apigen.ValueRef{"DATABASE": oldRef}, nil))
+	current := create("current", statetest.EnvRefSpec(map[string]apigen.ValueRef{"DATABASE": currentRef}, nil))
+
+	saved, updatedIDs, err := AppendConfigVersion(store, database.ConfigID, "two", 9, true, []storage.DeploymentSpecVersion{
+		{ID: stale.DeploymentID, SpecVersion: stale.SpecVersion},
+		{ID: current.DeploymentID, SpecVersion: current.SpecVersion},
+	})
+	if err != nil {
+		t.Fatalf("no-op set with deployment updates: %v", err)
+	}
+	if saved.EventID != database.EventID || saved.ValueVersion != 2 {
+		t.Fatalf("saved = %+v, want the current version 2 event", saved)
+	}
+	if len(updatedIDs) != 1 || updatedIDs[0] != stale.DeploymentID {
+		t.Fatalf("updated deployments = %v, want only %d", updatedIDs, stale.DeploymentID)
+	}
+	staleNow := erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(stale.DeploymentID)))
+	currentNow := erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(current.DeploymentID)))
+	if got := statetest.DeploymentEnvRef(t, staleNow, "DATABASE", false); got != currentRef || staleNow.SpecVersion != stale.SpecVersion+1 {
+		t.Fatalf("stale deployment ref = %v specVersion %d, want %v and %d", got, staleNow.SpecVersion, currentRef, stale.SpecVersion+1)
+	}
+	if currentNow.Version != current.Version {
+		t.Fatalf("deployment already at the current version was rewritten: %d -> %d", current.Version, currentNow.Version)
+	}
+	if got := len(statetest.ValueVersions(store, database)); got != 2 {
+		t.Fatalf("config history length = %d, want 2", got)
+	}
+}

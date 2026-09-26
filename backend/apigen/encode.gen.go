@@ -4979,7 +4979,8 @@ func DecodeSecretEvent(b []byte) (*SecretEvent, error) {
 
 func (m Secret) IsZero() bool {
 	return m.Fs == nil &&
-		m.SpaceID == 0
+		m.SpaceID == 0 &&
+		m.SealID == ""
 }
 
 func (m *Secret) Encode() []byte {
@@ -4989,6 +4990,7 @@ func (m *Secret) Encode() []byte {
 		b = AppendBytes(b, m.Fs.Encode())
 	}
 	b = AppendInt32Field(b, m.SpaceID, 2)
+	b = AppendStringField(b, m.SealID, 3)
 	return b
 }
 
@@ -5015,6 +5017,8 @@ func DecodeSecret(b []byte) (*Secret, error) {
 			}
 		case 2:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.SealID, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6022,7 +6026,8 @@ func (m Asset) IsZero() bool {
 	return m.Fs == nil &&
 		m.SpaceID == 0 &&
 		m.Sha256 == "" &&
-		m.SizeBytes == 0
+		m.SizeBytes == 0 &&
+		m.StorageKey == ""
 }
 
 func (m *Asset) Encode() []byte {
@@ -6034,6 +6039,7 @@ func (m *Asset) Encode() []byte {
 	b = AppendInt32Field(b, m.SpaceID, 2)
 	b = AppendStringField(b, m.Sha256, 3)
 	b = AppendInt64Field(b, m.SizeBytes, 4)
+	b = AppendStringField(b, m.StorageKey, 5)
 	return b
 }
 
@@ -6064,6 +6070,8 @@ func DecodeAsset(b []byte) (*Asset, error) {
 			b, m.Sha256, err = ConsumeString(b, typ)
 		case 4:
 			b, m.SizeBytes, err = ConsumeVarInt64(b, typ)
+		case 5:
+			b, m.StorageKey, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6788,7 +6796,6 @@ func (m *User) Encode() []byte {
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendStringField(b, m.Name, 2)
 	b = AppendInt64Field(b, m.CreatedAt, 3)
-	b = AppendInt64Field(b, m.LastLoginAt, 4)
 	return b
 }
 
@@ -6809,8 +6816,6 @@ func DecodeUser(b []byte) (*User, error) {
 			b, m.Name, err = ConsumeString(b, typ)
 		case 3:
 			b, m.CreatedAt, err = ConsumeVarInt64(b, typ)
-		case 4:
-			b, m.LastLoginAt, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -13316,7 +13321,6 @@ func (m *BackupStatus) Encode() []byte {
 	b = AppendUint64Field(b, m.RemoteTxid, 5)
 	b = AppendInt64FromTime(b, m.LastSuccessfulSyncAt, 6)
 	b = AppendStringField(b, m.Error, 7)
-	b = AppendBoolField(b, m.AssetMigrationRunning, 8)
 	b = AppendUint32Field(b, m.AssetPending, 9)
 	b = AppendBoolField(b, m.AssetTargetS3, 10)
 	b = AppendStringField(b, m.AssetError, 11)
@@ -13349,8 +13353,6 @@ func DecodeBackupStatus(b []byte) (*BackupStatus, error) {
 			b, m.LastSuccessfulSyncAt, err = ConsumeTimeFromInt64(b, typ)
 		case 7:
 			b, m.Error, err = ConsumeString(b, typ)
-		case 8:
-			b, m.AssetMigrationRunning, err = ConsumeBool(b, typ)
 		case 9:
 			b, m.AssetPending, err = ConsumeVarUint32(b, typ)
 		case 10:

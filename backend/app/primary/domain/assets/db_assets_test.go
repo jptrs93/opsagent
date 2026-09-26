@@ -5,12 +5,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
@@ -20,14 +22,36 @@ func contentSha(blob []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// MustPutInlineAssetContent stores blob inline in the content store (if
-// absent) and returns its sha. Test-only convenience.
-func mustPutInlineAssetContent(s *state.Service, blob []byte) string {
-	sha := contentSha(blob)
-	if _, ok := GetAssetStoreRowBySha(s.Queries(), sha); !ok {
-		InsertAssetStoreRow(s.Queries(), uuid.Must(uuid.NewV7()).String(), sha, int64(len(blob)), blob, 0, 0)
+// mustPutAssetContent lands blob in the content store (if absent) as a local
+// file and returns its sha and storage key. Test-only convenience.
+func mustPutAssetContent(s *state.Service, blob []byte) (sha, storageKey string) {
+	sha = contentSha(blob)
+	if row, ok := GetAssetStoreRowBySha(s.Queries(), sha); ok {
+		return sha, row.ID
 	}
-	return sha
+	storageKey = uuid.Must(uuid.NewV7()).String()
+	if err := os.WriteFile(localPath(storageKey), blob, 0o600); err != nil {
+		panic(err)
+	}
+	InsertAssetStoreRow(s.Queries(), storageKey, sha, int64(len(blob)), 1, 0)
+	return sha, storageKey
+}
+
+func storedContent(t *testing.T, joined pq.AssetVersionJoined) string {
+	t.Helper()
+	got, err := os.ReadFile(localPath(joined.Store.ID))
+	if err != nil {
+		t.Fatalf("read stored content %s: %v", joined.Store.ID, err)
+	}
+	return string(got)
+}
+
+func openTestStore(t *testing.T) *state.Service {
+	t.Helper()
+	useTempAssetRoot(t)
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
+	t.Cleanup(func() { _ = store.Close() })
+	return store
 }
 
 // SetAssetByKey creates the asset in spaceID's root on first use and appends a
@@ -37,15 +61,15 @@ func setAssetByKey(s *state.Service, key string, blob []byte, spaceIDs ...int32)
 	if len(spaceIDs) > 0 {
 		spaceID = nodes.NormalizedUserSpaceID(spaceIDs[0])
 	}
-	sha := mustPutInlineAssetContent(s, blob)
+	sha, storageKey := mustPutAssetContent(s, blob)
 	if existing, ok := GetAssetInDirectory(s.Queries(), spaceID, 0, key); ok {
-		a, err := AppendAssetVersion(s, int32(existing.ID), 0, sha, int64(len(blob)))
+		a, err := AppendAssetVersion(s, int32(existing.ID), 0, sha, storageKey, int64(len(blob)))
 		if err != nil {
 			panic(fmt.Sprintf("SetAssetByKey append: %v", err))
 		}
 		return a
 	}
-	a, err := CreateAssetWithVersion(s, key, spaceID, 0, 0, sha, int64(len(blob)))
+	a, err := CreateAssetWithVersion(s, key, spaceID, 0, 0, sha, storageKey, int64(len(blob)))
 	if err != nil {
 		panic(fmt.Sprintf("SetAssetByKey create: %v", err))
 	}
@@ -53,7 +77,7 @@ func setAssetByKey(s *state.Service, key string, blob []byte, spaceIDs ...int32)
 }
 
 func TestAssetsAreVersionedAndImmutable(t *testing.T) {
-	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := openTestStore(t)
 
 	a1 := setAssetByKey(store, "nginx.conf", []byte("events {}\n"))
 	v1 := statetest.LatestValue(store, a1)
@@ -76,14 +100,14 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	if lv := statetest.LatestValue(store, latest); lv.ID != v2.ID || lv.Version != 2 || latest.SpaceID() != nodes.DefaultSpaceID {
 		t.Fatalf("latest version = %+v space %d", lv, latest.SpaceID())
 	}
-	if joined, ok := GetAssetVersionJoined(store.Queries(), v2.ID); !ok || string(joined.Store.InlineBlob) != "events {}\nhttp {}\n" {
-		t.Fatalf("latest blob = %q ok=%v", joined.Store.InlineBlob, ok)
+	if joined, ok := GetAssetVersionJoined(store.Queries(), v2.ID); !ok || storedContent(t, joined) != "events {}\nhttp {}\n" {
+		t.Fatalf("latest content ok=%v", ok)
 	}
 	ref, ok := GetAssetVersionRef(store.Queries(), v2.Ref)
 	if !ok || ref.Key != "nginx.conf" || ref.Ref != (apigen.ValueRef{ID: a1.AssetID, Version: 2}) || ref.SpaceID != nodes.DefaultSpaceID {
 		t.Fatalf("version ref by pair = %+v ok=%v", ref, ok)
 	}
-	if joined, ok := GetAssetValueJoined(store.Queries(), v1.Ref); !ok || joined.Version.ID != int64(v1.ID) || string(joined.Store.InlineBlob) != "events {}\n" {
+	if joined, ok := GetAssetValueJoined(store.Queries(), v1.Ref); !ok || joined.Version.ID != int64(v1.ID) || storedContent(t, joined) != "events {}\n" {
 		t.Fatalf("old value by pair = %+v ok=%v", joined, ok)
 	}
 
@@ -91,8 +115,8 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	if old := statetest.ValueVersions(store, latest)[1]; old.ID != v1.ID || old.Version != 1 {
 		t.Fatalf("old version = %+v", old)
 	}
-	if joined, ok := GetAssetVersionJoined(store.Queries(), v1.ID); !ok || string(joined.Store.InlineBlob) != "events {}\n" {
-		t.Fatalf("old blob = %q ok=%v", joined.Store.InlineBlob, ok)
+	if joined, ok := GetAssetVersionJoined(store.Queries(), v1.ID); !ok || storedContent(t, joined) != "events {}\n" {
+		t.Fatalf("old content ok=%v", ok)
 	}
 
 	items := ListAssets(store.Queries())
@@ -123,7 +147,7 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 }
 
 func TestAssetVersionsShareContentBySha(t *testing.T) {
-	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := openTestStore(t)
 	blob := []byte("shared content")
 
 	a := setAssetByKey(store, "a.conf", blob)
@@ -141,29 +165,33 @@ func TestAssetVersionsShareContentBySha(t *testing.T) {
 }
 
 func TestAssetVersionRequiresStoredContent(t *testing.T) {
-	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	if _, err := CreateAssetWithVersion(store, "app.yaml", nodes.DefaultSpaceID, 0, 0, contentSha([]byte("missing")), 7); !errors.Is(err, ErrAssetContentMissing) {
+	store := openTestStore(t)
+	if _, err := CreateAssetWithVersion(store, "app.yaml", nodes.DefaultSpaceID, 0, 0, contentSha([]byte("missing")), "no-such-key", 7); !errors.Is(err, ErrAssetContentMissing) {
 		t.Fatalf("create without content err = %v, want ErrAssetContentMissing", err)
 	}
 	a := setAssetByKey(store, "app.yaml", []byte("x"))
-	if _, err := AppendAssetVersion(store, a.AssetID, 0, contentSha([]byte("missing")), 7); !errors.Is(err, ErrAssetContentMissing) {
+	if _, err := AppendAssetVersion(store, a.AssetID, 0, contentSha([]byte("missing")), "no-such-key", 7); !errors.Is(err, ErrAssetContentMissing) {
 		t.Fatalf("append without content err = %v, want ErrAssetContentMissing", err)
+	}
+	_, key := mustPutAssetContent(store, []byte("x"))
+	if _, err := AppendAssetVersion(store, a.AssetID, 0, contentSha([]byte("other")), key, 5); !errors.Is(err, ErrAssetContentMissing) {
+		t.Fatalf("append with a key holding different content err = %v, want ErrAssetContentMissing", err)
 	}
 }
 
 func TestRenameAssetPreservesVersions(t *testing.T) {
-	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := openTestStore(t)
 	a := setAssetByKey(store, "old-name", []byte("one"))
 	v1 := statetest.LatestValue(store, a)
 	largeSha := contentSha([]byte("large"))
-	InsertAssetStoreRow(store.Queries(), "large-store", largeSha, 12_000_000, nil, 1, 0)
-	appended, err := AppendAssetVersion(store, a.AssetID, 0, largeSha, 12_000_000)
+	InsertAssetStoreRow(store.Queries(), "large-store", largeSha, 12_000_000, 1, 0)
+	appended, err := AppendAssetVersion(store, a.AssetID, 0, largeSha, "large-store", 12_000_000)
 	if err != nil {
 		t.Fatalf("append version: %v", err)
 	}
 	v2 := statetest.LatestValue(store, appended)
-	if v2.Version != 2 || v2.Sha256 != largeSha || v2.SizeBytes != 12_000_000 {
-		t.Fatalf("large version = %+v, want version 2 of 12MB with the store sha", v2)
+	if v2.Version != 2 || v2.Sha256 != largeSha || v2.SizeBytes != 12_000_000 || appended.Value.StorageKey != "large-store" {
+		t.Fatalf("large version = %+v key %q, want version 2 of 12MB with the store sha and key", v2, appended.Value.StorageKey)
 	}
 
 	renamed, err := RenameAssetKey(store, a.AssetID, "new-name")
@@ -192,11 +220,12 @@ func TestRenameAssetPreservesVersions(t *testing.T) {
 			t.Fatalf("version ref %d = %+v ok=%v, want the new key", i, ref, ok)
 		}
 	}
-	if joined, ok := GetAssetVersionJoined(store.Queries(), v1.ID); !ok || string(joined.Store.InlineBlob) != "one" {
-		t.Fatalf("old blob after rename = %q ok=%v", joined.Store.InlineBlob, ok)
+	if joined, ok := GetAssetVersionJoined(store.Queries(), v1.ID); !ok || storedContent(t, joined) != "one" {
+		t.Fatalf("old content after rename ok=%v", ok)
 	}
 
-	after, err := AppendAssetVersion(store, a.AssetID, 0, mustPutInlineAssetContent(store, []byte("three")), 5)
+	threeSha, threeKey := mustPutAssetContent(store, []byte("three"))
+	after, err := AppendAssetVersion(store, a.AssetID, 0, threeSha, threeKey, 5)
 	if err != nil {
 		t.Fatalf("append after rename: %v", err)
 	}
@@ -206,7 +235,7 @@ func TestRenameAssetPreservesVersions(t *testing.T) {
 }
 
 func TestRenameAssetRejectsExistingKey(t *testing.T) {
-	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
+	store := openTestStore(t)
 	source := setAssetByKey(store, "source", []byte("source"))
 	destination := setAssetByKey(store, "destination", []byte("destination"))
 
@@ -228,28 +257,27 @@ func TestRenameAssetRejectsExistingKey(t *testing.T) {
 }
 
 func TestCreateAssetRejectsDuplicateAndInvalidKeys(t *testing.T) {
-	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	sha := mustPutInlineAssetContent(store, []byte("x"))
-	if _, err := CreateAssetWithVersion(store, "app.yaml", nodes.DefaultSpaceID, 0, 0, sha, 1); err != nil {
+	store := openTestStore(t)
+	sha, storageKey := mustPutAssetContent(store, []byte("x"))
+	if _, err := CreateAssetWithVersion(store, "app.yaml", nodes.DefaultSpaceID, 0, 0, sha, storageKey, 1); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if _, err := CreateAssetWithVersion(store, "app.yaml", nodes.DefaultSpaceID, 0, 0, sha, 1); !errors.Is(err, ErrAssetAlreadyExists) {
+	if _, err := CreateAssetWithVersion(store, "app.yaml", nodes.DefaultSpaceID, 0, 0, sha, storageKey, 1); !errors.Is(err, ErrAssetAlreadyExists) {
 		t.Fatalf("duplicate create error = %v, want %v", err, ErrAssetAlreadyExists)
 	}
 	// Same key in another space is a different file system.
-	if _, err := CreateAssetWithVersion(store, "app.yaml", 2, 0, 0, sha, 1); err != nil {
+	if _, err := CreateAssetWithVersion(store, "app.yaml", 2, 0, 0, sha, storageKey, 1); err != nil {
 		t.Fatalf("create in second space: %v", err)
 	}
 	for _, key := range []string{"", ".", "..", "a/b", "a\\b", "a\x00b"} {
-		if _, err := CreateAssetWithVersion(store, key, nodes.DefaultSpaceID, 0, 0, sha, 1); !errors.Is(err, ErrAssetKeyInvalid) {
+		if _, err := CreateAssetWithVersion(store, key, nodes.DefaultSpaceID, 0, 0, sha, storageKey, 1); !errors.Is(err, ErrAssetKeyInvalid) {
 			t.Fatalf("key %q error = %v, want %v", key, err, ErrAssetKeyInvalid)
 		}
 	}
 }
 
 func TestSoftDeleteHidesRowAndFreesName(t *testing.T) {
-	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	defer store.Close()
+	store := openTestStore(t)
 
 	v := setAssetByKey(store, "app.conf", []byte("v1"))
 	DeleteAsset(store, v.AssetID, nil)

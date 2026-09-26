@@ -21,6 +21,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/storage/sqlitedb"
 )
 
 type testLoader struct{}
@@ -43,10 +44,7 @@ func newTestStore(t *testing.T, settings **apigen.ClusterSettings) *Store {
 	dir := t.TempDir()
 	db := state.Open(filepath.Join(dir, "primary.db"))
 	t.Cleanup(func() { _ = db.Close() })
-	root := filepath.Join(dir, "large-assets")
-	if err := os.Mkdir(root, 0o750); err != nil {
-		t.Fatalf("create large asset root: %v", err)
-	}
+	useTempAssetRoot(t)
 	return &Store{
 		DB:      db,
 		Config:  func() *apigen.ClusterSettings { return *settings },
@@ -55,8 +53,22 @@ func newTestStore(t *testing.T, settings **apigen.ClusterSettings) *Store {
 	}
 }
 
+// useTempAssetRoot points the process-wide large-asset root at a directory
+// owned by this test, so file assertions see only this test's content.
+func useTempAssetRoot(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "large-assets")
+	if err := os.Mkdir(root, 0o750); err != nil {
+		t.Fatalf("create large asset root: %v", err)
+	}
+	previous := ainit.StaticConfig.LargeAssetsDir
+	ainit.StaticConfig.LargeAssetsDir = root
+	t.Cleanup(func() { ainit.StaticConfig.LargeAssetsDir = previous })
+	return root
+}
+
 func largeTestBlob() []byte {
-	return bytes.Repeat([]byte("a"), InlineThresholdBytes+1)
+	return bytes.Repeat([]byte("a"), 1<<20)
 }
 
 func storeRowFor(t *testing.T, store *Store, blob []byte) pq.AssetStore {
@@ -66,22 +78,6 @@ func storeRowFor(t *testing.T, store *Store, blob []byte) pq.AssetStore {
 		t.Fatal("content store row not found")
 	}
 	return row
-}
-
-func createMigration(t *testing.T, store *Store, oldSettings, newSettings *apigen.ClusterSettings) {
-	t.Helper()
-	if _, err := systemconfig.LatestRevision(store.DB.Queries()); err != nil {
-		oldConfig := apigen.SystemConfig{Settings: *oldSettings}
-		if _, err := systemconfig.AppendRevision(store.DB, oldConfig.Encode()); err != nil {
-			t.Fatalf("store old config: %v", err)
-		}
-	}
-	newConfig := apigen.SystemConfig{Settings: *newSettings}
-	if _, migration, err := systemconfig.AppendRevisionWithAssetMigration(store.DB, newConfig.Encode(), true, nil); err != nil {
-		t.Fatalf("create migration: %v", err)
-	} else if migration == nil {
-		t.Fatal("migration was not created")
-	}
 }
 
 func TestLargeAssetStoredLocallyWhenBackupDisabled(t *testing.T) {
@@ -176,7 +172,7 @@ func TestSweepReclaimsInterruptedStagedUpload(t *testing.T) {
 	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
 	store := newTestStore(t, &settings)
 	staged := newStoreID()
-	InsertAssetStoreRow(store.DB.Queries(), staged, "", 4, nil, 0, 0)
+	InsertAssetStoreRow(store.DB.Queries(), staged, "", 4, 0, 0)
 	if err := os.WriteFile(localPath(staged), []byte("data"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -196,27 +192,6 @@ func TestSweepReclaimsInterruptedStagedUpload(t *testing.T) {
 	}
 	if _, err := os.Stat(localPath(staged)); !os.IsNotExist(err) {
 		t.Fatalf("staged file survived the startup sweep: %v", err)
-	}
-}
-
-func TestMigrationRemainsActiveUntilReconcileFinishesIt(t *testing.T) {
-	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
-	store := newTestStore(t, &settings)
-	oldSettings := *settings
-	newSettings := *settings
-	newSettings.Backup.Enabled.Value = true
-	createMigration(t, store, &oldSettings, &newSettings)
-	settings = &newSettings
-
-	status := store.ReconcileStatus()
-	if !status.Running || status.Target != systemconfig.AssetStorageS3 || status.Pending != 0 {
-		t.Fatalf("status before reconcile = %+v", status)
-	}
-	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
-		t.Fatalf("Reconcile: pending=%d err=%v", pending, err)
-	}
-	if _, ok := systemconfig.UnfinishedAssetMigration(store.DB.Queries()); ok {
-		t.Fatal("migration remained unfinished after reconciliation")
 	}
 }
 
@@ -268,10 +243,8 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	row := storeRowFor(t, store, blob)
 	objectPath := "/bucket/asset-prefix/" + row.ID
 
-	oldSettings := *settings
 	newSettings := *settings
 	newSettings.Backup.Enabled.Value = true
-	createMigration(t, store, &oldSettings, &newSettings)
 	settings = &newSettings
 	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
 		t.Fatalf("reconcile to S3: pending=%d err=%v", pending, err)
@@ -292,10 +265,8 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 		t.Fatalf("S3 request did not use shared credentials: %q", auth)
 	}
 
-	oldSettings = *settings
 	newSettings = *settings
 	newSettings.Backup.Enabled.Value = false
-	createMigration(t, store, &oldSettings, &newSettings)
 	settings = &newSettings
 	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
 		t.Fatalf("reconcile to local: pending=%d err=%v", pending, err)
@@ -394,7 +365,7 @@ func TestS3ConfigurationChangeRequiresAssetsToBeLocal(t *testing.T) {
 	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
 	store := newTestStore(t, &settings)
 	sha := hashBlob([]byte("remote content"))
-	InsertAssetStoreRow(store.DB.Queries(), "remote-row", sha, InlineThresholdBytes+1, nil, 0, 1)
+	InsertAssetStoreRow(store.DB.Queries(), "remote-row", sha, 12_000_000, 0, 1)
 	next := *settings
 	next.LargeAssets.S3Path.Value = "different-path"
 
@@ -407,7 +378,7 @@ func TestS3ConfigurationChangeRequiresAssetsToBeLocal(t *testing.T) {
 		t.Fatalf("ValidateSettingsUpdate with local assets: %v", err)
 	}
 
-	InsertAssetStoreRow(store.DB.Queries(), "staging-row", "", 4, nil, 0, 0)
+	InsertAssetStoreRow(store.DB.Queries(), "staging-row", "", 4, 0, 0)
 	if err := store.ValidateSettingsUpdate(*settings, next); !errors.Is(err, ErrAssetS3ConfigChangeRequiresLocal) {
 		t.Fatalf("ValidateSettingsUpdate with staging row error = %v, want ErrAssetS3ConfigChangeRequiresLocal", err)
 	}
@@ -499,16 +470,11 @@ func expectStatuses(t *testing.T, store *Store, blob []byte, local, remote int64
 
 func switchTarget(t *testing.T, store *Store, settings **apigen.ClusterSettings, mutate func(*apigen.ClusterSettings)) {
 	t.Helper()
-	oldSettings := **settings
 	newSettings := **settings
 	mutate(&newSettings)
-	createMigration(t, store, &oldSettings, &newSettings)
 	*settings = &newSettings
 	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
 		t.Fatalf("Reconcile to %s: pending=%d err=%v", systemconfig.LargeAssetStorageTarget(testLoader{}, newSettings), pending, err)
-	}
-	if _, ok := systemconfig.UnfinishedAssetMigration(store.DB.Queries()); ok {
-		t.Fatal("migration remained unfinished after reconciliation")
 	}
 }
 
@@ -571,8 +537,8 @@ func TestOpenAssetFallsBackToS3WhenLocalCopyIsMissing(t *testing.T) {
 	default:
 		t.Fatal("fallback read did not wake the reconciler")
 	}
-	if status := store.ReconcileStatus(); status.Pending != 1 || status.Running {
-		t.Fatalf("status after fallback = %+v, want one pending row and no migration", status)
+	if status := store.ReconcileStatus(); status.Pending != 1 {
+		t.Fatalf("status after fallback = %+v, want one pending row", status)
 	}
 
 	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
@@ -657,20 +623,20 @@ func TestReconcileVerifiesLocalClaimsAgainstTheFilesystem(t *testing.T) {
 	size := int64(len(content))
 
 	missing := newStoreID()
-	InsertAssetStoreRow(store.DB.Queries(), missing, hashBlob([]byte("missing")), size, nil, 1, 0)
+	InsertAssetStoreRow(store.DB.Queries(), missing, hashBlob([]byte("missing")), size, 1, 0)
 	truncated := newStoreID()
-	InsertAssetStoreRow(store.DB.Queries(), truncated, hashBlob([]byte("truncated")), size, nil, 1, 0)
+	InsertAssetStoreRow(store.DB.Queries(), truncated, hashBlob([]byte("truncated")), size, 1, 0)
 	if err := os.WriteFile(localPath(truncated), content[:10], 0o600); err != nil {
 		t.Fatal(err)
 	}
 	unclaimed := newStoreID()
-	InsertAssetStoreRow(store.DB.Queries(), unclaimed, hashBlob(content), size, nil, 0, 0)
+	InsertAssetStoreRow(store.DB.Queries(), unclaimed, hashBlob(content), size, 0, 0)
 	if err := os.WriteFile(localPath(unclaimed), content, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Remove(localPath(unclaimed)) })
 	corrupt := newStoreID()
-	InsertAssetStoreRow(store.DB.Queries(), corrupt, hashBlob([]byte("corrupt")), size, nil, 0, 0)
+	InsertAssetStoreRow(store.DB.Queries(), corrupt, hashBlob([]byte("corrupt")), size, 0, 0)
 	if err := os.WriteFile(localPath(corrupt), content, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -697,7 +663,7 @@ func TestReconcileVerifiesLocalClaimsAgainstTheFilesystem(t *testing.T) {
 	if _, err := os.Stat(localPath(unclaimed)); err != nil {
 		t.Fatalf("adopted file: %v", err)
 	}
-	if !strings.Contains(store.LastError(), "3 large asset content row(s) have no durable copy") {
+	if !strings.Contains(store.LastError(), "3 asset content row(s) have no durable copy") {
 		t.Fatalf("LastError = %q, want the unavailable count", store.LastError())
 	}
 	if status := store.ReconcileStatus(); status.Pending != 0 || status.Error == "" {
@@ -712,7 +678,7 @@ func TestDropLocalCopyClearsTheClaimBeforeRemovingTheFile(t *testing.T) {
 	store := newTestStore(t, &settings)
 	content := largeTestBlob()
 	id := newStoreID()
-	InsertAssetStoreRow(store.DB.Queries(), id, hashBlob(content), int64(len(content)), nil, 1, 1)
+	InsertAssetStoreRow(store.DB.Queries(), id, hashBlob(content), int64(len(content)), 1, 1)
 	if err := os.WriteFile(localPath(id), content, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -731,5 +697,94 @@ func TestDropLocalCopyClearsTheClaimBeforeRemovingTheFile(t *testing.T) {
 	}
 	if status := store.ReconcileStatus(); status.Pending != 0 {
 		t.Fatalf("pending after drop = %d, want 0", status.Pending)
+	}
+}
+
+func TestEveryVersionCarriesTheStorageKeyOfItsContent(t *testing.T) {
+	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
+	store := newTestStore(t, &settings)
+	blob := []byte("small content")
+
+	first, err := store.CreateAsset(context.Background(), "a.conf", 1, 0, 0, blob)
+	if err != nil {
+		t.Fatalf("create first: %v", err)
+	}
+	row := storeRowFor(t, store, blob)
+	if first.Value.StorageKey != row.ID {
+		t.Fatalf("storage key = %q, want the store row id %q", first.Value.StorageKey, row.ID)
+	}
+	if got, err := os.ReadFile(localPath(row.ID)); err != nil || !bytes.Equal(got, blob) {
+		t.Fatalf("local file for small content = %q err=%v, want the upload", got, err)
+	}
+	second, err := store.CreateAsset(context.Background(), "b.conf", 1, 0, 0, blob)
+	if err != nil {
+		t.Fatalf("create second: %v", err)
+	}
+	if second.Value.StorageKey != row.ID {
+		t.Fatalf("deduplicated storage key = %q, want %q", second.Value.StorageKey, row.ID)
+	}
+	renamed, err := store.RenameAsset(context.Background(), first.AssetID, "c.conf")
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if renamed.Value.StorageKey != row.ID || renamed.Value.Sha256 != row.Sha256 {
+		t.Fatalf("renamed event content = %q %q, want carried forward", renamed.Value.StorageKey, renamed.Value.Sha256)
+	}
+	if rows := ListAssetStoreRowMetas(store.DB.Queries()); len(rows) != 1 {
+		t.Fatalf("store rows = %d, want 1", len(rows))
+	}
+}
+
+func TestMigrateInlineContentWritesBlobsOutAndDropsTheColumn(t *testing.T) {
+	root := useTempAssetRoot(t)
+	dbPath := filepath.Join(t.TempDir(), "primary.db")
+	state.Open(dbPath).Close()
+	legacy := sqlitedb.MustOpenWriter(dbPath)
+	if _, err := legacy.Exec(`ALTER TABLE asset_store ADD COLUMN inline_blob BLOB NOT NULL DEFAULT x''`); err != nil {
+		t.Fatal(err)
+	}
+	small := []byte("inline content")
+	for _, row := range []struct {
+		id   string
+		blob []byte
+	}{{"inline-1", small}, {"inline-empty", nil}} {
+		if _, err := legacy.Exec(`INSERT INTO asset_store (id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at) VALUES (?, ?, ?, ?, 0, 0, 1)`,
+			row.id, hashBlob(row.blob), len(row.blob), append([]byte{}, row.blob...)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := legacy.Exec(`INSERT INTO asset_store (id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at) VALUES ('file-1', ?, 3, x'', 1, 0, 1)`, hashBlob([]byte("abc"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
+	db := state.Open(dbPath)
+	t.Cleanup(func() { _ = db.Close() })
+	store := &Store{DB: db, Config: func() *apigen.ClusterSettings { return settings }, Loader: testLoader{}}
+	for range 2 {
+		if err := store.MigrateInlineContent(context.Background()); err != nil {
+			t.Fatalf("MigrateInlineContent: %v", err)
+		}
+	}
+	if has, err := db.Queries().AssetStoreHasInlineBlobColumn(context.Background()); err != nil || has {
+		t.Fatalf("inline_blob column present = %v err=%v after migration", has, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "inline-1")); err != nil || !bytes.Equal(got, small) {
+		t.Fatalf("externalized blob = %q err=%v", got, err)
+	}
+	if info, err := os.Stat(filepath.Join(root, "inline-empty")); err != nil || info.Size() != 0 {
+		t.Fatalf("externalized empty blob: %v", err)
+	}
+	for _, id := range []string{"inline-1", "inline-empty", "file-1"} {
+		row, ok := GetAssetStoreRowByID(db.Queries(), id)
+		if !ok || row.LocalStatus != 1 {
+			t.Fatalf("row %s after migration = %+v ok=%v, want a local claim", id, row, ok)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "file-1")); !os.IsNotExist(err) {
+		t.Fatalf("row that already had a local claim was rewritten: %v", err)
 	}
 }

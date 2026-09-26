@@ -5,7 +5,7 @@ import {deriveDeploymentRows} from './deploymentMerge.js';
 // the latest desired config with all non-final scheduled instances and keeps
 // newest-instance aliases for consumers that only need one runtime.
 export const deploymentsS = van.state([]);
-// usersMapS holds a Map<userId, {name, createdAt, lastLoginAt}> for resolving
+// usersMapS holds a Map<userId, {name, createdAt}> for resolving
 // display names and account dates. Timestamps are unix millis, 0 when unknown.
 export const usersMapS = van.state(new Map());
 export const machinesS = van.state([]);
@@ -118,7 +118,7 @@ export function publishDerived(tree, changed) {
             return {...node, isPrimary: node.roles.includes(0), connected: status.isConnected === true, connectedAt: status.lastConnectedAt, runtimeVersions: status.runtimeVersions || ''};
         });
     }
-    if (any('users')) usersMapS.val = new Map([...tree.users].map(([id, user]) => [id, {...user, createdAt: Number(user.createdAt || 0), lastLoginAt: Number(user.lastLoginAt || 0)}]));
+    if (any('users')) usersMapS.val = new Map([...tree.users].map(([id, user]) => [id, {...user, createdAt: Number(user.createdAt || 0)}]));
     if (any('agentSessions')) agentSessionsS.val = [...tree.agentSessions.values()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     if (any('secrets')) {secretMetasS.val = sortByName([...tree.secrets.values()].map(secretViewModel)); secretRefsS.val = expandValueVersionRefs(secretMetasS.val);}
     if (any('configs')) {userConfigsS.val = sortByName([...tree.configs.values()].map(configViewModel)); userConfigRefsS.val = expandValueVersionRefs(userConfigsS.val);}

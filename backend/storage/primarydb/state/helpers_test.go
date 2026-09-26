@@ -323,20 +323,20 @@ func deleteSpaceForTest(s *Service, id int32) {
 
 const defaultSpaceID int32 = 1
 
-func putInlineAssetContentForTest(s *Service, blob []byte) string {
+func putAssetContentForTest(s *Service, blob []byte) (sha, storageKey string) {
 	sum := sha256.Sum256(blob)
-	sha := hex.EncodeToString(sum[:])
+	sha = hex.EncodeToString(sum[:])
 	ctx := context.Background()
-	if _, err := s.q.GetAssetStoreRowBySha(ctx, sha); err == nil {
-		return sha
+	if row, err := s.q.GetAssetStoreRowBySha(ctx, sha); err == nil {
+		return sha, row.ID
 	}
-	erru.Must(s.q.InsertAssetStoreRow(ctx, pq.InsertAssetStoreRowParams{ID: uuid.Must(uuid.NewV7()).String(), Sha256: sha, SizeBytes: int64(len(blob)), InlineBlob: blob, CreatedAt: time.Now().UnixMilli()}))
-	return sha
+	row := erru.Must(s.q.InsertAssetStoreRow(ctx, pq.InsertAssetStoreRowParams{ID: uuid.Must(uuid.NewV7()).String(), Sha256: sha, SizeBytes: int64(len(blob)), LocalStatus: 1, CreatedAt: time.Now().UnixMilli()}))
+	return sha, row.ID
 }
 
 func setAssetByKeyForTest(s *Service, key string, blob []byte) *apigen.AssetEvent {
 	ctx := context.Background()
-	sha := putInlineAssetContentForTest(s, blob)
+	sha, storageKey := putAssetContentForTest(s, blob)
 	now := time.Now().UnixMilli()
 	var event apigen.AssetEvent
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
@@ -348,10 +348,10 @@ func setAssetByKeyForTest(s *Service, key string, blob []byte) *apigen.AssetEven
 			event.Version++
 			event.ValueVersion++
 			event.Value.Fs = &apigen.AssetFs{Key: prev.Value.Fs.Key, DirectoryID: prev.Value.Fs.DirectoryID}
-			event.Value.SizeBytes, event.Value.Sha256 = int64(len(blob)), sha
+			event.Value.SizeBytes, event.Value.Sha256, event.Value.StorageKey = int64(len(blob)), sha, storageKey
 		} else if errors.Is(err, sql.ErrNoRows) {
 			id := erru.Must(q.NextAssetID(ctx))
-			event = apigen.AssetEvent{Seq: seq, EventTime: now, CreatedTime: now, AssetID: int32(id), Version: 1, ValueVersion: 1, Value: apigen.Asset{Fs: &apigen.AssetFs{Key: key}, SpaceID: defaultSpaceID, SizeBytes: int64(len(blob)), Sha256: sha}, EventType: apigen.EventType_EVENT_TYPE_CREATE}
+			event = apigen.AssetEvent{Seq: seq, EventTime: now, CreatedTime: now, AssetID: int32(id), Version: 1, ValueVersion: 1, Value: apigen.Asset{Fs: &apigen.AssetFs{Key: key}, SpaceID: defaultSpaceID, SizeBytes: int64(len(blob)), Sha256: sha, StorageKey: storageKey}, EventType: apigen.EventType_EVENT_TYPE_CREATE}
 		} else {
 			return nil, err
 		}

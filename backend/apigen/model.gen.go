@@ -919,6 +919,7 @@ type SecretEvent struct {
 type Secret struct {
 	Fs      *SecretFs `json:"fs"`
 	SpaceID int32     `json:"space_id"`
+	SealID  string    `json:"seal_id,omitempty"`
 }
 
 type SecretFs struct {
@@ -1072,10 +1073,11 @@ type AssetEvent struct {
 }
 
 type Asset struct {
-	Fs        *AssetFs `json:"fs"`
-	SpaceID   int32    `json:"space_id"`
-	Sha256    string   `json:"sha256,omitempty"`
-	SizeBytes int64    `json:"size_bytes"`
+	Fs         *AssetFs `json:"fs"`
+	SpaceID    int32    `json:"space_id"`
+	Sha256     string   `json:"sha256,omitempty"`
+	SizeBytes  int64    `json:"size_bytes"`
+	StorageKey string   `json:"storage_key,omitempty"`
 }
 
 type AssetFs struct {
@@ -1182,10 +1184,9 @@ type SpaceDeleteRequest struct {
 }
 
 type User struct {
-	ID          int32  `json:"id"`
-	Name        string `json:"name,omitempty"`
-	CreatedAt   int64  `json:"created_at"`
-	LastLoginAt int64  `json:"last_login_at"`
+	ID        int32  `json:"id"`
+	Name      string `json:"name,omitempty"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 type WebAuthnCredential struct {
@@ -1990,18 +1991,17 @@ type ExportedConfigBlob struct {
 }
 
 type BackupStatus struct {
-	Configured            bool      `json:"configured"`
-	Running               bool      `json:"running"`
-	InSync                bool      `json:"in_sync"`
-	LocalTxid             uint64    `json:"local_txid"`
-	RemoteTxid            uint64    `json:"remote_txid"`
-	LastSuccessfulSyncAt  time.Time `json:"last_successful_sync_at"`
-	Error                 string    `json:"error,omitempty"`
-	AssetMigrationRunning bool      `json:"asset_migration_running"`
-	AssetPending          uint32    `json:"asset_pending"`
-	AssetTargetS3         bool      `json:"asset_target_s3"`
-	AssetError            string    `json:"asset_error,omitempty"`
-	AssetKeepLocal        bool      `json:"asset_keep_local"`
+	Configured           bool      `json:"configured"`
+	Running              bool      `json:"running"`
+	InSync               bool      `json:"in_sync"`
+	LocalTxid            uint64    `json:"local_txid"`
+	RemoteTxid           uint64    `json:"remote_txid"`
+	LastSuccessfulSyncAt time.Time `json:"last_successful_sync_at"`
+	Error                string    `json:"error,omitempty"`
+	AssetPending         uint32    `json:"asset_pending"`
+	AssetTargetS3        bool      `json:"asset_target_s3"`
+	AssetError           string    `json:"asset_error,omitempty"`
+	AssetKeepLocal       bool      `json:"asset_keep_local"`
 }
 
 type Snapshot struct {

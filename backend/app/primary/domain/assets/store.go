@@ -23,17 +23,15 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
-const InlineThresholdBytes = 10 * 1024 * 1024
-
 var ErrLargeAssetS3Config = errors.New("large asset S3 settings are not configured")
 var ErrAssetS3ConfigChangeRequiresLocal = errors.New("large asset S3 configuration cannot change while S3 assets or pending uploads exist")
 
 type Store struct {
-	DB            *state.Service
-	Config        func() *apigen.ClusterSettings
-	Loader        systemconfig.Loader
-	Secrets       secretStore
-	MigrationWake <-chan struct{}
+	DB         *state.Service
+	Config     func() *apigen.ClusterSettings
+	Loader     systemconfig.Loader
+	Secrets    secretStore
+	TargetWake <-chan struct{}
 
 	mu sync.Mutex
 
@@ -126,8 +124,8 @@ func (s *Store) CreateAsset(ctx context.Context, key string, spaceID, directoryI
 
 func (s *Store) CreateAssetFromReader(ctx context.Context, key string, spaceID, directoryID, author int32, sizeBytes int64, r io.Reader) (*apigen.AssetEvent, error) {
 	return s.writeVersion(ctx, sizeBytes, r,
-		func(sha string) (*apigen.AssetEvent, error) {
-			return CreateAssetWithVersion(s.DB, key, spaceID, directoryID, author, sha, sizeBytes)
+		func(sha, storageKey string) (*apigen.AssetEvent, error) {
+			return CreateAssetWithVersion(s.DB, key, spaceID, directoryID, author, sha, storageKey, sizeBytes)
 		})
 }
 
@@ -139,89 +137,62 @@ func (s *Store) AppendAssetVersion(ctx context.Context, assetID, author int32, b
 
 func (s *Store) AppendAssetVersionFromReader(ctx context.Context, assetID, author int32, sizeBytes int64, r io.Reader) (*apigen.AssetEvent, error) {
 	return s.writeVersion(ctx, sizeBytes, r,
-		func(sha string) (*apigen.AssetEvent, error) {
-			return AppendAssetVersion(s.DB, assetID, author, sha, sizeBytes)
+		func(sha, storageKey string) (*apigen.AssetEvent, error) {
+			return AppendAssetVersion(s.DB, assetID, author, sha, storageKey, sizeBytes)
 		})
 }
 
 // writeVersion stores the content first — deduplicated by sha256 against the
 // content store — and creates the identity rows only once the content is
 // durable, so an identity can never point at content that failed to land.
-func (s *Store) writeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(sha string) (*apigen.AssetEvent, error)) (*apigen.AssetEvent, error) {
+func (s *Store) writeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(sha, storageKey string) (*apigen.AssetEvent, error)) (*apigen.AssetEvent, error) {
 	if sizeBytes < 0 {
 		return nil, fmt.Errorf("asset upload requires a content length")
 	}
 	if sizeBytes > math.MaxInt32 {
 		return nil, fmt.Errorf("asset upload is too large: maximum supported size is %d bytes", math.MaxInt32)
 	}
-	if sizeBytes > InlineThresholdBytes {
-		return s.writeLargeVersion(ctx, sizeBytes, r, insert)
-	}
-	blob, err := io.ReadAll(io.LimitReader(r, InlineThresholdBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("read inline asset upload: %w", err)
-	}
-	if int64(len(blob)) != sizeBytes {
-		return nil, fmt.Errorf("asset upload size changed while reading")
-	}
-	sha := hashBlob(blob)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	created := false
-	if _, ok := GetAssetStoreRowBySha(s.DB.Queries(), sha); !ok {
-		InsertAssetStoreRow(s.DB.Queries(), newStoreID(), sha, sizeBytes, blob, 0, 0)
-		created = true
-	}
-	version, err := insert(sha)
-	if err != nil {
-		if created {
-			if reclaimErr := s.reclaimStoreContent(sha); reclaimErr != nil {
-				slog.WarnContext(ctx, fmt.Sprintf("reclaiming asset content sha256=%s after failed write failed", sha), "err", reclaimErr)
-			}
-		}
-		return nil, err
-	}
-
-	return version, nil
+	return s.writeContent(ctx, sizeBytes, r, insert)
 }
 
-func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(sha string) (*apigen.AssetEvent, error)) (*apigen.AssetEvent, error) {
+func (s *Store) writeContent(ctx context.Context, sizeBytes int64, r io.Reader, insert func(sha, storageKey string) (*apigen.AssetEvent, error)) (*apigen.AssetEvent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	cfg := s.Config()
 	target := s.storageTarget(cfg)
 	storeID := newStoreID()
-	InsertAssetStoreRow(s.DB.Queries(), storeID, "", sizeBytes, nil, 0, 0)
+	InsertAssetStoreRow(s.DB.Queries(), storeID, "", sizeBytes, 0, 0)
 	discardStaging := func() {
 		if err := os.Remove(localPath(storeID)); err != nil && !os.IsNotExist(err) {
-			slog.WarnContext(ctx, fmt.Sprintf("removing staged large asset %s failed", storeID), "err", err)
+			slog.WarnContext(ctx, fmt.Sprintf("removing staged asset %s failed", storeID), "err", err)
 		}
 		DeleteAssetStoreRow(s.DB.Queries(), storeID)
 	}
 	file, err := os.OpenFile(localPath(storeID), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		discardStaging()
-		return nil, fmt.Errorf("stage large asset upload: %w", err)
+		return nil, fmt.Errorf("stage asset upload: %w", err)
 	}
 	defer file.Close()
 	hasher := sha256.New()
 	if written, err := io.Copy(io.MultiWriter(file, hasher), r); err != nil {
 		discardStaging()
-		return nil, fmt.Errorf("stage large asset upload: %w", err)
+		return nil, fmt.Errorf("stage asset upload: %w", err)
 	} else if written != sizeBytes {
 		discardStaging()
 		return nil, fmt.Errorf("asset upload size changed while reading")
 	}
 	if err := file.Sync(); err != nil {
 		discardStaging()
-		return nil, fmt.Errorf("sync staged large asset upload: %w", err)
+		return nil, fmt.Errorf("sync staged asset upload: %w", err)
 	}
 	sha := hex.EncodeToString(hasher.Sum(nil))
 
-	if _, ok := GetAssetStoreRowBySha(s.DB.Queries(), sha); ok {
+	storageKey := storeID
+	if existing, ok := GetAssetStoreRowBySha(s.DB.Queries(), sha); ok {
 		discardStaging()
+		storageKey = existing.ID
 	} else if target.UsesS3() {
 		client, bucket, err := s.s3Client(cfg)
 		if err != nil {
@@ -230,7 +201,7 @@ func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Rea
 		}
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
 			discardStaging()
-			return nil, fmt.Errorf("stage large asset upload: %w", err)
+			return nil, fmt.Errorf("stage asset upload: %w", err)
 		}
 		key := objectKey(s.Loader.MustLoadStringSetting(cfg.LargeAssets.S3Path), storeID)
 		if _, err := client.PutObject(ctx, &s3.PutObjectInput{
@@ -240,7 +211,7 @@ func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Rea
 			ContentLength: aws.Int64(sizeBytes),
 		}); err != nil {
 			discardStaging()
-			return nil, fmt.Errorf("write large asset to s3: %w", err)
+			return nil, fmt.Errorf("write asset to s3: %w", err)
 		}
 		if target.UsesLocal() {
 			if err := syncDir(ainit.StaticConfig.LargeAssetsDir); err != nil {
@@ -251,7 +222,7 @@ func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Rea
 		} else {
 			CompleteAssetStoreRow(s.DB.Queries(), storeID, sha, 0, 1)
 			if err := os.Remove(localPath(storeID)); err != nil && !os.IsNotExist(err) {
-				slog.WarnContext(ctx, fmt.Sprintf("removing staged large asset %s failed", storeID), "err", err)
+				slog.WarnContext(ctx, fmt.Sprintf("removing staged asset %s failed", storeID), "err", err)
 			}
 		}
 	} else {
@@ -262,7 +233,7 @@ func (s *Store) writeLargeVersion(ctx context.Context, sizeBytes int64, r io.Rea
 		CompleteAssetStoreRow(s.DB.Queries(), storeID, sha, 1, 0)
 	}
 
-	version, err := insert(sha)
+	version, err := insert(sha, storageKey)
 	if err != nil {
 		if reclaimErr := s.reclaimStoreContent(sha); reclaimErr != nil {
 			slog.WarnContext(ctx, fmt.Sprintf("reclaiming asset content sha256=%s after failed write failed", sha), "err", reclaimErr)
@@ -301,19 +272,16 @@ func (s *Store) OpenAsset(ctx context.Context, ref apigen.ValueRef) (sizeBytes i
 	if !ok {
 		return 0, nil, fmt.Errorf("asset %s not found", ref)
 	}
-	if r.Store.InlineSize > 0 || r.Version.SizeBytes == 0 {
-		return r.Version.SizeBytes, io.NopCloser(bytes.NewReader(r.Store.InlineBlob)), nil
-	}
 	if r.Store.LocalStatus == 1 {
 		body, err := os.Open(localPath(r.Store.ID))
 		if err == nil {
 			return r.Version.SizeBytes, body, nil
 		}
-		slog.WarnContext(ctx, fmt.Sprintf("local large asset %s is unreadable", r.Store.ID), "err", err)
+		slog.WarnContext(ctx, fmt.Sprintf("local asset %s is unreadable", r.Store.ID), "err", err)
 		SetAssetStoreLocalStatus(s.DB.Queries(), r.Store.ID, 0)
 		s.RequestReconcile()
 		if r.Store.RemoteStatus != 1 {
-			return 0, nil, fmt.Errorf("read local large asset: %w", err)
+			return 0, nil, fmt.Errorf("read local asset: %w", err)
 		}
 	}
 	if r.Store.RemoteStatus == 1 {

@@ -27,7 +27,7 @@ type Service struct {
 	ValidateSettingsUpdate func(current, next apigen.ClusterSettings) error
 	mu                     sync.Mutex
 	versionID              int64
-	migrationWake          chan struct{}
+	targetWake             chan struct{}
 }
 
 type Loader interface {
@@ -129,7 +129,7 @@ func NewService(store *state.Service) (*Service, error) {
 		Storage:       store,
 		Subs:          &pubsubu.PubSub[apigen.SystemConfig]{},
 		VersionedSubs: &pubsubu.PubSub[apigen.SystemConfigVersion]{},
-		migrationWake: make(chan struct{}, 1),
+		targetWake:    make(chan struct{}, 1),
 	}
 	cfg, row, err := s.loadConfig()
 	if err != nil {
@@ -157,7 +157,7 @@ func InitializeService(store *state.Service, cfg apigen.SystemConfig) (*Service,
 	if _, err := network.ParsePrefix(cfg.NetworkUlaPrefix); err != nil {
 		return nil, fmt.Errorf("initial network ULA prefix is invalid: %w", err)
 	}
-	if _, err := AppendRevision(store, cfg.Encode()); err != nil {
+	if _, err := AppendRevision(store, cfg.Encode(), nil); err != nil {
 		return nil, fmt.Errorf("persisting initial primary config: %w", err)
 	}
 	return NewService(store)
@@ -235,7 +235,7 @@ func (s *Service) UpdateSettings(settings apigen.ClusterSettings, inlockValidate
 	}
 	cfg.Settings = settings
 	cfg = normalizeConfig(cfg)
-	versionID, migration, err := AppendRevisionWithAssetMigration(s.Storage, cfg.Encode(), oldTarget != newTarget, inlockValidate)
+	versionID, err := AppendRevision(s.Storage, cfg.Encode(), inlockValidate)
 	if err != nil {
 		return err
 	}
@@ -245,9 +245,9 @@ func (s *Service) UpdateSettings(settings apigen.ClusterSettings, inlockValidate
 		panic(fmt.Sprintf("GetConfigByID after settings update: %v", err))
 	}
 	s.publishConfig(cfg, versionID, time.UnixMilli(row.UpdatedAt))
-	if migration != nil {
+	if oldTarget != newTarget {
 		select {
-		case s.migrationWake <- struct{}{}:
+		case s.targetWake <- struct{}{}:
 		default:
 		}
 	}
@@ -256,7 +256,7 @@ func (s *Service) UpdateSettings(settings apigen.ClusterSettings, inlockValidate
 
 func (s *Service) saveAndNotifyLocked(cfg apigen.SystemConfig) error {
 	cfg = normalizeConfig(cfg)
-	versionID, err := AppendRevision(s.Storage, cfg.Encode())
+	versionID, err := AppendRevision(s.Storage, cfg.Encode(), nil)
 	if err != nil {
 		return fmt.Errorf("AppendRevision: %w", err)
 	}
@@ -275,8 +275,8 @@ func (s *Service) VersionID() int64 {
 	return s.versionID
 }
 
-func (s *Service) AssetMigrationWake() <-chan struct{} {
-	return s.migrationWake
+func (s *Service) AssetTargetWake() <-chan struct{} {
+	return s.targetWake
 }
 
 func (s *Service) UpdateSettingsInternal(settings apigen.ClusterSettings) error {

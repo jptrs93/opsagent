@@ -65,10 +65,7 @@ func (h *Handler) initPasskeyService() error {
 		// The userID was just produced by an in-flight registration session, so
 		// the user must exist. Storage failure → crash; supervisor restarts.
 		users.UpdateMatching(h.Store, userIDMatcher(userID), func(d *apigen.InternalUser) {
-			d.Credentials = append(d.Credentials, &apigen.WebAuthnCredential{
-				ID:   credential.ID,
-				Data: b,
-			})
+			users.SetCredential(d, credential.ID, b)
 		})
 		return nil
 	}, func(userID []byte) (*apigen.InternalUser, error) {

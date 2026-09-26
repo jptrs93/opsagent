@@ -32,7 +32,7 @@ type statusPublisher interface {
 }
 
 type assetStatusSource interface {
-	AssetStorageStatus() (targetS3, keepLocal bool, pending int, running bool, err string)
+	AssetStorageStatus() (targetS3, keepLocal bool, pending int, err string)
 }
 
 func StartReplication(ctx context.Context, configService *systemconfig.Service, secretSource secretStore, publisher statusPublisher, assets assetStatusSource) <-chan struct{} {
@@ -296,11 +296,10 @@ func withAssetStatus(status apigen.BackupStatus, assets assetStatusSource) apige
 	if assets == nil {
 		return status
 	}
-	targetS3, keepLocal, pending, running, assetErr := assets.AssetStorageStatus()
+	targetS3, keepLocal, pending, assetErr := assets.AssetStorageStatus()
 	status.AssetTargetS3 = targetS3
 	status.AssetKeepLocal = keepLocal
 	status.AssetPending = uint32(pending)
-	status.AssetMigrationRunning = running
 	status.AssetError = assetErr
 	return status
 }

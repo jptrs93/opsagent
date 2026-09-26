@@ -49,3 +49,29 @@ ALTER TABLE config_event_log DROP COLUMN space_version;
 ALTER TABLE config_event_log DROP COLUMN space_changed;
 ALTER TABLE asset_event_log DROP COLUMN space_version;
 ALTER TABLE asset_event_log DROP COLUMN space_changed;
+
+-- v0.0.614: seal ids. The secret AEAD binds (secret_id, seal_id) instead of
+-- (secret_id, value_version). Legacy rows get seal_id 'v<value_version>',
+-- which reproduces their existing associated data byte for byte, so no
+-- ciphertext is re-sealed. New value writes issue opaque 'k'-prefixed ids.
+ALTER TABLE secret_event_log ADD COLUMN seal_id TEXT NOT NULL DEFAULT '';
+UPDATE secret_event_log SET seal_id = 'v' || value_version WHERE seal_id = '';
+
+-- v0.0.614: asset content identity on the event log. Every asset event row
+-- carries the storage key of its content (the asset_store row id that names
+-- the local file and the S3 object). Inline blobs are gone: content of every
+-- size lives in the large-asset root and S3, and assets.MigrateInlineContent
+-- writes existing inline blobs out at startup and then drops the column.
+-- asset_migrations is gone: the reconciler converges from the placement flags
+-- and never needed the row. (No semicolons in this comment: the runner splits
+-- on them.)
+ALTER TABLE asset_event_log ADD COLUMN storage_key TEXT NOT NULL DEFAULT '';
+UPDATE asset_event_log SET storage_key = COALESCE((SELECT s.id FROM asset_store s WHERE s.sha256 = asset_event_log.sha256), '')
+ WHERE storage_key = '' AND sha256 != '';
+DROP TABLE IF EXISTS asset_migrations;
+
+-- v0.0.614: users.last_login_at is gone. It duplicated the newest
+-- personal_sessions.created_at for the user. Duplicate passkey credential
+-- entries inside users.data_blob (one appended per login) are collapsed by
+-- users.MigrateDuplicateCredentials at startup.
+ALTER TABLE users DROP COLUMN last_login_at;

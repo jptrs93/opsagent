@@ -26,6 +26,7 @@ message Asset {
   int32 space_id = 2;
   string sha256 = 3;
   int64 size_bytes = 4;
+  string storage_key = 5;  // physical name of the content: LargeAssetsDir/<key> locally, <s3-path>/<key> in S3
 }
 
 message AssetFs {

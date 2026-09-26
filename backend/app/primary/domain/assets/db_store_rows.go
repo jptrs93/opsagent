@@ -15,25 +15,29 @@ type AssetStoreMeta struct {
 	ID           string
 	Sha256       string
 	SizeBytes    int64
-	InlineSize   int64
 	LocalStatus  int64
 	RemoteStatus int64
 	CreatedAt    int64
 }
 
 func (m AssetStoreMeta) Staging() bool { return m.Sha256 == "" }
-func (m AssetStoreMeta) FileBacked() bool {
-	return !m.Staging() && m.InlineSize == 0 && m.SizeBytes > 0
-}
-func InsertAssetStoreRow(q *pq.Queries, id, sha256 string, sizeBytes int64, inlineBlob []byte, localStatus, remoteStatus int64) pq.AssetStore {
-	if inlineBlob == nil {
-		inlineBlob = []byte{}
+
+func storeMeta(r pq.AssetStore) AssetStoreMeta {
+	return AssetStoreMeta{
+		ID:           r.ID,
+		Sha256:       r.Sha256,
+		SizeBytes:    r.SizeBytes,
+		LocalStatus:  r.LocalStatus,
+		RemoteStatus: r.RemoteStatus,
+		CreatedAt:    r.CreatedAt,
 	}
+}
+
+func InsertAssetStoreRow(q *pq.Queries, id, sha256 string, sizeBytes int64, localStatus, remoteStatus int64) pq.AssetStore {
 	row := erru.Must(q.InsertAssetStoreRow(context.Background(), pq.InsertAssetStoreRowParams{
 		ID:           id,
 		Sha256:       sha256,
 		SizeBytes:    sizeBytes,
-		InlineBlob:   inlineBlob,
 		LocalStatus:  localStatus,
 		RemoteStatus: remoteStatus,
 		CreatedAt:    time.Now().UnixMilli(),
@@ -92,34 +96,19 @@ func DeleteAssetStoreRow(q *pq.Queries, id string) {
 }
 
 func ListAssetStoreRowMetas(q *pq.Queries) []AssetStoreMeta {
-	rows := erru.Must(q.ListAssetStoreRowMetas(context.Background()))
+	rows := erru.Must(q.ListAssetStoreRows(context.Background()))
 	out := make([]AssetStoreMeta, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, AssetStoreMeta{
-			ID:           r.ID,
-			Sha256:       r.Sha256,
-			SizeBytes:    r.SizeBytes,
-			InlineSize:   r.InlineSize,
-			LocalStatus:  r.LocalStatus,
-			RemoteStatus: r.RemoteStatus,
-			CreatedAt:    r.CreatedAt,
-		})
+		out = append(out, storeMeta(r))
 	}
 	return out
 }
+
 func ListUnreferencedAssetStoreRows(q *pq.Queries, cutoff time.Time) []AssetStoreMeta {
 	rows := erru.Must(q.ListUnreferencedAssetStoreRows(context.Background(), cutoff.UnixMilli()))
 	out := make([]AssetStoreMeta, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, AssetStoreMeta{
-			ID:           r.ID,
-			Sha256:       r.Sha256,
-			SizeBytes:    r.SizeBytes,
-			InlineSize:   r.InlineSize,
-			LocalStatus:  r.LocalStatus,
-			RemoteStatus: r.RemoteStatus,
-			CreatedAt:    r.CreatedAt,
-		})
+		out = append(out, storeMeta(r))
 	}
 	return out
 }

@@ -4,19 +4,6 @@ import (
 	"context"
 )
 
-const touchUserLastLogin = `UPDATE users SET last_login_at = ? WHERE id = ?
-`
-
-type TouchUserLastLoginParams struct {
-	LastLoginAt int64
-	ID          int64
-}
-
-func (q *Queries) TouchUserLastLogin(ctx context.Context, arg TouchUserLastLoginParams) error {
-	_, err := q.db.ExecContext(ctx, touchUserLastLogin, arg.LastLoginAt, arg.ID)
-	return err
-}
-
 const upsertPublicKey = `INSERT INTO public_keys (kid, key_bytes) VALUES (?, ?)
 ON CONFLICT(kid) DO UPDATE SET key_bytes = excluded.key_bytes
 `

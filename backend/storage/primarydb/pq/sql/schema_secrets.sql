@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS secret_event_log (
     author             INTEGER NOT NULL,
     secret_id          INTEGER NOT NULL,
     version            INTEGER NOT NULL,  -- top-level: bumps on every event
-    value_version      INTEGER NOT NULL,  -- AAD-bound; bumps only on value writes
+    value_version      INTEGER NOT NULL,  -- bumps only on value writes
     value_changed      INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped value_version
     name               TEXT    NOT NULL,
     value_directory_id INTEGER NOT NULL,
@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS secret_event_log (
     smk_version        INTEGER NOT NULL,  -- current sealed value's SMK generation, carried forward on non-value events
     ciphertext         BLOB    NOT NULL,  -- current sealed value, carried forward on non-value events
     nonce              BLOB    NOT NULL,
+    seal_id            TEXT    NOT NULL DEFAULT '',  -- identity of the sealed value, carried forward with it; the AEAD binds (secret_id, seal_id)
     event_type         INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
     UNIQUE (secret_id, version)
 );

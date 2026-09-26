@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/assets"
 )
 
 func isRefOutsideSpaceErr(err error, want apigen.ApiErr) bool {
@@ -90,7 +89,7 @@ func TestDeploymentAssetRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	h.Assets = &assets.Store{DB: h.Store}
+	h.Assets = testAssetStore(t, h)
 	globalAsset, err := createTestAsset(h, apigen.Context{}, "global.conf", nodes.DefaultSpaceID, 0, []byte("g"))
 	if err != nil {
 		t.Fatalf("creating global asset: %v", err)

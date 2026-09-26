@@ -14,7 +14,7 @@ message BackupStatus {
   uint64 remote_txid = 5;
   int64 last_successful_sync_at = 6 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   string error = 7;
-  bool asset_migration_running = 8;
+  reserved 8;  // asset_migration_running; asset_pending > 0 is the syncing signal
   uint32 asset_pending = 9;
   bool asset_target_s3 = 10;
   string asset_error = 11;

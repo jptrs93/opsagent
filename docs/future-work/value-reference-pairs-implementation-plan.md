@@ -78,8 +78,8 @@ Every row of `deployment_event_log` matters, not only the latest: the
 scheduler reads pinned older versions and the frontend decodes full history.
 
 The `asset_migrations` table's `old_config_version_id` and
-`new_config_version_id` are system config revision ids, not value references.
-They are out of scope.
+`new_config_version_id` were system config revision ids, not value references,
+and were out of scope. The table has since been dropped.
 
 ## Target shapes
 

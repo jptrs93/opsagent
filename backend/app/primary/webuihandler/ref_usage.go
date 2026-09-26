@@ -1,9 +1,6 @@
 package webuihandler
 
 import (
-	"context"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
-
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
@@ -24,7 +21,7 @@ func (h *Handler) settingsSecretRefDetails(ids map[int32]struct{}) []string {
 	}
 	var out []string
 	seen := map[string]bool{}
-	for _, settings := range h.settingsForReferenceChecks() {
+	for _, settings := range []apigen.ClusterSettings{h.SystemConfig.Snapshot().Settings} {
 		refs := []struct {
 			field string
 			ref   apigen.ValueRef
@@ -54,7 +51,7 @@ func (h *Handler) settingsConfigRefDetails(ids map[int32]struct{}) []string {
 	}
 	var out []string
 	seen := map[string]bool{}
-	for _, settings := range h.settingsForReferenceChecks() {
+	for _, settings := range []apigen.ClusterSettings{h.SystemConfig.Snapshot().Settings} {
 		refs := []struct {
 			field string
 			ref   apigen.ConfigRef
@@ -94,23 +91,4 @@ func (h *Handler) settingsConfigRefDetails(ids map[int32]struct{}) []string {
 		}
 	}
 	return out
-}
-
-func (h *Handler) settingsForReferenceChecks() []apigen.ClusterSettings {
-	settings := []apigen.ClusterSettings{h.SystemConfig.Snapshot().Settings}
-	migration, ok := systemconfig.UnfinishedAssetMigration(h.Queries)
-	if !ok {
-		return settings
-	}
-	for _, versionID := range []int64{migration.OldConfigVersionID, migration.NewConfigVersionID} {
-		row, err := h.Queries.GetConfigByID(context.Background(), versionID)
-		if err != nil {
-			continue
-		}
-		cfg, err := apigen.DecodeSystemConfig(row.ConfigBlob)
-		if err == nil {
-			settings = append(settings, cfg.Settings)
-		}
-	}
-	return settings
 }

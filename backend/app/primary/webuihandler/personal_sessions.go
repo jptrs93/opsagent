@@ -56,7 +56,6 @@ func (h *Handler) startPersonalSession(ctx apigen.Context, user *apigen.Internal
 	if err := users.InsertPersonalSession(h.Store.Queries(), rec); err != nil {
 		return nil, fmt.Errorf("storing personal session: %w", err)
 	}
-	users.TouchLastLogin(h.Store, user.ID)
 	slog.InfoContext(ctx, fmt.Sprintf("started personal session address=%s", rec.RequestingAddress), "session", sessionID, "user", user.ID)
 	return newLoginResponse(user, token, defaultUserScopes, expiry), nil
 }

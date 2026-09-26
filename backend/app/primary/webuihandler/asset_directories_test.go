@@ -3,10 +3,13 @@ package webuihandler
 import (
 	"bytes"
 	"errors"
+	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,14 +27,32 @@ func createTestAsset(h *Handler, ctx apigen.Context, key string, spaceID, direct
 	return h.uploadAsset(ctx, req)
 }
 
-// newAssetTestHandler extends the auth test handler with an asset store.
-// Inline-sized blobs never leave the database, so no S3 or filesystem wiring
-// is needed.
+// newAssetTestHandler extends the auth test handler with an asset store whose
+// content lands in a large-asset root owned by the test.
 func newAssetTestHandler(t *testing.T) (*Handler, *apigen.InternalUser) {
 	t.Helper()
 	h, user := newAuthTestHandler(t)
-	h.Assets = &assets.Store{DB: h.Store}
+	h.Assets = testAssetStore(t, h)
 	return h, user
+}
+
+func testAssetStore(t *testing.T, h *Handler) *assets.Store {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "large-assets")
+	if err := os.Mkdir(root, 0o750); err != nil {
+		t.Fatalf("create large asset root: %v", err)
+	}
+	previous := ainit.StaticConfig.LargeAssetsDir
+	ainit.StaticConfig.LargeAssetsDir = root
+	t.Cleanup(func() { ainit.StaticConfig.LargeAssetsDir = previous })
+	return &assets.Store{
+		DB:     h.Store,
+		Loader: h.SystemConfig,
+		Config: func() *apigen.ClusterSettings {
+			settings := h.SystemConfig.Snapshot().Settings
+			return &settings
+		},
+	}
 }
 
 func mustCreateAssetDir(t *testing.T, h *Handler, user *apigen.InternalUser, spaceID, parentID int32, key string) *apigen.AssetDirectory {

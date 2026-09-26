@@ -38,7 +38,7 @@ func upsertKeyslot(q *pq.Queries, k Keyslot) {
 func recordFromRow(r pq.SecretVersionRecordRow) Record {
 	return Record{
 		ID: int32(r.ID), SecretID: int32(r.SecretID), Name: r.Name, Version: int32(r.Version), SpaceID: int32(r.SpaceID),
-		SMKVersion: int32(r.SmkVersion), Ciphertext: r.Ciphertext, Nonce: r.Nonce, CreatedAt: r.CreatedAt, Author: int32(r.Author),
+		SMKVersion: int32(r.SmkVersion), Ciphertext: r.Ciphertext, Nonce: r.Nonce, SealID: r.SealID, CreatedAt: r.CreatedAt, Author: int32(r.Author),
 	}
 }
 
@@ -164,7 +164,8 @@ func CreateWithVersion(store *state.Service, name string, spaceID, directoryID, 
 		if err != nil {
 			return nil, err
 		}
-		sealed, err := seal(int32(id), 1)
+		sealID := newSealID()
+		sealed, err := seal(int32(id), sealID)
 		if err != nil {
 			return nil, err
 		}
@@ -172,14 +173,14 @@ func CreateWithVersion(store *state.Service, name string, spaceID, directoryID, 
 			GlobalSeq: seq, EventTime: now, CreatedTime: now, Author: int64(author), SecretID: id,
 			Version: 1, ValueVersion: 1, ValueChanged: 1,
 			Name: name, ValueDirectoryID: dirID, SpaceID: space,
-			SmkVersion: int64(sealed.SMKVersion), Ciphertext: sealed.Ciphertext, Nonce: sealed.Nonce, EventType: pq.EventCreate,
+			SmkVersion: int64(sealed.SMKVersion), Ciphertext: sealed.Ciphertext, Nonce: sealed.Nonce, SealID: sealID, EventType: pq.EventCreate,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("InsertSecretEvent: %w", err)
 		}
 		record = Record{
 			ID: int32(written.EventID), SecretID: int32(id), Name: name, Version: 1, SpaceID: int32(space),
-			SMKVersion: sealed.SMKVersion, Ciphertext: sealed.Ciphertext, Nonce: sealed.Nonce, CreatedAt: now, Author: author,
+			SMKVersion: sealed.SMKVersion, Ciphertext: sealed.Ciphertext, Nonce: sealed.Nonce, SealID: sealID, CreatedAt: now, Author: author,
 		}
 		return &apigen.CoreUpdate{SecretEvents: []*apigen.SecretEvent{written}}, nil
 	}); err != nil {
@@ -197,7 +198,8 @@ func appendVersionWithDeploymentUpdates(store *state.Service, secretID, author i
 			return 0, apigen.CoreUpdate{}, err
 		}
 		version := int64(prev.ValueVersion) + 1
-		sealed, err := seal(secretID, int32(version))
+		sealID := newSealID()
+		sealed, err := seal(secretID, sealID)
 		if err != nil {
 			return 0, apigen.CoreUpdate{}, err
 		}
@@ -207,6 +209,7 @@ func appendVersionWithDeploymentUpdates(store *state.Service, secretID, author i
 		event.SmkVersion = int64(sealed.SMKVersion)
 		event.Ciphertext = sealed.Ciphertext
 		event.Nonce = sealed.Nonce
+		event.SealID = sealID
 		event.GlobalSeq = globalSeq
 		written, err := q.InsertSecretEvent(ctx, event)
 		if err != nil {
@@ -214,7 +217,7 @@ func appendVersionWithDeploymentUpdates(store *state.Service, secretID, author i
 		}
 		record = Record{
 			ID: int32(written.EventID), SecretID: secretID, Name: prev.Value.Fs.Name, Version: int32(version), SpaceID: prev.Value.SpaceID,
-			SMKVersion: sealed.SMKVersion, Ciphertext: sealed.Ciphertext, Nonce: sealed.Nonce, CreatedAt: event.EventTime, Author: author,
+			SMKVersion: sealed.SMKVersion, Ciphertext: sealed.Ciphertext, Nonce: sealed.Nonce, SealID: sealID, CreatedAt: event.EventTime, Author: author,
 		}
 		return int32(version), apigen.CoreUpdate{Seq: globalSeq, SecretEvents: []*apigen.SecretEvent{written}}, nil
 	}

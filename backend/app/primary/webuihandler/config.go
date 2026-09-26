@@ -75,13 +75,6 @@ func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.Cl
 		if errors.As(err, &apiErr) {
 			return nil, err
 		}
-		if errors.Is(err, systemconfig.ErrAssetMigrationInProgress) {
-			return nil, apigen.NewApiErr(
-				"Wait for the current large asset migration to finish before changing settings",
-				"asset_migration_in_progress",
-				http.StatusConflict,
-			)
-		}
 		if errors.Is(err, assets.ErrAssetS3ConfigChangeRequiresLocal) {
 			return nil, apigen.NewApiErr(
 				"Disable Backup and wait for large assets to migrate locally before changing the large asset S3 configuration",

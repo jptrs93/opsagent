@@ -372,9 +372,9 @@ function backupStatusBadge(status) {
     const label = backupStatusLabel(status);
     const klass = status?.error || status?.assetError
         ? "bg-red-950 text-red-300 border-red-800"
-        : status?.inSync && !status?.assetMigrationRunning
+        : status?.inSync && !assetsSyncing(status)
             ? "bg-green-950 text-green-300 border-green-800"
-            : status?.configured || status?.assetMigrationRunning
+            : status?.configured || assetsSyncing(status)
                 ? "bg-yellow-950 text-yellow-300 border-yellow-800"
                 : "bg-gray-800 text-gray-300 border-gray-700";
     return span({class: klass + " px-2 py-0.5 rounded border text-xs font-medium", "data-testid": "backup-replication-status"}, label);
@@ -382,14 +382,18 @@ function backupStatusBadge(status) {
 
 function backupStatusLabel(status) {
     if (status?.error || status?.assetError) return "error";
-    if (status?.assetMigrationRunning) return assetMigrationLabel(status);
+    if (assetsSyncing(status)) return assetSyncLabel(status);
     if (!status || !status.configured) return "not configured";
     if (!status.running) return "not running";
     if (status.inSync) return "in sync";
     return "syncing";
 }
 
-function assetMigrationLabel(status) {
+function assetsSyncing(status) {
+    return (status?.assetPending || 0) > 0;
+}
+
+function assetSyncLabel(status) {
     if (status.assetKeepLocal) return "syncing assets to S3 and local";
     return status.assetTargetS3 ? "moving assets to S3" : "moving assets local";
 }
@@ -400,7 +404,7 @@ function assetPendingDescription(status) {
 }
 
 function backupStatusDetails(status) {
-    if ((!status || !status.configured) && !status?.assetMigrationRunning && !status?.assetError) {
+    if ((!status || !status.configured) && !assetsSyncing(status) && !status?.assetError) {
         return p({class: "text-sm text-gray-400"}, "Backups are not configured.");
     }
     return div(
@@ -408,9 +412,9 @@ function backupStatusDetails(status) {
         detailCell("Local TXID", String(status.localTxid || 0), "backup-replication-local-txid"),
         detailCell("Remote TXID", String(status.remoteTxid || 0), "backup-replication-remote-txid"),
         detailCell("Last successful sync", formatTime(status.lastSuccessfulSyncAt), "backup-replication-last-sync"),
-        status.assetMigrationRunning || status.assetPending
+        assetsSyncing(status)
             ? div({class: "md:col-span-3 text-amber-300 text-xs"},
-                `${status.assetPending || 0} large asset(s) ${assetPendingDescription(status)}.`)
+                `${status.assetPending || 0} asset(s) ${assetPendingDescription(status)}.`)
             : "",
         status.assetError ? div({class: "md:col-span-3 text-red-300 text-xs break-words"}, status.assetError) : "",
         status.error ? div({class: "md:col-span-3 text-red-300 text-xs break-words", "data-testid": "backup-replication-error"}, status.error) : "",

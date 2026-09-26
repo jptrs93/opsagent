@@ -8,16 +8,16 @@ import (
 
 func scanUser(row scanner) (apigen.User, error) {
 	var e apigen.User
-	err := row.Scan(&e.ID, &e.Name, &e.CreatedAt, &e.LastLoginAt)
+	err := row.Scan(&e.ID, &e.Name, &e.CreatedAt)
 	return e, err
 }
 
 func (q *Queries) GetUser(ctx context.Context, id int64) (apigen.User, error) {
-	return scanUser(q.db.QueryRowContext(ctx, `SELECT id, name, created_at, last_login_at FROM users WHERE id = ?`, id))
+	return scanUser(q.db.QueryRowContext(ctx, `SELECT id, name, created_at FROM users WHERE id = ?`, id))
 }
 
 func (q *Queries) ListUsers(ctx context.Context) ([]apigen.User, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT id, name, created_at, last_login_at FROM users ORDER BY id`)
+	rows, err := q.db.QueryContext(ctx, `SELECT id, name, created_at FROM users ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}

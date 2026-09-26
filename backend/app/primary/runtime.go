@@ -25,6 +25,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/assets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
 	"github.com/jptrs93/opsagent/backend/app/primary/netmappublisher"
 	"github.com/jptrs93/opsagent/backend/app/primary/scheduler"
@@ -86,14 +87,20 @@ func newRuntime() (*runtime, error) {
 	}
 	network.Default.SetPrefix(configService.NetworkPrefix())
 	assetStore := &assets.Store{
-		DB:            store,
-		Secrets:       secretsMgr,
-		Loader:        configService,
-		MigrationWake: configService.AssetMigrationWake(),
+		DB:         store,
+		Secrets:    secretsMgr,
+		Loader:     configService,
+		TargetWake: configService.AssetTargetWake(),
 		Config: func() *apigen.ClusterSettings {
 			snapshot := configService.Snapshot()
 			return &snapshot.Settings
 		},
+	}
+	if err := assetStore.MigrateInlineContent(context.Background()); err != nil {
+		return nil, fmt.Errorf("moving inline asset content out of the database: %w", err)
+	}
+	if err := users.MigrateDuplicateCredentials(store); err != nil {
+		return nil, fmt.Errorf("collapsing duplicate passkey credentials: %w", err)
 	}
 	configService.AssetOperationMu = assetStore.AssetOperationLocker()
 	configService.ValidateSettingsUpdate = assetStore.ValidateSettingsUpdate

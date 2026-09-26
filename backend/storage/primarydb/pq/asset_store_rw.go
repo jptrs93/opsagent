@@ -8,7 +8,6 @@ type AssetStore struct {
 	ID           string
 	Sha256       string
 	SizeBytes    int64
-	InlineBlob   []byte
 	LocalStatus  int64
 	RemoteStatus int64
 	CreatedAt    int64
@@ -42,7 +41,7 @@ func (q *Queries) DeleteAssetStoreRow(ctx context.Context, id string) error {
 	return err
 }
 
-const getAssetStoreRowByID = `SELECT id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at
+const getAssetStoreRowByID = `SELECT id, sha256, size_bytes, local_status, remote_status, created_at
 FROM asset_store
 WHERE id = ?
 `
@@ -54,7 +53,6 @@ func (q *Queries) GetAssetStoreRowByID(ctx context.Context, id string) (AssetSto
 		&i.ID,
 		&i.Sha256,
 		&i.SizeBytes,
-		&i.InlineBlob,
 		&i.LocalStatus,
 		&i.RemoteStatus,
 		&i.CreatedAt,
@@ -62,7 +60,7 @@ func (q *Queries) GetAssetStoreRowByID(ctx context.Context, id string) (AssetSto
 	return i, err
 }
 
-const getAssetStoreRowBySha = `SELECT id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at
+const getAssetStoreRowBySha = `SELECT id, sha256, size_bytes, local_status, remote_status, created_at
 FROM asset_store
 WHERE sha256 = ? AND sha256 != ''
 `
@@ -74,7 +72,6 @@ func (q *Queries) GetAssetStoreRowBySha(ctx context.Context, sha256 string) (Ass
 		&i.ID,
 		&i.Sha256,
 		&i.SizeBytes,
-		&i.InlineBlob,
 		&i.LocalStatus,
 		&i.RemoteStatus,
 		&i.CreatedAt,
@@ -82,16 +79,15 @@ func (q *Queries) GetAssetStoreRowBySha(ctx context.Context, sha256 string) (Ass
 	return i, err
 }
 
-const insertAssetStoreRow = `INSERT INTO asset_store (id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at
+const insertAssetStoreRow = `INSERT INTO asset_store (id, sha256, size_bytes, local_status, remote_status, created_at)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, sha256, size_bytes, local_status, remote_status, created_at
 `
 
 type InsertAssetStoreRowParams struct {
 	ID           string
 	Sha256       string
 	SizeBytes    int64
-	InlineBlob   []byte
 	LocalStatus  int64
 	RemoteStatus int64
 	CreatedAt    int64
@@ -102,7 +98,6 @@ func (q *Queries) InsertAssetStoreRow(ctx context.Context, arg InsertAssetStoreR
 		arg.ID,
 		arg.Sha256,
 		arg.SizeBytes,
-		arg.InlineBlob,
 		arg.LocalStatus,
 		arg.RemoteStatus,
 		arg.CreatedAt,
@@ -112,7 +107,6 @@ func (q *Queries) InsertAssetStoreRow(ctx context.Context, arg InsertAssetStoreR
 		&i.ID,
 		&i.Sha256,
 		&i.SizeBytes,
-		&i.InlineBlob,
 		&i.LocalStatus,
 		&i.RemoteStatus,
 		&i.CreatedAt,
@@ -120,34 +114,23 @@ func (q *Queries) InsertAssetStoreRow(ctx context.Context, arg InsertAssetStoreR
 	return i, err
 }
 
-const listAssetStoreRowMetas = `SELECT id, sha256, size_bytes, CAST(LENGTH(inline_blob) AS INTEGER) AS inline_size, local_status, remote_status, created_at
+const listAssetStoreRows = `SELECT id, sha256, size_bytes, local_status, remote_status, created_at
 FROM asset_store
 `
 
-type ListAssetStoreRowMetasRow struct {
-	ID           string
-	Sha256       string
-	SizeBytes    int64
-	InlineSize   int64
-	LocalStatus  int64
-	RemoteStatus int64
-	CreatedAt    int64
-}
-
-func (q *Queries) ListAssetStoreRowMetas(ctx context.Context) ([]ListAssetStoreRowMetasRow, error) {
-	rows, err := q.db.QueryContext(ctx, listAssetStoreRowMetas)
+func (q *Queries) ListAssetStoreRows(ctx context.Context) ([]AssetStore, error) {
+	rows, err := q.db.QueryContext(ctx, listAssetStoreRows)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListAssetStoreRowMetasRow
+	var items []AssetStore
 	for rows.Next() {
-		var i ListAssetStoreRowMetasRow
+		var i AssetStore
 		if err := rows.Scan(
 			&i.ID,
 			&i.Sha256,
 			&i.SizeBytes,
-			&i.InlineSize,
 			&i.LocalStatus,
 			&i.RemoteStatus,
 			&i.CreatedAt,
@@ -165,35 +148,24 @@ func (q *Queries) ListAssetStoreRowMetas(ctx context.Context) ([]ListAssetStoreR
 	return items, nil
 }
 
-const listUnreferencedAssetStoreRows = `SELECT s.id, s.sha256, s.size_bytes, CAST(LENGTH(s.inline_blob) AS INTEGER) AS inline_size, s.local_status, s.remote_status, s.created_at
+const listUnreferencedAssetStoreRows = `SELECT s.id, s.sha256, s.size_bytes, s.local_status, s.remote_status, s.created_at
 FROM asset_store s
-WHERE s.created_at < ? AND NOT EXISTS (SELECT 1 FROM asset_event_log v WHERE v.sha256 = s.sha256 AND v.value_changed != 0)
+WHERE s.created_at < ? AND NOT EXISTS (SELECT 1 FROM asset_event_log v WHERE v.storage_key = s.id AND v.value_changed != 0)
 `
 
-type ListUnreferencedAssetStoreRowsRow struct {
-	ID           string
-	Sha256       string
-	SizeBytes    int64
-	InlineSize   int64
-	LocalStatus  int64
-	RemoteStatus int64
-	CreatedAt    int64
-}
-
-func (q *Queries) ListUnreferencedAssetStoreRows(ctx context.Context, createdAt int64) ([]ListUnreferencedAssetStoreRowsRow, error) {
+func (q *Queries) ListUnreferencedAssetStoreRows(ctx context.Context, createdAt int64) ([]AssetStore, error) {
 	rows, err := q.db.QueryContext(ctx, listUnreferencedAssetStoreRows, createdAt)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListUnreferencedAssetStoreRowsRow
+	var items []AssetStore
 	for rows.Next() {
-		var i ListUnreferencedAssetStoreRowsRow
+		var i AssetStore
 		if err := rows.Scan(
 			&i.ID,
 			&i.Sha256,
 			&i.SizeBytes,
-			&i.InlineSize,
 			&i.LocalStatus,
 			&i.RemoteStatus,
 			&i.CreatedAt,

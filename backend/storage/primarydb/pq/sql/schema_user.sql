@@ -2,8 +2,7 @@ CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY,
     name          TEXT    NOT NULL,
     data_blob     BLOB    NOT NULL,
-    created_at    INTEGER NOT NULL DEFAULT 0,  -- epoch ms; 0 predates the column
-    last_login_at INTEGER NOT NULL DEFAULT 0   -- epoch ms; 0 = never logged in
+    created_at    INTEGER NOT NULL DEFAULT 0   -- epoch ms; 0 predates the column
 );
 
 CREATE TABLE IF NOT EXISTS agent_sessions (

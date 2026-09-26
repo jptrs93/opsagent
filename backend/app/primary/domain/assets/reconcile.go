@@ -13,7 +13,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -33,7 +32,6 @@ type ReconcileStatus struct {
 	Target  systemconfig.AssetStorageTarget
 	Pending int
 	Error   string
-	Running bool
 }
 
 func (s *Store) StartReconciler(ctx context.Context) <-chan struct{} {
@@ -88,7 +86,7 @@ func (s *Store) StartReconciler(ctx context.Context) <-chan struct{} {
 			select {
 			case <-ctx.Done():
 				return
-			case <-s.MigrationWake:
+			case <-s.TargetWake:
 			case <-wake:
 			case <-interval.C:
 			}
@@ -114,28 +112,17 @@ func (s *Store) SweepUnreferencedStoreRows(cutoff time.Time) error {
 
 func (s *Store) Reconcile(ctx context.Context) (int, error) {
 	target := s.storageTarget(s.Config())
-	migration, running := systemconfig.UnfinishedAssetMigration(s.DB.Queries())
-	if running {
-		now := time.Now().UnixMilli()
-		erru.Must(s.DB.Queries().StartAssetMigration(ctx, pq.StartAssetMigrationParams{StartedAt: now, LastAttemptAt: now, ID: migration.ID}))
-	}
 	unavailable, err := s.convergeRows(ctx, target)
 	pending := s.pendingForTarget(target)
 	if err != nil {
-		if running {
-			s.recordMigrationError(migration.ID, err)
-		}
 		s.setLastError(err.Error())
 		return pending, err
 	}
 	if unavailable > 0 {
-		slog.ErrorContext(ctx, "large asset content rows have no durable copy", "count", unavailable)
-		s.setLastError(fmt.Sprintf("%d large asset content row(s) have no durable copy", unavailable))
+		slog.ErrorContext(ctx, "asset content rows have no durable copy", "count", unavailable)
+		s.setLastError(fmt.Sprintf("%d asset content row(s) have no durable copy", unavailable))
 	} else {
 		s.setLastError("")
-	}
-	if running && pending == 0 {
-		erru.Must(s.DB.Queries().FinishAssetMigration(ctx, pq.FinishAssetMigrationParams{FinishedAt: time.Now().UnixMilli(), ID: migration.ID}))
 	}
 	s.cleanupInactiveLocalFiles(ctx)
 	return pending, nil
@@ -148,7 +135,7 @@ func (s *Store) convergeRows(ctx context.Context, target systemconfig.AssetStora
 		if ctx.Err() != nil {
 			return unavailable, ctx.Err()
 		}
-		if !row.FileBacked() {
+		if row.Staging() {
 			continue
 		}
 		if row.LocalStatus == 0 && row.RemoteStatus == 0 {
@@ -207,7 +194,7 @@ func (s *Store) verifyLocalFiles(ctx context.Context, target systemconfig.AssetS
 		sizes[entry.Name()] = info.Size()
 	}
 	for _, row := range ListAssetStoreRowMetas(s.DB.Queries()) {
-		if !row.FileBacked() {
+		if row.Staging() {
 			continue
 		}
 		size, present := sizes[row.ID]
@@ -377,19 +364,12 @@ func (s *Store) dropRemoteStatus(storeID string) {
 
 func (s *Store) ReconcileStatus() ReconcileStatus {
 	target := s.storageTarget(s.Config())
-	status := ReconcileStatus{Target: target, Pending: s.pendingForTarget(target), Error: s.LastError()}
-	if migration, ok := systemconfig.UnfinishedAssetMigration(s.DB.Queries()); ok {
-		status.Running = true
-		if status.Error == "" {
-			status.Error = migration.LastError
-		}
-	}
-	return status
+	return ReconcileStatus{Target: target, Pending: s.pendingForTarget(target), Error: s.LastError()}
 }
 
-func (s *Store) AssetStorageStatus() (targetS3, keepLocal bool, pending int, running bool, err string) {
+func (s *Store) AssetStorageStatus() (targetS3, keepLocal bool, pending int, err string) {
 	status := s.ReconcileStatus()
-	return status.Target.UsesS3(), status.Target == systemconfig.AssetStorageBoth, status.Pending, status.Running, status.Error
+	return status.Target.UsesS3(), status.Target == systemconfig.AssetStorageBoth, status.Pending, status.Error
 }
 
 func (s *Store) LastError() string {
@@ -407,7 +387,7 @@ func (s *Store) setLastError(msg string) {
 func (s *Store) pendingForTarget(target systemconfig.AssetStorageTarget) int {
 	pending := 0
 	for _, row := range ListAssetStoreRowMetas(s.DB.Queries()) {
-		if !row.FileBacked() || (row.LocalStatus == 0 && row.RemoteStatus == 0) {
+		if row.Staging() || (row.LocalStatus == 0 && row.RemoteStatus == 0) {
 			continue
 		}
 		switch target {
@@ -453,8 +433,4 @@ func (s *Store) cleanupInactiveLocalFiles(ctx context.Context) {
 			slog.WarnContext(ctx, fmt.Sprintf("removing inactive local large asset %s failed", entry.Name()), "err", err)
 		}
 	}
-}
-
-func (s *Store) recordMigrationError(id int64, migrationErr error) {
-	erru.Must(s.DB.Queries().RecordAssetMigrationError(context.Background(), pq.RecordAssetMigrationErrorParams{LastAttemptAt: time.Now().UnixMilli(), LastError: migrationErr.Error(), ID: id}))
 }

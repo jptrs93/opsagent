@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS asset_event_log (
     space_id           INTEGER NOT NULL,
     size_bytes         INTEGER NOT NULL,  -- current content size, carried forward on non-content events
     sha256             TEXT    NOT NULL,  -- current content hash, carried forward on non-content events
+    storage_key        TEXT    NOT NULL DEFAULT '',  -- physical name of the content (asset_store.id), carried forward
     event_type         INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
     UNIQUE (asset_id, version)
 );
@@ -25,36 +26,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS asset_value_versions
 CREATE INDEX IF NOT EXISTS idx_asset_event_log_sha256
     ON asset_event_log (sha256) WHERE value_changed != 0;
 
--- tracks where the asset content is actually stored
+-- This node's placement of each content blob: which side holds a durable copy.
+-- The identity of the content (id = storage key, sha256, size) is also carried
+-- on every asset_event_log row; only the status flags are local knowledge.
 CREATE TABLE IF NOT EXISTS asset_store (
-    id            TEXT    PRIMARY KEY,
-    sha256        TEXT    NOT NULL DEFAULT '',
+    id            TEXT    PRIMARY KEY,         -- storage key: LargeAssetsDir/<id> locally, <s3-path>/<id> in S3
+    sha256        TEXT    NOT NULL DEFAULT '', -- '' while an upload is staging
     size_bytes    INTEGER NOT NULL DEFAULT 0,
-    inline_blob   BLOB    NOT NULL DEFAULT x'',
     local_status  INTEGER NOT NULL DEFAULT 0,
     remote_status INTEGER NOT NULL DEFAULT 0,
     created_at    INTEGER NOT NULL             -- epoch ms
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_store_sha256 ON asset_store (sha256) WHERE sha256 != '';
-
-CREATE TABLE IF NOT EXISTS asset_migrations (
-    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-    old_config_version_id INTEGER NOT NULL,
-    new_config_version_id INTEGER NOT NULL,
-    status                TEXT    NOT NULL DEFAULT 'pending'
-                                  CHECK (status IN ('pending', 'running', 'finished')),
-    last_error            TEXT    NOT NULL DEFAULT '',
-    created_at            INTEGER NOT NULL,               -- epoch ms
-    started_at            INTEGER NOT NULL DEFAULT 0,     -- epoch ms
-    last_attempt_at       INTEGER NOT NULL DEFAULT 0,     -- epoch ms
-    finished_at           INTEGER NOT NULL DEFAULT 0      -- epoch ms
-);
-
--- At most one unfinished migration at a time.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_migrations_unfinished
-    ON asset_migrations ((1))
-    WHERE status != 'finished';
 
 CREATE TABLE IF NOT EXISTS asset_directories (
      id          INTEGER PRIMARY KEY AUTOINCREMENT,

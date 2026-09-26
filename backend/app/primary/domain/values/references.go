@@ -50,7 +50,9 @@ func SetVersionedValueWithDeploymentUpdates(
 		updatedEvents = make([]*apigen.DeploymentEvent, 0, len(updates))
 		for _, update := range updates {
 			def := update.def
-			replaceDeploymentReferences(&def.Spec, referenceType, stableID, newVersion)
+			if !replaceDeploymentReferences(&def.Spec, referenceType, stableID, newVersion) {
+				continue
+			}
 			event := pq.BuildDeploymentUpdateEvent(update.prev, def, author)
 			event.Seq = seq
 			if err := q.InsertDeploymentEvent(ctx, event); err != nil {
@@ -135,16 +137,19 @@ func deploymentUsesReferences(spec *apigen.DeploymentSpec, referenceType Referen
 	return false
 }
 
-func replaceDeploymentReferences(spec *apigen.DeploymentSpec, referenceType ReferenceType, stableID, version int32) {
+func replaceDeploymentReferences(spec *apigen.DeploymentSpec, referenceType ReferenceType, stableID, version int32) bool {
 	container := spec.Container()
 	if container == nil {
-		return
+		return false
 	}
+	changed := false
 	for _, value := range container.Runtime.EnvVars {
-		if ref := referencedValue(value, referenceType); ref != nil && ref.ID == stableID {
+		if ref := referencedValue(value, referenceType); ref != nil && ref.ID == stableID && ref.Version != version {
 			ref.Version = version
+			changed = true
 		}
 	}
+	return changed
 }
 
 func referencedValue(value *apigen.EnvVarValue, referenceType ReferenceType) *apigen.ValueRef {

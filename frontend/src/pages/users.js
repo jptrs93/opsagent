@@ -11,7 +11,7 @@ import {authzGlobalRulesS, authzGrantsS, authzTemplatesS, spacesS, usersMapS} fr
 import {describeGrant, grantRevokeBlock, groupGrantsByUser, isClusterAdminGrant, templateArguments} from "../lib/authz.js";
 import {grantSubject} from "../lib/authzExplain.js";
 import {globalRuleOverlay, grantOverlay, ruleTemplateOverlay} from "../components/accessEditors.js";
-import {formatDate, formatDateTime} from "../lib/date.js";
+import {formatDate} from "../lib/date.js";
 import {globalRuleDisplay, ruleDisplay} from "../components/ruleDisplay.js";
 import {explorerBand} from "../components/sectionBand.js";
 import {closeExplainer, explainable, explainerWidth, mountExplainerLayer, renderExplainer} from "../components/ruleExplainer.js";
@@ -27,7 +27,6 @@ const sortedUsers = () => [...usersMapS.val.entries()]
         id: Number(id),
         name: user?.name || "",
         createdAt: Number(user?.createdAt || 0),
-        lastLoginAt: Number(user?.lastLoginAt || 0),
     }))
     .sort((a, b) => a.id - b.id);
 
@@ -285,7 +284,6 @@ export function usersPage() {
                         "you") : "")),
             td({class: "py-1.5 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, String(user.id)),
             td({class: "py-1.5 pr-3 text-gray-400 whitespace-nowrap"}, formatDate(new Date(user.createdAt), "—")),
-            td({class: "py-1.5 pr-3 text-gray-400 whitespace-nowrap"}, formatDateTime(new Date(user.lastLoginAt), "—")),
             td({class: "py-1.5 pr-3"},
                 div({class: "flex flex-wrap items-center gap-1"},
                     ...grants.map((grant) => grantChip(user, grant)),
@@ -305,8 +303,8 @@ export function usersPage() {
         const grantsByUser = groupGrantsByUser(authzGrantsS.val);
         return div({class: "px-3"},
             table({class: "w-full table-fixed text-[13px]"},
-                colgroup(col({style: "width:18%"}), col({style: "width:5%"}), col({style: "width:11%"}), col({style: "width:12%"}), col({style: "width:54%"})),
-                headerRow(["Name"], ["ID"], ["Joined"], ["Last login"], ["Permissions"]),
+                colgroup(col({style: "width:18%"}), col({style: "width:5%"}), col({style: "width:11%"}), col({style: "width:66%"})),
+                headerRow(["Name"], ["ID"], ["Joined"], ["Permissions"]),
                 tbody(...visible.map((user) => userRow(user, grantsByUser)))));
     };
 
