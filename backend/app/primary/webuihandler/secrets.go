@@ -361,7 +361,7 @@ func (h *Handler) PostV1SecretsRotateRecoveryCode(ctx apigen.Context) (*apigen.S
 	if err := h.requireAccess(ctx, vUpdate, eCluster, 0, 0); err != nil {
 		return nil, err
 	}
-	code, err := h.Secrets.GenerateRecoveryCode()
+	code, err := h.Secrets.GenerateRecoveryCode(requestUserID(ctx))
 	if err != nil {
 		return nil, mapSecretErr(err)
 	}
@@ -374,7 +374,7 @@ func (h *Handler) PostV1SecretsUnlock(ctx apigen.Context, req *apigen.SecretUnlo
 	if err := h.requireAccess(ctx, vUpdate, eCluster, 0, 0); err != nil {
 		return nil, err
 	}
-	if err := h.Secrets.Unlock(req.Code); err != nil {
+	if err := h.Secrets.Unlock(req.Code, requestUserID(ctx)); err != nil {
 		switch {
 		case errors.Is(err, secrets.ErrNoRecoveryCode):
 			return nil, NoRecoveryCodeErr

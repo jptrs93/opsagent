@@ -38,6 +38,24 @@ func selectorMatches(sel *apigen.AuthzSelector, bindings []*apigen.AuthzArgument
 	return false
 }
 
+// SystemSpaceAllows is the fence in front of every grant: space 0 holds
+// OpenDeploy's own values, which no caller may see, touch, or reference, and
+// its deployments are created by the primary alone. Cluster-scope checks for
+// nodes, users, settings, and access management also name space 0 and are
+// unaffected.
+func SystemSpaceAllows(req RequestedAccess) bool {
+	if req.SpaceID != 0 {
+		return true
+	}
+	switch req.EntityType {
+	case apigen.AuthzEntity_AUTHZ_ENTITY_SECRET, apigen.AuthzEntity_AUTHZ_ENTITY_CONFIG, apigen.AuthzEntity_AUTHZ_ENTITY_ASSET:
+		return false
+	case apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT:
+		return req.Verb != apigen.AuthzVerb_AUTHZ_VERB_CREATE
+	}
+	return true
+}
+
 func ruleMatches(rule *apigen.AuthzRule, bindings []*apigen.AuthzArgumentBinding, req RequestedAccess) bool {
 	if rule == nil {
 		return false

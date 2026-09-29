@@ -5,19 +5,28 @@ import (
 	"net/http"
 )
 
-func (p AccessPolicy) CanAccess(userScopes []string) error {
+// policyLabel is the name a route policy uses for this session kind. The
+// generated mux hands over the route's ANY_OF list of labels; a session
+// satisfies it when its own kind is listed.
+func (k UserSessionKind) policyLabel() string {
+	if k == UserSessionKind_USER_SESSION_KIND_BOOTSTRAP {
+		return "bootstrap"
+	}
+	return "full"
+}
+
+func (p AccessPolicy) CanAccess(kind UserSessionKind) error {
 	switch p.PolicyType {
 	case AccessPolicyType_NO_AUTH, AccessPolicyType_OPTIONAL_AUTH:
 		return nil
 	case AccessPolicyType_ANY_OF:
-		for _, desired := range p.Scopes {
-			for _, granted := range userScopes {
-				if desired == granted {
-					return nil
-				}
+		label := kind.policyLabel()
+		for _, accepted := range p.Scopes {
+			if accepted == label {
+				return nil
 			}
 		}
-		return NewApiErr("Unauthorized", fmt.Sprintf("access denied: user has scopes '%v' but needs one of '%v", userScopes, p.Scopes), http.StatusForbidden)
+		return NewApiErr("Unauthorized", fmt.Sprintf("access denied: a %s session cannot use this route", label), http.StatusForbidden)
 	default:
 		return NewApiErr("Unauthorized", fmt.Sprintf("unsuppored access policy type: %v", p.PolicyType), http.StatusForbidden)
 	}

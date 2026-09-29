@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {agentSessionsS} from "../state/deployments.js";
+import {agentSessionsS, userSessionsS} from "../state/deployments.js";
 import {clearLoginState, loginS} from "../state/login.js";
 import {codeBlock} from "../components/codeBlock.js";
 import {xIcon} from "../lib/icons.js";
@@ -12,7 +12,7 @@ import {
     sessionStatus,
     sessionStoppable,
 } from "../lib/agentSessions.js";
-import {personalSessionLive, personalSessionStatus, summarizeUserAgent} from "../lib/personalSessions.js";
+import {userSessionLive, userSessionStatus, summarizeUserAgent, isBootstrapSession} from "../lib/userSessions.js";
 
 const {button, div, p, span, table, tbody, td, th, thead, tr} = van.tags;
 
@@ -130,19 +130,17 @@ function agentSessionsTab() {
     );
 }
 
-function personalSessionsTab({sessionsS, error, reload}) {
+function userSessionsTab() {
     const busyID = van.state("");
+    const error = van.state("");
+    const isCurrent = (session) => session.id === (loginS.val?.sessionId || "");
 
     const revoke = async (session) => {
         busyID.val = session.id;
         error.val = "";
         try {
-            await capi.postV1PersonalSessionsRevoke({id: session.id});
-            if (session.current) {
-                clearLoginState();
-                return;
-            }
-            await reload();
+            await capi.postV1UserSessionsRevoke({id: session.id});
+            if (isCurrent(session)) clearLoginState();
         } catch (e) {
             error.val = e.message || "Request failed";
         } finally {
@@ -151,19 +149,22 @@ function personalSessionsTab({sessionsS, error, reload}) {
     };
 
     const row = (session) => {
-        const status = personalSessionStatus(session);
-        const live = personalSessionLive(session);
+        const status = userSessionStatus(session);
+        const live = userSessionLive(session);
+        const current = isCurrent(session);
         return tr(
             {class: "hover:bg-gray-800/40"},
             tdCell("whitespace-nowrap text-gray-300 tabular-nums", formatHistoryTime(session.createdAt)),
             tdCell(`whitespace-nowrap ${status.tone}`, status.label),
             tdCell("whitespace-nowrap text-gray-300",
                 summarizeUserAgent(session.userAgent),
-                session.current
+                current
                     ? span({class: "ml-2 rounded bg-brand/15 px-1.5 py-px text-[10px] font-medium text-blue-300"}, "This browser")
+                    : "",
+                isBootstrapSession(session)
+                    ? span({class: "ml-2 rounded bg-gray-700/60 px-1.5 py-px text-[10px] font-medium text-gray-300", title: "Opened with the master password; can only register a passkey"}, "Bootstrap")
                     : ""),
             tdCell("whitespace-nowrap font-mono text-gray-500", session.requestingAddress || "unknown"),
-            tdCell("whitespace-nowrap text-gray-400 tabular-nums", formatHistoryTime(session.lastActiveAt)),
             tdCell("whitespace-nowrap text-gray-400 tabular-nums", formatHistoryTime(session.expiresAt)),
             tdCell("w-px",
                 div({class: "flex items-center justify-end"},
@@ -173,8 +174,8 @@ function personalSessionsTab({sessionsS, error, reload}) {
                         disabled: () => !live || busyID.val === session.id,
                         title: !live
                             ? `Session is already ${status.label.toLowerCase()}`
-                            : (session.current ? "Sign out this browser" : "Revoke this session"),
-                        "aria-label": session.current ? "Sign out this browser" : "Revoke this session",
+                            : (current ? "Sign out this browser" : "Revoke this session"),
+                        "aria-label": current ? "Sign out this browser" : "Revoke this session",
                         onclick: () => { void revoke(session); },
                     }, xIcon({size: 13})),
                 )),
@@ -183,13 +184,13 @@ function personalSessionsTab({sessionsS, error, reload}) {
 
     return div(
         {class: "flex flex-1 min-h-0 flex-col"},
-        errorLine(error, "personal-session-error"),
+        errorLine(error, "user-session-error"),
         () => div(
-            {class: "app-scroll flex-1 min-h-0 overflow-y-auto", "data-testid": "personal-session-list"},
+            {class: "app-scroll flex-1 min-h-0 overflow-y-auto", "data-testid": "user-session-list"},
             denseTable(
                 [thCell("Signed in"), thCell("Status"), thCell("Device"), thCell("IP address"),
-                    thCell("Last active"), thCell("Expires"), thCell("", "w-px")],
-                sessionsS.val.length ? sessionsS.val.map(row) : [emptyRow(7, "No sessions yet")],
+                    thCell("Expires"), thCell("", "w-px")],
+                userSessionsS.val.length ? userSessionsS.val.map(row) : [emptyRow(6, "No sessions yet")],
             ),
         ),
     );
@@ -197,19 +198,6 @@ function personalSessionsTab({sessionsS, error, reload}) {
 
 export function sessionsPage() {
     const tab = van.state("agent");
-    const personalSessionsS = van.state([]);
-    const personalError = van.state("");
-
-    const loadPersonalSessions = async () => {
-        try {
-            const res = await capi.postV1PersonalSessionsList();
-            personalSessionsS.val = res.items || [];
-            personalError.val = "";
-        } catch (e) {
-            personalError.val = e.message || "Failed to load sessions";
-        }
-    };
-    void loadPersonalSessions();
 
     const tabButton = (key, label, countS) => button(
         {
@@ -219,10 +207,7 @@ export function sessionsPage() {
             class: () => `-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors ${tab.val === key
                 ? "border-brand text-gray-100"
                 : "border-transparent text-gray-400 hover:text-gray-200"}`,
-            onclick: () => {
-                tab.val = key;
-                if (key === "personal") void loadPersonalSessions();
-            },
+            onclick: () => { tab.val = key; },
         },
         label,
         () => span({class: "text-[10px] text-gray-500 tabular-nums"}, String(countS())),
@@ -233,15 +218,13 @@ export function sessionsPage() {
         div(
             {class: "flex flex-none items-end gap-1 border-b border-gray-800 bg-gray-950/40 px-2 pt-1", role: "tablist"},
             tabButton("agent", "Agent sessions", () => agentSessionsS.val.length),
-            tabButton("personal", "Personal sessions", () => personalSessionsS.val.length),
+            tabButton("user", "User sessions", () => userSessionsS.val.length),
         ),
         // The tab body is a flex column, not a scroller: each tab owns its
         // own scrolling list so the table header stays fixed.
         div(
             {class: "flex flex-1 min-h-0 flex-col overflow-hidden"},
-            () => tab.val === "agent"
-                ? agentSessionsTab()
-                : personalSessionsTab({sessionsS: personalSessionsS, error: personalError, reload: loadPersonalSessions}),
+            () => tab.val === "agent" ? agentSessionsTab() : userSessionsTab(),
         ),
     );
 }

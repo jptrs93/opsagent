@@ -9,6 +9,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/lib/enrollment"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
@@ -65,9 +66,22 @@ func TestEvictEndpointRefusesPinnedDeploymentsThenForces(t *testing.T) {
 	if _, err := h.PostV1NodesEvict(ctx, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedVersion: node.Version + 1, Force: true}); !errors.Is(err, NodeVersionChangedErr) {
 		t.Fatalf("evict with stale version: got %v, want NodeVersionChangedErr", err)
 	}
+	if err := h.Store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+		return &state.Update{}, q.InsertSecretKeyslotEvent(ctx, pq.SecretKeyslotEventParams{
+			EventMeta:     pq.EventMeta{GlobalSeq: seq, EventTime: 1, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE},
+			SecretKeyslot: pq.SecretKeyslot{Kind: apigen.SecretKeyslotKind_SECRET_KEYSLOT_MACHINE, NodeID: int64(node.ID), SmkVersion: 1, WrappedSmk: []byte{1}, Nonce: []byte{2}},
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	event, err := h.PostV1NodesEvict(ctx, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedVersion: node.Version, Force: true})
 	if err != nil || event.Value.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED {
 		t.Fatalf("forced evict: event=%+v err=%v", event, err)
+	}
+	for _, slot := range mustSlots(t, h.Store) {
+		if slot.NodeID == int64(node.ID) {
+			t.Fatalf("evicted node's machine keyslot still live: %+v", slot)
+		}
 	}
 	if _, err := h.PostV1NodesDrain(ctx, &apigen.NodeDrainRequest{Identifier: node.Identifier, Draining: true}); !errors.Is(err, NodeNotFoundErr) {
 		t.Fatalf("drain evicted node: got %v, want NodeNotFoundErr", err)
@@ -100,4 +114,13 @@ func TestEvictionRequiresNodeDelete(t *testing.T) {
 	if _, err := h.PostV1NodesEvict(admin, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedVersion: node.Version}); err != nil {
 		t.Fatalf("admin evict: %v", err)
 	}
+}
+
+func mustSlots(t *testing.T, store *state.Service) []pq.SecretKeyslot {
+	t.Helper()
+	slots, err := store.Queries().ListLiveSecretKeyslots(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return slots
 }

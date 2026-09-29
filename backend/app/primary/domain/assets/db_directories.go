@@ -30,6 +30,14 @@ func getAssetDirectory(ctx context.Context, q *pq.Queries, id int64) (apigen.Ass
 	return d, err
 }
 
+func directoryMeta(seq int64, author int32, eventType apigen.AuthzVerb) pq.EventMeta {
+	return pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(author), EventType: eventType}
+}
+
+func directoryUpdate(d apigen.AssetDirectory) *state.Update {
+	return &state.Update{AssetDirectories: []*apigen.AssetDirectory{ptru.To(d)}}
+}
+
 func CreateDirectory(store *state.Service, spaceID, parentID int32, key string, author int32) (apigen.AssetDirectory, error) {
 	if !ValidAssetKey(key) {
 		return apigen.AssetDirectory{}, ErrAssetKeyInvalid
@@ -51,18 +59,18 @@ func CreateDirectory(store *state.Service, spaceID, parentID int32, key string, 
 		if assetSiblingKeyTaken(ctx, q, space, parent, key, 0, 0) {
 			return nil, ErrAssetAlreadyExists
 		}
-		var err error
-		d, err = q.InsertAssetDirectory(ctx, pq.InsertAssetDirectoryParams{
-			SpaceID:   space,
-			Key:       key,
-			ParentID:  parent,
-			CreatedAt: time.Now().UnixMilli(),
-			Author:    int64(author),
+		id, err := q.NextAssetDirectoryID(ctx)
+		if err != nil {
+			return nil, err
+		}
+		d, err = q.InsertAssetDirectoryEvent(ctx, pq.AssetDirectoryEventParams{
+			EventMeta:   directoryMeta(seq, author, apigen.AuthzVerb_AUTHZ_VERB_CREATE),
+			DirectoryID: id, SpaceID: space, Key: key, ParentID: parent, CreatedAt: time.Now().UnixMilli(),
 		})
 		if err != nil {
 			return nil, err
 		}
-		return &state.Update{AssetDirectories: []*apigen.AssetDirectory{ptru.To(d)}}, nil
+		return directoryUpdate(d), nil
 	})
 	if err != nil {
 		return apigen.AssetDirectory{}, err
@@ -105,7 +113,7 @@ func GetAssetDirectoryMeta(q *pq.Queries, directoryID int32) (*apigen.AssetDirec
 	return ptru.To(row), true
 }
 
-func RenameDirectory(store *state.Service, directoryID int32, newKey string) (apigen.AssetDirectory, error) {
+func RenameDirectory(store *state.Service, directoryID int32, newKey string, author int32) (apigen.AssetDirectory, error) {
 	if !ValidAssetKey(newKey) {
 		return apigen.AssetDirectory{}, ErrAssetKeyInvalid
 	}
@@ -123,14 +131,12 @@ func RenameDirectory(store *state.Service, directoryID int32, newKey string) (ap
 		if assetSiblingKeyTaken(ctx, q, int64(d.SpaceID), int64(d.ParentID), newKey, 0, int64(d.ID)) {
 			return nil, ErrAssetAlreadyExists
 		}
-		if err := q.SetAssetDirectoryKey(ctx, pq.SetAssetDirectoryKeyParams{Key: newKey, ID: int64(d.ID)}); err != nil {
+		event := pq.AssetDirectoryEvent(d, directoryMeta(seq, author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE))
+		event.Key = newKey
+		if d, err = q.InsertAssetDirectoryEvent(ctx, event); err != nil {
 			return nil, err
 		}
-		d, err = q.GetAssetDirectoryByID(ctx, int64(d.ID))
-		if err != nil {
-			return nil, err
-		}
-		return &state.Update{AssetDirectories: []*apigen.AssetDirectory{ptru.To(d)}}, nil
+		return directoryUpdate(d), nil
 	})
 	if err != nil {
 		return apigen.AssetDirectory{}, err
@@ -149,7 +155,7 @@ func MoveDirectorySpace(q *pq.Queries, directoryID, newSpaceID int32) error {
 	return ErrSpaceMoveUnsupported
 }
 
-func MoveDirectory(store *state.Service, directoryID, newParentID int32) (apigen.AssetDirectory, error) {
+func MoveDirectory(store *state.Service, directoryID, newParentID int32, author int32) (apigen.AssetDirectory, error) {
 	ctx := context.Background()
 	parent := int64(newParentID)
 	var d apigen.AssetDirectory
@@ -178,14 +184,12 @@ func MoveDirectory(store *state.Service, directoryID, newParentID int32) (apigen
 		if assetSiblingKeyTaken(ctx, q, int64(d.SpaceID), parent, d.Key, 0, int64(d.ID)) {
 			return nil, ErrAssetAlreadyExists
 		}
-		if err := q.SetAssetDirectoryParent(ctx, pq.SetAssetDirectoryParentParams{ParentID: parent, ID: int64(d.ID)}); err != nil {
+		event := pq.AssetDirectoryEvent(d, directoryMeta(seq, author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE))
+		event.ParentID = parent
+		if d, err = q.InsertAssetDirectoryEvent(ctx, event); err != nil {
 			return nil, err
 		}
-		d, err = q.GetAssetDirectoryByID(ctx, int64(d.ID))
-		if err != nil {
-			return nil, err
-		}
-		return &state.Update{AssetDirectories: []*apigen.AssetDirectory{ptru.To(d)}}, nil
+		return directoryUpdate(d), nil
 	})
 	if err != nil {
 		return apigen.AssetDirectory{}, err
@@ -193,7 +197,7 @@ func MoveDirectory(store *state.Service, directoryID, newParentID int32) (apigen
 	return d, nil
 }
 
-func DeleteDirectory(store *state.Service, directoryID int32) error {
+func DeleteDirectory(store *state.Service, directoryID int32, author int32) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
 		d, err := getAssetDirectory(ctx, q, int64(directoryID))
@@ -211,11 +215,10 @@ func DeleteDirectory(store *state.Service, directoryID int32) error {
 		if assets > 0 || children > 0 {
 			return nil, ErrDirectoryNotEmpty
 		}
-		if err := q.DeleteAssetDirectory(ctx, int64(d.ID)); err != nil {
+		tombstone, err := q.InsertAssetDirectoryEvent(ctx, pq.AssetDirectoryEvent(d, directoryMeta(seq, author, apigen.AuthzVerb_AUTHZ_VERB_DELETE)))
+		if err != nil {
 			return nil, err
 		}
-		tombstone := ptru.To(d)
-		tombstone.Deleted = true
-		return &state.Update{AssetDirectories: []*apigen.AssetDirectory{tombstone}}, nil
+		return directoryUpdate(tombstone), nil
 	})
 }

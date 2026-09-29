@@ -1,7 +1,6 @@
 package webuihandler
 
 import (
-	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
 )
@@ -21,9 +20,6 @@ func (h *Handler) snapshotWithSidecars(ctx apigen.Context) *apigen.Snapshot {
 	if h.BackupStatus != nil {
 		status := h.BackupStatus.Snapshot()
 		snapshot.BackupStatus = &status
-	}
-	if ctx.User != nil {
-		snapshot.AgentSessions = erru.Must(h.agentSessions().Snapshot(ctx.User.ID))
 	}
 	if h.IngressDiagnostics != nil {
 		initial, _, unsubscribe := h.IngressDiagnostics.DiagnosticsSnapshotAndSubscribe()

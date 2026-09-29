@@ -130,6 +130,14 @@ const (
 	ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING ScheduledInstanceTarget = 4
 )
 
+type SecretKeyslotKind int32
+
+const (
+	SecretKeyslotKind_SECRET_KEYSLOT_KIND_UNSPECIFIED SecretKeyslotKind = 0
+	SecretKeyslotKind_SECRET_KEYSLOT_MACHINE          SecretKeyslotKind = 1
+	SecretKeyslotKind_SECRET_KEYSLOT_RECOVERY         SecretKeyslotKind = 2
+)
+
 type AgentSessionStatus int32
 
 const (
@@ -138,6 +146,13 @@ const (
 	AgentSessionStatus_AGENT_SESSION_APPROVED       AgentSessionStatus = 2
 	AgentSessionStatus_AGENT_SESSION_REJECTED       AgentSessionStatus = 3
 	AgentSessionStatus_AGENT_SESSION_REVOKED        AgentSessionStatus = 4
+)
+
+type UserSessionKind int32
+
+const (
+	UserSessionKind_USER_SESSION_KIND_FULL      UserSessionKind = 0
+	UserSessionKind_USER_SESSION_KIND_BOOTSTRAP UserSessionKind = 1
 )
 
 type AuthzVerb int32
@@ -919,7 +934,6 @@ type SecretEvent struct {
 type Secret struct {
 	Fs      *SecretFs `json:"fs"`
 	SpaceID int32     `json:"space_id"`
-	SealID  string    `json:"seal_id,omitempty"`
 }
 
 type SecretFs struct {
@@ -1202,11 +1216,6 @@ type InternalUser struct {
 	Delegated   bool                  `json:"delegated"`
 }
 
-type PublicKeyRecord struct {
-	Kid      string `json:"kid,omitempty"`
-	KeyBytes []byte `json:"key_bytes"`
-}
-
 type MasterPasswordRequest struct {
 	Password string `json:"password,omitempty"`
 	Username string `json:"username,omitempty"`
@@ -1232,11 +1241,12 @@ type AuthMethodsResponse struct {
 }
 
 type LoginResponse struct {
-	Token  string    `json:"token,omitempty"`
-	UserID int32     `json:"user_id"`
-	Scopes []string  `json:"scopes,omitempty"`
-	Name   string    `json:"name,omitempty"`
-	Expiry time.Time `json:"expiry"`
+	Token     string          `json:"token,omitempty"`
+	UserID    int32           `json:"user_id"`
+	Name      string          `json:"name,omitempty"`
+	Expiry    time.Time       `json:"expiry"`
+	SessionID string          `json:"session_id,omitempty"`
+	Kind      UserSessionKind `json:"kind"`
 }
 
 type WebAuthNOptionsResponse struct {
@@ -1255,22 +1265,21 @@ type AgentSession struct {
 	CreatedAt         time.Time          `json:"created_at"`
 	ExpiresAt         time.Time          `json:"expires_at"`
 	TokenPrefix       string             `json:"token_prefix,omitempty"`
-	Scopes            []string           `json:"scopes,omitempty"`
 	Status            AgentSessionStatus `json:"status"`
 	RequestingAddress string             `json:"requesting_address,omitempty"`
 	ApprovalCode      string             `json:"approval_code,omitempty"`
 	ApprovedAt        time.Time          `json:"approved_at"`
 }
 
-type PersonalSession struct {
-	ID                string    `json:"id,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	ExpiresAt         time.Time `json:"expires_at"`
-	RevokedAt         time.Time `json:"revoked_at"`
-	RequestingAddress string    `json:"requesting_address,omitempty"`
-	UserAgent         string    `json:"user_agent,omitempty"`
-	LastActiveAt      time.Time `json:"last_active_at"`
-	Current           bool      `json:"current"`
+type UserSession struct {
+	ID                string          `json:"id,omitempty"`
+	CreatedAt         time.Time       `json:"created_at"`
+	ExpiresAt         time.Time       `json:"expires_at"`
+	RevokedAt         time.Time       `json:"revoked_at"`
+	RequestingAddress string          `json:"requesting_address,omitempty"`
+	UserAgent         string          `json:"user_agent,omitempty"`
+	UserID            int32           `json:"user_id"`
+	Kind              UserSessionKind `json:"kind"`
 }
 
 type AgentSessionRequest struct {
@@ -1293,11 +1302,11 @@ type AgentSessionRevokeRequest struct {
 	ID string `json:"id,omitempty"`
 }
 
-type PersonalSessionList struct {
-	Items []*PersonalSession `json:"items,omitempty"`
+type UserSessionList struct {
+	Items []*UserSession `json:"items,omitempty"`
 }
 
-type PersonalSessionRevokeRequest struct {
+type UserSessionRevokeRequest struct {
 	ID string `json:"id,omitempty"`
 }
 
@@ -2027,6 +2036,7 @@ type Snapshot struct {
 	BackupStatus            *BackupStatus              `json:"backup_status"`
 	SystemConfig            *SystemConfigVersion       `json:"system_config"`
 	IngressDiagnostics      *IngressDiagnosticList     `json:"ingress_diagnostics"`
+	UserSessions            []*UserSession             `json:"user_sessions,omitempty"`
 }
 
 type CoreUpdate struct {
@@ -2048,6 +2058,8 @@ type CoreUpdate struct {
 	SystemConfig            *SystemConfigVersion       `json:"system_config"`
 	InstanceStatuses        []*ScheduledInstanceStatus `json:"instance_statuses,omitempty"`
 	NodeStatuses            []*NodeStatus              `json:"node_statuses,omitempty"`
+	AgentSessions           []*AgentSession            `json:"agent_sessions,omitempty"`
+	UserSessions            []*UserSession             `json:"user_sessions,omitempty"`
 }
 
 type StateStreamMsg struct {
@@ -2057,7 +2069,6 @@ type StateStreamMsg struct {
 	BackupStatus       *BackupStatus          `json:"backup_status"`
 	IngressDiagnostics *IngressDiagnosticList `json:"ingress_diagnostics"`
 	SecretsStatus      *SecretsStatusResponse `json:"secrets_status"`
-	AgentSessions      *AgentSessionList      `json:"agent_sessions"`
 }
 
 type AccessPolicy struct {

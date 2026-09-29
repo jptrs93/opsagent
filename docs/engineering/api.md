@@ -8,7 +8,7 @@ The split follows the security boundary, not just size: each service is served o
 
 | File | Service | Listener | Caller identity |
 |---|---|---|---|
-| `api_service.proto` | `ApiServer` | public front-end | JWT scopes, per-route policy |
+| `api_service.proto` | `ApiServer` | public front-end | per-route policy: `full` or `bootstrap` session kind |
 | `cluster_service.proto` | `OpsagentClusterV1` | cluster mTLS | client cert CN |
 | `enrollment_service.proto` | `EnrollmentV1` | enrollment HTTPS | none — pre-certificate bootstrap |
 
@@ -45,7 +45,7 @@ worker address derivation and virtual networking for every cached workload.
 - Web UI auth is enforced by `webuihandler.Handler.VerifyAuth`; cluster peer identity comes from mTLS, while enrollment uses its dedicated request verifier.
 - Static SPA assets are served from embedded `backend/web/dist`; unknown paths fall back to `index.html`.
 - The frontend is built via `//go:generate` in `backend/main.go` before embedding.
-- Write handlers go through `state.Service.Commit(ctx, preLockValidate, mutate)` (see [Commit](#commit)): every check-then-write sequence (deployments, secrets, configs, assets, cluster settings) re-reads its dependencies and performs its row writes on the transaction-bound `pq.Queries` inside `mutate`, and returns the `CoreUpdate` the store publishes. Domain logic lives in `app/primary/domain/<name>` packages (`deployments`, `scheduledinstances`, `nodes`, `networkpolicies`, `assets`, `secrets`, `values`, `authz`, `users`, `agentsessions`, `systemconfig`); handlers call those functions or `pq.Queries` directly. Deployment endpoints validate in two layers: pure shape rules before the commit, and a per-operation validator inside `mutate` (`inLockValidateDeploymentCreate` / `Update` / `Delete` in `domain/deployments/validate_layers.go`). Authz and network I/O (nix source verification) run before the commit; the version CAS closes the gap. Lock order: the asset operation lock (where asset file operations are involved) precedes `Mu`; subsystem locks (secrets manager, config service) nest strictly inside `Mu`.
+- Write handlers go through `state.Service.Commit(ctx, preLockValidate, mutate)` (see [Commit](#commit)): every check-then-write sequence (deployments, secrets, configs, assets, cluster settings) re-reads its dependencies and performs its row writes on the transaction-bound `pq.Queries` inside `mutate`, and returns the `CoreUpdate` the store publishes. Domain logic lives in `app/primary/domain/<name>` packages (`deployments`, `scheduledinstances`, `nodes`, `networkpolicies`, `assets`, `secrets`, `values`, `authz`, `user_event_log`, `agentsessions`, `systemconfig`); handlers call those functions or `pq.Queries` directly. Deployment endpoints validate in two layers: pure shape rules before the commit, and a per-operation validator inside `mutate` (`inLockValidateDeploymentCreate` / `Update` / `Delete` in `domain/deployments/validate_layers.go`). Authz and network I/O (nix source verification) run before the commit; the version CAS closes the gap. Lock order: the asset operation lock (where asset file operations are involved) precedes `Mu`; subsystem locks (secrets manager, config service) nest strictly inside `Mu`.
 
 ## Client flow (JavaScript)
 
@@ -98,11 +98,11 @@ Every route below is generated from `api-contract/*_service.proto`.
 | POST | `/v1/agent-sessions/list` | — | `AgentSessionList` | ANY_OF default |
 | POST | `/v1/agent-sessions/revoke` | `AgentSessionRevokeRequest` | — | ANY_OF default |
 
-### Personal sessions
+### User sessions
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
-| POST | `/v1/personal-sessions/list` | — | `PersonalSessionList` | ANY_OF default |
-| POST | `/v1/personal-sessions/revoke` | `PersonalSessionRevokeRequest` | — | ANY_OF default |
+| POST | `/v1/user-sessions/list` | — | `UserSessionList` | ANY_OF default |
+| POST | `/v1/user-sessions/revoke` | `UserSessionRevokeRequest` | — | ANY_OF default |
 
 ### Access control
 | Method | Path | Request | Response | Policy |
@@ -174,6 +174,12 @@ remain outside the transaction. Sidecars retain independent locks and streams.
 
 #### Snapshots and observed state
 
+Space 0 values never reach a client: `authz.SystemSpaceAllows` refuses every
+secret, config, and asset request in space 0, so `filterSecrets` and its
+siblings drop those rows from snapshots and updates for every user, and a
+deployment can neither be created in space 0 nor reference a space 0 value.
+That is where OpenDeploy keeps its own key material, as ordinary secret rows.
+
 Snapshots contain latest live deployments plus pinned historical versions,
 non-final instances plus the latest final per ordinal without a live instance,
 and latest observed statuses. Value arrays contain full histories for live
@@ -200,12 +206,50 @@ reason.
 
 #### Sidecars, grants, and visibility
 
-Backup, ingress diagnostics, secrets status, and agent sessions publish through
-their owning components, without the core lock or sequence. Each sidecar
-message replaces that component's value. Agent sessions use an `AgentSessionList`
-wrapper so an empty replacement can clear the list, and are sent only to their
-owner. The handler adds sidecars to the store snapshot; core resets preserve
-sidecars unless an explicit replacement is present.
+Backup, ingress diagnostics, and secrets status publish through their owning
+components, without the core lock or sequence. Each sidecar message replaces
+that component's value. The handler adds sidecars to the store snapshot; core
+resets preserve sidecars unless an explicit replacement is present.
+
+Agent sessions and user sessions are core collections, not sidecars. Every
+create, approval, token claim, status change, and revocation is a commit that
+stamps the row's `global_seq` and publishes the session's latest document in
+`CoreUpdate.agent_sessions` or `CoreUpdate.user_sessions`; the snapshot carries
+every row of both tables. Both collections are owner-filtered: a session
+reaches only the browser of the user who holds it, and `visibleUpdate` drops
+the rest. The token hash never leaves the row. Sessions are never deleted, so
+the collections are latest-only documents without a `deleted` flag and grow
+unbounded, deliberately. The `StateStreamMsg.agent_sessions` sidecar (field 8)
+is reserved.
+
+#### Append-only tables behind the latest-only collections
+
+Every table that feeds a latest-only collection is an append-only event
+table: `space_event_log`, `user_event_log`, `value_directory_event_log`, `asset_directory_event_log`,
+`system_config_event_log`, `nix_store_reset_event_log`, `agent_session_event_log`,
+`user_session_event_log`, and `secret_keyslot_event_log` (which feeds no collection at all: it
+is in the log so a replica can reproduce the store). Each row is one event
+and carries `id` (autoincrement), `global_seq`, `event_time` (ms), `author`
+(0 system, negative for the agent of user `-author`), the entity id
+(`space_id`, `user_id`, `directory_id`, `session_id`, `repo`, the keyslot's
+`(kind, node_id)`; the system config's own `id` is its wire version), an
+`event_type` (`AuthzVerb` 1 create, 2 update, 3 delete), and the entity's full
+document at that point. Nothing is ever `UPDATE`d or `DELETE`d: a rename is
+an update row, a removal is a delete row whose `deleted` wire flag is derived
+from `event_type = 3`. The live state a snapshot carries is the newest row per
+entity id whose `event_type` is not delete, and entity ids are allocated as
+`MAX(entity_id) + 1` under the commit lock so an id is never reused. Every
+write is a read of the newest row followed by one insert inside `Commit`,
+which is also where state-machine guards live (a pending agent session can be
+approved once, an approved one can claim a token once). Merge-streaming these
+tables with the entity event logs by `global_seq` reproduces the full event
+stream; that is the point of keeping the whole document on every row.
+Tables that predate this shape are rebuilt at startup by `pq.Open`: the
+schema creates the `*_event_log` table beside the old one, the old rows are
+copied in as seq 0 create events, and the old table is dropped
+(`pq/migrate_event_tables.go`). Every append-only table carries the
+`_event_log` suffix; the two observed-status tables, `asset_store`, and
+`global_seq` do not, because they are not logs.
 
 Grants arrive as `AuthzGrantEvent` arrays in both snapshots and core updates.
 Their values contain the subject user, template, and bindings or direct rule;

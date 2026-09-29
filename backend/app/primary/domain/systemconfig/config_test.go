@@ -21,7 +21,7 @@ func TestMasterPasswordHashRoundTrip(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	if setErr := service.SetMasterPasswordHash("hash-1"); setErr != nil {
+	if setErr := service.SetMasterPasswordHash("hash-1", 0); setErr != nil {
 		t.Fatalf("SetMasterPasswordHash: %v", setErr)
 	}
 	hash, err := service.GetMasterPasswordHash()
@@ -76,7 +76,7 @@ func TestVersionedConfigSnapshotsRedactMasterPasswordHash(t *testing.T) {
 		t.Fatalf("initial master password hash = %q, want empty", sub.InitialValue.Config.MasterPasswordHash)
 	}
 
-	if err := service.SetMasterPasswordHash("changed-hash"); err != nil {
+	if err := service.SetMasterPasswordHash("changed-hash", 0); err != nil {
 		t.Fatalf("SetMasterPasswordHash: %v", err)
 	}
 	select {
@@ -128,7 +128,7 @@ func TestEnsureInitialSettingsPersistedIncludesMasterPasswordHash(t *testing.T) 
 		t.Fatalf("persisted value = %q, want initial-hash", value)
 	}
 
-	if setErr := service.SetMasterPasswordHash("changed-hash"); setErr != nil {
+	if setErr := service.SetMasterPasswordHash("changed-hash", 0); setErr != nil {
 		t.Fatalf("SetMasterPasswordHash: %v", setErr)
 	}
 	value, err = service.GetMasterPasswordHash()
@@ -159,7 +159,7 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 
 	settings := DefaultSettings(DefaultInitial())
 	settings.Repo.GithubToken = apigen.SecretRef{Ref: secretMeta.Ref()}
-	if err := service.UpdateSettings(*settings, nil); err != nil {
+	if err := service.UpdateSettings(*settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
 
@@ -185,7 +185,7 @@ func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 	}
 	settings := DefaultSettings(DefaultInitial())
 	settings.Backup.Enabled = apigen.BoolSetting{Value: true}
-	if err := service.UpdateSettings(*settings, nil); err != nil {
+	if err := service.UpdateSettings(*settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings BackupEnabled: %v", err)
 	}
 	if !service.Snapshot().Settings.Backup.Enabled.Value {
@@ -196,7 +196,7 @@ func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 	default:
 		t.Fatal("BackupEnabled update did not wake the asset reconciler")
 	}
-	if err := service.UpdateSettings(service.Snapshot().Settings, nil); err != nil {
+	if err := service.UpdateSettings(service.Snapshot().Settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings with the same target: %v", err)
 	}
 	select {
@@ -204,7 +204,7 @@ func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 		t.Fatal("a save that keeps the storage target woke the asset reconciler")
 	default:
 	}
-	if err := service.SetMasterPasswordHash("rotated"); err != nil {
+	if err := service.SetMasterPasswordHash("rotated", 0); err != nil {
 		t.Fatalf("SetMasterPasswordHash: %v", err)
 	}
 }
@@ -224,7 +224,7 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 
 	settings := DefaultSettings(DefaultInitial())
 	settings.Cluster.Listen = apigen.StringSetting{ConfigRef: apigen.ConfigRef{Ref: userCfg.Ref}}
-	if err := service.UpdateSettings(*settings, nil); err != nil {
+	if err := service.UpdateSettings(*settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
 
@@ -279,7 +279,7 @@ func TestKeepLocalCopyTogglesWakeTheReconcilerOnlyWhileBackupEnabled(t *testing.
 
 	settings := DefaultSettings(DefaultInitial())
 	settings.LargeAssets.KeepLocalCopy = apigen.BoolSetting{Value: true}
-	if err := service.UpdateSettings(*settings, nil); err != nil {
+	if err := service.UpdateSettings(*settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings keep local while backup disabled: %v", err)
 	}
 	if woke() {
@@ -287,7 +287,7 @@ func TestKeepLocalCopyTogglesWakeTheReconcilerOnlyWhileBackupEnabled(t *testing.
 	}
 
 	settings.Backup.Enabled = apigen.BoolSetting{Value: true}
-	if err := service.UpdateSettings(*settings, nil); err != nil {
+	if err := service.UpdateSettings(*settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings enable backup: %v", err)
 	}
 	if !woke() {
@@ -295,7 +295,7 @@ func TestKeepLocalCopyTogglesWakeTheReconcilerOnlyWhileBackupEnabled(t *testing.
 	}
 
 	settings.LargeAssets.KeepLocalCopy = apigen.BoolSetting{Value: false}
-	if err := service.UpdateSettings(*settings, nil); err != nil {
+	if err := service.UpdateSettings(*settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings clear keep local while backup enabled: %v", err)
 	}
 	if !woke() {

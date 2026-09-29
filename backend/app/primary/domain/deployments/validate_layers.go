@@ -36,7 +36,16 @@ func validateDeployment(def *apigen.Deployment) error {
 	return validateNixWorkloadVersion(def)
 }
 
+// SystemSpaceErr refuses a user deployment in space 0, which the primary
+// reserves for its own deployments.
+func SystemSpaceErr() error {
+	return InvalidConfigErrf("spaceId must be between 1 and %d", network.MaxSpaceID)
+}
+
 func preLockValidateDeploymentCreate(q *pq.Queries, secretStore *secrets.Manager, gitVersions NixSourceVerifier, ctx apigen.Context, updated *apigen.DeploymentEvent) error {
+	if updated.Value.SpaceID == internaldeploy.SpaceID {
+		return SystemSpaceErr()
+	}
 	if err := validateDeployment(&updated.Value); err != nil {
 		return err
 	}
@@ -213,7 +222,7 @@ func inLockValidateDeploymentUpdate(ctx context.Context, q *pq.Queries, reservat
 			return InvalidConfigErrf("deployments in space 0 cannot be moved")
 		}
 		if updated.Value.SpaceID < 1 || updated.Value.SpaceID > network.MaxSpaceID {
-			return InvalidConfigErrf("spaceId must be between 1 and %d", network.MaxSpaceID)
+			return SystemSpaceErr()
 		}
 		if err := validateNoDuplicateIdentity(live, updated); err != nil {
 			return err

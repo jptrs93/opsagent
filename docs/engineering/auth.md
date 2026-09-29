@@ -2,10 +2,10 @@
 
 ## Overview
 
-Authentication uses passkeys for normal operator login, with an opt-in username/password login for installs where a browser will not run WebAuthn (see [Password login](#password-login)). A master password can issue a short-lived token for passkey registration or password setup, including bootstrap and recovery when an operator needs to enroll a replacement authenticator. All flows produce a JWT token used for subsequent requests. What a token may *do* is decided in one place: per-user authz grants evaluated by `app/primary/domain/authz` inside the handlers. Scopes remain on each route in the protobuf API contract, but only to separate a bootstrap token from a real session — they no longer carve up what a real session can reach.
+Authentication uses passkeys for normal operator login, with an opt-in username/password login for installs where a browser will not run WebAuthn (see [Password login](#password-login)). A master password can issue a short-lived token for passkey registration or password setup, including bootstrap and recovery when an operator needs to enroll a replacement authenticator. All flows produce an opaque bearer token backed by a session row, used for subsequent requests. What a token may *do* is decided in one place: per-user authz grants evaluated by `app/primary/domain/authz` inside the handlers. Scopes remain on each route in the protobuf API contract, but only to separate a bootstrap token from a real session — they no longer carve up what a real session can reach.
 
 Key files:
-- `backend/app/primary/webuihandler/auth.go` — master password handler, JWT verification, and `VerifyAuth`.
+- `backend/app/primary/webuihandler/auth.go` — master password handler and `VerifyAuth`; `tokens.go` mints and splits bearer tokens; `user_session_event_log.go` holds the browser session flow.
 - `backend/app/primary/domain/authz/` — grant, rule-template, and global-rule evaluation and storage.
 - `backend/app/primary/webuihandler/access_enforce.go` — handler-side authz checks and per-user visibility filters.
 - `backend/app/primary/webuihandler/access.go` — the `/v1/access/` CRUD surface for templates, grants, and global rules.
@@ -17,7 +17,7 @@ Key files:
 
 ## User model
 
-The `User` proto exposes `{id, name}` to the UI for audit display. The full `InternalUser` record (with WebAuthn ID and credentials) is stored in the SQLite `users` table keyed by integer id. A user is created automatically when the master password is exchanged with a username that does not exist yet; every new user starts with a `cluster_admin` grant, which can then be narrowed or replaced through the access-control layer below.
+The `User` proto exposes `{id, name}` to the UI for audit display. The full `InternalUser` record (with WebAuthn ID and credentials) is stored in the SQLite `user_event_log` table keyed by integer id. A user is created automatically when the master password is exchanged with a username that does not exist yet; every new user starts with a `cluster_admin` grant, which can then be narrowed or replaced through the access-control layer below.
 
 ## Master password bootstrap
 
@@ -29,7 +29,7 @@ The configured master password hash is stored in the persisted OpenDeploy config
 1. Resolve the configured master password hash from the persisted OpenDeploy config envelope.
 2. Verify the request password against the resolved hash using `authu.VerifyPassword` (constant-time comparison).
 3. Look up the request's `username`; if no user with that name exists, create one (next integer id, fresh WebAuthn ID) with a `cluster_admin` grant.
-4. Return a JWT with `scopes: ["passkey:create"]` and 10-minute expiry. The bootstrap page then registers a passkey, which ends in a full session.
+4. Open a user session of kind `BOOTSTRAP` with a 10-minute expiry, and return its token. The bootstrap page then registers a passkey, which ends in a full session. The bootstrap session is a real row: it is listed on the sessions page and can be revoked like any other.
 
 ### Rotation (`POST /v1/auth/master/password/save`)
 
@@ -39,27 +39,26 @@ An authenticated default-session user can save a replacement master password. Th
 
 After registering a passkey, the master password is no longer needed for normal operation. It intentionally remains available as a recovery route for enrolling a new passkey or creating an additional operator user, until rotated through the authenticated master-password endpoint.
 
-## JWT tokens
+## Bearer tokens
 
-Tokens are signed with RSA-256 (RS256) via `github.com/jptrs93/goutil/authu`. Each token contains:
-- `sub`: user ID.
-- `scopes`: list of granted scopes.
-- `exp`: expiration timestamp.
-- `iat`: issued-at timestamp.
-- `jti`: agent session ID. Present only on agent session tokens.
+A token is `<kind><session id>.<secret>`: `u_` for a user session, `a_` for an agent session. The id is the session row's primary key and the secret is 32 random bytes. Nothing in the token is trusted on its own: `VerifyAuth` splits it, loads the row by id, rejects a revoked or expired session, compares `sha256(token)` against the stored `token_hash` in constant time, and takes the user id and session kind from the row. There is no signature, no signing key, and nothing to rotate; a replica needs only the session rows to verify every outstanding token.
 
-Three token types exist:
-- **Bootstrap token**: scopes `["passkey:create"]`, 10-minute expiry. Issued by master password exchange.
-- **Session token**: scopes `["default"]`, 2-day expiry. Issued by passkey registration or login, and by master-password login when that is enabled.
-- **Agent session token**: the caller's own scopes, 6-hour expiry. Issued under `/v1/agent-sessions/` for command-line, script, and agent use.
+Only the hash is stored, so a copy of `primary.db` carries no usable credential. The hash of a 256-bit random token cannot be reversed, so it needs no salt or key stretching, but it is still integrity-sensitive: whoever can write a row's hash can log in as that session, which is why session writes sit behind the same authorisation as user management.
 
-`GET /v1/auth/current/session` is an authenticated validation endpoint that echoes the caller's current bearer token without minting a new one. The frontend uses it on app startup to confirm persisted auth state and to force re-login on `401`.
+Three session kinds exist:
+- **Bootstrap session**: `u_` token, kind `BOOTSTRAP`, 10-minute expiry. Opened by master password exchange; it can only register a passkey.
+- **User session**: `u_` token, kind `FULL`, 2-day expiry. Opened by passkey registration or login, and by master-password login when that is enabled. Rows live in the append-only `user_session_event_log` table (`id`, `global_seq`, `event_time`, `author`, `session_id`, `event_type`, `user_id`, `created_at`, `expires_at`, `token_hash`, `revoked_at`, `kind`, `requesting_address`, `user_agent`); the owner lists and revokes them under `/v1/user-sessions/`. Nothing is written per request: a create row at login and one update row at revocation, both authored by the user.
+- **Agent session**: `a_` token, always a full session, 6-hour expiry. Issued under `/v1/agent-sessions/` for command-line, script, and agent use.
+
+The token is a first-party credential presented only to the primary that issued it, so it follows the pattern of opaque server-side sessions rather than signed assertions. Signed tokens earn their place when the verifier is not the issuer, which is the identity-provider hand-off; here the passkey ceremony is that hand-off, and the session that follows it is ours.
+
+`GET /v1/auth/current/session` is an authenticated validation endpoint that echoes the caller's current bearer token, session kind, session id, and expiry from the session row without minting a new one. The frontend uses it on app startup to confirm persisted auth state and to force re-login on `401`.
 
 ### Agent sessions
 
 An agent session is a 6-hour bearer token for command-line, script, and agent use. The lifetime is deliberately shorter than the 2-day browser session because these tokens get pasted into shells and end up in history files and CI logs.
 
-An agent token carries its parent session's scopes unchanged. Nothing is withheld at the token layer: the only thing that narrows an agent is the authz layer, which sees any token carrying a `jti` as **delegated** and matches only rules with `delegation_allowed`. Under the builtin templates that means an agent can see and create secrets but not reveal, change, or destroy one, and cannot view logs (which can echo secret values) — see [the authz layer](#authz-layer-backendlibauthz) — and an operator writing custom rules is free to decide otherwise. There is no separate list of things agents may not do.
+There are no scopes. Nothing is withheld at the token layer: the only thing that narrows an agent is the authz layer, which sees any `a_` token as **delegated** and matches only rules with `delegation_allowed`. Under the builtin templates that means an agent can see and create secrets but not reveal, change, or destroy one, and cannot view logs (which can echo secret values) — see [the authz layer](#authz-layer-backendlibauthz) — and an operator writing custom rules is free to decide otherwise. There is no separate list of things agents may not do.
 
 All routes live under `/v1/agent-sessions/`, which is also the rate-limit prefix.
 
@@ -69,7 +68,7 @@ The operator pastes one line into their agent — "Load instructions for using o
 
 1. `GET /v1/agent-sessions/instructions?user_id=` (`NO_AUTH`) renders the API instructions the agent needs, as markdown, or as an HTML wrapper when the `Accept` header prefers it. The source is `agent_instructions.md`, embedded and rendered through `text/template` with the base URL taken from the request. `user_id` is validated here so a mistyped URL fails immediately rather than hours into a session. It grants nothing.
 2. `POST /v1/agent-sessions/request-start` (`NO_AUTH`) opens a `PENDING` row carrying `requesting_address` and an `approval_code`, and returns the row `id` plus that code. The two pull in opposite directions: **`id` is the pickup secret** — 32 random bytes, never displayed in full — while **`approval_code` exists to be read out**. `request-start` is unauthenticated by necessity, so without a code the operator has no way to tell their own agent's request from anyone else's that reached the server. Only one request may be open per user; a second returns `409`.
-3. `POST /v1/agent-sessions/approve` (`default`) turns the operator's own pending row into `APPROVED` and freezes the approver's narrowed scopes onto it in the same statement, so a second approval cannot re-scope it.
+3. `POST /v1/agent-sessions/approve` (full session) turns the operator's own pending row into `APPROVED`; the statement only matches a `PENDING` row, so a second approval fails.
 4. `POST /v1/agent-sessions/get-session` (`NO_AUTH`) polls by `id`. On the first call after approval it mints the token, stores its hash, and returns the plaintext. Every later call returns status alone.
 
 **The token is minted at pickup, not at approval.** Minting at approval would mean the plaintext had to sit in the database waiting to be collected, which is exactly what the hash-only rule below exists to prevent. It also means the 6-hour clock starts when the agent actually collects.
@@ -80,21 +79,19 @@ Rate limits in `run.go` back this up: the family gets 2/s burst 30 per IP to acc
 
 #### Direct creation
 
-`POST /v1/agent-sessions/create` (`default`) mints a token immediately and returns it once, for non-interactive callers with no agent waiting on an approval. It requires an existing `default` scope session and derives from the caller's own scopes, so it can never grant more access than the session that requested it — a `passkey:create` bootstrap token is rejected with `403` and cannot be traded up into general access. Rows land already `APPROVED` and collected.
+`POST /v1/agent-sessions/create` (full session) mints a token immediately and returns it once, for non-interactive callers with no agent waiting on an approval. A bootstrap token is rejected with `403` by the route policy and cannot be traded up into general access. Rows land already `APPROVED` and collected.
 
 #### Storage and revocation
 
-Each session gets a row in `agent_sessions` (`id`, `user_id`, `created_at`, `expires_at`, `token_hash`, `token_prefix`, `revoked_at`, `scopes`, `status`, `requesting_address`, `approval_code`, `approved_at`). The row `id` is the token's `jti` claim, which is how verification finds it. `status` is the `AgentSessionStatus` enum — `PENDING`, `APPROVED`, `REJECTED`, `REVOKED` — and is authoritative; `revoked_at` survives only as the timestamp that goes with `REVOKED`. Expiry is *not* a status: it is derived from `expires_at` on read, so nothing has to sweep the table to keep the list honest. A pending row has no `token_hash`, `token_prefix`, or `expires_at` at all.
+Each session is a run of rows in the append-only `agent_session_event_log` table (`id`, `global_seq`, `event_time`, `author`, `session_id`, `event_type`, `user_id`, `created_at`, `expires_at`, `token_hash`, `token_prefix`, `revoked_at`, `status`, `requesting_address`, `approval_code`, `approved_at`): one create row and one update row per transition, each holding the whole document. `session_id` is the id inside the `a_` token, and verification reads the newest row for it. `author` is 0 for the unauthenticated request and the agent's own pickup, and the operator for approve and revoke. `status` is the `AgentSessionStatus` enum — `PENDING`, `APPROVED`, `REJECTED`, `REVOKED` — and is authoritative; `revoked_at` survives only as the timestamp that goes with `REVOKED`. Expiry is *not* a status: it is derived from `expires_at` on read, so nothing has to sweep the table to keep the list honest. A pending row has no `token_hash`, `token_prefix`, or `expires_at` at all.
 
-**Only the SHA-256 of the token is stored.** The plaintext is returned once and never again, so a copy of `primary.db` — including an off-box Litestream backup — carries no usable credential at any point in the lifecycle. `token_prefix` holds the leading 12 characters so an operator can tell two sessions apart; it is short enough to be useless on its own. `ClaimAgentSessionToken` guards the write with `length(token_hash) = 0` and reports rows affected, so two concurrent pickups can never both walk away with a working token.
+**Only the SHA-256 of the token is stored.** The plaintext is returned once and never again, so a copy of `primary.db` — including an off-box Litestream backup — carries no usable credential at any point in the lifecycle. `token_prefix` holds the leading 12 characters so an operator can tell two sessions apart; it is short enough to be useless on its own. `ClaimAgentSessionToken` reads the newest row under the commit lock and only appends when the status is `APPROVED` and `token_hash` is empty, so two concurrent pickups can never both walk away with a working token.
 
-`POST /v1/agent-sessions/revoke` (`default`) stops a session: a pending row becomes `REJECTED`, anything else `REVOKED`. This is real revocation, not a display change: `VerifyAuth` calls `verifyAgentSession`, which for any token carrying a `jti` loads the row and rejects the request unless the status is `APPROVED` and the token's hash matches the stored one. Bootstrap and browser session tokens carry no `jti` and keep the stateless fast path, so the extra indexed read applies only to agent-token traffic.
+`POST /v1/agent-sessions/revoke` (`default`) stops a session: a pending row becomes `REJECTED`, anything else `REVOKED`. This is real revocation, not a display change: `VerifyAuth` loads the row for every `a_` token and rejects the request unless the status is `APPROVED`, the token has been collected, it has not expired, and the token's hash matches the stored one.
 
-`POST /v1/agent-sessions/list` returns the caller's own sessions, newest first, and never returns a token. The web UI does not call it: sessions reach the browser through `PostV1GlobalStateStream`, which is the one field in `State` filtered to the connected user rather than broadcast. List, approve, and revoke are all scoped by `ctx.User.ID`, so one operator cannot act on another's session by guessing its id. What the resulting token can *do* is decided by the authz layer, which sees any token carrying a `jti` as delegated and only matches rules with `delegation_allowed`; the scopes frozen onto the row only fix which token *type* it is.
+`POST /v1/agent-sessions/list` returns the caller's own sessions, newest first, and never returns a token. The web UI does not call it: sessions reach the browser through `PostV1GlobalStateStream` as `CoreUpdate.agent_sessions`, filtered to the connected user rather than broadcast. Every session write goes through `state.Service.Commit`, so each row carries the `global_seq` of its last write and its document is published under that seq. List, approve, and revoke are all scoped by `ctx.User.ID`, so one operator cannot act on another's session by guessing its id. What the resulting token can *do* is decided by the authz layer, which sees any `a_` token as delegated and only matches rules with `delegation_allowed`.
 
-Rows are not garbage collected; finished sessions accumulate as a record of what was issued and from where. Rotating the signing key still invalidates all outstanding tokens, sessions included.
-
-Public keys are persisted in the SQLite `public_keys` table keyed by `kid`. Key rotation is handled by the `authu` package.
+Rows are not garbage collected; finished sessions accumulate as a record of what was issued and from where. User sessions follow the same pattern: `user_session_event_log` rows are created on login and revoked once, each under Commit, published as `CoreUpdate.user_sessions` to their owner, and never deleted. The browser marks its own row by comparing the id with `LoginResponse.session_id`.
 
 ## WebAuthn passkeys
 
@@ -107,11 +104,11 @@ Passkeys use the FIDO2/WebAuthn standard via `github.com/go-webauthn/webauthn`. 
 
 ### Registration flow
 
-Requires an authenticated session (scope: `passkey:create` or `default`).
+Requires an authenticated session of either kind: this is the one route group a `BOOTSTRAP` session may use.
 
 1. **Start** (`POST /v1/auth/passkey/register/start`): generates a session ID and WebAuthn creation options JSON.
 2. The client performs the WebAuthn ceremony with the authenticator.
-3. **Finish** (`POST /v1/auth/passkey/register/finish`): validates the credential, saves it to the credential store, and returns a session JWT with `scopes: ["default"]`.
+3. **Finish** (`POST /v1/auth/passkey/register/finish`): validates the credential, saves it to the credential store, and opens a `FULL` user session and returns its token.
 
 ### Login flow
 
@@ -119,13 +116,13 @@ No authentication required (discoverable login).
 
 1. **Start** (`POST /v1/auth/passkey/login/start`): generates a session ID and assertion options.
 2. The client completes the WebAuthn assertion.
-3. **Finish** (`POST /v1/auth/passkey/login/finish`): verifies the assertion, resolves the user from the credential, and returns a session JWT.
+3. **Finish** (`POST /v1/auth/passkey/login/finish`): verifies the assertion, resolves the user from the credential, and opens a user session.
 
 ### Credential storage
 
-Credentials are persisted inside each user's `data_blob` column in the SQLite `users` table (protobuf-encoded `InternalUser` containing the full credential list). Lookup on login fetches all users and resolves the credential by its raw id. The library returns the credential after every successful login with its updated sign counter, clone warning, and backup flags, and the handler stores it by credential id, replacing the existing entry (`users.SetCredential`). Before v0.0.614 each login appended a copy instead; `users.MigrateDuplicateCredentials` collapses those at startup onto the newest entry per id.
+Credentials are persisted inside each user's `data_blob` column in the SQLite `user_event_log` table (protobuf-encoded `InternalUser` containing the full credential list). Lookup on login fetches all users and resolves the credential by its raw id. The library returns the credential after every successful login with its updated sign counter, clone warning, and backup flags, and the handler stores it by credential id, replacing the existing entry (`users.SetCredential`). Before v0.0.614 each login appended a copy instead; `users.MigrateDuplicateCredentials` collapses those at startup onto the newest entry per id.
 
-The `User` proto carries no last-login time. The newest `personal_sessions.created_at` for the user is that fact, so it is read from sessions when a surface needs it.
+The `User` proto carries no last-login time. The newest `user_session_event_log.created_at` for the user is that fact, so it is read from sessions when a surface needs it. `user_event_log` is itself append-only: every passkey registration or login that changes the credential list appends a row holding the whole blob, and the newest row per `user_id` is the account.
 
 ## Password login
 
@@ -135,7 +132,7 @@ It is **master-password login**: there are no per-user passwords. With the setti
 
 - **Gate.** `ClusterSettings.auth.password_login_enabled` (installer `--password-login true`, restore override `PASSWORD_LOGIN_ENABLED`, Settings → Authentication). While it is off, the login endpoint returns `403 password_login_disabled` and the UI shows no password controls, so a production install that never enables it carries no password login surface.
 - **Discovery.** `GET /v1/auth/methods` (`NO_AUTH`) reports which methods are on (`passkey_login_enabled` is false when the WebAuthn service could not be initialised, see below) and whether a local CA is available for download. The login and bootstrap pages read it, because neither can see cluster settings before a session exists. The request is deferred to a microtask in `frontend/src/state/authMethods.js`: the API client reads the login state synchronously to build its auth header, and a page constructed inside the reactive route binding would otherwise capture a dependency on the login state and be rebuilt mid-flow when a token is stored.
-- **Login** (`POST /v1/auth/password/login`, `NO_AUTH`). Username plus master password → a normal personal session, identical to a passkey login, recorded in `personal_sessions` and revocable from the Sessions page. A wrong password answers `401 invalid_master_password`. Rate limited at 0.2/s burst 10 per IP, the same as the bootstrap route. Usernames are trimmed on creation and matched trimmed on both sides, so accounts created before trimming with surrounding whitespace still resolve.
+- **Login** (`POST /v1/auth/password/login`, `NO_AUTH`). Username plus master password → a normal user session, identical to a passkey login, recorded in `user_session_event_log` and revocable from the Sessions page. A wrong password answers `401 invalid_master_password`. Rate limited at 0.2/s burst 10 per IP, the same as the bootstrap route. Usernames are trimmed on creation and matched trimmed on both sides, so accounts created before trimming with surrounding whitespace still resolve.
 - **Passkeys stay optional at startup.** `webuihandler.New` fails on a relying-party configuration the WebAuthn library rejects, unless password login is on, in which case passkeys are logged as unavailable, the passkey routes answer `503 passkeys_unavailable`, and the login page says so. A password-only install can therefore never be locked out by its passkey configuration.
 
 Over plain HTTP the master password crosses the network in clear text. The installer prints a warning when `--password-login` is combined with `--http-only`; the intended remedies are a loopback listen with an SSH tunnel, or HTTPS.
@@ -150,7 +147,7 @@ Self-managed Web UI TLS without an operator-supplied bundle serves a leaf issued
 
 ## Access control
 
-Two layers gate every request, but only one of them carries policy. The **scope layer** is token-level and now answers a single question — is this a real session or a bootstrap token: each route in the `api-contract/*_service.proto` files declares an `AccessPolicy` checked by `VerifyAuth` before the handler runs. The **authz layer** is where access is actually decided, per user, entity, and space: handlers ask `app/primary/domain/authz` whether this user may perform this verb on this entity in this space. Both must pass.
+Two layers gate every request, but only one of them carries policy. The **session-kind layer** is token-level and answers a single question — may a bootstrap session use this route: each route in the `api-contract/*_service.proto` files declares an `AccessPolicy` checked by `VerifyAuth` before the handler runs. The policy option is cleanproto's generic `ANY_OF` list of labels; this project uses exactly two, `full` and `bootstrap`, and a session satisfies a route when the label of its own `UserSessionKind` is listed. Ordinary routes declare `full`; the passkey registration routes and `GET /v1/auth/current/session` declare both. The **authz layer** is where access is actually decided, per user, entity, and space: handlers ask `app/primary/domain/authz` whether this user may perform this verb on this entity in this space. Both must pass.
 
 There is deliberately no third layer. Route-level special cases for delegated tokens (an agent token used to have `secrets_access` stripped from it) have been removed: if agents should not do something, that belongs in a rule, where an admin can see it and change it.
 
@@ -158,13 +155,13 @@ There is deliberately no third layer. Route-level special cases for delegated to
 
 Route policies:
 - `NO_AUTH`: no token required.
-- `ANY_OF`: requires a valid JWT with at least one of the listed scopes.
+- `ANY_OF`: requires a live session whose kind is one of the listed labels (`full`, `bootstrap`).
 
 Scopes in use:
 - `passkey:create` — enroll a passkey, nothing else.
 - `default` — a real session. Every authenticated route carries it, including the secrets routes; what the caller may do with any of them is the authz layer's decision.
 
-`VerifyAuth` reads the route's policy from the generated mux, skips validation for `NO_AUTH`, verifies the bearer JWT's signature and expiry, checks its scopes against the policy, and populates the request context with the resolved user. Tokens carrying a `jti` (agent sessions) additionally mark the user **delegated** (`InternalUser.Delegated`, a runtime-only field never persisted) — the authz layer uses this below.
+`VerifyAuth` reads the route's policy from the generated mux, skips validation for `NO_AUTH`, resolves the bearer token to its session row (hash match, not revoked, not expired), checks the row's kind against the policy, and populates the request context with the resolved user, session id, kind, and expiry. An `a_` token is always a `FULL` session. `a_` tokens (agent sessions) additionally mark the user **delegated** (`InternalUser.Delegated`, a runtime-only field never persisted) — the authz layer uses this below.
 
 ### Authz layer (`backend/app/primary/domain/authz`)
 
@@ -194,6 +191,8 @@ These are deliberate properties of the access model, recorded so that reviews cl
 **AP-2 — The builtin agent defaults are a guard rail against accidental disclosure, not an isolation boundary.** Delegated sessions are denied reveal and `view_logs` so that no ordinary agent action, including a workload echoing its environment into logs, hands a plaintext back to the agent. An agent that holds deployment create in a space still has indirect access under AP-1 by deliberately building a workload that exports the value. Operators who need an agent kept from a secret's value must scope its deployment permissions away from the secret's space, or keep the secret out of the global space.
 
 Entity-to-space mapping: deployments, secrets, configs, assets, and folders live in their record's space (values normalize a requested space `<= 0` to the global space (space 1) — `state.NormalizedUserSpaceID` — and checks gate on the effective space). Spaces are their own entity with the space's id. Nodes, users, cluster settings, the config export, enrollment, secrets-store recovery/unlock, and access management itself are cluster-level: checked in space 0 against the `node`, `user`, `cluster`, and `access` entity types. Space *creation* is also cluster-level (the new space has no id yet).
+
+Space 0 is fenced before any grant is consulted (`authz.SystemSpaceAllows`, called from `HasAccess` and from the handler's `canAccess` so the nil-authz test path cannot skip it): a secret, config, or asset request in space 0 is refused for every verb and every caller, and so is deployment *creation* in space 0 (`deployments.SystemSpaceErr`, also enforced in the domain validator and for space reassignment). Space 0 holds OpenDeploy's own key material as ordinary secrets, which is why nothing user-facing may see, touch, or reference them; the self and netproxy deployments there stay viewable, updatable, and log-readable under the usual grants. The fence is entity-typed rather than a rule about the space because the cluster-level checks above also name space 0.
 
 Handler enforcement lives in `webuihandler/access_enforce.go` (`requireAccess`, `requireEntityAccess`) and follows one convention: an entity the caller cannot `view` reads as **404** (its existence is not leaked); a viewable entity without the requested verb reads as **403** `access_denied`. Moving an entity between spaces needs `edit` in the source and `create` in the destination. List endpoints filter to viewable items instead of erroring. Enforcement is active whenever `Handler.Authz` is wired, which `webuihandler.New` always does; handler tests that construct a bare `Handler` without it run unenforced.
 

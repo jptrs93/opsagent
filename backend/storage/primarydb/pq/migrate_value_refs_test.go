@@ -103,7 +103,7 @@ func TestMigrateValueRefsRewritesEveryHolder(t *testing.T) {
 	insertDeploymentBlob(t, q, 1, legacyDeploymentBlob(13, 21, 32, 31, 13))
 	plain := (&apigen.Deployment{Name: "plain", SpaceID: 1}).Encode()
 	insertDeploymentBlob(t, q, 2, plain)
-	if _, err := q.sqlDB().Exec(`INSERT INTO system_config_revisions (id, updated_at, config_blob) VALUES (1, 1, ?)`, legacySystemConfigBlob()); err != nil {
+	if _, err := q.sqlDB().Exec(`INSERT INTO system_config_event_log (id, global_seq, event_time, author, event_type, config_blob) VALUES (1, 0, 1, 0, 1, ?)`, legacySystemConfigBlob()); err != nil {
 		t.Fatalf("inserting system config: %v", err)
 	}
 	q.Close()
@@ -142,7 +142,7 @@ func TestMigrateValueRefsRewritesEveryHolder(t *testing.T) {
 		t.Fatalf("deployment without references was rewritten")
 	}
 
-	cfg, err := apigen.DecodeSystemConfig(readBlob(t, q, "system_config_revisions", "config_blob", 1))
+	cfg, err := apigen.DecodeSystemConfig(readBlob(t, q, "system_config_event_log", "config_blob", 1))
 	if err != nil {
 		t.Fatalf("decoding migrated system config: %v", err)
 	}
@@ -155,12 +155,12 @@ func TestMigrateValueRefsRewritesEveryHolder(t *testing.T) {
 	}
 
 	deploymentBlob := readBlob(t, q, "deployment_event_log", "value", 1)
-	configBlob := readBlob(t, q, "system_config_revisions", "config_blob", 1)
+	configBlob := readBlob(t, q, "system_config_event_log", "config_blob", 1)
 	q.Close()
 	q = Open(path)
 	defer q.Close()
 	if !bytes.Equal(readBlob(t, q, "deployment_event_log", "value", 1), deploymentBlob) ||
-		!bytes.Equal(readBlob(t, q, "system_config_revisions", "config_blob", 1), configBlob) {
+		!bytes.Equal(readBlob(t, q, "system_config_event_log", "config_blob", 1), configBlob) {
 		t.Fatal("second open rewrote already migrated rows")
 	}
 }

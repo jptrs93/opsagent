@@ -3,6 +3,8 @@ package state
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 	"testing"
 
 	"github.com/jptrs93/goutil/erru"
@@ -37,12 +39,26 @@ func rereadUpdateAtSeq(ctx context.Context, q *pq.Queries, seq int64) Update {
 	}
 	core.InstanceStatuses = erru.Must(q.ListScheduledInstanceStatusesAtSeq(ctx, seq))
 	core.NodeStatuses = erru.Must(q.ListNodeStatusesAtSeq(ctx, seq))
+	for _, row := range erru.Must(q.ListAgentSessionsAtSeq(ctx, seq)) {
+		core.AgentSessions = append(core.AgentSessions, row.Proto())
+	}
+	for _, row := range erru.Must(q.ListUserSessionsAtSeq(ctx, seq)) {
+		core.UserSessions = append(core.UserSessions, row.Proto())
+	}
+	core.Spaces = pointers(erru.Must(q.ListSpacesAtSeq(ctx, seq)))
+	core.Users = pointers(erru.Must(q.ListUsersAtSeq(ctx, seq)))
+	core.ValueDirectories = erru.Must(q.ListValueDirectoriesAtSeq(ctx, seq))
+	core.AssetDirectories = pointers(erru.Must(q.ListAssetDirectoriesAtSeq(ctx, seq)))
+	if cfg, err := q.GetSystemConfigAtSeq(ctx, seq); err == nil {
+		core.SystemConfig = cfg
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		panic(err)
+	}
 	return core
 }
 
 func canonicalUpdate(update Update) []byte {
 	actual := update
-	actual.ValueDirectories, actual.AssetDirectories, actual.Spaces, actual.Users, actual.SystemConfig = nil, nil, nil, nil, nil
 	actual.InstanceStatuses = nil
 	for _, st := range update.InstanceStatuses {
 		cp := *st

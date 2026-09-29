@@ -148,7 +148,7 @@ func Open(store *state.Service) (*Service, error) {
 }
 
 func (s *Service) HasAccess(userID int64, req RequestedAccess) bool {
-	if req.Verb == apigen.AuthzVerb_AUTHZ_VERB_UNKNOWN || req.EntityType == apigen.AuthzEntity_AUTHZ_ENTITY_UNKNOWN {
+	if req.Verb == apigen.AuthzVerb_AUTHZ_VERB_UNKNOWN || req.EntityType == apigen.AuthzEntity_AUTHZ_ENTITY_UNKNOWN || !SystemSpaceAllows(req) {
 		return false
 	}
 	s.mu.RLock()

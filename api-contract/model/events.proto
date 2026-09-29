@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+message CoreWriteUpdate {
+  int64 seq = 1;
+  int64 time = 2;
+  int32 actor = 3;                 // user id; 0 = system, negative = agent of user -actor
+  repeated CoreMutation mutations = 4;
+}
+
+message CoreMutation {              // exactly one set
+  CreateMutation create = 1;
+  UpdateMutation update = 2;
+  DeleteMutation delete = 3;
+}
+
+message CreateMutation {
+  CoreEntityType entity_type = 1;
+  int64 entity_id = 2;
+  CoreEntity entity = 3;
+}
+
+message UpdateMutation {
+  CoreEntityType entity_type = 1;
+  int64 entity_id = 2;
+  CoreEntity entity = 3;
+}
+
+message DeleteMutation {
+  CoreEntityType entity_type = 1;
+  int64 entity_id = 2;
+}
+
+enum CoreEntityType {                // numbers equal the CoreEntity field numbers
+  CORE_ENTITY_UNSPECIFIED = 0;
+  CORE_ENTITY_DEPLOYMENT = 1;
+  CORE_ENTITY_SCHEDULED_INSTANCE = 2;
+  CORE_ENTITY_NODE = 3;
+  CORE_ENTITY_SECRET = 4;
+  CORE_ENTITY_CONFIG = 5;
+  CORE_ENTITY_ASSET = 6;
+  CORE_ENTITY_NETWORK_POLICY = 7;
+  CORE_ENTITY_SPACE = 8;
+  CORE_ENTITY_USER = 9;
+  CORE_ENTITY_VALUE_DIRECTORY = 10;
+  CORE_ENTITY_ASSET_DIRECTORY = 11;
+  CORE_ENTITY_AUTHZ_RULE_TEMPLATE = 12;
+  CORE_ENTITY_AUTHZ_GRANT = 13;
+  CORE_ENTITY_AUTHZ_GLOBAL_RULE = 14;
+  CORE_ENTITY_SYSTEM_CONFIG = 15;
+  CORE_ENTITY_SCHEDULED_INSTANCE_STATUS = 16;
+  CORE_ENTITY_NODE_STATUS = 17;
+}
+
+message CoreEntity {                 // exactly one set
+  Deployment deployment = 1;
+  ScheduledInstance scheduled_instance = 2;
+  Node node = 3;
+  Secret secret = 4;
+  Config config = 5;
+  Asset asset = 6;
+  NetworkPolicy network_policy = 7;
+  Space space = 8;
+  User user = 9;
+  ValueDirectory value_directory = 10;
+  AssetDirectory asset_directory = 11;
+  AuthzRuleTemplate authz_rule_template = 12;
+  AuthzGrantValue authz_grant = 13;
+  AuthzGlobalRule authz_global_rule = 14;
+  SystemConfig system_config = 15;
+  ScheduledInstanceStatus scheduled_instance_status = 16;
+  NodeStatus node_status = 17;
+}

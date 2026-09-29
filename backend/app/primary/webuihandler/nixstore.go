@@ -15,7 +15,7 @@ func (h *Handler) PostV1NixStoreReset(ctx apigen.Context, req *apigen.NixStoreRe
 	if h.NixStores == nil {
 		return apigen.NewApiErr("nix store resets are not available", "nix_store_unavailable", http.StatusServiceUnavailable)
 	}
-	if err := h.NixStores.RequestReset(ctx, req.Repo, time.Now()); err != nil {
+	if err := h.NixStores.RequestReset(ctx, req.Repo, time.Now(), ctx.AttributionUserID()); err != nil {
 		return apigen.NewApiErr(err.Error(), "nix_store_reset_invalid", http.StatusBadRequest)
 	}
 	slog.InfoContext(ctx, "nix store reset requested", "repo", req.Repo)

@@ -1,9 +1,4 @@
 -- rules; see backend/lib/authz.
-CREATE TABLE IF NOT EXISTS public_keys (
-   kid       TEXT PRIMARY KEY,
-   key_bytes BLOB NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS authz_rule_template_event_log (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     global_seq   INTEGER NOT NULL,

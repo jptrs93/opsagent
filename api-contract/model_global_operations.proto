@@ -45,6 +45,7 @@ message Snapshot {
   BackupStatus backup_status = 20;
   SystemConfigVersion system_config = 21;
   IngressDiagnosticList ingress_diagnostics = 22;
+  repeated UserSession user_sessions = 23;
 }
 
 // One commit's authored facts. Every commit that writes core or observed rows
@@ -68,6 +69,8 @@ message CoreUpdate {
   SystemConfigVersion system_config = 16;
   repeated ScheduledInstanceStatus instance_statuses = 17;
   repeated NodeStatus node_statuses = 18;
+  repeated AgentSession agent_sessions = 19;  // latest document per session, owner-filtered on the wire
+  repeated UserSession user_sessions = 20;
 }
 
 message StateStreamMsg {
@@ -77,6 +80,5 @@ message StateStreamMsg {
   BackupStatus backup_status = 5;
   IngressDiagnosticList ingress_diagnostics = 6;
   SecretsStatusResponse secrets_status = 7;
-  // The wrapper distinguishes an empty replacement from an absent update.
-  AgentSessionList agent_sessions = 8;
+  reserved 8; // agent_sessions sidecar: sessions now ride in CoreUpdate.
 }

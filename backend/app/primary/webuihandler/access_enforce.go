@@ -51,19 +51,18 @@ const (
 var eValues = []apigen.AuthzEntity{eSecret, eConfig}
 
 func (h *Handler) canAccess(ctx apigen.Context, verb apigen.AuthzVerb, entity apigen.AuthzEntity, spaceID, entityID int64) bool {
+	req := authz.RequestedAccess{Verb: verb, SpaceID: spaceID, EntityType: entity, EntityID: entityID}
+	if !authz.SystemSpaceAllows(req) {
+		return false
+	}
 	if h.Authz == nil {
 		return true
 	}
 	if ctx.User == nil {
 		return false
 	}
-	return h.Authz.HasAccess(int64(ctx.User.ID), authz.RequestedAccess{
-		Verb:       verb,
-		SpaceID:    spaceID,
-		EntityType: entity,
-		EntityID:   entityID,
-		Delegated:  ctx.User.Delegated,
-	})
+	req.Delegated = ctx.User.Delegated
+	return h.Authz.HasAccess(int64(ctx.User.ID), req)
 }
 
 func (h *Handler) canAccessAny(ctx apigen.Context, verb apigen.AuthzVerb, entities []apigen.AuthzEntity, spaceID, entityID int64) bool {

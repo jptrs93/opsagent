@@ -61,7 +61,7 @@ func migrateValueRefRows(ctx context.Context, db *sql.DB) error {
 		rewrite                 func(*valueRefRewriter, []byte) ([]byte, bool, error)
 	}{
 		{"deployment_event_log", "value", "deployment_id, version", (*valueRefRewriter).deployment},
-		{"system_config_revisions", "config_blob", "0, 0", (*valueRefRewriter).systemConfig},
+		{"system_config_event_log", "config_blob", "0, 0", (*valueRefRewriter).systemConfig},
 	} {
 		rows, err := db.QueryContext(ctx, fmt.Sprintf(`SELECT id, %s, %s FROM %s ORDER BY id`, source.column, source.identity, source.table))
 		if err != nil {

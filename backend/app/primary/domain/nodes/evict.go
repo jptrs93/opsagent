@@ -164,6 +164,9 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 			return nil, err
 		}
 		update.NodeStatuses = append(update.NodeStatuses, statusTombstone)
+		if _, err := q.DeleteNodeSecretKeyslots(ctx, pq.EventMeta{GlobalSeq: seq, EventTime: now.UnixMilli(), Author: int64(ctx.AttributionUserID())}, int64(nodeID)); err != nil {
+			return nil, err
+		}
 		row, _, err = appendNodeVersion(ctx, q, seq, current, ctx.AttributionUserID(), func(spec *nodeEventSpec) {
 			spec.Status = apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED
 			spec.EnrollmentRequestedAt = 0

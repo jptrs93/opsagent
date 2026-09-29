@@ -8,7 +8,7 @@ message User {
   int32 id = 1;
   string name = 2;
   int64 created_at = 3; // Unix millis;
-  reserved 4; // last_login_at: the newest PersonalSession.created_at is the source.
+  reserved 4; // last_login_at: the newest UserSession.created_at is the source.
 }
 
 message WebAuthnCredential {
@@ -23,9 +23,4 @@ message InternalUser {
   repeated WebAuthnCredential credentials = 4;
   bool delegated = 5; // Transient: set during request verification for agent-session tokens.
   reserved 6; // password_hash: per-user passwords, replaced by master-password login before any release depended on it.
-}
-
-message PublicKeyRecord {
-  string kid = 1;
-  bytes key_bytes = 2;
 }

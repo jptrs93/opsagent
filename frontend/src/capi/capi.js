@@ -45,7 +45,6 @@ import {
   decodeNodeEvent,
   decodeNodeEventList,
   decodeNodeExposure,
-  decodePersonalSessionList,
   decodePrepareOutputChunk,
   decodeRecentlyDeletedDeployments,
   decodeRepoValidateResponse,
@@ -57,6 +56,7 @@ import {
   decodeSnapshot,
   decodeSpace,
   decodeStateStreamMsg,
+  decodeUserSessionList,
   decodeValueDirectory,
   decodeValueDirectoryList,
   decodeWebAuthNOptionsResponse,
@@ -113,7 +113,6 @@ import {
   encodeNodeExposureRequest,
   encodeNodeRenameRequest,
   encodePasswordLoginRequest,
-  encodePersonalSessionRevokeRequest,
   encodePrepareOutputRequest,
   encodeRecentlyDeletedDeploymentsRequest,
   encodeRepoValidateRequest,
@@ -127,6 +126,7 @@ import {
   encodeSecretUnlockRequest,
   encodeSpaceDeleteRequest,
   encodeSpaceSetRequest,
+  encodeUserSessionRevokeRequest,
   encodeValueDirectoryCreateRequest,
   encodeValueDirectoryDeleteRequest,
   encodeValueDirectoryMoveRequest,
@@ -518,23 +518,23 @@ export class Capi {
 
   /**
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<PersonalSessionList>}
+   * @returns {Promise<UserSessionList>}
    */
-  async postV1PersonalSessionsList(options = {}) {
-    const response = await this.#request("/v1/personal-sessions/list", { method: 'POST', signal: options.signal });
+  async postV1UserSessionsList(options = {}) {
+    const response = await this.#request("/v1/user-sessions/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodePersonalSessionList(await response.arrayBuffer());
+    return decodeUserSessionList(await response.arrayBuffer());
   }
 
   /**
-   * @param {PersonalSessionRevokeRequest} payload
+   * @param {UserSessionRevokeRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1PersonalSessionsRevoke(payload, options = {}) {
-    const response = await this.#request("/v1/personal-sessions/revoke", { method: 'POST', body: encodePersonalSessionRevokeRequest(payload), signal: options.signal });
+  async postV1UserSessionsRevoke(payload, options = {}) {
+    const response = await this.#request("/v1/user-sessions/revoke", { method: 'POST', body: encodeUserSessionRevokeRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }

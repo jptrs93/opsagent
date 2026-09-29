@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {applySnapshot, applyCore, applyObserved, applyBackupStatus, applyAgentSessions, createTree, observedClock} from './tree.js';
+import {applySnapshot, applyCore, applyObserved, applyBackupStatus, createTree, observedClock} from './tree.js';
 
 export const deployment = (version = 1, eventType = 1, deploymentId = 7) => ({deploymentId, version, eventType, specVersion: version, value: {name: 'api', spaceId: 1, spec: {container1Spec: {running: false}}}});
 export const instance = (id, deploymentVersion = 1, state = 0, instanceOrdinal = 0) => ({scheduledInstanceId: id, version: 1, eventType: 1, value: {deploymentId: 7, deploymentVersion, state, instanceOrdinal}});
@@ -90,15 +90,16 @@ test('late observed statuses for pruned instances do not create orphan state', (
  assert.equal(tree.instanceStatuses.has(10),false);
 });
 
-test('sidecars survive a core reset and an empty session list replaces the whole collection', () => {
+test('sidecars survive a core reset while sessions are core documents that a reset replaces', () => {
     const tree = createTree();
-    applySnapshot(tree, {seq: 10, backupStatus: {assetPending: 2}, agentSessions: [{id: 'mine'}]});
-    applySnapshot(tree, {seq: 11, spaces: [{id: 1}]});
+    applySnapshot(tree, {seq: 10, backupStatus: {assetPending: 2}, agentSessions: [{id: 'mine', status: 1}], userSessions: [{id: 'u1'}]});
+    applyCore(tree, {seq: 11, agentSessions: [{id: 'mine', status: 2}], userSessions: [{id: 'u2'}]});
+    assert.equal(tree.agentSessions.get('mine').status, 2);
+    assert.equal(tree.userSessions.size, 2);
+    applySnapshot(tree, {seq: 12, spaces: [{id: 1}]});
     assert.equal(tree.backupStatus.assetPending, 2);
-    assert.equal(tree.agentSessions.size, 1);
-    applyAgentSessions(tree, {items: []});
-    assert.equal(tree.agentSessions.size, 0);
-    assert.equal(tree.seq, 11);
+    assert.equal(tree.agentSessions.size + tree.userSessions.size, 0);
+    assert.equal(tree.seq, 12);
     applySnapshot(tree, {seq: 0}, {preserveSidecars: false});
     assert.equal(tree.backupStatus, undefined);
 });

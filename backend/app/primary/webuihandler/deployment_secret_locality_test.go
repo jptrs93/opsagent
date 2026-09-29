@@ -44,11 +44,11 @@ func secretEnvSpec(image string, ref apigen.ValueRef) apigen.DeploymentSpec {
 
 func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := nodes.CreateSpace(h.Store, "prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	staging, err := nodes.CreateSpace(h.Store, "staging")
+	staging, err := nodes.CreateSpace(h.Store, "staging", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 
 func TestIngressCertSecretRefScopedToSpace(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := nodes.CreateSpace(h.Store, "prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -153,11 +153,11 @@ func TestIngressCertSecretRefScopedToSpace(t *testing.T) {
 
 func TestSecretMoveToGlobalAllowedWithOutsideRefs(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := nodes.CreateSpace(h.Store, "prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	staging, err := nodes.CreateSpace(h.Store, "staging")
+	staging, err := nodes.CreateSpace(h.Store, "staging", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}

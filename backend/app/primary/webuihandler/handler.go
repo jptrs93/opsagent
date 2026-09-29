@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/agentsessions"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"io/fs"
 	"log/slog"
 	"mime"
@@ -49,10 +48,7 @@ type Handler struct {
 	AgentSessions  *agentsessions.Service
 
 	agentSessionsOnce sync.Once
-	jwtAuth           *authu.JWTAuth[*apigen.InternalUser, int32]
 
-	// Store is the primary-side storage adapter. Handles both deployment
-	// state and auth (users + JWT keys).
 	Queries               *pq.Queries
 	Store                 *state.Service
 	Authz                 *authz.Service
@@ -92,7 +88,7 @@ type Handler struct {
 func (h *Handler) agentSessions() *agentsessions.Service {
 	h.agentSessionsOnce.Do(func() {
 		if h.AgentSessions == nil {
-			h.AgentSessions = agentsessions.New(h.Store.Queries())
+			h.AgentSessions = agentsessions.New(h.Store)
 		}
 	})
 	return h.AgentSessions
@@ -185,22 +181,6 @@ func New(staticFS fs.FS, nodeID int32, deps Dependencies) (*Handler, error) {
 		NodeID:                nodeID,
 	}
 	h.secretsUpdates.Notify(h.secretsStatus())
-	h.jwtAuth = authu.NewJWTAuth[*apigen.InternalUser, int32](
-		func(kid string, key []byte) error {
-			users.WritePublicKey(h.Store.Queries(), &apigen.PublicKeyRecord{Kid: kid, KeyBytes: key})
-			return nil
-		},
-		func(kid string) ([]byte, error) {
-			rec, err := users.PublicKey(h.Store.Queries(), kid)
-			if err != nil {
-				return nil, err
-			}
-			return rec.KeyBytes, nil
-		},
-		func(id int32) (*apigen.InternalUser, error) {
-			return users.ByID(h.Store.Queries(), id)
-		},
-	)
 	if err := h.initPasskeyService(); err != nil {
 		// With password login on, a relying-party configuration the WebAuthn
 		// library rejects must not take the whole UI down: passkeys become

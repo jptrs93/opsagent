@@ -265,7 +265,7 @@ func TestSnapshotEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testing
 	commit(func(q *pq.Queries, seq int64) (*Update, error) {
 		written, err := q.InsertSecretEvent(context.Background(), pq.SecretEvent{GlobalSeq: seq, EventTime: now, CreatedTime: now, Author: 1, SecretID: 1,
 			Version: 1, ValueVersion: 1, ValueChanged: 1, Name: "secret", SpaceID: 1,
-			SmkVersion: 1, Ciphertext: []byte{1}, Nonce: []byte{1}, SealID: "kseed", EventType: pq.EventCreate})
+			SmkVersion: 1, Ciphertext: []byte{1}, Nonce: []byte{1}, EventType: pq.EventCreate})
 		if err != nil {
 			return nil, err
 		}
@@ -284,11 +284,14 @@ func TestSnapshotEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testing
 	space := createSpaceForTest(s, "empty")
 	check("space and node transaction")
 	deleteSpaceForTest(s, space.ID)
-	check("hard delete space")
+	check("delete space")
 	var dir *apigen.ValueDirectory
 	commit(func(q *pq.Queries, seq int64) (*Update, error) {
-		var err error
-		dir, err = q.InsertValueDirectory(context.Background(), pq.InsertValueDirectoryParams{SpaceID: 1, Name: "folder", CreatedAt: now, Author: 1})
+		id, err := q.NextValueDirectoryID(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		dir, err = q.InsertValueDirectoryEvent(context.Background(), pq.ValueDirectoryEventParams{EventMeta: pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: 1, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, DirectoryID: id, SpaceID: 1, Name: "folder", CreatedAt: now})
 		if err != nil {
 			return nil, err
 		}
@@ -296,14 +299,13 @@ func TestSnapshotEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testing
 	})
 	check("create value directory")
 	commit(func(q *pq.Queries, seq int64) (*Update, error) {
-		if err := q.DeleteValueDirectory(context.Background(), int64(dir.ID)); err != nil {
+		tombstone, err := q.InsertValueDirectoryEvent(context.Background(), pq.ValueDirectoryEvent(dir, pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: 1, EventType: apigen.AuthzVerb_AUTHZ_VERB_DELETE}))
+		if err != nil {
 			return nil, err
 		}
-		tombstone := *dir
-		tombstone.Deleted = true
-		return &Update{ValueDirectories: []*apigen.ValueDirectory{&tombstone}}, nil
+		return &Update{ValueDirectories: []*apigen.ValueDirectory{tombstone}}, nil
 	})
-	check("hard delete value directory")
+	check("delete value directory")
 
 	assetDir := createAssetDirectoryForTest(s, 1, 0, "folder", 1)
 	check("create asset directory")

@@ -38,9 +38,11 @@ message AuthMethodsResponse {
 message LoginResponse {
   string token = 1;
   int32 user_id = 2;
-  repeated string scopes = 3;
+  reserved 3; // scopes
   string name = 4;
   int64 expiry = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string session_id = 6;
+  UserSessionKind kind = 7;  // FULL for agent tokens too
 }
 
 message WebAuthNOptionsResponse {

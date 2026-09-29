@@ -50,7 +50,7 @@ const nodeCurrentFrom = `FROM node_event_log n
 	LEFT JOIN node_status_log ns ON ns.node_id = n.node_id
  AND ns.updated_at = (SELECT MAX(updated_at) FROM node_status_log WHERE node_id = n.node_id)`
 
-const allSpaceIDsExpr = `COALESCE((SELECT '[' || group_concat(id) || ']' FROM spaces), '[0]')`
+const allSpaceIDsExpr = `COALESCE((SELECT '[' || group_concat(space_id) || ']' FROM (SELECT space_id FROM space_event_log WHERE id IN (SELECT MAX(id) FROM space_event_log GROUP BY space_id) AND event_type != 3 ORDER BY space_id)), '[0]')`
 
 func scanCurrentNode(row scanner) (CurrentNode, error) {
 	var r CurrentNode

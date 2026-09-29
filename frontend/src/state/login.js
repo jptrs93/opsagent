@@ -3,11 +3,12 @@ import {navigate} from "../lib/router.js";
 
 /**
  * @typedef {Object} LoginState
- * @property {string} token - The original JWT token string
+ * @property {string} token - The bearer token string
  * @property {number} userId - The authenticated user ID
  * @property {string} name - The authenticated user name
  * @property {Date} expiry - The expiration date of the token
- * @property {string[]} scopes - The user's scopes
+ * @property {number} kind - UserSessionKind: 0 full, 1 bootstrap (passkey registration only)
+ * @property {string} sessionId - The user session this token belongs to
  */
 
 /** @type {State<LoginState|null>} */
@@ -33,7 +34,8 @@ const normalizeLoginResponse = (response) => {
         userId: response.userId || 0,
         name: response.name || '',
         expiry,
-        scopes: Array.isArray(response.scopes) ? response.scopes : [],
+        kind: Number(response.kind || 0),
+        sessionId: response.sessionId || '',
     }
 }
 
@@ -107,6 +109,7 @@ export function setLoginFromResponse(response) {
         userId: nextState.userId,
         name: nextState.name,
 		expiry: nextState.expiry.toISOString(),
-		scopes: nextState.scopes,
+		kind: nextState.kind,
+		sessionId: nextState.sessionId,
 	}))
 }

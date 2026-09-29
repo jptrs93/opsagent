@@ -196,7 +196,7 @@ func TestPostV2DeploymentsUpdateSpec(t *testing.T) {
 
 func TestPostV2DeploymentsUpdateAssignedSpace(t *testing.T) {
 	h, cfg, store := newV2DeploymentHandler(t)
-	extraSpace, err := nodes.CreateSpace(store, "other")
+	extraSpace, err := nodes.CreateSpace(store, "other", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestPostV2DeploymentsUpdateAssignedSpace(t *testing.T) {
 
 func TestPostV2DeploymentsUpdateAssignedSpaceRejectsDuplicateIdentity(t *testing.T) {
 	h, cfg, store := newV2DeploymentHandler(t)
-	extraSpace, err := nodes.CreateSpace(store, "other")
+	extraSpace, err := nodes.CreateSpace(store, "other", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestPostV2DeploymentsUpdateAssignedSpaceRejectsDuplicateIdentity(t *testing
 func TestPostV2DeploymentsUpdateGuardCoversAllKinds(t *testing.T) {
 	h, cfg, store := newV2DeploymentHandler(t)
 	staleExpected := cfg.Version + 1
-	extraSpace, err := nodes.CreateSpace(store, "other")
+	extraSpace, err := nodes.CreateSpace(store, "other", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}

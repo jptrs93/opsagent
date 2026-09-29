@@ -8,11 +8,24 @@ and what to expect during and after the rollout.
 
 ### What changed
 
-- **Secret seals bind an opaque `seal_id`.** Each secret value write records
-  a `seal_id` on `secret_event_log`, surfaced on `Secret`, and the AEAD
-  associated data binds `(secret_id, seal_id)` instead of
-  `(secret_id, value_version)`. Existing rows get `seal_id = 'v<version>'`
-  and are not re-sealed.
+- **Secret ciphertexts are bound to the secret id alone, and every row is
+  re-sealed.** The AEAD associated data is `opendeploy-secret:s<secret_id>`
+  instead of `(secret_id, value_version)`. At the first start where the
+  secrets store unlocks (machine key present, or a recovery unlock), every
+  `secret_event_log` row is opened under its old binding and re-sealed in
+  place. `Secret` field 3 (`seal_id`, never released) is reserved.
+- **System secrets live in the secret event log, in space 0.** The cluster
+  and workload CA material, the web UI CA and bundle, and the ACME account
+  key move from the `system_secrets` table into `secret_event_log` as
+  secrets in the root of space 0, authored by the system, during the same
+  re-seal pass; the table is dropped once every row has moved. Space 0
+  values are unreachable through every API and never appear in the state
+  stream, whatever the caller's grants.
+- **Space 0 is closed to users.** Secret, config, and asset requests in
+  space 0 are refused before any grant is consulted, and a deployment can no
+  longer be created in space 0 or moved into it (`spaceId must be between 1
+  and 4095`). Cluster-level checks that name space 0 (nodes, users,
+  settings, access) and the self and netproxy deployments are unaffected.
 - **Asset content lives on disk and in S3, never in the database.** The
   `inline_blob` column of `asset_store` and the `asset_migrations` table are
   gone. Every asset version now carries a `storage_key` on
@@ -20,12 +33,55 @@ and what to expect during and after the rollout.
   large-asset root and its S3 object. Uploads of every size stage to
   `large-assets/<key>` and, with backup enabled, are copied to S3 before the
   version is committed. Design and status: `docs/engineering/assets.md`.
-- **`users.last_login_at` is dropped** from the table and from the `User`
+- **`user_event_log.last_login_at` is dropped** from the table and from the `User`
   proto (field 4 reserved). The users page no longer shows a last-login
   column; the newest personal session for the user carries the same time.
+- **Bearer tokens are opaque and every existing token is invalid.** Tokens
+  are now `u_<id>.<secret>` (browser and bootstrap sessions) and
+  `a_<id>.<secret>` (agent sessions), verified against the session row's
+  hash instead of an RSA signature. The `public_keys` table is dropped.
+  Every operator is signed out on upgrade and every agent token stops
+  working; agents must request a new session.
+- **`personal_sessions` becomes `user_session_event_log`** with a `kind` column,
+  and the `/v1/personal-sessions/*` endpoints become `/v1/user-sessions/*`.
+  The old table is dropped rather than migrated: its rows held hashes of the
+  old token format and could never match again. The per-request activity
+  touch and `last_active_at` are gone with it; the sessions page loses its
+  "Last active" column.
+- **Sessions are part of the state stream.** Every create, approval, and
+  revocation is a commit that stamps a `global_seq` and publishes the session in
+  `CoreUpdate.agent_sessions` or `CoreUpdate.user_sessions` to its owner. The
+  `StateStreamMsg.agent_sessions` sidecar (field 8) is reserved, `UserSession`
+  gains `user_id` and loses `current`, and `LoginResponse` gains
+  `session_id`. Session rows are never deleted.
+- **Scopes are gone.** A user session has a `UserSessionKind`, `FULL` or
+  `BOOTSTRAP` (master-password exchange, passkey registration only), and an
+  agent session always acts as a full, delegated session. Route policies
+  name the kinds they accept. `agent_session_event_log.scopes` is dropped; `scopes` is
+  reserved on `AgentSession` (5) and `LoginResponse` (3), which gains `kind`.
 - **Passkey logins no longer grow the user record.** Each login used to append
   a copy of the credential to the user's blob. The credential is now replaced
   by id, and existing duplicates are collapsed onto the newest copy at startup.
+- **Nine tables become append-only event tables.** `spaces`, `users`,
+  `value_directories`, `asset_directories`, `system_config_revisions`,
+  `nix_store_resets`, `agent_sessions`, `user_sessions`, and
+  `secret_keyslots` become `space_event_log`, `user_event_log`,
+  `value_directory_event_log`, `asset_directory_event_log`,
+  `system_config_event_log`, `nix_store_reset_event_log`,
+  `agent_session_event_log`, `user_session_event_log`, and
+  `secret_keyslot_event_log`, named like every other event log. Each keeps
+  one row per event (`global_seq`, `event_time`, `author`, entity id,
+  `event_type`, full document) and is never updated or deleted in place. Live state is the
+  newest row per entity that is not a delete, and `primary.db` grows by one
+  row per space rename, directory move, settings save, passkey login, or
+  session transition. A deleted space's id is no longer reused. Nothing
+  changes on the wire.
+- **Keyslots are keyed by kind and node.** `secret_keyslot_event_log.slot` (`machine`
+  or `recovery`) becomes `kind` (`SecretKeyslotKind`: 1 machine, 2 recovery)
+  plus `node_id`, so a future replica can hold its own wrapped copy of the
+  master key. The wrapped bytes and their bindings are unchanged. Evicting a
+  node deletes its machine slot. Every keyslot write is a commit with a seq
+  and the acting user as author.
 - **Settings saves are no longer blocked by an asset transition.** The
   reconciler converges placement from the `asset_store` flags; `BackupStatus`
   field 8 (`asset_migration_running`) is reserved and `asset_pending > 0` is
@@ -33,8 +89,12 @@ and what to expect during and after the rollout.
 
 ### Before upgrading
 
-- **Back up `primary.db`.** The `seal_id` column, the `storage_key` backfill,
+- **Back up `primary.db`.** The secret re-seal, the `storage_key` backfill,
   and the dropped `inline_blob` column are one-way.
+- **Make sure the secrets store will unlock.** The re-seal needs the master
+  key. A primary whose `machine.key` is missing starts locked as before, and
+  the re-seal then runs at the recovery unlock; until then internal reads
+  (cluster TLS, ACME) fail as they would on any locked store.
 - **Free disk under `large-assets/` on the primary** for the sum of the
   inline asset blobs currently in `primary.db`:
 
@@ -45,9 +105,27 @@ and what to expect during and after the rollout.
 
 ### What the primary does on first start
 
-- Adds `seal_id` and backfills legacy rows; adds `storage_key` to
-  `asset_event_log` and backfills it from the `asset_store` row with the same
-  sha256; drops `asset_migrations` and `users.last_login_at`.
+- Adds `storage_key` to `asset_event_log` and backfills it from the
+  `asset_store` row with the same sha256; drops `asset_migrations`,
+  `personal_sessions`, and `public_keys`, and sweeps the long-dead
+  `system_config`, `secret_config_directories`, `config_displays`, `events`,
+  `local_runtime_inputs`, and `local_scheduled_instance_cache` tables that
+  older installs still carry. Nothing reads any of them.
+- After the secrets store unlocks, re-seals every `secret_event_log` row
+  under the `secret_id` binding, appends each `system_secrets` row to the
+  event log in space 0, and drops `system_secrets` (and the `seal_id` column
+  on databases from unreleased v0.0.614 builds). One log line with the row
+  counts. A row that opens under no known binding is logged and left, the
+  artifacts stay, and the pass retries at the next unlock.
+- Rebuilds `spaces`, `users`, `value_directories`, `asset_directories`,
+  `system_config_revisions`, `nix_store_resets`, `agent_sessions`,
+  `user_sessions`, and `secret_keyslots` as the `*_event_log` tables: the
+  new table is created beside the old one, every row is copied in as a
+  create event with `global_seq = 0` (the config revision keeps its id,
+  which is its version number; the `user_event_log.last_login_at` and
+  `agent_session_event_log.scopes` columns are not carried over; the machine keyslot
+  takes the primary's node id), and the old table is dropped. One log line per table. This runs once
+  and takes well under a second at the row counts these tables have.
 - Rewrites each user whose passkey list holds duplicate credential ids,
   keeping the newest entry per id, and logs one line per user changed.
 - Writes each inline blob to `large-assets/<key>`, flags the row as locally
@@ -60,6 +138,10 @@ and what to expect during and after the rollout.
 
 ### During the rollout
 
+- Every browser lands on the login page and every agent token is refused
+  with 401 from the first request after the primary restarts.
+- Agent sessions that were approved but not yet collected still hand out a
+  token, in the new format, on pickup.
 - Secondaries are unaffected: the cluster protocol is unchanged and the
   asset content endpoints serve the same bytes from the new location.
 
@@ -115,7 +197,7 @@ and what to expect during and after the rollout.
    (`migrations.sql`).
 2. Builds the three unique indexes on `(entity id, value_version)`.
 3. Rewrites every `deployment_event_log.value` and
-   `system_config_revisions.config_blob` in one transaction
+   `system_config_event_log.config_blob` in one transaction
    (`pq/migrate_value_refs.go`), replacing each row id with its pair. Rows
    without references are left byte-for-byte unchanged, and later starts
    rewrite nothing.

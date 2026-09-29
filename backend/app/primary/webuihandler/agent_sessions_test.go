@@ -7,7 +7,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -18,16 +17,13 @@ import (
 
 func bg() apigen.Context { return apigen.Context{Ctx: context.Background()} }
 
-func (h *Handler) operatorCtx(t *testing.T, user *apigen.InternalUser, scopes ...string) apigen.Context {
+func (h *Handler) operatorCtx(t *testing.T, user *apigen.InternalUser) apigen.Context {
 	t.Helper()
-	if len(scopes) == 0 {
-		scopes = []string{"default"}
+	ctx, err := h.verifyToken(h.mustToken(t, user.ID, fullSession, 48*time.Hour))
+	if err != nil {
+		t.Fatalf("VerifyAuth on a fresh session: %v", err)
 	}
-	return apigen.Context{
-		Ctx:   context.Background(),
-		User:  user,
-		Token: h.mustToken(t, user.ID, scopes, 48*time.Hour),
-	}
+	return ctx
 }
 
 func (h *Handler) mustRequestStart(t *testing.T, userID int32) *apigen.AgentSessionRequest {
@@ -74,7 +70,7 @@ func TestAgentSessionRequestApprovePickup(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/anything", nil)
 	r.Header.Set("Authorization", "Bearer "+got.Token)
-	policy := apigen.AccessPolicy{PolicyType: apigen.AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	policy := fullSessionPolicy
 	if _, err := h.VerifyAuth(context.Background(), httptest.NewRecorder(), r, policy); err != nil {
 		t.Fatalf("collected token failed VerifyAuth: %v", err)
 	}
@@ -229,24 +225,6 @@ func TestApproveTwiceIsRejected(t *testing.T) {
 	}
 }
 
-// An approved session carries the approver's scopes and no more. Nothing is
-// withheld at this layer any more: what an agent token may do is decided by the
-// authz rules that carry delegation_allowed.
-func TestApprovedSessionCarriesApproverScopes(t *testing.T) {
-	h, user := newAuthTestHandler(t)
-	req := h.mustRequestStart(t, user.ID)
-	session, err := h.PostV1AgentSessionsApprove(
-		h.operatorCtx(t, user, ScopeDefault),
-		&apigen.AgentSessionApproveRequest{ID: req.ID},
-	)
-	if err != nil {
-		t.Fatalf("PostV1AgentSessionsApprove: %v", err)
-	}
-	if !reflect.DeepEqual(session.Scopes, []string{ScopeDefault}) {
-		t.Fatalf("scopes = %v, want %v", session.Scopes, []string{ScopeDefault})
-	}
-}
-
 // Rejecting a pending request must close it, not revoke a session that never
 // existed.
 func TestRevokeOnAPendingRequestRejectsIt(t *testing.T) {
@@ -278,13 +256,13 @@ func TestPendingSessionIDDoesNotAuthenticate(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	req := h.mustRequestStart(t, user.ID)
 
-	token, err := h.signAgentToken(user.ID, req.ID, []string{"default"}, time.Now(), time.Now().Add(time.Hour))
+	token, err := mintToken(agentTokenKind, req.ID)
 	if err != nil {
-		t.Fatalf("signAgentToken: %v", err)
+		t.Fatalf("mintToken: %v", err)
 	}
 	r := httptest.NewRequest(http.MethodGet, "/v1/anything", nil)
 	r.Header.Set("Authorization", "Bearer "+token)
-	policy := apigen.AccessPolicy{PolicyType: apigen.AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	policy := fullSessionPolicy
 	if _, err := h.VerifyAuth(context.Background(), httptest.NewRecorder(), r, policy); err == nil {
 		t.Fatal("a token minted against a pending request authenticated")
 	}

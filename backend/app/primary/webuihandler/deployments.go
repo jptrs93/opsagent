@@ -37,6 +37,9 @@ func (h *Handler) deploymentService() *deployments.Service {
 const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHub. Please try again."
 
 func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentEvent, error) {
+	if req.SpaceID == internaldeploy.SpaceID {
+		return nil, deployments.SystemSpaceErr()
+	}
 	newDep := &apigen.DeploymentEvent{Value: apigen.Deployment{Scheduling: req.Scheduling, SpaceID: req.SpaceID, Name: req.Name, Spec: req.Spec}}
 	if err := h.requireAccess(ctx, vCreate, eDeployment, int64(req.SpaceID), 0); err != nil {
 		return nil, err
@@ -68,6 +71,9 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		return nil, err
 	}
 	if req.AssignedSpaceUpdate != nil {
+		if req.AssignedSpaceUpdate.SpaceID == internaldeploy.SpaceID {
+			return nil, deployments.SystemSpaceErr()
+		}
 		if err := h.requireAccess(ctx, vCreate, eDeployment, int64(req.AssignedSpaceUpdate.SpaceID), 0); err != nil {
 			return nil, err
 		}

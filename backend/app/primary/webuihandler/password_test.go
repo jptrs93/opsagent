@@ -17,14 +17,14 @@ func enablePasswordLogin(t *testing.T, h *Handler) {
 	t.Helper()
 	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
 	settings.Auth.PasswordLoginEnabled = apigen.BoolSetting{Value: true}
-	if err := h.SystemConfig.UpdateSettings(*settings, nil); err != nil {
+	if err := h.SystemConfig.UpdateSettings(*settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
 	hash, err := authu.HashPassword(testMasterPassword)
 	if err != nil {
 		t.Fatalf("HashPassword: %v", err)
 	}
-	if err := h.SystemConfig.SetMasterPasswordHash(hash); err != nil {
+	if err := h.SystemConfig.SetMasterPasswordHash(hash, 0); err != nil {
 		t.Fatalf("SetMasterPasswordHash: %v", err)
 	}
 	authzService, err := authz.Open(h.Store)
@@ -61,14 +61,14 @@ func TestPasswordLoginUsesMasterPasswordAndCreatesUsers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1AuthPasswordLogin: %v", err)
 	}
-	if res.UserID != user.ID || len(res.Scopes) != 1 || res.Scopes[0] != ScopeDefault {
-		t.Fatalf("login response = %+v, want user %d with [default]", res, user.ID)
+	if res.UserID != user.ID || res.Kind != fullSession {
+		t.Fatalf("login response = %+v, want a full session for user %d", res, user.ID)
 	}
-	if _, _, err := h.jwtAuth.VerifyAndResolveUser(res.Token); err != nil {
+	if _, err := h.verifyToken(res.Token); err != nil {
 		t.Fatalf("issued token does not verify: %v", err)
 	}
-	if sessions, _ := users.ListPersonalSessions(h.Store.Queries(), user.ID); len(sessions) != 1 {
-		t.Fatalf("personal sessions = %d, want 1", len(sessions))
+	if sessions, _ := users.ListUserSessions(h.Store.Queries(), user.ID); len(sessions) != 1 {
+		t.Fatalf("user sessions = %d, want 1", len(sessions))
 	}
 
 	// Unknown user is created with cluster_admin, as first-time setup does.

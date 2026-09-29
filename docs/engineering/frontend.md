@@ -25,7 +25,7 @@ table lives in `app.js`:
 - `/` — dashboard (renders the login page when unauthenticated).
 - anything else — falls back to the login page.
 
-On app load, `initLoginState()` restores the JWT from `localStorage` and
+On app load, `initLoginState()` restores the session token from `localStorage` and
 validates it via `GET /v1/auth/current/session`; an invalid session is
 cleared, so the user lands on the login page on the next render.
 
@@ -64,7 +64,10 @@ using the generated Date's `epochNanoseconds` when present. Tombstones clear
 the visible entry while retaining its clock until its parent is pruned.
 
 Snapshots replace core and observed maps, including observation watermarks.
-Backup, secrets status, ingress diagnostics, and owner-filtered agent sessions
+Agent sessions and user sessions are latest-only core maps like spaces and
+users, already owner-filtered by the server, and derive to `agentSessionsS`
+and `userSessionsS` newest first; the sessions page marks the row whose id
+matches `loginS.sessionId`. Backup, secrets status, and ingress diagnostics
 have separate replacement reducers; absent sidecars survive core resets.
 Logout clears every context. The stream transport dispatches each message kind
 independently and reconnects after overflow or lost heartbeat. Deployment

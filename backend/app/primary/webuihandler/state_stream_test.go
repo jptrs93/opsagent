@@ -6,6 +6,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/backup"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/agentsessions"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -102,23 +103,38 @@ func TestCreatingCoreArrivesWithItsObservation(t *testing.T) {
 	}
 }
 
-func TestAgentSessionSidecarUpdatesReachOnlyTheirOwner(t *testing.T) {
+func TestSessionUpdatesReachOnlyTheirOwner(t *testing.T) {
 	h, _ := newEnforcementTestHandler(t)
 	a, b := startTestStateStream(t, h, 1), startTestStateStream(t, h, 2)
 	before := h.Store.BuildSnapshot(context.Background()).Seq
 	for _, userID := range []int32{1, 2} {
-		if err := h.agentSessions().InsertAgentSession(agentsessions.Record{ID: fmt.Sprint(userID), UserID: userID, CreatedAt: time.Now(), Status: apigen.AgentSessionStatus_AGENT_SESSION_PENDING}); err != nil {
+		if err := h.agentSessions().InsertAgentSession(agentsessions.Record{ID: fmt.Sprint(userID), UserID: userID, CreatedAt: time.Now(), Status: apigen.AgentSessionStatus_AGENT_SESSION_PENDING}, 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := users.InsertUserSession(h.Store, users.UserSession{ID: "u" + fmt.Sprint(userID), UserID: userID, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for i, ch := range []<-chan *apigen.StateStreamMsg{a, b} {
-		msg := recvState(t, ch)
-		if msg.AgentSessions == nil || len(msg.AgentSessions.Items) != 1 || msg.AgentSessions.Items[0].UserID != int32(i+1) {
-			t.Fatalf("session update reached wrong owner: %+v", msg)
+		owner := int32(i + 1)
+		agent := recvState(t, ch)
+		if agent.Core == nil || len(agent.Core.AgentSessions) != 1 || agent.Core.AgentSessions[0].UserID != owner || len(agent.Core.UserSessions) != 0 {
+			t.Fatalf("agent session update reached wrong owner: %+v", agent)
+		}
+		user := recvState(t, ch)
+		if user.Core == nil || len(user.Core.UserSessions) != 1 || user.Core.UserSessions[0].UserID != owner || len(user.Core.AgentSessions) != 0 {
+			t.Fatalf("user session update reached wrong owner: %+v", user)
+		}
+		if agent.Core.Seq <= before || user.Core.Seq <= agent.Core.Seq {
+			t.Fatalf("session commits were not sequenced in order: %d %d after %d", agent.Core.Seq, user.Core.Seq, before)
 		}
 	}
-	if h.Store.BuildSnapshot(context.Background()).Seq != before {
-		t.Fatal("agent session changed the core sequence")
+	if h.Store.BuildSnapshot(context.Background()).Seq != before+4 {
+		t.Fatal("each session write must consume one seq")
+	}
+	snapshot := h.visibleSnapshot(enforceCtx(1, false), h.snapshotWithSidecars(enforceCtx(1, false)))
+	if len(snapshot.AgentSessions) != 1 || snapshot.AgentSessions[0].UserID != 1 || len(snapshot.UserSessions) != 1 || snapshot.UserSessions[0].UserID != 1 {
+		t.Fatalf("snapshot leaked another user's sessions: %+v %+v", snapshot.AgentSessions, snapshot.UserSessions)
 	}
 }
 

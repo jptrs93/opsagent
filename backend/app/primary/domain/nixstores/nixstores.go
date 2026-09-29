@@ -46,7 +46,7 @@ func New(store *state.Service, applyLocal func(repo string, requestedAt time.Tim
 	return s, nil
 }
 
-func (s *Service) RequestReset(ctx context.Context, repo string, now time.Time) error {
+func (s *Service) RequestReset(ctx context.Context, repo string, now time.Time, author int32) error {
 	repo = strings.TrimSpace(repo)
 	if repo == "" {
 		return errors.New("repository is required")
@@ -58,7 +58,16 @@ func (s *Service) RequestReset(ctx context.Context, repo string, now time.Time) 
 	defer s.mu.Unlock()
 	var items []*apigen.NixStoreReset
 	err := s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
-		if err := q.UpsertNixStoreReset(ctx, repo, now.UnixMilli()); err != nil {
+		eventType := apigen.AuthzVerb_AUTHZ_VERB_CREATE
+		if exists, err := q.NixStoreResetExists(ctx, repo); err != nil {
+			return nil, err
+		} else if exists {
+			eventType = apigen.AuthzVerb_AUTHZ_VERB_UPDATE
+		}
+		if err := q.InsertNixStoreResetEvent(ctx, pq.NixStoreResetEventParams{
+			EventMeta: pq.EventMeta{GlobalSeq: seq, EventTime: now.UnixMilli(), Author: int64(author), EventType: eventType},
+			Repo:      repo, RequestedAt: now.UnixMilli(),
+		}); err != nil {
 			return nil, err
 		}
 		var err error

@@ -16,8 +16,23 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
-func update(ctx context.Context, q *pq.Queries, id int64) (*state.Update, error) {
-	row, err := q.GetUser(ctx, id)
+func appendUser(ctx context.Context, q *pq.Queries, seq int64, user *apigen.InternalUser) (*state.Update, error) {
+	now := time.Now().UnixMilli()
+	meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(user.ID), EventType: apigen.AuthzVerb_AUTHZ_VERB_UPDATE}
+	createdAt := now
+	previous, err := q.GetUserRow(ctx, int64(user.ID))
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		meta.EventType = apigen.AuthzVerb_AUTHZ_VERB_CREATE
+	case err != nil:
+		return nil, err
+	default:
+		createdAt = previous.CreatedAt
+	}
+	if err := q.InsertUserEvent(ctx, pq.UserEventParams{EventMeta: meta, UserID: int64(user.ID), Name: user.Name, DataBlob: user.Encode(), CreatedAt: createdAt}); err != nil {
+		return nil, err
+	}
+	row, err := q.GetUser(ctx, int64(user.ID))
 	if err != nil {
 		return nil, err
 	}
@@ -27,13 +42,14 @@ func update(ctx context.Context, q *pq.Queries, id int64) (*state.Update, error)
 func Write(store *state.Service, user *apigen.InternalUser) {
 	ctx := context.Background()
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
-		if err := q.UpsertUser(ctx, pq.UpsertUserParams{ID: int64(user.ID), Name: user.Name, DataBlob: user.Encode(), CreatedAt: time.Now().UnixMilli()}); err != nil {
-			return nil, err
-		}
-		return update(ctx, q, int64(user.ID))
+		return appendUser(ctx, q, seq, user)
 	}); err != nil {
 		panic(err)
 	}
+}
+
+func NextID(q *pq.Queries) int32 {
+	return int32(erru.Must(q.NextUserID(context.Background())))
 }
 
 // SetCredential stores a passkey by credential id. The library hands back the
@@ -146,28 +162,8 @@ func UpdateMatching(store *state.Service, predicate func(*apigen.InternalUser) b
 			return nil, err
 		}
 		f(user)
-		if err := q.UpsertUser(ctx, pq.UpsertUserParams{ID: int64(user.ID), Name: user.Name, DataBlob: user.Encode(), CreatedAt: time.Now().UnixMilli()}); err != nil {
-			return nil, err
-		}
-		return update(ctx, q, int64(user.ID))
+		return appendUser(ctx, q, seq, user)
 	}); err != nil {
 		panic(err)
 	}
-}
-
-func WritePublicKey(q *pq.Queries, rec *apigen.PublicKeyRecord) {
-	if err := q.UpsertPublicKey(context.Background(), pq.UpsertPublicKeyParams{Kid: rec.Kid, KeyBytes: rec.KeyBytes}); err != nil {
-		panic(err)
-	}
-}
-
-func PublicKey(q *pq.Queries, kid string) (*apigen.PublicKeyRecord, error) {
-	row, err := q.GetPublicKey(context.Background(), kid)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &row, nil
 }

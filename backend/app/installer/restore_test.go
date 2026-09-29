@@ -19,7 +19,7 @@ func TestApplyRestoredSystemConfigOverrides(t *testing.T) {
 	}
 	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
 	settings.HttpWeb.Listen.Value = "10.0.0.1:443"
-	if updateErr := service.UpdateSettings(*settings, nil); updateErr != nil {
+	if updateErr := service.UpdateSettings(*settings, 0, nil); updateErr != nil {
 		t.Fatalf("seed web listen: %v", updateErr)
 	}
 	if closeErr := store.Close(); closeErr != nil {

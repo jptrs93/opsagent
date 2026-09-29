@@ -8,6 +8,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,7 +71,7 @@ func newEnforcementTestHandler(t *testing.T) (*Handler, *apigen.Space) {
 	}); err != nil {
 		t.Fatalf("seed viewer grant: %v", err)
 	}
-	staging, err := nodes.CreateSpace(store, "staging")
+	staging, err := nodes.CreateSpace(store, "staging", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -437,5 +438,39 @@ func TestEnforcementUserRoster(t *testing.T) {
 	}
 	if got := h.filterUsers(enforceCtx(1, false), users.ListPublic(h.Store.Queries())); len(got) != 3 {
 		t.Fatalf("cluster_admin should keep the roster, got %+v", got)
+	}
+}
+
+func TestEnforcementSystemSpaceValuesAreUnreachable(t *testing.T) {
+	h, _ := newEnforcementTestHandler(t)
+	if err := h.Secrets.SetInternal("opendeploy.cluster.ca.key", []byte("ca-key")); err != nil {
+		t.Fatalf("SetInternal: %v", err)
+	}
+	var system *apigen.SecretEvent
+	for _, e := range secrets.List(h.Store.Queries()) {
+		if e.Value.SpaceID == 0 {
+			system = e
+		}
+	}
+	if system == nil {
+		t.Fatal("system secret missing from the event log")
+	}
+	admin := enforceCtx(1, false)
+	for _, e := range h.filterSecrets(admin, secrets.List(h.Store.Queries())) {
+		if e.Value.SpaceID == 0 {
+			t.Fatalf("cluster admin sees a space 0 secret: %+v", e)
+		}
+	}
+	if _, err := h.PostV1SecretsReveal(admin, &apigen.SecretRevealRequest{ID: int32(system.EventID)}); err == nil {
+		t.Fatal("cluster admin revealed a space 0 secret")
+	}
+	if err := h.PostV1SecretsDelete(admin, &apigen.SecretDeleteRequest{SecretID: system.SecretID}); err == nil {
+		t.Fatal("cluster admin deleted a space 0 secret")
+	}
+	if _, err := h.PostV1DeploymentsCreate(admin, &apigen.DeploymentCreateRequest{SpaceID: 0, Name: "rogue", Scheduling: apigen.DedicatedScheduling(false, 1)}); err == nil || !strings.Contains(err.Error(), "spaceId must be between 1") {
+		t.Fatalf("deployment create in space 0 err = %v, want space 0 rejection", err)
+	}
+	if got, err := h.Secrets.RevealInternal("opendeploy.cluster.ca.key"); err != nil || string(got) != "ca-key" {
+		t.Fatalf("RevealInternal = %q, %v", got, err)
 	}
 }

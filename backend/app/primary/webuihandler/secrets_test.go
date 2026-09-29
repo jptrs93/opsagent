@@ -140,7 +140,7 @@ func TestGenerateSecretNeverEchoesTheValue(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	token := h.mustToken(t, user.ID, []string{ScopeDefault}, time.Hour)
+	token := h.mustToken(t, user.ID, fullSession, time.Hour)
 
 	post := func(t *testing.T, path, token, body string) (int, map[string]any) {
 		t.Helper()

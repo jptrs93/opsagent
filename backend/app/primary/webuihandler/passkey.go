@@ -200,7 +200,7 @@ func (h *Handler) PostV1AuthPasskeyRegisterFinish(ctx apigen.Context, req *apige
 		return nil, apigen.NewApiErr("bad credentials", fmt.Sprintf("err=%v", err), http.StatusBadRequest)
 	}
 	// Registration ends with a full session, so it counts as a login too.
-	return h.startPersonalSession(ctx, ctx.User)
+	return h.startDefaultUserSession(ctx, ctx.User)
 }
 
 func (h *Handler) PostV1AuthPasskeyLoginStart(ctx apigen.Context) (*apigen.WebAuthNOptionsResponse, error) {
@@ -222,5 +222,5 @@ func (h *Handler) PostV1AuthPasskeyLoginFinish(ctx apigen.Context, req *apigen.W
 	if err != nil {
 		return nil, apigen.NewApiErr("bad credentials", fmt.Sprintf("err=%v", err), http.StatusBadRequest)
 	}
-	return h.startPersonalSession(ctx, user)
+	return h.startDefaultUserSession(ctx, user)
 }

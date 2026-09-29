@@ -3,7 +3,7 @@ import {capi} from "../capi/index.js";
 
 /**
  * Which login methods the server currently accepts, for pages that render
- * before a session exists (login, first-time setup) and for the personal
+ * before a session exists (login, first-time setup) and for the user
  * password card. `status` is 'loading' | 'ready' | 'error'.
  */
 export const authMethodsS = van.state({status: 'loading', passkeyLoginEnabled: true, passwordLoginEnabled: false, localCaAvailable: false, error: ''});

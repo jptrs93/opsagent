@@ -50,12 +50,12 @@ ALTER TABLE config_event_log DROP COLUMN space_changed;
 ALTER TABLE asset_event_log DROP COLUMN space_version;
 ALTER TABLE asset_event_log DROP COLUMN space_changed;
 
--- v0.0.614: seal ids. The secret AEAD binds (secret_id, seal_id) instead of
--- (secret_id, value_version). Legacy rows get seal_id 'v<value_version>',
--- which reproduces their existing associated data byte for byte, so no
--- ciphertext is re-sealed. New value writes issue opaque 'k'-prefixed ids.
-ALTER TABLE secret_event_log ADD COLUMN seal_id TEXT NOT NULL DEFAULT '';
-UPDATE secret_event_log SET seal_id = 'v' || value_version WHERE seal_id = '';
+-- v0.0.614: the secret AEAD binds secret_id alone. Rows sealed under the
+-- earlier (secret_id, value_version) binding, rows from unreleased v0.0.614
+-- builds that carried a seal_id column, and the system_secrets table are
+-- re-sealed and folded into secret_event_log (space 0) by the secrets
+-- manager at the first unlocked start, which then drops the column and the
+-- table (secrets.Manager.migrateSealsLocked). Nothing to do here.
 
 -- v0.0.614: asset content identity on the event log. Every asset event row
 -- carries the storage key of its content (the asset_store row id that names
@@ -70,8 +70,29 @@ UPDATE asset_event_log SET storage_key = COALESCE((SELECT s.id FROM asset_store 
  WHERE storage_key = '' AND sha256 != '';
 DROP TABLE IF EXISTS asset_migrations;
 
--- v0.0.614: users.last_login_at is gone. It duplicated the newest
--- personal_sessions.created_at for the user. Duplicate passkey credential
--- entries inside users.data_blob (one appended per login) are collapsed by
--- users.MigrateDuplicateCredentials at startup.
-ALTER TABLE users DROP COLUMN last_login_at;
+-- v0.0.614: bearer tokens are opaque (u_<id>.<secret>, a_<id>.<secret>) and
+-- verified by session row and hash, so the JWT verification keys are gone.
+-- personal_sessions became user_sessions. The old rows are not
+-- carried over: their JWT-derived hashes can never match a new-format token.
+DROP TABLE IF EXISTS public_keys;
+DROP TABLE IF EXISTS personal_sessions;
+
+-- v0.0.614: users, spaces, value_directories, asset_directories,
+-- system_config_revisions, nix_store_resets, agent_sessions, user_sessions,
+-- and secret_keyslots became the append-only *_event_log tables (one row per
+-- event, global_seq, event_time, author, event_type).
+-- pq.renameLegacyEventTables and pq.copyLegacyEventTables rebuild each legacy
+-- table at startup, copying every row as a seq-0 create event. Nothing to do
+-- here.
+
+-- v0.0.614: tables no release has read for a long time, left behind in
+-- primaries installed before their schema was removed: the pre-event-log
+-- system_config and secret_config_directories, the code-completion events
+-- table, config_displays, and two secondary tables from when the primary and
+-- secondary shared one schema file. Nothing reads them, so no data moves.
+DROP TABLE IF EXISTS system_config;
+DROP TABLE IF EXISTS secret_config_directories;
+DROP TABLE IF EXISTS config_displays;
+DROP TABLE IF EXISTS events;
+DROP TABLE IF EXISTS local_runtime_inputs;
+DROP TABLE IF EXISTS local_scheduled_instance_cache;

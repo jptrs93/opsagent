@@ -37,6 +37,10 @@ func directoryUpdate(d *apigen.ValueDirectory) *state.Update {
 	return &apigen.CoreUpdate{ValueDirectories: []*apigen.ValueDirectory{d}}
 }
 
+func directoryMeta(seq int64, author int32, eventType apigen.AuthzVerb) pq.EventMeta {
+	return pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(author), EventType: eventType}
+}
+
 func CreateDirectory(store *state.Service, spaceID, parentID int32, name string, author int32) (*apigen.ValueDirectory, error) {
 	if !ValidName(name) {
 		return nil, ErrNameInvalid
@@ -58,9 +62,13 @@ func CreateDirectory(store *state.Service, spaceID, parentID int32, name string,
 		if err := requireNameFree(ctx, q, space, parent, name, 0, 0, 0); err != nil {
 			return nil, err
 		}
-		var err error
-		d, err = q.InsertValueDirectory(ctx, pq.InsertValueDirectoryParams{
-			SpaceID: space, Name: name, ParentID: parent, CreatedAt: time.Now().UnixMilli(), Author: int64(author),
+		id, err := q.NextValueDirectoryID(ctx)
+		if err != nil {
+			return nil, err
+		}
+		d, err = q.InsertValueDirectoryEvent(ctx, pq.ValueDirectoryEventParams{
+			EventMeta:   directoryMeta(seq, author, apigen.AuthzVerb_AUTHZ_VERB_CREATE),
+			DirectoryID: id, SpaceID: space, Name: name, ParentID: parent, CreatedAt: time.Now().UnixMilli(),
 		})
 		if err != nil {
 			return nil, err
@@ -73,7 +81,7 @@ func CreateDirectory(store *state.Service, spaceID, parentID int32, name string,
 	return d, nil
 }
 
-func RenameDirectory(store *state.Service, directoryID int32, newName string) (*apigen.ValueDirectory, error) {
+func RenameDirectory(store *state.Service, directoryID int32, newName string, author int32) (*apigen.ValueDirectory, error) {
 	if !ValidName(newName) {
 		return nil, ErrNameInvalid
 	}
@@ -91,11 +99,9 @@ func RenameDirectory(store *state.Service, directoryID int32, newName string) (*
 		if err := requireNameFree(ctx, q, int64(d.SpaceID), int64(d.ParentID), newName, 0, 0, int64(d.ID)); err != nil {
 			return nil, err
 		}
-		if err := q.SetValueDirectoryName(ctx, pq.SetValueDirectoryNameParams{Name: newName, ID: int64(d.ID)}); err != nil {
-			return nil, err
-		}
-		d, err = q.GetValueDirectoryByID(ctx, int64(d.ID))
-		if err != nil {
+		event := pq.ValueDirectoryEvent(d, directoryMeta(seq, author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE))
+		event.Name = newName
+		if d, err = q.InsertValueDirectoryEvent(ctx, event); err != nil {
 			return nil, err
 		}
 		return directoryUpdate(d), nil
@@ -117,7 +123,7 @@ func MoveDirectorySpace(store *state.Service, directoryID, newSpaceID int32) err
 	return ErrSpaceMoveUnsupported
 }
 
-func MoveDirectory(store *state.Service, directoryID, newParentID int32) (*apigen.ValueDirectory, error) {
+func MoveDirectory(store *state.Service, directoryID, newParentID int32, author int32) (*apigen.ValueDirectory, error) {
 	ctx := context.Background()
 	parent := int64(newParentID)
 	var d *apigen.ValueDirectory
@@ -146,11 +152,9 @@ func MoveDirectory(store *state.Service, directoryID, newParentID int32) (*apige
 		if err := requireNameFree(ctx, q, int64(d.SpaceID), parent, d.Name, 0, 0, int64(d.ID)); err != nil {
 			return nil, err
 		}
-		if err := q.SetValueDirectoryParent(ctx, pq.SetValueDirectoryParentParams{ParentID: parent, ID: int64(d.ID)}); err != nil {
-			return nil, err
-		}
-		d, err = q.GetValueDirectoryByID(ctx, int64(d.ID))
-		if err != nil {
+		event := pq.ValueDirectoryEvent(d, directoryMeta(seq, author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE))
+		event.ParentID = parent
+		if d, err = q.InsertValueDirectoryEvent(ctx, event); err != nil {
 			return nil, err
 		}
 		return directoryUpdate(d), nil
@@ -161,7 +165,7 @@ func MoveDirectory(store *state.Service, directoryID, newParentID int32) (*apige
 	return d, nil
 }
 
-func DeleteDirectory(store *state.Service, directoryID int32) error {
+func DeleteDirectory(store *state.Service, directoryID int32, author int32) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
 		d, err := GetDirectory(ctx, q, int64(directoryID))
@@ -183,11 +187,10 @@ func DeleteDirectory(store *state.Service, directoryID int32) error {
 		if secretCount > 0 || configCount > 0 || children > 0 {
 			return nil, ErrDirectoryNotEmpty
 		}
-		if err := q.DeleteValueDirectory(ctx, int64(d.ID)); err != nil {
+		tombstone, err := q.InsertValueDirectoryEvent(ctx, pq.ValueDirectoryEvent(d, directoryMeta(seq, author, apigen.AuthzVerb_AUTHZ_VERB_DELETE)))
+		if err != nil {
 			return nil, err
 		}
-		tombstone := *d
-		tombstone.Deleted = true
-		return directoryUpdate(&tombstone), nil
+		return directoryUpdate(tombstone), nil
 	})
 }

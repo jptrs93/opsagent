@@ -24,11 +24,11 @@ message AgentSessionRevokeRequest {
   string id = 1;
 }
 
-message PersonalSessionList {
-  repeated PersonalSession items = 1;
+message UserSessionList {
+  repeated UserSession items = 1;
 }
 
-message PersonalSessionRevokeRequest {
+message UserSessionRevokeRequest {
   string id = 1;
 }
 

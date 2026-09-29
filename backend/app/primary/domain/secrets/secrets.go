@@ -3,24 +3,28 @@
 // Design: envelope encryption with a small key hierarchy.
 //
 //   - A single 32-byte Secrets Master Key (SMK) encrypts every secret value
-//     (XChaCha20-Poly1305, with the owning secret's stable id and the value's
-//     seal id bound as associated data so a ciphertext cannot be moved to a
-//     different secret or a different value of the same secret — and
-//     renames/moves never re-encrypt).
+//     (XChaCha20-Poly1305, with the owning secret's stable id bound as
+//     associated data so a ciphertext cannot be moved to a different secret —
+//     and renames, moves, and new versions never re-encrypt older rows).
 //   - The SMK is never stored in the clear. It is stored wrapped, once per
-//     "keyslot": the MACHINE slot (the SMK sealed under a random key kept in
-//     {dataDir}/machine.key, 0600, for unattended boot) and the optional
-//     RECOVERY slot (the SMK sealed under an Argon2id-derived key from a
-//     break-glass recovery code).
+//     "keyslot", in the secret_keyslots event log: one MACHINE slot per node
+//     (the SMK sealed under a random key kept in {dataDir}/machine.key, 0600,
+//     for unattended boot) and the optional RECOVERY slot (the SMK sealed
+//     under an Argon2id-derived key from a break-glass recovery code).
 //
 // The machine key lives outside the database and outside backups, so a leaked
 // DB/backup is useless without either the on-box machine.key or the recovery
 // code. Recovery on a fresh machine: restore the DB backup, then Unlock with
 // the recovery code — this re-derives the SMK and writes a new machine.key.
 //
-// The secret_keyslots, secrets, secret_versions, and system_secrets tables are
-// PRIMARY-ONLY: the cluster feeder never replicates them (it only ships
-// deployment configs/status), so secrets never reach a secondary's database.
+// OpenDeploy's own key material (cluster and workload CAs, the web UI CA and
+// bundle, the ACME account key) lives in the same event log as user secrets,
+// in space 0. Nothing user-facing can list, reveal, or reference a space 0
+// value; the authz layer refuses it before any grant is consulted.
+//
+// The secret_keyslots and secret_event_log tables are PRIMARY-ONLY: the
+// cluster feeder never replicates them (it only ships deployment
+// configs/status), so secrets never reach a secondary's database.
 package secrets
 
 import (
@@ -40,14 +44,15 @@ import (
 
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 const (
-	slotMachine  = "machine"
-	slotRecovery = "recovery"
+	slotMachine  = apigen.SecretKeyslotKind_SECRET_KEYSLOT_MACHINE
+	slotRecovery = apigen.SecretKeyslotKind_SECRET_KEYSLOT_RECOVERY
 
 	TLSCertPEMSecretName = "opendeploy.tls.pem"
 
@@ -78,7 +83,8 @@ var ErrReservedName = errors.New("secret name is reserved for internal use")
 
 // Keyslot is a wrapped copy of the SMK as persisted in secret_keyslots.
 type Keyslot struct {
-	Slot       string
+	Kind       apigen.SecretKeyslotKind
+	NodeID     int32 // machine slots: the node whose machine key wraps it; 0 for the recovery slot
 	SMKVersion int32
 	WrappedSMK []byte
 	Nonce      []byte
@@ -97,20 +103,8 @@ type Record struct {
 	SMKVersion int32
 	Ciphertext []byte
 	Nonce      []byte
-	SealID     string
 	CreatedAt  int64 // epoch ms
 	Author     int32
-}
-
-// SystemRecord is an encrypted OpenDeploy-managed secret as persisted in the
-// system_secrets table.
-type SystemRecord struct {
-	Name       string
-	SMKVersion int32
-	Ciphertext []byte
-	Nonce      []byte
-	CreatedAt  int64 // epoch ms
-	UpdatedAt  int64 // epoch ms
 }
 
 // Meta describes a secret version WITHOUT its value.
@@ -119,7 +113,6 @@ type Meta struct {
 	SecretID  int32
 	Name      string
 	Version   int32
-	SealID    string
 	SpaceID   int32
 	CreatedAt time.Time
 	Author    int32
@@ -131,12 +124,15 @@ type SealedValue struct {
 	Nonce      []byte
 }
 
-// SealFunc seals a plaintext for the given identity id and seal id. The store
-// calls it inside the write transaction, once both are known — the AAD binds
-// them, so the ciphertext cannot exist earlier.
-type SealFunc func(secretID int32, sealID string) (SealedValue, error)
+// SealFunc seals a plaintext for the given identity id. The store calls it
+// inside the write transaction, once the id is known — the AAD binds it, so
+// the ciphertext cannot exist earlier.
+type SealFunc func(secretID int32) (SealedValue, error)
 
-const defaultUserSpaceID int32 = 1
+const (
+	defaultUserSpaceID int32 = 1
+	systemSpaceID      int32 = 0
+)
 
 // Manager owns the in-memory SMK and a cache of encrypted version records. It
 // is safe for concurrent use.
@@ -149,14 +145,14 @@ type Manager struct {
 	ctx        context.Context
 	store      *state.Service
 	q          *pq.Queries
+	nodeID     int32
 	machineKey machinekey.Provider
 
-	mu          sync.RWMutex
-	smk         []byte // nil => locked
-	version     int32
-	cache       map[int32]Record          // version row id -> immutable version row (ciphertext)
-	refs        map[apigen.ValueRef]int32 // (secret id, value version) -> version row id
-	systemCache map[string]SystemRecord
+	mu      sync.RWMutex
+	smk     []byte // nil => locked
+	version int32
+	cache   map[int32]Record          // version row id -> immutable version row (ciphertext)
+	refs    map[apigen.ValueRef]int32 // (secret id, value version) -> version row id
 }
 
 // Initialize creates the secrets master key and local machine key for a new
@@ -183,11 +179,11 @@ func Open(dataDir string, store *state.Service) (*Manager, error) {
 	}
 
 	slots := listKeyslots(m.q)
-	if _, ok := findSlot(slots, slotMachine); !ok {
+	if _, ok := findSlot(slots, slotMachine, m.nodeID); !ok {
 		if len(slots) == 0 {
 			return nil, fmt.Errorf("secrets store is not initialized")
 		}
-		slog.WarnContext(m.ctx, "secrets store has no machine keyslot; locked until recovery unlock")
+		slog.WarnContext(m.ctx, "secrets store has no machine keyslot for this node; locked until recovery unlock")
 		return m, nil
 	}
 
@@ -196,21 +192,28 @@ func Open(dataDir string, store *state.Service) (*Manager, error) {
 		return m, nil
 	}
 	slog.InfoContext(m.ctx, "secrets store unlocked")
-	if _, ok := findSlot(slots, slotRecovery); !ok {
+	if err := m.migrateSealsLocked(); err != nil {
+		return nil, err
+	}
+	if _, ok := findSlot(slots, slotRecovery, 0); !ok {
 		slog.WarnContext(m.ctx, "secrets recovery code not configured — generate one so secrets can be recovered if this machine is lost")
 	}
 	return m, nil
 }
 
 func newManager(dataDir string, store *state.Service) *Manager {
+	nodeID, err := nodes.PrimaryNodeID(store.Queries())
+	if err != nil {
+		nodeID = 0
+	}
 	return &Manager{
-		ctx:         logu.AddTag(context.Background(), "Secrets"),
-		store:       store,
-		q:           store.Queries(),
-		machineKey:  &machinekey.File{Path: filepath.Join(dataDir, machinekey.FileName)},
-		cache:       make(map[int32]Record),
-		refs:        make(map[apigen.ValueRef]int32),
-		systemCache: make(map[string]SystemRecord),
+		ctx:        logu.AddTag(context.Background(), "Secrets"),
+		store:      store,
+		q:          store.Queries(),
+		nodeID:     nodeID,
+		machineKey: &machinekey.File{Path: filepath.Join(dataDir, machinekey.FileName)},
+		cache:      make(map[int32]Record),
+		refs:       make(map[apigen.ValueRef]int32),
 	}
 }
 
@@ -219,19 +222,29 @@ func (m *Manager) cacheLocked(rec Record) {
 	m.refs[rec.ref()] = rec.ID
 }
 
+// recordByRefLocked and userRecordLocked resolve rows for user-facing and
+// workload paths. Space 0 rows are OpenDeploy's own material and are only
+// reachable through RevealInternal, whatever the caller's grants say.
 func (m *Manager) recordByRefLocked(ref apigen.ValueRef) (Record, bool) {
 	id, ok := m.refs[ref]
 	if !ok {
 		return Record{}, false
 	}
+	return m.userRecordLocked(id)
+}
+
+func (m *Manager) userRecordLocked(id int32) (Record, bool) {
 	rec, ok := m.cache[id]
-	return rec, ok
+	if !ok || rec.SpaceID == systemSpaceID {
+		return Record{}, false
+	}
+	return rec, true
 }
 
 // openRecordLocked decrypts one cached version row. Caller must hold m.mu
 // (read) with m.smk set.
 func (m *Manager) openRecordLocked(rec Record) ([]byte, error) {
-	return aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, userSecretAAD(rec.SecretID, rec.SealID))
+	return aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, secretAAD(rec.SecretID))
 }
 
 // Resolve returns the plaintext value for a secret value ref. It implements
@@ -263,7 +276,7 @@ func (m *Manager) RevealByID(id int32) ([]byte, error) {
 	if m.smk == nil {
 		return nil, ErrLocked
 	}
-	rec, ok := m.cache[id]
+	rec, ok := m.userRecordLocked(id)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -329,7 +342,7 @@ func (m *Manager) ResolveMany(refs []apigen.ValueRef) (map[apigen.ValueRef]strin
 func (m *Manager) MetaByID(id int32) (Meta, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	rec, ok := m.cache[id]
+	rec, ok := m.userRecordLocked(id)
 	if !ok {
 		return Meta{}, false
 	}
@@ -353,10 +366,18 @@ func (m *Manager) MetaByRef(ref apigen.ValueRef) (Meta, bool) {
 func (m *Manager) LatestMetaByName(name string) (Meta, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	rec, ok := m.latestRecordByNameLocked(defaultUserSpaceID, name)
+	if !ok {
+		return Meta{}, false
+	}
+	return rec.meta(), true
+}
+
+func (m *Manager) latestRecordByNameLocked(spaceID int32, name string) (Record, bool) {
 	var best Record
 	found := false
 	for _, rec := range m.cache {
-		if rec.Name != name || rec.SpaceID != defaultUserSpaceID {
+		if rec.Name != name || rec.SpaceID != spaceID {
 			continue
 		}
 		if !found || rec.Version > best.Version {
@@ -364,10 +385,7 @@ func (m *Manager) LatestMetaByName(name string) (Meta, bool) {
 			found = true
 		}
 	}
-	if !found {
-		return Meta{}, false
-	}
-	return best.meta(), true
+	return best, found
 }
 
 // Create creates a new secret with its first version in directoryID (0 = the
@@ -440,8 +458,8 @@ func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, author 
 // Caller must hold m.mu with m.smk set; the store invokes the callback inside
 // its write transaction while that lock is still held.
 func (m *Manager) sealFuncLocked(value []byte) SealFunc {
-	return func(secretID int32, sealID string) (SealedValue, error) {
-		ct, nonce, err := aeadSeal(m.smk, value, userSecretAAD(secretID, sealID))
+	return func(secretID int32) (SealedValue, error) {
+		ct, nonce, err := aeadSeal(m.smk, value, secretAAD(secretID))
 		if err != nil {
 			return SealedValue{}, err
 		}
@@ -449,10 +467,8 @@ func (m *Manager) sealFuncLocked(value []byte) SealFunc {
 	}
 }
 
-// SetInternal creates or updates an OpenDeploy-managed internal secret. Internal
-// secrets are encrypted by the same SMK but are hidden from user-facing CRUD
-// and keep the name-bound AAD (they sit outside the file system and are not
-// versioned).
+// SetInternal creates or appends a version of an OpenDeploy-managed secret in
+// the root of space 0, authored by the system.
 func (m *Manager) SetInternal(name string, value []byte) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -460,30 +476,24 @@ func (m *Manager) SetInternal(name string, value []byte) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.setInternalLocked(name, value)
+}
+
+func (m *Manager) setInternalLocked(name string, value []byte) error {
 	if m.smk == nil {
 		return ErrLocked
 	}
-	ct, nonce, err := aeadSeal(m.smk, value, systemSecretAAD(name))
+	if id, ok := idByNameInSpace(m.q, systemSpaceID, name); ok {
+		_, _, err := appendVersionWithDeploymentUpdates(m.store, id, 0, m.sealFuncLocked(value), false, nil, func(committed Record) {
+			m.cacheLocked(committed)
+		})
+		return err
+	}
+	rec, err := CreateWithVersion(m.store, name, systemSpaceID, 0, 0, m.sealFuncLocked(value))
 	if err != nil {
 		return err
 	}
-	now := nowMs()
-	createdAt := now
-	if existing, ok := m.systemCache[name]; ok {
-		createdAt = existing.CreatedAt
-	} else if existing, ok := getSystemSecret(m.q, name); ok {
-		createdAt = existing.CreatedAt
-	}
-	rec := SystemRecord{
-		Name:       name,
-		SMKVersion: m.version,
-		Ciphertext: ct,
-		Nonce:      nonce,
-		CreatedAt:  createdAt,
-		UpdatedAt:  now,
-	}
-	upsertSystemSecret(m.q, rec)
-	m.systemCache[name] = rec
+	m.cacheLocked(rec)
 	return nil
 }
 
@@ -539,21 +549,19 @@ func (m *Manager) MoveSpace(secretID, newSpaceID, directoryID, author int32, inl
 	return nil
 }
 
-// RevealInternal decrypts an OpenDeploy-managed internal secret. It bypasses the
-// user-facing internal-secret guard but still requires the store to be unlocked.
+// RevealInternal decrypts the current value of an OpenDeploy-managed secret in
+// space 0. It requires the store to be unlocked.
 func (m *Manager) RevealInternal(name string) ([]byte, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.smk == nil {
 		return nil, ErrLocked
 	}
-	rec, ok := m.systemCache[name]
+	rec, ok := m.latestRecordByNameLocked(systemSpaceID, name)
 	if !ok {
-		if rec, ok = getSystemSecret(m.q, name); !ok {
-			return nil, ErrNotFound
-		}
+		return nil, ErrNotFound
 	}
-	pt, err := aeadOpen(m.smk, rec.Ciphertext, rec.Nonce, systemSecretAAD(name))
+	pt, err := m.openRecordLocked(rec)
 	if err != nil {
 		return nil, fmt.Errorf("decrypting internal secret %q: %w", name, err)
 	}
@@ -581,14 +589,14 @@ func (m *Manager) Status() (unlocked, recoveryConfigured bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	unlocked = m.smk != nil
-	_, recoveryConfigured = findSlot(listKeyslots(m.q), slotRecovery)
+	_, recoveryConfigured = findSlot(listKeyslots(m.q), slotRecovery, 0)
 	return
 }
 
 // GenerateRecoveryCode creates (or rotates) the recovery keyslot and returns
 // the new break-glass code. The code is returned exactly once and is never
 // stored — only its Argon2id-wrapped SMK is persisted.
-func (m *Manager) GenerateRecoveryCode() (string, error) {
+func (m *Manager) GenerateRecoveryCode(author int32) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.smk == nil {
@@ -607,24 +615,26 @@ func (m *Manager) GenerateRecoveryCode() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	upsertKeyslot(m.q, Keyslot{
-		Slot:       slotRecovery,
+	if err := writeKeyslot(m.store, Keyslot{
+		Kind:       slotRecovery,
 		SMKVersion: m.version,
 		WrappedSMK: wrapped,
 		Nonce:      nonce,
 		KDFSalt:    salt,
 		CreatedAt:  nowMs(),
-	})
+	}, author); err != nil {
+		return "", err
+	}
 	return code, nil
 }
 
 // Unlock recovers a locked store using the recovery code, then re-establishes a
 // fresh local machine key (and machine keyslot) so subsequent boots are
 // unattended again.
-func (m *Manager) Unlock(code string) error {
+func (m *Manager) Unlock(code string, author int32) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	rec, ok := findSlot(listKeyslots(m.q), slotRecovery)
+	rec, ok := findSlot(listKeyslots(m.q), slotRecovery, 0)
 	if !ok {
 		return ErrNoRecoveryCode
 	}
@@ -633,13 +643,13 @@ func (m *Manager) Unlock(code string) error {
 	if err != nil {
 		return ErrInvalidRecoveryCode
 	}
-	if err := m.rewriteMachineSlot(smk, rec.SMKVersion); err != nil {
+	if err := m.rewriteMachineSlot(smk, rec.SMKVersion, author); err != nil {
 		return err
 	}
 	m.smk = smk
 	m.version = rec.SMKVersion
 	slog.InfoContext(m.ctx, "secrets store unlocked via recovery code; machine key re-established")
-	return nil
+	return m.migrateSealsLocked()
 }
 
 func (m *Manager) initFirstRun() error {
@@ -647,7 +657,7 @@ func (m *Manager) initFirstRun() error {
 	if _, err := rand.Read(smk); err != nil {
 		return err
 	}
-	if err := m.rewriteMachineSlot(smk, 1); err != nil {
+	if err := m.rewriteMachineSlot(smk, 1, 0); err != nil {
 		return err
 	}
 	m.smk = smk
@@ -655,7 +665,7 @@ func (m *Manager) initFirstRun() error {
 	return nil
 }
 
-func (m *Manager) rewriteMachineSlot(smk []byte, version int32) error {
+func (m *Manager) rewriteMachineSlot(smk []byte, version int32, author int32) error {
 	machineKey, err := m.machineKey.Establish()
 	if err != nil {
 		return err
@@ -664,14 +674,14 @@ func (m *Manager) rewriteMachineSlot(smk []byte, version int32) error {
 	if err != nil {
 		return err
 	}
-	upsertKeyslot(m.q, Keyslot{
-		Slot:       slotMachine,
+	return writeKeyslot(m.store, Keyslot{
+		Kind:       slotMachine,
+		NodeID:     m.nodeID,
 		SMKVersion: version,
 		WrappedSMK: wrapped,
 		Nonce:      nonce,
 		CreatedAt:  nowMs(),
-	})
-	return nil
+	}, author)
 }
 
 func (m *Manager) unlockWithMachineKey(slots []Keyslot) error {
@@ -679,7 +689,7 @@ func (m *Manager) unlockWithMachineKey(slots []Keyslot) error {
 	if err != nil {
 		return err
 	}
-	slot, ok := findSlot(slots, slotMachine)
+	slot, ok := findSlot(slots, slotMachine, m.nodeID)
 	if !ok {
 		return errors.New("no machine keyslot")
 	}
@@ -700,29 +710,18 @@ func aeadOpen(key, ciphertext, nonce, aad []byte) ([]byte, error) {
 	return machinekey.Open(key, ciphertext, nonce, aad)
 }
 
-func slotAAD(slot string) []byte { return []byte("opendeploy-keyslot:" + slot) }
-
-// userSecretAAD binds a user secret's ciphertext to its stable identity id and
-// the seal id of the value. Both are immutable and known before the row is
-// inserted, so renames and directory moves never re-encrypt, while a
-// ciphertext still cannot be moved to another secret or another value of the
-// same secret. Rows sealed before seal ids existed carry the literal
-// "v<value_version>" as their seal id, which reproduces their original
-// associated data.
-func userSecretAAD(secretID int32, sealID string) []byte {
-	return []byte(fmt.Sprintf("opendeploy-secret:user:s%d:%s", secretID, sealID))
-}
-
-func newSealID() string {
-	var b [20]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic(fmt.Sprintf("seal id: %v", err))
+func slotAAD(kind apigen.SecretKeyslotKind) []byte {
+	if kind == slotMachine {
+		return []byte("opendeploy-keyslot:machine")
 	}
-	return "k" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:]))
+	return []byte("opendeploy-keyslot:recovery")
 }
 
-func systemSecretAAD(name string) []byte {
-	return []byte("opendeploy-secret:system:" + name)
+// secretAAD binds a ciphertext to its secret's stable identity id, which is
+// known before the row is inserted, so renames, moves, and later versions
+// never re-encrypt, while a ciphertext cannot be moved to another secret.
+func secretAAD(secretID int32) []byte {
+	return []byte(fmt.Sprintf("opendeploy-secret:s%d", secretID))
 }
 
 func isReservedInternalName(name string) bool {
@@ -760,9 +759,9 @@ func normalizeCode(s string) string {
 	return s
 }
 
-func findSlot(slots []Keyslot, name string) (Keyslot, bool) {
+func findSlot(slots []Keyslot, kind apigen.SecretKeyslotKind, nodeID int32) (Keyslot, bool) {
 	for _, s := range slots {
-		if s.Slot == name {
+		if s.Kind == kind && s.NodeID == nodeID {
 			return s, true
 		}
 	}
@@ -786,7 +785,6 @@ func (r Record) meta() Meta {
 		SecretID:  r.SecretID,
 		Name:      r.Name,
 		Version:   r.Version,
-		SealID:    r.SealID,
 		SpaceID:   r.SpaceID,
 		CreatedAt: time.UnixMilli(r.CreatedAt),
 		Author:    r.Author,

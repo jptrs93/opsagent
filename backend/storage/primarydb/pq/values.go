@@ -31,7 +31,6 @@ type SecretEvent struct {
 	SmkVersion       int64
 	Ciphertext       []byte
 	Nonce            []byte
-	SealID           string
 	EventType        int64
 }
 
@@ -53,11 +52,11 @@ type ConfigRow struct {
 	CreatedAt        int64
 }
 
-const secretEventColumns = `e.id,e.global_seq,e.event_time,e.created_time,e.author,e.secret_id,e.version,e.value_version,e.name,e.value_directory_id,e.space_id,e.event_type,e.seal_id`
+const secretEventColumns = `e.id,e.global_seq,e.event_time,e.created_time,e.author,e.secret_id,e.version,e.value_version,e.name,e.value_directory_id,e.space_id,e.event_type`
 
 func scanSecretEvent(scan func(...any) error) (*apigen.SecretEvent, error) {
 	e := &apigen.SecretEvent{Value: apigen.Secret{Fs: &apigen.SecretFs{}}}
-	if err := scan(&e.EventID, &e.Seq, &e.EventTime, &e.CreatedTime, &e.Author, &e.SecretID, &e.Version, &e.ValueVersion, &e.Value.Fs.Name, &e.Value.Fs.DirectoryID, &e.Value.SpaceID, &e.EventType, &e.Value.SealID); err != nil {
+	if err := scan(&e.EventID, &e.Seq, &e.EventTime, &e.CreatedTime, &e.Author, &e.SecretID, &e.Version, &e.ValueVersion, &e.Value.Fs.Name, &e.Value.Fs.DirectoryID, &e.Value.SpaceID, &e.EventType); err != nil {
 		return nil, err
 	}
 	return e, nil
@@ -118,18 +117,18 @@ func (q *Queries) InsertSecretEvent(ctx context.Context, e SecretEvent) (*apigen
 			global_seq, event_time, created_time, author, secret_id, version,
 			value_version, value_changed,
 			name, value_directory_id, space_id,
-			smk_version, ciphertext, nonce, seal_id, event_type
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		RETURNING id,global_seq,event_time,created_time,author,secret_id,version,value_version,name,value_directory_id,space_id,event_type,seal_id`,
+			smk_version, ciphertext, nonce, event_type
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		RETURNING id,global_seq,event_time,created_time,author,secret_id,version,value_version,name,value_directory_id,space_id,event_type`,
 		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.SecretID, e.Version,
 		e.ValueVersion, e.ValueChanged,
 		e.Name, e.ValueDirectoryID, e.SpaceID,
-		e.SmkVersion, e.Ciphertext, e.Nonce, e.SealID, e.EventType)
+		e.SmkVersion, e.Ciphertext, e.Nonce, e.EventType)
 	return scanSecretEvent(row.Scan)
 }
 
 // InsertSecretCarryEvent appends a secret event that does not write a value:
-// the sealed payload (smk_version, ciphertext, nonce, seal_id) is copied forward from
+// the sealed payload (smk_version, ciphertext, nonce) is copied forward from
 // the previous row in SQL so the ciphertext never passes through Go. The
 // payload fields of e are ignored and value_changed is always 0.
 func (q *Queries) InsertSecretCarryEvent(ctx context.Context, e SecretEvent) (*apigen.SecretEvent, error) {
@@ -138,14 +137,14 @@ func (q *Queries) InsertSecretCarryEvent(ctx context.Context, e SecretEvent) (*a
 			global_seq, event_time, created_time, author, secret_id, version,
 			value_version, value_changed,
 			name, value_directory_id, space_id,
-			smk_version, ciphertext, nonce, seal_id, event_type
+			smk_version, ciphertext, nonce, event_type
 		)
 		SELECT ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?,
-		       p.smk_version, p.ciphertext, p.nonce, p.seal_id, ?
+		       p.smk_version, p.ciphertext, p.nonce, ?
 		FROM secret_event_log p
 		WHERE p.secret_id = ?
 		ORDER BY p.version DESC LIMIT 1
-		RETURNING id,global_seq,event_time,created_time,author,secret_id,version,value_version,name,value_directory_id,space_id,event_type,seal_id`,
+		RETURNING id,global_seq,event_time,created_time,author,secret_id,version,value_version,name,value_directory_id,space_id,event_type`,
 		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.SecretID, e.Version,
 		e.ValueVersion,
 		e.Name, e.ValueDirectoryID, e.SpaceID, e.EventType,
@@ -300,7 +299,6 @@ type SecretVersionRecordRow struct {
 	SmkVersion int64
 	Ciphertext []byte
 	Nonce      []byte
-	SealID     string
 	CreatedAt  int64
 	Author     int64
 	Name       string
@@ -309,7 +307,7 @@ type SecretVersionRecordRow struct {
 
 func (q *Queries) ListSecretVersionRecords(ctx context.Context) ([]SecretVersionRecordRow, error) {
 	rows, err := q.db.QueryContext(ctx, `
-SELECT v.id, v.secret_id, v.value_version, v.smk_version, v.ciphertext, v.nonce, v.seal_id, v.event_time, v.author,
+SELECT v.id, v.secret_id, v.value_version, v.smk_version, v.ciphertext, v.nonce, v.event_time, v.author,
        l.name, l.space_id
 FROM secret_event_log v
 JOIN (`+secretRowSelect+`) l ON l.secret_id = v.secret_id
@@ -322,7 +320,7 @@ ORDER BY v.secret_id, v.value_version`)
 	out := []SecretVersionRecordRow{}
 	for rows.Next() {
 		var r SecretVersionRecordRow
-		if err := rows.Scan(&r.ID, &r.SecretID, &r.Version, &r.SmkVersion, &r.Ciphertext, &r.Nonce, &r.SealID,
+		if err := rows.Scan(&r.ID, &r.SecretID, &r.Version, &r.SmkVersion, &r.Ciphertext, &r.Nonce,
 			&r.CreatedAt, &r.Author, &r.Name, &r.SpaceID); err != nil {
 			return nil, err
 		}

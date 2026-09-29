@@ -20,12 +20,20 @@ CREATE TABLE IF NOT EXISTS config_event_log (
 CREATE UNIQUE INDEX IF NOT EXISTS config_value_versions
     ON config_event_log (config_id, value_version) WHERE value_changed != 0;
 
--- Configs and secrets share ONE file system per space
-CREATE TABLE IF NOT EXISTS value_directories (
-     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-     space_id    INTEGER NOT NULL DEFAULT 1,
-     name        TEXT    NOT NULL,
-     parent_id   INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
-     created_at  INTEGER NOT NULL,            -- epoch ms
-     author  INTEGER NOT NULL DEFAULT 0   -- user id; 0 = unknown/system, negative = agent of user -author
+-- Configs and secrets share ONE file system per space. Append-only: one row
+-- per directory event, live state is the newest row per directory_id whose
+-- event_type is not delete.
+CREATE TABLE IF NOT EXISTS value_directory_event_log (
+     id           INTEGER PRIMARY KEY AUTOINCREMENT,
+     global_seq   INTEGER NOT NULL,
+     event_time   INTEGER NOT NULL,   -- epoch ms
+     author       INTEGER NOT NULL,   -- user id; 0 system, negative = agent of user -author
+     directory_id INTEGER NOT NULL,
+     event_type   INTEGER NOT NULL,   -- AuthzVerb value: 1 create / 2 update / 3 delete
+     space_id     INTEGER NOT NULL DEFAULT 1,
+     name         TEXT    NOT NULL,
+     parent_id    INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
+     created_at   INTEGER NOT NULL             -- epoch ms, copied forward
 );
+
+CREATE INDEX IF NOT EXISTS idx_value_directory_event_log_directory_id ON value_directory_event_log (directory_id, id);

@@ -11,17 +11,19 @@ const historyCollections = {
     configEvents: ['configs', 'configId'],
     assetEvents: ['assets', 'assetId'],
 };
-const flags = ['valueDirectories', 'assetDirectories', 'spaces', 'users'];
-const sidecars = ['secretsStatus', 'backupStatus', 'ingressDiagnostics', 'agentSessions'];
+// Latest-document collections: each item replaces the entry with its id, and a
+// `deleted` item removes it. Sessions never delete; the server keeps every row.
+const flags = ['valueDirectories', 'assetDirectories', 'spaces', 'users', 'agentSessions', 'userSessions'];
+const sidecars = ['secretsStatus', 'backupStatus', 'ingressDiagnostics'];
 const replacements = ['authzRuleTemplates', 'authzGlobalRules', 'systemConfig'];
-const maps = ['deployments', 'scheduledInstances', 'instanceStatuses', 'nodes', 'nodeStatuses', 'secrets', 'configs', 'assets', 'networkPolicies', 'authzGrants', 'agentSessions', ...flags];
+const maps = ['deployments', 'scheduledInstances', 'instanceStatuses', 'nodes', 'nodeStatuses', 'secrets', 'configs', 'assets', 'networkPolicies', 'authzGrants', ...flags];
 
 export const createTree = () => ({
     seq: 0,
     instanceStatusClocks: new Map(),
     nodeStatusClocks: new Map(),
     ...Object.fromEntries(maps.map(name => [name, new Map()])),
-    ...Object.fromEntries([...replacements, ...sidecars.filter(name => name !== 'agentSessions')].map(name => [name, undefined])),
+    ...Object.fromEntries([...replacements, ...sidecars].map(name => [name, undefined])),
 });
 
 // Preserve the HLC's sub-millisecond precision when comparing protobuf Dates.
@@ -163,7 +165,6 @@ const replaceSidecar = (tree, name, value) => {
 export const applyBackupStatus = (tree, value) => replaceSidecar(tree, 'backupStatus', value);
 export const applySecretsStatus = (tree, value) => replaceSidecar(tree, 'secretsStatus', value);
 export const applyIngressDiagnostics = (tree, value) => replaceSidecar(tree, 'ingressDiagnostics', value);
-export const applyAgentSessions = (tree, value) => replaceSidecar(tree, 'agentSessions', new Map((value.items || []).map(item => [item.id, item])));
 
 export function applySnapshot(tree, snapshot, {preserveSidecars = true} = {}) {
     const held = preserveSidecars ? Object.fromEntries(sidecars.map(name => [name, tree[name]])) : {};
@@ -171,9 +172,7 @@ export function applySnapshot(tree, snapshot, {preserveSidecars = true} = {}) {
     reduce(tree, snapshot, true, true);
     applyObserved(tree, snapshot);
     for (const name of sidecars) {
-        if (snapshot[name] == null) continue;
-        if (name === 'agentSessions') applyAgentSessions(tree, {items: snapshot[name]});
-        else tree[name] = snapshot[name];
+        if (snapshot[name] != null) tree[name] = snapshot[name];
     }
     tree.seq = Number(snapshot.seq || 0);
     return new Set([...maps, ...replacements, ...sidecars]);

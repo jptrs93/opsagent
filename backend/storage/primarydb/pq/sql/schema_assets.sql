@@ -40,11 +40,19 @@ CREATE TABLE IF NOT EXISTS asset_store (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_store_sha256 ON asset_store (sha256) WHERE sha256 != '';
 
-CREATE TABLE IF NOT EXISTS asset_directories (
-     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-     space_id    INTEGER NOT NULL DEFAULT 1,
-     key         TEXT    NOT NULL,
-     parent_id   INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
-     created_at  INTEGER NOT NULL,            -- epoch ms
-     author  INTEGER NOT NULL DEFAULT 0       -- user id; 0 = unknown/system, negative = agent of user -author
+-- Append-only: one row per directory event, live state is the newest row per
+-- directory_id whose event_type is not delete.
+CREATE TABLE IF NOT EXISTS asset_directory_event_log (
+     id           INTEGER PRIMARY KEY AUTOINCREMENT,
+     global_seq   INTEGER NOT NULL,
+     event_time   INTEGER NOT NULL,   -- epoch ms
+     author       INTEGER NOT NULL,   -- user id; 0 system, negative = agent of user -author
+     directory_id INTEGER NOT NULL,
+     event_type   INTEGER NOT NULL,   -- AuthzVerb value: 1 create / 2 update / 3 delete
+     space_id     INTEGER NOT NULL DEFAULT 1,
+     key          TEXT    NOT NULL,
+     parent_id    INTEGER NOT NULL DEFAULT 0,  -- 0 = the implicit root
+     created_at   INTEGER NOT NULL             -- epoch ms, copied forward
 );
+
+CREATE INDEX IF NOT EXISTS idx_asset_directory_event_log_directory_id ON asset_directory_event_log (directory_id, id);

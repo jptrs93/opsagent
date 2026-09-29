@@ -32,7 +32,7 @@ func newGlobalStateTestHandler(t *testing.T) *Handler {
 
 func TestGetV1GlobalSnapshotReturnsEachSection(t *testing.T) {
 	h := newGlobalStateTestHandler(t)
-	space, err := nodes.CreateSpace(h.Store, "prod")
+	space, err := nodes.CreateSpace(h.Store, "prod", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestPostV1DeploymentsGetRejectsBadID(t *testing.T) {
 
 func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 	h := newGlobalStateTestHandler(t)
-	if _, err := nodes.CreateSpace(h.Store, "prod"); err != nil {
+	if _, err := nodes.CreateSpace(h.Store, "prod", 0); err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
 	cfg := createTestDeployment(h.Store, "node-a", 0, "api", ptr(remoteDeploymentSpec("nginx", hostNetworking())))

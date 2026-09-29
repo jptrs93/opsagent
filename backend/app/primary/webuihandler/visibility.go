@@ -257,6 +257,9 @@ func (v *streamVisibility) visibleUpdate(u *apigen.CoreUpdate) *apigen.CoreUpdat
 	if out.AuthzGlobalRules != nil && !h.canAccess(ctx, vView, eAccess, 0, 0) {
 		out.AuthzGlobalRules = nil
 	}
+	// Sessions are owner-only: they reach the browser that holds them and no one else.
+	out.AgentSessions = filterVisible(u.AgentSessions, func(s *apigen.AgentSession) bool { return ctx.User != nil && s.UserID == ctx.User.ID })
+	out.UserSessions = filterVisible(u.UserSessions, func(s *apigen.UserSession) bool { return ctx.User != nil && s.UserID == ctx.User.ID })
 	if out.IsEmpty() {
 		return nil
 	}
@@ -291,7 +294,6 @@ func (v *streamVisibility) visibleSnapshot(snapshot *apigen.Snapshot) *apigen.Sn
 	if !v.h.canAccess(v.ctx, vView, eCluster, 0, 0) {
 		out.BackupStatus = &apigen.BackupStatus{}
 	}
-	out.AgentSessions = filterVisible(snapshot.AgentSessions, func(s *apigen.AgentSession) bool { return v.ctx.User != nil && s.UserID == v.ctx.User.ID })
 	out.IngressDiagnostics = v.h.filterIngressDiagnostics(v.ctx, snapshot.IngressDiagnostics)
 	return out
 }
@@ -315,6 +317,8 @@ func snapshotUpdate(s *apigen.Snapshot) *apigen.CoreUpdate {
 		AuthzGlobalRules:        &apigen.AuthzGlobalRuleList{Items: s.AuthzGlobalRules},
 		InstanceStatuses:        s.InstanceStatuses,
 		NodeStatuses:            s.NodeStatuses,
+		AgentSessions:           s.AgentSessions,
+		UserSessions:            s.UserSessions,
 	}
 }
 
@@ -334,6 +338,8 @@ func updateSnapshot(u *apigen.CoreUpdate) *apigen.Snapshot {
 		SystemConfig:            u.SystemConfig,
 		InstanceStatuses:        u.InstanceStatuses,
 		NodeStatuses:            u.NodeStatuses,
+		AgentSessions:           u.AgentSessions,
+		UserSessions:            u.UserSessions,
 	}
 	if u.AuthzRuleTemplates != nil {
 		s.AuthzRuleTemplates = u.AuthzRuleTemplates.Items

@@ -157,7 +157,7 @@ func InitializeService(store *state.Service, cfg apigen.SystemConfig) (*Service,
 	if _, err := network.ParsePrefix(cfg.NetworkUlaPrefix); err != nil {
 		return nil, fmt.Errorf("initial network ULA prefix is invalid: %w", err)
 	}
-	if _, err := AppendRevision(store, cfg.Encode(), nil); err != nil {
+	if _, err := AppendRevision(store, 0, cfg.Encode(), nil); err != nil {
 		return nil, fmt.Errorf("persisting initial primary config: %w", err)
 	}
 	return NewService(store)
@@ -211,7 +211,7 @@ func (s *Service) publishConfig(cfg apigen.SystemConfig, version int64, updatedA
 	})
 }
 
-func (s *Service) UpdateSettings(settings apigen.ClusterSettings, inlockValidate func(*pq.Queries) error) error {
+func (s *Service) UpdateSettings(settings apigen.ClusterSettings, author int32, inlockValidate func(*pq.Queries) error) error {
 	if s.AssetOperationMu != nil {
 		s.AssetOperationMu.Lock()
 		defer s.AssetOperationMu.Unlock()
@@ -235,7 +235,7 @@ func (s *Service) UpdateSettings(settings apigen.ClusterSettings, inlockValidate
 	}
 	cfg.Settings = settings
 	cfg = normalizeConfig(cfg)
-	versionID, err := AppendRevision(s.Storage, cfg.Encode(), inlockValidate)
+	versionID, err := AppendRevision(s.Storage, author, cfg.Encode(), inlockValidate)
 	if err != nil {
 		return err
 	}
@@ -254,9 +254,9 @@ func (s *Service) UpdateSettings(settings apigen.ClusterSettings, inlockValidate
 	return nil
 }
 
-func (s *Service) saveAndNotifyLocked(cfg apigen.SystemConfig) error {
+func (s *Service) saveAndNotifyLocked(cfg apigen.SystemConfig, author int32) error {
 	cfg = normalizeConfig(cfg)
-	versionID, err := AppendRevision(s.Storage, cfg.Encode(), nil)
+	versionID, err := AppendRevision(s.Storage, author, cfg.Encode(), nil)
 	if err != nil {
 		return fmt.Errorf("AppendRevision: %w", err)
 	}
@@ -284,19 +284,19 @@ func (s *Service) UpdateSettingsInternal(settings apigen.ClusterSettings) error 
 	defer s.mu.Unlock()
 	cfg := s.Snapshot()
 	cfg.Settings = NormalizeSettings(settings)
-	return s.saveAndNotifyLocked(cfg)
+	return s.saveAndNotifyLocked(cfg, 0)
 }
 
 func (s *Service) GetMasterPasswordHash() (string, error) {
 	return s.Snapshot().MasterPasswordHash, nil
 }
 
-func (s *Service) SetMasterPasswordHash(hash string) error {
+func (s *Service) SetMasterPasswordHash(hash string, author int32) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cfg := s.Snapshot()
 	cfg.MasterPasswordHash = hash
-	return s.saveAndNotifyLocked(cfg)
+	return s.saveAndNotifyLocked(cfg, author)
 }
 
 func (s *Service) MustLoadStringSetting(v apigen.StringSetting) string {

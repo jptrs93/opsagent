@@ -1,9 +1,15 @@
-// Pure helpers for the personal sessions list. Kept free of van and capi
+// Pure helpers for the user sessions list. Kept free of van and capi
 // imports so they can be unit tested outside a browser.
+
+// UserSessionKind on the wire: 0 is a full session, 1 a bootstrap session
+// opened by master-password exchange that may only register a passkey.
+export const USER_SESSION_KIND_BOOTSTRAP = 1;
+
+export const isBootstrapSession = (session) => Number(session?.kind || 0) === USER_SESSION_KIND_BOOTSTRAP;
 
 const validTime = (value) => value instanceof Date && value.getTime() > 0;
 
-export function personalSessionStatus(session, now = Date.now()) {
+export function userSessionStatus(session, now = Date.now()) {
     if (validTime(session?.revokedAt)) return {label: "Revoked", tone: "text-gray-500"};
     if (validTime(session?.expiresAt) && session.expiresAt.getTime() <= now) {
         return {label: "Expired", tone: "text-gray-500"};
@@ -11,8 +17,8 @@ export function personalSessionStatus(session, now = Date.now()) {
     return {label: "Active", tone: "text-green-400"};
 }
 
-export function personalSessionLive(session, now = Date.now()) {
-    return personalSessionStatus(session, now).label === "Active";
+export function userSessionLive(session, now = Date.now()) {
+    return userSessionStatus(session, now).label === "Active";
 }
 
 export function summarizeUserAgent(ua) {

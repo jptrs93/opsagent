@@ -1,7 +1,8 @@
 import van from 'vanjs-core';
 import {capi} from '../capi/index.js';
 import {loginS} from './login.js';
-import {createTree, applySnapshot, applyCore, applyBackupStatus, applySecretsStatus, applyIngressDiagnostics, applyAgentSessions} from './tree.js';
+import {isBootstrapSession} from '../lib/userSessions.js';
+import {createTree, applySnapshot, applyCore, applyBackupStatus, applySecretsStatus, applyIngressDiagnostics} from './tree.js';
 import {publishDerived, SEEDED_SPACES} from './derive.js';
 export * from './derive.js';
 
@@ -21,7 +22,7 @@ let streamRetryTimer = null;
 let streamInactivityTimer = null;
 const tree = createTree();
 
-const hasStateStreamAccess = () => loginS.val?.scopes?.includes('default') === true;
+const hasStateStreamAccess = () => loginS.val != null && !isBootstrapSession(loginS.val);
 
 const setStreamState = (status, sentence, lastError = '') => {
     deploymentsStreamS.val = { status, sentence, lastError };
@@ -68,7 +69,6 @@ const handleStateMessage = message => {
     if (message?.backupStatus) publishDerived(tree, applyBackupStatus(tree, message.backupStatus));
     if (message?.secretsStatus) publishDerived(tree, applySecretsStatus(tree, message.secretsStatus));
     if (message?.ingressDiagnostics) publishDerived(tree, applyIngressDiagnostics(tree, message.ingressDiagnostics));
-    if (message?.agentSessions) publishDerived(tree, applyAgentSessions(tree, message.agentSessions));
 };
 
 const scheduleReconnect = (generation, lastError) => {

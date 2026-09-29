@@ -29,7 +29,7 @@ func setAllowed(t *testing.T, h *Handler, identifier string, spaces []int32) (*a
 
 func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 	h, node := newNodeSpacesHandler(t)
-	space, err := nodes.CreateSpace(h.Store, "staging")
+	space, err := nodes.CreateSpace(h.Store, "staging", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 	}
 
 	// A second space, narrowed off this node while nothing occupies it.
-	fenced, err := nodes.CreateSpace(h.Store, "fenced")
+	fenced, err := nodes.CreateSpace(h.Store, "fenced", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 
 func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 	h, node := newNodeSpacesHandler(t)
-	space, err := nodes.CreateSpace(h.Store, "staging")
+	space, err := nodes.CreateSpace(h.Store, "staging", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestSetAllowedSpacesRejectsUnknownAndMissingInput(t *testing.T) {
 // treats every node as disallowing every space.
 func TestClusterNodesCarryAllowedSpaces(t *testing.T) {
 	h, node := newNodeSpacesHandler(t)
-	space, err := nodes.CreateSpace(h.Store, "staging")
+	space, err := nodes.CreateSpace(h.Store, "staging", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}

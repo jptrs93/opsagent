@@ -11,7 +11,6 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-webauthn/webauthn v0.16.3
-	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/google/nftables v0.3.0
 	github.com/google/uuid v1.6.0
 	github.com/jptrs93/goutil v0.23.0
@@ -75,6 +74,7 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/go-webauthn/x v0.2.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect

@@ -101,6 +101,12 @@ func BuildSnapshot(ctx context.Context, q *pq.Queries) *apigen.Snapshot {
 		out.AuthzGrantEvents = append(out.AuthzGrantEvents, ptru.To(row))
 	}
 	out.AuthzGlobalRules = erru.Must(q.ListAuthzGlobalRules(ctx))
+	for _, row := range erru.Must(q.ListAllAgentSessions(ctx)) {
+		out.AgentSessions = append(out.AgentSessions, row.Proto())
+	}
+	for _, row := range erru.Must(q.ListAllUserSessions(ctx)) {
+		out.UserSessions = append(out.UserSessions, row.Proto())
+	}
 	row, err := q.GetLatestSystemConfig(ctx)
 	if err == nil {
 		out.SystemConfig = row

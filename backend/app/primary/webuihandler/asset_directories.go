@@ -82,7 +82,7 @@ func (h *Handler) PostV1AssetDirectoriesMove(ctx apigen.Context, req *apigen.Ass
 			return nil, mapAssetDirectoryErr(err)
 		}
 	}
-	row, err := assets.MoveDirectory(h.Store, req.DirectoryID, req.NewParentID)
+	row, err := assets.MoveDirectory(h.Store, req.DirectoryID, req.NewParentID, requestUserID(ctx))
 	if err != nil {
 		return nil, mapAssetDirectoryErr(err)
 	}
@@ -106,7 +106,7 @@ func (h *Handler) PostV1AssetDirectoriesRename(ctx apigen.Context, req *apigen.A
 	} else if err := h.requireEntityAccess(ctx, vUpdate, eAsset, int64(existing.SpaceID), 0, AssetDirectoryNotFoundErr); err != nil {
 		return nil, err
 	}
-	row, err := assets.RenameDirectory(h.Store, req.DirectoryID, strings.TrimSpace(req.NewKey))
+	row, err := assets.RenameDirectory(h.Store, req.DirectoryID, strings.TrimSpace(req.NewKey), requestUserID(ctx))
 	if err != nil {
 		return nil, mapAssetDirectoryErr(err)
 	}
@@ -127,7 +127,7 @@ func (h *Handler) PostV1AssetDirectoriesDelete(ctx apigen.Context, req *apigen.A
 	} else if err := h.requireEntityAccess(ctx, vDelete, eAsset, int64(existing.SpaceID), 0, AssetDirectoryNotFoundErr); err != nil {
 		return err
 	}
-	if err := assets.DeleteDirectory(h.Store, req.DirectoryID); err != nil {
+	if err := assets.DeleteDirectory(h.Store, req.DirectoryID, requestUserID(ctx)); err != nil {
 		return mapAssetDirectoryErr(err)
 	}
 

@@ -84,7 +84,7 @@ func (h *Handler) PostV1ValueDirectoriesMove(ctx apigen.Context, req *apigen.Val
 			return nil, mapValueDirectoryErr(err)
 		}
 	}
-	row, err := values.MoveDirectory(h.Store, req.DirectoryID, req.NewParentID)
+	row, err := values.MoveDirectory(h.Store, req.DirectoryID, req.NewParentID, requestUserID(ctx))
 	if err != nil {
 		return nil, mapValueDirectoryErr(err)
 	}
@@ -108,7 +108,7 @@ func (h *Handler) PostV1ValueDirectoriesRename(ctx apigen.Context, req *apigen.V
 	} else if err := h.requireAnyEntityAccess(ctx, vUpdate, eValues, int64(existing.SpaceID), 0, ValueDirectoryNotFoundErr); err != nil {
 		return nil, err
 	}
-	row, err := values.RenameDirectory(h.Store, req.DirectoryID, strings.TrimSpace(req.NewName))
+	row, err := values.RenameDirectory(h.Store, req.DirectoryID, strings.TrimSpace(req.NewName), requestUserID(ctx))
 	if err != nil {
 		return nil, mapValueDirectoryErr(err)
 	}
@@ -129,7 +129,7 @@ func (h *Handler) PostV1ValueDirectoriesDelete(ctx apigen.Context, req *apigen.V
 	} else if err := h.requireAnyEntityAccess(ctx, vDelete, eValues, int64(existing.SpaceID), 0, ValueDirectoryNotFoundErr); err != nil {
 		return err
 	}
-	if err := values.DeleteDirectory(h.Store, req.DirectoryID); err != nil {
+	if err := values.DeleteDirectory(h.Store, req.DirectoryID, requestUserID(ctx)); err != nil {
 		return mapValueDirectoryErr(err)
 	}
 

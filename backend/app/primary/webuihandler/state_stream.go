@@ -25,16 +25,6 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 			defer sub.Unsubscribe()
 			backupStatus, backupCh = sub.InitialValue, sub.Ch
 		}
-		userID := int32(0)
-		if ctx.User != nil {
-			userID = ctx.User.ID
-		}
-		agentSessions, agentSub, err := h.agentSessions().SnapshotAndSubscribe(userID)
-		if err != nil {
-			yield(nil, err)
-			return
-		}
-		defer agentSub.Unsubscribe()
 		diagnostics := &apigen.IngressDiagnosticList{}
 		var diagnosticsCh <-chan *apigen.IngressDiagnosticList
 		if h.IngressDiagnostics != nil {
@@ -46,7 +36,7 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 		decorate := func(out *apigen.Snapshot) *apigen.Snapshot {
 			secretCopy, backupCopy := secretsStatus, backupStatus
 			out.SecretsStatus, out.BackupStatus = &secretCopy, &backupCopy
-			out.AgentSessions, out.IngressDiagnostics = agentSessions, diagnostics
+			out.IngressDiagnostics = diagnostics
 			return visibility.visibleSnapshot(out)
 		}
 		raw, updates, unsubscribe := state.Subscribe(h.Store, func() *apigen.Snapshot { return state.BuildSnapshot(ctx, h.Store.Queries()) }, func(u state.Update) (state.Update, bool) { return u, true })
@@ -108,14 +98,6 @@ func (h *Handler) PostV1GlobalStateStream(ctx apigen.Context) iter.Seq2[*apigen.
 				}
 				secretsStatus = status
 				if !yield(&apigen.StateStreamMsg{SecretsStatus: &status}, nil) {
-					return
-				}
-			case update, ok := <-agentSub.Ch:
-				if !ok {
-					return
-				}
-				agentSessions = update.Sessions
-				if !yield(&apigen.StateStreamMsg{AgentSessions: &apigen.AgentSessionList{Items: agentSessions}}, nil) {
 					return
 				}
 			case next, ok := <-diagnosticsCh:

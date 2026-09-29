@@ -9,6 +9,13 @@ type Context struct {
 	Ctx   context.Context
 	User  *InternalUser
 	Token string
+	// SessionID, SessionKind, and SessionExpiresAt describe the session row the
+	// bearer token resolved to. Empty when the route needed no auth. An agent
+	// token is always a FULL session; only master-password exchange opens a
+	// BOOTSTRAP one.
+	SessionID        string
+	SessionKind      UserSessionKind
+	SessionExpiresAt time.Time
 }
 
 // AttributionUserID is the id recorded on rows this request creates or

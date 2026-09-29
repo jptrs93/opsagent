@@ -24,7 +24,7 @@ func openTestStore(t *testing.T) *state.Service {
 }
 
 func testSealFunc(value byte) SealFunc {
-	return func(int32, string) (SealedValue, error) {
+	return func(int32) (SealedValue, error) {
 		return SealedValue{SMKVersion: 1, Ciphertext: []byte{value}, Nonce: []byte{value}}, nil
 	}
 }
@@ -130,9 +130,9 @@ func TestRotationChecksSpecVersionsBeforeSealingAndPreservesRenames(t *testing.T
 	sub, unsub := store.SubscribeUpdates()
 	defer unsub()
 	sealed := false
-	seal := func(id int32, sealID string) (SealedValue, error) {
+	seal := func(id int32) (SealedValue, error) {
 		sealed = true
-		return testSealFunc(2)(id, sealID)
+		return testSealFunc(2)(id)
 	}
 	expected := []storage.DeploymentSpecVersion{
 		{ID: first.DeploymentID, SpecVersion: first.SpecVersion},

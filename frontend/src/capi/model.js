@@ -694,7 +694,6 @@
  * @typedef {Object} Secret
  * @property {SecretFs} fs
  * @property {number} spaceId
- * @property {string} sealId
  */
 /**
  * @typedef {Object} SecretFs
@@ -977,11 +976,6 @@
  * @property {boolean} delegated
  */
 /**
- * @typedef {Object} PublicKeyRecord
- * @property {string} kid
- * @property {Uint8Array} keyBytes
- */
-/**
  * @typedef {Object} MasterPasswordRequest
  * @property {string} password
  * @property {string} username
@@ -1009,9 +1003,10 @@
  * @typedef {Object} LoginResponse
  * @property {string} token
  * @property {number} userId
- * @property {string[]} scopes
  * @property {string} name
  * @property {Date} expiry
+ * @property {string} sessionId
+ * @property {number} kind
  */
 /**
  * @typedef {Object} WebAuthNOptionsResponse
@@ -1030,22 +1025,21 @@
  * @property {Date} createdAt
  * @property {Date} expiresAt
  * @property {string} tokenPrefix
- * @property {string[]} scopes
  * @property {number} status
  * @property {string} requestingAddress
  * @property {string} approvalCode
  * @property {Date} approvedAt
  */
 /**
- * @typedef {Object} PersonalSession
+ * @typedef {Object} UserSession
  * @property {string} id
  * @property {Date} createdAt
  * @property {Date} expiresAt
  * @property {Date} revokedAt
  * @property {string} requestingAddress
  * @property {string} userAgent
- * @property {Date} lastActiveAt
- * @property {boolean} current
+ * @property {number} userId
+ * @property {number} kind
  */
 /**
  * @typedef {Object} AgentSessionRequest
@@ -1068,11 +1062,11 @@
  * @property {string} id
  */
 /**
- * @typedef {Object} PersonalSessionList
- * @property {PersonalSession[]} items
+ * @typedef {Object} UserSessionList
+ * @property {UserSession[]} items
  */
 /**
- * @typedef {Object} PersonalSessionRevokeRequest
+ * @typedef {Object} UserSessionRevokeRequest
  * @property {string} id
  */
 /**
@@ -1802,6 +1796,7 @@
  * @property {BackupStatus} backupStatus
  * @property {SystemConfigVersion} systemConfig
  * @property {IngressDiagnosticList} ingressDiagnostics
+ * @property {UserSession[]} userSessions
  */
 /**
  * @typedef {Object} CoreUpdate
@@ -1823,6 +1818,8 @@
  * @property {SystemConfigVersion} systemConfig
  * @property {ScheduledInstanceStatus[]} instanceStatuses
  * @property {NodeStatus[]} nodeStatuses
+ * @property {AgentSession[]} agentSessions
+ * @property {UserSession[]} userSessions
  */
 /**
  * @typedef {Object} StateStreamMsg
@@ -1832,7 +1829,6 @@
  * @property {BackupStatus} backupStatus
  * @property {IngressDiagnosticList} ingressDiagnostics
  * @property {SecretsStatusResponse} secretsStatus
- * @property {AgentSessionList} agentSessions
  */
 /**
  * @typedef {Object} AccessPolicy
@@ -9652,9 +9648,6 @@ export function writeSecret(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.spaceId);
     }
-    if (message.sealId !== undefined && message.sealId !== null && message.sealId !== "") {
-        writer.uint32(tag(3, WIRE.LDELIM)).string(message.sealId);
-    }
 }
 
 
@@ -9676,7 +9669,7 @@ export function encodeSecret(message) {
  */
 function decodeSecretMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {fs: undefined, spaceId: 0, sealId: "" };
+    const message = {fs: undefined, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9686,10 +9679,6 @@ function decodeSecretMessage(reader, length) {
             }
             case 2: {
                 message.spaceId = reader.int32();
-                break;
-            }
-            case 3: {
-                message.sealId = reader.string();
                 break;
             }
             default:
@@ -13090,69 +13079,6 @@ export function decodeInternalUser(buffer) {
 
 
 /**
- * @param {PublicKeyRecord} message
- * @param {Writer} writer
- */
-export function writePublicKeyRecord(message, writer) {
-    if (message.kid !== undefined && message.kid !== null && message.kid !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.kid);
-    }
-    if (message.keyBytes && message.keyBytes.length > 0) {
-        writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.keyBytes);
-    }
-}
-
-
-/**
- * @param {PublicKeyRecord} message
- * @returns {Uint8Array}
- */
-export function encodePublicKeyRecord(message) {
-    const writer = Writer.create();
-    writePublicKeyRecord(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {PublicKeyRecord}
- */
-function decodePublicKeyRecordMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {kid: "", keyBytes: new Uint8Array(0) };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.kid = reader.string();
-                break;
-            }
-            case 2: {
-                message.keyBytes = reader.bytes();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {PublicKeyRecord}
- */
-export function decodePublicKeyRecord(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodePublicKeyRecordMessage(reader);
-}
-
-
-
-/**
  * @param {MasterPasswordRequest} message
  * @param {Writer} writer
  */
@@ -13471,16 +13397,17 @@ export function writeLoginResponse(message, writer) {
     if (message.userId !== undefined && message.userId !== null && message.userId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.userId);
     }
-    if (message.scopes && message.scopes.length > 0) {
-        for (const item of message.scopes) {
-            writer.uint32(tag(3, WIRE.LDELIM)).string(item);
-        }
-    }
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(4, WIRE.LDELIM)).string(message.name);
     }
     if (message.expiry instanceof Date && message.expiry.getTime() !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.expiry.getTime()));
+    }
+    if (message.sessionId !== undefined && message.sessionId !== null && message.sessionId !== "") {
+        writer.uint32(tag(6, WIRE.LDELIM)).string(message.sessionId);
+    }
+    if (message.kind !== undefined && message.kind !== null && message.kind !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.kind);
     }
 }
 
@@ -13503,7 +13430,7 @@ export function encodeLoginResponse(message) {
  */
 function decodeLoginResponseMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {token: "", userId: 0, scopes: [], name: "", expiry: new Date(0) };
+    const message = {token: "", userId: 0, name: "", expiry: new Date(0), sessionId: "", kind: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -13515,16 +13442,20 @@ function decodeLoginResponseMessage(reader, length) {
                 message.userId = reader.int32();
                 break;
             }
-            case 3: {
-                message.scopes.push(reader.string());
-                break;
-            }
             case 4: {
                 message.name = reader.string();
                 break;
             }
             case 5: {
                 message.expiry = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 6: {
+                message.sessionId = reader.string();
+                break;
+            }
+            case 7: {
+                message.kind = reader.int32();
                 break;
             }
             default:
@@ -13692,11 +13623,6 @@ export function writeAgentSession(message, writer) {
     if (message.tokenPrefix !== undefined && message.tokenPrefix !== null && message.tokenPrefix !== "") {
         writer.uint32(tag(4, WIRE.LDELIM)).string(message.tokenPrefix);
     }
-    if (message.scopes && message.scopes.length > 0) {
-        for (const item of message.scopes) {
-            writer.uint32(tag(5, WIRE.LDELIM)).string(item);
-        }
-    }
     if (message.status !== undefined && message.status !== null && message.status !== 0) {
         writer.uint32(tag(6, WIRE.VARINT)).int32(message.status);
     }
@@ -13730,7 +13656,7 @@ export function encodeAgentSession(message) {
  */
 function decodeAgentSessionMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {userId: 0, id: "", createdAt: new Date(0), expiresAt: new Date(0), tokenPrefix: "", scopes: [], status: 0, requestingAddress: "", approvalCode: "", approvedAt: new Date(0) };
+    const message = {userId: 0, id: "", createdAt: new Date(0), expiresAt: new Date(0), tokenPrefix: "", status: 0, requestingAddress: "", approvalCode: "", approvedAt: new Date(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -13752,10 +13678,6 @@ function decodeAgentSessionMessage(reader, length) {
             }
             case 4: {
                 message.tokenPrefix = reader.string();
-                break;
-            }
-            case 5: {
-                message.scopes.push(reader.string());
                 break;
             }
             case 6: {
@@ -13794,10 +13716,10 @@ export function decodeAgentSession(buffer) {
 
 
 /**
- * @param {PersonalSession} message
+ * @param {UserSession} message
  * @param {Writer} writer
  */
-export function writePersonalSession(message, writer) {
+export function writeUserSession(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.id);
     }
@@ -13816,22 +13738,22 @@ export function writePersonalSession(message, writer) {
     if (message.userAgent !== undefined && message.userAgent !== null && message.userAgent !== "") {
         writer.uint32(tag(6, WIRE.LDELIM)).string(message.userAgent);
     }
-    if (message.lastActiveAt instanceof Date && message.lastActiveAt.getTime() !== 0) {
-        writer.uint32(tag(7, WIRE.VARINT)).int64(Math.trunc(message.lastActiveAt.getTime()));
+    if (message.userId !== undefined && message.userId !== null && message.userId !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).int32(message.userId);
     }
-    if (message.current === true) {
-        writer.uint32(tag(8, WIRE.VARINT)).bool(message.current);
+    if (message.kind !== undefined && message.kind !== null && message.kind !== 0) {
+        writer.uint32(tag(10, WIRE.VARINT)).int32(message.kind);
     }
 }
 
 
 /**
- * @param {PersonalSession} message
+ * @param {UserSession} message
  * @returns {Uint8Array}
  */
-export function encodePersonalSession(message) {
+export function encodeUserSession(message) {
     const writer = Writer.create();
-    writePersonalSession(message, writer);
+    writeUserSession(message, writer);
     return writer.finish();
 }
 
@@ -13839,11 +13761,11 @@ export function encodePersonalSession(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {PersonalSession}
+ * @returns {UserSession}
  */
-function decodePersonalSessionMessage(reader, length) {
+function decodeUserSessionMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: "", createdAt: new Date(0), expiresAt: new Date(0), revokedAt: new Date(0), requestingAddress: "", userAgent: "", lastActiveAt: new Date(0), current: false };
+    const message = {id: "", createdAt: new Date(0), expiresAt: new Date(0), revokedAt: new Date(0), requestingAddress: "", userAgent: "", userId: 0, kind: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -13871,12 +13793,12 @@ function decodePersonalSessionMessage(reader, length) {
                 message.userAgent = reader.string();
                 break;
             }
-            case 7: {
-                message.lastActiveAt = new Date(readInt64(reader, "int64"));
+            case 9: {
+                message.userId = reader.int32();
                 break;
             }
-            case 8: {
-                message.current = reader.bool();
+            case 10: {
+                message.kind = reader.int32();
                 break;
             }
             default:
@@ -13889,11 +13811,11 @@ function decodePersonalSessionMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {PersonalSession}
+ * @returns {UserSession}
  */
-export function decodePersonalSession(buffer) {
+export function decodeUserSession(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodePersonalSessionMessage(reader);
+    return decodeUserSessionMessage(reader);
 }
 
 
@@ -14157,14 +14079,14 @@ export function decodeAgentSessionRevokeRequest(buffer) {
 
 
 /**
- * @param {PersonalSessionList} message
+ * @param {UserSessionList} message
  * @param {Writer} writer
  */
-export function writePersonalSessionList(message, writer) {
+export function writeUserSessionList(message, writer) {
     if (message.items && message.items.length > 0) {
         for (const item of message.items) {
             writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writePersonalSession(item, writer);
+            writeUserSession(item, writer);
             writer.ldelim();
         }
     }
@@ -14172,12 +14094,12 @@ export function writePersonalSessionList(message, writer) {
 
 
 /**
- * @param {PersonalSessionList} message
+ * @param {UserSessionList} message
  * @returns {Uint8Array}
  */
-export function encodePersonalSessionList(message) {
+export function encodeUserSessionList(message) {
     const writer = Writer.create();
-    writePersonalSessionList(message, writer);
+    writeUserSessionList(message, writer);
     return writer.finish();
 }
 
@@ -14185,16 +14107,16 @@ export function encodePersonalSessionList(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {PersonalSessionList}
+ * @returns {UserSessionList}
  */
-function decodePersonalSessionListMessage(reader, length) {
+function decodeUserSessionListMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {items: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.items.push(decodePersonalSessionMessage(reader, reader.uint32()));
+                message.items.push(decodeUserSessionMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -14207,20 +14129,20 @@ function decodePersonalSessionListMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {PersonalSessionList}
+ * @returns {UserSessionList}
  */
-export function decodePersonalSessionList(buffer) {
+export function decodeUserSessionList(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodePersonalSessionListMessage(reader);
+    return decodeUserSessionListMessage(reader);
 }
 
 
 
 /**
- * @param {PersonalSessionRevokeRequest} message
+ * @param {UserSessionRevokeRequest} message
  * @param {Writer} writer
  */
-export function writePersonalSessionRevokeRequest(message, writer) {
+export function writeUserSessionRevokeRequest(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.id);
     }
@@ -14228,12 +14150,12 @@ export function writePersonalSessionRevokeRequest(message, writer) {
 
 
 /**
- * @param {PersonalSessionRevokeRequest} message
+ * @param {UserSessionRevokeRequest} message
  * @returns {Uint8Array}
  */
-export function encodePersonalSessionRevokeRequest(message) {
+export function encodeUserSessionRevokeRequest(message) {
     const writer = Writer.create();
-    writePersonalSessionRevokeRequest(message, writer);
+    writeUserSessionRevokeRequest(message, writer);
     return writer.finish();
 }
 
@@ -14241,9 +14163,9 @@ export function encodePersonalSessionRevokeRequest(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {PersonalSessionRevokeRequest}
+ * @returns {UserSessionRevokeRequest}
  */
-function decodePersonalSessionRevokeRequestMessage(reader, length) {
+function decodeUserSessionRevokeRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {id: "" };
     while (reader.pos < end) {
@@ -14263,11 +14185,11 @@ function decodePersonalSessionRevokeRequestMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {PersonalSessionRevokeRequest}
+ * @returns {UserSessionRevokeRequest}
  */
-export function decodePersonalSessionRevokeRequest(buffer) {
+export function decodeUserSessionRevokeRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodePersonalSessionRevokeRequestMessage(reader);
+    return decodeUserSessionRevokeRequestMessage(reader);
 }
 
 
@@ -22894,6 +22816,13 @@ export function writeSnapshot(message, writer) {
         writeIngressDiagnosticList(message.ingressDiagnostics, writer);
         writer.ldelim();
     }
+    if (message.userSessions && message.userSessions.length > 0) {
+        for (const item of message.userSessions) {
+            writer.uint32(tag(23, WIRE.LDELIM)).fork();
+            writeUserSession(item, writer);
+            writer.ldelim();
+        }
+    }
 }
 
 
@@ -22915,7 +22844,7 @@ export function encodeSnapshot(message) {
  */
 function decodeSnapshotMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {seq: 0, deploymentEvents: [], scheduledInstanceEvents: [], instanceStatuses: [], nodeEvents: [], nodeStatuses: [], secretEvents: [], configEvents: [], assetEvents: [], valueDirectories: [], assetDirectories: [], spaces: [], networkPolicyEvents: [], users: [], agentSessions: [], authzRuleTemplates: [], authzGrantEvents: [], authzGlobalRules: [], secretsStatus: undefined, backupStatus: undefined, systemConfig: undefined, ingressDiagnostics: undefined };
+    const message = {seq: 0, deploymentEvents: [], scheduledInstanceEvents: [], instanceStatuses: [], nodeEvents: [], nodeStatuses: [], secretEvents: [], configEvents: [], assetEvents: [], valueDirectories: [], assetDirectories: [], spaces: [], networkPolicyEvents: [], users: [], agentSessions: [], authzRuleTemplates: [], authzGrantEvents: [], authzGlobalRules: [], secretsStatus: undefined, backupStatus: undefined, systemConfig: undefined, ingressDiagnostics: undefined, userSessions: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -23005,6 +22934,10 @@ function decodeSnapshotMessage(reader, length) {
             }
             case 22: {
                 message.ingressDiagnostics = decodeIngressDiagnosticListMessage(reader, reader.uint32());
+                break;
+            }
+            case 23: {
+                message.userSessions.push(decodeUserSessionMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -23147,6 +23080,20 @@ export function writeCoreUpdate(message, writer) {
             writer.ldelim();
         }
     }
+    if (message.agentSessions && message.agentSessions.length > 0) {
+        for (const item of message.agentSessions) {
+            writer.uint32(tag(19, WIRE.LDELIM)).fork();
+            writeAgentSession(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.userSessions && message.userSessions.length > 0) {
+        for (const item of message.userSessions) {
+            writer.uint32(tag(20, WIRE.LDELIM)).fork();
+            writeUserSession(item, writer);
+            writer.ldelim();
+        }
+    }
 }
 
 
@@ -23168,7 +23115,7 @@ export function encodeCoreUpdate(message) {
  */
 function decodeCoreUpdateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {seq: 0, deploymentEvents: [], scheduledInstanceEvents: [], nodeEvents: [], secretEvents: [], configEvents: [], assetEvents: [], networkPolicyEvents: [], spaces: [], users: [], valueDirectories: [], assetDirectories: [], authzRuleTemplates: undefined, authzGrantEvents: [], authzGlobalRules: undefined, systemConfig: undefined, instanceStatuses: [], nodeStatuses: [] };
+    const message = {seq: 0, deploymentEvents: [], scheduledInstanceEvents: [], nodeEvents: [], secretEvents: [], configEvents: [], assetEvents: [], networkPolicyEvents: [], spaces: [], users: [], valueDirectories: [], assetDirectories: [], authzRuleTemplates: undefined, authzGrantEvents: [], authzGlobalRules: undefined, systemConfig: undefined, instanceStatuses: [], nodeStatuses: [], agentSessions: [], userSessions: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -23244,6 +23191,14 @@ function decodeCoreUpdateMessage(reader, length) {
                 message.nodeStatuses.push(decodeNodeStatusMessage(reader, reader.uint32()));
                 break;
             }
+            case 19: {
+                message.agentSessions.push(decodeAgentSessionMessage(reader, reader.uint32()));
+                break;
+            }
+            case 20: {
+                message.userSessions.push(decodeUserSessionMessage(reader, reader.uint32()));
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -23296,11 +23251,6 @@ export function writeStateStreamMsg(message, writer) {
         writeSecretsStatusResponse(message.secretsStatus, writer);
         writer.ldelim();
     }
-    if (message.agentSessions !== undefined && message.agentSessions !== null) {
-        writer.uint32(tag(8, WIRE.LDELIM)).fork();
-        writeAgentSessionList(message.agentSessions, writer);
-        writer.ldelim();
-    }
 }
 
 
@@ -23322,7 +23272,7 @@ export function encodeStateStreamMsg(message) {
  */
 function decodeStateStreamMsgMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {snapshot: undefined, core: undefined, heartbeat: false, backupStatus: undefined, ingressDiagnostics: undefined, secretsStatus: undefined, agentSessions: undefined };
+    const message = {snapshot: undefined, core: undefined, heartbeat: false, backupStatus: undefined, ingressDiagnostics: undefined, secretsStatus: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -23348,10 +23298,6 @@ function decodeStateStreamMsgMessage(reader, length) {
             }
             case 7: {
                 message.secretsStatus = decodeSecretsStatusResponseMessage(reader, reader.uint32());
-                break;
-            }
-            case 8: {
-                message.agentSessions = decodeAgentSessionListMessage(reader, reader.uint32());
                 break;
             }
             default:

@@ -473,8 +473,8 @@ func (c *ApiServerCapi) PostV1AgentSessionsRevoke(ctx context.Context, req *Agen
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1PersonalSessionsList(ctx context.Context) (*PersonalSessionList, error) {
-	resp, err := c.do(ctx, "POST", "/v1/personal-sessions/list", nil, "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1UserSessionsList(ctx context.Context) (*UserSessionList, error) {
+	resp, err := c.do(ctx, "POST", "/v1/user-sessions/list", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -486,14 +486,14 @@ func (c *ApiServerCapi) PostV1PersonalSessionsList(ctx context.Context) (*Person
 	if err != nil {
 		return nil, err
 	}
-	return DecodePersonalSessionList(body)
+	return DecodeUserSessionList(body)
 }
 
-func (c *ApiServerCapi) PostV1PersonalSessionsRevoke(ctx context.Context, req *PersonalSessionRevokeRequest) error {
+func (c *ApiServerCapi) PostV1UserSessionsRevoke(ctx context.Context, req *UserSessionRevokeRequest) error {
 	if req == nil {
-		return fmt.Errorf("PostV1PersonalSessionsRevoke request is nil")
+		return fmt.Errorf("PostV1UserSessionsRevoke request is nil")
 	}
-	resp, err := c.do(ctx, "POST", "/v1/personal-sessions/revoke", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	resp, err := c.do(ctx, "POST", "/v1/user-sessions/revoke", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return err
 	}

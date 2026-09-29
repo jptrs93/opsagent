@@ -6,15 +6,28 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-func (q *Queries) UpsertNixStoreReset(ctx context.Context, repo string, requestedAt int64) error {
-	_, err := q.db.ExecContext(ctx, `
-		INSERT INTO nix_store_resets (repo, requested_at) VALUES (?, ?)
-		ON CONFLICT(repo) DO UPDATE SET requested_at = excluded.requested_at`, repo, requestedAt)
+type NixStoreResetEventParams struct {
+	EventMeta
+	Repo        string
+	RequestedAt int64
+}
+
+func (q *Queries) InsertNixStoreResetEvent(ctx context.Context, arg NixStoreResetEventParams) error {
+	_, err := q.db.ExecContext(ctx, `INSERT INTO nix_store_reset_event_log (global_seq, event_time, author, repo, event_type, requested_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		arg.GlobalSeq, arg.EventTime, arg.Author, arg.Repo, arg.EventType, arg.RequestedAt)
 	return err
 }
 
+func (q *Queries) NixStoreResetExists(ctx context.Context, repo string) (bool, error) {
+	var count int64
+	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM nix_store_reset_event_log WHERE repo = ?`, repo).Scan(&count)
+	return count > 0, err
+}
+
+// ListNixStoreResets returns the newest request per repository.
 func (q *Queries) ListNixStoreResets(ctx context.Context) ([]*apigen.NixStoreReset, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT repo, requested_at FROM nix_store_resets ORDER BY repo`)
+	rows, err := q.db.QueryContext(ctx, `SELECT repo, requested_at FROM nix_store_reset_event_log
+WHERE id IN (SELECT MAX(id) FROM nix_store_reset_event_log GROUP BY repo) ORDER BY repo`)
 	if err != nil {
 		return nil, err
 	}

@@ -301,11 +301,14 @@ func createSpaceForTest(s *Service, name string) *apigen.Space {
 	ctx := context.Background()
 	var space apigen.Space
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
-		var err error
-		space, err = q.CreateSpace(ctx, name)
+		id, err := q.NextSpaceID(ctx)
 		if err != nil {
 			return nil, err
 		}
+		if err := q.InsertSpaceEvent(ctx, pq.SpaceEventParams{EventMeta: pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, SpaceID: id, Name: name}); err != nil {
+			return nil, err
+		}
+		space = apigen.Space{ID: int32(id), Name: name}
 		return &Update{Spaces: []*apigen.Space{&space}}, nil
 	}))
 	return &space
@@ -314,10 +317,14 @@ func createSpaceForTest(s *Service, name string) *apigen.Space {
 func deleteSpaceForTest(s *Service, id int32) {
 	ctx := context.Background()
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
-		if err := q.DeleteSpace(ctx, int64(id)); err != nil {
+		current, err := q.GetSpace(ctx, int64(id))
+		if err != nil {
 			return nil, err
 		}
-		return &Update{Spaces: []*apigen.Space{{ID: id, Deleted: true}}}, nil
+		if err := q.InsertSpaceEvent(ctx, pq.SpaceEventParams{EventMeta: pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), EventType: apigen.AuthzVerb_AUTHZ_VERB_DELETE}, SpaceID: int64(id), Name: current.Name}); err != nil {
+			return nil, err
+		}
+		return &Update{Spaces: []*apigen.Space{{ID: id, Name: current.Name, Deleted: true}}}, nil
 	}))
 }
 
@@ -385,8 +392,11 @@ func createAssetDirectoryForTest(s *Service, spaceID, parentID int32, key string
 	ctx := context.Background()
 	var d apigen.AssetDirectory
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
-		var err error
-		d, err = q.InsertAssetDirectory(ctx, pq.InsertAssetDirectoryParams{SpaceID: int64(spaceID), Key: key, ParentID: int64(parentID), CreatedAt: time.Now().UnixMilli(), Author: int64(author)})
+		id, err := q.NextAssetDirectoryID(ctx)
+		if err != nil {
+			return nil, err
+		}
+		d, err = q.InsertAssetDirectoryEvent(ctx, pq.AssetDirectoryEventParams{EventMeta: pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(author), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, DirectoryID: id, SpaceID: int64(spaceID), Key: key, ParentID: int64(parentID), CreatedAt: time.Now().UnixMilli()})
 		if err != nil {
 			return nil, err
 		}
@@ -402,10 +412,10 @@ func deleteAssetDirectoryForTest(s *Service, id int32) {
 		if err != nil {
 			return nil, err
 		}
-		if err := q.DeleteAssetDirectory(ctx, int64(id)); err != nil {
+		tombstone, err := q.InsertAssetDirectoryEvent(ctx, pq.AssetDirectoryEvent(d, pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), EventType: apigen.AuthzVerb_AUTHZ_VERB_DELETE}))
+		if err != nil {
 			return nil, err
 		}
-		d.Deleted = true
-		return &Update{AssetDirectories: []*apigen.AssetDirectory{&d}}, nil
+		return &Update{AssetDirectories: []*apigen.AssetDirectory{&tombstone}}, nil
 	}))
 }

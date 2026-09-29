@@ -52,6 +52,8 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 			cleanupBootstrapArtifacts(s.DataDir)
 		}
 	}()
+	primaryIdentifier := uuid.NewString()
+	nodes.EnsurePrimaryNode(store, "primary", primaryIdentifier)
 	secretsMgr, err := secrets.Initialize(s.DataDir, store)
 	if err != nil {
 		return nil, err
@@ -65,8 +67,6 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 		cfg.Settings.HttpsWeb.TlsSelfManaged = apigen.BoolSetting{Value: true}
 		cfg.Settings.HttpsWeb.TlsCertPem = apigen.SecretRef{Ref: meta.Ref()}
 	}
-	primaryIdentifier := uuid.NewString()
-	nodes.EnsurePrimaryNode(store, "primary", primaryIdentifier)
 	clusterMaterial, err := pki.BootstrapPrimary(secretsMgr, primaryIdentifier, opts.PrimaryName)
 	if err != nil {
 		return nil, fmt.Errorf("initializing cluster TLS material: %w", err)

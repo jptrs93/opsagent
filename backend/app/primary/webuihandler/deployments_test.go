@@ -412,7 +412,7 @@ func TestDeploymentAddressEnvRefsValidateAndBlockTargetChanges(t *testing.T) {
 		t.Fatalf("cross-node address ref = %+v", got)
 	}
 
-	nextSpace, err := nodes.CreateSpace(store, "other")
+	nextSpace, err := nodes.CreateSpace(store, "other", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -572,8 +572,8 @@ func TestDeploymentCreateRejectsInternalIdentity(t *testing.T) {
 		Scheduling: apigen.DedicatedScheduling(false, primary.ID),
 		Spec:       remoteDeploymentSpec("nginx", hostNetworking()),
 	})
-	if err == nil || !strings.Contains(err.Error(), "internal-only") {
-		t.Fatalf("err = %v, want internal identity rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "spaceId must be between 1") {
+		t.Fatalf("err = %v, want space 0 rejection", err)
 	}
 }
 
@@ -601,7 +601,7 @@ func TestDeploymentIdentityIsScopedByNodeID(t *testing.T) {
 	if _, err := create(nodeB.ID, 1); err != nil {
 		t.Fatalf("same identity on another node: %v", err)
 	}
-	extraSpace, err := nodes.CreateSpace(store, "other")
+	extraSpace, err := nodes.CreateSpace(store, "other", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}

@@ -191,7 +191,7 @@ func TestSpaceAndNodeChangesPublishTogether(t *testing.T) {
 	before := s.BuildSnapshot(context.Background()).Seq
 	sub, unsub := s.SubscribeUpdates()
 	defer unsub()
-	space, err := CreateSpace(s, "new")
+	space, err := CreateSpace(s, "new", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

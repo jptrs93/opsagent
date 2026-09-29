@@ -70,7 +70,7 @@ func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.Cl
 		}
 		return nil
 	}
-	if err := h.SystemConfig.UpdateSettings(*stored, validate); err != nil {
+	if err := h.SystemConfig.UpdateSettings(*stored, ctx.AttributionUserID(), validate); err != nil {
 		var apiErr *apigen.ApiErr
 		if errors.As(err, &apiErr) {
 			return nil, err

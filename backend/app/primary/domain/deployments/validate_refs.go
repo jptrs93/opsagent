@@ -8,6 +8,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
@@ -29,7 +30,7 @@ func validateRefSpaces(ctx context.Context, q *pq.Queries, spec *apigen.Deployme
 		if err != nil {
 			return err
 		}
-		if secret.SpaceID != int64(spaceID) && secret.SpaceID != int64(nodes.DefaultSpaceID) {
+		if secret.SpaceID == int64(internaldeploy.SpaceID) || secret.SpaceID != int64(spaceID) && secret.SpaceID != int64(nodes.DefaultSpaceID) {
 			e := SecretRefOutsideSpaceErr
 			e.DisplayErr = fmt.Sprintf("Secret %q lives in space %d and cannot be referenced from a deployment in space %d", secret.Name, secret.SpaceID, spaceID)
 			return e
@@ -43,7 +44,7 @@ func validateRefSpaces(ctx context.Context, q *pq.Queries, spec *apigen.Deployme
 		if err != nil {
 			return err
 		}
-		if version.SpaceID != int64(spaceID) && version.SpaceID != int64(nodes.DefaultSpaceID) {
+		if version.SpaceID == int64(internaldeploy.SpaceID) || version.SpaceID != int64(spaceID) && version.SpaceID != int64(nodes.DefaultSpaceID) {
 			e := ConfigRefOutsideSpaceErr
 			e.DisplayErr = fmt.Sprintf("Config %q lives in space %d and cannot be referenced from a deployment in space %d", version.Name, version.SpaceID, spaceID)
 			return e
@@ -57,7 +58,7 @@ func validateRefSpaces(ctx context.Context, q *pq.Queries, spec *apigen.Deployme
 		if err != nil {
 			return err
 		}
-		if version.Asset.SpaceID != int64(spaceID) && version.Asset.SpaceID != int64(nodes.DefaultSpaceID) {
+		if version.Asset.SpaceID == int64(internaldeploy.SpaceID) || version.Asset.SpaceID != int64(spaceID) && version.Asset.SpaceID != int64(nodes.DefaultSpaceID) {
 			e := AssetRefOutsideSpaceErr
 			e.DisplayErr = fmt.Sprintf("Asset %q lives in space %d and cannot be referenced from a deployment in space %d", version.Asset.Key, version.Asset.SpaceID, spaceID)
 			return e

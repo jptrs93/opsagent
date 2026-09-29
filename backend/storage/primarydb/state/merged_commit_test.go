@@ -35,7 +35,7 @@ func TestMergedCommitConditionallyStoresSequence(t *testing.T) {
 		if seq != before+2 {
 			t.Errorf("candidate = %d, want %d", seq, before+2)
 		}
-		return nil, q.UpsertPublicKey(ctx, pq.UpsertPublicKeyParams{Kid: "internal", KeyBytes: []byte{1}})
+		return nil, q.InsertUserSessionEvent(ctx, pq.UserSessionEventParams{EventMeta: pq.EventMeta{GlobalSeq: seq, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, SessionID: "internal", UserID: 1, CreatedAt: 1, ExpiresAt: 2, TokenHash: []byte{1}})
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestMergedCommitConditionallyStoresSequence(t *testing.T) {
 	}
 }
 
-func TestMergedReadThenWriteConcurrentWithSessionSidecar(t *testing.T) {
+func TestMergedReadThenWriteConcurrentWithSessionCommits(t *testing.T) {
 	s := Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer s.Close()
 	ctx := context.Background()
@@ -70,7 +70,6 @@ func TestMergedReadThenWriteConcurrentWithSessionSidecar(t *testing.T) {
 		<-start
 		for i := 0; i < writes; i++ {
 			err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
-				// Let the independently locked owner compete after the transaction read.
 				runtime.Gosched()
 				status, err := q.SetNodeConnectionStatus(ctx, seq, node.Identifier, true, time.Now())
 				if err != nil {
@@ -88,7 +87,18 @@ func TestMergedReadThenWriteConcurrentWithSessionSidecar(t *testing.T) {
 		defer wg.Done()
 		<-start
 		for i := 0; i < writes; i++ {
-			if err := s.q.InsertAgentSession(context.Background(), pq.InsertAgentSessionParams{ID: fmt.Sprintf("session-%d", i), UserID: 1, CreatedAt: time.Now().Unix(), TokenHash: []byte{}}); err != nil {
+			id := fmt.Sprintf("session-%d", i)
+			err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+				if err := q.InsertAgentSessionEvent(ctx, pq.AgentSessionEventParams{EventMeta: pq.EventMeta{GlobalSeq: seq, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, SessionID: id, UserID: 1, CreatedAt: time.Now().Unix(), TokenHash: []byte{}}); err != nil {
+					return nil, err
+				}
+				row, err := q.GetAgentSession(ctx, id)
+				if err != nil {
+					return nil, err
+				}
+				return &apigen.CoreUpdate{AgentSessions: []*apigen.AgentSession{row.Proto()}}, nil
+			})
+			if err != nil {
 				failures <- err
 				return
 			}
@@ -100,12 +110,17 @@ func TestMergedReadThenWriteConcurrentWithSessionSidecar(t *testing.T) {
 	for err := range failures {
 		t.Error(err)
 	}
-	if s.BuildSnapshot(ctx).Seq != before+writes {
-		t.Fatal("sidecars advanced the clock or observations did not")
+	if s.BuildSnapshot(ctx).Seq != before+2*writes {
+		t.Fatal("every session and observation commit must consume one seq")
 	}
 	sessions, err := s.q.ListAgentSessionsForUser(context.Background(), 1)
 	if err != nil || len(sessions) != writes {
 		t.Fatalf("sessions=%d err=%v", len(sessions), err)
+	}
+	for _, row := range sessions {
+		if row.GlobalSeq <= before {
+			t.Fatalf("session %s carries seq %d, before the run started", row.SessionID, row.GlobalSeq)
+		}
 	}
 	if len(erru.Must(s.q.ListNodeStatusHistorySince(context.Background(), node.ID, time.Time{}))) != writes {
 		t.Fatal("observation history lost writes")

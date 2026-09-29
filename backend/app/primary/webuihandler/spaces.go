@@ -25,7 +25,7 @@ func (h *Handler) PostV1SpacesCreate(ctx apigen.Context, req *apigen.SpaceSetReq
 	if err := h.requireAccess(ctx, vCreate, eSpace, 0, 0); err != nil {
 		return nil, err
 	}
-	space, err := nodes.CreateSpace(h.Store, name)
+	space, err := nodes.CreateSpace(h.Store, name, ctx.AttributionUserID())
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func (h *Handler) PostV1SpacesUpdate(ctx apigen.Context, req *apigen.SpaceSetReq
 	if err := h.requireEntityAccess(ctx, vUpdate, eSpace, int64(req.ID), int64(req.ID), SpaceNotFoundErr); err != nil {
 		return nil, err
 	}
-	space, err := nodes.UpdateSpace(h.Store, req.ID, name)
+	space, err := nodes.UpdateSpace(h.Store, req.ID, name, ctx.AttributionUserID())
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, SpaceNotFoundErr
 	}
@@ -64,7 +64,7 @@ func (h *Handler) PostV1SpacesDelete(ctx apigen.Context, req *apigen.SpaceDelete
 	if count > 0 {
 		return SpaceInUseErr
 	}
-	if err := nodes.DeleteSpace(h.Store, req.ID); err != nil {
+	if err := nodes.DeleteSpace(h.Store, req.ID, ctx.AttributionUserID()); err != nil {
 		return err
 	}
 	return nil

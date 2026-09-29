@@ -76,7 +76,7 @@ func (h *Handler) PostV1AuthPasswordLogin(ctx apigen.Context, req *apigen.Passwo
 	if err != nil {
 		return nil, err
 	}
-	return h.startPersonalSession(ctx, user)
+	return h.startDefaultUserSession(ctx, user)
 }
 
 // GetV1TlsCaCert serves the local Web UI CA certificate as PEM so an operator

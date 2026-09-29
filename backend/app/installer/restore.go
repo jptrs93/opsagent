@@ -314,7 +314,7 @@ func unlockRestoredSecrets(dbPath, recoveryCode string, own owner) error {
 		_ = store.Close()
 		return fmt.Errorf("open restored secrets store: %w", err)
 	}
-	if err := mgr.Unlock(recoveryCode); err != nil {
+	if err := mgr.Unlock(recoveryCode, 0); err != nil {
 		_ = store.Close()
 		return fmt.Errorf("unlock restored secrets store: %w", err)
 	}

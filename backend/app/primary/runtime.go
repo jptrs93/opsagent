@@ -169,7 +169,7 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 	return webuihandler.Dependencies{
 		BackupStatus:          r.backupStatus,
 		Store:                 r.store,
-		AgentSessions:         agentsessions.New(r.store.Queries()),
+		AgentSessions:         agentsessions.New(r.store),
 		Assets:                r.assets,
 		SystemConfig:          r.configService,
 		GitVersions:           r.gitVersions,

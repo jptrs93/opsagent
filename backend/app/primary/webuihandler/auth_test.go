@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -17,12 +15,12 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
-	"github.com/jptrs93/opsagent/backend/util/jwtu"
 )
 
 // newAuthTestHandler builds a Handler with just enough wiring to mint and
-// verify JWTs against a throwaway store.
+// verify session tokens against a throwaway store.
 func newAuthTestHandler(t *testing.T) (*Handler, *apigen.InternalUser) {
 	t.Helper()
 	dir := t.TempDir()
@@ -39,22 +37,6 @@ func newAuthTestHandler(t *testing.T) (*Handler, *apigen.InternalUser) {
 		t.Fatalf("systemconfig.InitializeService: %v", err)
 	}
 	h := &Handler{Store: store, Queries: store.Queries(), Secrets: secretManager, SystemConfig: configService}
-	h.jwtAuth = authu.NewJWTAuth[*apigen.InternalUser, int32](
-		func(kid string, key []byte) error {
-			users.WritePublicKey(h.Store.Queries(), &apigen.PublicKeyRecord{Kid: kid, KeyBytes: key})
-			return nil
-		},
-		func(kid string) ([]byte, error) {
-			rec, err := users.PublicKey(h.Store.Queries(), kid)
-			if err != nil {
-				return nil, err
-			}
-			return rec.KeyBytes, nil
-		},
-		func(id int32) (*apigen.InternalUser, error) {
-			return users.ByID(h.Store.Queries(), id)
-		},
-	)
 	webAuthNID, err := authu.GenerateWebAuthnID(32)
 	if err != nil {
 		t.Fatalf("GenerateWebAuthnID: %v", err)
@@ -64,95 +46,125 @@ func newAuthTestHandler(t *testing.T) (*Handler, *apigen.InternalUser) {
 	return h, user
 }
 
-func (h *Handler) mustToken(t *testing.T, userID int32, scopes []string, ttl time.Duration) string {
+// fullSessionPolicy is what every ordinary route declares: a full session,
+// never a bootstrap one.
+var fullSessionPolicy = apigen.AccessPolicy{PolicyType: apigen.AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+
+const (
+	fullSession      = apigen.UserSessionKind_USER_SESSION_KIND_FULL
+	bootstrapSession = apigen.UserSessionKind_USER_SESSION_KIND_BOOTSTRAP
+)
+
+// mustToken opens a user session of the given kind and lifetime and returns
+// its bearer token. A negative ttl yields an already-expired session.
+func (h *Handler) mustToken(t *testing.T, userID int32, kind apigen.UserSessionKind, ttl time.Duration) string {
 	t.Helper()
-	token, err := h.jwtAuth.GenerateTokenWith(userID, scopes, ttl)
+	user, err := users.ByID(h.Store.Queries(), userID)
 	if err != nil {
-		t.Fatalf("GenerateTokenWith: %v", err)
+		t.Fatalf("users.ByID(%d): %v", userID, err)
 	}
-	return token
+	res, err := h.startUserSession(bg(), user, kind, ttl)
+	if err != nil {
+		t.Fatalf("startUserSession: %v", err)
+	}
+	return res.Token
+}
+
+// verifyToken runs a token through VerifyAuth under a policy that accepts any
+// session kind, so callers can inspect what the token resolved to.
+func (h *Handler) verifyToken(token string) (apigen.Context, error) {
+	r := httptest.NewRequest(http.MethodGet, "/v1/anything", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+	return h.VerifyAuth(context.Background(), httptest.NewRecorder(), r, apigen.AccessPolicy{PolicyType: apigen.AccessPolicyType_OPTIONAL_AUTH})
 }
 
 func TestPostV1AgentSessionsCreateMintsShortLivedToken(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	session := h.mustToken(t, user.ID, []string{"default"}, 48*time.Hour)
+	session := h.operatorCtx(t, user)
 
 	before := time.Now()
-	res, err := h.PostV1AgentSessionsCreate(apigen.Context{Ctx: context.Background(), User: user, Token: session})
+	res, err := h.PostV1AgentSessionsCreate(session)
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
 	}
 	if res.Token == "" {
 		t.Fatal("expected a token")
 	}
-	if res.Token == session {
+	if res.Token == session.Token {
 		t.Fatal("expected a newly minted token, not the caller's session token echoed back")
+	}
+	if !strings.HasPrefix(res.Token, agentTokenKind) {
+		t.Fatalf("token %q does not carry the agent prefix", res.Token)
 	}
 
 	wantExpiry := before.Add(agentSessionTTL)
 	if res.Session.ExpiresAt.Before(wantExpiry.Add(-time.Minute)) || res.Session.ExpiresAt.After(wantExpiry.Add(time.Minute)) {
 		t.Errorf("expiry = %v, want ~%v", res.Session.ExpiresAt, wantExpiry)
 	}
-	if !reflect.DeepEqual(res.Session.Scopes, []string{"default"}) {
-		t.Errorf("scopes = %#v, want [default]", res.Session.Scopes)
-	}
-
-	// The reported expiry must match what is actually signed into the token,
-	// or the UI would show a lifetime the server does not honour.
-	claims, _, err := h.jwtAuth.VerifyAndResolveUser(res.Token)
+	// The reported expiry must match what the server enforces, or the UI
+	// would show a lifetime the server does not honour.
+	verified, err := h.verifyToken(res.Token)
 	if err != nil {
 		t.Fatalf("minted token does not verify: %v", err)
 	}
-	tokenExpiry, err := jwtu.ExpiryFromClaims(claims)
-	if err != nil {
-		t.Fatalf("ExpiryFromClaims: %v", err)
-	}
-	if diff := tokenExpiry.Sub(res.Session.ExpiresAt); diff > time.Minute || diff < -time.Minute {
-		t.Errorf("signed expiry %v disagrees with reported expiry %v", tokenExpiry, res.Session.ExpiresAt)
+	if diff := verified.SessionExpiresAt.Sub(res.Session.ExpiresAt); diff > time.Minute || diff < -time.Minute {
+		t.Errorf("enforced expiry %v disagrees with reported expiry %v", verified.SessionExpiresAt, res.Session.ExpiresAt)
 	}
 }
 
-// The token must carry the caller's own scopes rather than a fixed list, so it
-// can never grant more than the session that asked for it.
-func TestPostV1AgentSessionsCreateDoesNotEscalateScopes(t *testing.T) {
+// Every way a token can be wrong must fail closed at VerifyAuth.
+func TestVerifyAuthRejectsBadTokens(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	session := h.mustToken(t, user.ID, []string{"default", "custom:scope"}, time.Hour)
-
-	res, err := h.PostV1AgentSessionsCreate(apigen.Context{Ctx: context.Background(), User: user, Token: session})
-	if err != nil {
-		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
+	good := h.mustToken(t, user.ID, fullSession, time.Hour)
+	kind, id, ok := splitToken(good)
+	if !ok || kind != userTokenKind {
+		t.Fatalf("splitToken(%q) = %q %q %v", good, kind, id, ok)
 	}
-	if !reflect.DeepEqual(res.Session.Scopes, []string{"default", "custom:scope"}) {
-		t.Fatalf("scopes = %#v, want the caller's own scopes", res.Session.Scopes)
-	}
-	claims, _, err := h.jwtAuth.VerifyAndResolveUser(res.Token)
-	if err != nil {
-		t.Fatalf("minted token does not verify: %v", err)
-	}
-	if got := jwtu.ScopesFromClaims(claims); !reflect.DeepEqual(got, []string{"default", "custom:scope"}) {
-		t.Fatalf("signed scopes = %#v, want the caller's own scopes", got)
-	}
-}
-
-func TestPostV1AgentSessionsCreateRejectsBadToken(t *testing.T) {
-	h, user := newAuthTestHandler(t)
 	for name, token := range map[string]string{
-		"empty":   "",
-		"garbage": "not-a-jwt",
-		"expired": h.mustToken(t, user.ID, []string{"default"}, -time.Minute),
+		"empty":            "",
+		"garbage":          "not-a-token",
+		"unknown id":       userTokenKind + "nope.secret",
+		"wrong secret":     userTokenKind + id + ".wrong",
+		"kind swapped":     agentTokenKind + strings.TrimPrefix(good, userTokenKind),
+		"no separator":     userTokenKind + id,
+		"expired":          h.mustToken(t, user.ID, fullSession, -time.Minute),
+		"pending agent id": agentTokenKind + h.mustRequestStart(t, user.ID).ID + ".secret",
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := h.PostV1AgentSessionsCreate(apigen.Context{Ctx: context.Background(), User: user, Token: token})
-			if err == nil {
-				t.Fatal("expected an error")
+			if _, err := h.verifyToken(token); err == nil {
+				t.Fatal("expected VerifyAuth to reject the token")
 			}
 		})
+	}
+	if _, err := h.verifyToken(good); err != nil {
+		t.Fatalf("the untouched token must still verify: %v", err)
+	}
+}
+
+// A user session revoked from the sessions page must stop authenticating on
+// its next request, and must not affect the user's other sessions.
+func TestRevokedUserSessionTokenFailsVerifyAuth(t *testing.T) {
+	h, user := newAuthTestHandler(t)
+	first := h.mustToken(t, user.ID, fullSession, time.Hour)
+	second := h.mustToken(t, user.ID, fullSession, time.Hour)
+	ctx, err := h.verifyToken(first)
+	if err != nil {
+		t.Fatalf("VerifyAuth: %v", err)
+	}
+	if err := h.PostV1UserSessionsRevoke(ctx, &apigen.UserSessionRevokeRequest{ID: ctx.SessionID}); err != nil {
+		t.Fatalf("PostV1UserSessionsRevoke: %v", err)
+	}
+	if _, err := h.verifyToken(first); err == nil {
+		t.Fatal("revoked session still authenticates")
+	}
+	if _, err := h.verifyToken(second); err != nil {
+		t.Fatalf("unrelated session was affected: %v", err)
 	}
 }
 
 // Exercises the real generated route, so routing and policy enforcement are
 // covered rather than just the handler method.
-func TestAgentSessionsCreateRouteEnforcesScopes(t *testing.T) {
+func TestAgentSessionsCreateRouteRejectsBootstrapSession(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	mux := apigen.CreateApiServerMux(h, &apigen.MuxConfig{VerifyAuth: h.VerifyAuth})
 
@@ -166,8 +178,8 @@ func TestAgentSessionsCreateRouteEnforcesScopes(t *testing.T) {
 		return w
 	}
 
-	t.Run("default scope succeeds", func(t *testing.T) {
-		w := call("Bearer " + h.mustToken(t, user.ID, []string{"default"}, time.Hour))
+	t.Run("full session succeeds", func(t *testing.T) {
+		w := call("Bearer " + h.mustToken(t, user.ID, fullSession, time.Hour))
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body %s)", w.Code, w.Body.String())
 		}
@@ -188,27 +200,27 @@ func TestAgentSessionsCreateRouteEnforcesScopes(t *testing.T) {
 
 	// A bootstrap token exists only to register a passkey. It must not be able
 	// to mint a general-access agent token.
-	t.Run("passkey:create scope is rejected", func(t *testing.T) {
-		w := call("Bearer " + h.mustToken(t, user.ID, []string{"passkey:create"}, time.Hour))
+	t.Run("bootstrap session is rejected", func(t *testing.T) {
+		w := call("Bearer " + h.mustToken(t, user.ID, bootstrapSession, time.Hour))
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("status = %d, want 403 (body %s)", w.Code, w.Body.String())
 		}
 	})
 }
 
-// End to end: a token from this endpoint must actually authenticate against a
-// default-scope route.
+// End to end: a token from this endpoint must actually authenticate against an
+// ordinary route.
 func TestGeneratedTokenAuthenticatesRequests(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	session := h.mustToken(t, user.ID, []string{"default"}, 48*time.Hour)
-	res, err := h.PostV1AgentSessionsCreate(apigen.Context{Ctx: context.Background(), User: user, Token: session})
+	session := h.operatorCtx(t, user)
+	res, err := h.PostV1AgentSessionsCreate(session)
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
 	}
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/anything", nil)
 	r.Header.Set("Authorization", "Bearer "+res.Token)
-	policy := apigen.AccessPolicy{PolicyType: apigen.AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	policy := fullSessionPolicy
 
 	authCtx, err := h.VerifyAuth(context.Background(), httptest.NewRecorder(), r, policy)
 	if err != nil {
@@ -217,13 +229,16 @@ func TestGeneratedTokenAuthenticatesRequests(t *testing.T) {
 	if authCtx.User == nil || authCtx.User.ID != user.ID {
 		t.Fatalf("resolved user = %#v, want id %d", authCtx.User, user.ID)
 	}
-	// Agent tokens carry a jti, so the resolved user must be marked delegated;
-	// the plain browser session must not be.
+	// Agent tokens resolve a delegated user; the plain browser session must
+	// not.
 	if !authCtx.User.Delegated {
 		t.Fatal("agent-session token should resolve a delegated user")
 	}
+	if authCtx.SessionID != res.Session.ID {
+		t.Fatalf("resolved session id %q, want %q", authCtx.SessionID, res.Session.ID)
+	}
 	r = httptest.NewRequest(http.MethodGet, "/v1/anything", nil)
-	r.Header.Set("Authorization", "Bearer "+session)
+	r.Header.Set("Authorization", "Bearer "+session.Token)
 	sessionCtx, err := h.VerifyAuth(context.Background(), httptest.NewRecorder(), r, policy)
 	if err != nil {
 		t.Fatalf("session token failed VerifyAuth: %v", err)
@@ -237,9 +252,7 @@ func TestGeneratedTokenAuthenticatesRequests(t *testing.T) {
 // persisted, so a copy of the database carries no usable credential.
 func TestAgentSessionStoresOnlyTokenHash(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	session := h.mustToken(t, user.ID, []string{"default"}, 48*time.Hour)
-
-	res, err := h.PostV1AgentSessionsCreate(apigen.Context{Ctx: context.Background(), User: user, Token: session})
+	res, err := h.PostV1AgentSessionsCreate(h.operatorCtx(t, user))
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
 	}
@@ -267,15 +280,11 @@ func TestAgentSessionsListReturnsOnlyTheCallersSessions(t *testing.T) {
 	other := &apigen.InternalUser{ID: 2, WebAuthNID: user.WebAuthNID, Name: "other"}
 	users.Write(h.Store, other)
 
-	mine, err := h.PostV1AgentSessionsCreate(apigen.Context{
-		Ctx: context.Background(), User: user, Token: h.mustToken(t, user.ID, []string{"default"}, time.Hour),
-	})
+	mine, err := h.PostV1AgentSessionsCreate(h.operatorCtx(t, user))
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
 	}
-	if _, err := h.PostV1AgentSessionsCreate(apigen.Context{
-		Ctx: context.Background(), User: other, Token: h.mustToken(t, other.ID, []string{"default"}, time.Hour),
-	}); err != nil {
+	if _, err := h.PostV1AgentSessionsCreate(h.operatorCtx(t, other)); err != nil {
 		t.Fatalf("PostV1AgentSessionsCreate for other user: %v", err)
 	}
 
@@ -295,13 +304,12 @@ func TestAgentSessionsListReturnsOnlyTheCallersSessions(t *testing.T) {
 // Revocation must actually stop the token, not just change how it is displayed.
 func TestRevokedAgentSessionTokenFailsVerifyAuth(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	session := h.mustToken(t, user.ID, []string{"default"}, 48*time.Hour)
-	res, err := h.PostV1AgentSessionsCreate(apigen.Context{Ctx: context.Background(), User: user, Token: session})
+	res, err := h.PostV1AgentSessionsCreate(h.operatorCtx(t, user))
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
 	}
 
-	policy := apigen.AccessPolicy{PolicyType: apigen.AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
+	policy := fullSessionPolicy
 	verify := func() error {
 		r := httptest.NewRequest(http.MethodGet, "/v1/anything", nil)
 		r.Header.Set("Authorization", "Bearer "+res.Token)
@@ -337,9 +345,7 @@ func TestAgentSessionRevokeIsScopedToTheOwner(t *testing.T) {
 	other := &apigen.InternalUser{ID: 2, WebAuthNID: user.WebAuthNID, Name: "other"}
 	users.Write(h.Store, other)
 
-	res, err := h.PostV1AgentSessionsCreate(apigen.Context{
-		Ctx: context.Background(), User: user, Token: h.mustToken(t, user.ID, []string{"default"}, time.Hour),
-	})
+	res, err := h.PostV1AgentSessionsCreate(h.operatorCtx(t, user))
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
 	}
@@ -357,18 +363,5 @@ func TestAgentSessionRevokeIsScopedToTheOwner(t *testing.T) {
 	}
 	if !rec.RevokedAt.IsZero() {
 		t.Fatal("session was revoked by a different user")
-	}
-}
-
-// Browser session and bootstrap tokens carry no jti, so they must keep working
-// without any agent_sessions row backing them.
-func TestTokensWithoutSessionIDStillVerify(t *testing.T) {
-	h, user := newAuthTestHandler(t)
-	r := httptest.NewRequest(http.MethodGet, "/v1/anything", nil)
-	r.Header.Set("Authorization", "Bearer "+h.mustToken(t, user.ID, []string{"default"}, time.Hour))
-	policy := apigen.AccessPolicy{PolicyType: apigen.AccessPolicyType_ANY_OF, Scopes: []string{"default"}}
-
-	if _, err := h.VerifyAuth(context.Background(), httptest.NewRecorder(), r, policy); err != nil {
-		t.Fatalf("session token without jti failed VerifyAuth: %v", err)
 	}
 }

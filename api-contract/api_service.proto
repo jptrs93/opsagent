@@ -45,17 +45,17 @@ service ApiServer {
 
   rpc PostV1ClusterSettingsGet(cp.Empty) returns (ClusterSettings) {
     option (cp.url) = "/v1/cluster-settings/get";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1ClusterSettingsUpdate(ClusterSettings) returns (ClusterSettings) {
     option (cp.url) = "/v1/cluster-settings/update";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1NixStoreReset(NixStoreResetRequest) returns (cp.Empty) {
     option (cp.url) = "/v1/nix-store/reset";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AuthMaster(MasterPasswordRequest) returns (LoginResponse) {
@@ -63,11 +63,11 @@ service ApiServer {
   }
 
   rpc PostV1AuthMasterPasswordSave(MasterPasswordSaveRequest) returns (cp.Empty) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AuthMasterPasswordVerify(MasterPasswordVerifyRequest) returns (cp.Empty) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc GetV1AuthMethods(cp.Empty) returns (AuthMethodsResponse) {
@@ -86,15 +86,15 @@ service ApiServer {
   }
 
   rpc GetV1AuthCurrentSession(cp.Empty) returns (LoginResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" scopes: "bootstrap" };
   }
 
   rpc PostV1AuthPasskeyRegisterStart(cp.Empty) returns (WebAuthNOptionsResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" scopes: "bootstrap" };
   }
 
   rpc PostV1AuthPasskeyRegisterFinish(WebAuthNFinishRequest) returns (LoginResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "passkey:create" scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" scopes: "bootstrap" };
   }
 
   rpc PostV1AuthPasskeyLoginStart(cp.Empty) returns (WebAuthNOptionsResponse) {
@@ -123,321 +123,321 @@ service ApiServer {
 
   rpc PostV1AgentSessionsApprove(AgentSessionApproveRequest) returns (AgentSession) {
     option (cp.url) = "/v1/agent-sessions/approve";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AgentSessionsCreate(cp.Empty) returns (AgentSessionCreated) {
     option (cp.url) = "/v1/agent-sessions/create";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AgentSessionsList(cp.Empty) returns (AgentSessionList) {
     option (cp.url) = "/v1/agent-sessions/list";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AgentSessionsRevoke(AgentSessionRevokeRequest) returns (cp.Empty) {
     option (cp.url) = "/v1/agent-sessions/revoke";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1PersonalSessionsList(cp.Empty) returns (PersonalSessionList) {
-    option (cp.url) = "/v1/personal-sessions/list";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  rpc PostV1UserSessionsList(cp.Empty) returns (UserSessionList) {
+    option (cp.url) = "/v1/user-sessions/list";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1PersonalSessionsRevoke(PersonalSessionRevokeRequest) returns (cp.Empty) {
-    option (cp.url) = "/v1/personal-sessions/revoke";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+  rpc PostV1UserSessionsRevoke(UserSessionRevokeRequest) returns (cp.Empty) {
+    option (cp.url) = "/v1/user-sessions/revoke";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AccessRuleTemplatesList(cp.Empty) returns (AuthzRuleTemplateList) {
     option (cp.url) = "/v1/access/rule-templates/list";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AccessRuleTemplatesCreate(AuthzRuleTemplateCreateRequest) returns (AuthzRuleTemplateRecord) {
     option (cp.url) = "/v1/access/rule-templates/create";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AccessRuleTemplatesUpdate(AuthzRuleTemplateUpdateRequest) returns (AuthzRuleTemplateRecord) {
     option (cp.url) = "/v1/access/rule-templates/update";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AccessRuleTemplatesDelete(AuthzRuleTemplateDeleteRequest) returns (cp.Empty) {
     option (cp.url) = "/v1/access/rule-templates/delete";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AccessGrantsList(cp.Empty) returns (AuthzGrantList) {
     option (cp.url) = "/v1/access/grants/list";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AccessGrantsCreate(AuthzGrantCreateRequest) returns (AuthzGrantRecord) {
     option (cp.url) = "/v1/access/grants/create";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AccessGrantsDelete(AuthzGrantDeleteRequest) returns (cp.Empty) {
     option (cp.url) = "/v1/access/grants/delete";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AccessGlobalRulesList(cp.Empty) returns (AuthzGlobalRuleList) {
     option (cp.url) = "/v1/access/global-rules/list";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AccessGlobalRulesCreate(AuthzGlobalRuleCreateRequest) returns (AuthzGlobalRuleRecord) {
     option (cp.url) = "/v1/access/global-rules/create";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AccessGlobalRulesDelete(AuthzGlobalRuleDeleteRequest) returns (cp.Empty) {
     option (cp.url) = "/v1/access/global-rules/delete";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc GetV1GlobalSnapshot(cp.Empty) returns (Snapshot) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1GlobalStateStream(cp.Empty) returns (stream StateStreamMsg) {
     option (cp.url) = "/v1/global/state-stream";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1GlobalExportedConfig(cp.Empty) returns (ExportedConfigBlob) {
     option (cp.url) = "/v1/global/exported-config";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1DeploymentsGet(DeploymentGetRequest) returns (DeploymentGetResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1DeploymentsCreate(DeploymentCreateRequest) returns (DeploymentEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV2DeploymentsUpdate(DeploymentUpdateRequestV2) returns (DeploymentEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1DeploymentsDelete(DeploymentDeleteRequest) returns (cp.Empty) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1DeploymentsRecentlyDeleted(RecentlyDeletedDeploymentsRequest) returns (RecentlyDeletedDeployments) {
     option (cp.url) = "/v1/deployments/recently-deleted";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1DeploymentsHistory(DeploymentHistoryRequest) returns (DeploymentHistory) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1DeploymentsVersions(DeploymentVersionsRequest) returns (DeploymentVersions) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1DeploymentsLogQuery(LogQueryRequest) returns (LogQueryResponse) {
     option (cp.url) = "/v1/deployments/log-query";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1DeploymentsRunReport(DeploymentRunReportRequest) returns (DeploymentRunReport) {
     option (cp.url) = "/v1/deployments/run-report";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1MetricsQuery(MetricsQueryRequest) returns (MetricsQueryResponse) {
     option (cp.url) = "/v1/metrics/query";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1MetricsLatest(MetricsLatestRequest) returns (MetricsLatestResponse) {
     option (cp.url) = "/v1/metrics/latest";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1DeploymentsPrepareOutput(PrepareOutputRequest) returns (stream PrepareOutputChunk) {
     option (cp.url) = "/v1/deployments/prepare-output";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1ReposValidate(RepoValidateRequest) returns (RepoValidateResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1NodesList(cp.Empty) returns (NodeEventList) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1NodesRename(NodeRenameRequest) returns (NodeEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1NodesAllowedSpaces(NodeAllowedSpacesRequest) returns (NodeEvent) {
     option (cp.url) = "/v1/nodes/allowed-spaces";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1NodesDrain(NodeDrainRequest) returns (NodeEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1NodesEvict(NodeEvictRequest) returns (NodeEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1NodesExposure(NodeExposureRequest) returns (NodeExposure) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc GetV1NodesEnrollmentsInfo(cp.Empty) returns (NodeEnrollmentInfo) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1NodesEnrollmentsList(cp.Empty) returns (EnrollmentRequestList) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1NodesEnrollmentsAccept(EnrollmentAcceptRequest) returns (EnrollmentRequestStatus) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1SpacesCreate(SpaceSetRequest) returns (Space) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1SpacesUpdate(SpaceSetRequest) returns (Space) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1SpacesDelete(SpaceDeleteRequest) returns (cp.Empty) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1NetworkPoliciesList(cp.Empty) returns (NetworkPolicyEventList) {
     option (cp.url) = "/v1/network-policies/list";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1NetworkPoliciesCreate(NetworkPolicyCreateRequest) returns (NetworkPolicyEvent) {
     option (cp.url) = "/v1/network-policies/create";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1NetworkPoliciesUpdate(NetworkPolicyUpdateRequest) returns (NetworkPolicyEvent) {
     option (cp.url) = "/v1/network-policies/update";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1NetworkPoliciesDelete(NetworkPolicyDeleteRequest) returns (cp.Empty) {
     option (cp.url) = "/v1/network-policies/delete";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1SecretsList(cp.Empty) returns (SecretEventList) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1SecretsCreate(SecretCreateRequest) returns (SecretEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1SecretsSet(SecretSetRequest) returns (SecretEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1SecretsGenerate(SecretGenerateRequest) returns (SecretEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1SecretsRename(SecretRenameRequest) returns (SecretEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1SecretsMove(SecretMoveRequest) returns (SecretEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1SecretsReveal(SecretRevealRequest) returns (SecretRevealResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1SecretsDelete(SecretDeleteRequest) returns (cp.Empty) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1SecretsStatus(cp.Empty) returns (SecretsStatusResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1SecretsRotateRecoveryCode(cp.Empty) returns (SecretRecoveryCodeResponse) {
     option (cp.url) = "/v1/secrets/rotate-recovery-code";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1SecretsUnlock(SecretUnlockRequest) returns (SecretsStatusResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1ConfigsList(cp.Empty) returns (ConfigEventList) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1ConfigsCreate(ConfigCreateRequest) returns (ConfigEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1ConfigsSet(ConfigSetRequest) returns (ConfigEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1ConfigsRename(ConfigRenameRequest) returns (ConfigEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1ConfigsDelete(ConfigDeleteRequest) returns (cp.Empty) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1ConfigsMove(ConfigMoveRequest) returns (ConfigEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1ValueDirectoriesList(cp.Empty) returns (ValueDirectoryList) {
     option (cp.url) = "/v1/value-directories/list";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1ValueDirectoriesCreate(ValueDirectoryCreateRequest) returns (ValueDirectory) {
     option (cp.url) = "/v1/value-directories/create";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1ValueDirectoriesMove(ValueDirectoryMoveRequest) returns (ValueDirectory) {
     option (cp.url) = "/v1/value-directories/move";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1ValueDirectoriesRename(ValueDirectoryRenameRequest) returns (ValueDirectory) {
     option (cp.url) = "/v1/value-directories/rename";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1ValueDirectoriesDelete(ValueDirectoryDeleteRequest) returns (cp.Empty) {
     option (cp.url) = "/v1/value-directories/delete";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AssetsList(cp.Empty) returns (AssetEventList) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   // Streams raw content bytes for one content version (?content_version_id=N).
@@ -445,49 +445,49 @@ service ApiServer {
     option (cp.url) = "/v1/assets/content";
     option (cp.go_custom) = true;
     option (cp.compression) = COMPRESSION_MODE_NEVER;
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AssetsUpload(cp.Empty) returns (AssetEvent) {
     option (cp.url) = "/v1/assets/upload";
     option (cp.go_custom) = true;
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AssetsRename(AssetRenameRequest) returns (AssetEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AssetsDelete(AssetDeleteRequest) returns (cp.Empty) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AssetsMove(AssetMoveRequest) returns (AssetEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AssetDirectoriesList(cp.Empty) returns (AssetDirectoryList) {
     option (cp.url) = "/v1/asset-directories/list";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AssetDirectoriesCreate(AssetDirectoryCreateRequest) returns (AssetDirectory) {
     option (cp.url) = "/v1/asset-directories/create";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AssetDirectoriesMove(AssetDirectoryMoveRequest) returns (AssetDirectory) {
     option (cp.url) = "/v1/asset-directories/move";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AssetDirectoriesRename(AssetDirectoryRenameRequest) returns (AssetDirectory) {
     option (cp.url) = "/v1/asset-directories/rename";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AssetDirectoriesDelete(AssetDirectoryDeleteRequest) returns (cp.Empty) {
     option (cp.url) = "/v1/asset-directories/delete";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "default" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 }

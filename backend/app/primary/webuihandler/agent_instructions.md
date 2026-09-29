@@ -557,6 +557,6 @@ the live API's answer is the truth. A `403` will not change on retry: ask.
 | `/v1/auth/master*`, `/v1/auth/passkey/*`, `/v1/personal-sessions/*` | human-only |
 
 `GET /v1/auth/current/session` returns the caller's own session — user id,
-scopes, expiry, **and the bearer token itself**, since the web UI uses it to
-restore a stored session. Use it to check your grants if you need to, but the
-response contains your credential: never print it verbatim.
+session id, expiry, **and the bearer token itself**, since the web UI uses it
+to restore a stored session. The response contains your credential: never
+print it verbatim.

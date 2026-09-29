@@ -472,12 +472,12 @@ func TestClusterAdminDelegationLimits(t *testing.T) {
 	}
 	direct := RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_REVEAL,
-		SpaceID:    0,
+		SpaceID:    1,
 		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_SECRET,
 		EntityID:   4,
 	}
 	if !s.HasAccess(1, direct) {
-		t.Fatal("direct access should cover reveal in the opendeploy space")
+		t.Fatal("direct access should cover reveal in a user space")
 	}
 	delegated := viewDeployment(2)
 	delegated.Delegated = true
@@ -869,5 +869,36 @@ func TestDefaultUserVisibilityDeleteIsFinal(t *testing.T) {
 	}
 	if reloaded.HasAccess(9, viewUser(3)) {
 		t.Fatal("roster access must stay revoked after reload")
+	}
+}
+
+func TestSystemSpaceFenceBeatsEveryGrant(t *testing.T) {
+	s := mustOpen(t, newTestStore(t))
+	if _, err := s.CreateGrant(templateGrant(1, ClusterAdminTemplateID)); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		verb   apigen.AuthzVerb
+		entity apigen.AuthzEntity
+		space  int64
+		want   bool
+	}{
+		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntity_AUTHZ_ENTITY_SECRET, 0, false},
+		{apigen.AuthzVerb_AUTHZ_VERB_REVEAL, apigen.AuthzEntity_AUTHZ_ENTITY_SECRET, 0, false},
+		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntity_AUTHZ_ENTITY_CONFIG, 0, false},
+		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntity_AUTHZ_ENTITY_ASSET, 0, false},
+		{apigen.AuthzVerb_AUTHZ_VERB_CREATE, apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT, 0, false},
+		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT, 0, true},
+		{apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS, apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT, 0, true},
+		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntity_AUTHZ_ENTITY_NODE, 0, true},
+		{apigen.AuthzVerb_AUTHZ_VERB_CREATE, apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS, 0, true},
+		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntity_AUTHZ_ENTITY_SECRET, 1, true},
+		{apigen.AuthzVerb_AUTHZ_VERB_CREATE, apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT, 1, true},
+	}
+	for _, c := range cases {
+		got := s.HasAccess(1, RequestedAccess{Verb: c.verb, SpaceID: c.space, EntityType: c.entity})
+		if got != c.want {
+			t.Errorf("cluster admin %v %v in space %d = %v, want %v", c.verb, c.entity, c.space, got, c.want)
+		}
 	}
 }

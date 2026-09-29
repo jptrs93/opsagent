@@ -2,22 +2,18 @@ package webuihandler
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/agentsessions"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v4"
 	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/agentsessions"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/clientaddr"
-	"github.com/jptrs93/opsagent/backend/util/jwtu"
 )
 
 // agentSessionTTL is how long an agent session stays valid once its token is
@@ -38,11 +34,6 @@ var (
 	agentSessionPickupTTL  = 15 * time.Minute
 )
 
-// agentTokenPrefixLen is how much of a token is kept in the clear so an
-// operator can tell two sessions apart in the list. Short enough to be useless
-// on its own.
-const agentTokenPrefixLen = 12
-
 // approvalCodeAlphabet is Crockford base32: no I, L, O, or U, so a code cannot
 // be misread between the agent's output and the operator's screen. 32 divides
 // 256, which is what keeps the modulo below unbiased.
@@ -54,18 +45,6 @@ var (
 	AgentSessionRequestPendingErr = apigen.NewApiErr("A session request is already awaiting approval", "agent_session_request_pending", http.StatusConflict)
 	AgentSessionNotPendingErr     = apigen.NewApiErr("Session is not awaiting approval", "agent_session_not_pending", http.StatusConflict)
 )
-
-func hashAgentToken(token string) []byte {
-	sum := sha256.Sum256([]byte(token))
-	return sum[:]
-}
-
-func agentTokenPrefix(token string) string {
-	if len(token) <= agentTokenPrefixLen {
-		return token
-	}
-	return token[:agentTokenPrefixLen]
-}
 
 func generateApprovalCode() (string, error) {
 	buf := make([]byte, 7)
@@ -82,25 +61,10 @@ func generateApprovalCode() (string, error) {
 	return string(out), nil
 }
 
-// signAgentToken mints the bearer token for a session. Signed here rather than
-// through GenerateTokenWith so the session id can ride along as jti; VerifyAuth
-// uses it to find the row. The sub encoding matches what authu does for a
-// non-string subject (json.Marshal of the int32 user id).
-func (h *Handler) signAgentToken(userID int32, sessionID string, scopes []string, now, expiry time.Time) (string, error) {
-	return h.jwtAuth.Sign(jwt.MapClaims{
-		"sub":    strconv.FormatInt(int64(userID), 10),
-		"scopes": scopes,
-		"exp":    expiry.Unix(),
-		"iat":    now.Unix(),
-		"jti":    sessionID,
-	})
-}
-
 // PostV1AgentSessionsCreate starts an agent session and returns its bearer
 // token immediately, for non-interactive callers with no agent waiting on an
-// approval. The token carries the caller's own scopes, so it can never grant
-// more than the session that requested it; what it may do with them is bounded
-// by the authz layer, which treats any token carrying a jti as delegated.
+// approval. What the token may do is bounded by the authz layer, which treats
+// every a_ token as delegated.
 //
 // Only the token's SHA-256 is stored. The plaintext is returned here and never
 // again, so a copy of primary.db — including an off-box backup — carries no
@@ -109,40 +73,32 @@ func (h *Handler) PostV1AgentSessionsCreate(ctx apigen.Context) (*apigen.AgentSe
 	if err := requireHuman(ctx); err != nil {
 		return nil, err
 	}
-	claims, user, err := h.jwtAuth.VerifyAndResolveUser(ctx.Token)
-	if err != nil {
-		return nil, InvalidAuthTokenErr
-	}
-	scopes := jwtu.ScopesFromClaims(claims)
-	if len(scopes) == 0 {
-		return nil, InvalidAuthTokenErr
-	}
 	sessionID, err := authu.GenerateRandomToken(32)
 	if err != nil {
 		return nil, fmt.Errorf("generating agent session id: %w", err)
 	}
 	now := time.Now()
 	expiry := now.Add(agentSessionTTL)
-	token, err := h.signAgentToken(user.ID, sessionID, scopes, now, expiry)
+	token, err := mintToken(agentTokenKind, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("generating agent session token: %w", err)
 	}
+	user := ctx.User
 	rec := agentsessions.Record{
 		ID:                sessionID,
 		UserID:            user.ID,
 		CreatedAt:         now,
 		ExpiresAt:         expiry,
-		TokenHash:         hashAgentToken(token),
-		TokenPrefix:       agentTokenPrefix(token),
-		Scopes:            scopes,
+		TokenHash:         hashToken(token),
+		TokenPrefix:       tokenDisplayPrefix(token),
 		Status:            apigen.AgentSessionStatus_AGENT_SESSION_APPROVED,
 		RequestingAddress: clientaddr.From(ctx),
 		ApprovedAt:        now,
 	}
-	if err := h.agentSessions().InsertAgentSession(rec); err != nil {
+	if err := h.agentSessions().InsertAgentSession(rec, ctx.AttributionUserID()); err != nil {
 		return nil, fmt.Errorf("storing agent session: %w", err)
 	}
-	slog.InfoContext(ctx, fmt.Sprintf("started agent session ttl=%s scopes=%v", agentSessionTTL, scopes), "session", sessionID)
+	slog.InfoContext(ctx, fmt.Sprintf("started agent session ttl=%s", agentSessionTTL), "session", sessionID)
 	return &apigen.AgentSessionCreated{
 		Token:   token,
 		Session: agentsessions.ToProto(rec),
@@ -152,7 +108,7 @@ func (h *Handler) PostV1AgentSessionsCreate(ctx apigen.Context) (*apigen.AgentSe
 // PostV1AgentSessionsRequestStart opens a session request for an operator to
 // approve. It is unauthenticated by necessity — the caller has no credential
 // yet — and so grants nothing on its own: the row it creates carries no token
-// and no scopes until a real user approves it.
+// until a real user approves it and the agent collects.
 //
 // Only one request may be open per user at a time, so an operator is never
 // asked to choose between two identical-looking requests. Stale ones are closed
@@ -174,7 +130,7 @@ func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apige
 		if now.Sub(rec.CreatedAt) < agentSessionPendingTTL {
 			return nil, AgentSessionRequestPendingErr
 		}
-		if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, time.Time{}, now); err != nil {
+		if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, time.Time{}, now, 0); err != nil {
 			return nil, fmt.Errorf("closing stale agent session request: %w", err)
 		}
 		slog.InfoContext(ctx, "closed stale agent session request", "session", rec.ID)
@@ -197,7 +153,7 @@ func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apige
 		RequestingAddress: clientaddr.From(ctx),
 		ApprovalCode:      code,
 	}
-	if err := h.agentSessions().InsertAgentSession(rec); err != nil {
+	if err := h.agentSessions().InsertAgentSession(rec, 0); err != nil {
 		return nil, fmt.Errorf("storing agent session request: %w", err)
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("agent session requested address=%s", rec.RequestingAddress), "session", sessionID, "user", user.ID)
@@ -249,7 +205,7 @@ func (h *Handler) PostV1AgentSessionsGetSession(ctx apigen.Context, req *apigen.
 }
 
 func (h *Handler) closeAgentSession(ctx apigen.Context, rec agentsessions.Record, now time.Time, msg string) (*apigen.AgentSessionPickup, error) {
-	if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, rec.ApprovedAt, now); err != nil {
+	if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, rec.ApprovedAt, now, 0); err != nil {
 		return nil, fmt.Errorf("closing agent session: %w", err)
 	}
 	slog.InfoContext(ctx, msg, "session", rec.ID)
@@ -258,11 +214,11 @@ func (h *Handler) closeAgentSession(ctx apigen.Context, rec agentsessions.Record
 
 func (h *Handler) mintApprovedAgentSession(ctx apigen.Context, rec agentsessions.Record, now time.Time) (*apigen.AgentSessionPickup, error) {
 	expiry := now.Add(agentSessionTTL)
-	token, err := h.signAgentToken(rec.UserID, rec.ID, rec.Scopes, now, expiry)
+	token, err := mintToken(agentTokenKind, rec.ID)
 	if err != nil {
 		return nil, fmt.Errorf("generating agent session token: %w", err)
 	}
-	claimed, err := h.agentSessions().ClaimAgentSessionToken(rec.ID, hashAgentToken(token), agentTokenPrefix(token), expiry, rec.Scopes)
+	claimed, err := h.agentSessions().ClaimAgentSessionToken(rec.ID, hashToken(token), tokenDisplayPrefix(token), expiry)
 	if err != nil {
 		return nil, fmt.Errorf("claiming agent session token: %w", err)
 	}
@@ -272,7 +228,7 @@ func (h *Handler) mintApprovedAgentSession(ctx apigen.Context, rec agentsessions
 		slog.WarnContext(ctx, "discarded agent session token lost to a concurrent pickup", "session", rec.ID)
 		return &apigen.AgentSessionPickup{Status: apigen.AgentSessionStatus_AGENT_SESSION_APPROVED}, nil
 	}
-	slog.InfoContext(ctx, fmt.Sprintf("agent session collected ttl=%s scopes=%v", agentSessionTTL, rec.Scopes), "session", rec.ID)
+	slog.InfoContext(ctx, fmt.Sprintf("agent session collected ttl=%s", agentSessionTTL), "session", rec.ID)
 	return &apigen.AgentSessionPickup{
 		Status:    apigen.AgentSessionStatus_AGENT_SESSION_APPROVED,
 		Token:     token,
@@ -281,19 +237,10 @@ func (h *Handler) mintApprovedAgentSession(ctx apigen.Context, rec agentsessions
 }
 
 // PostV1AgentSessionsApprove turns one of the caller's own pending requests
-// into an approved session. The scopes recorded here are the approver's own, so
-// approving can never grant more than the approver holds.
+// into an approved session.
 func (h *Handler) PostV1AgentSessionsApprove(ctx apigen.Context, req *apigen.AgentSessionApproveRequest) (*apigen.AgentSession, error) {
 	if err := requireHuman(ctx); err != nil {
 		return nil, err
-	}
-	claims, _, err := h.jwtAuth.VerifyAndResolveUser(ctx.Token)
-	if err != nil {
-		return nil, InvalidAuthTokenErr
-	}
-	scopes := jwtu.ScopesFromClaims(claims)
-	if len(scopes) == 0 {
-		return nil, InvalidAuthTokenErr
 	}
 	rec, err := h.fetchOwnAgentSession(ctx, req.ID)
 	if err != nil {
@@ -306,10 +253,7 @@ func (h *Handler) PostV1AgentSessionsApprove(ctx apigen.Context, req *apigen.Age
 	if now.Sub(rec.CreatedAt) >= agentSessionPendingTTL {
 		return nil, AgentSessionNotPendingErr
 	}
-	// Scopes are frozen here, so the token minted at pickup carries what the
-	// approver held at the moment they approved rather than whatever their
-	// session looks like by the time the agent collects.
-	approved, err := h.agentSessions().ApproveAgentSession(rec.ID, ctx.User.ID, scopes, now)
+	approved, err := h.agentSessions().ApproveAgentSession(rec.ID, ctx.User.ID, now)
 	if err != nil {
 		return nil, fmt.Errorf("approving agent session: %w", err)
 	}
@@ -320,13 +264,12 @@ func (h *Handler) PostV1AgentSessionsApprove(ctx apigen.Context, req *apigen.Age
 	if err != nil {
 		return nil, fmt.Errorf("fetching approved agent session: %w", err)
 	}
-	slog.InfoContext(ctx, fmt.Sprintf("approved agent session address=%s scopes=%v", rec.RequestingAddress, scopes), "session", rec.ID)
+	slog.InfoContext(ctx, fmt.Sprintf("approved agent session address=%s", rec.RequestingAddress), "session", rec.ID)
 	return agentsessions.ToProto(updated), nil
 }
 
 // PostV1AgentSessionsList returns the caller's own sessions, newest first.
-// There is no cross-user view: every operator holds the same scopes, so this
-// filter is a scoping convenience rather than an isolation boundary.
+// There is no cross-user view: sessions are only ever managed by their owner.
 func (h *Handler) PostV1AgentSessionsList(ctx apigen.Context) (*apigen.AgentSessionList, error) {
 	if err := requireHuman(ctx); err != nil {
 		return nil, err
@@ -349,7 +292,7 @@ func (h *Handler) PostV1AgentSessionsRevoke(ctx apigen.Context, req *apigen.Agen
 	if ctx.User == nil {
 		return InvalidAuthTokenErr
 	}
-	if ctx.User.Delegated && strings.TrimSpace(req.ID) != h.agentSessionIDFromToken(ctx.Token) {
+	if ctx.User.Delegated && strings.TrimSpace(req.ID) != ctx.SessionID {
 		return AgentSessionNotFoundErr
 	}
 	rec, err := h.fetchOwnAgentSession(ctx, req.ID)
@@ -360,20 +303,11 @@ func (h *Handler) PostV1AgentSessionsRevoke(ctx apigen.Context, req *apigen.Agen
 	if rec.Status == apigen.AgentSessionStatus_AGENT_SESSION_PENDING {
 		status = apigen.AgentSessionStatus_AGENT_SESSION_REJECTED
 	}
-	if err := h.agentSessions().RevokeAgentSession(req.ID, ctx.User.ID, status, time.Now()); err != nil {
+	if err := h.agentSessions().RevokeAgentSession(req.ID, ctx.User.ID, status, time.Now(), ctx.AttributionUserID()); err != nil {
 		return fmt.Errorf("revoking agent session: %w", err)
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("stopped agent session status=%v", status), "session", req.ID)
 	return nil
-}
-
-func (h *Handler) agentSessionIDFromToken(token string) string {
-	claims, _, err := h.jwtAuth.VerifyAndResolveUser(token)
-	if err != nil {
-		return ""
-	}
-	sessionID, _ := claims["jti"].(string)
-	return sessionID
 }
 
 // fetchOwnAgentSession resolves a session the caller owns. Someone else's id

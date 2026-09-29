@@ -12,9 +12,10 @@ export const machinesS = van.state([]);
 export const nodesS = van.state([]);
 export const nodeStatusesS = van.state([]);
 export const enrollmentsS = van.state([]);
-// agentSessionsS holds only the signed-in user's own agent sessions; the server
-// filters the stream before sending them.
+// agentSessionsS and userSessionsS hold only the signed-in user's own sessions,
+// newest first; the server filters the stream before sending them.
 export const agentSessionsS = van.state([]);
+export const userSessionsS = van.state([]);
 export const secretRefsS = van.state([]);
 export const userConfigRefsS = van.state([]);
 export const secretsStatusS = van.state(null);
@@ -44,7 +45,8 @@ export const spacesS = van.state(SEEDED_SPACES);
 
 export const seqS = van.state(0);
 const sortByName = items => [...items].sort((a, b) => (a.name || '').localeCompare(b.name || '') || Number(a.id) - Number(b.id));
-const sortAssets = items => [...items].sort((a, b) => (a.key || '').localeCompare(b.key || '') || Number(a.id) - Number(b.id));
+const newestFirst = map => [...map.values()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+const sortAssets = items =>[...items].sort((a, b) => (a.key || '').localeCompare(b.key || '') || Number(a.id) - Number(b.id));
 
 // A value pin addresses the event that changed its value facet, never a later
 // rename or space move carrying that value forward.
@@ -119,7 +121,8 @@ export function publishDerived(tree, changed) {
         });
     }
     if (any('users')) usersMapS.val = new Map([...tree.users].map(([id, user]) => [id, {...user, createdAt: Number(user.createdAt || 0)}]));
-    if (any('agentSessions')) agentSessionsS.val = [...tree.agentSessions.values()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    if (any('agentSessions')) agentSessionsS.val = newestFirst(tree.agentSessions);
+    if (any('userSessions')) userSessionsS.val = newestFirst(tree.userSessions);
     if (any('secrets')) {secretMetasS.val = sortByName([...tree.secrets.values()].map(secretViewModel)); secretRefsS.val = expandValueVersionRefs(secretMetasS.val);}
     if (any('configs')) {userConfigsS.val = sortByName([...tree.configs.values()].map(configViewModel)); userConfigRefsS.val = expandValueVersionRefs(userConfigsS.val);}
     if (any('assets')) assetMetasS.val = sortAssets([...tree.assets.values()].map(assetViewModel));

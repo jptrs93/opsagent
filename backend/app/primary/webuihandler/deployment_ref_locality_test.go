@@ -51,7 +51,7 @@ func crossMountSpec(image string, sourceDeploymentID int32) apigen.DeploymentSpe
 
 func TestDeploymentRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := nodes.CreateSpace(h.Store, "prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestDeploymentRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 
 func TestDeploymentAssetRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := nodes.CreateSpace(h.Store, "prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -120,11 +120,11 @@ func TestDeploymentAssetRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 
 func TestDeploymentAddressRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := nodes.CreateSpace(h.Store, "prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	staging, err := nodes.CreateSpace(h.Store, "staging")
+	staging, err := nodes.CreateSpace(h.Store, "staging", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -154,11 +154,11 @@ func TestDeploymentAddressRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 
 func TestDeploymentCrossMountSourcesScopedToOwnOrGlobalSpace(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := nodes.CreateSpace(h.Store, "prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	staging, err := nodes.CreateSpace(h.Store, "staging")
+	staging, err := nodes.CreateSpace(h.Store, "staging", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
@@ -188,11 +188,11 @@ func TestDeploymentCrossMountSourcesScopedToOwnOrGlobalSpace(t *testing.T) {
 
 func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 	h, node := newSecretLocalityHandler(t)
-	prod, err := nodes.CreateSpace(h.Store, "prod")
+	prod, err := nodes.CreateSpace(h.Store, "prod", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	staging, err := nodes.CreateSpace(h.Store, "staging")
+	staging, err := nodes.CreateSpace(h.Store, "staging", 0)
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}

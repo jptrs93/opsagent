@@ -268,6 +268,17 @@ func (s ImageStatus) String() string {
 	}
 }
 
+func (k UserSessionKind) String() string {
+	switch k {
+	case UserSessionKind_USER_SESSION_KIND_FULL:
+		return "FULL"
+	case UserSessionKind_USER_SESSION_KIND_BOOTSTRAP:
+		return "BOOTSTRAP"
+	default:
+		return fmt.Sprintf("UserSessionKind(%d)", int32(k))
+	}
+}
+
 func (s AccessPolicyType) String() string {
 	switch s {
 	case AccessPolicyType_ACCESS_POLICY_TYPE_UNSPECIFIED:
